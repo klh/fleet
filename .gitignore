@@ -11,3 +11,5 @@ node_modules/
 .qlty/configs/
 .qlty/plugin_cachedir/
 .qlty/sources/
+
+.worktrees/
