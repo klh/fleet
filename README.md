@@ -91,6 +91,14 @@ Read-only by design: the bar probes and renders; it never registers, reloads, or
 - **Default-deny** — a hostless catch-all block `abort`s every Host no fragment claims, on both :80 and :443 (unknown SNI fails at the TLS handshake — no cert without on-demand TLS). DNS-rebind attempts and stray `curl` Host headers die at the proxy, never reaching a backend.
 - **Zero root** — Caddy runs as a user LaunchAgent; validate and reload are user-level and zero-downtime. The only sudo in klh-local's world is `hosts-apply`.
 
+## Companion repos
+
+| Repo | Role in the fleet |
+| --- | --- |
+| [suspenders](https://github.com/klh/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
+| [belt](https://github.com/klh/belt) | Local LLM fleet and OpenAI-compatible endpoints |
+| [speedy](https://github.com/klh/speedy) | Speed and safety config layer: skills, hooks, personas, settings |
+
 ## Licensing
 
 local is source-available under the **Business Source License 1.1** (see [LICENSE](LICENSE)):
