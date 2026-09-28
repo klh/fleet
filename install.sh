@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# speedy-claude — Make Claude Code 10-1400x faster at file operations
-# https://github.com/klh/speedy-claude
+# speedy — Make Claude Code 10-1400x faster at file operations
+# https://github.com/klh/speedy
 
 BOLD='\033[1m'
 GREEN='\033[32m'
@@ -371,7 +371,7 @@ fi
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}${GREEN}  speedy-claude installed!${RESET}"
+echo -e "${BOLD}${GREEN}  speedy installed!${RESET}"
 echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"
 echo ""
 echo "  What changed:"

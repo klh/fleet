@@ -47,6 +47,6 @@ printf '%s' "$CMD" | grep -Eq -- '--version|--help' && { echo '{}'; exit 0; }
 case "$BASE" in echo|cd|pwd|export|set|true|false) echo '{}'; exit 0 ;; esac
 
 # Emit non-blocking nudge. Exit 0 = never blocks the tool call.
-jq -nc --arg n "speedy-claude nudge: prefer the fast tool — $NUDGE (see CLAUDE.md / cli-speed-tools skill)" \
+jq -nc --arg n "speedy nudge: prefer the fast tool — $NUDGE (see CLAUDE.md / cli-speed-tools skill)" \
   '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$n}}'
 exit 0

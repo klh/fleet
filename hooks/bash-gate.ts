@@ -213,7 +213,7 @@ for (const w of SEGS) {
     curl: "xh",
   };
   const v = verb(SEGS[0] ?? []);
-  if (v in MAP) nudge(`speedy-claude nudge: prefer the fast tool — ${v} → ${MAP[v]} (see CLAUDE.md / klh-cli-speed-tools skill)`);
+  if (v in MAP) nudge(`speedy nudge: prefer the fast tool — ${v} → ${MAP[v]} (see CLAUDE.md / klh-cli-speed-tools skill)`);
 }
 
 allow();

@@ -1,4 +1,4 @@
-# speedy-claude
+# speedy
 
 ![Version](https://img.shields.io/badge/version-1.1.1-blue)
 
@@ -12,7 +12,7 @@ Based on [agent-skills](https://github.com/addyosmani/agent-skills), extended wi
 
 Companion repo: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`).
 
-The klh chain — speedy-claude is the speed + safety config layer on top of three focused repos:
+The klh chain — speedy is the speed + safety config layer on top of three focused repos:
 
 | Repo                                                | Role                                                             |
 | --------------------------------------------------- | ---------------------------------------------------------------- |
@@ -70,7 +70,7 @@ Tested on a real codebase (733 TypeScript files, ~2500 total files, Apple M-seri
 
 ## Hooks
 
-speedy-claude ships two hooks itself; `install.sh` wires the suspenders gate
+speedy ships two hooks itself; `install.sh` wires the suspenders gate
 suite that does the enforcement.
 
 | Hook / gate                     | Event                     | Job                                                                                |
@@ -96,7 +96,7 @@ For N coding lanes on one machine (learned from a 9-lane session + a fleet-wide
 architecture review): **isolate execution, serialize only integration.** The
 control plane behind this table — governor.db, edit-leases, area claims, the
 event bus, zombie monitor, usage windows, the fleet board — ships in
-**[klh/suspenders](https://github.com/klh/suspenders)**; speedy-claude is the
+**[klh/suspenders](https://github.com/klh/suspenders)**; speedy is the
 speed + safety config layer on top of it.
 
 | Layer                  | Mechanism                                                                                                                                                                                                                                                                          |
@@ -246,7 +246,7 @@ git clone https://github.com/klh/belt && cd belt
 
 ```bash
 mv ~/.claude ~/.claude.bak
-git clone https://github.com/klh/speedy-claude.git ~/.claude
+git clone https://github.com/klh/speedy.git ~/.claude
 ~/.claude/install.sh                      # add --llm=minimal|full for the local LLM fleet
 cp ~/.claude/settings.example.json ~/.claude/settings.json  # then edit token/allowlist
 ```
@@ -256,14 +256,14 @@ This restores the complete setup: 36 skills, 16 personas, hooks (insight-recall 
 ### Option 2: CLI tools only (no skills)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/klh/speedy-claude/main/install.sh | bash
-# pick an LLM tier:  curl -fsSL https://raw.githubusercontent.com/klh/speedy-claude/main/install.sh | bash -s -- --llm=full
+curl -fsSL https://raw.githubusercontent.com/klh/speedy/main/install.sh | bash
+# pick an LLM tier:  curl -fsSL https://raw.githubusercontent.com/klh/speedy/main/install.sh | bash -s -- --llm=full
 ```
 
 ### Option 3: Skills via npx
 
 ```bash
-npx skills add klh/speedy-claude -g -y   # or the companion: npx skills add klh/skills -g -y
+npx skills add klh/speedy -g -y   # or the companion: npx skills add klh/skills -g -y
 ```
 
 `install.sh` installs 35+ tools (brew/cargo + the qlty release binary), sets `delta` as git pager, and initializes `zoxide`. It does **not** touch your `settings.json` — copy `settings.example.json` yourself.

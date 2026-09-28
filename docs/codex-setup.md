@@ -1,6 +1,6 @@
-# Using speedy-claude with OpenAI Codex CLI
+# Using speedy with OpenAI Codex CLI
 
-Codex CLI has grown a config surface that overlaps heavily with Claude Code: layered instruction files, skills (same open standard), lifecycle hooks with near-identical event contracts, subagents, and MCP. This doc inventories everything speedy-claude ships, maps it onto Codex's config surface, and gives the porting recipe per element.
+Codex CLI has grown a config surface that overlaps heavily with Claude Code: layered instruction files, skills (same open standard), lifecycle hooks with near-identical event contracts, subagents, and MCP. This doc inventories everything speedy ships, maps it onto Codex's config surface, and gives the porting recipe per element.
 
 **Matrix verdicts:** ✅ native · 🔁 translate (mechanical) · ⚠️ partial (behavioral loss) · ❌ no equivalent.
 
@@ -10,7 +10,7 @@ All Codex facts below were verified against the official docs at learn.chatgpt.c
 
 ## TL;DR
 
-| Verdict            | speedy-claude elements                                                                                                                                 |
+| Verdict            | speedy elements                                                                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | ✅ ports natively  | `skills/` (36, open agent-skills standard), repo `AGENTS.md`, `install.sh` tool layer, MCP servers                                                     |
 | 🔁 mechanical port | `commands/` (6 slash commands), hooks block, `.mcp.json`, `agents/` personas (md → toml)                                                               |
@@ -36,7 +36,7 @@ All Codex facts below were verified against the official docs at learn.chatgpt.c
 
 Hook command contract (relevant for porting): every command hook gets one JSON object on **stdin** — `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, plus `permission_mode` with values literally named `default`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`. Output: JSON `continue`/`stopReason`/`systemMessage`, `decision: "block"`, or exit code `2` + stderr. Timeouts in **seconds** (default 600; `SessionEnd`/`Interrupt` default 1s, max 3s).
 
-## speedy-claude config-surface inventory
+## speedy config-surface inventory
 
 What the repo ships and where it installs (counts from the working tree):
 
@@ -216,4 +216,4 @@ All Codex behavior claims verified 2026-09-28 against official OpenAI documentat
 - Subagents: `learn.chatgpt.com/docs/agent-configuration/subagents` (`.codex/agents/*.toml` custom agents, `[agents]` globals)
 - MCP: `learn.chatgpt.com/docs/extend/mcp`; Permissions (beta): `learn.chatgpt.com/docs/permissions`; Custom prompts: `learn.chatgpt.com/docs/custom-prompts`
 
-speedy-claude numbers (file sizes, counts) measured in this repo's working tree on the same date.
+speedy numbers (file sizes, counts) measured in this repo's working tree on the same date.

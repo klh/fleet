@@ -493,7 +493,7 @@ RIGHT: npm test && qlty check && difft main...HEAD
 | `find-skills`                 | Discover and install agent skills                                                       |
 | `git-workflow-and-versioning` | Committing, branching, organizing parallel work streams                                 |
 
-### Local additions (installed beyond the speedy-claude repo)
+### Local additions (installed beyond the speedy repo)
 
 | Skill                            | When to use                                                             |
 | -------------------------------- | ----------------------------------------------------------------------- |

@@ -1,5 +1,5 @@
 {
-  "_comment": "speedy-claude settings template — copy to ~/.claude/settings.json and fill in the env vars. Adjust the allowlist to your stack; entries are evidence-based from session transcripts.",
+  "_comment": "speedy settings template — copy to ~/.claude/settings.json and fill in the env vars. Adjust the allowlist to your stack; entries are evidence-based from session transcripts.",
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "<your-token-here>",
     "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
