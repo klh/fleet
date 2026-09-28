@@ -34,16 +34,32 @@ const inject = (lines: string[]) => {
 // ---------- 1) semantic ----------
 try {
   if (existsSync(`${RAG}/rag.db`)) {
-    const health = await fetch("http://127.0.0.1:8907/health", { signal: AbortSignal.timeout(300) });
+    const health = await fetch("http://127.0.0.1:8907/health", {
+      signal: AbortSignal.timeout(300),
+    });
     const h = (await health.json()) as { model?: string };
-    if (health.ok && typeof h.model === "string" && h.model.includes("Qwen3-Embedding")) {
-      const p = Bun.spawnSync(["bun", `${RAG}/index.ts`, "search", prompt, "-k", "3", "--json"], {
-        timeout: 6_000,
-      });
+    if (
+      health.ok &&
+      typeof h.model === "string" &&
+      h.model.includes("Qwen3-Embedding")
+    ) {
+      const p = Bun.spawnSync(
+        ["bun", `${RAG}/index.ts`, "search", prompt, "-k", "3", "--json"],
+        {
+          timeout: 6_000,
+        },
+      );
       if (p.success) {
-        const hits = JSON.parse(p.stdout.toString().trim()) as { source: string; title: string; text: string }[];
+        const hits = JSON.parse(p.stdout.toString().trim()) as {
+          source: string;
+          title: string;
+          text: string;
+        }[];
         inject(
-          hits.map((x) => `- [${x.title || x.source.split("/").pop()}] ${x.text.slice(0, 180).replace(/\s+/g, " ")}`),
+          hits.map(
+            (x) =>
+              `- [${x.title || x.source.split("/").pop()}] ${x.text.slice(0, 180).replace(/\s+/g, " ")}`,
+          ),
         );
       }
     }
@@ -60,9 +76,32 @@ const CORPUS = [
 ];
 
 const stop = new Set([
-  "this", "that", "with", "have", "does", "could", "should", "would", "there",
-  "their", "about", "from", "what", "when", "your", "into", "just", "like",
-  "make", "need", "want", "hvordan", "skal", "kan", "det", "til",
+  "this",
+  "that",
+  "with",
+  "have",
+  "does",
+  "could",
+  "should",
+  "would",
+  "there",
+  "their",
+  "about",
+  "from",
+  "what",
+  "when",
+  "your",
+  "into",
+  "just",
+  "like",
+  "make",
+  "need",
+  "want",
+  "hvordan",
+  "skal",
+  "kan",
+  "det",
+  "til",
 ]);
 const tokens = new Set(
   prompt

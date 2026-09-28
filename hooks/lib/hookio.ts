@@ -2,7 +2,13 @@
 // Every gate imports from here; no gate builds its own JSON or exit codes.
 export type HookInput = {
   tool_name?: string;
-  tool_input?: { command?: string; file_path?: string; notebook_path?: string; old_string?: string; new_string?: string };
+  tool_input?: {
+    command?: string;
+    file_path?: string;
+    notebook_path?: string;
+    old_string?: string;
+    new_string?: string;
+  };
   cwd?: string;
   stop_hook_active?: boolean;
   hook_event_name?: string;
@@ -21,16 +27,35 @@ export function allow(): never {
   process.exit(0);
 }
 export function deny(reason: string): never {
-  out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } });
+  out({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
+  });
 }
 export function ask(reason: string): never {
-  out({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: reason } });
+  out({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: reason,
+    },
+  });
 }
 export function nudge(message: string): never {
-  out({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: message } });
+  out({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      additionalContext: message,
+    },
+  });
 }
 export function context(message: string, event = "SessionStart"): never {
-  out({ hookSpecificOutput: { hookEventName: event, additionalContext: message } });
+  out({
+    hookSpecificOutput: { hookEventName: event, additionalContext: message },
+  });
 }
 export function feedback(message: string): never {
   // PostToolUse / Stop: exit 2 feeds stderr back to the agent (non-blocking,

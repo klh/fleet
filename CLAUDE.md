@@ -132,7 +132,7 @@ Rules:
 | `sed` for find/replace              | `sd` (Rust, literal by default, regex with `-s`, no BSD `-i ''` tax) |
 | `find \| xargs sed` across codebase | `amber` (parallel Rust, interactive per-match, ignores .git)         |
 | Need stats on a bulk replace        | `ambr --statistics --no-interactive` (per-file counts + timing)      |
-| `                                   | while read` loops                                                    | Single command + pipe to `jq`/`xargs` |
+| `\| while read` loops               | Single command + pipe to `jq`/`xargs`                                |
 | `du` for disk usage                 | `dust` (visual treemap) or `gdu` (interactive TUI)                   |
 | `du -sh` (total only)               | `dust -d 1`                                                          |
 | `ps` for processes                  | `procs` (colored, searchable) or `btm` (graphs)                      |
@@ -437,7 +437,7 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ## Available Skills Quick Reference
 
-36 active skills (klh-* variants + registry adds; optional ones parked in `skills-available/`). Check this list when a task matches; invoke the skill before starting.
+36 active skills (klh-\* variants + registry adds; optional ones parked in `skills-available/`). Check this list when a task matches; invoke the skill before starting.
 
 ### Editing & Code Intelligence
 
@@ -494,13 +494,13 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ### Local additions (installed beyond the speedy-claude repo)
 
-| Skill                            | When to use                                                            |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `klh-dispatch`                   | Single entry-point orchestrator routing tasks to the right klh-* skill |
-| `klh-testing-patterns`           | Jest factories, mocking strategies, TDD workflow                       |
-| `brainstorming`                  | Before creative work — explores intent/requirements/design             |
-| `writing-plans`                  | Have requirements for a multi-step task, before touching code          |
-| `verification-before-completion` | Before claiming work is done/committed — evidence before assertions    |
-| `requesting-code-review`         | Completing tasks or major features, before merge                       |
-| `receiving-code-review`          | Processing review feedback with technical rigor                        |
-| `dinero-regnskab`                | Visma Dinero bookkeeping automation (browser)                          |
+| Skill                            | When to use                                                             |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `klh-dispatch`                   | Single entry-point orchestrator routing tasks to the right klh-\* skill |
+| `klh-testing-patterns`           | Jest factories, mocking strategies, TDD workflow                        |
+| `brainstorming`                  | Before creative work — explores intent/requirements/design              |
+| `writing-plans`                  | Have requirements for a multi-step task, before touching code           |
+| `verification-before-completion` | Before claiming work is done/committed — evidence before assertions     |
+| `requesting-code-review`         | Completing tasks or major features, before merge                        |
+| `receiving-code-review`          | Processing review feedback with technical rigor                         |
+| `dinero-regnskab`                | Visma Dinero bookkeeping automation (browser)                           |
