@@ -3,7 +3,7 @@
 One command per local service on macOS: Caddy site fragments + mDNS `-P`
 claims + registry (bin/klh-local.ts), status GUI at bar.local :7792
 (bin/dashboard.ts). Serves suspenders.local and belt.local. Companions:
-suspenders (control plane), belt (LLM fleet), speedy-claude (config layer).
+suspenders (control plane), belt (LLM fleet), speedy (config layer).
 
 ## qlty Quality Doctrine
 

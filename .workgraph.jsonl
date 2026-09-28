@@ -1,0 +1,2 @@
+{"id":"W1","parent_id":null,"title":"codex lane validation: README companion row reflects the rename","description":null,"state":"DONE","priority":0,"owner_sid":null,"created_by":"3bb4718c","scope":null,"why_parallel":null,"result_sha":"36907a5b283ed4f0b9283cadede5349ba2234009","required":1,"created_at":1790622019778,"updated_at":1790622365318,"requires":null,"origin":"Muramasa.localdomain:codex","deps":[]}
+{"type":"meta","project":"/Volumes/Sensitive/github/klh/local/.git","exported_at":1790622365351,"count":1,"max_updated_at":1790622365318}
