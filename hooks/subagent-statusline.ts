@@ -28,6 +28,11 @@ const green = (s: string) => c("32", s);
 try {
 	const row = JSON.parse(await new Response(Bun.stdin).text()) as Row;
 	const sid = row.sessionId ?? row.session_id ?? row.agentId ?? row.id ?? "";
+	// OSC 8 hyperlink — iTerm2 cmd-click opens the session-filtered board (W61
+	// adds the #filter= client-side support; until it lands the link still
+	// lands on the board unfiltered)
+	const boardUrl = `https://suspenders.local/#filter=${encodeURIComponent(sid)}`;
+	const link = (s: string) => `\x1b]8;;${boardUrl}\x1b\\${s}\x1b]8;;\x1b\\`;
 	let line = row.description ?? row.task ?? "";
 	const t = row.agentType ? `${dim(row.agentType)} ` : "";
 
@@ -72,7 +77,7 @@ try {
 	} catch {
 		// control plane unavailable — pass the plain row through
 	}
-	process.stdout.write(JSON.stringify({ id: row.id, content: line }));
+	process.stdout.write(JSON.stringify({ id: row.id, content: line ? link(line) : line }));
 } catch {
 	// unparsable stdin — exit non-zero, harness falls back to its default row
 	process.exit(1);
