@@ -230,54 +230,85 @@ async function stepLaunchd(): Promise<void> {
   );
 }
 
-// ─── coordination plane: governor.db + claim/coord CLIs + keepwarm ───
+// ─── coordination plane: governor.db + coord CLIs + launchd agents ───
+// All of this ships in klh/suspenders (extracted from speedy 2026-09-25) —
+// speedy never installs its own copies: it verifies the namespaced install
+// and delegates missing launchd agents to suspenders' installer.
 async function stepCoordination(): Promise<void> {
   console.log(
-    "\n6) coordination plane (governor.db, claim/coord CLIs, keepwarm)",
+    "\n6) coordination plane (governor.db, coord CLIs, launchd agents — via klh/suspenders)",
   );
   const bun = "/opt/homebrew/bin/bun";
-  const govdb = join(HOME, ".claude", "hooks", "lib", "govdb.ts");
-  const coord = join(HOME, ".claude", "hooks", "bin", "coord.ts");
-  const tplSrc = join(
-    import.meta.dir,
-    "..",
-    "hooks",
-    "launchd",
-    "com.klh.llm-keepwarm.plist",
-  );
-  const plistPath = join(
-    HOME,
-    "Library",
-    "LaunchAgents",
-    "com.klh.llm-keepwarm.plist",
-  );
+  const prefix = join(HOME, ".claude", "hooks", "suspenders");
+  const govdb = join(prefix, "lib", "govdb.ts");
+  const coord = join(prefix, "bin", "coord.ts");
+  const agents = [
+    "com.suspenders.fleet-monitor",
+    "com.suspenders.llm-keepwarm",
+    "com.suspenders.board",
+    "com.suspenders.db-backup",
+  ];
+
   if (DRY) {
     console.log(
-      "  → would bootstrap governor.db (claims/locks/events/cursors/facts)",
+      "  → would verify the klh/suspenders install under ~/.claude/hooks/suspenders/",
     );
-    console.log(`  → would install + bootstrap ${plistPath}`);
+    console.log(
+      "  → would bootstrap governor.db and delegate missing launchd agents",
+    );
     return;
   }
-  // 1) control-plane DB: creates schema, runs any JSON→SQL migrations
+
+  if (!existsSync(govdb) || !existsSync(coord)) {
+    console.error(`  ✗ suspenders is not installed (expected ${prefix}/)`);
+    console.error(
+      "    install it first: git clone https://github.com/klh/suspenders && cd suspenders && ./install.sh --wire --with-launchd",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // 1) control-plane DB: suspenders' govdb.ts is the single schema definer —
+  //    it creates the schema and runs migrations; nothing is created here.
   await sh([
     bun,
     "-e",
     `import { openGovernorDb } from "${govdb}"; openGovernorDb(); console.log("  ✓ governor.db ready");`,
   ]);
-  // 2) keepwarm agent: nonce pings keep MLX weights paged in (kills the
-  //    27-50s idle-page first-touch stall). Re-bootstrap of a loaded job is
-  //    expected to fail with exit 5 — tolerated.
-  const tpl = await Bun.file(tplSrc).text();
-  await Bun.write(plistPath, tpl.replaceAll("__HOME__", HOME));
-  const uid = process.getuid();
-  await sh(["/bin/launchctl", "bootstrap", `gui/${uid}`, plistPath]).catch(
-    () => {},
+
+  // 2) launchd agents (fleet monitor, LLM keepwarm, board keep-alive, db
+  //    backups) belong to suspenders — delegate to its installer when the
+  //    com.suspenders.* labels are missing. Its installer supersedes the
+  //    legacy com.klh.llm-keepwarm / com.klh.fleet-monitor jobs.
+  const missing = agents.filter(
+    (a) => !existsSync(join(HOME, "Library", "LaunchAgents", `${a}.plist`)),
   );
-  await sh([
-    "/bin/launchctl",
-    "kickstart",
-    `gui/${uid}/com.klh.llm-keepwarm`,
-  ]).catch(() => {});
+  if (missing.length > 0) {
+    console.log(`  → missing launchd agents: ${missing.join(", ")}`);
+    const src = join(HOME, ".cache", "suspenders-src");
+    const fresh =
+      existsSync(join(src, "install.sh")) &&
+      (await sh(["/usr/bin/git", "-C", src, "pull", "--ff-only"])) === 0;
+    if (!fresh) {
+      await sh([
+        "/usr/bin/git",
+        "clone",
+        "--depth",
+        "1",
+        "https://github.com/klh/suspenders",
+        src,
+      ]);
+    }
+    // install.sh resolves its own dir — safe from any cwd
+    if ((await sh(["/bin/bash", join(src, "install.sh"), "--with-launchd"])) !== 0) {
+      console.error("  ✗ suspenders install.sh --with-launchd failed");
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    console.log("  ✓ com.suspenders.* launchd agents installed");
+  }
+
   // 3) smoke: one fact write through the real path
   await sh([
     bun,
@@ -289,9 +320,7 @@ async function stepCoordination(): Promise<void> {
     "--source",
     "llm-stack",
   ]).catch(() => {});
-  console.log(
-    `  ✓ coordination plane ready — provided by klh/suspenders (~/.claude/hooks/suspenders/)`,
-  );
+  console.log("  ✓ coordination plane ready — provided by klh/suspenders");
 }
 
 // ─── run ───
