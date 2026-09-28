@@ -4,6 +4,8 @@ Codex CLI has grown a config surface that overlaps heavily with Claude Code: lay
 
 **Matrix verdicts:** ✅ native · 🔁 translate (mechanical) · ⚠️ partial (behavioral loss) · ❌ no equivalent.
 
+**Automated install:** `bun install-codex.ts` executes this guide (§1–§6) as an idempotent installer, translating §7 MCP servers from the repo's `.mcp.json` and skipping the §8 elements by design. `--dry-run` previews; `--skip-doctrine|skills|prompts|hooks|agents|mcp|permissions` narrows the run.
+
 All Codex facts below were verified against the official docs at learn.chatgpt.com / developers.openai.com on **2026-09-28** (sources listed at the bottom). Codex moves fast — re-check before relying on a verdict.
 
 ## TL;DR
