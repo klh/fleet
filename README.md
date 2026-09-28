@@ -1,6 +1,6 @@
 # speedy-claude
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.1-blue)
 
 Make Claude Code **10–1400x faster** at file operations — and **structurally safe** at editing.
 
