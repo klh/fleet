@@ -71,6 +71,8 @@ macOS sends `*.local` to mDNS and hosts files cannot wildcard, so exact names in
 
 The registry, rendered live: [http://bar.local/](http://bar.local/) — one hairline row per service (name, port, target, health via the same 1.5s GET the `status` verb makes, dns-claim liveness, fragment presence, created date), under a Caddy line (:80 answering, `caddy version`) and the registry path. Vanilla JS refreshing every 3s, no frameworks, no external assets — a single-file Bun server, `bin/dashboard.ts`.
 
+![The bar — every local service, one honest row each](assets/bar.png)
+
 - [http://bar.local/api/status](http://bar.local/api/status) — the same snapshot as JSON, health results included
 - [http://bar.local/llms.txt](http://bar.local/llms.txt) — what klh-local is, in plain text
 
