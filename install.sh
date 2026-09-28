@@ -14,6 +14,27 @@ info()  { echo -e "${BOLD}${GREEN}[INFO]${RESET} $*"; }
 warn()  { echo -e "${BOLD}${YELLOW}[WARN]${RESET} $*"; }
 error() { echo -e "${BOLD}${RED}[ERROR]${RESET} $*"; }
 
+# ─── LLM tier flag ───────────────────────────────────────
+# --llm=off      cloud-only, no belt install (default on fresh installs)
+# --llm=minimal  belt with small models only (~3GB resident — machines without 64GB+ unified memory)
+# --llm=full     the full belt fleet
+# Upgrades over an install that already has local-llm deployed keep it.
+LLM_FLAG=""
+for ARG in "$@"; do
+  case "$ARG" in
+    --llm=off | --llm=minimal | --llm=full) LLM_FLAG="${ARG#--llm=}" ;;
+    *) warn "unknown flag ignored: $ARG" ;;
+  esac
+done
+if [ -z "$LLM_FLAG" ]; then
+  if [ -f "$HOME/.claude/local-llm/registry.ts" ]; then
+    LLM_FLAG="full" # upgrade over a deployed fleet — keep it
+  else
+    LLM_FLAG="off" # fresh install — cloud-only
+  fi
+fi
+info "LLM tier: $LLM_FLAG"
+
 # ─── Preflight ───────────────────────────────────────────
 
 command -v brew >/dev/null 2>&1 || { error "Homebrew not found. Install: https://brew.sh"; exit 1; }
@@ -40,14 +61,41 @@ fi
 # klh/belt serves the MLX specialist swarm on localhost (:8901+) — the
 # endpoints suspenders' advice worker and keepwarm talk to. Deploying the
 # code is cheap; models (~40-60GB) and launchd agents are opt-in inside belt.
-if [ ! -f "$HOME/.claude/local-llm/registry.ts" ]; then
-  info "deploying the local LLM fleet (klh/belt)..."
-  T=$(mktemp -d)
-  git clone --depth 1 https://github.com/klh/belt "$T/belt"
-  (cd "$T/belt" && ./install.sh)
-  rm -rf "$T"
+if [ "$LLM_FLAG" != "off" ]; then
+  if [ ! -f "$HOME/.claude/local-llm/registry.ts" ]; then
+    info "deploying the local LLM fleet (klh/belt, tier: $LLM_FLAG)..."
+    T=$(mktemp -d)
+    if git clone --depth 1 https://github.com/klh/belt "$T/belt" 2>/dev/null; then
+      if [ "$LLM_FLAG" = "minimal" ]; then
+        (cd "$T/belt" && ./install.sh --tier minimal) || warn "belt install failed (optional) — continuing without it"
+      else
+        (cd "$T/belt" && ./install.sh) || warn "belt install failed (optional) — continuing without it"
+      fi
+    else
+      warn "belt clone failed (optional) — continuing without the fleet"
+    fi
+    rm -rf "$T"
+  else
+    info "belt (local LLM fleet) already deployed"
+  fi
+fi
+
+# ─── .local services (klh-local, optional) ───────────────
+if [ -x "$HOME/.local/bin/klh-local" ]; then
+  if "$HOME/.local/bin/klh-local" register suspenders --port 7799 --health /; then
+    echo "  ✓ suspenders.local (:7799) registered"
+  else
+    warn "klh-local: suspenders registration failed (optional)"
+  fi
+  if [ "$LLM_FLAG" != "off" ]; then
+    if "$HOME/.local/bin/klh-local" register belt --port 7791 --health /; then
+      echo "  ✓ belt.local (:7791) registered"
+    else
+      warn "klh-local: belt registration failed (optional)"
+    fi
+  fi
 else
-  info "belt (local LLM fleet) already deployed"
+  echo "  · klh-local not found — .local registration skipped (optional: https://github.com/klh/local)"
 fi
 
 # ─── Brew packages ───────────────────────────────────────
@@ -231,8 +279,9 @@ fi
 # ─── LLM Specialist Swarm (MLX, Metal-native) ────────────
 
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
-  info "Setting up LLM specialist swarm (Apple Silicon only)..."
+  info "Setting up the Apple Silicon layer (LLM tier: $LLM_FLAG)..."
 
+  if [ "$LLM_FLAG" != "off" ]; then
   # Install mlx-lm via uv (fastest Python package manager)
   if ! command -v mlx_lm.server >/dev/null 2>&1; then
     echo "  → installing mlx-lm via uv..."
@@ -246,6 +295,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   else
     echo "  ✓ mlx-lm already installed"
   fi
+  fi # LLM_FLAG != off
 
   # Install playwright for browser automation (MJ/Dinero skills)
   if [ -d "$HOME/.claude/mcp-servers" ] && [ ! -d "$HOME/.claude/mcp-servers/node_modules/playwright" ]; then
@@ -253,7 +303,8 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     (cd "$HOME/.claude/mcp-servers" && bun add playwright 2>/dev/null) || warn "playwright install failed"
   fi
 
-  # Download the specialist models (61GB total, parallel)
+  if [ "$LLM_FLAG" != "off" ]; then
+  # Download the specialist models (61GB total, parallel; tier applies inside belt)
   MLX_PYTHON="$(command -v python3)"
   if [ -x "$HOME/.local/share/uv/tools/mlx-lm/bin/python" ]; then
     MLX_PYTHON="$HOME/.local/share/uv/tools/mlx-lm/bin/python"
@@ -286,6 +337,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   else
     echo "  ✓ all specialist models already cached"
   fi
+  fi # LLM_FLAG != off
 
   # Copy swarm management scripts to PATH
   for SCRIPT in mlx-swarm mlx-swarm-download claude-fast local-llm-stack approve-skill; do
@@ -303,15 +355,6 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     echo "  ✓ skill approval HMAC secret generated"
   fi
 
-  # Install LaunchAgent for the swarm (auto-start on boot)
-  if [ -f "$HOME/.claude/hooks/launchd/com.klh.local-llm.plist" ]; then
-    sed "s|__HOME__|$HOME|g" "$HOME/.claude/hooks/launchd/com.klh.local-llm.plist" \
-      > "$HOME/Library/LaunchAgents/com.klh.local-llm.plist"
-    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.klh.local-llm.plist" 2>/dev/null \
-      || warn "LaunchAgent bootstrap failed (may already be running)"
-    echo "  ✓ LaunchAgent com.klh.local-llm installed"
-  fi
-
   # Install LaunchAgent for daily insights (headless analyst runs)
   if [ -f "$HOME/.claude/hooks/launchd/com.klh.claude-insights.plist" ]; then
     sed "s|__HOME__|$HOME|g" "$HOME/.claude/hooks/launchd/com.klh.claude-insights.plist" \
@@ -321,7 +364,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     echo "  ✓ LaunchAgent com.klh.claude-insights installed (daily 06:43 analyst run)"
   fi
 else
-  warn "Not Apple Silicon (arm64) — LLM swarm skipped"
+  warn "Not Apple Silicon (arm64) — local LLM layer skipped"
 fi
 
 # ─── Summary ─────────────────────────────────────────────
@@ -335,24 +378,33 @@ echo "  What changed:"
 echo "    • 35+ CLI tools installed via brew/cargo (+qlty release binary)"
 echo "    • delta set as git diff pager"
 echo "    • zoxide initialized in shell"
-echo "    • LLM specialist swarm setup (if Apple Silicon)"
-echo "    • LaunchAgents for local-LLM + daily insights installed"
+if [ "$LLM_FLAG" != "off" ]; then
+  echo "    • belt fleet deployed (tier: $LLM_FLAG) + .local registration"
+else
+  echo "    • LLM tier: off — cloud-only (re-run with --llm=minimal|full to add the fleet)"
+fi
+echo "    • LaunchAgents: daily insights (+ local-LLM when deployed)"
 echo "    • Skill approval HMAC secret generated"
 echo ""
 echo "  Next steps:"
 echo "    1. Restart your shell (or source $SHELL_RC)"
 echo "    2. Copy settings.example.json to ~/.claude/settings.json and fill token"
-echo "    3. Wait for model downloads to finish, then run: bun ~/.claude/local-llm/swarm.ts start"
+if [ "$LLM_FLAG" != "off" ]; then
+  echo "    3. Wait for model downloads to finish, then run: bun ~/.claude/local-llm/swarm.ts start"
+fi
 echo "    4. Start a new Claude Code session"
 echo ""
-echo "  LLM Swarm (Apple Silicon):"
-echo "    bun ~/.claude/local-llm/swarm.ts start     — start all specialists (3 models, ~20GB RAM)"
-echo "    bun ~/.claude/local-llm/swarm.ts status    — check what's running"
-echo "    claude-fast <prompt> — local inference (falls back to remote)"
-echo ""
+if [ "$LLM_FLAG" != "off" ]; then
+  echo "  Local LLM fleet (belt, tier: $LLM_FLAG):"
+  echo "    bun ~/.claude/local-llm/swarm.ts status    — check what's running"
+  echo "    claude-fast <prompt> — local inference (falls back to remote)"
+  echo ""
+fi
 echo "  Daily Insights:"
 echo "    LaunchAgent runs at 06:43 — findings in ~/.claude-insights/PENDING.md"
 echo ""
 echo "  Verify: fd --version && rg --version | head -1 && ast-grep --version && qlty --version"
-echo "          bun ~/.claude/local-llm/swarm.ts status"
+if [ "$LLM_FLAG" != "off" ]; then
+  echo "          bun ~/.claude/local-llm/swarm.ts status"
+fi
 echo ""
