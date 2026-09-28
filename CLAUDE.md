@@ -34,6 +34,7 @@ qlty is THE quality tool. Three moments, one tool:
 
 Rules:
 
+- **SPEC FIRST: read `.qlty/qlty.toml` + the biome rule set BEFORE the first write in any repo, then code to the spec** — never emit flagged patterns and let the gate catch them. Recurring offenders: non-null `!` (noNonNullAssertion), string `+ "\n"` concat (useTemplate), comma operator, unused vars/imports, use-before-declaration.
 - First time in any repo: `qlty init -y && qlty plugins enable biome`. Biome owns code formatting; prettier stays markdown-only — formatter scopes are disjoint, zero fights.
 - Per-repo `.qlty/` is REQUIRED — without it the governor gate silently no-ops.
 - Never re-introduce standalone lint hooks in settings.json.
