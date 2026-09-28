@@ -2,7 +2,7 @@
 
 ![The quintessential local — a Greek taverna](assets/hero.png)
 
-**One command per local service on macOS.** `klh-local register suspenders --port 7799` writes the Caddy site fragment, claims `suspenders.local` via dns-sd, records everything in a registry file, and reloads Caddy — zero sudo, zero downtime. Instead of hand-wiring a conf, a `dns-sd -R` process, and a `sudo nginx -s reload` for every service, every time. Design details in [SPEC.md](SPEC.md).
+**One command per local service on macOS.** `klh-local register suspenders --port 7799` writes the Caddy site fragment, claims `suspenders.local` over mDNS, records everything in a registry file, and reloads Caddy — zero sudo, zero downtime. One command per service, every time. Design details in [SPEC.md](SPEC.md).
 
 ## Install
 
@@ -25,6 +25,8 @@ klh-local register suspenders --port 7799 --health /
 klh-local register belt --port 7791 --health /health/liveliness
 klh-local register myapp --port 8080 --no-dns    # no .local hostname claim
 ```
+
+Re-running register with the same name + port **converges** — fragment rewritten, Caddy reloaded, the dns claim reused when alive and re-claimed only when dead — so install scripts can call it on every run. Changing the port requires `deregister` first.
 
 **list**
 
@@ -52,14 +54,23 @@ klh-local deregister myapp
 
 **reload** — after any hand edit to a managed file: `caddy validate` + `caddy reload`. No sudo, ever.
 
-**migrate** — ports existing hand-wired nginx vhosts to fragments and prints the nginx bootout commands (printed, not run). The actual cutover is a human step — see SPEC.md.
+**hosts-apply** — rewrites one marked block in `/etc/hosts` from the registry:
+
+```
+# --- klh-local managed: start ---
+127.0.0.1 belt.local
+127.0.0.1 suspenders.local
+# --- klh-local managed: end ---
+```
+
+macOS sends `*.local` to mDNS and hosts files cannot wildcard, so exact names in a marked block are the deterministic loopback path — without a resolver daemon hijacking printer/AirPlay `.local` names machine-wide. `register`/`deregister` print a drift hint when the file disagrees with the registry; the write itself is the one sudo in klh-local's world. The `.local` hostname is also claimed over mDNS (`dns-sd -P`, A record included) so other devices on the LAN resolve it too.
 
 ## Security posture
 
 - **Host-header safety** — names must match `^[a-z][a-z0-9-]{1,30}$`. The name lands in three sensitive places (Host-header target, site address, filename under `sites/`); the regex makes Host-header injection, path traversal, and config-syntax smuggling impossible.
 - **Never proxy based on user input** — `reverse_proxy` targets are always `127.0.0.1:<port>`, written from validated registry data at register time. Nothing request-time is interpolated into the config.
 - **Default-deny** — a hostless catch-all block `abort`s every Host no fragment claims, on both :80 and :443 (unknown SNI fails at the TLS handshake — no cert without on-demand TLS). DNS-rebind attempts and stray `curl` Host headers die at the proxy, never reaching a backend.
-- **Zero root** — Caddy runs as a user LaunchAgent; validate and reload are user-level and zero-downtime. The only sudo in klh-local's world is the nginx bootout that `migrate` prints for you — never runs.
+- **Zero root** — Caddy runs as a user LaunchAgent; validate and reload are user-level and zero-downtime. The only sudo in klh-local's world is `hosts-apply`.
 
 ## Licensing
 
@@ -69,4 +80,4 @@ local is source-available under the **Business Source License 1.1** (see [LICENS
 - **Production / commercial use requires a commercial license** — running it in a product or service, in paid client work, or as part of business operations. Contact the Licensor (see LICENSE) for terms.
 - **No conversion** — unlike standard BSL 1.1, the Change Date / Change License parameters are **N/A**: the Licensed Work never converts to an open license; all rights remain with the Licensor indefinitely.
 
-A Threads thing — [threads.dk](https://www.threads.dk).
+A Threads thing — [threads.dk](http://www.threads.dk).

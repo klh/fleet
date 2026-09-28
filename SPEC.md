@@ -76,14 +76,14 @@ belt.local {
 4. `launchctl bootout` (ignore "not loaded") → `launchctl bootstrap gui/<uid>` → `launchctl kickstart`.
 5. Prints a summary with a one-time hint: if browsers warn on the internal-CA certs, run `caddy trust` once.
 
-## v0.1 verbs
+## The verbs
 
-`install` / `register` / `deregister` / `list` / `status` / `reload` / `migrate`
+`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply`
 
 ### register `<name> --port N [--health /health] [--no-dns]`
 
 1. Validates the name against `^[a-z][a-z0-9-]{1,30}$`, the port as an integer 1–65535, the health path as rooted.
-2. Refuses duplicate names and duplicate ports (one port, one service — a second site proxying the same port is a config bug, not a feature).
+2. Idempotent on re-register: same name + port + health path converges (fragment rewritten, validate + reload, dns claim reused when alive — concurrent claims conflict-rename each other — re-claimed only when dead). Same name with a different port or health path exits 1 (`deregister` first). A port collision with a _different_ name is refused: one port, one service — a second site proxying the same port is a config bug, not a feature.
 3. Refuses to run without Caddy installed and the Caddyfile present (`run: klh-local install`).
 4. Writes `sites/<name>.caddy`: `<name>.local { reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit.
 5. `caddy validate` → `caddy reload`; on reload failure the fragment is rolled back (see The engine).
@@ -112,34 +112,30 @@ Removes the fragment, SIGTERMs the dns-sd pid, removes the registry entry, then 
 
 `caddy validate` + `caddy reload` — the same path register/deregister use, for after any hand edit to the managed files. User-level, zero downtime, no sudo.
 
-### migrate
+### hosts-apply
 
-Ports the hand-wired nginx vhosts (`/opt/homebrew/etc/nginx/servers/*.conf` — today `suspenders.local` → 7799 and `belt.local` → 7791) to Caddy fragments in `sites/`, by extracting `server_name` + `proxy_pass http://127.0.0.1:<port>` per file. Never touches nginx. Prints the bootout commands for the human to review and run later:
+Rewrites the managed block in `/etc/hosts` from the registry — the deterministic loopback path for `<name>.local`:
 
 ```
-sudo nginx -s quit
-sudo launchctl bootout system/homebrew.mxcl.nginx   # if root LaunchDaemon
-brew services stop nginx                             # if brew-services-managed
+# --- klh-local managed: start ---
+127.0.0.1 belt.local
+# --- klh-local managed: end ---
 ```
 
-The actual cutover happens with the owner, not inside this tool.
+Hosts files cannot wildcard and macOS sends `*.local` to mDNS, so the dnsmasq `address=/.local/` catch-all was rejected by design: it hijacks every `.local` lookup machine-wide (printers, AirPlay, HomeKit `.local` hosts start answering 127.0.0.1). Exact names in one marked block touch nothing outside it — and only inside the markers does klh-local ever edit. `register`/`deregister` print a drift hint when the file disagrees with the registry; the write runs under sudo — the one sudo in klh-local's world.
 
 ## DNS claims
 
-`dns-sd -R <name> _http._tcp <name>.local <port>` — the same command a human would run for the board. Detached spawn, pid in the registry, `kill -0` liveness in `status`, SIGTERM on deregister. The claim lives as long as the process does; `status` reports a dead claim instead of pretending it is held.
+`dns-sd -P <name> _http._tcp local <port> <name>.local <en0-ip>` when an en0 address exists (register-proxy: creates the A record **and** the service, so `<name>.local` resolves on this machine and on the LAN), falling back to `-R` (service-only) otherwise. Two measured gotchas shape this: a bare `-R` claims a service under a name that never answers A queries, and dns-sd spawned as a direct Bun child lives but never completes registration — it must be spawned through a `/bin/sh` intermediary that stays its parent (verified 2026-09-28). Detached spawn, pid in the registry, `kill -0` liveness in `status`, SIGTERM on deregister. A live claim is reused on re-register — a second claimant on the same name makes the registrations conflict-rename each other (`belt-2` problems).
 
 ## Security posture
 
 - **Host-header safety** — names must match `^[a-z][a-z0-9-]{1,30}$`. The name lands in three sensitive places (Host-header target, site address, filename under `sites/`); the regex makes Host-header injection, path traversal, and config-syntax smuggling impossible.
 - **Never proxy based on user input** — `reverse_proxy` targets are always `127.0.0.1:<port>`, written from validated registry data at register time. Nothing request-time is interpolated into the config.
 - **Default-deny for unregistered Hosts** — the hostless `abort` catch-all takes every Host no fragment claims, on both :80 and :443. On :443, unknown SNI fails at the TLS handshake (no cert without on-demand TLS). Nothing unregistered reaches a backend.
-- **Privilege boundary: zero root** — Caddy runs as a user LaunchAgent; validate/reload are user-level; the only sudo in klh-local's world is the nginx bootout, which `migrate` prints for the human, never runs.
+- **Privilege boundary: zero root** — Caddy runs as a user LaunchAgent; validate/reload are user-level; the only sudo in klh-local's world is `hosts-apply`.
 
-## Migrating from nginx
-
-The current machine serves `suspenders.local` and `belt.local` from root nginx. The cutover sequence is: `klh-local migrate` (writes fragments) → `klh-local reload` (activates under Caddy) → run the printed bootout commands (stop root nginx; Caddy already owns :80/:443 cleanly because Caddy validated and bound first in testing, or bind order is sequenced by the human during the cutover window). Port-conflict note: while root nginx still runs, Caddy cannot bind :80/:443 — the bootout is what frees the ports. This is deliberately a human-in-the-loop step, coordinated after review.
-
-## v0.2 roadmap
+## Roadmap
 
 - **launchd plist generation for the services themselves** — generate the LaunchAgents for registered services (launchd is the lifecycle layer; pm2 is rejected). v0.1 supervises none of the backends.
 
