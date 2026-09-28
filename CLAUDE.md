@@ -13,25 +13,33 @@
 ## File Editing Rules (enforced by hooks)
 
 - **Never create or modify files via shell.** No `cat > f <<'EOF'`, `cat >> f`, `echo/printf > f`, `sed -i`, `perl -i`, or inline `python3 - <<EOF` rewriters. `edit-enforce.sh` denies these; they bypass context anchoring, diffing, and syntax checks.
-- Use **Edit** for surgical changes (requires a unique context anchor — ambiguity fails loudly instead of corrupting) and **Write** for new/whole files. Both are prompt-free under `acceptEdits` and syntax-checked on save by `syntax-check.sh` (per-type gates: jq json · yq yaml · taplo toml · ruff py · bash -n sh · esbuild parse-gate ts/js 6.8ms + project-tsc tier-2).
+- Use **Edit** for surgical changes (requires a unique context anchor — ambiguity fails loudly instead of corrupting) and **Write** for new/whole files. Both are prompt-free under `acceptEdits` and quality-gated on save by the suspenders post-files gate: qlty fmt + fast lint, blocking with the diff inline.
 - Bulk mechanical replaces: `sd` / `ambr` (fast, blessed). Identifier/structure-shaped changes: `ast-grep`. Semantic multi-file changes: Edit per file.
 - Capturing **command output** to a file (`xh ... > resp.json`) is fine; generating file _content_ through the shell is not.
 - After any structural edit, fix syntax errors reported by the PostToolUse check before moving on.
 - **Verify every 3rd edit** to the same file: run/build/test it then, not after the 5th (observed failure mode: five blind edits, then the first run crashes).
 - **>5 planned changes to one file** = re-read once and do a single whole-file Write, not 3 Reads + 7 Edits of churn.
 - **Automation architecture (doctrine):** glue logic in TypeScript run by Bun (`bun hooks/x.ts`) — typed, testable, real parsers (e.g. shell-quote AST for command analysis, NEVER regex against shell text). Heavy operations go to native CLI tools launched with ARGUMENT ARRAYS (no shell re-parsing, no quoting bugs), batched — one rg over 10k files, not 10k launches. Rust only when profiling proves a bottleneck. Plain bash remains for trivial one-liners only.
-- Markdown is auto-formatted on every save (`md-format.sh` → prettier, GFM, prose preserved). Do not hand-align tables — write them loosely and let the formatter tidy; re-read after bulk writes.
+- Markdown is auto-formatted on every save (prettier via the post-files gate, GFM, prose preserved). Do not hand-align tables — write them loosely and let the formatter tidy; re-read after bulk writes.
 
-## Structural Editing & Linting
+## qlty Quality Doctrine
 
-| Job                                                   | Tool       | Pattern                                                                                                                                                       |
-| ----------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AST-aware find/replace (won't touch strings/comments) | `ast-grep` | `ast-grep run -p 'oldCall($A)' -r 'newCall($A)' --lang ts` (dry-run by default, `-U` applies; `sg` alias)                                                     |
-| Goto linter — full dev loop checks                    | `qlty`     | `qlty check` (diff-aware: branch changes only) · `qlty check --all` · `qlty fmt` · first time in a repo: `qlty init -y && qlty plugins enable biome prettier` |
-| YAML/TOML/XML structured edits                        | `yq`       | `yq -i '.a.b = "x"' file.yaml` (like jq, for config)                                                                                                          |
-| Fast JS/TS lint+format inside configured projects     | `biome`    | project-level tool; qlty orchestrates it otherwise                                                                                                            |
+qlty is THE quality tool. Three moments, one tool:
 
-Textual bulk replaces stay with `sd`/`ambr`; `ast-grep` for anything identifier/structure-shaped.
+| Moment    | What runs                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| On-write  | the suspenders governor post-files gate runs qlty-fmt + fast lint, blocking with the diff inline |
+| Pre-merge | the repo's ladder: `qlty fmt` + `qlty check --fix` on staged files                               |
+| On-stop   | evidence gate — verifies the work happened; it does NOT lint                                     |
+
+Rules:
+
+- First time in any repo: `qlty init -y && qlty plugins enable biome`. Biome owns code formatting; prettier stays markdown-only — formatter scopes are disjoint, zero fights.
+- Per-repo `.qlty/` is REQUIRED — without it the governor gate silently no-ops.
+- Never re-introduce standalone lint hooks in settings.json.
+- `qlty check` is diff-aware (branch changes only); `qlty check --all` sweeps everything.
+
+Structural find/replace stays with `ast-grep` (`ast-grep run -p 'oldCall($A)' -r 'newCall($A)' --lang ts`; dry-run by default, `-U` applies; `sg` alias). YAML/TOML/XML structured edits stay with `yq`. Textual bulk replaces stay with `sd`/`ambr`; `ast-grep` for anything identifier/structure-shaped.
 
 ## Multi-agent Workflows
 
@@ -346,7 +354,7 @@ RIGHT: ast-grep run -p 'getForeignKeys($ID)' -r 'foreignKeysFor($ID)' --lang ts 
 
 ### Rule 9: Full dev loop — verify before claiming done
 
-After implementing: run tests → `qlty check` (diff-aware) → `difft` review of the change. Never report success on unverified code; PostToolUse syntax checks must be clean first.
+After implementing: run tests → `qlty check` (diff-aware) → `difft` review of the change. Never report success on unverified code; the post-files gate must be clean first.
 
 ```
 RIGHT: npm test && qlty check && difft main...HEAD
@@ -356,68 +364,68 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ### Installed & Ready
 
-| Category               | Tool                      | Replaces                                          |
-| ---------------------- | ------------------------- | ------------------------------------------------- |
-| **Listing**            | `eza`                     | `ls`                                              |
-| **Finding**            | `fd`                      | `find`                                            |
-| **Searching**          | `rg` (ripgrep)            | `grep`                                            |
-| **Reading**            | `bat`                     | `cat`                                             |
-| **Search+context**     | `batgrep`                 | `rg` + `Read`                                     |
-| **Find/replace**       | `sd`                      | `sed`                                             |
-| **Bulk replace**       | `ambr`/`ambs` (amber)     | `find \| xargs sed`                               |
-| **Bulk replace stats** | `ambr --statistics`       | blind bulk replaces                               |
-| **Structural replace** | `ast-grep` (`sg`)         | regex renames that must ignore strings & comments |
-| **Universal linter**   | `qlty`                    | 68 linters, one diff-aware command                |
-| **JS/TS lint+fmt**     | `biome`                   | eslint+prettier in one Rust binary                |
-| **YAML/TOML/XML**      | `yq`                      | `jq` for config files                             |
-| **File copy**          | `xcp`                     | `cp` (10x faster on NFS)                          |
-| **Structural diff**    | `difft` (difftastic)      | `diff`                                            |
-| **Syntax diff**        | `batdiff`, `delta`        | `git diff`                                        |
-| **Disk usage**         | `dust`                    | `du`                                              |
-| **Interactive disk**   | `lazygit`                 | git TUI (staging, rebase, cherry-pick)            |
-| **Dir navigation**     | `zoxide` (`z`)            | `cd` (frecency-based jumping)                     |
-| **Code stats**         | `tokei`                   | `cloc` / `wc -l` (150+ languages, instant)        |
-| **Process viewer**     | `procs`, `btm` (bottom)   | `ps`, `htop`                                      |
-| **DNS lookup**         | `doggo`                   | `dig` (colored, JSON output)                      |
-| **System monitor**     | `btm` (bottom)            | `htop` (cross-platform graphs)                    |
-| **Git TUI**            | `lazygit`                 | git CLI (interactive staging, rebasing)           |
-| **Interactive tree**   | `broot`                   | `tree` + `cd` + `find` combined                   |
-| **File watcher**       | `watchexec`, `fswatch`    | `watch` (smarter rerun on change)                 |
-| **Benchmarking**       | `hyperfine`               | manual `time` (statistical analysis)              |
-| **JSON**               | `jq`                      | `python3 -c`                                      |
-| **Python**             | `uv`                      | `pip` / `venv` (10-100x faster)                   |
-| **HTTP**               | `xh`                      | `curl`                                            |
-| **HTTP (multi)**       | `hurl`                    | sequential curl                                   |
-| **HTTP (fancy)**       | `httpie`                  | `curl` interactive                                |
-| **Downloads**          | `aria2`                   | `wget`                                            |
-| **GitHub**             | `gh`                      | web UI                                            |
-| **Azure**              | `az`                      | web UI                                            |
-| **GH Actions local**   | `act`                     | push-to-test                                      |
-| **CI lint**            | `actionlint`              | manual YAML review                                |
-| **Shell lint**         | `shellcheck`              | manual review                                     |
-| **Git activity**       | `git log --since` aliases | multiple `git show`                               |
-| **Fuzzy find**         | `fzf`                     | manual file picking                               |
-| **Glamour shell**      | `gum`                     | basic shell prompts                               |
-| **Tree view**          | `tree`                    | recursive `ls`                                    |
-| **Process monitor**    | `btop`                    | `top`                                             |
-| **Container TUI**      | `lazydocker`              | docker CLI                                        |
-| **File manager**       | `ranger`                  | GUI file manager                                  |
-| **Editor**             | `micro`                   | `nano`                                            |
-| **Man pages**          | `batman`                  | `man`                                             |
-| **Static server**      | `serve`                   | python/http server                                |
-| **TLS certs**          | `mkcert`                  | manual openssl                                    |
-| **Terraform**          | `terraform`               | —                                                 |
-| **Protobuf**           | `protoc`                  | —                                                 |
-| **OCR**                | `tesseract`               | —                                                 |
-| **Docs**               | `pandoc`                  | —                                                 |
-| **Media**              | `ffmpeg`                  | —                                                 |
-| **AI local**           | `ollama`                  | cloud LLM only                                    |
-| **AI terminal**        | `shell-gpt` (pipx)        | —                                                 |
-| **Load testing**       | `k6`                      | manual benchmarks                                 |
-| **Network**            | `nmap`, `masscan`         | —                                                 |
-| **Tunnels**            | `cloudflared`, `ngrok`    | —                                                 |
-| **Binary analysis**    | `radare2`                 | —                                                 |
-| **GNU coreutils**      | 186 `g*` tools            | BSD equivalents                                   |
+| Category               | Tool                      | Replaces                                                                |
+| ---------------------- | ------------------------- | ----------------------------------------------------------------------- |
+| **Listing**            | `eza`                     | `ls`                                                                    |
+| **Finding**            | `fd`                      | `find`                                                                  |
+| **Searching**          | `rg` (ripgrep)            | `grep`                                                                  |
+| **Reading**            | `bat`                     | `cat`                                                                   |
+| **Search+context**     | `batgrep`                 | `rg` + `Read`                                                           |
+| **Find/replace**       | `sd`                      | `sed`                                                                   |
+| **Bulk replace**       | `ambr`/`ambs` (amber)     | `find \| xargs sed`                                                     |
+| **Bulk replace stats** | `ambr --statistics`       | blind bulk replaces                                                     |
+| **Structural replace** | `ast-grep` (`sg`)         | regex renames that must ignore strings & comments                       |
+| **Quality gate**       | `qlty`                    | THE quality tool — on-write, pre-merge, on-stop; one diff-aware command |
+| **JS/TS lint+fmt**     | `biome`                   | eslint+prettier in one Rust binary — owns code formatting, via qlty     |
+| **YAML/TOML/XML**      | `yq`                      | `jq` for config files                                                   |
+| **File copy**          | `xcp`                     | `cp` (10x faster on NFS)                                                |
+| **Structural diff**    | `difft` (difftastic)      | `diff`                                                                  |
+| **Syntax diff**        | `batdiff`, `delta`        | `git diff`                                                              |
+| **Disk usage**         | `dust`                    | `du`                                                                    |
+| **Interactive disk**   | `lazygit`                 | git TUI (staging, rebase, cherry-pick)                                  |
+| **Dir navigation**     | `zoxide` (`z`)            | `cd` (frecency-based jumping)                                           |
+| **Code stats**         | `tokei`                   | `cloc` / `wc -l` (150+ languages, instant)                              |
+| **Process viewer**     | `procs`, `btm` (bottom)   | `ps`, `htop`                                                            |
+| **DNS lookup**         | `doggo`                   | `dig` (colored, JSON output)                                            |
+| **System monitor**     | `btm` (bottom)            | `htop` (cross-platform graphs)                                          |
+| **Git TUI**            | `lazygit`                 | git CLI (interactive staging, rebasing)                                 |
+| **Interactive tree**   | `broot`                   | `tree` + `cd` + `find` combined                                         |
+| **File watcher**       | `watchexec`, `fswatch`    | `watch` (smarter rerun on change)                                       |
+| **Benchmarking**       | `hyperfine`               | manual `time` (statistical analysis)                                    |
+| **JSON**               | `jq`                      | `python3 -c`                                                            |
+| **Python**             | `uv`                      | `pip` / `venv` (10-100x faster)                                         |
+| **HTTP**               | `xh`                      | `curl`                                                                  |
+| **HTTP (multi)**       | `hurl`                    | sequential curl                                                         |
+| **HTTP (fancy)**       | `httpie`                  | `curl` interactive                                                      |
+| **Downloads**          | `aria2`                   | `wget`                                                                  |
+| **GitHub**             | `gh`                      | web UI                                                                  |
+| **Azure**              | `az`                      | web UI                                                                  |
+| **GH Actions local**   | `act`                     | push-to-test                                                            |
+| **CI lint**            | `actionlint`              | manual YAML review                                                      |
+| **Shell lint**         | `shellcheck`              | manual review                                                           |
+| **Git activity**       | `git log --since` aliases | multiple `git show`                                                     |
+| **Fuzzy find**         | `fzf`                     | manual file picking                                                     |
+| **Glamour shell**      | `gum`                     | basic shell prompts                                                     |
+| **Tree view**          | `tree`                    | recursive `ls`                                                          |
+| **Process monitor**    | `btop`                    | `top`                                                                   |
+| **Container TUI**      | `lazydocker`              | docker CLI                                                              |
+| **File manager**       | `ranger`                  | GUI file manager                                                        |
+| **Editor**             | `micro`                   | `nano`                                                                  |
+| **Man pages**          | `batman`                  | `man`                                                                   |
+| **Static server**      | `serve`                   | python/http server                                                      |
+| **TLS certs**          | `mkcert`                  | manual openssl                                                          |
+| **Terraform**          | `terraform`               | —                                                                       |
+| **Protobuf**           | `protoc`                  | —                                                                       |
+| **OCR**                | `tesseract`               | —                                                                       |
+| **Docs**               | `pandoc`                  | —                                                                       |
+| **Media**              | `ffmpeg`                  | —                                                                       |
+| **AI local**           | `ollama`                  | cloud LLM only                                                          |
+| **AI terminal**        | `shell-gpt` (pipx)        | —                                                                       |
+| **Load testing**       | `k6`                      | manual benchmarks                                                       |
+| **Network**            | `nmap`, `masscan`         | —                                                                       |
+| **Tunnels**            | `cloudflared`, `ngrok`    | —                                                                       |
+| **Binary analysis**    | `radare2`                 | —                                                                       |
+| **GNU coreutils**      | 186 `g*` tools            | BSD equivalents                                                         |
 
 ## Code Style Preferences
 
@@ -433,20 +441,20 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ### Editing & Code Intelligence
 
-| Skill                         | When to use                                                                              |
-| ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `klh-cli-speed-tools`         | ANY terminal file operation — listing, searching, reading files                          |
-| `klh-code-simplifier`         | Simplifying, refactoring, or cleaning up existing code                                   |
-| `klh-find-bugs`               | Reviewing changes for bugs, security vulnerabilities, code quality                       |
-| `ast-grep`                    | Writing ast-grep rules for structural code search/rewrite beyond text search             |
-| `docker`                      | ANY container work — Dockerfile/compose authoring, debugging, networking, Buildx         |
-| `az`                          | Azure CLI auth checks, subscription context, resource/deployment lookups                 |
-| `sqlite`                      | SQLite queries (read-only safe scripts), backups, health checks, diffing                 |
-| `zsh`                         | Reading/debugging/editing zsh config or scripts — setopt, globbing, ZLE, compinit        |
-| `md-format`                   | Markdown conventions — GFM-first; formatting is automatic via hook                       |
-| `sql-best-practice`           | Idiomatic SQL review, schema work, query tuning                                          |
-| `csharp-best-practice`        | Idiomatic C# review — conventions, structure, testing, tooling (.NET repos)              |
-| `klh-openapi-directory-first` | Working with ANY public API — check openapi-directory before training data or web search |
+| Skill                         | When to use                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `klh-cli-speed-tools`         | ANY terminal file operation — listing, searching, reading files                              |
+| `klh-code-simplifier`         | Simplifying, refactoring, or cleaning up existing code                                       |
+| `klh-find-bugs`               | Reviewing changes for bugs, security vulnerabilities, code quality                           |
+| `ast-grep`                    | Writing ast-grep rules for structural code search/rewrite beyond text search                 |
+| `docker`                      | ANY container work — Dockerfile/compose authoring, debugging, networking, Buildx             |
+| `az`                          | Azure CLI auth checks, subscription context, resource/deployment lookups                     |
+| `sqlite`                      | SQLite queries (read-only safe scripts), backups, health checks, diffing                     |
+| `zsh`                         | Reading/debugging/editing zsh config or scripts — setopt, globbing, ZLE, compinit            |
+| `md-format`                   | Markdown conventions — GFM-first; mechanical formatting is automatic via the post-files gate |
+| `sql-best-practice`           | Idiomatic SQL review, schema work, query tuning                                              |
+| `csharp-best-practice`        | Idiomatic C# review — conventions, structure, testing, tooling (.NET repos)                  |
+| `klh-openapi-directory-first` | Working with ANY public API — check openapi-directory before training data or web search     |
 
 ### Frontend & UI
 

@@ -1,14 +1,24 @@
 # speedy-claude
 
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
+
 Make Claude Code **10–1400x faster** at file operations — and **structurally safe** at editing.
 
 Based on [agent-skills](https://github.com/addyosmani/agent-skills), extended with three layers that work together:
 
 1. **Speed** — modern CLI tools + `CLAUDE.md` rules that replace sequential Read+Edit with single parallel pipelines
-2. **Safety** — enforcement hooks that block fragile shell edits and syntax-check every file after each edit
+2. **Safety** — governor gates that block fragile shell edits and run qlty fmt + lint on every save
 3. **Autonomy** — evidence-based permission allowlist + `acceptEdits` so the agent works without prompting
 
-Companion repos: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`) · **[klh/suspenders](https://github.com/klh/suspenders)** — the multi-agent control plane (governor.db, work graph, fleet board, monitor) this setup installs as its coordination layer.
+Companion repo: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`).
+
+The klh chain — speedy-claude is the speed + safety config layer on top of three focused repos:
+
+| Repo                                                | Role                                                             |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| [klh/suspenders](https://github.com/klh/suspenders) | Control plane — governor.db, gate hooks, work graph, fleet board |
+| [klh/belt](https://github.com/klh/belt)             | Local LLM fleet — MLX specialists behind a deterministic router  |
+| [klh/local](https://github.com/klh/local)           | klh-local — registers local services at `<name>.local` via Caddy |
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -45,43 +55,40 @@ Tested on a real codebase (733 TypeScript files, ~2500 total files, Apple M-seri
 
 ## The editing stack (fast AND safe)
 
-| Layer                  | Mechanism                                                                                                                                                                                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Surgical edit          | Claude Code **Edit** tool — unique context anchor, ambiguity fails loudly, auto-accepted (`acceptEdits`)                                                                                                                                                |
-| New/whole file         | **Write** tool                                                                                                                                                                                                                                          |
-| Textual bulk replace   | `sd` (regex) · `ambr`/`ambs` (parallel, with `--statistics`)                                                                                                                                                                                            |
-| Structural replace     | `ast-grep` — AST nodes only; strings and comments stay untouched                                                                                                                                                                                        |
-| Structured config      | `jq` (JSON) · `yq` (YAML/TOML/XML)                                                                                                                                                                                                                      |
-| Enforcement            | `hooks/edit-enforce.sh` denies `cat > f`, `cat >> f`, `sed -i`, `perl -i`; nudges heredoc rewriters toward Edit/Write                                                                                                                                   |
-| Post-edit verification | `hooks/syntax-check.sh` — measured sub-10ms gates per save: jq 3.2ms json · yq 6.3ms yaml · taplo 9.1ms toml · esbuild 6.8ms ts/tsx/jsx (parse) + project-tsc tier-2 (types) · ruff 9.6ms py · bash -n 2.4ms sh; errors feed straight back to the agent |
-| Lint / dev loop        | `qlty check` — 68 linters, one diff-aware command (`qlty init -y && qlty plugins enable biome prettier` on first use)                                                                                                                                   |
+| Layer                  | Mechanism                                                                                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Surgical edit          | Claude Code **Edit** tool — unique context anchor, ambiguity fails loudly, auto-accepted (`acceptEdits`)                                                   |
+| New/whole file         | **Write** tool                                                                                                                                             |
+| Textual bulk replace   | `sd` (regex) · `ambr`/`ambs` (parallel, with `--statistics`)                                                                                               |
+| Structural replace     | `ast-grep` — AST nodes only; strings and comments stay untouched                                                                                           |
+| Structured config      | `jq` (JSON) · `yq` (YAML/TOML/XML)                                                                                                                         |
+| Enforcement            | the suspenders pre-bash gate denies `cat > f`, `cat >> f`, `sed -i`, `perl -i`; nudges heredoc rewriters toward Edit/Write                                 |
+| Post-edit verification | the suspenders post-files gate — qlty fmt + fast lint on every save, blocks with the diff inline                                                           |
+| Lint / dev loop        | `qlty check` — one diff-aware command (`qlty init -y && qlty plugins enable biome` on first use; biome owns code formatting, prettier stays markdown-only) |
 
 **Why the enforcement exists:** `cat` is auto-allowed by the harness, so shell heredoc writes were the model's prompt-dodging workaround — every one of them invisible to diffs and unchecked. Denying the pattern and making Edit/Write prompt-free removes both the failure mode _and_ the incentive.
 
-## Hooks — one entrypoint
+## Hooks
 
-All gates live behind a single dispatcher: `bun hooks/gate.ts <event>` —
-shell-quote AST parsing (quoting tricks, env prefixes, redirects are
-structural, not regex-matched), argument-array spawns, shared contracts in
-`lib/hookio.ts`.
+speedy-claude ships two hooks itself; `install.sh` wires the suspenders gate
+suite that does the enforcement.
 
-| Event        | Gates                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------- |
-| `pre-bash`   | secrets (gitleaks staged/history) · edit-enforce (shell file-writes) · skill-install · fast-tool nudges |
-| `pre-files`  | config-guard: control-plane writes (hooks/settings/skills/agents) require YOUR approval                 |
-| `post-files` | syntax gates (esbuild/ruff/jq/yq/taplo/zsh -n/sass) + markdown prettier — one process per edit          |
-| `stop`       | claim-done gate: re-verifies changed files before the turn ends                                         |
-| `session`    | skills pointer + insights inbox surfacing                                                               |
+| Hook / gate                     | Event                     | Job                                                                                |
+| ------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `insight-recall.ts`             | UserPromptSubmit          | surfaces lessons from past sessions at each prompt                                 |
+| `pa-prefix.ts`                  | UserPromptSubmit          | personal-assistant trigger detection                                               |
+| suspenders `gate.ts pre-bash`   | PreToolUse (Bash)         | secrets (gitleaks) · shell file-write deny · skill-install gate · fast-tool nudges |
+| suspenders `gate.ts governor`   | PreToolUse (files)        | edit-leases and project-scoped permissions                                         |
+| suspenders `gate.ts pre-files`  | PreToolUse (files)        | config-guard: control-plane writes require YOUR approval                           |
+| suspenders `gate.ts post-files` | PostToolUse               | qlty fmt + fast lint on every save — blocks with the diff inline                   |
+| suspenders `gate.ts stop`       | Stop                      | claim-done evidence gate before the turn ends                                      |
+| suspenders session-start/-end   | SessionStart / SessionEnd | coordination bootstrap + teardown                                                  |
 
-**Multi-agent note** (learned from a 9-lane session that burned ~4.8K edit
-cycles): the edit-lease registry must be written **atomically** (temp+rename)
-and the deny path must **re-read it before denying** — unsynchronized
-read-modify-write produces stale snapshots that deny edits that were actually
-fine. Per-save formatting is skipped under `.claude/worktrees/` and runs once
-at claim-done (`_deferred_fmt`) — otherwise the formatter mutates the file
-after the lease hash was taken and every save risks a false deny.
+Register via `settings.example.json`. The read-before-edit guard, live —
+seven blind edits denied, then the Read, then clean edits (real session
+transcript, 2026-09-28):
 
-Register via `settings.example.json`.
+![The read-before-edit guard, live — seven blind edits denied, then the Read, then clean edits (real session transcript, 2026-09-28).](assets/governor-guard.png)
 
 ## Multi-agent coordination — the converged architecture
 
@@ -126,8 +133,11 @@ control plane ships in
 `./install.sh --wire`, namespaced under `~/.claude/hooks/suspenders/`; macOS
 agents — fleet monitor, LLM keepwarm, board keep-alive, rolling db backups —
 opt-in via its `./install.sh --with-launchd`) and the fleet itself in
-**[klh/belt](https://github.com/klh/belt)** (deployed to `~/.claude/local-llm/`;
-models + `com.belt.*` agents opt-in inside belt). Only the klh-specific
+**[klh/belt](https://github.com/klh/belt)** (deployed to `~/.claude/local-llm/`,
+tier picked by `install.sh --llm=minimal|full`; models + `com.belt.*` agents
+opt-in inside belt). With [klh-local](https://github.com/klh/local) on the
+machine, `install.sh` also registers `suspenders.local` (:7799) and
+`belt.local` (:7791) as Caddy `.local` services. Only the klh-specific
 claude-insights agent remains in this repo's
 [hooks/launchd/](hooks/launchd/). The ready-to-copy binding protocol for a multi-agent
 repo lives in [docs/coordination-protocol.md](docs/coordination-protocol.md).
@@ -215,12 +225,15 @@ Requires `~/.claude/.skill-review-secret` (32-byte hex, 0600). Reference impleme
 
 ## Local LLM fleet (optional layer)
 
-The local-inference layer lives in its own repo now: **[klh/belt](https://github.com/klh/belt)** —
+The local-inference layer is **[klh/belt](https://github.com/klh/belt)** —
 a specialist swarm of MLX models behind a deterministic router, with the
 benchmark rig, the measured results, and the add-a-model guide (including the
 rejection log). Routine agent traffic never leaves the machine; suspenders'
 advice worker and keepwarm ride belt's endpoints. `install.sh` deploys belt
-automatically; models and launchd agents are opt-in inside belt:
+when you pass an LLM tier — `--llm=minimal` (small models only, ~3GB resident,
+for machines without 64GB+ unified memory) or `--llm=full`; fresh installs
+default to `--llm=off` (cloud-only) and upgrades keep an already-deployed
+fleet. Models and launchd agents are opt-in inside belt:
 
 ```bash
 git clone https://github.com/klh/belt && cd belt
@@ -234,16 +247,17 @@ git clone https://github.com/klh/belt && cd belt
 ```bash
 mv ~/.claude ~/.claude.bak
 git clone https://github.com/klh/speedy-claude.git ~/.claude
-~/.claude/install.sh
+~/.claude/install.sh                      # add --llm=minimal|full for the local LLM fleet
 cp ~/.claude/settings.example.json ~/.claude/settings.json  # then edit token/allowlist
 ```
 
-This restores the complete setup: 36 skills, 16 personas, 5 hooks, slash commands, statusline, and CLAUDE.md. The seven `mj-*` personas additionally need a `midjourney` MCP server exposing `mj_imagine`, `mj_describe`, `mj_blend`, `mj_button`, `mj_job`.
+This restores the complete setup: 36 skills, 16 personas, hooks (insight-recall + pa-prefix + the suspenders gates), slash commands, statusline, and CLAUDE.md. The seven `mj-*` personas additionally need a `midjourney` MCP server exposing `mj_imagine`, `mj_describe`, `mj_blend`, `mj_button`, `mj_job`.
 
 ### Option 2: CLI tools only (no skills)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/klh/speedy-claude/main/install.sh | bash
+# pick an LLM tier:  curl -fsSL https://raw.githubusercontent.com/klh/speedy-claude/main/install.sh | bash -s -- --llm=full
 ```
 
 ### Option 3: Skills via npx
@@ -265,18 +279,21 @@ sed "s|__HOME__|$HOME|g" ~/.claude/hooks/launchd/com.klh.claude-insights.plist >
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.klh.claude-insights.plist
 ```
 
-Statusline: reference implementation in `statusLine.sh` — register with
-`"statusLine": {"type": "command", "command": "bash $HOME/.claude/statusLine.sh"}` in settings.json.
+Statusline: reference implementation in `statusline.ts` — register with
+`"statusLine": {"type": "command", "command": "bun $HOME/.claude/statusline.ts"}` in settings.json.
 
 ## The full dev loop
 
 ```
-implement  →  tests (npm test / dotnet test)  →  qlty check (diff-aware lint)  →  difft review
-     ↑____________________ syntax-check.sh guards every edit ____________________↑
+implement  →  tests  →  qlty fmt + qlty check --fix (staged)  →  difft review  →  merge
 ```
 
-The agent participates in the whole loop, not just generation — verified by tooling before anything is claimed done.
+Quality runs at three moments: the governor post-files gate applies qlty fmt + fast lint on every write (blocking with the diff inline), the pre-merge ladder runs `qlty fmt` + `qlty check --fix` on staged files, and the stop gate is evidence-only — it verifies the work happened, it does not lint. The agent participates in the whole loop, not just generation — verified by tooling before anything is claimed done.
 
 ## License
 
 MIT
+
+---
+
+a [Threads](http://www.threads.dk) thing
