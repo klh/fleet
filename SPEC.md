@@ -78,7 +78,7 @@ belt.local {
 
 ## The verbs
 
-`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply`
+`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply` — plus the bar, the read-only status GUI serving the registry (below).
 
 ### register `<name> --port N [--health /health] [--no-dns]`
 
@@ -103,6 +103,16 @@ Per service:
 - fragment: exists at the recorded path.
 
 `status` and `list` are read-only — no side effects on Caddy, dns, or the registry.
+
+### bar
+
+The status GUI: `bin/dashboard.ts`, a single-file Bun server on :7792 (`KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override), deployed to `~/.local/klh-local/bin/` by `install.sh` and kept alive by the `com.klh-local.dashboard` LaunchAgent. It registers itself like any service (`klh-local register bar --port 7792 --health /`) and Caddy fronts it at `http://bar.local/`.
+
+- `GET /` — embedded page (vanilla JS, 3s auto-refresh, no frameworks, no external assets): one hairline row per service — name, port, target, health, dns-claim liveness, fragment presence, created date — under a Caddy line (:80 answering, `caddy version`) and the registry path.
+- `GET /api/status` — the same snapshot as JSON, health results included.
+- `GET /llms.txt` — static plain-text intro: the verbs, the registry location, the repo.
+
+Same probes and sources as `status`: the registry file, the 1.5s health GET, `kill -0` on dns pids, fragment stat — plus a pure-TCP :80 check (the catch-all `abort`s unknown Hosts, so an HTTP probe of :80 would misread a healthy Caddy as down). Read-only like `status`/`list`: it never mutates Caddy, dns, or the registry.
 
 ### deregister `<name>`
 
@@ -143,7 +153,7 @@ Possible, not planned: a SwiftUI status bar app (registry at a glance, ad-hoc co
 
 ## Implementation notes
 
-- Single file: `bin/klh-local.ts`, Bun, no dependencies. All subprocesses spawned with argument arrays (never shell strings).
+- Single file per binary: `bin/klh-local.ts` (the CLI) and `bin/dashboard.ts` (the bar), Bun, no dependencies. All subprocesses spawned with argument arrays (never shell strings). `install.sh` deploys both to `~/.local/klh-local/bin/` (symlinking `~/.local/bin/klh-local`) and bootstraps the bar's LaunchAgent from the `launchd/com.klh-local.dashboard.plist` `__HOME__` template.
 - Registry writes are read-modify-write with temp + rename so a crash never leaves a truncated registry.
 - `list`/`status` are pure reads and safe to run anywhere.
 - Caddyfile syntax notes: the empty-glob `import` (no fragments yet) is tolerated by current Caddy v2, and `abort` in the hostless catch-all is the documented deny directive — both are the conservative forms chosen without a local Caddy to validate against; first `install` on a machine with Caddy confirms them via `caddy validate`.

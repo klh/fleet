@@ -14,6 +14,8 @@ echo 'alias klh-local="bun /Volumes/Sensitive/github/klh/local/bin/klh-local.ts"
 klh-local install          # brew install caddy (if missing) + LaunchAgent + Caddyfile
 ```
 
+Or one step: `./install.sh` — deploys `bin/` to `~/.local/klh-local/`, wires `~/.local/bin/klh-local`, bootstraps the bar dashboard agent, and registers the board as `bar.local` (idempotent, converges on re-run).
+
 ## The verbs
 
 **install** — one-time bootstrap: installs Caddy via Homebrew (if missing), writes the Caddyfile skeleton with the default-deny catch-all, and starts a user LaunchAgent (`com.klh-local.caddy`, KeepAlive) running `caddy run`. Ports :80/:443 are bound unprivileged — no root anywhere.
@@ -64,6 +66,21 @@ klh-local deregister myapp
 ```
 
 macOS sends `*.local` to mDNS and hosts files cannot wildcard, so exact names in a marked block are the deterministic loopback path — without a resolver daemon hijacking printer/AirPlay `.local` names machine-wide. `register`/`deregister` print a drift hint when the file disagrees with the registry; the write itself is the one sudo in klh-local's world. The `.local` hostname is also claimed over mDNS (`dns-sd -P`, A record included) so other devices on the LAN resolve it too.
+
+## Bar
+
+The registry, rendered live: [http://bar.local/](http://bar.local/) — one hairline row per service (name, port, target, health via the same 1.5s GET the `status` verb makes, dns-claim liveness, fragment presence, created date), under a Caddy line (:80 answering, `caddy version`) and the registry path. Vanilla JS refreshing every 3s, no frameworks, no external assets — a single-file Bun server, `bin/dashboard.ts`.
+
+- [http://bar.local/api/status](http://bar.local/api/status) — the same snapshot as JSON, health results included
+- [http://bar.local/llms.txt](http://bar.local/llms.txt) — what klh-local is, in plain text
+
+The board runs as a user LaunchAgent (`com.klh-local.dashboard`, port :7792, `KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override; logs to `~/.local/state/klh-local/dashboard.log`). `install.sh` sets it up and registers the board itself as a service — the bar is just another row in its own table:
+
+```bash
+klh-local register bar --port 7792 --health /
+```
+
+Read-only by design: the bar probes and renders; it never registers, reloads, or claims.
 
 ## Security posture
 
