@@ -1,0 +1,12 @@
+[
+  {
+    "sid": "autow1",
+    "item": "W1",
+    "pid": 64002,
+    "branch": "main",
+    "worktree": "/Volumes/Sensitive/github/klh/local/.worktrees/W1",
+    "agent": "codex",
+    "host": "Muramasa.localdomain",
+    "launchedAt": 1790622256836
+  }
+]
