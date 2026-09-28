@@ -147,10 +147,7 @@ const tryReload = (): void => {
 const claimDns = (name: string, port: number): Dns => {
 	let ip = "";
 	try {
-		ip =
-			run(["/usr/sbin/ipconfig", "-if", "en0", "getpacket", "en0"]).out.match(
-				/siaddr ([\d.]+)/,
-			)?.[1] ?? "";
+		ip = run(["/usr/sbin/ipconfig", "getifaddr", "en0"]).out.trim();
 	} catch {}
 	const mdnsHost = (ip: string): string[] =>
 		ip
@@ -166,7 +163,11 @@ const claimDns = (name: string, port: number): Dns => {
 				]
 			: [DNS_SD, "-R", name, "_http._tcp", `${name}.local`, String(port)];
 	const p = Bun.spawn(
-		["/bin/sh", "-c", `${mdnsHost(ip).join(" ")} </dev/null >/dev/null 2>&1`],
+		[
+			"/bin/sh",
+			"-c",
+			`exec ${mdnsHost(ip).join(" ")} </dev/null >/dev/null 2>&1`,
+		],
 		{
 			stdin: "ignore",
 			stdout: "ignore",
