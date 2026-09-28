@@ -36,6 +36,20 @@ else
   info "suspenders control plane already installed"
 fi
 
+# ─── Local LLM fleet: belt (optional layer, not vendored) ────
+# klh/belt serves the MLX specialist swarm on localhost (:8901+) — the
+# endpoints suspenders' advice worker and keepwarm talk to. Deploying the
+# code is cheap; models (~40-60GB) and launchd agents are opt-in inside belt.
+if [ ! -f "$HOME/.claude/local-llm/registry.ts" ]; then
+  info "deploying the local LLM fleet (klh/belt)..."
+  T=$(mktemp -d)
+  git clone --depth 1 https://github.com/klh/belt "$T/belt"
+  (cd "$T/belt" && ./install.sh)
+  rm -rf "$T"
+else
+  info "belt (local LLM fleet) already deployed"
+fi
+
 # ─── Brew packages ───────────────────────────────────────
 
 BREW_TOOLS=(

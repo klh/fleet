@@ -120,13 +120,15 @@ upgrade path if lanes ever go multi-machine). If finer control is ever needed,
 start with `ts-morph`-based symbol edits (`ts_edit`) before anything heavier.
 
 Unattended install of the coordination plane (claims/leases/event-bus CLIs +
-keepwarm agent): `bun setup/llm-stack.ts --with-launchd` installs the fleet
-**and** bootstraps `governor.db` + the keepwarm agent. The control plane ships in
-**[klh/suspenders](https://github.com/klh/suspenders)** — `install.sh` installs it
-automatically (shallow clone + its `./install.sh --wire`), namespaced under
-`~/.claude/hooks/suspenders/`; its macOS agents (fleet monitor, LLM keepwarm, board
-keep-alive, rolling db backups) are opt-in via its `./install.sh --with-launchd`. Only the
-klh-specific agents (claude-insights, local-llm) remain in this repo's
+keepwarm agent) and the local LLM fleet: `install.sh` handles both — the
+control plane ships in
+**[klh/suspenders](https://github.com/klh/suspenders)** (shallow clone + its
+`./install.sh --wire`, namespaced under `~/.claude/hooks/suspenders/`; macOS
+agents — fleet monitor, LLM keepwarm, board keep-alive, rolling db backups —
+opt-in via its `./install.sh --with-launchd`) and the fleet itself in
+**[klh/belt](https://github.com/klh/belt)** (deployed to `~/.claude/local-llm/`;
+models + `com.belt.*` agents opt-in inside belt). Only the klh-specific
+claude-insights agent remains in this repo's
 [hooks/launchd/](hooks/launchd/). The ready-to-copy binding protocol for a multi-agent
 repo lives in [docs/coordination-protocol.md](docs/coordination-protocol.md).
 
@@ -213,15 +215,16 @@ Requires `~/.claude/.skill-review-secret` (32-byte hex, 0600). Reference impleme
 
 ## Local LLM fleet (optional layer)
 
-Speedy-claude also encodes a local-inference layer: a specialist swarm of MLX
-models behind an Anthropic-compatible router — routine agent traffic never
-leaves the machine, with a typed-classifier leg (Kev) for ambiguous requests.
-Findings, fleet table, calibration notes, and gotchas:
-**[docs/local-llm-fleet.md](docs/local-llm-fleet.md)**.
-From-scratch setup on a new Mac (idempotent, argument-array spawns only):
+The local-inference layer lives in its own repo now: **[klh/belt](https://github.com/klh/belt)** —
+a specialist swarm of MLX models behind a deterministic router, with the
+benchmark rig, the measured results, and the add-a-model guide (including the
+rejection log). Routine agent traffic never leaves the machine; suspenders'
+advice worker and keepwarm ride belt's endpoints. `install.sh` deploys belt
+automatically; models and launchd agents are opt-in inside belt:
 
 ```bash
-bun setup/llm-stack.ts --dry-run
+git clone https://github.com/klh/belt && cd belt
+./install.sh --with-models --with-launchd
 ```
 
 ## Install
