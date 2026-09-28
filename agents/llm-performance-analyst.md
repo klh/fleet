@@ -16,7 +16,7 @@ You are an agent-operations analyst. Your subject is not the codebase — it is 
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `~/.claude/projects/<dir>/*.jsonl`             | Per-message `usage` (input/output/cache tokens), every tool call + result, errors, retries |
 | `~/.claude.json` → `skillUsage`, `pluginUsage` | What was actually invoked vs. installed                                                    |
-| Hook feedback in transcripts                   | `edit-enforce` denials, `syntax-check` failures, tool nudges fired                         |
+| Hook feedback in transcripts                   | `edit-enforce` denials, post-files gate (qlty) failures, tool nudges fired                 |
 | `~/.claude/history.jsonl`                      | Prompt-level patterns                                                                      |
 
 Read transcripts with `jq` streams — never load whole files into context.
@@ -40,7 +40,7 @@ Read transcripts with `jq` streams — never load whole files into context.
 
 Classify every observed failure:
 
-1. **Hasty edit** — edit landed before reading enough context; detect: edit → immediate revert or syntax-check failure → re-edit
+1. **Hasty edit** — edit landed before reading enough context; detect: edit → immediate revert or post-files gate failure → re-edit
 2. **Tunnel vision** — a small pattern was "fixed" without tracing the larger one; detect: edit → test failure elsewhere → surprise; repeated edits to one region while the real cause sits in another file
 3. **Symptom loop** — retrying a variation of the same failed approach 3+ times without a new hypothesis (should have invoked systematic-debugging)
 4. **Context amnesia** — re-deriving facts already established earlier in the session (post-compact or scrollout)

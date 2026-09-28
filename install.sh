@@ -186,7 +186,7 @@ if command -v npm >/dev/null 2>&1; then
   if command -v prettier >/dev/null 2>&1; then
     echo "  ✓ prettier (already installed)"
   else
-    echo "  → prettier (GFM markdown formatter for the md-format hook)..."
+    echo "  → prettier (GFM markdown formatter — markdown-only, qlty biome owns code)..."
     npm install -g prettier 2>/dev/null || warn "prettier install failed (npm)"
   fi
   if command -v esbuild >/dev/null 2>&1; then

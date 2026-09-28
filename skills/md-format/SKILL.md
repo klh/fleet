@@ -1,11 +1,11 @@
 ---
 name: md-format
-description: Markdown output conventions and formatting — GitHub-flavored by default. Use when writing or reviewing .md files (READMEs, docs, SKILL.md, PR descriptions); formatting runs automatically via the md-format hook, this skill covers the judgment calls prettier can't make.
+description: Markdown output conventions and formatting — GitHub-flavored by default. Use when writing or reviewing .md files (READMEs, docs, SKILL.md, PR descriptions); formatting runs automatically via the suspenders post-files gate, this skill covers the judgment calls prettier can't make.
 ---
 
 # Markdown Style (GFM-first)
 
-Mechanical formatting is handled automatically: every Write/Edit to a `.md` file triggers `hooks/md-format.sh` → `prettier --write --prose-wrap preserve`. That aligns table pipes, normalizes list markers (`-` for bullets, `1.` ordered), code-fence style, and spacing. You write; the hook tidies.
+Mechanical formatting is handled automatically: every Write/Edit to a `.md` file runs through the suspenders post-files gate → `prettier --write --prose-wrap preserve`. That aligns table pipes, normalizes list markers (`-` for bullets, `1.` ordered), code-fence style, and spacing. You write; the gate tidies.
 
 Manual format (unformatted files, bulk):
 
