@@ -8,7 +8,7 @@ Based on [agent-skills](https://github.com/addyosmani/agent-skills), extended wi
 2. **Safety** — enforcement hooks that block fragile shell edits and syntax-check every file after each edit
 3. **Autonomy** — evidence-based permission allowlist + `acceptEdits` so the agent works without prompting
 
-Companion repo: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`).
+Companion repos: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`) · **[klh/suspenders](https://github.com/klh/suspenders)** — the multi-agent control plane (governor.db, work graph, fleet board, monitor) this setup installs as its coordination layer.
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -70,6 +70,8 @@ structural, not regex-matched), argument-array spawns, shared contracts in
 | `pre-bash`   | secrets (gitleaks staged/history) · edit-enforce (shell file-writes) · skill-install · fast-tool nudges |
 | `pre-files`  | config-guard: control-plane writes (hooks/settings/skills/agents) require YOUR approval                 |
 | `post-files` | syntax gates (esbuild/ruff/jq/yq/taplo/zsh -n/sass) + markdown prettier — one process per edit          |
+| `stop`       | claim-done gate: re-verifies changed files before the turn ends                                         |
+| `session`    | skills pointer + insights inbox surfacing                                                               |
 
 **Multi-agent note** (learned from a 9-lane session that burned ~4.8K edit
 cycles): the edit-lease registry must be written **atomically** (temp+rename)
@@ -78,15 +80,17 @@ read-modify-write produces stale snapshots that deny edits that were actually
 fine. Per-save formatting is skipped under `.claude/worktrees/` and runs once
 at claim-done (`_deferred_fmt`) — otherwise the formatter mutates the file
 after the lease hash was taken and every save risks a false deny.
-| `stop` | claim-done gate: re-verifies changed files before the turn ends |
-| `session` | skills pointer + insights inbox surfacing |
 
 Register via `settings.example.json`.
 
 ## Multi-agent coordination — the converged architecture
 
 For N coding lanes on one machine (learned from a 9-lane session + a fleet-wide
-architecture review): **isolate execution, serialize only integration.**
+architecture review): **isolate execution, serialize only integration.** The
+control plane behind this table — governor.db, edit-leases, area claims, the
+event bus, zombie monitor, usage windows, the fleet board — ships in
+**[klh/suspenders](https://github.com/klh/suspenders)**; speedy-claude is the
+speed + safety config layer on top of it.
 
 | Layer                  | Mechanism                                                                                                                                                                                                                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -99,7 +103,7 @@ architecture review): **isolate execution, serialize only integration.**
 | Capability dispatch    | `requires` on work items ⊆ `capabilities` on sessions (csv; lanes inherit the parent's) — `work take` refuses mismatches, so a no-shell agent type can never be handed shell work twice                                                                                            |
 | Zombie detection       | Three-state monitor (ZOMBIE = hb + transcript both stale; SUSPECT = one; lookup failure = UNKNOWN, never death) on a 15-min launchd — alerts the canonical coordinator (`fact coordinator.sid`), never auto-reclaims; WAIT_RATE/PAUSED lanes are expected-silent                   |
 | Usage windows          | `quota-window.ts` remembers observed 429 resets (5h cliffs) — dispatch defers around the cliff, and the degradation path is the local LLM stack keeping lanes crawling through blackouts instead of dying                                                                          |
-| Fleet board            | `fleet` (bin/fleet.ts): read-only live dashboard on 127.0.0.1:7799 — every session, per-project boards, and a NEEDS-YOUR-ANSWER panel surfacing `NEED_DECISION` events with inline owner answers                                                                                   |
+| Fleet board            | suspenders `fleet-board.ts`: live dashboard on 127.0.0.1:7799 — every session, per-project task boards, decisions with LLM recommendations, and a NEEDS-YOUR-ANSWER panel surfacing `NEED_DECISION` events with inline owner answers                                               |
 | Early conflict warning | `git merge-tree --write-tree <head> <lane>` — pure three-way merge simulation, no working-tree mutation, run between overlapping lanes' checkpoints                                                                                                                                |
 | Integration spine      | One integration worktree; lane commits merge onto the integration HEAD, **qlty runs on the merged state**, green advances HEAD                                                                                                                                                     |
 | Repair                 | Conflicts go to a small repair agent in a disposable worktree — never wake both origin lanes                                                                                                                                                                                       |
@@ -117,15 +121,14 @@ start with `ts-morph`-based symbol edits (`ts_edit`) before anything heavier.
 
 Unattended install of the coordination plane (claims/leases/event-bus CLIs +
 keepwarm agent): `bun setup/llm-stack.ts --with-launchd` installs the fleet
-**and** bootstraps `governor.db` + the keepwarm agent; the ready-to-copy
-binding protocol for a multi-agent repo lives in
-[docs/coordination-protocol.md](docs/coordination-protocol.md). Manual plist
-install:
-
-````bash
-The fleet-monitor and llm-keepwarm agents ship with suspenders — install with its
-./install.sh --with-launchd. Only the klh-specific agents (claude-insights,
-local-llm) remain in hooks/launchd/ here.```
+**and** bootstraps `governor.db` + the keepwarm agent. The control plane ships in
+**[klh/suspenders](https://github.com/klh/suspenders)** — `install.sh` installs it
+automatically (shallow clone + its `./install.sh --wire`), namespaced under
+`~/.claude/hooks/suspenders/`; its macOS agents (fleet monitor, LLM keepwarm, board
+keep-alive, rolling db backups) are opt-in via its `./install.sh --with-launchd`. Only the
+klh-specific agents (claude-insights, local-llm) remain in this repo's
+[hooks/launchd/](hooks/launchd/). The ready-to-copy binding protocol for a multi-agent
+repo lives in [docs/coordination-protocol.md](docs/coordination-protocol.md).
 
 ## Autonomy settings
 
@@ -195,7 +198,7 @@ Hard rule: **open-source, self-hosted, no paid tiers in the stack.** Model acces
 npm i -g chrome-devtools-mcp
 claude mcp add -s user chrome-devtools -- chrome-devtools-mcp
 claude mcp add -s user -t http context7 https://mcp.context7.com/mcp
-````
+```
 
 ## Skill install gate (how to complete it)
 
