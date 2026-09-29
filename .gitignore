@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.qlty/logs
+.qlty/out
+.qlty/results
+.qlty/sources
+.qlty/configs
+.DS_Store
+*.log
+.fleet/
+.worktrees/
+tmp/

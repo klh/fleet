@@ -1,0 +1,183 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "BLAM incident record",
+	"description": "One sanitized real-world failure of an LLM agent fleet operating on a shared repository.",
+	"type": "object",
+	"required": [
+		"id",
+		"date",
+		"title",
+		"summary",
+		"crash_class",
+		"subclass",
+		"severity",
+		"detection",
+		"recovery",
+		"mitigations",
+		"confidence"
+	],
+	"additionalProperties": false,
+	"definitions": {
+		"datestr": {
+			"type": "string",
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+		}
+	},
+	"properties": {
+		"id": {
+			"type": "string",
+			"pattern": "^BLAM-[0-9]{4}$"
+		},
+		"date": {
+			"$ref": "#/definitions/datestr"
+		},
+		"title": {
+			"type": "string",
+			"maxLength": 120
+		},
+		"summary": {
+			"type": "string",
+			"maxLength": 400
+		},
+		"narrative": {
+			"type": "string"
+		},
+		"fleet": {
+			"type": "object",
+			"properties": {
+				"kind": {
+					"enum": [
+						"single-machine",
+						"distributed"
+					]
+				},
+				"lanes": {
+					"type": "integer",
+					"minimum": 1
+				},
+				"backends": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			}
+		},
+		"crash_class": {
+			"enum": [
+				"concurrency-race",
+				"recovery-gap",
+				"alignment-drift",
+				"state-poisoning",
+				"handoff-failure"
+			]
+		},
+		"subclass": {
+			"type": "string",
+			"pattern": "^[a-z0-9-]+$"
+		},
+		"severity": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"data_loss_commits",
+				"false_blocks",
+				"wall_clock_lost_min",
+				"undetected_min"
+			],
+			"properties": {
+				"data_loss_commits": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"false_blocks": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"wall_clock_lost_min": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"undetected_min": {
+					"type": "integer",
+					"minimum": 0
+				}
+			}
+		},
+		"detection": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"how",
+				"time_min",
+				"automated"
+			],
+			"properties": {
+				"how": {
+					"type": "string"
+				},
+				"time_min": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"automated": {
+					"type": "boolean"
+				}
+			}
+		},
+		"recovery": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"action",
+				"time_min",
+				"permanent_fix"
+			],
+			"properties": {
+				"action": {
+					"type": "string"
+				},
+				"time_min": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"permanent_fix": {
+					"type": "string"
+				}
+			}
+		},
+		"mitigations": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"evidence": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"kind": {
+						"type": "string"
+					},
+					"content": {
+						"type": "string"
+					}
+				}
+			}
+		},
+		"confidence": {
+			"enum": [
+				"high",
+				"medium",
+				"low"
+			]
+		},
+		"related": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		}
+	}
+}
