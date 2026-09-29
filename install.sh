@@ -80,7 +80,19 @@ if [ "$LLM_FLAG" != "off" ]; then
   fi
 fi
 
-# ─── .local services (klh-local, optional) ───────────────
+# ─── .local services (klh-local, optional layer) ─────────
+# klh-local fronts the fleet dashboards as <name>.local via caddy. Like belt
+# it is an optional layer: installed here when absent, warn-and-continue on
+# failure — the chain works without it, just without .local names.
+if [ ! -x "$HOME/.local/bin/klh-local" ]; then
+  T="$(mktemp -d)"
+  info "installing .local services (klh/local)..."
+  if git clone --depth 1 https://github.com/klh/local "$T/local" 2>/dev/null; then
+    (cd "$T/local" && ./install.sh) || warn "klh-local install failed (optional) — continuing without it"
+  else
+    warn "klh/local clone failed (optional) — continuing without .local services"
+  fi
+fi
 if [ -x "$HOME/.local/bin/klh-local" ]; then
   if "$HOME/.local/bin/klh-local" register suspenders --port 7799 --health /; then
     echo "  ✓ suspenders.local (:7799) registered"
