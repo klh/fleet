@@ -4,6 +4,8 @@
 
 **One command per local service on macOS.** `klh-local register suspenders --port 7799` writes the Caddy site fragment, claims `suspenders.local` over mDNS, records everything in a registry file, and reloads Caddy — zero sudo, zero downtime. One command per service, every time. Design details in [SPEC.md](SPEC.md).
 
+> **Platform: macOS** — launchd, Bonjour/dns-sd, and Caddy. Linux needs avahi + systemd equivalents, which are not implemented.
+
 ## Install
 
 Requires [Bun](https://bun.sh). Caddy, the Caddyfile, and the user LaunchAgent are bootstrapped by the tool itself:
@@ -93,11 +95,11 @@ Read-only by design: the bar probes and renders; it never registers, reloads, or
 
 ## Companion repos
 
-| Repo | Role in the fleet |
-| --- | --- |
+| Repo                                            | Role in the fleet                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
 | [suspenders](https://github.com/klh/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
-| [belt](https://github.com/klh/belt) | Local LLM fleet and OpenAI-compatible endpoints |
-| [speedy](https://github.com/klh/speedy) | Speed and safety config layer: skills, hooks, personas, settings |
+| [belt](https://github.com/klh/belt)             | Local LLM fleet and OpenAI-compatible endpoints                       |
+| [speedy](https://github.com/klh/speedy)         | Speed and safety config layer: skills, hooks, personas, settings      |
 
 ## Licensing
 
