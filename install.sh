@@ -44,6 +44,19 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 info "Detected: $OS $ARCH"
 
+# ─── .local services first (klh-local) ───────────────────
+# Installed FIRST so every later layer (suspenders, belt) can register its
+# dashboard as <name>.local as it goes — same optional-layer pattern as belt.
+if [ ! -x "$HOME/.local/bin/klh-local" ]; then
+  T="$(mktemp -d)"
+  info "installing .local services (klh/local)..."
+  if git clone --depth 1 https://github.com/klh/local "$T/local" 2>/dev/null; then
+    (cd "$T/local" && ./install.sh) || warn "klh-local install failed (optional) — continuing without it"
+  else
+    warn "klh/local clone failed (optional) — continuing without .local services"
+  fi
+fi
+
 # ─── Control plane: suspenders (dependency, not vendored) ──
 # speedy is a config layer on top of klh/suspenders (control-plane CLIs,
 # hook gates, fleet board, monitor). Install it first.
@@ -80,19 +93,7 @@ if [ "$LLM_FLAG" != "off" ]; then
   fi
 fi
 
-# ─── .local services (klh-local, optional layer) ─────────
-# klh-local fronts the fleet dashboards as <name>.local via caddy. Like belt
-# it is an optional layer: installed here when absent, warn-and-continue on
-# failure — the chain works without it, just without .local names.
-if [ ! -x "$HOME/.local/bin/klh-local" ]; then
-  T="$(mktemp -d)"
-  info "installing .local services (klh/local)..."
-  if git clone --depth 1 https://github.com/klh/local "$T/local" 2>/dev/null; then
-    (cd "$T/local" && ./install.sh) || warn "klh-local install failed (optional) — continuing without it"
-  else
-    warn "klh/local clone failed (optional) — continuing without .local services"
-  fi
-fi
+# ─── .local registration (klh-local) ─────────────────────
 if [ -x "$HOME/.local/bin/klh-local" ]; then
   if "$HOME/.local/bin/klh-local" register suspenders --port 7799 --health /; then
     echo "  ✓ suspenders.local (:7799) registered"

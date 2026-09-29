@@ -4,6 +4,8 @@
 
 Make Claude Code **10–1400x faster** at file operations — and **structurally safe** at editing.
 
+> **Platform: macOS.** The installer drives Homebrew, launchd, and zsh defaults, and the hooks assume macOS tooling. Linux is untested and Windows is not supported.
+
 Based on [agent-skills](https://github.com/addyosmani/agent-skills), extended with three layers that work together:
 
 1. **Speed** — modern CLI tools + `CLAUDE.md` rules that replace sequential Read+Edit with single parallel pipelines
