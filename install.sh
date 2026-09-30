@@ -48,3 +48,14 @@ echo "done. next:"
 echo "  board    http://bar.local/            (json: /api/status · intro: /llms.txt)"
 echo "  status   klh-local status"
 echo "  agent    launchctl print gui/$(id -u)/com.klh-local.dashboard"
+
+# ─── release notify: the distributed changelog (2026-09-30) ───
+# every deploy announces the live version on the coord bus; every session
+# sees it at next poll or SessionStart. Fresh machines (no coord) skip.
+COORD="$HOME/.claude/hooks/suspenders/bin/coord.ts"
+if [ -f "$COORD" ]; then
+  REL_VER=$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null || echo unknown)
+  REL_NOTE=$(git -C "$REPO_DIR" tag -l --format='%(contents:subject)' "$REL_VER" 2>/dev/null | head -1)
+  bun "$COORD" emit RELEASE --scope klh-local --version "$REL_VER" \
+    --note "${REL_NOTE:-deployed}" --as installer >/dev/null 2>&1 || true
+fi
