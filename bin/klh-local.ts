@@ -36,10 +36,12 @@ const HOSTS_START = "# --- klh-local managed: start ---";
 const HOSTS_END = "# --- klh-local managed: end ---";
 
 type Dns = { claimed: boolean; pid?: number };
+type Route = { path: string; port: number };
 type Service = {
 	name: string;
 	port: number;
 	health_path: string;
+	routes?: Route[];
 	dns: Dns;
 	caddy: { conf_path: string };
 	created_at: string;
@@ -82,11 +84,34 @@ const dnsAlive = (pid?: number): boolean => {
 const fragmentConf = (
 	name: string,
 	port: number,
-): string => `# klh-local fragment — https://${name}.local/ → 127.0.0.1:${port} (auto-HTTPS via Caddy internal CA)
+	routes: Route[] = [],
+): string => {
+	const header = `# klh-local fragment — https://${name}.local/ → 127.0.0.1:${port} (auto-HTTPS via Caddy internal CA)`;
+	if (routes.length === 0)
+		return `${header}
 ${name}.local {
 	reverse_proxy 127.0.0.1:${port}
 }
 `;
+	// handle blocks are mutually exclusive and matcher-ordered: path routes
+	// win over the default handle, and every route preserves the request path.
+	const handles = routes
+		.map(
+			(r) =>
+				`\thandle ${r.path} {
+		reverse_proxy 127.0.0.1:${r.port}
+	}
+`,
+		)
+		.join("");
+	return `${header}
+${name}.local {
+${handles}	handle {
+		reverse_proxy 127.0.0.1:${port}
+	}
+}
+`;
+};
 
 const caddyfileSkeleton =
 	(): string => `# klh-local managed Caddyfile — per-service fragments are imported from sites/ below.
@@ -232,11 +257,27 @@ const cmdRegister = (argv: string[]): void => {
 	let portRaw = "";
 	let healthPath = "/";
 	let noDns = false;
+	const routes: Route[] = [];
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === "--port") portRaw = argv[++i] ?? "";
 		else if (argv[i] === "--health") healthPath = argv[++i] ?? "/";
 		else if (argv[i] === "--no-dns") noDns = true;
-		else if (!argv[i].startsWith("--") && !name) name = argv[i];
+		else if (argv[i] === "--route") {
+			const spec = argv[++i] ?? "";
+			const eq = spec.lastIndexOf("=");
+			const rawPath = eq > 0 ? spec.slice(0, eq) : "";
+			const port = Number(eq > 0 ? spec.slice(eq + 1) : "");
+			if (!rawPath.startsWith("/") || !/^[A-Za-z0-9/_.-]+$/.test(rawPath))
+				die(
+					`invalid --route path "${rawPath}" — must start with / (letters, digits, / _ . - only)`,
+				);
+			if (!Number.isInteger(port) || port < 1 || port > 65535)
+				die(`invalid --route port in "${spec}"`);
+			routes.push({
+				path: rawPath.endsWith("*") ? rawPath : `${rawPath}*`,
+				port,
+			});
+		} else if (!argv[i].startsWith("--") && !name) name = argv[i];
 	}
 	const port = Number(portRaw);
 	if (!name || !portRaw)
@@ -272,7 +313,7 @@ const cmdRegister = (argv: string[]): void => {
 
 	mkdirSync(SITES, { recursive: true });
 	const frag = fragmentPath(name);
-	writeFileSync(frag, fragmentConf(name, port));
+	writeFileSync(frag, fragmentConf(name, port, routes));
 
 	console.log(`→ caddy validate`);
 	caddyValidate();
@@ -301,6 +342,7 @@ const cmdRegister = (argv: string[]): void => {
 			name,
 			port,
 			health_path: healthPath,
+			routes: routes.length ? routes : undefined,
 			dns,
 			caddy: { conf_path: frag },
 			created_at: existing?.created_at ?? new Date().toISOString(),
@@ -313,6 +355,15 @@ const cmdRegister = (argv: string[]): void => {
   https://${name}.local/           caddy → 127.0.0.1:${port} (auto-HTTPS)
   http://${name}.local/            caddy → 127.0.0.1:${port}
   http://${name}.local:${port}/    direct
+${
+	routes.length
+		? routes
+				.map(
+					(r) => `  route     ${r.path} → 127.0.0.1:${r.port} (path preserved)`,
+				)
+				.join("\n")
+		: ""
+}
   dns      ${dns.claimed ? `claimed by dns-sd (pid ${dns.pid})` : `skipped (--no-dns)`}
   fragment ${frag}
 `);
@@ -338,6 +389,10 @@ const cmdList = (): void => {
 		console.log(
 			`${s.name.padEnd(w)}  :${String(s.port).padEnd(5)}  http://${s.name}.local/  dns: ${dns.padEnd(14)}  ${s.created_at.slice(0, 10)}`,
 		);
+		if (s.routes?.length)
+			console.log(
+				`  ${"".padEnd(w)}routes: ${s.routes.map((r) => `${r.path} → 127.0.0.1:${r.port}`).join("  ")}`,
+			);
 	}
 };
 
@@ -363,6 +418,10 @@ const cmdStatus = async (): Promise<void> => {
 		);
 		console.log(`  dns      ${dns}`);
 		console.log(`  fragment ${conf}`);
+		if (s.routes?.length)
+			console.log(
+				`  routes   ${s.routes.map((r) => `${r.path} → 127.0.0.1:${r.port}`).join("  ")}`,
+			);
 		console.log("");
 	}
 };
@@ -445,7 +504,7 @@ const cmdReload = (): void => {
 const usage = `klh-local — one command per local service
 
   install                          caddy + user LaunchAgent + Caddyfile skeleton
-  register <name> --port N [--health /health] [--no-dns]
+  register <name> --port N [--health /health] [--no-dns] [--route /path=port]
   deregister <name>                remove fragment, kill dns claim, forget
   list                             registry table
   status                           health + dns + fragment per service

@@ -26,11 +26,13 @@ Or one step: `./install.sh` — deploys `bin/` to `~/.local/klh-local/`, wires `
 
 ```bash
 klh-local register suspenders --port 7799 --health /
-klh-local register belt --port 7791 --health /health/liveliness
+klh-local register belt --port 7791 --health / --route /status=4100
 klh-local register myapp --port 8080 --no-dns    # no .local hostname claim
 ```
 
 Re-running register with the same name + port **converges** — fragment rewritten, Caddy reloaded, the dns claim reused when alive and re-claimed only when dead — so install scripts can call it on every run. Changing the port requires `deregister` first.
+
+`--route /path=port` (repeatable) adds path routes as Caddy `handle` blocks ahead of the default — path-preserving passthroughs to another local port, e.g. `https://belt.local/status*` → the gateway on :4100. A route path without a trailing `*` gets one (subtree match).
 
 **list**
 
@@ -68,6 +70,14 @@ klh-local deregister myapp
 ```
 
 macOS sends `*.local` to mDNS and hosts files cannot wildcard, so exact names in a marked block are the deterministic loopback path — without a resolver daemon hijacking printer/AirPlay `.local` names machine-wide. `register`/`deregister` print a drift hint when the file disagrees with the registry; the write itself is the one sudo in klh-local's world. The `.local` hostname is also claimed over mDNS (`dns-sd -P`, A record included) so other devices on the LAN resolve it too.
+
+## Fleet surfaces
+
+The convention (W148): **`suspenders.local` is the console** — the fleet board at :7799 with `/usage`; `bar.local` is the bar's own surface (:7792); `belt.local` serves the belt UI (:7791) with `/status*` passthrough to the LLM gateway (:4100). Repointing a host is a breaking change to its UI surface — additive `--route` passthroughs are the non-breaking way to add a path to another port.
+
+**The `.local` name only answers while a dns-sd `-P` claim lives.** The claims are ephemeral (they die with the process — e.g. at reboot), and on this Darwin the `/etc/hosts` block alone is not enough from the LAN and stalls dual-stack resolvers locally: curl's AAAA lookup multicasts with nobody authoritative to answer, and the request times out even though the A record resolves to 127.0.0.1 (`curl -4` works, proving it). After any reboot: `klh-local register suspenders --port 7799 --health /` (and `bar`) re-claims — converge is idempotent. `--no-dns` is the escape hatch when another process (e.g. the belt lane's own wrapper) already announces the name — a second claimant makes the registrations conflict-rename each other.
+
+HTTPS is Caddy's internal CA (auto-HTTPS): this Mac verifies clean (`ssl_verify_result 0`, `caddy trust` already applied); any other LAN device sees a self-signed warning on first visit until it imports Caddy's root (`~/.local/share/Caddy/pki/authorities/local/root.crt`).
 
 ## Bar
 

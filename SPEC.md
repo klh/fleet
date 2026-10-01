@@ -62,6 +62,19 @@ belt.local {
 }
 ```
 
+With `--route /status=4100` (repeatable), path routes become `handle` blocks — mutually exclusive, matcher-ordered, path-preserving:
+
+```caddyfile
+belt.local {
+	handle /status* {
+		reverse_proxy 127.0.0.1:4100
+	}
+	handle {
+		reverse_proxy 127.0.0.1:7791
+	}
+}
+```
+
 - **Default-deny is the catch-all block.** `abort` closes the connection with no response (nginx 444 semantics). Site blocks sort by specificity: named hosts always win over the hostless catch-all, so a registered `name.local` is served and every unregistered Host is aborted — DNS-rebind attempts and stray `curl` Host headers die at the proxy. On :443 an unknown SNI has no certificate (on-demand TLS is not enabled), so the TLS handshake itself fails — deny before HTTP even starts.
 - `caddy validate --config` gates every mutation; a config Caddy cannot load is never recorded.
 - `caddy reload --config` is user-level and zero-downtime (talks to the admin endpoint on 127.0.0.1:2019). If reload fails, `register` rolls the new fragment back and exits 1 — no half-registered state.
@@ -80,14 +93,14 @@ belt.local {
 
 `install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply` — plus the bar, the read-only status GUI serving the registry (below).
 
-### register `<name> --port N [--health /health] [--no-dns]`
+### register `<name> --port N [--health /health] [--no-dns] [--route /path=port]`
 
 1. Validates the name against `^[a-z][a-z0-9-]{1,30}$`, the port as an integer 1–65535, the health path as rooted.
-2. Idempotent on re-register: same name + port + health path converges (fragment rewritten, validate + reload, dns claim reused when alive — concurrent claims conflict-rename each other — re-claimed only when dead). Same name with a different port or health path exits 1 (`deregister` first). A port collision with a _different_ name is refused: one port, one service — a second site proxying the same port is a config bug, not a feature.
+2. Idempotent on re-register: same name + port + health path converges (fragment rewritten, validate + reload, dns claim reused when alive — concurrent claims conflict-rename each other — re-claimed only when dead). Same name with a different port or health path exits 1 (`deregister` first). A port collision with a _different_ name is refused: one port, one service — a second site proxying the same port is a config bug, not a feature. Routes are not part of the converge gate: a re-register rewrites the route set every time.
 3. Refuses to run without Caddy installed and the Caddyfile present (`run: klh-local install`).
-4. Writes `sites/<name>.caddy`: `<name>.local { reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit.
+4. Writes `sites/<name>.caddy`: `<name>.local { reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit. Each `--route /path=port` adds a `handle /path*` block ahead of the default `handle` (see the fragment shapes above); a route path without a trailing `*` gets one (subtree match), and the path is validated against `^[A-Za-z0-9/_.-]+$` — the only characters allowed into the config file.
 5. `caddy validate` → `caddy reload`; on reload failure the fragment is rolled back (see The engine).
-6. Claims DNS: spawns `/usr/bin/dns-sd -R <name> _http._tcp <name>.local <port>` detached (stdin/stdout/stderr ignored, unref'd), pid stored in the registry. `--no-dns` skips the claim.
+6. Claims DNS: spawns `/usr/bin/dns-sd -P <name> _http._tcp local <port> <name>.local <en0-ip>` detached (via a `sh -c` intermediary — as a direct Bun child it lives but never completes registration), pid stored in the registry. `-P` includes the A record, so other LAN devices resolve `<name>.local`; the `-R` fallback (service only, no A record) runs when en0 has no address. `--no-dns` skips the claim.
 7. Writes the registry entry and prints a summary: `https://<name>.local/`, `http://<name>.local/`, `http://<name>.local:<port>/`, the dns claim, the fragment path.
 
 ### list
@@ -100,6 +113,7 @@ Per service:
 
 - health: `GET http://127.0.0.1:<port><health_path>` with a 1.5s timeout → ok (any HTTP response counts; the port answered) with status code and latency, or fail.
 - dns claim: alive (`kill -0` on the pid) / dead / not claimed.
+- routes: any `--route` entries the service was registered with (also shown by `list`).
 - fragment: exists at the recorded path.
 
 `status` and `list` are read-only — no side effects on Caddy, dns, or the registry.
