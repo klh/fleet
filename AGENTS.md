@@ -33,6 +33,7 @@ Final line: `DONE <sha>` | `SPLIT <id>` | `BLOCKED` (after 3 honest attempts,
 tree restored).
 
 Repo doctrine (quality bar, architecture) lives in CLAUDE.md.
+The fleet law set is mirrored in-repo at docs/laws.md — read it before non-trivial work here.
 
 ---
 

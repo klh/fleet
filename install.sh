@@ -14,23 +14,32 @@ info()  { echo -e "${BOLD}${GREEN}[INFO]${RESET} $*"; }
 warn()  { echo -e "${BOLD}${YELLOW}[WARN]${RESET} $*"; }
 error() { echo -e "${BOLD}${RED}[ERROR]${RESET} $*"; }
 
-# ─── LLM tier flag ───────────────────────────────────────
-# --llm=off      cloud-only, no belt install (default on fresh installs)
-# --llm=minimal  belt with small models only (~3GB resident — machines without 64GB+ unified memory)
-# --llm=full     the full belt fleet
-# Upgrades over an install that already has local-llm deployed keep it.
+# ─── Flags ───────────────────────────────────────────────
+# --llm=off      cloud-only — no belt, no swarm (explicit opt-out)
+# --llm=minimal  smallest-fit law: BELT_TIER=minimal residents only (≤4GB)
+# --llm=full     the full specialist fleet
+# --skip-models  no model downloads anywhere in the chain (offline install)
+# --dry-run      print the install plan and exit — touch nothing, prompt nothing
+# Upgrades over an install that already has the fleet deployed keep it.
+# Fresh installs default to --llm=minimal (spoke install baseline law,
+# 2026-10-01): the chain ALWAYS brings up the local-llm swarm.
 LLM_FLAG=""
+SKIP_MODELS=0
+DRY_RUN=0
+BUCKLE_REPO_URL="${BUCKLE_REPO_URL:-https://github.com/klh/buckle.git}"
 for ARG in "$@"; do
   case "$ARG" in
     --llm=off | --llm=minimal | --llm=full) LLM_FLAG="${ARG#--llm=}" ;;
+    --skip-models) SKIP_MODELS=1 ;;
+    --dry-run) DRY_RUN=1 ;;
     *) warn "unknown flag ignored: $ARG" ;;
   esac
 done
 if [ -z "$LLM_FLAG" ]; then
-  if [ -f "$HOME/.claude/local-llm/registry.ts" ]; then
+  if [ -f "$HOME/.claude/local-llm/registry.ts" ] && grep -q 'case "serve"' "$HOME/.claude/local-llm/swarm.ts" 2>/dev/null; then
     LLM_FLAG="full" # upgrade over a deployed fleet — keep it
   else
-    LLM_FLAG="off" # fresh install — cloud-only
+    LLM_FLAG="minimal" # fresh install — smallest-fit law (BELT_TIER=minimal)
   fi
 fi
 info "LLM tier: $LLM_FLAG"
@@ -43,6 +52,25 @@ command -v cargo >/dev/null 2>&1 || { warn "cargo not found. Installing rust via
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 info "Detected: $OS $ARCH"
+# ─── Dry run: print the plan, touch nothing ──────────────
+if [ "$DRY_RUN" -eq 1 ]; then
+  info "--dry-run — the chain, in order (nothing executed):"
+  echo "  1. klh/local (.local services)     $([ -x "$HOME/.local/bin/klh-local" ] && echo "present — skip" || echo "clone + install")"
+  echo "  2. klh/suspenders (control plane)  $([ -f "$HOME/.claude/hooks/suspenders/bin/work.ts" ] && echo "present — skip" || echo "clone + install") — install.sh --wire --with-launchd; local-llm baseline (BELT_TIER=minimal swarm$( [ "$SKIP_MODELS" -eq 1 ] && echo " + --skip-models" ))"
+  echo "  3. klh/buckle (router plane)       clone via BUCKLE_REPO_URL (default $BUCKLE_REPO_URL; override env) + bun install"
+  echo "  4. klh/belt (LLM fleet)            deploy, tier: $LLM_FLAG$( [ "$SKIP_MODELS" -eq 1 ] && echo " (--skip-download)" )"
+  echo "  5. .local registration             suspenders.local, belt.local (when klh-local present)"
+  echo "  6. toolchain                       brew/cargo/qlty/npm packages"
+  case "$LLM_FLAG" in
+    minimal) PLAN_MODELS="BELT_TIER=minimal residents (≤4GB)" ;;
+    full) PLAN_MODELS="the full specialist set" ;;
+    *) PLAN_MODELS="none (cloud-only)" ;;
+  esac
+  [ "$SKIP_MODELS" -eq 1 ] && PLAN_MODELS="$PLAN_MODELS — skipped (--skip-models)"
+  echo "  7. model downloads                 $PLAN_MODELS"
+  echo "  8. hub ask                         \"Do you want to buckle up and connect to a belt hub? [y/N]\" — default standalone"
+  exit 0
+fi
 
 # ─── .local services first (klh-local) ───────────────────
 # Installed FIRST so every later layer (suspenders, belt) can register its
@@ -64,12 +92,37 @@ if [ ! -f "$HOME/.claude/hooks/suspenders/bin/work.ts" ]; then
   info "installing the suspenders control plane (klh/suspenders)..."
   T=$(mktemp -d)
   git clone --depth 1 https://github.com/klh/suspenders "$T/suspenders"
-  (cd "$T/suspenders" && ./install.sh --wire)
+  SUS_FLAGS=(--wire --with-launchd)
+  [ "$SKIP_MODELS" -eq 1 ] && SUS_FLAGS+=(--skip-models)
+  [ "$LLM_FLAG" = "off" ] && SUS_FLAGS+=(--no-llm)
+  (cd "$T/suspenders" && ./install.sh "${SUS_FLAGS[@]}")
   rm -rf "$T"
 else
   info "suspenders control plane already installed"
 fi
 
+# ─── Router plane: buckle (optional layer, not vendored) ─────
+# LLM transport + governance router (design: suspenders docs/design/buckle/).
+# Shadow-port phase 1: binds 127.0.0.1:4101, never :4100. No public repo yet —
+# BUCKLE_REPO_URL overrides; the default is a harmless guess until the clone
+# succeeds (optional-layer pattern: clone failure = warn + continue).
+if [ -d "$HOME/.claude/buckle" ]; then
+  info "buckle router plane already deployed"
+elif command -v bun >/dev/null 2>&1; then
+  info "deploying the buckle router plane..."
+  T=$(mktemp -d)
+  if git clone --depth 1 "$BUCKLE_REPO_URL" "$T/buckle" 2>/dev/null; then
+    (cd "$T/buckle" && bun install) || warn "buckle bun install failed (optional) — continuing"
+    mkdir -p "$HOME/.claude/buckle"
+    cp -R "$T/buckle/." "$HOME/.claude/buckle/" || warn "buckle deploy failed (optional) — continuing without it"
+    echo "  ✓ buckle in ~/.claude/buckle — start with: bun ~/.claude/buckle/src/server.ts (shadow :4101)"
+  else
+    warn "buckle clone failed (no public repo yet — set BUCKLE_REPO_URL) — continuing without it"
+  fi
+  rm -rf "$T"
+else
+  warn "bun not found yet — buckle deploy skipped (re-run to add it)"
+fi
 # ─── Local LLM fleet: belt (optional layer, not vendored) ────
 # klh/belt serves the MLX specialist swarm on localhost (:8901+) — the
 # endpoints suspenders' advice worker and keepwarm talk to. Deploying the
@@ -79,11 +132,9 @@ if [ "$LLM_FLAG" != "off" ]; then
     info "deploying the local LLM fleet (klh/belt, tier: $LLM_FLAG)..."
     T=$(mktemp -d)
     if git clone --depth 1 https://github.com/klh/belt "$T/belt" 2>/dev/null; then
-      if [ "$LLM_FLAG" = "minimal" ]; then
-        (cd "$T/belt" && ./install.sh --tier minimal) || warn "belt install failed (optional) — continuing without it"
-      else
-        (cd "$T/belt" && ./install.sh) || warn "belt install failed (optional) — continuing without it"
-      fi
+      BELT_FLAGS=(--tier "$LLM_FLAG")
+      [ "$SKIP_MODELS" -eq 1 ] && BELT_FLAGS+=(--skip-download)
+      (cd "$T/belt" && ./install.sh "${BELT_FLAGS[@]}") || warn "belt install failed (optional) — continuing without it"
     else
       warn "belt clone failed (optional) — continuing without the fleet"
     fi
@@ -316,7 +367,7 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     (cd "$HOME/.claude/mcp-servers" && bun add playwright 2>/dev/null) || warn "playwright install failed"
   fi
 
-  if [ "$LLM_FLAG" != "off" ]; then
+  if [ "$LLM_FLAG" = "full" ] && [ "$SKIP_MODELS" -eq 0 ]; then
   # Download the specialist models (61GB total, parallel; tier applies inside belt)
   MLX_PYTHON="$(command -v python3)"
   if [ -x "$HOME/.local/share/uv/tools/mlx-lm/bin/python" ]; then
@@ -351,6 +402,26 @@ if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     echo "  ✓ all specialist models already cached"
   fi
   fi # LLM_FLAG != off
+  if [ "$LLM_FLAG" = "minimal" ] && [ "$SKIP_MODELS" -eq 0 ]; then
+    # smallest-fit law: minimal tier fetches ONLY the BELT_TIER=minimal
+    # residents — derived from the installed registry (the swarm's own
+    # source of truth), never a hand-list copied here.
+    MODELS="$(BELT_TIER=minimal LOCAL_LLM_HOME="$HOME/.claude/local-llm" bun -e '
+const { residentSet } = await import(process.env.LOCAL_LLM_HOME + "/registry.ts");
+process.stdout.write(residentSet().map((s) => s.model).join("\n"));
+')"
+    MLX_PYTHON="$HOME/.local/share/uv/tools/mlx-lm/bin/python"
+    if [ -x "$MLX_PYTHON" ]; then
+      while IFS= read -r model; do
+        [ -z "$model" ] && continue
+        echo "  → downloading $model (BELT_TIER=minimal resident, resumes if partial)"
+        "$MLX_PYTHON" -c 'from huggingface_hub import snapshot_download; import sys; snapshot_download(sys.argv[1])' "$model" \
+          || warn "  ✗ $model failed — re-run install to resume"
+      done <<<"$MODELS"
+    else
+      warn "mlx-lm missing — minimal residents not fetched (re-run install to resume)"
+    fi
+  fi
 
   # Copy swarm management scripts to PATH
   for SCRIPT in mlx-swarm mlx-swarm-download claude-fast local-llm-stack approve-skill; do
@@ -380,6 +451,100 @@ else
   warn "Not Apple Silicon (arm64) — local LLM layer skipped"
 fi
 
+# ─── Hub federation (W173 enroll; standalone default) ────
+# The enrollment ask at install end. Default = standalone (empty hub roster);
+# yes exchanges the admin-minted enrollment code for a hub-issued spoke token
+# via /federation/enroll, stores the roster + DNS entries, pulls the first
+# policy (heartbeat-on-the-pull) and echoes the menu. Standalone revisits via
+# /console/settings. Re-runs never re-prompt and never wipe an enrollment.
+HUB_CONFIG="$HOME/.claude/local-llm/hubs.json"
+
+write_hub_config() {
+  # $1=url $2=spoke_id $3=spoke_token $4=dns_entries JSON array (atomic, 0600).
+  # W230-compatible shape: {hubs: [{name, url, token_env, dns_entries}]} — the
+  # token NEVER lands in config: it goes to hub.env (0600), and the roster
+  # references it by env name.
+  local TMP ENVF
+  ENVF="$(dirname "$HUB_CONFIG")/hub.env"
+  printf 'KLH_HUB_SPOKE_TOKEN=%s\n' "$3" > "$ENVF"
+  chmod 600 "$ENVF"
+  TMP="$HUB_CONFIG.tmp.$$"
+  jq -n --arg name "$(hostname -s)" --arg url "$1" --argjson dns "$4" \
+    '{hubs: [{name: $name, url: $url, token_env: "KLH_HUB_SPOKE_TOKEN", dns_entries: $dns}]}' > "$TMP"
+  chmod 600 "$TMP"
+  mv "$TMP" "$HUB_CONFIG"
+}
+
+write_standalone_config() {
+  # standalone = empty hub roster; never overwrites an existing enrollment
+  [ -s "$HUB_CONFIG" ] && return 0
+  printf '{\n  "hubs": []\n}\n' > "$HUB_CONFIG"
+  chmod 600 "$HUB_CONFIG"
+}
+hub_enroll() {
+  # $1 = hub base URL, $2 = enrollment code (admin-minted, W173)
+  local HUB CODE RESP ID TOKEN DNS PULL BODY
+  HUB="${1%/}"
+  CODE="${2:-}"
+  if [ -z "$HUB" ] || [ -z "$CODE" ] || ! command -v jq >/dev/null 2>&1; then
+    echo "  [WARN] hub url, code and jq are required — staying standalone" >&2
+    return 1
+  fi
+  BODY="$(jq -n --arg code "$CODE" --arg host "$(hostname -s)" '{code: $code, hostname: $host}')"
+  RESP="$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d "$BODY" "$HUB/federation/enroll" 2>/dev/null)" \
+    || { echo "  [WARN] enroll failed at $HUB — staying standalone (degradation law)" >&2; return 1; }
+  ID="$(printf '%s' "$RESP" | jq -er '.spoke_id // empty' 2>/dev/null)" \
+    || { echo "  [WARN] enroll response has no spoke_id — staying standalone" >&2; return 1; }
+  TOKEN="$(printf '%s' "$RESP" | jq -er '.spoke_token // empty' 2>/dev/null)" \
+    || { echo "  [WARN] enroll response has no spoke_token — staying standalone" >&2; return 1; }
+  DNS="$(printf '%s' "$RESP" | jq -c '.dns_entries // []' 2>/dev/null)" || DNS="[]"
+  write_hub_config "$HUB" "$ID" "$TOKEN" "$DNS" || { echo "  [WARN] could not write $HUB_CONFIG" >&2; return 1; }
+  echo "  ✓ enrolled: spoke $ID at $HUB"
+  # first policy pull (heartbeat-on-the-pull) — carries the echo menu
+  if PULL="$(curl -fsS --max-time 10 -H "Authorization: Bearer $TOKEN" "$HUB/federation/policy" 2>/dev/null)"; then
+    printf '%s' "$PULL" | jq . > "${HUB_CONFIG%/hubs.json}/last-policy-pull.json" 2>/dev/null || true
+    echo "  hub menu (what the hub lets this spoke use):"
+    printf '%s' "$PULL" | jq -r '(.menu // [])[] | if type == "string" then "    • " + . else "    • " + (.name // .id // tostring) end' 2>/dev/null
+  else
+    echo "  [WARN] first policy pull failed — hub config kept; retries at next belt start" >&2
+  fi
+}
+hub_ask() {
+  # ask only when no hub config exists — re-runs never re-prompt, never wipe
+  mkdir -p "$HOME/.claude/local-llm"
+  if [ -s "$HUB_CONFIG" ]; then
+    jq -r 'if (.hubs // [] | length) > 0 then "  ✓ enrolled to \(.hubs[0].url)" else "  · standalone (no hub)" end' "$HUB_CONFIG" 2>/dev/null \
+      || echo "  · hub config present — see /console/settings"
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    write_standalone_config
+    echo "  · non-interactive — standalone (revisit via /console/settings)"
+    return 0
+  fi
+  printf "%s" "Do you want to buckle up and connect to a belt hub? [y/N] "
+  local ANSWER HUB_URL ENROLL_CODE
+  read -r ANSWER
+  case "$ANSWER" in
+    y | Y | yes | Yes | YES)
+      printf "%s" "Hub URL: "
+      read -r HUB_URL
+      printf "%s" "Enrollment code: "
+      read -r ENROLL_CODE
+      if hub_enroll "$HUB_URL" "$ENROLL_CODE"; then
+        echo "  · connected — manage via /console/settings"
+      else
+        write_standalone_config
+        echo "  · staying standalone — revisit via /console/settings"
+      fi
+      ;;
+    *)
+      write_standalone_config
+      echo "  · standalone (default) — connect later via /console/settings"
+      ;;
+  esac
+}
+hub_ask
 # ─── Summary ─────────────────────────────────────────────
 
 echo ""
@@ -389,7 +554,7 @@ echo -e "${BOLD}═════════════════════�
 echo ""
 echo "  What changed:"
 echo "    • 35+ CLI tools installed via brew/cargo (+qlty release binary)"
-echo "    • delta set as git diff pager"
+echo "    • buckle router plane (optional layer) + hub federation ask (standalone default)"
 echo "    • zoxide initialized in shell"
 if [ "$LLM_FLAG" != "off" ]; then
   echo "    • belt fleet deployed (tier: $LLM_FLAG) + .local registration"
@@ -406,7 +571,8 @@ if [ "$LLM_FLAG" != "off" ]; then
   echo "    3. Wait for model downloads to finish, then run: bun ~/.claude/local-llm/swarm.ts start"
 fi
 echo "    4. Start a new Claude Code session"
-echo ""
+echo "    5. Belt hub: standalone by default — connect via /console/settings"
+
 if [ "$LLM_FLAG" != "off" ]; then
   echo "  Local LLM fleet (belt, tier: $LLM_FLAG):"
   echo "    bun ~/.claude/local-llm/swarm.ts status    — check what's running"
@@ -416,6 +582,7 @@ fi
 echo "  Daily Insights:"
 echo "    LaunchAgent runs at 06:43 — findings in ~/.claude-insights/PENDING.md"
 echo ""
+echo "  Fleet laws (in-repo mirror): docs/laws.md"
 echo "  Verify: fd --version && rg --version | head -1 && ast-grep --version && qlty --version"
 if [ "$LLM_FLAG" != "off" ]; then
   echo "          bun ~/.claude/local-llm/swarm.ts status"
