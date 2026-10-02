@@ -563,7 +563,7 @@ source of truth for the grammar; two editors for the sources).
   hub is not consulted unless opted in. `must` with no fit still errors
   honestly at every layer (never silent substitution).
 
-the enterprise customer-shaped example (owner's): the enterprise customer repos route to the the enterprise customer hub's OpenAI
+the enterprise customer-shaped example (owner's): the enterprise customer repos route to the enterprise customer hub's OpenAI
 LLM via central policy; a private repo routes to personal glm-5.3 on
 z.ai via the user plane; a text-heavy repo sends its work to a private
 ElevenLabs endpoint via its dotfile. One grammar, three sources, fixed

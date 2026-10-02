@@ -70,7 +70,7 @@ const preferOf = (): { executor: string | null; hub: string | null } => {
  * first default_executors entry that survives wins. Non-claude/codex
  * executors ride the claude CLI with ANTHROPIC_MODEL pinned — belt routes
  * by model id, so a model name IS an executor. copilot rides its own CLI.
- * The hub label is PRESENTATION (e.g. [the enterprise customer]) — no federation behind it. */
+ * The hub label is PRESENTATION (e.g. [CORP]) — no federation behind it. */
 const execPick = (): { agent: string; model: string | null; bin: string } => {
 	const prefer = preferOf();
 	const s = readBoardSettings().settings;
