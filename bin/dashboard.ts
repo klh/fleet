@@ -3,7 +3,7 @@
 // One read-only status board for the services klh-local manages. All data
 // derives from the same registry.json the CLI reads and the same probes the
 // status verb uses: health GET (1.5s timeout) against 127.0.0.1:<port>,
-// dns-claim liveness via kill -0 on the recorded pid, fragment presence on
+// dns-claim liveness (the recorded pid must still be dns-sd), fragment presence on
 // disk. GET / serves an embedded page (vanilla JS, auto-refresh 3s); GET
 // /api/status is the JSON behind it; GET /llms.txt is the plain-text intro.
 // The board itself registers nothing and reloads nothing — the `bar` service
@@ -19,11 +19,21 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
+import { basename } from "node:path";
 
 const HOME = process.env.HOME ?? "";
 const STATE = `${HOME}/.local/state/klh-local`;
 const REGISTRY = `${STATE}/registry.json`;
-const CADDY = "/opt/homebrew/bin/caddy";
+// what /api/status shows — never the absolute path (it carries the username)
+const REGISTRY_DISPLAY = "~/.local/state/klh-local/registry.json";
+const CADDY =
+	Bun.which("caddy") ??
+	["/opt/homebrew/bin/caddy", "/usr/local/bin/caddy"].find((p) =>
+		existsSync(p),
+	) ??
+	"caddy";
+// Loopback only: Caddy fronts bar.local; these are the Hosts it may arrive as.
+const HOSTS_OK = new Set(["127.0.0.1", "localhost", "[::1]", "bar.local"]);
 const PORT = Number(
 	process.env.KLH_LOCAL_BAR_PORT ?? process.env.BELT_BAR_PORT ?? 7792,
 );
@@ -48,15 +58,17 @@ const run = (argv: string[]): string => {
 	}
 };
 
-// kill -0 — same liveness test the status verb uses
+// same liveness test the status verb uses: the pid must still be dns-sd —
+// after a reboot a recorded pid can belong to any unrelated process
 const dnsAlive = (pid?: number): boolean => {
-	if (!pid) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
+	if (!pid || !Number.isInteger(pid) || pid <= 0) return false;
+	const p = Bun.spawnSync(["/bin/ps", "-p", String(pid), "-o", "comm="], {
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	return (
+		p.exitCode === 0 && basename(p.stdout?.toString().trim() ?? "") === "dns-sd"
+	);
 };
 
 // is anything answering on the port? pure TCP — the catch-all Caddy block
@@ -102,7 +114,7 @@ type ServiceRow = {
 	target: string;
 	health: { ok: boolean; code?: number; ms: number };
 	dns: { claimed: boolean; pid: number | null; alive: boolean };
-	fragment: string | null;
+	fragment: boolean;
 	created_at: string | null;
 };
 
@@ -121,7 +133,7 @@ async function status(): Promise<Snapshot> {
 		if (existsSync(REGISTRY))
 			reg = JSON.parse(readFileSync(REGISTRY, "utf8")) as Service[];
 	} catch {
-		error = `registry unreadable: ${REGISTRY}`;
+		error = `registry unreadable: ${REGISTRY_DISPLAY}`;
 	}
 
 	// caddy version is a subprocess call — cheap, but no reason to pay it on
@@ -142,14 +154,14 @@ async function status(): Promise<Snapshot> {
 				pid: s.dns?.pid ?? null,
 				alive: dnsAlive(s.dns?.pid),
 			},
-			fragment: existsSync(s.caddy?.conf_path ?? "") ? s.caddy.conf_path : null,
+			fragment: existsSync(s.caddy?.conf_path ?? ""),
 			created_at: s.created_at ?? null,
 		})),
 	);
 
 	return {
 		caddy,
-		registry: REGISTRY,
+		registry: REGISTRY_DISPLAY,
 		services,
 		error,
 		ts: new Date().toISOString(),
@@ -272,7 +284,7 @@ function tick(){
             ?'<span class="ok">alive</span> <span class="mut">pid '+x.dns.pid+'</span>'
             :'<span class="bad">dead</span> <span class="mut">pid '+x.dns.pid+'</span>');
         var frag=x.fragment
-          ?'<span title="'+esc(x.fragment)+'">present</span>'
+          ?'<span>present</span>'
           :'<span class="bad">missing</span>';
         return '<tr><td>'+esc(x.name)+'</td><td>:'+x.port+'</td><td class="mut">'+esc(x.target)
           +'</td><td>'+health+'</td><td>'+dns+'</td><td>'+frag+'</td><td class="r mut">'+esc((x.created_at||'').slice(0,10))+'</td></tr>';
@@ -298,8 +310,9 @@ fragment claims: default-deny for anything unregistered.
 ## Verbs
 
   install                caddy (brew, if missing) + Caddyfile + user LaunchAgent
-  register <name> --port N [--health /p] [--no-dns]
-  deregister <name>      remove fragment, kill dns claim, forget
+  register <name> --port N [--health /p] [--no-dns] [--lan --forward-auth URL]
+                         loopback-only by default; --lan is opt-in and authenticated
+  deregister <name>      remove fragment, release dns claim, forget
   list                   registry table
   status                 health + dns + fragment per service (read-only)
   reload                 caddy validate + reload
@@ -326,8 +339,13 @@ const json = (x: unknown): Response =>
 
 Bun.serve({
 	port: PORT,
-	hostname: "0.0.0.0",
+	hostname: "127.0.0.1",
 	async fetch(req): Promise<Response> {
+		// DNS-rebind guard: a page on evil.example resolved to 127.0.0.1 still
+		// carries its own Host header.
+		const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
+		if (!HOSTS_OK.has(host))
+			return new Response("unknown host\n", { status: 421 });
 		const path = new URL(req.url).pathname;
 		if (path === "/api/status") return json(await status());
 		if (path === "/llms.txt")
@@ -343,5 +361,5 @@ Bun.serve({
 });
 
 console.log(
-	`klh-local bar → http://127.0.0.1:${PORT} · LAN: http://bar.local:${PORT} (via caddy: http://bar.local/)`,
+	`klh-local bar → http://127.0.0.1:${PORT} (loopback only; via caddy: https://bar.local/)`,
 );

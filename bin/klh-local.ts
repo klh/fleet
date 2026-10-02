@@ -1,28 +1,45 @@
 #!/usr/bin/env bun
 // klh-local.ts — one command per local service: Caddy site + dns-sd claim + registry.
 //   bun klh-local.ts install
-//   bun klh-local.ts register <name> --port N [--health /p] [--no-dns]
+//   bun klh-local.ts register <name> --port N [--health /p] [--no-dns] [--lan --forward-auth URL]
 //   bun klh-local.ts list | status | deregister <name> | reload
-//   sudo bun klh-local.ts hosts-apply
+//   sudo bun klh-local.ts hosts-apply [--registry PATH]
 
+import { randomUUID } from "node:crypto";
 import {
+	copyFileSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
+import { basename, dirname } from "node:path";
 
 const die = (msg: string): never => {
 	console.error(`✗ ${msg}`);
 	return process.exit(1) as never;
 };
 
+// PATH lookup first (command -v semantics), then the Apple-Silicon and Intel
+// Homebrew prefixes — launchd and sudo run with a minimal PATH.
+export const resolveBin = (name: string, fallbacks: string[]): string =>
+	Bun.which(name) ?? fallbacks.find((p) => existsSync(p)) ?? fallbacks[0];
+const caddyBin = (): string =>
+	resolveBin("caddy", ["/opt/homebrew/bin/caddy", "/usr/local/bin/caddy"]);
+
 const HOME = process.env.HOME ?? die("HOME unset");
-const CADDY = "/opt/homebrew/bin/caddy";
-const BREW = "/opt/homebrew/bin/brew";
+let CADDY = caddyBin();
+const BREW = resolveBin("brew", [
+	"/opt/homebrew/bin/brew",
+	"/usr/local/bin/brew",
+]);
 const DNS_SD = "/usr/bin/dns-sd";
+const IPCONFIG = "/usr/sbin/ipconfig";
 const STATE = `${HOME}/.local/state/klh-local`;
 const SITES = `${STATE}/sites`;
 const CADDYFILE = `${STATE}/Caddyfile`;
@@ -30,6 +47,7 @@ const fragmentPath = (name: string): string => `${SITES}/${name}.caddy`;
 const PLIST = `${HOME}/Library/LaunchAgents/com.klh-local.caddy.plist`;
 const LABEL = "com.klh-local.caddy";
 const REGISTRY = `${STATE}/registry.json`;
+const REGISTRY_LOCK = `${REGISTRY}.lock`;
 const NAME_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const HOSTS = "/etc/hosts";
 const HOSTS_START = "# --- klh-local managed: start ---";
@@ -37,31 +55,137 @@ const HOSTS_END = "# --- klh-local managed: end ---";
 
 type Dns = { claimed: boolean; pid?: number };
 type Route = { path: string; port: number };
+// Loopback by default; LAN exposure is opt-in and always authenticated.
+export type Exposure = { lan: boolean; forwardAuth?: string };
 type Service = {
 	name: string;
 	port: number;
 	health_path: string;
 	routes?: Route[];
+	lan?: boolean;
+	forward_auth?: string;
 	dns: Dns;
 	caddy: { conf_path: string };
 	created_at: string;
 };
 type Registry = Service[];
 
-const readRegistry = (): Registry => {
-	if (!existsSync(REGISTRY)) return [];
+// Unique tmp name in the target's directory, then rename: readers never see a
+// partial file and concurrent writers never share (and clobber) one tmp.
+export const writeAtomic = (
+	path: string,
+	content: string,
+	mode?: number,
+): void => {
+	const tmp = `${dirname(path)}/.${basename(path)}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
 	try {
-		return JSON.parse(readFileSync(REGISTRY, "utf8")) as Registry;
-	} catch {
-		return die(`registry unreadable: ${REGISTRY} (fix or remove it)`);
+		writeFileSync(tmp, content, mode === undefined ? undefined : { mode });
+		renameSync(tmp, path);
+	} catch (e) {
+		rmSync(tmp, { force: true });
+		throw e;
 	}
 };
 
-const saveRegistry = (reg: Registry): void => {
+const pidAlive = (pid: number): boolean => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (e) {
+		return (e as NodeJS.ErrnoException).code === "EPERM";
+	}
+};
+
+const LOCK_STALE_MS = 60_000;
+const heldLocks = new Set<string>();
+process.on("exit", () => {
+	for (const l of heldLocks) rmSync(l, { recursive: true, force: true });
+});
+
+const lockStale = (lockDir: string): boolean => {
+	try {
+		const age = Date.now() - statSync(lockDir).mtimeMs;
+		if (age > LOCK_STALE_MS) return true;
+		const pid = Number(readFileSync(`${lockDir}/pid`, "utf8"));
+		return Number.isInteger(pid) && pid > 0 && !pidAlive(pid);
+	} catch {
+		return false; // owner is between mkdir and writing its pid, or just released
+	}
+};
+
+// mkdir is atomic: exactly one process creates the lock dir. A lock whose owner
+// died (or that outlived LOCK_STALE_MS) is renamed aside, then retried.
+export const withLock = <T>(
+	lockDir: string,
+	fn: () => T,
+	timeoutMs = 15_000,
+): T => {
+	const t0 = Date.now();
+	for (;;) {
+		try {
+			mkdirSync(lockDir);
+			break;
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+		}
+		if (lockStale(lockDir)) {
+			const aside = `${lockDir}.stale-${process.pid}-${randomUUID().slice(0, 8)}`;
+			try {
+				renameSync(lockDir, aside);
+				rmSync(aside, { recursive: true, force: true });
+			} catch {}
+			continue;
+		}
+		if (Date.now() - t0 > timeoutMs)
+			throw new Error(`lock busy for ${timeoutMs}ms: ${lockDir}`);
+		Bun.sleepSync(20);
+	}
+	heldLocks.add(lockDir);
+	try {
+		writeFileSync(`${lockDir}/pid`, String(process.pid));
+		return fn();
+	} finally {
+		heldLocks.delete(lockDir);
+		rmSync(lockDir, { recursive: true, force: true });
+	}
+};
+
+export const readRegistryAt = (path: string): Registry => {
+	if (!existsSync(path)) return [];
+	try {
+		return JSON.parse(readFileSync(path, "utf8")) as Registry;
+	} catch {
+		return die(`registry unreadable: ${path} (fix or remove it)`);
+	}
+};
+
+export const saveRegistryAt = (path: string, reg: Registry): void => {
+	mkdirSync(dirname(path), { recursive: true });
+	writeAtomic(path, `${JSON.stringify(reg, null, 2)}\n`);
+};
+
+// Read-modify-write under the registry lock — concurrent installers serialize.
+export const updateRegistryAt = <T>(
+	path: string,
+	fn: (reg: Registry) => { next?: Registry; result: T },
+): T => {
+	mkdirSync(dirname(path), { recursive: true });
+	return withLock(`${path}.lock`, () => {
+		const { next, result } = fn(readRegistryAt(path));
+		if (next) saveRegistryAt(path, next);
+		return result;
+	});
+};
+
+const readRegistry = (): Registry => readRegistryAt(REGISTRY);
+const saveRegistry = (reg: Registry): void => saveRegistryAt(REGISTRY, reg);
+const withRegistryLock = <T>(fn: () => T): T => {
 	mkdirSync(STATE, { recursive: true });
-	const tmp = `${REGISTRY}.tmp`;
-	writeFileSync(tmp, `${JSON.stringify(reg, null, 2)}\n`);
-	renameSync(tmp, REGISTRY);
+	try {
+		return withLock(REGISTRY_LOCK, fn);
+	} catch (e) {
+		return die(String((e as Error).message));
+	}
 };
 
 const run = (argv: string[]): { code: number; out: string } => {
@@ -71,26 +195,69 @@ const run = (argv: string[]): { code: number; out: string } => {
 	return { code: p.exitCode ?? 1, out };
 };
 
-const dnsAlive = (pid?: number): boolean => {
-	if (!pid) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
+const psComm = (pid: number): string => {
+	const p = Bun.spawnSync(["/bin/ps", "-p", String(pid), "-o", "comm="], {
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	return p.exitCode === 0 ? (p.stdout?.toString() ?? "") : "";
 };
 
-const fragmentConf = (
+// A stored pid is only ours while it is still dns-sd — after a reboot the
+// number can belong to anything, and we must neither trust nor kill it.
+export const dnsAlive = (
+	pid?: number,
+	comm: (pid: number) => string = psComm,
+): boolean =>
+	Number.isInteger(pid) &&
+	(pid ?? 0) > 0 &&
+	basename(comm(pid ?? 0).trim()) === "dns-sd";
+
+// The enterprise SSO seam: a --lan site must sit behind forward_auth. Only
+// plain http(s) URLs with conservative characters reach the config file.
+export const parseForwardAuth = (
+	raw: string,
+): { upstream: string; uri: string } | null => {
+	let u: URL;
+	try {
+		u = new URL(raw);
+	} catch {
+		return null;
+	}
+	if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+	if (u.username || u.password || u.hash) return null;
+	if (!/^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])$/.test(u.hostname)) return null;
+	const uri = `${u.pathname}${u.search}`;
+	if (!/^\/[A-Za-z0-9/_.~%?=&-]*$/.test(uri)) return null;
+	return { upstream: `${u.protocol}//${u.host}`, uri };
+};
+
+const exposureLines = (exposure: Exposure): string => {
+	if (!exposure.lan) return "\tbind 127.0.0.1 ::1\n";
+	const fa = parseForwardAuth(exposure.forwardAuth ?? "");
+	if (!fa) throw new Error("--lan requires a valid --forward-auth URL");
+	return `\tforward_auth ${fa.upstream} {
+		uri ${fa.uri}
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+	}
+`;
+};
+
+export const fragmentConf = (
 	name: string,
 	port: number,
 	routes: Route[] = [],
+	exposure: Exposure = { lan: false },
 ): string => {
-	const header = `# klh-local fragment — https://${name}.local/ → 127.0.0.1:${port} (auto-HTTPS via Caddy internal CA)`;
+	const scope = exposure.lan
+		? `LAN, forward_auth ${exposure.forwardAuth}`
+		: "loopback only";
+	const header = `# klh-local fragment — https://${name}.local/ → 127.0.0.1:${port} (${scope}; auto-HTTPS via Caddy internal CA)`;
+	const bindOrAuth = exposureLines(exposure);
 	if (routes.length === 0)
 		return `${header}
 ${name}.local {
-	reverse_proxy 127.0.0.1:${port}
+${bindOrAuth}	reverse_proxy 127.0.0.1:${port}
 }
 `;
 	// handle blocks are mutually exclusive and matcher-ordered: path routes
@@ -106,7 +273,7 @@ ${name}.local {
 		.join("");
 	return `${header}
 ${name}.local {
-${handles}	handle {
+${bindOrAuth}${handles}	handle {
 		reverse_proxy 127.0.0.1:${port}
 	}
 }
@@ -149,6 +316,55 @@ const plistConf = (): string => `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `;
 
+// Stage the candidate fragment next to copies of every other live fragment,
+// validate that staged config, and only then move it into sites/ — a fragment
+// Caddy cannot load never lands where it would poison every later reload. A
+// failed reload restores the prior fragment content (or removes a new one).
+export type FragmentResult =
+	| { ok: true }
+	| { ok: false; stage: "validate" | "reload"; out: string };
+export const applyFragment = (opts: {
+	sites: string;
+	caddyfile: string;
+	name: string;
+	content: string;
+	validate: (caddyfile: string) => { code: number; out: string };
+	reload: (caddyfile: string) => { code: number; out: string };
+}): FragmentResult => {
+	const { sites, caddyfile, name, content } = opts;
+	const frag = `${sites}/${name}.caddy`;
+	const live = readFileSync(caddyfile, "utf8");
+	if (!live.includes(`${sites}/`))
+		return {
+			ok: false,
+			stage: "validate",
+			out: `${caddyfile} does not import ${sites}/ — re-run: klh-local install`,
+		};
+	const stage = `${dirname(caddyfile)}/.stage-${process.pid}-${randomUUID().slice(0, 8)}`;
+	try {
+		mkdirSync(`${stage}/sites`, { recursive: true });
+		for (const f of readdirSync(sites))
+			if (f.endsWith(".caddy") && f !== `${name}.caddy`)
+				copyFileSync(`${sites}/${f}`, `${stage}/sites/${f}`);
+		writeFileSync(`${stage}/sites/${name}.caddy`, content);
+		writeFileSync(
+			`${stage}/Caddyfile`,
+			live.replaceAll(`${sites}/`, `${stage}/sites/`),
+		);
+		const v = opts.validate(`${stage}/Caddyfile`);
+		if (v.code !== 0) return { ok: false, stage: "validate", out: v.out };
+	} finally {
+		rmSync(stage, { recursive: true, force: true });
+	}
+	const prior = existsSync(frag) ? readFileSync(frag, "utf8") : null;
+	writeAtomic(frag, content);
+	const r = opts.reload(caddyfile);
+	if (r.code === 0) return { ok: true };
+	if (prior === null) rmSync(frag, { force: true });
+	else writeAtomic(frag, prior);
+	return { ok: false, stage: "reload", out: r.out };
+};
+
 const caddyValidate = (): void => {
 	const v = run([CADDY, "validate", "--config", CADDYFILE]);
 	if (v.code !== 0) {
@@ -165,42 +381,71 @@ const tryReload = (): void => {
 		);
 };
 
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+const getifaddr = (iface: string): string => {
+	if (!/^[a-z]+\d+$/.test(iface)) return "";
+	const r = run([IPCONFIG, "getifaddr", iface]);
+	return r.code === 0 && IPV4_RE.test(r.out) ? r.out : "";
+};
+
+// en0 is Wi-Fi on laptops but often Ethernet-less on desktops: try it, then
+// the default-route interface, then scan the remaining en* interfaces.
+export const lanIp = (): string => {
+	const en0 = getifaddr("en0");
+	if (en0) return en0;
+	const route = run(["/sbin/route", "-n", "get", "default"]);
+	const iface = /interface:\s*(\S+)/.exec(route.out)?.[1];
+	const viaRoute = iface ? getifaddr(iface) : "";
+	if (viaRoute) return viaRoute;
+	for (let i = 1; i < 10; i++) {
+		const ip = getifaddr(`en${i}`);
+		if (ip) return ip;
+	}
+	return "";
+};
+
 // -P (register proxy) creates the A record + service so <name>.local actually
 // resolves; -R alone registers a service into a name that never answers.
+// Loopback services advertise 127.0.0.1 — never a LAN address nothing listens
+// on; --lan services advertise the LAN address.
+export const dnsArgv = (name: string, port: number, ip: string): string[] =>
+	ip
+		? [
+				DNS_SD,
+				"-P",
+				name,
+				"_http._tcp",
+				"local",
+				String(port),
+				`${name}.local`,
+				ip,
+			]
+		: [DNS_SD, "-R", name, "_http._tcp", `${name}.local`, String(port)];
+
 // dns-sd must be spawned through a sh intermediary — as a direct Bun child it
 // lives but never completes registration (measured 2026-09-28, belt lane).
-const claimDns = (name: string, port: number): Dns => {
-	let ip = "";
-	try {
-		ip = run(["/usr/sbin/ipconfig", "getifaddr", "en0"]).out.trim();
-	} catch {}
-	const mdnsHost = (ip: string): string[] =>
-		ip
-			? [
-					DNS_SD,
-					"-P",
-					name,
-					"_http._tcp",
-					"local",
-					String(port),
-					`${name}.local`,
-					ip,
-				]
-			: [DNS_SD, "-R", name, "_http._tcp", `${name}.local`, String(port)];
+// The script is a constant; dns-sd's argv travels as positional parameters.
+const claimDns = (name: string, port: number, lan: boolean): Dns => {
 	const p = Bun.spawn(
 		[
 			"/bin/sh",
 			"-c",
-			`exec ${mdnsHost(ip).join(" ")} </dev/null >/dev/null 2>&1`,
+			'exec "$@" </dev/null >/dev/null 2>&1',
+			"sh",
+			...dnsArgv(name, port, lan ? lanIp() : "127.0.0.1"),
 		],
-		{
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		},
+		{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
 	);
 	p.unref();
 	return { claimed: true, pid: p.pid };
+};
+
+const releaseDns = (dns: Dns): void => {
+	if (dns.claimed && dns.pid && dnsAlive(dns.pid)) {
+		try {
+			process.kill(dns.pid, "SIGTERM");
+		} catch {}
+	}
 };
 
 const healthCheck = async (
@@ -229,6 +474,7 @@ const cmdInstall = (): void => {
 			stdio: ["inherit", "inherit", "inherit"],
 		});
 		if (b.exitCode !== 0) die(`brew install caddy failed (exit ${b.exitCode})`);
+		CADDY = caddyBin();
 	}
 	mkdirSync(SITES, { recursive: true });
 	if (!existsSync(CADDYFILE)) writeFileSync(CADDYFILE, caddyfileSkeleton());
@@ -257,11 +503,15 @@ const cmdRegister = (argv: string[]): void => {
 	let portRaw = "";
 	let healthPath = "/";
 	let noDns = false;
+	let lan = false;
+	let forwardAuth = "";
 	const routes: Route[] = [];
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === "--port") portRaw = argv[++i] ?? "";
 		else if (argv[i] === "--health") healthPath = argv[++i] ?? "/";
 		else if (argv[i] === "--no-dns") noDns = true;
+		else if (argv[i] === "--lan") lan = true;
+		else if (argv[i] === "--forward-auth") forwardAuth = argv[++i] ?? "";
 		else if (argv[i] === "--route") {
 			const spec = argv[++i] ?? "";
 			const eq = spec.lastIndexOf("=");
@@ -282,7 +532,7 @@ const cmdRegister = (argv: string[]): void => {
 	const port = Number(portRaw);
 	if (!name || !portRaw)
 		die(
-			`usage: klh-local register <name> --port N [--health /health] [--no-dns]`,
+			`usage: klh-local register <name> --port N [--health /health] [--no-dns] [--lan --forward-auth URL]`,
 		);
 	if (!NAME_RE.test(name))
 		die(
@@ -292,6 +542,32 @@ const cmdRegister = (argv: string[]): void => {
 		die(`invalid port "${portRaw}"`);
 	if (!healthPath.startsWith("/"))
 		die(`invalid --health "${healthPath}" — must start with /`);
+	if (lan && !forwardAuth)
+		die(
+			`--lan exposes ${name}.local beyond this Mac — it requires --forward-auth <url> (the SSO/auth endpoint Caddy asks before proxying)`,
+		);
+	if (forwardAuth && !lan)
+		die(
+			`--forward-auth only applies with --lan (loopback sites bind 127.0.0.1)`,
+		);
+	if (forwardAuth && !parseForwardAuth(forwardAuth))
+		die(
+			`invalid --forward-auth "${forwardAuth}" — http(s)://host[:port]/path, no credentials or fragment`,
+		);
+	const exposure: Exposure = lan ? { lan, forwardAuth } : { lan: false };
+	withRegistryLock(() =>
+		registerLocked(name, port, healthPath, noDns, routes, exposure),
+	);
+};
+
+const registerLocked = (
+	name: string,
+	port: number,
+	healthPath: string,
+	noDns: boolean,
+	routes: Route[],
+	exposure: Exposure,
+): void => {
 	const reg = readRegistry();
 	const existing = reg.find((s) => s.name === name);
 	// idempotent re-register: same name+port converges (install scripts re-run);
@@ -313,29 +589,38 @@ const cmdRegister = (argv: string[]): void => {
 
 	mkdirSync(SITES, { recursive: true });
 	const frag = fragmentPath(name);
-	writeFileSync(frag, fragmentConf(name, port, routes));
 
-	console.log(`→ caddy validate`);
-	caddyValidate();
-	console.log(`→ caddy reload (user-level, zero downtime)`);
-	const r = run([CADDY, "reload", "--config", CADDYFILE]);
-	if (r.code !== 0) {
-		rmSync(frag, { force: true });
-		if (r.out.includes("connection refused") || r.out.includes("admin API"))
-			die(
-				`caddy not reachable — run: klh-local install (fragment rolled back)`,
-			);
-		die(`caddy reload failed (fragment rolled back):\n${r.out}`);
+	console.log(
+		`→ caddy validate (staged) → caddy reload (user-level, zero downtime)`,
+	);
+	const res = applyFragment({
+		sites: SITES,
+		caddyfile: CADDYFILE,
+		name,
+		content: fragmentConf(name, port, routes, exposure),
+		validate: (cf) => run([CADDY, "validate", "--config", cf]),
+		reload: (cf) => run([CADDY, "reload", "--config", cf]),
+	});
+	if (!res.ok) {
+		if (res.stage === "validate")
+			die(`caddy validate failed (sites/ untouched):\n${res.out}`);
+		const rolled = existing ? "prior fragment restored" : "fragment removed";
+		if (res.out.includes("connection refused") || res.out.includes("admin API"))
+			die(`caddy not reachable — run: klh-local install (${rolled})`);
+		die(`caddy reload failed (${rolled}):\n${res.out}`);
 	}
 
 	// reuse a live dns claim — a second claimant on the same name makes the two
-	// registrations conflict-rename each other (belt-2 problems)
+	// registrations conflict-rename each other (belt-2 problems). An exposure
+	// change re-claims: the advertised address differs.
+	const sameExposure = Boolean(existing?.lan) === exposure.lan;
+	if (existing && !sameExposure) releaseDns(existing.dns);
 	const dns =
-		existing?.dns.claimed && dnsAlive(existing.dns.pid)
+		existing?.dns.claimed && sameExposure && dnsAlive(existing.dns.pid)
 			? existing.dns
 			: noDns
 				? ({ claimed: false } as Dns)
-				: claimDns(name, port);
+				: claimDns(name, port, exposure.lan);
 	saveRegistry([
 		...reg.filter((s) => s.name !== name),
 		{
@@ -343,6 +628,8 @@ const cmdRegister = (argv: string[]): void => {
 			port,
 			health_path: healthPath,
 			routes: routes.length ? routes : undefined,
+			lan: exposure.lan || undefined,
+			forward_auth: exposure.lan ? exposure.forwardAuth : undefined,
 			dns,
 			caddy: { conf_path: frag },
 			created_at: existing?.created_at ?? new Date().toISOString(),
@@ -355,6 +642,7 @@ const cmdRegister = (argv: string[]): void => {
   https://${name}.local/           caddy → 127.0.0.1:${port} (auto-HTTPS)
   http://${name}.local/            caddy → 127.0.0.1:${port}
   http://${name}.local:${port}/    direct
+  exposure ${exposure.lan ? `LAN, behind forward_auth ${exposure.forwardAuth}` : "loopback only (bind 127.0.0.1 ::1)"}
 ${
 	routes.length
 		? routes
@@ -387,7 +675,7 @@ const cmdList = (): void => {
 				: `dead (pid ${s.dns.pid})`
 			: "—";
 		console.log(
-			`${s.name.padEnd(w)}  :${String(s.port).padEnd(5)}  http://${s.name}.local/  dns: ${dns.padEnd(14)}  ${s.created_at.slice(0, 10)}`,
+			`${s.name.padEnd(w)}  :${String(s.port).padEnd(5)}  http://${s.name}.local/  ${s.lan ? "lan " : "loop"}  dns: ${dns.padEnd(14)}  ${s.created_at.slice(0, 10)}`,
 		);
 		if (s.routes?.length)
 			console.log(
@@ -417,6 +705,9 @@ const cmdStatus = async (): Promise<void> => {
 			`  health   ${h.ok ? `ok HTTP ${h.code} ${h.ms}ms` : `fail ${h.ms}ms`}  (GET 127.0.0.1:${s.port}${s.health_path})`,
 		);
 		console.log(`  dns      ${dns}`);
+		console.log(
+			`  exposure ${s.lan ? `LAN, forward_auth ${s.forward_auth}` : "loopback only"}`,
+		);
 		console.log(`  fragment ${conf}`);
 		if (s.routes?.length)
 			console.log(
@@ -428,17 +719,15 @@ const cmdStatus = async (): Promise<void> => {
 
 const cmdDeregister = (name: string): void => {
 	if (!name) die(`usage: klh-local deregister <name>`);
-	const reg = readRegistry();
-	const entry = reg.find((s) => s.name === name);
-	if (!entry) die(`not registered: ${name}`);
-	rmSync(entry.caddy.conf_path, { force: true });
-	if (entry.dns.claimed && entry.dns.pid && dnsAlive(entry.dns.pid)) {
-		try {
-			process.kill(entry.dns.pid, "SIGTERM");
-		} catch {}
-	}
-	saveRegistry(reg.filter((s) => s.name !== name));
-	console.log(`✓ ${name} deregistered (fragment removed, dns claim killed)`);
+	withRegistryLock(() => {
+		const reg = readRegistry();
+		const entry = reg.find((s) => s.name === name);
+		if (!entry) return die(`not registered: ${name}`);
+		rmSync(entry.caddy.conf_path, { force: true });
+		releaseDns(entry.dns);
+		saveRegistry(reg.filter((s) => s.name !== name));
+	});
+	console.log(`✓ ${name} deregistered (fragment removed, dns claim released)`);
 	if (hostsHave(name))
 		console.log(
 			`  hosts    stale entry remains — refresh with: sudo klh-local hosts-apply`,
@@ -458,13 +747,45 @@ const hostsHave = (name: string): boolean => {
 // /etc/hosts cannot wildcard, and macOS sends *.local to mDNS — a dnsmasq
 // catch-all would hijack printer/AirPlay .local names machine-wide. So: exact
 // names, one marked block, regenerated from the registry. The one sudo here.
-const cmdHostsApply = (): void => {
+// Under sudo HOME may be root's — the registry belongs to the invoking user.
+export const hostsRegistryPath = (
+	argv: string[],
+	env: Record<string, string | undefined>,
+	homeOf: (user: string) => string,
+): string => {
+	const i = argv.indexOf("--registry");
+	if (i >= 0) return argv[i + 1] ?? die("--registry needs a path");
+	const user = env.SUDO_USER;
+	if (user && user !== "root" && /^[A-Za-z0-9._-]+$/.test(user))
+		return `${homeOf(user)}/.local/state/klh-local/registry.json`;
+	return REGISTRY;
+};
+
+const userHome = (user: string): string => {
+	const r = run([
+		"/usr/bin/dscl",
+		".",
+		"-read",
+		`/Users/${user}`,
+		"NFSHomeDirectory",
+	]);
+	const m = /NFSHomeDirectory:\s*(\S+)/.exec(r.out);
+	return r.code === 0 && m ? m[1] : `/Users/${user}`;
+};
+
+const cmdHostsApply = (argv: string[]): void => {
 	if (process.getuid() !== 0)
 		die(
 			`hosts-apply rewrites ${HOSTS} — run it under sudo: sudo klh-local hosts-apply`,
 		);
-	const reg = readRegistry();
-	const cur = readFileSync(HOSTS, "utf8");
+	const registry = hostsRegistryPath(argv, process.env, userHome);
+	if (!existsSync(registry))
+		die(
+			`no registry at ${registry} — refusing to clear the managed block (pass --registry PATH)`,
+		);
+	const reg = readRegistryAt(registry);
+	const target = realpathSync(HOSTS); // /etc/hosts → /private/etc/hosts on macOS
+	const cur = readFileSync(target, "utf8");
 	const re = new RegExp(`${HOSTS_START}[\\s\\S]*?${HOSTS_END}\\n?`);
 	const block = reg.length
 		? `${HOSTS_START}\n${reg.map((s) => `127.0.0.1 ${s.name}.local`).join("\n")}\n${HOSTS_END}\n`
@@ -479,7 +800,7 @@ const cmdHostsApply = (): void => {
 		console.log(`hosts: already current (${reg.length} managed names)`);
 		return;
 	}
-	writeFileSync(HOSTS, next);
+	writeAtomic(target, next, statSync(target).mode & 0o777);
 	console.log(
 		reg.length
 			? `hosts: managed block written (${reg.length} names)`
@@ -505,21 +826,24 @@ const usage = `klh-local — one command per local service
 
   install                          caddy + user LaunchAgent + Caddyfile skeleton
   register <name> --port N [--health /health] [--no-dns] [--route /path=port]
-  deregister <name>                remove fragment, kill dns claim, forget
+           [--lan --forward-auth URL]  loopback-only by default; --lan exposes on the LAN behind forward_auth
+  deregister <name>                remove fragment, release dns claim, forget
   list                             registry table
   status                           health + dns + fragment per service
   reload                           caddy validate + reload (user-level, zero downtime)
-  hosts-apply                      rewrite the managed /etc/hosts block from the registry (sudo)`;
+  hosts-apply [--registry PATH]    rewrite the managed /etc/hosts block from the registry (sudo)`;
 
-const [cmd, ...rest] = process.argv.slice(2);
-if (cmd === "install") cmdInstall();
-else if (cmd === "register") cmdRegister(rest);
-else if (cmd === "list") cmdList();
-else if (cmd === "status") await cmdStatus();
-else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
-else if (cmd === "reload") cmdReload();
-else if (cmd === "hosts-apply") cmdHostsApply();
-else {
-	console.log(usage);
-	process.exit(cmd ? 1 : 0);
+if (import.meta.main) {
+	const [cmd, ...rest] = process.argv.slice(2);
+	if (cmd === "install") cmdInstall();
+	else if (cmd === "register") cmdRegister(rest);
+	else if (cmd === "list") cmdList();
+	else if (cmd === "status") await cmdStatus();
+	else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
+	else if (cmd === "reload") cmdReload();
+	else if (cmd === "hosts-apply") cmdHostsApply(rest);
+	else {
+		console.log(usage);
+		process.exit(cmd ? 1 : 0);
+	}
 }

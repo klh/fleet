@@ -16,6 +16,7 @@ command -v bun >/dev/null || { echo "klh-local needs bun — https://bun.sh firs
 echo "→ deploying bin/ to $PREFIX"
 mkdir -p "$PREFIX/bin"
 for item in "$REPO_DIR"/bin/*; do
+  [[ "$item" == *.test.ts ]] && continue
   cp -R "$item" "$PREFIX/bin/"
 done
 chmod +x "$PREFIX"/bin/*.ts
@@ -31,7 +32,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
   echo "→ bar LaunchAgent (com.klh-local.dashboard)"
   uid="$(id -u)"
   out="$HOME/Library/LaunchAgents/com.klh-local.dashboard.plist"
-  sed -e "s|__HOME__|$HOME|g" "$REPO_DIR/launchd/com.klh-local.dashboard.plist" >"$out"
+  # launchd has no login PATH — bake in the bun this shell resolves (Homebrew
+  # on either arch, or the default ~/.bun/bin install).
+  bun_bin="$(command -v bun)"
+  sed -e "s|__HOME__|$HOME|g" -e "s|__BUN__|$bun_bin|g" "$REPO_DIR/launchd/com.klh-local.dashboard.plist" >"$out"
   plutil -lint "$out" >/dev/null
   launchctl bootout "gui/$uid/com.klh-local.dashboard" 2>/dev/null || true
   if ! launchctl bootstrap "gui/$uid" "$out"; then

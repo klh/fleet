@@ -6,7 +6,7 @@
     <string>com.klh-local.dashboard</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/bun</string>
+        <string>__BUN__</string>
         <string>__HOME__/.local/klh-local/bin/dashboard.ts</string>
     </array>
     <key>RunAtLoad</key>
@@ -20,11 +20,11 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>__HOME__</string>
     </dict>
     <!-- klh-local bar: the registry rendered live on :7792 — http://bar.local/ via caddy,
-         http://bar.local:7792/ direct. /api/status is the JSON, /llms.txt the intro. -->
+         http://127.0.0.1:7792/ direct (loopback only). /api/status is the JSON, /llms.txt the intro. -->
 </dict>
 </plist>
