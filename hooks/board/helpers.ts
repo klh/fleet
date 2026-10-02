@@ -3,7 +3,7 @@
 // sibling modules and the route modules import them.
 
 import { BIND } from "./context.ts";
-import { sessions, board, payload } from "./data.ts";
+import { hostGuard } from "../lib/host-guard.ts";
 
 export function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
@@ -12,37 +12,11 @@ export function json(data: unknown, status = 200): Response {
 	});
 }
 
-// write endpoints are for the human at this board. Two paths:
-//  • browser (Origin present): same-origin only — Origin host must equal the
-//    Host header (CSRF protection). The nginx front only routes trusted
-//    names (default_server 444), so a non-loopback Host here is the proxy.
-//  • non-browser (no Origin — curl, hooks): Host must be loopback or the
-//    configured bind (DNS-rebind protection).
+// write endpoints are for the human at this board — the shared W264
+// perimeter guard (lib/host-guard.ts): host allowlist, Origin ∈ allowlist
+// AND Origin == Host for browsers, per-install write token on every write.
 export function writeGuard(req: Request, _url: URL): Response | null {
-	const host = (req.headers.get("host") ?? "").toLowerCase().replace(/\.$/, "");
-	if (req.headers.get("origin")) {
-		let ohost = "";
-		try {
-			ohost = new URL(req.headers.get("origin") as string).host
-				.toLowerCase()
-				.replace(/\.$/, "");
-		} catch {
-			return json({ ok: false, error: "bad origin" }, 403);
-		}
-		if (!host || ohost !== host)
-			return json({ ok: false, error: "cross-origin request" }, 403);
-		return null;
-	}
-	const hname = host.replace(/:\d+$/, "");
-	const okHost =
-		["localhost", "127.0.0.1", "::1", "[::1]", "[0:0:0:0:0:0:0:1]"].includes(
-			hname,
-		) ||
-		hname === BIND.toLowerCase() ||
-		hname === `[${BIND.toLowerCase()}]`;
-	if (!host || !okHost)
-		return json({ ok: false, error: "untrusted host" }, 403);
-	return null;
+	return hostGuard(req, { bind: BIND, write: true });
 }
 
 // JSON-body endpoints must declare application/json (a plain form POST from

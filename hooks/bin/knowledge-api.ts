@@ -5,6 +5,7 @@ import {
 	KNOWLEDGE_PRECEDENCE,
 } from "../lib/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
+import { hostGuard, writeToken } from "../lib/host-guard.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -21,6 +22,8 @@ import { servicemon } from "../lib/servicemon.ts";
 //   POST /retire   {id, superseded_by?}
 //   POST /note     {id, sid, what}
 //   GET  /verify[/<id>]
+// W264: loopback bind by default (KNOWLEDGE_API_BIND opts in to more); the
+// mutating routes need the per-install X-KLH-Write-Token (lib/host-guard.ts).
 const store = makeStore();
 const port = Number(
 	process.env.KNOWLEDGE_API_PORT ??
@@ -28,6 +31,14 @@ const port = Number(
 			? process.argv[process.argv.indexOf("--port") + 1]
 			: 7795),
 );
+const BIND = process.env.KNOWLEDGE_API_BIND ?? "127.0.0.1";
+const WRITE_ROUTES = new Set([
+	"/enqueue",
+	"/curate",
+	"/promote",
+	"/retire",
+	"/note",
+]);
 const json = (data: unknown, status = 200): Response =>
 	Response.json(data, { status });
 const num = (v: unknown): number | null =>
@@ -44,11 +55,16 @@ const sm = servicemon({ service: "knowledge-api", port });
 
 const base = {
 	port,
+	hostname: BIND,
 	// remote manners (#9): never assume co-location — every route is one port
 	// call, no chatty multi-round-trip handlers
 	async fetch(req) {
 		const u = new URL(req.url);
 		const path = u.pathname.replace(/\/$/, "") || "/";
+		if (req.method === "POST" && WRITE_ROUTES.has(path)) {
+			const denied = hostGuard(req, { bind: BIND, write: true });
+			if (denied) return denied;
+		}
 		const body =
 			req.method === "POST"
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
@@ -145,5 +161,6 @@ const base = {
 
 // W125 — the observability wrap: /status + /metrics ride the SAME fetch via
 // lib/servicemon.ts; the route body above stays untouched.
+writeToken();
 Bun.serve(sm.wrapped(base));
-console.error(`suspenders-knowledge-api: port ${port}`);
+console.error(`suspenders-knowledge-api: ${BIND}:${port}`);

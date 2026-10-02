@@ -8,6 +8,7 @@ import {
 	mkdtempSync,
 	rmSync,
 	mkdirSync,
+	readFileSync,
 	realpathSync,
 	writeFileSync,
 } from "node:fs";
@@ -584,6 +585,23 @@ describe("W103 knowledge-api faces", () => {
 					.catch(() => false);
 			}
 			expect(up).toBe(true);
+			// W264: mutating routes need the per-install write token
+			const token = readFileSync(
+				join(HOME, ".cache", "claude-governor", "write-token"),
+				"utf8",
+			).trim();
+			const wh = {
+				"content-type": "application/json",
+				"x-klh-write-token": token,
+			};
+			for (const bad of [{}, { "x-klh-write-token": "nope" }]) {
+				const r = await fetch(`http://127.0.0.1:${PORT}/promote`, {
+					method: "POST",
+					headers: { "content-type": "application/json", ...bad },
+					body: JSON.stringify({ id: 1 }),
+				});
+				expect(r.status).toBe(403);
+			}
 			const s = (await fetch(`http://127.0.0.1:${PORT}/search`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -612,7 +630,7 @@ describe("W103 knowledge-api faces", () => {
 			// curation route: same store port, HTTP face
 			const c = (await fetch(`http://127.0.0.1:${PORT}/curate`, {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: wh,
 				body: JSON.stringify({ repo: REPO, by: "api-test" }),
 			}).then((r) => r.json())) as {
 				checked: number;
@@ -623,7 +641,7 @@ describe("W103 knowledge-api faces", () => {
 			// W100: /enqueue hashes the source_ref FILE on the producer side
 			const e = (await fetch(`http://127.0.0.1:${PORT}/enqueue`, {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: wh,
 				body: JSON.stringify({
 					source: "w100 api enqueue",
 					payload: "w100-api: api-face probe",

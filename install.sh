@@ -145,10 +145,12 @@ if [[ $WITH_LAUNCHD -eq 1 ]]; then
     echo "→ --with-launchd skipped (not macOS)"
   else
     BUN_BIN="$(command -v bun)"
+    # W264: agent logs live in the private insights dir, never world-readable /tmp
+    mkdir -p "$HOME/.claude-insights" && chmod 700 "$HOME/.claude-insights"
     for f in "$REPO_DIR"/hooks/launchd/*.plist; do
       name="$(basename "$f")"
       out="$HOME/Library/LaunchAgents/$name"
-      sed -e "s|__BUN__|$BUN_BIN|" -e "s|__HOME__|$HOME|" -e "s|__PREFIX__|$PREFIX|" -e "s|__REPO__|$REPO_DIR|" \
+      sed -e "s|__BUN__|$BUN_BIN|" -e "s|__HOME__|$HOME|g" -e "s|__PREFIX__|$PREFIX|" -e "s|__REPO__|$REPO_DIR|" \
         -e "s|__BELT_URL__|${BELT_URL:-http://127.0.0.1:4100}|" -e "s|__BELT_TOKEN__|${BELT_TOKEN:-}|" "$f" >"$out"
       launchctl bootout "gui/$(id -u)/${name%.plist}" 2>/dev/null || true
       launchctl bootstrap "gui/$(id -u)" "$out"

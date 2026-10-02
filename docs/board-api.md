@@ -2,7 +2,21 @@
 
 Contract for the W21/W22 board tranche. Backend implements in `hooks/bin/fleet-board.ts`,
 frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON with
-`ok: true` or `{ ok: false, error }`. Read endpoints need no write guard.
+`ok: true` or `{ ok: false, error }`. Read endpoints need no write token.
+
+## Perimeter (W264, `hooks/lib/host-guard.ts`)
+
+- The board binds `127.0.0.1` by default; `SUSPENDERS_BIND` is an explicit opt-in.
+- EVERY request's `Host` must be allowlisted: `localhost`, `127.0.0.1`, `::1`, plus
+  `*.local` names from `SUSPENDERS_ALLOWED_HOSTS` (comma list, default
+  `suspenders.local`) and an explicit non-wildcard bind. Otherwise `403 untrusted host`.
+- Browser requests (Origin present): Origin host must be allowlisted AND equal `Host`.
+- Every write (non-GET) needs the per-install token — generated once, mode 0600, at
+  `~/.cache/claude-governor/write-token` (`SUSPENDERS_WRITE_TOKEN_FILE` overrides) — as
+  the `X-KLH-Write-Token` header, or the `klh_write_token` HttpOnly SameSite=Strict
+  cookie the board sets on its own HTML pages. Missing/wrong/unavailable → `403`.
+- knowledge-api binds `127.0.0.1` (`KNOWLEDGE_API_BIND` opts in) and requires the same
+  token on `/enqueue /curate /promote /retire /note`.
 
 ## Conventions
 

@@ -9,14 +9,16 @@
 // its claims, inbox, lane state, and the event tail.
 
 import { db, PORT, BIND } from "../board/context.ts";
-import { json } from "../board/helpers.ts";
 import { projectList } from "../board/lanes.ts";
-import { board, claims, inbox } from "../board/data.ts";
-import { orchestrate } from "../board/orch.ts";
 import { tokenUsage } from "../lib/govdb.ts";
 import { scrub, servicemon } from "../lib/servicemon.ts";
+import {
+	hostGuard,
+	isWriteMethod,
+	withWriteCookie,
+	writeToken,
+} from "../lib/host-guard.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
-import { hostname } from "node:os";
 import { handleData } from "../board/routes-data.ts";
 import { handleUsage } from "../board/routes-usage.ts";
 import { handleDrawer } from "../board/routes-drawer.ts";
@@ -83,9 +85,24 @@ const base = {
 	},
 };
 
-// W125 — the observability wrap: /status + /metrics ride the SAME fetch via
-// lib/servicemon.ts; the route body above stays untouched.
-Bun.serve(sm.wrapped(base));
+// W264 perimeter: the host allowlist gates EVERY request (reads included —
+// a rebound name must not read sessions/prompts/diffs), every non-GET needs
+// the write token, and the board's own HTML pages carry it as a cookie.
+// The token file is created at start so `curl` clients can read it at once.
+writeToken();
+const served = sm.wrapped(base);
+const inner = served.fetch as (req: Request) => Promise<Response>;
+Bun.serve({
+	...served,
+	async fetch(req: Request): Promise<Response> {
+		const denied = hostGuard(req, {
+			bind: BIND,
+			write: isWriteMethod(req.method),
+		});
+		if (denied) return denied;
+		return withWriteCookie(await inner(req));
+	},
+});
 console.log(
 	`fleet board → http://127.0.0.1:${PORT}  (governor.db, 1s poll; writes: /api/answer /api/ack /api/advise /api/comment /api/start /api/ship /api/orchestrate)`,
 );

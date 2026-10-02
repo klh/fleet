@@ -18,7 +18,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
-const { HOME, REPO, GREPO, env, bin, BASE, run, MY_PROJ, post, waitUp } = await boardFixture(7851, afterAll);
+const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, run, MY_PROJ, post, waitUp } =
+	await boardFixture(7851, afterAll);
 
 // W157: in the monolith, W55's body ran `git init -b main` in GREPO
 // before W64/W57 needed it; files get separate fixture instances now,
@@ -257,7 +258,10 @@ describe("W57 orchestrate box", () => {
 	const postO = async (path: string, body: unknown) => {
 		const r = await fetch(`${OB}${path}`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				"x-klh-write-token": TOKEN,
+			},
 			body: JSON.stringify(body),
 		});
 		return { status: r.status, json: await r.json() };

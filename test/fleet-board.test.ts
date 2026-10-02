@@ -12,10 +12,33 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { isDecisionKind } from "../hooks/lib/govdb.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
-const { HOME, REPO, GREPO, env, bin, PORT, BASE, run, q, sleep, getData, myProject, getDecisions, post, rawPost, fork, addWork, waitUp, demoProc, setDemoProc } = await boardFixture(7847, afterAll);
+const {
+	TOKEN,
+	HOME,
+	REPO,
+	GREPO,
+	env,
+	bin,
+	PORT,
+	BASE,
+	run,
+	q,
+	sleep,
+	getData,
+	myProject,
+	getDecisions,
+	post,
+	rawPost,
+	fork,
+	addWork,
+	waitUp,
+	demoProc,
+	setDemoProc,
+} = await boardFixture(7847, afterAll);
 
 describe("served page", () => {
 	test("inline script parses as JS (catches template corruption)", async () => {
@@ -458,14 +481,99 @@ describe("endpoint hardening", () => {
 			'{"id":1}',
 		);
 		expect(nullOrigin.status).toBe(403);
+		// W264: a spoofed Host never proves locality — even the wildcard bind
+		// name and a valid token are refused
+		const tok = {
+			"x-klh-write-token": TOKEN,
+			"content-type": "application/json",
+		};
+		for (const host of ["evil.example", "0.0.0.0", `0.0.0.0:${PORT}`]) {
+			const r = await rawPost({ ...tok, host }, '{"id":1}');
+			expect(r.status).toBe(403);
+		}
+		// DNS rebinding: Origin == Host, but the name is not allowlisted
+		const rebound = await rawPost(
+			{
+				...tok,
+				host: `rebind.example:${PORT}`,
+				origin: `http://rebind.example:${PORT}`,
+			},
+			'{"id":1}',
+		);
+		expect(rebound.status).toBe(403);
+		expect(rebound.body).toContain("untrusted host");
+		// reads are host-gated too — a rebound page cannot read the feeds
+		const readRebound = await rawPost({ host: `rebind.example:${PORT}` }, "", {
+			method: "GET",
+			path: "/api/data",
+		});
+		expect(readRebound.status).toBe(403);
+		// write token: missing / wrong → 403 (never 500), on every write route
+		const ct = {
+			"content-type": "application/json",
+			host: `127.0.0.1:${PORT}`,
+		};
+		for (const path of [
+			"/api/ack",
+			"/api/answer",
+			"/api/start",
+			"/console/settings/apply",
+		]) {
+			const none = await rawPost(ct, '{"id":1}', { path });
+			expect(none.status).toBe(403);
+			expect(none.body).toContain("write token required");
+			const wrong = await rawPost(
+				{ ...ct, "x-klh-write-token": "x".repeat(64) },
+				'{"id":1}',
+				{ path },
+			);
+			expect(wrong.status).toBe(403);
+			expect(wrong.body).toContain("bad write token");
+		}
+		// same-origin browser with a bad cookie is refused; the allowlisted
+		// Caddy name passes the host check (then fails only on the token)
+		const caddy = await rawPost(
+			{
+				...ct,
+				host: "suspenders.local",
+				origin: "http://suspenders.local",
+				cookie: "klh_write_token=nope",
+			},
+			'{"id":1}',
+		);
+		expect(caddy.body).toContain("bad write token");
+		// the board's own pages hand out the token as an HttpOnly cookie
+		const page = await fetch(`${BASE}/`);
+		const cookie = page.headers.get("set-cookie") ?? "";
+		expect(cookie).toContain(`klh_write_token=${TOKEN}`);
+		expect(cookie).toContain("HttpOnly");
+		expect(cookie).toContain("SameSite=Strict");
+		const viaCookie = await rawPost(
+			{ ...ct, cookie: cookie.split(";")[0] ?? "" },
+			"not json",
+		);
+		expect(viaCookie.status).toBe(400); // past the guard → body parse
+		// loopback default: the board is not listening on any LAN interface
+		const lan = Object.values(networkInterfaces())
+			.flat()
+			.find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+		if (lan) {
+			const reached = await fetch(`http://${lan}:${PORT}/api/data`, {
+				signal: AbortSignal.timeout(2000),
+			})
+				.then(() => true)
+				.catch(() => false);
+			expect(reached).toBe(false);
+		}
 		const plain = await fetch(`${BASE}/api/ack`, {
 			method: "POST",
-			headers: { "content-type": "text/plain" },
+			headers: { "x-klh-write-token": TOKEN, "content-type": "text/plain" },
 			body: '{"id":1}',
 		});
 		expect(plain.status).toBe(415);
 		const noCt = await fetch(`${BASE}/api/ack`, {
 			method: "POST",
+			headers: { "x-klh-write-token": TOKEN },
 			body: '{"id":1}',
 		});
 		expect(noCt.status).toBe(415);
@@ -883,10 +991,18 @@ describe("demo mode (--demo)", () => {
 	const DEMO_PORT = 7848;
 	const DEMO_BASE = `http://127.0.0.1:${DEMO_PORT}`;
 	const demoProj = `${HOME}/.cache/claude-governor/demo`;
-	setDemoProc(Bun.spawn(
-		["bun", join(bin, "fleet-board.ts"), "--demo", "--port", String(DEMO_PORT)],
-		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-	));
+	setDemoProc(
+		Bun.spawn(
+			[
+				"bun",
+				join(bin, "fleet-board.ts"),
+				"--demo",
+				"--port",
+				String(DEMO_PORT),
+			],
+			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		),
+	);
 
 	test("seeds sessions, claim labels, 4 mixed items, 2 OPEN + 2 ANSWERED forks, a dozen events", async () => {
 		await waitUp(DEMO_BASE);
@@ -948,16 +1064,18 @@ describe("demo mode (--demo)", () => {
 	test("re-seed on restart is a no-op — no duplicate partition", async () => {
 		demoProc?.kill();
 		await demoProc?.exited;
-		setDemoProc(Bun.spawn(
-			[
-				"bun",
-				join(bin, "fleet-board.ts"),
-				"--demo",
-				"--port",
-				String(DEMO_PORT),
-			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-		));
+		setDemoProc(
+			Bun.spawn(
+				[
+					"bun",
+					join(bin, "fleet-board.ts"),
+					"--demo",
+					"--port",
+					String(DEMO_PORT),
+				],
+				{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+			),
+		);
 		await waitUp(DEMO_BASE);
 		const feed = await (await fetch(`${DEMO_BASE}/api/tasks`)).json();
 		expect(feed.tasks.filter((t: Row) => t.project === demoProj).length).toBe(
@@ -968,7 +1086,10 @@ describe("demo mode (--demo)", () => {
 	test("/api/start refuses to spawn lanes from a demo board", async () => {
 		const r = await fetch(`${DEMO_BASE}/api/start`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"x-klh-write-token": TOKEN,
+				"content-type": "application/json",
+			},
 			body: JSON.stringify({ project: demoProj, id: "W1" }),
 		});
 		expect(r.status).toBe(409);
@@ -978,7 +1099,10 @@ describe("demo mode (--demo)", () => {
 	test("/api/ship refuses to ship from a demo board (W64)", async () => {
 		const r = await fetch(`${DEMO_BASE}/api/ship`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"x-klh-write-token": TOKEN,
+				"content-type": "application/json",
+			},
 			body: JSON.stringify({ project: demoProj, id: "W1" }),
 		});
 		expect(r.status).toBe(409);
@@ -1175,7 +1299,7 @@ describe("W55 per-item diff + review comments", () => {
 		expect(orphan.json.error).toContain("no owning lane");
 		const plain = await fetch(`${BASE}/api/comment`, {
 			method: "POST",
-			headers: { "content-type": "text/plain" },
+			headers: { "x-klh-write-token": TOKEN, "content-type": "text/plain" },
 			body: '{"id":"WDIFF1","file":"f.txt","line":"1","note":"x"}',
 		});
 		expect(plain.status).toBe(415);
@@ -1307,7 +1431,7 @@ describe("W76 lane tail + message-to-lane", () => {
 		).toBe(404);
 		const plain = await fetch(`${BASE}/api/message`, {
 			method: "POST",
-			headers: { "content-type": "text/plain" },
+			headers: { "x-klh-write-token": TOKEN, "content-type": "text/plain" },
 			body: '{"id":"WTAIL1","note":"x"}',
 		});
 		expect(plain.status).toBe(415);

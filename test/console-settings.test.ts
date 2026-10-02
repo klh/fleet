@@ -87,7 +87,15 @@ afterAll(async () => {
 	rmSync(REPO, { recursive: true, force: true });
 });
 
-// form-post helper (no Origin header → writeGuard's loopback-Host path)
+// W264: the board's HTML pages hand the browser its write token as an
+// HttpOnly cookie — the form posts below ride it exactly as a browser would
+const COOKIE = (
+	(await fetch(`${BASE}/console/settings/suspenders`)).headers.get(
+		"set-cookie",
+	) ?? ""
+).split(";")[0];
+
+// form-post helper (no Origin header → loopback Host + cookie token path)
 const postForm = async (
 	path: string,
 	fields: Record<string, string>,
@@ -95,7 +103,10 @@ const postForm = async (
 	fetch(`${BASE}${path}`, {
 		method: "POST",
 		redirect: "manual",
-		headers: { "content-type": "application/x-www-form-urlencoded" },
+		headers: {
+			"content-type": "application/x-www-form-urlencoded",
+			cookie: COOKIE,
+		},
 		body: new URLSearchParams(fields).toString(),
 	});
 
