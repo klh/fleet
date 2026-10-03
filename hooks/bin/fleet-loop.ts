@@ -191,16 +191,23 @@ function wtPathFromGit(b: string): string | null {
 	return null;
 }
 
-/** live claude/codex process with cwd inside the worktree — contract-free
+/** live agent-CLI process with cwd inside the worktree — contract-free
  * liveness, independent of lanes.json registration state and DISPATCHED log
  * formats (gaps 2026-09-30: their dispatch-next registers lanes.json async
  * 22-55s after spawn and no longer writes DISPATCHED lines, so both
- * registration-derived guards race the dispatcher). */
+ * registration-derived guards race the dispatcher). Matches the FULL
+ * supported-dispatch-agent set (claude/codex/copilot/cline/grok — same
+ * roster as DISPATCHABLE_AGENTS in routes-actions.ts), not just claude/codex:
+ * a Copilot/cline/grok session working directly in a worktree was invisible
+ * here (W309), so its merged branch got force-retired out from under it. */
 function worktreeLive(wt: string): boolean {
 	try {
-		const pids = runCap(["ps", "-axo", "pid=,comm="])
+		// args=, not comm=: macOS truncates comm= to 15 chars, which cuts off
+		// npm-global shim paths like .../@github/copilot-darwin-arm64/copilot
+		// before "copilot" ever appears — comm= silently never matched it.
+		const pids = runCap(["ps", "-axo", "pid=,args="])
 			.out.split("\n")
-			.filter((l) => /claude|codex/.test(l))
+			.filter((l) => /claude|codex|copilot|cline|grok/i.test(l))
 			.map((l) => Number.parseInt(l.trim(), 10));
 		if (pids.length === 0) return false;
 		const listing = runCap([
@@ -222,8 +229,8 @@ function worktreeLive(wt: string): boolean {
 	return false;
 }
 
-/** liveness = tracked pid alive OR any live claude/codex process with cwd in
- * the worktree. Survives the unregistered spawn window and DISPATCHED-less
+/** liveness = tracked pid alive OR any live supported-agent process with cwd
+ * in the worktree. Survives the unregistered spawn window and DISPATCHED-less
  * dispatchers; replaces the tracked-pid-only guard that raced dispatch-next. */
 function laneIsAlive(b: string): boolean {
 	const tracked = lanes().find((l) => l.branch === b);
@@ -249,8 +256,9 @@ function retireMerged(b: string): void {
 	// ahead=0 is also true for a freshly-dispatched lane's pre-commit branch —
 	// never retire a branch a LIVE lane still owns. Tracked-pid alone raced
 	// gaps' dispatch-next (registers lanes.json async, writes no DISPATCHED
-	// lines) — liveness is now tracked pid OR any live claude/codex whose cwd
-	// is inside the worktree (gaps 2026-09-30 incident)
+	// lines) — liveness is now tracked pid OR any live supported-agent process
+	// whose cwd is inside the worktree (gaps 2026-09-30 incident; W309 widened
+	// the process match beyond claude/codex)
 	if (laneIsAlive(b)) return;
 	const tracked = lanes().find((l) => l.branch === b);
 	// worktree path: git's registry is ground truth — gaps parks lanes under
