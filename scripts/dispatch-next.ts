@@ -38,6 +38,11 @@ const val = (flag: string): string | undefined => {
 const TARGET = Number(val("--target") ?? 3);
 const REPO = val("--repo") ?? process.cwd();
 const DRY = argv.includes("--dry-run");
+// explicit single-item dispatch (W145 docstring promised this, never wired
+// up): bypasses the FIFO ready-pool pick so a caller with its own priority
+// analysis (collision-checked picks, owner direction) can target one item
+// precisely instead of whatever sorts first in `work ready`.
+const ITEM = val("--item");
 const NO_BELT = argv.includes("--no-belt");
 const SHOW_CAPSULE = val("--show-capsule");
 const BIN = `${process.env.HOME}/.claude/hooks/suspenders/bin`;
@@ -442,16 +447,22 @@ const main = async (): Promise<void> => {
 		const out = dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
+	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
+		const out = dispatchItem(ITEM, live);
+		if (out) dispatched.push(out);
+	}
 	// fresh READY pool (id order = FIFO priority; `work ready` already gates on
-	// requires/blocks deps AND on DONE-but-unmerged dep shas via depsMet)
-	const ready = parseReady(
-		run([process.execPath, `${BIN}/work.ts`, "ready"]).out,
-	).filter(
-		(r) =>
-			!live.some((l) => l.item === r.id) &&
-			!resumeOf.has(r.id) &&
-			!isOwnerGated(r.title),
-	);
+	// requires/blocks deps AND on DONE-but-unmerged dep shas via depsMet).
+	// Skipped entirely for an explicit --item — that caller already did its
+	// own priority analysis and must not be drowned out by the FIFO pool.
+	const ready = ITEM
+		? []
+		: parseReady(run([process.execPath, `${BIN}/work.ts`, "ready"]).out).filter(
+				(r) =>
+					!live.some((l) => l.item === r.id) &&
+					!resumeOf.has(r.id) &&
+					!isOwnerGated(r.title),
+			);
 	for (const r of ready) {
 		if (live.length + dispatched.length >= TARGET) break;
 		const out = dispatchItem(r.id, live);
@@ -495,12 +506,17 @@ const main = async (): Promise<void> => {
 			}
 		}
 	}
-	// dry-run is read-only end to end — never rewrite the lane registry
-	if (!DRY) saveLanes(lanes);
+	// dry-run is read-only end to end — never rewrite the lane registry.
+	// BUGFIX: dispatchItem pushes fresh entries into `live` (a .filter() copy
+	// of `lanes`, not the same array) — persisting the stale outer `lanes`
+	// silently dropped every successful dispatch from the registry. Dead
+	// entries (not in `live`, same object refs since filter preserves them)
+	// stay for history; `live` carries both survivors and new dispatches.
+	if (!DRY) saveLanes([...lanes.filter((l) => !live.includes(l)), ...live]);
 	console.log(
 		`lanes live: ${live.length}/${TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
-	if (ready.length === 0 && resumeOf.size === 0)
+	if (!ITEM && ready.length === 0 && resumeOf.size === 0)
 		console.log(
 			"READY pool empty — register work or pull the next epic forward",
 		);
