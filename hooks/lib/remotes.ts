@@ -41,39 +41,61 @@ export const RemoteEndpointSchema = z.object({
 });
 export type RemoteEndpoint = z.infer<typeof RemoteEndpointSchema>;
 
-export interface RemoteMachine {
-	name: string;
-	host: string; // DNS first on every call
-	ip_fallback?: string; // only when resolution fails
-	mac?: string; // WoL target for hibernating machines
-	wol_broadcast?: string; // "ip:port", e.g. subnet :9
-	/** CDN/edge-fronted remotes (z.ai, openai, anthropic …) need real TLS on
-	 *  the real hostname — a direct-IP plaintext request loses both the TLS
-	 *  SNI and the Host header, and the edge rejects it (421 "Direct IP
-	 *  access is not allowed"). LAN boxes (nas, immich) stay plain http by
-	 *  resolved IP; set tls: true only for public internet endpoints. */
-	tls?: boolean;
-	endpoints: RemoteEndpoint[];
-}
+export const RemoteMachineSchema = z.object({
+	name: z.string(),
+	host: z.string(), // DNS first on every call
+	ip_fallback: z.string().optional(), // only when resolution fails
+	mac: z.string().optional(), // WoL target for hibernating machines
+	wol_broadcast: z.string().optional(), // "ip:port", e.g. subnet :9
+	/** informational only — cloud/CDN machines; routing reads endpoint.tls,
+	 *  not this field. */
+	cloud: z.boolean().optional(),
+	note: z.string().optional(),
+	endpoints: z.array(RemoteEndpointSchema),
+});
+export type RemoteMachine = z.infer<typeof RemoteMachineSchema>;
 
-/** Request target: tls machines MUST keep the real hostname (fetch/Bun does
- *  its own DNS + TLS SNI); plaintext LAN machines resolve to an IP first
- *  (handles .local/mDNS names dscacheutil knows but public DNS may not). */
-async function resolveTarget(machine: RemoteMachine): Promise<string | null> {
-	return machine.tls
+export const RemotesConfigSchema = z.object({
+	$schema: z.string().optional(),
+	machines: z.array(RemoteMachineSchema),
+});
+
+/** Request target: tls (or a `base` override) endpoints MUST keep the real
+ *  hostname (fetch/Bun does its own DNS + TLS SNI); plaintext LAN endpoints
+ *  resolve to an IP first (handles .local/mDNS names dscacheutil knows but
+ *  public DNS may not). */
+async function resolveTarget(
+	machine: RemoteMachine,
+	ep: RemoteEndpoint,
+): Promise<string | null> {
+	return ep.base || ep.tls
 		? machine.host
 		: resolveHost(machine.host, machine.ip_fallback);
 }
 
-/** Pure URL builder — kept separate and exported so the tls/http scheme
- *  choice is unit-testable without a real network call. */
+/** Pure URL builder — kept separate and exported so the tls/base/http
+ *  scheme choice is unit-testable without a real network call. */
 export function endpointUrl(
 	target: string,
-	tls: boolean | undefined,
-	port: number,
+	ep: Pick<RemoteEndpoint, "tls" | "base" | "port">,
 	path: string,
 ): string {
-	return `${tls ? "https" : "http"}://${target}:${port}${path}`;
+	const base = ep.base
+		? ep.base.replace(/\/+$/, "")
+		: `${ep.tls ? "https" : "http"}://${target}:${ep.port}`;
+	return `${base}${path}`;
+}
+
+/** Protocol-aware auth header: immich uses x-api-key, everything else rides
+ *  an openai-compatible Authorization: Bearer. No key configured = no auth
+ *  header (LAN endpoints with no secret). */
+export function authHeaders(ep: RemoteEndpoint): Record<string, string> {
+	const key =
+		ep.api_key ?? (ep.api_key_env ? process.env[ep.api_key_env] : undefined);
+	if (!key) return {};
+	return ep.protocol === "immich"
+		? { "x-api-key": key }
+		: { Authorization: `Bearer ${key}` };
 }
 
 export interface EndpointHealth {
