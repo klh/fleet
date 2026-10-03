@@ -1,5 +1,8 @@
 # local
 
+> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
+> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+
 ![The quintessential local — a Greek taverna](assets/hero.png)
 
 **One command per local service on macOS.** `klh-local register suspenders --port 7799` writes the Caddy site fragment, claims `suspenders.local` over mDNS, records everything in a registry file, and reloads Caddy — zero sudo, zero downtime. One command per service, every time. Design details in [SPEC.md](SPEC.md).
