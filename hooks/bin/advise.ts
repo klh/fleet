@@ -18,6 +18,14 @@ import {
 	type RemoteEndpoint,
 	type RemoteMachine,
 } from "../lib/remotes.ts";
+import {
+	type KevDecision,
+	type KevOption,
+	kevProbabilityLines,
+	kevTypedDecision,
+	kevUrl,
+	parseOptions,
+} from "../lib/kev.ts";
 
 const id = Number(process.argv[2] ?? 0);
 if (!id) {
@@ -90,9 +98,13 @@ if (!ev || !isDecisionKind(ev.kind)) {
 const fk = `advice.${id}`;
 
 let question = "";
+// W225: structured options make the fork TYPED — the kev-class pass below
+// chooses among them; without them the chat chain advises as before
+let options: KevOption[] = [];
 try {
 	const p = ev.payload ? JSON.parse(ev.payload) : {};
 	question = String(p.note ?? p.question ?? ev.payload ?? "");
+	options = parseOptions(p.options);
 } catch {
 	question = String(ev.payload ?? "");
 }
@@ -138,6 +150,26 @@ RECOMMENDATION: <the decision, one concrete sentence — pick an option if optio
 RATIONALE: <2-4 short bullets, grounded in the context>
 RISK: <the main risk of your recommendation, one line>
 Be decisive. Never recommend "gather more information" unless the context is truly undecidable. Never invent facts.`;
+
+/** W225: the kev typed pass → the advice fact. Same RECOMMENDATION/
+ *  RATIONALE/RISK shape as the chat paths so the board card renders it
+ *  unchanged; probabilities ride in the rationale. */
+function storeKevAdvice(k: KevDecision): void {
+	const pct = (n: number) => `${Math.round(n * 100)}%`;
+	const host = `kev(${new URL(kevUrl()).host})`;
+	storeAdvice(
+		[
+			`RECOMMENDATION: ${k.choice}`,
+			`RATIONALE: ${k.model} typed choice pass (one prefill, ${k.inputTokens} in / ${k.outputTokens} out tokens)\n${kevProbabilityLines(
+				k,
+			)
+				.map((l) => `- ${l}`)
+				.join("\n")}`,
+			`RISK: typed-pass confidence ${pct(k.confidence)}${k.confidence < 0.5 ? " — weak signal, treat as a lead" : ""}`,
+		].join("\n"),
+		{ model: k.model, host },
+	);
+}
 
 type LlmUsage = {
 	prompt_tokens?: number;
@@ -272,6 +304,31 @@ async function tryBeltRoute(
 	} catch {
 		return null;
 	}
+}
+
+// W225 kev-class typed pass FIRST: a fork with structured options is a
+// typed decision — one systemone choice pass on the local 4B answers it
+// for ~70 input tokens, where the chat chain burns a full advise prompt.
+// Any failure returns null and falls through silently; the belt chain
+// below is unchanged.
+const kev = await kevTypedDecision({ state: ctx, question, options });
+if (kev) {
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
+	).run(
+		Date.now(),
+		JSON.stringify({
+			for: id,
+			model: kev.model,
+			host: `kev(${new URL(kevUrl()).host})`,
+			pt: kev.inputTokens,
+			ct: kev.outputTokens,
+			tt: kev.inputTokens + kev.outputTokens,
+			ms: kev.latencyMs,
+		}),
+	);
+	storeKevAdvice(kev);
+	process.exit(0);
 }
 
 // W89.2: belt picks first — metrics-based routing across the whole fleet;

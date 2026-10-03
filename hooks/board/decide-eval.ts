@@ -6,6 +6,11 @@
 // stamped and kept so the owner can compare evaluations over time.
 import { db } from "./context.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
+import {
+	kevProbabilityLines,
+	kevTypedDecision,
+	parseOptions,
+} from "../lib/kev.ts";
 
 const CAP = 10;
 
@@ -99,6 +104,37 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 	].join("\n");
 
 	const actor = readBoardSettings().settings.default_actor ?? "unassigned";
+
+	// W225 kev-class typed pass first: a decision storing structured options
+	// gets one systemone choice pass on the local model (~70 input tokens)
+	// before the chat upstream is touched; null (kev down, <2 options,
+	// malformed) leaves the chat path below unchanged.
+	const kevOptions = parseOptions(d.options);
+	if (kevOptions.length >= 2) {
+		const kev = await kevTypedDecision({
+			state: prompt,
+			question: "Re-evaluate this pending decision: choose the best option.",
+			options: kevOptions,
+		});
+		if (kev) {
+			const pct = (n: number) => `${Math.round(n * 100)}%`;
+			const entry: EvalEntry = {
+				ts: Date.now(),
+				text: [
+					`Recommendation: ${kev.choice} — ${kev.model} typed choice pass`,
+					`Probabilities:\n${kevProbabilityLines(kev)
+						.map((l) => `- ${l}`)
+						.join("\n")}`,
+					`Confidence ${pct(kev.confidence)} · ${kev.inputTokens} in / ${kev.outputTokens} out tokens · ${Math.round(kev.latencyMs / 100) / 10}s`,
+				].join("\n"),
+			};
+			const all = [...decisionEvals(id), entry].slice(-CAP);
+			db.query(
+				"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'decision-eval', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
+			).run(evalKey(id), JSON.stringify(all), Date.now());
+			return entry;
+		}
+	}
 	// same executor contract as hooks/bin/advise.ts: SUSPENDERS_LLM_URL/KEY/
 	// MODEL (openai-compat — the local swarm / z.ai path, W201 policy)
 	const llmUrl = `${llmBase()}/chat/completions`;
