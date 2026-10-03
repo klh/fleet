@@ -87,6 +87,13 @@ export function knowledgeSearch(
 	const area = filters.area ?? null;
 	const kind = filters.originKind ?? null;
 	const sys = filters.originSystem ?? null;
+	// W181 F2/M7 scope predicates on the aux stores: facts carry NO scope
+	// tags (no domain/area/kind/system columns), so any scoped search
+	// honestly excludes them — a scope filter must never surface untaggable
+	// private intel (finding.ikea-* class); consult_kb tags domain via its
+	// project column and carries no area/kind/system.
+	const auxEligible = !dom && !area && !kind && !sys;
+	const consultEligible = !area && !kind && !sys;
 	// 1. knowledge rows — the primary store; retired rows exit search
 	try {
 		out.push(
@@ -127,68 +134,76 @@ export function knowledgeSearch(
 			})),
 		);
 	} catch {} // pre-v6 db opened raw — skip honestly
-	// 2. facts (key+value) — first search index for facts; ranked, no gate
-	try {
-		out.push(
-			...db
-				.query(
-					`SELECT f.key, f.ts,
+	// 2. facts (key+value) — first search index for facts; ranked, no gate.
+	// W181 F2: scoped searches exclude them (facts carry no scope tags).
+	if (auxEligible) {
+		try {
+			out.push(
+				...db
+					.query(
+						`SELECT f.key, f.ts,
 	snippet(facts_fts, 0, '[', ']', '…', 12) AS snip
 	FROM facts_fts
 	JOIN facts f ON f.rowid = facts_fts.rowid
 	WHERE facts_fts MATCH ?
 	ORDER BY rank LIMIT ?`,
-				)
-				.all(match, limit)
-				.map((r: unknown): KnowledgeHit => {
-					const o = r as {
-						key: string;
-						ts: number;
-						snip?: string;
-					};
-					return {
-						kind: "fact" as const,
-						id: 0,
-						ts: o.ts,
-						snippet: o.snip ?? "",
-						key: o.key,
-					};
-				}),
-		);
-	} catch {} // facts_fts absent — skip honestly
-	// 3. consult_kb — answered consults (problem → solution) joined in
-	try {
-		out.push(
-			...db
-				.query(
-					`SELECT k.id, k.problem, k.solution, k.created_at AS ts,
+					)
+					.all(match, limit)
+					.map((r: unknown): KnowledgeHit => {
+						const o = r as {
+							key: string;
+							ts: number;
+							snip?: string;
+						};
+						return {
+							kind: "fact" as const,
+							id: 0,
+							ts: o.ts,
+							snippet: o.snip ?? "",
+							key: o.key,
+						};
+					}),
+			);
+		} catch {} // facts_fts absent — skip honestly
+	}
+	// 3. consult_kb — answered consults (problem → solution) joined in.
+	// W181 F2: the domain filter matches the consult's project tag; area/
+	// kind/system filters exclude it (no such columns on this store).
+	if (consultEligible) {
+		try {
+			out.push(
+				...db
+					.query(
+						`SELECT k.id, k.problem, k.solution, k.created_at AS ts,
 	snippet(consult_kb_fts, 0, '[', ']', '…', 12) AS snip
 	FROM consult_kb_fts
 	JOIN consult_kb k ON k.id = consult_kb_fts.rowid
 	WHERE consult_kb_fts MATCH ?
+		AND (? IS NULL OR k.project = ?)
 	ORDER BY rank LIMIT ?`,
-				)
-				.all(match, limit)
-				.map((r: unknown): KnowledgeHit => {
-					const o = r as {
-						id: number;
-						problem: string;
-						solution: string;
-						ts: number;
-						snip?: string;
-					};
-					return {
-						kind: "consult_kb" as const,
-						id: o.id,
-						ts: o.ts,
-						snippet: o.snip ?? "",
-						problem: o.problem,
-						fact: o.problem,
-						solution: o.solution,
-					};
-				}),
-		);
-	} catch {} // consult_kb absent (pre-v4 db) — skip honestly
+					)
+					.all(match, dom, dom, limit)
+					.map((r: unknown): KnowledgeHit => {
+						const o = r as {
+							id: number;
+							problem: string;
+							solution: string;
+							ts: number;
+							snip?: string;
+						};
+						return {
+							kind: "consult_kb" as const,
+							id: o.id,
+							ts: o.ts,
+							snippet: o.snip,
+							problem: o.problem,
+							fact: o.problem,
+							solution: o.solution,
+						};
+					}),
+			);
+		} catch {} // consult_kb absent (pre-v4 db) — skip honestly
+	}
 	return out;
 }
 
@@ -347,7 +362,9 @@ export function proseCards(
 	];
 	for (const h of hits) {
 		if (h.kind === "knowledge") {
-			const trust = trustOf(h.source_ref, h.source_hash, root);
+			// precomputed trust wins (W203: the API scrubs refs AFTER withTrust —
+			// re-hashing a scrubbed hit would fake an "unverified" marker)
+			const trust = h.trust ?? trustOf(h.source_ref, h.source_hash, root);
 			lines.push(
 				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · hash ${trust}]`,
 				`  ${h.fact ?? h.snippet}`,
