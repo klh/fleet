@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-shared.js";var p=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!0,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class d extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
+import{r,e,t,s}from"./lit-shared.js";var p=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class d extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;

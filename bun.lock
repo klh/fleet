@@ -9,7 +9,7 @@
         "lit": "^3.3.3",
         "p-queue": "^9.3.3",
         "picocolors": "^1.1.1",
-        "shell-quote": "^1.8.2",
+        "shell-quote": "^1.12.0",
         "xdg-basedir": "^5.1.0",
         "zod": "^4.0.0",
       },
@@ -65,7 +65,7 @@
 
     "picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
 
-    "shell-quote": ["shell-quote@1.10.0", "", {}, "sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA=="],
+    "shell-quote": ["shell-quote@1.12.0", "", {}, "sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q=="],
 
     "sisteransi": ["sisteransi@1.0.5", "", {}, "sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg=="],
 
