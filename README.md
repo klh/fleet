@@ -1,5 +1,8 @@
 # speedy
 
+> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
+> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+
 ![Version](https://img.shields.io/badge/version-1.1.1-blue)
 
 Make Claude Code **10–1400x faster** at file operations — and **structurally safe** at editing.
