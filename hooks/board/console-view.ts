@@ -3,8 +3,6 @@
 // sibling modules and the route modules import them.
 
 import { db, BELT_REPO } from "./context.ts";
-import { json } from "./helpers.ts";
-import { sessions } from "./data.ts";
 import { resolveBelt } from "../lib/belt-locate.ts";
 import {
 	ConfigError,
@@ -14,14 +12,14 @@ import {
 	resolvePolicy,
 } from "../lib/board-config.ts";
 import type { PolicyPatch, PolicyGatewayParsed } from "../lib/board-config.ts";
-import {
+import type {
 	ConsoleMe,
 	BeltView,
 	Feature,
-	HealthProbe,
 	LocalService,
 	UpstreamGroup,
 } from "../bin/console-html.ts";
+import { probeAll } from "./service-probe.ts";
 import { YAML } from "bun";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
@@ -49,35 +47,6 @@ export const consoleMe = (): ConsoleMe => {
 		actors,
 		defaultActor: readBoardSettings().settings.default_actor ?? "",
 	};
-};
-
-export const healthProbe = async (
-	name: string,
-	port: number,
-): Promise<HealthProbe> => {
-	try {
-		const r = await fetch(`http://127.0.0.1:${port}/status`, {
-			signal: AbortSignal.timeout(1500),
-		});
-		if (!r.ok) return { name, port, up: false, detail: `HTTP ${r.status}` };
-		const j = (await r.json()) as {
-			uptime_s?: number;
-			requests?: { total?: number };
-		};
-		return {
-			name,
-			port,
-			up: true,
-			detail: `uptime ${Math.round(j.uptime_s ?? 0)}s · ${j.requests?.total ?? 0} req`,
-		};
-	} catch (e) {
-		return {
-			name,
-			port,
-			up: false,
-			detail: e instanceof Error ? e.message.slice(0, 80) : "unreachable",
-		};
-	}
 };
 
 // buckle upstreams.yaml (read-only display): group name == wire id; an empty
@@ -118,10 +87,8 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		}
 	}
 	const belt = await resolveBelt();
-	const health = await Promise.all([
-		healthProbe("buckle", 4101),
-		healthProbe("belt gateway", 4100),
-	]);
+	// W273: every monitored service in the recovery map, not just two ports
+	const health = await probeAll();
 	return {
 		policy: pol,
 		gateway,

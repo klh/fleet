@@ -27,11 +27,15 @@ export async function handleData(
 		return json(sid ? payloadFor(sid) : payload());
 	}
 	{
-		// W217: the vendored Lit component bundle (offline — built artifact,
-		// never CDN). Exact path only; anything else falls through.
-		const vf = "/vendor/klh-components.js";
-		if (url.pathname === vf) {
-			const f = `${import.meta.dir}/../board-html/vendor/klh-components.js`;
+		// W217/W273: the vendored Lit component bundles (offline — built
+		// artifacts, never CDN). Exact allowlisted paths only; anything else
+		// falls through.
+		const vf = url.pathname.slice("/vendor/".length);
+		if (
+			url.pathname.startsWith("/vendor/") &&
+			(vf === "klh-components.js" || vf === "klh-service-row.js")
+		) {
+			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
 			return new Response(Bun.file(f), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});

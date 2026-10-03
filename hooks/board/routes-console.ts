@@ -11,6 +11,7 @@ import {
 	settingsApply,
 } from "./settings.ts";
 import { scrub } from "../lib/servicemon.ts";
+import { probeAll, probeService, withRecovery } from "./service-probe.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -50,6 +51,16 @@ export async function handleConsole(
 				"cache-control": "no-store",
 			},
 		});
+	if (url.pathname === "/api/services" && req.method === "GET")
+		// W273: every monitored service + its recovery-map entry
+		return json({ ok: true, services: (await probeAll()).map(withRecovery) });
+	if (url.pathname === "/api/services/probe" && req.method === "GET") {
+		// W273 re-probe: one service, fresh (the row's self-check affordance)
+		const p = await probeService(url.searchParams.get("id") ?? "");
+		return p
+			? json({ ok: true, service: withRecovery(p) })
+			: json({ ok: false, error: "unknown service id" }, 404);
+	}
 	if (url.pathname === "/api/console/me") {
 		// avatar dropdown data: board host's latest actor (unassigned until
 		// coord bootstrap --actor stamps it) + tags + distinct known actors
