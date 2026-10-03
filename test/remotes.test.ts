@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
+	authHeaders,
 	chatRemote,
 	configPath,
 	endpointUrl,
@@ -58,6 +59,7 @@ Bun.spawnSync([
 	"1",
 ]);
 const TLS_HITS: string[] = [];
+const TLS_AUTH_HEADERS: (string | null)[] = [];
 const tlsStub = Bun.serve({
 	port: 0,
 	tls: {
@@ -67,6 +69,7 @@ const tlsStub = Bun.serve({
 	fetch(req) {
 		const url = new URL(req.url);
 		TLS_HITS.push(url.pathname);
+		TLS_AUTH_HEADERS.push(req.headers.get("authorization"));
 		if (url.pathname === "/v1/models")
 			return Response.json({ data: [{ id: "tls-model" }] });
 		if (url.pathname === "/v1/chat/completions")
@@ -97,11 +100,12 @@ const TLS_EP: RemoteEndpoint = {
 	protocol: "openai",
 	roles: ["general"],
 	model: "tls-model",
+	tls: true, // tls now lives on the endpoint, not the machine
+	api_key: "secret-token",
 };
 const TLS_MACHINE: RemoteMachine = {
 	name: "cdn",
 	host: "localhost", // tls:true → must stay the hostname, never resolved
-	tls: true,
 	endpoints: [TLS_EP],
 };
 
@@ -184,13 +188,35 @@ describe("remotes registry", () => {
 		expect(await sendWoL("not-a-mac", "127.0.0.1:9")).toBe(false);
 	});
 
-	test("endpointUrl: https+hostname for tls, http+ip otherwise", () => {
-		expect(endpointUrl("1.2.3.4", false, 8080, "/x")).toBe(
+	test("endpointUrl: https+hostname for tls, http+ip otherwise, base overrides both", () => {
+		expect(endpointUrl("1.2.3.4", { tls: undefined, port: 8080 }, "/x")).toBe(
 			"http://1.2.3.4:8080/x",
 		);
-		expect(endpointUrl("api.z.ai", true, 443, "/v1/models")).toBe(
-			"https://api.z.ai:443/v1/models",
-		);
+		expect(
+			endpointUrl("api.z.ai", { tls: true, port: 443 }, "/v1/models"),
+		).toBe("https://api.z.ai:443/v1/models");
+		expect(
+			endpointUrl(
+				"ignored",
+				{ base: "https://edge.example.com/prefix/", port: 1 },
+				"/v1/models",
+			),
+		).toBe("https://edge.example.com/prefix/v1/models");
+	});
+
+	test("authHeaders: protocol-aware, empty when no key configured", () => {
+		expect(authHeaders(EP)).toEqual({});
+		expect(authHeaders(TLS_EP)).toEqual({
+			Authorization: "Bearer secret-token",
+		});
+		expect(
+			authHeaders({
+				port: 1,
+				protocol: "immich",
+				roles: [],
+				api_key: "immich-key",
+			}),
+		).toEqual({ "x-api-key": "immich-key" });
 	});
 
 	test("tls machine (CDN-fronted) keeps the hostname for SNI — real TLS handshake, self-signed cert", async () => {
@@ -203,5 +229,16 @@ describe("remotes registry", () => {
 		]);
 		expect(out.text).toBe("TLS-ANSWER");
 		expect(TLS_HITS).toContain("/v1/chat/completions");
+		expect(TLS_AUTH_HEADERS).toContain("Bearer secret-token");
+	});
+	test("loadRemotes fails loud (returns []) on a schema-invalid config", () => {
+		const bad = configPath();
+		const original = readFileSync(bad, "utf8");
+		writeFileSync(
+			bad,
+			JSON.stringify({ machines: [{ name: "broken", endpoints: "nope" }] }),
+		);
+		expect(loadRemotes()).toEqual([]);
+		writeFileSync(bad, original);
 	});
 });
