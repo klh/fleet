@@ -1,26 +1,45 @@
 // hooks/lib/remotes.ts — suspenders' slice of the remote LLM registry.
 // Reads the SAME runtime config belt uses: ~/.claude/local-llm/remotes.json
-// (never committed — real hosts/IPs/MACs stay local; the repo ships
-// placeholders). DNS first, ip_fallback only when resolution fails.
+// (never committed — real hosts/IPs/MACs stay local). DNS first,
+// ip_fallback only when resolution fails.
 // Suspenders needs three things: probe-only liveness for keepwarm (never WoL
 // from a 4-min daemon — that would defeat Synology hibernation), an
 // openai-protocol chat fallback for advise, and WoL-ensure for the rare,
-// important routed calls. Spike: spikes/w86/ (bfde191).
+// important routed calls. Spike: spikes/w86/ (bfde191). Schema: zod is the
+// single source of truth (W308) — a malformed config fails loud via
+// loadRemotes() instead of silently mis-routing.
 import dgram from "node:dgram";
 import { existsSync, readFileSync } from "node:fs";
+import { z } from "zod";
 
-export interface RemoteEndpoint {
-	port: number;
+export const RemoteEndpointSchema = z.object({
+	port: z.number().int().positive(),
 	// openai = /v1/models + /v1/chat/completions; llama = llama.cpp server
 	// (/health); immich = Immich SERVER api (smart-search), not the ML container
-	protocol: "openai" | "llama" | "immich";
-	roles: string[]; // general | advise | research | embed ...
-	model?: string;
-	/** name of the env var holding the immich x-api-key — never the key */
-	api_key_env?: string;
+	protocol: z.enum(["openai", "llama", "immich"]),
+	roles: z.array(z.string()), // general | advise | research | embed ...
+	model: z.string().optional(),
+	/** CDN/edge-fronted remotes (z.ai, openai, anthropic …) need real TLS on
+	 *  the real hostname — a direct-IP plaintext request loses both the TLS
+	 *  SNI and the Host header, and the edge rejects it (421 "Direct IP
+	 *  access is not allowed"). LAN boxes (nas, immich) stay plain http by
+	 *  resolved IP; set tls: true only for public internet endpoints. Lives
+	 *  on the ENDPOINT, not the machine — one machine can expose both a
+	 *  plain-http LAN port and a tls-fronted public one. */
+	tls: z.boolean().optional(),
+	/** full URL override (scheme+host[:port]) — bypasses tls/port URL
+	 *  construction entirely, for upstreams whose path doesn't fit
+	 *  `${scheme}://${host}:${port}`. */
+	base: z.string().optional(),
+	/** literal bearer/x-api-key value — prefer api_key_env; never committed. */
+	api_key: z.string().optional(),
+	/** name of the env var holding the secret (immich x-api-key, z.ai bearer,
+	 *  etc.) — never the key itself. */
+	api_key_env: z.string().optional(),
 	/** opt-in probe-only liveness from the 4-min keepwarm daemon */
-	keepwarm_probe?: boolean;
-}
+	keepwarm_probe: z.boolean().optional(),
+});
+export type RemoteEndpoint = z.infer<typeof RemoteEndpointSchema>;
 
 export interface RemoteMachine {
 	name: string;
