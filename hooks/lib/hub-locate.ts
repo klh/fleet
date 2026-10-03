@@ -48,10 +48,16 @@ async function discoverHub(label: string): Promise<string | null> {
 		);
 		const wantLower = label.toLowerCase();
 		let name: string | null = null;
+		// real `dns-sd -B` output is column-formatted (timestamp/flags/if/
+		// domain/type/instance), NOT "<name>.<type>.local." on one token —
+		// the instance name is the trailing field on a row naming our
+		// service type.
 		for (const line of browse.stdout.toString().split("\n")) {
-			const m = line.match(/(\S+)\._klh-hub\._tcp\.?/);
-			if (m?.[1]?.toLowerCase().includes(wantLower)) {
-				name = m[1];
+			if (!line.includes(`${HUB_SERVICE_TYPE}.`)) continue;
+			const parts = line.trim().split(/\s+/);
+			const candidate = parts.at(-1);
+			if (candidate?.toLowerCase().includes(wantLower)) {
+				name = candidate;
 				break;
 			}
 		}
