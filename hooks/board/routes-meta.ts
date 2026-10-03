@@ -1,21 +1,6 @@
 // hooks/board/routes-meta.ts — meta: /llms.txt (LLMS_TXT), / (the SPA page), 404 tail (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { CLI, db } from "./context.ts";
-import { json } from "./helpers.ts";
-import {
-	tasks,
-	activity,
-	sessions,
-	board,
-	claims,
-	events,
-	inbox,
-	llm,
-} from "./data.ts";
-import { orchestrate } from "./orch.ts";
-import { servicemon } from "../lib/servicemon.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
 import { HTML } from "../bin/fleet-board-html.ts";
 
 export const LLMS_TXT = `# suspenders
@@ -41,7 +26,9 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/diff       per-item branch diff for the drawer: repo + branch suspenders/<id> (worktree.ts naming), base = merge-base with main (fallback master); JSON {ok,id,branch,base,stat,diff}, patch tail-capped at 200KB
 - GET /api/tail       live lane tail for the drawer: the owning lane's .fleet/lane-<sid>.log (last 32KB) + transcript recent lines; JSON {ok,id,sid,log,transcript,recent}
 - GET /console        redirect to /console/belt (the klh console shell: belt | suspenders | local menu + settings gear + actor avatar)
-- GET /console/belt   gateway view (read-only): resolved routing-policy.yaml (ladder, budgets), buckle upstreams pool, :4101/:4100 servicemon health, belt API reachability
+- GET /console/belt   gateway view (read-only): fleet service rows (every recovery-map service; DOWN/degraded rows expand into what happened, likely cause and copyable recovery commands + re-probe — W273), resolved routing-policy.yaml (ladder, budgets), buckle upstreams pool, belt API reachability
+- GET /api/services   W273: {ok, services:[{id,name,port,up,state:up|degraded|down,detail,probed_at,recovery:{what,causes[],recovery:[{label,cmd}]}}]} — every monitored service probed now
+- GET /api/services/probe?id=  W273 re-probe one service: {ok, service} (same row shape); unknown id → 404
 - GET /console/local  Caddy-served .local services from the klh-local registry (static view)
 - GET /console/settings   settings hub — one entry per feature (belt budgets, buckle ladder+cooldowns, suspenders board knobs); every write previews a diff + confirms
 - GET /api/console/me avatar data: {ok, actor, tags, actors[], default_actor} — board host's latest session actor, "unassigned" until coord bootstrap --actor stamps one
@@ -78,7 +65,7 @@ and nothing registers. Nothing else on the board depends on it.
 a Threads thing — http://www.threads.dk`;
 
 export async function handleMeta(
-	req: Request,
+	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/llms.txt")
@@ -98,5 +85,4 @@ export async function handleMeta(
 			},
 		});
 	return new Response("not found", { status: 404 });
-	return null;
 }

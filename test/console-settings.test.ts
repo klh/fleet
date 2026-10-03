@@ -229,6 +229,29 @@ describe("console routes (real board, temp config)", () => {
 		expect(local).toContain("7792");
 	});
 
+	test("W273: service rows + re-probe endpoint + vendored row module", async () => {
+		const belt = await (await fetch(`${BASE}/console/belt`)).text();
+		expect(belt).toContain("<klh-service-row");
+		expect(belt).toContain('data-service="belt-gateway-4000"');
+		const all = (await (await fetch(`${BASE}/api/services`)).json()) as {
+			ok: boolean;
+			services: { id: string; recovery: unknown }[];
+		};
+		expect(all.ok).toBe(true);
+		expect(all.services.length).toBeGreaterThan(5);
+		expect(all.services.every((s) => s.recovery !== null)).toBe(true);
+		const one = await fetch(`${BASE}/api/services/probe?id=buckle-4101`);
+		expect(one.status).toBe(200);
+		const d = (await one.json()) as { service: { id: string; state: string } };
+		expect(d.service.id).toBe("buckle-4101");
+		expect(["up", "degraded", "down"]).toContain(d.service.state);
+		const bad = await fetch(`${BASE}/api/services/probe?id=nope`);
+		expect(bad.status).toBe(404);
+		const js = await fetch(`${BASE}/vendor/klh-service-row.js`);
+		expect(js.status).toBe(200);
+		expect(await js.text()).toContain("klh-service-row");
+	});
+
 	test("/api/console/me: unassigned until an actor is stamped", async () => {
 		const d = (await (await fetch(`${BASE}/api/console/me`)).json()) as Record<
 			string,

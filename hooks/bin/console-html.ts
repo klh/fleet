@@ -18,6 +18,8 @@ import type {
 	ResolvedPolicy,
 } from "../lib/board-config.ts";
 import { scrub } from "../lib/servicemon.ts";
+import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import type { ServiceProbe } from "../board/service-probe.ts";
 
 export interface ConsoleMe {
 	actor: string;
@@ -141,12 +143,8 @@ export const consolePage = (
 	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{background:#141413;color:#e8e6e1;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;padding:0 20px 28px;}a{color:#d8900f}.ptitle{font-size:14px;letter-spacing:.08em;margin:16px 0 10px;color:#e8e6e1}.panel{background:#1c1b19;border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#98958e}.dim{color:#98958e}.ok{color:#5c7a35}.bad{color:#c96a4f}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid #2c2c2a;text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#98958e}.num{font-variant-numeric:tabular-nums}.btn{background:#d8900f;color:#141413;border:1px solid #d8900f;border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:#141413;color:#e8e6e1;border:1px solid rgba(255,255,255,.22);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:#141413;color:#e8e6e1;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:5px 8px;font:12px ui-monospace,Menlo,monospace}label.k{display:block;font-size:10px;color:#98958e;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid #5c7a35;color:#a5c78a;background:#1a2015;border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid #af2f12;color:#c96a4f;background:#221512;border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:#141413;border:1px solid rgba(255,255,255,.12);border-radius:2px;padding:10px 12px;font:11px/1.5 ui-monospace,Menlo,monospace;overflow:auto}pre.diff .add{color:#a5c78a;display:block}pre.diff .del{color:#c96a4f;display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:#98958e;margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:980px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
 
 // ─── belt gateway view (/console/belt) ────────────────────────────────────
-export interface HealthProbe {
-	name: string;
-	port: number;
-	up: boolean;
-	detail: string;
-}
+// W273: a probe row carries its recovery-map entry (null = unmapped)
+export type HealthProbe = ServiceProbe & { recovery: RecoveryEntry | null };
 
 export interface UpstreamGroup {
 	name: string;
@@ -173,10 +171,31 @@ const ladderHtml = (gw: PolicyGatewayParsed): string =>
 		)
 		.join("")}</tbody></table>`;
 
-const healthHtml = (h: HealthProbe[]): string =>
-	`<div class="tiles">${h.map((p) => `<div class="tile"><div class="tnum"><span class="${p.up ? "ok" : "bad"}">${p.up ? "UP" : "DOWN"}</span></div><div class="tkey">${esc(p.name)} :${p.port}</div><div class="tsub">${esc(p.detail)}</div></div>`).join("")}</div>`;
+// W273: one <klh-service-row> per monitored service. The Lit component
+// renders from the probe JSON attribute; the light-DOM children are the
+// no-JS fallback (shadow DOM hides them once the component upgrades) —
+// recovery commands are readable even if the module never loads.
+const stateOf = (p: HealthProbe): string => p.state ?? (p.up ? "up" : "down");
 
-const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:#1c1b19;border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:#98958e;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:#98958e;margin-top:3px}.pill{display:inline-block;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:1px 7px;font-size:11px;color:#c3c2b7;margin:1px 3px 1px 0}`;
+const fallbackRecovery = (p: HealthProbe): string => {
+	const r = p.recovery;
+	if (!r || stateOf(p) === "up") return "";
+	return `<details${stateOf(p) === "down" ? " open" : ""}><summary>how to recover</summary><p>${esc(r.what)}</p><ul>${r.causes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul><ol>${r.recovery.map((s) => `<li><span class="dim">${esc(s.label)}</span><pre class="rcmd"><code>${esc(s.cmd)}</code></pre></li>`).join("")}</ol></details>`;
+};
+
+export const serviceRowHtml = (p: HealthProbe): string => {
+	const st = stateOf(p);
+	const cls = st === "up" ? "ok" : "bad";
+	const where = p.port ? ` :${p.port}` : "";
+	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(p.name)}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
+};
+
+const healthHtml = (h: HealthProbe[]): string => {
+	const dark = h.filter((p) => stateOf(p) !== "up").length;
+	return `<div class="panel"><h2>Fleet services · ${h.length - dark}/${h.length} up${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+};
+
+const PILL_CSS = `.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:#141413;border:1px solid rgba(255,255,255,.12);border-radius:2px;padding:4px 8px;font:11px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap}.pill{display:inline-block;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:1px 7px;font-size:11px;color:#c3c2b7;margin:1px 3px 1px 0}`;
 
 // ─── belt page body ───────────────────────────────────────────────────────
 const policyCard = (v: BeltView): string => {
