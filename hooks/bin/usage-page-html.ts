@@ -15,13 +15,14 @@
 //
 // W127 dataviz discipline kept: form first, categorical color by identity
 // in FIXED group order (never cycled — flash is always blue), palette
-// validated against surface #1c1b19, recessive grid, muted axis ink,
+// validated against surface var(--klh-surface), recessive grid, muted axis ink,
 // tabular-nums, native <title> hovers on the non-uPlot marks, dark palette.
 import { readFileSync } from "node:fs";
 import { GROUPS, type UsageReport } from "../lib/usage.ts";
 // W147: every page wears the console shell — topbar + avatar dropdown JS
 import { TOPBAR_JS, topbar } from "./console-html.ts";
 import { USAGE_CHART_JS } from "./usage-charts.ts";
+import { THEME_HEAD } from "../lib/theme.ts";
 
 // uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
 // vendored single file, license header preserved at the top of the source.
@@ -203,42 +204,42 @@ function aidsHtml(r: UsageReport): string {
 // ─── page CSS (scoped u*) — board dark palette, dataviz chrome ────────────
 const U_CSS = `
 .utiles { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
-.utile { flex:1 1 150px; background:#1c1b19; border:1px solid rgba(255,255,255,.10); border-radius:3px; padding:10px 14px; }
-.uv { font-size:22px; font-weight:600; color:#e8e6e1; font-variant-numeric:tabular-nums; word-break:break-all; }
-.uk { font-size:10px; color:#98958e; text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
+.utile { flex:1 1 150px; background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:10px 14px; }
+.uv { font-size:22px; font-weight:600; color:var(--klh-ink); font-variant-numeric:tabular-nums; word-break:break-all; }
+.uk { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
 .uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
-.uwin { font-size:10.5px; color:#98958e; }
-.upanel { background:#1c1b19; border:1px solid rgba(255,255,255,.10); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
-.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:#98958e; }
+.uwin { font-size:10.5px; color:var(--klh-dim); }
+.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
+.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
 .upanel .uhead { display:flex; align-items:baseline; gap:12px; }
 .upanel .uhead .ufoot { margin:0; }
-.ulegend { display:flex; gap:14px; font-size:11px; color:#c3c2b7; margin:0 0 8px; flex-wrap:wrap; }
+.ulegend { display:flex; gap:14px; font-size:11px; color:var(--klh-ink-2); margin:0 0 8px; flex-wrap:wrap; }
 .ulegend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
 .ufilters { display:flex; gap:18px; align-items:center; margin:0 0 14px; flex-wrap:wrap; }
 .ufgroup { display:flex; gap:6px; align-items:center; }
-.ufgroup::before { content:attr(data-label); font-size:9.5px; color:#98958e; text-transform:uppercase; letter-spacing:.06em; }
-.ufilter, .ufchip { font-size:11px; color:#98958e; text-decoration:none; border:1px solid rgba(255,255,255,.12); border-radius:2px; padding:2px 9px; }
-.ufilter.on, .ufchip.on { color:#d8900f; border-color:#d8900f; }
-.uon { font-size:10.5px; color:#d8900f; }
+.ufgroup::before { content:attr(data-label); font-size:9.5px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
+.ufilter, .ufchip { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
+.ufilter.on, .ufchip.on { color:var(--klh-accent); border-color:var(--klh-accent); }
+.uon { font-size:10.5px; color:var(--klh-accent); }
 table.uacts { width:100%; border-collapse:collapse; font-size:12px; }
-table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid #2c2c2a; text-align:left; }
-.unum { text-align:right; font-variant-numeric:tabular-nums; color:#c3c2b7; white-space:nowrap; }
+table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid var(--klh-rule); text-align:left; }
+.unum { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-ink-2); white-space:nowrap; }
 .ubar { display:flex; height:12px; border-radius:3px; overflow:hidden; min-width:2px; }
 .ubar i { display:block; height:100%; }
 .udot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
-.uchip { font-size:10px; color:#98958e; border:1px solid rgba(255,255,255,.12); border-radius:2px; padding:1px 6px; margin-left:6px; }
+.uchip { font-size:10px; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 6px; margin-left:6px; }
 tr.udetail td { padding-top:0; border-bottom:none; }
-tr.udetail details { font-size:11px; color:#98958e; }
+tr.udetail details { font-size:11px; color:var(--klh-dim); }
 tr.udetail summary { cursor:pointer; }
 table.umtab { margin:6px 0 10px; border-collapse:collapse; }
-table.umtab td, table.umtab th { padding:2px 10px 2px 0; font-size:11px; text-align:left; color:#c3c2b7; }
-.uempty { color:#98958e; font-size:12px; }
-.ufoot { font-size:10.5px; color:#98958e; margin:2px 0 8px; }
+table.umtab td, table.umtab th { padding:2px 10px 2px 0; font-size:11px; text-align:left; color:var(--klh-ink-2); }
+.uempty { color:var(--klh-dim); font-size:12px; }
+.ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
 .uchart { width:100%; }
 /* uPlot chrome on the board dark palette: recessive grid + muted axis ink
    are also set per-axis in usage-charts.ts; these style the live legend */
-.uplot .u-legend { font: 10.5px/1.7 ui-monospace,Menlo,monospace; color:#c3c2b7; text-transform:uppercase; letter-spacing:.04em; }
-.uplot .u-legend .u-value { font-variant-numeric:tabular-nums; color:#e8e6e1; }
+.uplot .u-legend { font: 10.5px/1.7 ui-monospace,Menlo,monospace; color:var(--klh-ink-2); text-transform:uppercase; letter-spacing:.04em; }
+.uplot .u-legend .u-value { font-variant-numeric:tabular-nums; color:var(--klh-ink); }
 .uplot .u-legend .u-series.u-off { opacity:.4; }
 .uplot .u-marker { width:9px; height:9px; border-radius:2px; }
 .uplot text { font-size:10px; }
@@ -267,5 +268,5 @@ export function usagePage(
 	const tbl = `<div class="upanel"><h2>ACTORS</h2><table class="uacts"><thead><tr><th>actor</th><th style="width:38%">tokens by model group</th><th class="unum">total</th><th class="unum">req</th></tr></thead><tbody>${actorRows(r)}</tbody></table></div>`;
 	const back = `<div class="uback"><a href="/">&larr; fleet board</a><span class="uwin">${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view</span></div>`;
 	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${chartPayload(r)}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>FLEET USAGE</title><style>body{background:#141413;color:#e8e6e1;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;padding:0 20px 28px;}a{color:#d8900f}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:#e8e6e1}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${back}${head}${timeline}${hours}${tbl}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><title>FLEET USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${back}${head}${timeline}${hours}${tbl}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
 }

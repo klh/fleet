@@ -13,9 +13,25 @@ export const USAGE_CHART_JS = `
 	var DATA = document.getElementById("usage-data");
 	if (!DATA || typeof uPlot !== "function") return;
 	var P = JSON.parse(DATA.textContent);
-	var GRID = "#2c2c2a";
-	var HAIR = "#383835";
-	var AXIS = "#898781";
+	// W269: chart chrome follows the klh theme tokens; uPlot calls the stroke
+	// fns on every draw, so a klh-themechange only needs a redraw
+	var tok = function (name, dflt) {
+		var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+		return (v && v.trim()) || dflt;
+	};
+	var GRID = function () {
+		return tok("--klh-chart-grid", "#2c2c2a");
+	};
+	var HAIR = function () {
+		return tok("--klh-chart-hair", "#383835");
+	};
+	var AXIS = function () {
+		return tok("--klh-chart-axis", "#898781");
+	};
+	var charts = [];
+	document.addEventListener("klh-themechange", function () {
+		for (var i = 0; i < charts.length; i++) charts[i].redraw(false, true);
+	});
 	var fmtTok = function (n) {
 		if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
 		if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
@@ -42,6 +58,7 @@ export const USAGE_CHART_JS = `
 	};
 	var mount = function (el, opts, data) {
 		var u = new uPlot(opts, data, el);
+		charts.push(u);
 		var fit = function () {
 			var w = el.clientWidth;
 			if (w > 0 && w !== u.width) u.setSize({ width: w, height: opts.height });

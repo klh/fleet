@@ -120,6 +120,8 @@ describe("usagePage render contract (W152)", () => {
 		expect(html).toContain("box-sizing: border-box");
 		expect(html).toContain('id="u-timeline"');
 		expect(html).toContain('id="u-hours"');
+		expect(html).toContain('id="klh-theme-tokens"');
+		expect(html).toContain('id="klh-settings"');
 		const m = html.match(
 			/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
 		);

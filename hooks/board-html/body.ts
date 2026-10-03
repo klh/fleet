@@ -21,7 +21,7 @@ export const BODY = String.raw`
   <button type="button" data-tab="activity">Activity</button>
   <button type="button" data-tab="governor">Governor</button>
   <button type="button" data-tab="setup">Setup</button>
-  <a href="/usage" class="tablink" style="align-self:center;color:#98958e;font-size:12px;font-weight:600;letter-spacing:.04em;text-decoration:none;padding:7px 12px;" onmouseover="this.style.color='#e8e6e1'" onmouseout="this.style.color='#98958e'">Usage</a>
+  <a href="/usage" class="tablink" style="align-self:center;color:var(--klh-dim);font-size:12px;font-weight:600;letter-spacing:.04em;text-decoration:none;padding:7px 12px;" onmouseover="this.style.color='var(--klh-ink)'" onmouseout="this.style.color='var(--klh-dim)'">Usage</a>
 </nav>
 <div id="hashChipBar"></div>
 <main>
