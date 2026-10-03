@@ -2,10 +2,11 @@
 // resolution with ip_fallback, protocol probes, and openai chat routing —
 // proven against a real local stub server (Bun.serve), not mocks.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
 	chatRemote,
 	configPath,
+	endpointUrl,
 	ensureEndpoint,
 	endpointsWithRole,
 	loadRemotes,
@@ -33,6 +34,49 @@ const stub = Bun.serve({
 	},
 });
 
+// ─── tls stub: a REAL self-signed HTTPS server bound to localhost — proves
+// tls machines route by hostname (SNI), matching z.ai's CDN edge, which
+// 421s any request arriving by raw IP with no SNI/Host match. The
+// self-signed cert needs NODE_TLS_REJECT_UNAUTHORIZED=0, scoped to this
+// file's tests only (restored in afterAll).
+const certDir = `${import.meta.dir}/.tmp-remotes-tls`;
+mkdirSync(certDir, { recursive: true });
+Bun.spawnSync([
+	"openssl",
+	"req",
+	"-x509",
+	"-newkey",
+	"rsa:2048",
+	"-nodes",
+	"-subj",
+	"/CN=localhost",
+	"-keyout",
+	`${certDir}/key.pem`,
+	"-out",
+	`${certDir}/cert.pem`,
+	"-days",
+	"1",
+]);
+const TLS_HITS: string[] = [];
+const tlsStub = Bun.serve({
+	port: 0,
+	tls: {
+		cert: readFileSync(`${certDir}/cert.pem`),
+		key: readFileSync(`${certDir}/key.pem`),
+	},
+	fetch(req) {
+		const url = new URL(req.url);
+		TLS_HITS.push(url.pathname);
+		if (url.pathname === "/v1/models")
+			return Response.json({ data: [{ id: "tls-model" }] });
+		if (url.pathname === "/v1/chat/completions")
+			return Response.json({
+				choices: [{ message: { content: "TLS-ANSWER" } }],
+			});
+		return new Response("nope", { status: 404 });
+	},
+});
+
 // ─── fixture config: HOME pointed at a temp dir ───────────────────────────
 const TMP = `${import.meta.dir}/.tmp-remotes-home`;
 const EP: RemoteEndpoint = {
@@ -48,16 +92,37 @@ const MACHINE: RemoteMachine = {
 	ip_fallback: "127.0.0.1",
 	endpoints: [EP],
 };
+const TLS_EP: RemoteEndpoint = {
+	port: tlsStub.port,
+	protocol: "openai",
+	roles: ["general"],
+	model: "tls-model",
+};
+const TLS_MACHINE: RemoteMachine = {
+	name: "cdn",
+	host: "localhost", // tls:true → must stay the hostname, never resolved
+	tls: true,
+	endpoints: [TLS_EP],
+};
+
+const REAL_TLS_REJECT = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 
 beforeAll(() => {
 	mkdirSync(`${TMP}/.claude/local-llm`, { recursive: true });
 	process.env.HOME = TMP;
-	writeFileSync(configPath(), JSON.stringify({ machines: [MACHINE] }));
+	process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // self-signed test cert only
+	writeFileSync(
+		configPath(),
+		JSON.stringify({ machines: [MACHINE, TLS_MACHINE] }),
+	);
 });
 
 afterAll(() => {
 	stub.stop(true);
+	tlsStub.stop(true);
 	rmSync(TMP, { recursive: true, force: true });
+	rmSync(certDir, { recursive: true, force: true });
+	process.env.NODE_TLS_REJECT_UNAUTHORIZED = REAL_TLS_REJECT;
 	if (REAL_HOME) process.env.HOME = REAL_HOME;
 });
 
@@ -72,7 +137,7 @@ describe("remotes registry", () => {
 	});
 
 	test("loadRemotes parses the fixture", () => {
-		expect(loadRemotes()).toHaveLength(1);
+		expect(loadRemotes()).toHaveLength(2);
 		expect(endpointsWithRole("advise")).toHaveLength(1);
 	});
 
@@ -117,5 +182,26 @@ describe("remotes registry", () => {
 
 	test("sendWoL rejects a malformed MAC without sending", async () => {
 		expect(await sendWoL("not-a-mac", "127.0.0.1:9")).toBe(false);
+	});
+
+	test("endpointUrl: https+hostname for tls, http+ip otherwise", () => {
+		expect(endpointUrl("1.2.3.4", false, 8080, "/x")).toBe(
+			"http://1.2.3.4:8080/x",
+		);
+		expect(endpointUrl("api.z.ai", true, 443, "/v1/models")).toBe(
+			"https://api.z.ai:443/v1/models",
+		);
+	});
+
+	test("tls machine (CDN-fronted) keeps the hostname for SNI — real TLS handshake, self-signed cert", async () => {
+		const probe = await probeEndpoint(TLS_MACHINE, TLS_EP);
+		expect(probe.alive).toBe(true);
+		expect(TLS_HITS).toContain("/v1/models");
+
+		const out = await chatRemote(TLS_MACHINE, TLS_EP, [
+			{ role: "user", content: "hello" },
+		]);
+		expect(out.text).toBe("TLS-ANSWER");
+		expect(TLS_HITS).toContain("/v1/chat/completions");
 	});
 });
