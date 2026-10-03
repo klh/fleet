@@ -15,18 +15,19 @@ import {
 	workTiming,
 	tokenUsage,
 	sweepStaleSessions,
+	tagNameOf,
 	realpathSync,
 	resolve,
 } from "./shared.ts";
 import type { Database } from "./shared.ts";
 
-export async function cmdBootstrap(rest: string[]): Promise<void> {
+export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
 	// so no session reconstructs operational state from Markdown
 	const as =
 		arg("--as") ??
 		die(
-			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json]",
+			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label]",
 		);
 	// project identity is always derived (projectIdentity) — no --project
 	// override, it would let sessions fragment the graph by hand
@@ -68,6 +69,26 @@ export async function cmdBootstrap(rest: string[]): Promise<void> {
 		} catch {
 			die("--tags must be valid JSON");
 		}
+	}
+	// W293 session-name bridge: --name merges into the tags JSON (`{ name }`) —
+	// the user-facing lane label `coord fleet` and the board render. A user
+	// rename is the freshest identity, so a re-bootstrap RENAMES (the name key
+	// is last-stamp-wins); every other tag key keeps its first-stamp value and
+	// an explicit --name beats a name embedded in --tags.
+	const name = arg("--name");
+	if (name != null) {
+		const merged: Record<string, unknown> = {};
+		try {
+			const prev = (
+				db.query("SELECT tags FROM sessions WHERE sid = ?").get(as) as {
+					tags: string | null;
+				} | null
+			)?.tags;
+			if (prev) Object.assign(merged, JSON.parse(prev) as object);
+		} catch {}
+		if (tags) Object.assign(merged, JSON.parse(tags) as object);
+		merged.name = name;
+		tags = JSON.stringify(merged);
 	}
 	// liveness sweeps read THIS host's transcript tree — a remote lane's view
 	// would close live sessions it cannot see; sweeping stays a host concern
@@ -129,7 +150,7 @@ export async function cmdBootstrap(rest: string[]): Promise<void> {
 		console.log(`  ${cyan(w.id)} ${dim(w.state)} ${w.title.slice(0, 60)}`);
 }
 
-export async function cmdFleet(rest: string[]): Promise<void> {
+export async function cmdFleet(_rest: string[]): Promise<void> {
 	// one-line fleet projection for a terminal pane (the Desktop panel
 	// projection lives in subagent-statusline.ts; the CLI inline rows are
 	// harness-owned and ignore it)
@@ -149,6 +170,22 @@ export async function cmdFleet(rest: string[]): Promise<void> {
 				c.intent.length > 14 ? `${c.intent.slice(0, 13)}…` : c.intent,
 			);
 	}
+	// W293 session-name bridge: a user-facing name (sessions.tags JSON, stamped
+	// by `coord bootstrap --name`) leads the lane label with the short sid next
+	// to it; unnamed lanes keep the claim-intent → sid fallback.
+	const sessionNames = new Map<string, string>();
+	for (const l of lanes) {
+		const n = tagNameOf(
+			(
+				db.query("SELECT tags FROM sessions WHERE sid = ?").get(l) as {
+					tags: string | null;
+				} | null
+			)?.tags,
+		);
+		if (n) sessionNames.set(l, n);
+	}
+	const trunc = (s: string): string =>
+		s.length > 24 ? `${s.slice(0, 23)}…` : s;
 	const head = (
 		db
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
@@ -166,7 +203,8 @@ export async function cmdFleet(rest: string[]): Promise<void> {
 						: st === "BLOCKED"
 							? red("⚠")
 							: green("▶");
-		return `${g} ${dim(names.get(l) ?? l.slice(0, 8))}`;
+		const nm = sessionNames.get(l);
+		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
 	});
 	console.log(
 		`${head ? `${dim(`@${head.slice(0, 7)}`)}  ` : ""}${parts.join("  ") || dim("(no claimed lanes)")}`,

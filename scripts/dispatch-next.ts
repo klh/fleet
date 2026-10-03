@@ -463,6 +463,20 @@ const dispatchItem = async (
 		console.log(
 			`NOTE — .prefer chain attempt ${pick.chainIdx}/${pick.chainLen - 1}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 		);
+	// W293 session-name bridge: stamp the lane's user-facing name onto the
+	// sessions row (tags JSON) so coord fleet + the board show e.g.
+	// "[IKEA] opus W5" instead of an opaque sid. Renames on resume (the chain
+	// can switch executor between attempts). The lane's own session-start
+	// upsert never touches the tags column, so the name survives registration.
+	run([
+		process.execPath,
+		`${BIN}/coord.ts`,
+		"bootstrap",
+		"--as",
+		sid,
+		"--name",
+		`${pick.agent} ${item}`,
+	]);
 	const brief = composeBrief({
 		item,
 		showOut: show.out,
