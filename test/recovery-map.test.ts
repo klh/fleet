@@ -68,7 +68,10 @@ describe("recovery map completeness", () => {
 			e.probe.kind === "launchd" ? [e.probe.label] : [],
 		);
 		expect(labels).toContain("com.suspenders.local-llm");
-		expect(labels).toContain("com.belt.gateway");
+		// W277: the standalone com.belt.gateway restarter was retired (it was
+		// a second :4100 restarter racing the swarm supervisor — a fork-bomb
+		// hazard); litellm now lives solely under launchd-local-llm.
+		expect(labels).not.toContain("com.belt.gateway");
 		expect(RECOVERY_MAP.caddy).toBeDefined();
 	});
 
@@ -78,9 +81,6 @@ describe("recovery map completeness", () => {
 		);
 		expect(cmds).toContain(
 			"launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm",
-		);
-		expect(cmds).toContain(
-			"launchctl kickstart -k gui/$(id -u)/com.belt.gateway",
 		);
 		// the orphaned-:4000 case (2026-10-03) has a kill-the-orphan step
 		expect(
@@ -135,20 +135,29 @@ describe("probes (stub results)", () => {
 					code: 0,
 					out: "\tstate = running\n\tpid = 4242\n",
 				},
-				"com.belt.gateway": {
-					code: 0,
-					out: "\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n",
-				},
 			},
 		);
 		const sw = await probeService("launchd-local-llm", deps);
 		expect(sw?.state).toBe("up");
 		expect(sw?.detail).toContain("pid 4242");
-		const gw = await probeService("launchd-belt-gateway", deps);
-		expect(gw?.state).toBe("degraded");
-		expect(gw?.detail).toContain("EX_CONFIG");
-		const none = await probeService("launchd-belt-gateway", stubDeps({}));
+		const degraded = await probeService(
+			"launchd-local-llm",
+			stubDeps(
+				{},
+				{
+					"com.suspenders.local-llm": {
+						code: 0,
+						out: "\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n",
+					},
+				},
+			),
+		);
+		expect(degraded?.state).toBe("degraded");
+		expect(degraded?.detail).toContain("EX_CONFIG");
+		const none = await probeService("launchd-local-llm", stubDeps({}));
 		expect(none?.state).toBe("down");
+		// W277: com.belt.gateway is retired — no recovery entry for it anymore
+		expect(recoveryFor("launchd-belt-gateway")).toBeNull();
 	});
 
 	test("unknown id → null; probeAll covers every probed service", async () => {
