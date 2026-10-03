@@ -1283,6 +1283,20 @@ export function sweepStaleSessions(
 	return n;
 }
 
+// W293 session-name bridge: the user-facing lane name lives in the sessions
+// row's tags JSON (`name` key — `coord bootstrap --name` stamps it; coord
+// fleet + the board display it). Parse-safe: absent or malformed tags, or a
+// non-string/blank name, yield null — a display label never throws.
+export function tagNameOf(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	try {
+		const n = (JSON.parse(raw) as { name?: unknown }).name;
+		return typeof n === "string" && n.trim() ? n.trim() : null;
+	} catch {
+		return null;
+	}
+}
+
 // a transcript written within the last 15 minutes = live process
 function liveTranscript(sid: string): boolean {
 	const floor = Date.now() - 15 * 60_000;

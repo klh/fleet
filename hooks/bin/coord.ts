@@ -8,6 +8,8 @@
 //   bun ~/.claude/bin/coord.ts wait --as sid [--scope s] [--kinds a,b] [--max-seconds 30]
 //        (adaptive long-poll: 250ms fast path, backs off to 2s when idle)
 //   bun ~/.claude/bin/coord.ts metrics [project] [--days N]
+//   bun ~/.claude/bin/coord.ts bootstrap --as sid [--name label]
+//        (--name stamps a user-facing lane name — coord fleet + the board show it)
 //   bun ~/.claude/bin/coord.ts fact set <key> <value> [--source s]
 //   bun ~/.claude/bin/coord.ts fact get <key> / fact list
 //   bun ~/.claude/bin/coord.ts diff [--since <seq|event-id>] [--last N] [--table t] [--json]
@@ -73,7 +75,8 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | targets | message",
+		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | targets | message\n" +
+			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
 	);
 	process.exit(0);
 }

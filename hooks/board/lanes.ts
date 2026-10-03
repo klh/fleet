@@ -2,19 +2,10 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { CLI, db } from "./context.ts";
-import { laneExecFacts } from "./exec.ts";
-import { json } from "./helpers.ts";
-import {
-	taskShape,
-	activity,
-	sessions,
-	board,
-	claims,
-	events,
-	payload,
-} from "./data.ts";
-import { isDecisionKind } from "../lib/govdb.ts";
+import { db } from "./context.ts";
+// (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
+// on purpose: lanes.ts never calls it, the two lists just change together)
+import { tagNameOf } from "../lib/govdb.ts";
 import {
 	closeSync,
 	existsSync,
@@ -316,7 +307,24 @@ export function ago(ts: number | null | undefined): number {
 	return ts ? Math.max(0, Math.round((Date.now() - ts) / 1000)) : -1;
 }
 
+// W293 session-name bridge: the user-facing lane name lives in sessions.tags
+// JSON (stamped by `coord bootstrap --name` at dispatch or by hand). The
+// board never renders a bare sid where a name exists.
+export function sessionName(sid: string): string | null {
+	return tagNameOf(
+		(
+			db.query("SELECT tags FROM sessions WHERE sid = ?").get(sid) as {
+				tags: string | null;
+			} | null
+		)?.tags,
+	);
+}
+
 export function label(sid: string, role: string): string {
+	// user-given names lead (copilot's user_named semantics): an opaque sid or
+	// a derived claim intent never buries the label the human typed
+	const name = sessionName(sid);
+	if (name) return name.slice(0, 24);
 	const rows = db
 		.query(
 			"SELECT intent FROM claims WHERE sid = ? AND intent IS NOT NULL ORDER BY ts DESC LIMIT 4",
@@ -342,7 +350,8 @@ export function projectList(): string[] {
 }
 
 // owner_label (docs/board-api.md): the owner's newest claim intent, else the
-// session name, else null — the UI never renders a raw sid when a label exists
+// session name (W293: tags JSON `name`), else null — the UI never renders a
+// raw sid when a label exists
 export function ownerLabel(sid: string | null | undefined): string | null {
 	if (!sid) return null;
 	const rows = db
@@ -354,9 +363,12 @@ export function ownerLabel(sid: string | null | undefined): string | null {
 		(r) => r.intent && !String(r.intent).startsWith("restored by monitor"),
 	);
 	if (c?.intent) return String(c.intent).slice(0, 24);
-	return db.query("SELECT 1 AS x FROM sessions WHERE sid = ?").get(sid)
-		? sid
-		: null;
+	return (
+		sessionName(sid) ??
+		(db.query("SELECT 1 AS x FROM sessions WHERE sid = ?").get(sid)
+			? sid
+			: null)
+	);
 }
 
 export const payloadOf = (raw: string | null): Record<string, unknown> => {

@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { openStore, type GovernorStore } from "../lib/govdb.ts";
-import { type KnowledgeHit } from "../lib/knowledge-ports.ts";
+import type { KnowledgeHit } from "../lib/knowledge-ports.ts";
 import { trustOf } from "../lib/knowledge.ts";
 
 export {
@@ -12,6 +12,7 @@ export {
 	pruneDeltas,
 	tokenUsage,
 	sweepStaleSessions,
+	tagNameOf,
 } from "../lib/govdb.ts";
 export { makeStore, enqueueKnowledge } from "../lib/knowledge-ports.ts";
 export { readFileSync, realpathSync };
