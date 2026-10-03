@@ -104,5 +104,65 @@ export const llmRoute = async (job: {
 	);
 	runCli([WORK_CLI, "release", job.item, "--as", job.sid], job.repo);
 };
+// W183.1 — one llm:local:<port> dispatch: unlike llmRoute() (which shells
+// to belt's role router), this machine's own swarm specialists are spoken
+// to directly over their OpenAI-compatible /v1/chat/completions — there is
+// no belt hop to make, the port<->model pair IS the route. Same
+// land-the-answer-on-the-thread, release-either-way contract as llmRoute().
+export const localSwarmChat = async (job: {
+	item: string;
+	repo: string;
+	port: number;
+	model: string;
+	sid: string;
+	title: string;
+	desc: string;
+}): Promise<void> => {
+	const prompt = `${job.title}${job.desc ? ` — ${job.desc}` : ""}`.slice(
+		0,
+		4000,
+	);
+	let ok = false;
+	let answer = "";
+	try {
+		const res = await fetch(
+			`http://127.0.0.1:${String(job.port)}/v1/chat/completions`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					model: job.model,
+					messages: [{ role: "user", content: prompt }],
+				}),
+				signal: AbortSignal.timeout(120_000),
+			},
+		);
+		const body = (await res.json()) as {
+			choices?: { message?: { content?: string } }[];
+		};
+		ok = res.ok;
+		answer = ok
+			? (body.choices?.[0]?.message?.content ?? "").trim()
+			: `route failed: HTTP ${String(res.status)}`;
+	} catch (e) {
+		answer = `route failed: ${e instanceof Error ? e.message : String(e)}`;
+	}
+	const note = `${ok ? "llm.answer" : "llm.error"} (local:${String(job.port)}): ${answer.slice(0, 1800)}`;
+	runCli(
+		[
+			COORD_CLI,
+			"emit",
+			"llm.result",
+			"--scope",
+			job.item,
+			"--as",
+			job.sid,
+			"--note",
+			note,
+		],
+		job.repo,
+	);
+	runCli([WORK_CLI, "release", job.item, "--as", job.sid], job.repo);
+};
 // this install's wiring scripts — the setup checks look for THEM in
 // ~/.claude/settings.json, not just any suspenders install

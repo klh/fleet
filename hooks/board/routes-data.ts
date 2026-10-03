@@ -3,9 +3,13 @@
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
 import { beltRegistry, rowLocality } from "./belt.ts";
+import { localSwarmEntries } from "./local-swarm.ts";
 import { json } from "./helpers.ts";
 import { syncDecisions, projectList, unblockedBy } from "./lanes.ts";
 import { decisionEvals } from "./decide-eval.ts";
+import { readUserPlane } from "../lib/repo-laws.ts";
+import { loadLastKnown } from "../lib/federation.ts";
+import { hubModelIdsFrom } from "../lib/provenance.ts";
 import {
 	taskShape,
 	tasks,
@@ -17,6 +21,22 @@ import {
 	payload,
 	payloadFor,
 } from "./data.ts";
+
+// W183.1 — plane-labeled executor feed. Four planes (provenance.ts/
+// repo-laws.ts's own vocabulary, not invented here): "local" (this
+// machine's own swarm, registry.ts), "user" (BYO local-models.json,
+// repo-laws.ts readUserPlane), "hub" (federation-entitled — W154's
+// loadLastKnown + hubModelIdsFrom), "remote" (everything else: direct
+// LAN/cloud belt endpoints). locality stays "local"|"remote" for back-compat
+// (existing UI badge logic); plane is the new, finer-grained field.
+export interface ExecutorEntry {
+	value: string;
+	label: string;
+	model: string;
+	locality: "local" | "remote";
+	plane: "local" | "user" | "hub" | "remote";
+	reasoningEffort: boolean;
+}
 
 export async function handleData(
 	_req: Request,
@@ -110,53 +130,78 @@ export async function handleData(
 		// advisory wiring checks — each carries its own fix, never throws
 		return json({ ok: true, checks: await setupChecks() });
 	if (url.pathname === "/api/executors") {
-		// dispatch dropdown feed: the local agents first, then belt's live
-		// openai endpoints as llm:<machine>:<model or port> — failed
-		// probes ride along (the owner may dispatch to a down target).
-		// W105: every entry carries its model id + locality so the UI can
-		// badge cards/lanes with WHERE the model actually runs.
+		// W183.1 — plane-labeled, merged dispatch feed: this machine's own
+		// swarm (prime position — it's the fastest, cheapest, most-private
+		// option when it's up) + BYO user-plane entries + belt's live
+		// endpoints, each carrying plane/locality/reasoningEffort so the UI
+		// can badge L/R, prefix [HUB], and surface an effort dial.
+		const hubIds = hubModelIdsFrom(loadLastKnown());
+		const swarm = await localSwarmEntries();
+		const local: ExecutorEntry[] = swarm.map((s) => ({
+			value: `llm:local:${String(s.port)}`,
+			label: `${s.label}${s.ok ? "" : " (down)"}`,
+			model: s.model,
+			locality: "local",
+			plane: "local",
+			reasoningEffort: s.reasoningEffort,
+		}));
+		const user: ExecutorEntry[] = readUserPlane().entries.map((u) => ({
+			value: `llm:user:${u.name}`,
+			label: `${u.name} · ${u.model} (user)`,
+			model: u.model,
+			locality: "remote",
+			plane: "user",
+			reasoningEffort: u.roles?.includes("reasoning") ?? false,
+		}));
 		const rows = await beltRegistry();
-		const llms: {
-			value: string;
-			label: string;
-			model: string;
-			locality: string;
-		}[] = [];
+		const llms: ExecutorEntry[] = [];
 		for (const r of rows) {
 			if (r.protocol !== "openai") continue;
 			const tail = r.model ?? String(r.port ?? "");
 			if (!r.machine || !tail) continue;
 			const loc = rowLocality(r);
+			const plane = hubIds.has(tail) ? "hub" : "remote";
 			llms.push({
 				value: `llm:${r.machine}:${tail}`,
-				label: `${r.machine} · ${tail}${r.ok === false ? " (down)" : ""} (${loc})`,
+				label: `${plane === "hub" ? "[HUB] " : ""}${r.machine} · ${tail}${r.ok === false ? " (down)" : ""} (${loc})`,
 				model: r.model ?? tail,
 				locality: loc,
+				plane,
+				reasoningEffort: r.roles?.includes("reasoning") ?? false,
 			});
 		}
 		return json({
 			ok: true,
 			executors: [
+				...local,
+				...user,
 				{
 					value: "claude",
 					label: "claude",
 					model: "claude",
 					locality: "remote",
+					plane: "remote",
+					reasoningEffort: false,
 				},
 				{
 					value: "codex",
 					label: "codex",
 					model: "codex",
 					locality: "remote",
+					plane: "remote",
+					reasoningEffort: false,
 				},
 				{
 					// W223.1 — fourth lane executor; fleet-loop.ts/
 					// routes-actions.ts already dispatch it with the right
 					// non-interactive flags (-p --allow-all-tools --allow-all-paths).
+					// W183.1 — copilot's --reasoning-effort flag is real.
 					value: "copilot",
 					label: "copilot",
 					model: "copilot",
 					locality: "remote",
+					plane: "remote",
+					reasoningEffort: true,
 				},
 				...llms,
 			],

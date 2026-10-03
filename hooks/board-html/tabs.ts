@@ -62,12 +62,13 @@ byId('kanban').addEventListener('click', function(e){
   if (s) {
     var card = s.closest('.kcard');
     var selEl = card ? card.querySelector('.kexecsel') : null;
-    startItem(s.getAttribute('data-start'), s.getAttribute('data-startproj'), s, selEl ? selEl.value : 'claude');
+    var effEl = card ? card.querySelector('.keffortsel') : null;
+    startItem(s.getAttribute('data-start'), s.getAttribute('data-startproj'), s, selEl ? selEl.value : 'claude', effEl ? effEl.value : '');
     return;
   }
-  // executor pick — selecting a lane is not a card open (the click would
-  // otherwise fall through to .kcard and pop the task drawer mid-pick)
-  if (e.target.classList && e.target.classList.contains('kexecsel')) return;
+  // executor/effort pick — selecting a lane is not a card open (the click
+  // would otherwise fall through to .kcard and pop the task drawer mid-pick)
+  if (e.target.classList && (e.target.classList.contains('kexecsel') || e.target.classList.contains('keffortsel'))) return;
   var b = e.target.closest && e.target.closest('[data-task]');
   if (b) { openTask(b.getAttribute('data-task'), b.getAttribute('data-proj'), b); return; }
   var c = e.target.closest && e.target.closest('.kcard');
