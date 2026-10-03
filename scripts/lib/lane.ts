@@ -111,6 +111,39 @@ export const laneEnv = (
 	return env;
 };
 
+// W1 dispatch-side adoption (finding.w1): lanes ride the buckle front with a
+// /w/<slug> prefix so usage attributes per lane (route_audit.lane). Opt-in
+// per dispatch: only when the front answers and no hub redirect won.
+export const BUCKLE_FRONT =
+	process.env.SUSPENDERS_BUCKLE_FRONT ?? "http://127.0.0.1:4101";
+
+export const probeBuckleFront = async (
+	front = BUCKLE_FRONT,
+): Promise<string | null> => {
+	try {
+		const r = await fetch(`${front}/status`, {
+			signal: AbortSignal.timeout(600),
+		});
+		return r.ok ? front : null;
+	} catch {
+		return null;
+	}
+};
+
+// The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts): the
+// anthropic root gets /w/<slug>; the openai-dialect bases add /v1.
+export const applyLaneAttribution = (
+	env: Record<string, string>,
+	slug: string,
+	front = BUCKLE_FRONT,
+): void => {
+	const root = `${front}/w/${slug}`;
+	env.ANTHROPIC_BASE_URL = root;
+	env.OPENAI_BASE_URL = `${root}/v1`;
+	env.OPENAI_API_BASE = `${root}/v1`;
+	env.GOOGLE_GEMINI_BASE_URL = root;
+};
+
 export const DEFAULT_ALLOWED_TOOLS =
 	"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write";
 
