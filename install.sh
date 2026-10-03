@@ -62,6 +62,19 @@ cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
 (cd "$PREFIX" && bun install) # shell-quote, for the bash gate
 echo "→ harness in place"
 
+# ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
+# One-line exec wrappers; every session and lane calls the control plane
+# without inlining bun + full .ts paths. Idempotent: refreshed every install.
+SHIM_BIN="${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}"
+mkdir -p "$SHIM_BIN"
+for shim in coord work; do
+  printf '#!/bin/sh\nexec bun %s/bin/%s.ts "$@"\n' "$PREFIX" "$shim" > "$SHIM_BIN/$shim"
+  chmod +x "$SHIM_BIN/$shim"
+done
+printf '#!/bin/sh\nexec bun %s/scripts/dispatch-next.ts "$@"\n' "$REPO_DIR" > "$SHIM_BIN/dispatch"
+chmod +x "$SHIM_BIN/dispatch"
+echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
+
 # ─── local-llm baseline (owner law 2026-10-01) ───
 # Installing suspenders ALWAYS installs the local-llm swarm — smallest models
 # that fit the bill (registry BELT_TIER=minimal residents). The kit lands in
