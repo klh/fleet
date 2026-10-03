@@ -140,6 +140,16 @@ export function hostGuard(req: Request, opts: GuardOptions): Response | null {
 	return null;
 }
 
+// W203 (W181 F2): read-side auth classifier — true when the caller presented
+// the install's write token (header or cookie). hostGuard still owns host/
+// origin pinning; this only classifies anonymous vs token-bearing READS.
+export function tokenOk(req: Request): boolean {
+	const expected = writeToken();
+	if (!expected) return false;
+	const presented = req.headers.get(WRITE_TOKEN_HEADER) ?? cookieToken(req);
+	return !!presented && sameToken(presented, expected);
+}
+
 export const isWriteMethod = (m: string): boolean =>
 	!["GET", "HEAD", "OPTIONS"].includes(m.toUpperCase());
 
