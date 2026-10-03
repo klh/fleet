@@ -28,7 +28,33 @@ export interface RemoteMachine {
 	ip_fallback?: string; // only when resolution fails
 	mac?: string; // WoL target for hibernating machines
 	wol_broadcast?: string; // "ip:port", e.g. subnet :9
+	/** CDN/edge-fronted remotes (z.ai, openai, anthropic …) need real TLS on
+	 *  the real hostname — a direct-IP plaintext request loses both the TLS
+	 *  SNI and the Host header, and the edge rejects it (421 "Direct IP
+	 *  access is not allowed"). LAN boxes (nas, immich) stay plain http by
+	 *  resolved IP; set tls: true only for public internet endpoints. */
+	tls?: boolean;
 	endpoints: RemoteEndpoint[];
+}
+
+/** Request target: tls machines MUST keep the real hostname (fetch/Bun does
+ *  its own DNS + TLS SNI); plaintext LAN machines resolve to an IP first
+ *  (handles .local/mDNS names dscacheutil knows but public DNS may not). */
+async function resolveTarget(machine: RemoteMachine): Promise<string | null> {
+	return machine.tls
+		? machine.host
+		: resolveHost(machine.host, machine.ip_fallback);
+}
+
+/** Pure URL builder — kept separate and exported so the tls/http scheme
+ *  choice is unit-testable without a real network call. */
+export function endpointUrl(
+	target: string,
+	tls: boolean | undefined,
+	port: number,
+	path: string,
+): string {
+	return `${tls ? "https" : "http"}://${target}:${port}${path}`;
 }
 
 export interface EndpointHealth {
@@ -106,8 +132,8 @@ export async function probeEndpoint(
 	machine: RemoteMachine,
 	ep: RemoteEndpoint,
 ): Promise<EndpointHealth> {
-	const ip = await resolveHost(machine.host, machine.ip_fallback);
-	if (!ip) return { alive: false, ms: 0 };
+	const target = await resolveTarget(machine);
+	if (!target) return { alive: false, ms: 0 };
 	const path =
 		ep.protocol === "openai"
 			? "/v1/models"
@@ -116,7 +142,7 @@ export async function probeEndpoint(
 				: "/api/server/ping";
 	const t0 = Date.now();
 	try {
-		const r = await fetch(`http://${ip}:${ep.port}${path}`, {
+		const r = await fetch(endpointUrl(target, machine.tls, ep.port, path), {
 			signal: AbortSignal.timeout(4000),
 		});
 		return { alive: r.status < 600, ms: Date.now() - t0, status: r.status };
@@ -185,21 +211,24 @@ export async function chatRemote(
 	messages: { role: string; content: string }[],
 	opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number },
 ): Promise<{ text: string; ms: number; model: string }> {
-	const ip = await resolveHost(machine.host, machine.ip_fallback);
-	if (!ip) throw new Error(`cannot resolve ${machine.host}`);
+	const target = await resolveTarget(machine);
+	if (!target) throw new Error(`cannot resolve ${machine.host}`);
 	const model = ep.model ?? "local";
 	const t0 = Date.now();
-	const r = await fetch(`http://${ip}:${ep.port}/v1/chat/completions`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			model,
-			messages,
-			max_tokens: opts?.maxTokens ?? 500,
-			temperature: opts?.temperature ?? 0.2,
-		}),
-		signal: AbortSignal.timeout(opts?.timeoutMs ?? 120_000),
-	});
+	const r = await fetch(
+		endpointUrl(target, machine.tls, ep.port, "/v1/chat/completions"),
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				model,
+				messages,
+				max_tokens: opts?.maxTokens ?? 500,
+				temperature: opts?.temperature ?? 0.2,
+			}),
+			signal: AbortSignal.timeout(opts?.timeoutMs ?? 120_000),
+		},
+	);
 	if (!r.ok)
 		throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	const j = (await r.json()) as {
