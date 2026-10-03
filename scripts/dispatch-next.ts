@@ -474,6 +474,12 @@ const dispatchItem = async (
 	const briefFile = `${FLEET}/brief-${sid}.md`;
 	mkdirSync(FLEET, { recursive: true });
 	writeFileSync(briefFile, brief);
+	// W.F1 (2026-10-03): sandboxed lanes can read NOTHING outside their
+	// worktree — the .fleet/brief-<sid>.md copy in the main checkout is
+	// invisible to them (lesson.brief-sandbox-access; the whole [IKEA] demo
+	// family produced zero bytes because of this). The worktree copy is the
+	// one the lane reads; the .fleet copy stays for the orchestrator/board.
+	writeFileSync(`${wt}/.klh-brief.md`, brief);
 	// env + spawn recipe shared with supervise.ts per executor (W223):
 	// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
 	const env = laneEnv({ ...process.env }, NO_BELT);
