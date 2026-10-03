@@ -314,7 +314,20 @@ export interface BoardSettings {
 	 * the hub default; read by advise.ts + decide-eval.ts (URL + model id). */
 	recommendation_url?: string;
 	recommendation_model?: string;
+	/** W270 orchestrate prompt transforms (namespaced, W269-compatible):
+	 * condense default ON, enhance/debug/log default OFF. */
+	"prompt.condense"?: boolean;
+	"prompt.enhance"?: boolean;
+	"prompt.debug"?: boolean;
+	"prompt.log"?: boolean;
 }
+
+export const PROMPT_SETTING_KEYS = [
+	"prompt.condense",
+	"prompt.enhance",
+	"prompt.debug",
+	"prompt.log",
+] as const;
 
 export const boardSettingsPath = (home = process.env.HOME ?? ""): string =>
 	`${home}/.claude/local-llm/suspenders-board.json`;
@@ -387,6 +400,13 @@ export function validateBoardSettings(v: unknown): BoardSettings {
 				"recommendation_model: must be a big-reasoner id (max 200 chars)",
 			);
 		out.recommendation_model = rm;
+	}
+	for (const k of PROMPT_SETTING_KEYS) {
+		const b = o[k];
+		if (b === undefined || b === null) continue;
+		if (typeof b !== "boolean")
+			throw new ConfigError(`${k}: must be true or false`);
+		out[k] = b;
 	}
 	return out;
 }

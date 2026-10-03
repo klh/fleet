@@ -46,6 +46,7 @@ export const BODY = String.raw`
       <input id="orchGoal" type="text" placeholder="goal — the LLM proposes a plan + parallel children; register = work split" aria-label="orchestration goal">
       <button id="orchGo" type="button">orchestrate</button>
     </div>
+    <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
     <div id="orchErr"></div>
     <div id="orchOut"></div>
   </div>
