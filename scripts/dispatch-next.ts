@@ -29,6 +29,7 @@ import { hostname } from "node:os";
 import { laneEnv, spawnClaude } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
+import { resolveHub } from "../hooks/lib/hub-locate.ts";
 
 const argv = process.argv.slice(2);
 const val = (flag: string): string | undefined => {
@@ -51,9 +52,18 @@ const LANES_JSON = `${FLEET}/lanes.json`;
 const LOOP_LOG = `${FLEET}/loop.log`;
 
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
- * / `hub=Label` — a repo pins its executor and hub label. Policy still
- * gates: an executor the W201 allow-list denies SKIPs with a loud note. */
-const preferOf = (): { executor: string | null; hub: string | null } => {
+ * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
+ * hub label. `hub` is resolved to a real endpoint by hub-locate.ts (owner
+ * directive 2026-10-03: "local hub to remote hubs scenario" — label is not
+ * just a display prefix); `hub-url` adds repo-declared one-off candidates
+ * tried before the global registry (most specific intent wins, same rule
+ * as must). Policy still gates: an executor the W201 allow-list denies
+ * SKIPs with a loud note. */
+const preferOf = (): {
+	executor: string | null;
+	hub: string | null;
+	hubUrls: string[];
+} => {
 	try {
 		const kv = new Map<string, string>();
 		for (const line of readFileSync(`${REPO}/.prefer`, "utf8").split("\n")) {
@@ -64,9 +74,13 @@ const preferOf = (): { executor: string | null; hub: string | null } => {
 		return {
 			executor: kv.get("must") ?? kv.get("prefer") ?? null,
 			hub: kv.get("hub") ?? null,
+			hubUrls: (kv.get("hub-url") ?? "")
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean),
 		};
 	} catch {
-		return { executor: null, hub: null };
+		return { executor: null, hub: null, hubUrls: [] };
 	}
 };
 
@@ -75,8 +89,16 @@ const preferOf = (): { executor: string | null; hub: string | null } => {
  * first default_executors entry that survives wins. Non-claude/codex
  * executors ride the claude CLI with ANTHROPIC_MODEL pinned — belt routes
  * by model id, so a model name IS an executor. copilot rides its own CLI.
- * The hub label is PRESENTATION (e.g. [CORP]) — no federation behind it. */
-const execPick = (): { agent: string; model: string | null; bin: string } => {
+ * The hub label now resolves to a real endpoint via hub-locate.ts (hub,
+ * hubUrls passed through for the caller to resolve — resolution is async,
+ * network-touching, and does not belong in this sync picker). */
+const execPick = (): {
+	agent: string;
+	model: string | null;
+	bin: string;
+	hub: string | null;
+	hubUrls: string[];
+} => {
 	const prefer = preferOf();
 	const s = readBoardSettings().settings;
 	const enabled = s.enabled_executors;
@@ -96,6 +118,8 @@ const execPick = (): { agent: string; model: string | null; bin: string } => {
 			agent: label(e),
 			model: e === "claude" || e === "copilot" ? null : e,
 			bin: e === "copilot" ? "copilot" : "claude",
+			hub: prefer.hub,
+			hubUrls: prefer.hubUrls,
 		};
 	}
 	const order = [...(s.default_executors ?? []), "claude"];
@@ -104,10 +128,18 @@ const execPick = (): { agent: string; model: string | null; bin: string } => {
 		return {
 			agent: label(name),
 			model: name === "claude" ? null : name,
+			hub: prefer.hub,
+			hubUrls: prefer.hubUrls,
 			bin: name === "copilot" ? "copilot" : "claude",
 		};
 	}
-	return { agent: "claude", model: null, bin: "claude" };
+	return {
+		agent: "claude",
+		model: null,
+		bin: "claude",
+		hub: prefer.hub,
+		hubUrls: prefer.hubUrls,
+	};
 };
 
 type Lane = {
@@ -118,6 +150,7 @@ type Lane = {
 	worktree: string;
 	agent?: string;
 	host?: string;
+	hub?: string;
 	launchedAt: number;
 };
 
@@ -289,11 +322,11 @@ export const sidOf = (item: string): string =>
 
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */
-const dispatchItem = (
+const dispatchItem = async (
 	item: string,
 	lanes: Lane[],
 	resume?: Lane,
-): string | null => {
+): Promise<string | null> => {
 	const sid = resume?.sid ?? sidOf(item);
 	const wt = `${REPO}/.worktrees/${item}`;
 	if (DRY) {
@@ -376,7 +409,33 @@ const dispatchItem = (
 	// — executor knowledge lives in the table, dispatch has no per-executor
 	// branches. NO_BELT lanes speak their own API; nothing is inserted.
 	// (Model pins only make sense behind belt — belt routes by model id.)
-	if (!NO_BELT) applyInsertion(env, pick.bin, insertionCtx(env, pick.model));
+	// hub resolution (owner directive 2026-10-03): a .prefer hub= label now
+	// actually redirects lane traffic — resolveHub walks env override →
+	// repo one-off hub-url candidates → global hubs.json registry → mDNS
+	// <label>.local guess → null (degrades to local belt/buckle, loud note,
+	// never a silent wrong hub).
+	let hubNote = "";
+	let resolvedHub: string | undefined;
+	if (!NO_BELT) {
+		const ctx = insertionCtx(env, pick.model);
+		if (pick.hub) {
+			const hub = await resolveHub(pick.hub, pick.hubUrls);
+			if (hub) {
+				ctx.anthropicBase = hub.url;
+				ctx.openaiBase = `${hub.url}/v1`;
+				env.SUSPENDERS_HUB = hub.label;
+				env.SUSPENDERS_HUB_VIA = hub.via;
+				hubNote = ` — hub ${hub.label} -> ${hub.url} (${hub.via})`;
+				resolvedHub = hub.label;
+			} else {
+				hubNote = ` — NOTE hub=${pick.hub} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
+				console.log(
+					`NOTE — .prefer hub=${pick.hub} unreachable; using local belt`,
+				);
+			}
+		}
+		applyInsertion(env, pick.bin, ctx);
+	}
 	const bin = Bun.which(pick.bin);
 	if (!bin) {
 		console.log(`SKIP — executor binary not found on PATH: ${pick.bin}`);
@@ -401,12 +460,13 @@ const dispatchItem = (
 		worktree: wt,
 		agent: pick.agent,
 		host: hostname(),
+		hub: resolvedHub,
 		launchedAt: Date.now(),
 	};
 	lanes.push(entry);
-	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})`);
+	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
 	console.log(
-		`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}`,
+		`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}${hubNote}`,
 	);
 	return `${item}→${sid}(pid ${proc.pid})`;
 };
@@ -444,11 +504,11 @@ const main = async (): Promise<void> => {
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
 		if (live.length + dispatched.length >= TARGET) break;
-		const out = dispatchItem(resume.item, live, resume);
+		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
-		const out = dispatchItem(ITEM, live);
+		const out = await dispatchItem(ITEM, live);
 		if (out) dispatched.push(out);
 	}
 	// fresh READY pool (id order = FIFO priority; `work ready` already gates on
@@ -465,7 +525,7 @@ const main = async (): Promise<void> => {
 			);
 	for (const r of ready) {
 		if (live.length + dispatched.length >= TARGET) break;
-		const out = dispatchItem(r.id, live);
+		const out = await dispatchItem(r.id, live);
 		if (out) dispatched.push(out);
 	}
 	// daemonized-pid resolve: the `claude -p` parent re-parents away from
