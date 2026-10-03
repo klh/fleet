@@ -52,10 +52,34 @@ interface SubFilter {
 	as: string;
 	scope: string | null;
 	kinds: string[];
+	lastPong: number;
 }
 type Sock = Bun.ServerWebSocket<SubFilter>;
 const sockets = new Set<Sock>();
 const EVENTS_INSERT_RE = /^\s*INSERT\s+INTO\s+events\b/i;
+
+// native control-frame ping/pong (not a JSON message — doesn't clutter the
+// wire protocol or show up in message()). A dead/non-responsive peer (lost
+// network, suspended laptop, killed process that never got a FIN) stops
+// answering pongs; three missed intervals and the server reaps the socket
+// itself instead of waiting on Bun's blunt 120s idleTimeout backstop.
+const PING_INTERVAL_MS = 30_000;
+const PONG_TIMEOUT_MS = PING_INTERVAL_MS * 3;
+setInterval(() => {
+	const now = Date.now();
+	for (const ws of sockets) {
+		if (now - ws.data.lastPong > PONG_TIMEOUT_MS) {
+			sockets.delete(ws);
+			try {
+				ws.terminate();
+			} catch {}
+			continue;
+		}
+		try {
+			ws.ping();
+		} catch {}
+	}
+}, PING_INTERVAL_MS).unref();
 
 function scopeCoversLocal(a: string, b: string): boolean {
 	return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
@@ -98,6 +122,30 @@ const serial = <T>(fn: () => T): Promise<T> => {
 	return p;
 };
 
+interface RpcBody {
+	id?: string;
+	mode?: string;
+	sql?: string;
+	params?: unknown[];
+	txid?: string | null;
+}
+
+// one shape check for both transports: /rpc's 400 and the WS's {err} both
+// bottom out here, so a statement that's good over HTTP is good over the
+// socket and vice versa — no drift between the two wire paths.
+function validateRpcBody(body: RpcBody): string | null {
+	const modeOk = ["get", "all", "run", "tx"].includes(body.mode ?? "");
+	if (!body.sql || !modeOk || !Array.isArray(body.params ?? []))
+		return "bad request";
+	// W166 — structural rejection: knowledge lives in knowledge.db; a
+	// knowledge statement must ride the knowledge port (makeStore), never
+	// the control-plane store (the design's W92 interaction).
+	const kbHit = knowledgeSqlViolation(body.sql);
+	if (kbHit)
+		return `knowledge statements are rejected on the control-plane store ('${kbHit}' is not resident in governor.db) — bind the knowledge port (makeStore())`;
+	return null;
+}
+
 const exec = (
 	mode: "get" | "all" | "run",
 	sql: string,
@@ -112,6 +160,69 @@ const exec = (
 	maybeBroadcastInsert(sql, lastInsertRowid);
 	return { changes: r.changes, lastInsertRowid };
 };
+
+// shared body: both /rpc and the WS message() channel run the exact same
+// validated statement through it — one wire contract, two transports, no
+// drift between what a lane can do over HTTP vs. over its open socket.
+async function handleRpc(body: RpcBody): Promise<Record<string, unknown>> {
+	if (body.mode === "tx") {
+		// op rides the sql field: begin | commit | rollback
+		const op = body.sql;
+		return serial(() => {
+			if (tx && Date.now() - tx.last > TX_IDLE_MS) {
+				try {
+					txDb.run("ROLLBACK");
+				} catch {}
+				tx = null;
+			}
+			if (op === "begin") {
+				if (tx) return { err: "transaction already open" };
+				txDb.run("BEGIN IMMEDIATE");
+				tx = { id: body.txid ?? "?", last: Date.now() };
+				return { ok: true };
+			}
+			if (!tx || tx.id !== (body.txid ?? "?"))
+				return { err: "no such transaction" };
+			tx = null;
+			try {
+				if (op === "commit") txDb.run("COMMIT");
+				else txDb.run("ROLLBACK");
+				return { ok: true };
+			} catch (e) {
+				try {
+					txDb.run("ROLLBACK");
+				} catch {}
+				return { err: `${op} failed: ${String(e)}` };
+			}
+		});
+	}
+	const payload = {
+		mode: body.mode as "get" | "all" | "run",
+		sql: body.sql as string,
+		params: body.params ?? [],
+		txid: body.txid ?? null,
+	};
+	return serial(() => {
+		if (tx && Date.now() - tx.last > TX_IDLE_MS) {
+			try {
+				txDb.run("ROLLBACK");
+			} catch {}
+			tx = null;
+		}
+		if (tx) {
+			if (!payload.txid) return { err: "a transaction is open — retry" };
+			if (payload.txid !== tx.id) return { err: "no such transaction" };
+			tx.last = Date.now();
+			return exec(payload.mode, payload.sql, payload.params, txDb);
+		}
+		return exec(
+			payload.mode,
+			payload.sql,
+			payload.params,
+			db as unknown as GovernorStore,
+		);
+	});
+}
 
 // set right after Bun.serve() returns below; fetch closes over this instead
 // of the (req, server) param, which servicemon's wrapped() fetch drops.
@@ -131,6 +242,7 @@ const base = {
 				as,
 				scope: url.searchParams.get("scope"),
 				kinds: (url.searchParams.get("kinds") ?? "").split(",").filter(Boolean),
+				lastPong: Date.now(),
 			};
 			return server.upgrade(req, { data })
 				? undefined
@@ -158,92 +270,44 @@ const base = {
 			return new Response("not found", { status: 404 });
 		if (TOKEN && req.headers.get("x-governor-token") !== TOKEN)
 			return new Response("forbidden", { status: 403 });
-		const body = (await req.json()) as {
-			mode?: string;
-			sql?: string;
-			params?: unknown[];
-			txid?: string | null;
-		};
-		const modeOk = ["get", "all", "run", "tx"].includes(body.mode ?? "");
-		if (!body.sql || !modeOk || !Array.isArray(body.params ?? []))
+		const body = (await req.json()) as RpcBody;
+		const invalid = validateRpcBody(body);
+		if (invalid === "bad request")
 			return new Response("bad request", { status: 400 });
-		// W166 — structural rejection: knowledge lives in knowledge.db; a
-		// knowledge statement must ride the knowledge port (makeStore), never
-		// the control-plane store (the design's W92 interaction).
-		const kbHit = knowledgeSqlViolation(body.sql);
-		if (kbHit)
-			return Response.json({
-				err: `knowledge statements are rejected on the control-plane store ('${kbHit}' is not resident in governor.db) — bind the knowledge port (makeStore())`,
-			});
-		if (body.mode === "tx") {
-			// op rides the sql field: begin | commit | rollback
-			const op = body.sql;
-			return serial(() => {
-				if (tx && Date.now() - tx.last > TX_IDLE_MS) {
-					try {
-						txDb.run("ROLLBACK");
-					} catch {}
-					tx = null;
-				}
-				if (op === "begin") {
-					if (tx) return Response.json({ err: "transaction already open" });
-					txDb.run("BEGIN IMMEDIATE");
-					tx = { id: body.txid ?? "?", last: Date.now() };
-					return Response.json({ ok: true });
-				}
-				if (!tx || tx.id !== (body.txid ?? "?"))
-					return Response.json({ err: "no such transaction" });
-				tx = null;
-				try {
-					if (op === "commit") txDb.run("COMMIT");
-					else txDb.run("ROLLBACK");
-					return Response.json({ ok: true });
-				} catch (e) {
-					try {
-						txDb.run("ROLLBACK");
-					} catch {}
-					return Response.json({ err: `${op} failed: ${String(e)}` });
-				}
-			});
-		}
-		const payload = {
-			mode: body.mode as "get" | "all" | "run",
-			sql: body.sql,
-			params: body.params ?? [],
-			txid: body.txid ?? null,
-		};
-		return serial(() => {
-			if (tx && Date.now() - tx.last > TX_IDLE_MS) {
-				try {
-					txDb.run("ROLLBACK");
-				} catch {}
-				tx = null;
-			}
-			if (tx) {
-				if (!payload.txid)
-					return Response.json({ err: "a transaction is open — retry" });
-				if (payload.txid !== tx.id)
-					return Response.json({ err: "no such transaction" });
-				tx.last = Date.now();
-				return Response.json(
-					exec(payload.mode, payload.sql, payload.params, txDb),
-				);
-			}
-			return Response.json(
-				exec(
-					payload.mode,
-					payload.sql,
-					payload.params,
-					db as unknown as GovernorStore,
-				),
-			);
-		});
+		if (invalid) return Response.json({ err: invalid });
+		return Response.json(await handleRpc(body));
 	},
 	websocket: {
 		open(ws: Sock) {
 			sockets.add(ws);
 		},
-		message() {}, // push-only channel; clients don't send anything
+		// W305 — bidirectional: a subscribed socket can also send the exact
+		// {mode,sql,params} body /rpc accepts and get the correlated response
+		// (echoing the caller's `id`) back over the still-open connection —
+		// no second HTTP round trip from a process already holding a live
+		// socket open. Malformed input gets an {err} reply, never a crash.
+		async message(ws: Sock, raw: string | Buffer) {
+			let body: RpcBody;
+			try {
+				body = JSON.parse(String(raw));
+			} catch {
+				ws.send(JSON.stringify({ err: "invalid JSON" }));
+				return;
+			}
+			const invalid = validateRpcBody(body);
+			if (invalid) {
+				ws.send(JSON.stringify({ id: body.id, err: invalid }));
+				return;
+			}
+			try {
+				ws.send(JSON.stringify({ id: body.id, ...(await handleRpc(body)) }));
+			} catch (e) {
+				ws.send(JSON.stringify({ id: body.id, err: String(e) }));
+			}
+		},
+		pong(ws: Sock) {
+			ws.data.lastPong = Date.now();
+		},
 		close(ws: Sock) {
 			sockets.delete(ws);
 		},
