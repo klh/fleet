@@ -240,3 +240,4 @@ export async function chatRemote(
 		model,
 	};
 }
+// W308-fix: zod-schema rework in progress
