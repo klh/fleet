@@ -1,7 +1,8 @@
 // hooks/board-html/klh-components.ts — board UI components (Lit, UI law).
-// Built to hooks/board-html/vendor/klh-components.js (lit inlined — the
-// vendored, offline bundle; never CDN) and served by the board as a static
-// module at /vendor/klh-components.js. Registers klh-decision-eval and
+// Built (with klh-service-row.ts) by `bun run build:vendor` into
+// hooks/board-html/vendor/ — one shared lit-shared.js runtime chunk,
+// offline; never CDN — served by the board as a static module at
+// /vendor/klh-components.js. Registers klh-decision-eval and
 // self-mounts one affordance per OPEN decision card (.dec[data-id]); W270
 // adds klh-prompt-preview (the orchestrate prompt-transform preview).
 import { LitElement, html, css, type TemplateResult } from "lit";

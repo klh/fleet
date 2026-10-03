@@ -4,8 +4,8 @@
 // exact recovery commands with copy buttons. "re-probe" re-runs the probe
 // via GET /api/services/probe and updates the row live; a dark row also
 // re-polls on its own so a fix shows up without a click.
-// Built to hooks/board-html/vendor/klh-service-row.js (lit inlined —
-// offline, never CDN): bun build … --minify.
+// Built by `bun run build:vendor` to hooks/board-html/vendor/ (one shared
+// lit-shared.js chunk with klh-components — offline, never CDN).
 import { LitElement, css, html, type TemplateResult } from "lit";
 import {
 	type RowProbe,

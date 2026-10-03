@@ -47,13 +47,16 @@ export async function handleData(
 		return json(sid ? payloadFor(sid) : payload());
 	}
 	{
-		// W217/W273: the vendored Lit component bundles (offline — built
-		// artifacts, never CDN). Exact allowlisted paths only; anything else
+		// W217/W273/W292: the vendored Lit component bundles (offline — built
+		// artifacts, never CDN) plus the shared lit chunk emitted by
+		// build:vendor (--chunk-naming lit-shared.[ext]). Anything else
 		// falls through.
 		const vf = url.pathname.slice("/vendor/".length);
+		const isLitChunk =
+			vf.startsWith("lit-") && vf.endsWith(".js") && !vf.includes("/");
 		if (
 			url.pathname.startsWith("/vendor/") &&
-			(vf === "klh-components.js" || vf === "klh-service-row.js")
+			(vf === "klh-components.js" || vf === "klh-service-row.js" || isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
 			return new Response(Bun.file(f), {
