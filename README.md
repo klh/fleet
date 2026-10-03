@@ -1,5 +1,8 @@
 # suspenders
 
+> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
+> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+
 The control plane for agent fleets: a SQLite work graph, a coordination
 bus, a live fleet board, and hook gates that keep autonomous lanes honest.
 The spine of the [klh agent stack](https://github.com/klh/suspenders) —
