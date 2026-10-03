@@ -4,6 +4,8 @@ set -euo pipefail
 # speedy — Make Claude Code 10-1400x faster at file operations
 # https://github.com/klh/speedy
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BOLD='\033[1m'
 GREEN='\033[32m'
 YELLOW='\033[33m'
@@ -160,6 +162,40 @@ if [ -x "$HOME/.local/bin/klh-local" ]; then
   fi
 else
   echo "  · klh-local not found — .local registration skipped (optional: https://github.com/klh/local)"
+fi
+
+# ─── Skills: speedy skills/ → ~/.claude/skills (idempotent copy), then
+# ~/.agents/skills → ~/.claude/skills (zero-copy symlink, cross-CLI) ────
+# Gap found 2026-10-0X: this step never existed, so a fresh install never
+# populated either directory — Claude Code AND every non-Claude CLI
+# (Copilot, cline, grok, Codex) started with zero awareness of the fleet
+# (suspenders/buckle/belt/klh-local) regardless of how many of those repos
+# install.sh had just deployed. install-codex.ts's own skills step assumes
+# ~/.claude/skills already exists; this is where that assumption becomes
+# true. Never clobbers a skill a user/another tool already placed there.
+info "Installing skills (~/.claude/skills + ~/.agents/skills)..."
+mkdir -p "$HOME/.claude/skills"
+SKILLS_ADDED=0
+for d in "$REPO_DIR"/skills/*/; do
+  [ -f "$d/SKILL.md" ] || continue
+  name="$(basename "$d")"
+  if [ -d "$HOME/.claude/skills/$name" ]; then
+    echo "  = $name (kept — already installed)"
+  else
+    cp -R "$d" "$HOME/.claude/skills/$name"
+    SKILLS_ADDED=$((SKILLS_ADDED + 1))
+    echo "  + $name"
+  fi
+done
+info "$SKILLS_ADDED new skill(s) installed"
+if [ ! -e "$HOME/.agents/skills" ]; then
+  mkdir -p "$HOME/.agents"
+  ln -s "$HOME/.claude/skills" "$HOME/.agents/skills"
+  echo "  ✓ ~/.agents/skills → ~/.claude/skills (Copilot/cline/grok/Codex all read this path)"
+elif [ -L "$HOME/.agents/skills" ]; then
+  echo "  ✓ ~/.agents/skills already symlinked ($(readlink "$HOME/.agents/skills"))"
+else
+  warn "~/.agents/skills exists and is not a symlink — left untouched (non-Claude CLIs may miss new skills; remove it to adopt the zero-copy link)"
 fi
 
 # ─── Brew packages ───────────────────────────────────────
