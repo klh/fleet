@@ -20,21 +20,16 @@ const FLUFFY =
 	"Hi there! Could you please just basically add a CSV export to the `tasks` table in hooks/board/data.ts? I would like you to make sure that it streams. I would like you to make sure that it streams. Thanks so much!";
 
 describe("prompt condenser", () => {
-	test("strips filler, keeps imperative verbs and technical terms", () => {
+	test("strips politeness, keeps hedges and technical terms", () => {
 		const out = condensePrompt(FLUFFY);
 		expect(out).toContain("add a CSV export");
 		expect(out).toContain("`tasks`");
 		expect(out).toContain("hooks/board/data.ts");
-		expect(out).toContain("ensure it streams");
-		for (const w of [
-			"Hi",
-			"please",
-			"basically",
-			"just",
-			"Thanks",
-			"Could you",
-		])
+		expect(out).toContain("I would like you to make sure that it streams");
+		for (const w of ["Hi", "please", "Thanks", "Could you"])
 			expect(out).not.toContain(w);
+		// W287: hedges are meaning — they survive
+		for (const h of ["just", "basically"]) expect(out).toContain(h);
 		expect(out.length).toBeLessThan(FLUFFY.length);
 	});
 	test("deterministic and idempotent", () => {
@@ -56,12 +51,30 @@ describe("prompt condenser", () => {
 		expect(out).toContain("```ts\nconst just = 'please really';\n```");
 		expect(out.startsWith("run")).toBe(true);
 	});
-	test("no orphan punctuation after removals", () => {
+	test("hedges survive untouched", () => {
 		expect(
 			condensePrompt(
 				"Hey, I think we should really refactor the retry loop in order to avoid flakiness, if possible.",
 			),
-		).toBe("we should refactor the retry loop to avoid flakiness.");
+		).toBe(
+			"I think we should really refactor the retry loop in order to avoid flakiness, if possible.",
+		);
+	});
+	test("politeness-only: wrapper families strip, content stays", () => {
+		expect(
+			condensePrompt(
+				"Hi there! Could you kindly go ahead and please ship it. Thanks in advance!",
+			),
+		).toBe("ship it.");
+	});
+	test("W278 review #4 cases keep their meaning", () => {
+		const hedge = "Maybe add a retry, but just for the 429 case.";
+		expect(condensePrompt(hedge)).toBe(hedge);
+		expect(
+			condensePrompt(
+				"Could you please make sure that the kind of error is logged?",
+			),
+		).toBe("make sure that the kind of error is logged?");
 	});
 	test("plain technical goals pass through unchanged", () => {
 		expect(condensePrompt("add csv export")).toBe("add csv export");
@@ -137,15 +150,21 @@ describe("pipeline + disclosure", () => {
 		],
 		compose: (f: string) => `GOAL:\n${f}\n\nREPO CONTEXT:\nctx-é`,
 	});
-	test("defaults: condense on, the rest off", () => {
+	test("defaults: condense off (W287), the rest off", () => {
 		expect(resolvePromptSettings({})).toEqual(PROMPT_DEFAULTS);
-		expect(PROMPT_DEFAULTS["prompt.condense"]).toBe(true);
+		expect(PROMPT_DEFAULTS["prompt.condense"]).toBe(false);
 		expect(
 			resolvePromptSettings({ "prompt.log": true, "prompt.debug": "yes" }),
 		).toEqual({
 			...PROMPT_DEFAULTS,
 			"prompt.log": true,
 		});
+	});
+	test("default settings leave the goal untouched (condense default off)", async () => {
+		const p = await preparePrompt("please add x", PROMPT_DEFAULTS, deps());
+		expect(p.condensed).toBeNull();
+		expect(p.final).toBe("please add x");
+		expect(previewView(p).ran).toEqual({ condense: false, enhance: false });
 	});
 	test("condense off = goal untouched; enhance not called", async () => {
 		let called = false;
@@ -165,7 +184,11 @@ describe("pipeline + disclosure", () => {
 		expect(called).toBe(false);
 	});
 	test("enhance success feeds final; fallback keeps condensed", async () => {
-		const on = { ...PROMPT_DEFAULTS, "prompt.enhance": true };
+		const on = {
+			...PROMPT_DEFAULTS,
+			"prompt.condense": true,
+			"prompt.enhance": true,
+		};
 		const ok = await preparePrompt("please add x", on, deps("Add X."));
 		expect(ok.condensed).toBe("add x");
 		expect(ok.final).toBe("Add X.");
@@ -177,6 +200,7 @@ describe("pipeline + disclosure", () => {
 	test("debug view = final only; log view = every stage + injections with bytes", async () => {
 		const on = {
 			...PROMPT_DEFAULTS,
+			"prompt.condense": true,
 			"prompt.enhance": true,
 			"prompt.debug": true,
 		};
@@ -203,7 +227,11 @@ describe("pipeline + disclosure", () => {
 		expect(log.wireBytes).toBe(Buffer.byteLength(p.wire));
 	});
 	test("never-empty: a goal that condenses to nothing is kept", async () => {
-		const p = await preparePrompt("please", PROMPT_DEFAULTS, deps());
+		const p = await preparePrompt(
+			"please",
+			{ ...PROMPT_DEFAULTS, "prompt.condense": true },
+			deps(),
+		);
 		expect(p.final).toBe("please");
 	});
 });

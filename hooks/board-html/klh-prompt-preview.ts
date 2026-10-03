@@ -30,7 +30,7 @@ const TOGGLES: [keyof Settings, string][] = [
 ];
 
 const DEFAULTS: Settings = {
-	"prompt.condense": true,
+	"prompt.condense": false,
 	"prompt.enhance": false,
 	"prompt.debug": false,
 	"prompt.log": false,

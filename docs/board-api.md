@@ -213,17 +213,17 @@ The orchestrate goal passes through `hooks/board/prompt-transform.ts` before it
 reaches the fleet. Toggles live in `suspenders-board.json` (namespaced, shared with
 the console settings surface):
 
-| key | default | effect |
-| --- | --- | --- |
-| `prompt.condense` | `true` | deterministic prompt condenser: strips filler/hedging, collapses doubled words and repeated sentences; code, URLs, paths, flags and dotted identifiers stay verbatim |
-| `prompt.enhance` | `false` | local-LLM rewrite via the belt router (`SUSPENDERS_PROMPT_ENHANCE_URL`, default `http://127.0.0.1:4000/v1/messages`, Anthropic wire, `max_tokens` 400, model `SUSPENDERS_PROMPT_MODEL` else the routing-policy ladder head); unreachable/empty → no enhancement, the note says why |
-| `prompt.debug` | `false` | the board shows a read-only preview under the orchestrate field with the final prompt before dispatch |
-| `prompt.log` | `false` | the preview shows every stage (original, condensed, enhanced) and every injected context block (goal header, system prompt, repo context) with byte counts |
+| key               | default | effect                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt.condense` | `false` | deterministic politeness-only prompt condenser (W287): strips greetings/thanks/please/could-you/"go ahead and" wrappers, collapses whitespace, doubled words and repeated sentences; hedges, quantifiers and scope words (just, maybe, only, very, quite, perhaps, really, kind of) are never touched; code, URLs, paths, flags and dotted identifiers stay verbatim |
+| `prompt.enhance`  | `false` | local-LLM rewrite via the belt router (`SUSPENDERS_PROMPT_ENHANCE_URL`, default `http://127.0.0.1:4000/v1/messages`, Anthropic wire, `max_tokens` 400, model `SUSPENDERS_PROMPT_MODEL` else the routing-policy ladder head); unreachable/empty → no enhancement, the note says why                                                                                   |
+| `prompt.debug`    | `false` | the board shows a read-only preview under the orchestrate field with the final prompt before dispatch                                                                                                                                                                                                                                                                |
+| `prompt.log`      | `false` | the preview shows every stage (original, condensed, enhanced) and every injected context block (goal header, system prompt, repo context) with byte counts                                                                                                                                                                                                           |
 
 - `GET /api/prompt/settings` → `{ ok, settings }`; `POST` with any subset of the four
   booleans (write-token guarded) → `{ ok, settings }`.
 - `POST /api/orchestrate/preview {project, goal}` → `{ ok, previewId, preview: { settings,
-  final, finalBytes, ran, enhanceNote, stages?, injected?, wireBytes? } }`. Secrets
+final, finalBytes, ran, enhanceNote, stages?, injected?, wireBytes? } }`. Secrets
   (API keys, tokens, private keys, `/Users/<name>` paths) are redacted in the view.
   Nothing is written; no plan LLM call.
 - `POST /api/orchestrate {project, goal, previewId?}` — a matching, unexpired

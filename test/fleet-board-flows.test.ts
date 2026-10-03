@@ -368,7 +368,7 @@ describe("W57 orchestrate box", () => {
 		await waitUp(OB);
 		const d = await (await fetch(`${OB}/api/prompt/settings`)).json();
 		expect(d.settings).toEqual({
-			"prompt.condense": true,
+			"prompt.condense": false,
 			"prompt.enhance": false,
 			"prompt.debug": false,
 			"prompt.log": false,
@@ -377,6 +377,7 @@ describe("W57 orchestrate box", () => {
 			(await postO("/api/prompt/settings", { "prompt.debug": "yes" })).status,
 		).toBe(400);
 		const s = await postO("/api/prompt/settings", {
+			"prompt.condense": true,
 			"prompt.debug": true,
 			"prompt.log": true,
 		});
@@ -395,7 +396,7 @@ describe("W57 orchestrate box", () => {
 		expect(r.status).toBe(200);
 		expect(r.json.previewId).toBeTruthy();
 		const v = r.json.preview;
-		expect(v.final).toBe("add csv export with token=[redacted]");
+		expect(v.final).toBe("just add csv export with token=[redacted]");
 		expect(v.ran).toEqual({ condense: true, enhance: false });
 		expect(v.stages.map((s: { label: string }) => s.label)).toEqual([
 			"original",
@@ -418,7 +419,7 @@ describe("W57 orchestrate box", () => {
 		expect(go.json.previewed).toBe(true);
 		expect(
 			lastUser.startsWith(
-				"GOAL:\nadd csv export with token=abcd1234efgh5678\n\nREPO CONTEXT:\n",
+				"GOAL:\njust add csv export with token=abcd1234efgh5678\n\nREPO CONTEXT:\n",
 			),
 		).toBe(true);
 	});

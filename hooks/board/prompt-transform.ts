@@ -15,7 +15,9 @@ export interface PromptSettings {
 }
 
 export const PROMPT_DEFAULTS: PromptSettings = {
-	"prompt.condense": true,
+	// W287: condense defaults OFF — the owner's call after review finding #4
+	// (hedges carry meaning). The key stays so users can opt in.
+	"prompt.condense": false,
 	"prompt.enhance": false,
 	"prompt.debug": false,
 	"prompt.log": false,
@@ -39,34 +41,20 @@ export function resolvePromptSettings(
 // protected verbatim. Rules are ordered and pure, so the same input always
 // yields the same output, and condensing twice equals condensing once.
 
-// [pattern, replacement] — politeness/hedging/throat-clearing that carries
-// no instruction. Imperative verbs and technical terms are never listed.
+// [pattern, replacement] — W287 politeness-only ruleset: greetings, thanks,
+// please/could-you wrappers and "go ahead and" add no instruction. Hedges,
+// quantifiers and scope words (just, maybe, only, very, quite, perhaps,
+// really, kind of…) carry meaning and are NEVER stripped. Imperative verbs
+// and technical terms are never listed.
 const FILLER: [RegExp, string][] = [
 	[/^\s*(?:hi|hey|hello)(?: there)?\b[,!.]?/gim, ""],
 	[
 		/\b(?:thanks|thank you)(?: (?:so|very) much)?(?: in advance)?\b[,!.]?/gi,
 		"",
 	],
-	[/\bit would be (?:great|nice|awesome|helpful) if you could\b/gi, ""],
-	[/\b(?:i would|i'd) (?:like|love|want) (?:you )?to\b/gi, ""],
-	[/\bi (?:want|need) you to\b/gi, ""],
 	[/\b(?:could|can|would) you (?:please )?(?:kindly )?\b/gi, ""],
 	[/\b(?:please|kindly)\b[,]?/gi, ""],
 	[/\bgo ahead and\b/gi, ""],
-	[/\bif (?:at all )?possible\b[,]?/gi, ""],
-	[/\bas (?:soon|quickly) as (?:possible|you can)\b/gi, ""],
-	[/\bmake sure (?:that )?\b/gi, "ensure "],
-	[/\bin order to\b/gi, "to"],
-	[/\bdue to the fact that\b/gi, "because"],
-	[/\bat this point in time\b/gi, "now"],
-	[/\bfor the purpose of\b/gi, "for"],
-	[/\b(?:sort|kind) of\b/gi, ""],
-	[/\ba (?:little )?bit\b/gi, ""],
-	[
-		/\b(?:basically|actually|really|simply|just|quite|very|totally|literally|honestly|obviously|perhaps|maybe)\b/gi,
-		"",
-	],
-	[/\b(?:i think|i guess|i believe|i feel like)\b[,]?/gi, ""],
 ];
 
 // fences, inline code, URLs, paths (/a/b, ./x, ~/x, a/b.ts), flags, dotted
