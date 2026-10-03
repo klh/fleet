@@ -59,7 +59,6 @@ const curl = (port: number, path: string): RecoveryStep => ({
 });
 
 const LOCAL_LLM = "com.suspenders.local-llm";
-const BELT_GATEWAY = "com.belt.gateway";
 const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
 const swarm = (port: number): RecoveryEntry => ({
@@ -105,17 +104,20 @@ const ENTRIES: RecoveryEntry[] = [
 		id: "litellm-4100",
 		name: "litellm engine :4100",
 		probe: { kind: "http", port: 4100, path: "/health/liveliness" },
-		what: "The litellm engine behind the belt gateway is not answering, so routed model calls fail.",
+		what: "The litellm engine on :4100 is not answering, so routed model calls fail.",
 		causes: [
-			`the belt gateway agent (${BELT_GATEWAY}) exited or is not loaded`,
+			// W277: litellm joined the swarm supervisor's respawn/circuit-breaker
+			// set; the old standalone com.belt.gateway restarter was retired
+			// (it was a second :4100 restarter — a fork-bomb hazard).
+			`the swarm supervisor (${LOCAL_LLM}) that revives litellm is not running`,
 			"an orphaned litellm still holds :4100",
 			"litellm failed to start (bad generated config or missing key file) — the log says which",
 		],
 		recovery: [
 			holder(4100),
 			killOrphan(4100),
-			kick(BELT_GATEWAY),
-			bootstrap(BELT_GATEWAY),
+			kick(LOCAL_LLM),
+			bootstrap(LOCAL_LLM),
 			tail("~/.claude/local-llm/litellm-gateway.log"),
 			curl(4100, "/health/liveliness"),
 		],
@@ -218,25 +220,11 @@ const ENTRIES: RecoveryEntry[] = [
 			tail(SWARM_LOG),
 		],
 	},
-	{
-		id: "launchd-belt-gateway",
-		name: `launchd ${BELT_GATEWAY}`,
-		probe: { kind: "launchd", label: BELT_GATEWAY },
-		what: "The belt gateway agent is not running, so the litellm engine on :4100 has no supervisor.",
-		causes: [
-			"the agent was unloaded (bootout) or never installed",
-			"the gateway exits on start (missing litellm binary or key file) and launchd throttles it",
-		],
-		recovery: [
-			kick(BELT_GATEWAY),
-			bootstrap(BELT_GATEWAY),
-			{
-				label: "inspect the agent's state and last exit",
-				cmd: `launchctl print gui/$(id -u)/${BELT_GATEWAY}`,
-			},
-			tail("~/.claude/local-llm/litellm-gateway.log"),
-		],
-	},
+	// W277 retired the standalone com.belt.gateway launchd agent (it was a
+	// second :4100 restarter racing the swarm supervisor — a fork-bomb
+	// hazard); litellm now lives solely under launchd-local-llm's
+	// respawn/circuit-breaker set, so there is no longer a separate
+	// launchd entry to probe here.
 ];
 
 export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =
