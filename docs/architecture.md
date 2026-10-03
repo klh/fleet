@@ -57,13 +57,14 @@ user-level copilot instructions in `~/.copilot/instructions.md`.
 
 ## Doc map
 
-| File                                                                                 | Contents                                                                        |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| [board-api.md](board-api.md)                                                         | The v3 board/task feed contract (owner_label, newest-first, project filter).    |
-| [decisions-api.md](decisions-api.md)                                                 | Forks/decisions API incl. idempotency echo + NEED% event durability.            |
-| [theme-tokens.md](theme-tokens.md)                                                   | Theme token contract + settings block, copy-verbatim for other GUIs.            |
-| [design/knowledge-db-2026-10-01.md](design/knowledge-db-2026-10-01.md)               | Knowledge DB design; read-path FTS5 pragmas referenced by `hooks/lib/govdb.ts`. |
-| [design/buckle/routing-laws-2026-10-01.md](design/buckle/routing-laws-2026-10-01.md) | Owner-FINAL routing grammar, enforced by `hooks/lib/repo-laws.ts`.              |
+| File                                                                                 | Contents                                                                                                                |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| [board-api.md](board-api.md)                                                         | The v3 board/task feed contract (owner_label, newest-first, project filter).                                            |
+| [decisions-api.md](decisions-api.md)                                                 | Forks/decisions API incl. idempotency echo + NEED% event durability.                                                    |
+| [theme-tokens.md](theme-tokens.md)                                                   | Theme token contract + settings block, copy-verbatim for other GUIs.                                                    |
+| [design/knowledge-db-2026-10-01.md](design/knowledge-db-2026-10-01.md)               | Knowledge DB design; read-path FTS5 pragmas referenced by `hooks/lib/govdb.ts`.                                         |
+| [design/buckle/routing-laws-2026-10-01.md](design/buckle/routing-laws-2026-10-01.md) | Owner-FINAL routing grammar, enforced by `hooks/lib/repo-laws.ts`.                                                      |
+| [design/w278-landing-review-2026-10-03.md](design/w278-landing-review-2026-10-03.md) | Post-landing best-approach review (relay cancel path, two-supervisor hazard, condense semantics); fix list = W284–W292. |
 
 ## Fleet laws this repo enforces
 
