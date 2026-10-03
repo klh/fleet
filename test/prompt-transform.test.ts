@@ -150,9 +150,9 @@ describe("pipeline + disclosure", () => {
 		],
 		compose: (f: string) => `GOAL:\n${f}\n\nREPO CONTEXT:\nctx-é`,
 	});
-	test("defaults: condense off (W287), the rest off", () => {
+	test("defaults: condense ON (owner reversal 2026-10-03), the rest off", () => {
 		expect(resolvePromptSettings({})).toEqual(PROMPT_DEFAULTS);
-		expect(PROMPT_DEFAULTS["prompt.condense"]).toBe(false);
+		expect(PROMPT_DEFAULTS["prompt.condense"]).toBe(true);
 		expect(
 			resolvePromptSettings({ "prompt.log": true, "prompt.debug": "yes" }),
 		).toEqual({
@@ -160,11 +160,10 @@ describe("pipeline + disclosure", () => {
 			"prompt.log": true,
 		});
 	});
-	test("default settings leave the goal untouched (condense default off)", async () => {
+	test("default settings condense politely (condense default on)", async () => {
 		const p = await preparePrompt("please add x", PROMPT_DEFAULTS, deps());
-		expect(p.condensed).toBeNull();
-		expect(p.final).toBe("please add x");
-		expect(previewView(p).ran).toEqual({ condense: false, enhance: false });
+		expect(p.final).toBe("add x"); // politeness strip runs, goal intact
+		expect(previewView(p).ran).toEqual({ condense: true, enhance: false });
 	});
 	test("condense off = goal untouched; enhance not called", async () => {
 		let called = false;

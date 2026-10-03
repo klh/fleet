@@ -15,9 +15,10 @@ export interface PromptSettings {
 }
 
 export const PROMPT_DEFAULTS: PromptSettings = {
-	// W287: condense defaults OFF — the owner's call after review finding #4
-	// (hedges carry meaning). The key stays so users can opt in.
-	"prompt.condense": false,
+	// Owner reversal 2026-10-03: condense is ON by default — the W287
+	// politeness-only ruleset stands (hedges/quantifiers/scope words are never
+	// touched; meaning survives), users turn it off per settings.
+	"prompt.condense": true,
 	"prompt.enhance": false,
 	"prompt.debug": false,
 	"prompt.log": false,
