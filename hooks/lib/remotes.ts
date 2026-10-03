@@ -109,19 +109,27 @@ export function configPath(): string {
 	return `${process.env.HOME}/.claude/local-llm/remotes.json`;
 }
 
-/** Missing file = empty registry (graceful: no remotes configured). */
+/** Missing file = empty registry (graceful: no remotes configured).
+ *  Present-but-invalid fails loud (zod) rather than silently mis-routing —
+ *  the schema is the single source of truth for the shape. */
 export function loadRemotes(): RemoteMachine[] {
 	const path = configPath();
 	if (!existsSync(path)) return [];
+	let json: unknown;
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf8")) as {
-			machines?: RemoteMachine[];
-		};
-		return Array.isArray(parsed.machines) ? parsed.machines : [];
+		json = JSON.parse(readFileSync(path, "utf8"));
 	} catch {
 		console.error(`remotes: ${path} is not valid JSON — skipping registry`);
 		return [];
 	}
+	const parsed = RemotesConfigSchema.safeParse(json);
+	if (!parsed.success) {
+		console.error(
+			`remotes: ${path} failed schema validation — skipping registry\n${z.prettifyError(parsed.error)}`,
+		);
+		return [];
+	}
+	return parsed.data.machines;
 }
 
 /** Flattened (machine, endpoint) pairs, filtered by role. */
