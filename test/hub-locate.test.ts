@@ -65,7 +65,7 @@ describe("resolveHub", () => {
 		);
 		const hub = await resolveHub("GHOST", ["http://unreachable.invalid:4"]);
 		expect(hub).toBeNull();
-	}, 10_000);
+	}, 15_000);
 
 	test("blank label is never resolved", async () => {
 		expect(await resolveHub("   ")).toBeNull();

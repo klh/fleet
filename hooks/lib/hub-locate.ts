@@ -34,6 +34,45 @@ function readRegistry(): HubRegistry {
 	}
 }
 
+const HUB_SERVICE_TYPE = "_klh-hub._tcp";
+
+// Browse for advertised hubs (belt/bin/remotes.ts's discover(), ported for
+// hubs instead of LLM endpoints). Browse first for a name matching the
+// label, then -L to resolve its SRV record (host:port) — a bare browse only
+// yields instance names, never a port.
+async function discoverHub(label: string): Promise<string | null> {
+	try {
+		const browse = Bun.spawnSync(
+			["/usr/bin/dns-sd", "-B", HUB_SERVICE_TYPE, "local."],
+			{ timeout: 3000 },
+		);
+		const wantLower = label.toLowerCase();
+		let name: string | null = null;
+		for (const line of browse.stdout.toString().split("\n")) {
+			const m = line.match(/(\S+)\._klh-hub\._tcp\.?/);
+			if (m?.[1]?.toLowerCase().includes(wantLower)) {
+				name = m[1];
+				break;
+			}
+		}
+		if (!name) return null;
+		const lookup = Bun.spawnSync(
+			["/usr/bin/dns-sd", "-L", name, HUB_SERVICE_TYPE, "local."],
+			{ timeout: 3000 },
+		);
+		const m = lookup.stdout.toString().match(/can be reached at (\S+):(\d+)/);
+		if (!m) return null;
+		const [, host, port] = m;
+		for (const scheme of ["https", "http"]) {
+			const cand = `${scheme}://${host}:${port}`;
+			if (await alive(cand)) return cand;
+		}
+		return null;
+	} catch {
+		return null; // no dns-sd on this platform, or browse/lookup timed out
+	}
+}
+
 // a server that answers AT ALL counts as present (even a 404) — belt-locate
 // precedent: we are locating a host, not a route.
 async function alive(base: string): Promise<boolean> {
@@ -84,8 +123,15 @@ export async function resolveHub(
 				via: "registry hubs.json",
 			};
 	}
-	// 4. mDNS/DNS-SD guess — the suspenders.local/belt.local precedent, one
-	// guess at the buckle shadow port (4101) and the bare name.
+	// 4. DNS-SD browse — same convention belt/bin/remotes.ts already uses for
+	// LLM discovery (_klh-llm._tcp, avahi on linux / dns-sd on macOS), one
+	// service type over for hubs: _klh-hub._tcp. A NAS or sibling box that
+	// runs a hub announces itself here; no registry entry required.
+	const sdUrl = await discoverHub(norm);
+	if (sdUrl) return { label: norm, url: sdUrl, via: "dns-sd _klh-hub._tcp" };
+	// 5. mDNS guess (last resort) — the suspenders.local/belt.local
+	// precedent, one guess at the buckle shadow port (4101) and the bare
+	// name, for hubs that run a plain Bonjour hostname with no SRV record.
 	const guessHost = norm.toLowerCase().replace(/[^a-z0-9-]/g, "");
 	for (const cand of [
 		`https://${guessHost}.local:4101`,
