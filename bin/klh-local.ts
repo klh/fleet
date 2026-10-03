@@ -56,7 +56,11 @@ const HOSTS_END = "# --- klh-local managed: end ---";
 type Dns = { claimed: boolean; pid?: number };
 type Route = { path: string; port: number };
 // Loopback by default; LAN exposure is opt-in and always authenticated.
-export type Exposure = { lan: boolean; forwardAuth?: string };
+export type Exposure = {
+	lan: boolean;
+	forwardAuth?: string;
+	upstream?: string;
+};
 type Service = {
 	name: string;
 	port: number;
@@ -64,6 +68,7 @@ type Service = {
 	routes?: Route[];
 	lan?: boolean;
 	forward_auth?: string;
+	upstream?: string;
 	dns: Dns;
 	caddy: { conf_path: string };
 	created_at: string;
@@ -252,12 +257,13 @@ export const fragmentConf = (
 	const scope = exposure.lan
 		? `LAN, forward_auth ${exposure.forwardAuth}`
 		: "loopback only";
-	const header = `# klh-local fragment — https://${name}.local/ → 127.0.0.1:${port} (${scope}; auto-HTTPS via Caddy internal CA)`;
+	const target = exposure.upstream ?? `127.0.0.1:${port}`;
+	const header = `# klh-local fragment — https://${name}.local/ → ${target} (${scope}; auto-HTTPS via Caddy internal CA)`;
 	const bindOrAuth = exposureLines(exposure);
 	if (routes.length === 0)
 		return `${header}
 ${name}.local {
-${bindOrAuth}	reverse_proxy 127.0.0.1:${port}
+${bindOrAuth}	reverse_proxy ${target}
 }
 `;
 	// handle blocks are mutually exclusive and matcher-ordered: path routes
@@ -274,7 +280,7 @@ ${bindOrAuth}	reverse_proxy 127.0.0.1:${port}
 	return `${header}
 ${name}.local {
 ${bindOrAuth}${handles}	handle {
-		reverse_proxy 127.0.0.1:${port}
+		reverse_proxy ${target}
 	}
 }
 `;
@@ -505,6 +511,7 @@ const cmdRegister = (argv: string[]): void => {
 	let noDns = false;
 	let lan = false;
 	let forwardAuth = "";
+	let upstream = "";
 	const routes: Route[] = [];
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] === "--port") portRaw = argv[++i] ?? "";
@@ -512,6 +519,7 @@ const cmdRegister = (argv: string[]): void => {
 		else if (argv[i] === "--no-dns") noDns = true;
 		else if (argv[i] === "--lan") lan = true;
 		else if (argv[i] === "--forward-auth") forwardAuth = argv[++i] ?? "";
+		else if (argv[i] === "--upstream") upstream = argv[++i] ?? "";
 		else if (argv[i] === "--route") {
 			const spec = argv[++i] ?? "";
 			const eq = spec.lastIndexOf("=");
@@ -529,10 +537,12 @@ const cmdRegister = (argv: string[]): void => {
 			});
 		} else if (!argv[i].startsWith("--") && !name) name = argv[i];
 	}
-	const port = Number(portRaw);
-	if (!name || !portRaw)
+	const port = Number(
+		portRaw || (upstream ? (upstream.split(":")[1] ?? "80") : ""),
+	);
+	if (!name || (!portRaw && !upstream))
 		die(
-			`usage: klh-local register <name> --port N [--health /health] [--no-dns] [--lan --forward-auth URL]`,
+			`usage: klh-local register <name> --port N [--upstream HOST:PORT] [--health /health] [--no-dns] [--lan --forward-auth URL]`,
 		);
 	if (!NAME_RE.test(name))
 		die(
@@ -554,7 +564,15 @@ const cmdRegister = (argv: string[]): void => {
 		die(
 			`invalid --forward-auth "${forwardAuth}" — http(s)://host[:port]/path, no credentials or fragment`,
 		);
-	const exposure: Exposure = lan ? { lan, forwardAuth } : { lan: false };
+	if (upstream && !/^[a-z0-9.-]+(:\d{1,5})?$/.test(upstream))
+		die(`invalid --upstream "${upstream}" — host[:port], lowercase host or IP`);
+	if (upstream && lan)
+		die(`--upstream composes with loopback sites only (drop --lan)`);
+	const exposure: Exposure = upstream
+		? { lan: false, upstream }
+		: lan
+			? { lan, forwardAuth }
+			: { lan: false };
 	withRegistryLock(() =>
 		registerLocked(name, port, healthPath, noDns, routes, exposure),
 	);
@@ -579,7 +597,7 @@ const registerLocked = (
 		die(
 			`already registered as ${name} → :${existing.port}${existing.health_path} — to change: klh-local deregister ${name}, then register`,
 		);
-	if (!existing && reg.some((s) => s.port === port))
+	if (!existing && !exposure.upstream && reg.some((s) => s.port === port))
 		die(
 			`port ${port} already registered (${reg.find((s) => s.port === port)?.name})`,
 		);
@@ -630,6 +648,7 @@ const registerLocked = (
 			routes: routes.length ? routes : undefined,
 			lan: exposure.lan || undefined,
 			forward_auth: exposure.lan ? exposure.forwardAuth : undefined,
+			upstream: exposure.upstream,
 			dns,
 			caddy: { conf_path: frag },
 			created_at: existing?.created_at ?? new Date().toISOString(),
