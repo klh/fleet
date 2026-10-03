@@ -1,7 +1,6 @@
 // hooks/board-html/renders.ts — conn/fleet/llm/claims/done/events renders (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const RENDERS = String.raw`// --- 1: overall status + connection health (live / stale / error) ---
 function renderConn(){
   var dAge = dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
@@ -79,14 +78,14 @@ function renderLlm(d){
   for (var i = 0; i < u.length; i++) {
     var m = u[i];
     var pct = m.budget ? Math.min(100, Math.round(m.tokens / m.budget * 100)) : null;
-    h += '<div class="llmrow"><b>' + esc(m.model) + '</b> · ' + m.tokens + ' tok · ' + m.calls + ' call' + (m.calls === 1 ? '' : 's') + (m.budget ? ' · budget ' + m.budget + ' <span class="dim">(' + pct + '%)</span><div style="height:4px;background:var(--ink-faint,#888);border-radius:2px;margin-top:2px"><div style="height:4px;width:' + pct + '%;background:var(--accent,#2c7);border-radius:2px"></div></div>' : ' · <span class="dim">no llm.budget.' + esc(m.model) + ' fact set</span>') + '</div>';
+    h += '<div class="llmrow"><b>' + esc(m.model) + '</b> · ' + m.tokens + ' tok · ' + m.calls + ' call' + (m.calls === 1 ? '' : 's') + (m.budget ? ' · budget ' + m.budget + ' <span class="dim">(' + pct + '%)</span><div style="height:4px;background:var(--klh-edge);border-radius:2px;margin-top:2px"><div style="height:4px;width:' + pct + '%;background:var(--klh-ok-ink);border-radius:2px"></div></div>' : ' · <span class="dim">no llm.budget.' + esc(m.model) + ' fact set</span>') + '</div>';
   }
   var calls = d.llm.calls || [];
   if (calls.length) {
     h += '<div class="dim" style="margin-top:8px">recent calls:</div>';
     for (var j = 0; j < calls.length; j++) {
       var c = calls[j];
-      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--bad,#c33)">ERR ' + esc(String(c.error)) + '</span>' : c.tt + ' tok · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
+      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : c.tt + ' tok · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
     }
   }
   el.innerHTML = h;

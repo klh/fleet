@@ -1,10 +1,10 @@
 // hooks/bin/console-html.ts — W147: the console shell + server-rendered
 // console pages (belt gateway view, local services view, settings). Pure
-// string builders, board dark palette (#141413 base / #1c1b19 surface /
-// #d8900f accent), inline SVG, no framework, no external deps.
+// string builders on the klh theme tokens (hooks/lib/theme.ts — var(--klh-*),
+// dark/light via data-theme), inline SVG, no framework, no external deps.
 //
 // The top bar is the klh-stack shell: wordmark + [belt | suspenders | local]
-// menu, gear → settings, avatar circle with a keyboard-reachable actor
+// menu, gear → settings panel (theme + console settings link), avatar circle with a keyboard-reachable actor
 // dropdown. The SPA board interpolates TOPBAR the same way (String.raw
 // interpolates ${}; only escapes are raw), so every page wears one shell.
 //
@@ -18,6 +18,12 @@ import type {
 	ResolvedPolicy,
 } from "../lib/board-config.ts";
 import { scrub } from "../lib/servicemon.ts";
+import {
+	settingsBlock,
+	THEME_HEAD,
+	THEME_SETTINGS_CSS,
+	THEME_SETTINGS_JS,
+} from "../lib/theme.ts";
 
 export interface ConsoleMe {
 	actor: string;
@@ -36,33 +42,26 @@ export const esc = (s: string): string =>
 
 const SHELL_CSS = `
 #cbbar { display:none; }
-#cbar { display:flex; align-items:center; gap:14px; padding:7px 16px; border-bottom:1px solid rgba(255,255,255,.10); background:#171614; position:sticky; top:0; z-index:50; }
-#cbar .cw { font-size:12px; font-weight:700; letter-spacing:.10em; color:#e8e6e1; text-decoration:none; white-space:nowrap; }
-#cbar .cwdot { color:#d8900f; }
+#cbar { display:flex; align-items:center; gap:14px; padding:7px 16px; border-bottom:1px solid var(--klh-edge-soft); background:var(--klh-panel); position:sticky; top:0; z-index:50; }
+#cbar .cw { font-size:12px; font-weight:700; letter-spacing:.10em; color:var(--klh-ink); text-decoration:none; white-space:nowrap; }
+#cbar .cwdot { color:var(--klh-accent); }
 #cbar .cnavs { display:flex; gap:2px; }
-#cbar .cnav { color:#98958e; text-decoration:none; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 11px; border-bottom:2px solid transparent; }
-#cbar .cnav:hover { color:#e8e6e1; }
-#cbar .cnav[aria-current] { color:#e8e6e1; border-bottom-color:#d8900f; }
+#cbar .cnav { color:var(--klh-dim); text-decoration:none; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 11px; border-bottom:2px solid transparent; }
+#cbar .cnav:hover { color:var(--klh-ink); }
+#cbar .cnav[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
 #cbar .cend { margin-left:auto; display:flex; align-items:center; gap:12px; }
-#cbar .cgear { color:#98958e; display:flex; }
-#cbar .cgear:hover { color:#e8e6e1; }
-#cbar .cgear[aria-current] { color:#d8900f; }
 .cavwrap { position:relative; }
-.cavbtn { width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.24); background:#232220; color:#e8e6e1; font:600 11px/1 -apple-system,sans-serif; cursor:pointer; padding:0; }
-.cavbtn:hover, .cavbtn[aria-expanded="true"] { border-color:#d8900f; color:#d8900f; }
-.cavdrop { position:absolute; right:0; top:32px; width:260px; background:#1c1b19; border:1px solid rgba(255,255,255,.14); border-radius:3px; padding:10px 12px; box-shadow:0 4px 18px rgba(0,0,0,.5); }
+.cavbtn { width:26px; height:26px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 11px/1 -apple-system,sans-serif; cursor:pointer; padding:0; }
+.cavbtn:hover, .cavbtn[aria-expanded="true"] { border-color:var(--klh-accent); color:var(--klh-accent); }
+.cavdrop { position:absolute; right:0; top:32px; width:260px; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:3px; padding:10px 12px; box-shadow:0 4px 18px var(--klh-shadow); }
 .cavhead { display:flex; gap:9px; align-items:center; }
-.cavbig { width:30px; height:30px; border-radius:50%; border:1px solid rgba(255,255,255,.24); background:#232220; color:#e8e6e1; font:600 13px/30px -apple-system,sans-serif; text-align:center; flex:none; }
-.cavname { font-size:12.5px; color:#e8e6e1; font-weight:600; word-break:break-all; }
-.cavsub { font-size:10.5px; color:#98958e; }
-.cavsec { margin-top:9px; font-size:10px; color:#98958e; text-transform:uppercase; letter-spacing:.06em; }
+.cavbig { width:30px; height:30px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 13px/30px -apple-system,sans-serif; text-align:center; flex:none; }
+.cavname { font-size:12.5px; color:var(--klh-ink); font-weight:600; word-break:break-all; }
+.cavsub { font-size:10.5px; color:var(--klh-dim); }
+.cavsec { margin-top:9px; font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
 .cavdrop select { width:100%; margin-top:4px; }
-.cavnote { margin-top:7px; font-size:10.5px; color:#98958e; }
+.cavnote { margin-top:7px; font-size:10.5px; color:var(--klh-dim); }
 `;
-
-// gear icon — inline SVG, no icon font, no external deps
-const GEAR =
-	'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>';
 
 const initial = (actor: string): string =>
 	actor && actor !== "unassigned" ? actor.charAt(0).toUpperCase() : "?";
@@ -90,7 +89,7 @@ export const topbar = (
 	const dropInner = me
 		? `<div class="cavhead"><span class="cavbig">${esc(initial(actor))}</span><span><span class="cavname">${esc(actor)}</span><br><span class="cavsub">${tagLine(me.tags)}</span></span></div><div class="cavsec">switch actor (demo preview)</div>${sel()}<div class="cavnote">demo preview — stamps nothing live; live switching is a follow-up item</div>`
 		: `<div class="cavname" id="cavload">loading actor…</div>`;
-	return `<style>${SHELL_CSS}</style><nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh·console</a><span class="cnavs"><a class="cnav"${cur("belt")} href="/console/belt">belt</a><a class="cnav"${cur("suspenders")} href="/">suspenders</a><a class="cnav"${cur("local")} href="/console/local">local</a></span><span class="cend"><a class="cgear"${cur("settings")} href="/console/settings" aria-label="console settings" title="settings">${GEAR}</a><span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
+	return `<style>${SHELL_CSS}${THEME_SETTINGS_CSS}</style><nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh·console</a><span class="cnavs"><a class="cnav"${cur("belt")} href="/console/belt">belt</a><a class="cnav"${cur("suspenders")} href="/">suspenders</a><a class="cnav"${cur("local")} href="/console/local">local</a></span><span class="cend">${settingsBlock(`<a${cur("settings")} href="/console/settings">all console settings &rarr;</a>`)}<span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
 };
 
 // Dropdown behavior: click toggles, outside-click + Escape close (focus
@@ -129,7 +128,7 @@ sec.after(sel);
 var note=document.createElement('div');note.className='cavnote';note.textContent='demo preview — stamps nothing live; live switching is a follow-up item';sel.after(note);
 }).catch(function(){});}
 })();`;
-export const TOPBAR_JS = TOPBAR_JS_A + TOPBAR_JS_B;
+export const TOPBAR_JS = TOPBAR_JS_A + TOPBAR_JS_B + THEME_SETTINGS_JS;
 
 // ─── page shell ───────────────────────────────────────────────────────────
 export const consolePage = (
@@ -138,7 +137,7 @@ export const consolePage = (
 	body: string,
 	me?: ConsoleMe,
 ): string =>
-	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{background:#141413;color:#e8e6e1;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;padding:0 20px 28px;}a{color:#d8900f}.ptitle{font-size:14px;letter-spacing:.08em;margin:16px 0 10px;color:#e8e6e1}.panel{background:#1c1b19;border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#98958e}.dim{color:#98958e}.ok{color:#5c7a35}.bad{color:#c96a4f}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid #2c2c2a;text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#98958e}.num{font-variant-numeric:tabular-nums}.btn{background:#d8900f;color:#141413;border:1px solid #d8900f;border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:#141413;color:#e8e6e1;border:1px solid rgba(255,255,255,.22);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:#141413;color:#e8e6e1;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:5px 8px;font:12px ui-monospace,Menlo,monospace}label.k{display:block;font-size:10px;color:#98958e;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid #5c7a35;color:#a5c78a;background:#1a2015;border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid #af2f12;color:#c96a4f;background:#221512;border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:#141413;border:1px solid rgba(255,255,255,.12);border-radius:2px;padding:10px 12px;font:11px/1.5 ui-monospace,Menlo,monospace;overflow:auto}pre.diff .add{color:#a5c78a;display:block}pre.diff .del{color:#c96a4f;display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:#98958e;margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:980px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
+	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:14px;letter-spacing:.08em;margin:16px 0 10px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px ui-monospace,Menlo,monospace}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 ui-monospace,Menlo,monospace;overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:980px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
 
 // ─── belt gateway view (/console/belt) ────────────────────────────────────
 export interface HealthProbe {
@@ -176,7 +175,7 @@ const ladderHtml = (gw: PolicyGatewayParsed): string =>
 const healthHtml = (h: HealthProbe[]): string =>
 	`<div class="tiles">${h.map((p) => `<div class="tile"><div class="tnum"><span class="${p.up ? "ok" : "bad"}">${p.up ? "UP" : "DOWN"}</span></div><div class="tkey">${esc(p.name)} :${p.port}</div><div class="tsub">${esc(p.detail)}</div></div>`).join("")}</div>`;
 
-const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:#1c1b19;border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:#98958e;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:#98958e;margin-top:3px}.pill{display:inline-block;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:1px 7px;font-size:11px;color:#c3c2b7;margin:1px 3px 1px 0}`;
+const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
 
 // ─── belt page body ───────────────────────────────────────────────────────
 const policyCard = (v: BeltView): string => {
@@ -202,7 +201,7 @@ const upstreamsCard = (v: BeltView): string => {
 	return `<div class="panel"><h2>Upstream pool (buckle upstreams.yaml)</h2><table class="ct"><thead><tr><th>group</th><th>deployments</th><th>state</th></tr></thead><tbody>${rows}</tbody></table><p class="cfoot">dormant = in the ladder but resolving to zero deployments until a BUCKLE_UPSTREAMS override supplies them</p></div>`;
 };
 
-const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:2px 8px;font-size:11.5px;color:#c3c2b7}.kchip b{color:#e8e6e1}.dimpl{color:#98958e;font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
+const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
 
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
@@ -275,7 +274,7 @@ const textField = (
 ): string =>
 	`<div><label class="k" for="f_${name}">${label}</label><input class="wide" id="f_${name}" name="${name}" type="text" value="${esc(val)}"><div class="cfoot">${hint}</div></div>`;
 
-const FORM_CSS = `.cfield-hint{font-size:10.5px;color:#98958e;margin:2px 0 8px}`;
+const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}`;
 
 const ladderFields = (gw: PolicyGatewayParsed): string =>
 	Object.entries(gw.fallbacks)
