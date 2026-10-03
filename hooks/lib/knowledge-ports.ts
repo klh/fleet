@@ -76,6 +76,21 @@ export interface KnowledgeUpsert {
 	supersedesId: number | null;
 }
 
+/** W246 near-dup propose-dispose: one firing of the ingest dedupe gate. The
+ *  skip stands (older kept); the proposal records the skipped candidate (X)
+ *  against the near-dup row (Y) so a human can dispose — retire Y
+ *  superseded-by X if X is the correction. Append-only: ledger + one event. */
+export interface NearDupProposal {
+	/** the existing near-dup row the proposal would retire */
+	y: number;
+	yTopic: string;
+	/** the skipped candidate's topic/fact (already secret-redacted) */
+	xTopic: string;
+	xFact: string;
+	/** the disposal a human would execute on confirmation */
+	action: string;
+}
+
 export interface KnowledgeSearchFilters {
 	query: string;
 	limit?: number;
@@ -92,7 +107,11 @@ export interface KnowledgeStore {
 	claim(id: number): Promise<KnowledgeJob | null>;
 	complete(
 		id: number,
-		ledger: { written: number[]; skipped: string[] },
+		ledger: {
+			written: number[];
+			skipped: string[];
+			proposals?: NearDupProposal[];
+		},
 		domain: string | null,
 		by: string | null,
 	): Promise<void>;
@@ -107,6 +126,12 @@ export interface KnowledgeStore {
 	emitLanded(
 		domain: string | null,
 		written: number[],
+		queueId: number,
+		by: string | null,
+	): Promise<void>;
+	// W246: one supersession-proposal event row per near-dup firing
+	proposeSupersession(
+		p: NearDupProposal,
 		queueId: number,
 		by: string | null,
 	): Promise<void>;
@@ -491,6 +516,25 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 				"knowledge-worker",
 				domain,
 				JSON.stringify({ knowledge: written, queue: queueId, by }),
+			);
+	}
+
+	// W246: ONE event row per near-dup firing — payload carries both sides
+	// (X candidate, Y near-dup row) so the human disposes from the bus
+	// without re-deriving the match. Append-only; no row state changes here.
+	async proposeSupersession(
+		p: NearDupProposal,
+		queueId: number,
+		by: string | null,
+	): Promise<void> {
+		this.bus()
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'knowledge.dup-proposal', 'knowledge', ?, NULL)",
+			)
+			.run(
+				Date.now(),
+				"knowledge-worker",
+				JSON.stringify({ queue: queueId, by, ...p }),
 			);
 	}
 
