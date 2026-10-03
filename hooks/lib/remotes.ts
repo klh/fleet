@@ -1,60 +1,101 @@
 // hooks/lib/remotes.ts — suspenders' slice of the remote LLM registry.
 // Reads the SAME runtime config belt uses: ~/.claude/local-llm/remotes.json
-// (never committed — real hosts/IPs/MACs stay local; the repo ships
-// placeholders). DNS first, ip_fallback only when resolution fails.
+// (never committed — real hosts/IPs/MACs stay local). DNS first,
+// ip_fallback only when resolution fails.
 // Suspenders needs three things: probe-only liveness for keepwarm (never WoL
 // from a 4-min daemon — that would defeat Synology hibernation), an
 // openai-protocol chat fallback for advise, and WoL-ensure for the rare,
-// important routed calls. Spike: spikes/w86/ (bfde191).
+// important routed calls. Spike: spikes/w86/ (bfde191). Schema: zod is the
+// single source of truth (W308) — a malformed config fails loud via
+// loadRemotes() instead of silently mis-routing.
 import dgram from "node:dgram";
 import { existsSync, readFileSync } from "node:fs";
+import { z } from "zod";
 
-export interface RemoteEndpoint {
-	port: number;
+export const RemoteEndpointSchema = z.object({
+	port: z.number().int().positive(),
 	// openai = /v1/models + /v1/chat/completions; llama = llama.cpp server
 	// (/health); immich = Immich SERVER api (smart-search), not the ML container
-	protocol: "openai" | "llama" | "immich";
-	roles: string[]; // general | advise | research | embed ...
-	model?: string;
-	/** name of the env var holding the immich x-api-key — never the key */
-	api_key_env?: string;
-	/** opt-in probe-only liveness from the 4-min keepwarm daemon */
-	keepwarm_probe?: boolean;
-}
-
-export interface RemoteMachine {
-	name: string;
-	host: string; // DNS first on every call
-	ip_fallback?: string; // only when resolution fails
-	mac?: string; // WoL target for hibernating machines
-	wol_broadcast?: string; // "ip:port", e.g. subnet :9
+	protocol: z.enum(["openai", "llama", "immich"]),
+	roles: z.array(z.string()), // general | advise | research | embed ...
+	model: z.string().optional(),
 	/** CDN/edge-fronted remotes (z.ai, openai, anthropic …) need real TLS on
 	 *  the real hostname — a direct-IP plaintext request loses both the TLS
 	 *  SNI and the Host header, and the edge rejects it (421 "Direct IP
 	 *  access is not allowed"). LAN boxes (nas, immich) stay plain http by
-	 *  resolved IP; set tls: true only for public internet endpoints. */
-	tls?: boolean;
-	endpoints: RemoteEndpoint[];
-}
+	 *  resolved IP; set tls: true only for public internet endpoints. Lives
+	 *  on the ENDPOINT, not the machine — one machine can expose both a
+	 *  plain-http LAN port and a tls-fronted public one. */
+	tls: z.boolean().optional(),
+	/** full URL override (scheme+host[:port]) — bypasses tls/port URL
+	 *  construction entirely, for upstreams whose path doesn't fit
+	 *  `${scheme}://${host}:${port}`. */
+	base: z.string().optional(),
+	/** literal bearer/x-api-key value — prefer api_key_env; never committed. */
+	api_key: z.string().optional(),
+	/** name of the env var holding the secret (immich x-api-key, z.ai bearer,
+	 *  etc.) — never the key itself. */
+	api_key_env: z.string().optional(),
+	/** opt-in probe-only liveness from the 4-min keepwarm daemon */
+	keepwarm_probe: z.boolean().optional(),
+});
+export type RemoteEndpoint = z.infer<typeof RemoteEndpointSchema>;
 
-/** Request target: tls machines MUST keep the real hostname (fetch/Bun does
- *  its own DNS + TLS SNI); plaintext LAN machines resolve to an IP first
- *  (handles .local/mDNS names dscacheutil knows but public DNS may not). */
-async function resolveTarget(machine: RemoteMachine): Promise<string | null> {
-	return machine.tls
+export const RemoteMachineSchema = z.object({
+	name: z.string(),
+	host: z.string(), // DNS first on every call
+	ip_fallback: z.string().optional(), // only when resolution fails
+	mac: z.string().optional(), // WoL target for hibernating machines
+	wol_broadcast: z.string().optional(), // "ip:port", e.g. subnet :9
+	/** informational only — cloud/CDN machines; routing reads endpoint.tls,
+	 *  not this field. */
+	cloud: z.boolean().optional(),
+	note: z.string().optional(),
+	endpoints: z.array(RemoteEndpointSchema),
+});
+export type RemoteMachine = z.infer<typeof RemoteMachineSchema>;
+
+export const RemotesConfigSchema = z.object({
+	$schema: z.string().optional(),
+	machines: z.array(RemoteMachineSchema),
+});
+
+/** Request target: tls (or a `base` override) endpoints MUST keep the real
+ *  hostname (fetch/Bun does its own DNS + TLS SNI); plaintext LAN endpoints
+ *  resolve to an IP first (handles .local/mDNS names dscacheutil knows but
+ *  public DNS may not). */
+async function resolveTarget(
+	machine: RemoteMachine,
+	ep: RemoteEndpoint,
+): Promise<string | null> {
+	return ep.base || ep.tls
 		? machine.host
 		: resolveHost(machine.host, machine.ip_fallback);
 }
 
-/** Pure URL builder — kept separate and exported so the tls/http scheme
- *  choice is unit-testable without a real network call. */
+/** Pure URL builder — kept separate and exported so the tls/base/http
+ *  scheme choice is unit-testable without a real network call. */
 export function endpointUrl(
 	target: string,
-	tls: boolean | undefined,
-	port: number,
+	ep: Pick<RemoteEndpoint, "tls" | "base" | "port">,
 	path: string,
 ): string {
-	return `${tls ? "https" : "http"}://${target}:${port}${path}`;
+	const base = ep.base
+		? ep.base.replace(/\/+$/, "")
+		: `${ep.tls ? "https" : "http"}://${target}:${ep.port}`;
+	return `${base}${path}`;
+}
+
+/** Protocol-aware auth header: immich uses x-api-key, everything else rides
+ *  an openai-compatible Authorization: Bearer. No key configured = no auth
+ *  header (LAN endpoints with no secret). */
+export function authHeaders(ep: RemoteEndpoint): Record<string, string> {
+	const key =
+		ep.api_key ?? (ep.api_key_env ? process.env[ep.api_key_env] : undefined);
+	if (!key) return {};
+	return ep.protocol === "immich"
+		? { "x-api-key": key }
+		: { Authorization: `Bearer ${key}` };
 }
 
 export interface EndpointHealth {
@@ -240,3 +281,4 @@ export async function chatRemote(
 		model,
 	};
 }
+// W308-fix: zod-schema rework in progress
