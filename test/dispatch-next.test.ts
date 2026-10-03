@@ -162,3 +162,34 @@ describe("pool parsing", () => {
 		expect(isOwnerGated(parsed[0].title)).toBe(false);
 	});
 });
+
+describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnostic)", () => {
+	test("multiple must=/prefer= lines: attempt 0 picks the first must, trailing same-bin entries ride --fallback-model", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			["must=opus", "must=sonnet", "prefer=fable", ""].join("\n"),
+		);
+		const added = tool("work.ts", "add", "chain sample item");
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		expect(id).toBeTruthy();
+		const out = dispatch("--dry-run", "--item", id);
+		expect(out.out).toContain("DRY chain attempt 0/2 -> opus");
+		expect(out.out).toContain("(+fallback-model sonnet,fable)");
+	});
+
+	test("a dead/resumed lane advances to the next chain entry, including across a bin switch", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			["must=opus", "must=copilot", ""].join("\n"),
+		);
+		const added = tool("work.ts", "add", "chain resume item");
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		expect(id).toBeTruthy();
+		// attempt 0: opus, no same-bin tail to fall back on (copilot is a
+		// different bin — only reachable by the NEXT dispatch, same sid)
+		const first = dispatch("--dry-run", "--item", id);
+		expect(first.out).toContain("DRY chain attempt 0/1 -> opus");
+		expect(first.out).not.toContain("fallback-model");
+		rmSync(join(REPO, ".prefer"));
+	});
+});

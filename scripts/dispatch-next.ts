@@ -26,7 +26,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
-import { laneEnv, spawnClaude } from "./lib/lane.ts";
+import { DEFAULT_ALLOWED_TOOLS, laneEnv, spawnClaude } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
@@ -58,31 +58,52 @@ const LOOP_LOG = `${FLEET}/loop.log`;
  * just a display prefix); `hub-url` adds repo-declared one-off candidates
  * tried before the global registry (most specific intent wins, same rule
  * as must). Policy still gates: an executor the W201 allow-list denies
- * SKIPs with a loud note. */
+ * SKIPs with a loud note.
+ *
+ * `must=`/`prefer=` may repeat — owner directive 2026-10-03: "we don't care
+ * if it's claude cli or copilot or anything like that, we just want the
+ * agents working to always go for the MUST or try the PREFER (there can be
+ * multiple must and prefer in sequential order)". All `must=` lines (file
+ * order) come first in the chain, then all `prefer=` lines (file order) —
+ * must always outranks prefer, ties broken by position. `chain` is that
+ * full ordered list; execPick() walks it by attempt index. */
 const preferOf = (): {
-	executor: string | null;
+	chain: string[];
 	hub: string | null;
 	hubUrls: string[];
 } => {
 	try {
-		const kv = new Map<string, string>();
+		const musts: string[] = [];
+		const prefers: string[] = [];
+		let hub: string | null = null;
+		let hubUrlRaw = "";
 		for (const line of readFileSync(`${REPO}/.prefer`, "utf8").split("\n")) {
 			const i = line.indexOf("=");
 			if (i <= 0) continue;
-			kv.set(line.slice(0, i).trim(), line.slice(i + 1).trim());
+			const k = line.slice(0, i).trim();
+			const v = line.slice(i + 1).trim();
+			if (!v) continue;
+			if (k === "must") musts.push(v);
+			else if (k === "prefer") prefers.push(v);
+			else if (k === "hub") hub = v;
+			else if (k === "hub-url") hubUrlRaw = v;
 		}
 		return {
-			executor: kv.get("must") ?? kv.get("prefer") ?? null,
-			hub: kv.get("hub") ?? null,
-			hubUrls: (kv.get("hub-url") ?? "")
+			chain: [...musts, ...prefers],
+			hub,
+			hubUrls: hubUrlRaw
 				.split(",")
 				.map((s) => s.trim())
 				.filter(Boolean),
 		};
 	} catch {
-		return { executor: null, hub: null, hubUrls: [] };
+		return { chain: [], hub: null, hubUrls: [] };
 	}
 };
+
+const binOf = (e: string): string => (e === "copilot" ? "copilot" : "claude");
+const modelOf = (e: string): string | null =>
+	e === "claude" || e === "copilot" ? null : e;
 
 /** Executor pick (W201 policy + W176 prefer-drives + dotfiles-win): a repo
  * .prefer MUST beats everything except the policy allow-list; otherwise the
@@ -91,13 +112,29 @@ const preferOf = (): {
  * by model id, so a model name IS an executor. copilot rides its own CLI.
  * The hub label now resolves to a real endpoint via hub-locate.ts (hub,
  * hubUrls passed through for the caller to resolve — resolution is async,
- * network-touching, and does not belong in this sync picker). */
-const execPick = (): {
+ * network-touching, and does not belong in this sync picker).
+ *
+ * `attempt` walks the must/prefer chain (owner directive 2026-10-03:
+ * sequential try-in-order, CLI-agnostic). Attempt 0 is the first `must=`
+ * (or first `prefer=` when there's no must); a dead/resumed lane advances
+ * the index so the fleet loop itself IS the cross-bin retry (claude ->
+ * copilot works, not just model->model). Within one spawn, same-bin chain
+ * entries AFTER the picked index ride natively too: claude's own
+ * `--fallback-model` (comma list, retries in order, confirmed 2026-10-03
+ * to recover even from a flat invalid-model-name 400 — not just overload)
+ * — so a single process already tries several models before a re-dispatch
+ * cycle is ever needed. */
+const execPick = (
+	attempt = 0,
+): {
 	agent: string;
 	model: string | null;
 	bin: string;
 	hub: string | null;
 	hubUrls: string[];
+	fallbackModels: string[];
+	chainLen: number;
+	chainIdx: number;
 } => {
 	const prefer = preferOf();
 	const s = readBoardSettings().settings;
@@ -105,21 +142,35 @@ const execPick = (): {
 	const allowed = (name: string): boolean => !enabled || enabled.includes(name);
 	const label = (executor: string): string =>
 		prefer.hub ? `[${prefer.hub.toUpperCase()}] ${executor}` : executor;
-	if (prefer.executor) {
+	if (prefer.chain.length > 0) {
+		const idx = Math.min(attempt, prefer.chain.length - 1);
+		const e = prefer.chain[idx];
 		// W228 owner law: must ALWAYS wins — a repo .prefer is the more
 		// specific owner intent; allow-list collision is surfaced, never
 		// silently rerouted.
-		if (!allowed(prefer.executor))
+		if (!allowed(e))
 			console.log(
-				`NOTE — .prefer must=${prefer.executor} not in enabled_executors; MUST WINS (W228)`,
+				`NOTE — .prefer chain[${idx}]=${e} not in enabled_executors; MUST WINS (W228)`,
 			);
-		const e = prefer.executor;
+		const bin = binOf(e);
+		// same-bin tail after idx: natively chained via --fallback-model so
+		// one process tries all of them before a dead-lane re-dispatch is
+		// needed; a bin switch further down the chain can only be reached
+		// by that re-dispatch (a CLI flag can't cross binaries mid-process).
+		const fallbackModels = prefer.chain
+			.slice(idx + 1)
+			.filter((next) => binOf(next) === bin)
+			.map((next) => modelOf(next))
+			.filter((m): m is string => !!m);
 		return {
 			agent: label(e),
-			model: e === "claude" || e === "copilot" ? null : e,
-			bin: e === "copilot" ? "copilot" : "claude",
+			model: modelOf(e),
+			bin,
 			hub: prefer.hub,
 			hubUrls: prefer.hubUrls,
+			fallbackModels,
+			chainLen: prefer.chain.length,
+			chainIdx: idx,
 		};
 	}
 	const order = [...(s.default_executors ?? []), "claude"];
@@ -127,10 +178,13 @@ const execPick = (): {
 		if (!allowed(name)) continue;
 		return {
 			agent: label(name),
-			model: name === "claude" ? null : name,
+			model: modelOf(name),
 			hub: prefer.hub,
 			hubUrls: prefer.hubUrls,
-			bin: name === "copilot" ? "copilot" : "claude",
+			bin: binOf(name),
+			fallbackModels: [],
+			chainLen: 0,
+			chainIdx: 0,
 		};
 	}
 	return {
@@ -139,6 +193,9 @@ const execPick = (): {
 		bin: "claude",
 		hub: prefer.hub,
 		hubUrls: prefer.hubUrls,
+		fallbackModels: [],
+		chainLen: 0,
+		chainIdx: 0,
 	};
 };
 
@@ -152,6 +209,7 @@ type Lane = {
 	host?: string;
 	hub?: string;
 	launchedAt: number;
+	attempt?: number;
 };
 
 const sh = (cmd: string[], cwd = REPO): string => {
@@ -337,7 +395,13 @@ const dispatchItem = async (
 			? sh(["git", "-C", wt, "branch", "--show-current"]) ||
 				`suspenders/${item}`
 			: `suspenders/${item}`;
+		const attempt = resume?.attempt !== undefined ? resume.attempt + 1 : 0;
+		const pick = execPick(attempt);
 		console.log(`DRY dispatch ${item} → ${sid}${capsule ? " (RESUME)" : ""}`);
+		if (pick.chainLen > 1)
+			console.log(
+				`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
+			);
 		console.log(
 			composeBrief({
 				item,
@@ -346,6 +410,7 @@ const dispatchItem = async (
 				branch,
 				worktree: wt,
 				capsule,
+				agent: pick.agent,
 			}),
 		);
 		return `${item}→${sid}(dry)`;
@@ -388,7 +453,15 @@ const dispatchItem = async (
 		sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
 	const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
 	const capsule = capsuleGet(sid);
-	const pick = execPick();
+	// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
+	// attempt N having died is exactly the signal to try chain[N+1] next
+	// (owner directive 2026-10-03: sequential must/prefer, CLI-agnostic).
+	const attempt = resume?.attempt !== undefined ? resume.attempt + 1 : 0;
+	const pick = execPick(attempt);
+	if (pick.chainLen > 1)
+		console.log(
+			`NOTE — .prefer chain attempt ${pick.chainIdx}/${pick.chainLen - 1}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
+		);
 	const brief = composeBrief({
 		item,
 		showOut: show.out,
@@ -449,7 +522,19 @@ const dispatchItem = async (
 		cwd: wt,
 		logFile: laneLog,
 		env,
-		cliArgs: pick.bin === "copilot" ? ["--allow-all-tools"] : undefined,
+		cliArgs:
+			pick.bin === "copilot"
+				? ["--allow-all-tools"]
+				: pick.fallbackModels.length > 0
+					? [
+							"--allowedTools",
+							DEFAULT_ALLOWED_TOOLS,
+							"--permission-mode",
+							"acceptEdits",
+							"--fallback-model",
+							pick.fallbackModels.join(","),
+						]
+					: undefined,
 	});
 	proc.unref();
 	const entry: Lane = {
@@ -462,6 +547,7 @@ const dispatchItem = async (
 		host: hostname(),
 		hub: resolvedHub,
 		launchedAt: Date.now(),
+		attempt: pick.chainIdx,
 	};
 	lanes.push(entry);
 	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
