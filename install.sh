@@ -172,8 +172,24 @@ if [[ $WITH_LAUNCHD -eq 1 ]]; then
       sed -e "s|__BUN__|$BUN_BIN|" -e "s|__HOME__|$HOME|g" -e "s|__PREFIX__|$PREFIX|" -e "s|__REPO__|$REPO_DIR|" \
         -e "s|__BELT_URL__|${BELT_URL:-http://127.0.0.1:4100}|" -e "s|__BELT_TOKEN__|${BELT_TOKEN:-}|" "$f" >"$out"
       launchctl bootout "gui/$(id -u)/${name%.plist}" 2>/dev/null || true
-      launchctl bootstrap "gui/$(id -u)" "$out"
-      echo "→ loaded $name"
+      # launchd needs a beat after bootout before the same label can
+      # bootstrap again, else it intermittently errors "5: Input/output
+      # error" (observed race, not a real failure) — retry with backoff
+      # instead of letting `set -e` abort the whole install mid-loop.
+      ok=0
+      for attempt in 1 2 3; do
+        if launchctl bootstrap "gui/$(id -u)" "$out" 2>/tmp/suspenders-bootstrap-err; then
+          ok=1
+          break
+        fi
+        echo "  (bootstrap attempt $attempt failed, retrying…)" >&2
+        sleep 0.5
+      done
+      if [[ $ok -eq 1 ]]; then
+        echo "→ loaded $name"
+      else
+        echo "→ WARNING: failed to load $name (see /tmp/suspenders-bootstrap-err)" >&2
+      fi
     done
     # supersede the pre-namespacing agent labels so old and new never run side
     # by side (same jobs, stale script paths, double keepwarm/monitor pings)
