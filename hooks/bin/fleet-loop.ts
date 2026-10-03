@@ -31,6 +31,7 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
+import { condensePrompt } from "../board/prompt-transform.ts";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -621,14 +622,18 @@ if (MODE === "dispatch") {
 		"--as",
 		sid,
 	]).out;
+	// W304.1 — deterministic condense (W270 prose-only ruleset) on the free-text
+	// portions of the brief; code fences/paths/flags are protected verbatim by
+	// condensePrompt itself, so mission/inbox prose shrinks without losing the
+	// technical surface the lane actually has to act on.
 	const brief = [
 		`You are lane "${sid}", Work Graph item ${item}, repo ${REPO}.`,
 		``,
 		`MISSION (from work show):`,
-		show.out,
+		condensePrompt(show.out),
 		``,
 		`INBOX AT DISPATCH (coordinator/board messages pending for you — already pulled, no need to re-fetch):`,
-		inboxAtDispatch || "(empty)",
+		inboxAtDispatch ? condensePrompt(inboxAtDispatch) : "(empty)",
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
 		`Inbox: check again before finishing — coordinator and board messages still arrive after dispatch: bun ~/.claude/hooks/suspenders/bin/coord.ts inbox --as ${sid}.`,
