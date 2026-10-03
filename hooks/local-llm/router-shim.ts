@@ -414,6 +414,7 @@ if (process.argv[2] === "selftest-danish") {
 const ROUTER_PORT = Number(process.env.BELT_ROUTER_PORT ?? 4000);
 Bun.serve({
 	port: ROUTER_PORT,
+	hostname: "127.0.0.1", // W204: loopback-only — never a raw LAN bind; external access only via an authenticated Caddy hop
 	async fetch(req) {
 		const url = new URL(req.url);
 
