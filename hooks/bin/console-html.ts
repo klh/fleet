@@ -18,17 +18,14 @@ import type {
 	ResolvedPolicy,
 } from "../lib/board-config.ts";
 import { scrub } from "../lib/servicemon.ts";
-<<<<<<< HEAD
 import {
 	settingsBlock,
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 } from "../lib/theme.ts";
-=======
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
 import type { ServiceProbe } from "../board/service-probe.ts";
->>>>>>> suspenders/W273
 
 export interface ConsoleMe {
 	actor: string;
@@ -179,9 +176,6 @@ const ladderHtml = (gw: PolicyGatewayParsed): string =>
 // recovery commands are readable even if the module never loads.
 const stateOf = (p: HealthProbe): string => p.state ?? (p.up ? "up" : "down");
 
-<<<<<<< HEAD
-const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
-=======
 const fallbackRecovery = (p: HealthProbe): string => {
 	const r = p.recovery;
 	if (!r || stateOf(p) === "up") return "";
@@ -200,8 +194,7 @@ const healthHtml = (h: HealthProbe[]): string => {
 	return `<div class="panel"><h2>Fleet services · ${h.length - dark}/${h.length} up${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
 };
 
-const PILL_CSS = `.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:#141413;border:1px solid rgba(255,255,255,.12);border-radius:2px;padding:4px 8px;font:11px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap}.pill{display:inline-block;border:1px solid rgba(255,255,255,.14);border-radius:2px;padding:1px 7px;font-size:11px;color:#c3c2b7;margin:1px 3px 1px 0}`;
->>>>>>> suspenders/W273
+const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:var(--klh-surface);border:1px solid var(--klh-edge);border-radius:2px;padding:4px 8px;font:11px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
 
 // ─── belt page body ───────────────────────────────────────────────────────
 const policyCard = (v: BeltView): string => {
