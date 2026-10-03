@@ -1352,6 +1352,42 @@ describe("W55 per-item diff + review comments", () => {
 			expect(err).not.toContain("claude binary");
 		}
 	});
+	// W183.1 — plane-labeled executor feed: local swarm first (prime
+	// position), every entry carries plane + reasoningEffort so the UI can
+	// badge L/R/[HUB] and surface the effort dial. CI has no live swarm, so
+	// this only asserts the feed SHAPE, never liveness.
+	test("/api/executors entries carry plane + reasoningEffort", async () => {
+		const r = await fetch(`${BASE}/api/executors`);
+		const j = (await r.json()) as {
+			ok: boolean;
+			executors: { value: string; plane?: string; reasoningEffort?: boolean }[];
+		};
+		expect(j.ok).toBe(true);
+		const planes = new Set(j.executors.map((e) => e.plane));
+		for (const p of planes)
+			expect(["local", "user", "hub", "remote"]).toContain(p);
+		const copilot = j.executors.find((e) => e.value === "copilot");
+		expect(copilot?.plane).toBe("remote");
+		expect(copilot?.reasoningEffort).toBe(true);
+	});
+	// W183.1 — llm:local:<port> dispatch resolves against registry.ts
+	// directly (no belt hop); an unknown port 404s/409s cleanly instead of
+	// falling through to belt's "registry unreachable?" error.
+	test("/api/start rejects an unknown llm:local:<port> target", async () => {
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		db.run("PRAGMA busy_timeout = 4500");
+		db.query(
+			"INSERT INTO work_items (project, id, title, state, owner_sid, created_by, created_at, updated_at) VALUES (?, 'WSTART3', 'local swarm probe', 'READY', NULL, 'test', ?, ?)",
+		).run(GREPO, Date.now(), Date.now());
+		db.close();
+		const r = await post("/api/start", {
+			project: GREPO,
+			id: "WSTART3",
+			agent: "llm:local:1",
+		});
+		expect(r.status).toBe(409);
+		expect(r.json.error).toContain("unknown local swarm port");
+	});
 });
 
 // W76 — live lane tail (lane log + transcript fallback) and message-to-lane

@@ -63,6 +63,7 @@ const MAIN = val("--main", "main");
 const GLOB = val("--glob", "lane/autow*");
 const LADDER = val("--ladder");
 const AGENT = val("--agent", "claude");
+const EFFORT = val("--effort"); // W183.1 — copilot --reasoning-effort passthrough
 const LADDER_TIMEOUT_MS = num("--ladder-timeout", 10) * 60_000;
 const DISPATCH = val("--dispatch-cmd");
 const EVERY_MS = num("--every", 120) * 1000;
@@ -761,7 +762,12 @@ if (MODE === "dispatch") {
 					// (copilot otherwise blocks on a confirmation prompt it can
 					// never receive headless); --allow-all-paths matches the
 					// other dialects' unsandboxed worktree access.
-					["-p", prompt, "--allow-all-tools", "--allow-all-paths"]
+					["-p", prompt, "--allow-all-tools", "--allow-all-paths"].concat(
+						// W183.1 — only forward when the owner actually chose
+						// a level; belt/llm: dispatch never reaches this branch
+						// (separate litellm-gateway stack, out of scope here).
+						EFFORT ? ["--reasoning-effort", EFFORT] : [],
+					)
 				: [
 						"-p",
 						prompt,

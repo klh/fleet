@@ -3,7 +3,8 @@
 // entry's handler list); returns null when nothing matches.
 import { CLI, db, DEMO, WORK_CLI } from "./context.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
-import { runCli, laneExecFacts, llmRoute } from "./exec.ts";
+import { runCli, laneExecFacts, llmRoute, localSwarmChat } from "./exec.ts";
+import { specialistByPort } from "./local-swarm.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
 import {
 	syncDecisions,
@@ -334,6 +335,10 @@ export async function handleActions(
 			: raw.startsWith("llm:")
 				? raw
 				: "claude";
+		// W183.1 — copilot's settable reasoning-effort dial; harmless no-op
+		// for every other agent (fleet-loop.ts only reads it in the copilot
+		// branch).
+		const effort = String(parsed.body?.effort ?? "").trim();
 		if (!project || !id)
 			return json({ ok: false, error: "missing project or id" }, 400);
 		if (DEMO)
@@ -398,6 +403,46 @@ export async function handleActions(
 			const c1 = rest.indexOf(":");
 			const machine = c1 > 0 ? rest.slice(0, c1) : rest;
 			const tail = c1 > 0 ? rest.slice(c1 + 1) : "";
+			if (machine === "local") {
+				// W183.1 — this machine's own swarm: resolve the port<->
+				// model pair straight from registry.ts, no belt hop.
+				const port = Number(tail);
+				const spec = specialistByPort(port);
+				if (!spec)
+					return json(
+						{ ok: false, error: `unknown local swarm port ${tail}` },
+						409,
+					);
+				const sid = `autow${id.replace(/^W/, "").replace(/\./g, "")}`;
+				const take = runCli(
+					[
+						WORK_CLI,
+						"take",
+						id,
+						"--as",
+						sid,
+						"--origin",
+						`${hostname()}:llm:local`,
+					],
+					repo,
+				);
+				if (take.code !== 0)
+					return json(
+						{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
+						409,
+					);
+				laneExecFacts(sid, agent, spec.model, "local");
+				void localSwarmChat({
+					item: id,
+					repo,
+					port: spec.port,
+					model: spec.model,
+					sid,
+					title: w.title,
+					desc: w.description ?? "",
+				});
+				return json({ ok: true, item: id, sid, executor: agent });
+			}
 			const ep = (await beltCheck()).find(
 				(r) =>
 					r.machine === machine &&
@@ -460,6 +505,7 @@ export async function handleActions(
 				id,
 				"--agent",
 				agent,
+				...(effort ? ["--effort", effort] : []),
 			],
 			{
 				stdin: "ignore",

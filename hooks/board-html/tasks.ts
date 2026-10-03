@@ -198,10 +198,18 @@ var KCOLS = [
 var starting = {}; // 'proj\u0000id' -> start POST in flight (rebuild-proof)
 var execPick = {}; // 'proj\u0000id' -> chosen executor (survives card rebuilds)
 var execOpts = [
-  { value: 'claude', label: 'claude' },
-  { value: 'codex', label: 'codex' },
-  { value: 'copilot', label: 'copilot' }
+  { value: 'claude', label: 'claude', plane: 'remote', reasoningEffort: false },
+  { value: 'codex', label: 'codex', plane: 'remote', reasoningEffort: false },
+  { value: 'copilot', label: 'copilot', plane: 'remote', reasoningEffort: true }
 ];
+// W183.1 — bracketed text badges (plain <select>/<option> can't do rich
+// icons cross-browser): [L] this machine's swarm, [R] remote/cloud,
+// [HUB] prefix added on top when the entry is federation-entitled.
+function execBadge(x){
+  var loc = x.locality === 'local' || x.plane === 'local' ? 'L' : 'R';
+  return (x.plane === 'hub' ? '[HUB] ' : '') + '[' + loc + '] ';
+}
+var EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 function pollExecutors(){
   fetch('/api/executors', { signal: AbortSignal.timeout(8000) })
     .then(function(r){ return r.json(); })
@@ -210,19 +218,25 @@ function pollExecutors(){
       var opts = [];
       for (var i = 0; i < j.executors.length; i++) {
         var x = j.executors[i];
-        if (x && x.value) opts.push({ value: String(x.value), label: String(x.label || x.value) });
+        if (x && x.value) opts.push({
+          value: String(x.value), label: String(x.label || x.value),
+          locality: String(x.locality || 'remote'), plane: String(x.plane || 'remote'),
+          reasoningEffort: !!x.reasoningEffort
+        });
       }
       if (opts.length >= 2) execOpts = opts;
       renderKanban(); // repaint cards with the live belt targets
     })
     .catch(function(){}); // dropdown falls back to claude/codex/copilot only
 }
-function startItem(id, proj, btn, agent){
+function startItem(id, proj, btn, agent, effort){
   var k = proj + '\u0000' + id;
   if (starting[k]) return;
   starting[k] = true;
   if (btn) btn.disabled = true;
-  postJSON('/api/start', { project: proj, id: id, agent: agent || 'claude' }).then(function(j){
+  var body = { project: proj, id: id, agent: agent || 'claude' };
+  if (effort) body.effort = effort; // W183.1 — copilot reasoning-effort dial
+  postJSON('/api/start', body).then(function(j){
     delete starting[k];
     if (j && j.ok) toast('dispatching ' + id + ' on ' + (agent || 'claude') + ' — lane ' + String(j.sid || ''));
     else toast('start failed: ' + String((j && j.error) || 'unknown error'));
@@ -251,9 +265,17 @@ function kanbanCard(t){
     var opts = '';
     for (var xi = 0; xi < execOpts.length; xi++) {
       var xo = execOpts[xi];
-      opts += '<option value="' + esc(xo.value) + '"' + (xo.value === pick ? ' selected' : '') + '>' + esc(xo.label) + '</option>';
+      opts += '<option value="' + esc(xo.value) + '"' + (xo.value === pick ? ' selected' : '') + '>' + esc(execBadge(xo) + xo.label) + '</option>';
     }
+    var pickedOpt = execOpts.filter(function(o){ return o.value === pick; })[0];
+    var effOpts = '';
+    for (var ei = 0; ei < EFFORT_LEVELS.length; ei++)
+      effOpts += '<option value="' + EFFORT_LEVELS[ei] + '">' + EFFORT_LEVELS[ei] + '</option>';
+    var effortSel = (pickedOpt && pickedOpt.reasoningEffort)
+      ? '<select class="keffortsel" aria-label="reasoning effort for ' + esc(t.id) + '"><option value="">effort</option>' + effOpts + '</select>'
+      : '';
     html += '<div class="kexec"><select class="kexecsel" aria-label="executor for ' + esc(t.id) + '">' + opts + '</select>' +
+      effortSel +
       '<button type="button" class="kstart" data-start="' + esc(t.id) + '" data-startproj="' + esc(t.project || '') + '" title="dispatch on the chosen executor">▶</button></div>';
   }
   return html + '</div>';
@@ -294,7 +316,7 @@ function renderKanban(){
   var kstruct = html.replace(/<span class="kage dim">[^<]*<\/span>/g, '').replace(/<div class="ktail">[^<]*<\/div>/g, '');
   var prevStructural = el.getAttribute('data-ksig') || '';
   if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); return; }
-  if (el.contains(document.activeElement) && document.activeElement.classList.contains('kexecsel')) return; // picking — defer the swap, next render applies it
+  if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
   el.setAttribute('data-ksig', kstruct);
   sigSet(el, kstruct, html);
   updateKanbanVolatile(el, shownAll);
