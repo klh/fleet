@@ -3,9 +3,10 @@ import {
 	proseCards,
 	withTrust,
 	KNOWLEDGE_PRECEDENCE,
+	type KnowledgeHit,
 } from "../lib/knowledge.ts";
 import { servicemon } from "../lib/servicemon.ts";
-import { hostGuard, writeToken } from "../lib/host-guard.ts";
+import { hostGuard, tokenOk, writeToken } from "../lib/host-guard.ts";
 // knowledge-api.ts — W91 #9b: the knowledge port's HTTP face. The SAME store
 // handlers, second transport: a consumer on another machine calls
 // http://<knowledge-api>/search instead of importing the lib. Thin by design
@@ -45,6 +46,22 @@ const num = (v: unknown): number | null =>
 	typeof v === "number" && Number.isFinite(v) ? v : null;
 const str = (v: unknown): string | null =>
 	typeof v === "string" && v.trim() ? v.trim() : null;
+// W181 F2: anonymous output scrub — trust STATES stay; the refs/hashes that
+// feed re-verification (and disclose repo layout) go. camelCase twins
+// (verifyRows spelling) scrub too.
+const SCRUB_KEYS = [
+	"source_ref",
+	"source_hash",
+	"code_origin",
+	"sourceRef",
+	"sourceHash",
+	"codeOrigin",
+];
+const scrubHit = (h: KnowledgeHit): KnowledgeHit => {
+	const c: Record<string, unknown> = { ...h };
+	for (const k of SCRUB_KEYS) delete c[k];
+	return c as KnowledgeHit;
+};
 // resolution root for source_ref hashing (trust markers) + /curate doc scans
 const API_ROOT = process.env.KNOWLEDGE_REPO_ROOT ?? process.cwd();
 
@@ -61,10 +78,13 @@ const base = {
 	async fetch(req) {
 		const u = new URL(req.url);
 		const path = u.pathname.replace(/\/$/, "") || "/";
-		if (req.method === "POST" && WRITE_ROUTES.has(path)) {
-			const denied = hostGuard(req, { bind: BIND, write: true });
-			if (denied) return denied;
-		}
+		// W181 F2: the host allowlist gates EVERY request (reads included —
+		// DNS-rebind defense); writes additionally need the install token.
+		const mutating = req.method === "POST" && WRITE_ROUTES.has(path);
+		const denied = hostGuard(req, { bind: BIND, write: mutating });
+		if (denied) return denied;
+		// anonymous reads get scrubbed output; the install token unlocks refs
+		const authed = tokenOk(req);
 		const body =
 			req.method === "POST"
 				? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
@@ -80,12 +100,16 @@ const base = {
 					originKind: str(body.origin_kind),
 					originSystem: str(body.origin_system),
 				});
-				const root = str(body.repo) ?? API_ROOT;
+				// the trust root steers ref resolution — an anonymous caller must
+				// not point the hash/existence check at arbitrary paths (L19)
+				const root = authed ? (str(body.repo) ?? API_ROOT) : API_ROOT;
+				const trusted = withTrust(hits, root);
+				const out = authed ? trusted : trusted.map(scrubHit);
 				return json({
 					query,
 					preamble: KNOWLEDGE_PRECEDENCE,
-					cards: proseCards(query, hits, root),
-					hits: withTrust(hits, root),
+					cards: proseCards(query, out, root),
+					hits: out,
 				});
 			}
 			if (req.method === "POST" && path === "/curate") {
@@ -138,7 +162,11 @@ const base = {
 				(path === "/verify" || path.startsWith("/verify/"))
 			) {
 				const id = path === "/verify" ? null : Number(path.split("/")[2]);
-				return json({ rows: await store.verifyRows(id ?? null) });
+				const rows = await store.verifyRows(id ?? null);
+				// refs+hashes are a hash/existence oracle (W181 L19) — token only
+				return json({
+					rows: authed ? rows : rows.map((r) => ({ id: r.id, topic: r.topic })),
+				});
 			}
 			return json({
 				ok: true,
