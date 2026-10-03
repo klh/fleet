@@ -82,8 +82,12 @@ async function runWorker(extraEnv: Record<string, string> = {}) {
 
 function q<T>(sql: string): T[] {
 	// knowledge tables ride knowledge.db post-split (W166); everything else
-	// (events, sessions, facts) is control-plane governor.db.
-	const f = /\bknowledge(?:_queue|_fts)?\b/.test(sql) ? KDB : DB;
+	// (events, sessions, facts) is control-plane governor.db. W246: an event
+	// kind literal ("knowledge.dup-proposal") names no table — FROM events
+	// routes to governor.db ahead of the knowledge-table regex.
+	let f = DB;
+	if (!/\bFROM events\b/.test(sql) && /\bknowledge(?:_queue|_fts)?\b/.test(sql))
+		f = KDB;
 	const db = new Database(f, { readonly: true });
 	const rows = db.query(sql).all() as T[];
 	db.close();
@@ -348,8 +352,28 @@ describe("knowledge ingest pipeline", () => {
 			q<{ result_key: string }>(
 				"SELECT result_key FROM knowledge_queue WHERE id = 2",
 			)[0].result_key,
-		) as { skipped: string[] };
+		) as {
+			skipped: string[];
+			proposals: {
+				y: number;
+				yTopic: string;
+				xTopic: string;
+				action: string;
+			}[];
+		};
 		expect(skip.skipped[0]).toContain("near-duplicate of knowledge #1");
+		// W246 propose-dispose: the ledger carries the supersession proposals…
+		expect(skip.proposals.length).toBe(2);
+		expect(skip.proposals[0].y).toBe(1);
+		expect(skip.proposals[0].action).toContain("superseded-by");
+		// …and the bus carries one event row per firing (governor.db)
+		const ev = q<{ payload: string }>(
+			"SELECT payload FROM events WHERE kind = 'knowledge.dup-proposal' ORDER BY id",
+		);
+		expect(ev.length).toBe(2);
+		const p0 = JSON.parse(ev[0].payload) as { y: number; xTopic: string };
+		expect(p0.y).toBe(1);
+		expect(p0.xTopic.length).toBeGreaterThan(0);
 	});
 
 	test("empty queue: worker exits 0 immediately", async () => {

@@ -26,6 +26,7 @@ import {
 	makeStore,
 	type KnowledgeStore,
 	type DistillItem,
+	type NearDupProposal,
 } from "../lib/knowledge-ports.ts";
 import {
 	docForRef,
@@ -70,6 +71,7 @@ async function processRow(rowId: number): Promise<void> {
 		});
 		const written: number[] = [];
 		const skipped: string[] = [];
+		const proposals: NearDupProposal[] = [];
 		let converted = 0;
 		for (const it of items) {
 			// mechanical secrets pass BEFORE anything: redact in place; a
@@ -90,6 +92,18 @@ async function processRow(rowId: number): Promise<void> {
 				skipped.push(
 					`"${it.topic}" near-duplicate of knowledge #${dup.id} ("${dup.topic}") — older kept`,
 				);
+				// W246 propose-dispose: the skip stands (older kept), but the
+				// candidate is not silently dropped — a supersession proposal
+				// rides the job ledger + one event row; a human disposes.
+				const proposal: NearDupProposal = {
+					y: dup.id,
+					yTopic: dup.topic,
+					xTopic: top.text,
+					xFact: fac.text,
+					action: `retire #${dup.id} superseded-by candidate "${top.text}" if it is the correction`,
+				};
+				proposals.push(proposal);
+				await store.proposeSupersession(proposal, job.id, job.originSid);
 				continue;
 			}
 			// W103 substitution contract: covered+residue → POINTER row
@@ -123,7 +137,7 @@ async function processRow(rowId: number): Promise<void> {
 		}
 		await store.complete(
 			job.id,
-			{ written, skipped },
+			{ written, skipped, proposals },
 			job.domain,
 			job.originSid,
 		);
