@@ -33,21 +33,40 @@ function renderOrch(){
     '<button type="button" class="orchdisc" id="orchDisc">discard</button></div></div>';
   sigSet(out, JSON.stringify(orch.prop) + orch.busy + orch.regBusy, h);
 }
+// W270 — debug/log mode previews the transformed prompt first; the preview
+// element emits klh-dispatch ("dispatch anyway") to send it
+function orchPreviewEl(){
+  var pp = byId('orchPreview');
+  return pp && pp.gated ? pp : null;
+}
 function doOrchestrate(){
   if (orch.busy || orch.regBusy) return;
   var proj = orchProject();
   if (!proj) { orch.err = 'pick a project in the header filter first'; orch.prop = null; renderOrch(); return; }
   var goal = (byId('orchGoal').value || '').trim();
   if (!goal) { orch.err = 'type a goal first'; renderOrch(); return; }
+  var pp = orchPreviewEl();
+  if (pp) {
+    if (pp.ready(goal)) { pp.dispatch(); return; }
+    orch.err = null; renderOrch();
+    pp.prepare(proj, goal);
+    return;
+  }
+  orchSend(proj, goal, null);
+}
+function orchSend(proj, goal, previewId){
+  if (orch.busy || orch.regBusy) return;
   orch.busy = true; orch.err = null; renderOrch();
-  fetch('/api/orchestrate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: proj, goal: goal }), signal: AbortSignal.timeout(130000) })
-    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+  var status = 0;
+  fetch('/api/orchestrate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: proj, goal: goal, previewId: previewId || undefined }), signal: AbortSignal.timeout(130000) })
+    .then(function(r){ status = r.status; return r.json().catch(function(){ return {}; }); })
     .then(function(j){
       j = j || {};
+      orch.busy = false;
       if (j.ok) {
         orch.prop = j.proposal; orch.model = j.model || ''; orch.ms = j.ms || 0; orch.proj = proj;
       } else {
-        orch.err = String(j.error || 'orchestrate failed (HTTP ' + r.status + ')');
+        orch.err = String(j.error || 'orchestrate failed (HTTP ' + status + ')');
       }
       renderOrch();
     })
@@ -61,6 +80,7 @@ function orchReg(){
     if (j && j.ok) {
       toast('registered ' + j.plan + ' → ' + (j.children || []).length + ' children');
       orch.prop = null; byId('orchGoal').value = '';
+      var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear();
       pollTasks();
     } else {
       orch.err = String((j && j.error) || 'register failed');
@@ -72,6 +92,8 @@ function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; re
 (function(){
   var inp = byId('orchGoal');
   if (inp) inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doOrchestrate(); } });
+  if (inp) inp.addEventListener('input', function(){ var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear(); });
+  document.addEventListener('klh-dispatch', function(e){ var d = e.detail || {}; if (d.project && d.goal) orchSend(d.project, d.goal, d.previewId); });
   var go = byId('orchGo');
   if (go) go.addEventListener('click', doOrchestrate);
   document.addEventListener('click', function(e){

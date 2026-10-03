@@ -8,17 +8,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { Database } from "bun:sqlite";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
-const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, run, MY_PROJ, post, waitUp } =
+const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
 	await boardFixture(7851, afterAll);
 
 // W157: in the monolith, W55's body ran `git init -b main` in GREPO
@@ -209,6 +202,7 @@ describe("W57 orchestrate box", () => {
 	const MB = `http://127.0.0.1:${MPORT}`;
 	// mock OpenAI-compatible endpoint: fenced-JSON proposal for normal goals,
 	// prose-only garbage for goals containing JUNK (the parse-failure path)
+	let lastUser = "";
 	const mock = Bun.serve({
 		port: MPORT,
 		fetch: async (req) => {
@@ -216,6 +210,12 @@ describe("W57 orchestrate box", () => {
 				messages?: { role: string; content: string }[];
 			};
 			const goal = body.messages?.find((m) => m.role === "user")?.content ?? "";
+			// W270 enhance: the belt router's Anthropic wire
+			if (new URL(req.url).pathname === "/v1/messages")
+				return Response.json({
+					content: [{ type: "text", text: `Clearly: ${goal}` }],
+				});
+			lastUser = goal;
 			if (goal.includes("JUNK")) {
 				return Response.json({
 					choices: [{ message: { content: "sorry, no json here" } }],
@@ -245,7 +245,11 @@ describe("W57 orchestrate box", () => {
 		["bun", join(bin, "fleet-board.ts"), "--port", String(OPORT)],
 		{
 			cwd: REPO,
-			env: { ...env, SUSPENDERS_LLM_URL: `${MB}/v1/chat/completions` },
+			env: {
+				...env,
+				SUSPENDERS_LLM_URL: `${MB}/v1/chat/completions`,
+				SUSPENDERS_PROMPT_ENHANCE_URL: `${MB}/v1/messages`,
+			},
 			stdout: "pipe",
 			stderr: "pipe",
 		},
@@ -359,6 +363,80 @@ describe("W57 orchestrate box", () => {
 		const feed = await (await fetch(`${OB}/api/tasks`)).json();
 		const plan = feed.tasks.find((t: Row) => t.id === reg.json.plan);
 		expect(plan?.title).toBe("plan: W57 e2e orchestration");
+	});
+	test("W270 prompt settings: defaults, then persisted toggles", async () => {
+		await waitUp(OB);
+		const d = await (await fetch(`${OB}/api/prompt/settings`)).json();
+		expect(d.settings).toEqual({
+			"prompt.condense": true,
+			"prompt.enhance": false,
+			"prompt.debug": false,
+			"prompt.log": false,
+		});
+		expect(
+			(await postO("/api/prompt/settings", { "prompt.debug": "yes" })).status,
+		).toBe(400);
+		const s = await postO("/api/prompt/settings", {
+			"prompt.debug": true,
+			"prompt.log": true,
+		});
+		expect(s.json.settings["prompt.log"]).toBe(true);
+		const file = JSON.parse(
+			readFileSync(`${HOME}/.claude/local-llm/suspenders-board.json`, "utf8"),
+		);
+		expect(file["prompt.debug"]).toBe(true);
+	});
+	test("W270 preview discloses stages + injected context, no plan call", async () => {
+		lastUser = "";
+		const r = await postO("/api/orchestrate/preview", {
+			project: MY_PROJ,
+			goal: "Please just add csv export with token=abcd1234efgh5678",
+		});
+		expect(r.status).toBe(200);
+		expect(r.json.previewId).toBeTruthy();
+		const v = r.json.preview;
+		expect(v.final).toBe("add csv export with token=[redacted]");
+		expect(v.ran).toEqual({ condense: true, enhance: false });
+		expect(v.stages.map((s: { label: string }) => s.label)).toEqual([
+			"original",
+			"condensed",
+		]);
+		const ctx = v.injected.find((i: { label: string }) =>
+			i.label.startsWith("repo context"),
+		);
+		expect(ctx.text).toContain("REPO CONTEXT:");
+		expect(ctx.bytes).toBeGreaterThan(0);
+		expect(JSON.stringify(v)).not.toContain("abcd1234efgh5678");
+		expect(lastUser).toBe("");
+		// dispatch the previewed plan verbatim (secret intact on the wire)
+		const go = await postO("/api/orchestrate", {
+			project: MY_PROJ,
+			goal: "Please just add csv export with token=abcd1234efgh5678",
+			previewId: r.json.previewId,
+		});
+		expect(go.status).toBe(200);
+		expect(go.json.previewed).toBe(true);
+		expect(
+			lastUser.startsWith(
+				"GOAL:\nadd csv export with token=abcd1234efgh5678\n\nREPO CONTEXT:\n",
+			),
+		).toBe(true);
+	});
+	test("W270 enhance via the router; inline transforms without a preview", async () => {
+		await postO("/api/prompt/settings", { "prompt.enhance": true });
+		const r = await postO("/api/orchestrate", {
+			project: MY_PROJ,
+			goal: "please add csv export",
+		});
+		expect(r.status).toBe(200);
+		expect(r.json.prompt.final).toBe("Clearly: add csv export");
+		expect(r.json.prompt.ran.enhance).toBe(true);
+		expect(lastUser.startsWith("GOAL:\nClearly: add csv export\n")).toBe(true);
+		await postO("/api/prompt/settings", {
+			"prompt.enhance": false,
+			"prompt.debug": false,
+			"prompt.log": false,
+		});
 	});
 	test("orchestrate telemetry lands as an llm.call event", async () => {
 		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`, {

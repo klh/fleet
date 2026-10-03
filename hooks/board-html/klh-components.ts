@@ -2,8 +2,10 @@
 // Built to hooks/board-html/vendor/klh-components.js (lit inlined — the
 // vendored, offline bundle; never CDN) and served by the board as a static
 // module at /vendor/klh-components.js. Registers klh-decision-eval and
-// self-mounts one affordance per OPEN decision card (.dec[data-id]).
+// self-mounts one affordance per OPEN decision card (.dec[data-id]); W270
+// adds klh-prompt-preview (the orchestrate prompt-transform preview).
 import { LitElement, html, css, type TemplateResult } from "lit";
+import "./klh-prompt-preview.ts";
 
 type EvalEntry = { ts: number; text: string };
 

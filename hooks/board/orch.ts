@@ -3,11 +3,18 @@
 // sibling modules and the route modules import them.
 
 import { CLI, db } from "./context.ts";
-import { json } from "./helpers.ts";
-import { board, events, llm, payload } from "./data.ts";
-import { tokenUsage } from "../lib/govdb.ts";
-import { scrub } from "../lib/servicemon.ts";
 import { existsSync, readdirSync } from "node:fs";
+import {
+	parsePolicy,
+	readBoardSettings,
+	resolvePolicy,
+} from "../lib/board-config.ts";
+import {
+	enhancePrompt,
+	type PromptPlan,
+	preparePrompt,
+	resolvePromptSettings,
+} from "./prompt-transform.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -123,9 +130,72 @@ export function orchTelemetry(payload: Record<string, unknown>): void {
 	).run(Date.now(), JSON.stringify(payload));
 }
 
+// the exact user message on the wire — the preview discloses this append
+export const orchUserMessage = (goal: string, ctx: string): string =>
+	`GOAL:\n${goal}\n\nREPO CONTEXT:\n${ctx}`;
+
+// W270 — enhance model = the fleet default: explicit env pin, else the head
+// of the routing-policy ladder (the :4000 router routes by complexity; the
+// id is the label it accounts the call under)
+export function enhanceModel(): string {
+	if (process.env.SUSPENDERS_PROMPT_MODEL)
+		return process.env.SUSPENDERS_PROMPT_MODEL;
+	try {
+		const pol = resolvePolicy();
+		const head = pol ? Object.keys(parsePolicy(pol.text).fallbacks)[0] : "";
+		if (head) return head;
+	} catch {}
+	return "glm-5.3-flash";
+}
+
+// W270 — run the prompt transforms for one orchestrate goal; the plan's
+// ctx is pinned so dispatch sends exactly what the preview disclosed
+export async function orchPrepare(
+	project: string,
+	goal: string,
+): Promise<
+	| { ok: true; plan: PromptPlan; ctx: string }
+	| { ok: false; status: number; error: string }
+> {
+	const repo = project.replace(/\/\.git$/, "");
+	if (!existsSync(repo))
+		return {
+			ok: false,
+			status: 404,
+			error: `project directory missing: ${repo}`,
+		};
+	const ctx = orchContext(project, repo);
+	const settings = resolvePromptSettings(readBoardSettings().settings);
+	const model = enhanceModel();
+	const plan = await preparePrompt(goal, settings, {
+		enhance: async (text) => {
+			const r = await enhancePrompt(text, { model });
+			orchTelemetry({
+				for: "prompt.enhance",
+				model,
+				host: "127.0.0.1:4000",
+				ms: r.ms,
+				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
+			});
+			return r;
+		},
+		injections: [
+			{ label: "goal header (prepended)", text: "GOAL:\n" },
+			{ label: "system prompt (orchestrator instructions)", text: ORCH_SYS },
+			{
+				label: "repo context (open work items + top-level entries)",
+				text: `\n\nREPO CONTEXT:\n${ctx}`,
+			},
+		],
+		compose: (final) => orchUserMessage(final, ctx),
+	});
+	return { ok: true, plan, ctx };
+}
+
 export async function orchestrate(
 	project: string,
 	goal: string,
+	prepared?: { ctx: string },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
 	const repo = project.replace(/\/\.git$/, "");
 	if (!existsSync(repo))
@@ -133,7 +203,7 @@ export async function orchestrate(
 			status: 404,
 			body: { ok: false, error: `project directory missing: ${repo}` },
 		};
-	const ctx = orchContext(project, repo);
+	const ctx = prepared?.ctx ?? orchContext(project, repo);
 	const t0 = Date.now();
 	const model = await orchModelResolve();
 	let content = "";
@@ -154,7 +224,7 @@ export async function orchestrate(
 					{ role: "system", content: ORCH_SYS },
 					{
 						role: "user",
-						content: `GOAL:\n${goal}\n\nREPO CONTEXT:\n${ctx}`,
+						content: orchUserMessage(goal, ctx),
 					},
 				],
 				max_tokens: 1200,
