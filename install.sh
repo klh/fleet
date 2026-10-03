@@ -49,7 +49,13 @@ command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh fir
 
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
-for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md; do
+# W183.1 follow-up (W300) — local-llm rides along as a harness-relative copy
+# too: hooks/board/local-swarm.ts imports registry.ts via a repo-relative
+# path (../local-llm/registry.ts), which only resolves if $PREFIX has its
+# own local-llm/ sibling to board/. This is separate from $LLM_HOME below
+# (the swarm's runtime home, user-customizable, never clobbered) — this
+# copy is pure harness code, refreshed every install like bin/lib/board.
+for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md local-llm; do
   cp -R "$REPO_DIR/hooks/$item" "$PREFIX/"
 done
 cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
