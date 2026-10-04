@@ -58,8 +58,8 @@ class KlhDecisionEval extends LitElement {
 			padding-left: 8px;
 		}
 		output.err {
-			color: #e07a5f;
-			border-left-color: #e07a5f;
+			color: var(--klh-danger-ink, #e07a5f);
+			border-left-color: var(--klh-danger, #e07a5f);
 		}
 	`;
 
