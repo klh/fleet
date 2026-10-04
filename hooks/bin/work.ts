@@ -21,7 +21,7 @@
 //   work migrate-ledger <path>            (ingest a Markdown ledger's unresolved items)
 //   work block <id> --on <id2>           / work unblock <id> --on <id2>   (cycle-checked)
 //   work supersede <id> --by <new-id>
-//   work orphaned                        / work reclaim <id>
+//   work orphaned                        / work reclaim <id>|all
 //
 // workgraph mirror (beads-inspired): mutations re-export <repo>/.workgraph.jsonl
 // (atomic, best-effort); reads fall back to the committed mirror when
@@ -59,7 +59,7 @@ if (
 ) {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | reclaim | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | reclaim <id>|all | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -1148,6 +1148,38 @@ if (cmd === "add") {
 	const out = rows.filter((r) => !liveTranscript(String(r.owner_sid)));
 	console.log(out.length ? out.map(renderRow).join("\n") : dim("(no orphans)"));
 } else if (cmd === "reclaim") {
+	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
+	// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
+	// listing). Capsule law preserved: this CAN strand uncommitted lane state;
+	// each reclaim is listed for audit and `work reclaim <id>` stays the
+	// careful per-item path.
+	if (pos[0] === "all") {
+		const rows = db()
+			.query(
+				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
+			)
+			.all(PROJECT) as Item[];
+		let n = 0;
+		for (const r of rows) {
+			if (liveTranscript(String(r.owner_sid))) continue;
+			setState(String(r.id), "READY", null);
+			releaseClaim(
+				(r.owner_sid as string) ?? "",
+				r.scope as string | null,
+				r.id as string,
+			);
+			emit("work.released", String(r.id), { by: "reclaim-all" });
+			console.log(
+				`${cyan("·")} ${r.id} reclaimed → READY (was ${String(r.owner_sid).slice(0, 8)})`,
+			);
+			n++;
+		}
+		console.log(
+			n === 0
+				? dim("(no orphans to reclaim)")
+				: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
+		);
+	} else {
 	const id = pos[0];
 	const it = get(id ?? "");
 	if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
@@ -1164,6 +1196,7 @@ if (cmd === "add") {
 		by: ((it.owner_sid as string) ?? "").slice(0, 8),
 	});
 	console.log(`${cyan("·")} ${id} reclaimed → READY`);
+	}
 } else if (cmd === "migrate-ledger") {
 	// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
 	// / PAUSED / OWNER-GATED markers or unchecked tasks) become graph items.
