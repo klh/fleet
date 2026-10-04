@@ -332,7 +332,7 @@ async function viaCloud(
 		},
 		signal: AbortSignal.timeout(120_000),
 		body: JSON.stringify({
-			model: wantFast ? "glm-5.3-flash[1m]" : "glm-5.3[1m]",
+			model: wantFast ? "glm-5.3-flash" : "glm-5.3",
 			max_tokens: maxTokens,
 			messages,
 		}),
