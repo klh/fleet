@@ -718,6 +718,12 @@ function liveTranscript(sid: string): string | null {
 // (e.g. 'visual-c') must not become the owner of record — expand a unique
 // session-sid prefix to the full sid; unknown sids pass through untouched
 function resolveSid(as: string): string {
+	// exact sid wins first — a full sid must never die on its own prefix
+	// family (autow219 vs autow2190… made `work take --as autow219` ambiguous)
+	const exact = db().query("SELECT sid FROM sessions WHERE sid = ?").get(as) as
+		| { sid: string }
+		| undefined;
+	if (exact) return exact.sid;
 	const sm = db()
 		.query("SELECT sid FROM sessions WHERE sid LIKE ? || '%'")
 		.all(as) as { sid: string }[];
@@ -1180,22 +1186,22 @@ if (cmd === "add") {
 				: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
 		);
 	} else {
-	const id = pos[0];
-	const it = get(id ?? "");
-	if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
-		die(
-			`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
+		const id = pos[0];
+		const it = get(id ?? "");
+		if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
+			die(
+				`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
+			);
+		setState(id, "READY", null);
+		releaseClaim(
+			(it.owner_sid as string) ?? "",
+			it.scope as string | null,
+			it.id as string,
 		);
-	setState(id, "READY", null);
-	releaseClaim(
-		(it.owner_sid as string) ?? "",
-		it.scope as string | null,
-		it.id as string,
-	);
-	emit("work.released", id, {
-		by: ((it.owner_sid as string) ?? "").slice(0, 8),
-	});
-	console.log(`${cyan("·")} ${id} reclaimed → READY`);
+		emit("work.released", id, {
+			by: ((it.owner_sid as string) ?? "").slice(0, 8),
+		});
+		console.log(`${cyan("·")} ${id} reclaimed → READY`);
 	}
 } else if (cmd === "migrate-ledger") {
 	// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
