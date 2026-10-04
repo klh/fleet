@@ -84,17 +84,42 @@ function tidy(s: string): string {
 		.replace(/\n{3,}/g, "\n\n");
 }
 
+// W334 caveman tier: sentences ABOUT the prompt/request machinery carry no
+// task content ("Although this prompt contains...", "between when this
+// prompt was written...") — drop them. Conservative patterns: a task that
+// genuinely says "prompt the user" never matches "the prompt" as a noun
+// phrase with these shapes.
+const META_RE =
+	/\b(this prompt|the prompt(?! the user)|between when this|the actual requested action|although this)\b/i;
+function stripMetaSentences(s: string): string {
+	return s
+		.split(/(?<=[.!?])\s+/)
+		.filter((sent) => !META_RE.test(sent))
+		.join(" ");
+}
+
 // sentence-level redundancy: an exact (normalized) repeat of an earlier
 // sentence adds nothing — drop it, keep the first occurrence
 function dedupeSentences(s: string): string {
-	const seen = new Set<string>();
+	const kept = new Set<Set<string>>(); // normalized token sets of kept sentences
+	const words = (t: string): Set<string> =>
+		new Set(t.toLowerCase().match(/[a-z0-9']+/g) ?? []);
+	const jaccard = (a: Set<string>, b: Set<string>): number => {
+		let inter = 0;
+		for (const w of a) if (b.has(w)) inter++;
+		const union = a.size + b.size - inter;
+		return union === 0 ? 0 : inter / union;
+	};
 	return s
 		.split(/(?<=[.!?])\s+/)
 		.filter((sent) => {
-			const key = sent.toLowerCase().replace(/\W+/g, " ").trim();
-			if (!key) return true;
-			if (seen.has(key)) return false;
-			seen.add(key);
+			const tokens = words(sent);
+			if (tokens.size === 0) return true;
+			// exact or near-duplicate of a kept sentence adds nothing — W334
+			for (const k of kept) {
+				if (jaccard(tokens, k) >= 0.75) return false;
+			}
+			kept.add(tokens);
 			return true;
 		})
 		.join(" ");
@@ -109,7 +134,7 @@ export function condensePrompt(text: string): string {
 	});
 	const lines = masked
 		.split("\n")
-		.map((l) => dedupeSentences(condenseProse(l)));
+		.map((l) => dedupeSentences(stripMetaSentences(condenseProse(l))));
 	const out = tidy(lines.join("\n"))
 		.split("\n")
 		.map((l) => l.trim())
