@@ -26,10 +26,13 @@ export const UNION_VARS: InsertionVars = {
 
 export const INSERTION_RECIPES: Record<string, InsertionVars> = {
 	// claude: base rides in via the launchd plist (laneEnv inherits it); the
-	// model pin is ours, and only meaningful behind belt (belt routes by id).
+	// model pin rides the W228 grammar — raw ids 400 client-side
+	// ("unrecognized_model"), the OPUS alias carries the remap and belt still
+	// routes by the remapped id. No pin → write nothing (inherit).
 	claude: {
 		ANTHROPIC_BASE_URL: (c) => c.anthropicBase,
-		ANTHROPIC_MODEL: (c) => c.model ?? undefined,
+		ANTHROPIC_MODEL: (c) => (c.model ? "opus" : undefined),
+		ANTHROPIC_DEFAULT_OPUS_MODEL: (c) => c.model ?? undefined,
 	},
 	// copilot (BYOK, proven): openai wire at the engine base; /v1 suffix is
 	// REQUIRED here (anthropic-wire + /v1 double-prefixes and dies silently).
