@@ -153,8 +153,8 @@ import{r,e,t,s}from"./lit-shared.js";var p=[["prompt.condense","condense"],["pro
 			padding-left: 8px;
 		}
 		output.err {
-			color: #e07a5f;
-			border-left-color: #e07a5f;
+			color: var(--klh-danger-ink, #e07a5f);
+			border-left-color: var(--klh-danger, #e07a5f);
 		}
 	`;constructor(){super();this.count=0,this.latest=null,this.busy=!1,this.err=null}connectedCallback(){super.connectedCallback(),this.hydrate()}async hydrate(){if(!this.eventId)return;try{let i=await fetch(`/api/decisions/${this.eventId}/evals`);if(!i.ok)return;let a=await i.json();this.apply(a.evals??[])}catch{}}apply(i,a){this.count=a??i.length,this.latest=i[i.length-1]??null,this.err=null}async evaluate(){if(this.busy||!this.eventId)return;this.busy=!0,this.err=null;try{let i=await fetch(`/api/decisions/${this.eventId}/evaluate`,{method:"POST"}),a=await i.json();if(!i.ok||!a.ok)throw Error(a.error??`HTTP ${i.status}`);if(a.latest)this.apply([a.latest],a.count)}catch(i){this.err=i instanceof Error?i.message:String(i)}finally{this.busy=!1}}when(i){return new Date(i).toLocaleTimeString()}render(){return e`
 			<div class="row">
