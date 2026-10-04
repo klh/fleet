@@ -45,7 +45,7 @@ export async function handleConsole(
 		});
 	}
 	if (url.pathname === "/console/local")
-		return new Response(localPage(gatherLocalView(), consoleMe()), {
+		return new Response(localPage(await gatherLocalView(), consoleMe()), {
 			headers: {
 				"content-type": "text/html; charset=utf-8",
 				"cache-control": "no-store",
