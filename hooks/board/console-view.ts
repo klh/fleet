@@ -99,17 +99,34 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 	};
 };
 
-export const gatherLocalView = (): LocalView => {
+// 15s cache — the probes hit every monitored port; a console view must not
+// re-fan-out per request. probeAll classifies up/degraded/down (W273).
+let probeCache: {
+	at: number;
+	probes: Awaited<ReturnType<typeof probeAll>>;
+} | null = null;
+const PROBE_TTL_MS = 15_000;
+const cachedProbes = async () => {
+	if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS)
+		return probeCache.probes;
+	const probes = await probeAll();
+	probeCache = { at: Date.now(), probes };
+	return probes;
+};
+
+export const gatherLocalView = async (): Promise<LocalView> => {
 	const regPath =
 		process.env.KLH_LOCAL_REGISTRY ??
 		`${process.env.HOME}/.local/state/klh-local/registry.json`;
+	const probes = await cachedProbes();
+	let services: LocalService[] = [];
 	try {
 		const doc = JSON.parse(readFileSync(regPath, "utf8")) as {
 			name?: string;
 			port?: number;
 			created_at?: string;
 		}[];
-		const services: LocalService[] = Array.isArray(doc)
+		services = Array.isArray(doc)
 			? doc
 					.filter((s) => s && typeof s.name === "string")
 					.map((s) => ({
@@ -118,14 +135,20 @@ export const gatherLocalView = (): LocalView => {
 						created: String(s.created_at ?? ""),
 					}))
 			: [];
-		return { services, regPath, error: null };
-	} catch (e) {
-		return {
-			services: [],
-			regPath,
-			error: e instanceof Error ? e.message : String(e),
-		};
+	} catch {
+		// registry absent (hub deployments) — the probe table carries the view
 	}
+	return {
+		services,
+		regPath,
+		error: null,
+		probes,
+		source: services.length
+			? probes.length
+				? "probes+registry"
+				: "registry"
+			: "probes",
+	};
 };
 
 // form → PolicyPatch. Belt edits the budgets; buckle edits the ladder

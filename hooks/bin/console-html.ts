@@ -245,17 +245,35 @@ export interface LocalView {
 	services: LocalService[];
 	regPath: string;
 	error: string | null;
+	probes: ServiceProbe[];
+	source: "registry" | "probes+registry" | "probes";
 }
 
 export const localPage = (v: LocalView, me?: ConsoleMe): string => {
+	const upCount = v.probes.filter((p) => p.up).length;
+	const probeRows = v.probes
+		.map(
+			(p) =>
+				`<tr><td><b>${esc(p.name)}</b></td><td class="num">${p.port || "—"}</td><td class="${p.up ? "ok" : "bad"}">${p.up ? "UP" : p.state.toUpperCase()}</td><td class="dim">${esc(p.detail)}</td></tr>`,
+		)
+		.join("");
+	const regRows = v.services
+		.map(
+			(s) =>
+				`<tr><td><b>${esc(s.name)}</b></td><td class="num">${s.port}</td><td>—</td><td><a href="https://${esc(s.name)}.local/">https://${esc(s.name)}.local/</a> <span class="dim">· since ${esc(s.created.slice(0, 10))}</span></td></tr>`,
+		)
+		.join("");
 	const body =
 		`<style>${PAGE_CSS}</style>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2>` +
+		`<div class="panel"><h2>monitored fleet services — ${upCount}/${v.probes.length} up</h2>` +
+		(v.probes.length
+			? `<table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>detail</th></tr></thead><tbody>${probeRows}</tbody></table>`
+			: `<p class="dimpl">no monitored services — the recovery map is empty in this deployment</p>`) +
 		(v.services.length
-			? `<table class="ct"><thead><tr><th>service</th><th>port</th><th>url</th><th>since</th></tr></thead><tbody>${v.services.map((s) => `<tr><td><b>${esc(s.name)}</b></td><td class="num">${s.port}</td><td><a href="http://${esc(s.name)}.local/">http://${esc(s.name)}.local/</a> <span class="dim">· direct :${s.port}</span></td><td class="dim">${esc(s.created.slice(0, 10))}</td></tr>`).join("")}</tbody></table>`
-			: `<p class="dimpl">no services in the registry yet — add one with klh-local add &lt;name&gt; &lt;port&gt;</p>`) +
-		`<p class="cfoot">static registry view (klh-local registry.json) — live probing is a later item; the klh/local repo is untouched</p></div>`;
+			? `</div><div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2><table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>url</th></tr></thead><tbody>${regRows}</tbody></table>`
+			: "") +
+		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div>`;
 	return consolePage("LOCAL · SERVICES", "local", body, me);
 };
 
