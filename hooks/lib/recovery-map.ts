@@ -8,6 +8,7 @@
 // machine's absolute home path — loopback, `~`, `$(id -u)` and env-named
 // checkouts only. test/recovery-map.test.ts pins that, and pins that every
 // probed service has an entry.
+import { readFileSync } from "node:fs";
 
 export type ProbeSpec =
 	| { kind: "http"; port: number; path: string }
@@ -80,7 +81,57 @@ const swarm = (port: number): RecoveryEntry => ({
 	],
 });
 
-const ENTRIES: RecoveryEntry[] = [
+// W331: hub deployments supply their own services list — the built-in map
+// describes the co-hosted machine's fleet and is pure noise elsewhere (a NAS
+// hub rendering eight false DOWNs for services that are loopback-only on
+// another host, plus a launchctl probe no container can run). Env override:
+// SUSPENDERS_SERVICES_JSON → file of minimal rows {id,name,probe:{port,path}};
+// http probes only, recovery steps derived from the probe. Absent/unreadable
+// file → built-in map (host installs).
+export const servicesFromJson = (path: string): RecoveryEntry[] | null => {
+	try {
+		const doc = JSON.parse(readFileSync(path, "utf8")) as {
+			id?: string;
+			name?: string;
+			probe?: { port?: number; path?: string };
+		}[];
+		if (!Array.isArray(doc)) return null;
+		const rows = doc.filter(
+			(s) =>
+				typeof s?.id === "string" &&
+				typeof s?.name === "string" &&
+				typeof s?.probe?.port === "number",
+		);
+		if (rows.length === 0) return null;
+		return rows.map((s) => {
+			const id = String(s.id);
+			const name = String(s.name);
+			const port = Number(s.probe?.port);
+			const p = typeof s.probe?.path === "string" ? s.probe.path : "/status";
+			return {
+				id,
+				name,
+				probe: { kind: "http" as const, port, path: p },
+				what: `${name} is not answering — anything routed to it fails.`,
+				causes: [
+					"the process is down or still starting",
+					`something else holds :${port}`,
+				],
+				recovery: [
+					holder(port),
+					tail(`~/.claude-insights/${id}.log`),
+					curl(port, p),
+				],
+			};
+		});
+	} catch {
+		return null;
+	}
+};
+
+const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
+	? servicesFromJson(process.env.SUSPENDERS_SERVICES_JSON)
+	: null) ?? [
 	{
 		id: "belt-gateway-4000",
 		name: "belt gateway :4000 (Anthropic shim)",
