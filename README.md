@@ -74,6 +74,67 @@ bun hooks/bin/work.ts list              # the graph
 bun hooks/bin/coord.ts fleet            # who is working
 ```
 
+## Command surfaces
+
+Every operational need is a supported verb — never a shell loop against
+the plane. The two CLIs are the product; know them cold.
+
+### Work graph — `bun hooks/bin/work.ts <verb>`
+
+```sh
+work add "title" --priority 2 --desc "why"          # register work
+work list                                           # the whole graph
+work ready                                          # dispatchable now
+work show <id>                                      # one item + claims
+work take <id> --as <sid>                           # claim it
+work start <id> --as <sid>                          # mark RUNNING
+work done <id> --as <sid> --sha <commit>            # close with evidence
+work fail <id> --as <sid> --note "why"              # close as failed
+work release <id> --as <sid>                        # give it back
+work reclaim <id> --as <sid>                        # take a stalled claim
+work reclaim all                                    # bulk-free dead claims
+work orphaned                                       # claims with dead owners
+work split <id>                     # shatter for parallel lanes
+work block <id> --on <other-id>                     # gate it
+work supersede <id>                                 # replace it
+work migrate-ledger                                 # import a - [ ] list
+```
+
+### Coord bus — `bun hooks/bin/coord.ts <verb>`
+
+```sh
+coord fleet                      # who is working (sessions + claims)
+coord state --as <sid>           # your session view
+coord inbox --as <sid>           # unread messages/consults
+coord message --to <sid> --note "…" --as <sid>   # interrupts only
+coord broadcast --note "…" --as <sid>            # fleet-wide
+coord consult --to <ikea-opus> --note "question" --as <sid>
+coord consult-reply --reply-id <id> --note "…" --as <sid>
+coord fact get lesson.<topic>    # painful knowledge, fleet-shared
+coord fact set lesson.<topic> --note "…"         # write back a lesson
+coord emit NEED_DECISION --to <coordinator> --note "q + options" --as <sid>
+coord subscribe --as <sid>       # live WebSocket push (W303)
+coord gc                         # settle dead sessions
+coord doctor-session <sid>       # rebind a resumed session
+```
+
+### Dispatch + fleet loop
+
+```sh
+bun scripts/dispatch-next.ts                       # churn lanes onto READY
+bun scripts/dispatch-next.ts --item W219 --dry-run # one item, no writes
+bun hooks/bin/fleet-loop.ts watch \
+  --repo . --glob 'suspenders/*' \
+  --ladder 'git merge --no-ff {branch}' \
+  --dispatch-cmd 'bun scripts/dispatch-next.ts' \
+  --target 8 --every 120         # merge ladder + dispatcher (launchd)
+```
+
+### Fleet board
+
+Served at `http://suspenders.local/` (LAN); API map at `/llms.txt`,
+routes in `hooks/board/routes-*.ts`.
+
 ## Repo law
 
 - One ledger: todos live on the work graph, never scattered in repos.
