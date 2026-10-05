@@ -25,7 +25,8 @@ for arg in "$@"; do
 done
 
 LLM_HOME="$HOME/.claude/local-llm"
-KIT_DIR="$REPO_DIR/hooks/local-llm"
+# kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
+KIT_DIR="$(cd "$REPO_DIR/.." && pwd)/local-llm"
 
 # --dry-run: print the plan, touch nothing (bun read-only for the tier list)
 if [[ $DRY_RUN -eq 1 ]]; then
@@ -55,9 +56,12 @@ mkdir -p "$PREFIX"
 # own local-llm/ sibling to board/. This is separate from $LLM_HOME below
 # (the swarm's runtime home, user-customizable, never clobbered) — this
 # copy is pure harness code, refreshed every install like bin/lib/board.
-for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md local-llm; do
+for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md; do
   cp -R "$REPO_DIR/hooks/$item" "$PREFIX/"
 done
+# the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
+# from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
+cp -R "$KIT_DIR" "$PREFIX/"
 cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
 (cd "$PREFIX" && bun install) # shell-quote, for the bash gate
 echo "→ harness in place"

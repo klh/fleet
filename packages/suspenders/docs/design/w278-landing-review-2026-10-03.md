@@ -7,13 +7,19 @@ read from GitHub at `7c61d81` (no local checkout access from this lane).
 I'm judging the approaches here, not style. Each finding has a confidence
 level. Nothing in the code changed; this file is the only deliverable.
 
+> Correction 2026-10-05 (W422.4): the suspenders local-llm kit moved from
+> `packages/suspenders/hooks/local-llm/` to `packages/local-llm/`; path
+> mentions below are updated to the current location. The review's
+> recommendation to replace the kit with belt's is unchanged and still
+> pending an owner call.
+
 ---
 
 ## 0. Headline: what to fix first
 
 1. **The two repos run two different swarm supervisors for the same ports, and
    they install to the same path.** suspenders ships its own fork of belt's
-   local-llm kit. `hooks/local-llm/swarm.ts` (`serve`, W158) is installed to
+   local-llm kit. `packages/local-llm/swarm.ts` (`serve`, W158) is installed to
    `~/.claude/local-llm/swarm.ts` and run by `com.suspenders.local-llm`.
    belt W272 installs its own `swarm.ts` (`supervise`) to **the same path**, run
    by `com.belt.swarm`. Neither file has the other's verb (suspenders
@@ -23,7 +29,7 @@ level. Nothing in the code changed; this file is the only deliverable.
    recovery map tells the user to `kickstart com.suspenders.local-llm` and to tail
    `swarm-serve-launchd.log` (`recovery-map.ts:61-63`). That's wrong whenever
    belt's supervisor is the live one. The suspenders router-shim copy
-   (`hooks/local-llm/router-shim.ts`, 718 lines, no `router-core.ts`) also lacks
+   (`packages/local-llm/router-shim.ts`, 718 lines, no `router-core.ts`) also lacks
    **all** of belt's W270 fixes. *(Confidence: high on the code. The live install
    order on the host is unverified.)*
 2. **belt's push SSE relay can probably crash the router when a client
@@ -304,7 +310,7 @@ is the right call. It has to hold **across repos** too (finding 0.1).
 
 | Area | Direction | Why |
 |---|---|---|
-| **suspenders local-llm kit** (`hooks/local-llm/*`, `com.suspenders.local-llm`) | **Replace with belt.** Delete the fork. `install.sh` installs belt's kit and its single `com.belt.swarm supervise` agent, and boots out `com.suspenders.local-llm`. | Two supervisors sharing one install path is the worst risk landed today. belt owns models (`klh/belt` = LLM fleet). |
+| **suspenders local-llm kit** (`packages/local-llm/*`, `com.suspenders.local-llm`) | **Replace with belt.** Delete the fork. `install.sh` installs belt's kit and its single `com.belt.swarm supervise` agent, and boots out `com.suspenders.local-llm`. | Two supervisors sharing one install path is the worst risk landed today. belt owns models (`klh/belt` = LLM fleet). |
 | **W269 theme** | **Keep, then evolve into a shared `klh-tokens` module** (theme.ts as-is plus spacing/type tokens), imported by belt and klh-local. No copy-verbatim. | The primitive is right. Copies drift (see the kit fork). |
 | **W270 prompt transforms** | **Keep preview, disclosure and held plan. Evolve the condenser** to default OFF and politeness-only. **Repoint enhance** at a belt direct tier by registry alias. Move debug/log to client prefs. | Removes silent semantic edits and possible off-box leaks, and makes the model id honest. |
 | **W273 recovery UX** | **Keep the data-driven rows and the Lit UI. Evolve the inventory** to come from belt `/registry.json` plus `/api/supervisor`, with prose keyed by kind and the static map only as a belt-dark fallback. | A third copy of the inventory has already drifted (:8913), and it can't see breaker state. |
@@ -321,7 +327,7 @@ is the right call. It has to hold **across repos** too (finding 0.1).
 | **Theme tokens** | `--klh-*` semantic roles, dark+light, pre-paint, tested (`test/theme.test.ts`) | `--ground/--panel/--text/--rust`, dark only, plus hard-coded topbar hexes (`dashboard.ts:259-333`) | **suspenders `--klh-*`.** belt adopts it through the shared module and maps its 6 vars onto the roles (`--ground→--klh-bg`, `--panel→--klh-panel`, `--text→--klh-ink`, `--mut→--klh-dim`, `--rust→--klh-accent`/`--klh-danger`, `--ok→--klh-ok`). |
 | **Service health / recovery surface** | `/api/services` with fresh probes and human recovery steps; Lit rows, copyable commands, re-probe | `/api/supervisor` (status JSON from the actual restarter: restarts, breaker, nextRetryAt) and `watchdog liveness` CLI | **Split by ownership:** belt **owns the facts** (registry and supervisor status are authoritative because belt is the restarter). suspenders **owns the presentation and the recovery prose.** The board consumes belt and falls back to its own probe only when belt is dark. Neither repo should keep its own port list. |
 | **Swarm supervisor** | `swarm.ts serve` (W158: serial loop, fixed 15 s, no breaker, no status file) | `swarm.ts supervise` (W272: per-port loops, breaker, status file, transition log) | **belt W272**, clearly. Retire the suspenders fork (§2 row 1). |
-| **Router shim** | Frozen fork `hooks/local-llm/router-shim.ts` (pre-W270) | `router-shim.ts` + `router-core.ts` (W270 fixes) | **belt.** Same action as above. |
+| **Router shim** | Frozen fork `packages/local-llm/router-shim.ts` (pre-W270) | `router-shim.ts` + `router-core.ts` (W270 fixes) | **belt.** Same action as above. |
 | **Policy parsing** | `board-config.ts` re-parses belt's `routing-policy.yaml` (`enhanceModel` reads `fallbacks` head) | `router-policy.ts` `parsePolicy`/`loadDirectTiers` | **belt.** suspenders should read belt's emitted `direct-tiers.json` / `registry.json` instead of re-parsing YAML whose schema belt changes. |
 
 ---
