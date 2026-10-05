@@ -1006,3 +1006,15 @@ anchors and defines a measured rollout. It includes current W3C, OpenTelemetry,
 Envoy, Prometheus, CloudEvents, NATS, SPIFFE, OAuth and PostgreSQL references.
 Existing buckle federation is acknowledged and reused where appropriate. This is
 a researched design recommendation, not implemented or benchmarked capacity.
+
+### IoT and mesh patterns to reuse
+
+The [IoT and mesh research](docs/upstream-observability-architecture.md#further-research-iot-gateways-and-mesh-topology)
+adds NATS leaf-node interest propagation/account boundaries, Sparkplug-style
+birth/death generations and stale-state recovery, MQTT snapshot/session lessons,
+Zenoh regional detail hiding and SPIFFE trust federation. Recommended adaptations:
+outbound downstream connections, selective upstream summaries/detail, generation-
+aware reconnect snapshots and bounded replay. Keep enrollment, connection and
+observed-request topology separate in the GUI. Transport disconnect does not
+prove agent death; discovery does not grant project access. Benchmark NATS plus
+JetStream against the outbox/HTTP prototype before adding a broker.

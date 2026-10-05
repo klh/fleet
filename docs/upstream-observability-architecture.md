@@ -295,3 +295,124 @@ viewer permission is revoked; provider usage is absent or replayed. Each failure
 must retain truthful completeness/accounting status and bounded resource use.
 
 No runtime components were installed, implemented or benchmarked by this research.
+
+## Further research: IoT gateways and mesh topology
+
+IoT systems are especially relevant because they cope with many downstream
+participants, outbound-only sites, intermittent connectivity and incomplete
+upstream knowledge. Borrow their separation of identity, interest, presence and
+state recovery. This extends the architecture above; it does not require turning
+Fleet's HTTP model traffic into MQTT or adopting several messaging stacks.
+
+### NATS leaf nodes: strongest near-term transport analogy
+
+A NATS leaf connects outward to a hub and bridges subject interest. Local clients
+remain behind that connection; interest determines which messages cross it.
+Accounts isolate subject spaces, with explicit sharing controls. Separate local
+JetStream domains and stream sourcing/mirroring are additional configuration,
+not automatic durable replay from opening a leaf link.
+[NATS leaf-node architecture](https://docs.nats.io/learn/topologies/leaf-nodes).
+
+Fleet can apply this model to selective observation exchange: developer/site hubs
+connect outward; summaries are available to authorized upstream observers; lane
+detail is requested by scope. Keep a persistent regional ingestion interest or
+durable stream when history must exist even with no GUI subscriber. "Only send
+while someone watches" is appropriate for optional detail updates, not for
+required audit/accounting records.
+
+If Fleet needs a real broker, prototype NATS leaf nodes plus JetStream against
+the existing durable-outbox path. Test account permissions, deduplication,
+disconnection/replay and operating cost before adopting it. This is a candidate,
+not a measured claim that NATS is fastest or sufficient for work-graph authority.
+
+### Sparkplug: session generations and truthful reconnect behavior
+
+Sparkplug defines birth/death messages and a session sequence (`bdSeq`) that
+correlates death with the matching birth. That prevents a delayed old death from
+overriding a newly connected session. Lost connectivity makes observed values
+stale; fresh declarations are needed to rebuild current knowledge.
+[Sparkplug operational behavior](https://raw.githubusercontent.com/eclipse-sparkplug/sparkplug/master/specification/src/main/asciidoc/chapters/Sparkplug_5_Operational_Behavior.adoc).
+
+For Fleet, define a hub/executor observation generation with an initial snapshot,
+sequenced deltas and explicit disconnect/expiry. Reject stale-generation updates.
+After reconnect, announce current permitted lanes and observation completeness,
+then replay or reconcile the deltas. The generation belongs to a connection or
+observer incarnation, not the global lane ID. A lane can survive hub reconnect.
+
+Translate loss of upstream contact into "observer disconnected; downstream lane
+status unknown". Only the relevant authority may assert that a lane terminated
+or its claim expired. Do not use a transport death signal as a work-completion
+event. This is the useful borrowed lifecycle method, not a claim of Sparkplug
+wire compatibility.
+
+### MQTT: current-state snapshots and bounded offline sessions
+
+MQTT provides retained topic values, session expiry and Will messages. Retained
+messages are separate from connection session state; a disconnected producer's
+retained value can remain available. Therefore retained data alone is not proof
+of current health.
+[MQTT 5.0 standard](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html).
+
+Borrow snapshot-plus-updates for the board, with provenance, generation, age and
+expiry. Keep historical observation events separately; a last value is not an
+audit log. A connection's Will informs transport presence, not agent death or
+exactly-once side effects in another database. Use MQTT/Sparkplug as the actual
+transport only where enterprise integration requires it; Fleet currently has no
+demonstrated requirement to add an MQTT broker alongside its HTTP/control plane.
+
+### Zenoh: hide regional detail and route by interest
+
+Zenoh supports peer, client and routed deployments. Its region gateways hide
+unneeded subregion details from upstream regions. Key-expression intersection
+determines matching pub/sub routing. These closely resemble Fleet's desired
+upstream summaries and scoped detail subscriptions. Its documented regions are
+hierarchical, even though routed topology within a region can be a mesh.
+[Zenoh deployment and regions](https://zenoh.io/docs/getting-started/deployment/),
+[Zenoh key-expression routing](https://spec.zenoh.io/spec/1.0.0/concepts/key-expressions.html).
+
+Borrow selective disclosure: an upstream needs counts and permitted routes by
+default, not every local session or checkout. Fetch/subscribe to detail when a
+viewer has the scope and interest. Zenoh is worth evaluating if Fleet later needs
+dynamic edge discovery and unified remote query/pub-sub, but that is broader
+than the current lane inventory requirement. Do not assume its regional hierarchy
+matches arbitrary cross-organizational Fleet route graphs.
+
+### SPIFFE federation: trust is a different graph
+
+SPIFFE federation exchanges trust bundles to validate identities from other trust
+domains. This is an identity-verification relationship; project metadata and work
+permissions require separate authorization.
+[SPIFFE federation specification](https://spiffe.io/docs/latest/spiffe-specs/spiffe_federation/).
+
+A hub being reachable, discovered or trusted for transport is not authorization
+to see all of its projects. Reuse a corporation's workload identity where present;
+otherwise extend Fleet enrollment and credential controls deliberately. Gossip or
+multicast discovery may propose candidate peers, but cannot approve them or
+register authoritative project bindings.
+
+### The GUI should distinguish three topology graphs
+
+| Graph            | Edges mean                                             | Evidence and lifecycle                                            |
+| :--------------- | :----------------------------------------------------- | :---------------------------------------------------------------- |
+| Enrollment/trust | These parties are registered and permitted to interact | Registry and authorization policy; explicit revocation            |
+| Connection       | These endpoints currently have an authenticated link   | Connection generation, heartbeat and expiry                       |
+| Observed request | A request traversed this edge during this interval     | Verified hop observations and traces, with completeness/freshness |
+
+Overlay those graphs only with clear labels. A configured parent does not prove
+that today's traffic used it; a live connection does not prove a lane is doing
+work. Model route topology and telemetry export topology are also distinct.
+Group by downstream in a selected graph/time scope rather than forcing every
+relationship into a permanent corporate tree.
+
+Recommended additions to the prototype: interest-aware detail subscriptions;
+observer-generation snapshot/delta reconciliation; bounded offline replay; scoped
+hub summaries. Keep project claims and approvals under the authority described
+earlier. Do not use gossip convergence or merged last-value maps to resolve
+exclusive claims or spending obligations.
+
+Test late old-generation disconnects, reconnect with a changed lane set, missing
+snapshot pages, duplicate/out-of-order deltas, no subscribers, revoked scope,
+multiple upstream links and a node discovered outside the trust registry. Compare
+NATS-based exchange with the simpler outbox/HTTP design on the same workload.
+Adopt the transport only if measured replay/fan-out needs justify its operational
+cost. No IoT broker, mesh runtime or protocol migration was installed here.
