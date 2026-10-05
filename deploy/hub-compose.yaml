@@ -29,6 +29,13 @@ services:
     restart: unless-stopped
     working_dir: /src/buckle
     command: bun run src/server.ts
+    env_file:
+      # break-glass root credential (drift-never + secrets law): generated
+      # ON THE HUB DEVICE, mode 600, never committed. BUCKLE_ROOT_KEY seeds
+      # the bootstrap principal; mint bksk_ keys via /v1/admin/keys and
+      # retire the root. Refuses to boot the service when absent.
+      - path: ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
+        required: true
     environment:
       HOME: /state/hub-home
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
