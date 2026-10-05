@@ -19,7 +19,8 @@ import {
 	realpathSync,
 	resolve,
 } from "./shared.ts";
-import type { Database } from "./shared.ts";
+import type { Database, Ev } from "./shared.ts";
+import { formatEventLine } from "./bus.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -614,6 +615,76 @@ export async function cmdDiff(rest: string[]): Promise<void> {
 			),
 		);
 	}
+}
+
+// ─── events (W430): the bus's own trail gets a read verb ────────────────────
+// The events table had no CLI read surface — raw sqlite3 json_extract probes
+// happened twice in one day (W430), a surface-law violation. `coord events`
+// reads the trail through the same store lib every verb uses: --kinds csv
+// exact-match, --last N newest-first (default 50), --json for machines.
+// Rendering reuses formatEventLine — one row-renderer for the bus (wait and
+// subscribe already share it) — plus an age column, since a replay reads
+// older rows than a live poll.
+const parsePayload = (s: string | null): unknown => {
+	if (s == null) return null;
+	try {
+		return JSON.parse(s);
+	} catch {
+		return s;
+	}
+};
+export async function cmdEvents(rest: string[]): Promise<void> {
+	const kinds = arg("--kinds")?.split(",").filter(Boolean) ?? [];
+	const last = Number(arg("--last") ?? 50);
+	if (!Number.isInteger(last) || last < 1)
+		die("--last must be a positive integer");
+	const wantJson = rest.includes("--json");
+	const where = kinds.length
+		? `WHERE kind IN (${kinds.map(() => "?").join(", ")})`
+		: "";
+	const kindParams: string[] = kinds;
+	const tot = (
+		db
+			.query(`SELECT COUNT(*) AS n FROM events ${where}`)
+			.get(...kindParams) as { n: number }
+	).n;
+	const rows = db
+		.query(
+			`SELECT id, ts, source, kind, scope, payload FROM events ${where} ORDER BY id DESC LIMIT ?`,
+		)
+		.all(...kindParams, last) as Ev[];
+	if (wantJson) {
+		console.log(
+			JSON.stringify({
+				total: tot,
+				kinds,
+				shown: rows.length,
+				events: rows.map((r) => ({
+					id: r.id,
+					ts: r.ts,
+					source: r.source,
+					kind: r.kind,
+					scope: r.scope,
+					payload: parsePayload(r.payload),
+				})),
+			}),
+		);
+		return;
+	}
+	const ageOf = (ms: number): string => {
+		const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+		if (s < 60) return `${s}s`;
+		if (s < 3_600) return `${Math.floor(s / 60)}m`;
+		if (s < 86_400) return `${Math.floor(s / 3_600)}h`;
+		return `${Math.floor(s / 86_400)}d`;
+	};
+	for (const r of rows)
+		console.log(`${dim(ageOf(r.ts).padStart(4))}${formatEventLine(r)}`);
+	console.log(
+		dim(
+			`${tot} event${tot === 1 ? "" : "s"}${kinds.length ? ` of kind ${kinds.join(",")}` : ""}${rows.length < tot ? ` — last ${rows.length} shown` : ""}`,
+		),
+	);
 }
 
 // ─── project identity (W428): identity + rekey ───────────────────────────

@@ -19,6 +19,9 @@
 //   bun ~/.claude/bin/coord.ts diff [--since <seq|event-id>] [--last N] [--table t] [--json]
 //        (row-image delta log: what changed in sessions/claims/locks/facts/
 //         work_items between two points — events/cursors are the bus's own trail)
+//   bun ~/.claude/bin/coord.ts events [--kinds a,b] [--last N] [--json]
+//        (W430: the bus's own trail gets a CLI read — newest-first, --kinds
+//         exact-match csv, --last N default 50)
 //   bun ~/.claude/bin/coord.ts targets [--filter text] [--json]
 //   bun ~/.claude/bin/coord.ts message <target-label-or-sid-or-substring> "text" [--as sid]
 //   bun ~/.claude/bin/coord.ts message --all "text" [--as sid]
@@ -69,6 +72,7 @@ import {
 	cmdMetrics,
 	cmdDoctorSession,
 	cmdDiff,
+	cmdEvents,
 	cmdProject,
 } from "../coord/fleet.ts";
 
@@ -81,7 +85,7 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | project | targets | message\n" +
+		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message\n" +
 			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
 			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
 	);
@@ -128,6 +132,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	metrics: cmdMetrics,
 	"doctor-session": cmdDoctorSession,
 	diff: cmdDiff,
+	events: cmdEvents,
 	targets: cmdTargets,
 	message: cmdMessage,
 };
@@ -136,5 +141,5 @@ const fn = cmds[cmd ?? ""];
 if (fn) await fn(rest);
 else
 	die(
-		"unknown command — try emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | project | targets | message",
+		"unknown command — try emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message",
 	);
