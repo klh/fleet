@@ -278,7 +278,15 @@ const loadLanes = (): Lane[] => {
 };
 const saveLanes = (lanes: Lane[]): void => {
 	mkdirSync(FLEET, { recursive: true });
-	writeFileSync(LANES_JSON, JSON.stringify(lanes, null, 2));
+	// dedupe by sid (latest launch wins) — resume re-dispatches appended
+	// without dedupe and autow366 sat in the registry three times
+	const bySid = new Map<string, Lane>();
+	for (const l of lanes) {
+		const prev = bySid.get(l.sid);
+		if (!prev || (l.launchedAt ?? 0) >= (prev.launchedAt ?? 0))
+			bySid.set(l.sid, l);
+	}
+	writeFileSync(LANES_JSON, JSON.stringify([...bySid.values()], null, 2));
 };
 
 /** live claude/codex process with cwd inside the worktree — pid-independent

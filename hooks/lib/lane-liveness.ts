@@ -76,9 +76,13 @@ const worktreeLive = (wt?: string): boolean => {
 		.some((line) => line.startsWith("n") && line.slice(1).startsWith(wt));
 };
 
-// the verdict dispatch-next/fleet-loop/`work lanes` all share: host lanes
-// carry NO process-table trust — their claimant transcript must be fresh
+// the verdict dispatch-next/fleet-loop/`work lanes` all share. `host` is
+// stamped on EVERY dispatch entry (hostname()), so it means nothing by
+// itself — only a FOREIGN host carries no process-table trust; those lanes
+// live on claimant-transcript freshness alone
+import { hostname } from "node:os";
+const THIS_HOST = hostname();
 export const laneAlive = (l: LaneRef): boolean =>
-	l.host !== undefined
+	l.host !== undefined && l.host !== THIS_HOST
 		? transcriptAlive(l.sid)
 		: processReferencesSid(l.pid ?? 0, l.sid) || worktreeLive(l.worktree);
