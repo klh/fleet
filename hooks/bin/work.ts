@@ -49,14 +49,9 @@ const die = (m: string): never => {
 
 const [cmd, ...rest] = process.argv.slice(2);
 
-// --help anywhere wins before any parsing that could create state
-if (
-	!cmd ||
-	cmd === "--help" ||
-	cmd === "-h" ||
-	rest.includes("--help") ||
-	rest.includes("-h")
-) {
+// bare --help/-h or no verb wins before any parsing that could create state
+// (`verb --help` falls through to the spec block for per-verb help)
+if (!cmd || cmd === "--help" || cmd === "-h") {
 	if (cmd) {
 		console.log(
 			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
@@ -178,6 +173,14 @@ if (!spec)
 	die(
 		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
+
+// per-verb help: semantics live on the surface, not in source-diving —
+// `work <verb> --help` prints the verb's usage + flags from its SCHEMA spec
+if (rest.includes("--help") || rest.includes("-h")) {
+	if (spec.usage) console.log(spec.usage);
+	if (spec.flags.length) console.log(`  flags: ${spec.flags.join(" ")}`);
+	process.exit(0);
+}
 
 // generic parse + validate: known flags consume their value (first occurrence
 // wins, a trailing flag yields null), everything non-flag is a positional.
