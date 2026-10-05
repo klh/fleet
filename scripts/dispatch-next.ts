@@ -20,6 +20,7 @@
 //                                [--show-capsule <sid>]
 import {
 	appendFileSync,
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -581,6 +582,32 @@ const dispatchItem = async (
 	}
 	const prompt = `Read ${briefFile} and execute it fully.`;
 	const laneLog = `${FLEET}/lane-${sid}.log`;
+	// settings.json env CLOBBERS the process env at CLI startup (probed live
+	// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
+	// --settings outranks user settings: write the lane-critical vars and pass
+	// the file on the CLI layer. 0600 — it carries the lane token.
+	const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
+	const m = pick.model ?? "glm-5.3-flash";
+	writeFileSync(
+		laneSettings,
+		JSON.stringify(
+			{
+				env: {
+					ANTHROPIC_MODEL: env.ANTHROPIC_MODEL ?? "opus",
+					ANTHROPIC_DEFAULT_OPUS_MODEL: m,
+					ANTHROPIC_DEFAULT_SONNET_MODEL:
+						env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? m,
+					ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? m,
+					ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
+					ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
+				},
+			},
+			null,
+			2,
+		),
+	);
+	chmodSync(laneSettings, 0o600);
+	const settingsArgs = ["--settings", laneSettings];
 	const proc = spawnClaude({
 		bin,
 		prompt,
@@ -598,8 +625,15 @@ const dispatchItem = async (
 							"acceptEdits",
 							"--fallback-model",
 							pick.fallbackModels.join(","),
+							...settingsArgs,
 						]
-					: undefined,
+					: [
+							"--allowedTools",
+							DEFAULT_ALLOWED_TOOLS,
+							"--permission-mode",
+							"acceptEdits",
+							...settingsArgs,
+						],
 	});
 	proc.unref();
 	const entry: Lane = {
