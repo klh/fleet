@@ -10,7 +10,7 @@ import {
 	PROTECT_GRAMMARS,
 	type TierSpec,
 } from "../src/condense/engine.ts";
-import { TIERS, condenseTier, type TierName } from "../src/condense/tiers.ts";
+import { TIERS, condenseTier } from "../src/condense/tiers.ts";
 import { CONDENSE_VERSION } from "../src/condense/version.ts";
 import { CORPUS } from "./fixtures/condense/corpus.ts";
 
@@ -20,7 +20,7 @@ interface Pin {
 	input: string;
 	source: { suspenders: string; belt: string };
 	blam: { politeness: string; caveman: string; aggressive: string };
-	rules: Record<TierName, string[]>;
+	rules: Record<"politeness" | "caveman" | "aggressive", string[]>;
 }
 
 const pinsPayload = JSON.parse(
@@ -34,7 +34,11 @@ const pinsPayload = JSON.parse(
 	pins: Pin[];
 };
 const PINS = new Map(pinsPayload.pins.map((p) => [p.name, p]));
+// the pinned trio — the corpus pins freeze ONLY these bytes (machine is
+// additive, W367.4, and carries its own targeted tests below)
 const TIERS_ALL = ["politeness", "caveman", "aggressive"] as const;
+// every live tier — the law loops (L3/L4/L5 shape/L6) run the full set
+const TIERS_LIVE = [...TIERS_ALL, "machine"] as const;
 
 // ─── parity pins (the migration safety net) ──────────────────────────────
 describe("W367.1 parity pins", () => {
@@ -180,7 +184,7 @@ describe("L3 invariants", () => {
 			"Verify",
 			"1500-line",
 		];
-		for (const tier of TIERS_ALL) {
+		for (const tier of TIERS_LIVE) {
 			const out = condenseTier(tier, input).text;
 			for (const f of frags) expect(out).toContain(f);
 		}
@@ -189,7 +193,7 @@ describe("L3 invariants", () => {
 
 // ─── L4 idempotence ──────────────────────────────────────────────────────
 describe("L4 idempotence", () => {
-	for (const tier of TIERS_ALL) {
+	for (const tier of TIERS_LIVE) {
 		test(`condense(condense(x)) === condense(x) for ${tier} over the corpus`, () => {
 			for (const entry of CORPUS) {
 				const once = condenseTier(tier, entry.input).text;
@@ -202,7 +206,7 @@ describe("L4 idempotence", () => {
 // ─── L5 auditability ─────────────────────────────────────────────────────
 describe("L5 auditability", () => {
 	test("every pass returns { text, rules: string[] } with namespaced names", () => {
-		for (const tier of TIERS_ALL) {
+		for (const tier of TIERS_LIVE) {
 			for (const entry of CORPUS) {
 				const r = condenseTier(tier, entry.input);
 				expect(typeof r.text).toBe("string");
@@ -244,10 +248,78 @@ describe("L5 auditability", () => {
 	});
 });
 
+// ─── W367.4 machine tier: L2 hedge law (W287) ────────────────────────────
+describe("W367.4 machine tier: L2 hedge law (W287)", () => {
+	const HEDGES =
+		"just maybe only very quite perhaps really simply basically actually literally certainly definitely".split(
+			" ",
+		);
+	const hedgeInput =
+		"Please keep just maybe only very quite perhaps really simply basically actually literally certainly definitely in the plan.";
+
+	test("every hedge survives machine; filler:word never fires", () => {
+		const r = condenseTier("machine", hedgeInput);
+		for (const h of HEDGES)
+			expect(r.text).toMatch(new RegExp(`\\b${h}\\b`, "i"));
+		expect(r.rules).not.toContain("filler:word");
+	});
+
+	test("aggressive (contrast) strips the belt hedge set", () => {
+		const r = condenseTier("aggressive", hedgeInput);
+		for (const h of ["just", "very", "simply", "literally"])
+			expect(r.text).not.toMatch(new RegExp(`\\b${h}\\b`, "i"));
+	});
+});
+
+// ─── W367.4 machine: L1 protect surface ──────────────────────────────────
+describe("W367.4 machine: L1 protect surface", () => {
+	test("union protect surface survives machine byte-for-byte", () => {
+		const spans = [
+			"~~~\nprompt.condense = true\n~~~",
+			"```bash\nbun run build\n```",
+			"`keep this`",
+			'"quoted string"',
+			"<placeholder>",
+			"FORMAT: <answer>",
+			"https://example.com/x?y=1",
+			"/var/tmp/stale-cache",
+			"--dry-run",
+			"dotted.ident",
+			"src/lib/mod.ts",
+		];
+		const input = spans.map((s) => `Note that ${s} stays.`).join("\n");
+		const out = condenseTier("machine", input).text;
+		for (const s of spans) expect(out).toContain(s);
+	});
+});
+
+// ─── W367.4 machine: phrases fire, hedges spared ─────────────────────────
+describe("W367.4 machine: phrases fire, hedges spared", () => {
+	test("AGENTS.md scope rule: hedge + path are meaning and survive", () => {
+		const out = condenseTier(
+			"machine",
+			"Only touch packages/blam/src, and just bump the minor version.",
+		).text;
+		expect(out).toContain("Only touch");
+		expect(out).toMatch(/\bjust\b/);
+		expect(out).toContain("packages/blam/src");
+	});
+
+	test("phrase table + article strip fire (max condense, hedges spared)", () => {
+		const r = condenseTier(
+			"machine",
+			"In order to stop errors, note that the router is fast.",
+		);
+		expect(r.rules).toContain("phrase:in-order-to");
+		expect(r.rules).toContain("strip:article-the");
+		expect(r.text).not.toContain("order to");
+	});
+});
+
 // ─── L6 byte-stability ───────────────────────────────────────────────────
 describe("L6 byte-stability", () => {
 	test("same input ⇒ byte-identical {text, rules} across runs", () => {
-		for (const tier of TIERS_ALL) {
+		for (const tier of TIERS_LIVE) {
 			for (const entry of CORPUS) {
 				expect(condenseTier(tier, entry.input)).toEqual(
 					condenseTier(tier, entry.input),

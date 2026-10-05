@@ -173,27 +173,43 @@ const cavemanSteps: Step[] = [
 	{ kind: "trim" },
 ];
 
+// the article strip, shared verbatim by aggressive + machine (W367.4)
+const ARTICLE_STRIPS: ReplaceRule[] = [
+	{ name: "strip:article-the", re: /\bthe[ \t]+(?=[a-z0-9])/g, rep: "" },
+	{
+		name: "strip:article-an",
+		re: /(?<=[ \t])an?[ \t]+(?=[a-z])(?!(?:and|or|is|are|b)\b)/g,
+		rep: "",
+	},
+];
+
 const aggressiveSteps: Step[] = [
 	{ kind: "cased-replace", rules: PHRASE_RULES },
 	{ kind: "cased-replace", rules: [FILLER_RULE] },
-	{
-		kind: "replace",
-		scope: "text",
-		rules: [
-			{ name: "strip:article-the", re: /\bthe[ \t]+(?=[a-z0-9])/g, rep: "" },
-			{
-				name: "strip:article-an",
-				re: /(?<=[ \t])an?[ \t]+(?=[a-z])(?!(?:and|or|is|are|b)\b)/g,
-				rep: "",
-			},
-		],
-	},
+	{ kind: "replace", scope: "text", rules: ARTICLE_STRIPS },
 	{ kind: "cap-resolve" },
 	{ kind: "replace", scope: "text", rules: BELT_SPACING },
 	{ kind: "sentence-dedupe", scope: "text", mode: "exact", minWords: 3 },
 ];
 
-export type TierName = "politeness" | "caveman" | "aggressive";
+// machine (W367.4) — aggressive MINUS hedge removal. The phrase table,
+// article strips, cap-resolve, belt spacing chain and exact sentence
+// dedupe carry over; the belt FILLER_RULE cased-replace step (the hedge
+// list just/very/really/simply/quite/literally/basically/actually/
+// certainly/definitely) is deliberately ABSENT — law L2: a hedge in an
+// AGENTS.md ("only touch X") is meaning. Additive tier, no parity pin:
+// it carries the union protect grammar (the engine's full L1 surface —
+// adds ~~~ fences, paths, flags, URLs over belt's). Existing tiers are
+// untouched (the pins prove it), so CONDENSE_VERSION does not bump.
+const machineSteps: Step[] = [
+	{ kind: "cased-replace", rules: PHRASE_RULES },
+	{ kind: "replace", scope: "text", rules: ARTICLE_STRIPS },
+	{ kind: "cap-resolve" },
+	{ kind: "replace", scope: "text", rules: BELT_SPACING },
+	{ kind: "sentence-dedupe", scope: "text", mode: "exact", minWords: 3 },
+];
+
+export type TierName = "politeness" | "caveman" | "aggressive" | "machine";
 
 export const TIERS: Record<TierName, TierSpec> = {
 	politeness: {
@@ -220,6 +236,15 @@ export const TIERS: Record<TierName, TierSpec> = {
 		guardSentinels: true,
 		dedupeSlots: true,
 		steps: aggressiveSteps,
+		finalTrim: "whole",
+		fixpointRounds: 5,
+	},
+	machine: {
+		name: "machine",
+		protect: PROTECT_GRAMMARS.union,
+		guardSentinels: true,
+		dedupeSlots: true,
+		steps: machineSteps,
 		finalTrim: "whole",
 		fixpointRounds: 5,
 	},

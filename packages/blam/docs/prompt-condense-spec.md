@@ -97,6 +97,20 @@ a hedge in an AGENTS.md ("only touch X") is meaning. Eval-only status of
 Bench matrix (W367.3): in/out × none/condense/enhance combos, rows in the
 central benchmarks.md. Specialty compressor research: W367.5.
 
+**LANDED (W367.4)**: `condenseTier("machine", …)` in
+`packages/blam/src/condense/tiers.ts` — the aggressive phrase table +
+article strips + cap-resolve + belt spacing chain + exact sentence dedupe,
+the belt hedge list removed (L2 stands), protected by the union grammar
+(the engine's full L1 surface). Consumer seam: the board orchestrate
+repo-context injection (`packages/suspenders/hooks/board/orch.ts`,
+`orchContext`) — the orchestrator LLM's inbound context is condensed at
+consume-time, and the preview discloses the same bytes (deterministic, L6;
+the held plan materializes ctx once, so no tier-keyed cache is needed).
+Dispatch-brief MISSION/INBOX stay `caveman` (row 1 of the table above).
+The knowledge substitution corpora (suspenders `loadRootDocs`/`loadDocs`,
+buckle `doc-skip.ts`) stay raw — they are mechanical coverage inputs for
+the substitution gate, not model-facing text.
+
 ## The meaning-preservation law (executable)
 
 1. **L1 Protect surface**: fences, `"""` blocks, `<log>` blocks, inline
