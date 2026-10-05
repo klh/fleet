@@ -18,7 +18,7 @@ here.** The 2026-09-23 fleet snapshot is preserved below for provenance.
   `local-extract` direct `:8902` p50 91 ms vs `:4100` p50 100 ms (n=10 each,
   1.10×); W270 `resolveTarget()` alias sent to `:8902` → 10/10 404
   `model_not_found`; Kev `:8912` 200 <1 ms; embeddings `:8907` down. →
-  [benchmarks.md](../benchmarks.md#stack-vs-pure-api--bench-arena-findings-w274-all-setups-as-is).
+  [benchmarks.md](../../benchmarks.md#stack-vs-pure-api--bench-arena-findings-w274-all-setups-as-is).
 
 ---
 

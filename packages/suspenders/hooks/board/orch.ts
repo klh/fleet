@@ -15,6 +15,7 @@ import {
 	preparePrompt,
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
+import { condenseTier } from "../../../blam/src/condense/tiers.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -99,7 +100,14 @@ export function parseProposal(text: string): OrchProposal | null {
 }
 
 // bounded repo context: open work items (dedupe vs the goal is the model's
-// job) + top-level entries as a cheap shape hint
+// job) + top-level entries as a cheap shape hint. W367.4: this is a
+// machine-facing inbound context injection — the orchestrator LLM reads it,
+// users see only the redacted preview disclosure — so the blam `machine`
+// tier runs at consume-time (aggressive minus hedge removal: item titles
+// keep hedges/scope words per law L2; paths/flags/dotted ids stay verbatim
+// via the union protect grammar). Deterministic (L6), so the preview's
+// disclosed ctx is byte-identical to the dispatched ctx — the held plan
+// materializes ctx once, no tier-keyed cache needed.
 export function orchContext(project: string, repo: string): string {
 	const items = (
 		db
@@ -119,7 +127,10 @@ export function orchContext(project: string, repo: string): string {
 		.sort()
 		.slice(0, ORCH.CTX_ENTRIES)
 		.join(", ");
-	return `OPEN WORK ITEMS:\n${items || "(none)"}\nTOP-LEVEL: ${entries}`;
+	return condenseTier(
+		"machine",
+		`OPEN WORK ITEMS:\n${items || "(none)"}\nTOP-LEVEL: ${entries}`,
+	).text;
 }
 
 // one llm.call telemetry event per orchestrate round-trip, success or not —

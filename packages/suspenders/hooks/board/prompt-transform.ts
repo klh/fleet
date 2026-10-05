@@ -4,6 +4,7 @@
 // injected-context disclosure and secret redaction for the debug/log
 // preview. Pure module: no db, no board context — deps are injected so the
 // unit tests drive every branch without a live board.
+import { condenseTier } from "../../../blam/src/condense/tiers.ts";
 import { scrub } from "../lib/servicemon.ts";
 
 // ─── settings (persisted in suspenders-board.json, W269-compatible keys) ──
@@ -37,110 +38,18 @@ export function resolvePromptSettings(
 	return out;
 }
 
-// ─── the prompt condenser ────────────────────────────────────────────────
-// Prose only: code fences, inline code, URLs and path-like tokens are
-// protected verbatim. Rules are ordered and pure, so the same input always
-// yields the same output, and condensing twice equals condensing once.
-
-// [pattern, replacement] — W287 politeness-only ruleset: greetings, thanks,
-// please/could-you wrappers and "go ahead and" add no instruction. Hedges,
-// quantifiers and scope words (just, maybe, only, very, quite, perhaps,
-// really, kind of…) carry meaning and are NEVER stripped. Imperative verbs
-// and technical terms are never listed.
-const FILLER: [RegExp, string][] = [
-	[/^\s*(?:hi|hey|hello)(?: there)?\b[,!.]?/gim, ""],
-	[
-		/\b(?:thanks|thank you)(?: (?:so|very) much)?(?: in advance)?\b[,!.]?/gi,
-		"",
-	],
-	[/\b(?:could|can|would) you (?:please )?(?:kindly )?\b/gi, ""],
-	[/\b(?:please|kindly)\b[,]?/gi, ""],
-	[/\bgo ahead and\b/gi, ""],
-];
-
-// fences, inline code, URLs, paths (/a/b, ./x, ~/x, a/b.ts), flags, dotted
-// identifiers (prompt.condense) — the exact technical surface stays intact
-const PROTECT =
-	/```[\s\S]*?```|`[^`\n]+`|\bhttps?:\/\/\S+|(?:~|\.{1,2})?\/[\w.@~-]+(?:\/[\w.@~-]*)*|\b[\w-]+\/[\w./-]+|--?[A-Za-z][\w-]*|\b\w+(?:\.\w+)+\b/g;
-
-function condenseProse(s: string): string {
-	let t = s;
-	for (const [re, rep] of FILLER) t = t.replace(re, rep);
-	// doubled words ("the the"), case-insensitive, letters only
-	return t.replace(/\b([A-Za-z]+)(\s+\1\b)+/gi, "$1");
-}
-
-function tidy(s: string): string {
-	return s
-		.replace(/([!?])\1+/g, "$1")
-		.replace(/[ \t]+/g, " ")
-		.replace(/ +([,.;:!?])/g, "$1")
-		.replace(/([,;:])(?:\s*[,;:])+/g, "$1")
-		.replace(/[,;:]+\s*([.!?])/g, "$1")
-		.replace(/[,;:]+[ \t]*$/gm, "")
-		.replace(/(^|[\n.!?]\s*)[,;:]\s*/g, "$1")
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/\n[ \t]+/g, "\n")
-		.replace(/\n{3,}/g, "\n\n");
-}
-
-// W334 caveman tier: sentences ABOUT the prompt/request machinery carry no
-// task content ("Although this prompt contains...", "between when this
-// prompt was written...") — drop them. Conservative patterns: a task that
-// genuinely says "prompt the user" never matches "the prompt" as a noun
-// phrase with these shapes.
-const META_RE =
-	/\b(this prompt|the prompt(?! the user)|between when this|the actual requested action|although this)\b/i;
-function stripMetaSentences(s: string): string {
-	return s
-		.split(/(?<=[.!?])\s+/)
-		.filter((sent) => !META_RE.test(sent))
-		.join(" ");
-}
-
-// sentence-level redundancy: an exact (normalized) repeat of an earlier
-// sentence adds nothing — drop it, keep the first occurrence
-function dedupeSentences(s: string): string {
-	const kept = new Set<Set<string>>(); // normalized token sets of kept sentences
-	const words = (t: string): Set<string> =>
-		new Set(t.toLowerCase().match(/[a-z0-9']+/g) ?? []);
-	const jaccard = (a: Set<string>, b: Set<string>): number => {
-		let inter = 0;
-		for (const w of a) if (b.has(w)) inter++;
-		const union = a.size + b.size - inter;
-		return union === 0 ? 0 : inter / union;
-	};
-	return s
-		.split(/(?<=[.!?])\s+/)
-		.filter((sent) => {
-			const tokens = words(sent);
-			if (tokens.size === 0) return true;
-			// exact or near-duplicate of a kept sentence adds nothing — W334
-			for (const k of kept) {
-				if (jaccard(tokens, k) >= 0.75) return false;
-			}
-			kept.add(tokens);
-			return true;
-		})
-		.join(" ");
-}
-
+// ─── the prompt condenser (W367.2: blam canonical engine) ────────────────
+// The inline W287/W334 ruleset moved to the blam canonical engine
+// (packages/blam/src/condense/{engine,tiers,version}.ts) — this is now a
+// pure delegation to the `caveman` tier, whose rule table reproduces the
+// old pipeline exactly (W287 politeness filler, W334 meta-sentence strip,
+// jaccard sentence dedupe, tidy chain). Prose only: code fences, inline
+// code, URLs and path-like tokens stay verbatim; deterministic and
+// idempotent. Byte parity is pinned in pins.json
+// (packages/blam/test/fixtures/condense/, 25-input corpus,
+// blam-condense/1) — change the tier table there, never here.
 export function condensePrompt(text: string): string {
-	const keep: string[] = [];
-	// private-use sentinel: never typed by a human, survives every rule
-	const masked = text.replace(PROTECT, (m) => {
-		keep.push(m);
-		return `\uE000${keep.length - 1}\uE001`;
-	});
-	const lines = masked
-		.split("\n")
-		.map((l) => dedupeSentences(stripMetaSentences(condenseProse(l))));
-	const out = tidy(lines.join("\n"))
-		.split("\n")
-		.map((l) => l.trim())
-		.join("\n")
-		.trim();
-	return out.replace(/\uE000(\d+)\uE001/g, (_, i) => keep[Number(i)] ?? "");
+	return condenseTier("caveman", text).text;
 }
 
 // ─── enhance (opt-in local LLM rewrite) ──────────────────────────────────

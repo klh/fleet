@@ -53,7 +53,7 @@ curl -s http://localhost:PORT/v1/chat/completions -H 'content-type: application/
 
 The standard rig is the 4-prompt suite — exact question text and sample-size
 laws in [bench-questions.md](../bench-questions.md); curated numbers in
-[benchmarks.md](../benchmarks.md). The Danish prompt is deliberate:
+[benchmarks.md](../../benchmarks.md). The Danish prompt is deliberate:
 multilingual is a fleet requirement.
 
 ```bash
@@ -71,7 +71,7 @@ House rules:
   probes) gate adoption
 - **A/B engine flags too** — e.g. the 8901 kv-cache A/B: `--kv-cache-dtype
 int8` lost clearly at short contexts (dequant overhead dominates; bf16 KV
-  stays — numbers in [benchmarks.md](../benchmarks.md)). Comment the outcome
+  stays — numbers in [benchmarks.md](../../benchmarks.md)). Comment the outcome
   in the registry.
 
 ## 5. Adopt or reject
@@ -82,7 +82,7 @@ int8` lost clearly at short contexts (dequant overhead dominates; bf16 KV
 
 ## Rejection log
 
-Moved to the [rejection log in benchmarks.md](../benchmarks.md#rejection-log)
+Moved to the [rejection log in benchmarks.md](../../benchmarks.md#rejection-log)
 (owner law 2026-10-02 — bench data lives only there). New rejections get a
 row there, with the date and the bench numbers that justified them.
 
