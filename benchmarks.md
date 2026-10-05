@@ -270,3 +270,97 @@ in [bench-questions.md](packages/buckle/bench-questions.md).
 | ---------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-10-02 | kev-4B as buckle fit backend | 4/12 agreement, 3.6× latency, 1.6× tokens vs :8902 chat-JSON (W225)                                                                        |
 | 2026-10-02 | Jev as first-hit classifier  | 62.6% single-question phishing (beri.net); only decomposition + fitted weights reached 95%; see bench-questions.md decision-model protocol |
+
+## Condense/enhance matrix (W367.3, blam-condense/1)
+
+Owner directive 2026-10-05: the prompt IN/OUT variant matrix, benched on the
+local swarm. Arena harness (sealed manifest `6253f5092545542e`, nonce-cold,
+temp 0, AC power throughout), 6 classes × n=12 × 2 local legs = 144 cold
+requests per variant. Legs: `stack-engine-local` (:4100 LiteLLM → local-\*)
+and `local-direct` (raw :890x); the enhance transform rides the :4000 router
+→ :890x. Class → model map: b → :8901 coder, c+e → :8902 extract,
+a+d+f → :8903 reason. Engine: blam canonical condense, CONDENSE_VERSION
+`blam-condense/1` (tier in the transform version); `condense-out` is the
+politeness tier applied to the sealed input AS IF response-side — it
+simulates the buckle `condense-in` sideband's character; the arena measures
+model output quality under a gentled prompt, the real sideband is a buckle
+runtime concern. The legacy arena condense id (`ref-condense/1`) is not part
+of the owner matrix; its historical numbers keep their run-ids.
+
+Run-ids (results in `packages/belt/bench/arena/results/`, gitignored;
+reports per run + `variants-report.md`):
+
+| variant              | transform version                           | run-id                    |
+| -------------------- | ------------------------------------------- | ------------------------- |
+| none                 | none/1                                      | 20261005T152307Z-ce658f25 |
+| condense-in          | blam-condense/1/caveman                     | 20261005T154444Z-421c943e |
+| condense-out         | blam-condense/1/politeness                  | 20261005T162149Z-9d583bd1 |
+| enhance              | enhance-router/1                            | 20261005T201022Z-84037d00 |
+| condense-in+enhance  | blam-condense/1/caveman+enhance-router/1    | 20261005T201859Z-5a8497ca |
+| condense-out+enhance | blam-condense/1/politeness+enhance-router/1 | 20261005T202840Z-bee69071 |
+
+Honesty: quality at n=12/class is **insufficient** (no claims, fleet law);
+the quality direction is still reported as measured. **Load confound**:
+variants none/condense-in/condense-out ran during heavy fleet contention
+(row load1 12–58, several `polluted` p95/p50 flags); enhance and the combos
+ran in a quiet window (load1 ~6–9). Absolute walls are NOT comparable across
+that boundary — token and pass% columns are load-independent. One HTTP error
+row (condense-out, class c) scored 0 and is counted. An incomplete duplicate
+condense-out run (20261005T170734Z-9d583bd1, 24 rows, not ended) is excluded.
+
+### :8901 local-coder — class b (n=24 per cell, both legs pooled)
+
+| variant              | wall p50 SEL | wall p50 DIR | tok in/out (mean) | pass% b [measured] |
+| -------------------- | -----------: | -----------: | ----------------- | ------------------ |
+| none                 |        1,539 |        1,373 | 89 / 104          | 71%                |
+| condense-in          |        2,543 |        2,509 | 89 / 107          | 75%                |
+| condense-out         |        4,364 |        3,310 | 88 / 103          | 75%                |
+| enhance              |        2,486 |        2,640 | 114 / 345         | **8%**             |
+| condense-in+enhance  |        2,661 |        2,997 | 114 / 407         | 17%                |
+| condense-out+enhance |        3,137 |        2,478 | 114 / 345         | **8%**             |
+
+### :8902 local-extract — classes c, e (n=24 per cell)
+
+| variant              | wall p50 SEL | wall p50 DIR | tok in/out (mean) | pass% c / e   |
+| -------------------- | -----------: | -----------: | ----------------- | ------------- |
+| none                 |          457 |          459 | 213 / 46          | 100% / 75%    |
+| condense-in          |          450 |          449 | 213 / 46          | 100% / 75%    |
+| condense-out         |          953 |        1,011 | 213 / 45          | 96% / 75%     |
+| enhance              |          394 |          435 | 201 / 106         | **38%** / 58% |
+| condense-in+enhance  |          424 |          453 | 201 / 91          | **17%** / 54% |
+| condense-out+enhance |          412 |          466 | 201 / 93          | **21%** / 54% |
+
+### :8903 local-reason — classes a, d, f (n=24 per cell)
+
+| variant              | wall p50 SEL | wall p50 DIR | tok in/out (mean) | pass% a / d / f        |
+| -------------------- | -----------: | -----------: | ----------------- | ---------------------- |
+| none                 |        6,067 |        6,377 | 5,645 / 230       | 96% / 92% / 100%       |
+| condense-in          |        4,770 |        4,363 | 5,645 / 174       | 100% / 92% / 100%      |
+| condense-out         |        7,056 |        6,964 | 5,645 / 167       | 96% / 92% / 100%       |
+| enhance              |        3,788 |        3,251 | 5,715 / 436       | **0%** / **25%** / 75% |
+| condense-in+enhance  |        3,197 |        3,975 | 5,710 / 457       | **0%** / **25%** / 83% |
+| condense-out+enhance |        3,597 |        3,395 | 5,710 / 449       | **0%** / **13%** / 75% |
+
+Prompt chars in→out (transform dimension, load-independent): the caveman and
+politeness tiers are near-neutral on these sealed task texts (d 328→327,
+c 573→569, e 92→92); enhance INFLATES them 2–5× (e 92→457, a 179→614,
+d 328→478, f q 83→374) while dropping constraints — see findings.
+
+Findings (as measured, n=12 smoke-level):
+
+1. **Both deterministic blam tiers are quality-neutral at this n** — pass%
+   identical to none within noise on every class (the one condense-out c
+   cell lost a row to an HTTP error, not a checker miss).
+2. **enhance (local-LLM rewrite via :4000) collapses quality** while making
+   prompts 2–5× bigger: b 71→8%, c 100→38%, a 96→0%, d 92→25%. The small
+   swarm models cannot honor the enhance system prompt's verbatim rules.
+3. **Combos do not rescue it** — condense before enhance lands in the same
+   collapsed band (b 8–17%, c 17–21%, a 0%).
+4. Out-token means on :8903 drop 24–27% under the condense tiers and roughly
+   double under enhance — but class d token spread is wide (leg means differ
+   660 vs 428 inside one run), so treat token deltas as suggestive only.
+5. Verdict for the stack: keep the deterministic caveman tier as the inbound
+   default (quality-neutral, zero added latency, audit list intact); do NOT
+   enable the enhance pass on the local swarm for task prompts, and keep the
+   buckle outbound sideband (politeness) default OFF pending a quality bench
+   on real responses. W368 re-benches all three blam tiers per model.
