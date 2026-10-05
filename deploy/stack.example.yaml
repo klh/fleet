@@ -22,6 +22,22 @@ hubs:
     belt_port: 7791
     allowed_hosts: [nas-hub.local]
     peers: []
+    # deployment knobs (hubctl, deploy/hubctl.ts): binds + repo trees +
+    # deploy transport + secret PATHS (values minted on the hub, never here)
+    bind: 0.0.0.0
+    board_bind: 0.0.0.0
+    belt_bind: 0.0.0.0
+    services_json: /state/hub-home/services.json
+    repos:
+      buckle: /volume1/docker/hub/buckle
+      suspenders: /volume1/docker/hub/suspenders
+      belt: /volume1/docker/hub/belt
+    deploy:
+      ssh: user@nas.example
+      dir: /volume1/docker/hub
+      docker: /usr/local/bin/docker
+    secrets:
+      buckle_root_key: /volume1/docker/hub/buckle/buckle.env
 
 # Enterprise layer (the -remote overlay knobs, materialized per hub):
 auth:

@@ -1,0 +1,285 @@
+#!/usr/bin/env bun
+// deploy/hubctl.ts — the hub deployment control surface. Reads the machine-level
+// stack config (~/.config/klh/stack.yaml, mode 600 — hubs, ports, connection
+// URIs, secret PATHS never values), then materializes deploys from it:
+// nothing hub-specific is hardcoded here; undeclared knobs fall through to the
+// hub-compose.yaml template defaults. Secrets are minted ON the hub device
+// (idempotent, never printed, never transported in the clear — ssh only).
+//   bun deploy/hubctl.ts render <hub>   # compose .env → stdout (no secrets)
+//   bun deploy/hubctl.ts mint  <hub>    # ensure secrets exist on the hub (0600)
+//   bun deploy/hubctl.ts push  <hub>    # stream compose template + .env to the hub
+//   bun deploy/hubctl.ts up    <hub>    # docker compose up -d on the hub
+//   bun deploy/hubctl.ts status <hub>   # per-service health probes
+// Config: KLH_STACK env overrides the stack path (tests).
+
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parse } from "yaml";
+
+interface HubProfile {
+	host: string;
+	buckle_port?: number;
+	board_port?: number;
+	store_port?: number;
+	belt_port?: number;
+	bind?: string;
+	board_bind?: string;
+	belt_bind?: string;
+	allowed_hosts?: string[];
+	services_json?: string;
+	peers?: string[];
+	repos?: {
+		buckle?: string;
+		suspenders?: string;
+		tree?: string;
+		belt?: string;
+	};
+	deploy?: {
+		ssh?: string;
+		dir: string;
+		docker?: string;
+		compose?: string;
+	};
+	secrets?: { buckle_root_key?: string };
+}
+
+interface StackConfig {
+	hubs: Record<string, HubProfile>;
+	auth?: { required?: boolean };
+}
+
+const STACK_PATH =
+	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
+const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
+
+/** Parse the machine-level stack config; `hubs:` is mandatory. */
+function loadStack(): StackConfig {
+	const raw = parse(readFileSync(STACK_PATH, "utf8")) as StackConfig;
+	if (!raw?.hubs || typeof raw.hubs !== "object") {
+		throw new Error(`no hubs: section in ${STACK_PATH}`);
+	}
+	return raw;
+}
+
+/** Resolve a hub by name, listing what exists on a miss. */
+function requireHub(stack: StackConfig, name: string): HubProfile {
+	const hub = stack.hubs[name];
+	if (!hub) {
+		throw new Error(
+			`hub "${name}" not in ${STACK_PATH} — known: ${Object.keys(stack.hubs).join(", ")}`,
+		);
+	}
+	return hub;
+}
+
+/** Render the compose .env from the profile — declared knobs only (the
+ *  template's own defaults cover everything else; single source of truth). */
+function renderEnv(
+	hub: HubProfile,
+	name: string,
+	authRequired?: boolean,
+): string {
+	const lines = [`HUB_NAME=${name}`];
+	const kv = (key: string, v: unknown): void => {
+		if (v !== undefined) lines.push(`${key}=${String(v)}`);
+	};
+	kv("HUB_BUCKLE_PORT", hub.buckle_port);
+	kv("HUB_BUCKLE_BIND", hub.bind);
+	kv("HUB_BUCKLE_REPO", hub.repos?.buckle);
+	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
+	if (authRequired !== undefined)
+		kv("HUB_BUCKLE_AUTH", authRequired ? "on" : "off");
+	kv("HUB_BOARD_PORT", hub.board_port);
+	kv("HUB_BOARD_BIND", hub.board_bind);
+	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
+	kv("HUB_SERVICES_JSON", hub.services_json);
+	kv("HUB_STORE_PORT", hub.store_port);
+	kv("HUB_BELT_BIND", hub.belt_bind);
+	kv("HUB_BELT_PORT", hub.belt_port);
+	kv("HUB_SUSPENDERS_REPO", hub.repos?.suspenders);
+	kv("HUB_BELT_REPO", hub.repos?.belt);
+	return `${lines.join("\n")}\n`;
+}
+
+/** Run a script on the hub host (or locally when the hub has no ssh target). */
+function runOnHub(hub: HubProfile, script: string): string {
+	if (hub.deploy?.ssh) {
+		return execFileSync("ssh", [hub.deploy.ssh, script], { encoding: "utf8" });
+	}
+	return execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
+}
+
+/** Copy a file to the hub host (plain scp; the hub's deploy.dir must exist). */
+function copyToHub(hub: HubProfile, src: string, dest: string): void {
+	if (hub.deploy?.ssh) {
+		execFileSync("scp", ["-q", src, `${hub.deploy.ssh}:${dest}`]);
+		return;
+	}
+	writeFileSync(dest, readFileSync(src));
+}
+
+const MINT_SCRIPT = [
+	"umask 077",
+	"F=$1",
+	'mkdir -p "$(dirname "$F")"',
+	'[ -s "$F" ] && { echo have; exit 0; }',
+	"if command -v openssl >/dev/null 2>&1; then",
+	"  K=$(openssl rand -hex 32)",
+	"else",
+	'  K=$(docker run --rm oven/bun:1 bun -e \'console.log([...new Uint8Array(crypto.getRandomValues(new Uint8Array(32)))].map(b=>b.toString(16).padStart(2,"0")).join(""))\')',
+	"fi",
+	'printf \'BUCKLE_ROOT_KEY=%s\\n\' "$K" > "$F"',
+	"echo minted",
+].join("\n");
+
+/** Ensure the buckle break-glass root key exists ON the hub device (0600,
+ *  idempotent, key material never printed or transported in the clear). */
+function mintRootKey(hub: HubProfile): void {
+	const target = hub.secrets?.buckle_root_key;
+	if (!target) {
+		console.log(`= no secrets declared for this hub — nothing to mint`);
+		return;
+	}
+	const out = runOnHub(
+		hub,
+		`/bin/sh -c '${MINT_SCRIPT.replace(/'/g, `'\\''`)}' sh ${JSON.stringify(target)}`.replace(
+			"sh '' ",
+			"",
+		),
+	);
+	console.log(`+ ${target} (${out.trim()})`);
+}
+
+/** Push the compose template + rendered .env to the hub's deploy dir. */
+function pushConfig(
+	hub: HubProfile,
+	name: string,
+	authRequired?: boolean,
+): void {
+	if (!existsSync(COMPOSE_TEMPLATE)) {
+		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
+	}
+	const envText = renderEnv(hub, name, authRequired);
+	const dir = requireDir(hub);
+	const envPath = `${dir}/.env`;
+	copyToHub(hub, COMPOSE_TEMPLATE, `${dir}/hub-compose.yaml`);
+	if (hub.deploy?.ssh) {
+		execFileSync("ssh", [hub.deploy.ssh, `mkdir -p ${JSON.stringify(dir)}`]);
+		execFileSync(
+			"ssh",
+			[hub.deploy.ssh, `/bin/sh -c 'cat > ${JSON.stringify(envPath)}'`],
+			{ input: envText },
+		);
+		return;
+	}
+	writeFileSync(envPath, envText);
+}
+
+/** Where hub-compose.yaml + .env live on the hub — declared, never defaulted. */
+function requireDir(hub: HubProfile): string {
+	const dir = hub.deploy?.dir;
+	if (!dir) {
+		throw new Error(
+			`hub has no deploy.dir in ${STACK_PATH} — declare where hub-compose.yaml + .env live on the hub`,
+		);
+	}
+	return dir;
+}
+
+/** docker compose up -d on the hub. */
+function composeUp(hub: HubProfile): void {
+	const dir = requireDir(hub);
+	const docker = hub.deploy?.docker ?? "docker";
+	console.log(
+		runOnHub(
+			hub,
+			`${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d`,
+		).trim(),
+	);
+}
+
+/** Probe every service port; exit non-zero when any probe fails. */
+function status(hub: HubProfile): number {
+	const docker = hub.deploy?.docker ?? "docker";
+	const dir = requireDir(hub);
+	const ps = runOnHub(
+		hub,
+		`${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} ps --format json`,
+	).trim();
+	let failed = 0;
+	for (const line of ps.split("\n").filter((l) => l.startsWith("{"))) {
+		try {
+			const row = JSON.parse(line) as { Service?: string; State?: string };
+			const svc = row.Service ?? "?";
+			const ok = row.State === "running";
+			if (!ok) failed++;
+			console.log(`${ok ? "✓" : "✗"} ${svc}: ${row.State ?? "?"}`);
+		} catch {
+			failed++;
+		}
+	}
+	const probes: Array<[string, number, string]> = [
+		["buckle", hub.buckle_port ?? 0, "/status"],
+		["board", hub.board_port ?? 0, "/status"],
+		["hub-store", hub.store_port ?? 0, "/status"],
+		["belt", hub.belt_port ?? 0, "/api/status"],
+	];
+	for (const [svc, port, path] of probes) {
+		if (!port) continue;
+		const code = execFileSync(
+			"ssh",
+			[
+				hub.deploy?.ssh ?? "",
+				`curl -so /dev/null -w '%{http_code}' http://127.0.0.1:${port}${path}`,
+			].filter(Boolean),
+			{ encoding: "utf8" },
+		).trim();
+		const ok = code === "200";
+		if (!ok) failed++;
+		console.log(
+			`${ok ? "✓" : "✗"} ${svc} :${port}${path} → ${code || "no answer"}`,
+		);
+	}
+	return failed;
+}
+
+function main(): void {
+	const [verb, hubName] = process.argv.slice(2);
+	const stack = loadStack();
+	const authRequired = stack.auth?.required;
+	if (!hubName || verb === "--help" || verb === "-h") {
+		console.log(
+			"usage: hubctl <render|mint|push|up|status> <hub> — config: ~/.config/klh/stack.yaml",
+		);
+		process.exit(hubName ? 0 : 2);
+	}
+	const hub = requireHub(stack, hubName);
+	if (verb === "status") {
+		const failed = status(hub);
+		console.log(failed === 0 ? "all healthy" : `${failed} probe(s) failed`);
+		process.exit(failed === 0 ? 0 : 1);
+	}
+	switch (verb) {
+		case "render":
+			console.log(renderEnv(hub, hubName, authRequired));
+			return;
+		case "mint":
+			mintRootKey(hub);
+			return;
+		case "push":
+			pushConfig(hub, hubName, authRequired);
+			return;
+		case "up":
+			composeUp(hub);
+			return;
+		default:
+			console.log(
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status`,
+			);
+			process.exit(2);
+	}
+}
+
+main();

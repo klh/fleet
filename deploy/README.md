@@ -13,32 +13,22 @@ Docker Desktop (this Mac):
     HUB_STORE_PORT=7796 HUB_BELT_PORT=7792 \
     docker compose -f deploy/hub-compose.yaml -p klh-hub-desktop up -d
 
-NAS ($NAS_HOST — same template, compose-managed since the 2026-10-05
-root-key cutover; replaces the W318-era docker-run one-offs):
+NAS ($NAS_HOST — same template, compose-managed via hubctl; replaces the
+W318-era docker-run one-offs):
 
-    # one-time migration (run ON the NAS, host paths are NAS-local):
-    #   1. stream this repo's hub-compose.yaml → /volume1/docker/hub/
-    #   2. .env beside it (placeholders — real values in runtime stack.yaml):
-    #        HUB_NAME=nas
-    #        HUB_BUCKLE_PORT=4101  HUB_BUCKLE_BIND=0.0.0.0  HUB_BUCKLE_AUTH=on
-    #        HUB_BUCKLE_REPO=/volume1/docker/hub/buckle
-    #        HUB_BUCKLE_ENV_FILE=/volume1/docker/hub/buckle/buckle.env
-    #        HUB_BOARD_PORT=7799   HUB_BOARD_BIND=0.0.0.0
-    #        HUB_ALLOWED_HOSTS=nas-hub.local
-    #        HUB_SERVICES_JSON=/state/hub-home/services.json
-    #        HUB_STORE_PORT=7795   HUB_BELT_BIND=0.0.0.0  HUB_BELT_PORT=7791
-    #   3. generate the break-glass root key ON DEVICE (never printed,
-    #      never committed):
-    #        umask 077 && printf 'BUCKLE_ROOT_KEY=%s\n' "$(openssl rand -hex 32)" \
-    #          > /volume1/docker/hub/buckle/buckle.env
-    #   4. docker rm the manual rows, seed the named volumes from the old
-    #      host-bind state (buckle.db, belt-home incl. belt.env, hub-home,
-    #      the federation signing key → hub-secrets), then:
-    #      docker compose -f /volume1/docker/hub/hub-compose.yaml up -d
-    #   5. verify: boot log says "root-keyed", /status 200, mint-test via
-    #      /v1/admin/keys passes (statuses only — key material never echoed)
-
-    HUB_NAME=nas docker compose -f /volume1/docker/hub/hub-compose.yaml up -d
+    # the machine config (~/.config/klh/stack.yaml) declares the hub: ports,
+    # binds, repo trees, deploy transport (ssh/dir/docker), secret PATHS.
+    # hubctl materializes everything from it — nothing hand-typed:
+    #   bun deploy/hubctl.ts mint <hub>     # secrets ON the hub (0600, idempotent)
+    #   bun deploy/hubctl.ts push <hub>     # compose template + rendered .env
+    #   bun deploy/hubctl.ts up <hub>       # docker compose up -d
+    #   bun deploy/hubctl.ts status <hub>   # per-service health probes
+    # one-time cutover from manual rows: hubctl push + mint, then stop/rm the
+    # docker-run containers, seed the named volumes from the old host-bind
+    # state (buckle.db, belt-home incl. belt.env, hub-home, the federation
+    # signing key → hub-secrets), hubctl up, hubctl status.
+    # Verified: boot log "root-keyed", /status 200, mint-test via
+    # /v1/admin/keys (statuses only — key material never echoed).
 
 Ports per hub live in `~/.config/klh/stack.yaml` (mode 600) — the
 placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
