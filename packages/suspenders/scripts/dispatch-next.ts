@@ -47,7 +47,10 @@ const val = (flag: string): string | undefined => {
 	const i = argv.indexOf(flag);
 	return i >= 0 ? argv[i + 1] : undefined;
 };
-const TARGET = Number(val("--target") ?? 3);
+// Governance target (owner directive 2026-10-05: everything under buckle +
+// suspenders — lanes are the governed path, so the default fleet width rises
+// from 3 to 8; --target still overrides per invocation).
+const TARGET = Number(val("--target") ?? 8);
 const REPO = val("--repo") ?? process.cwd();
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
