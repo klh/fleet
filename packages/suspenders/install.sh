@@ -62,6 +62,16 @@ done
 # the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
 # from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
 cp -R "$KIT_DIR" "$PREFIX/"
+# W422.14 — blam rides along: board's canonical condense import points at
+# ../../../blam/src/condense (3 deep in-repo: packages/suspenders/hooks/board),
+# but the harness copy flattens hooks/* into $PREFIX, where board sits one
+# level deep. Ship blam/src as $PREFIX/blam (sibling of board/) and rewrite
+# the import depth in the installed copies. Same accommodation as the W183.1
+# local-llm sibling patch; retired by W422.5 workspace imports.
+cp -R "$REPO_DIR/../blam/src" "$PREFIX/blam"
+for f in $(rg -l '\.\./\.\./\.\./blam/src/' "$PREFIX/board" 2>/dev/null); do
+  sed 's#\.\./\.\./\.\./blam/src/#../blam/#g' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+done
 cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
 (cd "$PREFIX" && bun install) # shell-quote, for the bash gate
 echo "→ harness in place"
