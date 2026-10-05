@@ -3,8 +3,6 @@
 // sibling modules and the route modules import them.
 
 import { db, BELT_REPO, WORK_CLI, COORD_CLI } from "./context.ts";
-import { json } from "./helpers.ts";
-import { board, llm, payload } from "./data.ts";
 
 export const runCli = (
 	args: string[],
@@ -41,15 +39,19 @@ export const laneExecFacts = (
 			"INSERT OR REPLACE INTO facts (key, value, source, ts) VALUES (?, ?, 'fleet-board', ?)",
 		).run(`lane.${sid}.${k}`, v, Date.now());
 };
-// one llm:* dispatch: route the item's title+description through belt's
-// remotes router (role-based), land the answer on the item's coord thread,
-// release the board claim either way. Fire-and-forget — the HTTP answer
-// returns while belt routes. cwd = the item's repo: coord stamps
+// one llm:* dispatch: route the item's title+description to the PICKED
+// endpoint over belt's targeted route-to (W224 — the user picks machine +
+// model from the feed; the role-first router could land on a different
+// machine than the one picked), land the answer on the item's coord
+// thread, release the board claim either way. Fire-and-forget — the HTTP
+// answer returns while belt routes. cwd = the item's repo: coord stamps
 // payload.project from the cwd and the drawer timeline matches on it.
 export const llmRoute = async (job: {
 	item: string;
 	repo: string;
-	role: string;
+	machine: string;
+	port: number;
+	model?: string; // W224 catalog pick — rides route-to's --model override
 	target: string;
 	sid: string;
 	title: string;
@@ -65,10 +67,12 @@ export const llmRoute = async (job: {
 		const cmd = [
 			process.execPath,
 			`${BELT_REPO}/bin/remotes.ts`,
-			"route",
-			job.role,
+			"route-to",
+			job.machine,
+			String(job.port),
 			prompt,
 		];
+		if (job.model) cmd.push("--model", job.model);
 		const p = Bun.spawn(cmd, {
 			stdin: "ignore",
 			stdout: "pipe",

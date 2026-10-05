@@ -2,7 +2,8 @@
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
-import { beltRegistry, rowLocality } from "./belt.ts";
+import { beltRegistry } from "./belt.ts";
+import { buildBeltEntries } from "./executor-catalog.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { json } from "./helpers.ts";
 import { syncDecisions, projectList, unblockedBy } from "./lanes.ts";
@@ -27,16 +28,10 @@ import {
 // machine's own swarm, registry.ts), "user" (BYO local-models.json,
 // repo-laws.ts readUserPlane), "hub" (federation-entitled — W154's
 // loadLastKnown + hubModelIdsFrom), "remote" (everything else: direct
-// LAN/cloud belt endpoints). locality stays "local"|"remote" for back-compat
-// (existing UI badge logic); plane is the new, finer-grained field.
-export interface ExecutorEntry {
-	value: string;
-	label: string;
-	model: string;
-	locality: "local" | "remote";
-	plane: "local" | "user" | "hub" | "remote";
-	reasoningEffort: boolean;
-}
+// LAN/cloud belt endpoints). ExecutorEntry + the belt-catalog layer live
+// in executor-catalog.ts (db-free — unit tests import it directly).
+export type { ExecutorEntry } from "./executor-catalog.ts";
+export { buildBeltEntries, resolveLlmTarget } from "./executor-catalog.ts";
 
 export async function handleData(
 	_req: Request,
@@ -138,6 +133,8 @@ export async function handleData(
 		// option when it's up) + BYO user-plane entries + belt's live
 		// endpoints, each carrying plane/locality/reasoningEffort so the UI
 		// can badge L/R, prefix [HUB], and surface an effort dial.
+		// W224 — belt rows carry their live /v1/models catalog: every model
+		// id an endpoint answers with is its own pick (buildBeltEntries).
 		const hubIds = hubModelIdsFrom(loadLastKnown());
 		const swarm = await localSwarmEntries();
 		const local: ExecutorEntry[] = swarm.map((s) => ({
@@ -157,22 +154,7 @@ export async function handleData(
 			reasoningEffort: u.roles?.includes("reasoning") ?? false,
 		}));
 		const rows = await beltRegistry();
-		const llms: ExecutorEntry[] = [];
-		for (const r of rows) {
-			if (r.protocol !== "openai") continue;
-			const tail = r.model ?? String(r.port ?? "");
-			if (!r.machine || !tail) continue;
-			const loc = rowLocality(r);
-			const plane = hubIds.has(tail) ? "hub" : "remote";
-			llms.push({
-				value: `llm:${r.machine}:${tail}`,
-				label: `${plane === "hub" ? "[HUB] " : ""}${r.machine} · ${tail}${r.ok === false ? " (down)" : ""} (${loc})`,
-				model: r.model ?? tail,
-				locality: loc,
-				plane,
-				reasoningEffort: r.roles?.includes("reasoning") ?? false,
-			});
-		}
+		const llms = buildBeltEntries(rows, hubIds);
 		return json({
 			ok: true,
 			executors: [
