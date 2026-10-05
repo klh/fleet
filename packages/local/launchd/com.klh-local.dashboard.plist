@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klh-local.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__BUN__</string>
+        <string>__HOME__/.local/klh-local/bin/dashboard.ts</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.local/state/klh-local/dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.local/state/klh-local/dashboard.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+    <!-- klh-local bar: the registry rendered live on :7792 — http://bar.local/ via caddy,
+         http://127.0.0.1:7792/ direct (loopback only). /api/status is the JSON, /llms.txt the intro. -->
+</dict>
+</plist>
