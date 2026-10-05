@@ -12,6 +12,12 @@ hubs:
     board_port: 7809
     store_port: 7796
     belt_port: 7792
+    # health sidecar serve ports (W422.10) — optional; undeclared knobs
+    # fall through to the hub-compose.yaml template defaults
+    buckle_health_port: 4112
+    board_health_port: 7800
+    store_health_port: 7794
+    belt_health_port: 7790
     allowed_hosts: [suspenders.local]
     peers: [] # sub-hubs of this hub, filled at runtime
   nas:
@@ -20,6 +26,10 @@ hubs:
     board_port: 7799
     store_port: 7795
     belt_port: 7791
+    buckle_health_port: 4111
+    board_health_port: 7798
+    store_health_port: 7793
+    belt_health_port: 7789
     allowed_hosts: [nas-hub.local]
     peers: []
     # deployment knobs (hubctl, deploy/hubctl.ts): binds + repo trees +

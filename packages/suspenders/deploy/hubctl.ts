@@ -24,6 +24,13 @@ interface HubProfile {
 	board_port?: number;
 	store_port?: number;
 	belt_port?: number;
+	/** Health sidecar serve ports (W422.10) — where each *-health probe
+	 *  serves its verdict; falls through to the template default when
+	 *  undeclared. */
+	buckle_health_port?: number;
+	board_health_port?: number;
+	store_health_port?: number;
+	belt_health_port?: number;
 	bind?: string;
 	board_bind?: string;
 	belt_bind?: string;
@@ -106,6 +113,11 @@ function renderEnv(
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
+	// health sidecar ports (W422.10) — compose health hits the SIDECAR
+	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
+	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
+	kv("HUB_STORE_HEALTH_PORT", hub.store_health_port);
+	kv("HUB_BELT_HEALTH_PORT", hub.belt_health_port);
 	kv("HUB_SUSPENDERS_REF", hub.repos?.ref ?? version);
 	kv("HUB_SUSPENDERS_REPO_URL", hub.repos?.suspenders);
 	kv("HUB_BELT_REF", hub.repos?.ref ?? version);

@@ -13,6 +13,10 @@
 #     publish (127.0.0.1:17004) to keep it off the LAN.
 #   - repos bind-mount READ-ONLY; containers write only into volumes.
 #   - no registry pushes: oven/bun base + bind mounts only.
+#   - health is outside-process (owner law 2026-10-05): every served
+#     service gets a *-health sidecar (deploy/healthcheck/probe.ts); the
+#     sidecar polls the target over the wire and compose health hits the
+#     SIDECAR — served containers carry no healthcheck blocks.
 
 name: suspenders-hub-sim
 
@@ -36,14 +40,6 @@ services:
       - ${SIM_BUCKLE_REPO:-../../buckle}:/src/buckle:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.BUCKLE_PORT ?? "17001") + "/status"); if (!r.ok) process.exit(1);'
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
 
   board-hub:
     image: oven/bun:1
@@ -58,16 +54,8 @@ services:
       - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
       - hub-state:/state/hub-home
     depends_on:
-      store-hub:
+      store-health:
         condition: service_healthy
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_BOARD_PORT ?? "17002") + "/status"); if (!r.ok) process.exit(1);'
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
 
   store-hub:
     image: oven/bun:1
@@ -80,14 +68,6 @@ services:
     volumes:
       - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
       - hub-state:/state/hub-home
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_STORE_PORT ?? "17003") + "/status"); if (!r.ok) process.exit(1);'
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
 
   belt-hub:
     image: oven/bun:1
@@ -102,10 +82,94 @@ services:
     volumes:
       - ${SIM_BELT_REPO:-../../belt}:/src/belt:ro
       - belt-state:/state/belt-home
+
+  # Health sidecars (owner law 2026-10-05): the verdict about a service
+  # comes from a process OUTSIDE the served container — the sidecar polls
+  # the target over the wire and serves it on its own port; compose health
+  # hits the sidecar's /healthz, never the server.
+  buckle-health:
+    image: oven/bun:1
+    container_name: sim-buckle-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      buckle-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${SIM_BUCKLE_PORT:-17001}/status --listen ${SIM_BUCKLE_HEALTH_PORT:-17011}
+    environment:
+      SIM_BUCKLE_HEALTH_PORT: ${SIM_BUCKLE_HEALTH_PORT:-17011}
+    volumes:
+      - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:7791/api/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_BUCKLE_HEALTH_PORT ?? "17011") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  board-health:
+    image: oven/bun:1
+    container_name: sim-board-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      board-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${SIM_BOARD_PORT:-17002}/status --listen ${SIM_BOARD_HEALTH_PORT:-17012}
+    environment:
+      SIM_BOARD_HEALTH_PORT: ${SIM_BOARD_HEALTH_PORT:-17012}
+    volumes:
+      - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_BOARD_HEALTH_PORT ?? "17012") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  store-health:
+    image: oven/bun:1
+    container_name: sim-store-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      store-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${SIM_STORE_PORT:-17003}/status --listen ${SIM_STORE_HEALTH_PORT:-17013}
+    environment:
+      SIM_STORE_HEALTH_PORT: ${SIM_STORE_HEALTH_PORT:-17013}
+    volumes:
+      - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_STORE_HEALTH_PORT ?? "17013") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  belt-health:
+    image: oven/bun:1
+    container_name: sim-belt-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      belt-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${SIM_BELT_PORT:-17004}/api/status --listen ${SIM_BELT_HEALTH_PORT:-17014}
+    environment:
+      SIM_BELT_HEALTH_PORT: ${SIM_BELT_HEALTH_PORT:-17014}
+    volumes:
+      - ${SIM_SUSPENDERS_REPO:-..}:/src/suspenders:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.SIM_BELT_HEALTH_PORT ?? "17014") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 6

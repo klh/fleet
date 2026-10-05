@@ -90,7 +90,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BUCKLE_HEALTH_PORT ?? "4112") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BUCKLE_HEALTH_PORT ?? "4112") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 3
@@ -149,7 +149,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BOARD_HEALTH_PORT ?? "7800") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BOARD_HEALTH_PORT ?? "7800") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 3
@@ -188,7 +188,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_STORE_HEALTH_PORT ?? "7794") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_STORE_HEALTH_PORT ?? "7794") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 3
@@ -239,7 +239,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BELT_HEALTH_PORT ?? "7790") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BELT_HEALTH_PORT ?? "7790") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 3
