@@ -942,3 +942,28 @@ balancer. Expand to other policy types only after these cases work.
 
 These refinements supersede a literal full-repository review and repeated prompt
 on every session start. They remain a proposal, not implemented enforcement.
+
+## Cross-hub project identity: inspected findings and migration
+
+See the detailed [cross-hub identity audit and design](docs/cross-hub-project-identity.md).
+The actual resolver was exercised in isolated synthetic repositories: independent
+clones with identical origins and commits produced different project identities;
+a linked worktree matched its parent. No live database was opened or migrated.
+
+The audit found that identity is overloaded as a local path throughout board
+dispatch, worktree operations, mirrors and quota handling. Other writers derive
+it inconsistently. Bootstrap writes local SQLite while coordination can use the
+remote store. Dispatch IDs derive only from work labels, creating collision risk
+when projects share a store. Facts, consult retrieval and WS subscriptions need
+explicit scoping before enterprise sharing; raw SQL RPC is not a tenant boundary.
+
+**Recommended order:** separate paths from logical IDs and centralize resolution;
+introduce tenant/project/repository and executor/checkout/worktree bindings; mint
+independent lane/attempt IDs; enroll two clones into one authorized project
+authority; migrate historical graphs with collision/provenance checks; prove
+cross-hub claims, notifications and recovery. Do not hash `origin`, expose shared
+SQL to tenants or run blind rekeys as substitutes for this migration.
+
+The report includes source anchors, resolution rules, occupied-graph migration,
+offline/failover requirements and concrete acceptance tests. This remains design
+and research; no control-plane runtime behavior was changed.
