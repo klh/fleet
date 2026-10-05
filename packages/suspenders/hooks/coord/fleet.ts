@@ -622,9 +622,13 @@ export async function cmdDiff(rest: string[]): Promise<void> {
 // sessions open under klh/fleet. The migration is a VERB (surface law):
 // one transactional rekey across every project-scoped table, refused when
 // the target identity already carries a work graph.
+// children FIRST — work_deps holds composite FKs to work_items(project,id);
+// with foreign_keys=ON a parent-first UPDATE violates them (the W428 rekey
+// hit 500s on exactly these two tables). defer_foreign_keys inside the tx
+// relaxes the rest.
 const PROJECT_TABLES = [
-	"work_items",
 	"work_deps",
+	"work_items",
 	"work_sequences",
 	"consults",
 	"consult_kb",
@@ -668,6 +672,8 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		).get(from) as { n: number }
 	).n;
 	db.transaction(() => {
+		// composite FKs (work_deps→work_items) defer to COMMIT
+		db.run("PRAGMA defer_foreign_keys = ON");
 		for (const t of PROJECT_TABLES)
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
 		db.run(
