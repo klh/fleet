@@ -10,5 +10,9 @@
 	},
 	"engines": {
 		"bun": ">=1.2"
+	},
+	"devDependencies": {
+		"belt": "workspace:*",
+		"suspenders": "workspace:*"
 	}
 }

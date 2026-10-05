@@ -28,8 +28,8 @@
 // Classification (scoreComplexity/arithmetic/Kev/Danish) runs on the RAW
 // text upstream of this module: routing is identical with the knob on or
 // off — only the wire payload sent to the specialist shrinks.
-import { condenseTier, type TierName } from "../../blam/src/condense/tiers.ts";
-import { CONDENSE_VERSION } from "../../blam/src/condense/version.ts";
+import { condenseTier, type TierName } from "blam/src/condense/tiers.ts";
+import { CONDENSE_VERSION } from "blam/src/condense/version.ts";
 import type { ChatMessage } from "./router-core.ts";
 
 /** Production tiers only — the eval-only/machine-facing tiers stay out. */

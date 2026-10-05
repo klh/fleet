@@ -15,7 +15,7 @@ import {
 	preparePrompt,
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
-import { condenseTier } from "../../../blam/src/condense/tiers.ts";
+import { condenseTier } from "blam/src/condense/tiers.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,

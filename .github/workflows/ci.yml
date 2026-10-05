@@ -65,7 +65,7 @@ jobs:
           set -e
           ./packages/suspenders/install.sh --wire
           test -f "$HOME/.claude/hooks/suspenders/bin/fleet-board.ts"
-          test -f "$HOME/.claude/hooks/suspenders/blam/condense/tiers.ts" # W422.14: blam rides along
+          test -f "$HOME/.claude/hooks/suspenders/blam/src/condense/tiers.ts" # W422.14: blam rides along
           python3 -c "import json,os;json.load(open(os.environ['HOME']+'/.claude/settings.json'))"
           ./packages/suspenders/install.sh --wire
           python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});n=sum(len(v) for v in h.values());sys.exit(1) if n!=7 else print('wired', n, 'entries, idempotent')"

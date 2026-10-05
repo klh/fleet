@@ -1,0 +1,11 @@
+{
+	"name": "speedy",
+	"version": "2.0.0",
+	"private": true,
+	"description": "the developer environment layer — CLI tools, curated skills, personas, hooks, settings, harness configuration",
+	"type": "module",
+	"license": "BUSL-1.1",
+	"engines": {
+		"bun": ">=1.2"
+	}
+}

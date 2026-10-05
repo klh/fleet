@@ -3,7 +3,7 @@
 // touched), the rid-keyed sidestore (raw one GET away), the metered wire
 // seam (byte identity on declared requests), and the routes.
 import { describe, expect, test } from "bun:test";
-import { CORPUS } from "../../blam/test/fixtures/condense/corpus.ts";
+import { CORPUS } from "blam/test/fixtures/condense/corpus.ts";
 import { AidsLedger } from "../src/aids.ts";
 import { type AppDeps, createApp } from "../src/handlers.ts";
 import {

@@ -5,7 +5,7 @@
 // audited (law L5); metadata is deterministic — the input any future
 // response-cache key must include (no belt-side cache exists today).
 import { describe, expect, test } from "bun:test";
-import { CONDENSE_VERSION } from "../../blam/src/condense/version.ts";
+import { CONDENSE_VERSION } from "blam/src/condense/version.ts";
 import {
 	applyInboundCondense,
 	CONDENSE_PREFS_DEFAULT,

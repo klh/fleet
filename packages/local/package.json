@@ -1,0 +1,11 @@
+{
+	"name": "local",
+	"version": "2.0.0",
+	"private": true,
+	"description": "the local service front — Caddy registration, Bonjour/mDNS names, loopback defaults, service registry",
+	"type": "module",
+	"license": "BUSL-1.1",
+	"engines": {
+		"bun": ">=1.2"
+	}
+}

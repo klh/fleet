@@ -8,8 +8,8 @@
 //
 // Any mismatch is a build error — fix the tier tables (src/condense/),
 // never the parity sources.
-import { condense as beltCondense } from "../../belt/bench/arena/condense.ts";
-import { condensePrompt } from "../../suspenders/hooks/board/prompt-transform.ts";
+import { condense as beltCondense } from "belt/bench/arena/condense.ts";
+import { condensePrompt } from "suspenders/hooks/board/prompt-transform.ts";
 import { TIERS } from "../src/condense/tiers.ts";
 import { condense } from "../src/condense/engine.ts";
 import { CONDENSE_VERSION } from "../src/condense/version.ts";

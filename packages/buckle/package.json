@@ -13,5 +13,8 @@
 	},
 	"peerDependencies": {
 		"typescript": "^7"
+	},
+	"dependencies": {
+		"blam": "workspace:*"
 	}
 }

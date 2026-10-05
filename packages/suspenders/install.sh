@@ -62,18 +62,23 @@ done
 # the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
 # from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
 cp -R "$KIT_DIR" "$PREFIX/"
-# W422.14 — blam rides along: board's canonical condense import points at
-# ../../../blam/src/condense (3 deep in-repo: packages/suspenders/hooks/board),
-# but the harness copy flattens hooks/* into $PREFIX, where board sits one
-# level deep. Ship blam/src as $PREFIX/blam (sibling of board/) and rewrite
-# the import depth in the installed copies. Same accommodation as the W183.1
-# local-llm sibling patch; retired by W422.5 workspace imports.
-cp -R "$REPO_DIR/../blam/src" "$PREFIX/blam"
-for f in $(rg -l '\.\./\.\./\.\./blam/src/' "$PREFIX/board" 2>/dev/null); do
-  sed 's#\.\./\.\./\.\./blam/src/#../blam/#g' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-done
-cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
-(cd "$PREFIX" && bun install) # shell-quote, for the bash gate
+# W422.5 — blam ships whole (manifest included): suspenders' manifest declares
+# "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
+# (below) symlinks node_modules/blam -> blam/ and board's package-name import
+# (blam/src/condense) resolves. Retires the W422.14 sed-on-copies hack.
+rm -rf "$PREFIX/blam"
+cp -R "$REPO_DIR/../blam" "$PREFIX/blam"
+rm -rf "$PREFIX/blam/node_modules"
+# authoring-time devDeps (belt/suspenders workspace:*) don't ship — bun
+# --production still resolves member devDeps, so strip them from the copy
+bun -e 'const p=process.argv[1];const j=JSON.parse(await Bun.file(p).text());delete j.devDependencies;await Bun.write(p,JSON.stringify(j,null,"\t")+"\n")' "$PREFIX/blam/package.json"
+# W422.5: the manifest copies, the repo lockfile does NOT — its
+# blam@workspace:packages/blam entry references repo paths that do not exist
+# at $PREFIX, which hard-fails install. $PREFIX re-resolves from the ranges,
+# so any stale PREFIX lockfile from earlier installs goes first.
+rm -f "$PREFIX/bun.lock"
+cp "$REPO_DIR/package.json" "$PREFIX/"
+(cd "$PREFIX" && bun install --production) # --production: skip devDeps — blam's authoring-time belt/suspenders devDeps don't ship; shell-quote, for the bash gate
 echo "→ harness in place"
 
 # ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
