@@ -36,6 +36,7 @@ import {
 } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { ensureLaneKey } from "./lib/lane-auth.ts";
+import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 
@@ -376,7 +377,9 @@ export const composeBrief = (o: {
 		`IDENTITY: executor ${o.agent ?? "claude"}. [HUB] prefixes are labels — traffic routes through that hub's gateway.`,
 		``,
 		`MISSION (from work show):`,
-		o.showOut.replace(ANSI, "").trim(),
+		// W334 caveman tier at the source: the lane's actual prompt text gets
+		// the condense pass (filler/meta/dedupe, technical surface masked).
+		condensePrompt(o.showOut.replace(ANSI, "").trim()),
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
 		`Inbox: before planning and again before finishing, check bun ${BIN}/coord.ts inbox --as ${o.sid} — coordinator and board messages arrive there.`,
