@@ -1,0 +1,72 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  # Per-package test matrix. Green suites gate; suites with known pre-existing
+  # failures (suspenders full-suite ~19, belt w267-belt-eval registry drift)
+  # run continue-on-error so they stay VISIBLE without blocking the monorepo.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: blam, tolerate: "false" }
+          - { pkg: buckle, tolerate: "false" }
+          - { pkg: belt, tolerate: "true" }
+          - { pkg: suspenders, tolerate: "true" }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: install (frozen, where a lockfile exists)
+        run: |
+          if [ -f packages/${{ matrix.pkg }}/bun.lock ]; then
+            (cd packages/${{ matrix.pkg }} && bun install --frozen-lockfile)
+          fi
+      - name: tests
+        continue-on-error: ${{ matrix.tolerate == 'true' }}
+        run: bun test packages/${{ matrix.pkg }}/test/
+
+  # Every CLI entrypoint must at least parse/build.
+  entrypoints:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: parse-check every entrypoint
+        run: |
+          set -e
+          for f in packages/suspenders/hooks/gate.ts packages/suspenders/hooks/session-start.ts \
+                   packages/suspenders/hooks/session-end.ts packages/suspenders/hooks/bin/work.ts \
+                   packages/suspenders/hooks/bin/coord.ts packages/suspenders/hooks/bin/monitor.ts \
+                   packages/suspenders/hooks/bin/fleet-board.ts packages/suspenders/hooks/bin/advise.ts \
+                   packages/suspenders/hooks/bin/claim.ts packages/suspenders/hooks/bin/fleet.ts \
+                   packages/suspenders/hooks/bin/progress.ts packages/suspenders/hooks/bin/quota-window.ts \
+                   packages/belt/bin/router-shim.ts packages/belt/bin/bench-suite.ts \
+                   packages/buckle/src/server.ts packages/blam/tools/label.ts \
+                   packages/local-llm/swarm.ts; do
+            bun build "$f" --target=bun --outfile=/dev/null
+          done
+
+  # The installer must round-trip: wire, idempotent, works from any cwd.
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: installer round-trip
+        run: |
+          set -e
+          ./packages/suspenders/install.sh --wire
+          test -f "$HOME/.claude/hooks/suspenders/bin/fleet-board.ts"
+          test -f "$HOME/.claude/hooks/suspenders/blam/condense/tiers.ts" # W422.14: blam rides along
+          python3 -c "import json,os;json.load(open(os.environ['HOME']+'/.claude/settings.json'))"
+          ./packages/suspenders/install.sh --wire
+          python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});n=sum(len(v) for v in h.values());sys.exit(1) if n!=7 else print('wired', n, 'entries, idempotent')"
+          (cd /tmp && "$GITHUB_WORKSPACE/packages/suspenders/install.sh" --wire) # works from any cwd
