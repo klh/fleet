@@ -701,3 +701,113 @@ per-lane attribution.
 Establish this distribution contract before fleet-wide automated evolution.
 This addition records architecture and acceptance criteria only; no distributed
 registry, checkpoint transport or runtime cache-sharing feature was implemented.
+
+## Enterprise policy example: independent API health services
+
+### Scenario and required behavior
+
+All corporate developers use Fleet. Corporate policy requires every deployed API
+service to have an independently supervised health reporter that remains able to
+answer when the main API process crashes or hangs. At session start, the agent
+reviews the relevant source and deployment wiring. If the requirement is missing
+or incomplete, it presents the evidence and asks the developer whether to create
+an implementation lane to a concrete specification.
+
+The reporter's availability and the API's health are separate facts. A reachable
+reporter must report a failed API truthfully, not return a healthy verdict because
+its own process is running. Process isolation can survive an API crash; a sidecar
+on the same host cannot guarantee survival of host failure. Central monitoring
+must detect an unreachable reporter as unknown/unavailable, never as healthy.
+
+### Where it wires into Fleet
+
+| Layer                         | Proposed integration                                                                                                                                                               |
+| :---------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Corporate policy distribution | Versioned, access-controlled organization instructions and a machine-readable health policy; distribute through the authorized starter registry and managed developer installation |
+| Harness/session entry         | Resolve the applicable policy at start, resume and fork; inject its required contract through each harness adapter and record the policy digest on the Fleet session               |
+| Starter selection             | Accept only starters compatible with the current mandatory policy; refresh or append changed policy explicitly and rerun the affected review                                       |
+| Policy assessment             | Inspect API services and deployment manifests; retain evidence tied to repository identity, revision, service and policy version                                                   |
+| Developer decision            | Show the gap and proposed scope in the board/session; record implement, defer or request-exception with actor, time and evidence                                                   |
+| Work graph and dispatch       | After approval, create or reuse a scoped work item, attach the implementation spec and dispatch an independent lane with fresh ownership                                           |
+| Verification and deployment   | Test the source and deployed wiring; use CI/release checks where corporate policy requires a hard gate                                                                             |
+
+Existing anchors to extend, not claims of an already-built policy engine:
+
+- `packages/speedy/install-codex.ts` installs global Codex doctrine through
+  `~/.codex/AGENTS.md`; use managed installation for policy distribution, with
+  per-harness delivery verified rather than assuming all tools load that file.
+- `packages/suspenders/hooks/session-start.ts` and
+  `hooks/lib/session-bridge.ts` are session bootstrap/adapter anchors. Verify
+  actual invocation for start, resume and fork in every supported harness.
+- `packages/suspenders/scripts/dispatch-next.ts` composes lane briefs; include
+  policy identity, assessment evidence, approved scope and acceptance criteria.
+- The board's orchestration preview and existing decision/work graph mechanisms
+  provide workflow anchors. This proposal does not define new existing CLI verbs
+  or claim that policy-specific deduplication/approval schemas already exist.
+- `packages/suspenders/deploy/healthcheck/probe.ts` is the existing independent
+  reporter implementation to evaluate for reuse. It polls over the network,
+  exposes `/healthz` and `/status`, bounds history, applies timeouts and confirms
+  failure after consecutive misses. Its documented health failure status is 502;
+  retain that or choose another explicit contract in the implementation spec.
+
+An `AGENTS.md` instruction supplies guidance, but does not prove corporate
+enforcement. Enforcement also needs managed harness coverage, policy provenance
+and deterministic verification at the required CI/deployment boundary. Corporate
+policy has a distinct scope from repository documentation; detect conflicting
+instructions and route the conflict through the configured decision process.
+
+### Assessment and developer decision contract
+
+Inventory deployed API services, their manifests, network targets, supervision,
+reporter endpoints and consumers. Classify each as compliant, missing, partial,
+unknown or covered by an approved exception. A file or `/health` route inside the
+API process is insufficient evidence of independent reporting. Missing deployment
+information produces an unknown result and a bounded request for that evidence.
+
+Before asking, prepare a reviewable proposal: affected service, observed gap,
+proposed reporter/runtime wiring, files in scope, acceptance checks and operational
+impact. For example: "Orders API has an in-process health route but no independent
+reporter in its deployment manifest. Create a lane to add the shared reporter,
+wire monitoring and verify API-crash behavior?"
+
+Deduplicate open assessments and remediation work across developers/hubs using
+organization, stable project identity, service and policy ID. Record assessment
+revision and policy version separately so stale decisions can be reevaluated.
+Use transactional creation/ownership to prevent two simultaneous approvals from
+launching duplicate lanes. Do not use machine-local checkout paths as the shared
+project identity.
+
+Approval creates remediation work; defer records the unresolved gap. An exception
+request needs the corporate approval path and any expiry, rather than allowing
+the agent or developer to silently waive mandatory policy. Decide explicitly
+whether unresolved gaps block release or only notify; asking at session start
+does not by itself implement an enterprise release gate.
+
+### Minimum implementation-lane specification
+
+1. **Scope:** identify the API, deployment profiles and monitoring consumers;
+   reuse the shared reporter where compatible instead of creating per-project
+   copies. Define configuration and response contracts before changes.
+2. **Runtime independence:** separate process/container and supervision; avoid
+   lifecycle dependencies that stop the reporter when the API exits. Give it
+   bounded resources and network access to the actual target.
+3. **Health semantics:** define reporter liveness, API readiness, startup grace,
+   dependency checks, stale-sample expiry and up/degrading/down/unknown behavior.
+   Never feed target failure into an automatic reporter restart loop. Wire
+   monitoring/readiness to the appropriate verdict, not reporter liveness alone.
+4. **Configuration and exposure:** keep target URLs, ports and credentials in
+   runtime configuration; expose minimal safe status to authorized monitoring.
+   Keep secrets and internal details out of public responses and starter history.
+5. **Proof:** verify normal operation, kill and hang the API, interrupt target
+   networking, recover it, and stop the reporter. The reporter remains responsive
+   during API failure, reports failure within the agreed bound, recovers from real
+   successful probes and never treats missing/stale evidence as healthy.
+6. **Landing evidence:** record source revision, deployment profile, test results,
+   policy version and monitoring wiring. Source implementation alone does not
+   close a deployment-policy gap; re-assess the actual deployed configuration.
+
+Pilot this workflow on one API across two developers/hubs. Prove that both sessions
+load the same policy, share assessment evidence, show one actionable decision and
+create one remediation lane. Then test a policy update against an older starter
+fork. This section is a hypothetical integration specification; it creates no
+corporate policy, developer prompt, work item, deployment or implementation lane.
