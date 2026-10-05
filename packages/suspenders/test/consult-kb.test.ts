@@ -18,7 +18,10 @@ const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 // NOTE git walks UP through a scaffolded .git to the parent checkout, so
 // the identity is the PARENT repo's .git; seeds must match it exactly
 function projectOf(dir: string): string {
-	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--git-common-dir"], { stdout: "pipe", stderr: "pipe" });
+	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--git-common-dir"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	if (r.exitCode === 0) {
 		const d = new TextDecoder().decode(r.stdout).trim();
 		// resolve, not join: git prints an ABSOLUTE gitdir when the repo root is
@@ -33,19 +36,32 @@ const EXPERT = "expert-sess-11111111";
 const ASKER = "asker-sess-22222222";
 
 function run(args: string[]) {
-	const p = Bun.spawnSync(["bun", coord, ...args], { cwd: REPO, env, stdout: "pipe", stderr: "pipe" });
-	return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+	const p = Bun.spawnSync(["bun", coord, ...args], {
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
 }
 
 function seedSession(sid: string) {
 	const db = new Database(DB);
-	db.query("INSERT OR REPLACE INTO sessions (sid, project, started_at, hb, state) VALUES (?, ?, ?, ?, 'RUNNING')").run(sid, PROJ, TS, TS);
+	db.query(
+		"INSERT OR REPLACE INTO sessions (sid, project, started_at, hb, state) VALUES (?, ?, ?, ?, 'RUNNING')",
+	).run(sid, PROJ, TS, TS);
 	db.close();
 }
 
 function consultRow(id: number) {
 	const db = new Database(DB, { readonly: true });
-	const r = db.query("SELECT state, answer, expert_sid FROM consults WHERE id = ?").get(id) as
+	const r = db
+		.query("SELECT state, answer, expert_sid FROM consults WHERE id = ?")
+		.get(id) as
 		| { state: string; answer: string | null; expert_sid: string }
 		| undefined;
 	db.close();
@@ -64,21 +80,40 @@ afterAll(() => {
 describe("consult knowledge layer", () => {
 	test("kb miss: consult routes OPEN to the live expert", () => {
 		seedSession(EXPERT);
-		const r = run(["consult", EXPERT, "How do we fix the retry contract for stale leases?", "--as", ASKER]);
+		const r = run([
+			"consult",
+			EXPERT,
+			"How do we fix the retry contract for stale leases?",
+			"--as",
+			ASKER,
+		]);
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("CONSULT C1");
 		expect(consultRow(1)?.state).toBe("OPEN");
 	});
 
 	test("consult-reply harvests the pair into the kb", () => {
-		const r = run(["consult-reply", "C1", "Release the stale lease via coord lease-release, then re-take the file.", "--as", EXPERT]);
+		const r = run([
+			"consult-reply",
+			"C1",
+			"Release the stale lease via coord lease-release, then re-take the file.",
+			"--as",
+			EXPERT,
+		]);
 		expect(r.code).toBe(0);
 		expect(consultRow(1)?.state).toBe("ANSWERED");
 		const d = new Database(DB, { readonly: true });
-		const kb = d.query("SELECT problem, solution, asked_by, answered_by FROM consult_kb").all() as {
-			problem: string; solution: string; asked_by: string; answered_by: string;
+		const kb = d
+			.query("SELECT problem, solution, asked_by, answered_by FROM consult_kb")
+			.all() as {
+			problem: string;
+			solution: string;
+			asked_by: string;
+			answered_by: string;
 		}[];
-		const fts = (d.query("SELECT COUNT(*) AS n FROM consult_kb_fts").get() as { n: number }).n;
+		const fts = (
+			d.query("SELECT COUNT(*) AS n FROM consult_kb_fts").get() as { n: number }
+		).n;
 		d.close();
 		expect(kb.length).toBe(1);
 		expect(kb[0].answered_by).toBe(EXPERT);
@@ -87,27 +122,56 @@ describe("consult knowledge layer", () => {
 	});
 
 	test("repeat question resolves from kb: no expert round-trip, provenance recorded", () => {
-		const r = run(["consult", EXPERT, "What is the way to fix the retry contract for stale leases here?", "--as", ASKER]);
+		const r = run([
+			"consult",
+			EXPERT,
+			"What is the way to fix the retry contract for stale leases here?",
+			"--as",
+			ASKER,
+		]);
 		expect(r.out).toContain("knowledge base");
 		const row = consultRow(2);
 		expect(row?.state).toBe("KB");
 		expect(row?.answer).toContain("lease-release");
 		expect(row?.expert_sid).toBe(EXPERT); // provenance: who solved it originally
 		const d = new Database(DB, { readonly: true });
-		expect((d.query("SELECT hits FROM consult_kb WHERE id = 1").get() as { hits: number }).hits).toBe(1);
-		const ev = d.query("SELECT payload FROM events WHERE target = ? AND kind = 'consult.answer' ORDER BY id DESC LIMIT 1").get(ASKER) as { payload: string };
+		expect(
+			(
+				d.query("SELECT hits FROM consult_kb WHERE id = 1").get() as {
+					hits: number;
+				}
+			).hits,
+		).toBe(1);
+		const ev = d
+			.query(
+				"SELECT payload FROM events WHERE target = ? AND kind = 'consult.answer' ORDER BY id DESC LIMIT 1",
+			)
+			.get(ASKER) as { payload: string };
 		expect(JSON.parse(ev.payload).kb.expert_live).toBe(true);
 		d.close();
 	});
 
 	test("--no-kb forces live-expert routing despite a stored hit", () => {
-		const r = run(["consult", EXPERT, "fix the retry contract for stale leases", "--no-kb", "--as", ASKER]);
+		const r = run([
+			"consult",
+			EXPERT,
+			"fix the retry contract for stale leases",
+			"--no-kb",
+			"--as",
+			ASKER,
+		]);
 		expect(r.out).toContain("CONSULT C3");
 		expect(consultRow(3)?.state).toBe("OPEN");
 	});
 
 	test("unrelated question stays OPEN (all-terms AND match, high precision)", () => {
-		const r = run(["consult", EXPERT, "which ports does the llm stack listen on", "--as", ASKER]);
+		const r = run([
+			"consult",
+			EXPERT,
+			"which ports does the llm stack listen on",
+			"--as",
+			ASKER,
+		]);
 		expect(r.out).toContain("CONSULT C4");
 		expect(consultRow(4)?.state).toBe("OPEN");
 	});
@@ -118,7 +182,11 @@ describe("consult knowledge layer", () => {
 		expect(stats.out).toContain("solutions");
 		const search = run(["kb", "search", "retry contract stale leases"]);
 		expect(search.out).toContain("lease-release");
-		const miss = run(["kb", "search", "totally unrelated words about databases"]);
+		const miss = run([
+			"kb",
+			"search",
+			"totally unrelated words about databases",
+		]);
 		expect(miss.code).toBe(1);
 	});
 });
@@ -130,7 +198,12 @@ describe("consult knowledge layer", () => {
 describe("lesson teeth", () => {
 	const LQ = "how do we handle sync parity between the repos";
 	test("a consult matching a lesson is answered by the plane, expert untouched", () => {
-		const set = run(["fact", "set", "lesson.testsync", "always check sync parity before suspenders claude file syncs"]);
+		const set = run([
+			"fact",
+			"set",
+			"lesson.testsync",
+			"always check sync parity before suspenders claude file syncs",
+		]);
 		expect(set.code).toBe(0);
 		const c = run(["consult", EXPERT, LQ, "--as", ASKER]);
 		expect(c.out).toContain("answered from the plane");
@@ -140,7 +213,13 @@ describe("lesson teeth", () => {
 		expect(row?.state).toBe("LESSON");
 		expect(row?.expert_sid).toBe("plane");
 		const db = new Database(DB, { readonly: true });
-		const routed = (db.query("SELECT COUNT(*) AS n FROM events WHERE kind = 'consult' AND json_extract(payload, '$.consult') = ?").get(`C${id}`) as { n: number }).n;
+		const routed = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind = 'consult' AND json_extract(payload, '$.consult') = ?",
+				)
+				.get(`C${id}`) as { n: number }
+		).n;
 		db.close();
 		expect(routed).toBe(0);
 	});
@@ -153,9 +232,52 @@ describe("lesson teeth", () => {
 	});
 
 	test("unrelated questions route normally", () => {
-		const c = run(["consult", EXPERT, "favorite coffee preference of astronauts", "--as", ASKER]);
+		const c = run([
+			"consult",
+			EXPERT,
+			"favorite coffee preference of astronauts",
+			"--as",
+			ASKER,
+		]);
 		expect(c.out).toContain("CONSULT");
 		const id = Number(c.out.match(/C(\d+)/)?.[1]);
 		expect(consultRow(id)?.state).toBe("OPEN");
+	});
+});
+
+// W449 regression: boolean flags used to swallow the next positional, so
+// `consult --best "q"` and `consult <sid> --no-kb "q"` died with usage
+// errors. Assert on the message shape (a parse failure says "usage:" or
+// "unknown option"); valid run outcomes (knowledge hit, no-ranked-expert,
+// OPEN consult) may all exit non-zero via die() — that is routing, not
+// parsing.
+describe("consult flag placement (W449)", () => {
+	test("--best before the question parses (knowledge-first may answer)", () => {
+		seedSession(ASKER);
+		const r = run([
+			"consult",
+			"--best",
+			"how do leases guard spawn?",
+			"--as",
+			ASKER,
+		]);
+		expect(r.err).not.toContain("usage:");
+		expect(r.err).not.toContain("unknown option");
+		expect(r.out + r.err).not.toContain("usage: consult");
+	});
+
+	test("expert --no-kb between expert and question parses", () => {
+		seedSession(EXPERT);
+		seedSession(ASKER);
+		const r = run([
+			"consult",
+			EXPERT,
+			"--no-kb",
+			"lease routing question",
+			"--as",
+			ASKER,
+		]);
+		expect(r.err).not.toContain("usage:");
+		expect(r.err).not.toContain("unknown option");
 	});
 });

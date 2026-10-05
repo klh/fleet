@@ -21,13 +21,18 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// native @session messaging with who-knows for discovery.
 	const as = arg("--as");
 	const scope = arg("--scope");
-	const known = new Set(["--as", "--scope", "--best", "--no-kb"]);
+	// W449: skip-next only applies to VALUE options — boolean flags (--best,
+	// --no-kb) used to swallow the following positional (the question), so
+	// `consult --best "q"` died with a usage error.
+	const valueOpts = new Set(["--as", "--scope"]);
+	const boolOpts = new Set(["--best", "--no-kb"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
-		if (known.has(rest[i])) {
+		if (valueOpts.has(rest[i])) {
 			i++;
 			continue;
 		}
+		if (boolOpts.has(rest[i])) continue;
 		if (rest[i].startsWith("--")) die(`unknown option: ${rest[i]}`);
 		pos.push(rest[i]);
 	}
@@ -222,7 +227,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	);
 }
 
-export async function cmdConsults(rest: string[]): Promise<void> {
+export async function cmdConsults(_rest: string[]): Promise<void> {
 	// my consult queue: OPEN questions addressed to me + my recent threads
 	const as = arg("--as");
 	if (!as) die("usage: consults --as <sid>");
