@@ -1,26 +1,31 @@
 # The klh fleet — ecosystem overview
 
-> This file is intentionally identical across `klh/speedy`, `klh/suspenders`,
-> `klh/buckle`, `klh/belt`, and `klh/local` — whichever repo an agent or
-> human opens first, the whole-system picture is one file away. Don't edit
-> one copy without updating the other four; `klh/speedy`'s `install.sh`
+> The packages/*/ECOSYSTEM.md copies in this monorepo are intentionally
+> identical — whichever package opens first, the whole-stack picture is one
+> file away. The old cross-repo "edit one, update the other four" sync rule
+> retired with the monorepo cutover (W422.8). speedy's `install.sh`
 > skills step also ships `klh-ecosystem-map` (a condensed, skill-formatted
 > version of this same map) to `~/.claude/skills` on every install.
 
-**speedy / suspenders / buckle / belt / klh-local are one system.** Five
-repos because each layer has its own release cadence and its own license
+**One monorepo, one system.** Five packages because each layer has its own
+release cadence and its own license
 (suspenders/belt are source-available BSL, buckle/local are MIT), not
-because they're unrelated.
+because they're unrelated. Each of the three service repos (suspenders,
+belt, buckle) also has a private, enterprise-only `*-remote` sibling
+(`suspenders-remote`, `belt-remote`, `buckle-remote`) — an overlay, not a
+fork, adding the hub/multi-user profile on top of the public base. See
+[Hub + Spoke federation](#hub--spoke-federation--a-start-topology-not-a-fixed-one-optional)
+below.
 
-## The five repos
+## The packages
 
-| Repo           | Role                                                                                                                                                    | Runtime location (after install)    | Key ports                                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **speedy**     | Top-level installer/config layer — chains the other four in, installs skills, hooks, launchd agents.                                                    | the git checkout you installed from | —                                                                                                                           |
-| **suspenders** | Control plane: governor.db work graph (SQLite/WAL), coord bus, fleet board, hook gates, fleet-loop (dispatch + merge ladder).                           | `~/.claude/hooks/suspenders`        | `:7799` board/console                                                                                                       |
-| **buckle**     | LLM gateway: dual-dialect (OpenAI + Anthropic) pass-through, provider-as-data upstream pool, ladder routing, usage ledger, hub/spoke federation server. | `~/.claude/buckle`                  | `:4100` serving (today: litellm, cutover target: buckle itself) · `:4101` buckle shadow (pre-cutover)                       |
-| **belt**       | The local LLM fleet: MLX specialists on localhost, keyword router, benchmark rig.                                                                       | `~/.claude/local-llm`               | `:8901` code · `:8902` extract · `:8903` reason · `:8906` danish/general · `:8912` kev · `:8913` rerank · `:7791` dashboard |
-| **klh/local**  | LAN fabric: user-level Caddy serving `*.local` names over mDNS, zero sudo.                                                                              | `~/.local/bin/klh-local`            | `:80`/`:443` Caddy · `:7792` bar (registry dashboard)                                                                       |
+| Package        | Role                                                                                                                                                                                                               | Runtime location (after install)    | Key ports                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **speedy**     | Top-level installer/config layer — chains the other four in, installs skills, hooks, launchd agents.                                                                                                               | the git checkout you installed from | —                                                                                                                           |
+| **suspenders** | Control plane: governor.db work graph (SQLite/WAL), coord bus, fleet board, hook gates, fleet-loop (dispatch + merge ladder).                                                                                      | `~/.claude/hooks/suspenders`        | `:7799` board/console                                                                                                       |
+| **buckle**     | LLM gateway: OpenAI + Anthropic client dialects in, LiteLLM-powered internally (70-100+ upstream providers via `upstreams.yaml` provider-as-data rows), ladder routing, usage ledger, hub/spoke federation server. | `~/.claude/buckle`                  | `:4100` serving (today: litellm, cutover target: buckle itself) · `:4101` buckle shadow (pre-cutover)                       |
+| **belt**       | The local LLM fleet: MLX specialists on localhost, keyword router, benchmark rig.                                                                                                                                  | `~/.claude/local-llm`               | `:8901` code · `:8902` extract · `:8903` reason · `:8906` danish/general · `:8912` kev · `:8913` rerank · `:7791` dashboard |
+| **klh/local**  | LAN fabric: user-level Caddy serving `*.local` names over mDNS, zero sudo.                                                                                                                                         | `~/.local/bin/klh-local`            | `:80`/`:443` Caddy · `:7792` bar (registry dashboard)                                                                       |
 
 ## System map
 
@@ -47,7 +52,7 @@ flowchart TB
     end
 
     subgraph gw["buckle — gateway"]
-        shim["dual-dialect router\n/v1/chat/completions + /v1/messages"]
+        shim["dialect router (OpenAI + Anthropic in)\nLiteLLM internally -> 70-100+ providers"]
         ladder["ladder routing\nrouting-policy.yaml, cooldown, retry"]
         hub["federation server\n/federation/enroll, /federation/policy\n(hub role: optional)"]
     end
@@ -70,6 +75,16 @@ flowchart TB
         zai["z.ai / anthropic / openai\nupstreams.yaml rows, env-gated keys"]
     end
 
+    subgraph overlay["*-remote overlays (private, enterprise/hub)"]
+        srem["suspenders-remote\nhub admin plane, multi-user tokens"]
+        brem["belt-remote\nfederation.peers, multi-hub routing"]
+        burem["buckle-remote\nprovider-key vault, peer-hub federation"]
+    end
+
+    subgraph parenthub["Parent hub (optional, this hub's own hub)"]
+        parent["another buckle hub\nsub-hub of sub-hub — dynamic, not hardcoded"]
+    end
+
     surfaces -->|hook gates, dialect adapters| plane
     install -.->|chains, one-time| plane
     install -.-> gw
@@ -87,6 +102,10 @@ flowchart TB
     ladder --> zai
     ladder --> nas
     hub -. "policy/entitlements push" .-> spoke
+    overlay -. "overlay, not fork\npublic install + profile on top" .-> plane
+    overlay -. overlay .-> gw
+    overlay -. overlay .-> fleet
+    hub -. "this hub is itself a spoke\nof its own parent (optional)" .-> parent
 
     plane -. "WoL + probe" .-> nas
 ```
@@ -102,9 +121,15 @@ flowchart TB
    Danish/multilingual → `:8906`, rerank → `:8913`.
 3. Requests belt can't serve locally (>32k context, frontier-quality
    production work, or local fleet down) fall through to **buckle** — the
-   dual-dialect gateway that picks a ladder rung (`routing-policy.yaml`):
-   another local machine (via `remotes.json`), or a cloud upstream
-   (`upstreams.yaml`, env-gated API keys, never committed).
+   gateway that picks a ladder rung (`routing-policy.yaml`): another local
+   machine (via `remotes.json`), or a cloud upstream (`upstreams.yaml`,
+   env-gated API keys, never committed). Buckle accepts both OpenAI
+   (`/v1/chat/completions`) and Anthropic (`/v1/messages`) wire dialects
+   from clients, but internally it runs **LiteLLM** (owner decision
+   W219.1 — proxy every capability LiteLLM provides natively rather than
+   reimplement providers) to reach 70-100+ upstream provider backends;
+   `upstreams.yaml`'s provider-as-data rows are what LiteLLM's own
+   `openai_like/providers.json` catalog models.
 4. **suspenders** sits alongside this path as the control plane, not in it —
    it governs work (the graph), coordinates sessions (coord bus), and shows
    the whole fleet's state (board), but doesn't route inference traffic
@@ -142,7 +167,7 @@ hosts/IPs/MACs/keys stay local). Zod-validated, endpoint-level shape:
 - A malformed config fails loud (logs `z.prettifyError`, routes return
   empty) instead of silently mis-routing.
 
-## Hub + Spoke federation (optional)
+## Hub + Spoke federation — a start topology, not a fixed one (optional)
 
 A **buckle** instance can run as a federation **hub**: `/federation/enroll`
 mints a spoke a token from an admin-issued code; `/federation/policy` serves
@@ -153,6 +178,35 @@ interval, caches last-known under `~/.claude/local-llm/`, and degrades
 gracefully (hub unreachable = keep last-known, never block local routing).
 speedy's `install.sh` asks once ("Do you want to buckle up and connect to a
 belt hub?") and never re-prompts — standalone is the default.
+
+**This is a starting topology, not the only shape.** A hub can itself be a
+spoke of another hub — hubs have sub-hubs, dynamic and fault-tolerant, never
+a single hardcoded relationship. belt-remote's `config/hub-profile.yaml`
+carries a `federation.peers` list (empty by default, filled at runtime) —
+the seam multi-hub routing hangs off.
+
+### The `*-remote` overlay repos (private, enterprise/hub layer)
+
+`klh/suspenders-remote`, `klh/belt-remote`, `klh/buckle-remote` are private
+overlays over their public counterparts — **inheritance is one-directional**
+(private depends on public via `package.json`; public repos never reference
+anything `*-remote`). Overlay, not fork: a hub deploy = public base install
+
+- the matching `*-remote` profile on top (config over code). They add:
+
+* **suspenders-remote**: hub-profile defaults (auth ON, multi-user tokens,
+  no local-MLX assumptions), the hub admin plane (token issuance/
+  revocation per user+machine, provider-key management, federation status).
+* **belt-remote**: multi-machine MLX fleet profile — registry federation
+  with other hubs, hub-auth on every wire, multi-hub routing policy.
+* **buckle-remote**: the hub gateway posture — multi-user auth tokens,
+  provider-key vaulting behind admin control, federation to peer hubs,
+  per-repo lane policies (must/prefer/hub/residency) enforced at the
+  gateway.
+
+Real hosts/keys for any of this live in `~/.config/klh/stack.yaml` (mode
+600, OIDC/Entra tenant config included) — committed files carry
+placeholders only (`hub.example`, `$ENV_NAME` refs).
 
 ## Discovery: `/llms.txt`
 
@@ -180,6 +234,6 @@ retired com.belt.gateway, don't re-enable it").
 ## When in doubt
 
 If a task touches ECONNREFUSED, routing, a service being "down", ports, or
-any question that spans more than one of these repos — check `/llms.txt`
-and `coord fleet` **before** assuming a single repo's code is the whole
+any question that spans more than one of these packages — check `/llms.txt`
+and `coord fleet` **before** assuming a single package's code is the whole
 story.

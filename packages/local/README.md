@@ -1,7 +1,7 @@
 # local
 
-> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
-> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+> Part of the klh fleet monorepo — see [ECOSYSTEM.md](ECOSYSTEM.md)
+> for the whole-stack map — all of packages/*, one file away.
 
 ![The quintessential local — a Greek taverna](assets/hero.png)
 
@@ -113,11 +113,11 @@ Read-only by design: the bar probes and renders; it never registers, reloads, or
 
 ## Companion repos
 
-| Repo                                            | Role in the fleet                                                     |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| [suspenders](https://github.com/klh/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
-| [belt](https://github.com/klh/belt)             | Local LLM fleet and OpenAI-compatible endpoints                       |
-| [speedy](https://github.com/klh/speedy)         | Speed and safety config layer: skills, hooks, personas, settings      |
+| Repo                                                                     | Role in the fleet                                                     |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
+| [belt](https://github.com/klh/fleet/tree/main/packages/belt)             | Local LLM fleet and OpenAI-compatible endpoints                       |
+| [speedy](https://github.com/klh/fleet/tree/main/packages/speedy)         | Speed and safety config layer: skills, hooks, personas, settings      |
 
 ## Licensing
 

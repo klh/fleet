@@ -1,13 +1,13 @@
 # buckle
 
-> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
-> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+> Part of the klh fleet monorepo — see [ECOSYSTEM.md](ECOSYSTEM.md)
+> for the whole-stack map — all of packages/*, one file away.
 
 LLM gateway: multi-provider serving + governance in one Bun/TypeScript
 process. Two client wire dialects (OpenAI, Anthropic) in front of the
 LiteLLM-internal engine (W219.1) and the 100+ provider catalog
 (W150) — the serving layer of the
-[klh agent stack](https://github.com/klh/suspenders) — belt routes,
+[klh agent stack](https://github.com/klh/fleet) — belt routes,
 buckle serves.
 
 ```mermaid

@@ -1,23 +1,23 @@
 ---
 name: klh-ecosystem-map
-description: Orients a fresh agent session on the klh fleet (suspenders, buckle, belt, speedy, klh/local) as one combined system. Use on session start, when asked "why ECONNREFUSED"/"why doesn't X know about Y", or any time a task touches more than one of these repos.
+description: Orients a fresh agent session on the klh fleet (suspenders, buckle, belt, speedy, klh/local) as one combined system. Use on session start, when asked "why ECONNREFUSED"/"why doesn't X know about Y", or any time a task touches more than one of these packages.
 ---
 
 # KLH Ecosystem Map
 
-> Part of speedy (https://github.com/klh/speedy) — installed to
+> Part of speedy in the klh/fleet monorepo (https://github.com/klh/fleet) — installed to
 > `~/.claude/skills/klh-ecosystem-map` by `install.sh`, symlinked to
 > `~/.agents/skills` for every CLI (Claude, Copilot, Codex, cline, grok).
 
 ## Overview
 
-suspenders / buckle / belt / speedy / klh/local are **one system**, not five
-unrelated repos. A fresh agent session on a newly-installed machine should
+The five klh packages — speedy / suspenders / buckle / belt / klh/local — live in
+one monorepo (klh/fleet). A fresh agent session on a newly-installed machine should
 know this immediately — this skill is the pointer.
 
-## The five repos
+## The packages
 
-| Repo           | Role                                                                                                                                  | Lives at (after install)                                                            |
+| Package        | Role                                                                                                                                  | Lives at (after install)                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | **speedy**     | Top-level installer/config layer. `install.sh` chains in the other four, installs CLI tools, skills, hooks, launchd agents.           | the git checkout you installed from                                                 |
 | **suspenders** | Control plane: governor.db work graph (SQLite/WAL), coord bus, fleet board (:7799), hook gates, fleet-loop (dispatch + merge-ladder). | `~/.claude/hooks/suspenders` (installed copy — **not** the dev checkout, see below) |
@@ -32,17 +32,17 @@ inference path.
 
 ## Install vs. checkout — the split that causes "but I just fixed that!"
 
-Every repo's `install.sh` **copies** the harness into a runtime home —
+Every package's `install.sh` **copies** the harness into a runtime home —
 it does not run in place from the git checkout:
 
 - suspenders → `~/.claude/hooks/suspenders` (`$SUSPENDERS_PREFIX`)
 - buckle → `~/.claude/buckle`
 - belt → `~/.claude/local-llm`
 
-Editing a dev checkout (`~/github/klh/suspenders`, etc.) has **zero runtime
+Editing a dev checkout (a `packages/*` worktree of klh/fleet) has **zero runtime
 effect** until `install.sh` re-runs and re-copies. launchd-managed daemons
 (`com.suspenders.local-llm`, etc.) run the **installed** copy. After merging
-any fix in one of these repos, re-run that repo's `install.sh` (or speedy's,
+any fix in one of these packages, re-run that package's `install.sh` (or speedy's,
 which chains all of them) to actually deploy it.
 
 ## Discovery: `/llms.txt`
@@ -83,5 +83,5 @@ Board: `http://suspenders.local:7799` (or `:7799` locally).
 ## When in doubt
 
 If a task touches ECONNREFUSED/routing/ports, a service being "down", or
-any cross-repo question — check `/llms.txt` and `coord fleet` **before**
-assuming a single repo's code is the whole story.
+any cross-package question — check `/llms.txt` and `coord fleet` **before**
+assuming a single package's code is the whole story.

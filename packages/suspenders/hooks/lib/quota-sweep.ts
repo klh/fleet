@@ -22,8 +22,9 @@
 // --act performs) and monitor.ts's --fix pass (launchd, every 15 min —
 // the same cadence as the staleness floor). Detection is pure/injected so
 // tests never touch governor.db or the network.
-import { existsSync, readFileSync, statSync } from "node:fs";
+
 import type { Database } from "bun:sqlite";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 const STALE_MS = 15 * 60_000; // lane-log silence floor (== transcript floor)
 const LIVE_HB_MS = 30 * 60_000; // sessions heartbeat window (bus parity)
@@ -116,15 +117,19 @@ const lastNonEmpty = (text: string): string => {
 	return lines.length > 0 ? (lines[lines.length - 1] ?? "") : "";
 };
 
-// buckle.db discovery: env pin wins; otherwise the repos on the graph are
-// trusted siblings (klh repos sit side by side — every project root's
-// neighbor "buckle/" is a candidate, worktree or main checkout alike).
+// buckle.db discovery: env pin wins; otherwise the buckle package inside
+// the same monorepo (project root = a fleet checkout/worktree →
+// packages/buckle/buckle.db, relative path for this source tree), then the
+// legacy side-by-side sibling layout — kept until W422.6 re-anchors the
+// old checkouts (W422.8: cross-repo lookups demoted to fallback).
 const defaultBuckleDb = (projectRoots: string[]): string | null => {
 	const env = process.env.SUSPENDERS_BUCKLE_DB;
 	if (env) return existsSync(env) ? env : null;
 	for (const guess of [
+		...projectRoots.map((r) => `${r}/packages/buckle/buckle.db`),
+		new URL("../../../buckle/buckle.db", import.meta.url).pathname,
+		// legacy sibling layout (pre-monorepo): W422.6 retires
 		...projectRoots.map((r) => `${r}/../buckle/buckle.db`),
-		new URL("../../buckle/buckle.db", import.meta.url).pathname,
 	]) {
 		if (existsSync(guess)) return guess;
 	}

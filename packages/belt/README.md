@@ -1,7 +1,7 @@
 # belt
 
-> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
-> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+> Part of the klh fleet monorepo — see [ECOSYSTEM.md](ECOSYSTEM.md)
+> for the whole-stack map — all of packages/*, one file away.
 
 ![version](https://img.shields.io/badge/version-1.0.1-8a857e)
 
@@ -10,7 +10,7 @@
 **The local LLM fleet for your agent fleet.** A swarm of MLX specialists on
 localhost — code, extract, reason, rerank — behind a deterministic keyword
 router, with a benchmark rig that logs every measurement to `benchmarks.jsonl`.
-Wear with [suspenders](https://github.com/klh/suspenders).
+Wear with [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders).
 
 Five parallel Claude Code lanes hit `:8901` at once. Nobody waits on a remote
 round-trip for a 4-line extraction, and nobody notices the cloud is down.
@@ -21,14 +21,14 @@ Single source of truth: [`bin/registry.ts`](bin/registry.ts) — port↔model pa
 exist only there. `swarm.ts` (lifecycle) and `router-shim.ts` (routing) both
 import it; change a model in the registry and both follow.
 
-| Port | Role                     | Model                                                                    | RAM         | Tier      | Engine    |
-| ---- | ------------------------ | ------------------------------------------------------------------------ | ----------- | --------- | --------- |
-| 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB       | resident  | rapid-mlx |
-| 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB      | resident  | rapid-mlx |
-| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB       | resident  | rapid-mlx |
-| 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB        | on-demand | rapid-mlx |
-| 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB      | resident  | rapid-mlx |
-| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB       | resident  | external  |
+| Port | Role                     | Model                                                                    | RAM    | Tier      | Engine    |
+| ---- | ------------------------ | ------------------------------------------------------------------------ | ------ | --------- | --------- |
+| 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB  | resident  | rapid-mlx |
+| 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB | resident  | rapid-mlx |
+| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB  | resident  | rapid-mlx |
+| 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
+| 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
+| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB  | resident  | external  |
 
 Embeddings retired from the swarm (2026-09-23): `mlx_lm` 0.31.x dropped the
 routes; embeddings live on `:8907` via context-rag's `embed_server.py`, started
@@ -57,8 +57,8 @@ under 32 GB the installer prints a recommendation to use `--tier minimal`.
 
 The installer is idempotent. Deploys the fleet code to `~/.claude/local-llm/`
 — that path is the stable runtime location shared with
-[suspenders](https://github.com/klh/suspenders) and
-[speedy](https://github.com/klh/speedy). Then:
+[suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) and
+[speedy](https://github.com/klh/fleet/tree/main/packages/speedy). Then:
 
 ```bash
 bun ~/.claude/local-llm/coordinator.ts status    # every port, up/down, model, RAM
@@ -68,11 +68,11 @@ bun ~/.claude/local-llm/set-cloud.ts off         # router: local-only mode
 
 ## The trio
 
-| Repo                                                | Layer                                                           | Depends on                                             |
-| --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
-| [klh/suspenders](https://github.com/klh/suspenders) | control plane — SQLite sessions/claims/work graph, fleet board  | any OpenAI-compatible endpoint (default `:8901`)       |
-| **klh/belt**                                        | local LLM fleet — MLX specialists, router, benchmark rig        | suspenders (optional, for warm weights + board advice) |
-| [klh/speedy](https://github.com/klh/speedy)         | speed + safety config layer — skills, hooks, personas, settings | installs both                                          |
+| Repo                                                                              | Layer                                                           | Depends on                                             |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| [packages/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | control plane — SQLite sessions/claims/work graph, fleet board  | any OpenAI-compatible endpoint (default `:8901`)       |
+| **packages/belt**                                                                 | local LLM fleet — MLX specialists, router, benchmark rig        | suspenders (optional, for warm weights + board advice) |
+| [packages/speedy](https://github.com/klh/fleet/tree/main/packages/speedy)         | speed + safety config layer — skills, hooks, personas, settings | installs both                                          |
 
 suspenders' advice worker (`advise.ts`) reads `SUSPENDERS_LLM_URL`
 (default `http://127.0.0.1:8901`) — belt's code specialist answers board
@@ -91,7 +91,7 @@ bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruc
 - `bin/bench-suite.ts` — standard 4-prompt bench (TS dedupe, web component,
   trade-offs, Danish email) + optional `--thinking-off`; logs each prompt and a
   median to `benchmarks.jsonl` via `bench-log.ts`. `--ttft --sizes
-  2000,8000,32000` switches to the prefill bench (`bin/bench-ttft.ts`): cold
+2000,8000,32000` switches to the prefill bench (`bin/bench-ttft.ts`): cold
   and prefix-cache-hit time-to-first-token medians, prefill tok/s, with
   engine / revision / flags / power / thermal meta per row
 - Router admission: the `:4000` shim caps in-flight requests per port
@@ -133,7 +133,7 @@ For always-on, `./install.sh --with-launchd` loads it as the
 The page wears the shared klh theme so it reads as one product with
 suspenders.local and bar.local: dark/light tokens, the settings gear (theme:
 system/dark/light), and the `klh·fleet` strip linking belt · suspenders ·
-local. `bin/klh-theme.ts` is a byte-identical copy of klh/suspenders
+local. `bin/klh-theme.ts` is a byte-identical copy of packages/suspenders
 `hooks/lib/theme.ts`; never edit it by hand: re-vendor it and bump the pin
 in `test/klh-theme.test.ts`.
 

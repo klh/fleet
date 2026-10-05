@@ -1,14 +1,14 @@
 # The klh fleet — ecosystem overview
 
-> This file is intentionally identical across `klh/speedy`, `klh/suspenders`,
-> `klh/buckle`, `klh/belt`, and `klh/local` — whichever repo an agent or
-> human opens first, the whole-system picture is one file away. Don't edit
-> one copy without updating the other four; `klh/speedy`'s `install.sh`
+> The packages/*/ECOSYSTEM.md copies in this monorepo are intentionally
+> identical — whichever package opens first, the whole-stack picture is one
+> file away. The old cross-repo "edit one, update the other four" sync rule
+> retired with the monorepo cutover (W422.8). speedy's `install.sh`
 > skills step also ships `klh-ecosystem-map` (a condensed, skill-formatted
 > version of this same map) to `~/.claude/skills` on every install.
 
-**speedy / suspenders / buckle / belt / klh-local are one system.** Five
-repos because each layer has its own release cadence and its own license
+**One monorepo, one system.** Five packages because each layer has its own
+release cadence and its own license
 (suspenders/belt are source-available BSL, buckle/local are MIT), not
 because they're unrelated. Each of the three service repos (suspenders,
 belt, buckle) also has a private, enterprise-only `*-remote` sibling
@@ -17,9 +17,9 @@ fork, adding the hub/multi-user profile on top of the public base. See
 [Hub + Spoke federation](#hub--spoke-federation--a-start-topology-not-a-fixed-one-optional)
 below.
 
-## The five repos
+## The packages
 
-| Repo           | Role                                                                                                                                                                                                               | Runtime location (after install)    | Key ports                                                                                                                   |
+| Package        | Role                                                                                                                                                                                                               | Runtime location (after install)    | Key ports                                                                                                                   |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | **speedy**     | Top-level installer/config layer — chains the other four in, installs skills, hooks, launchd agents.                                                                                                               | the git checkout you installed from | —                                                                                                                           |
 | **suspenders** | Control plane: governor.db work graph (SQLite/WAL), coord bus, fleet board, hook gates, fleet-loop (dispatch + merge ladder).                                                                                      | `~/.claude/hooks/suspenders`        | `:7799` board/console                                                                                                       |
@@ -234,6 +234,6 @@ retired com.belt.gateway, don't re-enable it").
 ## When in doubt
 
 If a task touches ECONNREFUSED, routing, a service being "down", ports, or
-any question that spans more than one of these repos — check `/llms.txt`
-and `coord fleet` **before** assuming a single repo's code is the whole
+any question that spans more than one of these packages — check `/llms.txt`
+and `coord fleet` **before** assuming a single package's code is the whole
 story.

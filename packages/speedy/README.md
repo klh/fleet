@@ -1,7 +1,7 @@
 # speedy
 
-> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
-> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+> Part of the klh fleet monorepo — see [ECOSYSTEM.md](ECOSYSTEM.md)
+> for the whole-stack map — all of packages/*, one file away.
 
 ![Version](https://img.shields.io/badge/version-1.1.1-blue)
 
@@ -19,11 +19,11 @@ Companion repo: **[klh/skills](https://github.com/klh/skills)** — personal `kl
 
 The klh chain — speedy is the speed + safety config layer on top of three focused repos:
 
-| Repo                                                | Role                                                             |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| [klh/suspenders](https://github.com/klh/suspenders) | Control plane — governor.db, gate hooks, work graph, fleet board |
-| [klh/belt](https://github.com/klh/belt)             | Local LLM fleet — MLX specialists behind a deterministic router  |
-| [klh/local](https://github.com/klh/local)           | klh-local — registers local services at `<name>.local` via Caddy |
+| Repo                                                                              | Role                                                             |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [packages/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | Control plane — governor.db, gate hooks, work graph, fleet board |
+| [packages/belt](https://github.com/klh/fleet/tree/main/packages/belt)             | Local LLM fleet — MLX specialists behind a deterministic router  |
+| [packages/local](https://github.com/klh/fleet/tree/main/packages/local)           | klh-local — registers local services at `<name>.local` via Caddy |
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -101,7 +101,7 @@ For N coding lanes on one machine (learned from a 9-lane session + a fleet-wide
 architecture review): **isolate execution, serialize only integration.** The
 control plane behind this table — governor.db, edit-leases, area claims, the
 event bus, zombie monitor, usage windows, the fleet board — ships in
-**[klh/suspenders](https://github.com/klh/suspenders)**; speedy is the
+**[packages/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders)**; speedy is the
 speed + safety config layer on top of it.
 
 | Layer                  | Mechanism                                                                                                                                                                                                                                                                          |
@@ -134,13 +134,13 @@ start with `ts-morph`-based symbol edits (`ts_edit`) before anything heavier.
 Unattended install of the coordination plane (claims/leases/event-bus CLIs +
 keepwarm agent) and the local LLM fleet: `install.sh` handles both — the
 control plane ships in
-**[klh/suspenders](https://github.com/klh/suspenders)** (shallow clone + its
+**[packages/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders)** (shallow clone + its
 `./install.sh --wire`, namespaced under `~/.claude/hooks/suspenders/`; macOS
 agents — fleet monitor, LLM keepwarm, board keep-alive, rolling db backups —
 opt-in via its `./install.sh --with-launchd`) and the fleet itself in
-**[klh/belt](https://github.com/klh/belt)** (deployed to `~/.claude/local-llm/`,
+**[packages/belt](https://github.com/klh/fleet/tree/main/packages/belt)** (deployed to `~/.claude/local-llm/`,
 tier picked by `install.sh --llm=minimal|full`; models + `com.belt.*` agents
-opt-in inside belt). With [klh-local](https://github.com/klh/local) on the
+opt-in inside belt). With [klh-local](https://github.com/klh/fleet/tree/main/packages/local) on the
 machine, `install.sh` also registers `suspenders.local` (:7799) and
 `belt.local` (:7791) as Caddy `.local` services. Only the klh-specific
 claude-insights agent remains in this repo's
@@ -230,7 +230,7 @@ Requires `~/.claude/.skill-review-secret` (32-byte hex, 0600). Reference impleme
 
 ## Local LLM fleet (optional layer)
 
-The local-inference layer is **[klh/belt](https://github.com/klh/belt)** —
+The local-inference layer is **[packages/belt](https://github.com/klh/fleet/tree/main/packages/belt)** —
 a specialist swarm of MLX models behind a deterministic router, with the
 benchmark rig, the measured results, and the add-a-model guide (including the
 rejection log). Routine agent traffic never leaves the machine; suspenders'
