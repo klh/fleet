@@ -79,6 +79,24 @@ repo-relative path (`../../blam/src/condense/engine.ts`); bun resolves it
 directly. W422.5 converts to workspace imports; this spec's import lines
 are the only touchpoints.
 
+## Audience split (owner directive 2026-10-05)
+
+Direction and audience pick the tier — one engine, four consumers:
+
+| Surface                                              | Direction        | Tier                     | Why                                                                        |
+| ---------------------------------------------------- | ---------------- | ------------------------ | -------------------------------------------------------------------------- |
+| Dispatch briefs, board orchestrate (user → LLM)      | inbound          | `caveman`                | machines read it; condense as hard as meaning allows                       |
+| AGENTS.md / CLAUDE.md / context injections           | inbound, machine | `machine` (new)          | users never read these; max condense — W367.4                              |
+| LLM → user responses (buckle `condense-in` sideband) | outbound         | `politeness`             | USERS read what comes back — gentle, default OFF (W137)                    |
+| Enhance pass                                         | inbound          | LLM-assisted, local-only | rides belt :4000 → local swarm :8901–03; zero cloud tokens before dispatch |
+
+`machine` = the aggressive phrase table + article strip MINUS hedge
+removal — owner bounds it "without detrimental effect", and law L2 stands:
+a hedge in an AGENTS.md ("only touch X") is meaning. Eval-only status of
+`aggressive` is unchanged; `machine` is its production-safe sibling.
+Bench matrix (W367.3): in/out × none/condense/enhance combos, rows in the
+central benchmarks.md. Specialty compressor research: W367.5.
+
 ## The meaning-preservation law (executable)
 
 1. **L1 Protect surface**: fences, `"""` blocks, `<log>` blocks, inline
