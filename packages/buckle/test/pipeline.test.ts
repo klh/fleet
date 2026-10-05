@@ -3,19 +3,21 @@
 // touched), the rid-keyed sidestore (raw one GET away), the metered wire
 // seam (byte identity on declared requests), and the routes.
 import { describe, expect, test } from "bun:test";
+import { CORPUS } from "../../blam/test/fixtures/condense/corpus.ts";
+import { AidsLedger } from "../src/aids.ts";
+import { type AppDeps, createApp } from "../src/handlers.ts";
 import {
+	CONDENSE_VERSION,
 	CondenseStore,
 	condenseText,
 	extractText,
 	pipelineRoutes,
 } from "../src/pipeline.ts";
 import { condenseInbound } from "../src/pipeline-wire.ts";
-import { AidsLedger } from "../src/aids.ts";
 import { servicemon } from "../src/servicemon.ts";
-import { startMockUpstream } from "./mock.ts";
-import { testDeps } from "./deps.ts";
-import { createApp, type AppDeps } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
+import { testDeps } from "./deps.ts";
+import { startMockUpstream } from "./mock.ts";
 
 const POOL = (url: string): UpstreamPool => ({
 	groups: () => ["glm-5-3-flash"],
@@ -28,20 +30,45 @@ const DEPS = (url: string, policy?: AppDeps["aidsPolicy"]): AppDeps => ({
 	pipeline: new CondenseStore(":memory:"),
 });
 
-describe("condenseText ruleset", () => {
-	test("courtesy sentences drop; payload survives verbatim", () => {
+describe("condenseText (W304.3: blam politeness delegation)", () => {
+	test("L2 hedge law: hedges survive; only politeness filler strips", () => {
+		const entry = CORPUS.find((c) => c.name === "hedged-words");
+		expect(entry).toBeDefined();
+		const r = condenseText(entry?.input ?? "");
+		for (const hedge of [
+			"Just",
+			"maybe",
+			"very",
+			"quite",
+			"only",
+			"perhaps",
+			"really",
+		]) {
+			expect(r.text).toContain(hedge);
+		}
+		expect(r.text).not.toContain("Please");
+		expect(r.rules).toEqual([
+			"blam:filler:please-kindly",
+			"blam:tidy:space-run",
+		]);
+	});
+
+	test("closers outside the politeness rule table survive (DROP_LINE retired)", () => {
 		const r = condenseText(
 			"Ran the suite: 205 pass.\nLet me know if you have questions.\nHope this helps!",
 		);
-		expect(r.rules.length).toBeGreaterThanOrEqual(2);
-		expect(r.text).toBe("Ran the suite: 205 pass.");
+		expect(r.text).toBe(
+			"Ran the suite: 205 pass.\nLet me know if you have questions.\nHope this helps!",
+		);
+		expect(r.rules).toEqual([]);
 	});
 
-	test("prefix strips keep payload verbatim", () => {
+	test("politeness filler strips; payload survives verbatim", () => {
 		const r = condenseText(
 			"Please note that the 429 walk needs retry-after honored.",
 		);
-		expect(r.text).toBe("the 429 walk needs retry-after honored.");
+		expect(r.text).toBe("note that the 429 walk needs retry-after honored.");
+		expect(r.rules).toEqual(["blam:filler:please-kindly"]);
 	});
 
 	test("meaning qualifiers inside sentences survive verbatim", () => {
@@ -54,7 +81,7 @@ describe("condenseText ruleset", () => {
 		expect(r.rules).toEqual([]);
 	});
 
-	test("code fences are never touched; courtesy closer still drops", () => {
+	test("code fences are never touched (L1); the closer drop is retired", () => {
 		const body = [
 			"Please note the diff below.",
 			"",
@@ -68,13 +95,28 @@ describe("condenseText ruleset", () => {
 		expect(r.text).toContain(
 			"Please note that this line is code and must not move.",
 		);
-		expect(r.text).toContain("the diff below.");
-		expect(r.text).not.toContain("Hope this helps!");
+		expect(r.text).toContain("note the diff below.");
+		// behavior change vs the inline ruleset: the politeness tier has no
+		// closer-drop rule — "Hope this helps!" survives (sanctioned swap).
+		expect(r.text).toContain("Hope this helps!");
 	});
 
-	test("inline code span content survives a prefix strip", () => {
+	test("inline code span content survives a prefix strip (L1)", () => {
 		const r = condenseText("Please note that `bun test --only src/x.ts`.");
-		expect(r.text).toBe("`bun test --only src/x.ts`.");
+		expect(r.text).toBe("note that `bun test --only src/x.ts`.");
+		expect(r.rules).toEqual(["blam:filler:please-kindly"]);
+	});
+
+	test("audit names carry the blam: prefix; version = blam-condense/1", () => {
+		const r = condenseText(
+			"Thanks!\nPlease note that deploy needs a green bench.",
+		);
+		expect(r.rules).toEqual([
+			"blam:filler:thanks",
+			"blam:filler:please-kindly",
+			"blam:tidy:leading-space",
+		]);
+		expect(CONDENSE_VERSION).toBe("blam-condense/1");
 	});
 
 	test("idempotent: a second pass adds no rules, changes no bytes", () => {
@@ -124,6 +166,16 @@ describe("CondenseStore", () => {
 		expect(g?.condensed).toBe("short");
 		expect(g?.raw).toContain("Thanks!");
 		expect(g?.rules).toEqual(["drop:x"]);
+		expect(g?.condense_version).toBe("blam-condense/1"); // write-time default
+		s.put({
+			rid: "rv",
+			dialect: "openai",
+			condensed: "c",
+			raw: "r",
+			rules: [],
+			condense_version: "test-version/9",
+		});
+		expect(s.get("rv")?.condense_version).toBe("test-version/9");
 		expect(s.get("missing")).toBeNull();
 		s.close();
 	});
@@ -230,9 +282,14 @@ describe("pipeline routes", () => {
 			"/pipeline/in/rX",
 		);
 		expect(res?.status).toBe(200);
-		const body = (await res?.json()) as { raw: string; condensed: string };
+		const body = (await res?.json()) as {
+			raw: string;
+			condensed: string;
+			condense_version: string | null;
+		};
 		expect(body.condensed).toBe("the short story");
 		expect(body.raw).toContain("Thanks!");
+		expect(body.condense_version).toBe("blam-condense/1");
 	});
 
 	test("list + honest 404s (miss + bare deps)", async () => {
