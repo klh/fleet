@@ -14,54 +14,74 @@ versioned as ONE stack (`v2.0.0` tags ride every release of the whole).
 | `packages/belt`       | the LLM fleet dashboard + gateway                                        |
 | `packages/speedy`     | the config layer                                                         |
 | `packages/local`      | the Caddy `.local` service front                                         |
-| `packages/local-llm`  | the local MLX swarm kit (extraction pending — W422.4)                    |
+| `packages/local-llm`  | the local MLX swarm kit (extraction in flight — W422.4)                  |
+| `packages/blam`       | the benchmark: CRASH taxonomy, incident dataset, prompt-condense engine  |
 
 The private `fleet-remote` monorepo (the paid enterprise tier) mirrors this
 structure and DEPENDS on these packages — never copies.
 
-## The stack, as deployed
+## How work flows
 
 ```mermaid
-graph TB
-  subgraph lanes["Agent lanes — claude / codex / copilot"]
-    L1["lane autowN"]
-    L2["lane autowM"]
-  end
+flowchart LR
+  OWNER(["owner"])
 
-  subgraph spoke["Local spoke (this machine)"]
-    BF["buckle :4101 — governance gate<br/>per-lane bksk_ keys, /w/&lt;sid&gt; attribution"]
-    SHIM["anthropic-shim :4000<br/>(Anthropic↔OpenAI seam)"]
-    SWARM["local-llm swarm :890x<br/>MLX residents"]
-  end
-
-  subgraph control["Control plane (packages/suspenders)"]
-    GOV["governor.db<br/>the work graph"]
-    COORD["coord bus — WS push"]
+  subgraph plane["control plane — suspenders"]
+    direction TB
+    GOV[("governor.db<br/>the work graph")]
+    DISPATCH["dispatch + fleet-loop<br/>briefs are caveman-condensed"]
+    COORD["coord bus<br/>WS push inbox"]
     BOARD["fleet board :7799"]
-    LOOP["fleet-loop + dispatch"]
   end
 
-  subgraph hub["Hubs — NAS / desktop (deploy/hub-compose.yaml)"]
-    RS["repo sidecars<br/>git-pulled @ stack version"]
-    BR["buckle-hub"]
-    BH["board-hub"]
-    SH["store-hub"]
-    BTH["belt-hub"]
-    HS["health sidecars<br/>status.json heartbeat, outside-process verdict"]
+  subgraph exec["execution"]
+    direction TB
+    LANE["headless lanes<br/>claude · codex · copilot"]
+    GATE["buckle :4101<br/>per-lane bksk_ keys"]
+    ROUTER["belt :4000<br/>deterministic router"]
   end
 
-  HUBCTL["hubctl — ONE version string in<br/>~/.config/klh/stack.yaml deploys it all"]
-  ROOT["root install.sh<br/>(one installer, every machine)"]
+  subgraph models["model tiers"]
+    direction TB
+    SWARM["local MLX swarm :8901–06"]
+    CLOUD["cloud — z.ai / anthropic"]
+  end
 
-  LOOP --> L1
-  L1 -->|"keyed /w/&lt;sid&gt;"| BF
-  BF --> SHIM --> SWARM
-  BF -.->|"cloud rows (env-gated keys)"| CLOUD["z.ai / anthropic"]
-  GOV --- COORD --- BOARD
-  HUBCTL --> RS
-  RS --> BR & BH & SH & BTH
-  HS -.->|"watches"| BR & BH & SH & BTH
-  ROOT --> control
+  OWNER -->|"picks + directs"| DISPATCH
+  DISPATCH -->|"claims READY"| GOV
+  GOV -->|"brief + resume capsule"| LANE
+  LANE -->|"scoped key /w/SID"| GATE
+  GATE --> ROUTER
+  ROUTER -->|"local-first"| SWARM
+  ROUTER -->|"quality tiers"| CLOUD
+  COORD -.->|"events"| BOARD
+  GOV -.-> BOARD
+
+  classDef control fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+  classDef run fill:#fff7ed,stroke:#f59e0b,color:#451a03;
+  classDef model fill:#ecfdf5,stroke:#10b981,color:#022c22;
+  class plane control
+  class exec run
+  class models model
+```
+
+Every write is gated (qlty/biome + content gates), every lane rides its own
+revocable key, every closure carries a commit sha. Dead lanes are reclaimed;
+capsules make any lane resumable by the next dispatch.
+
+## How deploys flow
+
+```mermaid
+flowchart LR
+  CFG[("stack.yaml<br/>ONE version pin")] --> HUBCTL["hubctl<br/>render · mint · push · up"]
+  HUBCTL --> HUB["hubs — NAS / desktop<br/>git-pulled volumes"]
+  HUB --> SVC["buckle-hub · board-hub<br/>store-hub · belt-hub"]
+  HUB --> HEALTH["*-health probe sidecars<br/>outside-process verdict"]
+
+  classDef cfg fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+  classDef hub fill:#ecfdf5,stroke:#10b981,color:#022c22;
+  class CFG,HUBCTL cfg
+  class HUB,SVC,HEALTH hub
 ```
 
 ## Laws the stack runs on
@@ -72,9 +92,9 @@ graph TB
   machine-level runtime config (`~/.config/klh/stack.yaml`, `~/.claude/local-llm/*.env`,
   mode 600) — repos carry placeholders.
 - **Health is outside-process**: a server cannot paint itself healthy. Every
-  service regenerates a `status.json` heartbeat (ts, pid, uptime, memory,
-  event-loop lag) from its own event loop; a health sidecar judges by file
-  age, degrades on misses, and actively probes before calling it unhealthy.
+  hub service gets a `*-health` probe sidecar that polls the real target
+  over the network, serves the verdict on its own port, and actively
+  re-probes before calling it unhealthy.
 - **Secrets are minted, never typed**: root keys generated ON the target
   device (0600, idempotent), admin and per-lane `bksk_` keys minted via the
   gate's admin API, revocable, audited.
@@ -82,6 +102,18 @@ graph TB
   dev checkouts.
 - **Streams over buffers; one ledger (governor.db); 1500-line hard limit;
   Lit components; qlty/biome gates.**
+
+## Ops quick reference
+
+| Surface        | Where                                                                  |
+| -------------- | ---------------------------------------------------------------------- |
+| work graph     | `work ready · take · done --sha`                                       |
+| coordination   | `coord subscribe · fleet · events`                                     |
+| dispatch lanes | `dispatch` (headless, per-lane key)                                    |
+| fleet board    | `*.local` :7799                                                        |
+| LLM router     | belt :4000 → swarm :8901–06 / LiteLLM :4100                            |
+| benchmarks     | [benchmarks.md](benchmarks.md) — the ONE table                         |
+| install        | `bash install.sh` from packages/suspenders — the only repo→prefix sync |
 
 ## Status
 
