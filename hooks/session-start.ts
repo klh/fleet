@@ -66,9 +66,11 @@ const RULES =
 	"Fleet lessons live in facts — coord fact list (lesson.*) before " +
 	"re-deriving painful knowledge; set lesson.<topic> when you learn " +
 	"something another lane will need. " +
-	"Between items: " +
-	"poll coord inbox --as <sid>; if READY work matches your capabilities, " +
-	"take it yourself — don't wait for dispatch; checkpoint each landed " +
+	"Between items: coord subscribe (W303) keeps your inbox PUSHED — " +
+	"one persistent connection, never exit it; session bootstrap opens it " +
+	"for you. Do NOT poll with repeated CLI probes. If READY work matches " +
+	"your capabilities, take it yourself — don't wait for dispatch; " +
+	"checkpoint each landed " +
 	"milestone (work done --sha / capsule) so preemption stays possible. " +
 	"Decisions: a decision held only in your context is invisible to the " +
 	"fleet and the owner — emit it (coord emit NEED_DECISION --to " +
@@ -137,6 +139,35 @@ db.query(UPSERT).run(
 	input.transcript_path ?? null,
 	actorDefault,
 );
+// WS-first inbox (W303, owner directive 2026-10-05): bootstrap opens the
+// live subscribe ONCE per session — agents never poll the plane. Idempotent:
+// a live subscribe for this lane id is detected and left alone.
+{
+	const SUB_LOG = process.env.HOME + "/.claude-insights/coord-subscribe-" + lane + ".log";
+	const live = Bun.spawnSync([
+		"/usr/bin/pgrep",
+		"-f",
+		"coord[.]ts subscribe --as " + lane + "$",
+	]);
+	if (live.exitCode !== 0) {
+		const cmd =
+			"nohup bun " +
+			import.meta.dir +
+			"/bin/coord.ts subscribe --as " +
+			lane +
+			" >> " +
+			SUB_LOG +
+			" 2>&1 &";
+		Bun.spawn(["/bin/sh", "-c", cmd], {
+			stdin: "ignore",
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		out.push(
+			"WS inbox live: coord subscribe --as " + lane + " (events push; never poll)",
+		);
+	}
+}
 const out = [
 	isSubagent
 		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`
