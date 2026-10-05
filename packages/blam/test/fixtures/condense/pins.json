@@ -1,0 +1,768 @@
+{
+	"version": "blam-condense/1",
+	"aggressiveLegacyVersion": "ref-condense/1",
+	"generated": "authoring-time, W367.1",
+	"pins": [
+		{
+			"name": "mission-login",
+			"politenessParity": true,
+			"input": "MISSION: fix the login regression on the settings page.\n\nHi there, could you please start by reproducing the bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts? Thank you very much!\n\nPlease run bun test --coverage when you are done.",
+			"source": {
+				"suspenders": "MISSION: fix the login regression on the settings page.\n\nstart by reproducing the bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts?\n\nrun bun test --coverage when you are done.",
+				"belt": "MISSION: fix the login regression on the settings page.\n\nHi there, start by reproducing bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts? Thank you much!\n\nRun bun test --coverage when you are done."
+			},
+			"blam": {
+				"politeness": "MISSION: fix the login regression on the settings page.\n\nstart by reproducing the bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts?\n\nrun bun test --coverage when you are done.",
+				"caveman": "MISSION: fix the login regression on the settings page.\n\nstart by reproducing the bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts?\n\nrun bun test --coverage when you are done.",
+				"aggressive": "MISSION: fix the login regression on the settings page.\n\nHi there, start by reproducing bug on http://suspenders.local/settings and then fix packages/suspenders/hooks/lib/session.ts? Thank you much!\n\nRun bun test --coverage when you are done."
+			},
+			"rules": {
+				"politeness": [
+					"filler:greeting",
+					"filler:thanks",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:trailing-space",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:greeting",
+					"filler:thanks",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:trailing-space",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"phrase:could-you-please",
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "mission-meta",
+			"politenessParity": false,
+			"input": "MISSION: wire the belt router fallback.\n\nAlthough this prompt contains several items, the highest priority is the fallback path. Please add the retry ladder to packages/belt/src/router.ts and keep the timeout at 2500ms. The prompt was written in a hurry, so double-check the config keys.",
+			"source": {
+				"suspenders": "MISSION: wire the belt router fallback.\n\nadd the retry ladder to packages/belt/src/router.ts and keep the timeout at 2500ms.",
+				"belt": "MISSION: wire the belt router fallback.\n\nAlthough this prompt contains several items, highest priority is fallback path. Add retry ladder to packages/belt/src/router.ts and keep timeout at 2500ms. The prompt was written in hurry, so double-check config keys."
+			},
+			"blam": {
+				"politeness": "MISSION: wire the belt router fallback.\n\nAlthough this prompt contains several items, the highest priority is the fallback path. add the retry ladder to packages/belt/src/router.ts and keep the timeout at 2500ms. The prompt was written in a hurry, so double-check the config keys.",
+				"caveman": "MISSION: wire the belt router fallback.\n\nadd the retry ladder to packages/belt/src/router.ts and keep the timeout at 2500ms.",
+				"aggressive": "MISSION: wire the belt router fallback.\n\nAlthough this prompt contains several items, highest priority is fallback path. Add retry ladder to packages/belt/src/router.ts and keep timeout at 2500ms. The prompt was written in hurry, so double-check config keys."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"meta:sentence"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the",
+					"strip:article-an"
+				]
+			}
+		},
+		{
+			"name": "mission-near-dupe",
+			"politenessParity": false,
+			"input": "MISSION: ship the heartbeat fix.\n\nPlease regenerate the status.json heartbeat from the event loop before the probe reads it. Please regenerate the status.json heartbeat from the event loop before the sidecar reads it. The health sidecar judges by file age. The health sidecar judges by file age.",
+			"source": {
+				"suspenders": "MISSION: ship the heartbeat fix.\n\nregenerate the status.json heartbeat from the event loop before the probe reads it. regenerate the status.json heartbeat from the event loop before the sidecar reads it. The health sidecar judges by file age.",
+				"belt": "MISSION: ship the heartbeat fix.\n\nRegenerate status.json heartbeat from event loop before probe reads it. Regenerate status.json heartbeat from event loop before sidecar reads it. The health sidecar judges by file age."
+			},
+			"blam": {
+				"politeness": "MISSION: ship the heartbeat fix.\n\nregenerate the status.json heartbeat from the event loop before the probe reads it. regenerate the status.json heartbeat from the event loop before the sidecar reads it. The health sidecar judges by file age. The health sidecar judges by file age.",
+				"caveman": "MISSION: ship the heartbeat fix.\n\nregenerate the status.json heartbeat from the event loop before the probe reads it. regenerate the status.json heartbeat from the event loop before the sidecar reads it. The health sidecar judges by file age.",
+				"aggressive": "MISSION: ship the heartbeat fix.\n\nRegenerate status.json heartbeat from event loop before probe reads it. Regenerate status.json heartbeat from event loop before sidecar reads it. The health sidecar judges by file age."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"dedupe:sentence",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the",
+					"dedupe:sentence"
+				]
+			}
+		},
+		{
+			"name": "code-fence",
+			"politenessParity": true,
+			"input": "Please update the deploy docs.\n\nThe hub push looks like:\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\nThank you in advance — and please mind that the NAS has no SFTP.",
+			"source": {
+				"suspenders": "update the deploy docs.\n\nThe hub push looks like\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\n— and mind that the NAS has no SFTP.",
+				"belt": "Update deploy docs.\n\nThe hub push looks like:\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\nThank you in advance — and mind that the NAS has no SFTP."
+			},
+			"blam": {
+				"politeness": "update the deploy docs.\n\nThe hub push looks like\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\n— and mind that the NAS has no SFTP.",
+				"caveman": "update the deploy docs.\n\nThe hub push looks like\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\n— and mind that the NAS has no SFTP.",
+				"aggressive": "Update deploy docs.\n\nThe hub push looks like:\n\n```bash\nbun deploy/hubctl.ts push nas\nbun deploy/hubctl.ts up nas\n```\n\nThank you in advance — and mind that the NAS has no SFTP."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"filler:thanks",
+					"tidy:space-run",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"filler:thanks",
+					"tidy:space-run",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "inline-code",
+			"politenessParity": true,
+			"input": "Could you please check that `prompt.condense` is on by default and `prompt.enhance` stays off, then please flip the flag in ~/.config/klh/stack.yaml if needed.",
+			"source": {
+				"suspenders": "check that `prompt.condense` is on by default and `prompt.enhance` stays off, then flip the flag in ~/.config/klh/stack.yaml if needed.",
+				"belt": "Check that `prompt.condense` is on by default and `prompt.enhance` stays off, then flip flag in ~/.config/klh/stack.yaml if needed."
+			},
+			"blam": {
+				"politeness": "check that `prompt.condense` is on by default and `prompt.enhance` stays off, then flip the flag in ~/.config/klh/stack.yaml if needed.",
+				"caveman": "check that `prompt.condense` is on by default and `prompt.enhance` stays off, then flip the flag in ~/.config/klh/stack.yaml if needed.",
+				"aggressive": "Check that `prompt.condense` is on by default and `prompt.enhance` stays off, then flip flag in ~/.config/klh/stack.yaml if needed."
+			},
+			"rules": {
+				"politeness": [
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"aggressive": [
+					"phrase:could-you-please",
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "urls",
+			"politenessParity": true,
+			"input": "Read the docs at https://example.com/docs/prompt-condense#tiers and please also skim the FAQ page. Please bookmark both.",
+			"source": {
+				"suspenders": "Read the docs at https://example.com/docs/prompt-condense#tiers and also skim the FAQ page. bookmark both.",
+				"belt": "Read docs at https://example.com/docs/prompt-condense#tiers and also skim the FAQ page. Bookmark both."
+			},
+			"blam": {
+				"politeness": "Read the docs at https://example.com/docs/prompt-condense#tiers and also skim the FAQ page. bookmark both.",
+				"caveman": "Read the docs at https://example.com/docs/prompt-condense#tiers and also skim the FAQ page. bookmark both.",
+				"aggressive": "Read docs at https://example.com/docs/prompt-condense#tiers and also skim the FAQ page. Bookmark both."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "paths-flags",
+			"politenessParity": true,
+			"input": "Please delete /var/tmp/stale-cache, then run ./scripts/prune.sh --dry-run and only after that the real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test.",
+			"source": {
+				"suspenders": "delete /var/tmp/stale-cache, then run ./scripts/prune.sh --dry-run and only after that the real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test.",
+				"belt": "Delete /var/tmp/stale-cache, then run./scripts/prune.sh --dry-run and only after that real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test."
+			},
+			"blam": {
+				"politeness": "delete /var/tmp/stale-cache, then run ./scripts/prune.sh --dry-run and only after that the real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test.",
+				"caveman": "delete /var/tmp/stale-cache, then run ./scripts/prune.sh --dry-run and only after that the real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test.",
+				"aggressive": "Delete /var/tmp/stale-cache, then run./scripts/prune.sh --dry-run and only after that real prune -f. Also confirm ~/dev/dinero-auto/invoice-hunt.ts still passes bun test."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly"
+				],
+				"caveman": [
+					"filler:please-kindly"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the",
+					"tidy:space-before-punct"
+				]
+			}
+		},
+		{
+			"name": "dotted-identifiers",
+			"politenessParity": true,
+			"input": "Set prompt.condense to false in suspenders-board.json only if the board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned.",
+			"source": {
+				"suspenders": "Set prompt.condense to false in suspenders-board.json only if the board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned.",
+				"belt": "Set prompt.condense to false in suspenders-board.json only if board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned."
+			},
+			"blam": {
+				"politeness": "Set prompt.condense to false in suspenders-board.json only if the board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned.",
+				"caveman": "Set prompt.condense to false in suspenders-board.json only if the board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned.",
+				"aggressive": "Set prompt.condense to false in suspenders-board.json only if board preview regresses; keep prompt.log on. The routing-policy.yaml ladder stays operator-owned."
+			},
+			"rules": {
+				"politeness": [],
+				"caveman": [],
+				"aggressive": [
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "quoted-strings",
+			"politenessParity": true,
+			"input": "The board shows \"please condense this preview\" only when the toggle is on; the setting key is \"prompt.debug\". Please leave the quotes alone.",
+			"source": {
+				"suspenders": "The board shows \" condense this preview\" only when the toggle is on; the setting key is \"prompt.debug\". leave the quotes alone.",
+				"belt": "The board shows \"please condense this preview\" only when toggle is on; setting key is \"prompt.debug\". Leave quotes alone."
+			},
+			"blam": {
+				"politeness": "The board shows \" condense this preview\" only when the toggle is on; the setting key is \"prompt.debug\". leave the quotes alone.",
+				"caveman": "The board shows \" condense this preview\" only when the toggle is on; the setting key is \"prompt.debug\". leave the quotes alone.",
+				"aggressive": "The board shows \"please condense this preview\" only when toggle is on; setting key is \"prompt.debug\". Leave quotes alone."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "format-lines",
+			"politenessParity": true,
+			"input": "Reply in this shape:\n\nFORMAT: <answer>\nANSWER: please keep it under 200 words\n\nPlease note the answer field is plain text.",
+			"source": {
+				"suspenders": "Reply in this shape\n\nFORMAT: <answer>\nANSWER: keep it under 200 words\n\nnote the answer field is plain text.",
+				"belt": "Reply in this shape:\n\nFORMAT: <answer>\nANSWER: please keep it under 200 words\n\nNote answer field is plain text."
+			},
+			"blam": {
+				"politeness": "Reply in this shape\n\nFORMAT: <answer>\nANSWER: keep it under 200 words\n\nnote the answer field is plain text.",
+				"caveman": "Reply in this shape\n\nFORMAT: <answer>\nANSWER: keep it under 200 words\n\nnote the answer field is plain text.",
+				"aggressive": "Reply in this shape:\n\nFORMAT: <answer>\nANSWER: please keep it under 200 words\n\nNote answer field is plain text."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "log-block",
+			"politenessParity": true,
+			"input": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 please retry the hub push\n2026-10-05 12:00:09 hub push ok after kindly waiting\n</log>\n\nPlease treat the log as immutable evidence.",
+			"source": {
+				"suspenders": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 retry the hub push\n2026-10-05 12:00:09 hub push ok after waiting\n</log>\n\ntreat the log as immutable evidence.",
+				"belt": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 please retry the hub push\n2026-10-05 12:00:09 hub push ok after kindly waiting\n</log>\n\nTreat log as immutable evidence."
+			},
+			"blam": {
+				"politeness": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 retry the hub push\n2026-10-05 12:00:09 hub push ok after waiting\n</log>\n\ntreat the log as immutable evidence.",
+				"caveman": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 retry the hub push\n2026-10-05 12:00:09 hub push ok after waiting\n</log>\n\ntreat the log as immutable evidence.",
+				"aggressive": "The failure log is below.\n\n<log>\n2026-10-05 12:00:01 please retry the hub push\n2026-10-05 12:00:09 hub push ok after kindly waiting\n</log>\n\nTreat log as immutable evidence."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "docquote",
+			"politenessParity": true,
+			"input": "The spec block stays verbatim:\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nPlease import it by repo-relative path.",
+			"source": {
+				"suspenders": "The spec block stays verbatim\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nimport it by repo-relative path.",
+				"belt": "The spec block stays verbatim:\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nImport it by repo-relative path."
+			},
+			"blam": {
+				"politeness": "The spec block stays verbatim\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nimport it by repo-relative path.",
+				"caveman": "The spec block stays verbatim\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nimport it by repo-relative path.",
+				"aggressive": "The spec block stays verbatim:\n\n\"\"\"\nIt is important to note that the engine is pure.\n\"\"\"\n\nImport it by repo-relative path."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word"
+				]
+			}
+		},
+		{
+			"name": "multi-paragraph",
+			"politenessParity": true,
+			"input": "MISSION: audit the gate.\n\nHey, could you kindly walk the three gate moments and please note where the gate silently no-ops?\n\nThe .qlty directory must exist for the gate to run at all.\n\nThanks!",
+			"source": {
+				"suspenders": "MISSION: audit the gate.\n\nwalk the three gate moments and note where the gate silently no-ops?\n\nThe.qlty directory must exist for the gate to run at all.",
+				"belt": "MISSION: audit the gate.\n\nHey, walk three gate moments and note where gate silently no-ops?\n\nThe.qlty directory must exist for gate to run at all.\n\nThanks!"
+			},
+			"blam": {
+				"politeness": "MISSION: audit the gate.\n\nwalk the three gate moments and note where the gate silently no-ops?\n\nThe.qlty directory must exist for the gate to run at all.",
+				"caveman": "MISSION: audit the gate.\n\nwalk the three gate moments and note where the gate silently no-ops?\n\nThe.qlty directory must exist for the gate to run at all.",
+				"aggressive": "MISSION: audit the gate.\n\nHey, walk three gate moments and note where gate silently no-ops?\n\nThe.qlty directory must exist for gate to run at all.\n\nThanks!"
+			},
+			"rules": {
+				"politeness": [
+					"filler:greeting",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"filler:thanks",
+					"tidy:space-run",
+					"tidy:space-before-punct",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:greeting",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"filler:thanks",
+					"tidy:space-run",
+					"tidy:space-before-punct",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"phrase:could-you",
+					"filler:word",
+					"strip:article-the",
+					"tidy:space-before-punct"
+				]
+			}
+		},
+		{
+			"name": "doubled-words",
+			"politenessParity": true,
+			"input": "Please fix the the doubled word handling in the the tokenizer tests, and please please keep it deterministic.",
+			"source": {
+				"suspenders": "fix the doubled word handling in the tokenizer tests, and keep it deterministic.",
+				"belt": "Fix doubled word handling in tokenizer tests, and keep it deterministic."
+			},
+			"blam": {
+				"politeness": "fix the doubled word handling in the tokenizer tests, and keep it deterministic.",
+				"caveman": "fix the doubled word handling in the tokenizer tests, and keep it deterministic.",
+				"aggressive": "Fix doubled word handling in tokenizer tests, and keep it deterministic."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"dedupe:doubled-word",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"dedupe:doubled-word",
+					"tidy:space-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "hedged-words",
+			"politenessParity": true,
+			"input": "Just add the retry wrapper — maybe guard the very last attempt, quite possibly with only one retry, perhaps three. Please keep it simple and really deterministic.",
+			"source": {
+				"suspenders": "Just add the retry wrapper — maybe guard the very last attempt, quite possibly with only one retry, perhaps three. keep it simple and really deterministic.",
+				"belt": "Add retry wrapper — maybe guard last attempt, possibly with only one retry, perhaps three. Keep it simple and deterministic."
+			},
+			"blam": {
+				"politeness": "Just add the retry wrapper — maybe guard the very last attempt, quite possibly with only one retry, perhaps three. keep it simple and really deterministic.",
+				"caveman": "Just add the retry wrapper — maybe guard the very last attempt, quite possibly with only one retry, perhaps three. keep it simple and really deterministic.",
+				"aggressive": "Add retry wrapper — maybe guard last attempt, possibly with only one retry, perhaps three. Keep it simple and deterministic."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "numbers-tech",
+			"politenessParity": true,
+			"input": "Pin SQLite to WAL mode, keep port 7799, and please leave the 1500-line limit enforced by the gate. Deploy the board via hubctl and confirm status.json regenerates.",
+			"source": {
+				"suspenders": "Pin SQLite to WAL mode, keep port 7799, and leave the 1500-line limit enforced by the gate. Deploy the board via hubctl and confirm status.json regenerates.",
+				"belt": "Pin SQLite to WAL mode, keep port 7799, and leave 1500-line limit enforced by gate. Deploy board via hubctl and confirm status.json regenerates."
+			},
+			"blam": {
+				"politeness": "Pin SQLite to WAL mode, keep port 7799, and leave the 1500-line limit enforced by the gate. Deploy the board via hubctl and confirm status.json regenerates.",
+				"caveman": "Pin SQLite to WAL mode, keep port 7799, and leave the 1500-line limit enforced by the gate. Deploy the board via hubctl and confirm status.json regenerates.",
+				"aggressive": "Pin SQLite to WAL mode, keep port 7799, and leave 1500-line limit enforced by gate. Deploy board via hubctl and confirm status.json regenerates."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "kitchen-sink",
+			"politenessParity": false,
+			"input": "MISSION: land the condense engine.\n\nHi! Although this prompt is long, please bear with it.\n\nSteps:\n1. Add packages/blam/src/condense/engine.ts with the union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed\n\nThe prompt ends here. Thank you so much!",
+			"source": {
+				"suspenders": "MISSION: land the condense engine.\n\nSteps\n1. Add packages/blam/src/condense/engine.ts with the union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed",
+				"belt": "MISSION: land the condense engine.\n\nHi! Although this prompt is long, bear with it.\n\nSteps:\n1. Add packages/blam/src/condense/engine.ts with union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed\n\nThe prompt ends here. Thank you so much!"
+			},
+			"blam": {
+				"politeness": "MISSION: land the condense engine.\n\nAlthough this prompt is long, bear with it.\n\nSteps\n1. Add packages/blam/src/condense/engine.ts with the union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed\n\nThe prompt ends here.",
+				"caveman": "MISSION: land the condense engine.\n\nSteps\n1. Add packages/blam/src/condense/engine.ts with the union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed",
+				"aggressive": "MISSION: land the condense engine.\n\nHi! Although this prompt is long, bear with it.\n\nSteps:\n1. Add packages/blam/src/condense/engine.ts with union protect grammar\n2. Wire bun test packages/blam/test/condense.test.ts --coverage\n3. Ping https://suspenders.local/fleet when landed\n\nThe prompt ends here. Thank you so much!"
+			},
+			"rules": {
+				"politeness": [
+					"filler:greeting",
+					"filler:please-kindly",
+					"filler:thanks",
+					"tidy:space-run",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:greeting",
+					"filler:please-kindly",
+					"filler:thanks",
+					"meta:sentence",
+					"tidy:clause-tail",
+					"tidy:blank-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "tilde-fence",
+			"politenessParity": true,
+			"input": "Config template follows:\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\nPlease apply it with hubctl render nas.",
+			"source": {
+				"suspenders": "Config template follows\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\napply it with hubctl render nas.",
+				"belt": "Config template follows:\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\nApply it with hubctl render nas."
+			},
+			"blam": {
+				"politeness": "Config template follows\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\napply it with hubctl render nas.",
+				"caveman": "Config template follows\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\napply it with hubctl render nas.",
+				"aggressive": "Config template follows:\n\n~~~\nprompt.condense = true\nprompt.enhance = false\n~~~\n\nApply it with hubctl render nas."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:clause-tail",
+					"tidy:leading-space"
+				],
+				"aggressive": [
+					"filler:word"
+				]
+			}
+		},
+		{
+			"name": "greetings-classic",
+			"politenessParity": true,
+			"input": "Hello there,\n\nCould you please take the fleet board work item W367.1 and implement the engine? Hey, thanks in advance — kindly ping the board when the pins land.",
+			"source": {
+				"suspenders": "take the fleet board work item W367.1 and implement the engine? Hey, — ping the board when the pins land.",
+				"belt": "Hello there,\n\nTake fleet board work item W367.1 and implement engine? Hey, thanks in advance — ping board when pins land."
+			},
+			"blam": {
+				"politeness": "take the fleet board work item W367.1 and implement the engine? Hey, — ping the board when the pins land.",
+				"caveman": "take the fleet board work item W367.1 and implement the engine? Hey, — ping the board when the pins land.",
+				"aggressive": "Hello there,\n\nTake fleet board work item W367.1 and implement engine? Hey, thanks in advance — ping board when pins land."
+			},
+			"rules": {
+				"politeness": [
+					"filler:greeting",
+					"filler:thanks",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:greeting",
+					"filler:thanks",
+					"filler:request-wrapper",
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"aggressive": [
+					"phrase:could-you-please",
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "punct-mess",
+			"politenessParity": true,
+			"input": "Fix it!!!  now???   please.  Run the gate,, check the pins::: done;;  maybe.",
+			"source": {
+				"suspenders": "Fix it! now?. Run the gate, check the pins: done; maybe.",
+				"belt": "Fix it!!! now???. Run gate,, check pins::: done;; maybe."
+			},
+			"blam": {
+				"politeness": "Fix it! now?. Run the gate, check the pins: done; maybe.",
+				"caveman": "Fix it! now?. Run the gate, check the pins: done; maybe.",
+				"aggressive": "Fix it!!! now???. Run gate,, check pins::: done;; maybe."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:bang-run",
+					"tidy:space-run",
+					"tidy:space-before-punct",
+					"tidy:punct-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:bang-run",
+					"tidy:space-run",
+					"tidy:space-before-punct",
+					"tidy:punct-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the",
+					"tidy:multi-space",
+					"tidy:space-before-punct"
+				]
+			}
+		},
+		{
+			"name": "belt-phrase-cap",
+			"politenessParity": true,
+			"input": "Due to the fact that the router is down, could you retry the ladder. In order to fix it, make sure that the fallback fires. It is important to note that the CAP marker keeps capitalisation.",
+			"source": {
+				"suspenders": "Due to the fact that the router is down, retry the ladder. In order to fix it, make sure that the fallback fires. It is important to note that the CAP marker keeps capitalisation.",
+				"belt": "Because router is down, retry ladder. To fix it, ensure fallback fires. The CAP marker keeps capitalisation."
+			},
+			"blam": {
+				"politeness": "Due to the fact that the router is down, retry the ladder. In order to fix it, make sure that the fallback fires. It is important to note that the CAP marker keeps capitalisation.",
+				"caveman": "Due to the fact that the router is down, retry the ladder. In order to fix it, make sure that the fallback fires. It is important to note that the CAP marker keeps capitalisation.",
+				"aggressive": "Because router is down, retry ladder. To fix it, ensure fallback fires. The CAP marker keeps capitalisation."
+			},
+			"rules": {
+				"politeness": [
+					"filler:request-wrapper"
+				],
+				"caveman": [
+					"filler:request-wrapper"
+				],
+				"aggressive": [
+					"phrase:it-is-important-to-note-that",
+					"phrase:could-you",
+					"phrase:make-sure-that",
+					"phrase:due-to-the-fact-that",
+					"phrase:in-order-to",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "articles",
+			"politenessParity": true,
+			"input": "The router retries; a timeout fires; an error surfaces. The API is stable.",
+			"source": {
+				"suspenders": "The router retries; a timeout fires; an error surfaces. The API is stable.",
+				"belt": "The router retries; timeout fires; error surfaces. The API is stable."
+			},
+			"blam": {
+				"politeness": "The router retries; a timeout fires; an error surfaces. The API is stable.",
+				"caveman": "The router retries; a timeout fires; an error surfaces. The API is stable.",
+				"aggressive": "The router retries; timeout fires; error surfaces. The API is stable."
+			},
+			"rules": {
+				"politeness": [],
+				"caveman": [],
+				"aggressive": [
+					"strip:article-an"
+				]
+			}
+		},
+		{
+			"name": "imperatives-numbers",
+			"politenessParity": true,
+			"input": "Add the shield, run the suite, verify the pins. Please do not skip the gate. Keep every number: 42, 7799, 1500.",
+			"source": {
+				"suspenders": "Add the shield, run the suite, verify the pins. do not skip the gate. Keep every number: 42, 7799, 1500.",
+				"belt": "Add shield, run suite, verify pins. Do not skip gate. Keep every number: 42, 7799, 1500."
+			},
+			"blam": {
+				"politeness": "Add the shield, run the suite, verify the pins. do not skip the gate. Keep every number: 42, 7799, 1500.",
+				"caveman": "Add the shield, run the suite, verify the pins. do not skip the gate. Keep every number: 42, 7799, 1500.",
+				"aggressive": "Add shield, run suite, verify pins. Do not skip gate. Keep every number: 42, 7799, 1500."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		},
+		{
+			"name": "blank-runs",
+			"politenessParity": true,
+			"input": "First paragraph with a path ./x/y.ts.\n\n\n\nSecond paragraph after blank runs.   \nPlease tidy trailing spaces.\n",
+			"source": {
+				"suspenders": "First paragraph with a path ./x/y.ts.\n\nSecond paragraph after blank runs.\ntidy trailing spaces.",
+				"belt": "First paragraph with path./x/y.ts.\n\nSecond paragraph after blank runs.\nTidy trailing spaces."
+			},
+			"blam": {
+				"politeness": "First paragraph with a path ./x/y.ts.\n\nSecond paragraph after blank runs.\ntidy trailing spaces.",
+				"caveman": "First paragraph with a path ./x/y.ts.\n\nSecond paragraph after blank runs.\ntidy trailing spaces.",
+				"aggressive": "First paragraph with path./x/y.ts.\n\nSecond paragraph after blank runs.\nTidy trailing spaces."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run",
+					"tidy:trailing-space",
+					"tidy:leading-space",
+					"tidy:blank-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"tidy:trailing-space",
+					"tidy:leading-space",
+					"tidy:blank-run"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-an",
+					"tidy:multi-space",
+					"tidy:space-before-punct",
+					"tidy:edge-space",
+					"tidy:blank-run"
+				]
+			}
+		},
+		{
+			"name": "mixed-meta-dupe",
+			"politenessParity": false,
+			"input": "MISSION: swap the consumers.\n\nAlthough this prompt carries context, the swap is mechanical. The swap is mechanical in every package. The swap is mechanical in each package. Please import the blam engine and the blam engine by repo-relative path. The prompt was long; the work is short.",
+			"source": {
+				"suspenders": "MISSION: swap the consumers.\n\nThe swap is mechanical in every package. import the blam engine and the blam engine by repo-relative path.",
+				"belt": "MISSION: swap the consumers.\n\nAlthough this prompt carries context, swap is mechanical. The swap is mechanical in every package. The swap is mechanical in each package. Import blam engine and blam engine by repo-relative path. The prompt was long; work is short."
+			},
+			"blam": {
+				"politeness": "MISSION: swap the consumers.\n\nAlthough this prompt carries context, the swap is mechanical. The swap is mechanical in every package. The swap is mechanical in each package. import the blam engine and the blam engine by repo-relative path. The prompt was long; the work is short.",
+				"caveman": "MISSION: swap the consumers.\n\nThe swap is mechanical in every package. import the blam engine and the blam engine by repo-relative path.",
+				"aggressive": "MISSION: swap the consumers.\n\nAlthough this prompt carries context, swap is mechanical. The swap is mechanical in every package. The swap is mechanical in each package. Import blam engine and blam engine by repo-relative path. The prompt was long; work is short."
+			},
+			"rules": {
+				"politeness": [
+					"filler:please-kindly",
+					"tidy:space-run"
+				],
+				"caveman": [
+					"filler:please-kindly",
+					"meta:sentence",
+					"dedupe:sentence"
+				],
+				"aggressive": [
+					"filler:word",
+					"strip:article-the"
+				]
+			}
+		}
+	]
+}
