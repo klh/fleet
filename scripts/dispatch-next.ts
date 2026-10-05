@@ -35,6 +35,7 @@ import {
 	spawnClaude,
 } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
+import { ensureLaneKey } from "./lib/lane-auth.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 
@@ -576,11 +577,19 @@ const dispatchItem = async (
 		applyInsertion(env, pick.bin, ctx);
 		// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
 		// front with /w/<sid> so usage attributes per lane (route_audit.lane).
-		// Skipped when a hub redirect won (the hub owns the base URL) or the
-		// front is down — inherited belt env is the fallback, never silent.
+		// The gate demands bksk_ keys: mint the lane's scoped key first; no
+		// admin key = front skipped, lane rides belt direct (never silent).
+		// Also skipped when a hub redirect won (the hub owns the base URL).
 		if (!resolvedHub && (await probeBuckleFront())) {
-			applyLaneAttribution(env, sid);
-			hubNote += ` — lane attribution: buckle front /w/${sid}`;
+			const laneKey = await ensureLaneKey(sid);
+			if (laneKey) {
+				applyLaneAttribution(env, sid);
+				env.ANTHROPIC_AUTH_TOKEN = laneKey;
+				hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key)`;
+			} else {
+				hubNote +=
+					" — no BUCKLE_ADMIN_KEY (belt.env): lane rides belt direct, buckle front skipped";
+			}
 		}
 	}
 	const bin = Bun.which(pick.bin);
