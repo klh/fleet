@@ -14,7 +14,7 @@
 
 ## Survey rejections 2026-09-27
 
-Moved to the [rejection log in benchmarks.md](../../benchmarks.md#rejection-log)
+Moved to the [rejection log in benchmarks.md](../../../benchmarks.md#rejection-log)
 (canonical since 2026-10-02). Sweep outcome: Qwen3.8-27B, GLM-5.x local,
 Xing4.0-29B-A4B, finance fine-tunes and Intern-Decision-4B all rejected —
 reasons per row there.
