@@ -240,9 +240,7 @@ function laneIsAlive(b: string): boolean {
 	// with dispatch-next); untracked branches keep the local worktree probe
 	const tracked = lanes().find((l) => l.branch === b);
 	if (tracked) return laneAlive(tracked);
-	const wt =
-		wtPathFromGit(b) ??
-		`${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;
+	const wt = wtPathFromGit(b) ?? `${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;
 	return worktreeLive(wt);
 }
 
@@ -535,7 +533,7 @@ function stallWatch(): void {
 // per-lane episode bookkeeping, split from stallWatch for the mutation gate
 function watchLane(
 	state: StallState,
-	seen: Set<string>,
+	_seen: Set<string>,
 	l: Lane,
 	now: number,
 	activity: number,
@@ -552,7 +550,10 @@ function watchLane(
 	log(
 		`STALLED ${l.sid} on ${l.item} — log/worktree frozen ${Math.round((now - activity) / 60000)}m`,
 	);
-	emitLaneEvent("lane.stalled", l.item, { sid: l.sid, stallMs: now - activity });
+	emitLaneEvent("lane.stalled", l.item, {
+		sid: l.sid,
+		stallMs: now - activity,
+	});
 }
 
 async function cycle(): Promise<void> {
@@ -758,6 +759,11 @@ if (MODE === "dispatch") {
 	mkdirSync(`${REPO}/.fleet`, { recursive: true });
 	const briefFile = `${REPO}/.fleet/brief-${sid}.md`;
 	writeFileSync(briefFile, brief);
+	// W432 (mirrors dispatch-next W.F1): sandboxed lanes read NOTHING outside
+	// their worktree (lesson.brief-sandbox-access), so the readable copy lands
+	// in the worktree and the prompt points there; the .fleet copy stays
+	// canonical for the coordinator/board.
+	writeFileSync(`${wt}/.klh-brief.md`, brief);
 	const env = { ...process.env };
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_AUTH_TOKEN;
@@ -784,7 +790,9 @@ if (MODE === "dispatch") {
 		// normal worktrees, so only the sid needs to ride the lane env.
 		env.SUSPENDERS_SID = sid;
 	}
-	const prompt = `Read ${briefFile} and execute it fully.`;
+	// W432: same rule as dispatch-next — the lane prompt points at the
+	// READABLE worktree copy, not the canonical .fleet path lanes can't read.
+	const prompt = `Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
 	// the agent binary resolves at dispatch time — a bare name ENOENTs under
 	// launchd, where PATH is minimal
 	const bin = Bun.which(AGENT);

@@ -696,7 +696,11 @@ const dispatchItem = async (
 		console.log(`SKIP — executor binary not found on PATH: ${pick.bin}`);
 		return null;
 	}
-	const prompt = `Read ${briefFile} and execute it fully.`;
+	// W432: the prompt points at the READABLE copy — sandboxed lanes read
+	// nothing outside their worktree (W.F1 above), so the canonical
+	// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
+	// the orchestrator/board; the worktree copy is what the lane actually gets.
+	const prompt = `Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
 	const laneLog = `${FLEET}/lane-${sid}.log`;
 	// settings.json env CLOBBERS the process env at CLI startup (probed live
 	// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
