@@ -299,6 +299,52 @@ describe("quotaSweep", () => {
 		expect(rec.reclaimed.length).toBe(0);
 	});
 
+	test("transcript tail: no lane log, stale transcript carries the signature", async () => {
+		const root = tempRoot();
+		const projects = mkdtempSync(join(tmpdir(), "quota-sweep-tp-"));
+		dirs.push(projects);
+		const t = `${projects}/autow10.jsonl`;
+		writeFileSync(
+			t,
+			`{"type":"assistant"}\n{"type":"error","error":{"type":"rate_limit_error"}}\n`,
+		);
+		const stale = new Date(Date.now() - STALE);
+		utimesSync(t, stale, stale);
+		const rec = recorders();
+		const report = await quotaSweep({
+			db: governor([{ id: "W10", project: root, owner_sid: "autow10" }]),
+			buckleDb: null,
+			projectsDir: projects,
+			probeLive: () => false,
+			act: true,
+			...rec.deps,
+			recentEmit: () => false,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(
+			report.verdicts[0]?.hits.some((h) => h.source === "transcript"),
+		).toBeTrue();
+		expect(rec.reclaimed.length).toBe(1);
+	});
+
+	test("OPEN-decision holder is never reclaimed, only alerted", async () => {
+		const root = tempRoot();
+		laneLog(root, "autow11", "API Error (429)\n");
+		const rec = recorders();
+		const report = await quotaSweep({
+			db: governor([{ id: "W11", project: root, owner_sid: "autow11" }]),
+			buckleDb: null,
+			probeLive: () => false,
+			act: true,
+			waitingSids: new Set(["autow11"]),
+			...rec.deps,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeFalse();
+		expect(report.verdicts[0]?.note).toContain("OPEN decision");
+		expect(rec.reclaimed.length).toBe(0);
+		expect(rec.broadcasts.length).toBe(0);
+	});
+
 	test("missing buckle db → source skipped gracefully", async () => {
 		const root = tempRoot();
 		const report = await quotaSweep({

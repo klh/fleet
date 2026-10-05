@@ -20,9 +20,23 @@ const val = (flag: string): string | undefined => {
 const act = argv.includes("--act");
 const json = argv.includes("--json");
 
+const db = openGovernorDb();
+// sids holding an OPEN decision stay claimed even when dead (paired-lane
+// finding folded W366): re-dispatching under a dangling fork strands it
+const waitingSids = new Set<string>();
+try {
+	for (const r of db
+		.query(
+			"SELECT DISTINCT answer_to AS sid FROM decisions WHERE state = 'OPEN' AND answer_to IS NOT NULL",
+		)
+		.all() as { sid: string }[])
+		waitingSids.add(r.sid);
+} catch {} // pre-decisions db — nothing to exempt
+
 const report = await quotaSweep({
-	db: openGovernorDb(),
+	db,
 	act,
+	waitingSids,
 	sid: val("--sid"),
 	buckleDb: val("--buckle-db"),
 	lookbackMs: Number(val("--lookback-min") ?? 90) * 60_000,

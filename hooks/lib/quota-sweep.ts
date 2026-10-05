@@ -65,7 +65,7 @@ export const projectRootOf = (project: string): string =>
 const scrub = (s: string): string => s.replace(/\/Users\/[^/\s'"]+/g, "~");
 
 export type QuotaHit = {
-	source: "lane-log" | "route_audit";
+	source: "lane-log" | "transcript" | "route_audit";
 	ts: number;
 	detail: string;
 };
@@ -101,6 +101,10 @@ export type SweepDeps = {
 	buckleDb?: string | null; // null forces the source off
 	projectsDir?: string; // claimant transcripts root
 	probeLive?: (sid: string) => boolean; // override the whole death gate
+	// sids holding an OPEN decision (decisions.answer_to) — alert-only even
+	// when exhausted: the item stays claimed until the fork resolves
+	// (paired-lane finding, folded from their quota-scan WIP)
+	waitingSids?: Set<string>;
 	emit?: (sid: string, note: string) => void;
 	broadcast?: (note: string) => number;
 	reclaim?: (id: string, projectRoot: string) => { code: number; out: string };
@@ -125,6 +129,33 @@ const defaultBuckleDb = (projectRoots: string[]): string | null => {
 		if (existsSync(guess)) return guess;
 	}
 	return null;
+};
+
+// paired-lane adoption (their quota-scan.ts WIP, folded here): the sid's
+// own transcript is a third tail — .fleet lane logs rotate or never exist
+// for manually-run lanes, the transcript outlives them. Only consulted
+// when no lane-log hit exists (dedup); freshness is the death gate's call.
+const transcriptTail = (
+	projectsDir: string,
+	sid: string,
+): { text: string; mtimeMs: number } | null => {
+	try {
+		const glob = new Bun.Glob(`**/*${sid}*`);
+		let best: { p: string; m: number } | null = null;
+		for (const rel of glob.scanSync({ cwd: projectsDir, onlyFiles: true })) {
+			try {
+				const m = statSync(`${projectsDir}/${rel}`).mtimeMs;
+				if (!best || m > best.m) best = { p: `${projectsDir}/${rel}`, m };
+			} catch {}
+		}
+		if (!best) return null;
+		return {
+			text: readFileSync(best.p, "utf8").slice(-4 * TAIL_BYTES),
+			mtimeMs: best.m,
+		};
+	} catch {
+		return null;
+	}
 };
 
 // death gate default: sessions-row trust (hb window, else recorded
@@ -286,12 +317,28 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 			}
 		}
 		hits.push(...(auditHits.get(sid) ?? []));
+		if (!hits.some((h) => h.source === "lane-log")) {
+			const tail = transcriptTail(projectsDir, sid);
+			if (tail)
+				for (const line of tail.text.split("\n"))
+					if (lineIsQuota(line))
+						hits.push({
+							source: "transcript",
+							ts: tail.mtimeMs,
+							detail: scrub(line.slice(0, 160)),
+						});
+		}
 		const live = logFresh || probeLive(sid);
+		const waiting = deps.waitingSids?.has(sid) === true;
 		let exhausted = hits.length > 0 && !live && !finished;
 		let note: string;
 		if (finished) {
 			exhausted = false;
 			note = "lane finished (DONE) — claims close via done/orphaned, not quota";
+		} else if (exhausted && waiting) {
+			exhausted = false;
+			note =
+				"quota signatures + lane dead but holds an OPEN decision — alert only, no reclaim";
 		} else if (exhausted) {
 			note = `quota-exhausted: ${hits[hits.length - 1]?.detail ?? "signature"}`;
 		} else if (hits.length > 0 && live) {
