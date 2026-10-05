@@ -68,6 +68,8 @@ services:
       HOME: /state/hub-home
       SUSPENDERS_BIND: ${HUB_BOARD_BIND:-127.0.0.1}
       SUSPENDERS_ALLOWED_HOSTS: ${HUB_ALLOWED_HOSTS:-suspenders.local}
+      # LAN service-discovery feed (recovery map); unset/empty = none
+      SUSPENDERS_SERVICES_JSON: ${HUB_SERVICES_JSON:-}
     volumes:
       - ${HUB_SUSPENDERS_REPO:-..}:/src/suspenders:ro
       - hub-state:/state/hub-home
