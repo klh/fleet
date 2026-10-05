@@ -36,6 +36,8 @@ import {
 } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { ensureLaneKey } from "./lib/lane-auth.ts";
+import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
@@ -481,8 +483,7 @@ const fetchArchiveFlag = async (
 				);
 				if (res.ok)
 					archived =
-						((await res.json()) as { archived?: boolean }).archived ===
-						true;
+						((await res.json()) as { archived?: boolean }).archived === true;
 			}
 		}
 	} catch {
@@ -514,17 +515,25 @@ const dispatchItem = async (
 			console.log(
 				`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 			);
+		const brief = composeBrief({
+			item,
+			showOut: show.out,
+			sid,
+			branch,
+			worktree: wt,
+			capsule,
+			agent: pick.agent,
+			landing: await landingRedirect(REPO, branch),
+		});
+		console.log(brief);
+		// W223.2: dry-run shows the verdict the spawn path would enforce
+		const dryHarness: "claude" | "copilot" =
+			pick.bin === "copilot" ? "copilot" : "claude";
 		console.log(
-			composeBrief({
-				item,
-				showOut: show.out,
-				sid,
-				branch,
-				worktree: wt,
-				capsule,
-				agent: pick.agent,
-				landing: await landingRedirect(REPO, branch),
-			}),
+			briefVerdictLine(
+				verifyBrief(brief, { harness: dryHarness }),
+				Buffer.byteLength(brief),
+			),
 		);
 		return `${item}→${sid}(dry)`;
 	}
@@ -598,6 +607,27 @@ const dispatchItem = async (
 		capsule,
 		agent: pick.agent,
 	});
+	// W223.2 dual-harness brief verification: copilot's prompt handling can
+	// mangle a brief claude renders fine, so the copilot harness gets a hard
+	// gate — a failing brief refuses the spawn AND reclaims the claim (a
+	// stranded claim on a never-spawned lane is the exact disease quota-sweep
+	// cures). claude runs the same checks warn-only (no observed claude
+	// mangling; hard-gating claude is a separate behavior change).
+	const harness: "claude" | "copilot" =
+		pick.bin === "copilot" ? "copilot" : "claude";
+	const verdict = verifyBrief(brief, { harness });
+	if (!verdict.ok && harness === "copilot") {
+		const why = briefVerdictLine(verdict, Buffer.byteLength(brief));
+		run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
+		console.log(
+			`SKIP ${item} — brief refused by ${harness} verification: ${why} — claim reclaimed → READY, nothing spawned`,
+		);
+		return null;
+	}
+	if (!verdict.ok)
+		console.log(
+			`NOTE — ${briefVerdictLine(verdict, Buffer.byteLength(brief))} (claude warn-only, dispatched anyway)`,
+		);
 	const briefFile = `${FLEET}/brief-${sid}.md`;
 	mkdirSync(FLEET, { recursive: true });
 	writeFileSync(briefFile, brief);
@@ -845,6 +875,24 @@ const main = async (): Promise<void> => {
 	// entries (not in `live`, same object refs since filter preserves them)
 	// stay for history; `live` carries both survivors and new dispatches.
 	if (!DRY) saveLanes([...lanes.filter((l) => !live.includes(l)), ...live]);
+	// W223.2 credit metering: flush copilot lane spend into `lane.<sid>.usage`
+	// facts once per dispatch cycle (fleet-loop drives this every --every
+	// cycle — totals stay fresh with no new daemon). Fail-soft, same doctrine
+	// as aid-harvest: metering must never kill a dispatch.
+	if (!DRY) {
+		try {
+			const meter = meterCopilotLanes(FLEET);
+			if (meter.ok) {
+				const stamped = flushLaneUsageFacts(meter);
+				if (stamped.length > 0)
+					console.log(`copilot meter: stamped ${stamped.join(", ")}`);
+			}
+		} catch (e) {
+			console.log(
+				`NOTE — copilot meter flush failed (soft): ${e instanceof Error ? e.message : String(e)}`,
+			);
+		}
+	}
 	console.log(
 		`lanes live: ${live.length}/${TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
