@@ -13,7 +13,7 @@
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -30,10 +30,13 @@ interface HubProfile {
 	allowed_hosts?: string[];
 	services_json?: string;
 	peers?: string[];
+	/** Deploy source: `ref` pins the git ref for all three repos; the named
+	 *  entries override origins (forks/mirrors) — never host paths, the hub
+	 *  pulls its code from the git origins into volumes. */
 	repos?: {
+		ref?: string;
 		buckle?: string;
 		suspenders?: string;
-		tree?: string;
 		belt?: string;
 	};
 	deploy?: {
@@ -46,6 +49,9 @@ interface HubProfile {
 }
 
 interface StackConfig {
+	/** The stack version: ONE string pins buckle+suspenders+belt — the ref
+	 *  every repo sidecar pulls. Absent = main (dev posture). */
+	version?: string;
 	hubs: Record<string, HubProfile>;
 	auth?: { required?: boolean };
 }
@@ -80,6 +86,7 @@ function renderEnv(
 	hub: HubProfile,
 	name: string,
 	authRequired?: boolean,
+	version?: string,
 ): string {
 	const lines = [`HUB_NAME=${name}`];
 	const kv = (key: string, v: unknown): void => {
@@ -87,7 +94,8 @@ function renderEnv(
 	};
 	kv("HUB_BUCKLE_PORT", hub.buckle_port);
 	kv("HUB_BUCKLE_BIND", hub.bind);
-	kv("HUB_BUCKLE_REPO", hub.repos?.buckle);
+	kv("HUB_BUCKLE_REF", hub.repos?.ref ?? version);
+	kv("HUB_BUCKLE_REPO_URL", hub.repos?.buckle);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
 	if (authRequired !== undefined)
 		kv("HUB_BUCKLE_AUTH", authRequired ? "on" : "off");
@@ -98,8 +106,10 @@ function renderEnv(
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
-	kv("HUB_SUSPENDERS_REPO", hub.repos?.suspenders);
-	kv("HUB_BELT_REPO", hub.repos?.belt);
+	kv("HUB_SUSPENDERS_REF", hub.repos?.ref ?? version);
+	kv("HUB_SUSPENDERS_REPO_URL", hub.repos?.suspenders);
+	kv("HUB_BELT_REF", hub.repos?.ref ?? version);
+	kv("HUB_BELT_REPO_URL", hub.repos?.belt);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -111,10 +121,11 @@ function runOnHub(hub: HubProfile, script: string): string {
 	return execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
 }
 
-/** Copy a file to the hub host (plain scp; the hub's deploy.dir must exist). */
+/** Copy a file to the hub host (scp legacy protocol — Synology sshd has no
+ *  SFTP subsystem; the hub's deploy.dir must exist). */
 function copyToHub(hub: HubProfile, src: string, dest: string): void {
 	if (hub.deploy?.ssh) {
-		execFileSync("scp", ["-q", src, `${hub.deploy.ssh}:${dest}`]);
+		execFileSync("scp", ["-O", "-q", src, `${hub.deploy.ssh}:${dest}`]);
 		return;
 	}
 	writeFileSync(dest, readFileSync(src));
@@ -157,16 +168,22 @@ function pushConfig(
 	hub: HubProfile,
 	name: string,
 	authRequired?: boolean,
+	version?: string,
 ): void {
 	if (!existsSync(COMPOSE_TEMPLATE)) {
 		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
 	}
-	const envText = renderEnv(hub, name, authRequired);
+	const envText = renderEnv(hub, name, authRequired, version);
 	const dir = requireDir(hub);
 	const envPath = `${dir}/.env`;
-	copyToHub(hub, COMPOSE_TEMPLATE, `${dir}/hub-compose.yaml`);
+	// ensure the deploy dir on both paths before any file lands
 	if (hub.deploy?.ssh) {
 		execFileSync("ssh", [hub.deploy.ssh, `mkdir -p ${JSON.stringify(dir)}`]);
+	} else {
+		mkdirSync(dir, { recursive: true });
+	}
+	copyToHub(hub, COMPOSE_TEMPLATE, `${dir}/hub-compose.yaml`);
+	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",
 			[hub.deploy.ssh, `/bin/sh -c 'cat > ${JSON.stringify(envPath)}'`],
@@ -263,13 +280,13 @@ function main(): void {
 	}
 	switch (verb) {
 		case "render":
-			console.log(renderEnv(hub, hubName, authRequired));
+			console.log(renderEnv(hub, hubName, authRequired, stack.version));
 			return;
 		case "mint":
 			mintRootKey(hub);
 			return;
 		case "push":
-			pushConfig(hub, hubName, authRequired);
+			pushConfig(hub, hubName, authRequired, stack.version);
 			return;
 		case "up":
 			composeUp(hub);

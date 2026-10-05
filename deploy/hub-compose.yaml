@@ -22,6 +22,22 @@
 name: klh-hub-${HUB_NAME:-desktop}
 
 services:
+  # Repo sidecars: the hub pulls its code from the git origins at a pinned
+  # ref into named volumes — NO host-path bind mounts of dev checkouts.
+  # Idempotent: clone when absent, fetch+reset to the ref when present, so a
+  # re-`up` redeploys. Override via HUB_*_REPO_URL / HUB_*_REF in the .env.
+  buckle-repo:
+    image: alpine/git
+    container_name: ${HUB_NAME:-desktop}-buckle-repo
+    entrypoint: ["sh", "-c"]
+    command:
+      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_BUCKLE_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_BUCKLE_REF" "$$HUB_BUCKLE_REPO_URL" /srv/repo; fi
+    environment:
+      HUB_BUCKLE_REF: ${HUB_BUCKLE_REF:-main}
+      HUB_BUCKLE_REPO_URL: ${HUB_BUCKLE_REPO_URL:-https://github.com/klh/buckle.git}
+    volumes:
+      - buckle-repo:/srv/repo
+
   buckle-hub:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-buckle-hub
@@ -29,6 +45,9 @@ services:
     restart: unless-stopped
     working_dir: /src/buckle
     command: bun run src/server.ts
+    depends_on:
+      buckle-repo:
+        condition: service_completed_successfully
     env_file:
       # break-glass root credential (drift-never + secrets law): generated
       # ON THE HUB DEVICE, mode 600, never committed. BUCKLE_ROOT_KEY seeds
@@ -47,7 +66,7 @@ services:
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
     volumes:
-      - ${HUB_BUCKLE_REPO:-../buckle}:/src/buckle:ro
+      - buckle-repo:/src/buckle:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
     healthcheck:
@@ -58,6 +77,18 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+
+  suspenders-repo:
+    image: alpine/git
+    container_name: ${HUB_NAME:-desktop}-suspenders-repo
+    entrypoint: ["sh", "-c"]
+    command:
+      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_SUSPENDERS_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_SUSPENDERS_REF" "$$HUB_SUSPENDERS_REPO_URL" /srv/repo; fi
+    environment:
+      HUB_SUSPENDERS_REF: ${HUB_SUSPENDERS_REF:-main}
+      HUB_SUSPENDERS_REPO_URL: ${HUB_SUSPENDERS_REPO_URL:-https://github.com/klh/suspenders.git}
+    volumes:
+      - suspenders-repo:/srv/repo
 
   board-hub:
     image: oven/bun:1
@@ -76,9 +107,11 @@ services:
       # LAN service-discovery feed (recovery map); unset/empty = none
       SUSPENDERS_SERVICES_JSON: ${HUB_SERVICES_JSON:-}
     volumes:
-      - ${HUB_SUSPENDERS_REPO:-..}:/src/suspenders:ro
+      - suspenders-repo:/src/suspenders:ro
       - hub-state:/state/hub-home
     depends_on:
+      suspenders-repo:
+        condition: service_completed_successfully
       store-hub:
         condition: service_healthy
     healthcheck:
@@ -96,12 +129,15 @@ services:
     network_mode: host
     restart: unless-stopped
     command: bun /src/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
+    depends_on:
+      suspenders-repo:
+        condition: service_completed_successfully
     environment:
       HOME: /state/hub-home
       # same healthcheck-port law as board-hub: export the resolved port
       HUB_STORE_PORT: ${HUB_STORE_PORT:-7796}
     volumes:
-      - ${HUB_SUSPENDERS_REPO:-..}:/src/suspenders:ro
+      - suspenders-repo:/src/suspenders:ro
       - hub-state:/state/hub-home
     healthcheck:
       test:
@@ -112,6 +148,18 @@ services:
       retries: 6
       start_period: 20s
 
+  belt-repo:
+    image: alpine/git
+    container_name: ${HUB_NAME:-desktop}-belt-repo
+    entrypoint: ["sh", "-c"]
+    command:
+      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_BELT_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_BELT_REF" "$$HUB_BELT_REPO_URL" /srv/repo; fi
+    environment:
+      HUB_BELT_REF: ${HUB_BELT_REF:-main}
+      HUB_BELT_REPO_URL: ${HUB_BELT_REPO_URL:-https://github.com/klh/belt.git}
+    volumes:
+      - belt-repo:/srv/repo
+
   belt-hub:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-belt-hub
@@ -119,11 +167,14 @@ services:
       - "${HUB_BELT_BIND:-127.0.0.1}:${HUB_BELT_PORT:-7792}:7791"
     restart: unless-stopped
     command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun /src/belt/bin/dashboard.ts'
+    depends_on:
+      belt-repo:
+        condition: service_completed_successfully
     environment:
       HOME: /state/belt-home
       BELT_PORT: "7791"
     volumes:
-      - ${HUB_BELT_REPO:-../belt}:/src/belt:ro
+      - belt-repo:/src/belt:ro
       - belt-state:/state/belt-home
     healthcheck:
       test:
@@ -135,6 +186,9 @@ services:
       start_period: 20s
 
 volumes:
+  buckle-repo:
+  suspenders-repo:
+  belt-repo:
   buckle-state:
   hub-state:
   hub-secrets:
