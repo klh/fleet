@@ -63,6 +63,31 @@ CREATE TABLE IF NOT EXISTS federation_cr_queue (
   claimed_by TEXT,
   claimed_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS federation_usage_rollup (
+  spoke TEXT NOT NULL,
+  team TEXT NOT NULL DEFAULT '',
+  bucket INTEGER NOT NULL,
+  model_class TEXT NOT NULL,
+  in_tok INTEGER NOT NULL DEFAULT 0,
+  out_tok INTEGER NOT NULL DEFAULT 0,
+  cache_r INTEGER NOT NULL DEFAULT 0,
+  cache_c INTEGER NOT NULL DEFAULT 0,
+  requests INTEGER NOT NULL DEFAULT 0,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (spoke, bucket, model_class)
+);
+CREATE TABLE IF NOT EXISTS federation_aid_rollup (
+  spoke TEXT NOT NULL,
+  team TEXT NOT NULL DEFAULT '',
+  bucket INTEGER NOT NULL,
+  aid TEXT NOT NULL,
+  domain TEXT NOT NULL DEFAULT '',
+  injected INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  tok_injected INTEGER NOT NULL DEFAULT 0,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (spoke, bucket, aid, domain)
+);
 `;
 
 /** (table, pk-expression, columns) — mirrors the govdb deltaTables entries. */
