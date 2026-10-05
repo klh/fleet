@@ -57,8 +57,9 @@ const BODY_CAP = 64 * 1024;
 
 class BodyTooBig extends Error {}
 
-/** streams-over-buffers: capped stream read — never res.text()/res.json(). */
-async function readCapped(
+/** streams-over-buffers: capped stream read — never res.text()/res.json().
+ *  W171: shared with the board's federation dashboard route. */
+export async function readCapped(
 	res: Response,
 	cap = BODY_CAP,
 ): Promise<Record<string, unknown>> {
