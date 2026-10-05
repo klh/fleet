@@ -6,6 +6,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONDENSE_VERSION, condense } from "./condense.ts";
+// blam canonical condense engine (W367 spec: consumers import repo-relative
+// until W422.5 workspace wiring; bun resolves the path directly).
+import {
+	condenseTier,
+	type TierName,
+} from "../../../blam/src/condense/tiers.ts";
+import { CONDENSE_VERSION as BLAM_CONDENSE_VERSION } from "../../../blam/src/condense/version.ts";
 import {
 	type ClassId,
 	LINE_CAP,
@@ -17,7 +24,8 @@ import {
 } from "./core.ts";
 
 export interface Transform {
-	/** variant name: none | condense | enhance | both | custom */
+	/** variant name: none | condense | condense-in | condense-out | enhance |
+	 *  both | condense-in+enhance | condense-out+enhance */
 	readonly id: string;
 	/** bump whenever output for the same input may change */
 	readonly version: string;
@@ -25,7 +33,16 @@ export interface Transform {
 	readonly deterministic: boolean;
 	transform(id: string, prompt: string): string | Promise<string>;
 }
-export const TRANSFORM_IDS = ["none", "condense", "enhance", "both"] as const;
+export const TRANSFORM_IDS = [
+	"none",
+	"condense",
+	"condense-in",
+	"condense-out",
+	"enhance",
+	"both",
+	"condense-in+enhance",
+	"condense-out+enhance",
+] as const;
 export type TransformId = (typeof TRANSFORM_IDS)[number];
 export const isTransformId = (s: string): s is TransformId =>
 	(TRANSFORM_IDS as readonly string[]).includes(s);
@@ -42,6 +59,32 @@ export const condenseTransform: Transform = {
 	deterministic: true,
 	transform: (_id, prompt) => condense(prompt),
 };
+
+// ---------------------------------------------------------------- blam tiers
+/** blam canonical engine, per-tier transform legs (W367.3). Both are
+ *  deterministic and uncached — the engine is pure (blam laws L4/L6).
+ *  Version = CONDENSE_VERSION + "/" + tier, so an engine or tier bump is a
+ *  new variant hash. */
+const blamTier = (tier: TierName, id: string): Transform => ({
+	id,
+	version: `${BLAM_CONDENSE_VERSION}/${tier}`,
+	deterministic: true,
+	transform: (_id, prompt) => condenseTier(tier, prompt).text,
+});
+/** Inbound condense (user → LLM): blam tier `caveman` — the dispatch-brief /
+ *  board tier (spec audience split: machines read it, condense as hard as
+ *  meaning allows). */
+export const condenseInTransform = blamTier("caveman", "condense-in");
+/**
+ * Outbound-gentle leg: blam tier `politeness` applied to the SAME sealed
+ * input, AS IF it were the response side. SEMANTICS: this simulates the
+ * buckle `condense-in` response sideband's character (LLM → user, default
+ * OFF per W137) on the arena's inbound prompts — the arena measures model
+ * output quality under a gentled prompt; the real outbound sideband (it
+ * rewrites model RESPONSES before they reach the user) is a buckle runtime
+ * concern this harness cannot and does not exercise.
+ */
+export const condenseOutTransform = blamTier("politeness", "condense-out");
 
 // ---------------------------------------------------------------- enhance
 export const ENHANCE_SYSTEM = `You rewrite prompts for a language model so they are clearer and more explicit.
@@ -165,7 +208,14 @@ export function buildTransform(
 	const e = parts.enhance ?? makeEnhance();
 	if (name === "none") return noneTransform;
 	if (name === "condense") return c;
+	// the blam legs are fixed tiers — --condenser never overrides them
+	if (name === "condense-in") return condenseInTransform;
+	if (name === "condense-out") return condenseOutTransform;
 	if (name === "enhance") return e;
+	if (name === "condense-in+enhance")
+		return compose("condense-in+enhance", condenseInTransform, e);
+	if (name === "condense-out+enhance")
+		return compose("condense-out+enhance", condenseOutTransform, e);
 	return compose("both", c, e);
 }
 

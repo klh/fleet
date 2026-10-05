@@ -1,7 +1,9 @@
 // report-variant.ts — compare variants (transform × model set) across runs.
-// Baseline = a none-transform run that contains pure-api (latest by default);
-// every leg of every variant is paired by task against the baseline's
-// pure-api leg, so the speed and quality deltas share one reference.
+// Baseline = a none-transform run (latest by default; one that contains
+// pure-api wins, else the latest none run); every leg is paired by task
+// against the baseline's pure-api leg when it has one, else the SAME leg in
+// the baseline run — local-only matrices (W367.3, W368) have no pure-api
+// rows and same-leg pairing is the honest reference there.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -67,7 +69,12 @@ export function pickBaseline(
 			(r.meta?.transform ?? "none") === "none" &&
 			r.rows.some((x) => x.leg === "pure-api" && x.phase === "cold"),
 	);
-	return cands.sort((a, b) => (a.id < b.id ? 1 : -1))[0] ?? null;
+	// local-only matrices have no pure-api anywhere — fall back to the latest
+	// none-transform run whatever its legs
+	const pool = cands.length
+		? cands
+		: runs.filter((r) => (r.meta?.transform ?? "none") === "none");
+	return pool.sort((a, b) => (a.id < b.id ? 1 : -1))[0] ?? null;
 }
 
 /** Estimated input-token and $ effect of prompt compression on a leg. */
@@ -97,13 +104,9 @@ export function variantClassTable(
 	base: LoadedRun | null,
 ): string[] {
 	const out: string[] = [];
-	const bmap = new Map(
-		(base?.rows ?? [])
-			.filter(
-				(r) => r.cls === cls && r.phase === "cold" && r.leg === "pure-api",
-			)
-			.map((r) => [r.task, r]),
-	);
+	// pure-api is the canonical reference when the baseline run has it;
+	// otherwise each leg pairs against the SAME leg in the baseline run
+	const hasPureApi = (base?.rows ?? []).some((r) => r.leg === "pure-api");
 	out.push(`## ${cls} — ${CLASSES[cls].name}`, "");
 	out.push(
 		"| variant | leg | n | wall p50 | speed vs base pure-api (median ratio [CI]) | speed label | quality mean | pass% | Δq vs base [95% CI] | δ=0.10 | $/1k | prompt chars in→out | Δchars | est Δin-tok/task | est Δ$/1k from compression | fb | flags |",
@@ -114,6 +117,14 @@ export function variantClassTable(
 		const cold = run.rows.filter((r) => r.cls === cls && r.phase === "cold");
 		for (const lg of [...new Set(cold.map((r) => r.leg))]) {
 			const R = cold.filter((r) => r.leg === lg);
+			const baseLeg = hasPureApi ? "pure-api" : lg;
+			const bmap = new Map(
+				(base?.rows ?? [])
+					.filter(
+						(r) => r.cls === cls && r.phase === "cold" && r.leg === baseLeg,
+					)
+					.map((r) => [r.task, r]),
+			);
 			const ok = R.filter((r) => r.ok);
 			const P = R.flatMap((r) => {
 				const b = bmap.get(r.task);
@@ -126,7 +137,7 @@ export function variantClassTable(
 			const seed = `${run.id}|${base?.id}|${cls}|${lg}`;
 			const dqCI = boot(dq, mean, `${seed}|q`);
 			const rtCI = boot(rt, median, `${seed}|t`);
-			const isBase = run.id === base?.id && lg === "pure-api";
+			const isBase = run.id === base?.id && (lg === "pure-api" || !hasPureApi);
 			const nonInf =
 				dqCI !== null && dqCI[0] >= -DELTA && P.length >= NONINF_MIN_N;
 			const cm = compression(cls, R, lg);
@@ -204,7 +215,7 @@ export async function variantReport(
 	const base = pickBaseline(runs, o.baseline);
 	const L: string[] = ["# VARIANT REPORT — arena", ""];
 	L.push(
-		`Runs: ${runs.length}. Baseline: ${base ? `\`${base.id}\` (${base.meta?.variant ?? "?"}) pure-api` : "**none** (no none-transform run with pure-api — speed/Δq columns empty)"}. Pairing is by task id; δ=${DELTA} non-inferiority needs n≥${NONINF_MIN_N}. Compression deltas are estimated from chars (${CHARS_PER_TOK_TEXT} chars/token text, ${CHARS_PER_TOK_LOG} log) and priced only for remote legs at ${PURE_MODEL} input price.`,
+		`Runs: ${runs.length}. Baseline: ${base ? `\`${base.id}\` (${base.meta?.variant ?? "?"})${(base.rows ?? []).some((r) => r.leg === "pure-api") ? " pure-api" : " (same-leg pairing — no pure-api in the baseline run)"}` : "**none** (no none-transform run — speed/Δq columns empty)"}. Pairing is by task id; δ=${DELTA} non-inferiority needs n≥${NONINF_MIN_N}. Compression deltas are estimated from chars (${CHARS_PER_TOK_TEXT} chars/token text, ${CHARS_PER_TOK_LOG} log) and priced only for remote legs at ${PURE_MODEL} input price.`,
 		"",
 	);
 	L.push(

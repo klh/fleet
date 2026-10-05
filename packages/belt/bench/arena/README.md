@@ -11,22 +11,22 @@ run-id plus manifest.
 
 ## Modules
 
-| file                | role                                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `core.ts`           | constants, task types, seeded RNG, canonical JSON, prompt framing, stream readers                 |
-| `gen.ts`            | deterministic generators for classes a–f (byte-identical to the sealed files)                     |
-| `seal.ts`           | `--seal-from` / `--design`, manifest verify, task loading                                         |
-| `scoring.ts`        | mechanical checkers; code runs under `sandbox-exec`                                               |
-| `legs.ts`           | the 7 backends, `MODEL_SETS`, wire clients (SSE streamed), cost                                   |
-| `condense.ts`       | reference condenser (`ref-condense/1`), deterministic and idempotent                              |
-| `transforms.ts`     | `Transform` interface, enhance client (:4000), disk cache, `prepareTasks`                         |
-| `variant.ts`        | variant hash, run-id, `results/manifest.jsonl`                                                    |
-| `runner.ts`         | AC-gated, resumable round for one variant                                                         |
-| `report.ts`         | per-run report and spot-check sheet                                                               |
-| `report-variant.ts` | cross-variant comparison against a baseline                                                       |
-| `dryrun.ts`         | every check a round makes, without running the round                                              |
-| `stats.ts`          | quantiles, Wilson, seeded bootstrap, formatters                                                   |
-| `run.ts`            | CLI                                                                                               |
+| file                | role                                                                              |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `core.ts`           | constants, task types, seeded RNG, canonical JSON, prompt framing, stream readers |
+| `gen.ts`            | deterministic generators for classes a–f (byte-identical to the sealed files)     |
+| `seal.ts`           | `--seal-from` / `--design`, manifest verify, task loading                         |
+| `scoring.ts`        | mechanical checkers; code runs under `sandbox-exec`                               |
+| `legs.ts`           | the 7 backends, `MODEL_SETS`, wire clients (SSE streamed), cost                   |
+| `condense.ts`       | reference condenser (`ref-condense/1`), deterministic and idempotent              |
+| `transforms.ts`     | `Transform` interface, enhance client (:4000), disk cache, `prepareTasks`         |
+| `variant.ts`        | variant hash, run-id, `results/manifest.jsonl`                                    |
+| `runner.ts`         | AC-gated, resumable round for one variant                                         |
+| `report.ts`         | per-run report and spot-check sheet                                               |
+| `report-variant.ts` | cross-variant comparison against a baseline                                       |
+| `dryrun.ts`         | every check a round makes, without running the round                              |
+| `stats.ts`          | quantiles, Wilson, seeded bootstrap, formatters                                   |
+| `run.ts`            | CLI                                                                               |
 
 ## Tasks
 
@@ -45,6 +45,11 @@ every file exactly, and `seal.test.ts` enforces this. Neither `--design` nor
   code fences, `<log>` blocks, inline code, quoted strings, `<…>` tokens and `KEY:` format lines.
   The tests also check that every digit sequence survives. `condense.test.ts` pins its output with a
   golden hash per class.
+- `condense-in` / `condense-out` (W367.3) are the blam canonical engine legs: tier `caveman`
+  inbound (dispatch-brief tier), tier `politeness` as the outbound-gentle leg — politeness applied
+  to the same sealed input AS IF response-side (simulates the buckle `condense-in` sideband's
+  character; the real response-side sideband is a buckle runtime concern). Deterministic,
+  uncached, version `blam-condense/1/<tier>`; `--condenser` never overrides them.
 - `enhance` is a local-LLM rewrite through the :4000 router. Its output is cached in
   `cache/enhance/<task>.<field>.json` with the input sha, transform version and routed model.
   A mismatch between the input and the transform version is a hard error unless you pass `--refresh-cache`.
