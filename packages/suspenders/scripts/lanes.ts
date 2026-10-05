@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { readLaneUsage } from "./lib/copilot-meter.ts";
 import { alive, lanesFileFor, loadLanes } from "./lib/lane.ts";
 
 const argv = process.argv.slice(2);
@@ -40,20 +41,30 @@ const rows = lanes.map((l) => {
 });
 const dead = rows.filter((r) => r.mark !== "").length;
 
+// W223.2: copilot credit totals ride the lane status table — one
+// `coord fact get` per row through the meter lib's shared parser.
+const usage = new Map(rows.map((r) => [r.sid, readLaneUsage(r.sid)]));
+const credits = (sid: string): string => {
+	const u = usage.get(sid);
+	if (!u) return "-";
+	return `${Math.round(u.credits * 100) / 100}cr/${u.sessions}sess`;
+};
+
 const widest = (vals: string[]): number =>
 	Math.max(1, ...vals.map((v) => v.length));
 const wAgent = widest(rows.map((r) => r.agent));
 const wSid = widest(rows.map((r) => r.sid));
 const wItem = widest(rows.map((r) => r.item));
 const wBranch = widest(rows.map((r) => r.branch));
+const wCred = Math.max(7, ...rows.map((r) => credits(r.sid).length));
 
 const hdr =
 	`  ${"AGENT".padEnd(wAgent)}  ${"SID".padEnd(wSid)}  ` +
-	`${"ITEM".padEnd(wItem)}  ${"BRANCH".padEnd(wBranch)}  WORKTREE`;
+	`${"ITEM".padEnd(wItem)}  ${"BRANCH".padEnd(wBranch)}  ${"CREDITS".padEnd(wCred)}  WORKTREE`;
 console.log(hdr);
 for (const r of rows) {
 	console.log(
-		`${r.mark.padEnd(1)} ${r.agent.padEnd(wAgent)}  ${r.sid.padEnd(wSid)}  ${r.item.padEnd(wItem)}  ${r.branch.padEnd(wBranch)}  ${r.wt}`,
+		`${r.mark.padEnd(1)} ${r.agent.padEnd(wAgent)}  ${r.sid.padEnd(wSid)}  ${r.item.padEnd(wItem)}  ${r.branch.padEnd(wBranch)}  ${credits(r.sid).padEnd(wCred)}  ${r.wt}`,
 	);
 }
 console.log(`${lanes.length} lanes, ${dead} dead`);
