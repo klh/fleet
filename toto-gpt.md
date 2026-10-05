@@ -587,3 +587,117 @@ benefit from provider caching, so report incremental savings over that baseline.
 Start with one package expert and one starter template, then extend only after
 the benchmark. This section records a proposal; dispatcher and runtime behavior
 have not been changed.
+
+## Enterprise starter sharing across hubs and developers
+
+### Distribution and execution model
+
+Share immutable, versioned starter artifacts through an authorized registry;
+replicate them to hubs and create independent task lanes locally. Conversation
+checkpoints and inference caches are separate layers with different portability,
+lifetime and access constraints.
+
+```text
+Shared starter registry
+  Fleet rules -> project context -> package/role variants
+                        |
+            replicated to authorized hubs
+                 +------+------+
+               Hub A         Hub B
+             devs + lanes  devs + lanes
+                 +------+------+
+                model gateways
+           provider/local prefix caches
+```
+
+Each artifact contains instructions, skill versions, verified findings, source
+revision, compatible model/harness and tool configuration, provenance and
+evaluation results. Store a content digest and compatibility manifest. A native
+checkpoint may be referenced where a harness supports import or remote forking;
+a session ID on a developer's machine is not a portable artifact by itself.
+Keep secrets and private task conversations outside shared starter artifacts.
+
+For each task:
+
+1. Authenticate the developer and enforce tenant/project access to starter
+   content and its source evidence. Recheck permissions when materializing it.
+2. Filter starters for compatibility and freshness, then rank by task scope and
+   measured outcomes on comparable work.
+3. Use a native fork when supported; otherwise reconstruct from the portable
+   artifact. Record which path was used rather than claiming equivalent cache
+   behavior or preservation of hidden model state.
+4. Allocate fresh native session and Fleet lane identities, credentials, claims
+   and an isolated worktree. Shared preparation must not imply shared ownership.
+5. Record starter digest/version, execution route, cache usage where reported,
+   cost and verified outcome for evaluation and selection.
+
+A registry may be shared logically across hubs without one always-available
+central server: immutable artifacts can be served from replicated storage and
+cached locally. Define promotion/revocation authority, permission enforcement and
+offline freshness policy explicitly. A hub must not silently use a revoked or
+incompatible starter merely because it has a local copy.
+
+### What cache sharing can actually promise
+
+OpenAI caches are separated by organization and processing region. Matching
+requests must reach an available matching cache entry; routing and expiration
+mean a hit is not guaranteed. Claude's direct API uses workspace-level cache
+isolation; its documentation specifies different boundaries for some managed
+platforms. Multiple Fleet hubs may benefit from a shared prefix when their actual
+upstream requests fall within the compatible provider boundary. Do not assume
+reuse across separate customer accounts, workspaces, models or regions.
+[OpenAI cache location and routing](https://developers.openai.com/api/docs/guides/prompt-caching),
+[Claude cache storage and sharing](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+Preserve stable prefixes and supported cache controls through the gateway, while
+keeping task identity and changing material after the reusable prefix. Cache
+keys are routing/accounting aids where supported, not authorization controls.
+Enforce isolation independently; do not collapse tenant boundaries for savings.
+Cache reuse also does not authorize a developer to read another user's history.
+
+For local inference, prefer compatible warm workers when queue time, locality
+and load justify it. A cold worker must still start correctly from the artifact.
+Verify engine support before transferring KV state: model weights, tokenizer,
+runtime/cache format and hardware compatibility can constrain portability.
+Do not make live GPU cache availability a correctness or recovery dependency.
+
+### Proposed component responsibilities
+
+| Component     | Responsibility                                                                           |
+| :------------ | :--------------------------------------------------------------------------------------- |
+| Suspenders    | Starter registry metadata, authorization, selection, lane lifecycle and outcome evidence |
+| Buckle        | Upstream routing, supported cache controls, per-lane accounting and cache telemetry      |
+| Hub executors | Artifact materialization, native fork/resume adapters and isolated worktrees             |
+| BLAM          | Representative evaluations and regression checks before candidate promotion              |
+
+These are proposed responsibilities, not claims that the current services already
+implement distributed starter management or native checkpoint portability.
+
+### Evaluated evolution and selection
+
+Maintain a few curated variants initially. Filter by mandatory compatibility
+before ranking by verified success, cost, completion time and rework. Compare
+small changes to context scope, examples, skill selection or consultation
+instructions on matched tasks; keep required operating rules fixed. Do not use
+self-reported confidence or success as the promotion criterion.
+
+Publish tested versions with an explicit promotion decision and rollback target.
+Keep project-specific rankings: a migration starter that helps one project may
+hurt another. Fork deliberate starter checkpoints rather than arbitrary completed
+lanes carrying stale assumptions or task-specific history. Automatic evolution
+becomes useful after enough comparable outcomes exist to separate improvement
+from noise; it is not a prerequisite for the initial registry.
+
+### First enterprise milestone
+
+Use one project, two hubs and two developers with the same immutable starter.
+Prove authorization and revocation behavior, independent lane ownership,
+instruction freshness, native-fork versus reconstruction behavior and cold-start
+recovery. Compare total cost and task correctness with fresh-lane baselines,
+including artifact preparation/distribution, cache writes, misses, queue delay
+and recovery overhead. Confirm that metrics survive hub failover and preserve
+per-lane attribution.
+
+Establish this distribution contract before fleet-wide automated evolution.
+This addition records architecture and acceptance criteria only; no distributed
+registry, checkpoint transport or runtime cache-sharing feature was implemented.
