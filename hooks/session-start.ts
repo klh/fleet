@@ -139,6 +139,12 @@ db.query(UPSERT).run(
 	input.transcript_path ?? null,
 	actorDefault,
 );
+const out = [
+	isSubagent
+		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`
+		: `SESSION ${sid.slice(0, 8)}  project=${pname(project)}`,
+];
+
 // WS-first inbox (W303, owner directive 2026-10-05): bootstrap opens the
 // live subscribe ONCE per session — agents never poll the plane. Idempotent:
 // a live subscribe for this lane id is detected and left alone.
@@ -168,11 +174,6 @@ db.query(UPSERT).run(
 		);
 	}
 }
-const out = [
-	isSubagent
-		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`
-		: `SESSION ${sid.slice(0, 8)}  project=${pname(project)}`,
-];
 
 // automagic hygiene: every bootstrap sweeps stale sessions fleet-wide
 const sweptN = sweepStaleSessions(db);
