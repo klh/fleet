@@ -1,7 +1,7 @@
 # local
 
-> Part of the klh fleet — see [ECOSYSTEM.md](ECOSYSTEM.md) for the full
-> cross-repo architecture map (speedy/suspenders/buckle/belt/klh-local).
+> Part of the klh fleet monorepo — the system overview (packages, flow
+> diagrams, laws, ops) lives at the fleet root: [README.md](../../README.md).
 
 ![The quintessential local — a Greek taverna](assets/hero.png)
 
