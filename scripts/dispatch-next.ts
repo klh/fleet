@@ -544,7 +544,10 @@ const dispatchItem = async (
 	let hubNote = "";
 	let resolvedHub: string | undefined;
 	if (!NO_BELT) {
-		const ctx = insertionCtx(env, pick.model);
+		// always pin a model — an unpinned lane inherits the owner's global
+		// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
+		// client-side unrecognized_model before its first wire call
+		const ctx = insertionCtx(env, pick.model ?? "glm-5.3-flash");
 		if (pick.hub) {
 			const hub = await resolveHub(pick.hub, pick.hubUrls);
 			if (hub) {
