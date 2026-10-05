@@ -8,7 +8,9 @@ questions we ask live in [bench-questions.md](bench-questions.md).
 Laws: run on **AC power only** (never battery); medians over N≥12 unless
 noted; speed rows are solid, quality rows need ≥130 paired questions
 (33 → ±15pts, 130 → ±7, 530 → ±4) — anything smaller is a smoke test; score
-per class, never blended; one lever at a time.
+per class, never blended; one lever at a time. Quality rows run through
+[bin/eval-models.ts](bin/eval-models.ts) (W424) — the powered paired
+harness; see bench-questions.md for the pinned protocol.
 
 ## Wire/adapter probes (verified 2026-10-02)
 

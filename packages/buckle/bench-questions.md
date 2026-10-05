@@ -31,3 +31,27 @@ Standing protocol from the beri.net full evaluation (2026-10-02):
    question text is the program; diff it like code.
 5. State is data, not treated as hostile — user-authored text inside the
    state (task hints) needs an injection check in front.
+
+## Model-swap eval (W424 protocol) — bin/eval-models.ts
+
+The powered paired A/B harness for routing/lane-model changes; this file
+pins the protocol so runs stay comparable.
+
+- **Paired, seed-pinned tasks**: both arms run the IDENTICAL list — ≥130
+  tasks per shape (code/menial/reasoning/danish; `--n`, seed default 424).
+  `--quick` (n=8) is a wiring smoke, never a verdict.
+- **Computed answer keys** — never hand-typed: math/sequences/extraction/
+  JSON keys derive from the generator's own inputs; Danish number words
+  come from the shared formatter; code snippets carry `meta.code`, and
+  `test/eval.test.ts` executes every snippet under node:vm against the
+  computed key (mirror drift fails loudly).
+- **Per-shape report, never blended**: Wilson 95% per arm + exact McNemar
+  on the paired discordants. Owner abstain rule: overlapping intervals =
+  tie → cost per resolved task decides (`--price-in/out-a/b`); without
+  prices the eval abstains honestly.
+- **Repeats** (`--repeats k`, majority per task) fix model noise only —
+  never question-sampling noise. Latency p50 per arm is recorded.
+- Machine report (one JSON line) on stdout, human table on stderr,
+  per-task JSONL via `--out`. Verdicts feed routing-policy.yaml, belt
+  prefs, and dispatch model pins — operator-owned files; the harness
+  never writes them.
