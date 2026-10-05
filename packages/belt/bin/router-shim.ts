@@ -15,6 +15,12 @@ import { appendFileSync } from "node:fs";
 import { createAdmission, overloaded } from "./admission.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import { byPort, fallbackFor, type Specialist } from "./registry.ts";
+import { registryResponse } from "./registry-emit.ts";
+import {
+	applyInboundCondense,
+	type CondenseMeta,
+	type CondensePrefs,
+} from "./router-condense.ts";
 import {
 	type AnthropicBody,
 	anthropicSseFromOpenAi,
@@ -30,7 +36,6 @@ import {
 	toOpenAiMessages,
 	viaLocal,
 } from "./router-core.ts";
-import { registryResponse } from "./registry-emit.ts";
 import { ensureUp } from "./spawner.ts";
 
 const admission = createAdmission();
@@ -52,6 +57,7 @@ type Prefs = {
 	profile?: string[];
 	routing_table?: Record<string, number>;
 	kev?: { enabled?: boolean; port?: number; ambiguity_band?: [number, number] };
+	condense?: CondensePrefs;
 };
 async function loadPrefs(): Promise<Prefs> {
 	try {
@@ -366,7 +372,22 @@ const sseHeaders = (routing: Record<string, unknown>) => ({
 		port: routing.port,
 		model: routing.model,
 	}).replace(/[^\x20-\x7e]/g, "?"),
+	...condenseResponseHeaders(routing),
 });
+
+// W304.2: per-request condense metadata — X-Condense-Version + rules-fired
+// count once the knob is on. Also the input any FUTURE response-cache key
+// must include (belt keeps no response cache today; see router-condense.ts).
+const condenseResponseHeaders = (
+	routing: Record<string, unknown>,
+): Record<string, string> => {
+	const c = routing.condense as { version: string; rules: number } | undefined;
+	if (!c) return {};
+	return {
+		"x-condense-version": String(c.version),
+		"x-condense-rules": String(c.rules),
+	};
+};
 
 Bun.serve({
 	port: ROUTER_PORT,
@@ -517,7 +538,16 @@ Bun.serve({
 		try {
 			const clientMax = Math.min(body.max_tokens ?? 1024, 4096);
 			const temperature = body.temperature ?? 0.7;
-			const messages = toOpenAiMessages(body);
+			// W304.2: knob-gated inbound condense (prefs.json condense.enabled,
+			// default OFF — dispatch briefs are condensed at SOURCE since W334;
+			// the knob pays only for interactive/CLI riders of :4000 with raw
+			// prose). Classification above ran on the RAW text, so routing is
+			// identical with the knob on or off — only the upstream payload
+			// shrinks. User messages only: system = harness, assistant = history.
+			const rawMessages = toOpenAiMessages(body);
+			const inbound = applyInboundCondense(rawMessages, prefs.condense);
+			const messages = inbound.messages;
+			const condenseMeta: CondenseMeta | null = inbound.meta;
 
 			let response = "";
 			let finish: string | undefined;
@@ -527,6 +557,10 @@ Bun.serve({
 				`complexity ${score.total.toFixed(2)} → ${score.tier}${isCode ? "+code" : ""}${classifier ? ` ${classifier}` : ""}`,
 			];
 			const errors: string[] = [];
+			if (condenseMeta)
+				note.push(
+					`condense ${condenseMeta.tier}: ${condenseMeta.rules.length} rules fired`,
+				);
 			const routingInfo = () => ({
 				tier: score.tier,
 				complexity: score.total.toFixed(3),
@@ -542,6 +576,15 @@ Bun.serve({
 				dimensions: Object.fromEntries(
 					Object.entries(score.dimensions).map(([k, v]) => [k, v.toFixed(2)]),
 				),
+				...(condenseMeta
+					? {
+							condense: {
+								version: condenseMeta.version,
+								tier: condenseMeta.tier,
+								rules: condenseMeta.rules.length,
+							},
+						}
+					: {}),
 			});
 			const logDone = (extra: Record<string, unknown>) =>
 				logRouting({
@@ -553,6 +596,12 @@ Bun.serve({
 					complexity: score.total,
 					tier: score.tier,
 					stream: wantStream || undefined,
+					...(condenseMeta
+						? {
+								condense_tier: condenseMeta.tier,
+								condense_rules: condenseMeta.rules.length,
+							}
+						: {}),
 					...extra,
 				});
 
@@ -729,16 +778,19 @@ Bun.serve({
 					),
 					{ headers: sseHeaders(routing) },
 				);
-			return Response.json({
-				id,
-				type: "message",
-				role: "assistant",
-				model: body.model,
-				content: [{ type: "text", text: response }],
-				stop_reason: stopReason(finish),
-				usage: { input_tokens: 0, output_tokens: 0 },
-				_routing: routing,
-			});
+			return Response.json(
+				{
+					id,
+					type: "message",
+					role: "assistant",
+					model: body.model,
+					content: [{ type: "text", text: response }],
+					stop_reason: stopReason(finish),
+					usage: { input_tokens: 0, output_tokens: 0 },
+					_routing: routing,
+				},
+				{ headers: condenseResponseHeaders(routing) },
+			);
 		} finally {
 			if (!handedOff) release();
 		}
