@@ -13,7 +13,7 @@
 // LOCAL_LLM_HOME / LOCAL_LLM_LOG_DIR env override the kit/home locations so
 // installs and tests can point the tools at scratch dirs.
 
-import { spawn, execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import {
 	appendFileSync,
 	closeSync,
@@ -22,8 +22,8 @@ import {
 	renameSync,
 	statSync,
 } from "node:fs";
-import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
-import { spawnArgs, mlxLogPath } from "./spawner.ts";
+import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
+import { mlxLogPath, spawnArgs } from "./spawner.ts";
 
 const HOME = process.env.HOME;
 // download-only — server argv lives in spawner.ts (spawnArgs), shared with the

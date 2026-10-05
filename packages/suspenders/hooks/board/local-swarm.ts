@@ -2,7 +2,7 @@
 // surfaced as prime (plane:"local") dispatch executors. Distinct from
 // belt.ts (LAN peers + cloud providers another machine serves) — this reads
 // registry.ts, the swarm's single source of truth for port<->model pairs
-// (hooks/local-llm/registry.ts), and live-probes each resident specialist
+// (packages/local-llm/registry.ts), and live-probes each resident specialist
 // the same way swarm.ts's own health check does (any HTTP response on
 // /v1/models = listening; the router doesn't implement it by design and
 // is probed separately with a cheap TCP-level check instead).

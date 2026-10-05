@@ -1,0 +1,14 @@
+{
+	"name": "local-llm",
+	"version": "0.1.0",
+	"description": "MLX local swarm kit — resident specialists, spawner, and the anthropic router-shim (:4000)",
+	"type": "module",
+	"private": true,
+	"engines": {
+		"bun": ">=1.2"
+	},
+	"scripts": {
+		"status": "bun swarm.ts status",
+		"serve": "bun swarm.ts serve"
+	}
+}
