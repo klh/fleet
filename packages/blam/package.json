@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"description": "BLAM — Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
 	"type": "module",
-	"license": "MIT",
+	"license": "BUSL-1.1",
 	"scripts": {
 		"test": "bun test test/",
 		"validate": "bun tools/label.ts validate dataset/incidents.jsonl"

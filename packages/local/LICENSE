@@ -4,13 +4,13 @@ Parameters
 
 Licensor:             Klaus Lynggaard Hougesen
 Licensed Work:        local
-                      The Licensed Work is (c) 2026 Klaus Lynggaard Hougesen
+                      The Licensed Work is (c) 2025 Klaus Lynggaard Hougesen
 Additional Use Grant: You may make use of the Licensed Work when your usage
                       is non-production. Production use requires a commercial
                       license from the Licensor. Contact:
-                      https://github.com/klh/local#licensing
-Change Date:          N/A
-Change License:       N/A
+                      https://github.com/klh/fleet#licensing
+Change Date:          N/A — the Licensed Work never converts to an open license
+Change License:       N/A — all rights remain with the Licensor indefinitely
 
 Terms
 
@@ -36,8 +36,8 @@ DEFINITIONS
 "Code Contributor" means the Licensor or anyone acting on behalf of the
 Licensor.
 
-"Change Date" means the date when the applicable version of the Licensed Work
-becomes available under the Change License.
+"Change Date" means the date when the applicable version of the Licensed
+Work becomes available under the Change License.
 
 "Change License" means the license identified above as the license under
 which the Licensed Work will be made available on the Change Date.

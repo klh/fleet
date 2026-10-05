@@ -16,5 +16,6 @@
 	},
 	"dependencies": {
 		"blam": "workspace:*"
-	}
+	},
+	"license": "BUSL-1.1"
 }
