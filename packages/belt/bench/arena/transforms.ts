@@ -123,7 +123,7 @@ export function makeEnhance(opts: EnhanceOpts = {}): Transform & {
 		async transform(_id, prompt) {
 			const res = await doFetch(url, {
 				method: "POST",
-				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+				signal: AbortSignal.timeout(opts.timeoutMs ?? 300_000),
 				headers: {
 					"content-type": "application/json",
 					"anthropic-version": "2023-06-01",
