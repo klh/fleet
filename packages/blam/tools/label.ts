@@ -11,7 +11,12 @@ const DATASET_PATH = `${ROOT}dataset/incidents.jsonl`;
 type Schema = Record<string, unknown>;
 type Rec = Record<string, unknown>;
 
-function fail(schema: Schema | undefined, value: unknown, path: string, errs: string[]) {
+function fail(
+	schema: Schema | undefined,
+	value: unknown,
+	path: string,
+	errs: string[],
+) {
 	if (!schema) return; // unknown field (already flagged) or permissive schema
 	const t = schema.type as string | undefined;
 	const ref = schema.$ref as string | undefined;
