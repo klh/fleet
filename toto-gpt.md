@@ -709,9 +709,11 @@ registry, checkpoint transport or runtime cache-sharing feature was implemented.
 All corporate developers use Fleet. Corporate policy requires every deployed API
 service to have an independently supervised health reporter that remains able to
 answer when the main API process crashes or hangs. At session start, the agent
-reviews the relevant source and deployment wiring. If the requirement is missing
-or incomplete, it presents the evidence and asks the developer whether to create
-an implementation lane to a concrete specification.
+checks the shared assessment and reviews relevant source/deployment wiring when
+evidence is missing or stale. If the requirement is missing or incomplete, it
+presents the evidence and asks an authorized developer whether to create an
+implementation lane to a concrete specification. Other sessions reuse that
+assessment and pending decision instead of independently repeating the review.
 
 The reporter's availability and the API's health are separate facts. A reachable
 reporter must report a failed API truthfully, not return a healthy verdict because
@@ -811,3 +813,132 @@ load the same policy, share assessment evidence, show one actionable decision an
 create one remediation lane. Then test a policy update against an older starter
 fork. This section is a hypothetical integration specification; it creates no
 corporate policy, developer prompt, work item, deployment or implementation lane.
+
+### Design refinement: make policy a shared workflow, not repeated instructions
+
+The earlier session-first flow is insufficient at enterprise scale. Requiring
+every agent to inspect every API on every start would multiply costs and prompts,
+while an instruction file cannot authenticate approval or prove deployment
+compliance. Keep the instruction as the agent's interface to a shared policy
+workflow. Keep assessment, authorization and release decisions in authoritative
+services with evidence, not in the model's remembered conclusions.
+
+Three possible approaches have different limits:
+
+- Instructions alone are cheap to introduce but depend on agent obedience and
+  repeat investigations; they are useful guidance, not corporate enforcement.
+- A shared assessment and remediation workflow removes duplicate work and makes
+  decisions visible; it still needs independent release verification.
+- The shared workflow plus CI/deployment evidence provides both developer help
+  and enforcement. This is the recommended target; roll it out in observe mode
+  before enabling the organization's chosen blocking policy.
+
+#### Separate three state machines
+
+| Record                 | What it means                                                            | Example states                                            |
+| :--------------------- | :----------------------------------------------------------------------- | :-------------------------------------------------------- |
+| Assessment             | Evidence about a specific service/configuration against a policy version | pending, assessing, conforming, gap, unknown, stale       |
+| Remediation            | Human-authorized work on a particular gap                                | proposed, approved, claimed, in-review, merged, cancelled |
+| Deployment attestation | Verified result for the actually running service instance/release        | pending, verified, failed, expired                        |
+
+An approved lane does not make the service conforming. A merged patch does not
+prove that it was deployed. A deployment check can fail after a valid merge.
+Approved exceptions are separate scoped records with approver, reason and expiry;
+they must not overwrite the assessment's factual gap.
+
+For example: Alice's hub finds the Orders API gap and creates a proposal. Bob's
+hub sees that same proposal. Alice approves, so one lane is dispatched. A third
+developer sees remediation in progress, not another request. The lane merges its
+patch; the assessment can establish source conformance while deployment remains
+pending. Only a check of the deployed reporter/target wiring can establish the
+deployment attestation. The developer's unrelated task need not wait unless the
+applicable policy explicitly gates that operation.
+
+#### Identity, invalidation and coordination
+
+Use an organization-assigned stable project ID and service ID, with explicit
+environment/deployment-instance scope. A repository URL is a locator and an
+identity input, not sufficient when mirrors or repository transfers exist.
+Fleet's current `govdb.ts projectIdentity()` derives a local git-common-dir;
+that unifies worktrees within a checkout but does not unify separate developers'
+clones across hosts. Introduce a deliberate cross-hub identity mapping rather
+than reusing filesystem paths as enterprise IDs.
+
+Store full source/deployment provenance plus the hashes of inputs relevant to the
+assessment: policy, service manifest, deployment template, health implementation
+and selected runtime configuration. Check tracked inputs on session entry and
+relevant change events. Reuse evidence when these inputs match; invalidate only
+affected evidence when they change. Uncommitted work needs its own content digest
+or a provisional local assessment, so identical HEADs do not conceal different
+working trees. An unknown dependency requires broader invalidation rather than
+pretending the dependency set is complete. Live behavior evidence also expires
+or is invalidated by deployment/configuration events, even with unchanged source.
+
+Use one logical authority per organization/project for decision and work-creation
+writes, backed by appropriate replication. Unique/idempotent proposal creation,
+an assessment lease with expiry, and fenced state updates prevent two hubs from
+publishing competing current results or dispatching twice. During a partition,
+hubs can read permitted cached evidence and prepare provisional proposals; they
+must not each invent an independently authoritative approval. Define explicit
+offline and release behavior. Replicating artifact files alone does not provide
+transactional coordination across independent SQLite ledgers.
+
+#### Authenticate decisions outside the agent
+
+Bind the developer decision to authenticated corporate identity, the exact
+proposal digest, permitted project/service scope and a one-time/idempotent
+decision action. Agents may prepare a spec and request approval, but cannot
+forge it by emitting an event, setting an actor field or replaying another
+session's approval. Modification of the approved scope requires a new decision
+when it crosses the allowed bounds.
+
+Current `session-start.ts` permits `CLAUDE_FLEET_BOOTSTRAP=0` and obtains its default
+actor from machine-level board configuration. Neither is proof of an authenticated
+corporate developer or an unavoidable policy gate. Keep those local mechanisms
+useful for bootstrap, but enforce required operations at controlled boundaries
+such as work dispatch, corporate credentials and CI/deployment admission. Inject
+current policy through supported harness channels; do not claim it overrides
+platform-level instructions or catches sessions launched outside managed paths.
+
+#### Make the cached/forked context carry the method, not today's verdict
+
+Put stable policy definitions, examples and assessment/remediation methods in the
+starter. Fetch current assessment IDs, policy applicability, pending decisions
+and deployment evidence as a small dynamic suffix. Never fork a starter whose
+remembered "Orders is compliant" replaces current evidence. Mandatory policy
+changes invalidate compatibility; starter evolution may optimize explanations,
+examples and routing but cannot weaken requirements or approval rights.
+
+The main cost saving is sharing the verified assessment and avoiding repeated
+investigation. Prefix caching and session forks are additional optimizations.
+Measure unique assessments per changed service, repeated developer prompts,
+duplicate lanes, stale verdicts, time to verified deployment and total model cost.
+
+#### Specify the health topology before selecting a starter
+
+"Every API server has a healthpoint" is ambiguous for replicated deployments.
+Define whether the requirement applies to each API instance, each host or the
+logical service. A reporter that probes a load-balanced URL may observe a healthy
+replica while its paired instance has failed. Instance-level reporters must probe
+their intended instance directly; service-level monitoring separately evaluates
+replica availability. State exactly which failure domain the design survives.
+
+Do not run crash/hang experiments against production merely because an agent
+has this policy. Reproduce those failures in an isolated test deployment, then
+verify production wiring and observed behavior through permitted checks. Keep
+reporter liveness distinct from target readiness so a failed API does not cause
+the supervisor to kill the only remaining reporter. Define safe bounded probes;
+the selected check must exercise enough of the real API to substantiate the
+verdict without destructive writes or expensive repeated dependency scans.
+
+#### Focused prototype before building a generalized policy platform
+
+Implement this one health policy with a stable project/service mapping, a shared
+assessment record, one authenticated decision and one idempotent remediation
+path. Use the existing reporter where its contract fits. Test two hubs racing,
+an offline hub, changed uncommitted files, a stale starter, an expired exception,
+a merged-but-not-deployed patch, and one failed replica behind a healthy load
+balancer. Expand to other policy types only after these cases work.
+
+These refinements supersede a literal full-repository review and repeated prompt
+on every session start. They remain a proposal, not implemented enforcement.
