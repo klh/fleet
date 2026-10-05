@@ -69,14 +69,32 @@ services:
       - buckle-repo:/src/buckle:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
+
+  # Health sidecars (owner law): the health verdict about a service comes
+  # from a process OUTSIDE the served container — the sidecar polls the
+  # target over the wire and serves the result; compose health hits the
+  # sidecar. A wedged server runtime cannot paint itself healthy.
+  buckle-health:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-buckle-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      buckle-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
+    environment:
+      HUB_BUCKLE_HEALTH_PORT: ${HUB_BUCKLE_HEALTH_PORT:-4112}
+    volumes:
+      - suspenders-repo:/src/suspenders:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.BUCKLE_PORT ?? "4111") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BUCKLE_HEALTH_PORT ?? "4112") + "/status"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 3
+      start_period: 15s
 
   suspenders-repo:
     image: alpine/git
@@ -112,16 +130,30 @@ services:
     depends_on:
       suspenders-repo:
         condition: service_completed_successfully
-      store-hub:
+      store-health:
         condition: service_healthy
+
+  board-health:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-board-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      board-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
+    environment:
+      HUB_BOARD_HEALTH_PORT: ${HUB_BOARD_HEALTH_PORT:-7800}
+    volumes:
+      - suspenders-repo:/src/suspenders:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BOARD_PORT ?? "7809") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BOARD_HEALTH_PORT ?? "7800") + "/status"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 3
+      start_period: 15s
 
   store-hub:
     image: oven/bun:1
@@ -139,14 +171,28 @@ services:
     volumes:
       - suspenders-repo:/src/suspenders:ro
       - hub-state:/state/hub-home
+
+  store-health:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-store-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      store-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
+    environment:
+      HUB_STORE_HEALTH_PORT: ${HUB_STORE_HEALTH_PORT:-7794}
+    volumes:
+      - suspenders-repo:/src/suspenders:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_STORE_PORT ?? "7796") + "/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_STORE_HEALTH_PORT ?? "7794") + "/status"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 3
+      start_period: 15s
 
   belt-repo:
     image: alpine/git
@@ -176,14 +222,28 @@ services:
     volumes:
       - belt-repo:/src/belt:ro
       - belt-state:/state/belt-home
+
+  belt-health:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-belt-health
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      belt-hub:
+        condition: service_started
+    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
+    environment:
+      HUB_BELT_HEALTH_PORT: ${HUB_BELT_HEALTH_PORT:-7790}
+    volumes:
+      - suspenders-repo:/src/suspenders:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:7791/api/status"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_BELT_HEALTH_PORT ?? "7790") + "/status"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 3
+      start_period: 15s
 
 volumes:
   buckle-repo:
