@@ -24,9 +24,11 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	statSync,
 	writeFileSync,
+	type Dirent,
 } from "node:fs";
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
@@ -449,6 +451,110 @@ function mergeRunnerAlive(): number | null {
 	}
 }
 
+// ─── stall watchdog (the autow428 lesson, 2026-10-05) ────────────────────
+// A lane can hang or die silently with its claim held — pid-alive, zero
+// activity. The graph reclaims dead claims at hb expiry; the watchdog's
+// job is the EARLIER verdict: a tracked, pid-alive lane with no log or
+// worktree activity for STALL_WARN_MS gets ONE lane.stalled broadcast per
+// episode (state in .fleet/stall.json — survives loop restarts), cleared
+// with lane.resumed when activity returns. Dead lanes exit the ledger.
+const STALL_FILE = `${REPO}/.fleet/stall.json`;
+const STALL_WARN_MS = num("--stall-warn-min", 10) * 60_000;
+type StallState = Record<string, { since: number; warned: boolean }>;
+
+// newest file mtime walk, .git excluded, 6 levels deep — the activity
+// signal a frozen lane cannot fake: a working lane writes files.
+function newestFileMtime(dir: string, depth = 0): number | null {
+	let newest: number | null = null;
+	let ents: Dirent[];
+	try {
+		ents = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+	for (const e of ents) {
+		const p = `${dir}/${e.name}`;
+		if (e.isDirectory()) {
+			if (e.name === ".git" || depth >= 6) continue;
+			const m = newestFileMtime(p, depth + 1);
+			if (m !== null && (newest === null || m > newest)) newest = m;
+		} else {
+			try {
+				const m = statSync(p).mtimeMs;
+				if (newest === null || m > newest) newest = m;
+			} catch {}
+		}
+	}
+	return newest;
+}
+
+const mtimeOf = (p: string): number | null => {
+	try {
+		return statSync(p).mtimeMs;
+	} catch {
+		return null;
+	}
+};
+
+// one lane.stalled event per episode, one lane.resumed on recovery — the
+// graph's events table is the broadcast plane (same idiom as work.landed).
+function emitLaneEvent(kind: string, item: string, payload: object): void {
+	try {
+		openGovernorDb()
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', ?, ?, ?, NULL)",
+			)
+			.run(Date.now(), kind, item, JSON.stringify(payload));
+	} catch {}
+}
+
+function stallWatch(): void {
+	const now = Date.now();
+	const state: StallState = readJsonSync(STALL_FILE) ?? {};
+	const seen = new Set<string>();
+	for (const l of lanes()) {
+		let pidAlive = false;
+		try {
+			process.kill(l.pid, 0);
+			pidAlive = true;
+		} catch {}
+		if (!pidAlive) continue;
+		seen.add(l.sid);
+		const acts = [
+			mtimeOf(`${REPO}/.fleet/lane-${l.sid}.log`),
+			l.worktree ? newestFileMtime(l.worktree) : null,
+		].filter((v): v is number => v !== null);
+		if (acts.length === 0) continue;
+		const activity = Math.max(...acts);
+		watchLane(state, seen, l, now, activity);
+	}
+	for (const sid of Object.keys(state)) if (!seen.has(sid)) delete state[sid];
+	writeFileSync(STALL_FILE, JSON.stringify(state));
+}
+
+// per-lane episode bookkeeping, split from stallWatch for the mutation gate
+function watchLane(
+	state: StallState,
+	seen: Set<string>,
+	l: Lane,
+	now: number,
+	activity: number,
+): void {
+	if (now - activity < STALL_WARN_MS) {
+		if (state[l.sid]?.warned)
+			emitLaneEvent("lane.resumed", l.item, { sid: l.sid });
+		delete state[l.sid];
+		return;
+	}
+	if (!state[l.sid]) state[l.sid] = { since: activity, warned: false };
+	if (state[l.sid].warned) return;
+	state[l.sid].warned = true;
+	log(
+		`STALLED ${l.sid} on ${l.item} — log/worktree frozen ${Math.round((now - activity) / 60000)}m`,
+	);
+	emitLaneEvent("lane.stalled", l.item, { sid: l.sid, stallMs: now - activity });
+}
+
 async function cycle(): Promise<void> {
 	// 1. never enter a cycle with leftover merge state. MERGE_HEAD is either
 	// a LIVE merge (another runner mid-flight — hands off) or crashed-run
@@ -474,6 +580,9 @@ async function cycle(): Promise<void> {
 
 	// 3. refill the fleet — policy lives in the repo's dispatch script
 	if (DISPATCH) runTemplate(DISPATCH, "", LADDER_TIMEOUT_MS);
+
+	// 4. stall watchdog (autow428): warn while the claim is still warm
+	stallWatch();
 }
 
 /** Recover a crashed merge: a dead runner left MERGE_HEAD + staged debris.

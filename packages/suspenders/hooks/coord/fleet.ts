@@ -615,3 +615,70 @@ export async function cmdDiff(rest: string[]): Promise<void> {
 		);
 	}
 }
+
+// ─── project identity (W428): identity + rekey ───────────────────────────
+// projectIdentity() = realpath of the git-common-dir — the monorepo cutover
+// left the historical graph keyed to the OLD repo's git dir while new
+// sessions open under klh/fleet. The migration is a VERB (surface law):
+// one transactional rekey across every project-scoped table, refused when
+// the target identity already carries a work graph.
+const PROJECT_TABLES = [
+	"work_items",
+	"work_deps",
+	"work_sequences",
+	"consults",
+	"consult_kb",
+	"sessions",
+] as const;
+
+export async function cmdProject(rest: string[]): Promise<void> {
+	const sub = rest[0];
+	if (sub === "identity") {
+		console.log(projectIdentity());
+		return;
+	}
+	if (sub !== "rekey")
+		die("usage: coord project identity | coord project rekey <old> <new>");
+	const pos = rest.slice(1).filter((a) => !a.startsWith("--"));
+	const [from, to] = pos;
+	if (!from || !to) die("usage: coord project rekey <old> <new>");
+	if (from === to) die("rekey: old and new identity are identical");
+	// exclusivity rail: rows landing on an occupied target is a graph MERGE
+	const targetItems = (
+		db.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?").get(
+			to,
+		) as { n: number }
+	).n;
+	if (targetItems > 0)
+		die(
+			`rekey refused: target already holds ${targetItems} work item(s) — resolve the target graph first`,
+		);
+	const countIn = (tbl: string): number =>
+		(
+			db.query(`SELECT COUNT(*) AS n FROM ${tbl} WHERE project = ?`).get(
+				from,
+			) as { n: number }
+		).n;
+	const counts = Object.fromEntries(
+		PROJECT_TABLES.map((t) => [t, countIn(t)]),
+	) as Record<string, number>;
+	const eventsN = (
+		db.query(
+			"SELECT COUNT(*) AS n FROM events WHERE json_extract(payload, '$.project') = ?",
+		).get(from) as { n: number }
+	).n;
+	db.transaction(() => {
+		for (const t of PROJECT_TABLES)
+			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
+		db.run(
+			"UPDATE events SET payload = json_set(payload, '$.project', ?) WHERE json_extract(payload, '$.project') = ?",
+			to,
+			from,
+		);
+	})();
+	console.log(green(`project rekey: ${from} → ${to}`));
+	for (const [t, n] of Object.entries(counts))
+		if (n > 0) console.log(`  ${t.padEnd(15)} ${n}`);
+	console.log(`  ${"events($.project)".padEnd(15)} ${eventsN}`);
+	return;
+}

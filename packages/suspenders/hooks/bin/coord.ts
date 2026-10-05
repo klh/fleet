@@ -69,6 +69,7 @@ import {
 	cmdMetrics,
 	cmdDoctorSession,
 	cmdDiff,
+	cmdProject,
 } from "../coord/fleet.ts";
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -80,8 +81,9 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | targets | message\n" +
-			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
+		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | project | targets | message\n" +
+			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
+			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
 	);
 	process.exit(0);
 }
@@ -122,6 +124,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	"knowledge-curate": cmdKnowledgeCurate,
 	bootstrap: cmdBootstrap,
 	fleet: cmdFleet,
+	project: cmdProject,
 	metrics: cmdMetrics,
 	"doctor-session": cmdDoctorSession,
 	diff: cmdDiff,
@@ -133,5 +136,5 @@ const fn = cmds[cmd ?? ""];
 if (fn) await fn(rest);
 else
 	die(
-		"unknown command — try emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | targets | message",
+		"unknown command — try emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | project | targets | message",
 	);
