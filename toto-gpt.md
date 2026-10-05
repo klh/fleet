@@ -357,3 +357,128 @@ or compliance assessment. Production machine config, private fleet-remote,
 off-machine backup destinations, actual alerts and live hub versions were not
 inspected. Source findings are distinguished above from recommended checks and
 prior reproductions. No production settings or runtime services were changed.
+
+## Agent-swarm research: making consultation useful
+
+Added 5 October 2026 after inspecting `hooks/coord/consult.ts`, `shared.ts`,
+consult tests and dispatch brief construction. These recommendations concern
+Fleet's `coord consult`, not an assumption that more agent discussion helps.
+
+### Research most relevant to this problem
+
+| Research                                                                             | Finding supported by the source                                                                                                                                                                                | Application to Fleet                                                                                                                                              |
+| :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [More Capable, Less Cooperative?](https://arxiv.org/abs/2604.07821), 2026            | In a controlled environment, capability did not reliably predict cooperation, even when helping was costless and explicitly requested. Protocol and incentive interventions addressed different failure modes. | Evaluate cooperation separately from coding skill. Make responding and sharing concrete behaviors in the lane protocol. Stronger models alone are not the remedy. |
+| [MAST: Why Do Multi-Agent LLM Systems Fail?](https://arxiv.org/abs/2503.13657), 2025 | Analysis of 1,600+ traces from seven frameworks identifies system-design, inter-agent-misalignment and verification failures.                                                                                  | Distinguish failure to ask, failure to deliver, failure to answer, and failure to use the answer. A consult command count cannot diagnose all four.               |
+| [AgentPrune](https://arxiv.org/abs/2410.02506), 2024 / ICLR 2025                     | Pruning redundant communication reduced token use while preserving competitive results in the evaluated tasks.                                                                                                 | Prefer one relevant expert and bounded exchanges. Do not require every lane to broadcast every question. Its benchmark gains are not Fleet performance estimates. |
+| [The Five Ws of Multi-Agent Communication](https://arxiv.org/abs/2602.11583), 2026   | Survey organizes communication by participants, content, timing and purpose across MARL, emergent language and LLM agents.                                                                                     | Define who gets the question, what evidence accompanies it, the triggering event, and the decision it should change.                                              |
+
+The studies support deliberate communication design. They do not establish an
+optimal consultation policy for agents modifying shared Git repositories. Treat
+the Fleet protocol below as a hypothesis to test, not a published universal rule.
+
+### Current Fleet friction: verified and inspected
+
+**Reproduced CLI defect:** the positional-argument loop in `consult.ts` increments
+past the next token for every known option, including boolean `--best` and
+`--no-kb`. With two live synthetic sessions in an isolated temporary home/repo:
+
+```text
+consult --best "lease routing question" --as synthetic-asker
+  -> exit 2, usage error
+
+consult synthetic-expert --no-kb "lease routing question" --as synthetic-asker
+  -> exit 2, usage error
+
+consult synthetic-expert "lease routing question" --as synthetic-asker
+  -> exit 0, CONSULT C1
+```
+
+No live agents were contacted. The temporary database was removed afterwards.
+Fix boolean/value option parsing and add regression coverage for flag placement
+before trying to solve adoption with longer instructions.
+
+**Knowledge-first ordering is incomplete:** `--best` requires a ranked live
+expert before lesson/KB lookup runs. For explicitly selected experts, liveness
+is checked before ordinary KB lookup, although a lesson hit can bypass it.
+Thus a cached solution can still be blocked by expert discovery/liveness.
+Move retrieval ahead of routing when `--no-kb` is absent.
+
+**Expert relevance is weakly enforced:** `rankExperts()` uses claims, completed
+work, touches, role and heartbeat recency. Its threshold can admit a fresh session
+on recency alone. Require substantive question/scope evidence for expert selection;
+offer "no qualified expert" rather than implying the freshest lane knows the answer.
+
+**Answer reuse lacks verification metadata:** `consult-reply` automatically
+harvests every non-declined answer; `kbLookup` uses lexical overlap and does not
+filter the query by project. The inspected retrieval does not check source commit,
+freshness or whether the original asker confirmed usefulness. Add provenance and
+validity checks; default cross-project reuse to deliberate general lessons.
+
+**The injected brief emphasizes inbox checks:** `composeBrief` tells lanes to
+check before planning/finishing, but its inspected text does not provide a
+consult trigger, expert-selection rule or required answer shape. Repository docs
+mention consultation; the actual dispatched brief should carry a short usable
+contract too. Verify push delivery separately across Claude/Codex/Copilot: a WS
+subscription is not proof that a new question reaches the model's active context.
+
+### Proposed consultation contract
+
+Use a task-triggered exchange with these steps:
+
+1. **Ask when it can change a decision:** a cross-package API assumption, a
+   conflicting ownership/protocol interpretation, or repeated investigation of
+   an area another lane has just verified. Do not require a consult for routine
+   local edits. Use observable triggers rather than model confidence alone.
+2. **Retrieve first:** inspect relevant verified lessons and scoped cached
+   answers. If fresh evidence answers the question, use it and record provenance.
+3. **Choose one expert:** prefer recent verified work in the relevant scope,
+   exclude the asker, account for workload, and fall back explicitly if none fits.
+4. **Send a bounded question:** decision needed; observed evidence/file/commit;
+   current hypothesis; specific missing fact; deadline or fallback. Avoid a
+   transcript dump or "any thoughts?".
+5. **Answer with evidence:** answer; source/file/commit; conditions under which
+   it holds; suggested verification. Decline or redirect promptly when outside
+   scope. Speculation must be identified.
+6. **Close the loop:** asker records applied, rejected, expired or needs-more,
+   with the resulting verification. Promote durable knowledge only after a
+   useful answer has evidence and the right project/domain scope.
+
+A prototype starting policy could allow one targeted exchange, one clarifying
+follow-up and one reroute on timeout, then continue a safe independent path or
+escalate an actually blocking decision. Those bounds and deadlines should be
+configuration, tuned against measurements, not hardcoded as universal values.
+
+Example payload shape, proposed rather than an existing CLI schema:
+
+```text
+Decision: can the installer move the registry without breaking the board?
+Evidence: board/local-swarm.ts imports ../local-llm/registry.ts at this commit.
+Hypothesis: keep a harness-relative copy while changing the package source.
+Need: confirm the installed path contract and the test that proves it.
+Reply: answer + file/commit + verification command, or decline/redirect.
+```
+
+### How to evaluate whether it works
+
+Compare three policies on matched tasks with the same models and lane budget:
+current instructions; trigger-based consultation; trigger-based consultation plus
+evidence-based routing and verified answer reuse. Use repeated tasks with shared
+API uncertainty, migration knowledge, conflicting assumptions and a no-consult-needed
+control group. Do not compare unrelated workloads and attribute all differences
+to messaging.
+
+Track consultation opportunities, attempted calls, parser/delivery failures,
+acknowledgment and answer latency, useful answers, applied-and-verified answers,
+stale answers, blocked time, retries, duplicate investigation, token cost, total
+task completion time and correctness. Blindly counting more consultations rewards
+noise; judge correctness and time saved after communication overhead.
+
+Use deterministic tests for parsing/routing/cache lifecycle, then transcript
+evaluation for asking/responding/using answers. Add relevant communication failures
+to BLAM's existing taxonomy and scenarios after checking its definitions.
+
+**Recommended first sequence:** fix flags and retrieval ordering; prove delivery
+for each harness; inject the concise consultation contract; measure helpfulness;
+then improve expert ranking and verified cache reuse. Research and diagnosis only:
+no consultation code or agent instructions were changed by this addition.
