@@ -31,7 +31,6 @@ import {
 	existsSync,
 	readFileSync,
 	renameSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import {
@@ -41,6 +40,7 @@ import {
 	CAPABILITIES,
 	type GovernorStore,
 } from "../lib/govdb.ts";
+import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -59,7 +59,7 @@ if (
 ) {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | reclaim <id>|all | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -163,6 +163,7 @@ const SCHEMA: Record<string, Spec> = {
 		usage: `usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]`,
 	},
 	orphaned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
+	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
 	reclaim: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
 	"migrate-ledger": {
 		flags: [],
@@ -175,7 +176,7 @@ const SCHEMA: Record<string, Spec> = {
 const spec = SCHEMA[cmd];
 if (!spec)
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 
 // generic parse + validate: known flags consume their value (first occurrence
@@ -697,21 +698,10 @@ function renderRow(r: Item): string {
 	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}`;
 }
 
+// claimant transcript path — moved to hooks/lib/lane-liveness.ts so the
+// lanes verb, dispatch-next and fleet-loop share ONE liveness (2026-10-05)
 function liveTranscript(sid: string): string | null {
-	const floor = Date.now() - 15 * 60_000;
-	try {
-		const glob = new Bun.Glob(`**/*${sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			const f = `${process.env.HOME}/.claude/projects/${rel}`;
-			try {
-				if (existsSync(f) && statSync(f).mtimeMs > floor) return f;
-			} catch {}
-		}
-	} catch {}
-	return null;
+	return transcriptPath(sid);
 }
 
 // truncated-sid guard (shared by take/start/done/release): a display slice
@@ -1153,6 +1143,38 @@ if (cmd === "add") {
 		.all(PROJECT) as Item[];
 	const out = rows.filter((r) => !liveTranscript(String(r.owner_sid)));
 	console.log(out.length ? out.map(renderRow).join("\n") : dim("(no orphans)"));
+} else if (cmd === "lanes") {
+	// THE lane-liveness surface (2026-10-05): one honest audit of
+	// .fleet/lanes.json — process-identity + worktree cwd for local lanes,
+	// transcript freshness for host/remote lanes (never permanent trust).
+	// --json for dispatch-next/fleet-loop; text for humans.
+	const file =
+		flag("--fleet") ??
+		`${String(PROJECT).replace(/\/\.git$/, "")}/.fleet/lanes.json`;
+	const entries = (
+		existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : []
+	) as Array<{
+		sid: string;
+		item: string;
+		pid?: number;
+		worktree?: string;
+		host?: string;
+		launchedAt?: number;
+	}>;
+	const audit = entries.map((l) => ({
+		sid: l.sid,
+		item: l.item,
+		live: laneAlive(l),
+		host: l.host ?? null,
+	}));
+	if (flag("--json") !== undefined) {
+		console.log(JSON.stringify(audit));
+	} else {
+		for (const a of audit)
+			console.log(
+				`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
+			);
+	}
 } else if (cmd === "reclaim") {
 	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
 	// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
@@ -1306,7 +1328,7 @@ if (cmd === "add") {
 	}
 } else {
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 }
 

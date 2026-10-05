@@ -31,6 +31,7 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
+import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 
 const argv = process.argv.slice(2);
@@ -233,16 +234,12 @@ function worktreeLive(wt: string): boolean {
  * in the worktree. Survives the unregistered spawn window and DISPATCHED-less
  * dispatchers; replaces the tracked-pid-only guard that raced dispatch-next. */
 function laneIsAlive(b: string): boolean {
+	// 2026-10-05: tracked lanes ask THE surface (work lanes verdict — shared
+	// with dispatch-next); untracked branches keep the local worktree probe
 	const tracked = lanes().find((l) => l.branch === b);
-	if (tracked?.pid) {
-		try {
-			process.kill(tracked.pid, 0);
-			return true;
-		} catch {}
-	}
+	if (tracked) return laneAlive(tracked);
 	const wt =
 		wtPathFromGit(b) ??
-		tracked?.worktree ??
 		`${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;
 	return worktreeLive(wt);
 }

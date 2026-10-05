@@ -237,19 +237,33 @@ const alive = (pid: number): boolean => {
 		return false;
 	}
 };
-// ghost-pid guard (2026-10-04): a lanes.json pid gets RECYCLED after its lane
-// dies — a bare kill(pid,0) then reads a random process as a live lane, the
-// pool reads full (49 ghosts ≥ target 8), and dispatch silently stops
-// spawning. Identity = the lane's own brief path in its command line
-// (claude/codex lanes exec `Read .fleet/brief-<sid>.md …`); worktree cwd
-// catches re-parented strays the pid can't.
-const commandLine = (pid: number): string =>
-	sh(["ps", "-p", String(pid), "-o", "command="]);
-const laneAlive = (l: Lane): boolean =>
-	l.host !== undefined
-		? true // remote lanes: no local ps — trust the registry until expiry
-		: (l.pid !== 0 && commandLine(l.pid).includes(l.sid)) ||
-			worktreeLive(l.worktree);
+// lane liveness is THE plane's verdict (2026-10-05): work lanes --json
+// (hooks/lib/lane-liveness.ts) is the one source dispatch-next, fleet-loop
+// and humans share — recycled pids and permanently-trusted host lanes both
+// read dead now. Fail-open: audit errors read all lanes dead, so dispatch
+// still spawns (ghost-clog is the cured disease; over-dispatch is lesser).
+const laneAudit = (): Map<string, boolean> => {
+	try {
+		const raw = sh([
+			process.execPath,
+			`${BIN}/work.ts`,
+			"lanes",
+			"--json",
+			"--fleet",
+			FLEET,
+		]);
+		return new Map(
+			(JSON.parse(raw) as Array<{ sid: string; live: boolean }>).map((a) => [
+				a.sid,
+				a.live,
+			]),
+		);
+	} catch {
+		return new Map();
+	}
+};
+const laneAlive = (l: Lane, audit: Map<string, boolean>): boolean =>
+	audit.get(l.sid) === true;
 const log = (msg: string): void => {
 	mkdirSync(FLEET, { recursive: true });
 	appendFileSync(LOOP_LOG, `${new Date().toISOString()} ${msg}\n`);
@@ -623,7 +637,8 @@ const main = async (): Promise<void> => {
 	// with a live claude/codex cwd is alive no matter what the pid says —
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
-	const live = lanes.filter((l) => laneAlive(l));
+	const audit = laneAudit();
+	const live = lanes.filter((l) => laneAlive(l, audit));
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
