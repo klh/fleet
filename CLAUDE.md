@@ -3,8 +3,9 @@
 One monorepo, one version, every service. packages/: suspenders (control
 plane), buckle (LLM gateway), belt (dashboard/gateway), speedy (config
 layer), local (Caddy front), local-llm (MLX swarm kit), blam (agent-mishap
-benchmark). The private enterprise tier = fleet-remote (mirrors packages/,
-depends on fleet) — pending W422.9.
+benchmark). The private enterprise tier = klh-remote (github klh/klh-remote,
+private; mirrors packages/, git deps on fleet pinned at the stack version) —
+landed W422.9.
 
 ## Laws (project-wide, every package)
 

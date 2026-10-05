@@ -16,7 +16,7 @@ versioned as ONE stack (`v2.0.0` tags ride every release of the whole).
 | `packages/local`      | the Caddy `.local` service front                                         |
 | `packages/local-llm`  | the local MLX swarm kit (extraction pending — W422.4)                    |
 
-The private `fleet-remote` monorepo (the paid enterprise tier) mirrors this
+The private `klh-remote` monorepo (the paid enterprise tier) mirrors this
 structure and DEPENDS on these packages — never copies.
 
 ## The stack, as deployed
