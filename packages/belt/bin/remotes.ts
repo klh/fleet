@@ -655,7 +655,7 @@ async function main() {
 		);
 		return;
 	}
-		if (cmd === "route") {
+	if (cmd === "route") {
 		const [role, ...rest] = process.argv.slice(3);
 		const { words, model } = splitModelFlag(rest);
 		const prompt = words.join(" ");
@@ -695,8 +695,11 @@ async function main() {
 		const r = await runRouted("direct", m, ep, prompt, model);
 		console.log(r.answer);
 		if (!r.ok) process.exit(1);
+		return;
 	}
 	console.log(
 		"usage: remotes.ts check [--json] | discover [--json] | route <role> <prompt> [--model <id>] | route-to <machine> <port> <prompt> [--model <id>]",
 	);
 }
+
+if (import.meta.main) void main();
