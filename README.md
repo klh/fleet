@@ -130,6 +130,15 @@ bun hooks/bin/fleet-loop.ts watch \
   --target 8 --every 120         # merge ladder + dispatcher (launchd)
 ```
 
+### Quota sweep — `bun hooks/bin/quota-sweep.ts`
+
+```sh
+bun hooks/bin/quota-sweep.ts           # report: quota hits per claimant sid
+bun hooks/bin/quota-sweep.ts --act     # pickup: reclaim dead sid's claims →
+                                       # READY + coord emit + broadcast
+                                       # (launchd, every 15 min)
+```
+
 ### Fleet board
 
 Served at `http://suspenders.local/` (LAN); API map at `/llms.txt`,
