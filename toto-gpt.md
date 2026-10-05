@@ -482,3 +482,108 @@ to BLAM's existing taxonomy and scenarios after checking its definitions.
 for each harness; inject the concise consultation contract; measure helpfulness;
 then improve expert ranking and verified cache reuse. Research and diagnosis only:
 no consultation code or agent instructions were changed by this addition.
+
+## Reusable starter sessions, forks and cached context
+
+### Purpose and limits
+
+Prepare a starter session that has read the root agent instructions, relevant
+skills and architecture, then fork independent task lanes from that checkpoint.
+This can avoid repeated orientation tool calls and carry forward verified
+conclusions. Keep persistent package experts for consultations so each question
+reaches a session with investigation history already available.
+
+A session fork inherits conversation context; it does not install permanent
+knowledge in model weights or guarantee a copy of the provider's live KV cache.
+Inherited history still occupies context tokens. Matching prompt prefixes can
+reuse model computation and reduce input cost and latency, subject to the model,
+provider, cache lifetime and request settings. New task reasoning and output
+still consume tokens, and workers may need to reinterpret rules for their task.
+[OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching),
+[Claude prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+Local serving engines may support prefix/KV reuse, but durable snapshot cloning
+must be verified for the specific engine. Do not assume caches transfer between
+models, providers or processes. Fleet's local-LLM registry already includes
+prefix-cache flags for some engines; configuration alone does not prove hits.
+
+### Proposed Fleet design
+
+```text
+Fleet starter: root rules + architecture + core skills
+    -> buckle starter -> independent task lanes
+    -> suspenders starter -> independent task lanes
+    -> belt starter -> independent task lanes
+
+Persistent package experts <- targeted consult questions
+```
+
+- **Small common baseline:** read and verify the shared operating rules once;
+  include only universally useful skills. Load specialist skills on demand or
+  into the corresponding package starter rather than every lane.
+- **Stable context first:** keep shared instructions, tool definitions and
+  reference material stable. Append lane identity, mission, branch/worktree and
+  current evidence after the shared checkpoint. Configure cache boundaries where
+  the provider requires them; a matching prefix alone is not always sufficient.
+- **Versioned starters:** record model/provider, harness and tool configuration,
+  instruction/skill content hashes and relevant source revision. Refresh affected
+  starters when those inputs change; validate package facts against the worker's
+  actual checkout. Do not automatically rebuild everything for an unrelated edit.
+- **Separate identities:** every fork gets a fresh native session and Fleet lane
+  identity with its own claims and key. Keep credentials outside starter history;
+  never inherit ownership or a parent's lane token from the checkpoint.
+- **Persistent consultations:** map package experts to native session IDs and
+  resume those sessions for questions. Fork execution workers when independent
+  progress is needed. Apply the consultation contract above to routing, evidence
+  and answer closure.
+- **Keep history bounded:** clone a deliberate orientation checkpoint rather
+  than a coordinator's entire working transcript. Compaction changes prefixes
+  and can reduce cache reuse; measure its total cost benefit rather than treating
+  either maximum history or maximum cache-hit rate as the objective.
+
+### Current dispatcher gap
+
+Source inspection of `packages/suspenders/scripts/dispatch-next.ts` and
+`scripts/lib/lane.ts` found that dispatch launches fresh Claude processes. Its
+capsule resume path reconstructs a brief and does not itself resume or fork a
+native agent session. `composeBrief` starts with the unique lane ID and mission,
+then instructs every lane to read root `AGENTS.md`. Moving reusable setup into a
+stable session/prompt prefix is a concrete optimization candidate, although
+harness-injected instructions before that brief may already receive cache hits.
+
+Add a native-session adapter and a starter registry rather than confusing the
+Fleet session ID with the harness conversation ID. Different harnesses need
+their own verified resume/fork behavior. The installed CLI help confirmed:
+
+```sh
+# Claude: a new session inheriting an existing conversation
+claude --resume <session-id> --fork-session -p "Task instructions"
+
+# Codex: fork an existing conversation; verify headless integration separately
+codex fork <session-id> "Task instructions"
+```
+
+These commands were checked in CLI help; no starter or forked lane was launched.
+Fleet may route the Claude harness to other model providers, so Anthropic/OpenAI
+cache behavior and prices must not be assumed for every route. Check whether the
+gateway preserves cache controls and usage metadata, and measure the actual
+upstream's behavior with per-lane authentication.
+
+### Benchmark before enabling fleet-wide
+
+Compare matched tasks under three policies: fresh lanes; fresh lanes with a
+stable cacheable prefix; forks from a prepared starter. Hold model, tools, task
+difficulty and validation requirements constant, and include cold-cache,
+warm-cache and changed-instruction cases.
+
+Measure total task cost including amortized starter preparation, cache reads and
+writes, output/reasoning usage, startup latency, repeated file/tool reads,
+completion time, correctness and stale-context failures. Record provider-reported
+cache usage where available; fork success is not evidence of a cache hit.
+
+Acceptance: fewer redundant reads and lower total cost or completion time without
+worse correctness, stale rules or inherited ownership. Existing lanes may already
+benefit from provider caching, so report incremental savings over that baseline.
+Start with one package expert and one starter template, then extend only after
+the benchmark. This section records a proposal; dispatcher and runtime behavior
+have not been changed.
