@@ -79,8 +79,11 @@ Coordination (`coord`):
   re-deriving pain; `finding.*` for intel; IKEA content ONLY here)
 - `coord consult` / `coord who-knows` — questions, never ownership
 - `coord fleet` — who is working (sessions + claims; never /tmp files)
-- (W428 pending: `coord project rekey <old> <new>` — graph identity
-  migration; a VERB, never raw SQL/bun one-offs)
+- `coord project identity` / `coord project rekey <old> <new>` — graph
+  identity migration as a VERB (W428): one tx across work_items, work_deps,
+  work_sequences, consults, consult_kb, sessions + events `$.project`;
+  children-first + `PRAGMA defer_foreign_keys` (composite FKs on
+  work_deps→work_items 500 otherwise); refused when the target holds items
 
 Lanes (`dispatch`) — spawns a headless lane from READY work: brief
 composed (caveman-condensed), per-lane `bksk_` key minted from
