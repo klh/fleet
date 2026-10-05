@@ -7,13 +7,13 @@ point-in-time research lives in coord facts (`lesson.*` / `finding.*`).
 
 ## The stack
 
-| Piece           | What it is                                                                                                                                                                                                                                                                                                                                               |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| governor.db     | SQLite/WAL work graph — the ONLY operational ledger. Project-scoped per repo (`work take/done/split`, W-ids, result shas). Never reconstruct it from Markdown.                                                                                                                                                                                           |
-| coord bus       | Events, NEED_DECISION, inbox, facts (`coord fact set/get lesson.<topic>`), session binding (`coord doctor-session`). SendMessage is interrupts-only.                                                                                                                                                                                                     |
-| fleet-loop      | launchd `com.suspenders.fleet-loop`: `watch --repo <repo> --dispatch-cmd "bun scripts/dispatch-next.ts" --target N --every 120`. Curfews are plist edits (strip `--dispatch-cmd`) + bootout/bootstrap.                                                                                                                                                   |
-| dispatch-next   | Takes READY work → worktree + branch (`suspenders/Wxxx`) → brief. Briefs are delivered INTO the worktree (`.klh-brief.md`; lanes are sandboxed — see `lesson.lane-brief-delivery`). Per-executor env insertion is data-driven: `scripts/lib/insertion.ts` (recipes + UNION_VARS, no per-executor branches).                                              |
-| board + console | Lit web components + CSS tokens (never innerHTML). Surfaces: work graph, service ladder, forks/decisions, usage. Served via Caddy at `*.local` (nginx cutover done).                                                                                                                                                                                     |
+| Piece           | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| governor.db     | SQLite/WAL work graph — the ONLY operational ledger. Project-scoped per repo (`work take/done/split`, W-ids, result shas). Never reconstruct it from Markdown.                                                                                                                                                                                                                                                                                                |
+| coord bus       | Events, NEED_DECISION, inbox, facts (`coord fact set/get lesson.<topic>`), session binding (`coord doctor-session`). SendMessage is interrupts-only.                                                                                                                                                                                                                                                                                                          |
+| fleet-loop      | launchd `com.suspenders.fleet-loop`: `watch --repo <repo> --dispatch-cmd "bun scripts/dispatch-next.ts" --target N --every 120`. Curfews are plist edits (strip `--dispatch-cmd`) + bootout/bootstrap.                                                                                                                                                                                                                                                        |
+| dispatch-next   | Takes READY work → worktree + branch (`suspenders/Wxxx`) → brief. Briefs are delivered INTO the worktree (`.klh-brief.md`; lanes are sandboxed — see `lesson.lane-brief-delivery`). Per-executor env insertion is data-driven: `scripts/lib/insertion.ts` (recipes + UNION_VARS, no per-executor branches).                                                                                                                                                   |
+| board + console | Lit web components + CSS tokens (never innerHTML). Surfaces: work graph, service ladder, forks/decisions, usage. Served via Caddy at `*.local` (nginx cutover done).                                                                                                                                                                                                                                                                                          |
 | gates           | On-write qlty/biome gate (`hooks/gates/files.ts`), content gate (parse-checks Write/Edit payloads — corrupt emissions denied pre-write), 1500-line hard limit on .ts, gitleaks pre-push, push-guard lane resolution. Non-native CLIs ride a `CliDialect` adapter under `hooks/dialects/<cli>/{lib,gate,wire}.ts` (codex shipped W73; copilot/grok/cline shipped W296) at the contract boundary — no gate rewrites per CLI. See `docs/cli-dialect-pattern.md`. |
 
 ## Lanes and executors
@@ -57,6 +57,19 @@ docs/codex-setup.md there); user-level copilot instructions in
   (<64 tok) are exempt from the always-think min-budget raise.
 - Benchmarks live in the belt repo (`benchmarks.md` at its root; the
   bench-arena harness in `bench/arena/`).
+
+## Capability profiles (W165 — federation doc capability-split law)
+
+Spoke installs ship NO auth issuance / identity administration / key custody
+(toward the hub a spoke presents the enrollment token as a client credential;
+local trust is the loopback). `install.sh --profile spoke` excludes the
+hub-only modules (`lib/auth.ts`, `lib/auth-server.ts`, `bin/auth.ts`) from
+`$PREFIX` and writes `capabilities.json`; the store server mounts `/auth/*`
+only under the `auth_issuance` flag (absent file = hub = the single-machine
+dev exemption; a present-but-unreadable file fails safe with hub-only OFF).
+The grammar (`hooks/lib/profile.ts`) is pinned to buckle's manifest builder
+by `test/profile.test.ts`, and the same flags ride the federation policy
+pull (`FedManifest.capabilities`) so a spoke never expects hub-only surfaces.
 
 ## Doc map
 

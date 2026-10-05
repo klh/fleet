@@ -37,9 +37,9 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GovernorStore } from "./govdb.ts";
+import { secretsHome } from "./secrets-home.ts";
 
 export const LOCAL_ISSUER = "buckle";
 const AUDIENCE = "buckle";
@@ -59,14 +59,9 @@ export interface JwtClaims {
 }
 // ─── signing key ─────────────────────────────────────────────────────────────
 
-// the sanctioned secrets home; BUCKLE_SECRETS_HOME overrides (tests, crates).
-// Env read is LIVE every call — bun caches os.homedir() at process start, so
-// runtime HOME mutation does NOT move this; the env override does.
-export function secretsHome(): string {
-	return (
-		process.env.BUCKLE_SECRETS_HOME ?? join(homedir(), ".claude", "local-llm")
-	);
-}
+// the sanctioned secrets home (BUCKLE_SECRETS_HOME overrides) resolved in
+// ./secrets-home.ts — W165 lifted it out so spoke installs can ship the
+// client-side token presenter without the hub-only auth modules.
 
 export function jwtKeyFile(): string {
 	return (

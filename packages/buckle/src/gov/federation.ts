@@ -15,6 +15,7 @@ import type { UpstreamPool } from "../upstreams.ts";
 import { readFileSync } from "node:fs";
 import { buildModels } from "./federation-entitlements.ts";
 import {
+	buildCapabilities,
 	buildRules,
 	crQueue,
 	declareCR,
@@ -38,6 +39,9 @@ export interface FederationOpts {
 	/** W193: RS256 manifest-signing identity — JWKS serve + detached-JWS
 	 *  signature over the exact manifest bytes (null = serve unsigned). */
 	signer?: ManifestSigner;
+	/** W165: which variant this gateway runs — the manifest advertises it
+	 *  (hub = full: identity, issuance, admin; default). */
+	profile?: "hub" | "spoke";
 }
 
 export interface CrRow {
@@ -118,6 +122,8 @@ export class Federation {
 	readonly db: Database;
 	private readonly policy: GatewayPolicy;
 	private readonly pool: UpstreamPool;
+	/** W165: the hub's own profile — manifest capability flags ride it. */
+	readonly profile: "hub" | "spoke";
 	/** W193: the hub signing identity (JWKS + manifest signatures). */
 	readonly signer: ManifestSigner | null;
 	/** W160 verification probes, by target prefix (longest match wins). */
@@ -129,6 +135,7 @@ export class Federation {
 		applyGovernanceSchema(this.db);
 		this.policy = opts.policy;
 		this.pool = opts.pool;
+		this.profile = opts.profile ?? "hub";
 		this.signer = opts.signer ?? null;
 		const rev = policyRevisionProbe(opts.policyPath);
 		this.registerProbe("policy@", rev);
@@ -159,13 +166,15 @@ export class Federation {
 		return probe(cr);
 	}
 
-	/** The manifest payload: content-addressed version + rules + CR queue. */
+	/** The manifest payload: content-addressed version + rules + CR queue +
+	 *  the W165 capability flags (the hub profile's own variant). */
 	manifest(): FedManifest {
 		const rules = buildRules(this.policy);
 		return {
 			version: manifestVersion(rules),
 			rules,
 			cr_queue: crQueue(this.db),
+			capabilities: buildCapabilities(this.profile),
 		};
 	}
 

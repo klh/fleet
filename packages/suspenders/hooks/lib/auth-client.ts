@@ -7,7 +7,7 @@
 // persist rotation results.
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { secretsHome } from "./auth.ts";
+import { secretsHome } from "./secrets-home.ts";
 
 export interface TokenPair {
 	access: string;

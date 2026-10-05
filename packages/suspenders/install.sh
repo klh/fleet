@@ -4,25 +4,40 @@
 # (per-event concat, never clobbers), --with-launchd installs the macOS agents.
 # Idempotent: re-running just refreshes the files.
 #   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models] [--no-llm]
+#                [--profile hub|spoke]
 # Default (owner law 2026-10-01): ALWAYS sets up the local-llm swarm and
 # downloads the smallest-fit models (BELT_TIER=minimal residents).
+#
+# --profile (W165 capability split, federation doc): hub (default) = full —
+# identity, issuance, admin; the single-machine dev case runs this default.
+# spoke ships NO auth issuance/identity/key-custody code: the hub-only
+# modules are excluded from $PREFIX and capabilities.json records the flags
+# (the same names ride the federation policy pull).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 
 # flags (order-independent) — replaces the old positional $1/$2 checks
-WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0
-for arg in "$@"; do
-  case "$arg" in
+WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0 PROFILE=hub
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --wire) WIRE=1 ;;
     --with-launchd) WITH_LAUNCHD=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
     --no-llm) NO_LLM=1 ;;
-    *) echo "unknown flag: $arg"; exit 2 ;;
+    --profile)
+      [[ $# -ge 2 ]] || { echo "--profile needs hub|spoke"; exit 2; }
+      PROFILE="$2"; shift ;;
+    *) echo "unknown flag: $1"; exit 2 ;;
   esac
+  shift
 done
+case "$PROFILE" in
+  hub|spoke) ;;
+  *) echo "unknown profile: $PROFILE (hub|spoke)"; exit 2 ;;
+esac
 
 LLM_HOME="$HOME/.claude/local-llm"
 # kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
@@ -31,7 +46,10 @@ KIT_DIR="$(cd "$REPO_DIR/.." && pwd)/local-llm"
 # --dry-run: print the plan, touch nothing (bun read-only for the tier list)
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "dry-run — would:"
-  echo "  install harness → $PREFIX (+ bun install)"
+  echo "  install harness → $PREFIX (profile: $PROFILE)"
+  if [[ "$PROFILE" == "spoke" ]]; then
+    echo "    exclude hub-only modules: lib/auth.ts, lib/auth-server.ts, bin/auth.ts"
+  fi
   echo "  local-llm baseline → $LLM_HOME:"
   echo "    kit: swarm.ts (serve supervisor), spawner.ts, router-shim.ts,"
   echo "         registry.ts, belt.env + routing-policy.yaml stubs"
@@ -48,7 +66,7 @@ fi
 
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
-echo "→ installing to $PREFIX"
+echo "→ installing to $PREFIX (profile: $PROFILE)"
 mkdir -p "$PREFIX"
 # W183.1 follow-up (W300) — local-llm rides along as a harness-relative copy
 # too: hooks/board/local-swarm.ts imports registry.ts via a repo-relative
@@ -63,6 +81,41 @@ done
 # from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
 cp -R "$KIT_DIR" "$PREFIX/"
 cp "$REPO_DIR/package.json" "$REPO_DIR/bun.lock" "$PREFIX/"
+
+# ─── capability profile (W165 — federation doc capability-split section) ────
+# hub (default) = full (identity, issuance, admin) — the single-machine dev
+# case runs this default unchanged. spoke ships NO auth issuance / identity
+# administration / key custody code: the hub-only modules are excluded from
+# $PREFIX and capabilities.json records the variant (the same flag names ride
+# the federation policy pull — hooks/lib/profile.ts is the grammar source).
+CAPS_FILE="$PREFIX/capabilities.json"
+if [[ "$PROFILE" == "spoke" ]]; then
+  for f in lib/auth.ts lib/auth-server.ts bin/auth.ts; do
+    rm -f "$PREFIX/$f"
+  done
+  echo "→ spoke profile: excluded lib/auth.ts, lib/auth-server.ts, bin/auth.ts (hub-only)"
+  printf '%s\n' '{' \
+    '  "routing": true,' \
+    '  "adapters": true,' \
+    '  "aids_metering": true,' \
+    '  "pull_client": true,' \
+    '  "auth_issuance": false,' \
+    '  "identity_admin": false,' \
+    '  "key_custody": false' \
+    '}' > "$CAPS_FILE"
+else
+  printf '%s\n' '{' \
+    '  "routing": true,' \
+    '  "adapters": true,' \
+    '  "aids_metering": true,' \
+    '  "pull_client": true,' \
+    '  "auth_issuance": true,' \
+    '  "identity_admin": true,' \
+    '  "key_custody": true' \
+    '}' > "$CAPS_FILE"
+fi
+echo "→ capabilities.json written (profile: $PROFILE)"
+
 (cd "$PREFIX" && bun install) # shell-quote, for the bash gate
 echo "→ harness in place"
 

@@ -20,8 +20,12 @@ import {
 	knowledgeSqlViolation,
 	type GovernorStore,
 } from "../lib/govdb.ts";
-import { handleAuthRoutes } from "../lib/auth-server.ts";
 import { servicemon } from "../lib/servicemon.ts";
+import {
+	CAP_AUTH_ISSUANCE,
+	hasCapability,
+	readCapabilities,
+} from "../lib/profile.ts";
 
 const PORT =
 	Number(process.argv[process.argv.indexOf("--port") + 1] ?? "") ||
@@ -260,12 +264,21 @@ const base = {
 		// /auth/token, /auth/refresh, /auth/revoke, /auth/whoami. Serialized on
 		// the same connection chain as /rpc so issuance transactions never
 		// interleave with CLI statements.
-		if (url.pathname.startsWith("/auth/"))
+		// W165 — capability gate: a spoke profile ships no issuance module and
+		// no issuance surface. The flag file decides; a spoke install answers
+		// /auth/* with a bare 404 (a spoke never expects hub-only surfaces).
+		// The auth-server module loads lazily so the same binary serves both
+		// profiles (spoke installs exclude lib/auth-server.ts entirely).
+		if (url.pathname.startsWith("/auth/")) {
+			if (!hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE))
+				return new Response("not found", { status: 404 });
+			const { handleAuthRoutes } = await import("../lib/auth-server.ts");
 			return serial(() =>
 				handleAuthRoutes(req, url, {
 					store: db as unknown as GovernorStore,
 				}),
 			);
+		}
 		if (req.method !== "POST" || url.pathname !== "/rpc")
 			return new Response("not found", { status: 404 });
 		if (TOKEN && req.headers.get("x-governor-token") !== TOKEN)

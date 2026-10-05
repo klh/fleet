@@ -9,11 +9,13 @@ import { join } from "node:path";
 import {
 	lastKnownPath,
 	loadLastKnown,
+	manifestCapabilities,
 	pullFederation,
 	type FederationEnv,
 } from "../hooks/lib/federation.ts";
 import { deriveDataDomain, hubModelIdsFrom } from "../hooks/lib/provenance.ts";
 import { atomicWrite } from "../hooks/lib/board-config.ts";
+import { hubCapabilities } from "../hooks/lib/profile.ts";
 
 const FIXTURE_ENTITLEMENTS = {
 	models: [
@@ -134,5 +136,29 @@ describe("provenance: data_domain seed (domain-separation law)", () => {
 		const ids = hubModelIdsFrom(lk);
 		expect(ids.has("glm-5.3-flash")).toBe(true);
 		expect(ids.has("local-swarm")).toBe(false);
+	});
+});
+
+describe("W165 capability flags off the pull", () => {
+	test("legacy manifest (no field) reads hub = full; spoke flags ride", () => {
+		expect(manifestCapabilities(null)).toEqual(hubCapabilities());
+		expect(manifestCapabilities(FIXTURE_MANIFEST)).toEqual(hubCapabilities());
+		const spokeHub = {
+			...FIXTURE_MANIFEST,
+			capabilities: {
+				routing: true,
+				adapters: true,
+				aids_metering: true,
+				pull_client: true,
+				auth_issuance: false,
+				identity_admin: false,
+				key_custody: false,
+			},
+		};
+		const caps = manifestCapabilities(spokeHub);
+		expect(caps.auth_issuance).toBe(false);
+		expect(caps.identity_admin).toBe(false);
+		expect(caps.key_custody).toBe(false);
+		expect(caps.routing).toBe(true);
 	});
 });

@@ -5,7 +5,8 @@
 // is normal operation: a failed pull logs one honest line, keeps last-known,
 // never blocks routing. --once exits 2 on degraded (honest signal for the
 // caller), loop mode never exits on hub-down.
-import { pullFederation } from "../lib/federation.ts";
+import { manifestCapabilities, pullFederation } from "../lib/federation.ts";
+import { HUB_ONLY_CAPABILITIES } from "../lib/profile.ts";
 
 const INTERVAL_S = Number(process.env.FEDERATION_PULL_INTERVAL_S ?? "300");
 
@@ -14,8 +15,10 @@ async function cycle(): Promise<boolean> {
 	if (out.ok) {
 		const models = out.menu.hub_models.length;
 		const crs = out.manifest?.cr_queue.length ?? 0;
+		const caps = manifestCapabilities(out.manifest);
+		const on = HUB_ONLY_CAPABILITIES.filter((k) => caps[k]).join(",");
 		console.log(
-			`[federation-pull] ok version=${out.manifest?.version} models=${String(models)} cr_queue=${String(crs)}`,
+			`[federation-pull] ok version=${out.manifest?.version} models=${String(models)} cr_queue=${String(crs)} caps=${on || "none"}`,
 		);
 		return true;
 	}

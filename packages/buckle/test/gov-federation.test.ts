@@ -98,6 +98,26 @@ describe("federation: policy manifest (anonymous spoke-pull)", () => {
 		expect(Array.isArray(body.cr_queue)).toBe(true);
 		fed.stop();
 	});
+
+	test("W165: the manifest carries the hub's capability flags (full)", async () => {
+		const fed = await startFed();
+		const spokeKey = await issueKey(fed.base, {
+			name: "spoke-pull",
+			scopes: ["buckle:spoke:READ_"],
+		});
+		const res = await fetch(`${fed.base}/federation/policy-manifest`, {
+			headers: { authorization: `Bearer ${spokeKey}` },
+		});
+		const body = (await res.json()) as {
+			capabilities: Record<string, boolean>;
+		};
+		expect(body.capabilities).toBeDefined();
+		expect(body.capabilities.auth_issuance).toBe(true);
+		expect(body.capabilities.identity_admin).toBe(true);
+		expect(body.capabilities.key_custody).toBe(true);
+		expect(body.capabilities.routing).toBe(true);
+		fed.stop();
+	});
 });
 
 describe("federation: entitlements (echo menu, visibility law)", () => {
