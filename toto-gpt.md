@@ -967,3 +967,19 @@ SQL to tenants or run blind rekeys as substitutes for this migration.
 The report includes source anchors, resolution rules, occupied-graph migration,
 offline/failover requirements and concrete acceptance tests. This remains design
 and research; no control-plane runtime behavior was changed.
+
+### Upstream hubs should see the downstream lanes they actually serve
+
+Added the [upstream visibility design](docs/cross-hub-project-identity.md#upstream-visibility-of-downstream-lanes).
+Hubs observe authorized requests from globally identified lanes without taking
+ownership of downstream work. Record origin hub and immediate downstream peer
+separately; support both filters in the GUI. Default busy hubs to downstream
+summaries with paginated drill-down and server-side filtered push updates.
+
+Use verified hop attribution, deduplicated lane/request/attempt identities and
+explicit metadata permissions. Traffic inactivity is not proof of a dead lane;
+authoritative status and observed last-seen time remain distinct. Account for
+rerouting, multiple paths, retries and per-hop usage double counting. Existing
+local `/w/<slug>` attribution is stripped before upstream dispatch, and dispatch
+skips its local attribution setup for named hub redirects; multi-hop identity
+propagation needs explicit implementation and verification.

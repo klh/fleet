@@ -259,3 +259,112 @@ one authoritative work graph, with distinct globally unique lanes and correctly
 scoped consult/notification access. Native starter distribution and broader hub
 failover follow that foundation. This is larger than replacing `projectIdentity`
 with a URL hash, but it can be delivered in these verifiable stages.
+
+## Upstream visibility of downstream lanes
+
+An upstream hub should see authorized lanes whose requests actually traverse it,
+with grouping/filtering by downstream hub. This is an observability relationship,
+separate from work ownership and source-code execution. The upstream owns its
+traffic observations and local resource controls, not the downstream lane's work
+claim, lifecycle or developer decisions.
+
+```text
+Lane L originates on developer executor E, governed by project authority P
+    -> downstream hub A -> regional hub B -> corporate hub C -> model
+
+A, B and C observe L's requests; P remains the work authority.
+B groups immediate downstream traffic under A.
+C groups immediate downstream traffic under B, with permitted drill-down to A.
+```
+
+Visibility should follow recorded request edges rather than assuming a fixed hub
+tree. Routes may change, branch across providers or bypass an upstream. A lane
+that never used hub C should not appear as locally observed traffic on C merely
+because its project is in the corporate directory. A broader authorized fleet
+directory can be offered as a distinct view with explicit source provenance.
+
+### Separate a lane from its observations
+
+The authoritative lane descriptor contains global lane/attempt IDs, tenant/project
+IDs, origin executor/hub and permitted work metadata. Each observing hub records
+its own minimal observation: lane/attempt, request correlation ID, immediate
+downstream peer, observing hub, request/attempt timestamps, route edge/span,
+outcome and provider-reported usage where available. Origin hub and immediate
+downstream hub are different grouping dimensions.
+
+Authenticate the connection peer, then validate delegated lane attribution
+against its allowed tenant/project namespace. Strip untrusted incoming identity
+headers and reconstruct or verify the forwarded envelope. The origin/authority
+binding needs provenance; the actual route needs hop observations. Neither a
+caller-supplied `/w/<slug>` nor an arbitrary claimed route list establishes trust.
+Use bounded metadata, loop/hop checks and unique IDs; attach trace metadata
+outside the stable model prompt so hub hops do not invalidate cached context.
+
+Existing source provides useful attribution anchors, but not this complete flow:
+
+- `packages/buckle/src/citizenship.ts` parses the `/w/<slug>` prefix and strips
+  it before upstream dispatch. Its local audit attribution is not automatically
+  a portable lane identity across another gateway.
+- `packages/buckle/src/ledger.ts` records lane and request ID in route audit;
+  use these as integration anchors while adding tenant/project/origin/peer scope.
+- `packages/suspenders/scripts/dispatch-next.ts` currently skips its local buckle
+  attribution setup when a named hub redirect wins. Explicitly verify attribution
+  on redirected and multi-hop paths instead of assuming existing local adoption
+  covers downstream lanes at every hub.
+
+### Visibility does not imply control or complete liveness knowledge
+
+Authorize metadata separately from observing transport traffic. A hub operator
+may need origin ID, counts, model, latency and errors without permission to read
+task titles, repository paths, source, transcripts or prompts. Only project
+authority permissions allow richer drill-down, work changes or direct consults.
+Upstream resource controls can restrict that peer/lane's local traffic without
+reclaiming downstream work or rewriting its lifecycle.
+
+An observation can be streaming, recently seen, idle, expired or unknown. "Last
+request 10 minutes ago" does not prove a lane is dead or finished. Authoritative
+lane status is a separately sourced field with freshness; without that feed the
+upstream shows unknown. Never mark work done or reclaim a claim solely from
+traffic inactivity. Lack of visibility after a route change is expected.
+
+Deduplicate lane rows by globally scoped lane/attempt identity, while retaining
+their multiple incoming edges. Keep request and retry-attempt IDs distinct so
+retries are visible and not mistaken for more lanes. Each hop's latency/counts
+are local observations; summing all hops can double-count one logical request.
+Designate a usage/accounting source and reconciliation rules for billing rather
+than treating upstream and downstream observations as independent model spend.
+
+### GUI behavior under a busy hub
+
+Default to a downstream summary with counts, active streams, traffic, errors and
+last-seen freshness. Keep the hub's own originating lanes separately visible;
+expand a selected downstream into paginated lane detail. Provide:
+
+- Immediate downstream grouping for operational responsibility.
+- Origin downstream grouping for identifying the original team/hub across hops.
+- Authorized project, lane/attempt, time window, observation state and error
+  filters; show whether status is observed locally or reported by an authority.
+- Saved operator filters and a bounded recently-seen window; keep historic
+  observations accessible on demand instead of retaining every lane forever
+  in the live board.
+
+Aggregate and filter server-side before publishing bounded push updates. Do not
+broadcast every descendant lane event to every browser and hide rows with CSS.
+Use indexes on observer/peer/time and lane scope, bounded retention, paginated
+drill-down and explicit backpressure/resync behavior. Authorize counts and group
+labels as well as detail rows. One multi-hop lane should remain one lane in the
+selected scope even if it has several observation edges.
+
+### Integration acceptance
+
+Exercise A -> B -> C and verify correct immediate-peer/origin filters at each
+hub. Reroute A directly to C and retain accurate time-scoped history without
+inventing current B traffic. Test retries, multiple paths, forged identity,
+cross-tenant detail access, offline authority, idle-but-live lanes and revoked
+permissions. Under a configured busy-hub load, summary and filtered push payloads
+remain bounded and one logical request is not billed once per hop.
+
+This extends the identity design: globally stable lanes enable observation
+deduplication, while project authority and executor identity keep visibility from
+becoming accidental ownership. No multi-hop telemetry or GUI change is implemented
+by this document.
