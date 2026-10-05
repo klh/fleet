@@ -33,9 +33,10 @@ services:
       # break-glass root credential (drift-never + secrets law): generated
       # ON THE HUB DEVICE, mode 600, never committed. BUCKLE_ROOT_KEY seeds
       # the bootstrap principal; mint bksk_ keys via /v1/admin/keys and
-      # retire the root. Refuses to boot the service when absent.
-      - path: ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
-        required: true
+      # retire the root. Short form for compose-spec compat (older DSM
+      # compose rejects the path/required long form); a MISSING file still
+      # fails `up` (compose stats it before creating the service).
+      - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
     environment:
       HOME: /state/hub-home
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
@@ -66,6 +67,10 @@ services:
     command: bun /src/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
     environment:
       HOME: /state/hub-home
+      # the healthcheck reads the port from the container env — export what
+      # the command flag resolved to, or the probe hits the default and
+      # the service is forever "unhealthy" (the NAS cutover lesson)
+      HUB_BOARD_PORT: ${HUB_BOARD_PORT:-7809}
       SUSPENDERS_BIND: ${HUB_BOARD_BIND:-127.0.0.1}
       SUSPENDERS_ALLOWED_HOSTS: ${HUB_ALLOWED_HOSTS:-suspenders.local}
       # LAN service-discovery feed (recovery map); unset/empty = none
@@ -93,6 +98,8 @@ services:
     command: bun /src/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
     environment:
       HOME: /state/hub-home
+      # same healthcheck-port law as board-hub: export the resolved port
+      HUB_STORE_PORT: ${HUB_STORE_PORT:-7796}
     volumes:
       - ${HUB_SUSPENDERS_REPO:-..}:/src/suspenders:ro
       - hub-state:/state/hub-home
