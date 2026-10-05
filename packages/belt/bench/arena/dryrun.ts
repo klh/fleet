@@ -5,7 +5,6 @@
 import { existsSync, rmSync } from "node:fs";
 import { hostname, loadavg } from "node:os";
 import { join } from "node:path";
-import { condense } from "./condense.ts";
 import {
 	AC_FILE,
 	ARENA_DIR,
@@ -274,7 +273,9 @@ async function transformSection(v: DryVariant, o: DryOpts, p: P, t: Tally) {
 				cin += m.chars_in;
 				cout += m.chars_out;
 				const x = pr.task[f] ?? "";
-				if (tr.id === "condense" && tr.deterministic && condense(x) !== x)
+				// idempotence (blam law L4), now checked for EVERY deterministic
+				// transform via the transform itself
+				if (tr.deterministic && (await tr.transform(pr.task.id, x)) !== x)
 					idem = false;
 			}
 		const stable = ra.promptsHash === rb.promptsHash;
@@ -294,11 +295,7 @@ async function transformSection(v: DryVariant, o: DryOpts, p: P, t: Tally) {
 				cin ? `${f2((100 * (cout - cin)) / cin, 1)}%` : "—",
 				`\`${ra.promptsHash}\``,
 				tr.deterministic ? (stable ? "yes" : "NO") : "n/a",
-				tr.id === "condense" && tr.deterministic
-					? idem
-						? "yes"
-						: "NO"
-					: "n/a",
+				tr.deterministic ? (idem ? "yes" : "NO") : "n/a",
 				tr.deterministic ? "n/a" : `${ra.hits} / ${misses}`,
 				verdict,
 			]),

@@ -38,7 +38,7 @@ modes
   --report --variant    compare variants (--runs a,b  --baseline <run-id>)
 
 options
-  --transform none|condense|enhance|both[,…]   default none
+  --transform none|condense|condense-in|condense-out|enhance|both|condense-in+enhance|condense-out+enhance[,…]   default none
   --models glm|local|kev|mixed|all[,…]          default all
   --legs id,…           narrow inside the model set
   --classes e,d,a,c,b,f --n 12 --warm --replay K --allow-down --run-id <id>

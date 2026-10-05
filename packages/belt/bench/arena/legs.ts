@@ -626,7 +626,10 @@ export async function ping(leg: Leg, port: number, tag: string): Promise<Out> {
 			user: `[ref:${n}]\nReply with the single word: pong`,
 			maxTokens: 1,
 			effort: "low",
-			timeoutMs: 120e3,
+			// saturated-but-alive endpoints queue a 1-token ping behind long
+			// in-flight generations (observed 58s at load1≈16) — wait the queue
+			// out; a dead endpoint still fails fast (connection refused)
+			timeoutMs: 300e3,
 			port: port || 8902,
 			kevState: `[ref:${n}] ping`,
 		},

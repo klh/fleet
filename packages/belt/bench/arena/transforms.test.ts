@@ -10,11 +10,14 @@ import {
 	CacheMismatch,
 	compose,
 	condenseTransform,
+	condenseInTransform,
+	condenseOutTransform,
 	enhanceMaxTokens,
 	loadCondenser,
 	makeEnhance,
 	noneTransform,
 	prepareTasks,
+	TRANSFORM_IDS,
 	type Transform,
 	TransformCache,
 } from "./transforms.ts";
@@ -207,5 +210,37 @@ describe("enhance client", () => {
 	test("max_tokens budget is clamped", () => {
 		expect(enhanceMaxTokens("x")).toBe(128);
 		expect(enhanceMaxTokens("x".repeat(100_000))).toBe(768);
+	});
+});
+
+describe("blam tier legs (W367.3)", () => {
+	const src =
+		"Hi there! Could you please fix the the login bug? Make sure that the tests pass afterwards.";
+	test("condense-in/out are deterministic blam tier legs", async () => {
+		expect(condenseInTransform.version).toBe("blam-condense/1/caveman");
+		expect(condenseOutTransform.version).toBe("blam-condense/1/politeness");
+		for (const t of [condenseInTransform, condenseOutTransform]) {
+			expect(t.deterministic).toBe(true);
+			const once = await t.transform("k", src);
+			expect(await t.transform("k", once)).toBe(once); // blam law L4
+			expect(await t.transform("k", src)).toBe(once); // blam law L6
+			expect(once.length).toBeLessThan(src.length);
+		}
+	});
+	test("TRANSFORM_IDS cover the owner IN/OUT matrix; buildTransform wires them", () => {
+		for (const id of [
+			"condense-in",
+			"condense-out",
+			"condense-in+enhance",
+			"condense-out+enhance",
+		])
+			expect(TRANSFORM_IDS).toContain(id);
+		const e = fake();
+		const inEn = buildTransform("condense-in+enhance", { enhance: e });
+		expect(inEn.id).toBe("condense-in+enhance");
+		expect(inEn.deterministic).toBe(false);
+		expect(inEn.version).toBe("blam-condense/1/caveman+fake/1");
+		expect(buildTransform("condense-in")).toBe(condenseInTransform);
+		expect(buildTransform("condense-out")).toBe(condenseOutTransform);
 	});
 });
