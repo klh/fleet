@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ikea-shim (W226): the anthropic→copilot gateway on :4102. Serves the
+  interactive claude CLI (settings.json env → this shim); the per-lane
+  --settings files keep dispatch lanes on their own upstreams. Delivered by
+  install.sh; activated with --with-launchd (coordinator step).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.suspenders.ikea-shim</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BUN__</string>
+		<string>__HOME__/.claude/local-llm/ikea-shim.ts</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__HOME__/.claude-insights/ikea-shim-launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/.claude-insights/ikea-shim-launchd.log</string>
+</dict>
+</plist>

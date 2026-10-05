@@ -86,7 +86,7 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ $NO_LLM -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  for f in registry.ts spawner.ts router-shim.ts; do
+  for f in registry.ts spawner.ts router-shim.ts ikea-shim.ts; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
     else
@@ -104,7 +104,7 @@ if [[ $NO_LLM -eq 0 ]]; then
     echo "= $LLM_HOME/swarm.ts kept (serve already present)"
   fi
   # config stubs — belt.env + routing-policy.yaml, only when absent
-  for f in belt.env routing-policy.yaml; do
+  for f in belt.env routing-policy.yaml ikea.env; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (operator-owned runtime copy)"
     else
@@ -228,6 +228,8 @@ echo "  bun $PREFIX/bin/work.ts ready         # what the fleet can pick up"
 echo "  bun $PREFIX/bin/monitor.ts            # control-plane health"
 echo "env knobs: SUSPENDERS_LLM_URL / SUSPENDERS_LLM_MODEL / SUSPENDERS_LLM_KEY (advice worker)"
 echo "local-llm: $LLM_HOME (swarm serve supervisor; BELT_TIER=minimal residents + :4000 router)"
+echo "  bun $LLM_HOME/ikea-shim.ts status  # anthropic→copilot gateway (:4102) health"
+echo "  bun $LLM_HOME/ikea-shim.ts login   # device-flow mint (Copilot seat required)"
 echo "  bun $LLM_HOME/swarm.ts status   # swarm health"
 echo "  bun $LLM_HOME/swarm.ts serve    # resident supervisor (launchd label com.suspenders.local-llm)"
 

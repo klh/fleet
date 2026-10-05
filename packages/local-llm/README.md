@@ -11,14 +11,15 @@ four `.ts` files sit at the root (no `src/`, no `bin/`) because install.sh
 copies them individually into a flat directory and they import each other
 relatively (`./registry.ts`, `./spawner.ts`).
 
-| File                  | Role                                                           |
-| --------------------- | -------------------------------------------------------------- |
-| `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)             |
-| `registry.ts`         | specialist table — model → port, tiers, fallbacks              |
-| `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                   |
-| `router-shim.ts`      | anthropic-wire server on `:4000` → openai-protocol specialists |
-| `belt.env`            | installer stub — env for clients pointing at the belt (:4100)  |
-| `routing-policy.yaml` | default ladder template — the committed default                |
+| File                  | Role                                                                      |
+| --------------------- | ------------------------------------------------------------------------- |
+| `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)                        |
+| `registry.ts`         | specialist table — model → port, tiers, fallbacks                         |
+| `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                              |
+| `router-shim.ts`      | anthropic-wire server on `:4000` → openai-protocol specialists            |
+| `ikea-shim.ts`        | anthropic→copilot gateway on `:4102` (W226) — `login`/`status`/`selftest` |
+| `belt.env`            | installer stub — env for clients pointing at the belt (:4100)             |
+| `routing-policy.yaml` | default ladder template — the committed default                           |
 
 ## Port map
 
@@ -29,6 +30,7 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `:8903` | reason                                      |
 | `:8906` | general / Danish                            |
 | `:4000` | router-shim (anthropic seam over the swarm) |
+| `:4102` | ikea-shim (anthropic→copilot gateway, W226) |
 
 ## Runtime home
 
@@ -49,6 +51,13 @@ bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
 
 launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
 `launchctl kickstart gui/$(id -u)/com.suspenders.local-llm` revives.
+
+## ikea-shim (W226)
+
+Anthropic→copilot gateway so the INTERACTIVE claude CLI rides the IKEA
+Copilot seat's models (`login` → `status` → point `ANTHROPIC_BASE_URL` at
+`:4102`; dispatch lanes are untouched — their 0600 per-lane `--settings`
+files pin their own upstream). launchd: `com.suspenders.ikea-shim`.
 
 ## Config stubs
 
