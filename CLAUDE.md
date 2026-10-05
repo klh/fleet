@@ -14,10 +14,11 @@ depends on fleet) — pending W422.9.
   machine-level runtime config (`~/.config/klh/stack.yaml`,
   `~/.claude/local-llm/*.env`, mode 600) — repos carry placeholders only.
 - **Health is outside-process** (owner law 2026-10-05): a server cannot
-  paint itself healthy. Services regenerate `status.json` heartbeats
-  (deploy/healthcheck/heartbeat.ts) from their own event loops; health
-  sidecars judge by file age, degrade on misses, actively probe before
-  calling it unhealthy. Never put a healthcheck inside the served process.
+  paint itself healthy. Every hub service gets a `*-health` probe sidecar
+  (deploy/healthcheck/probe.ts) that polls the real target over the
+  network, serves the verdict on its own port, degrades on consecutive
+  misses, and actively re-probes before flipping to down; compose health
+  hits the SIDECAR, never the served process.
 - **Secrets are minted, never typed**: root keys generated ON the target
   device (0600, idempotent, never printed); admin + per-lane `bksk_` keys
   minted via the gate's admin API; revocable, audited.
