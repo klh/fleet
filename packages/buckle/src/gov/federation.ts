@@ -408,8 +408,13 @@ export class Federation {
 				"buckle.self_report_disabled",
 				`self-report is not enabled for team '${v.payload.team}' (per-team opt-in, default OFF)`,
 			);
-		const out = storeSelfReport(this.db, p.keyId, v.payload);
-		return Response.json({ ok: true, spoke: p.keyId, ...out });
+		// spoke label = the minted key's name (operator infrastructure
+		// naming, readable on the dashboard); opaque keyId fallback.
+		const keyRow = this.db
+			.query("SELECT name FROM api_keys WHERE key_id = ?")
+			.get(p.keyId) as { name: string | null } | null;
+		const out = storeSelfReport(this.db, keyRow?.name ?? p.keyId, v.payload);
+		return Response.json({ ok: true, spoke: keyRow?.name ?? p.keyId, ...out });
 	}
 
 	/** W171: hub-admin read over the stored rollups — the dashboards' data

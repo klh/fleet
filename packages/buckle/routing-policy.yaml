@@ -61,8 +61,16 @@ aids:
     max_digest_bytes: 2048
   # W5 prompt pipeline IN: response-side condense. Sideband-only — the
   # served bytes never change; the condensed variant + raw live by rid at
-  # GET /pipeline/in/<rid> (raw one click away). Declared per request via
+  # GET /pipeline/in/<rid> (raw one call away). Declared per request via
   # x-belt-aids: condense-in; `off` is the operator kill switch.
   condense-in:
     default: on
     max_bytes: 262144
+  # W171 federation phase 3: per-team opt-in for the aggregate self-report
+  # (tokens by model-class + aid sums, hourly). DEFAULT OFF — ABSENT (or
+  # empty) means no team may report; spokes without a team here never POST
+  # and the hub refuses unlisted teams with 403.
+  # federation:
+  #   self_report:
+  #     teams: []   # e.g. [platform, gaps]
+
