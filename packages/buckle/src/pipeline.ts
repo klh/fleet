@@ -1,63 +1,22 @@
 // src/pipeline.ts — W5 prompt pipeline IN: inbound compression. Lane
 // results/summaries shown to the owner get a condensed variant computed
 // SIDE-BAND (the served bytes stay byte-identical — the wire contract is
-// never mutated); the raw output stays one GET away by rid. The ruleset is
-// the politeness-only family (finding.condense-token-bench): rule-based,
-// deterministic, meaning-preserving — whole courtesy sentences drop,
-// courtesy prefixes strip, whitespace collapses; meaning qualifiers ("but
-// just for the 429 case", "only touch the users table") survive verbatim
-// because rules never edit inside a sentence or inside code.
+// never mutated); the raw output stays one GET away by rid. W304.3: the
+// ruleset is the blam canonical engine, tier `politeness` (spec
+// packages/blam/docs/prompt-condense-spec.md, migration step 3 — one
+// engine everywhere; audience split: outbound sideband = politeness).
+// Deterministic, meaning-preserving: the protect grammar (fences, inline
+// code, paths, URLs, flags…) survives byte-for-byte; hedges survive (law
+// L2). The inline line-anchored ruleset is retired — courtesy-closer
+// drops ("Let me know…", "Hope this helps!") are NOT in the politeness
+// tier's rule table and now survive; sanctioned by the one-engine law.
 import { Database } from "bun:sqlite";
+import { condenseTier } from "../../blam/src/condense/tiers.ts";
+import { CONDENSE_VERSION } from "../../blam/src/condense/version.ts";
 
-// ─── the ruleset ────────────────────────────────────────────────────────────
+export { CONDENSE_VERSION };
 
-/** Whole-line courtesy sentences: zero payload, safe to drop entirely. */
-const DROP_LINE: RegExp[] = [
-	/^(i |we )?hope (this|that|it) helps\b.*$/i,
-	/^let me know\b.*$/i,
-	/^(feel free|don'?t hesitate) to\b.*$/i,
-	/^(happy|glad) to (help|elaborate|clarify|explain|answer)\b.*$/i,
-	/^(thanks|thank you|many thanks|cheers)[!.,\s]*$/i,
-	/^(you'?re welcome|my pleasure|anytime)[!.,\s]*$/i,
-];
-
-/** Courtesy prefixes stripped at line start; the payload survives verbatim.
- *  Bullets ("- ", "* ", "1. ") are preserved through the strip. */
-const PREFIX_STRIP: RegExp[] = [
-	/^(?<bullet>[-*+] |\d+[.)] )?(please|kindly)\s+(note|be aware|keep in mind)( that)?\s*[:,]?\s*/i,
-	/^(?<bullet>[-*+] |\d+[.)] )?(it'?s|it is) (worth|important) (noting|to note)( that)?[:,]?\s*/i,
-	/^(?<bullet>[-*+] |\d+[.)] )?(just a )?(heads-?up|fyi)\s*[-—–:]?\s*/i,
-	/^(?<bullet>[-*+] |\d+[.)] )?please\s+/i,
-];
-
-/** Whitespace collapse: ≥3 newlines → one blank line; no trailing spaces. */
-function collapseWhitespace(text: string): string {
-	return text
-		.replace(/[ \t]+$/gm, "")
-		.replace(/\n{3,}/g, "\n\n")
-		.replace(/^\n+/, "")
-		.replace(/\n+$/, "\n");
-}
-
-/** Inline-code hoist sentinel: `%%C<i>%%` — token-shaped so no legal prose
- *  or code span collides with it, and the restore regex stays lint-clean. */
-const SENTINEL = (i: number): string => `%%C${i}%%`;
-const SENTINEL_RE = /%%C(\d+)%%/g;
-
-/** Hoist inline code spans out of the text (placeholder swap) so line rules
- *  never see their contents; restore after. */
-function swapInlineCode(text: string): { text: string; saved: string[] } {
-	const saved: string[] = [];
-	const swapped = text.replace(/`[^`\n]+`/g, (m) => {
-		saved.push(m);
-		return SENTINEL(saved.length - 1);
-	});
-	return { text: swapped, saved };
-}
-
-function restoreInlineCode(text: string, saved: string[]): string {
-	return text.replace(SENTINEL_RE, (_, i) => saved[Number(i)] ?? "");
-}
+// ─── the pass ──────────────────────────────────────────────────────────────
 
 export interface CondenseResult {
 	/** The condensed text (=== input when no rule fired). */
@@ -66,54 +25,15 @@ export interface CondenseResult {
 	rules: string[];
 }
 
-/** The politeness-only inbound pass. Fenced code blocks and inline code
- *  spans are never touched; meaning qualifiers inside sentences survive by
- *  construction (rules are line-anchored, never word-deletions). */
+/** The politeness-only inbound pass — DELEGATED (W304.3) to the blam
+ *  canonical engine, tier `politeness` (the audience split: users read
+ *  what comes back). Protected surface survives byte-for-byte (law L1),
+ *  hedges survive (law L2). The engine audit names (`filler:*`,
+ *  `tidy:*`) differ from the retired inline `drop:`/`prefix:` families —
+ *  each fired rule is prefixed `blam:` in the rules list. */
 export function condenseText(raw: string): CondenseResult {
-	const rules: string[] = [];
-	const { text: hoisted, saved } = swapInlineCode(raw);
-	const lines = hoisted.split("\n");
-	const out: string[] = [];
-	let fence = false;
-	for (const line of lines) {
-		if (/^\s*(```|~~~)/.test(line)) {
-			fence = !fence;
-			out.push(line);
-			continue;
-		}
-		if (fence) {
-			out.push(line);
-			continue;
-		}
-		const trimmed = line.trim();
-		if (trimmed.length === 0) {
-			out.push(line);
-			continue;
-		}
-		let text = line;
-		let dropped = false;
-		for (const re of DROP_LINE) {
-			if (re.test(trimmed)) {
-				dropped = true;
-				rules.push(`drop:${re.source.slice(1, 24)}`);
-				break; // first match in declaration order wins
-			}
-		}
-		if (dropped) continue;
-		for (const re of PREFIX_STRIP) {
-			const m = re.exec(text);
-			if (m && m[0].length < text.trimStart().length) {
-				text = (m.groups?.bullet ?? "") + text.slice(m[0].length);
-				rules.push(`prefix:${re.source.slice(1, 24)}`);
-				break;
-			}
-		}
-		out.push(text);
-	}
-	let text = collapseWhitespace(out.join("\n"));
-	text = restoreInlineCode(text, saved);
-	if (rules.length === 0 && text === raw) return { text: raw, rules };
-	return { text, rules };
+	const { text, rules } = condenseTier("politeness", raw);
+	return { text, rules: rules.map((name) => `blam:${name}`) };
 }
 
 // ─── the dialect text extractor ─────────────────────────────────────────────
@@ -160,7 +80,8 @@ CREATE TABLE IF NOT EXISTS pipeline_in (
   raw TEXT NOT NULL,
   rules TEXT NOT NULL DEFAULT '[]',
   raw_bytes INTEGER NOT NULL,
-  condensed_bytes INTEGER NOT NULL
+  condensed_bytes INTEGER NOT NULL,
+  condense_version TEXT
 );
 `;
 
@@ -179,6 +100,13 @@ export class CondenseStore {
 		this.db = new Database(path, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		// Pre-W304.3 databases lack the condense_version column; CREATE TABLE
+		// IF NOT EXISTS never amends an existing table (aids.ts precedent).
+		try {
+			this.db.exec("ALTER TABLE pipeline_in ADD COLUMN condense_version TEXT");
+		} catch {
+			// column already present (fresh schema or migrated)
+		}
 	}
 
 	put(input: {
@@ -187,16 +115,20 @@ export class CondenseStore {
 		condensed: string;
 		raw: string;
 		rules: string[];
+		/** Engine version that produced `condensed`; defaults to this
+		 *  build's CONDENSE_VERSION (write-time honest). */
+		condense_version?: string;
 	}): void {
 		this.db
 			.query(
 				`INSERT INTO pipeline_in
-         (rid, ts, dialect, condensed, raw, rules, raw_bytes, condensed_bytes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (rid, ts, dialect, condensed, raw, rules, raw_bytes, condensed_bytes, condense_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(rid) DO UPDATE SET
          ts = excluded.ts, condensed = excluded.condensed, raw = excluded.raw,
          rules = excluded.rules, raw_bytes = excluded.raw_bytes,
-         condensed_bytes = excluded.condensed_bytes`,
+         condensed_bytes = excluded.condensed_bytes,
+         condense_version = excluded.condense_version`,
 			)
 			.run(
 				input.rid,
@@ -207,6 +139,7 @@ export class CondenseStore {
 				JSON.stringify(input.rules),
 				Buffer.byteLength(input.raw),
 				Buffer.byteLength(input.condensed),
+				input.condense_version ?? CONDENSE_VERSION,
 			);
 		// bounded: newest 500 rows win
 		this.db
@@ -227,10 +160,12 @@ export class CondenseStore {
 		rules: string[];
 		raw_bytes: number;
 		condensed_bytes: number;
+		/** blam-condense/x that produced `condensed`; null = pre-engine row. */
+		condense_version: string | null;
 	} | null {
 		const row = this.db
 			.query(
-				"SELECT rid, ts, dialect, condensed, raw, rules, raw_bytes, condensed_bytes FROM pipeline_in WHERE rid = ?",
+				"SELECT rid, ts, dialect, condensed, raw, rules, raw_bytes, condensed_bytes, condense_version FROM pipeline_in WHERE rid = ?",
 			)
 			.get(rid) as {
 			rid: string;
@@ -241,6 +176,7 @@ export class CondenseStore {
 			rules: string;
 			raw_bytes: number;
 			condensed_bytes: number;
+			condense_version: string | null;
 		} | null;
 		if (!row) return null;
 		return { ...row, rules: JSON.parse(row.rules) as string[] };
