@@ -22,7 +22,7 @@
 		<string>--ladder</string>
 		<string>git merge --no-ff {branch}</string>
 		<string>--dispatch-cmd</string>
-		<string>__BUN__ scripts/dispatch-next.ts --target 3</string>
+		<string>__BUN__ scripts/dispatch-next.ts --target 8</string>
 		<string>--every</string>
 		<string>120</string>
 	</array>
