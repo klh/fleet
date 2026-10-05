@@ -368,3 +368,8 @@ This extends the identity design: globally stable lanes enable observation
 deduplication, while project authority and executor identity keep visibility from
 becoming accidental ownership. No multi-hop telemetry or GUI change is implemented
 by this document.
+
+The subsequent [standards research and architecture recommendation](upstream-observability-architecture.md)
+refines this proposal around W3C/OTel diagnostics, separate unsampled observations
+and scoped query projections. Use that document for collection, sampling,
+cardinality, trust propagation and rollout decisions.

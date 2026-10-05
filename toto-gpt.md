@@ -983,3 +983,26 @@ rerouting, multiple paths, retries and per-hop usage double counting. Existing
 local `/w/<slug>` attribution is stripped before upstream dispatch, and dispatch
 skips its local attribution setup for named hub redirects; multi-hop identity
 propagation needs explicit implementation and verification.
+
+### Standards research: recommended upstream observability architecture
+
+Deep primary-source research is recorded in
+[upstream observability architecture](docs/upstream-observability-architecture.md).
+The established patterns are distributed tracing, agent/gateway telemetry
+collection and hierarchical metric aggregation. A complete, authorized inventory
+of Fleet lanes still needs an application read model; sampled traces and metrics
+alone cannot supply it.
+
+**Recommendation:** W3C Trace Context plus OTel/OTLP for request/hop diagnostics;
+unsampled, idempotent minimal lane observations for current visibility; regional
+query projections with downstream filters and bounded push; explicit project
+authority for lifecycle; separate durable provider-usage accounting. No per-lane
+labels on general Prometheus metrics, no work-graph replication merely because
+traffic passed upstream, and no mandatory service-mesh migration.
+
+The report compares alternatives, distinguishes identity from baggage/auth,
+addresses streaming/sampling/replay/cardinality/residency, maps source integration
+anchors and defines a measured rollout. It includes current W3C, OpenTelemetry,
+Envoy, Prometheus, CloudEvents, NATS, SPIFFE, OAuth and PostgreSQL references.
+Existing buckle federation is acknowledged and reused where appropriate. This is
+a researched design recommendation, not implemented or benchmarked capacity.
