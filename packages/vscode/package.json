@@ -1,0 +1,92 @@
+{
+	"name": "fleet-board",
+	"displayName": "Fleet Board",
+	"description": "the klh agent fleet inside VS Code — live tasks, OPEN decisions and lane status from the fleet board",
+	"version": "0.1.0",
+	"publisher": "klh",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "fleet",
+					"title": "Fleet",
+					"icon": "icon.svg"
+				}
+			]
+		},
+		"views": {
+			"fleet": [
+				{
+					"id": "fleet.tasks",
+					"name": "Tasks",
+					"contextualTitle": "Fleet"
+				},
+				{
+					"id": "fleet.decisions",
+					"name": "Decisions",
+					"contextualTitle": "Fleet"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "fleet.refresh",
+				"title": "Fleet: Refresh",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "fleet.openBoard",
+				"title": "Fleet: Open Board in Browser"
+			},
+			{
+				"command": "fleet.openTask",
+				"title": "Fleet: Open Task Detail"
+			},
+			{
+				"command": "fleet.openDecision",
+				"title": "Fleet: Open Decision"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "fleet.refresh",
+					"group": "navigation@1",
+					"when": "view == fleet.tasks"
+				},
+				{
+					"command": "fleet.refresh",
+					"group": "navigation@1",
+					"when": "view == fleet.decisions"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Fleet",
+			"properties": {
+				"fleet.boardUrl": {
+					"type": "string",
+					"default": "http://127.0.0.1:7799",
+					"description": "fleet board base URL — the board serves on 127.0.0.1:7799; point it at the LAN name (e.g. http://suspenders.local:7799) for a remote board"
+				},
+				"fleet.pollSeconds": {
+					"type": "number",
+					"default": 15,
+					"minimum": 0,
+					"description": "seconds between board polls — 0 disables auto-refresh"
+				}
+			}
+		}
+	}
+}

@@ -16,6 +16,7 @@ versioned as ONE stack (`v2.0.0` tags ride every release of the whole).
 | `packages/local`      | the Caddy `.local` service front                                         |
 | `packages/local-llm`  | the local MLX swarm kit (extraction in flight — W422.4)                  |
 | `packages/blam`       | the benchmark: CRASH taxonomy, incident dataset, prompt-condense engine  |
+| `packages/vscode`     | the fleet board inside VS Code: tasks/decisions trees, status pill       |
 
 The private `fleet-remote` monorepo (the paid enterprise tier) mirrors this
 structure and DEPENDS on these packages — never copies.
