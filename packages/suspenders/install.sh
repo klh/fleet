@@ -48,6 +48,11 @@ cp "$SCRIPT_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
 mkdir -p "$PREFIX/../scripts/lib" "$PREFIX/scripts/lib"
 cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/../scripts/lib/"
 cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/scripts/lib/"
+# W494: manifest services run __PREFIX__/scripts/*.ts — the top-level scripts
+# dir syncs like hooks/ does (lib/* materialized separately, above).
+mkdir -p "$PREFIX/scripts"
+cp "$SCRIPT_DIR"/scripts/*.ts "$PREFIX/scripts/"
+cp "$SCRIPT_DIR"/scripts/*.sh "$PREFIX/scripts/" 2>/dev/null || true
 # W422.5 — blam ships whole (manifest included): suspenders' manifest declares
 # "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
 # (below) symlinks node_modules/blam -> blam/ and board's package-name import

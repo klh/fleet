@@ -130,6 +130,18 @@ services:
     logs: { out: /tmp/quota-sweep.log }
     placeholders: ["__BUN__", "__PREFIX__"]
 
+  # dispatch-watchdog — the supervisor's supervisor (2026-10-06 outage
+  # class): every 5 min probes prefix-lib parity (the W463 crash-loop
+  # class), fleet-loop pid stability, dispatch flow vs READY backlog, and
+  # the governed lane path (mint→infer→revoke through :4101); repairs via
+  # the installer + kickstart and broadcasts every action on the coord bus.
+  - name: dispatch-watchdog
+    bunEntry: "__PREFIX__/scripts/dispatch-watchdog.ts"
+    args: []
+    schedule: { intervalSeconds: 300 }
+    logs: { out: "__HOME__/.claude-insights/dispatch-watchdog-launchd.log" }
+    placeholders: ["__BUN__", "__PREFIX__", "__HOME__"]
+
   # local-llm keepwarm — every 4 min, niced off the interactive foreground
   - name: llm-keepwarm
     bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
