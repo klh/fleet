@@ -32,6 +32,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
+import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
@@ -327,6 +328,19 @@ function retireMerged(b: string): void {
 		log(
 			`RETIRE-BLOCKED ${b} — branch delete failed: ${del ? del.out.split("\n").slice(-2).join(" | ") : "?"}`,
 		);
+	// W463 lane-key lifecycle: the same point that knows the lane ended
+	// revokes its buckle key and deletes the per-lane files — no new daemon.
+	// Fire-and-forget: this path is sync; the fetch keeps the process warm
+	// until the revoke settles, and the loop.log line lands in .then.
+	if (tracked)
+		void retireLaneKey({ fleet: `${REPO}/.fleet`, sid: tracked.sid })
+			.then((rk) => {
+				if (rk.keyId)
+					log(
+						`LANE-KEY ${tracked.sid} — key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed (24h TTL bounds it)"}`,
+					);
+			})
+			.catch(() => {});
 }
 
 // a failed ladder: abort the merge, log the tail, count the strike, park at 3

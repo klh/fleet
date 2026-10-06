@@ -17,7 +17,7 @@
 //
 //   bun scripts/dispatch-next.ts [--repo <dir>] [--target N] [--dry-run]
 //                                [--item Wn] [--no-belt]
-//                                [--show-capsule <sid>]
+//                                [--allow-ungoverned] [--show-capsule <sid>]
 import {
 	appendFileSync,
 	chmodSync,
@@ -35,7 +35,12 @@ import {
 	spawnClaude,
 } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
-import { ensureLaneKey } from "./lib/lane-auth.ts";
+import {
+	ensureLaneKey,
+	laneKeyMetaPath,
+	LANE_KEY_TTL_S,
+	type MintedLaneKey,
+} from "./lib/lane-auth.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
@@ -60,11 +65,18 @@ const DRY = argv.includes("--dry-run");
 // precisely instead of whatever sorts first in `work ready`.
 const ITEM = val("--item");
 const NO_BELT = argv.includes("--no-belt");
+// W463 fail-closed governance: belt-direct is never a silent fallback. When
+// the buckle front answers but the lane key can't be minted, dispatch REFUSES
+// unless the operator passed this flag (loud, logged, disclosed in the brief).
+const ALLOW_UNGOVERNED = argv.includes("--allow-ungoverned");
 const SHOW_CAPSULE = val("--show-capsule");
 const BIN = `${process.env.HOME}/.claude/hooks/suspenders/bin`;
 const FLEET = `${REPO}/.fleet`;
 const LANES_JSON = `${FLEET}/lanes.json`;
 const LOOP_LOG = `${FLEET}/loop.log`;
+// W463: mint failures refuse the dispatch (fail-closed). Collected so main()
+// exits non-zero — a refused lane must not read as a healthy no-op dispatch.
+const governanceRefusals: string[] = [];
 
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
  * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
@@ -340,6 +352,32 @@ export const isOwnerGated = (title: string): boolean =>
 	/OWNER-GATED|OWNER GATE|\bGATED\b|\bHELD\b|NEED_DECISION|\bDECISION\b|PAUSED/i.test(
 		title,
 	);
+
+/** W463 fail-closed governance (pure — unit-testable): given the lane-key
+ *  mint outcome and the operator override flag, what happens to the lane?
+ *  Default is REFUSE: a mint failure means no scopes, no attribution, no
+ *  budgets — governance must not silently vanish. Belt-direct survives only
+ *  as the explicit, loud, audited --allow-ungoverned operator override. */
+export type GovernanceDecision =
+	| { mode: "governed"; key: string; keyId: string }
+	| { mode: "ungoverned-override"; note: string }
+	| { mode: "refuse"; why: string };
+
+export const laneKeyDecision = (
+	minted: MintedLaneKey | null,
+	allowUngoverned: boolean,
+): GovernanceDecision => {
+	if (minted) return { mode: "governed", key: minted.key, keyId: minted.keyId };
+	if (allowUngoverned)
+		return {
+			mode: "ungoverned-override",
+			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): buckle lane-key mint failed; lane rides belt direct with no buckle scopes, attribution or budgets",
+		};
+	return {
+		mode: "refuse",
+		why: "buckle lane-key mint failed — check belt.env BUCKLE_ADMIN_KEY (fail-closed W463; --allow-ungoverned overrides)",
+	};
+};
 
 /** `coord capsule get --as <sid>` output → parsed capsule, or null when the
  *  lane has none. (Bare `capsule get <sid>` misparses the sid as "get" —
@@ -684,18 +722,39 @@ const dispatchItem = async (
 		applyInsertion(env, pick.bin, ctx);
 		// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
 		// front with /w/<sid> so usage attributes per lane (route_audit.lane).
-		// The gate demands bksk_ keys: mint the lane's scoped key first; no
-		// admin key = front skipped, lane rides belt direct (never silent).
-		// Also skipped when a hub redirect won (the hub owns the base URL).
+		// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
+		// REFUSES the lane — governance must not silently vanish — and only
+		// the explicit --allow-ungoverned override rides belt direct. Skipped
+		// entirely when a hub redirect won (the hub owns the base URL).
 		if (!resolvedHub && (await probeBuckleFront())) {
-			const laneKey = await ensureLaneKey(sid);
-			if (laneKey) {
+			const decision = laneKeyDecision(
+				await ensureLaneKey(sid),
+				ALLOW_UNGOVERNED,
+			);
+			if (decision.mode === "governed") {
 				applyLaneAttribution(env, sid);
-				env.ANTHROPIC_AUTH_TOKEN = laneKey;
-				hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key)`;
+				env.ANTHROPIC_AUTH_TOKEN = decision.key;
+				writeFileSync(
+					laneKeyMetaPath(FLEET, sid),
+					`${JSON.stringify({ sid, key_id: decision.keyId, mintedAt: Date.now() }, null, 2)}\n`,
+				);
+				chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
+				hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
+			} else if (decision.mode === "ungoverned-override") {
+				console.log(`*** ${decision.note} ***`);
+				hubNote += ` — ${decision.note}`;
+				// W463: the override is disclosed IN the brief the lane reads.
+				const disclosed = `${brief}\n\nGOVERNANCE: ${decision.note}.\n`;
+				writeFileSync(briefFile, disclosed);
+				writeFileSync(`${wt}/.klh-brief.md`, disclosed);
 			} else {
-				hubNote +=
-					" — no BUCKLE_ADMIN_KEY (belt.env): lane rides belt direct, buckle front skipped";
+				run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — ${decision.why}; claim reclaimed → READY, nothing spawned`,
+				);
+				log(`REFUSED ${item} → ${sid} — ${decision.why}`);
+				return null;
 			}
 		}
 	}
@@ -908,10 +967,17 @@ const main = async (): Promise<void> => {
 	console.log(
 		`lanes live: ${live.length}/${TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
+	// W463: a governance refusal is an ERROR the caller must see — the run
+	// never reads as a clean "pool drained" exit.
+	if (governanceRefusals.length > 0)
+		console.log(
+			`governance: ${governanceRefusals.length} dispatch(es) REFUSED (fail-closed) — ${governanceRefusals.join(", ")}`,
+		);
 	if (!ITEM && ready.length === 0 && resumeOf.size === 0)
 		console.log(
 			"READY pool empty — register work or pull the next epic forward",
 		);
+	if (governanceRefusals.length > 0) process.exitCode = 1;
 };
 
 if (import.meta.main) {

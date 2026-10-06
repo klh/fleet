@@ -17,6 +17,8 @@ import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
+import { laneSid } from "../lib/laneslug.ts";
+import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 
 const [cmd, id, ...flags] = process.argv.slice(2);
 const FORCE = flags.includes("--force");
@@ -100,8 +102,19 @@ if (cmd === "create") {
 
 // ─── retire ───
 if (cmd === "retire") {
+	// W463 lane-key lifecycle: a lane over is a key revoked. The dirty guard
+	// below keeps a POSSIBLY-LIVE lane's key (exit 3 = the lane may still be
+	// running); the clean exits retire it and delete the per-lane files.
 	if (!existsSync(wtDir) || !existsSync(join(wtDir, ".git"))) {
 		console.log(`no worktree for ${id}`);
+		const rk = await retireLaneKey({
+			fleet: join(ROOT, ".fleet"),
+			sid: laneSid(id),
+		});
+		if (rk.keyId)
+			console.log(
+				`lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed — 24h TTL bounds it"}`,
+			);
 		process.exit(0);
 	}
 	const dirty = git(["status", "--porcelain"], wtDir).out;
@@ -113,9 +126,22 @@ if (cmd === "retire") {
 	}
 	const r = git(["worktree", "remove", ...(dirty ? ["--force"] : []), wtDir]);
 	if (r.code !== 0) die(`git worktree remove failed: ${r.out}`);
+	// W463: terminal lane state — revoke the key, delete the per-lane files
+	// (0600 key meta + the settings file); the key id rides the event for audit.
+	const rk = await retireLaneKey({
+		fleet: join(ROOT, ".fleet"),
+		sid: laneSid(id),
+	});
+	const payload: Record<string, string> = { retired: "1", path: wtDir, branch };
+	if (rk.keyId) {
+		payload.lane_key_id = rk.keyId;
+		payload.lane_key_revoked = rk.revoked ? "1" : "0";
+	}
 	// the branch suspenders/<id> survives — integration merges from refs
-	emit("work.tree", id, { retired: "1", path: wtDir, branch });
-	console.log(`retired ${wtDir} — branch ${branch} kept for integration`);
+	emit("work.tree", id, payload);
+	console.log(
+		`retired ${wtDir} — branch ${branch} kept for integration${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
+	);
 	process.exit(0);
 }
 
