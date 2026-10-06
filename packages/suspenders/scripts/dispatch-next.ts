@@ -338,12 +338,15 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /** parse `work ready` rows (renderRow format, ANSI-stripped): glyph, id,
  *  truncated title. The title is for gating/log lines only — the brief must
- *  carry the FULL spec from `work show` (gaps W279 phantom-lane lesson). */
+ *  carry the FULL spec from `work show` (gaps W279 phantom-lane lesson).
+ *  W494: the renderer pads the id field (width 7) — ids ≥7 chars emit NO
+ *  separator space, so the id/title gap is zero-or-more and the title may
+ *  be empty. The [\d.]+ class stops the id at the first non-id char. */
 export const parseReady = (stdout: string): { id: string; title: string }[] =>
 	stdout
 		.replace(ANSI, "")
 		.split("\n")
-		.map((l) => /^\s*·\s+(W[\d.]+)\s+(.+)$/.exec(l.trimEnd()))
+		.map((l) => /^\s*·\s+(W[\d.]+)\s*(.*)$/.exec(l.trimEnd()))
 		.map((m) => (m ? { id: m[1], title: m[2].trim() } : null))
 		.filter((x): x is { id: string; title: string } => !!x);
 

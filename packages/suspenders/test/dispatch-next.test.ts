@@ -183,6 +183,21 @@ describe("pool parsing", () => {
 		expect(isOwnerGated(parsed[1].title)).toBe(true);
 		expect(isOwnerGated(parsed[0].title)).toBe(false);
 	});
+
+	test("parseReady W494: an id that fills the pad emits no separator — still parsed", () => {
+		// synthetic: W999999 is 7 chars (pad width) so the renderer's gap
+		// vanishes; the id class must stop at the first non-id char.
+		const rows = [
+			"  · W999999synthetic title glued to the pad edge",
+			"  · W12   short id keeps its padded gap",
+			"  · W999999",
+		].join("\n");
+		const parsed = parseReady(rows);
+		expect(parsed.map((r) => r.id)).toEqual(["W999999", "W12", "W999999"]);
+		expect(parsed[0].title).toBe("synthetic title glued to the pad edge");
+		expect(parsed[1].title).toBe("short id keeps its padded gap");
+		expect(parsed[2].title).toBe("");
+	});
 });
 
 describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnostic)", () => {
