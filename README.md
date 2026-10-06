@@ -8,7 +8,7 @@
 
 One monorepo for the tools that turn individual coding agents into an operated fleet.
 
-[The stack](#the-stack) · [Architecture](#how-it-fits-together) · [Get started](#get-started) · [Benchmarks](benchmarks.md) · [Migration status](#migration-status)
+[Examples](#what-you-can-do-with-fleet) · [The stack](#the-stack) · [Architecture](#how-it-fits-together) · [Get started](#get-started) · [Benchmarks](benchmarks.md)
 
 </div>
 
@@ -23,11 +23,109 @@ Use it to coordinate coding agents on shared repositories, run specialist models
 on an Apple Silicon Mac, or operate hubs with connected spokes. Local inference,
 cloud providers, and federation are configurable parts of the stack.
 
-> **Migration snapshot · 5 October 2026**
-> Seven package directories are present and the local-LLM kit is extracted. Workspace wiring,
-> a clean monorepo installer, and hub deployment conversion are still in progress.
-> Source checkout and installed stack currently have different integration
-> guarantees. See [migration status](#migration-status) before installing.
+> **Migration snapshot · 6 October 2026**
+> All seven packages have workspace manifests and a root lockfile. The Suspenders
+> installer now ships BLAM and verifies imports before restarting services.
+> Hub Compose conversion and unified installation remain migration work.
+> See [migration status](#migration-status) before deploying a new hub.
+
+## What you can do with Fleet
+
+### On one Mac: deliver a feature with several coding agents
+
+You want pagination in an API, tests for edge cases and a matching UI. Register
+the goal, split genuinely independent work into lanes and follow progress on the
+board. Each lane works in its own worktree, carries a brief and checkpoints its
+progress; the integration lane checks the changes together before landing them.
+
+```sh
+# Run from the project you want the agents to work on.
+work add "Add pagination to the orders API" \
+  --desc "Implement bounded paging, preserve existing response fields and test empty and final pages."
+work ready
+dispatch --dry-run --target 1
+coord fleet
+```
+
+If two agents need the same file, the governor protects the current holder's
+lease. A second unchanged conflict requests one targeted consultation rather
+than generating a stream of identical requests. After the asker tests an answer,
+verified knowledge can help the next lane facing the same scoped problem.
+Use your registered lane ID and the consult ID returned by the first command:
+
+```sh
+coord consult --best "How does this API preserve cursor compatibility?" \
+  --scope "src/api/orders" --as "$LANE_ID"
+coord consult-reply "$CONSULT_ID" --feedback resolved \
+  --evidence "Compatibility tests passed; existing cursors still work" --as "$LANE_ID"
+coord kb stats
+```
+
+Use local MLX specialists for suitable extraction, reranking and coding tasks,
+with configured cloud routes available for other work. The model supervisor
+adopts running services, probes them and uses persistent restart budgets,
+jittered backoff and dependency checks to recover from failures. A capsule lets
+a replacement lane resume completed work after an agent process dies.
+
+### With distributed hubs: use a remote gateway from a developer laptop
+
+Your laptop runs the agent tools while a configured desktop or NAS hub provides
+model access, a board or a shared coordination store. Keep each hub's addresses,
+ports and credentials in machine configuration. A project can choose a configured
+hub through its `.prefer` file; this selects the lane's gateway destination while
+the agent process and checkout stay on the developer's machine.
+
+```ini
+# .prefer — LAB must exist in the operator's hub registry.
+hub=LAB
+```
+
+```sh
+# Set HUB to an existing profile in stack.yaml; these commands do not deploy it.
+bun packages/suspenders/deploy/hubctl.ts render "$HUB"
+bun packages/suspenders/deploy/hubctl.ts status "$HUB"
+```
+
+For example, a developer can use local specialists for small jobs and a remote
+gateway for larger requests, while the gateway applies routing policy and
+credentials. Independent health sidecars report network failures even when the
+service they monitor is down. Existing configured installations support these
+building blocks; the Compose template still needs conversion from legacy repo
+origins and paths before a fresh monorepo hub deployment.
+
+Sharing a coordination store requires matching project identity. Separate
+developers' clones are not yet automatically one shared project. Automatic
+governor consultations currently use the local lease registry; a spoke using a
+different coordination hub also needs an outbox relay. Cross-hub lane visibility,
+origin attribution and downstream filters are described in the
+[federation architecture](docs/upstream-observability-architecture.md).
+
+### In an enterprise: coordinate a shared service-health policy
+
+A platform team wants every API to have an independent health reporter that
+remains available when the API process stops. Fleet can carry the implementation
+work: give agents the policy and acceptance criteria, register remediation items,
+assign lanes, surface developer decisions and retain commit evidence. Reuse the
+existing probe sidecar where it meets the service's deployment contract.
+
+The intended enterprise workflow is to assess each service once per relevant
+code/configuration version, share that assessment across authorized teams and
+propose missing reporters to developers. An approved lane implements the change;
+verification distinguishes a merged patch from a reporter actually deployed and
+serving. Upstream hubs should show the downstream lanes they serve, with filters
+that let platform operators inspect one team instead of every lane in the fleet.
+
+**Available building blocks:** work tracking, agent guidance, consultations,
+commit evidence, scoped gateway keys, independent probes and configured routing.
+**Enterprise design work:** shared cross-clone project identity, tenant-aware
+authorization, policy assessment/deduplication, approved knowledge sharing and
+cross-hub observability. An `AGENTS.md` instruction supplies guidance; it does not
+by itself enforce corporate policy. The private `fleet-remote` tier remains planned.
+
+See the [health-policy scenario](toto-gpt.md#design-refinement-make-policy-a-shared-workflow-not-repeated-instructions),
+[cross-hub project identity](docs/cross-hub-project-identity.md) and
+[upstream observability architecture](docs/upstream-observability-architecture.md)
+for the implementation boundaries and enterprise rollout design.
 
 ## The stack
 
@@ -144,8 +242,8 @@ endpoints over HTTP.
 git clone https://github.com/klh/fleet.git
 cd fleet
 
-# Package-local dependencies while unified workspace wiring is pending.
-(cd packages/suspenders && bun install --frozen-lockfile)
+# Resolve the monorepo workspace from its root lockfile.
+bun install --frozen-lockfile
 
 # Focused checks of shared condensing, board transforms and lane credentials.
 bun test packages/blam/test/condense.test.ts packages/suspenders/test/prompt-transform.test.ts packages/suspenders/test/lane-auth.test.ts
@@ -163,13 +261,16 @@ but some still contain pre-migration clone URLs and installation paths.
 bash packages/suspenders/install.sh --dry-run
 ```
 
-The current installer supports `--wire`, `--with-launchd`, `--skip-models`, and
-`--no-llm`, with `SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. Its
+The current installer supports `--wire`, `--with-launchd`, `--skip-models`,
+`--no-llm` and `--refresh-supervisor`, with `SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. Its
 default path sets up a minimal local swarm and attempts model downloads.
 
-**Clean installation is not yet complete:** the harness copy omits BLAM, so the
-installed board's orchestration modules cannot resolve the shared condenser.
-Use the source checkout to explore the board until the packaging fix lands.
+The harness includes BLAM and checks the shared condenser import before service
+activation. Launchd registration uses retries and per-job private diagnostics;
+failed job loads make the install return an error. `--refresh-supervisor` updates
+only an existing advanced belt supervisor's code, preserving runtime configuration.
+This is a package installer; a unified installer for every Fleet service remains
+migration work.
 
 ## Everyday operations
 
@@ -239,15 +340,15 @@ reproduction can run without model calls. See the
 
 ## Migration status
 
-| Area                     | State in this checkout                                                                            |
-| :----------------------- | :------------------------------------------------------------------------------------------------ |
-| Repository consolidation | Seven package directories are present; this is the destination for new changes                    |
-| Shared inference package | Shared swarm kit is extracted into `local-llm`; the installer sources it from this package        |
-| Workspace                | Root declares `packages/*`; local and speedy lack manifests and there is no root lockfile         |
-| Installation             | Package installers remain; clean harness installation has a reproduced BLAM import failure        |
-| Hub deployment           | External probe sidecars are present; origins and execution paths still follow legacy repositories |
-| CI                       | Workflows are nested under packages; no root GitHub Actions workflow is present                   |
-| Private tier             | `fleet-remote` is the planned separate enterprise monorepo, outside this checkout                 |
+| Area                     | State in this checkout                                                                                |
+| :----------------------- | :---------------------------------------------------------------------------------------------------- |
+| Repository consolidation | Seven package directories are present; this is the destination for new changes                        |
+| Shared inference package | Shared swarm kit is extracted into `local-llm`; the installer sources it from this package            |
+| Workspace                | Root declares `packages/*`; all seven packages have manifests and `bun.lock` is present               |
+| Installation             | Suspenders ships BLAM and verifies imports/launchd registration; a unified stack installer is pending |
+| Hub deployment           | External probe sidecars are present; origins and execution paths still follow legacy repositories     |
+| CI                       | Workflows are nested under packages; no root GitHub Actions workflow is present                       |
+| Private tier             | `fleet-remote` is the planned separate enterprise monorepo, outside this checkout                     |
 
 The work graph carries migration work, including the landed extraction (W422.4),
 workspace wiring (W422.5), clean installation (W422.6), and deployment conversion
