@@ -30,7 +30,7 @@ import {
 	THEME_SETTINGS_JS,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
-import type { ServiceProbe } from "../board/service-probe.ts";
+import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
 
 export interface ConsoleMe {
 	actor: string;
@@ -185,20 +185,23 @@ const stateOf = (p: HealthProbe): string => p.state ?? (p.up ? "up" : "down");
 
 const fallbackRecovery = (p: HealthProbe): string => {
 	const r = p.recovery;
-	if (!r || stateOf(p) === "up") return "";
+	if (!r || stateOf(p) === "up" || stateOf(p) === "idle") return "";
 	return `<details${stateOf(p) === "down" ? " open" : ""}><summary>how to recover</summary><p>${esc(r.what)}</p><ul>${r.causes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul><ol>${r.recovery.map((s) => `<li><span class="dim">${esc(s.label)}</span><pre class="rcmd"><code>${esc(s.cmd)}</code></pre></li>`).join("")}</ol></details>`;
 };
 
 export const serviceRowHtml = (p: HealthProbe): string => {
 	const st = stateOf(p);
-	const cls = st === "up" ? "ok" : "bad";
+	const cls = st === "idle" ? "dim" : st === "up" ? "ok" : "bad";
 	const where = p.port ? ` :${p.port}` : "";
 	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(p.name)}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
 };
 
 const healthHtml = (h: HealthProbe[]): string => {
-	const dark = h.filter((p) => stateOf(p) !== "up").length;
-	return `<div class="panel"><h2>Fleet services · ${h.length - dark}/${h.length} up${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+	const dark = h.filter(
+		(p) => stateOf(p) !== "up" && stateOf(p) !== "idle",
+	).length;
+	const idle = h.filter((p) => stateOf(p) === "idle").length;
+	return `<div class="panel"><h2>Fleet services · ${h.length - dark - idle}/${h.length} up${idle ? ` · ${idle} on demand` : ""}${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
 };
 
 const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:var(--klh-surface);border:1px solid var(--klh-edge);border-radius:2px;padding:4px 8px;font:11px/1.5 var(--klh-font-mono);white-space:pre-wrap}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
@@ -258,12 +261,8 @@ export interface LocalView {
 
 export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 	const upCount = v.probes.filter((p) => p.up).length;
-	const probeRows = v.probes
-		.map(
-			(p) =>
-				`<tr><td><b>${esc(p.name)}</b></td><td class="num">${p.port || "—"}</td><td class="${p.up ? "ok" : "bad"}">${p.up ? "UP" : p.state.toUpperCase()}</td><td class="dim">${esc(p.detail)}</td></tr>`,
-		)
-		.join("");
+	const idleCount = v.probes.filter((p) => p.state === "idle").length;
+	const probeRows = v.probes.map(withRecovery).map(serviceRowHtml).join("");
 	const regRows = v.services
 		.map(
 			(s) =>
@@ -271,16 +270,16 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 		)
 		.join("");
 	const body =
-		`<style>${PAGE_CSS}</style>` +
+		`<style>${PAGE_CSS}${PILL_CSS}</style>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<div class="panel"><h2>monitored fleet services — ${upCount}/${v.probes.length} up</h2>` +
+		`<div class="panel"><h2>monitored fleet services — ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>` +
 		(v.probes.length
-			? `<table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>detail</th></tr></thead><tbody>${probeRows}</tbody></table>`
+			? probeRows
 			: `<p class="dimpl">no monitored services — the recovery map is empty in this deployment</p>`) +
 		(v.services.length
 			? `</div><div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2><table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>url</th></tr></thead><tbody>${regRows}</tbody></table>`
 			: "") +
-		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div>`;
+		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;
 	return consolePage("LOCAL · SERVICES", "local", body, me);
 };
 

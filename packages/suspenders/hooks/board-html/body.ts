@@ -82,6 +82,7 @@ export const BODY = String.raw`
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
 <section id="tab-governor" hidden>
+  <klh-recovery></klh-recovery>
   <div id="fleet">
     <button id="fleetHead" type="button" aria-expanded="true"><span id="fleetCaret">-</span> <span id="fleetLine">fleet: loading...</span></button>
     <div id="fleetBody" style="display:block"></div>

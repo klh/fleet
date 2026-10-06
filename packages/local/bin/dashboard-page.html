@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Local services · Fleet</title>
+  <!-- THEME_HEAD -->
+  <style>
+    /* THEME_CHROME_CSS */
+    .fleet-chrome { max-width:1400px; margin:auto; padding:16px 24px 0; display:flex; align-items:baseline; gap:16px; }
+    .fleet-chrome nav { flex:1; }
+    @media(max-width:600px){.fleet-chrome{padding:16px 16px 0}}
+    body { margin:0; background:var(--klh-bg); color:var(--klh-ink); font:var(--klh-text-xl)/1.6 var(--klh-font-mono); }
+    fleet-local-board { display:block; }
+  </style>
+</head>
+<body>
+  <div class="fleet-chrome"><!-- FLEET_NAV --></div>
+  <script>/* THEME_SETTINGS_JS */</script>
+  <fleet-local-board>Loading local service observations…</fleet-local-board>
+  <script type="module">
+    import {LitElement, html, css} from '/vendor/lit-shared.js';
+    class LocalBoard extends LitElement {
+      static properties = { snapshot:{state:true}, error:{state:true}, pending:{state:true}, query:{state:true}, attention:{state:true}, now:{state:true} };
+      static styles = css`
+        :host{display:block;max-width:1400px;margin:auto;padding:24px;box-sizing:border-box}
+        *{box-sizing:border-box} nav{display:flex;gap:24px;flex-wrap:wrap;border-bottom:1px solid var(--klh-edge);padding-bottom:16px}
+        a{color:var(--klh-ink);text-underline-offset:5px} a:hover{color:var(--klh-accent)} a[aria-current]{color:var(--klh-accent)}
+        header{margin:36px 0 24px} h1{font-size:28px;margin:0} h2{font-size:18px;margin:28px 0 8px}
+        p{margin:8px 0}.mut,small{color:var(--klh-ink-3)} .ok{color:var(--klh-ok-ink)} .bad{color:var(--klh-danger-ink)}
+        .toolbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:20px 0}
+        input,button{font:inherit;color:var(--klh-ink);background:transparent;border:1px solid var(--klh-edge);padding:8px 12px;border-radius:3px}
+        input[type=checkbox]{accent-color:var(--klh-accent)} button{cursor:pointer}button:disabled{opacity:.6;cursor:wait}
+        :focus-visible{outline:2px solid var(--klh-accent);outline-offset:4px} .notice{border-left:3px solid var(--klh-accent);padding:12px 16px}
+        .scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}
+        th{text-align:left;font-size:12px;font-weight:400;color:var(--klh-ink-3);text-transform:uppercase;letter-spacing:.06em}
+        td,th{padding:14px 18px 14px 0;border-bottom:1px solid var(--klh-edge);vertical-align:top}td small{display:block} td:last-child{padding-right:0}
+        footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--klh-edge);color:var(--klh-ink-3);font-size:12px}
+        @media(max-width:600px){:host{padding:16px}header{margin-top:24px}h1{font-size:24px}.toolbar{align-items:stretch}.toolbar label:first-child{width:100%}.toolbar input[type=search]{width:100%}}
+      `;
+      constructor(){super();this.snapshot=null;this.error='';this.pending=false;this.query='';this.attention=false;this.now=Date.now();}
+      connectedCallback(){super.connectedCallback();this.refresh();this.clock=setInterval(()=>{this.now=Date.now()},1000);}
+      disconnectedCallback(){super.disconnectedCallback();clearTimeout(this.timer);clearInterval(this.clock);this.controller?.abort();}
+      async refresh(){
+        if(this.pending)return;
+        clearTimeout(this.timer);this.pending=true;this.controller=new AbortController();
+        const timeout=setTimeout(()=>this.controller.abort(),6000);
+        try{
+          const response=await fetch('/api/status',{cache:'no-store',signal:this.controller.signal});
+          if(!response.ok)throw new Error('Status request failed: HTTP '+response.status);
+          const snapshot=await response.json();
+          if(!Array.isArray(snapshot.services)||!snapshot.caddy||!Number.isFinite(Date.parse(snapshot.ts)))throw new Error('Invalid status snapshot');
+          this.snapshot=snapshot;this.error='';
+        }catch(error){this.error=error.message||'Status request timed out';}
+        finally{clearTimeout(timeout);this.pending=false;if(this.isConnected)this.timer=setTimeout(()=>this.refresh(),3000);}
+      }
+      needsAttention(service){return !service.health.ok||!service.fragment||(service.dns.claimed&&!service.dns.alive);}
+      render(){
+        const snapshot=this.snapshot;
+        const age=snapshot?Math.max(0,Math.floor((this.now-Date.parse(snapshot.ts))/1000)):0;
+        const stale=Boolean(this.error)||age>10;
+        const rows=(snapshot?.services||[]).filter(service=>service.name.toLowerCase().includes(this.query.toLowerCase())&&(!this.attention||this.needsAttention(service)));
+        return html`
+          <header><h1>Local services</h1><p class="mut">Caddy routes, configured endpoint checks and mDNS registrations.</p>
+          <p role="status" class=${stale?'bad':'mut'}>${snapshot?`${stale?'Stale snapshot':'Last observation'} · ${age}s ago`:'Waiting for first observation'}${this.pending?' · refreshing':''}</p></header>
+          ${this.error?html`<p class="notice bad" role="alert">${this.error}. ${snapshot?'Showing the last successful snapshot.':'No service state is available yet.'}</p>`:''}
+          ${snapshot?.error?html`<p class="notice bad" role="alert">${snapshot.error}</p>`:''}
+          <h2>Caddy front</h2>
+          <p>${snapshot?html`<span class=${snapshot.caddy.listening?'ok':'bad'}>${snapshot.caddy.listening?'TCP reachable on :80':'Not reachable on :80'}</span> <small>· ${snapshot.caddy.version||'version unavailable'}</small>`:'Waiting for observation'}</p>
+          <p class="mut">TCP reachability does not verify HTTPS, authentication or a route. Open a service to check its front.</p>
+          <h2>Registered services ${snapshot?`(${snapshot.services.length})`:''}</h2>
+          <p class="mut">A 2xx response passes the configured check. A homepage check establishes reachability; application readiness needs a dedicated endpoint or independent health probe.</p>
+          <div class="toolbar"><label>Find service <input type="search" aria-label="Find service" .value=${this.query} @input=${event=>{this.query=event.target.value}}></label>
+          <label><input type="checkbox" .checked=${this.attention} @change=${event=>{this.attention=event.target.checked}}> Needs attention</label>
+          <button type="button" ?disabled=${this.pending} @click=${()=>this.refresh()}>Refresh now</button><a href="/api/status">Snapshot JSON</a></div>
+          <div class="scroll" tabindex="0" role="region" aria-label="Registered services table"><table><thead><tr><th scope="col">Service</th><th scope="col">Probe target</th><th scope="col">Configured check</th><th scope="col">mDNS claim</th><th scope="col">Route fragment</th></tr></thead>
+          <tbody>${rows.map(service=>html`<tr><td><a href=${'https://'+service.name+'.local/'}>${service.name}</a><small>${service.upstream?'Remote upstream':'Local upstream'}</small></td>
+            <td>${service.target}<small>${service.health_path||'/'}</small></td>
+            <td class=${service.health.ok?'ok':'bad'}>${service.health.ok?'Passed':service.health.reachable?'HTTP check failed':'Unreachable'}<small>${service.health.code?`HTTP ${service.health.code} · `:''}${service.health.ms}ms</small></td>
+            <td class=${service.dns.claimed&&!service.dns.alive?'bad':'mut'}>${service.dns.claimed?(service.dns.alive?'Claim process alive':'Claim process stopped'):'Not requested'}<small>${service.dns.pid?`PID ${service.dns.pid}`:''}</small></td>
+            <td class=${service.fragment?'':'bad'}>${service.fragment?'Present':'Missing'}<small>${(service.created_at||'').slice(0,10)}</small></td></tr>`)}
+          ${rows.length?'':html`<tr><td colspan="5">${!snapshot?'Waiting for service data.':snapshot.error?'Registry data unavailable.':snapshot.services.length?'No services match these filters.':'No services registered. Use klh-local register <name> --port N.'}</td></tr>`}</tbody></table></div>
+          <footer>${snapshot?.registry||'~/.local/state/klh-local/registry.json'} · refresh 3s · <a href="https://github.com/klh/fleet/tree/main/packages/local">Documentation</a></footer>`;
+      }
+    }
+    customElements.define('fleet-local-board',LocalBoard);
+  </script>
+</body>
+</html>

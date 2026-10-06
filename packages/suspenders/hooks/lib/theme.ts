@@ -180,19 +180,19 @@ export const FLEET_SITES: readonly FleetLink[] = [
 	{
 		id: "belt",
 		href: "https://belt.local",
-		repo: "https://github.com/klh/belt",
+		repo: "https://github.com/klh/fleet/tree/main/packages/belt",
 		title: "belt: local LLM fleet (belt.local, :7791)",
 	},
 	{
 		id: "suspenders",
 		href: "https://suspenders.local",
-		repo: "https://github.com/klh/suspenders",
+		repo: "https://github.com/klh/fleet/tree/main/packages/suspenders",
 		title: "suspenders: fleet board + console (suspenders.local, :7799)",
 	},
 	{
 		id: "local",
 		href: "https://bar.local",
-		repo: "https://github.com/klh/local",
+		repo: "https://github.com/klh/fleet/tree/main/packages/local",
 		title: "local: .local services bar (bar.local, :7792)",
 	},
 ];
@@ -214,14 +214,5 @@ export const FLEET_NAV_CSS = `.klh-fleetnav{display:flex;align-items:baseline;fl
 .klh-fleetnav a[aria-current]{color:var(--klh-ink);border-bottom-color:var(--klh-accent);}
 .klh-fleetnav a.down{opacity:.4;}`;
 
-// Probes the sibling sites (no-cors: an opaque answer still proves the host
-// is reachable). Only toggles a class, href and title on the server-rendered
-// links: no DOM construction, no innerHTML.
-export const FLEET_NAV_JS = `(function(){var nav=document.getElementById("klh-fleetnav");if(!nav||!window.fetch)return;
-var links=nav.querySelectorAll("a[data-repo]"),site=[],tip=[];
-for(var i=0;i<links.length;i++){site[i]=links[i].href;tip[i]=links[i].title;}
-function mark(i,up){var a=links[i];a.classList.toggle("down",!up);a.href=up?site[i]:a.getAttribute("data-repo");a.title=up?tip[i]:tip[i]+" | unreachable, opens the repo";}
-function check(i){window.fetch(new URL("/ping",site[i]).href,{method:"HEAD",mode:"no-cors",cache:"no-store"}).then(function(){mark(i,true);},function(){mark(i,false);});}
-function probe(){if(document.hidden)return;for(var j=0;j<links.length;j++)check(j);}
-probe();setInterval(probe,5000);
-document.addEventListener("visibilitychange",probe);})();`;
+// Navigation remains stable: failed background probes must not change destinations.
+export const FLEET_NAV_JS = "";

@@ -13,6 +13,7 @@ PREFIX="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 
 # flags (order-independent) — replaces the old positional $1/$2 checks
 WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0 REFRESH_SUPERVISOR=0
+REFRESH_DASHBOARDS=0
 for arg in "$@"; do
   case "$arg" in
     --wire) WIRE=1 ;;
@@ -21,6 +22,7 @@ for arg in "$@"; do
     --skip-models) SKIP_MODELS=1 ;;
     --no-llm) NO_LLM=1 ;;
     --refresh-supervisor) REFRESH_SUPERVISOR=1 ;;
+    --refresh-dashboards) REFRESH_DASHBOARDS=1 ;;
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
@@ -28,6 +30,16 @@ done
 LLM_HOME="$HOME/.claude/local-llm"
 # kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
 KIT_DIR="$(cd "$REPO_DIR/.." && pwd)/local-llm"
+
+# Safe GUI-only activation path; never runs registration, model or key setup.
+if [[ $REFRESH_DASHBOARDS -eq 1 ]]; then
+  if [[ $DRY_RUN -eq 1 ]]; then
+    bun "$REPO_DIR/scripts/refresh-dashboards.ts" --dry-run
+  else
+    bun "$REPO_DIR/scripts/refresh-dashboards.ts"
+  fi
+  exit 0
+fi
 
 # --dry-run: print the plan, touch nothing (bun read-only for the tier list)
 if [[ $DRY_RUN -eq 1 ]]; then

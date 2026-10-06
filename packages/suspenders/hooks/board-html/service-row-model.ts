@@ -4,7 +4,7 @@
 // Lit component only renders this model.
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
 
-export type RowState = "up" | "degraded" | "down";
+export type RowState = "up" | "degraded" | "down" | "idle";
 
 export interface RowProbe {
 	id: string;
@@ -18,8 +18,8 @@ export interface RowProbe {
 }
 
 export interface RowModel {
-	badge: "UP" | "DEGRADED" | "DOWN";
-	tone: "ok" | "warn" | "bad";
+	badge: "UP" | "DEGRADED" | "DOWN" | "IDLE";
+	tone: "ok" | "warn" | "bad" | "dim";
 	where: string;
 	showRecovery: boolean;
 	// open by default when dark: the user came here because it's broken
@@ -35,10 +35,24 @@ const stateOf = (p: RowProbe): RowState => p.state ?? (p.up ? "up" : "down");
 export const rowModel = (p: RowProbe): RowModel => {
 	const state = stateOf(p);
 	const r = p.recovery;
-	const showRecovery = state !== "up" && r !== null;
+	const showRecovery = state !== "up" && state !== "idle" && r !== null;
 	return {
-		badge: state === "up" ? "UP" : state === "degraded" ? "DEGRADED" : "DOWN",
-		tone: state === "up" ? "ok" : state === "degraded" ? "warn" : "bad",
+		badge:
+			state === "idle"
+				? "IDLE"
+				: state === "up"
+					? "UP"
+					: state === "degraded"
+						? "DEGRADED"
+						: "DOWN",
+		tone:
+			state === "idle"
+				? "dim"
+				: state === "up"
+					? "ok"
+					: state === "degraded"
+						? "warn"
+						: "bad",
 		where:
 			r?.probe.kind === "launchd"
 				? "launchd"

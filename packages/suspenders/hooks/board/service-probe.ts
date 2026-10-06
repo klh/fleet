@@ -11,8 +11,12 @@ import {
 	recoveryFor,
 } from "../lib/recovery-map.ts";
 import { scrub } from "../lib/servicemon.ts";
+import {
+	isOnDemandIdle,
+	readSupervisorSnapshot,
+} from "./supervisor-snapshot.ts";
 
-export type ServiceState = "up" | "degraded" | "down";
+export type ServiceState = "up" | "degraded" | "down" | "idle";
 
 export interface ServiceProbe {
 	id: string;
@@ -29,6 +33,7 @@ export interface ProbeDeps {
 	// launchctl print gui/<uid>/<label> → exit code + stdout
 	launchctl: (label: string) => Promise<{ code: number; out: string }>;
 	now: () => Date;
+	readSupervisor?: () => unknown;
 }
 
 const realLaunchctl = async (
@@ -47,6 +52,7 @@ export const realDeps: ProbeDeps = {
 	fetch: (url, init) => fetch(url, init),
 	launchctl: realLaunchctl,
 	now: () => new Date(),
+	readSupervisor: readSupervisorSnapshot,
 };
 
 const httpDetail = async (r: Response): Promise<string> => {
@@ -111,6 +117,14 @@ const probeOne = async (
 			return { port: p.port, up: false, state: "degraded", detail };
 		return { port: p.port, up: true, state: "up", detail };
 	} catch (err) {
+		if (isOnDemandIdle(deps.readSupervisor?.(), p.port, deps.now().getTime()))
+			return {
+				port: p.port,
+				up: false,
+				state: "idle",
+				detail:
+					"On demand · not loaded; fresh supervisor probes confirm expected idle",
+			};
 		return {
 			port: p.port,
 			up: false,

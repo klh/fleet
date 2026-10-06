@@ -2,6 +2,7 @@
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
+import { recoverySnapshot } from "./recovery.ts";
 import { beltRegistry, rowLocality } from "./belt.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { json } from "./helpers.ts";
@@ -42,6 +43,8 @@ export async function handleData(
 	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
+	if (url.pathname === "/api/recovery")
+		return json(recoverySnapshot(db, url.searchParams.get("project")));
 	if (url.pathname === "/api/data") {
 		const sid = url.searchParams.get("session") ?? "";
 		return json(sid ? payloadFor(sid) : payload());
@@ -56,7 +59,10 @@ export async function handleData(
 			vf.startsWith("lit-") && vf.endsWith(".js") && !vf.includes("/");
 		if (
 			url.pathname.startsWith("/vendor/") &&
-			(vf === "klh-components.js" || vf === "klh-service-row.js" || isLitChunk)
+			(vf === "klh-components.js" ||
+				vf === "klh-service-row.js" ||
+				vf === "klh-recovery.js" ||
+				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
 			return new Response(Bun.file(f), {

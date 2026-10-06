@@ -3,7 +3,6 @@
 // sibling modules and the route modules import them.
 
 import {
-	CLI,
 	db,
 	BIND,
 	REG_DIR,
@@ -11,7 +10,6 @@ import {
 	gatePath,
 	sessionStartPath,
 } from "./context.ts";
-import { json } from "./helpers.ts";
 import {
 	projOf,
 	syncDecisions,
@@ -377,8 +375,8 @@ export function board(): Record<string, unknown>[] {
 				.map(shape),
 			done: items
 				.filter((w) => w.state === "DONE")
-				.slice(-30)
-				.reverse()
+				.sort((a, b) => b.updated_at - a.updated_at)
+				.slice(0, 30)
 				.map(shape),
 			other: items
 				.filter(

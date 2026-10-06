@@ -1143,3 +1143,11 @@ Mac the coordination HTTP store at loopback :7794 serves that same database.
 A spoke whose coordination store is a different hub needs a bounded outbox relay
 before these automatic requests can reach the remote inbox; the ordinary `coord`
 consultation and feedback commands already use the configured store binding.
+
+## Implemented: GUI observability and operator state (W476)
+
+The GUI pass now exposes supervisor restart/dependency state, truthful on-demand idle, actual remote registration targets, retained snapshot freshness, bounded lane history and project-scoped governor recovery/consult outcomes. Both service consoles share Lit recovery rows; the local bar shares Fleet theme/settings and uses offline named Lit exports. Dashboard navigation no longer redirects to archived repositories after a failed probe.
+
+The observation contract remains: target health, reachability, registration and evidence freshness are distinct. Work state, model lifecycle and hub health must be joined by identity rather than flattened into one badge. Canonical cross-hub project identity and downstream-origin filters remain necessary for fleet-wide views. The detailed surface inventory, findings and verification are in [GUI observability review](docs/gui-observability-review.md). Execution follow-ups are recorded in the work ledger: W477 for regression fixture/contract drift, W478 for shared observation provenance, inventory consolidation and downstream filtering.
+
+Activate dashboard code through `bash packages/suspenders/install.sh --refresh-dashboards`, then restart the three dashboard launchd labels. The fixed manifest validates installed dependencies and rolls back a failed upgrade while preserving operator config. It does not restart inference supervision or re-register Caddy routes.

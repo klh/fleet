@@ -1,7 +1,6 @@
 // hooks/board-html/tabs.ts — tab shell + wiring (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const TABS = String.raw`// --- 7: tab shell (location.hash driven, deep-linkable, back/forward) ---
 function pollActiveTab(){
   if (curTab === 'tasks' || curTab === 'lanes') pollTasks();
@@ -164,6 +163,7 @@ byId('fleetHead').addEventListener('click', function(){
   b.style.display = open ? 'none' : 'block';
   setText(byId('fleetCaret'), open ? '+' : '-');
   byId('fleetHead').setAttribute('aria-expanded', open ? 'false' : 'true');
+  if (!open) renderFleet();
 });
 document.addEventListener('keydown', function(e){
   if (e.key !== 'Escape') return;
@@ -172,6 +172,8 @@ document.addEventListener('keydown', function(e){
 });
 sel.addEventListener('change', function(){
   projBaseline = true; // fresh scope — re-baseline toasts
+  fleetHistoryPage = 0;
+  renderAll();
   tick();
 });
 `;

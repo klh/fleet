@@ -6,7 +6,16 @@
 // the same way swarm.ts's own health check does (any HTTP response on
 // /v1/models = listening; the router doesn't implement it by design and
 // is probed separately with a cheap TCP-level check instead).
-import { ROUTER, SPECIALISTS } from "../local-llm/registry.ts";
+import { existsSync } from "node:fs";
+// Installed harness and monorepo authoring layouts both use the same kit.
+const registryUrl = [
+	new URL("../local-llm/registry.ts", import.meta.url),
+	new URL("../../../local-llm/registry.ts", import.meta.url),
+].find((url) => existsSync(url));
+if (!registryUrl) throw new Error("Fleet local-llm registry is missing");
+const { ROUTER, SPECIALISTS } = (await import(
+	registryUrl.href
+)) as typeof import("../../../local-llm/registry.ts");
 
 export interface LocalSwarmEntry {
 	port: number;

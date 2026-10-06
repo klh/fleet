@@ -18,8 +18,9 @@ import type {
 	Feature,
 	LocalService,
 	UpstreamGroup,
+	LocalView,
 } from "../bin/console-html.ts";
-import { probeAll } from "./service-probe.ts";
+import { probeAll, withRecovery } from "./service-probe.ts";
 import { YAML } from "bun";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
@@ -88,7 +89,7 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 	}
 	const belt = await resolveBelt();
 	// W273: every monitored service in the recovery map, not just two ports
-	const health = await probeAll();
+	const health = (await probeAll()).map(withRecovery);
 	return {
 		policy: pol,
 		gateway,

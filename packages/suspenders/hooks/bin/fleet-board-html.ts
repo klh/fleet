@@ -41,6 +41,8 @@ import { BOOT } from "../board-html/boot.ts";
 export const HTML = unesc(String.raw`<!doctype html>
 <html><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iI2ZmZiIvPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICA8cGF0aCBkPSJNMjIgMTAgQzIzIDQgNDEgNCA0MiAxMCIvPgogICAgPHBhdGggZD0iTTIyIDEwIEw0NCA0NSBMMzkgNTUiLz4KICAgIDxwYXRoIGQ9Ik00MiAxMCBMMjAgNDUgTDI1IDU1Ii8+CiAgICA8cGF0aCBkPSJNMzIgMjcgTDMyIDQ5Ii8+CiAgPC9nPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIyLjQiPgogICAgPGNpcmNsZSBjeD0iMzkiIGN5PSI1Ny4yIiByPSIyLjYiLz4KICAgIDxjaXJjbGUgY3g9IjI1IiBjeT0iNTcuMiIgcj0iMi42Ii8+CiAgICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjUxLjYiIHI9IjIuNiIvPgogIDwvZz4KPC9zdmc+Cg=="><title>FLEET BOARD</title>
 ${THEME_HEAD}
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script type="module" src="/vendor/klh-recovery.js"></script>
 <style>
 * { box-sizing: border-box; }
 :focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
@@ -67,6 +69,14 @@ nav.tabs { display:flex; gap:2px; margin:2px 0 16px; border-bottom:1px solid var
 nav.tabs button { background:none; border:none; border-bottom:2px solid transparent; color:var(--klh-dim); font:inherit; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 12px; cursor:pointer; }
 nav.tabs button:hover { color:var(--klh-ink); }
 nav.tabs button[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
+@media (max-width:700px) {
+  body { padding:12px; }
+  header { flex-wrap:wrap; }
+  header .right { margin-left:0; flex-wrap:wrap; gap:8px; width:100%; }
+  select { max-width:100%; min-width:0; }
+  nav.tabs { flex-wrap:wrap; }
+  nav.tabs button { padding:7px 9px; }
+}
 #fleet { margin-bottom:14px; }
 #fleetHead { display:block; width:100%; text-align:left; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:2px; color:var(--klh-dim); padding:5px 10px; font:inherit; font-size:11px; cursor:pointer; }
 #fleetHead:hover { border-color:var(--klh-edge-strong); }

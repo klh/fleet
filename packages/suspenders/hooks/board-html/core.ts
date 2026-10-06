@@ -123,6 +123,7 @@ function pollData(){
     .then(function(j){
       if (!j || typeof j.ts !== 'number' || !Array.isArray(j.projects)) throw new Error('bad /api/data payload');
       if (j.ts >= lastDataTs) { lastData = j; lastDataTs = j.ts; }
+      noteProjects(j.projects.map(function(p){ return p.project; }).concat((j.sessions || []).map(function(s){ return s.project; })));
       dataOkAt = Date.now(); dataErr = null;
     })
     .catch(function(e){ dataErr = String((e && e.message) || e); })

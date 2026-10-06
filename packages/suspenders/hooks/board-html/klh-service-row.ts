@@ -152,8 +152,8 @@ class KlhServiceRow extends LitElement {
 	connectedCallback(): void {
 		super.connectedCallback();
 		this.timer = setInterval(() => {
-			if (this.probe && this.probe.state !== "up" && !document.hidden)
-				void this.reprobe();
+			// Keep both activation and return-to-idle visible on an open console.
+			if (this.probe && !document.hidden) void this.reprobe();
 		}, POLL_MS);
 	}
 

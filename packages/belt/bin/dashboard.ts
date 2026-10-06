@@ -31,6 +31,7 @@ import {
 } from "./remotes.ts";
 import { metricsFor, metricsSnapshot } from "./metrics.ts";
 import { httpProbe, readStatus } from "./supervisor.ts";
+import { endpointState } from "./dashboard-state.ts";
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import {
 	citizenshipGate,
@@ -108,6 +109,7 @@ const psModel = (port: number): string | null => {
 
 // ─── status snapshot ───
 async function status() {
+	const supervisor = readStatus();
 	const router = {
 		up: await isUp(ROUTER.port),
 		port: ROUTER.port,
@@ -119,6 +121,11 @@ async function status() {
 		// machine-level tallies (every local port the router has routed to)
 		...metricsFor(LOCAL_NAME),
 	};
+	const routerState = endpointState(
+		router.up,
+		supervisor?.targets.find((t) => t.port === router.port),
+		supervisor,
+	);
 
 	// Probe every registry port in parallel; remember which models are live so
 	// "available to load" = DOWNLOAD_MODELS minus whatever is currently served.
@@ -145,6 +152,11 @@ async function status() {
 				engine: s.engine ?? "mlx_lm",
 				ram_gb: s.ram_gb,
 				up,
+				state_label: endpointState(
+					up,
+					supervisor?.targets.find((t) => t.port === s.port),
+					supervisor,
+				),
 				model_served,
 				...metricsFor(LOCAL_NAME, s.port, model_served ?? s.model),
 			};
@@ -166,7 +178,7 @@ async function status() {
 	const routing_tail = raw ? raw.split("\n").slice(-12) : [];
 
 	return {
-		router,
+		router: { ...router, state_label: routerState },
 		specialists,
 		ram,
 		prefs,
@@ -273,6 +285,7 @@ header .mark { font-weight:700; font-size:var(--klh-text-lg); }
 header .sub { color:var(--klh-dim); font-size:var(--klh-text-sm); }
 header .right { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--klh-text-sm); color:var(--klh-dim); font-variant-numeric:tabular-nums; }
 .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--klh-accent); }
+.dot.stale { background:var(--klh-danger); }
 .blink { animation:blip 1s steps(1,end) infinite; }
 @keyframes blip { 0%{opacity:1} 50%{opacity:.15} 100%{opacity:1} }
 h2 { font-size:var(--klh-text-xs); font-weight:400; text-transform:uppercase; letter-spacing:.14em; color:var(--klh-dim); margin:20px 0 2px; }
@@ -342,6 +355,8 @@ ${fleetNav("belt")}
 <header><span class="mark">belt</span><span class="sub">local LLM fleet</span>
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
+<belt-supervisor></belt-supervisor>
+<script type="module" src="/dashboard-observability.js"></script>
 <h2>Fleet</h2>
 <div class="scroll">
 <div class="fhead"><span>location</span><span>endpoint</span><span>state</span><span>protocol</span><span>model</span><span class="w">engine</span><span class="w">ram</span><span class="w">latency</span><span class="w">good at</span></div>
@@ -381,7 +396,7 @@ function renderFleet(){
   [Object.assign({engine:'bun',ram_gb:null},R)]
     .concat(statusData.specialists)
     .forEach(function(x){
-      var st=x.up?'<span class="ok">loaded</span>':'<span class="mut">offline</span>';
+      var st='<span class="'+(x.up?'ok':'mut')+'">'+esc(x.state_label||'unknown')+'</span>';
       var load=(x.load_5m||0)>0?'<em class="load">'+x.load_5m+'/5m</em>':'';
       var modelFull=x.model_served||x.model||'';
       var mem=x.up&&x.ram_gb!=null
@@ -458,7 +473,7 @@ function fmt(line){
 }
 
 function tick(){
-  fetch('/api/status').then(function(r){return r.json();}).then(function(s){
+  fetch('/api/status',{signal:AbortSignal.timeout(5000)}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(s){
     clockbox.textContent=hhmmss(s.ts);
     live.className='dot blink';
     statusData=s; renderFleet();
@@ -471,8 +486,8 @@ function tick(){
       +' · cloud '+(s.prefs.allow_cloud?'on':'off')
       +' · profile: '+((s.prefs.profile||[]).join(', ')||'—');
   }).catch(function(){
-    clockbox.textContent='—';
-    live.className='dot';
+    clockbox.textContent=statusData?'Feed unavailable · last snapshot '+hhmmss(statusData.ts):'Status feed unavailable';
+    live.className='dot stale';
   });
 }
 tick();setInterval(tick,3000);
@@ -596,6 +611,9 @@ const ROUTES: RouteMethods = {
 	"/api/route": ["POST"],
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
+	"/dashboard-observability.js": ["GET", "HEAD"],
+	"/dashboard-state.js": ["GET", "HEAD"],
+	"/vendor/lit.js": ["GET", "HEAD"],
 };
 
 // Fixed 60s window per bearer token on the authenticated route API
@@ -660,6 +678,19 @@ Bun.serve({
 			return new Response(Bun.file(`${import.meta.dir}/threads-mark.js`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
+		if (path === "/dashboard-observability.js" || path === "/vendor/lit.js")
+			return new Response(Bun.file(`${import.meta.dir}${path}`), {
+				headers: { "content-type": "text/javascript; charset=utf-8" },
+			});
+		if (path === "/dashboard-state.js")
+			return new Response(
+				new Bun.Transpiler({ loader: "ts" }).transformSync(
+					readFileSync(`${import.meta.dir}/dashboard-state.ts`, "utf8"),
+				),
+				{
+					headers: { "content-type": "text/javascript; charset=utf-8" },
+				},
+			);
 		return new Response("not found\n", { status: 404 });
 	},
 });

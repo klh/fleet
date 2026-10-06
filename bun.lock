@@ -10,6 +10,7 @@
       "version": "0.1.0",
       "dependencies": {
         "blam": "workspace:*",
+        "lit": "^3.3.3",
       },
     },
     "packages/blam": {
