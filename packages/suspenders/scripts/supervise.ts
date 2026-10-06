@@ -38,6 +38,7 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
+import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
 import {
 	composeBrief,
 	isOwnerGated,
@@ -491,6 +492,23 @@ const main = async (): Promise<void> => {
 		// contract (result_sha ancestor of main) before the subtree can close
 		for (const k of kids) {
 			if (k.state !== "DONE" || !k.result_sha) continue;
+			if (shaOnMain(k.result_sha) === true) {
+				try {
+					flagIntegratedCode({
+						repo: REPO,
+						before: `${k.result_sha}^`,
+						after: "main",
+						changedThrough: k.result_sha,
+						source: SUP,
+						dryRun: DRY,
+					});
+				} catch (error) {
+					escalate(
+						`decomposition-${k.id}`,
+						`Merged-code decomposition check failed: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			}
 			if (shaOnMain(k.result_sha) !== false) continue;
 			const br = `suspenders/${k.id}`;
 			if (INTEGRATE === "merge") {
@@ -499,6 +517,7 @@ const main = async (): Promise<void> => {
 					continue;
 				}
 				console.log(`integrating ${k.id} — merging ${br}`);
+				const beforeMerge = headSha();
 				const m = run([
 					"git",
 					"-C",
@@ -516,6 +535,19 @@ const main = async (): Promise<void> => {
 						`merge of ${br} failed (conflict) — needs a decision`,
 					);
 				} else {
+					try {
+						flagIntegratedCode({
+							repo: REPO,
+							before: beforeMerge,
+							after: headSha(),
+							source: SUP,
+						});
+					} catch (error) {
+						escalate(
+							`decomposition-${k.id}`,
+							`Merged-code decomposition check failed: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
 					fact(
 						`supervise.${pl}.integrated`,
 						`${k.id} merged (${br}) into main @${headSha().slice(0, 8)}`,

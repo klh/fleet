@@ -37,6 +37,7 @@ import { laneSid } from "../lib/laneslug.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
+import { flagIntegratedCode } from "../lib/decomposition.ts";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -407,6 +408,21 @@ function mergeOne(b: string): void {
 	if (mv.code === 0) {
 		const after = sh(["git", "rev-parse", "--short", "HEAD"]);
 		log(`MERGED ${b} ${before}→${after}`);
+		try {
+			for (const file of flagIntegratedCode({
+				repo: REPO,
+				before,
+				after,
+				source: "fleet-loop",
+			}))
+				log(
+					`DECOMPOSITION ${file.path}: ${file.lines} lines — queued DRY and imported-module decomposition`,
+				);
+		} catch (error) {
+			log(
+				`DECOMPOSITION-CHECK-FAILED ${b}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 		// work.landed on the bus: waiting lanes use `coord wait --kinds
 		// work.landed --scope <item>` instead of /tmp poll scripts
 		try {

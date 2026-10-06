@@ -650,10 +650,11 @@ function insertItem(
 	by: string,
 	why: string | null,
 	requires: string | null = null,
+	description: string | null = null,
 ): void {
 	db()
 		.query(
-			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, created_at, updated_at) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
 		)
 		.run(
 			id,
@@ -667,6 +668,7 @@ function insertItem(
 			requires,
 			Date.now(),
 			Date.now(),
+			description,
 		);
 }
 
@@ -808,6 +810,7 @@ if (cmd === "add") {
 					.map((c) => c.trim())
 					.join(",")
 			: null,
+		flag("--desc"),
 	);
 	emit("work.added", id, { scope: scope ?? "" });
 	console.log(

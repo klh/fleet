@@ -32,6 +32,15 @@ and every klh repo. The on-write gate **blocks** any .ts past 1500 lines
 cleared; fleet-board, coord, board-html and the fleet-board suite all live
 under the limit).
 
+Integration supervisors also apply a **soft post-merge cap**: changed code files
+above 1500 physical lines create a deduplicated `DRY and decompose <path>` work
+item and a `code.decomposition-needed` event with merged blob evidence. This
+checks the combined committed file, including work merged by other lanes, and
+does not reject a successful merge. Decomposition must remove repeated patterns,
+split by responsibility into a purpose-named subdirectory or well-named sibling
+files, and import those modules from the original entrypoint. Generated/vendor
+files are excluded. The existing on-write hard gate remains separate.
+
 ## UI Engineering Law
 
 Console/board UI is **Lit web components + CSS design tokens**.

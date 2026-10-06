@@ -252,6 +252,10 @@ describe("W146 micro-supervisor", () => {
 		expect(entries.length).toBe(2);
 		expect(new Set(entries.map((l) => l.sid))).toEqual(new Set([sidOf(c1)]));
 		// the lane finishes: commit on its branch, mark DONE (landing chain)
+		writeFileSync(
+			join(REPO, ".worktrees", c1, "oversized.ts"),
+			"// line\n".repeat(1501),
+		);
 		const sha1 = commitIn(join(REPO, ".worktrees", c1), "first child work");
 		expect(
 			tool("work.ts", "done", c1, "--sha", sha1, "--as", sidOf(c1)).code,
@@ -267,6 +271,17 @@ describe("W146 micro-supervisor", () => {
 		expect(r4.out).toContain("integrating");
 		expect(ancestorOfMain(sha1)).toBe(true);
 		expect(factValue(`supervise.${p.toLowerCase()}.integrated`)).toContain(c1);
+		const checkDb = db();
+		const followup = checkDb
+			.query(
+				"SELECT id, description FROM work_items WHERE project = ? AND title = 'DRY and decompose oversized.ts'",
+			)
+			.all(PROJECT) as { id: string; description: string }[];
+		expect(followup).toHaveLength(1);
+		expect(followup[0].description).toContain(
+			"import them from the original entrypoint",
+		);
+		checkDb.close();
 		// run 5: with the dep merged, the blocked child is now dispatchable
 		const r5 = sup(p, "--once", "--integrate", "merge");
 		expect(r5.out).toContain(`dispatched ${c2}`);
