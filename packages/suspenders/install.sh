@@ -12,7 +12,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 
 # flags (order-independent) — replaces the old positional $1/$2 checks
-WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0
+WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0 REFRESH_SUPERVISOR=0
 for arg in "$@"; do
   case "$arg" in
     --wire) WIRE=1 ;;
@@ -20,6 +20,7 @@ for arg in "$@"; do
     --dry-run) DRY_RUN=1 ;;
     --skip-models) SKIP_MODELS=1 ;;
     --no-llm) NO_LLM=1 ;;
+    --refresh-supervisor) REFRESH_SUPERVISOR=1 ;;
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
@@ -32,6 +33,9 @@ KIT_DIR="$(cd "$REPO_DIR/.." && pwd)/local-llm"
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "dry-run — would:"
   echo "  install harness → $PREFIX (+ bun install)"
+  if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
+    echo "  refresh belt supervisor.ts only (backup previous code; preserve runtime config)"
+  fi
   echo "  local-llm baseline → $LLM_HOME:"
   echo "    kit: swarm.ts (serve supervisor), spawner.ts, router-shim.ts,"
   echo "         registry.ts, belt.env + routing-policy.yaml stubs"
@@ -82,6 +86,25 @@ cp "$REPO_DIR/package.json" "$PREFIX/"
 # Catch broken workspace links/imports before restarting the live services.
 bun -e 'await import(process.argv[1])' "$PREFIX/board/prompt-transform.ts"
 echo "→ harness in place"
+
+# Targeted code upgrade for the advanced installed belt supervisor. The kit's
+# older swarm implementation and operator-owned config must remain untouched.
+if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
+  SUPERVISOR_SOURCE="$REPO_DIR/../belt/bin/supervisor.ts"
+  SUPERVISOR_TARGET="$LLM_HOME/supervisor.ts"
+  if [[ ! -f "$SUPERVISOR_TARGET" ]] || ! grep -q './supervisor.ts' "$LLM_HOME/swarm.ts"; then
+    echo "→ --refresh-supervisor requires an existing belt supervisor runtime" >&2
+    exit 1
+  fi
+  cp -p "$SUPERVISOR_TARGET" "$SUPERVISOR_TARGET.before-refresh"
+  cp "$SUPERVISOR_SOURCE" "$SUPERVISOR_TARGET"
+  if ! bun -e 'await import(process.argv[1])' "$SUPERVISOR_TARGET"; then
+    cp -p "$SUPERVISOR_TARGET.before-refresh" "$SUPERVISOR_TARGET"
+    echo "→ supervisor import failed; previous code restored" >&2
+    exit 1
+  fi
+  echo "→ refreshed supervisor code (restart com.suspenders.local-llm to activate)"
+fi
 
 # ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
 # One-line exec wrappers; every session and lane calls the control plane

@@ -15,6 +15,8 @@ import {
 	projectIdentity,
 } from "./shared.ts";
 
+import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
 	// Fleet-internal transport (event bus); cross-session questions go via
@@ -24,7 +26,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W449: skip-next only applies to VALUE options — boolean flags (--best,
 	// --no-kb) used to swallow the following positional (the question), so
 	// `consult --best "q"` died with a usage error.
-	const valueOpts = new Set(["--as", "--scope"]);
+	const valueOpts = new Set(["--as", "--scope", "--version"]);
 	const boolOpts = new Set(["--best", "--no-kb"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
@@ -40,67 +42,39 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	let question: string;
 	if (rest.includes("--best")) {
 		question = pos.join(" ");
-		const best = rankExperts(projectIdentity(), question, scope, as)[0];
-		if (!best) die("no ranked expert — nobody live has touched this");
-		expert = best.sid;
 	} else {
 		expert = pos[0] ?? null;
 		question = pos.slice(1).join(" ");
 	}
 	if (!as) die("consult requires --as <asker-sid>");
-	if (!expert || !question)
+	if ((!expert && !rest.includes("--best")) || !question)
 		die(
 			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
 		);
-	// the plane answers before people do: a lesson hit skips the expert
-	// liveness check too — the plane routes nothing, so nothing must be live
+	// Lessons are advisory context, not verified solutions.
 	const lessonHit = rest.includes("--no-kb") ? null : lessonLookup(question);
-	if (
-		!lessonHit &&
-		!db
-			.query(
-				"SELECT 1 FROM sessions WHERE sid = ? AND project = ? AND state = 'RUNNING'",
-			)
-			.get(expert, projectIdentity())
-	)
-		die(`${expert.slice(0, 8)} is not a live session in this project`);
-	// knowledge first: an answered consult already in the store answers this
-	// without spending an expert round-trip (--no-kb forces live routing)
-	const kbHit = rest.includes("--no-kb") ? null : kbLookup(question);
-	if (lessonHit) {
-		const r = db
-			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'LESSON', ?, ?, ?)",
-			)
-			.run(
-				projectIdentity(),
-				as,
-				"plane",
-				question,
-				scope,
-				lessonHit.value,
-				Date.now(),
-				Date.now(),
+	const version = arg("--version") ?? consultVersion();
+	const kbHit = rest.includes("--no-kb")
+		? null
+		: kbLookup(question, projectIdentity(), scope, version, true);
+	if (!kbHit) {
+		if (rest.includes("--best"))
+			expert =
+				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
+		if (!expert)
+			die(
+				"no ranked expert — nobody live has touched this; retain evidence and request a decision, do not broadcast or retry unchanged",
 			);
-		const cid = `C${r.lastInsertRowid}`;
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
-		).run(
-			Date.now(),
-			as,
-			scope,
-			JSON.stringify({
-				consult: cid,
-				state: "LESSON",
-				answer: lessonHit.value,
-				lesson: lessonHit.key,
-			}),
-			as,
-		);
-		console.log(
-			`${green("✓")} ${cyan(cid)} answered from the plane ${dim(`(${lessonHit.key}) — full note: coord fact get ${lessonHit.key}; --no-kb routes to a human`)}`,
-		);
-	} else if (kbHit) {
+		if (
+			!db
+				.query(
+					"SELECT 1 FROM sessions WHERE sid = ? AND project = ? AND state = 'RUNNING'",
+				)
+				.get(expert, projectIdentity())
+		)
+			die(`${expert.slice(0, 8)} is not a live session in this project`);
+	}
+	if (kbHit) {
 		const r = db
 			.query(
 				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'KB', ?, ?, ?)",
@@ -116,9 +90,16 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				Date.now(),
 			);
 		const cid = `C${r.lastInsertRowid}`;
+		ensureConsultTrust(db);
+		db.query("INSERT INTO consult_reuse (consult_id, kb_id) VALUES (?, ?)").run(
+			r.lastInsertRowid,
+			kbHit.id,
+		);
 		const expertLive = !!db
-			.query("SELECT 1 FROM sessions WHERE sid = ? AND state = 'RUNNING'")
-			.get(kbHit.answered_by);
+			.query(
+				"SELECT 1 FROM sessions WHERE sid = ? AND project = ? AND state = 'RUNNING'",
+			)
+			.get(kbHit.answered_by, projectIdentity());
 		db.query(
 			"UPDATE consult_kb SET hits = hits + 1, last_hit_at = ? WHERE id = ?",
 		).run(Date.now(), kbHit.id);
@@ -144,6 +125,17 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			`${green("✓")} ${cyan(cid)} answered from the knowledge base ${dim(`(learned from ${kbHit.answered_by.slice(0, 8)}${expertLive ? ", still live" : ""}, ${kbHit.hits} prior hits) — --no-kb routes to a human`)}`,
 		);
 	} else {
+		const pending = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = ? AND state = 'OPEN' AND created_at > ?",
+				)
+				.get(projectIdentity(), expert, Date.now() - 3_600_000) as { n: number }
+		).n;
+		if (pending >= 3)
+			die(
+				"expert consult queue is full; retain evidence and choose another relevant expert",
+			);
 		const r = db
 			.query(
 				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)",
@@ -156,36 +148,114 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			Date.now(),
 			as,
 			scope,
-			JSON.stringify({ consult: cid, q: question }),
+			JSON.stringify({
+				consult: cid,
+				q: question,
+				guidance: lessonHit
+					? { key: lessonHit.key, value: lessonHit.value, verified: false }
+					: null,
+			}),
 			expert,
 		);
-		console.log(`CONSULT ${cyan(cid)} ${dim("→")} ${expert.slice(0, 8)}`);
+		console.log(`CONSULT ${cyan(cid)} ${dim("→")} ${expert?.slice(0, 8)}`);
 	}
 }
 
 export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const as = arg("--as");
-	const known = new Set(["--as", "--decline"]);
+	const known = new Set(["--as", "--evidence", "--version", "--feedback"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (known.has(rest[i])) {
 			i++;
 			continue;
 		}
+		if (rest[i] === "--decline") continue;
 		if (rest[i].startsWith("--")) die(`unknown option: ${rest[i]}`);
 		pos.push(rest[i]);
 	}
 	const decline = rest.includes("--decline");
 	const cid = pos[0];
 	const text = pos.slice(1).join(" ");
-	if (!cid || (!text && !decline) || !as)
-		die('usage: consult-reply <C##> "<answer>" [--decline] --as <expert-sid>');
+	if (!cid || (!text && !decline && !arg("--feedback")) || !as)
+		die(
+			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
+		);
 	const c = db
 		.query("SELECT * FROM consults WHERE id = ? AND project = ?")
 		.get(Number(String(cid).replace(/^C/i, "")), projectIdentity()) as
-		| { id: number; asker_sid: string; expert_sid: string; state: string }
+		| {
+				id: number;
+				asker_sid: string;
+				expert_sid: string;
+				state: string;
+				question: string;
+				scope: string | null;
+		  }
 		| undefined;
 	if (!c) die(`no such consult: ${cid}`);
+	const feedback = arg("--feedback");
+	if (feedback) {
+		if (c.asker_sid !== as) die("only the asker can record a consult outcome");
+		if (!["ANSWERED", "KB"].includes(c.state))
+			die(`${cid} is ${c.state}; no candidate to verify`);
+		if (!["resolved", "failed", "unused"].includes(feedback))
+			die("feedback must be resolved, failed or unused");
+		const evidence = arg("--evidence")?.trim() ?? "";
+		if (feedback !== "unused" && !evidence)
+			die(
+				"resolved/failed feedback requires --evidence with the observed result",
+			);
+		ensureConsultTrust(db);
+		const kb = db
+			.query(
+				"SELECT id FROM consult_kb WHERE consult_id = ? UNION SELECT kb_id AS id FROM consult_reuse WHERE consult_id = ? LIMIT 1",
+			)
+			.get(c.id, c.id) as { id: number } | undefined;
+		if (!kb) die("no stored candidate for this consult");
+		if (feedback === "resolved") {
+			const trust = db
+				.query("SELECT version, scope FROM consult_trust WHERE kb_id = ?")
+				.get(kb.id) as { version: string; scope: string } | undefined;
+			const version = arg("--version") ?? consultVersion();
+			if (!trust?.scope || !version || trust.version !== version)
+				die(
+					"candidate code version changed or scope unknown; ask again with an explicit scope",
+				);
+		}
+		db.transaction(() => {
+			const previous = db
+				.query("SELECT outcome FROM consult_feedback WHERE consult_id = ?")
+				.get(c.id) as { outcome: string } | undefined;
+			if (previous) die("feedback already recorded for this consult");
+			db.query("INSERT INTO consult_feedback VALUES (?, ?, ?, ?, ?)").run(
+				c.id,
+				feedback,
+				evidence,
+				as,
+				Date.now(),
+			);
+			if (feedback === "resolved")
+				db.query(
+					"UPDATE consult_trust SET evidence = ?, verified_by = ?, verified_at = ?, resolved = resolved + 1 WHERE kb_id = ?",
+				).run(evidence, as, Date.now(), kb.id);
+			if (feedback === "failed")
+				db.query(
+					"UPDATE consult_trust SET failed = failed + 1, verified_at = NULL WHERE kb_id = ?",
+				).run(kb.id);
+			db.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.feedback', ?, ?, ?)",
+			).run(
+				Date.now(),
+				as,
+				c.scope,
+				JSON.stringify({ consult: cid, outcome: feedback, evidence }),
+				c.expert_sid,
+			);
+		})();
+		console.log(`FEEDBACK ${cid} ${feedback}`);
+		return;
+	}
 	if (c.expert_sid !== as)
 		die(`${cid} is addressed to ${String(c.expert_sid).slice(0, 8)}, not you`);
 	if (c.state !== "OPEN") die(`${cid} is ${c.state}`);
@@ -193,8 +263,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	db.query(
 		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
 	).run(st, decline ? null : text, Date.now(), c.id);
-	// harvest: every human answer becomes fleet knowledge — the next asker
-	// with the same question resolves without the round-trip
+	// Store candidates, but only asker-verified outcomes permit automatic reuse.
 	if (!decline) {
 		const kr = db
 			.query(
@@ -209,6 +278,14 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				c.id,
 				Date.now(),
 			);
+		ensureConsultTrust(db);
+		db.query(
+			"INSERT INTO consult_trust (kb_id, scope, version) VALUES (?, ?, ?)",
+		).run(
+			kr.lastInsertRowid,
+			c.scope ?? "",
+			arg("--version") ?? consultVersion() ?? "",
+		);
 		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
 			kr.lastInsertRowid,
 			c.question,

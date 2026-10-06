@@ -1,8 +1,13 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { openStore, type GovernorStore } from "../lib/govdb.ts";
+import {
+	openStore,
+	projectIdentity,
+	type GovernorStore,
+} from "../lib/govdb.ts";
 import type { KnowledgeHit } from "../lib/knowledge-ports.ts";
+import { ensureConsultTrust } from "./consult-trust.ts";
 import { trustOf } from "../lib/knowledge.ts";
 
 export {
@@ -70,13 +75,21 @@ export const green = paint("32");
 export const amber = paint("33");
 export const red = paint("31");
 
-export function kbLookup(question: string): {
+export function kbLookup(
+	question: string,
+	project: string = projectIdentity(),
+	scope: string | null = null,
+	version: string | null = null,
+	verifiedOnly = false,
+): {
 	id: number;
 	problem: string;
 	solution: string;
 	answered_by: string;
 	hits: number;
 } | null {
+	if (verifiedOnly && (!scope || !version)) return null;
+	ensureConsultTrust(db);
 	const terms = [
 		...new Set(
 			question
@@ -90,9 +103,18 @@ export function kbLookup(question: string): {
 		const cands = db
 			.query(
 				`SELECT k.id, k.problem, k.solution, k.answered_by, k.hits FROM consult_kb_fts f
-				 JOIN consult_kb k ON k.id = f.rowid WHERE consult_kb_fts MATCH ? ORDER BY rank LIMIT 5`,
+				 JOIN consult_kb k ON k.id = f.rowid LEFT JOIN consult_trust t ON t.kb_id = k.id
+                 WHERE consult_kb_fts MATCH ? AND k.project = ? AND (? = 0 OR (t.scope = ? AND t.version = ?
+                 AND t.verified_at IS NOT NULL AND t.evidence != '' AND t.failed = 0))
+                 ORDER BY rank, t.resolved DESC LIMIT 20`,
 			)
-			.all(terms.map((t) => `"${t}"`).join(" OR ")) as {
+			.all(
+				terms.map((t) => `"${t}"`).join(" OR "),
+				project,
+				verifiedOnly ? 1 : 0,
+				scope,
+				version,
+			) as {
 			id: number;
 			problem: string;
 			solution: string;
@@ -228,7 +250,7 @@ export function rankExperts(
 		}
 		const done = db
 			.query(
-				"SELECT title FROM work_items WHERE project = ? AND owner_sid = ? AND state = 'DONE' AND updated_at > ?",
+				"SELECT title FROM work_items WHERE project = ? AND owner_sid = ? AND state = 'DONE' AND result_sha IS NOT NULL AND updated_at > ?",
 			)
 			.all(project, s.sid, now - 6 * 3_600_000) as { title: string }[];
 		let workN = 0;
@@ -250,6 +272,15 @@ export function rankExperts(
 		);
 		const roleN = s.role === "coordinator" ? 1 : 0;
 		const rec = Math.max(0, 1 - (now - s.hb) / (30 * 60_000));
+		if (!claimN && !workN && !touchN) continue;
+		const pending = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = ? AND state = 'OPEN' AND created_at > ?",
+				)
+				.get(project, s.sid, now - 3_600_000) as { n: number }
+		).n;
+		if (pending >= 3) continue;
 		const score =
 			0.4 * Math.min(1, claimN / 3) +
 			0.25 * Math.min(1, workN / 2) +
@@ -258,5 +289,5 @@ export function rankExperts(
 			0.05 * rec;
 		if (score > 0.02) rows.push({ sid: s.sid, score, hint: hint.slice(0, 50) });
 	}
-	return rows.sort((a, b) => b.score - a.score);
+	return rows.sort((a, b) => b.score - a.score || a.sid.localeCompare(b.sid));
 }
