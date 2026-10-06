@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 // scripts/install-services.ts — render fleet's custom bun runners from ONE
 // declarative manifest (deploy/services.yaml, W488.1) into platform service
-// units. Today: darwin/launchd plists. linux (W488.2) and win32 (W488.3)
-// emitters land as siblings; --target for those dies loudly, never renders
-// half a unit.
+// units. Emitters: darwin/launchd plists (W488.1) · linux/systemd USER units
+// + sibling timers (W488.2) · win32/WinSW v5 XML (W488.3).
 //
 // Placeholder contract — IDENTICAL to install.sh's sed pass today (W490.2
 // cuts install.sh over to this emitter):
@@ -26,10 +25,14 @@
 //   bun scripts/install-services.ts [--target darwin|linux|win32]
 //       [--out <dir>] [--service <name>]... [--json]
 //       [--bun <path>] [--home <path>] [--prefix <path>] [--repo <path>]
-//   --target   defaults to process.platform; non-darwin dies (W488.2/3).
-//   --out      writes com.suspenders.<name>.plist files; without it units
-//              go to stdout separated by comment banners (inspection mode).
-//   --json     prints {"target","services":[{service,target,outFile}],"wallMs"}.
+//   --target   defaults to process.platform (darwin|linux|win32 all render).
+//   --out      writes the per-target unit files (darwin com.suspenders.<name>.plist;
+//              linux suspenders-<name>.service [+ .timer]; win32
+//              suspenders-<name>.xml); without it units go to stdout
+//              separated by comment banners (inspection mode).
+//   --json     prints {"target","services":[{service,target,outFile,files}],"wallMs"}
+//              where outFile is the primary unit path and files lists every
+//              unit file name for the service (timers included).
 //   The stderr timing line (render: N service(s) in X ms) is the benchmark
 //   number for the root benchmarks.md.
 
@@ -269,6 +272,22 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 	return out;
 }
 
+// shared post-render guard (all three emitters): a placeholder that survived
+// substitution means a token nobody can resolve — fail loudly, never emit a
+// half-rendered unit (the old sed pass silently shipped those).
+function residualTokens(text: string): string[] {
+	return [...new Set([...text.matchAll(PLACEHOLDER_RE)].map((m) => m[0]))];
+}
+
+function assertNoResidualTokens(name: string, text: string): void {
+	const residual = residualTokens(text);
+	if (residual.length > 0) {
+		throw new Error(
+			`service "${name}": unresolvable placeholder(s) in rendered unit: ${residual.join(" ")}`,
+		);
+	}
+}
+
 function escXml(s: string): string {
 	return s
 		.replaceAll("&", "&amp;")
@@ -324,14 +343,133 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	body.push(xmlStr("StandardOutPath", s(spec.logs.out), "\t"));
 	body.push(xmlStr("StandardErrorPath", s(spec.logs.err), "\t"));
 	const unit = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n${body.join("")}</dict></plist>\n`;
-	const residual = [
-		...new Set([...unit.matchAll(PLACEHOLDER_RE)].map((m) => m[0])),
+	assertNoResidualTokens(spec.name, unit);
+	return unit;
+}
+
+// ---- linux/systemd (W488.2) ----
+// launchd -> systemd USER units under ~/.config/systemd/user/. Mapping:
+// KeepAlive -> Restart=always + RestartSec; interval/calendar -> sibling
+// <unit>.timer (OnBootSec+OnUnitActiveSec or OnCalendar+Persistent);
+// Nice/cwd/env -> Nice=/WorkingDirectory=/Environment=; envFile ->
+// EnvironmentFile=<path>; logs -> StandardOutput/Error=append:<path>.
+
+const UNIT_NS = "suspenders";
+const SYSTEMD_DEFAULT_RESTART_SEC = 5;
+
+// systemd ExecStart/Environment quoting: double-quoted, backslash-escaped,
+// % doubled (specifier expansion would otherwise eat it).
+function systemdQuote(s: string): string {
+	const escaped = s
+		.replaceAll("%", "%%")
+		.replaceAll("\\", "\\\\")
+		.replaceAll('"', '\\"');
+	return `"${escaped}"`;
+}
+
+function calendarSpec(cal: { hour: number; minute: number }): string {
+	const hh = String(cal.hour).padStart(2, "0");
+	const mm = String(cal.minute).padStart(2, "0");
+	return `*-*-* ${hh}:${mm}:00`;
+}
+
+function linuxUnitHeader(unitName: string, timerBacked: boolean): string[] {
+	const activate = timerBacked ? `${unitName}.timer` : `${unitName}.service`;
+	return [
+		`# ${unitName}.service — rendered from deploy/services.yaml (W488.2).`,
+		`# install: systemctl --user daemon-reload && systemctl --user enable --now ${activate}`,
+		"# mapping: keepalive -> Restart=always + RestartSec; interval or",
+		"# calendar -> sibling timer (OnBootSec/OnUnitActiveSec or OnCalendar",
+		"# + Persistent); RunAtLoad -> enable --now (timer-backed units fire",
+		"# first at OnBootSec — start once by hand to run now).",
 	];
-	if (residual.length > 0) {
-		throw new Error(
-			`service "${spec.name}": unresolvable placeholder(s) in rendered unit: ${residual.join(" ")}`,
-		);
+}
+
+function linuxServiceSection(
+	spec: ServiceSpec,
+	values: RenderValues,
+	timerBacked: boolean,
+): string[] {
+	const s = (t: string): string => substitute(t, values);
+	const l: string[] = ["[Service]"];
+	if (timerBacked) {
+		l.push("Type=oneshot");
+	} else if (spec.schedule.keepalive === true) {
+		const restartSec =
+			spec.schedule.throttleSeconds ?? SYSTEMD_DEFAULT_RESTART_SEC;
+		l.push("Restart=always", `RestartSec=${restartSec}s`);
 	}
+	const argv = [values.bun, s(spec.bunEntry), ...spec.args.map((a) => s(a))];
+	l.push(`ExecStart=${argv.map(systemdQuote).join(" ")}`);
+	if (spec.cwd !== undefined) l.push(`WorkingDirectory=${s(spec.cwd)}`);
+	if (spec.nice !== undefined) l.push(`Nice=${spec.nice}`);
+	for (const [k, v] of Object.entries(spec.env)) {
+		l.push(`Environment=${systemdQuote(`${k}=${s(v)}`)}`);
+	}
+	if (spec.envFile !== undefined) {
+		l.push(`EnvironmentFile=${s(spec.envFile)}`);
+	}
+	l.push(`StandardOutput=append:${s(spec.logs.out)}`);
+	l.push(`StandardError=append:${s(spec.logs.err)}`);
+	return l;
+}
+
+export function renderLinux(spec: ServiceSpec, values: RenderValues): string {
+	const unitName = `${UNIT_NS}-${spec.name}`;
+	const timerBacked =
+		spec.schedule.intervalSeconds !== undefined ||
+		spec.schedule.calendar !== undefined;
+	const unit = `${[
+		...linuxUnitHeader(unitName, timerBacked),
+		"[Unit]",
+		`Description=fleet ${spec.name} (deploy/services.yaml)`,
+		"After=network-online.target",
+		"Wants=network-online.target",
+		...linuxServiceSection(spec, values, timerBacked),
+		"[Install]",
+		"WantedBy=default.target",
+	].join("\n")}\n`;
+	assertNoResidualTokens(spec.name, unit);
+	return unit;
+}
+
+function linuxTimerComment(spec: ServiceSpec, unitName: string): string[] {
+	const interval = spec.schedule.intervalSeconds;
+	if (interval !== undefined) {
+		return [
+			`# ${unitName}.timer — sibling of ${unitName}.service (W488.2).`,
+			`# launchd intervalSeconds=${interval} -> OnBootSec (first fire, later`,
+			"# than launchd's load-time run) + OnUnitActiveSec (the period).",
+		];
+	}
+	return [
+		`# ${unitName}.timer — sibling of ${unitName}.service (W488.2).`,
+		"# launchd StartCalendarInterval -> OnCalendar + Persistent=true",
+		"# (launchd coalesces missed calendar fires the same way).",
+	];
+}
+
+export function renderLinuxTimer(spec: ServiceSpec): string | null {
+	const interval = spec.schedule.intervalSeconds;
+	const cal = spec.schedule.calendar;
+	if (interval === undefined && cal === undefined) return null;
+	const unitName = `${UNIT_NS}-${spec.name}`;
+	const unit = `${[
+		...linuxTimerComment(spec, unitName),
+		"[Unit]",
+		`Description=fleet ${spec.name} schedule (deploy/services.yaml)`,
+		"[Timer]",
+		...(interval !== undefined
+			? [`OnBootSec=${interval}s`, `OnUnitActiveSec=${interval}s`]
+			: []),
+		...(cal !== undefined
+			? [`OnCalendar=${calendarSpec(cal)}`, "Persistent=true"]
+			: []),
+		`Unit=${unitName}.service`,
+		"[Install]",
+		"WantedBy=timers.target",
+	].join("\n")}\n`;
+	assertNoResidualTokens(spec.name, unit);
 	return unit;
 }
 
@@ -341,9 +479,189 @@ export function renderTarget(
 	values: RenderValues,
 ): string {
 	if (target === "darwin") return renderDarwin(spec, values);
-	throw new Error(
-		`target "${target}" is not yet implemented — this child (W488.1) ships darwin only; linux lands in W488.2, win32 in W488.3`,
+	if (target === "linux") return renderLinux(spec, values);
+	if (target === "win32") return renderWin32(spec, values);
+	throw new Error(`unknown target "${target}" (darwin|linux|win32)`);
+}
+
+// every unit file a service renders to on this target (primary first —
+// darwin the plist, linux the .service, win32 the .xml; timers follow).
+export function renderUnits(
+	target: string,
+	spec: ServiceSpec,
+	values: RenderValues,
+): { file: string; body: string }[] {
+	if (target === "darwin") {
+		return [
+			{
+				file: `${LABEL_PREFIX}.${spec.name}.plist`,
+				body: renderDarwin(spec, values),
+			},
+		];
+	}
+	if (target === "linux") {
+		const unitName = `${UNIT_NS}-${spec.name}`;
+		const units = [
+			{ file: `${unitName}.service`, body: renderLinux(spec, values) },
+		];
+		const timer = renderLinuxTimer(spec);
+		if (timer !== null) units.push({ file: `${unitName}.timer`, body: timer });
+		return units;
+	}
+	if (target === "win32") {
+		return [
+			{
+				file: `${UNIT_NS}-${spec.name}.xml`,
+				body: renderWin32(spec, values),
+			},
+		];
+	}
+	throw new Error(`unknown target "${target}" (darwin|linux|win32)`);
+}
+
+// ---- win32 / WinSW v5 (W488.3) ----
+// launchd -> WinSW mapping (ops doc: scripts/README-windows.md):
+// KeepAlive -> <onfailure action="restart" delay="Ns"/> (a single element
+// restarts on EVERY failure); interval/calendar -> WinSW has NO scheduler,
+// the XML comment carries the exact schtasks /Create line; RunAtLoad ->
+// <startmode>Automatic</startmode>; Nice -> <priority>; env values ride
+// render-time substitution exactly as the launchd plist does; envFile is a
+// PATH reference in a comment only — WinSW core has no envfile element and
+// file contents are NEVER embedded; logs -> <logpath> + <log mode="roll"/>.
+
+const WINSW_DEFAULT_DELAY_SEC = 5;
+
+function escXmlAttr(s: string): string {
+	return escXml(s).replaceAll('"', "&quot;");
+}
+
+// MSVC argv rules: double the backslashes before a quote, double a trailing
+// backslash run (so the closing quote survives); quote only args that need it.
+function winQuotedIfNeeded(s: string): string {
+	const escaped = s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
+	return /\s/.test(s) ? `"${escaped}"` : s;
+}
+
+// launchd nice -> WinSW <priority> buckets.
+function winPriority(nice: number): string {
+	if (nice >= 15) return "idle";
+	if (nice >= 5) return "belownormal";
+	return "normal";
+}
+
+// manifest log paths are POSIX-shaped; real Windows renders substitute a
+// native home so dirname must handle both separators.
+function winDirname(p: string): string {
+	const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+	return i === -1 ? "." : p.slice(0, i);
+}
+
+// Task Scheduler equivalent for interval/calendar services (WinSW has no
+// scheduler of its own); rendered into the XML comment, never executed.
+function schtasksHint(spec: ServiceSpec, values: RenderValues): string | null {
+	const interval = spec.schedule.intervalSeconds;
+	const cal = spec.schedule.calendar;
+	if (interval === undefined && cal === undefined) return null;
+	const argv = [
+		values.bun,
+		substitute(spec.bunEntry, values),
+		...spec.args.map((a) => substitute(a, values)),
+	];
+	const cmd = argv.map(winQuotedIfNeeded).join(" ");
+	if (interval !== undefined) {
+		const minutes = Math.round(interval / 60);
+		const note = interval % 60 === 0 ? "" : " (not minute-aligned)";
+		return `schtasks /Create /SC MINUTE /MO ${minutes}${note} /TN ${UNIT_NS}-${spec.name} /TR "${cmd}"`;
+	}
+	const hh = String(cal.hour).padStart(2, "0");
+	const mm = String(cal.minute).padStart(2, "0");
+	return `schtasks /Create /SC DAILY /ST ${hh}:${mm} /TN ${UNIT_NS}-${spec.name} /TR "${cmd}"`;
+}
+
+function winComment(spec: ServiceSpec, values: RenderValues): string[] {
+	const id = `${UNIT_NS}-${spec.name}`;
+	const l: string[] = [
+		"<!--",
+		`  ${id}.xml — WinSW v5 config, rendered from deploy/services.yaml (W488.3).`,
+		"  ops doc: scripts/README-windows.md (winsw install/start, NSSM",
+		"  alternative, env-file injection without embedding secrets).",
+	];
+	const st = schtasksHint(spec, values);
+	if (st !== null) {
+		l.push(
+			"  WinSW has no scheduler — Task Scheduler owns periodicity:",
+			`    ${st}`,
+		);
+	}
+	l.push(
+		'  mapping: keepalive -> <onfailure action="restart"/>; RunAtLoad ->',
+		"  <startmode>Automatic</startmode>; nice -> <priority>.",
 	);
+	return l;
+}
+
+function winIdentity(spec: ServiceSpec, values: RenderValues): string[] {
+	const s = (t: string): string => substitute(t, values);
+	const argv = [s(spec.bunEntry), ...spec.args.map((a) => s(a))];
+	const l: string[] = [
+		`  <executable>${escXml(values.bun)}</executable>`,
+		`  <arguments>${escXml(argv.map(winQuotedIfNeeded).join(" "))}</arguments>`,
+	];
+	if (spec.cwd !== undefined) {
+		l.push(`  <workingdirectory>${escXml(s(spec.cwd))}</workingdirectory>`);
+	}
+	return l;
+}
+
+function winRuntime(spec: ServiceSpec, values: RenderValues): string[] {
+	const s = (t: string): string => substitute(t, values);
+	const l: string[] = [];
+	for (const [k, v] of Object.entries(spec.env)) {
+		l.push(`  <env name="${escXmlAttr(k)}" value="${escXmlAttr(s(v))}"/>`);
+	}
+	if (spec.envFile !== undefined) {
+		l.push(
+			"  <!-- envFile PATH reference only — WinSW core has no envfile element;",
+			"       inject per README-windows.md (contents NEVER embedded):",
+			`       ${s(spec.envFile)} -->`,
+		);
+	}
+	l.push(`  <logpath>${escXml(winDirname(s(spec.logs.out)))}</logpath>`);
+	l.push('  <log mode="roll"/>');
+	if (spec.schedule.keepalive === true) {
+		const delay = spec.schedule.throttleSeconds ?? WINSW_DEFAULT_DELAY_SEC;
+		l.push(`  <onfailure action="restart" delay="${delay} sec"/>`);
+	}
+	if (spec.nice !== undefined) {
+		l.push(`  <priority>${winPriority(spec.nice)}</priority>`);
+	}
+	l.push("  <startmode>Automatic</startmode>");
+	l.push("  <stopparentprocessfirst>true</stopparentprocessfirst>");
+	return l;
+}
+
+export function renderWin32(spec: ServiceSpec, values: RenderValues): string {
+	const id = `${UNIT_NS}-${spec.name}`;
+	const unit = `${[
+		...winComment(spec, values),
+		"-->",
+		"<service>",
+		`  <id>${id}</id>`,
+		`  <name>${id}</name>`,
+		`  <description>${escXml(`fleet ${spec.name} (deploy/services.yaml)`)}</description>`,
+		...winIdentity(spec, values),
+		...winRuntime(spec, values),
+		"</service>",
+	].join("\n")}\n`;
+	assertNoResidualTokens(spec.name, unit);
+	return unit;
+}
+
+// stdout inspection-mode banner: XML-comment style for plists and WinSW
+// XML, INI comment style for systemd units.
+function banner(target: string, file: string): string {
+	if (target === "linux") return `\n# ==== ${file} ====\n`;
+	return `\n<!-- ==== ${file} ==== -->\n`;
 }
 
 function die(msg: string): never {
@@ -378,11 +696,6 @@ function main(argv: string[]): number {
 	if (target !== "darwin" && target !== "linux" && target !== "win32") {
 		die(`unknown target "${target}" (darwin|linux|win32)`);
 	}
-	if (target !== "darwin") {
-		die(
-			`target "${target}" is not yet implemented — this child (W488.1) ships darwin only; linux lands in W488.2, win32 in W488.3`,
-		);
-	}
 	const all = loadManifest();
 	const specs =
 		only.length > 0
@@ -398,33 +711,63 @@ function main(argv: string[]): number {
 	const t0 = performance.now();
 	const rendered = specs.map((spec) => ({
 		spec,
-		unit: renderTarget(target, spec, values),
+		units: renderUnits(target, spec, values),
 	}));
 	const wallMs = performance.now() - t0;
-	const results: { service: string; target: string; outFile: string | null }[] =
-		[];
+	const results: {
+		service: string;
+		target: string;
+		outFile: string | null;
+		files: string[];
+	}[] = [];
 	if (outDir !== null) {
 		mkdirSync(outDir, { recursive: true });
 		for (const r of rendered) {
-			const file = join(
-				resolve(outDir),
-				`${LABEL_PREFIX}.${r.spec.name}.plist`,
-			);
-			writeFileSync(file, r.unit);
-			results.push({ service: r.spec.name, target, outFile: file });
+			for (const u of r.units) {
+				writeFileSync(join(resolve(outDir), u.file), u.body);
+			}
+			results.push({
+				service: r.spec.name,
+				target,
+				outFile: join(resolve(outDir), r.units[0].file),
+				files: r.units.map((u) => u.file),
+			});
 		}
 	} else {
 		for (const r of rendered) {
-			process.stdout.write(
-				`\n<!-- ==== ${LABEL_PREFIX}.${r.spec.name}.plist ==== -->\n`,
-			);
-			process.stdout.write(r.unit);
-			results.push({ service: r.spec.name, target, outFile: null });
+			for (const u of r.units) {
+				process.stdout.write(banner(target, u.file));
+				process.stdout.write(u.body);
+			}
+			results.push({
+				service: r.spec.name,
+				target,
+				outFile: null,
+				files: r.units.map((u) => u.file),
+			});
 		}
 	}
 	console.error(
 		`render: ${rendered.length} service(s) in ${wallMs.toFixed(2)}ms (target ${target})`,
 	);
+	if (target === "linux") {
+		for (const r of rendered) {
+			const unitName = r.units[0].file.replace(/\.service$/, "");
+			const activate = r.units.some((u) => u.file.endsWith(".timer"))
+				? `${unitName}.timer`
+				: `${unitName}.service`;
+			console.error(
+				`activate: systemctl --user daemon-reload && systemctl --user enable --now ${activate}`,
+			);
+		}
+	}
+	if (target === "win32") {
+		for (const r of rendered) {
+			console.error(
+				`install: winsw install+start ${r.units[0].file} per scripts/README-windows.md`,
+			);
+		}
+	}
 	if (json) {
 		console.log(
 			JSON.stringify(

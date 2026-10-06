@@ -1,8 +1,9 @@
 # deploy/services.yaml — the ONE declarative manifest for every custom bun
 # runner in the fleet (W488.1). scripts/install-services.ts renders each entry
 # into a platform service unit:
-#   darwin → launchd plist com.suspenders.<name>.plist (this child)
-#   linux  → W488.2 · win32 → W488.3 (die loudly until they land)
+#   darwin → launchd plist com.suspenders.<name>.plist (W488.1)
+#   linux  → systemd USER units suspenders-<name>.service (+ .timer) (W488.2)
+#   win32  → WinSW v5 XML suspenders-<name>.xml (W488.3)
 # The hand-written templates in hooks/launchd/ stay in place (with a parity
 # test asserting field-equivalence) until the cutover child (W490.2) flips
 # install.sh to render from THIS manifest.
