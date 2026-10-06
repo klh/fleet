@@ -32,7 +32,7 @@
 //           health hits this) · GET /status → full JSON verdict
 //   cli:    bun probe.ts --target URL [--timeout 2000] — one-shot, exit 0/1
 
-interface ProbeArgs {
+export interface ProbeArgs {
 	target: string;
 	listen?: number;
 	path?: string;
@@ -129,12 +129,56 @@ function targetUrl(args: ProbeArgs): string {
 	return url.toString();
 }
 
-async function probeOnce(url: string, timeoutMs: number): Promise<Sample> {
+export async function probeOnce(
+	url: string,
+	timeoutMs: number,
+): Promise<Sample> {
 	const t0 = Date.now();
 	try {
-		const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+		const r = await fetch(url, {
+			signal: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
+		});
+		let ok = r.ok;
+		if (ok && r.headers.get("content-type")?.includes("json")) {
+			const reader = r.body?.getReader();
+			let size = 0;
+			const chunks: Uint8Array[] = [];
+			if (reader) {
+				try {
+					for (;;) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						size += value.byteLength;
+						if (size > 65536) throw new Error("probe response exceeds 64 KiB");
+						chunks.push(value);
+					}
+				} finally {
+					await reader.cancel();
+				}
+			}
+			const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+			ok =
+				body !== null &&
+				typeof body === "object" &&
+				!Array.isArray(body) &&
+				body.ok !== false &&
+				body.healthy !== false &&
+				![
+					"down",
+					"unhealthy",
+					"error",
+					"failed",
+					"unavailable",
+					"dead",
+					"stopped",
+					"degraded",
+				].includes(body.status);
+		} else {
+			await r.body?.cancel();
+		}
 		return {
-			ok: r.ok,
+			ok,
 			status: r.status,
 			ms: Date.now() - t0,
 			at: new Date().toISOString(),
@@ -151,10 +195,10 @@ async function probeOnce(url: string, timeoutMs: number): Promise<Sample> {
 
 /** The monitor: bounded result ring + the gated verdict. One probe on the
  *  wire at a time; the down flip requires an active confirming re-probe. */
-function createMonitor(args: ProbeArgs) {
+export function createMonitor(args: ProbeArgs) {
 	const url = targetUrl(args);
 	const ring: Sample[] = [];
-	let state: VerdictState = "up";
+	let state: VerdictState = "down";
 	let misses = 0;
 	let lastOk: string | null = null;
 	let total = 0;
@@ -209,10 +253,18 @@ function createMonitor(args: ProbeArgs) {
 		recent: Sample[];
 	} {
 		const last = ring.at(-1);
+		const fresh =
+			!!last &&
+			Date.now() - Date.parse(last.at) <= args.every + args.timeout * 2;
+		const reportedState = !fresh
+			? "down"
+			: !last?.ok && state === "up"
+				? "degrading"
+				: state;
 		return {
 			target: url,
-			state,
-			ok: state === "up",
+			state: reportedState,
+			ok: reportedState === "up" && last?.ok === true,
 			misses,
 			missLimit: args.misses,
 			lastOk,
@@ -252,14 +304,26 @@ async function main(): Promise<void> {
 		port: args.listen,
 		fetch: (req) => {
 			const { pathname } = new URL(req.url);
+			if (pathname !== "/healthz" && pathname !== "/status")
+				return new Response("not found", { status: 404 });
+			const headers = {
+				allow: "GET, HEAD, OPTIONS",
+				"cache-control": "no-store",
+			};
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method !== "GET" && req.method !== "HEAD")
+				return new Response("method not allowed", { status: 405, headers });
 			const snap = monitor.snapshot();
+			if (req.method === "HEAD")
+				return new Response(null, { status: snap.ok ? 200 : 502, headers });
 			if (pathname === "/healthz") {
 				return Response.json(
 					{ ok: snap.ok, state: snap.state, target: snap.target },
-					{ status: snap.ok ? 200 : 502 },
+					{ status: snap.ok ? 200 : 502, headers },
 				);
 			}
-			return Response.json(snap, { status: snap.ok ? 200 : 502 });
+			return Response.json(snap, { status: snap.ok ? 200 : 502, headers });
 		},
 	});
 	console.log(
@@ -267,4 +331,4 @@ async function main(): Promise<void> {
 	);
 }
 
-await main();
+if (import.meta.main) await main();

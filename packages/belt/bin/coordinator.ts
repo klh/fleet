@@ -6,8 +6,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { residentSet } from "./registry.ts";
 import { httpProbe } from "./supervisor.ts";
+import { endpointPassed } from "./health.ts";
 
-const HOME = process.env.HOME!;
+const HOME = process.env.HOME ?? "";
 const CACHE = `${HOME}/.cache/claude-governor`;
 const ROUTING_LOG = `${HOME}/.claude-insights/swarm-routing.log`;
 
@@ -25,22 +26,26 @@ type Heartbeats = Record<
 	}
 >;
 
-// W5: delegates to supervisor.ts's hardened probe (TCP pre-check, 2000ms) —
-// `r.ok` previously misreported the router (:4000, 404-by-design on
-// /v1/models) as down whenever its /health/liveliness fallback above failed,
-// and the bare 800ms timeout was prone to false negatives under load.
+// Router process liveness and specialist model availability use their own
+// paths. A responsive 404/503 is not a passing configured check.
 const isUp = (port: number): Promise<boolean> =>
-	httpProbe(port, "/v1/models", "127.0.0.1", 2000);
+	httpProbe(
+		port,
+		port === 4000 ? "/health/liveness" : "/v1/models",
+		"127.0.0.1",
+		2000,
+		{ okStatus: [200] },
+	);
 
 const health = async (
 	port: number,
 ): Promise<{ up: boolean; extra?: string }> => {
 	try {
 		const r = await fetch(`http://localhost:${port}/health/liveliness`, {
-			signal: AbortSignal.timeout(800),
+			signal: AbortSignal.timeout(2000),
+			redirect: "manual",
 		});
-		const j = (await r.json()) as any;
-		return { up: true, extra: j.router ?? undefined };
+		return { up: await endpointPassed(r) };
 	} catch {
 		return { up: await isUp(port) };
 	}
@@ -103,7 +108,7 @@ async function cmdStatus(): Promise<void> {
 	const specs = existsSync(`${HOME}/.claude/local-llm/prefs.json`)
 		? (JSON.parse(
 				readFileSync(`${HOME}/.claude/local-llm/prefs.json`, "utf8"),
-			) as any)
+			) as { cost_speed?: string; allow_cloud?: boolean; profile?: string[] })
 		: {};
 	const prefs = specs;
 	console.log(

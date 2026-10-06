@@ -13,6 +13,7 @@
 import { appendFileSync } from "node:fs";
 import { byPort, fallbackFor, type Specialist } from "./registry.ts";
 import { ensureUp } from "./spawner.ts";
+import { livenessResponse } from "./health.ts";
 
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
@@ -418,9 +419,10 @@ Bun.serve({
 	async fetch(req) {
 		const url = new URL(req.url);
 
-		if (req.method === "GET" && url.pathname === "/health/liveliness") {
-			return Response.json({ status: "alive", router: "complexity-v3" });
-		}
+		const health = livenessResponse(req, "belt-router", {
+			router: "complexity-v3",
+		});
+		if (health) return health;
 
 		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
 			return Response.json({ error: "not found" }, { status: 404 });

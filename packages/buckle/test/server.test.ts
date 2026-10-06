@@ -132,6 +132,18 @@ describe("http citizenship at the observability seam (W155)", () => {
 		expect(del.headers.get("allow")).toContain("GET");
 		const put = await fetch(`${base}/metrics`, { method: "PUT" });
 		expect(put.status).toBe(405);
+		const health = await fetch(`${base}/health`);
+		expect(health.status).toBe(200);
+		expect(await health.text()).toBe("ok");
+		expect(health.headers.get("cache-control")).toBe("no-store");
+		const head = await fetch(`${base}/health`, { method: "HEAD" });
+		expect(head.status).toBe(200);
+		expect(await head.text()).toBe("");
+		const healthOptions = await fetch(`${base}/health`, { method: "OPTIONS" });
+		expect(healthOptions.status).toBe(204);
+		expect(healthOptions.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+		const healthPost = await fetch(`${base}/health`, { method: "POST" });
+		expect(healthPost.status).toBe(405);
 		server.stop(true);
 		upstream.close();
 	});

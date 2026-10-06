@@ -19,6 +19,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname } from "node:path";
+import { probeService, serviceTarget } from "./dashboard-health.ts";
 
 const die = (msg: string): never => {
 	console.error(`✗ ${msg}`);
@@ -454,21 +455,6 @@ const releaseDns = (dns: Dns): void => {
 	}
 };
 
-const healthCheck = async (
-	port: number,
-	path: string,
-): Promise<{ ok: boolean; ms: number; code?: number }> => {
-	const t0 = performance.now();
-	try {
-		const r = await fetch(`http://127.0.0.1:${port}${path}`, {
-			signal: AbortSignal.timeout(1500),
-		});
-		return { ok: true, ms: Math.round(performance.now() - t0), code: r.status };
-	} catch {
-		return { ok: false, ms: Math.round(performance.now() - t0) };
-	}
-};
-
 const cmdInstall = (): void => {
 	if (!existsSync(CADDY)) {
 		if (!existsSync(BREW))
@@ -710,7 +696,8 @@ const cmdStatus = async (): Promise<void> => {
 		return;
 	}
 	for (const s of reg) {
-		const h = await healthCheck(s.port, s.health_path);
+		const target = serviceTarget(s);
+		const h = await probeService(target, s.health_path);
 		const dns = s.dns.claimed
 			? dnsAlive(s.dns.pid)
 				? `alive (pid ${s.dns.pid})`
@@ -719,9 +706,9 @@ const cmdStatus = async (): Promise<void> => {
 		const conf = existsSync(s.caddy.conf_path)
 			? s.caddy.conf_path
 			: `MISSING — ${s.caddy.conf_path}`;
-		console.log(`${s.name}  https://${s.name}.local/ → 127.0.0.1:${s.port}`);
+		console.log(`${s.name}  https://${s.name}.local/ → ${target}`);
 		console.log(
-			`  health   ${h.ok ? `ok HTTP ${h.code} ${h.ms}ms` : `fail ${h.ms}ms`}  (GET 127.0.0.1:${s.port}${s.health_path})`,
+			`  health   ${h.ok ? `ok HTTP ${h.code} ${h.ms}ms` : `fail ${h.ms}ms`}  (GET ${target}${s.health_path})`,
 		);
 		console.log(`  dns      ${dns}`);
 		console.log(

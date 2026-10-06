@@ -57,17 +57,45 @@ export const realDeps: ProbeDeps = {
 	readSupervisor: readSupervisorSnapshot,
 };
 
-const httpDetail = async (r: Response): Promise<string> => {
+const httpDetail = async (
+	r: Response,
+): Promise<{ detail: string; ok: boolean }> => {
 	const base = `HTTP ${r.status}`;
+	let ok = r.ok;
 	try {
 		const j = (await r.json()) as {
 			uptime_s?: number;
 			requests?: { total?: number };
+			ok?: boolean;
+			healthy?: boolean;
+			status?: string;
 		};
+		ok =
+			ok &&
+			j !== null &&
+			typeof j === "object" &&
+			!Array.isArray(j) &&
+			j.ok !== false &&
+			j.healthy !== false &&
+			![
+				"down",
+				"unhealthy",
+				"error",
+				"failed",
+				"unavailable",
+				"dead",
+				"stopped",
+				"degraded",
+			].includes(j.status ?? "");
 		if (typeof j?.uptime_s === "number")
-			return `${base} · uptime ${Math.round(j.uptime_s)}s · ${j.requests?.total ?? 0} req`;
-	} catch {}
-	return base;
+			return {
+				ok,
+				detail: `${base} · uptime ${Math.round(j.uptime_s)}s · ${j.requests?.total ?? 0} req`,
+			};
+	} catch {
+		if (r.headers.get("content-type")?.includes("json")) ok = false;
+	}
+	return { ok, detail: base };
 };
 
 const probeOne = async (
@@ -115,8 +143,8 @@ const probeOne = async (
 			signal: AbortSignal.timeout(1500),
 			redirect: "manual",
 		});
-		const detail = await httpDetail(r);
-		if (!r.ok)
+		const { detail, ok } = await httpDetail(r);
+		if (!ok)
 			return {
 				port: p.port,
 				up: false,

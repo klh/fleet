@@ -208,6 +208,26 @@ afterAll(() => {
 });
 
 describe("knowledge-api live face (W181 F2)", () => {
+	test("health is explicit and unknown routes never masquerade as healthy", async () => {
+		for (let i = 0; i < 60; i++) {
+			if (
+				await fetch(`${BASE}/health`)
+					.then((r) => r.ok)
+					.catch(() => false)
+			)
+				break;
+			await Bun.sleep(150);
+		}
+		expect((await fetch(`${BASE}/health`)).status).toBe(200);
+		expect(
+			await (await fetch(`${BASE}/health`, { method: "HEAD" })).text(),
+		).toBe("");
+		expect((await fetch(`${BASE}/health`, { method: "DELETE" })).status).toBe(
+			405,
+		);
+		expect((await fetch(`${BASE}/health/liveliness`)).status).toBe(404);
+		expect((await fetch(`${BASE}/api/status`)).status).toBe(404);
+	});
 	const token = (): string =>
 		readFileSync(
 			join(HOME, ".cache", "claude-governor", "write-token"),

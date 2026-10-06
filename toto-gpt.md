@@ -1019,6 +1019,17 @@ observed-request topology separate in the GUI. Transport disconnect does not
 prove agent death; discovery does not grant project access. Benchmark NATS plus
 JetStream against the outbox/HTTP prototype before adding a broker.
 
+## Implemented: coherent health/status checks (W485)
+
+Package producers and consumers now distinguish application liveness and status
+telemetry from independent sidecar health. False JSON verdicts and failed HTTP
+responses cannot become green checks; stale/initial sidecar evidence is not
+healthy. Status health flags refresh independently of cached counters, methods
+and HEAD responses are consistent, and unknown knowledge/sidecar routes fail.
+`hubctl status` uses sidecars and Docker health, including local profiles.
+See [the endpoint contract and deployment limits](docs/health-status-contract.md).
+Remote NAS activation/verification remains outstanding while it is unreachable.
+
 ## Implemented: formatter normalization without agent retry loops
 
 Successful `qlty fmt` or Markdown formatting is a non-blocking context notice,

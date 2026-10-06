@@ -24,6 +24,7 @@
 // Liveness persists to ~/.claude/local-llm/remotes-state.json (runtime dir,
 // NEVER committed): <machine>:<port> → {last_ok, last_error}.
 import dgram from "node:dgram";
+import { endpointPassed } from "./health.ts";
 import {
 	appendFileSync,
 	existsSync,
@@ -207,8 +208,8 @@ const probeReason = (ep: RemoteEndpoint): string | undefined =>
 /** Protocol-aware health probe: openai → GET /v1/models; llama → GET
  *  /health; immich → GET /ping (Immich ML v3.1 answers "pong"; /predict
  *  requires multipart and is broken upstream). Cloud endpoints (base) →
- *  GET ${base}/models with bearer auth; a missing key = not alive. Any HTTP
- *  answer = alive; only transport failure = dead. */
+ *  GET ${base}/models with bearer auth; a missing key = unavailable. A
+ *  configured check must pass (2xx, without an explicit failed verdict). */
 export async function probeEndpoint(
 	machine: RemoteMachine,
 	ep: RemoteEndpoint,
@@ -220,8 +221,9 @@ export async function probeEndpoint(
 			const r = await fetch(`${ep.base}/models`, {
 				headers: { authorization: `Bearer ${key}` },
 				signal: AbortSignal.timeout(4000),
+				redirect: "manual",
 			});
-			return r.status < 600;
+			return await endpointPassed(r);
 		} catch {
 			return false;
 		}
@@ -237,8 +239,9 @@ export async function probeEndpoint(
 	try {
 		const r = await fetch(`http://${ip}:${ep.port}${path}`, {
 			signal: AbortSignal.timeout(4000),
+			redirect: "manual",
 		});
-		return r.status < 600;
+		return await endpointPassed(r);
 	} catch {
 		return false;
 	}

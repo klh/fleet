@@ -39,7 +39,13 @@ const ROUTER = `${HOME}/.claude/local-llm/router-shim.ts`;
 // ─── helpers ───
 // W5: delegates to supervisor.ts's hardened probe — see dashboard.ts's note.
 const isUp = (port: number): Promise<boolean> =>
-	httpProbe(port, "/v1/models", "127.0.0.1", 2000);
+	httpProbe(
+		port,
+		port === 4000 ? "/health/liveness" : "/v1/models",
+		"127.0.0.1",
+		2000,
+		{ okStatus: [200] },
+	);
 
 const getModel = async (port: number): Promise<string> => {
 	try {

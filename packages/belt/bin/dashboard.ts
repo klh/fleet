@@ -16,6 +16,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { endpointPassed, livenessResponse } from "./health.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import {
@@ -73,7 +74,7 @@ const isUp = async (port: number, path = "/v1/models"): Promise<boolean> => {
 			signal: AbortSignal.timeout(2000),
 			redirect: "manual",
 		});
-		return response.ok;
+		return await endpointPassed(response);
 	} catch {
 		return false;
 	}
@@ -662,6 +663,8 @@ Bun.serve({
 	port: PORT,
 	hostname: "0.0.0.0",
 	async fetch(req): Promise<Response> {
+		const health = livenessResponse(req, "belt-dashboard");
+		if (health) return health;
 		const path = new URL(req.url).pathname;
 		// W155.3 citizenship: OPTIONS → 204+Allow; off-method on a known path
 		// → 405+Allow. Runs before auth — introspection needs no credentials.

@@ -135,7 +135,12 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 	const startedMs = performance.now();
 	const refreshS = opts.refreshS ?? parseRefreshS();
 	let lastError: { at: string; message: string } | null = null;
-	let statusCache: { at: number; body: string; etag: string } | null = null;
+	let statusCache: {
+		at: number;
+		body: string;
+		etag: string;
+		healthy: boolean;
+	} | null = null;
 
 	const counter = (name: string, help: string): Counter => {
 		const fam = (): CounterFamily => {
@@ -249,13 +254,14 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 	);
 
 	const noteError = (message: string): void => {
+		statusCache = null;
 		lastError = {
 			at: new Date().toISOString(),
 			message: scrub(message).slice(0, 300),
 		};
 	};
 
-	const snapshot = (): Record<string, unknown> => {
+	const snapshot = (healthy: boolean): Record<string, unknown> => {
 		const byRoute: Record<string, number> = {};
 		let total = 0;
 		const f = counters.get("http_requests_total");
@@ -270,7 +276,7 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 			port: opts.port,
 			started_at: startedAt.toISOString(),
 			uptime_s: Math.round(performance.now() - startedMs) / 1000,
-			healthy: opts.healthy ? opts.healthy() === true : true,
+			healthy,
 			requests: { total, by_route: byRoute },
 			last_error: lastError ? { ...lastError } : null,
 			generated_at: new Date().toISOString(),
@@ -288,13 +294,23 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 			.some((c) => c.trim() === "*" || c.trim().replace(/^W\//, "") === etag);
 
 	const statusResponse = (req: Request): Response => {
+		// Cache counters, never a stale health verdict. Telemetry remains a
+		// readable 200 resource even when unhealthy; external probes judge it.
+		let healthy = true;
+		try {
+			healthy = opts.healthy ? opts.healthy() === true : true;
+		} catch (error) {
+			healthy = false;
+			noteError(error instanceof Error ? error.message : String(error));
+		}
 		if (
 			refreshS <= 0 ||
 			statusCache === null ||
+			statusCache.healthy !== healthy ||
 			Date.now() - statusCache.at >= refreshS * 1000
 		) {
-			const body = JSON.stringify(snapshot());
-			statusCache = { at: Date.now(), body, etag: etagOf(body) };
+			const body = JSON.stringify(snapshot(healthy));
+			statusCache = { at: Date.now(), body, etag: etagOf(body), healthy };
 		}
 		const cache = statusCache;
 		const inm = req.headers.get("if-none-match");
@@ -342,6 +358,11 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 					} catch {}
 				}
 				resp = path === "/status" ? statusResponse(req) : metricsResponse();
+				if (req.method === "HEAD")
+					resp = new Response(null, {
+						status: resp.status,
+						headers: resp.headers,
+					});
 			}
 		} else {
 			try {

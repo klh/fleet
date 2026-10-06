@@ -261,4 +261,22 @@ describe("router shim serves /registry.json (scratch port)", () => {
 		const r = await fetch(`${base}/registry.json`, { method: "POST" });
 		expect(r.status).toBe(404);
 	});
+
+	test("router exposes coherent liveness aliases and method semantics", async () => {
+		for (const path of ["/health", "/health/liveness", "/health/liveliness"]) {
+			const get = await fetch(`${base}${path}`);
+			expect(get.status).toBe(200);
+			expect(await get.json()).toMatchObject({
+				ok: true,
+				service: "belt-router",
+				check: "process-liveness",
+			});
+			const head = await fetch(`${base}${path}`, { method: "HEAD" });
+			expect(head.status).toBe(200);
+			expect(await head.text()).toBe("");
+			expect((await fetch(`${base}${path}`, { method: "POST" })).status).toBe(
+				405,
+			);
+		}
+	});
 });

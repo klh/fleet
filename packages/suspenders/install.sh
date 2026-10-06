@@ -112,6 +112,7 @@ if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
   fi
   cp -p "$SUPERVISOR_TARGET" "$SUPERVISOR_TARGET.before-refresh"
   cp "$SUPERVISOR_SOURCE" "$SUPERVISOR_TARGET"
+  cp "$REPO_DIR/../belt/bin/health.ts" "$LLM_HOME/health.ts"
   if ! bun -e 'await import(process.argv[1])' "$SUPERVISOR_TARGET"; then
     cp -p "$SUPERVISOR_TARGET.before-refresh" "$SUPERVISOR_TARGET"
     echo "→ supervisor import failed; previous code restored" >&2
@@ -140,7 +141,7 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ $NO_LLM -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  for f in registry.ts spawner.ts router-shim.ts; do
+  for f in registry.ts spawner.ts router-shim.ts health.ts; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
     else

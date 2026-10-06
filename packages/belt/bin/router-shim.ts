@@ -12,6 +12,7 @@
 // leaves the machine).
 
 import { appendFileSync } from "node:fs";
+import { livenessResponse } from "./health.ts";
 import { createAdmission, overloaded } from "./admission.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import { byPort, fallbackFor, type Specialist } from "./registry.ts";
@@ -395,9 +396,10 @@ Bun.serve({
 	async fetch(req) {
 		const url = new URL(req.url);
 
-		if (req.method === "GET" && url.pathname === "/health/liveliness") {
-			return Response.json({ status: "alive", router: "complexity-v3" });
-		}
+		const health = livenessResponse(req, "belt-router", {
+			router: "complexity-v3",
+		});
+		if (health) return health;
 
 		// W271: the full registry (ETag'd); hubs proxy it, spokes pull it
 		if (

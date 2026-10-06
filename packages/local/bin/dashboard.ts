@@ -20,6 +20,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { basename } from "node:path";
+import { livenessResponse } from "./health.ts";
 import {
 	observation,
 	observationFresh,
@@ -261,7 +262,23 @@ Bun.serve({
 		const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
 		if (!HOSTS_OK.has(host))
 			return new Response("unknown host\n", { status: 421 });
+		const health = livenessResponse(req, "local-dashboard");
+		if (health) return health;
 		const path = new URL(req.url).pathname;
+		const paths = [
+			"/",
+			"/api/status",
+			"/observation.js",
+			"/vendor/lit-shared.js",
+			"/llms.txt",
+		];
+		if (paths.includes(path)) {
+			const headers = { allow: "GET, HEAD, OPTIONS" };
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method !== "GET" && req.method !== "HEAD")
+				return new Response(null, { status: 405, headers });
+		}
 		if (path === "/observation.js")
 			return new Response(
 				`export const observationFresh = ${observationFresh.toString()};`,

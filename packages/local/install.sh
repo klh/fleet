@@ -20,6 +20,7 @@ for item in "$REPO_DIR"/bin/*; do
   cp -R "$item" "$PREFIX/bin/"
 done
 cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/bin/observation.ts"
+cp "$REPO_DIR/../belt/bin/health.ts" "$PREFIX/bin/health.ts"
 chmod +x "$PREFIX"/bin/*.ts
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$PREFIX/bin/klh-local.ts" "$HOME/.local/bin/klh-local"

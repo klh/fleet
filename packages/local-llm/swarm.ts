@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
 import { mlxLogPath, spawnArgs } from "./spawner.ts";
+import { endpointPassed } from "./health.ts";
 
 const HOME = process.env.HOME;
 // download-only — server argv lives in spawner.ts (spawnArgs), shared with the
@@ -36,12 +37,12 @@ const ROUTER = `${LLM_HOME}/router-shim.ts`;
 // ─── helpers ───
 const isUp = async (port: number): Promise<boolean> => {
 	try {
-		// Any HTTP response = listening. The router (:4000) answers 404 on
-		// /v1/models by design — it only implements Anthropic /v1/messages.
-		await fetch(`http://localhost:${port}/v1/models`, {
-			signal: AbortSignal.timeout(1000),
+		const path = port === 4000 ? "/health/liveness" : "/v1/models";
+		const response = await fetch(`http://localhost:${port}${path}`, {
+			signal: AbortSignal.timeout(2000),
+			redirect: "manual",
 		});
-		return true;
+		return await endpointPassed(response);
 	} catch {
 		return false;
 	}

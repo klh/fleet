@@ -34,6 +34,7 @@ import {
 import { createHash } from "node:crypto";
 import { connect } from "node:net";
 import { dirname } from "node:path";
+import { endpointPassed } from "./health.ts";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
 import { DEFAULT_PATHS, litellmTarget } from "./litellm-target.ts";
 import { mlxLogPath, spawnArgs } from "./spawner.ts";
@@ -255,7 +256,10 @@ export const httpProbe = async (
 		const r = await fetch(`http://${host}:${port}${path}`, {
 			headers: opts.headers,
 			signal: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
 		});
+		if (opts.okStatus?.includes(r.status) && r.ok)
+			return await endpointPassed(r);
 		await r.body?.cancel();
 		return opts.okStatus ? opts.okStatus.includes(r.status) : true;
 	} catch {
@@ -785,6 +789,7 @@ export function fleetTargets(): Target[] {
 			kind: "router",
 			owned: true,
 			healthPath: "/health/liveliness",
+			okStatus: [200],
 			killHung: true,
 			bindTimeoutMs: 15_000,
 			generation: () => fileRevision(ROUTER_SCRIPT),

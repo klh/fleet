@@ -1,4 +1,5 @@
 import { observation, type Observation } from "./observation.ts";
+import { endpointPassed } from "./health.ts";
 /** A network observation, not an assertion about application readiness. */
 export type HealthObservation = {
 	ok: boolean;
@@ -35,9 +36,9 @@ export async function probeService(
 			signal: AbortSignal.timeout(timeout),
 			redirect: "manual",
 		});
-		await response.body?.cancel();
+		const ok = await endpointPassed(response);
 		return {
-			ok: response.ok,
+			ok,
 			reachable: true,
 			code: response.status,
 			ms: Math.round(performance.now() - start),

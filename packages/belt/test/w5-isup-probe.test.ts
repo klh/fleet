@@ -1,15 +1,11 @@
-// W5: dashboard.ts/swarm.ts/coordinator.ts now delegate liveness checks to
-// supervisor.ts's httpProbe instead of each reimplementing a bare 1-shot
-// fetch() — this guards the two regressions that motivated the change:
-// (1) a 404 response (e.g. the router's /v1/models) must still count as
-//     "up" (no okStatus narrowing by default), and
-// (2) a listening-but-slow server must not be an instant false negative —
-//     httpProbe's timeout is 2000ms, not the old 800/1000ms.
+// Diagnostic request-loop probes retain any-response semantics when callers
+// omit okStatus. Configured health/model checks explicitly narrow statuses;
+// health.test.ts covers those strict consumer semantics.
 import { describe, expect, test } from "bun:test";
 import { httpProbe } from "../bin/supervisor.ts";
 
-describe("W5: shared httpProbe semantics (dashboard/swarm/coordinator isUp)", () => {
-	test("a 404 response counts as up — matches the router's documented /v1/models behavior", async () => {
+describe("W5: diagnostic httpProbe compatibility", () => {
+	test("a 404 still demonstrates reachability when no statuses are specified", async () => {
 		await using server = Bun.serve({
 			port: 0,
 			fetch: () => new Response("not found", { status: 404 }),

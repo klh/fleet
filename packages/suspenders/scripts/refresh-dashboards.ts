@@ -24,6 +24,8 @@ const groups = [
 		files: [
 			"dashboard.ts",
 			"dashboard-state.ts",
+			"health.ts",
+			"remotes.ts",
 			"inventory-probe.ts",
 			"dashboard-observability.js",
 			"klh-theme.ts",
@@ -36,6 +38,8 @@ const groups = [
 		files: [
 			"dashboard.ts",
 			"dashboard-health.ts",
+			"health.ts",
+			"klh-local.ts",
 			"dashboard-page.html",
 			"klh-theme.ts",
 			"vendor/lit-shared.js",

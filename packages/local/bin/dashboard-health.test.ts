@@ -56,3 +56,13 @@ test("successful configured check and unreachable service remain distinct", asyn
 		reachable: false,
 	});
 });
+
+test("successful HTTP cannot hide an explicit failed health verdict", async () => {
+	for (const body of [{ ok: false }, { healthy: false }, { status: "down" }]) {
+		const server = Bun.serve({ port: 0, fetch: () => Response.json(body) });
+		servers.push(server);
+		expect(
+			await probeService(`127.0.0.1:${server.port}`, "/health"),
+		).toMatchObject({ ok: false, reachable: true, code: 200 });
+	}
+});

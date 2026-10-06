@@ -240,30 +240,33 @@ function status(hub: HubProfile): number {
 	let failed = 0;
 	for (const line of ps.split("\n").filter((l) => l.startsWith("{"))) {
 		try {
-			const row = JSON.parse(line) as { Service?: string; State?: string };
+			const row = JSON.parse(line) as {
+				Service?: string;
+				State?: string;
+				Health?: string;
+			};
 			const svc = row.Service ?? "?";
-			const ok = row.State === "running";
+			const ok =
+				row.State === "running" && (!row.Health || row.Health === "healthy");
 			if (!ok) failed++;
-			console.log(`${ok ? "✓" : "✗"} ${svc}: ${row.State ?? "?"}`);
+			console.log(
+				`${ok ? "✓" : "✗"} ${svc}: ${row.State ?? "?"}${row.Health ? ` (${row.Health})` : ""}`,
+			);
 		} catch {
 			failed++;
 		}
 	}
 	const probes: Array<[string, number, string]> = [
-		["buckle", hub.buckle_port ?? 0, "/status"],
-		["board", hub.board_port ?? 0, "/status"],
-		["hub-store", hub.store_port ?? 0, "/status"],
-		["belt", hub.belt_port ?? 0, "/api/status"],
+		["buckle-health", hub.buckle_health_port ?? 4112, "/healthz"],
+		["board-health", hub.board_health_port ?? 7800, "/healthz"],
+		["store-health", hub.store_health_port ?? 7794, "/healthz"],
+		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
 	];
 	for (const [svc, port, path] of probes) {
 		if (!port) continue;
-		const code = execFileSync(
-			"ssh",
-			[
-				hub.deploy?.ssh ?? "",
-				`curl -so /dev/null -w '%{http_code}' http://127.0.0.1:${port}${path}`,
-			].filter(Boolean),
-			{ encoding: "utf8" },
+		const code = runOnHub(
+			hub,
+			`curl --max-time 5 -so /dev/null -w '%{http_code}' http://127.0.0.1:${port}${path} || true`,
 		).trim();
 		const ok = code === "200";
 		if (!ok) failed++;

@@ -4,38 +4,77 @@
 // through the OpenAI Responses API). Translates POST /v1/messages to the
 // MLX server's /v1/chat/completions. ~90 lines, no framework, no deps.
 //   bun anthropic-shim.ts            # serves :4000, backend :8901
+import { livenessResponse } from "./health.ts";
+
+interface ShimBody {
+	model?: string;
+	max_tokens?: number;
+	temperature?: number;
+	messages?: { role?: string; content?: string | { text?: string }[] }[];
+}
+interface BackendReply {
+	choices?: {
+		finish_reason?: string;
+		message?: { content?: string; reasoning_content?: string };
+	}[];
+	error?: { message?: string };
+}
+
 const PORT = Number(process.env.SHIM_PORT ?? 4000);
 const BACKEND = process.env.MLX_BASE ?? "http://localhost:8901";
 
-const server = Bun.serve({
+Bun.serve({
 	port: PORT,
 	async fetch(req) {
 		const url = new URL(req.url);
+		const health = livenessResponse(req, "belt-anthropic-shim");
+		if (health) return health;
 		if (
-			req.method === "GET" &&
-			(url.pathname === "/health/liveliness" || url.pathname === "/v1/models")
+			(req.method === "GET" || req.method === "HEAD") &&
+			url.pathname === "/v1/models"
 		) {
-			const r = await fetch(`${BACKEND}/v1/models`)
-				.then((r) => r.json())
-				.catch(() => ({ data: [] }));
-			return Response.json(r.data ? { data: r.data } : { status: "alive" });
+			try {
+				const response = await fetch(`${BACKEND}/v1/models`, {
+					signal: AbortSignal.timeout(2000),
+					redirect: "manual",
+				});
+				if (!response.ok) {
+					await response.body?.cancel();
+					return Response.json(
+						{ error: "backend unavailable" },
+						{ status: 503, headers: { "cache-control": "no-store" } },
+					);
+				}
+				if (req.method === "HEAD") await response.body?.cancel();
+				return new Response(req.method === "HEAD" ? null : response.body, {
+					headers: {
+						"content-type": "application/json",
+						"cache-control": "no-store",
+					},
+				});
+			} catch {
+				return Response.json(
+					{ error: "backend unavailable" },
+					{ status: 503, headers: { "cache-control": "no-store" } },
+				);
+			}
 		}
 		if (req.method !== "POST" || url.pathname !== "/v1/messages")
 			return Response.json({ error: "not found" }, { status: 404 });
 
-		let body: any;
+		let body: ShimBody;
 		try {
 			body = await req.json();
 		} catch {
 			return Response.json({ error: "bad json" }, { status: 400 });
 		}
 
-		const messages = (body.messages ?? []).map((m: any) => {
+		const messages = (body.messages ?? []).map((m) => {
 			const content =
 				typeof m.content === "string"
 					? m.content
 					: Array.isArray(m.content)
-						? m.content.map((b: any) => b.text ?? "").join("")
+						? m.content.map((b) => b.text ?? "").join("")
 						: "";
 			return { role: m.role === "assistant" ? "assistant" : "user", content };
 		});
@@ -59,7 +98,7 @@ const server = Bun.serve({
 					chat_template_kwargs: { enable_thinking: false },
 				}),
 			});
-			const j: any = await r.json();
+			const j: BackendReply = await r.json();
 			const msg = j.choices?.[0]?.message ?? {};
 			text =
 				(msg.content || "").replace(/<think>[\s\S]*?<\/think>/g, "").trim() ||
@@ -73,11 +112,14 @@ const server = Bun.serve({
 					j.error?.message ??
 						`backend ${r.status}: ${JSON.stringify(j).slice(0, 200)}`,
 				);
-		} catch (e: any) {
+		} catch (e) {
 			return Response.json(
 				{
 					type: "error",
-					error: { type: "api_error", message: `shim: ${e.message}` },
+					error: {
+						type: "api_error",
+						message: `shim: ${e instanceof Error ? e.message : String(e)}`,
+					},
 				},
 				{ status: 502 },
 			);

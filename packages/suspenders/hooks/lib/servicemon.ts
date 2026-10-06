@@ -132,7 +132,7 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 	const startedMs = performance.now();
 	const refreshS = opts.refreshS ?? parseRefreshS();
 	let lastError: { at: string; message: string } | null = null;
-	let statusCache: { at: number; body: string } | null = null;
+	let statusCache: { at: number; body: string; healthy: boolean } | null = null;
 
 	const counter = (name: string, help: string): Counter => {
 		const fam = (): CounterFamily => {
@@ -252,7 +252,15 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 		};
 	};
 
-	const snapshot = (): Record<string, unknown> => {
+	const readHealthy = (): boolean => {
+		try {
+			return opts.healthy ? opts.healthy() === true : true;
+		} catch (error) {
+			noteError(error instanceof Error ? error.message : String(error));
+			return false;
+		}
+	};
+	const snapshot = (healthy = readHealthy()): Record<string, unknown> => {
 		const byRoute: Record<string, number> = {};
 		let total = 0;
 		const f = counters.get("http_requests_total");
@@ -267,7 +275,7 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 			port: opts.port,
 			started_at: startedAt.toISOString(),
 			uptime_s: Math.round(performance.now() - startedMs) / 1000,
-			healthy: opts.healthy ? opts.healthy() === true : true,
+			healthy,
 			requests: { total, by_route: byRoute },
 			last_error: lastError ? { ...lastError } : null,
 			generated_at: new Date().toISOString(),
@@ -275,12 +283,18 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 	};
 
 	const statusResponse = (): Response => {
+		const healthy = readHealthy();
 		if (
 			refreshS <= 0 ||
 			!statusCache ||
+			statusCache.healthy !== healthy ||
 			Date.now() - statusCache.at >= refreshS * 1000
 		)
-			statusCache = { at: Date.now(), body: JSON.stringify(snapshot()) };
+			statusCache = {
+				at: Date.now(),
+				body: JSON.stringify(snapshot(healthy)),
+				healthy,
+			};
 		return new Response(statusCache.body, {
 			headers: {
 				"content-type": "application/json; charset=utf-8",
@@ -308,12 +322,22 @@ export function servicemon(opts: ServicemonOptions): Servicemon {
 		let resp: Response | undefined;
 		let threw = false;
 		if (path === "/status" || path === "/metrics") {
+			const headers = { allow: "GET, HEAD, OPTIONS" };
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method !== "GET" && req.method !== "HEAD")
+				return new Response("method not allowed", { status: 405, headers });
 			if (path === "/metrics" && opts.onMetrics) {
 				try {
 					opts.onMetrics();
 				} catch {}
 			}
 			resp = path === "/status" ? statusResponse() : metricsResponse();
+			if (req.method === "HEAD")
+				resp = new Response(null, {
+					status: resp.status,
+					headers: resp.headers,
+				});
 		} else {
 			try {
 				resp = await inner(req);

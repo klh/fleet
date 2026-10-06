@@ -277,8 +277,16 @@ const base = {
 				? undefined
 				: new Response("upgrade failed", { status: 500 });
 		}
-		if (url.pathname === "/health")
-			return Response.json({
+		if (url.pathname === "/health") {
+			const headers = {
+				allow: "GET, HEAD, OPTIONS",
+				"cache-control": "no-store",
+			};
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method !== "GET" && req.method !== "HEAD")
+				return new Response("method not allowed", { status: 405, headers });
+			const result = {
 				ok: true,
 				store: "governor",
 				instanceId: INSTANCE_ID,
@@ -286,7 +294,11 @@ const base = {
 				user_version: (
 					db.query("PRAGMA user_version").get() as { user_version: number }
 				).user_version,
-			});
+			};
+			return req.method === "HEAD"
+				? new Response(null, { headers })
+				: Response.json(result, { headers });
+		}
 		// W149 — the identity surface rides this server (it owns governor.db):
 		// /auth/token, /auth/refresh, /auth/revoke, /auth/whoami. Serialized on
 		// the same connection chain as /rpc so issuance transactions never

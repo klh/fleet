@@ -83,6 +83,25 @@ const base = {
 		const mutating = req.method === "POST" && WRITE_ROUTES.has(path);
 		const denied = hostGuard(req, { bind: BIND, write: mutating });
 		if (denied) return denied;
+		if (path === "/" || path === "/health") {
+			const headers = {
+				allow: "GET, HEAD, OPTIONS",
+				"cache-control": "no-store",
+			};
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method === "HEAD") return new Response(null, { headers });
+			if (req.method !== "GET")
+				return new Response("method not allowed", { status: 405, headers });
+			return Response.json(
+				{
+					ok: true,
+					service: "suspenders-knowledge-api",
+					routes: ["/search", ...WRITE_ROUTES, "/verify"],
+				},
+				{ headers },
+			);
+		}
 		// anonymous reads get scrubbed output; the install token unlocks refs
 		const authed = tokenOk(req);
 		const body =
@@ -168,19 +187,7 @@ const base = {
 					rows: authed ? rows : rows.map((r) => ({ id: r.id, topic: r.topic })),
 				});
 			}
-			return json({
-				ok: true,
-				service: "suspenders-knowledge-api",
-				routes: [
-					"/search",
-					"/enqueue",
-					"/curate",
-					"/promote",
-					"/retire",
-					"/note",
-					"/verify",
-				],
-			});
+			return json({ error: "not found" }, 404);
 		} catch (e) {
 			return json({ error: e instanceof Error ? e.message : String(e) }, 500);
 		}

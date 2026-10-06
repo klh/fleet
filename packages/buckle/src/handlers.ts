@@ -600,8 +600,11 @@ export function createApp(deps: AppDeps): App {
 			});
 		}
 		if (method === "GET" && path === "/v1/models") return models(deps);
-		if (method === "GET" && path === "/health") {
-			return new Response("ok", { headers: { "content-type": "text/plain" } });
+		if ((method === "GET" || method === "HEAD") && path === "/health") {
+			// Compatibility liveness only; outside-process probes own health.
+			return new Response(method === "HEAD" ? null : "ok", {
+				headers: { "content-type": "text/plain", "cache-control": "no-store" },
+			});
 		}
 
 		if (method === "GET" && path === "/.well-known/jwks.json") {
