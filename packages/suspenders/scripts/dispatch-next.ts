@@ -965,7 +965,17 @@ const main = async (): Promise<void> => {
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
 	const audit = laneAudit();
-	const live = lanes.filter((l) => laneAlive(l, audit));
+	// W494.1: the audit (session rows) alone lies — daemonized `claude -p`
+	// lanes die silently and their session lease outlives them. A lane is
+	// live only if the audit votes yes AND a claude/codex process actually
+	// sits in its worktree, with a 10-minute launch grace so a fresh spawn
+	// isn't re-dispatched before its cwd shows up in lsof.
+	const live = lanes.filter(
+		(l) =>
+			laneAlive(l, audit) &&
+			(worktreeLive(l.worktree) ||
+				Date.now() - (l.launchedAt ?? 0) < 10 * 60_000),
+	);
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
