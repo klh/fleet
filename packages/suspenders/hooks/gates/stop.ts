@@ -8,7 +8,7 @@
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { filesCheck } from "./files.ts";
 
 const CODE_EXT =
@@ -16,6 +16,36 @@ const CODE_EXT =
 
 export function stopGate(hook: HookInput): never {
 	if (hook.stop_hook_active === true) allow(); // loop guard
+
+	// W497: the session-end knowledge ask — ONCE per session, only for
+	// substantive ones (transcript > 20KB): block this stop and make the
+	// agent either donate its learnings or declare none. Self-resolving: the
+	// follow-up stop carries stop_hook_active=true and passes the guard
+	// above, so the ask never loops.
+	const h = hook as HookInput & {
+		session_id?: string;
+		transcript_path?: string;
+	};
+	if (h.session_id && h.transcript_path && existsSync(h.transcript_path)) {
+		const top = run(
+			"git",
+			["-C", hook.cwd ?? ".", "rev-parse", "--show-toplevel"],
+			{
+				cwd: hook.cwd,
+			},
+		);
+		if (top.ok && statSync(h.transcript_path).size > 20_000) {
+			const dir = `${top.out.trim()}/.fleet/session-learnings`;
+			const marker = `${dir}/${h.session_id}`;
+			if (!existsSync(marker)) {
+				mkdirSync(dir, { recursive: true });
+				writeFileSync(marker, new Date().toISOString());
+				feedback(
+					'Session-end knowledge ask (asked once): did you learn anything valuable this session — a lesson another lane would need, a gotcha, a correction? If yes, write it NOW: coord fact set lesson.<topic> "<fact>" (durable, immediate) or coord knowledge-enqueue "<text>" (distill queue). If nothing valuable: reply one line and stop — exit is fine.',
+				);
+			}
+		}
+	}
 	const cwd = hook.cwd ?? "";
 	if (!cwd || !existsSync(cwd)) allow();
 	if (!run("git", ["rev-parse", "--is-inside-work-tree"], { cwd }).ok) allow();
