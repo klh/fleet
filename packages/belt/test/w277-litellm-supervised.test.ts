@@ -135,6 +135,8 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 	test("argv is the brief's command line, no key material", () => {
 		const argv = litellmArgv();
 		expect(argv.slice(1)).toEqual([
+			"--host",
+			"127.0.0.1",
 			"--config",
 			DEFAULT_PATHS.config,
 			"--port",

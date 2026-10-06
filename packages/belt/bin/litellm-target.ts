@@ -88,7 +88,17 @@ export function loadKeys(
 export const litellmArgv = (
 	paths: LitellmPaths = DEFAULT_PATHS,
 	port = LITELLM_PORT,
-): string[] => [paths.bin, "--config", paths.config, "--port", String(port)];
+): string[] => [
+	// --host pins the engine to loopback: buckle :4101 fronts it; a LAN
+	// bind (*) turned :4100 into a side entrance past the gate (2026-10-06).
+	paths.bin,
+	"--host",
+	"127.0.0.1",
+	"--config",
+	paths.config,
+	"--port",
+	String(port),
+];
 
 /** null = prisma importable; otherwise the alert reason. */
 export function prismaPreflight(python = DEFAULT_PATHS.python): string | null {
