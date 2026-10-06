@@ -35,6 +35,7 @@ import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
+import { wisdomSweep } from "../coord/wisdom.ts";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -584,6 +585,20 @@ async function cycle(): Promise<void> {
 
 	// 4. stall watchdog (autow428): warn while the claim is still warm
 	stallWatch();
+
+	// 5. wisdom sweep (W469): fleet-wide read-only correction detector —
+	// stub mints, evidence-less closures, broadcast floods. Its ONLY writes
+	// are NEED_DECISION emissions + finding.wisdom.* facts; fail-isolated so
+	// a sweep bug can never take down the merge/dispatch loop.
+	try {
+		const w = wisdomSweep();
+		if (w.emitted > 0)
+			log(`WISDOM ${w.flagged} flagged, ${w.emitted} NEED_DECISION emitted`);
+	} catch (e) {
+		log(
+			`WISDOM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
 }
 
 /** Recover a crashed merge: a dead runner left MERGE_HEAD + staged debris.

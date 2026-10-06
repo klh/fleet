@@ -78,7 +78,28 @@ export function broadcastNote(
 	note: string,
 	source: string,
 	now = Date.now(),
-): { id: string; targets: number } {
+): { id: string; targets: number; deduped?: boolean } {
+	// W470: note-dedupe — the same note re-broadcast within 24h returns the
+	// earlier broadcast id instead of minting a new one (W438 C7: one note
+	// re-minted again and again). SessionStart injection already covers late
+	// joiners; a re-broadcast adds nothing but undrainable inbox rows.
+	const prior = (
+		db
+			.query(
+				"SELECT payload FROM events WHERE kind = 'BROADCAST' AND ts >= ? ORDER BY id DESC",
+			)
+			.all(now - 24 * 3_600_000) as { payload: string | null }[]
+	).find((r) => {
+		try {
+			return JSON.parse(r.payload ?? "{}").note === note;
+		} catch {
+			return false;
+		}
+	});
+	if (prior) {
+		const priorId = (JSON.parse(prior.payload ?? "{}") as { id?: string }).id;
+		if (priorId) return { id: priorId, targets: 0, deduped: true };
+	}
 	const bid = `b${now}`;
 	const targets = (
 		db
@@ -138,7 +159,9 @@ export async function cmdBroadcast(_rest: string[]): Promise<void> {
 	const source = arg("--as") ?? "owner";
 	const sent = broadcastNote(note, source);
 	console.log(
-		`${green("✓")} broadcast ${sent.id} → ${sent.targets} live session(s) (inbox; they poll) — everyone else gets it at SessionStart`,
+		sent.deduped
+			? `${green("✓")} broadcast ${sent.id} already live (deduped, 24h window) — no new inbox rows`
+			: `${green("✓")} broadcast ${sent.id} → ${sent.targets} live session(s) (inbox; they poll) — everyone else gets it at SessionStart`,
 	);
 }
 

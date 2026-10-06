@@ -44,6 +44,7 @@ import {
 	cmdResumeSession,
 } from "../coord/bus.ts";
 import { cmdTargets, cmdMessage } from "../coord/addressing.ts";
+import { cmdWisdom } from "../coord/wisdom.ts";
 import {
 	cmdFact,
 	cmdCapsule,
@@ -135,6 +136,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	events: cmdEvents,
 	targets: cmdTargets,
 	message: cmdMessage,
+	wisdom: cmdWisdom,
 };
 
 const fn = cmds[cmd ?? ""];
