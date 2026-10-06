@@ -15,8 +15,13 @@ interface Win {
 	window: string;
 	reqs: number;
 	tks: number;
+	/** W457: provider-reported cache reads/writes riding the same window. */
+	cacheR: number;
+	cacheC: number;
 	flushedReqs: number;
 	flushedTks: number;
+	flushedCacheR: number;
+	flushedCacheC: number;
 }
 
 /** Minute-window id: `YYYY-MM-DDTHH:MM` in UTC. */
@@ -56,11 +61,13 @@ export function effectiveLimit(
 }
 
 const UPSERT_STATE = `INSERT INTO budget_state (
-  key_id, window, used_rpm, used_tpm, window_start
-) VALUES (?, ?, ?, ?, ?)
+  key_id, window, used_rpm, used_tpm, cache_r, cache_c, window_start
+) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(key_id, window) DO UPDATE SET
   used_rpm = used_rpm + excluded.used_rpm,
   used_tpm = used_tpm + excluded.used_tpm,
+  cache_r = cache_r + excluded.cache_r,
+  cache_c = cache_c + excluded.cache_c,
   window_start = excluded.window_start`;
 
 export class Budgets {
@@ -130,11 +137,21 @@ export class Budgets {
 		win.reqs = Math.max(0, win.reqs - 1);
 	}
 
-	/** Post-response usage — real tokens when W143 threads them through. */
-	addUsage(keyId: string, requests: number, tokens: number): void {
+	/** Post-response usage — real tokens when W143 threads them through.
+	 *  W457: provider-reported cache reads/writes ride the same window so
+	 *  the accounting aggregation carries cache telemetry too. */
+	addUsage(
+		keyId: string,
+		requests: number,
+		tokens: number,
+		cacheR = 0,
+		cacheC = 0,
+	): void {
 		const win = this.current(keyId, this.now());
 		win.reqs += requests;
 		win.tks += tokens;
+		win.cacheR += cacheR;
+		win.cacheC += cacheC;
 	}
 
 	private current(keyId: string, t: number): Win {
@@ -145,8 +162,12 @@ export class Budgets {
 			window: label,
 			reqs: 0,
 			tks: 0,
+			cacheR: 0,
+			cacheC: 0,
 			flushedReqs: 0,
 			flushedTks: 0,
+			flushedCacheR: 0,
+			flushedCacheC: 0,
 		};
 		this.wins.set(keyId, fresh);
 		return fresh;
@@ -158,10 +179,16 @@ export class Budgets {
 		for (const [keyId, win] of this.wins) {
 			const dR = win.reqs - win.flushedReqs;
 			const dT = win.tks - win.flushedTks;
-			if (dR === 0 && dT === 0) continue;
-			this.db.query(UPSERT_STATE).run(keyId, win.window, dR, dT, Date.now());
+			const dCR = win.cacheR - win.flushedCacheR;
+			const dCC = win.cacheC - win.flushedCacheC;
+			if (dR === 0 && dT === 0 && dCR === 0 && dCC === 0) continue;
+			this.db
+				.query(UPSERT_STATE)
+				.run(keyId, win.window, dR, dT, dCR, dCC, Date.now());
 			win.flushedReqs = win.reqs;
 			win.flushedTks = win.tks;
+			win.flushedCacheR = win.cacheR;
+			win.flushedCacheC = win.cacheC;
 			n += 1;
 		}
 		return n;

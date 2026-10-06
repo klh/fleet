@@ -520,8 +520,13 @@ function writeErrorEvent(
 
 /** One completed proxied request → ledger row + servicemon token counters.
  *  usage null = honest unknown: the requests column still increments, token
- *  columns contribute nothing, servicemon gets an explicit counter. */
+ *  columns contribute nothing, servicemon gets an explicit counter.
+ *  W457: the same usage joins the per-request audit row (cache_r/cache_c —
+ *  OpenAI cached_tokens / Anthropic cache_read + cache_creation); a null
+ *  usage skips that join, so unobserved cache stays NULL, never zero-faked. */
 function record(deps: AppDeps, ctx: Ctx, usage: Usage | null): void {
+	// W457 cache telemetry: joined onto the route_audit row by rid.
+	deps.ledger.auditUsage(ctx.rid, usage);
 	if (usage === null) {
 		// honest unknown: count the request, contribute no token columns,
 		// flag it on servicemon — never estimated, never faked as real zeros

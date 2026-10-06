@@ -99,6 +99,65 @@ describe("Ledger async flush", () => {
 		db.close();
 	});
 
+	test("W457: auditUsage lands cache_r/cache_c on the decision row", () => {
+		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
+		db.auditDecision({
+			rid: "rC",
+			ts: "2026-10-06T00:00:00.000Z",
+			actor: "a",
+			lane: "starter",
+			dialect: "anthropic",
+			hint: "",
+			candidates_seen: 1,
+			candidates_top: "c",
+			target_kind: null,
+			target_host: null,
+			target_port: null,
+			target_model: null,
+			decision: "policy",
+			latency_class: "unproven",
+			tier: "SIMPLE",
+			allow_cloud: false,
+			error_code: null,
+			why: "w",
+		});
+		db.auditOutcome("rC", { status: 200, duration_ms: 5, ok: true, err: null });
+		db.auditUsage("rC", { in_tok: 6, out_tok: 3, cache_r: 1, cache_c: 2 });
+		const row = db.auditRows()[0] ?? {};
+		expect(row.cache_r).toBe(1);
+		expect(row.cache_c).toBe(2);
+		db.close();
+	});
+
+	test("W457: auditUsage(null) skips the write — unobserved cache stays NULL", () => {
+		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
+		db.auditDecision({
+			rid: "rN",
+			ts: "2026-10-06T00:00:00.000Z",
+			actor: "a",
+			lane: "",
+			dialect: "openai",
+			hint: "",
+			candidates_seen: 1,
+			candidates_top: "c",
+			target_kind: null,
+			target_host: null,
+			target_port: null,
+			target_model: null,
+			decision: "policy",
+			latency_class: "unproven",
+			tier: "SIMPLE",
+			allow_cloud: false,
+			error_code: null,
+			why: "w",
+		});
+		db.auditUsage("rN", null);
+		const row = db.auditRows()[0] ?? {};
+		expect(row.cache_r).toBe(null);
+		expect(row.cache_c).toBe(null);
+		db.close();
+	});
+
 	test("timer flush lands rows without any reader", async () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 25 });
 		db.record(rec(3));

@@ -4,6 +4,7 @@
 // Key ids are a truncated SHA-256 of the bearer token — token material never
 // touches the ledger (SECURITY: nothing hashable → empty string).
 import { Database } from "bun:sqlite";
+import type { Usage } from "./usage.ts";
 
 export interface UsageRecord {
 	key: string;
@@ -47,6 +48,13 @@ export interface RouteAuditOutcome {
 	err: string | null;
 }
 
+/** W457 cache telemetry: provider-reported cache numbers joined onto the
+ *  per-request audit row. cache_r = OpenAI usage.prompt_tokens_details.
+ *  cached_tokens OR Anthropic usage.cache_read_input_tokens; cache_c =
+ *  Anthropic usage.cache_creation_input_tokens (the canonical Usage mapping
+ *  from usage.ts — the dialect column says which shape fed it). */
+export type RouteAuditUsage = Pick<Usage, "cache_r" | "cache_c">;
+
 const INSERT_AUDIT = `
 INSERT INTO route_audit (
   rid, ts, actor, lane, dialect, hint,
@@ -85,7 +93,8 @@ CREATE TABLE IF NOT EXISTS route_audit (
   allow_cloud INTEGER NOT NULL DEFAULT 0,
   error_code TEXT,
   why TEXT NOT NULL DEFAULT '',
-  status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT
+  status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
+  cache_r INTEGER, cache_c INTEGER
 );
 `;
 
@@ -103,10 +112,16 @@ ON CONFLICT(hour_bucket, key, model_group, model) DO UPDATE SET
 `;
 
 /** One pending audit operation, applied in order at flush time (the
- *  decision INSERT rides ahead of its outcome UPDATE — order is the join). */
+ *  decision INSERT rides ahead of its outcome UPDATE — order is the join;
+ *  the W457 usage UPDATE lands wherever the response settles, keyed by rid). */
 type AuditOp =
 	| { t: "ins"; row: RouteAuditDecision }
-	| { t: "upd"; rid: string; out: RouteAuditOutcome };
+	| { t: "upd"; rid: string; out: RouteAuditOutcome }
+	| { t: "use"; rid: string; u: RouteAuditUsage };
+
+const UPDATE_USAGE = `
+UPDATE route_audit SET cache_r = ?, cache_c = ? WHERE rid = ?
+`;
 
 export interface LedgerOptions {
 	/** async flush cadence (W143 speed §3; default 5s) */
@@ -156,6 +171,17 @@ export class Ledger {
 		} catch {
 			// column exists — schema current
 		}
+		// W457: cache telemetry columns (pre-cache databases heal; one ALTER
+		// per missing column, checked via pragma — idempotent on every open).
+		const auditCols = (
+			this.db
+				.query("SELECT name FROM pragma_table_info('route_audit')")
+				.all() as Array<{ name: string }>
+		).map((r) => r.name);
+		if (!auditCols.includes("cache_r"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_r INTEGER");
+		if (!auditCols.includes("cache_c"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
 		this.upsert = this.db.query(UPSERT);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
@@ -213,7 +239,8 @@ export class Ledger {
 					);
 				for (const { v: op } of audit) {
 					if (op.t === "ins") this.insertAudit(op.row);
-					else this.updateAudit(op.rid, op.out);
+					else if (op.t === "upd") this.updateAudit(op.rid, op.out);
+					else this.updateUsageRow(op.rid, op.u);
 				}
 			})();
 		} catch {
@@ -304,6 +331,22 @@ export class Ledger {
 				"UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ? WHERE rid = ?",
 			)
 			.run(out.status, out.duration_ms, out.ok ? 1 : 0, out.err, rid);
+	}
+
+	/** W457: provider-reported cache usage onto the per-request audit row
+	 *  (joined by rid): enqueued. A null Usage is honest unknown — the
+	 *  UPDATE is skipped so the columns stay NULL, never estimated. */
+	auditUsage(rid: string, u: Usage | null): void {
+		if (u === null) return;
+		this.auditRing.push({
+			v: { t: "use", rid, u: { cache_r: u.cache_r, cache_c: u.cache_c } },
+			tries: 0,
+		});
+	}
+
+	/** The flush-time cache UPDATE (W457). */
+	private updateUsageRow(rid: string, u: RouteAuditUsage): void {
+		this.db.query(UPDATE_USAGE).run(u.cache_r, u.cache_c, rid);
 	}
 
 	/** Read-back for tests / dashboards. Read barrier: pending audit ops

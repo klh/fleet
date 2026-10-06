@@ -164,6 +164,71 @@ describe("anthropic buildCall", () => {
 	});
 });
 
+describe("cache-control passthrough (W457)", () => {
+	test("anthropic cache_control breakpoints reach the wire byte-intact", async () => {
+		const upstream = await startMockUpstream(() =>
+			Response.json({ id: "msg_1" }),
+		);
+		const dep = {
+			group: "g",
+			url: upstream.url,
+			dialect: "anthropic" as const,
+			model: "claude-real",
+		};
+		const body = {
+			model: "alias",
+			stream: true,
+			system: [
+				{
+					type: "text",
+					text: "stable starter prefix",
+					cache_control: { type: "ephemeral" },
+				},
+			],
+			messages: [
+				{ role: "user", content: "lane material after the checkpoint" },
+			],
+		};
+		await defaultFetch(
+			dep,
+			{ ...OPENAI_REQ, path: "/v1/messages", body },
+			5000,
+		);
+		// the model alias patch is the ONLY allowed mutation — cache_control
+		// breakpoints and every other field arrive byte-intact
+		expect(upstream.calls[0]?.body).toEqual({ ...body, model: "claude-real" });
+		upstream.close();
+	});
+
+	test("openai cache-eligible fields reach the wire byte-intact", async () => {
+		const upstream = await startMockUpstream(() => Response.json({ id: "1" }));
+		const dep = {
+			group: "g",
+			url: upstream.url,
+			dialect: "openai" as const,
+			model: "real-model",
+		};
+		const body = {
+			model: "alias",
+			stream: true,
+			messages: [
+				{ role: "system", content: "stable prefix for prompt caching" },
+				{ role: "user", content: "lane material" },
+			],
+			prompt_cache_key: "starter-v3",
+		};
+		await defaultFetch(dep, { ...OPENAI_REQ, body }, 5000);
+		// model patch + include_usage injection are the ONLY allowed mutations
+		// — prompt-cache-eligible messages + prompt_cache_key arrive untouched
+		expect(upstream.calls[0]?.body).toEqual({
+			...body,
+			model: "real-model",
+			stream_options: { include_usage: true },
+		});
+		upstream.close();
+	});
+});
+
 describe("usageOf per family", () => {
 	test("each adapter reads its own usage shape", () => {
 		expect(

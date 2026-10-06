@@ -20,7 +20,7 @@ function poolOf(url: string): UpstreamPool {
 const STREAM_FIXTURE =
 	'data: {"id":"1","choices":[{"delta":{"content":"he"}}]}\n\n' +
 	'data: {"id":"1","choices":[{"delta":{"content":"y"}}]}\n\n' +
-	'data: {"id":"1","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":2}}\n\n' +
+	'data: {"id":"1","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":5}}}\n\n' +
 	"data: [DONE]\n\n";
 
 describe("openai e2e", () => {
@@ -29,10 +29,15 @@ describe("openai e2e", () => {
 			Response.json({
 				id: "1",
 				choices: [],
-				usage: { prompt_tokens: 9, completion_tokens: 2 },
+				usage: {
+					prompt_tokens: 9,
+					completion_tokens: 2,
+					prompt_tokens_details: { cached_tokens: 7 },
+				},
 			}),
 		);
-		const app = createApp(deps(poolOf(upstream.url)));
+		const d = deps(poolOf(upstream.url));
+		const app = createApp(d);
 		const res = await app.fetch(
 			new Request(`${upstream.url}/v1/chat/completions`, {
 				method: "POST",
@@ -49,6 +54,14 @@ describe("openai e2e", () => {
 		expect(upstream.calls[0]?.path).toBe("/v1/chat/completions");
 		const sent = upstream.calls[0]?.body as { model?: string } | undefined;
 		expect(sent?.model).toBe("glm-5.3-flash");
+		// W457: cached_tokens surfaces on the aggregate + per-request audit row
+		const row = d.ledger.rows()[0] ?? {};
+		expect(row.cache_r).toBe(7);
+		const audit = d.ledger.auditRows()[0] ?? {};
+		expect(audit.cache_r).toBe(7);
+		// openai usage has no creation field → known zero, not NULL (NULL =
+		// unobserved usage; see auditUsage)
+		expect(audit.cache_c).toBe(0);
 		upstream.close();
 	});
 
@@ -76,6 +89,10 @@ describe("openai e2e", () => {
 		expect(row.in_tok).toBe(9);
 		expect(row.out_tok).toBe(2);
 		expect(row.requests).toBe(1);
+		// W457: the stream's terminal usage chunk feeds the audit row too
+		expect(row.cache_r).toBe(5);
+		const audit = d.ledger.auditRows()[0] ?? {};
+		expect(audit.cache_r).toBe(5);
 		upstream.close();
 	});
 });

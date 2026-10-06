@@ -159,6 +159,21 @@ describe("budgets", () => {
 		expect(b.flush()).toBe(0);
 	});
 
+	test("W457: cache tokens ride the budgets flush (additive, skip-clean)", () => {
+		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+		const { b, db } = mkBudgets(() => t0);
+		b.addUsage("k1", 1, 500, 300, 200);
+		expect(b.flush()).toBe(1);
+		b.addUsage("k1", 1, 100, 50, 25);
+		expect(b.flush()).toBe(1);
+		const row = db
+			.query("SELECT cache_r, cache_c FROM budget_state WHERE key_id = 'k1'")
+			.get() as { cache_r: number; cache_c: number };
+		expect(row.cache_r).toBe(350);
+		expect(row.cache_c).toBe(225);
+		expect(b.flush()).toBe(0); // no dirty deltas → no row
+	});
+
 	test("window helpers: minute buckets and remainders", () => {
 		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 		expect(windowOf(t0)).toBe("2026-10-01T12:00");

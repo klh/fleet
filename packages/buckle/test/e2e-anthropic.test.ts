@@ -52,6 +52,11 @@ describe("anthropic e2e", () => {
 		expect(row.in_tok).toBe(6);
 		expect(row.cache_r).toBe(1);
 		expect(row.cache_c).toBe(2);
+		// W457: the same provider cache numbers join the per-request audit row
+		const audit = d.ledger.auditRows()[0] ?? {};
+		expect(audit.lane).toBe("");
+		expect(audit.cache_r).toBe(1);
+		expect(audit.cache_c).toBe(2);
 		upstream.close();
 	});
 
@@ -78,6 +83,10 @@ describe("anthropic e2e", () => {
 		expect(row.out_tok).toBe(3);
 		expect(row.cache_r).toBe(1);
 		expect(row.cache_c).toBe(2);
+		// W457: streaming usage joins the audit row too (post-outcome UPDATE)
+		const audit = d.ledger.auditRows()[0] ?? {};
+		expect(audit.cache_r).toBe(1);
+		expect(audit.cache_c).toBe(2);
 		upstream.close();
 	});
 });

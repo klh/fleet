@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS budget_state (
   window TEXT NOT NULL,
   used_rpm INTEGER NOT NULL DEFAULT 0,
   used_tpm INTEGER NOT NULL DEFAULT 0,
+  cache_r INTEGER NOT NULL DEFAULT 0,
+  cache_c INTEGER NOT NULL DEFAULT 0,
   window_start INTEGER NOT NULL,
   PRIMARY KEY (key_id, window)
 );
@@ -96,7 +98,15 @@ const DELTA_TABLES: Array<{ tbl: string; pk: string; cols: string[] }> = [
 	{
 		tbl: "budget_state",
 		pk: "$.key_id || '/' || $.window",
-		cols: ["key_id", "window", "used_rpm", "used_tpm", "window_start"],
+		cols: [
+			"key_id",
+			"window",
+			"used_rpm",
+			"used_tpm",
+			"cache_r",
+			"cache_c",
+			"window_start",
+		],
 	},
 	{
 		tbl: "auth_events",
@@ -153,6 +163,22 @@ export function applyGovernanceSchema(db: Database): void {
 		db.run("ALTER TABLE teams ADD COLUMN rpm_ceiling INTEGER");
 	if (!cols.includes("tpm_ceiling"))
 		db.run("ALTER TABLE teams ADD COLUMN tpm_ceiling INTEGER");
+	// W457 cache telemetry — guarded ALTERs (pre-cache budget_state heals)
+	const budgetCols = (
+		db
+			.query("SELECT name FROM pragma_table_info('budget_state')")
+			.all() as Array<{
+			name: string;
+		}>
+	).map((r) => r.name);
+	if (!budgetCols.includes("cache_r"))
+		db.run(
+			"ALTER TABLE budget_state ADD COLUMN cache_r INTEGER NOT NULL DEFAULT 0",
+		);
+	if (!budgetCols.includes("cache_c"))
+		db.run(
+			"ALTER TABLE budget_state ADD COLUMN cache_c INTEGER NOT NULL DEFAULT 0",
+		);
 	// W160 CR origination columns — same guarded ALTERs (W154-era DBs heal)
 	const crCols = (
 		db
