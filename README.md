@@ -95,8 +95,8 @@ origins and paths before a fresh monorepo hub deployment.
 
 Sharing a coordination store requires matching project identity. Separate
 developers' clones are not yet automatically one shared project. Automatic
-governor consultations currently use the local lease registry; a spoke using a
-different coordination hub also needs an outbox relay. Cross-hub lane visibility,
+governor consultations drain to a configured remote hub through the durable
+consult outbox relay (W480); hub-side credentialing is pending. Cross-hub lane visibility,
 origin attribution and downstream filters are described in the
 [federation architecture](docs/upstream-observability-architecture.md).
 
@@ -262,7 +262,8 @@ bash packages/suspenders/install.sh --dry-run
 ```
 
 The current installer supports `--wire`, `--with-launchd`, `--skip-models`,
-`--no-llm` and `--refresh-supervisor`, with `SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. Its
+`--no-llm`, `--refresh-supervisor` and `--refresh-dashboards`, with
+`SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. Its
 default path sets up a minimal local swarm and attempts model downloads.
 
 The harness includes BLAM and checks the shared condenser import before service
@@ -347,12 +348,12 @@ reproduction can run without model calls. See the
 | Workspace                | Root declares `packages/*`; all seven packages have manifests and `bun.lock` is present               |
 | Installation             | Suspenders ships BLAM and verifies imports/launchd registration; a unified stack installer is pending |
 | Hub deployment           | External probe sidecars are present; origins and execution paths still follow legacy repositories     |
-| CI                       | Workflows are nested under packages; no root GitHub Actions workflow is present                       |
+| CI                       | Root workflow landed (W422.13): package matrix, entrypoint parse-check, installer round-trip          |
 | Private tier             | `fleet-remote` is the planned separate enterprise monorepo, outside this checkout                     |
 
-The work graph carries migration work, including the landed extraction (W422.4),
-workspace wiring (W422.5), clean installation (W422.6), and deployment conversion
-(W422.7). Consult the live graph for item status.
+The work graph carries migration work: the extraction (W422.4) and workspace
+wiring (W422.5) have landed; clean installation (W422.6) and deployment
+conversion (W422.7) are in flight. Consult the live graph for item status.
 
 ## Read further
 
@@ -366,10 +367,9 @@ workspace wiring (W422.5), clean installation (W422.6), and deployment conversio
 
 ## Licensing
 
-Licenses are package-specific. Buckle, speedy and BLAM code carry MIT licenses;
-suspenders, belt and local carry Business Source License 1.1 files with
-package-specific parameters. BLAM's dataset has a separate CC-BY-4.0 notice.
-`local-llm` does not yet have its own license file. Consult each package's
+Licenses are package-specific. All seven packages carry Business Source License
+1.1 in no-expiry form (Change Date: N/A — the licenses never convert).
+BLAM's dataset has a separate CC-BY-4.0 notice. Consult each package's
 `LICENSE` and applicable notices rather than assuming one license for the stack.
 
 ---
