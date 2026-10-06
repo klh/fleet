@@ -155,6 +155,15 @@ function gitRepoDir(w: string[], segCwd: string): string {
 	return dir;
 }
 
+// W474: gitleaks must run from the repo TOPLEVEL — .gitleaksignore lives at
+// the root, and a scan from a package subdir false-positives on every
+// root-suppressed finding (observed: 53 leaks from packages/suspenders, 0
+// from the same history scanned at toplevel).
+const gitToplevel = (dir: string): string => {
+	const r = run("git", ["-C", dir, "rev-parse", "--show-toplevel"], {});
+	return r.ok && r.out.trim() ? r.out.trim() : dir;
+};
+
 const currentBranch = (dir: string): string => {
 	const r = run("git", ["branch", "--show-current"], { cwd: dir });
 	return r.ok ? r.out.trim() : "";
@@ -240,7 +249,7 @@ export function bashGate(hook: HookInput): never {
 				gitSub(w) === "commit" &&
 				inRepo &&
 				!run("gitleaks", ["protect", "--staged", "--redact", "--no-banner"], {
-					cwd: repoDir,
+					cwd: gitToplevel(repoDir),
 				}).ok
 			)
 				deny(
@@ -250,7 +259,7 @@ export function bashGate(hook: HookInput): never {
 				gitSub(w) === "push" &&
 				inRepo &&
 				!run("gitleaks", ["git", ".", "--redact", "--no-banner"], {
-					cwd: repoDir,
+					cwd: gitToplevel(repoDir),
 				}).ok
 			)
 				deny(
