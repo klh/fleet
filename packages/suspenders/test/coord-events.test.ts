@@ -113,7 +113,10 @@ describe("coord events — the bus trail read verb", () => {
 			"--kinds",
 			"w430.alpha,w430.beta",
 		]);
-		const jb = JSON.parse(both.out) as { total: number; events: { kind: string }[] };
+		const jb = JSON.parse(both.out) as {
+			total: number;
+			events: { kind: string }[];
+		};
 		expect(jb.total).toBe(3);
 		expect(new Set(jb.events.map((e) => e.kind))).toEqual(
 			new Set(["w430.alpha", "w430.beta"]),

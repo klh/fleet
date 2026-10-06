@@ -14,21 +14,48 @@ const home = mkdtempSync(join(tmpdir(), "claude-metrics-test-"));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runIn = (code: string): string => {
-	const p = Bun.spawnSync(["bun", "-e", code], { env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" });
-	if (p.exitCode !== 0) throw new Error(`spawn failed: ${new TextDecoder().decode(p.stderr)}`);
+	const p = Bun.spawnSync(["bun", "-e", code], {
+		env: { ...process.env, HOME: home },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (p.exitCode !== 0)
+		throw new Error(`spawn failed: ${new TextDecoder().decode(p.stderr)}`);
 	return new TextDecoder().decode(p.stdout);
 };
 
 const query = (sql: string): unknown[] =>
-	JSON.parse(runIn(`const { openGovernorDb } = await import(${JSON.stringify(GOVDB)}); console.log(JSON.stringify(openGovernorDb().query(${JSON.stringify(sql)}).all()));`));
+	JSON.parse(
+		runIn(
+			`const { openGovernorDb } = await import(${JSON.stringify(GOVDB)}); console.log(JSON.stringify(openGovernorDb().query(${JSON.stringify(sql)}).all()));`,
+		),
+	);
 
 // the project identity `coord metrics <repo>` resolves for this repo
-const gitDir = new TextDecoder().decode(Bun.spawnSync(["git", "-C", process.cwd(), "rev-parse", "--git-common-dir"], { stdout: "pipe" }).stdout).trim();
+const gitDir = new TextDecoder()
+	.decode(
+		Bun.spawnSync(
+			["git", "-C", process.cwd(), "rev-parse", "--git-common-dir"],
+			{ stdout: "pipe" },
+		).stdout,
+	)
+	.trim();
 const PROJECT = realpathSync(resolve(process.cwd(), gitDir || "."));
 
 // seed one week of realistic bus traffic, then read W15 timings back — all in
 // one subprocess so nowMs is deterministic across the seeded events
-const seedAndTime = (): { now: number; timing: { work: string; wallMs: number; agentMs: number; claims: number; releases: number; done: boolean; failed: boolean }[] } =>
+const seedAndTime = (): {
+	now: number;
+	timing: {
+		work: string;
+		wallMs: number;
+		agentMs: number;
+		claims: number;
+		releases: number;
+		done: boolean;
+		failed: boolean;
+	}[];
+} =>
 	JSON.parse(
 		runIn(`
 const { openGovernorDb, workTiming } = await import(${JSON.stringify(GOVDB)});
@@ -98,18 +125,23 @@ describe("W15 — workTiming derives wall vs agent time from bus events", () => 
 });
 
 describe("W3 — coord metrics", () => {
-	const p = Bun.spawnSync(["bun", COORD, "metrics", process.cwd(), "--days", "7"], {
-		env: { ...process.env, HOME: home },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const p = Bun.spawnSync(
+		["bun", COORD, "metrics", process.cwd(), "--days", "7"],
+		{
+			env: { ...process.env, HOME: home },
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	const out = new TextDecoder().decode(p.stdout);
 
 	test("exits 0 and prints the terse table", () => {
 		expect(p.exitCode).toBe(0);
 		expect(out).toContain("METRICS suspenders (last 7d)");
 		expect(out).toContain("runs: 3 (2 worker, 1 coordinator)");
-		expect(out).toContain("items: 2 done, 1 open — median done item: wall 40m, agent 40m");
+		expect(out).toContain(
+			"items: 2 done, 1 open — median done item: wall 40m, agent 40m",
+		);
 		expect(out).toContain("2 claims");
 	});
 
@@ -130,7 +162,9 @@ describe("W3 — coord metrics", () => {
 
 	test("writes the metrics.snapshot.<date> fact", () => {
 		expect(out).toContain("snapshot → metrics.snapshot.");
-		const rows = query(`SELECT value FROM facts WHERE key = 'metrics.snapshot.${new Date().toISOString().slice(0, 10)}'`);
+		const rows = query(
+			`SELECT value FROM facts WHERE key = 'metrics.snapshot.${new Date().toISOString().slice(0, 10)}'`,
+		);
 		expect(rows.length).toBe(1);
 		const snap = JSON.parse((rows[0] as { value: string }).value);
 		expect(snap.runs).toBe(3);
@@ -146,15 +180,53 @@ describe("W3 — coord metrics", () => {
 // transcripts. Whole-ms mtimes so the cache key round-trips exactly (utimes
 // stores ms; raw APFS mtimes carry ns).
 const TOKEN_DIR = join(process.cwd(), ".tmp-w24-tokens");
-const TOKKEY = ["metrics.tokens", PROJECT.replace(/[^A-Za-z0-9._-]/g, "-"), "T1"].join(".");
+const TOKKEY = [
+	"metrics.tokens",
+	PROJECT.replace(/[^A-Za-z0-9._-]/g, "-"),
+	"T1",
+].join(".");
 
 afterAll(() => rmSync(TOKEN_DIR, { recursive: true, force: true }));
 
 const tokenScenario = (): {
-	r1: Record<string, { work: string; in: number; out: number; cacheR: number; cacheC: number } | null>;
-	r2: Record<string, { work: string; in: number; out: number; cacheR: number; cacheC: number } | null>;
-	r3: Record<string, { work: string; in: number; out: number; cacheR: number; cacheC: number } | null>;
-	fact: { in: number; out: number; cacheR: number; cacheC: number; at: number; tpMtime: number } | null;
+	r1: Record<
+		string,
+		{
+			work: string;
+			in: number;
+			out: number;
+			cacheR: number;
+			cacheC: number;
+		} | null
+	>;
+	r2: Record<
+		string,
+		{
+			work: string;
+			in: number;
+			out: number;
+			cacheR: number;
+			cacheC: number;
+		} | null
+	>;
+	r3: Record<
+		string,
+		{
+			work: string;
+			in: number;
+			out: number;
+			cacheR: number;
+			cacheC: number;
+		} | null
+	>;
+	fact: {
+		in: number;
+		out: number;
+		cacheR: number;
+		cacheC: number;
+		at: number;
+		tpMtime: number;
+	} | null;
 	mtime: number;
 } =>
 	JSON.parse(
@@ -199,7 +271,13 @@ describe("W24 — tokenUsage: windowed summation + mtime cache", () => {
 	const { r1, r2, r3, fact, mtime } = tokenScenario();
 
 	test("windowed summation: only assistant usage inside the claim window (T(30)→T(10)) counts", () => {
-		expect(r1.T1).toEqual({ work: "T1", in: 1000, out: 100, cacheR: 50, cacheC: 25 });
+		expect(r1.T1).toEqual({
+			work: "T1",
+			in: 1000,
+			out: 100,
+			cacheR: 50,
+			cacheC: 25,
+		});
 	});
 
 	test("null for missing transcript file (T2) and no-transcript session (T3) — never 0", () => {
@@ -212,10 +290,23 @@ describe("W24 — tokenUsage: windowed summation + mtime cache", () => {
 	});
 
 	test("mtime bump ⇒ re-parse and refresh", () => {
-		expect(r3.T1).toEqual({ work: "T1", in: 6000, out: 600, cacheR: 50, cacheC: 25 });
+		expect(r3.T1).toEqual({
+			work: "T1",
+			in: 6000,
+			out: 600,
+			cacheR: 50,
+			cacheC: 25,
+		});
 	});
 
 	test("cache fact follows the version-increment upsert shape", () => {
-		expect(fact).toEqual({ in: 6000, out: 600, cacheR: 50, cacheC: 25, at: expect.any(Number), tpMtime: mtime + 1000 });
+		expect(fact).toEqual({
+			in: 6000,
+			out: 600,
+			cacheR: 50,
+			cacheC: 25,
+			at: expect.any(Number),
+			tpMtime: mtime + 1000,
+		});
 	});
 });

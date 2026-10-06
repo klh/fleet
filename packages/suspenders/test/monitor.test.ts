@@ -5,7 +5,13 @@
 // Isolated temp HOME + repo (same recipe as governor-leases.test.ts).
 // process.env is never mutated here — HOME goes to the spawned CLI only.
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	mkdirSync,
+	writeFileSync,
+	utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { Database } from "bun:sqlite";
@@ -19,8 +25,17 @@ const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const OLD = Date.now() - 2 * 60 * 60_000; // 2h stale: inside the 20min hb + 45min zombie windows
 
 function run(args: string[] = []) {
-	const p = Bun.spawnSync(["bun", join(bin, "monitor.ts"), ...args], { cwd: REPO, env, stdout: "pipe", stderr: "pipe" });
-	return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+	const p = Bun.spawnSync(["bun", join(bin, "monitor.ts"), ...args], {
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
 }
 
 const WAIT_SID = "waiting-sess-aaaaaaaa";
@@ -30,8 +45,12 @@ const CTRL_SID = "ctrl-sess-bbbbbbbbb";
 // must never CREATE it (table-missing = board never ran = nothing to exempt)
 function seedBoard() {
 	const db = new Database(DB);
-	db.run("CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY, project TEXT, task_id TEXT, asked_by TEXT, question TEXT, options TEXT, state TEXT NOT NULL DEFAULT 'OPEN', delivery TEXT, answer_note TEXT, answer_to TEXT, answer_token TEXT, created_ts INTEGER, answered_ts INTEGER, ack_ts INTEGER)");
-	db.query("INSERT INTO decisions (project, asked_by, question, state, answer_to, created_ts) VALUES (?, 'human', 'ship or hold?', 'OPEN', ?, ?)").run(REPO, WAIT_SID, Date.now());
+	db.run(
+		"CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY, project TEXT, task_id TEXT, asked_by TEXT, question TEXT, options TEXT, state TEXT NOT NULL DEFAULT 'OPEN', delivery TEXT, answer_note TEXT, answer_to TEXT, answer_token TEXT, created_ts INTEGER, answered_ts INTEGER, ack_ts INTEGER)",
+	);
+	db.query(
+		"INSERT INTO decisions (project, asked_by, question, state, answer_to, created_ts) VALUES (?, 'human', 'ship or hold?', 'OPEN', ?, ?)",
+	).run(REPO, WAIT_SID, Date.now());
 	db.close();
 }
 function staleTranscript(sid: string) {
@@ -43,21 +62,29 @@ function staleTranscript(sid: string) {
 }
 function seedSession(sid: string) {
 	const db = new Database(DB);
-	db.query("INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES (?, ?, 'worker', NULL, NULL, ?, ?, 'RUNNING', NULL, ?)").run(sid, REPO, OLD, OLD, staleTranscript(sid));
+	db.query(
+		"INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES (?, ?, 'worker', NULL, NULL, ?, ?, 'RUNNING', NULL, ?)",
+	).run(sid, REPO, OLD, OLD, staleTranscript(sid));
 	db.close();
 }
 function seedWork(id: string, owner: string) {
 	const db = new Database(DB);
-	db.query("INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)").run(REPO, id, `work ${id}`, owner, OLD, OLD);
+	db.query(
+		"INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)",
+	).run(REPO, id, `work ${id}`, owner, OLD, OLD);
 	db.close();
 }
 function seedLock(path: string, sid: string) {
 	const db = new Database(DB);
-	db.query("INSERT OR REPLACE INTO locks (path, sid, tool, ts, tp, hash, seen) VALUES (?, ?, 'Write', ?, NULL, NULL, NULL)").run(path, sid, Date.now());
+	db.query(
+		"INSERT OR REPLACE INTO locks (path, sid, tool, ts, tp, hash, seen) VALUES (?, ?, 'Write', ?, NULL, NULL, NULL)",
+	).run(path, sid, Date.now());
 	db.close();
 }
-const one = (db: Database, sql: string, ...args: unknown[]) => db.query(sql).get(...args) as any;
-const count = (db: Database, sql: string, ...args: unknown[]) => (db.query(sql).get(...args) as { n: number }).n;
+const one = (db: Database, sql: string, ...args: unknown[]) =>
+	db.query(sql).get(...args) as any;
+const count = (db: Database, sql: string, ...args: unknown[]) =>
+	(db.query(sql).get(...args) as { n: number }).n;
 
 // bootstrap schema the way production does: one monitor open in the temp HOME
 // (openGovernorDb runs the migrations). Doubles as the table-missing case:
@@ -88,17 +115,32 @@ describe("waiting for you", () => {
 		seedBoard();
 		const r = run();
 		// alert classes are distinct — WAITING on stdout, control zombie alerted
-		expect(r.out).toContain("WAITING W1 (waiting-se WAITING for you (1 open decision))");
+		expect(r.out).toContain(
+			"WAITING W1 (waiting-se WAITING for you (1 open decision))",
+		);
 		expect(r.out).toContain("WAITING session waiting-");
 		expect(r.out).toContain("ZOMBIE C1");
 		expect(r.err).toContain("ctrl-ses"); // control tripped the stale-session issue
 		expect(r.err).not.toContain("waiting-"); // waiting lane surfaces on stdout, never as an issue
 		const d = new Database(DB, { readonly: true });
-		expect(one(d, "SELECT value FROM facts WHERE key = 'waiting.W1'")).toEqual({ value: "waiting-se WAITING for you (1 open decision)" });
-		expect(one(d, "SELECT value FROM facts WHERE key = 'zombie.W1'")).toBeNull(); // never zombie-flagged
-		expect(count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", WAIT_SID)).toBe(1); // read-only run releases nothing
-		expect(count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", CTRL_SID)).toBe(1);
-		expect(count(d, "SELECT COUNT(*) AS n FROM events WHERE kind = 'alert' AND scope = 'C1'")).toBe(1);
+		expect(one(d, "SELECT value FROM facts WHERE key = 'waiting.W1'")).toEqual({
+			value: "waiting-se WAITING for you (1 open decision)",
+		});
+		expect(
+			one(d, "SELECT value FROM facts WHERE key = 'zombie.W1'"),
+		).toBeNull(); // never zombie-flagged
+		expect(
+			count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", WAIT_SID),
+		).toBe(1); // read-only run releases nothing
+		expect(
+			count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", CTRL_SID),
+		).toBe(1);
+		expect(
+			count(
+				d,
+				"SELECT COUNT(*) AS n FROM events WHERE kind = 'alert' AND scope = 'C1'",
+			),
+		).toBe(1);
 		d.close();
 	});
 
@@ -109,21 +151,53 @@ describe("waiting for you", () => {
 		expect(r.out).toContain("swept stale session ctrl-ses");
 		const d = new Database(DB);
 		// waiting lane: not terminated, still owns its work, decision untouched
-		expect(one(d, "SELECT state FROM sessions WHERE sid = ?", WAIT_SID)).toEqual({ state: "RUNNING" });
-		expect(one(d, "SELECT state, owner_sid FROM work_items WHERE project = ? AND id = 'W1'", REPO)).toEqual({ state: "CLAIMED", owner_sid: WAIT_SID });
-		expect(one(d, "SELECT state, answer_to FROM decisions WHERE answer_to = ?", WAIT_SID)).toEqual({ state: "OPEN", answer_to: WAIT_SID });
-		expect(count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", WAIT_SID)).toBe(0);
+		expect(
+			one(d, "SELECT state FROM sessions WHERE sid = ?", WAIT_SID),
+		).toEqual({ state: "RUNNING" });
+		expect(
+			one(
+				d,
+				"SELECT state, owner_sid FROM work_items WHERE project = ? AND id = 'W1'",
+				REPO,
+			),
+		).toEqual({ state: "CLAIMED", owner_sid: WAIT_SID });
+		expect(
+			one(
+				d,
+				"SELECT state, answer_to FROM decisions WHERE answer_to = ?",
+				WAIT_SID,
+			),
+		).toEqual({ state: "OPEN", answer_to: WAIT_SID });
+		expect(
+			count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", WAIT_SID),
+		).toBe(0);
 		// control: swept as before, its (fresh) lock untouched — release is ownership-scoped
-		expect(one(d, "SELECT state FROM sessions WHERE sid = ?", CTRL_SID)).toEqual({ state: "CLOSED" });
-		expect(count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", CTRL_SID)).toBe(1);
+		expect(
+			one(d, "SELECT state FROM sessions WHERE sid = ?", CTRL_SID),
+		).toEqual({ state: "CLOSED" });
+		expect(
+			count(d, "SELECT COUNT(*) AS n FROM locks WHERE sid = ?", CTRL_SID),
+		).toBe(1);
 		d.close();
 	});
 
 	test("decision-gated item without an OPEN decision is surfaced; --fix emits the NEED_DECISION once", () => {
 		const db0 = new Database(DB);
-		db0.query("INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, 'W-DEC', 'W-DEC seam ruling (DECISION, no code)', 'READY', NULL, ?, ?)").run(REPO, OLD, OLD);
-		db0.query("INSERT INTO facts (key, value, ts) VALUES ('coordinator.sid', 'coord-sess-cccccc', ?)").run(Date.now());
-		db0.query("INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES ('coord-sess-cccccc', ?, 'coordinator', NULL, NULL, ?, ?, 'RUNNING', NULL, NULL)").run(REPO, OLD + 30 * 60_000, OLD + 30 * 60_000); // 1.5h stale — inside the quiet coordinator branch, off the W42 dark boundary
+		db0
+			.query(
+				"INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, 'W-DEC', 'W-DEC seam ruling (DECISION, no code)', 'READY', NULL, ?, ?)",
+			)
+			.run(REPO, OLD, OLD);
+		db0
+			.query(
+				"INSERT INTO facts (key, value, ts) VALUES ('coordinator.sid', 'coord-sess-cccccc', ?)",
+			)
+			.run(Date.now());
+		db0
+			.query(
+				"INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES ('coord-sess-cccccc', ?, 'coordinator', NULL, NULL, ?, ?, 'RUNNING', NULL, NULL)",
+			)
+			.run(REPO, OLD + 30 * 60_000, OLD + 30 * 60_000); // 1.5h stale — inside the quiet coordinator branch, off the W42 dark boundary
 		db0.close();
 		const r = run(); // read-only pass EMITS the missing NEED_DECISION — a ruling
 		// that never floats is a ruling nobody sees (launchd runs read-only)
@@ -132,7 +206,10 @@ describe("waiting for you", () => {
 		const r2 = run(["--fix"]); // detector NOT EXISTS dedupes — no second emission
 		expect(r2.out).not.toContain("emitted NEED_DECISION for W-DEC");
 		const d = new Database(DB, { readonly: true });
-		const ev = one(d, "SELECT payload, target FROM events WHERE kind = 'NEED_DECISION' AND payload LIKE '%W-DEC%'") as { payload: string; target: string };
+		const ev = one(
+			d,
+			"SELECT payload, target FROM events WHERE kind = 'NEED_DECISION' AND payload LIKE '%W-DEC%'",
+		) as { payload: string; target: string };
 		expect(JSON.parse(ev.payload).work).toBe("W-DEC");
 		expect(ev.target).toBe("coord-sess-cccccc");
 		d.close();
@@ -141,14 +218,20 @@ describe("waiting for you", () => {
 	});
 	test("answered decision returns the lane to normal zombie rules", () => {
 		const d0 = new Database(DB);
-		d0.query("UPDATE decisions SET state = 'ANSWERED' WHERE answer_to = ?").run(WAIT_SID);
+		d0.query("UPDATE decisions SET state = 'ANSWERED' WHERE answer_to = ?").run(
+			WAIT_SID,
+		);
 		d0.close();
 		const r = run(["--fix"]);
 		expect(r.out).toContain("ZOMBIE W1"); // same staleness, no longer exempt
 		expect(r.out).toContain("swept stale session waiting-");
 		const d = new Database(DB, { readonly: true });
-		expect(one(d, "SELECT state FROM sessions WHERE sid = ?", WAIT_SID)).toEqual({ state: "CLOSED" });
-		expect(one(d, "SELECT value FROM facts WHERE key = 'zombie.W1'").value).toContain("ZOMBIE");
+		expect(
+			one(d, "SELECT state FROM sessions WHERE sid = ?", WAIT_SID),
+		).toEqual({ state: "CLOSED" });
+		expect(
+			one(d, "SELECT value FROM facts WHERE key = 'zombie.W1'").value,
+		).toContain("ZOMBIE");
 		d.close();
 	});
 });
@@ -160,7 +243,9 @@ describe("waiting for you", () => {
 describe("coordinator dark", () => {
 	test(">2h dark escalates to an issue; --fix still never closes it", () => {
 		const db = new Database(DB);
-		db.query("INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES ('dark-coord-dddddddd', ?, 'coordinator', NULL, NULL, ?, ?, 'RUNNING', NULL, NULL)").run(REPO, Date.now() - 3 * 3_600_000, Date.now() - 3 * 3_600_000);
+		db.query(
+			"INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path) VALUES ('dark-coord-dddddddd', ?, 'coordinator', NULL, NULL, ?, ?, 'RUNNING', NULL, NULL)",
+		).run(REPO, Date.now() - 3 * 3_600_000, Date.now() - 3 * 3_600_000);
 		db.close();
 		const r = run(); // read-only pass
 		expect(r.code).toBe(1);
@@ -171,7 +256,9 @@ describe("coordinator dark", () => {
 		expect(rf.code).toBe(1); // the alert persists — it is an issue, not a fixable state
 		expect(rf.err).toContain("COORDINATOR-DARK");
 		const d = new Database(DB, { readonly: true });
-		expect(one(d, "SELECT state FROM sessions WHERE sid = 'dark-coord-dddddddd'")).toEqual({ state: "RUNNING" }); // never swept
+		expect(
+			one(d, "SELECT state FROM sessions WHERE sid = 'dark-coord-dddddddd'"),
+		).toEqual({ state: "RUNNING" }); // never swept
 		d.close();
 	});
 });
@@ -186,8 +273,17 @@ const DB2 = join(HOME2, ".cache", "claude-governor", "governor.db");
 afterAll(() => rmSync(HOME2, { recursive: true, force: true }));
 
 function run2(): { out: string; err: string; code: number } {
-	const p = Bun.spawnSync(["bun", join(bin, "monitor.ts")], { cwd: REPO, env: { ...process.env, HOME: HOME2 }, stdout: "pipe", stderr: "pipe" });
-	return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+	const p = Bun.spawnSync(["bun", join(bin, "monitor.ts")], {
+		cwd: REPO,
+		env: { ...process.env, HOME: HOME2 },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
 }
 // wipe state, then let the monitor itself recreate the schema
 function fresh2() {
@@ -203,12 +299,39 @@ const NOW2 = Date.now();
 const M2 = 60_000;
 const LANE2 = "dead-lane-aaaaaaaa";
 const PROJ2 = "/tmp/fake-proj2/.git";
-const ev2 = (kind: string, minAgo: number, payload: unknown, target: string | null): unknown[] => [NOW2 - minAgo * M2, "test", kind, null, JSON.stringify(payload), target];
+const ev2 = (
+	kind: string,
+	minAgo: number,
+	payload: unknown,
+	target: string | null,
+): unknown[] => [
+	NOW2 - minAgo * M2,
+	"test",
+	kind,
+	null,
+	JSON.stringify(payload),
+	target,
+];
 const insSession2 = (db: Database, sid: string, state: string) =>
-	db.query("INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES (?, ?, 'worker', 'coord-parent', ?, ?, ?)").run(sid, PROJ2, NOW2 - 60 * M2, NOW2 - (state === "RUNNING" ? 0 : 30) * M2, state);
+	db
+		.query(
+			"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES (?, ?, 'worker', 'coord-parent', ?, ?, ?)",
+		)
+		.run(
+			sid,
+			PROJ2,
+			NOW2 - 60 * M2,
+			NOW2 - (state === "RUNNING" ? 0 : 30) * M2,
+			state,
+		);
 const insEvent2 = (db: Database, e: unknown[]) =>
-	db.query("INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)").run(...(e as [number, string, string, null, string, string | null]));
-const count2 = (db: Database, sql: string): number => (db.query(sql).get() as { n: number }).n;
+	db
+		.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+		.run(...(e as [number, string, string, null, string, string | null]));
+const count2 = (db: Database, sql: string): number =>
+	(db.query(sql).get() as { n: number }).n;
 
 describe("monitor 5b — dead letters", () => {
 	test("old targeted event + RUNNING target + no cursor advance → alert + dedupe fact", () => {
@@ -221,7 +344,12 @@ describe("monitor 5b — dead letters", () => {
 		expect(r.err).toContain("dead letter");
 		expect(r.code).toBe(1);
 		const d = new Database(DB2, { readonly: true });
-		expect(count2(d, "SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'")).toBe(1);
+		expect(
+			count2(
+				d,
+				"SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'",
+			),
+		).toBe(1);
 		d.close();
 	});
 
@@ -229,7 +357,12 @@ describe("monitor 5b — dead letters", () => {
 		const r2 = run2();
 		expect(r2.err).toContain("(alerted");
 		const d = new Database(DB2, { readonly: true });
-		expect(count2(d, "SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'")).toBe(1);
+		expect(
+			count2(
+				d,
+				"SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'deadletter.%'",
+			),
+		).toBe(1);
 		d.close();
 	});
 
@@ -238,7 +371,10 @@ describe("monitor 5b — dead letters", () => {
 		seed2((db) => {
 			insSession2(db, LANE2, "RUNNING");
 			insEvent2(db, ev2("paused", 60, { sha: "abc" }, LANE2));
-			db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(LANE2, 1);
+			db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
+				LANE2,
+				1,
+			);
 		});
 		const r = run2();
 		expect(r.code).toBe(0);
@@ -261,8 +397,12 @@ describe("monitor 5b — dead letters", () => {
 		seed2((db) => {
 			insSession2(db, LANE2, "RUNNING");
 			insEvent2(db, ev2("paused", 60, { sha: "abc" }, LANE2));
-			db.run("CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY, project TEXT, task_id TEXT, asked_by TEXT, question TEXT, options TEXT, state TEXT NOT NULL DEFAULT 'OPEN', delivery TEXT, answer_note TEXT, answer_to TEXT, answer_token TEXT, created_ts INTEGER, answered_ts INTEGER, ack_ts INTEGER)");
-			db.query("INSERT INTO decisions (project, task_id, asked_by, question, state, answer_to, created_ts) VALUES (?, 'W9', 'human', 'rule on this?', 'OPEN', ?, ?)").run(PROJ2, LANE2, NOW2);
+			db.run(
+				"CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY, project TEXT, task_id TEXT, asked_by TEXT, question TEXT, options TEXT, state TEXT NOT NULL DEFAULT 'OPEN', delivery TEXT, answer_note TEXT, answer_to TEXT, answer_token TEXT, created_ts INTEGER, answered_ts INTEGER, ack_ts INTEGER)",
+			);
+			db.query(
+				"INSERT INTO decisions (project, task_id, asked_by, question, state, answer_to, created_ts) VALUES (?, 'W9', 'human', 'rule on this?', 'OPEN', ?, ?)",
+			).run(PROJ2, LANE2, NOW2);
 		});
 		const r = run2();
 		expect(r.code).toBe(0);
@@ -271,7 +411,11 @@ describe("monitor 5b — dead letters", () => {
 });
 
 describe("monitor 5c — drive-by fan-outs", () => {
-	const added2 = (work: string, minAgo: number, extra: Record<string, unknown> = {}): unknown[] =>
+	const added2 = (
+		work: string,
+		minAgo: number,
+		extra: Record<string, unknown> = {},
+	): unknown[] =>
 		ev2("work.added", minAgo, { work, project: PROJ2, ...extra }, null);
 
 	test("3 children in one split without plan ref → exactly one alert, fact written", () => {
@@ -286,7 +430,9 @@ describe("monitor 5c — drive-by fan-outs", () => {
 		expect(r.err).toContain("W90");
 		expect(r.code).toBe(1);
 		const d = new Database(DB2, { readonly: true });
-		expect(count2(d, "SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'driveby.%'")).toBe(1);
+		expect(
+			count2(d, "SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'driveby.%'"),
+		).toBe(1);
 		d.close();
 	});
 
@@ -336,16 +482,29 @@ describe("monitor W51 — stalled lanes", () => {
 	const TITLE2 = "W51 stall fixture work item";
 	const seedStall = (ts: number): void => {
 		mkdirSync(dirname(transP), { recursive: true });
-		writeFileSync(transP, JSON.stringify({ timestamp: new Date(ts).toISOString() }) + "\n");
+		writeFileSync(
+			transP,
+			JSON.stringify({ timestamp: new Date(ts).toISOString() }) + "\n",
+		);
 		seed2((db) => {
-			db.query("INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, started_at, hb, state, transcript_path) VALUES (?, ?, 'worker', NULL, ?, ?, 'RUNNING', ?)").run(STALL_SID, PROJ2, ts, NOW2, transP);
-			db.query("INSERT OR REPLACE INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)").run(PROJ2, "W51T", TITLE2, STALL_SID, ts, ts);
+			db.query(
+				"INSERT OR REPLACE INTO sessions (sid, project, role, parent_sid, started_at, hb, state, transcript_path) VALUES (?, ?, 'worker', NULL, ?, ?, 'RUNNING', ?)",
+			).run(STALL_SID, PROJ2, ts, NOW2, transP);
+			db.query(
+				"INSERT OR REPLACE INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)",
+			).run(PROJ2, "W51T", TITLE2, STALL_SID, ts, ts);
 		});
 	};
 	const stallCounts = (): { ev: number; fk: { value: string } | null } => {
 		const d = new Database(DB2, { readonly: true });
-		const ev = (d.query("SELECT COUNT(*) AS n FROM events WHERE kind = 'STALL_NUDGE'").get() as { n: number }).n;
-		const fk = d.query("SELECT value FROM facts WHERE key = ?").get(`stall.${STALL_SID}`) as { value: string } | null;
+		const ev = (
+			d
+				.query("SELECT COUNT(*) AS n FROM events WHERE kind = 'STALL_NUDGE'")
+				.get() as { n: number }
+		).n;
+		const fk = d
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`stall.${STALL_SID}`) as { value: string } | null;
 		d.close();
 		return { ev, fk };
 	};
@@ -377,19 +536,28 @@ describe("monitor W51 — stalled lanes", () => {
 	test("expected-silent lanes are never nudged: waiting on an OPEN decision, PAUSED, WAIT_RATE", () => {
 		fresh2();
 		mkdirSync(dirname(transP), { recursive: true });
-		writeFileSync(transP, JSON.stringify({ timestamp: new Date(QUIET_TS).toISOString() }) + "\n");
+		writeFileSync(
+			transP,
+			JSON.stringify({ timestamp: new Date(QUIET_TS).toISOString() }) + "\n",
+		);
 		seed2((db) => {
 			db.run(
 				"CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY, project TEXT, task_id TEXT, asked_by TEXT, question TEXT, options TEXT, state TEXT NOT NULL DEFAULT 'OPEN', delivery TEXT, answer_note TEXT, answer_to TEXT, answer_token TEXT, created_ts INTEGER, answered_ts INTEGER, ack_ts INTEGER)",
 			);
-			db.query("INSERT INTO decisions (project, asked_by, question, state, answer_to, created_ts) VALUES (?, 'human', 'rule on this?', 'OPEN', ?, ?)").run(PROJ2, "stall-wait-cccccccc", NOW2);
+			db.query(
+				"INSERT INTO decisions (project, asked_by, question, state, answer_to, created_ts) VALUES (?, 'human', 'rule on this?', 'OPEN', ?, ?)",
+			).run(PROJ2, "stall-wait-cccccccc", NOW2);
 			for (const [sid, state, item] of [
 				["stall-wait-cccccccc", "RUNNING", "W51W"],
 				["stall-pause-dddddddd", "PAUSED", "W51P"],
 				["stall-rate-eeeeeeee", "WAIT_RATE", "W51R"],
 			] as const) {
-				db.query("INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state, transcript_path) VALUES (?, ?, 'worker', NULL, ?, ?, ?, ?)").run(sid, PROJ2, NOW2, NOW2, state, transP);
-				db.query("INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)").run(PROJ2, item, `fixture ${item}`, sid, NOW2, NOW2);
+				db.query(
+					"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state, transcript_path) VALUES (?, ?, 'worker', NULL, ?, ?, ?, ?)",
+				).run(sid, PROJ2, NOW2, NOW2, state, transP);
+				db.query(
+					"INSERT INTO work_items (project, id, title, state, owner_sid, created_at, updated_at) VALUES (?, ?, ?, 'CLAIMED', ?, ?, ?)",
+				).run(PROJ2, item, `fixture ${item}`, sid, NOW2, NOW2);
 			}
 		});
 		const r = run2();
@@ -398,8 +566,20 @@ describe("monitor W51 — stalled lanes", () => {
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("health clean");
 		const d = new Database(DB2, { readonly: true });
-		expect((d.query("SELECT COUNT(*) AS n FROM events WHERE kind = 'STALL_NUDGE'").get() as { n: number }).n).toBe(0);
-		expect((d.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'stall.%'").get() as { n: number }).n).toBe(0);
+		expect(
+			(
+				d
+					.query("SELECT COUNT(*) AS n FROM events WHERE kind = 'STALL_NUDGE'")
+					.get() as { n: number }
+			).n,
+		).toBe(0);
+		expect(
+			(
+				d
+					.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'stall.%'")
+					.get() as { n: number }
+			).n,
+		).toBe(0);
 		d.close();
 	});
 });

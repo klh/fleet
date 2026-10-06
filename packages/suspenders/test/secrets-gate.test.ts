@@ -16,30 +16,62 @@ const REPO = mkdtempSync(join(process.cwd(), ".tmp-secrets-repo-"));
 const env = {
 	...process.env,
 	HOME,
-	GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t",
+	GIT_AUTHOR_NAME: "t",
+	GIT_AUTHOR_EMAIL: "t@t",
+	GIT_COMMITTER_NAME: "t",
+	GIT_COMMITTER_EMAIL: "t@t",
 };
 const HOOKS = join(import.meta.dir, "..", "hooks");
 
 let n = 0;
 function gate(command: string): { out: string; code: number } {
 	const payload = join(HOME, `hook-${n++}.json`);
-	writeFileSync(payload, JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd: REPO, session_id: "s", transcript_path: join(HOME, "t.jsonl") }));
-	const p = Bun.spawnSync(["bun", join(HOOKS, "gate.ts"), "pre-bash"], { cwd: REPO, env, stdin: Bun.file(payload), stdout: "pipe", stderr: "pipe" });
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			tool_name: "Bash",
+			tool_input: { command },
+			cwd: REPO,
+			session_id: "s",
+			transcript_path: join(HOME, "t.jsonl"),
+		}),
+	);
+	const p = Bun.spawnSync(["bun", join(HOOKS, "gate.ts"), "pre-bash"], {
+		cwd: REPO,
+		env,
+		stdin: Bun.file(payload),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return { out: p.stdout.toString(), code: p.exitCode };
 }
 const allowed = (r: { out: string }) => expect(r.out).toBe("{}");
-const denied = (r: { out: string }) => expect(r.out).toContain('"permissionDecision":"deny"');
+const denied = (r: { out: string }) =>
+	expect(r.out).toContain('"permissionDecision":"deny"');
 
 // synthetic key in the gitleaks github-pat shape, assembled at runtime so no
 // literal token lives in this file — a committed literal would itself trip
 // the history scan on every future push (entropy: all-repeated chars are
 // skipped by gitleaks, hence the realistic filler)
-const FAKE = ["ghp_", "xK9m", "Q2vL", "8pR4", "tW7z", "B3nC", "6yF0", "jH5s", "D1aG", "9eU2"].join("");
+const FAKE = [
+	"ghp_",
+	"xK9m",
+	"Q2vL",
+	"8pR4",
+	"tW7z",
+	"B3nC",
+	"6yF0",
+	"jH5s",
+	"D1aG",
+	"9eU2",
+].join("");
 // Bun.spawnSync THROWS on a missing executable (ENOENT) — CI images have no
 // gitleaks, so the probe itself must not be the thing that fails the run
 let hasGitleaks = false;
 try {
-	hasGitleaks = Bun.spawnSync(["gitleaks", "version"], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+	hasGitleaks =
+		Bun.spawnSync(["gitleaks", "version"], { stdout: "pipe", stderr: "pipe" })
+			.exitCode === 0;
 } catch {
 	hasGitleaks = false; // not installed — the gate skips via have(), we skip the file
 }
@@ -58,9 +90,18 @@ afterAll(() => {
 	Bun.spawnSync(["git", "init", REPO], { env });
 	writeFileSync(join(REPO, "k.txt"), `${FAKE}\n`);
 	Bun.spawnSync(["git", "-C", REPO, "add", "k.txt"], { env });
-	Bun.spawnSync(["git", "-C", REPO, "commit", "-m", "c1"], { env: { ...env, cwd: REPO } });
-	const top = new TextDecoder().decode(Bun.spawnSync(["git", "-C", REPO, "rev-parse", "--show-toplevel"], { env }).stdout).trim();
-	if (top !== REPO) throw new Error(`fixture escaped its repo: commit landed in ${top}`);
+	Bun.spawnSync(["git", "-C", REPO, "commit", "-m", "c1"], {
+		env: { ...env, cwd: REPO },
+	});
+	const top = new TextDecoder()
+		.decode(
+			Bun.spawnSync(["git", "-C", REPO, "rev-parse", "--show-toplevel"], {
+				env,
+			}).stdout,
+		)
+		.trim();
+	if (top !== REPO)
+		throw new Error(`fixture escaped its repo: commit landed in ${top}`);
 
 	test("git stash push is a LOCAL op — no remote-history scan, allowed", () => {
 		allowed(gate('git stash push -m "wip"'));

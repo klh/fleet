@@ -17,10 +17,31 @@ const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const PARENT = "parent-sess-11111111";
 
 function runHook(tp: string) {
-	const payload = join(HOME, `payload-${Math.random().toString(36).slice(2)}.json`);
-	writeFileSync(payload, JSON.stringify({ session_id: PARENT, source: "startup", transcript_path: tp, cwd: REPO }));
-	const p = Bun.spawnSync(["bun", hook], { cwd: REPO, env, stdin: Bun.file(payload), stdout: "pipe", stderr: "pipe" });
-	return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+	const payload = join(
+		HOME,
+		`payload-${Math.random().toString(36).slice(2)}.json`,
+	);
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			session_id: PARENT,
+			source: "startup",
+			transcript_path: tp,
+			cwd: REPO,
+		}),
+	);
+	const p = Bun.spawnSync(["bun", hook], {
+		cwd: REPO,
+		env,
+		stdin: Bun.file(payload),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
 }
 
 afterAll(() => {
@@ -34,7 +55,10 @@ describe("subagent lane identity", () => {
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("SESSION parent-s");
 		const db = new Database(DB, { readonly: true });
-		const row = db.query("SELECT sid, parent_sid FROM sessions").get() as { sid: string; parent_sid: string | null };
+		const row = db.query("SELECT sid, parent_sid FROM sessions").get() as {
+			sid: string;
+			parent_sid: string | null;
+		};
 		db.close();
 		expect(row.sid).toBe(PARENT);
 		expect(row.parent_sid).toBeNull();
@@ -45,9 +69,9 @@ describe("subagent lane identity", () => {
 		expect(r.out).toContain("SUBAGENT LANE");
 		expect(r.out).toContain(`--as ${PARENT}#agent-abc`);
 		const db = new Database(DB, { readonly: true });
-		const laneRow = db.query("SELECT sid, parent_sid FROM sessions WHERE sid LIKE '%#%'").get() as
-			| { sid: string; parent_sid: string | null }
-			| undefined;
+		const laneRow = db
+			.query("SELECT sid, parent_sid FROM sessions WHERE sid LIKE '%#%'")
+			.get() as { sid: string; parent_sid: string | null } | undefined;
 		db.close();
 		expect(laneRow?.sid).toBe(`${PARENT}#agent-abc`);
 		expect(laneRow?.parent_sid).toBe(PARENT);

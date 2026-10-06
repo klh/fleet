@@ -8,7 +8,13 @@
 // (NEVER /tmp — the bash gate exempts /tmp by design, so a /tmp checkout
 // would silently test nothing).
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	mkdirSync,
+	writeFileSync,
+	readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
@@ -16,23 +22,59 @@ import { realpathSync } from "node:fs";
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const gitInit = (dir: string): void => {
 	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], { stdout: "ignore", stderr: "ignore" });
+	const r = Bun.spawnSync(["git", "init", "-q", dir], {
+		stdout: "ignore",
+		stderr: "ignore",
+	});
 	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
 };
 const pid = (repo: string): string => {
-	const r = Bun.spawnSync(["git", "-C", repo, "rev-parse", "--git-common-dir"], { stdout: "pipe", stderr: "pipe" });
+	const r = Bun.spawnSync(
+		["git", "-C", repo, "rev-parse", "--git-common-dir"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
 	return realpathSync(resolve(repo, r.stdout.toString().trim()));
 };
-function run(cwd: string, home: string, ...args: string[]): { out: string; err: string; code: number } {
-	const p = Bun.spawnSync(["bun", join(BIN, "work.ts"), ...args], { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" });
-	return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+function run(
+	cwd: string,
+	home: string,
+	...args: string[]
+): { out: string; err: string; code: number } {
+	const p = Bun.spawnSync(["bun", join(BIN, "work.ts"), ...args], {
+		cwd,
+		env: { ...process.env, HOME: home },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
 }
-const idOf = (out: string): string => (out.match(/W\d+(?:\.\d+)*/) ?? [])[0] ?? "";
-const mirrorLines = (repo: string): string[] => readFileSync(join(repo, ".workgraph.jsonl"), "utf8").split("\n").filter((l) => l.trim());
-const seedMirror = (repo: string, items: Record<string, unknown>[], meta: Record<string, unknown> = {}): void =>
+const idOf = (out: string): string =>
+	(out.match(/W\d+(?:\.\d+)*/) ?? [])[0] ?? "";
+const mirrorLines = (repo: string): string[] =>
+	readFileSync(join(repo, ".workgraph.jsonl"), "utf8")
+		.split("\n")
+		.filter((l) => l.trim());
+const seedMirror = (
+	repo: string,
+	items: Record<string, unknown>[],
+	meta: Record<string, unknown> = {},
+): void =>
 	writeFileSync(
 		join(repo, ".workgraph.jsonl"),
-		[...items.map((i) => JSON.stringify(i)), JSON.stringify({ type: "meta", project: pid(repo), exported_at: Date.now(), count: items.length, ...meta })].join("\n") + "\n",
+		[
+			...items.map((i) => JSON.stringify(i)),
+			JSON.stringify({
+				type: "meta",
+				project: pid(repo),
+				exported_at: Date.now(),
+				count: items.length,
+				...meta,
+			}),
+		].join("\n") + "\n",
 	);
 
 // home A: working DB (the mirror-writing path); repos live under the checkout
@@ -50,10 +92,23 @@ writeFileSync(join(HOME_BROKEN, ".cache"), "not a directory");
 // repo 2 carries only a hand-seeded mirror — never a single work command
 const REPO2 = mkdtempSync(join(process.cwd(), ".tmp-work-mirror-repo2-"));
 gitInit(REPO2);
-const MIRROR_ITEM = { id: "W1", parent_id: null, title: "served from the mirror", state: "READY", priority: 0, owner_sid: null, required: 1, requires: null, created_at: 1, updated_at: 1, deps: [] };
+const MIRROR_ITEM = {
+	id: "W1",
+	parent_id: null,
+	title: "served from the mirror",
+	state: "READY",
+	priority: 0,
+	owner_sid: null,
+	required: 1,
+	requires: null,
+	created_at: 1,
+	updated_at: 1,
+	deps: [],
+};
 
 afterAll(() => {
-	for (const d of [HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2]) rmSync(d, { recursive: true, force: true });
+	for (const d of [HOME, HOME_FRESH, HOME_BROKEN, REPO, REPO2])
+		rmSync(d, { recursive: true, force: true });
 });
 
 describe("mirror writer — mutating commands export the graph", () => {
@@ -80,7 +135,9 @@ describe("mirror writer — mutating commands export the graph", () => {
 		const b = idOf(work("add", "edge waiter").out);
 		expect(work("take", a, "--as", "mirror-lane").code).toBe(0);
 		expect(work("block", b, "--on", a).code).toBe(0);
-		const items = mirrorLines(REPO).slice(0, -1).map((l) => JSON.parse(l));
+		const items = mirrorLines(REPO)
+			.slice(0, -1)
+			.map((l) => JSON.parse(l));
 		const ta = items.find((i) => i.id === a);
 		const tb = items.find((i) => i.id === b);
 		expect(ta.state).toBe("CLAIMED");
@@ -100,7 +157,9 @@ describe("mirror reader — fallback when governor.db cannot serve the project",
 		seedMirror(REPO2, [MIRROR_ITEM]);
 		const r = run(REPO2, HOME_FRESH, "list");
 		expect(r.code).toBe(0);
-		expect(r.err).toContain("serving from .workgraph.jsonl mirror (governor.db unreachable) — read-only");
+		expect(r.err).toContain(
+			"serving from .workgraph.jsonl mirror (governor.db unreachable) — read-only",
+		);
 		expect(r.out).toContain("served from the mirror");
 		const s = run(REPO2, HOME_FRESH, "show", "W1");
 		expect(s.out).toContain("W1");
