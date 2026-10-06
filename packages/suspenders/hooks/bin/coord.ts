@@ -58,6 +58,7 @@ import {
 	cmdConsults,
 	cmdWhoKnows,
 } from "../coord/consult.ts";
+import { cmdGovernance } from "../coord/governance.ts";
 import {
 	cmdKnowledge,
 	cmdKnowledgeEnqueue,
@@ -86,7 +87,7 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message\n" +
+		"coord — control plane. emit | broadcast | poll | wait | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message\n" +
 			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
 			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
 	);
@@ -112,6 +113,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	resumed: cmdResumed,
 	"resume-session": cmdResumeSession,
 	fact: cmdFact,
+	governance: cmdGovernance,
 	capsule: cmdCapsule,
 	"lease-release": cmdLeaseRelease,
 	kb: cmdKb,
@@ -143,5 +145,5 @@ const fn = cmds[cmd ?? ""];
 if (fn) await fn(rest);
 else
 	die(
-		"unknown command — try emit | broadcast | poll | wait | fact | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message",
+		"unknown command — try emit | broadcast | poll | wait | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | metrics | diff | events | project | targets | message",
 	);

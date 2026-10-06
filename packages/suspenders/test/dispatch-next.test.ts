@@ -18,7 +18,9 @@ import {
 	isOwnerGated,
 	laneKeyDecision,
 	parseCapsuleGet,
+	parseGovernanceMode,
 	parseReady,
+	probeFrontDecision,
 } from "../scripts/dispatch-next.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
@@ -405,5 +407,70 @@ describe("lane key lifecycle (W463)", () => {
 		expect(existsSync(metaPath)).toBe(false);
 		expect(existsSync(settingsPath)).toBe(false);
 		stub.stop();
+	}, 60_000);
+});
+
+// ─── governance mode (W422.17, owner ruling 2026-10-06) ──────────────────
+describe("governance mode decisions (W422.17)", () => {
+	test("probeFrontDecision: strict refuses, citing front + governance:strict", () => {
+		const d = probeFrontDecision(false, "strict");
+		expect(d.mode).toBe("refuse");
+		if (d.mode === "refuse")
+			expect(d.why).toContain("buckle front unreachable + governance:strict");
+	});
+
+	test("probeFrontDecision: solo proceeds belt-direct with the loud note", () => {
+		const d = probeFrontDecision(false, "solo");
+		expect(d.mode).toBe("belt-direct");
+		if (d.mode === "belt-direct") expect(d.note).toContain("governance:solo");
+	});
+
+	test("probeFrontDecision: --allow-ungoverned overrides BOTH modes", () => {
+		for (const m of ["strict", "solo"] as const) {
+			expect(probeFrontDecision(true, m).mode).toBe("ungoverned-override");
+		}
+	});
+
+	test("parseGovernanceMode: unset/strict/garbage → strict; solo → solo", () => {
+		expect(parseGovernanceMode("(unset)")).toBe("strict");
+		expect(parseGovernanceMode("solo (v3)")).toBe("solo");
+		expect(parseGovernanceMode("strict (v1)")).toBe("strict");
+		expect(parseGovernanceMode("wibble (v9)")).toBe("strict");
+	});
+
+	test("laneKeyDecision: solo does NOT relent at mint failures (W463 stands)", () => {
+		expect(laneKeyDecision(null, false, "solo").mode).toBe("refuse");
+	});
+});
+
+describe("governance mode e2e: probe-false strict (W422.17)", () => {
+	test("fact absent → strict applies: REFUSED, claim reclaimed, exit non-zero", async () => {
+		const id = await addItem("governance strict refusal item");
+		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
+		expect(out.code).not.toBe(0);
+		expect(out.out).toContain(`REFUSED ${id}`);
+		expect(out.out).toContain("buckle front unreachable + governance:strict");
+		expect(out.out).toContain("dispatch(es) REFUSED");
+		expect(out.out).not.toContain("(pid");
+		const show = await toolA({}, "work.ts", "show", id);
+		expect(show.out).toContain("READY");
+	}, 60_000);
+});
+
+describe("governance mode e2e: probe-false solo (W422.17)", () => {
+	test("probe-false + solo → proceeds belt-direct with the loud note", async () => {
+		expect((await toolA({}, "coord.ts", "governance", "solo")).code).toBe(0);
+		const id = await addItem("governance solo belt-direct item");
+		const sid = `autow${id.slice(1)}`;
+		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
+		expect(out.code).toBe(0);
+		expect(out.out).toContain("BELT-DIRECT DISPATCH");
+		expect(out.out).toContain("governance:solo");
+		expect(out.out).toContain("SKIP — executor binary not found");
+		expect(out.out).not.toContain("(pid");
+		const brief = readFileSync(join(REPO, ".fleet", `brief-${sid}.md`), "utf8");
+		expect(brief).toContain("GOVERNANCE: BELT-DIRECT DISPATCH");
+		// restore the default so the scratch db ends strict
+		expect((await toolA({}, "coord.ts", "governance", "strict")).code).toBe(0);
 	}, 60_000);
 });

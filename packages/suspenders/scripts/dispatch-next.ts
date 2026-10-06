@@ -361,11 +361,13 @@ export const isOwnerGated = (title: string): boolean =>
 export type GovernanceDecision =
 	| { mode: "governed"; key: string; keyId: string }
 	| { mode: "ungoverned-override"; note: string }
+	| { mode: "belt-direct"; note: string }
 	| { mode: "refuse"; why: string };
 
 export const laneKeyDecision = (
 	minted: MintedLaneKey | null,
 	allowUngoverned: boolean,
+	govMode: "strict" | "solo" = "strict",
 ): GovernanceDecision => {
 	if (minted) return { mode: "governed", key: minted.key, keyId: minted.keyId };
 	if (allowUngoverned)
@@ -375,8 +377,65 @@ export const laneKeyDecision = (
 		};
 	return {
 		mode: "refuse",
-		why: "buckle lane-key mint failed — check belt.env BUCKLE_ADMIN_KEY (fail-closed W463; --allow-ungoverned overrides)",
+		// W422.17: solo relents only at the front probe, never at mint failures
+		why:
+			govMode === "solo"
+				? "buckle lane-key mint failed — governance:solo does not relent at mint failures (fail-closed W463; --allow-ungoverned overrides)"
+				: "buckle lane-key mint failed — check belt.env BUCKLE_ADMIN_KEY (fail-closed W463; --allow-ungoverned overrides)",
 	};
+};
+
+/** W422.17 (owner ruling 2026-10-06): `coord fact get fleet.governance`
+ *  output → "strict" | "solo". Absent/unknown → strict (fail-closed
+ *  default). Pure — unit-testable. */
+export const parseGovernanceMode = (factOut: string): "strict" | "solo" => {
+	const first = (factOut.split("\n")[0] ?? "").trim();
+	if (first === "(unset)") return "strict";
+	return first.replace(/\s*\(v\d+\)$/, "").trim() === "solo"
+		? "solo"
+		: "strict";
+};
+
+/** W422.17 probe-false decision (pure — unit-testable): the buckle front did
+ *  not answer the probe. --allow-ungoverned overrides BOTH modes; solo keeps
+ *  the belt-direct fallback (loud, disclosed); strict refuses the lane with
+ *  the same machinery as a W463 mint failure. */
+export const probeFrontDecision = (
+	allowUngoverned: boolean,
+	govMode: "strict" | "solo",
+): GovernanceDecision => {
+	if (allowUngoverned)
+		return {
+			mode: "ungoverned-override",
+			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): buckle front unreachable; lane rides belt direct with no buckle scopes, attribution or budgets",
+		};
+	if (govMode === "solo")
+		return {
+			mode: "belt-direct",
+			note: "BELT-DIRECT DISPATCH — buckle front unreachable (governance:solo): lane rides belt direct with no buckle scopes, attribution or budgets",
+		};
+	return {
+		mode: "refuse",
+		why: "buckle front unreachable + governance:strict — lanes dispatch only through the buckle front (W422.17; --allow-ungoverned overrides per-invocation, coord governance solo relents)",
+	};
+};
+
+// governance mode: read ONCE per dispatch run, through the coord CLI the
+// script already uses for facts (copilot-meter pattern) — no second store,
+// no raw sqlite on governor.db. Absent/broken fact reads fold to strict.
+let governanceModeCache: "strict" | "solo" | null = null;
+const governanceMode = (): "strict" | "solo" => {
+	if (governanceModeCache) return governanceModeCache;
+	governanceModeCache = parseGovernanceMode(
+		run([
+			process.execPath,
+			`${BIN}/coord.ts`,
+			"fact",
+			"get",
+			"fleet.governance",
+		]).out,
+	);
+	return governanceModeCache;
 };
 
 /** `coord capsule get --as <sid>` output → parsed capsule, or null when the
@@ -726,10 +785,17 @@ const dispatchItem = async (
 		// REFUSES the lane — governance must not silently vanish — and only
 		// the explicit --allow-ungoverned override rides belt direct. Skipped
 		// entirely when a hub redirect won (the hub owns the base URL).
-		if (!resolvedHub && (await probeBuckleFront())) {
+		// W422.17: probe once — front up rides the W463 governed mint path,
+		// front down branches on the governance mode (strict refuses, solo
+		// keeps the belt-direct fallback). undefined = hub won, skip entirely.
+		const frontUp: string | null | undefined = resolvedHub
+			? undefined
+			: await probeBuckleFront();
+		if (frontUp) {
 			const decision = laneKeyDecision(
 				await ensureLaneKey(sid),
 				ALLOW_UNGOVERNED,
+				governanceMode(),
 			);
 			if (decision.mode === "governed") {
 				applyLaneAttribution(env, sid);
@@ -756,6 +822,26 @@ const dispatchItem = async (
 				log(`REFUSED ${item} → ${sid} — ${decision.why}`);
 				return null;
 			}
+		} else if (frontUp !== undefined) {
+			// W422.17 probe-false: the buckle front did not answer. Strict (the
+			// default) refuses the lane with the same machinery as a mint
+			// failure; solo keeps the belt-direct fallback — loud, disclosed.
+			const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
+			if (probe.mode === "refuse") {
+				run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — ${probe.why}; claim reclaimed → READY, nothing spawned`,
+				);
+				log(`REFUSED ${item} → ${sid} — ${probe.why}`);
+				return null;
+			}
+			console.log(`NOTE — ${probe.note}`);
+			hubNote += ` — ${probe.note}`;
+			// ungoverned rides are disclosed IN the brief the lane reads.
+			const disclosed = `${brief}\n\nGOVERNANCE: ${probe.note}.\n`;
+			writeFileSync(briefFile, disclosed);
+			writeFileSync(`${wt}/.klh-brief.md`, disclosed);
 		}
 	}
 	const bin = Bun.which(pick.bin);

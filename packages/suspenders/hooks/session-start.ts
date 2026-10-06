@@ -149,11 +149,11 @@ const out = [
 // live subscribe ONCE per session — agents never poll the plane. Idempotent:
 // a live subscribe for this lane id is detected and left alone.
 {
-	const SUB_LOG = process.env.HOME + "/.claude-insights/coord-subscribe-" + lane + ".log";
+	const SUB_LOG = `${process.env.HOME}/.claude-insights/coord-subscribe-${lane}.log`;
 	const live = Bun.spawnSync([
 		"/usr/bin/pgrep",
 		"-f",
-		"coord[.]ts subscribe --as " + lane + "$",
+		`coord[.]ts subscribe --as ${lane}$`,
 	]);
 	if (live.exitCode !== 0) {
 		const cmd =
@@ -170,7 +170,9 @@ const out = [
 			stderr: "ignore",
 		});
 		out.push(
-			"WS inbox live: coord subscribe --as " + lane + " (events push; never poll)",
+			"WS inbox live: coord subscribe --as " +
+				lane +
+				" (events push; never poll)",
 		);
 	}
 }
@@ -243,6 +245,18 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 		`OWNED ${mine.length}${owned ? `: ${owned}` : ""}  READY ${readyN}  INBOX ${inbox}${head ? `  head=${head.slice(0, 7)}` : ""}`,
 	);
 	out.push(RULES);
+	// W422.17 (owner ruling 2026-10-06): the governance mode renders as one
+	// rules line — lanes know the probe-false contract before dispatching.
+	const govMode = (
+		db
+			.query("SELECT value FROM facts WHERE key = 'fleet.governance'")
+			.get() as { value: string } | null
+	)?.value;
+	out.push(
+		govMode === "solo"
+			? "GOVERNANCE: solo — dispatch may ride belt-direct when the buckle front is unreachable (restore strict: coord governance strict)"
+			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
+	);
 }
 
 // fleet notices: inject unseen `coord broadcast` notes — each session sees
