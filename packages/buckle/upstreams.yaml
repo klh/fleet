@@ -93,3 +93,19 @@ groups:
 #      dialect: openai
 #      adapter: openrouter           # catalog tier-3 → openai-compat
 #      api_key_env: OPENROUTER_API_KEY
+#
+# W219.1 litellm-as-engine (commented pattern — activation is the machine
+# BUCKLE_UPSTREAMS override, same as every real-host row). The local litellm
+# engine (:4100, owned by the belt swarm supervisor) translates provider
+# dialects on the UPSTREAM leg: buckle speaks OpenAI wire + puts the litellm
+# model_name in `model`, litellm speaks the provider's dialect. The engine
+# is a ladder rung BEHIND the gate — scopes/budgets/audit stay at buckle's
+# front, never beside it. LITELLM_KEY names the env var holding the engine's
+# master_key (os.environ/LITELLM_KEY in litellm.yaml general_settings).
+#
+#  local-reason:
+#    - url: http://127.0.0.1:4100
+#      dialect: openai
+#      adapter: openai-compat
+#      model: local-reason           # litellm model_name (litellm.yaml model_list)
+#      api_key_env: LITELLM_KEY
