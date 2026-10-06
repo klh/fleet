@@ -40,6 +40,9 @@ test("same failure consults holder once on second denial and deduplicates teleme
 	expect(recordFailure(db, context, 100)).toContain('"attempts":1');
 	expect(recordFailure(db, context, 101)).toContain('"consult":"C1"');
 	recordFailure(db, context, 102);
+	expect(
+		db.query("SELECT local_consult_id,status FROM consult_outbox").all(),
+	).toEqual([{ local_consult_id: 1, status: "PENDING" }]);
 	expect(db.query("SELECT COUNT(*) AS n FROM consults").get()).toEqual({
 		n: 1,
 	});
@@ -100,4 +103,37 @@ test("telemetry failure still returns recovery instructions", () => {
 	expect(recordFailure(db, context, 100)).toContain(
 		'"next":"wait for lease release"',
 	);
+});
+
+test("consult and durable delivery roll back together when queue insertion fails", () => {
+	const db = database();
+	recordFailure(db, context, 100);
+	db.run(
+		"CREATE TRIGGER reject_outbox BEFORE INSERT ON consult_outbox BEGIN SELECT RAISE(ABORT,'fixture queue failure'); END",
+	);
+	recordFailure(db, context, 101);
+	expect(db.query("SELECT count(*) AS n FROM consults").get()).toEqual({
+		n: 0,
+	});
+	expect(db.query("SELECT count(*) AS n FROM consult_outbox").get()).toEqual({
+		n: 0,
+	});
+	expect(db.query("SELECT attempts FROM failure_incidents").get()).toEqual({
+		attempts: 1,
+	});
+});
+
+test("pending delivery cap cannot create an undeliverable consult or weaken denial", () => {
+	const db = database();
+	recordFailure(db, context, 100);
+	const insert = db.query(
+		"INSERT INTO consult_outbox(delivery_id,local_consult_id,created_at,next_at) VALUES(?,?,100,100)",
+	);
+	for (let n = 0; n < 1000; n++) insert.run(`fixture-${n}`, n + 100);
+	expect(recordFailure(db, context, 101)).toContain(
+		"only after the recovery condition changes",
+	);
+	expect(db.query("SELECT count(*) AS n FROM consults").get()).toEqual({
+		n: 0,
+	});
 });

@@ -22,12 +22,37 @@ import {
 } from "../lib/govdb.ts";
 import { handleAuthRoutes } from "../lib/auth-server.ts";
 import { servicemon } from "../lib/servicemon.ts";
+import { readFileSync, statSync } from "node:fs";
+import { consultStoreId } from "../lib/consult-outbox.ts";
+import {
+	ensureConsultRelayReceipts,
+	handleConsultRelay,
+} from "../lib/consult-relay-receiver.ts";
 
 const PORT =
 	Number(process.argv[process.argv.indexOf("--port") + 1] ?? "") ||
 	Number(process.env.GOVERNOR_STORE_PORT ?? 7794) ||
 	7794;
-const TOKEN = process.env.GOVERNOR_STORE_TOKEN ?? "";
+function relayServerToken(): string {
+	if (process.env.GOVERNOR_STORE_TOKEN) return process.env.GOVERNOR_STORE_TOKEN;
+	const path = process.env.GOVERNOR_STORE_SERVER_TOKEN_FILE;
+	if (!path) return "";
+	try {
+		const stat = statSync(path);
+		if (!stat.isFile() || stat.size > 4096 || (stat.mode & 0o777) !== 0o600)
+			return "";
+		const value = readFileSync(path, "utf8").trim();
+		return value && !/\s/.test(value) ? value : "";
+	} catch {
+		return "";
+	}
+}
+const TOKEN = relayServerToken();
+const RELAY_TOKEN = TOKEN;
+const AUTH_CONFIGURED = !!(
+	process.env.GOVERNOR_STORE_TOKEN ||
+	process.env.GOVERNOR_STORE_SERVER_TOKEN_FILE
+);
 
 // W125 — shared /status + /metrics (lib/servicemon.ts). /health stays for
 // compat. tokens_total is NOT served here: the store sees no token usage, and
@@ -39,6 +64,8 @@ const sm = servicemon({ service: "store-server", port: PORT });
 // flowing, outside writes wait on busy_timeout — a remote tx window is a few
 // serialized round trips, well inside the 2s budget.
 const db = openGovernorDb();
+const INSTANCE_ID = consultStoreId(db);
+ensureConsultRelayReceipts(db as unknown as GovernorStore);
 const txDb = openGovernorDb() as unknown as GovernorStore;
 let tx: { id: string; last: number } | null = null;
 const TX_IDLE_MS = 10_000;
@@ -234,6 +261,8 @@ const base = {
 	async fetch(req) {
 		const url = new URL(req.url);
 		if (url.pathname === "/subscribe") {
+			if (AUTH_CONFIGURED && !TOKEN)
+				return new Response("Store authority unavailable", { status: 503 });
 			if (TOKEN && url.searchParams.get("token") !== TOKEN)
 				return new Response("forbidden", { status: 403 });
 			const as = url.searchParams.get("as");
@@ -252,6 +281,8 @@ const base = {
 			return Response.json({
 				ok: true,
 				store: "governor",
+				instanceId: INSTANCE_ID,
+				consultRelayReady: !!RELAY_TOKEN,
 				user_version: (
 					db.query("PRAGMA user_version").get() as { user_version: number }
 				).user_version,
@@ -266,8 +297,41 @@ const base = {
 					store: db as unknown as GovernorStore,
 				}),
 			);
+		if (
+			url.pathname === "/consult-relay" ||
+			url.pathname.startsWith("/consult-relay/")
+		) {
+			if (!RELAY_TOKEN)
+				return Response.json(
+					{ error: "Consult receiver requires a configured server token" },
+					{ status: 503 },
+				);
+			if (req.headers.get("x-governor-token") !== RELAY_TOKEN)
+				return new Response("forbidden", { status: 403 });
+			return serial(() => {
+				if (tx && Date.now() - tx.last > TX_IDLE_MS) {
+					try {
+						txDb.run("ROLLBACK");
+					} catch {}
+					tx = null;
+				}
+				if (tx)
+					return Response.json(
+						{ error: "Store transaction is active" },
+						{ status: 503 },
+					);
+				return handleConsultRelay(
+					req,
+					url,
+					db as unknown as GovernorStore,
+					(eventId) => maybeBroadcastInsert("INSERT INTO events", eventId),
+				);
+			});
+		}
 		if (req.method !== "POST" || url.pathname !== "/rpc")
 			return new Response("not found", { status: 404 });
+		if (AUTH_CONFIGURED && !TOKEN)
+			return new Response("Store authority unavailable", { status: 503 });
 		if (TOKEN && req.headers.get("x-governor-token") !== TOKEN)
 			return new Response("forbidden", { status: 403 });
 		const body = (await req.json()) as RpcBody;

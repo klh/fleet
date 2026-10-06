@@ -1126,10 +1126,7 @@ export class HttpGovernorStore implements GovernorStore {
 export function openStore(): GovernorStore {
 	const raw = (process.env.GOVERNOR_STORE_URL ?? storeUrlFile() ?? "").trim();
 	if (raw && raw !== "local")
-		return new HttpGovernorStore(
-			raw.replace(/\/+$/, ""),
-			process.env.GOVERNOR_STORE_TOKEN ?? null,
-		);
+		return new HttpGovernorStore(raw.replace(/\/+$/, ""), resolveStoreToken());
 	const d = openGovernorDb() as unknown as GovernorStore;
 	d.local = true;
 	return d;
@@ -1147,8 +1144,26 @@ export function resolveStoreHttpBase(): {
 	if (!raw || raw === "local") return null;
 	return {
 		base: raw.replace(/\/+$/, ""),
-		token: process.env.GOVERNOR_STORE_TOKEN ?? null,
+		token: resolveStoreToken(),
 	};
+}
+
+// A launchd worker can use the same binding without embedding credentials in
+// its plist. Private file configuration is shared with ordinary coord/work.
+function resolveStoreToken(): string | null {
+	if (process.env.GOVERNOR_STORE_TOKEN) return process.env.GOVERNOR_STORE_TOKEN;
+	const file = process.env.GOVERNOR_STORE_TOKEN_FILE ?? `${REG}/store.token`;
+	if (!existsSync(file)) {
+		if (process.env.GOVERNOR_STORE_TOKEN_FILE)
+			throw new Error("Configured store token file unavailable");
+		return null;
+	}
+	const stat = statSync(file);
+	if (!stat.isFile() || (stat.mode & 0o777) !== 0o600 || stat.size > 4096)
+		throw new Error("Store token file must be private mode 600");
+	const token = readFileSync(file, "utf8").trim();
+	if (!token || /\s/.test(token)) throw new Error("Invalid store token file");
+	return token;
 }
 
 function storeUrlFile(): string | null {

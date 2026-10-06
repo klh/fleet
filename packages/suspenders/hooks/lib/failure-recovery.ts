@@ -2,6 +2,7 @@
 // This never grants a lease or weakens a gate. Telemetry failure is fail-open.
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
+import { ensureConsultOutbox, enqueueConsult } from "./consult-outbox.ts";
 
 export interface FailureContext {
 	project: string;
@@ -15,6 +16,7 @@ export interface FailureContext {
 }
 
 function schema(db: Database): void {
+	ensureConsultOutbox(db);
 	db.run(`CREATE TABLE IF NOT EXISTS failure_incidents (
 		project TEXT NOT NULL, fingerprint TEXT NOT NULL, sid TEXT NOT NULL,
 		resource TEXT NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL,
@@ -96,6 +98,7 @@ export function recordFailure(
 					)
 					.run(c.project, c.sid, c.holder, question, c.resource, now);
 				consultId = Number(result.lastInsertRowid);
+				enqueueConsult(db, consultId, now);
 				db.query(
 					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
 				).run(
@@ -142,7 +145,18 @@ export function recordFailure(
 					}),
 					c.sid,
 				);
-			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, consult: consultId ? `C${consultId}` : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
+			const delivery = consultId
+				? (db
+						.query(
+							"SELECT delivery_id,status,remote_consult_id FROM consult_outbox WHERE local_consult_id=?",
+						)
+						.get(consultId) as {
+						delivery_id: string;
+						status: string;
+						remote_consult_id: number | null;
+					} | null)
+				: null;
+			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, consult: consultId ? `C${consultId}` : null, delivery: delivery ? { id: delivery.delivery_id, status: delivery.status, remoteConsult: delivery.remote_consult_id ? `C${delivery.remote_consult_id}` : null, note: "consult is the local incident ID; use remoteConsult for coord reply/feedback on a remote store" } : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
 		})();
 	} catch {
 		return `\nRECOVERY ${JSON.stringify({ fingerprint, next: c.recovery, retry: "only after the recovery condition changes" })}`;

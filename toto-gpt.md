@@ -1138,11 +1138,69 @@ Tokens and duplicate-investigation rates require correlation with existing lane
 and gateway telemetry. Cross-hub project identity and authorized knowledge sharing
 remain the separate architecture described above; local Git identity has not been
 replaced by this work.
-Automatic governor consultation writes through the local lease registry. On this
-Mac the coordination HTTP store at loopback :7794 serves that same database.
-A spoke whose coordination store is a different hub needs a bounded outbox relay
-before these automatic requests can reach the remote inbox; the ordinary `coord`
-consultation and feedback commands already use the configured store binding.
+### Implemented: automatic cross-hub consultation outbox (W480)
+
+Automatic governor consultation still writes through the local lease registry,
+but now commits a durable delivery UUID in the same SQLite transaction as the
+consult. The denial hook performs no network calls. `consult-relay.ts` drains the
+outbox independently through the existing `GOVERNOR_STORE_URL` / `store.url`
+binding. A persistent database UUID in `/health` detects the same local store
+and prevents duplicating local consultations.
+
+The receiving store exposes authenticated `POST /consult-relay` and
+`GET /consult-relay/<delivery UUID>`. One atomic receipt maps a delivery UUID to
+the receiving store's consult ID and targeted event. Identical retries return
+the original ID; changed payloads under the same UUID are rejected. Lost HTTP
+acknowledgements therefore do not create duplicate questions. The receiver
+checks project, target liveness and existing consultation queue limits; no
+session or lease is fabricated. The sender pins the destination and remote
+project, polls the receipt, and copies terminal answers into the local consult
+with explicit local/remote ID metadata. Existing answers and feedback are not
+overwritten. Store identity is pinned too: removing a binding or repointing its
+URL cannot silently terminate answer retrieval or move a delivery to another
+database. Local incident IDs remain local; use the mapped remote ID for
+ordinary `coord consult-reply` and feedback against the remote store.
+
+The worker uses bounded batches, three-second request timeouts, non-overlapping
+ticks, retry backoff, one-hour delivery expiry, a 1,000-pending-entry cap and
+bounded terminal retention. Network failure retains the pending delivery and
+does not weaken the governor gate. Remote HTTP is refused; HTTPS or loopback
+HTTP through an authenticated tunnel is required. Credentials never enter the
+outbox or error messages.
+
+Configuration stays outside the repository:
+
+- Sender: the existing store binding and `GOVERNOR_STORE_TOKEN`, or a mode-0600
+  file named by `GOVERNOR_STORE_TOKEN_FILE`; its default is
+  `~/.cache/claude-governor/store.token`.
+- Receiver: `GOVERNOR_STORE_TOKEN`, or its private server-only
+  `GOVERNOR_STORE_SERVER_TOKEN_FILE`. Relay endpoints require configured auth
+  even when ordinary loopback RPC is open. A configured server token also
+  protects RPC and subscriptions; an unreadable or non-private configured file
+  fails closed.
+- Optional explicit project aliases: mode-0600
+  `~/.config/klh/consult-projects.json` (override
+  `GOVERNOR_CONSULT_PROJECTS_FILE`), a JSON object mapping a local project
+  identity to the remote identity. Omit it when identities already match.
+  This mapping applies to relay delivery; it does not replace canonical
+  project identity throughout Fleet.
+
+`com.suspenders.consult-relay` runs the worker with a five-second tick. Operators
+can inspect delivery state with
+`bun ~/.claude/hooks/suspenders/bin/consult-relay.ts --status` or drain one batch
+with `--once`. Install the receiving store version on each participating hub.
+No remote credentials, peers or aliases are invented by installation.
+
+Validation: 70 tests and 269 assertions pass across the outbox producer,
+receiver, sender, store transport, token-file configuration, governor leases
+and consultation contracts. A real two-store HTTP test loses the first POST
+acknowledgement, retries the same delivery, and returns remote C42's answer to
+local C1 exactly once. Actual store HTTP/WebSocket tests verify authentication
+and targeted notification after commit. Independent review's pinned-binding loss
+finding was corrected and tested. The local worker is installed and running;
+the existing loopback store reports its stable instance identity. Remote relay
+admission stays disabled on this uncredentialed local receiver; no remote hub
+deployment is claimed.
 
 ## Implemented: GUI observability and operator state (W476)
 
