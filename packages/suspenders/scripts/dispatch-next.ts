@@ -57,7 +57,21 @@ const val = (flag: string): string | undefined => {
 // suspenders — lanes are the governed path, so the default fleet width rises
 // from 3 to 8; --target still overrides per invocation).
 const TARGET = Number(val("--target") ?? 8);
-const REPO = val("--repo") ?? process.cwd();
+// W494: REPO is the repo ROOT, never cwd — the loop runs from
+// packages/<name> in the monorepo, and worktrees/briefs live at
+// <root>/.worktrees (worktree.ts derives toplevel from the project
+// identity). cwd-as-root ENOENT'd the brief write mid-dispatch and
+// stranded half-born claims. (sh/run live further down — inline the
+// spawn here, const bindings don't hoist.)
+const gitToplevel = (): string => {
+	const p = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const out = p.stdout ? new TextDecoder().decode(p.stdout).trim() : "";
+	return out || process.cwd();
+};
+const REPO = val("--repo") ?? gitToplevel();
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
 // up): bypasses the FIFO ready-pool pick so a caller with its own priority
