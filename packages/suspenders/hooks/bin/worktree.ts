@@ -15,7 +15,7 @@
 
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 
 const [cmd, id, ...flags] = process.argv.slice(2);
@@ -30,17 +30,6 @@ const PROJECT = projectIdentity();
 const ROOT = dirname(PROJECT); // project identity is "<repo-root>/.git"
 const wtDir = join(ROOT, ".worktrees", id);
 const branch = `suspenders/${id}`;
-
-function projectIdentity(): string {
-	// mirror govdb's identity: nearest .git from cwd, with the /.git suffix
-	let d = process.cwd();
-	while (d !== "/") {
-		if (existsSync(join(d, ".git"))) return join(d, ".git");
-		d = dirname(d);
-	}
-	console.error("worktree: not inside a git repository");
-	process.exit(2);
-}
 
 const git = (args: string[], cwd = ROOT): { out: string; code: number } => {
 	const p = Bun.spawnSync(["/usr/bin/git", "-C", cwd, ...args], {

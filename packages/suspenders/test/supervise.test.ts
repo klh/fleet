@@ -144,7 +144,7 @@ const factValue = (key: string): string | null => {
 	return row?.value ?? null;
 };
 const sidOf = (item: string): string =>
-	`autow${item.replace(/^W/, "").replace(/\./g, "")}`;
+	`autow${item.replace(/^W/, "").replace(/\./g, "-")}`;
 const commitIn = (wt: string, msg: string): string => {
 	writeFileSync(join(wt, "feature.txt"), msg);
 	g(["-C", wt, "add", "-A"]);

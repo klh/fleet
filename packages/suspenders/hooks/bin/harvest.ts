@@ -8,7 +8,7 @@
 // keys (harvest.seen.*) live in the facts table; one HARVEST event per run.
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import {
 	clusterSignals,
 	discoverTranscripts,
@@ -42,18 +42,9 @@ if (!Number.isInteger(days) || days < 1 || days > 60)
 
 const db = openGovernorDb();
 // kb rows join the fleet's project identity — git-common-dir, the same value
-// consult-reply writes, so consult lookups stay project-scoped as usual
-const projs = Bun.spawnSync(
-	["git", "-C", repo, "rev-parse", "--git-common-dir"],
-	{
-		stdout: "pipe",
-		stderr: "ignore",
-	},
-);
-const project =
-	projs.exitCode === 0 && projs.stdout
-		? new TextDecoder().decode(projs.stdout).trim() || repo
-		: repo;
+// consult-reply writes, so consult lookups stay project-scoped as usual.
+// W460: canonical resolver, absolute even when git prints a RELATIVE gitdir
+const project = projectIdentity(repo);
 
 const cursorKey = (path: string): string => `harvest.cursor.${mungePath(path)}`;
 const seenKey = (key: string): string => `harvest.seen.${mungePath(key)}`;

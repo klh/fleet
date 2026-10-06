@@ -37,6 +37,7 @@ import {
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { ensureLaneKey } from "./lib/lane-auth.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+import { laneSid } from "../hooks/lib/laneslug.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
@@ -433,8 +434,9 @@ export const composeBrief = (o: {
 	return parts.join("\n");
 };
 
-export const sidOf = (item: string): string =>
-	`autow${item.replace(/^W/, "").replace(/\./g, "")}`;
+// W460: sidOf is the legacy-named alias of the canonical laneSid —
+// dispatch/supervise/fleet-loop/board must never derive sids independently
+export const sidOf = laneSid;
 
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */

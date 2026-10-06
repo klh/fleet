@@ -33,6 +33,7 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
+import { laneSid } from "../lib/laneslug.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
@@ -661,7 +662,7 @@ if (MODE === "dispatch") {
 		console.error("dispatch --agent must be claude or codex");
 		process.exit(1);
 	}
-	const sid = `autow${item.replace(/^W/, "").replace(/\./g, "")}`;
+	const sid = laneSid(item);
 	const wt = `${REPO}/.worktrees/${item}`;
 	// live-lane guard: a running lane still owns its worktree — refuse. An
 	// existing worktree with NO live lane is reused (resume path).

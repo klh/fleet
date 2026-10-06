@@ -720,9 +720,9 @@ export async function cmdProject(rest: string[]): Promise<void> {
 	if (from === to) die("rekey: old and new identity are identical");
 	// exclusivity rail: rows landing on an occupied target is a graph MERGE
 	const targetItems = (
-		db.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?").get(
-			to,
-		) as { n: number }
+		db
+			.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?")
+			.get(to) as { n: number }
 	).n;
 	if (targetItems > 0)
 		die(
@@ -730,23 +730,37 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		);
 	const countIn = (tbl: string): number =>
 		(
-			db.query(`SELECT COUNT(*) AS n FROM ${tbl} WHERE project = ?`).get(
-				from,
-			) as { n: number }
+			db
+				.query(`SELECT COUNT(*) AS n FROM ${tbl} WHERE project = ?`)
+				.get(from) as { n: number }
 		).n;
 	const counts = Object.fromEntries(
 		PROJECT_TABLES.map((t) => [t, countIn(t)]),
 	) as Record<string, number>;
+	// decisions is board-owned (created on board boot), not in the govdb
+	// migrations — a coord-only store may lack the table; migrate it when
+	// present so a rekeyed graph doesn't strand NEED_DECISION rows on the
+	// old project key (W460, docs/cross-hub-project-identity.md hazard)
+	const hasDecisions = !!db
+		.query(
+			"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decisions'",
+		)
+		.get();
+	if (hasDecisions) counts.decisions = countIn("decisions");
 	const eventsN = (
-		db.query(
-			"SELECT COUNT(*) AS n FROM events WHERE json_extract(payload, '$.project') = ?",
-		).get(from) as { n: number }
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE json_extract(payload, '$.project') = ?",
+			)
+			.get(from) as { n: number }
 	).n;
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
 		for (const t of PROJECT_TABLES)
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
+		if (hasDecisions)
+			db.run("UPDATE decisions SET project = ? WHERE project = ?", to, from);
 		db.run(
 			"UPDATE events SET payload = json_set(payload, '$.project', ?) WHERE json_extract(payload, '$.project') = ?",
 			to,

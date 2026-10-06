@@ -19,19 +19,24 @@ const REG = `${process.env.HOME}/.cache/claude-governor`;
 
 // one project identity for the whole control plane: realpath of the repo's
 // COMMON git dir — every worktree of one repo shares one Work Graph, and
-// work.ts / coord.ts bootstrap / a future consult layer can never disagree
-export function projectIdentity(): string {
+// work.ts / coord.ts bootstrap / a future consult layer can never disagree.
+// The optional dir (W460) lets other writers (harvest --repo) resolve the
+// SAME identity for an explicit repo instead of re-deriving it differently.
+export function projectIdentity(dir: string = process.cwd()): string {
 	try {
 		const r = Bun.spawnSync(
-			["git", "-C", process.cwd(), "rev-parse", "--git-common-dir"],
-			{ stdout: "pipe", stderr: "pipe" },
+			["git", "-C", dir, "rev-parse", "--git-common-dir"],
+			{
+				stdout: "pipe",
+				stderr: "pipe",
+			},
 		);
 		if (r.exitCode === 0) {
-			const dir = new TextDecoder().decode(r.stdout).trim();
-			if (dir) return realpathSync(resolve(process.cwd(), dir));
+			const d = new TextDecoder().decode(r.stdout).trim();
+			if (d) return realpathSync(resolve(dir, d));
 		}
 	} catch {}
-	return realpathSync(process.cwd());
+	return realpathSync(dir);
 }
 
 // capability vocabulary for capability-aware dispatch (schema v2):

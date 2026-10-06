@@ -15,6 +15,7 @@ import {
 } from "./lanes.ts";
 import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
 import { isDecisionKind } from "../lib/govdb.ts";
+import { laneSid } from "../lib/laneslug.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -413,7 +414,7 @@ export async function handleActions(
 						{ ok: false, error: `unknown local swarm port ${tail}` },
 						409,
 					);
-				const sid = `autow${id.replace(/^W/, "").replace(/\./g, "")}`;
+				const sid = laneSid(id);
 				const take = runCli(
 					[
 						WORK_CLI,
@@ -462,7 +463,7 @@ export async function handleActions(
 				: (ep.roles?.[0] ?? "");
 			if (!role)
 				return json({ ok: false, error: `${agent} serves no route role` }, 409);
-			const sid = `autow${id.replace(/^W/, "").replace(/\./g, "")}`;
+			const sid = laneSid(id);
 			const take = runCli(
 				[
 					WORK_CLI,
@@ -492,7 +493,7 @@ export async function handleActions(
 			});
 			return json({ ok: true, item: id, sid, executor: agent });
 		}
-		const sid = `autow${id.replace(/^W/, "").replace(/\./g, "")}`;
+		const sid = laneSid(id);
 		laneExecFacts(sid, agent, agent, "remote");
 		const child = Bun.spawn(
 			[
