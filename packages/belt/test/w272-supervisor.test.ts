@@ -10,6 +10,7 @@ import {
 	backoffMs,
 	type Child,
 	isAlert,
+	jitteredBackoffMs,
 	type ProbeResult,
 	RestartBreaker,
 	type StatusDoc,
@@ -61,6 +62,7 @@ const crashingChild = (): Child => ({
 });
 
 const fast = {
+	random: () => 1,
 	intervalMs: 30,
 	failThreshold: 2,
 	hungThreshold: 3,
@@ -80,6 +82,13 @@ const start = (sup: Supervisor): Promise<void> => {
 };
 
 describe("policy", () => {
+	test("equal jitter remains between half-delay and the capped delay", () => {
+		expect(jitteredBackoffMs(0, 100, 1000, 0)).toBe(50);
+		expect(jitteredBackoffMs(0, 100, 1000, 0.5)).toBe(75);
+		expect(jitteredBackoffMs(20, 100, 1000, 1)).toBe(1000);
+		expect(jitteredBackoffMs(20, 100, 1000, -3)).toBe(500);
+		expect(jitteredBackoffMs(20, 100, 1000, 3)).toBe(1000);
+	});
 	test("backoff doubles from 0.5s and caps at 30s", () => {
 		expect([0, 1, 2, 3, 4, 5, 6, 7].map((a) => backoffMs(a))).toEqual([
 			500, 1000, 2000, 4000, 8000, 16000, 30000, 30000,
@@ -212,6 +221,150 @@ describe("supervisor — real stub children on stub ports", () => {
 
 describe("supervisor — stub probes + fake children", () => {
 	const down = async (): Promise<ProbeResult> => ({ tcp: false, http: false });
+
+	test("restart budget survives supervisor recreation and expires while probes continue", async () => {
+		const f = files();
+		let now = 1000;
+		let spawns = 0;
+		let probes = 0;
+		const target: Target = {
+			name: "durable",
+			port: 91,
+			kind: "router",
+			owned: true,
+			spawn: () => {
+				spawns++;
+				return crashingChild();
+			},
+		};
+		const opts = {
+			...f,
+			...fast,
+			now: () => now,
+			maxRestarts: 2,
+			windowMs: 1000,
+			backoffBaseMs: 1,
+			probe: async () => {
+				probes++;
+				return down();
+			},
+		};
+		const first = new Supervisor([target], opts);
+		const firstDone = start(first);
+		await waitFor(() => stateOf(first, 91)?.state === "unhealthy");
+		first.stop();
+		await firstDone;
+		const second = new Supervisor([target], opts);
+		const secondDone = start(second);
+		await waitFor(() => stateOf(second, 91)?.state === "unhealthy");
+		const before = probes;
+		await Bun.sleep(90);
+		expect(probes).toBeGreaterThan(before);
+		expect(spawns).toBe(2);
+		expect(stateOf(second, 91)?.restartsLastWindow).toBe(2);
+		now = 2001;
+		await waitFor(() => spawns > 2);
+		second.stop();
+		await secondDone;
+	});
+
+	test("config generations have independent durable budgets and returning to one preserves its limit", async () => {
+		const f = files();
+		let generation = "a";
+		let spawns = 0;
+		const t: Target = {
+			name: "revision",
+			port: 92,
+			kind: "router",
+			owned: true,
+			generation: () => generation,
+			spawn: () => {
+				spawns++;
+				return crashingChild();
+			},
+		};
+		const sup = new Supervisor([t], {
+			...f,
+			...fast,
+			probe: down,
+			maxRestarts: 1,
+			backoffBaseMs: 1,
+		});
+		const done = start(sup);
+		await waitFor(
+			() => spawns === 1 && stateOf(sup, 92)?.state === "unhealthy",
+		);
+		generation = "b";
+		await waitFor(
+			() => spawns === 2 && stateOf(sup, 92)?.state === "unhealthy",
+		);
+		generation = "a";
+		await Bun.sleep(100);
+		expect(spawns).toBe(2);
+		sup.stop();
+		await done;
+		const restored = new Supervisor([t], {
+			...f,
+			...fast,
+			probe: down,
+			maxRestarts: 1,
+		});
+		expect(stateOf(restored, 92)?.restartsLastWindow).toBe(1);
+	});
+
+	test("failed preflight suspends spawn and port killing, recovers automatically without spending budget", async () => {
+		let err: string | null = "dependency missing";
+		let spawns = 0;
+		let probes = 0;
+		let kills = 0;
+		const t: Target = {
+			name: "dependency",
+			port: 93,
+			kind: "router",
+			owned: true,
+			killHung: true,
+			preflight: () => err,
+			spawn: () => {
+				spawns++;
+				return crashingChild();
+			},
+		};
+		const sup = new Supervisor([t], {
+			...files(),
+			...fast,
+			backoffBaseMs: 1,
+			maxRestarts: 1,
+			killPort: () => {
+				kills++;
+			},
+			probe: async () => {
+				probes++;
+				return { tcp: true, http: false };
+			},
+		});
+		const done = start(sup);
+		await waitFor(() => stateOf(sup, 93)?.state === "unhealthy");
+		const before = probes;
+		await Bun.sleep(100);
+		expect(probes).toBeGreaterThan(before);
+		expect(spawns).toBe(0);
+		expect(kills).toBe(0);
+		expect(stateOf(sup, 93)?.restartsLastWindow).toBe(0);
+		err = null;
+		await waitFor(() => spawns === 1);
+		expect(kills).toBe(1);
+		expect(stateOf(sup, 93)?.preflightError).toBeNull();
+		sup.stop();
+		await done;
+	});
+
+	test("a corrupt budget fails closed before any spawn", () => {
+		const f = files();
+		writeFileSync(`${f.statusFile}.restart-budget.json`, "broken");
+		expect(() => new Supervisor([], f)).toThrow(
+			"Cannot restore supervisor restart budget",
+		);
+	});
 
 	test("crash loop backs off exponentially", async () => {
 		const at: number[] = [];

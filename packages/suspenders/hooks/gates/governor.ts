@@ -16,7 +16,8 @@
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
 import type { Database } from "bun:sqlite";
 import {
 	appendFileSync,
@@ -134,6 +135,27 @@ export function governorGate(hook: HookInput): void {
 	}
 
 	const P = canon(F);
+	const denyRecovery = (
+		reason: string,
+		errorClass: string,
+		generation: string,
+		recovery: string,
+		holder?: string,
+	): never => {
+		let note = "";
+		if (db)
+			note = recordFailure(db, {
+				project: projectIdentity(),
+				sid: lane,
+				operation: hook.tool_name ?? "edit",
+				errorClass,
+				resource: P,
+				generation,
+				holder,
+				recovery,
+			});
+		deny(`${reason}${note}`);
+	};
 	// ---- coarse-claim layer: soft unless hot; own-claim touches heartbeat ----
 	if (db) {
 		try {
@@ -169,12 +191,16 @@ export function governorGate(hook: HookInput): void {
 			}
 			if (hitScope && hitRow) {
 				if (hitHot) {
-					deny(
+					denyRecovery(
 						`GOVERNOR: ${P} is inside a HOT claimed area (${hitScope}) — session ${hitRow.sid.slice(0, 8)}` +
 							`${hitRow.intent ? `, delivering: ${hitRow.intent}` : ""}. A collision was already observed here; ` +
 							`edits inside this area are serialized until the coordinator cools it. ` +
 							`Work elsewhere or SendMessage "main" for arbitration.` +
 							activeRoster(),
+						"hot-area",
+						hitRow.sid,
+						"coordinate with the area holder; retry only after the area is cooled or access is agreed",
+						hitRow.sid,
 					);
 				}
 				// advisory by default: allow the edit, log the cross-area touch for the
@@ -221,7 +247,7 @@ export function governorGate(hook: HookInput): void {
 					row.sid,
 				);
 			} else {
-				deny(
+				denyRecovery(
 					`GOVERNOR: ${P} is leased to another agent (session ${row.sid.slice(0, 8)}, ` +
 						`last touched ${Math.max(0, Math.round((now - row.ts) / 60000))} min ago). Do NOT edit it in parallel. ` +
 						`Options: (1) work your owned region elsewhere; (2) if this file is essential, ` +
@@ -230,6 +256,10 @@ export function governorGate(hook: HookInput): void {
 						`A lease expires 15 min after the holder's last touch of THIS file; a holder done ` +
 						`with the file releases it now: coord lease-release ${P} --as <its sid>.` +
 						activeRoster(),
+					"lease-conflict",
+					`${row.sid}:${row.hash ?? "unknown"}`,
+					"coordinate with the lease holder; retry only after release or expiry",
+					row.sid,
 				);
 			}
 		}
@@ -271,12 +301,15 @@ export function governorGate(hook: HookInput): void {
 				return;
 			}
 			db.query("DELETE FROM locks WHERE path = ? AND sid = ?").run(P, lane);
-			deny(
+			denyRecovery(
 				`GOVERNOR: ${P} changed on disk since your last governed edit ` +
 					`(${row.hash.slice(0, 8)} → ${hash.slice(0, 8)}) — written outside the governor. ` +
 					`RE-READ the file, then retry WITH a one-line reason this edit matters now ` +
 					`(the governor integrates; it only prevents blind concurrent write errors).` +
 					activeRoster(),
+				"stale-file",
+				hash,
+				"re-read the current file and reconcile your intended edit before retrying",
 			);
 		}
 		// atomic acquire/renew: INSERT wins the path by the UNIQUE constraint; an
@@ -292,12 +325,16 @@ export function governorGate(hook: HookInput): void {
 			)
 			.run(P, lane, hook.tool_name ?? "?", now, tpSelf || null, hash);
 		if (got.changes === 0) {
-			deny(
+			denyRecovery(
 				`GOVERNOR: ${P} was leased to another agent mid-check (lost the acquire race) — ` +
 					`do NOT edit it in parallel; SendMessage to "main" for access if essential.` +
 					activeRoster(),
+				"lease-race",
+				"acquire-race",
+				"re-check current ownership and coordinate with the holder before retrying",
 			);
 		}
+		resolveFailures(db, projectIdentity(), lane, P);
 	}
 }
 

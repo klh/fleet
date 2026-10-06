@@ -230,24 +230,36 @@ describe("prisma preflight — alert, never auto-install", () => {
 			preflight: () => "prisma not importable in litellm tool env",
 		});
 		const sup = new Supervisor([t], { ...f, ...fast });
-		const done = start(sup);
-		await waitFor(() => stateOf(sup, port)?.state === "up");
-		const s = stateOf(sup, port);
-		expect(s?.alert).toBe(true);
-		expect(s?.preflightError).toContain("prisma");
-		const log = readFileSync(f.logFile, "utf8");
-		expect(log.match(/PREFLIGHT FAIL/g)?.length).toBe(1);
-
-		const doc = JSON.parse(readFileSync(f.statusFile, "utf8")) as StatusDoc;
-		const r = await livenessReport({
-			targets: [t],
-			status: doc,
-			alive: () => true,
-			now: Date.parse(doc.updated),
+		// An already-running engine can serve despite a broken restart dependency.
+		// Failed preflight must not spawn a replacement to manufacture this state.
+		const engine = Bun.serve({
+			port,
+			hostname: "127.0.0.1",
+			fetch: () => new Response("{}"),
 		});
-		expect(r.alerts.some((a) => a.includes("preflight: prisma"))).toBe(true);
-		sup.stop(true);
-		await done;
+		const done = start(sup);
+		try {
+			await waitFor(() => stateOf(sup, port)?.state === "up");
+			const s = stateOf(sup, port);
+			expect(s?.alert).toBe(true);
+			expect(s?.preflightError).toContain("prisma");
+			expect(s?.restarts).toBe(0);
+			const log = readFileSync(f.logFile, "utf8");
+			expect(log.match(/PREFLIGHT FAIL/g)?.length).toBe(1);
+
+			const doc = JSON.parse(readFileSync(f.statusFile, "utf8")) as StatusDoc;
+			const r = await livenessReport({
+				targets: [t],
+				status: doc,
+				alive: () => true,
+				now: Date.parse(doc.updated),
+			});
+			expect(r.alerts.some((a) => a.includes("preflight: prisma"))).toBe(true);
+			sup.stop(true);
+			await done;
+		} finally {
+			engine.stop(true);
+		}
 	}, 15_000);
 });
 

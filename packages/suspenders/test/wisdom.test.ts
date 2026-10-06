@@ -102,7 +102,9 @@ describe("wisdom C2", () => {
 				Date.now(),
 				JSON.stringify({
 					work: "W9002",
-					sha: "0123456789abcdef0123456789abcdef01234567",
+					// deliberately unresolvable — and NOT hex-shaped, so gitleaks'
+					// generic-secret heuristic never files it as a credential
+					sha: "not-a-real-sha-object",
 					project: PROJ,
 				}),
 			);
@@ -110,7 +112,7 @@ describe("wisdom C2", () => {
 		run(["wisdom"]);
 		const note = lastWisdomNote();
 		expect(note).toContain("CLASS C2");
-		expect(note).toContain("W9002@0123456");
+		expect(note).toContain("W9002@not-a-real");
 	});
 });
 describe("wisdom budget", () => {

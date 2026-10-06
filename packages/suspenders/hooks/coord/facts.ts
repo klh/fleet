@@ -15,6 +15,7 @@ import {
 	realpathSync,
 } from "./shared.ts";
 import type { Database } from "./shared.ts";
+import { ensureConsultTrust } from "./consult-trust.ts";
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -156,26 +157,46 @@ export async function cmdKb(rest: string[]): Promise<void> {
 		process.exit(0);
 	}
 	if (sub === "stats") {
+		const project = projectIdentity();
+		ensureConsultTrust(db);
 		const tot = (
-			db.query("SELECT COUNT(*) AS n FROM consult_kb").get() as { n: number }
+			db
+				.query("SELECT COUNT(*) AS n FROM consult_kb WHERE project = ?")
+				.get(project) as { n: number }
 		).n;
 		const hits = (
-			db.query("SELECT COALESCE(SUM(hits), 0) AS n FROM consult_kb").get() as {
+			db
+				.query(
+					"SELECT COALESCE(SUM(hits), 0) AS n FROM consult_kb WHERE project = ?",
+				)
+				.get(project) as {
 				n: number;
 			}
 		).n;
 		const byState = db
-			.query("SELECT state, COUNT(*) AS n FROM consults GROUP BY state")
-			.all() as { state: string; n: number }[];
+			.query(
+				"SELECT state, COUNT(*) AS n FROM consults WHERE project = ? GROUP BY state",
+			)
+			.all(project) as { state: string; n: number }[];
 		const lat = db
 			.query(
-				"SELECT answered_at - created_at AS ms FROM consults WHERE state = 'ANSWERED' AND answered_at IS NOT NULL ORDER BY ms",
+				"SELECT answered_at - created_at AS ms FROM consults WHERE project = ? AND state = 'ANSWERED' AND answered_at IS NOT NULL ORDER BY ms",
 			)
-			.all() as { ms: number }[];
+			.all(project) as { ms: number }[];
 		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
 		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
 		console.log(
 			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
+		);
+		const outcomes = db
+			.query(
+				"SELECT f.outcome, COUNT(*) AS n FROM consult_feedback f JOIN consults c ON c.id = f.consult_id WHERE c.project = ? GROUP BY f.outcome",
+			)
+			.all(project) as { outcome: string; n: number }[];
+		const outcome = (name: string) =>
+			outcomes.find((o) => o.outcome === name)?.n ?? 0;
+		console.log(
+			`outcomes: ${outcome("resolved")} resolved, ${outcome("failed")} failed, ${outcome("unused")} unused (verification, not message volume)`,
 		);
 		if (median && hits)
 			console.log(
@@ -197,9 +218,9 @@ export async function cmdKb(rest: string[]): Promise<void> {
 	} else if (sub === "list") {
 		const rows = db
 			.query(
-				"SELECT id, problem, solution, answered_by, hits, created_at FROM consult_kb ORDER BY id DESC LIMIT 20",
+				"SELECT id, problem, solution, answered_by, hits, created_at FROM consult_kb WHERE project = ? ORDER BY id DESC LIMIT 20",
 			)
-			.all() as {
+			.all(projectIdentity()) as {
 			id: number;
 			problem: string;
 			solution: string;
@@ -217,7 +238,7 @@ export async function cmdKb(rest: string[]): Promise<void> {
 	} else die('usage: kb stats | kb list | kb search "<query words>"');
 }
 
-export async function cmdGc(rest: string[]): Promise<void> {
+export async function cmdGc(_rest: string[]): Promise<void> {
 	// retention: events + closed sessions + their cursors age out; terminal
 	// work items are the ledger and are NEVER auto-deleted
 	const days = Number(arg("--days") ?? 30);

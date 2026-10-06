@@ -31,10 +31,11 @@ import {
 	renameSync,
 	writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
-import { litellmTarget } from "./litellm-target.ts";
+import { DEFAULT_PATHS, litellmTarget } from "./litellm-target.ts";
 import { mlxLogPath, spawnArgs } from "./spawner.ts";
 
 const HOME = process.env.HOME ?? "";
@@ -84,6 +85,8 @@ export interface Target {
 	okStatus?: number[];
 	/** Startup dependency check: null = ok, string = alert reason. */
 	preflight?: () => string | null;
+	/** Non-secret config revision; changed revisions receive their own budget. */
+	generation?: string | (() => string);
 }
 
 export interface ProbeResult {
@@ -120,6 +123,8 @@ export interface StatusDoc {
 export interface SupervisorOptions {
 	statusFile: string;
 	logFile: string;
+	budgetFile: string;
+	random: () => number;
 	intervalMs: number;
 	failThreshold: number;
 	hungThreshold: number;
@@ -134,7 +139,10 @@ export interface SupervisorOptions {
 	now: () => number;
 }
 
-export const DEFAULTS: Omit<SupervisorOptions, "statusFile" | "logFile"> = {
+export const DEFAULTS: Omit<
+	SupervisorOptions,
+	"statusFile" | "logFile" | "budgetFile"
+> = {
 	intervalMs: 5_000,
 	failThreshold: 2,
 	hungThreshold: 3,
@@ -147,6 +155,7 @@ export const DEFAULTS: Omit<SupervisorOptions, "statusFile" | "logFile"> = {
 	probe: (t) => probeTarget(t),
 	killPort: (port) => killPortPids(port),
 	now: () => Date.now(),
+	random: () => Math.random(),
 };
 
 // ─── pure policy ───
@@ -155,13 +164,35 @@ export const DEFAULTS: Omit<SupervisorOptions, "statusFile" | "logFile"> = {
 export const backoffMs = (attempt: number, baseMs = 500, capMs = 30_000) =>
 	Math.min(capMs, baseMs * 2 ** Math.max(0, attempt));
 
+/** Equal jitter: half the exponential delay plus bounded randomness. */
+export const jitteredBackoffMs = (
+	attempt: number,
+	base: number,
+	cap: number,
+	random: number,
+): number => {
+	const delay = backoffMs(attempt, base, cap);
+	return (
+		delay *
+		(0.5 +
+			0.5 * Math.min(1, Math.max(0, Number.isFinite(random) ? random : 0.5)))
+	);
+};
+
 /** Sliding-window restart budget: at most `max` restarts per `windowMs`. */
 export class RestartBreaker {
 	private stamps: number[] = [];
 	constructor(
 		private readonly max: number,
 		private readonly windowMs: number,
-	) {}
+		stamps: number[] = [],
+	) {
+		this.stamps = [...stamps];
+	}
+	snapshot(now: number): number[] {
+		this.prune(now);
+		return [...this.stamps];
+	}
 	private prune(now: number): void {
 		this.stamps = this.stamps.filter((t) => now - t < this.windowMs);
 	}
@@ -284,6 +315,7 @@ export function otherSupervisorAlive(file = STATUS_FILE): number | null {
 // ─── engine ───
 
 interface Runtime {
+	identity: string;
 	attempt: number;
 	fails: number;
 	hung: number;
@@ -297,21 +329,94 @@ interface Runtime {
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
+interface BudgetEntry {
+	stamps: number[];
+	attempt: number;
+	restarts: number;
+}
+interface BudgetDoc {
+	version: 1;
+	targets: Record<string, BudgetEntry>;
+}
+const digest = (value: string): string =>
+	createHash("sha256").update(value).digest("hex");
+const fileRevision = (path: string): string => {
+	try {
+		return digest(readFileSync(path, "utf8"));
+	} catch {
+		return "missing";
+	}
+};
+const targetIdentity = (t: Target): string =>
+	digest(
+		JSON.stringify([
+			t.name,
+			t.host ?? "127.0.0.1",
+			t.port,
+			t.kind,
+			t.healthPath ?? "/health",
+			typeof t.generation === "function"
+				? t.generation()
+				: (t.generation ?? "default"),
+		]),
+	);
+
+function readBudget(file: string): BudgetDoc {
+	try {
+		const doc = JSON.parse(readFileSync(file, "utf8")) as BudgetDoc;
+		if (
+			doc.version !== 1 ||
+			!doc.targets ||
+			typeof doc.targets !== "object" ||
+			Array.isArray(doc.targets)
+		)
+			throw new Error("invalid budget document");
+		for (const entry of Object.values(doc.targets)) {
+			if (
+				!entry ||
+				!Array.isArray(entry.stamps) ||
+				!entry.stamps.every((n) => Number.isFinite(n) && n >= 0) ||
+				!Number.isInteger(entry.attempt) ||
+				entry.attempt < 0 ||
+				!Number.isInteger(entry.restarts) ||
+				entry.restarts < 0
+			)
+				throw new Error("invalid budget entry");
+		}
+		return doc;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT")
+			return { version: 1, targets: {} };
+		throw new Error(`Cannot restore supervisor restart budget at ${file}`, {
+			cause: error,
+		});
+	}
+}
+
 export class Supervisor {
 	readonly opts: SupervisorOptions;
 	private readonly status = new Map<number, TargetStatus>();
 	private readonly rt = new Map<number, Runtime>();
 	private stopped = false;
 	private readonly sleepers = new Set<() => void>();
+	private readonly budget: BudgetDoc;
 
 	constructor(
 		readonly targets: Target[],
 		opts: Partial<SupervisorOptions> &
 			Pick<SupervisorOptions, "statusFile" | "logFile">,
 	) {
-		this.opts = { ...DEFAULTS, ...opts };
+		this.opts = {
+			...DEFAULTS,
+			budgetFile: `${opts.statusFile}.restart-budget.json`,
+			...opts,
+		};
+		const budget = readBudget(this.opts.budgetFile);
+		this.budget = budget;
 		const now = this.opts.now();
 		for (const t of targets) {
+			const identity = targetIdentity(t);
+			const saved = budget.targets[identity];
 			this.status.set(t.port, {
 				name: t.name,
 				port: t.port,
@@ -322,14 +427,15 @@ export class Supervisor {
 				since: iso(now),
 				lastProbe: null,
 				lastOk: null,
-				restarts: 0,
+				restarts: saved?.restarts ?? 0,
 				restartsLastWindow: 0,
 				pid: null,
 				nextRetryAt: null,
 				lastError: null,
 			});
 			this.rt.set(t.port, {
-				attempt: 0,
+				identity,
+				attempt: saved?.attempt ?? 0,
 				fails: 0,
 				hung: 0,
 				seenUp: false,
@@ -337,11 +443,16 @@ export class Supervisor {
 				child: null,
 				childDead: false,
 				exitInfo: "",
-				breaker: new RestartBreaker(this.opts.maxRestarts, this.opts.windowMs),
+				breaker: new RestartBreaker(
+					this.opts.maxRestarts,
+					this.opts.windowMs,
+					saved?.stamps,
+				),
 			});
 		}
 		mkdirSync(dirname(this.opts.statusFile), { recursive: true });
 		mkdirSync(dirname(this.opts.logFile), { recursive: true });
+		mkdirSync(dirname(this.opts.budgetFile), { recursive: true });
 		for (const t of targets) this.preflight(t);
 	}
 
@@ -355,13 +466,39 @@ export class Supervisor {
 			err = `preflight threw: ${String(e)}`;
 		}
 		const s = this.status.get(t.port) as TargetStatus;
+		const changed = s.preflightError !== err;
 		s.preflightError = err;
 		s.alert = isAlert(t.kind, t.owned, s.state) || err !== null;
-		if (err)
+		if (changed && err)
 			appendFileSync(
 				this.opts.logFile,
 				`${iso(this.opts.now())} :${t.port} ${t.name} PREFLIGHT FAIL (${err})\n`,
 			);
+	}
+
+	private persistBudget(): void {
+		const targets = this.budget.targets;
+		for (const [key, entry] of Object.entries(targets)) {
+			entry.stamps = entry.stamps.filter(
+				(stamp) => this.opts.now() - stamp < this.opts.windowMs,
+			);
+			if (entry.stamps.length === 0) delete targets[key];
+		}
+		for (const t of this.targets) {
+			if (!t.owned) continue;
+			const r = this.rt.get(t.port) as Runtime;
+			const s = this.status.get(t.port) as TargetStatus;
+			targets[r.identity] = {
+				stamps: r.breaker.snapshot(this.opts.now()),
+				attempt: r.attempt,
+				restarts: s.restarts,
+			};
+		}
+		const tmp = `${this.opts.budgetFile}.${process.pid}.tmp`;
+		writeFileSync(tmp, JSON.stringify({ version: 1, targets }), {
+			mode: 0o600,
+		});
+		renameSync(tmp, this.opts.budgetFile);
 	}
 
 	async run(): Promise<void> {
@@ -455,6 +592,7 @@ export class Supervisor {
 
 	private async loopReport(t: Target): Promise<void> {
 		while (!this.stopped) {
+			this.preflight(t);
 			const p = await this.probe(t);
 			const downState: State = t.kind === "ondemand" ? "idle" : "down";
 			const state: State = !p.tcp ? downState : p.http ? "up" : "degraded";
@@ -466,6 +604,7 @@ export class Supervisor {
 	private async loopOwned(t: Target): Promise<void> {
 		const r = this.rt.get(t.port) as Runtime;
 		while (!this.stopped) {
+			this.preflight(t);
 			const p = await this.probe(t);
 			const now = this.opts.now();
 			if (p.tcp && p.http) {
@@ -473,7 +612,10 @@ export class Supervisor {
 				r.hung = 0;
 				r.seenUp = true;
 				r.upSince ??= now;
-				if (now - r.upSince >= this.opts.stableMs) r.attempt = 0;
+				if (r.attempt > 0 && now - r.upSince >= this.opts.stableMs) {
+					r.attempt = 0;
+					this.persistBudget();
+				}
 				this.transition(t, "up", { lastError: null, nextRetryAt: null });
 				await this.sleep(this.opts.intervalMs);
 				continue;
@@ -508,6 +650,27 @@ export class Supervisor {
 
 	private async restart(t: Target, r: Runtime, reason: string): Promise<void> {
 		const s = this.status.get(t.port) as TargetStatus;
+		this.preflight(t);
+		if (s.preflightError) {
+			this.transition(t, "unhealthy", {
+				lastError: `spawn suspended: ${s.preflightError}`,
+				nextRetryAt: null,
+			});
+			await this.sleep(this.opts.intervalMs);
+			return;
+		}
+		const identity = targetIdentity(t);
+		if (r.identity !== identity) {
+			r.identity = identity;
+			const saved = this.budget.targets[identity];
+			r.attempt = saved?.attempt ?? 0;
+			r.breaker = new RestartBreaker(
+				this.opts.maxRestarts,
+				this.opts.windowMs,
+				saved?.stamps,
+			);
+			s.restarts = saved?.restarts ?? 0;
+		}
 		if (!r.breaker.allow(this.opts.now())) {
 			this.transition(t, "unhealthy", {
 				lastError: `circuit open: ${this.opts.maxRestarts} restarts within ${Math.round(this.opts.windowMs / 60_000)}min — not respawning (${reason})`,
@@ -517,10 +680,11 @@ export class Supervisor {
 			return;
 		}
 		this.transition(t, "down", { lastError: reason });
-		const delay = backoffMs(
+		const delay = jitteredBackoffMs(
 			r.attempt,
 			this.opts.backoffBaseMs,
 			this.opts.backoffCapMs,
+			this.opts.random(),
 		);
 		r.attempt++;
 		this.transition(t, "backoff", {
@@ -532,10 +696,14 @@ export class Supervisor {
 
 		const before = await this.probe(t);
 		if (before.tcp && before.http) return; // healed by someone else
+		this.preflight(t);
+		if (s.preflightError) return; // dependency changed during backoff; keep probing
+		if (targetIdentity(t) !== r.identity) return; // retry against the new config's budget
 		if (before.tcp) this.opts.killPort(t.port); // orphan / hung holder
 
 		r.breaker.record(this.opts.now());
 		s.restarts++;
+		this.persistBudget(); // durable reservation BEFORE spawning, including failed spawns
 		const spawn = t.spawn as () => Child;
 		let child: Child;
 		try {
@@ -619,6 +787,7 @@ export function fleetTargets(): Target[] {
 			healthPath: "/health/liveliness",
 			killHung: true,
 			bindTimeoutMs: 15_000,
+			generation: () => fileRevision(ROUTER_SCRIPT),
 			spawn: () =>
 				spawnLogged(
 					[process.execPath, ROUTER_SCRIPT],
@@ -633,6 +802,7 @@ export function fleetTargets(): Target[] {
 			port: s.port,
 			kind: owned ? "specialist" : "ondemand",
 			owned,
+			generation: digest(JSON.stringify(spawnArgs(s))),
 			healthPath: "/health",
 			// mlx_lm may stall HTTP mid-generation — never kill on a slow
 			// /health; only a closed port triggers a respawn.
@@ -652,6 +822,15 @@ export function fleetTargets(): Target[] {
 			healthPath: "/health",
 		});
 	}
-	targets.push(litellmTarget());
+	const gateway = litellmTarget();
+	gateway.generation = () =>
+		digest(
+			JSON.stringify([
+				DEFAULT_PATHS.bin,
+				DEFAULT_PATHS.python,
+				fileRevision(DEFAULT_PATHS.config),
+			]),
+		);
+	targets.push(gateway);
 	return targets;
 }

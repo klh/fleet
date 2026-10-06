@@ -1018,3 +1018,128 @@ aware reconnect snapshots and bounded replay. Keep enrollment, connection and
 observed-request topology separate in the GUI. Transport disconnect does not
 prove agent death; discovery does not grant project access. Benchmark NATS plus
 JetStream against the outbox/HTTP prototype before adding a broker.
+
+## Implemented: governor recovery and useful agent collaboration
+
+6 October 2026, W471. This section records the implementation and supersedes
+earlier research proposals where they describe these consultation behaviors.
+The work graph remains the execution ledger; this file records architecture.
+
+```mermaid
+flowchart LR
+  G[Governor denial] --> F[Scoped failure fingerprint]
+  F --> R[Recovery condition and incident count]
+  R -->|Second unchanged conflict| C[One consult to live resource holder]
+  C --> E[Answer with evidence]
+  E --> A[Asker tries and reports outcome]
+  A -->|Resolved| K[Verified scoped knowledge]
+  K --> Q[Later consult checks knowledge first]
+  A -->|Failed| X[Revoke automatic reuse]
+  S[Service failure] --> P[Preflight and persistent restart budget]
+  P -->|Dependency valid and budget available| J[Jittered retry and fresh probe]
+  P -->|Invalid dependency or exhausted budget| H[Keep probing without spawning]
+```
+
+### Governor: unchanged failures require a different next action
+
+`packages/suspenders/hooks/lib/failure-recovery.ts` fingerprints project,
+operation, error class, canonical resource and observed generation. The governor
+wires HOT-area, lease-conflict, stale-file and acquisition-race denials into it.
+Every denial retains its original protection and adds a JSON `RECOVERY` record
+with fingerprint, attempts, recovery condition and any consult ID. Instrumentation
+failure never overrides a denial or blocks a successful acquisition.
+
+Incidents are stored in `failure_incidents`, partitioned by project, fingerprint
+and acting lane. On the second unchanged conflict, the gate requests one consult
+from the named holder if that holder is RUNNING in the same project. It never
+transfers ownership. Automatic requests are limited to three recent open consults
+per asker and expert; unavailable/full queues leave recovery instructions.
+Repeated observations do not create more consults in that incident episode.
+Successful governed acquisition resolves the incident. An episode resets after
+30 minutes without activity; incident records older than seven days are pruned.
+The existing event bus carries `failure.observed`, `failure.repeated`,
+`failure.resolved` and ordinary `consult` events.
+
+This automatically instruments governor denials. Arbitrary command, build and
+LLM failures are covered by the dispatch brief's consultation contract, rather
+than an implementation that parses every tool transcript.
+
+### Consultation: candidates become reusable only after observed success
+
+`hooks/coord/consult.ts`, `shared.ts` and `consult-trust.ts` check reusable
+knowledge before requiring a live expert. Automatic reuse requires exact project,
+nonempty scope, matching code version, evidence, asker verification and no failed
+feedback. Legacy answers and new unverified replies remain inspectable candidates.
+Lexical `lesson.*` matches are advisory context; they cannot automatically answer
+a consult. Project filtering also applies to explicit KB lookup.
+
+The default code version is Git HEAD plus a SHA256 digest of tracked differences
+and untracked file contents. Discovery and content scans are bounded: unknown Git
+state, more than 1,000 untracked files or more than 4 MiB of changed/untracked
+content disables automatic reuse. This deliberately invalidates more broadly than
+package-level dependencies. `--version` may supply an explicit immutable build or
+configuration identity when the caller can substantiate it.
+
+Only the original asker can record an outcome:
+
+```sh
+coord consult --best "command, error, attempts, precise question" --scope "packages/belt" --as lane-id
+coord consult-reply C12 "answer, evidence, applicability, next action" --as expert-id
+coord consult-reply C12 --feedback resolved --evidence "command and observed result" --as lane-id
+```
+
+Outcomes are `resolved`, `failed` or `unused`; resolved/failed require evidence.
+Failed feedback revokes automatic reuse of that candidate. Tables `consult_trust`,
+`consult_reuse` and `consult_feedback` preserve verification and reuse provenance.
+`coord kb stats` reports project-scoped resolved/failed/unused outcomes;
+`coord kb list` also stays within the current project.
+Expert ranking requires relevant claims, completed work with a result SHA or
+recent scope activity; role/heartbeat alone cannot win. Experts with three recent
+open consults are excluded. Dispatch briefs explain these triggers, evidence and
+feedback, with a 60-second waiting guideline, capsule and decision fallback.
+The waiting guideline is agent behavior, not a timer that expires consult rows.
+
+### Supervisor: retries survive restarts and stop on invalid dependencies
+
+The canonical engine is `packages/belt/bin/supervisor.ts`; the advanced installed
+swarm imports its runtime copy from `~/.claude/local-llm/supervisor.ts`.
+Restart reservations are persisted before spawning, using an atomic mode-0600
+`<statusFile>.restart-budget.json`. Target identity includes service name,
+host/port, kind, health path and configuration generation. Existing limits remain
+six attempts per hour by default. Returning to a previous generation restores its
+unexpired budget; restarting the supervisor does not grant fresh retries.
+
+Backoff uses injected, testable equal jitter between half and all of the capped
+exponential delay. Failed preflights suppress spawning and port killing while
+network probes and dependency checks continue. Recovery clears the preflight
+failure automatically. Unknown/corrupt persisted budget state fails closed.
+Budget ownership assumes the existing single-supervisor runtime; it is not a
+distributed fleet-wide quota or an atomic multi-process lease.
+
+Activation uses the sole Suspenders installer, with a targeted code refresh that
+backs up the previous supervisor and validates imports. It preserves registry,
+routing policy, keys and other operator-owned runtime files:
+
+```sh
+bash packages/suspenders/install.sh --no-llm --refresh-supervisor
+launchctl kickstart -k "gui/$(id -u)/com.suspenders.local-llm"
+```
+
+### Acceptance and remaining boundaries
+
+Tests use isolated governor stores and fake/stub supervised processes. They cover
+unchanged-denial deduplication, real gate-to-holder consultation without lease
+transfer, project/version/scope isolation, candidate verification/revocation,
+queue bounds, persistent budgets, configuration generation changes, jitter and
+preflight recovery. Core metrics are repeated failures per resolved incident,
+consult outcomes/reuse failures, duplicate investigations and restarts per target.
+The bus and feedback tables provide evidence; no new dashboard is implemented.
+Tokens and duplicate-investigation rates require correlation with existing lane
+and gateway telemetry. Cross-hub project identity and authorized knowledge sharing
+remain the separate architecture described above; local Git identity has not been
+replaced by this work.
+Automatic governor consultation writes through the local lease registry. On this
+Mac the coordination HTTP store at loopback :7794 serves that same database.
+A spoke whose coordination store is a different hub needs a bounded outbox relay
+before these automatic requests can reach the remote inbox; the ordinary `coord`
+consultation and feedback commands already use the configured store binding.

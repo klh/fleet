@@ -2,7 +2,7 @@
 // solution) pairs; a repeat consult resolves from the store without routing
 // to an expert (--no-kb escapes); unrelated questions stay OPEN; stats/search
 // run clean. Isolated temp HOME + repo, spawns the real CLI (monitor recipe).
-import { describe, test, expect, afterAll } from "bun:test";
+import { describe, test, expect, afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,7 +15,7 @@ const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 // projectIdentity(), mirrored: git-common-dir from inside the temp repo —
-// NOTE git walks UP through a scaffolded .git to the parent checkout, so
+// Git walks UP through a scaffolded .git to the parent checkout, so
 // the identity is the PARENT repo's .git; seeds must match it exactly
 function projectOf(dir: string): string {
 	const r = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--git-common-dir"], {
@@ -36,7 +36,14 @@ const EXPERT = "expert-sess-11111111";
 const ASKER = "asker-sess-22222222";
 
 function run(args: string[]) {
-	const p = Bun.spawnSync(["bun", coord, ...args], {
+	const versionArgs = ["consult", "consult-reply"].includes(args[0])
+		? [
+				"--version",
+				"test-version",
+				...(args[0] === "consult" ? ["--scope", "hooks/leases"] : []),
+			]
+		: [];
+	const p = Bun.spawnSync(["bun", coord, ...args, ...versionArgs], {
 		cwd: REPO,
 		env,
 		stdout: "pipe",
@@ -71,6 +78,14 @@ function consultRow(id: number) {
 // bootstrap: the first CLI open runs the migrations — creates the db dir and
 // the v3 schema — so the seed helpers have something to write into
 run(["kb", "stats"]);
+
+beforeEach(() => {
+	const d = new Database(DB);
+	d.query("UPDATE consults SET created_at = ? WHERE state = 'OPEN'").run(
+		TS - 3_600_001,
+	);
+	d.close();
+});
 
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
@@ -119,6 +134,27 @@ describe("consult knowledge layer", () => {
 		expect(kb[0].answered_by).toBe(EXPERT);
 		expect(kb[0].solution).toContain("lease-release");
 		expect(fts).toBe(1);
+		const before = new Database(DB, { readonly: true });
+		expect(
+			(
+				before
+					.query("SELECT verified_at FROM consult_trust WHERE kb_id = 1")
+					.get() as { verified_at: number | null }
+			).verified_at,
+		).toBeNull();
+		before.close();
+		expect(
+			run([
+				"consult-reply",
+				"C1",
+				"--feedback",
+				"resolved",
+				"--evidence",
+				"Lease released and subsequent take succeeded",
+				"--as",
+				ASKER,
+			]).code,
+		).toBe(0);
 	});
 
 	test("repeat question resolves from kb: no expert round-trip, provenance recorded", () => {
@@ -180,6 +216,7 @@ describe("consult knowledge layer", () => {
 		const stats = run(["kb", "stats"]);
 		expect(stats.code).toBe(0);
 		expect(stats.out).toContain("solutions");
+		expect(stats.out).toContain("outcomes:");
 		const search = run(["kb", "search", "retry contract stale leases"]);
 		expect(search.out).toContain("lease-release");
 		const miss = run([
@@ -191,13 +228,11 @@ describe("consult knowledge layer", () => {
 	});
 });
 
-// teeth — the plane answers doctrine questions before people do: a consult
-// whose question overlaps a lesson.* fact resolves on the spot (state LESSON,
-// expert_sid "plane"), the expert's inbox is never touched, and --no-kb
-// bypasses lessons and the KB alike.
+// Lessons accompany consultation as advisory context; lexical overlap is
+// insufficient evidence for automatic resolution. --no-kb bypasses guidance.
 describe("lesson teeth", () => {
 	const LQ = "how do we handle sync parity between the repos";
-	test("a consult matching a lesson is answered by the plane, expert untouched", () => {
+	test("a lesson is advisory context and does not bypass verified consultation", () => {
 		const set = run([
 			"fact",
 			"set",
@@ -206,12 +241,11 @@ describe("lesson teeth", () => {
 		]);
 		expect(set.code).toBe(0);
 		const c = run(["consult", EXPERT, LQ, "--as", ASKER]);
-		expect(c.out).toContain("answered from the plane");
-		expect(c.out).toContain("lesson.testsync");
+		expect(c.out).toContain("CONSULT");
 		const id = Number(c.out.match(/C(\d+)/)?.[1]);
 		const row = consultRow(id);
-		expect(row?.state).toBe("LESSON");
-		expect(row?.expert_sid).toBe("plane");
+		expect(row?.state).toBe("OPEN");
+		expect(row?.expert_sid).toBe(EXPERT);
 		const db = new Database(DB, { readonly: true });
 		const routed = (
 			db
@@ -221,7 +255,7 @@ describe("lesson teeth", () => {
 				.get(`C${id}`) as { n: number }
 		).n;
 		db.close();
-		expect(routed).toBe(0);
+		expect(routed).toBe(1);
 	});
 
 	test("--no-kb bypasses lessons and routes to the expert", () => {
@@ -279,5 +313,168 @@ describe("consult flag placement (W449)", () => {
 		]);
 		expect(r.err).not.toContain("usage:");
 		expect(r.err).not.toContain("unknown option");
+	});
+});
+
+describe("verified cache boundaries", () => {
+	test("cached answer works before best-expert selection even with no live expert", () => {
+		const d = new Database(DB);
+		d.query("UPDATE sessions SET state = 'CLOSED'").run();
+		d.close();
+		const r = run([
+			"consult",
+			"--best",
+			"fix the retry contract for stale leases",
+			"--as",
+			ASKER,
+		]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("knowledge base");
+		seedSession(EXPERT);
+	});
+	test("different version and scope cannot reuse verified answer", () => {
+		for (const flags of [
+			["--version", "new-version"],
+			["--scope", "other/package"],
+		]) {
+			const r = run([
+				"consult",
+				EXPERT,
+				"fix the retry contract for stale leases",
+				...flags,
+				"--as",
+				ASKER,
+			]);
+			expect(r.code).toBe(0);
+			expect(r.out).toContain("CONSULT");
+		}
+	});
+	test("same question in another project cannot reuse answer", () => {
+		const d = new Database(DB);
+		d.query("UPDATE consult_kb SET project = ? WHERE id = 1").run(
+			"other-project",
+		);
+		const r = run([
+			"consult",
+			EXPERT,
+			"fix the retry contract for stale leases",
+			"--as",
+			ASKER,
+		]);
+		expect(r.out).toContain("CONSULT");
+		d.query("UPDATE consult_kb SET project = ? WHERE id = 1").run(PROJ);
+		d.close();
+	});
+	test("failed outcome revokes a previously verified cached answer", () => {
+		const r = run([
+			"consult",
+			EXPERT,
+			"fix the retry contract for stale leases",
+			"--as",
+			ASKER,
+		]);
+		const cid = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(r.out).toContain("knowledge base");
+		expect(
+			run([
+				"consult-reply",
+				cid,
+				"--feedback",
+				"resolved",
+				"--evidence",
+				"works",
+				"--as",
+				EXPERT,
+			]).code,
+		).toBe(2);
+		expect(
+			run([
+				"consult-reply",
+				cid,
+				"--feedback",
+				"failed",
+				"--evidence",
+				"lease take still failed",
+				"--as",
+				ASKER,
+			]).code,
+		).toBe(0);
+		expect(
+			run([
+				"consult",
+				EXPERT,
+				"fix the retry contract for stale leases",
+				"--as",
+				ASKER,
+			]).out,
+		).toContain("CONSULT");
+	});
+});
+
+describe("candidate trust and bounded routing", () => {
+	test("unverified answers never automatically resolve repeat questions", () => {
+		const q = "candidate-only zebra protocol configuration";
+		const first = run(["consult", EXPERT, q, "--as", ASKER]);
+		const cid = first.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", cid, "Try the zebra reset", "--as", EXPERT]).code,
+		).toBe(0);
+		expect(run(["consult", EXPERT, q, "--as", ASKER]).out).toContain("CONSULT");
+	});
+	test("unknown scopes do not reuse verified answers", () => {
+		expect(
+			run([
+				"consult",
+				EXPERT,
+				"fix the retry contract for stale leases",
+				"--scope",
+				"",
+				"--as",
+				ASKER,
+			]).out,
+		).toContain("CONSULT");
+	});
+	test("changed code versions and evidence-free feedback cannot verify a candidate", () => {
+		const q = "version-sensitive zebra configuration failure";
+		const first = run(["consult", EXPERT, q, "--as", ASKER]);
+		const cid = first.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", cid, "Adjust the zebra config", "--as", EXPERT])
+				.code,
+		).toBe(0);
+		expect(
+			run(["consult-reply", cid, "--feedback", "resolved", "--as", ASKER]).err,
+		).toContain("requires --evidence");
+		expect(
+			run([
+				"consult-reply",
+				cid,
+				"--feedback",
+				"resolved",
+				"--evidence",
+				"worked",
+				"--version",
+				"changed-code",
+				"--as",
+				ASKER,
+			]).err,
+		).toContain("code version changed");
+	});
+
+	test("routing stops when an expert has three recent open consults", () => {
+		for (let i = 0; i < 3; i++)
+			expect(
+				run(["consult", EXPERT, `bounded queue question ${i}`, "--as", ASKER])
+					.code,
+			).toBe(0);
+		const blocked = run([
+			"consult",
+			EXPERT,
+			"bounded queue fourth question",
+			"--as",
+			ASKER,
+		]);
+		expect(blocked.code).toBe(2);
+		expect(blocked.err).toContain("queue is full");
 	});
 });
