@@ -8,7 +8,7 @@
 //   bun scripts/install.ts --json --dry-run     # plan, zero side effects
 //   bun scripts/install.ts --json               # outcome + contract (stdout)
 //   bun scripts/install.ts --step <name>        # one step (frozen names)
-//   bun scripts/install.ts --yes                # v1: delegates to install.sh
+//   bun scripts/install.ts --yes                # consented run (legacy blocks via install.sh __legacy full)
 //
 // Exit codes: 0 ok/pause (need_user_action), 1 failure, 2 usage error.
 import meow from "meow";
@@ -34,7 +34,7 @@ Usage
 Options
   --dry-run       Print the plan, zero side effects
   --json          Machine output: one JSON outcome document on stdout
-  --yes           Unattended consent (v1: delegates mutating steps to install.sh)
+  --yes           Unattended consent (legacy blocks run via install.sh __legacy full)
   --verbose       Per-step detail and resolved paths
   --step <name>   Run one step by frozen name (contract.steps[].name)
 

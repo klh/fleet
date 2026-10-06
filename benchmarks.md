@@ -169,6 +169,27 @@ time — the router/engine-local rows above are pre-W270.
 | Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)   | 107.2 vs 86.0 tok/s (+25%) | OptiQ takes the :8903 slot  |
 | Engine swap (Coder-30B, mlx_lm → rapid-mlx)         | 97.4 → 123.7 tok/s         | biggest single lever so far |
 
+## Installer cutover — bash vs TS full-install wall-time (W490.2, 2026-10-06)
+
+The owner's-law row for the install.sh → install.ts cutover: FULL-install
+wall-time, warm prefix, `--no-llm` both sides, same scope (harness copy +
+shims + caddy register + release notify; llm seed/models skipped), 3
+interleaved runs on this Mac (load1 3.2–5.2 — smoke-level n=3 per the brief;
+medians decide; rollback bar 1.5×). Bash leg ran a frozen HEAD `e0441ed`
+copy inside the package dir so `REPO_DIR` resolution matched; TS leg =
+`install.sh --no-llm` → wrapper → `install.ts --yes` → delegation to
+`install.sh __legacy full`.
+
+| Leg                                         | wall p50 | spread  | Verdict                                     |
+| ------------------------------------------- | -------: | ------- | ------------------------------------------- |
+| bash (pre-cutover install.sh, e0441ed)      |   240 ms | 233–245 | reference                                   |
+| TS (wrapper → install.ts → `__legacy full`) |   282 ms | 282–306 | **1.18× bash — cutover stands** (bar: 1.5×) |
+
+The TS path still runs the legacy body (syncHarness/ensureShims/seedLocalLlm
+have no native steps yet); the measured delta is the wrapper front + plan
+runner + one execa hop. Launchd render via install-services.ts: 12 services
+in 0.26 ms.
+
 ## Fit-classifier backends (W225, 2026-10-02, 12 tasks — smoke test)
 
 | Backend                    |     p50 |     p95 | tokens/12 | agreement | Verdict                             |

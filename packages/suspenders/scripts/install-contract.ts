@@ -169,7 +169,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "install the macOS launchd agents?",
 				unattended:
-					"v1: not a flag yet — the registerLaunchd pause carries the bash --with-launchd resume_command",
+					"native since W490.2 — run the --step registerLaunchd --yes resume_command (renders deploy/services.yaml via install-services.ts, loads via load-launchd.sh, supersedes com.klh.* labels)",
 			},
 			{
 				prompt: "download resident local-llm models?",
@@ -316,10 +316,10 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "registerLaunchd",
 			oneLiner:
-				"template and load the macOS launchd agents, supersede legacy labels",
+				"render deploy/services.yaml via install-services.ts and load the macOS launchd agents, supersede legacy labels",
 			mutates: true,
 			optIn: true,
-			v1: "stub",
+			v1: "real",
 		},
 		{
 			name: "registerCaddy",
@@ -354,7 +354,8 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			flag: "--with-launchd",
-			meaning: "install the macOS launchd agents",
+			meaning:
+				"install the macOS launchd agents — native since W490.2: --step registerLaunchd --yes",
 			mappedStep: "registerLaunchd",
 		},
 		{
@@ -398,9 +399,9 @@ export const INSTALL_CONTRACT = {
 		launchAgentsDir: "~/Library/LaunchAgents",
 	},
 	v1Delegation: {
-		command: "bash <repo>/install.sh",
+		command: "bash <repo>/install.sh __legacy full",
 		when: "a full run (no --step) with --yes",
-		note: "the bash installer remains the working installer until W488.1/W490.2 land real implementations; this delegation is replaced, not kept",
+		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (harness copy, shims, llm seed, models, caddy, release) that have no native step yet",
 	},
 } as const satisfies InstallContract;
 

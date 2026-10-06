@@ -53,6 +53,9 @@ jobs:
           done
 
   # The installer must round-trip: wire, idempotent, works from any cwd.
+  # W490.2: install.sh is a thin wrapper — the entry is still install.sh, the
+  # core is scripts/install.ts; the --json plan must parse and carry the
+  # contract, and the W463 scripts/lib sync must land in the prefix.
   installer:
     runs-on: ubuntu-latest
     steps:
@@ -60,12 +63,28 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: TS plan parses (dry-run, machine contract)
+        run: |
+          set -e
+          ./packages/suspenders/install.sh --dry-run --json | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          assert d['schema']=='suspenders.install.v1', d['schema']
+          assert d['contractVersion']==1
+          assert d['outcome']=='ok'
+          assert len(d['steps'])==11
+          assert {s['v1'] for s in d['contract']['steps']} <= {'real','delegated','stub'}
+          assert [s for s in d['contract']['steps'] if s['name']=='registerLaunchd'][0]['v1']=='real'
+          print('plan ok: 11 steps, registerLaunchd real')
+          "
       - name: installer round-trip
         run: |
           set -e
           ./packages/suspenders/install.sh --wire
           test -f "$HOME/.claude/hooks/suspenders/bin/fleet-board.ts"
           test -f "$HOME/.claude/hooks/suspenders/blam/src/condense/tiers.ts" # W422.14: blam rides along
+          test -f "$HOME/.claude/hooks/suspenders/scripts/lib/lane-auth.ts" # W463 sync (W490.2)
+          test -f "$HOME/.claude/hooks/scripts/lib/lane-auth.ts" # prefix-parent depth: bin/* import ../../scripts/lib
           python3 -c "import json,os;json.load(open(os.environ['HOME']+'/.claude/settings.json'))"
           ./packages/suspenders/install.sh --wire
           python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});n=sum(len(v) for v in h.values());sys.exit(1) if n!=7 else print('wired', n, 'entries, idempotent')"

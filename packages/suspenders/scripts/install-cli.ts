@@ -128,7 +128,7 @@ export function nextSteps(
 		steps.push({
 			action: "execute",
 			command: `${invoker} --json --yes`,
-			note: "the consented run (v1: delegates to bash install.sh)",
+			note: "the consented run (legacy blocks run via install.sh __legacy full)",
 		});
 	}
 	if (!dryRun && outcome === "ok" && pauses.length === 0 && mode === "plan") {

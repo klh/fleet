@@ -1,67 +1,28 @@
 #!/usr/bin/env bash
-# suspenders installer — copies the harness into ~/.claude/hooks/suspenders and
-# optionally: --wire merges the hook registrations into ~/.claude/settings.json
-# (per-event concat, never clobbers), --with-launchd installs the macOS agents.
-# Idempotent: re-running just refreshes the files.
-#   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models] [--no-llm]
-# Default (owner law 2026-10-01): ALWAYS sets up the local-llm swarm and
-# downloads the smallest-fit models (BELT_TIER=minimal residents).
+# suspenders installer — THIN WRAPPER (W490.2): the installer core is now
+#   bun scripts/install.ts "$@"
+# and this file keeps only the legacy blocks that have no native install.ts
+# step yet (each marked TODO(install.ts) inline). Flags unchanged:
+#   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models]
+#                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
+#                [--yes] [--json] [--verbose] [--step <name>]
+# SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
+# Idempotent: re-running just refreshes the files. Default (owner law
+# 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
+# smallest-fit models (BELT_TIER=minimal residents) unless --no-llm.
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
-
-# flags (order-independent) — replaces the old positional $1/$2 checks
-WIRE=0 WITH_LAUNCHD=0 DRY_RUN=0 SKIP_MODELS=0 NO_LLM=0 REFRESH_SUPERVISOR=0
-REFRESH_DASHBOARDS=0
-for arg in "$@"; do
-  case "$arg" in
-    --wire) WIRE=1 ;;
-    --with-launchd) WITH_LAUNCHD=1 ;;
-    --dry-run) DRY_RUN=1 ;;
-    --skip-models) SKIP_MODELS=1 ;;
-    --no-llm) NO_LLM=1 ;;
-    --refresh-supervisor) REFRESH_SUPERVISOR=1 ;;
-    --refresh-dashboards) REFRESH_DASHBOARDS=1 ;;
-    *) echo "unknown flag: $arg"; exit 2 ;;
-  esac
-done
-
 LLM_HOME="$HOME/.claude/local-llm"
 # kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
-KIT_DIR="$(cd "$REPO_DIR/.." && pwd)/local-llm"
+KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/local-llm"
 
-# Safe GUI-only activation path; never runs registration, model or key setup.
-if [[ $REFRESH_DASHBOARDS -eq 1 ]]; then
-  if [[ $DRY_RUN -eq 1 ]]; then
-    bun "$REPO_DIR/scripts/refresh-dashboards.ts" --dry-run
-  else
-    bun "$REPO_DIR/scripts/refresh-dashboards.ts"
-  fi
-  exit 0
-fi
-
-# --dry-run: print the plan, touch nothing (bun read-only for the tier list)
-if [[ $DRY_RUN -eq 1 ]]; then
-  echo "dry-run — would:"
-  echo "  install harness → $PREFIX (+ bun install)"
-  if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
-    echo "  refresh belt supervisor.ts only (backup previous code; preserve runtime config)"
-  fi
-  echo "  local-llm baseline → $LLM_HOME:"
-  echo "    kit: swarm.ts (serve supervisor), spawner.ts, health.ts;"
-  echo "         registry.ts + router-shim.ts + shim deps sourced from belt/bin (W465)"
-  echo "    registry/belt.env/routing-policy.yaml: only when absent"
-  echo "    swarm.ts: refreshed when the copy lacks serve (revival fix)"
-  echo "    models (BELT_TIER=minimal residents, resumable download):"
-  BELT_TIER=minimal LOCAL_LLM_HOME="$KIT_DIR" bun -e '
-const { residentSet } = await import(process.env.LOCAL_LLM_HOME + "/registry.ts");
-for (const s of residentSet()) console.log("      " + s.model + " → :" + s.port);
-' 2>/dev/null || echo "      (bun import failed — kit registry unreadable)"
-  echo "    launchd: com.suspenders.local-llm (swarm.ts serve, KeepAlive)"
-  exit 0
-fi
-
+# ─── legacy body (TODO(install.ts): syncHarness, ensureShims, seedLocalLlm,
+# downloadModels, wireSettings, refreshSupervisor, registerCaddy and
+# releaseNotify still live here — install.ts's delegation runs THIS function,
+# never the wrapper front, which would re-enter install.ts) ───
+legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
 echo "→ installing to $PREFIX"
@@ -73,19 +34,26 @@ mkdir -p "$PREFIX"
 # (the swarm's runtime home, user-customizable, never clobbered) — this
 # copy is pure harness code, refreshed every install like bin/lib/board.
 for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md; do
-  cp -R "$REPO_DIR/hooks/$item" "$PREFIX/"
+  cp -R "$SCRIPT_DIR/hooks/$item" "$PREFIX/"
 done
 # the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
 # from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
 cp -R "$KIT_DIR" "$PREFIX/"
 cp "$KIT_DIR/observation.ts" "$PREFIX/lib/observation.ts"
-cp "$REPO_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
+cp "$SCRIPT_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
+# W463 install gap (closed W490.2): prefix bin/* (worktree.ts, fleet-loop.ts,
+# copilot-usage.ts) import ../../scripts/lib/*.ts — from $PREFIX/bin that depth
+# is the PREFIX PARENT (~/.claude/hooks/scripts/lib), so materialize the shared
+# lib there; $PREFIX/scripts/lib mirrors it for prefix-relative imports.
+mkdir -p "$PREFIX/../scripts/lib" "$PREFIX/scripts/lib"
+cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/../scripts/lib/"
+cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/scripts/lib/"
 # W422.5 — blam ships whole (manifest included): suspenders' manifest declares
 # "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
 # (below) symlinks node_modules/blam -> blam/ and board's package-name import
 # (blam/src/condense) resolves. Retires the W422.14 sed-on-copies hack.
 rm -rf "$PREFIX/blam"
-cp -R "$REPO_DIR/../blam" "$PREFIX/blam"
+cp -R "$SCRIPT_DIR/../blam" "$PREFIX/blam"
 rm -rf "$PREFIX/blam/node_modules"
 # authoring-time devDeps (belt/suspenders workspace:*) don't ship — bun
 # --production still resolves member devDeps, so strip them from the copy
@@ -95,7 +63,7 @@ bun -e 'const p=process.argv[1];const j=JSON.parse(await Bun.file(p).text());del
 # at $PREFIX, which hard-fails install. $PREFIX re-resolves from the ranges,
 # so any stale PREFIX lockfile from earlier installs goes first.
 rm -f "$PREFIX/bun.lock"
-cp "$REPO_DIR/package.json" "$PREFIX/"
+cp "$SCRIPT_DIR/package.json" "$PREFIX/"
 (cd "$PREFIX" && bun install --production) # --production: skip devDeps — blam's authoring-time belt/suspenders devDeps don't ship; shell-quote, for the bash gate
 # Catch broken workspace links/imports before restarting the live services.
 bun -e 'await import(process.argv[1])' "$PREFIX/board/prompt-transform.ts"
@@ -103,8 +71,8 @@ echo "→ harness in place"
 
 # Targeted code upgrade for the advanced installed belt supervisor. The kit's
 # older swarm implementation and operator-owned config must remain untouched.
-if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
-  SUPERVISOR_SOURCE="$REPO_DIR/../belt/bin/supervisor.ts"
+if [[ "${SUSPENDERS_LEGACY_SUPERVISOR:-0}" -eq 1 ]]; then
+  SUPERVISOR_SOURCE="$SCRIPT_DIR/../belt/bin/supervisor.ts"
   SUPERVISOR_TARGET="$LLM_HOME/supervisor.ts"
   if [[ ! -f "$SUPERVISOR_TARGET" ]] || ! grep -q './supervisor.ts' "$LLM_HOME/swarm.ts"; then
     echo "→ --refresh-supervisor requires an existing belt supervisor runtime" >&2
@@ -112,7 +80,7 @@ if [[ $REFRESH_SUPERVISOR -eq 1 ]]; then
   fi
   cp -p "$SUPERVISOR_TARGET" "$SUPERVISOR_TARGET.before-refresh"
   cp "$SUPERVISOR_SOURCE" "$SUPERVISOR_TARGET"
-  cp "$REPO_DIR/../belt/bin/health.ts" "$LLM_HOME/health.ts"
+  cp "$SCRIPT_DIR/../belt/bin/health.ts" "$LLM_HOME/health.ts"
   if ! bun -e 'await import(process.argv[1])' "$SUPERVISOR_TARGET"; then
     cp -p "$SUPERVISOR_TARGET.before-refresh" "$SUPERVISOR_TARGET"
     echo "→ supervisor import failed; previous code restored" >&2
@@ -130,7 +98,7 @@ for shim in coord work; do
   printf '#!/bin/sh\nexec bun %s/bin/%s.ts "$@"\n' "$PREFIX" "$shim" > "$SHIM_BIN/$shim"
   chmod +x "$SHIM_BIN/$shim"
 done
-printf '#!/bin/sh\nexec bun %s/scripts/dispatch-next.ts "$@"\n' "$REPO_DIR" > "$SHIM_BIN/dispatch"
+printf '#!/bin/sh\nexec bun %s/scripts/dispatch-next.ts "$@"\n' "$SCRIPT_DIR" > "$SHIM_BIN/dispatch"
 chmod +x "$SHIM_BIN/dispatch"
 echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 
@@ -139,7 +107,7 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # that fit the bill (registry BELT_TIER=minimal residents). The kit lands in
 # $LLM_HOME; copies never clobber the runtime home (it is the live fleet's
 # possibly-customized source of truth). --no-llm skips for CI/containers.
-if [[ $NO_LLM -eq 0 ]]; then
+if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
   # W465 one-source: the registry and the :4000 router are BELT-owned now —
   # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
@@ -150,7 +118,7 @@ if [[ $NO_LLM -eq 0 ]]; then
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
     else
-      cp "$REPO_DIR/../belt/bin/$f" "$LLM_HOME/$f"
+      cp "$SCRIPT_DIR/../belt/bin/$f" "$LLM_HOME/$f"
       echo "+ $LLM_HOME/$f (from belt/bin)"
     fi
   done
@@ -183,7 +151,7 @@ if [[ $NO_LLM -eq 0 ]]; then
   # smallest-fit models: derived FROM the registry (same source of truth the
   # swarm reads) — BELT_TIER=minimal residents. huggingface_hub snapshot_
   # download resumes partial downloads; --skip-models skips for offline boxes.
-  if [[ $SKIP_MODELS -eq 0 ]]; then
+  if [[ "${SUSPENDERS_LEGACY_SKIP_MODELS:-0}" -eq 0 ]]; then
     MLX_PYTHON="$HOME/.local/share/uv/tools/mlx-lm/bin/python"
     if [ ! -x "$MLX_PYTHON" ] && command -v uv >/dev/null 2>&1; then
       uv tool install mlx-lm >/dev/null 2>&1 || true
@@ -209,12 +177,12 @@ fi
 
 # --wire: merge the example hooks block into ~/.claude/settings.json — per-event
 # array concat, existing entries untouched; paths rewritten to the real prefix
-if [[ $WIRE -eq 1 ]]; then
+if [[ "${SUSPENDERS_LEGACY_WIRE:-0}" -eq 1 ]]; then
   SETTINGS="$HOME/.claude/settings.json"
   [ -f "$SETTINGS" ] || echo "{}" >"$SETTINGS"
   # The $HOME string below is a literal hook placeholder, expanded by JS.
   # shellcheck disable=SC2016
-  SUSPENDERS_EXAMPLE="$REPO_DIR/settings.example.json" SUSPENDERS_PREFIX="$PREFIX" bun -e '
+  SUSPENDERS_EXAMPLE="$SCRIPT_DIR/settings.example.json" SUSPENDERS_PREFIX="$PREFIX" bun -e '
     const fs = require("node:fs");
     const settingsPath = process.env.HOME + "/.claude/settings.json";
     const prefix = process.env.SUSPENDERS_PREFIX;
@@ -232,41 +200,8 @@ if [[ $WIRE -eq 1 ]]; then
   '
 fi
 
-# --with-launchd: template-substitute and load the macOS agents
-if [[ $WITH_LAUNCHD -eq 1 ]]; then
-  if [[ "$(uname)" != "Darwin" ]]; then
-    echo "→ --with-launchd skipped (not macOS)"
-  else
-    BUN_BIN="$(command -v bun)"
-    # W264: agent logs live in the private insights dir, never world-readable /tmp
-    mkdir -p "$HOME/.claude-insights" && chmod 700 "$HOME/.claude-insights"
-    mkdir -p "$HOME/Library/LaunchAgents"
-    failed_agents=()
-    for f in "$REPO_DIR"/hooks/launchd/*.plist; do
-      name="$(basename "$f")"
-      out="$HOME/Library/LaunchAgents/$name"
-      sed -e "s|__BUN__|$BUN_BIN|" -e "s|__HOME__|$HOME|g" -e "s|__PREFIX__|$PREFIX|" -e "s|__REPO__|$REPO_DIR|" \
-        -e "s|__BELT_URL__|${BELT_URL:-http://127.0.0.1:4100}|" -e "s|__BELT_TOKEN__|${BELT_TOKEN:-}|" "$f" >"$out"
-      if ! bash "$REPO_DIR/scripts/load-launchd.sh" "$out" \
-        "$HOME/.claude-insights/launchd-${name%.plist}.log"; then
-        failed_agents+=("${name%.plist}")
-      fi
-    done
-    # supersede the pre-namespacing agent labels so old and new never run side
-    # by side (same jobs, stale script paths, double keepwarm/monitor pings)
-    for legacy in com.klh.llm-keepwarm com.klh.fleet-monitor com.klh.local-llm; do
-      launchctl bootout "gui/$(id -u)/$legacy" 2>/dev/null || true
-      if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
-        rm "$HOME/Library/LaunchAgents/$legacy.plist"
-        echo "→ superseded legacy agent $legacy"
-      fi
-    done
-    if [[ ${#failed_agents[@]} -gt 0 ]]; then
-      echo "→ install incomplete: launchd jobs failed: ${failed_agents[*]}" >&2
-      exit 1
-    fi
-  fi
-fi
+# --with-launchd is native since W490.2: install.ts --step registerLaunchd
+# renders deploy/services.yaml via install-services.ts (see install-launchd.ts)
 
 # optional: register the board with klh-local's user-level Caddy so the LAN
 # gets http://suspenders.local:7799. Idempotent (converges on re-run) and
@@ -302,3 +237,63 @@ if [ -f "$COORD" ]; then
   bun "$COORD" emit RELEASE --scope suspenders --version "$REL_VER" \
     --note "${REL_NOTE:-deployed}" --as installer >/dev/null 2>&1 || true
 fi
+}
+
+# ─── internal: install.ts's v1 delegation entry (W490.2). The body's flag
+# knobs ride SUSPENDERS_LEGACY_* env (exported by the front below); a bare
+# __legacy call runs with historical defaults. Never call by hand. ───
+if [[ "${1:-}" == "__legacy" ]]; then
+  shift
+  if [[ "${1:-}" != "full" ]]; then
+    echo "install.sh: __legacy needs 'full'" >&2
+    exit 2
+  fi
+  legacy_full
+  exit 0
+fi
+
+# ─── public front: legacy flags → env knobs, then the installer core ───
+LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
+LEG_DASHBOARDS=0 LEG_DRY_RUN=0
+NATIVE=()
+prev_step=0
+for arg in "$@"; do
+  if [[ $prev_step -eq 1 ]]; then NATIVE+=("$arg"); prev_step=0; continue; fi
+  case "$arg" in
+    --wire) LEG_WIRE=1 ;;
+    --with-launchd) LEG_WITH_LAUNCHD=1 ;;
+    --skip-models) LEG_SKIP_MODELS=1 ;;
+    --no-llm) LEG_NO_LLM=1 ;;
+    --refresh-supervisor) LEG_SUPERVISOR=1 ;;
+    --refresh-dashboards) LEG_DASHBOARDS=1 ;;
+    --dry-run) LEG_DRY_RUN=1; NATIVE+=("$arg") ;;
+    --yes|--json|--verbose) NATIVE+=("$arg") ;;
+    --step) NATIVE+=("$arg"); prev_step=1 ;;
+    *) echo "unknown flag: $arg"; exit 2 ;;
+  esac
+done
+
+# --refresh-dashboards: safe GUI-only early exit (native step; --dry-run plans)
+if [[ $LEG_DASHBOARDS -eq 1 ]]; then
+  exec bun "$SCRIPT_DIR/scripts/install.ts" --step refreshDashboards ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# dry-run + legacy flags: name the gap (the native plan shows native steps only)
+if [[ $LEG_DRY_RUN -eq 1 && $((LEG_WIRE + LEG_WITH_LAUNCHD + LEG_SKIP_MODELS + LEG_NO_LLM + LEG_SUPERVISOR)) -gt 0 ]]; then
+  echo "note: legacy flags gate the legacy blocks — the dry-run plan shows native steps only"
+fi
+
+# legacy-only flags ride env knobs into the delegated legacy body
+# (TODO(install.ts): no native flags yet — contract.bashFlags documents these)
+export SUSPENDERS_LEGACY_WIRE="$LEG_WIRE"
+export SUSPENDERS_LEGACY_SKIP_MODELS="$LEG_SKIP_MODELS"
+export SUSPENDERS_LEGACY_NO_LLM="$LEG_NO_LLM"
+export SUSPENDERS_LEGACY_SUPERVISOR="$LEG_SUPERVISOR"
+
+rc=0
+bun "$SCRIPT_DIR/scripts/install.ts" --yes ${NATIVE[@]+"${NATIVE[@]}"} || rc=$?
+if [[ $LEG_WITH_LAUNCHD -eq 1 && $rc -eq 0 ]]; then
+  # native since W490.2 — the sed-pass substitutions via install-services.ts
+  bun "$SCRIPT_DIR/scripts/install.ts" --step registerLaunchd --yes ${NATIVE[@]+"${NATIVE[@]}"} || rc=$?
+fi
+exit $rc

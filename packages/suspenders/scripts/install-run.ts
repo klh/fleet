@@ -13,6 +13,7 @@ import {
 	type StepOutcomeRow,
 	type StepStatus,
 } from "./install-contract.ts";
+import { registerLaunchd } from "./install-launchd.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -76,14 +77,17 @@ async function refreshDashboards(ctx: StepContext): Promise<StepResult> {
 
 /**
  * The v1 delegation: one bash install.sh invocation covers every mutating
- * "delegated" step on a consented full run (replaced in W488.1/W490.2).
+ * "delegated" step on a consented full run. W490.2: install.sh's public face
+ * is the TS installer wrapper, so the delegation targets the wrapper's
+ * __legacy full entrypoint (the legacy body blocks install.ts has no step
+ * for yet) — never the wrapper front, which would recurse.
  */
 async function delegateBash(
 	ctx: StepContext,
 ): Promise<{ ok: boolean; note: string; detail: string }> {
 	const script = join(ctx.repo, "install.sh");
 	try {
-		const res = await execa("bash", [script], {
+		const res = await execa("bash", [script, "__legacy", "full"], {
 			cwd: ctx.repo,
 			stdout: ctx.json ? "pipe" : "inherit",
 			stderr: "inherit",
@@ -92,7 +96,7 @@ async function delegateBash(
 		const tail = text.trim().split("\n").at(-1) ?? "";
 		return {
 			ok: true,
-			note: "executed via the v1 bash delegation (install.sh)",
+			note: "executed via the v1 bash delegation (install.sh __legacy full)",
 			detail: tail,
 		};
 	} catch (err) {
@@ -107,14 +111,18 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	if (step.name === "refreshDashboards") {
 		return `bun ${join(ctx.repo, "scripts/refresh-dashboards.ts")}`;
 	}
-	const bash = `bash ${join(ctx.repo, "install.sh")}`;
+	if (step.name === "registerLaunchd") {
+		// native since W490.2 — renders deploy/services.yaml via install-services.ts
+		return `bun ${join(ctx.repo, "scripts/install.ts")} --step registerLaunchd --yes`;
+	}
+	// the wrapper front is consented-by-design (bash surface semantics), and
+	// --yes makes the resume self-sufficient through the TS plan runner
+	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;
 	switch (step.name) {
 		case "refreshSupervisor":
 			return `${bash} --refresh-supervisor`;
 		case "wireSettings":
 			return `${bash} --wire`;
-		case "registerLaunchd":
-			return `${bash} --with-launchd`;
 		default:
 			return bash;
 	}
@@ -136,6 +144,7 @@ function pauseFor(
 const impls: Partial<Record<StepName, StepImpl>> = {
 	probeEnvironment,
 	refreshDashboards,
+	registerLaunchd,
 };
 
 // ─── plan runner ───
