@@ -170,7 +170,11 @@ services:
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["serve"]
     env:
-      BELT_TIER: "minimal"
+      # 2026-10-06: full — the routing ladder's primary local rung for
+      # flash-class is :8903 reason (22GB); minimal (≤4GB) starved it, so
+      # lanes fell through dark z.ai to the 401-less anthropic escape and
+      # died. Full residents ≈ 51GB of 128GB.
+      BELT_TIER: "full"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]
