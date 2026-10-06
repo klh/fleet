@@ -21,6 +21,7 @@ import {
 import { readBoardSettings } from "../lib/board-config.ts";
 import { handleData } from "../board/routes-data.ts";
 import { handleUsage } from "../board/routes-usage.ts";
+import { handleFederationUsage } from "../board/routes-federation.ts";
 import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
@@ -80,6 +81,7 @@ const base = {
 			handleObservations,
 			handleData,
 			handleUsage,
+			handleFederationUsage,
 			handleDrawer,
 			handleActions,
 			handleOrch,

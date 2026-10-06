@@ -291,8 +291,11 @@ export class Governance {
 		// W160 domain split at the gate: the CR-declare/list surface
 		// (/federation/cr, exact) is HUB-ADMIN — spokes report status on
 		// /federation/cr/:id/status and never hold the originate capability.
+		// W171: the rollup read (GET /federation/usage) is likewise
+		// HUB-ADMIN (the dashboards' credential); the ingest stays spoke.
 		const needed =
-			path === "/federation/cr"
+			path === "/federation/cr" ||
+			(path === "/federation/usage" && req.method === "GET")
 				? scopeNeeded("admin", req.method)
 				: scopeNeeded("spoke", req.method);
 		if (!hasScope(auth.principal.scopes, needed))

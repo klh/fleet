@@ -21,9 +21,16 @@ import {
 	type CrProbe,
 	type FedManifest,
 	manifestVersion,
+	selfReportTeams,
 	transitionCR,
 } from "./federation-manifest.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import {
+	privateDomainPath,
+	readSelfReport,
+	storeSelfReport,
+	validateSelfReport,
+} from "./federation-usage.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
 import type { ManifestSigner } from "./federation-signing.ts";
@@ -216,6 +223,10 @@ export class Federation {
 			return this.manifestResponse();
 		if (req.method === "GET" && url.pathname === "/federation/entitlements")
 			return Response.json(this.entitlements(p));
+		if (req.method === "POST" && url.pathname === "/federation/usage")
+			return this.usageIngest(req, p);
+		if (req.method === "GET" && url.pathname === "/federation/usage")
+			return this.usageRead(url, p);
 		if (req.method === "POST" && url.pathname === "/federation/cr")
 			return this.crDeclare(req, p);
 		if (req.method === "GET" && url.pathname === "/federation/cr")
@@ -366,6 +377,62 @@ export class Federation {
 			claimed_by: r.claimed_by,
 			claimed_at: r.claimed_at,
 		};
+	}
+
+	/** W171: spoke aggregate self-report ingest. Validate (400) → per-team
+	 *  opt-in (403 when policy has not opted the team in — default OFF is
+	 *  structural) → private-domain guard (422) → store. spoke identity =
+	 *  the presenting key, never a body field. */
+	private async usageIngest(
+		req: Request,
+		p: Principal | null,
+	): Promise<Response> {
+		if (p === null)
+			return authError(401, "buckle.auth_missing", "missing bearer token");
+		const body = (await req.json().catch(() => null)) as unknown;
+		// the structural domain guard runs on the RAW body BEFORE validation —
+		// a private marker riding an unknown key is still a domain violation
+		const priv = privateDomainPath(body);
+		if (priv !== null)
+			return bad(
+				422,
+				"buckle.self_report_private_domain",
+				`content at ${priv} is marked data_domain=private — private-domain aggregates never leave the spoke`,
+			);
+		const v = validateSelfReport(body);
+		if (!v.ok) return bad(400, "buckle.bad_body", v.why);
+		const enabled = selfReportTeams(this.policy);
+		if (!enabled.includes(v.payload.team))
+			return authError(
+				403,
+				"buckle.self_report_disabled",
+				`self-report is not enabled for team '${v.payload.team}' (per-team opt-in, default OFF)`,
+			);
+		// spoke label = the minted key's name (operator infrastructure
+		// naming, readable on the dashboard); opaque keyId fallback.
+		const keyRow = this.db
+			.query("SELECT name FROM api_keys WHERE key_id = ?")
+			.get(p.keyId) as { name: string | null } | null;
+		const out = storeSelfReport(this.db, keyRow?.name ?? p.keyId, v.payload);
+		return Response.json({ ok: true, spoke: keyRow?.name ?? p.keyId, ...out });
+	}
+
+	/** W171: hub-admin read over the stored rollups — the dashboards' data
+	 *  path. ?days=N clamps 1..90. */
+	private usageRead(url: URL, p: Principal | null): Response {
+		if (p === null)
+			return authError(401, "buckle.auth_missing", "missing bearer token");
+		if (!hasScope(p.scopes, "buckle:admin:READ_"))
+			return authError(
+				403,
+				"buckle.insufficient_scope",
+				"requires buckle:admin:READ_",
+			);
+		const d = Number(url.searchParams.get("days") ?? 28) || 28;
+		return Response.json({
+			ok: true,
+			...readSelfReport(this.db, Math.min(90, Math.max(1, d))),
+		});
 	}
 
 	/** 404 envelope in the admin API's shape. */

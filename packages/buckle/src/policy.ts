@@ -66,6 +66,17 @@ export interface AidsPolicy {
 	 *  (served bytes never change), so declarations are honored by default;
 	 *  `default: "off"` is the operator kill switch. */
 	"condense-in"?: { default?: "on" | "off"; max_bytes?: number };
+	// W171 federation phase 3: opt-in aggregate self-report. The hub lists
+	// the teams a spoke may report for; ABSENT BLOCK = OFF (the default —
+	// no teams, no reporting, the manifest carries no rule at all).
+	federation?: FederationPolicy;
+}
+
+/** W171: routing-policy.yaml `gateway.federation.self_report` — per-team
+ *  opt-in flag. Belt ignores the block; the manifest carries it to spokes
+ *  as the `federation.self_report` rule. */
+export interface FederationPolicy {
+	self_report?: { teams?: string[] };
 }
 
 interface PolicyDoc {

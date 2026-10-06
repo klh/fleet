@@ -62,6 +62,9 @@ const fmtTok = (n: number): string =>
 				? `${(n / 1e3).toFixed(1)}K`
 				: String(Math.round(n));
 
+// W171: shared with the federation rollup page (same dataviz chrome).
+export { esc, fmtTok };
+
 // ─── uPlot-ready payload (embedded as #usage-data JSON) ──────────────────
 // Columnar on purpose: timeline = [x, flash, full, luna, local, other] with
 // x in unix SECONDS (uPlot's native shape), byHour = [0..23, tokens]. The

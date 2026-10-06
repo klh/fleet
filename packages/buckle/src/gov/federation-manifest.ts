@@ -16,9 +16,16 @@ export interface FedManifest {
 	cr_queue: CrRow[];
 }
 
-/** Policy rules for the spoke side (config-over-code: the YAML blocks a
- *  spoke reconciles through its own trusted paths — W147 settings writer,
- *  coord inbox, installer; never a raw file copy). */
+/** W171 phase 3: the per-team self-report rule. Present in the manifest
+ *  ONLY when the hub's policy opts teams in (default OFF: absent rule = no
+ *  reporting). The rule rides the content-addressed version, so a flip is
+ *  a version change spokes already detect. */
+export const SELF_REPORT_RULE_ID = "federation.self_report";
+
+export function selfReportTeams(policy: GatewayPolicy): string[] {
+	const teams = policy.federation?.self_report?.teams ?? [];
+	return [...new Set(teams.filter((t) => typeof t === "string" && t))].sort();
+}
 export function buildRules(
 	policy: GatewayPolicy,
 ): Array<Record<string, unknown>> {
@@ -48,6 +55,16 @@ export function buildRules(
 	for (const [name, block] of Object.entries(policy.aids ?? {})) {
 		rules.push({ id: `aids.${name}`, kind: "aids", target: name, block });
 	}
+	// W171: the self-report rule only when teams are opted in — default OFF
+	// is structural (absent rule, not a false flag).
+	const teams = selfReportTeams(policy);
+	if (teams.length > 0)
+		rules.push({
+			id: SELF_REPORT_RULE_ID,
+			kind: "federation",
+			target: null,
+			data: { teams },
+		});
 	return rules;
 }
 
