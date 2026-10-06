@@ -1,0 +1,184 @@
+# deploy/services.yaml — the ONE declarative manifest for every custom bun
+# runner in the fleet (W488.1). scripts/install-services.ts renders each entry
+# into a platform service unit:
+#   darwin → launchd plist com.suspenders.<name>.plist (this child)
+#   linux  → W488.2 · win32 → W488.3 (die loudly until they land)
+# The hand-written templates in hooks/launchd/ stay in place (with a parity
+# test asserting field-equivalence) until the cutover child (W490.2) flips
+# install.sh to render from THIS manifest.
+#
+# Field guide:
+#   name         service short name — unit label is <labelPrefix>.<name>
+#   bunEntry     entry script, placeholder-templated. The standard runner
+#                lives in the INSTALLED harness copy: "__PREFIX__/bin/<f>.ts"
+#                (install.sh copies bin/ into the prefix at install time).
+#                local-llm is the exception — it runs from the runtime home.
+#   args         extra ProgramArguments after the entry (strings; may carry
+#                placeholders). The bun binary itself is prepended by the
+#                emitter — never list it here.
+#   cwd          optional WorkingDirectory
+#   env          EnvironmentVariables — string values, may carry
+#                placeholders. Substitution table (identical to install.sh's
+#                sed pass today): BUN (bun binary) · HOME (user home) ·
+#                PREFIX (installed harness) · REPO (this package root) ·
+#                BELT_URL (belt front; default http://127.0.0.1:4100) ·
+#                BELT_TOKEN (belt auth token; default empty). Values come
+#                from flags / process env at render time.
+#   envFile      PATH reference to a machine-level env file the runner may
+#                source — PATH ONLY: secrets NEVER live in this manifest or
+#                in an emitted unit (config-over-code law). No current
+#                service needs one; belt secrets ride render-time env
+#                (BELT_URL/BELT_TOKEN) exactly as install.sh does today.
+#   schedule     runAtLoad        RunAtLoad — all current runners load at
+#                                 login (defaults to true)
+#                keepalive        KeepAlive — restart on exit (residents)
+#                intervalSeconds  StartInterval — periodic runners
+#                calendar         StartCalendarInterval {hour, minute} — daily
+#                throttleSeconds  ThrottleInterval — min relaunch spacing
+#   nice         optional Nice value
+#   logs         StandardOutPath (out) + StandardErrorPath (err; defaults to
+#                out when omitted)
+#   placeholders the placeholder tokens the service uses — render FAILS if a
+#                token is used but not declared here, or declared but never
+#                used (today's sed silently leaves unknown tokens in the
+#                unit; this manifest fails loudly instead)
+labelPrefix: com.suspenders
+
+defaults:
+  schedule:
+    runAtLoad: true
+
+services:
+  # control-plane health sweep — every 15 min, --fix (W264-era monitor)
+  - name: fleet-monitor
+    bunEntry: "__PREFIX__/bin/monitor.ts"
+    args: ["--fix"]
+    schedule: { intervalSeconds: 900 }
+    logs: { out: /tmp/fleet-monitor.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # belt LLM routing watcher (W145) — DELIVERED NOT INSTALLED: activation is
+  # a coordinator step. Secrets ride render-time env (BELT_URL/BELT_TOKEN),
+  # never this manifest.
+  - name: fleet-loop
+    bunEntry: "__PREFIX__/bin/fleet-loop.ts"
+    args:
+      - "watch"
+      - "--repo"
+      - "__REPO__"
+      - "--glob"
+      - "suspenders/*"
+      - "--ladder"
+      - "git merge --no-ff {branch}"
+      - "--dispatch-cmd"
+      - "__BUN__ scripts/dispatch-next.ts --target 8"
+      - "--every"
+      - "120"
+    cwd: "__REPO__"
+    env:
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      HOME: "__HOME__"
+      ANTHROPIC_BASE_URL: "__BELT_URL__"
+      ANTHROPIC_AUTH_TOKEN: "__BELT_TOKEN__"
+    schedule: { keepalive: true }
+    logs: { out: /tmp/fleet-loop.log }
+    placeholders: ["__BUN__", "__BELT_TOKEN__", "__BELT_URL__", "__HOME__", "__PREFIX__", "__REPO__"]
+
+  # fleet board — resident; loopback default, LAN reaches it via the Caddy
+  # front (suspenders.local); opt in explicitly to override binds (W264)
+  - name: board
+    bunEntry: "__PREFIX__/bin/fleet-board.ts"
+    env:
+      PATH: "__HOME__/.local/bin:__HOME__/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/fleet-board.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # governor.db store API — resident, loopback :7794 (W92). DELIVERED NOT
+  # INSTALLED: activation is a coordinator/owner step; remote machines point
+  # GOVERNOR_STORE_URL at this host.
+  - name: store-server
+    bunEntry: "__PREFIX__/bin/store-server.ts"
+    env:
+      GOVERNOR_STORE_PORT: "7794"
+    schedule: { keepalive: true }
+    logs: { out: /tmp/suspenders-store-server.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # nightly governor.db backup at 10:00 local (calendar, not interval)
+  - name: db-backup
+    bunEntry: "__PREFIX__/bin/db-backup.ts"
+    schedule: { calendar: { hour: 10, minute: 0 } }
+    logs: { out: /tmp/governor-backup.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # observation harvest — every 15 min
+  - name: harvest
+    bunEntry: "__PREFIX__/bin/harvest.ts"
+    args: ["run", "--repo", "__REPO__"]
+    schedule: { intervalSeconds: 900 }
+    logs: { out: /tmp/suspenders-harvest.log }
+    placeholders: ["__BUN__", "__PREFIX__", "__REPO__"]
+
+  # quota-exhaustion pickup (W366) — every 15 min (== lane-log staleness
+  # floor), --act: dead sid + terminal quota signature → reclaim + emit
+  - name: quota-sweep
+    bunEntry: "__PREFIX__/bin/quota-sweep.ts"
+    args: ["--act"]
+    schedule: { intervalSeconds: 900 }
+    logs: { out: /tmp/quota-sweep.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # local-llm keepwarm — every 4 min, niced off the interactive foreground
+  - name: llm-keepwarm
+    bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
+    schedule: { intervalSeconds: 240 }
+    nice: 10
+    logs:
+      out: /tmp/llm-keepwarm.log
+      err: /tmp/llm-keepwarm.err
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # knowledge search API — resident; KNOWLEDGE_REPO_ROOT is the resolution
+  # root for source_ref hashing (trust markers on /search hits, W103)
+  - name: knowledge-api
+    bunEntry: "__PREFIX__/bin/knowledge-api.ts"
+    env:
+      KNOWLEDGE_REPO_ROOT: "__REPO__"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/suspenders-knowledge-api.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+
+  # knowledge ingest worker — resident; distill target is the local large
+  # model (owner 2026-09-30: slow-queue chore stays off the paid cloud;
+  # unset/override via env to route through belt instead)
+  - name: knowledge-worker
+    bunEntry: "__PREFIX__/bin/knowledge-worker.ts"
+    env:
+      INGEST_LLM_URL: "http://127.0.0.1:8903/v1/chat/completions"
+      KNOWLEDGE_DOCS_ROOT: "__REPO__"
+    schedule: { keepalive: true }
+    logs: { out: /tmp/suspenders-knowledge-worker.log }
+    placeholders: ["__BUN__", "__PREFIX__", "__REPO__"]
+
+  # local-llm swarm supervisor (W158) — runs `swarm.ts serve` from the
+  # runtime HOME copy (not the harness prefix): children revive with
+  # backoff; KeepAlive restarts only the supervisor, which adopts live
+  # children on relaunch
+  - name: local-llm
+    bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
+    args: ["serve"]
+    env:
+      BELT_TIER: "minimal"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
+  # consult-relay (W480) — resident relay with a 10s relaunch throttle
+  - name: consult-relay
+    bunEntry: "__PREFIX__/bin/consult-relay.ts"
+    env:
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/consult-relay.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
