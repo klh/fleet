@@ -53,6 +53,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 
 	const isMd = /\.(md|markdown)$/i.test(F);
 	const isCode = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc)$/i.test(F);
+	const notes: string[] = [];
 
 	// ---- UI law (owner 2026-10-01, CLAUDE.md): NEVER innerHTML/document.write
 	// anywhere; document.createElement only inside web components (lit) ----
@@ -84,7 +85,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 	// gaps session. Formatting happens once at claim-done: stop.ts re-runs this
 	// gate with _deferred_fmt=true (syntax check still runs per-save).
 	const deferFmt =
-		F.includes("/.claude/worktrees/") &&
+		/\/(?:\.claude\/worktrees|\.worktrees)\//.test(F) &&
 		(hook as HookInput & { _deferred_fmt?: boolean })._deferred_fmt !== true;
 
 	// ---- markdown: prettier (GFM, prose preserved) ----
@@ -101,10 +102,9 @@ export function filesCheck(hook: HookInput): FilesExit {
 		if (Bun.hash(readFileSync(F)) !== before) {
 			recordGateWrite(F); // W58: the gate's own rewrite, self-declared
 			refreshLeaseHash(F);
-			return {
-				kind: "feedback",
-				msg: `md-format: reformatted ${F} with prettier (GFM: table alignment, list markers, fence style). Re-read before further edits.`,
-			};
+			notes.push(
+				`md-format: normalized ${F}. Read the updated file only if editing it again.`,
+			);
 		}
 	}
 
@@ -112,7 +112,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 	if (isCode && existsSync(F)) {
 		const fmtNote = deferFmt ? null : qltyFmt(F);
 		if (fmtNote) recordGateWrite(F); // W58: the gate's rewrite, declared BEFORE any verdict
-		const issues = qltyGate(F);
+		const issues = qltyGate(F, deferFmt);
 		if (issues) {
 			// W58: bless fmt's rewrite + the sanctioned write BEFORE blocking —
 			// returning with a stale lease hash denies the agent's next edit
@@ -126,10 +126,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 		}
 		if (fmtNote) {
 			refreshLeaseHash(F);
-			return {
-				kind: "feedback",
-				msg: `${fmtNote} Re-read before further edits.`,
-			};
+			notes.push(`${fmtNote} Read the updated file only if editing it again.`);
 		}
 	}
 
@@ -167,7 +164,9 @@ export function filesCheck(hook: HookInput): FilesExit {
 	if (existsSync(F)) refreshLeaseHash(F);
 
 	const streak = editStreak(hook, F);
-	if (streak) return streak;
+	if (streak?.kind === "block") return streak;
+	if (streak?.kind === "context") notes.push(streak.msg);
+	if (notes.length) return { kind: "context", msg: notes.join("\n") };
 	return { kind: "ok" };
 }
 
@@ -196,12 +195,18 @@ function qltyFmt(F: string): string | null {
 }
 
 /** `qlty check` — returns the issues text, or null when clean/skipped. */
-function qltyGate(F: string): string | null {
+function qltyGate(F: string, deferFmt: boolean): string | null {
 	if (!have("qlty")) return null; // Bun.spawnSync THROWS on a missing binary — the old
 	// process-level fail-open swallowed this; in-process filesCheck must skip instead
 	const stillThere = () => existsSync(F);
 	const proc = Bun.spawnSync(
-		["qlty", "check", "--no-upgrade-check", basename(F)],
+		[
+			"qlty",
+			"check",
+			"--no-upgrade-check",
+			...(deferFmt ? ["--no-formatters"] : []),
+			basename(F),
+		],
 		{
 			cwd: dirname(F),
 			stdout: "pipe",

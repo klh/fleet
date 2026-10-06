@@ -9,10 +9,12 @@ http://suspenders.local/llms.txt. Companions: belt (LLM fleet), klh/local
 
 qlty is THE quality tool; `.qlty/` must exist or the governor's on-write
 gate silently no-ops. Three moments: (1) on-write — the post-files gate
-(hooks/gates/files.ts — they live in THIS repo) runs qlty-fmt + fast lint
-and blocks with the diff inline; (2) pre-merge — `qlty fmt` +
-`qlty check --fix` on staged files; (3) on-stop — the evidence gate, not
-lint.
+(hooks/gates/files.ts — they live in THIS repo) runs qlty-fmt + fast lint;
+successful formatting is advisory, unresolved issues block. Worktree lanes
+defer formatting and cosmetic checks until completion; lint still runs on
+each write. (2) pre-merge — `qlty fmt` + `qlty check` on changed files,
+then tests before commit; (3) on-stop — deferred formatting and quality
+reverification. A successful formatter rewrite does not require another turn.
 
 **SPEC FIRST: read `.qlty/qlty.toml` and the biome rule set BEFORE the first
 write here, then code to the spec.** Never emit flagged patterns and let the

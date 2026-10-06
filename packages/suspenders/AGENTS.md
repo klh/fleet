@@ -26,6 +26,11 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
    owns.
 3. **GATES** — `qlty fmt` + `qlty check` on changed files → "No issues";
    `bun test` on the files you touched → green.
+   Match adjacent code and the nearest Biome configuration while writing.
+   Let `qlty fmt` handle canonical whitespace and wrapping before final
+   checks, tests and commit. Successful auto-formatting is advisory; read
+   the updated file only before editing it again. Worktree lanes defer
+   cosmetic formatting until completion; lint and size failures still block.
 4. Commit on your branch (subject = the item title), push the branch. NO tags.
 5. Finish: `bun ~/.claude/hooks/suspenders/bin/work.ts done <id> --sha <branch-head>`.
 

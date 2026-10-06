@@ -391,6 +391,7 @@ export const composeBrief = (o: {
 		condensePrompt(o.showOut.replace(ANSI, "").trim()),
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
+		`FORMAT: Read the nearest .qlty/qlty.toml and Biome config, and match adjacent code. Use qlty fmt on changed files before final checks, tests and commit; never manually chase formatter wrapping. Successful auto-formatting is advisory: re-read only before editing that file again.`,
 		`Inbox: before planning and again before finishing, check bun ${BIN}/coord.ts inbox --as ${o.sid} — coordinator and board messages arrive there.`,
 		`COLLABORATION: after a second unchanged failure or an interface conflict, consult one relevant expert: bun ${BIN}/coord.ts consult --best "<command, error, attempts, precise question>" --scope "<package/path>" --as ${o.sid}. Inspect evidence before acting; avoid fleet-wide broadcasts. If no expert or no answer within 60 seconds, retain evidence in the capsule, continue independent work and request a decision before another unchanged attempt.`,
 		`Reply with answer, evidence, applicability and next action. After trying an answer: bun ${BIN}/coord.ts consult-reply <Cnumber> --feedback resolved|failed|unused --evidence "<command and observed result>" --as ${o.sid}. Only verified answers at the same project, scope and code version are reused.`,

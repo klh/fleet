@@ -137,6 +137,8 @@ describe("resume-rebrief composition", () => {
 		const fresh = composeBrief({ ...base, capsule: null });
 		expect(fresh).not.toContain("RESUME CONTEXT —");
 		expect(fresh).toContain("CAPSULE PROTOCOL");
+		expect(fresh).toContain("FORMAT: Read the nearest .qlty/qlty.toml");
+		expect(fresh).toContain("never manually chase formatter wrapping");
 		expect(fresh).toContain(`done W140 --sha <branch-head> --as autow140`);
 		expect(fresh).toContain("finding.w140");
 		const resumed = composeBrief({

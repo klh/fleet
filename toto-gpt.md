@@ -1019,6 +1019,19 @@ observed-request topology separate in the GUI. Transport disconnect does not
 prove agent death; discovery does not grant project access. Benchmark NATS plus
 JetStream against the outbox/HTTP prototype before adding a broker.
 
+## Implemented: formatter normalization without agent retry loops
+
+Successful `qlty fmt` or Markdown formatting is a non-blocking context notice,
+not an unresolved stop-gate failure. Gates still run the remaining checks after
+a rewrite, including the 1500-line limit, and record the sanctioned hash for
+governor leases. Agents read normalized output only before editing it again.
+Both `.worktrees/` and legacy `.claude/worktrees/` lanes defer cosmetic formatting
+until completion; per-write `qlty check --no-formatters` keeps lint active.
+Stop applies formatting and the full quality check before accepting completion.
+Dispatch briefs instruct lanes to read repository configuration, match adjacent
+code, and run formatting before final checks, tests and commit. This reduces
+model retries without depending on models to reproduce exact formatter wrapping.
+
 ## Implemented: governor recovery and useful agent collaboration
 
 6 October 2026, W471. This section records the implementation and supersedes
@@ -1138,6 +1151,7 @@ Tokens and duplicate-investigation rates require correlation with existing lane
 and gateway telemetry. Cross-hub project identity and authorized knowledge sharing
 remain the separate architecture described above; local Git identity has not been
 replaced by this work.
+
 ### Implemented: automatic cross-hub consultation outbox (W480)
 
 Automatic governor consultation still writes through the local lease registry,
