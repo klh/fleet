@@ -38,6 +38,13 @@ export const transcriptPath = (sid: string): string | null => {
 export const transcriptAlive = (sid: string): boolean =>
 	transcriptPath(sid) !== null;
 
+/** A lane harness appears in ps args as its own command word: line-start
+ *  or a path segment, followed by space/end. An UNANCHORED match turned
+ *  every args line containing ".claude/..." into a "lane harness" — 19
+ *  orphaned coord-subscribe phantoms kept dead rows live forever
+ *  (2026-10-06 ghost anatomy). */
+export const HARNESS_ARG_RE = /(^|\/)(claude|codex|copilot|cline|grok)(\s|$)/i;
+
 const psArgs = (): string[] =>
 	Bun.spawnSync(["ps", "-axo", "pid=,args="])
 		.stdout.toString()
@@ -52,7 +59,7 @@ const processReferencesSid = (pid: number, sid: string): boolean => {
 	return psArgs().some(
 		(l) =>
 			l.trim().startsWith(`${pid} `) &&
-			/claude|codex|copilot|cline|grok/i.test(l) &&
+			HARNESS_ARG_RE.test(l) &&
 			l.includes(sid),
 	);
 };
@@ -64,7 +71,7 @@ const worktreeLive = (wt?: string): boolean => {
 		"-a",
 		"-p",
 		psArgs()
-			.filter((l) => /claude|codex|copilot|cline|grok/i.test(l))
+			.filter((l) => HARNESS_ARG_RE.test(l))
 			.map((l) => l.trim().split(/\s+/)[0])
 			.join(","),
 		"-d",

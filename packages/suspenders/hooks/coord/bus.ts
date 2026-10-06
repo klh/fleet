@@ -3,6 +3,7 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import { transcriptAlive } from "../lib/lane-liveness.ts";
 import {
 	die,
 	arg,
@@ -343,6 +344,18 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 		ws.addEventListener("error", () => ws.close());
 	};
 	connect();
+	// W494: a subscribe outliving its session IS the ghost-lane factory —
+	// launchd adopts it (PPID 1), it pins the lane worktree cwd and a
+	// .claude-ish arg forever, and every liveness probe then reads its row
+	// as live. Exit when the session's transcript goes stale (the same
+	// 15-min mtime floor `work reclaim` trusts); a live session's jsonl
+	// keeps growing, so this never fires under a working session.
+	const sessionStaleness = setInterval(() => {
+		if (!transcriptAlive(as)) {
+			clearInterval(sessionStaleness);
+			process.exit(0);
+		}
+	}, 30_000);
 	await new Promise<void>(() => {}); // live for the process's whole life
 }
 

@@ -3,7 +3,11 @@
 // lanes need process-identity or a live worktree cwd; dead/absent never lies.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
-import { transcriptAlive, laneAlive } from "../hooks/lib/lane-liveness.ts";
+import {
+	transcriptAlive,
+	laneAlive,
+	HARNESS_ARG_RE,
+} from "../hooks/lib/lane-liveness.ts";
 
 describe("lane-liveness surface", () => {
 	test("host lane: fresh claimant transcript → live; stale → dead", () => {
@@ -37,5 +41,23 @@ describe("lane-liveness surface", () => {
 			}),
 		).toBe(false);
 		expect(laneAlive({ sid: "autowz", item: "W9" })).toBe(false);
+	});
+
+	test("harness anchor (W494): coord-subscribe phantoms read dead, real lanes live", () => {
+		// args verbatim from the machine, 2026-10-06 ghost anatomy: 19
+		// orphaned `coord.ts subscribe` processes (PPID 1, cwd pinned to the
+		// lane worktree) matched the UNANCHORED /claude/i — every dead row
+		// read live forever.
+		expect(
+			HARNESS_ARG_RE.test(
+				"bun /Users/kk/.claude/hooks/suspenders/bin/coord.ts subscribe --as autow1",
+			),
+		).toBe(false);
+		expect(
+			HARNESS_ARG_RE.test(
+				"/Users/kk/.local/bin/claude -p Read /Volumes/x — mission autow1",
+			),
+		).toBe(true);
+		expect(HARNESS_ARG_RE.test("claude -p mission")).toBe(true);
 	});
 });
