@@ -217,7 +217,10 @@ describe("registry schema", () => {
 	});
 
 	test("small models fall up to the 35B-A3B reasoner", () => {
-		expect(fallbackFor(8902)?.model).toBe("mlx-community/Qwen3.5-35B-A3B-4bit");
+		// follows the registry (W228 OptiQ swap) — the registry is the one source
+		expect(fallbackFor(8902)?.model).toBe(
+			"mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit",
+		);
 		expect(fallbackFor(8906)?.port).toBe(8903);
 	});
 });

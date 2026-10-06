@@ -7,6 +7,9 @@ node_modules/
 .fleet/
 .workgraph.jsonl
 
+# parity test sandboxes HOME here; bun writes its transpile cache inside
+.no-home/
+
 # arena: per-round results and the enhance cache stay local
 bench/arena/results/
 bench/arena/cache/

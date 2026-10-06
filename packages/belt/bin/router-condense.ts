@@ -28,12 +28,39 @@
 // Classification (scoreComplexity/arithmetic/Kev/Danish) runs on the RAW
 // text upstream of this module: routing is identical with the knob on or
 // off — only the wire payload sent to the specialist shrinks.
-import { condenseTier, type TierName } from "blam/src/condense/tiers.ts";
-import { CONDENSE_VERSION } from "blam/src/condense/version.ts";
 import type { ChatMessage } from "./router-core.ts";
 
+// The blam engine loads GUARDED: a kit copy of the router runs outside the
+// monorepo (LLM_HOME has no node_modules), where a bare "blam/..." import
+// would crash the module — and with it :4000 at boot. Guarded load = the
+// condense knob honestly degrades to OFF there, never a boot failure.
+type CondenseTierName = "caveman" | "politeness";
+interface BlamEngine {
+	condenseTier: (
+		tier: CondenseTierName,
+		text: string,
+	) => { text: string; rules: string[] };
+	version: string;
+}
+let blam: BlamEngine | null = null;
+let blamMissing = false;
+try {
+	const tiers = require("blam/src/condense/tiers.ts") as {
+		condenseTier: BlamEngine["condenseTier"];
+	};
+	const version = require("blam/src/condense/version.ts") as {
+		CONDENSE_VERSION: string;
+	};
+	blam = {
+		condenseTier: tiers.condenseTier,
+		version: version.CONDENSE_VERSION,
+	};
+} catch {
+	// engine absent here — the call-time warn-once below owns the loud notice
+}
+
 /** Production tiers only — the eval-only/machine-facing tiers stay out. */
-export type CondenseTier = Extract<TierName, "caveman" | "politeness">;
+export type CondenseTier = CondenseTierName;
 
 export interface CondensePrefs {
 	enabled?: boolean;
@@ -84,10 +111,22 @@ export function applyInboundCondense(
 ): InboundCondense {
 	const prefs = resolveCondensePrefs(raw);
 	if (!prefs.enabled) return { messages, meta: null };
+	// Engine absent (kit copy outside the monorepo) → the knob cannot be
+	// honored: honest OFF, loud once. Never a boot failure, never a fake
+	// metadata row.
+	if (blam === null) {
+		if (!blamMissing) {
+			blamMissing = true;
+			console.error(
+				"router-condense: blam engine unavailable — condense knob inert (kit copy outside the monorepo?)",
+			);
+		}
+		return { messages, meta: null };
+	}
 	const rules: string[] = [];
 	const out = messages.map((m) => {
 		if (m.role !== "user") return m;
-		const r = condenseTier(prefs.tier, m.content);
+		const r = blam.condenseTier(prefs.tier, m.content);
 		for (const name of r.rules) if (!rules.includes(name)) rules.push(name);
 		// never condense into nothing — the human's words win (W334 rule)
 		const text = r.text.trim() === "" ? m.content : r.text;
@@ -95,6 +134,6 @@ export function applyInboundCondense(
 	});
 	return {
 		messages: out,
-		meta: { version: CONDENSE_VERSION, tier: prefs.tier, rules },
+		meta: { version: blam.version, tier: prefs.tier, rules },
 	};
 }

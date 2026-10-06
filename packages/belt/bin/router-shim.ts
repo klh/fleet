@@ -392,6 +392,10 @@ const condenseResponseHeaders = (
 
 Bun.serve({
 	port: ROUTER_PORT,
+	// W204: loopback-only — never a raw LAN bind; external access only via an
+	// authenticated Caddy hop. (The runtime copy carried this fix; the repo
+	// copy had drifted without it — W465 closes the drift.)
+	hostname: "127.0.0.1",
 	idleTimeout: 0, // streams may idle through a long prefill
 	async fetch(req) {
 		const url = new URL(req.url);

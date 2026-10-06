@@ -49,8 +49,8 @@ if [[ $DRY_RUN -eq 1 ]]; then
     echo "  refresh belt supervisor.ts only (backup previous code; preserve runtime config)"
   fi
   echo "  local-llm baseline → $LLM_HOME:"
-  echo "    kit: swarm.ts (serve supervisor), spawner.ts, router-shim.ts,"
-  echo "         registry.ts, belt.env + routing-policy.yaml stubs"
+  echo "    kit: swarm.ts (serve supervisor), spawner.ts, health.ts;"
+  echo "         registry.ts + router-shim.ts + shim deps sourced from belt/bin (W465)"
   echo "    registry/belt.env/routing-policy.yaml: only when absent"
   echo "    swarm.ts: refreshed when the copy lacks serve (revival fix)"
   echo "    models (BELT_TIER=minimal residents, resumable download):"
@@ -141,7 +141,20 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ $NO_LLM -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  for f in registry.ts spawner.ts router-shim.ts health.ts; do
+  # W465 one-source: the registry and the :4000 router are BELT-owned now —
+  # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
+  # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
+  # is retired. spawner/health stay kit-local. Runtime copies are never
+  # clobbered (kept = the live fleet's possibly-customized source of truth).
+  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts; do
+    if [ -f "$LLM_HOME/$f" ]; then
+      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
+    else
+      cp "$REPO_DIR/../belt/bin/$f" "$LLM_HOME/$f"
+      echo "+ $LLM_HOME/$f (from belt/bin)"
+    fi
+  done
+  for f in spawner.ts health.ts; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
     else

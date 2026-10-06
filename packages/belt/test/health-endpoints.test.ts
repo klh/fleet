@@ -42,7 +42,9 @@ async function withService(
 for (const [script, portEnv] of [
 	["../bin/dashboard.ts", "BELT_PORT"],
 	["../../local/bin/dashboard.ts", "KLH_LOCAL_BAR_PORT"],
-	["../../local-llm/router-shim.ts", "BELT_ROUTER_PORT"],
+	// W465: the local-llm router-shim twin is retired — belt's is the ONE
+	// router; the liveness contract is asserted against it.
+	["../bin/router-shim.ts", "BELT_ROUTER_PORT"],
 ]) {
 	test(`${script}: live aliases and methods work over HTTP`, async () => {
 		await withService(script, portEnv, async (base) => {

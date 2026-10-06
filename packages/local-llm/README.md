@@ -1,8 +1,12 @@
 # packages/local-llm
 
-The local MLX swarm kit: a resident-model supervisor, the specialist
-registry, the model spawner, and the anthropic router-shim (`:4000`, the
-Anthropic↔OpenAI translation seam lanes ride).
+The local MLX swarm kit: a resident-model supervisor, the model spawner,
+and config stubs. The registry and the anthropic router (`:4000`) are
+BELT-owned since W465: `registry.ts` here is a re-export of
+`packages/belt/bin/registry.ts` (the ONE runtime model inventory) and the
+router lives at `packages/belt/bin/router-shim.ts` — the local-llm twin was
+retired after the wire-level parity test (belt test/router-shim-parity.test.ts)
+proved the shared client surface.
 
 ## Layout
 
@@ -11,24 +15,27 @@ four `.ts` files sit at the root (no `src/`, no `bin/`) because install.sh
 copies them individually into a flat directory and they import each other
 relatively (`./registry.ts`, `./spawner.ts`).
 
-| File                  | Role                                                           |
-| --------------------- | -------------------------------------------------------------- |
-| `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)             |
-| `registry.ts`         | specialist table — model → port, tiers, fallbacks              |
-| `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                   |
-| `router-shim.ts`      | anthropic-wire server on `:4000` → openai-protocol specialists |
-| `belt.env`            | installer stub — env for clients pointing at the belt (:4100)  |
-| `routing-policy.yaml` | default ladder template — the committed default                |
+| File                  | Role                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)            |
+| `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
+| `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                  |
+| `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
+| `routing-policy.yaml` | default ladder template — the committed default               |
+
+The `:4000` router is served by `packages/belt/bin/router-shim.ts`
+(anthropic wire → openai-protocol specialists); install.sh seeds the
+runtime home from belt/bin (W465).
 
 ## Port map
 
-| Port    | Specialist                                  |
-| ------- | ------------------------------------------- |
-| `:8901` | coder                                       |
-| `:8902` | extract / menial                            |
-| `:8903` | reason                                      |
-| `:8906` | general / Danish                            |
-| `:4000` | router-shim (anthropic seam over the swarm) |
+| Port    | Specialist                                       |
+| ------- | ------------------------------------------------ |
+| `:8901` | coder                                            |
+| `:8902` | extract / menial                                 |
+| `:8903` | reason                                           |
+| `:8906` | general / Danish                                 |
+| `:4000` | belt router-shim (anthropic seam over the swarm) |
 
 ## Runtime home
 
@@ -62,7 +69,7 @@ launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
 ## Provenance
 
 Extracted from `packages/suspenders/hooks/local-llm/` (W422.4, 2026-10-05)
-— flat layout preserved, history followed the `git mv`. The board's
-`hooks/board/local-swarm.ts` keeps importing the registry via the
-harness-relative prefix copy (`../local-llm/registry.ts`), which install.sh
-refreshes from this package on every install.
+— flat layout preserved, history followed the `git mv`. W465 (2026-10-06)
+consolidated the model inventory: belt/bin/registry.ts is the single source,
+this package re-exports it, and the board reads the registry through
+`hooks/lib/service-inventory.ts` (belt-owned), not this copy.
