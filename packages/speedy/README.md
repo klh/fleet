@@ -157,6 +157,8 @@ A 2026-09 audit (`skillUsage` telemetry across months of sessions) found ~half t
 
 [`incremental-implementation`](skills/incremental-implementation/SKILL.md) is active again: use it for multi-file changes to implement, test, verify and commit one small slice at a time. The copy matches the skill used in the Fleet implementation session on 6 October 2026.
 
+[`code-documenter`](skills/code-documenter/SKILL.md) is installable through Speedy's normal skill installation: docstrings, JSDoc, API documentation and developer guides, with eight topic-specific references. The bundle matches the current local skill, including its MIT attribution; [download the package](skills/code-documenter.zip) for standalone installation.
+
 Highlights: `ast-grep` (structural search rules) · `docker` · `az` · `sqlite`/`sql-best-practice` · `csharp-best-practice` · `cli-speed-tools` · `code-simplifier` · `find-bugs` · `lit-dev` · `core-components` · `zod4` · `test-driven-development` · `systematic-debugging` · `openapi-directory-first` · `browser-testing-with-devtools` · `settings-audit` · `project-memory` · **`agentaccess`** (Danish services → AgentAccess.dk first; OSS/local-first MCP builder stack) — full table in CLAUDE.md's _Skills Quick Reference_.
 
 ## Slash Commands
