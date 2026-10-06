@@ -18,7 +18,7 @@
 // Every verdict lands in .fleet/dispatch-watchdog.log; repairs + probe
 // failures broadcast on the coord bus so the fleet sees the outage.
 
-import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const HOME = process.env.HOME ?? "";
@@ -196,11 +196,7 @@ const run = async (): Promise<number> => {
 	const parity = libParity();
 	if (!parity.ok) {
 		log(`REPAIR lib parity broken: ${parity.missing.join(", ")}`);
-		const fix = sh([
-			"/bin/bash",
-			join(REPO, "packages/suspenders/install.sh"),
-			"--no-llm",
-		]);
+		sh(["/bin/bash", join(REPO, "packages/suspenders/install.sh"), "--no-llm"]);
 		repaired = true;
 		verdicts.push(
 			`lib-parity REPAIRED via installer (was: ${parity.missing.length} missing/stale)`,
@@ -273,8 +269,15 @@ const run = async (): Promise<number> => {
 			`dispatch flow ok (last ${age === null ? "never" : `${age.toFixed(0)}min ago`}, ready=${ready})`,
 		);
 
-	// 4. governed-path probe
-	const probe = await laneProbe();
+	// 4. governed-path probe — a DOWN front must verdict, never crash the
+	// watchdog (the post-reboot run exited 1 with the spoke down: the mint
+	// fetch rejected unhandled).
+	let probe: { ok: boolean; detail: string };
+	try {
+		probe = await laneProbe();
+	} catch (e) {
+		probe = { ok: false, detail: `probe threw: ${String(e).slice(0, 120)}` };
+	}
 	verdicts.push(`lane probe ${probe.ok ? "ok" : `FAIL: ${probe.detail}`}`);
 	if (!probe.ok) {
 		emit(
