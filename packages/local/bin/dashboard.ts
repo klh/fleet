@@ -21,6 +21,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { basename } from "node:path";
 import {
+	observation,
+	observationFresh,
+	type Observation,
+} from "./observation.ts";
+import {
 	probeService,
 	serviceTarget,
 	type HealthObservation,
@@ -114,6 +119,7 @@ type ServiceRow = {
 };
 
 type Snapshot = {
+	observation: Observation;
 	caddy: { listening: boolean; version: string };
 	registry: string;
 	services: ServiceRow[];
@@ -171,6 +177,14 @@ async function status(): Promise<Snapshot> {
 	);
 
 	return {
+		observation: observation(
+			"local-bar-registry-and-probes",
+			"registered-services",
+			"local-machine",
+			Date.now(),
+			10_000,
+			"ledger",
+		),
 		caddy,
 		registry: REGISTRY_DISPLAY,
 		services,
@@ -248,6 +262,11 @@ Bun.serve({
 		if (!HOSTS_OK.has(host))
 			return new Response("unknown host\n", { status: 421 });
 		const path = new URL(req.url).pathname;
+		if (path === "/observation.js")
+			return new Response(
+				`export const observationFresh = ${observationFresh.toString()};`,
+				{ headers: { "content-type": "text/javascript" } },
+			);
 		if (path === "/vendor/lit-shared.js")
 			return new Response(LIT, {
 				headers: { "content-type": "text/javascript" },

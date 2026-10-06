@@ -4,6 +4,7 @@
 // window [floor(now - days), floor(now)] on hour boundaries.
 import type { Database } from "bun:sqlite";
 import type { ModelGroup } from "../bin/usage-harvest.ts";
+import { verifiedLegacySeedActors } from "./usage-provenance.ts";
 
 export const GROUPS: ModelGroup[] = ["flash", "full", "luna", "local", "other"];
 
@@ -27,6 +28,7 @@ export interface UsageReport {
 	timeline: { bucket: number; groups: Record<ModelGroup, number> }[];
 	actors: {
 		actor: string;
+		demo: boolean;
 		tags: Record<string, unknown> | null;
 		totals: Sum;
 		byModel: (Sum & { model: string; group: ModelGroup })[];
@@ -35,6 +37,7 @@ export interface UsageReport {
 	// W152: team/department chip facets from the FULL sessions tag universe —
 	// unfiltered, so chips stay switchable while a filter is active.
 	facets: { teams: string[]; depts: string[] };
+	demo: { included: boolean; excludedActors: number };
 	// W142 aid ROI seam: present only when aid events exist in the window
 	// (omit honestly otherwise). `join` is the contract join —
 	// aid_events(sid) ⋈ sessions(sid→actor) ⋈ usage_rollup(actor, hour).
@@ -95,6 +98,7 @@ export function buildUsageReport(
 		team?: string;
 		/** department tag filter — server-side, cuts every series */
 		dept?: string;
+		includeDemo?: boolean;
 	} = {},
 ): UsageReport {
 	const days = opts.days ?? 28;
@@ -107,6 +111,28 @@ export function buildUsageReport(
 	// series below is filtered server-side — the chips cut the whole
 	// dashboard, not just the actor table.
 	const tagsOf = new Map<string, string>();
+	// Provenance, never a display-name heuristic. A real session sharing an
+	// actor with a seed keeps that actor visible rather than hiding real usage.
+	const demoActors = (
+		db
+			.query(`SELECT actor FROM sessions WHERE actor IS NOT NULL
+		GROUP BY actor HAVING MIN(CASE WHEN role = 'demo' AND project = 'demo:usage' THEN 1 ELSE 0 END) = 1`)
+			.all() as { actor: string }[]
+	).map((r) => r.actor);
+	const realActors = new Set(
+		(
+			db
+				.query(
+					"SELECT DISTINCT actor FROM sessions WHERE actor IS NOT NULL AND (role IS NULL OR project IS NULL OR role != 'demo' OR project != 'demo:usage')",
+				)
+				.all() as { actor: string }[]
+		).map((r) => r.actor),
+	);
+	for (const actor of verifiedLegacySeedActors(db)) {
+		if (!realActors.has(actor) && !demoActors.includes(actor))
+			demoActors.push(actor);
+	}
+	const excluded = opts.includeDemo ? [] : demoActors;
 	for (const r of db
 		.query(
 			"SELECT actor, tags FROM sessions WHERE actor IS NOT NULL ORDER BY started_at",
@@ -130,22 +156,24 @@ export function buildUsageReport(
 		)
 			allow.push(a);
 	}
-	const inFrag =
+	const filterFrag =
 		allow.length > 0
 			? ` AND actor IN (${allow.map(() => "?").join(",")})`
 			: wantTeam || wantDept
 				? " AND 1=0" // filter active, nothing matches → honest zeros
 				: "";
+	const inFrag = `${filterFrag}${excluded.length ? ` AND actor NOT IN (${excluded.map(() => "?").join(",")})` : ""}`;
+	const bindings = [...allow, ...excluded];
 	const t = db
 		.query(`SELECT ${SUMS} FROM usage_rollup WHERE ${win}${inFrag}`)
-		.get(from, to, ...allow) as Record<string, unknown> | null;
+		.get(from, to, ...bindings) as Record<string, unknown> | null;
 	const totals = rowSum(t);
 	// timeline: every bucket present (zeros filled), five groups per bucket
 	const tlRows = db
 		.query(
 			`SELECT hour_bucket AS h, model_group AS g, SUM(in_tok+out_tok+cache_r+cache_c) AS tok FROM usage_rollup WHERE ${win}${inFrag} GROUP BY h, g ORDER BY h`,
 		)
-		.all(from, to, ...allow) as { h: number; g: string; tok: number }[];
+		.all(from, to, ...bindings) as { h: number; g: string; tok: number }[];
 	const timeline: UsageReport["timeline"] = [];
 	for (let b = from; b <= to; b += 3_600_000)
 		timeline.push({ bucket: b, groups: zeroGroups() });
@@ -168,7 +196,7 @@ export function buildUsageReport(
 		.query(
 			`SELECT actor, ${SUMS} FROM usage_rollup WHERE ${win}${inFrag} GROUP BY actor ORDER BY SUM(in_tok+out_tok+cache_r+cache_c) DESC`,
 		)
-		.all(from, to, ...allow) as { actor: string }[];
+		.all(from, to, ...bindings) as { actor: string }[];
 	const actors = actRows.map((a) => {
 		const ms = db
 			.query(
@@ -188,6 +216,7 @@ export function buildUsageReport(
 		}
 		return {
 			actor: a.actor,
+			demo: demoActors.includes(a.actor),
 			tags,
 			totals: sum,
 			byModel: ms.map((m) => ({
@@ -202,7 +231,7 @@ export function buildUsageReport(
 		.query(
 			`SELECT hour_bucket AS h, SUM(out_tok) AS o FROM usage_rollup WHERE ${win}${inFrag} GROUP BY h ORDER BY h DESC LIMIT 1`,
 		)
-		.get(to - 86_400_000, to, ...allow) as { h: number; o: number } | null;
+		.get(to - 86_400_000, to, ...bindings) as { h: number; o: number } | null;
 	const rate = {
 		tokPerSec: last ? Math.round((num(last.o) / 3600) * 100) / 100 : 0,
 		hourBucket: last ? num(last.h) : to,
@@ -211,7 +240,8 @@ export function buildUsageReport(
 	// stay switchable while a filter is active.
 	const teamsAll = new Set<string>();
 	const deptsAll = new Set<string>();
-	for (const raw of tagsOf.values()) {
+	for (const [actor, raw] of tagsOf) {
+		if (excluded.includes(actor)) continue;
 		try {
 			const tg = JSON.parse(raw) as Record<string, unknown>;
 			if (typeof tg.team === "string") teamsAll.add(tg.team);
@@ -220,7 +250,7 @@ export function buildUsageReport(
 			// unparseable tags stamp no chips
 		}
 	}
-	const aids = aidSection(db, from, to);
+	const aids = aidSection(db, from, to, inFrag, bindings);
 	return {
 		days,
 		fromBucket: from,
@@ -229,6 +259,10 @@ export function buildUsageReport(
 		timeline,
 		byHour,
 		actors,
+		demo: {
+			included: opts.includeDemo === true,
+			excludedActors: excluded.length,
+		},
 		rate,
 		facets: {
 			teams: [...teamsAll].sort(),
@@ -245,6 +279,8 @@ function aidSection(
 	db: Database,
 	from: number,
 	to: number,
+	actorFilter: string,
+	bindings: string[],
 ): UsageReport["aids"] | null {
 	try {
 		const rollup = db
@@ -264,9 +300,9 @@ function aidSection(
 				JOIN sessions s ON s.sid = ae.sid
 				JOIN usage_rollup ur
 					ON ur.actor = s.actor AND ur.hour_bucket = (ae.ts / 3600000) * 3600000
-				WHERE (ae.ts / 3600000) * 3600000 >= ? AND (ae.ts / 3600000) * 3600000 <= ?`,
+				WHERE (ae.ts / 3600000) * 3600000 >= ? AND (ae.ts / 3600000) * 3600000 <= ?${actorFilter.replaceAll("actor", "s.actor")}`,
 			)
-			.all(from, to) as Array<Record<string, unknown>>;
+			.all(from, to, ...bindings) as Array<Record<string, unknown>>;
 		if (rollup.length === 0 && join.length === 0) return null;
 		return { rollup, join };
 	} catch {

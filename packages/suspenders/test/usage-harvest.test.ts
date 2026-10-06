@@ -82,11 +82,23 @@ const ROLLUP_DDL =
 	"CREATE TABLE usage_rollup (hour_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model TEXT NOT NULL, model_group TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour_bucket, actor, model))";
 
 function freshDb(): Database {
-	const db = new Database(join(HOME, "scratch.db"), { create: true });
+	const db = new Database(":memory:");
 	db.run(SESSIONS_DDL);
 	db.run(FACTS_DDL);
 	db.run(ROLLUP_DDL);
 	return db;
+}
+
+function harvestFixture(db: Database, root: string) {
+	// readBoardSettings resolves HOME at call time. Keep runtime settings
+	// isolated as well as transcripts: the operator may configure an actor.
+	const previousHome = process.env.HOME;
+	process.env.HOME = HOME;
+	try {
+		return harvestUsage(db, { root });
+	} finally {
+		process.env.HOME = previousHome;
+	}
 }
 
 const ROOT = join(HOME, "projects");
@@ -141,7 +153,7 @@ describe("harvestUsage", () => {
 		]);
 		w("sid-b.jsonl", [al("gpt-5.2", 7, 3, "2026-10-01T11:15:00Z")]);
 
-		const s1 = harvestUsage(db, { root: ROOT });
+		const s1 = harvestFixture(db, ROOT);
 		expect(s1.requests).toBe(3);
 		expect(s1.inTok).toBe(117);
 		expect(s1.outTok).toBe(58);
@@ -174,7 +186,7 @@ describe("harvestUsage", () => {
 		});
 
 		// idempotent: unchanged transcripts → skipped, rollups untouched
-		const s2 = harvestUsage(db, { root: ROOT });
+		const s2 = harvestFixture(db, ROOT);
 		expect(s2.skipped).toBe(2);
 		expect(s2.harvested).toBe(0);
 		expect(s2.requests).toBe(0);
@@ -184,7 +196,7 @@ describe("harvestUsage", () => {
 			join(ROOT, "proj", "sid-a.jsonl"),
 			`${al("luna-pro", 4, 2, "2026-10-01T12:05:00Z")}\n`,
 		);
-		const s3 = harvestUsage(db, { root: ROOT });
+		const s3 = harvestFixture(db, ROOT);
 		expect(s3.harvested).toBe(1);
 		expect(s3.requests).toBe(1);
 		expect(rowOf(db, "glm-5.3-flash")).toMatchObject({ in_tok: 100 });
@@ -194,5 +206,34 @@ describe("harvestUsage", () => {
 			requests: 1,
 		});
 		db.close();
+	});
+
+	test("configured default actor applies only to sessions without attribution", () => {
+		const db = freshDb();
+		const root = join(HOME, "default-actor-project");
+		const configDir = join(HOME, ".claude", "local-llm");
+		const configPath = join(configDir, "suspenders-board.json");
+		mkdirSync(root, { recursive: true });
+		mkdirSync(configDir, { recursive: true });
+		writeFileSync(configPath, JSON.stringify({ default_actor: "platform" }));
+		db.query(
+			"INSERT INTO sessions (sid, started_at, hb, actor) VALUES (?, 1, 1, ?)",
+		).run("explicit", "alice");
+		writeFileSync(
+			join(root, "explicit.jsonl"),
+			`${al("claude-sonnet-5", 10, 5, "2026-10-01T10:45:00Z")}\n`,
+		);
+		writeFileSync(
+			join(root, "unknown.jsonl"),
+			`${al("gpt-5.2", 7, 3, "2026-10-01T11:15:00Z")}\n`,
+		);
+		try {
+			expect(harvestFixture(db, root).requests).toBe(2);
+			expect(rowOf(db, "claude-sonnet-5").actor).toBe("alice");
+			expect(rowOf(db, "gpt-5.2").actor).toBe("platform");
+		} finally {
+			db.close();
+			rmSync(configPath, { force: true });
+		}
 	});
 });

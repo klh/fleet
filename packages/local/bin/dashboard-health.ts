@@ -1,9 +1,11 @@
+import { observation, type Observation } from "./observation.ts";
 /** A network observation, not an assertion about application readiness. */
 export type HealthObservation = {
 	ok: boolean;
 	reachable: boolean;
 	code?: number;
 	ms: number;
+	observation: Observation;
 };
 
 export function serviceTarget(service: {
@@ -19,6 +21,15 @@ export async function probeService(
 	timeout = 1500,
 ): Promise<HealthObservation> {
 	const start = performance.now();
+	const evidence = () =>
+		observation(
+			"local-bar-network-probe",
+			`http://${target}${path}`,
+			"registered-service",
+			Date.now(),
+			10_000,
+			"http-check",
+		);
 	try {
 		const response = await fetch(`http://${target}${path}`, {
 			signal: AbortSignal.timeout(timeout),
@@ -30,12 +41,14 @@ export async function probeService(
 			reachable: true,
 			code: response.status,
 			ms: Math.round(performance.now() - start),
+			observation: evidence(),
 		};
 	} catch {
 		return {
 			ok: false,
 			reachable: false,
 			ms: Math.round(performance.now() - start),
+			observation: evidence(),
 		};
 	}
 }

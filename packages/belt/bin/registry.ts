@@ -246,6 +246,7 @@ export type RegistrySource = "local" | `hub:${string}`;
 export type ModelClass = "chat" | "embed" | "rerank" | "classify";
 
 export interface RegistryEntry {
+	probePath?: string;
 	port: number;
 	alias: string;
 	model: string;

@@ -82,13 +82,22 @@ export const BODY = String.raw`
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
 <section id="tab-governor" hidden>
+  <div class="taskbar">
+    <label class="plabel" for="originHub">origin hub</label>
+    <select id="originHub"><option value="all">all origins</option><option value="unknown">unknown origin</option></select>
+    <label class="plabel" for="peerHub">via downstream</label>
+    <select id="peerHub"><option value="all">all downstreams</option><option value="unknown">unknown downstream</option></select>
+    <span class="dim">Hub filters apply to Governor and Activity. Other tabs show the project work graph.</span>
+  </div>
+  <p class="dim" id="hubScopeNote"></p>
+  <details class="sec"><summary>Downstream observations · read-only evidence</summary><div id="downstreamObservations"></div></details>
   <klh-recovery></klh-recovery>
   <div id="fleet">
     <button id="fleetHead" type="button" aria-expanded="true"><span id="fleetCaret">-</span> <span id="fleetLine">fleet: loading...</span></button>
     <div id="fleetBody" style="display:block"></div>
   </div>
   <div class="sec"><h2>Claims <span class="dim">(file -&gt; owner -&gt; waiting -&gt; lease)</span></h2><div class="feed" id="claims"></div></div>
-  <div class="sec"><h2>LLM telemetry <span class="dim">(routing log + model budgets)</span></h2><div class="feed" id="llmview"></div></div>
+  <div class="sec"><h2>LLM telemetry <span class="dim">(global routing log + model budgets · ignores project and hub filters)</span></h2><div class="feed" id="llmview"></div></div>
   <div class="sec"><h2>Completed</h2><div class="feed" id="done"></div></div>
   <div class="sec"><h2>Event stream</h2><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></div>
 </section>
@@ -121,6 +130,7 @@ var ansErr = {}; // dec id -> inline answer/delivery error
 var sentOk = {}; // dec id -> answer accepted (until the poll drops the card)
 var decCollapsed = false;
 var evFilter = 'all';
+var hubOrigin = 'all'; var hubPeer = 'all';
 var projBaseline = false; // suppress toast storm right after a project switch
 var knownProj = {}; // distinct project paths seen in any 'projects' response
 var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 1 };

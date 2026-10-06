@@ -1,7 +1,7 @@
 // hooks/board/service-probe.ts — W273: probe every monitored fleet service
 // named in the recovery map. Classification is honest and small:
-//   up       — answered (<500; the :4000 shim answers 404 on unknown paths)
-//   degraded — the process is there but failing (HTTP 5xx, launchd agent
+//   up       — configured check answered with HTTP 2xx
+//   degraded — reachable but configured check failed (including redirects), agent
 //              loaded but not running)
 //   down     — nothing answered / agent not loaded
 // Deps are injectable so tests drive it with stub probe results.
@@ -11,8 +11,9 @@ import {
 	recoveryFor,
 } from "../lib/recovery-map.ts";
 import { scrub } from "../lib/servicemon.ts";
+import { observation, type Observation } from "../lib/observation.ts";
 import {
-	isOnDemandIdle,
+	onDemandIdleObservation,
 	readSupervisorSnapshot,
 } from "./supervisor-snapshot.ts";
 
@@ -26,6 +27,7 @@ export interface ServiceProbe {
 	state: ServiceState;
 	detail: string;
 	probed_at: string;
+	observation?: Observation;
 }
 
 export interface ProbeDeps {
@@ -111,17 +113,29 @@ const probeOne = async (
 	try {
 		const r = await deps.fetch(`http://127.0.0.1:${p.port}${p.path}`, {
 			signal: AbortSignal.timeout(1500),
+			redirect: "manual",
 		});
 		const detail = await httpDetail(r);
-		if (r.status >= 500)
-			return { port: p.port, up: false, state: "degraded", detail };
+		if (!r.ok)
+			return {
+				port: p.port,
+				up: false,
+				state: "degraded",
+				detail: `${detail} · reachable, configured check failed`,
+			};
 		return { port: p.port, up: true, state: "up", detail };
 	} catch (err) {
-		if (isOnDemandIdle(deps.readSupervisor?.(), p.port, deps.now().getTime()))
+		const idleEvidence = onDemandIdleObservation(
+			deps.readSupervisor?.(),
+			p.port,
+			deps.now().getTime(),
+		);
+		if (idleEvidence)
 			return {
 				port: p.port,
 				up: false,
 				state: "idle",
+				observation: idleEvidence,
 				detail:
 					"On demand · not loaded; fresh supervisor probes confirm expected idle",
 			};
@@ -141,12 +155,27 @@ export const probeService = async (
 	const e = recoveryFor(id);
 	if (!e) return null;
 	const r = await probeOne(e, deps);
+	const now = deps.now();
+	const target =
+		e.probe.kind === "http"
+			? `http://127.0.0.1:${e.probe.port}${e.probe.path}`
+			: e.probe.label;
 	return {
 		id: e.id,
 		name: e.name,
 		...r,
 		detail: scrub(r.detail),
-		probed_at: deps.now().toISOString(),
+		probed_at: now.toISOString(),
+		observation:
+			r.observation ??
+			observation(
+				e.probe.kind === "http" ? "board-network-probe" : "launchctl",
+				target,
+				"local-machine",
+				now.getTime(),
+				30_000,
+				e.probe.kind === "http" ? "http-check" : "process",
+			),
 	};
 };
 

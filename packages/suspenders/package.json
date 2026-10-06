@@ -10,7 +10,7 @@
 	"scripts": {
 		"test": "bun test test/",
 		"ci": "bun install && bun test test/",
-		"build:vendor": "bun build hooks/board-html/klh-components.ts hooks/board-html/klh-service-row.ts hooks/board-html/klh-recovery.ts --minify --production --splitting --chunk-naming lit-shared.[ext] --outdir hooks/board-html/vendor"
+		"build:vendor": "bun build hooks/board-html/klh-components.ts hooks/board-html/klh-service-row.ts hooks/board-html/klh-recovery.ts --minify --production --splitting --chunk-naming lit-[hash].[ext] --outdir hooks/board-html/vendor"
 	},
 	"dependencies": {
 		"@clack/prompts": "^1.8.1",

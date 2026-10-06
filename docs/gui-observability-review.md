@@ -37,10 +37,39 @@ Keep the work ledger, service lifecycle and request trace separate. A lane may b
 
 Every future observation should carry its source, target, observation time, expiry and scope. Stale is a statement about evidence, not a transition of the target into DOWN. Per-lane detail belongs in bounded read models and trace/log queries rather than unbounded metrics labels. Independent health sidecars remain the authoritative service-health architecture; configured homepage checks are explicitly narrower.
 
-## Verification and remaining work
+## Completed follow-through (W477, W478)
+
+All three dashboards now use the same observation contract: source, target, scope, observation time and expiry. Cached evidence expires on screen without converting the target to DOWN. Recovery actions require current evidence. Global LLM telemetry is labelled explicitly.
+
+Governor and Activity offer separate origin-hub and immediate-downstream filters. Remote-only lanes remain read-only observations; they do not fabricate local sessions, claims or tasks. Remote-only projects appear in the initial project selector. Expired observations return to unknown provenance.
+
+The board relays fresh observations automatically when configured. A→B→C preserves origin A and records immediate peer B at C. Bounded ancestry prevents loops; monotonic ingest rejects older evidence. The relay limits concurrency, request duration, batch size and storage, rotates batches fairly, drains healthy backlogs between scheduled ticks, and backs off failing peers. Pending counts and retry times accompany disabled/error/success status. Remote targets require HTTPS; configuration and token files require mode 0600. Ingest uses the existing host and write-token guards. This is an operator-trusted observation feed, not cryptographic origin attestation or cross-hub project rekeying.
+
+Configure each participating board using `~/.config/klh/observation-relays.json` (or `SUSPENDERS_OBSERVATION_RELAYS`):
+
+```json
+{
+  "localHub": "hub-a",
+  "targets": [
+    {
+      "url": "https://hub-b.example.invalid",
+      "hubId": "hub-b",
+      "writeTokenFile": "/absolute/private/path/hub-b-write-token"
+    }
+  ]
+}
+```
+
+Use the receiving board's write token in that private file. No runtime peer configuration was invented during this change; the local relay reports disabled until configured.
+
+Belt, service consoles and the local bar share the model inventory and configured probe paths, including Kev's `/v1/models`. Operator registry values remain authoritative. Usage excludes explicitly synthetic sessions by default, provides an opt-in synthetic view and handles retained legacy seed rows only after an exact canonical seed comparison. Real or ambiguous sessions override demo classification; actor-scoped reports do not inherit global anonymous traffic.
+
+## Verification
+
+The completed follow-through passes **165 tests with 1,062 assertions across 25 files**. Quality checks and the offline UI build pass. The dashboard refresh validated all three installed entrypoints and activated 51 code files. Chrome verified the installed Board, Belt, local bar and Usage; the 390px board has no horizontal overflow, Kev reports ready, two synthetic actors are excluded by default, and fresh tabs have no browser errors.
 
 Focused projection, target-check, state-model, recovery rendering, history-bound and installer rollback tests passed: **36 tests, 218 assertions, no failures**. Real Chrome checks covered the board screens, usage/settings navigation, project filters, retained local search across refresh, Belt supervisor rendering and both service consoles. Fresh production tabs reported no browser warnings or errors. The initial Belt bundle error was caught in the browser and corrected with named offline Lit exports.
 
-An expanded older board/flow suite returned **52 passes, nine failures and one fixture error**. Failures concern advice-output expectations, changed task fields, demo startup/guards and prompt-preview/settings contracts. These are tracked in **W477**; they are not represented as a clean full-suite result. **W478** tracks the remaining shared observation contract, explicit global-feed labelling, inventory consolidation, downstream-origin filtering and demo-actor separation in usage. The review did not exercise destructive settings application, key administration or production task dispatch.
+The older board/flow failures were repaired with isolated ephemeral-port fixtures, correctly owned child processes, current advice/task contracts, and offline prompt dependencies. Follow-through verification also covers authenticated observation ingest, three-hop forwarding, loop prevention, fair relay batching, expired evidence, model inventory and synthetic usage separation. Independent review caught and corrected supervisor evidence rejuvenation and relay capacity starvation. Live browser checks caught and corrected Kev's probe path, orphaned legacy demo attribution, launchd's missing process-tool PATH and a 390px navigation overflow. The review did not exercise destructive settings application, key administration or production task dispatch.
 
 GUI activation uses `bash packages/suspenders/install.sh --refresh-dashboards`, a fixed code-only manifest with rollback on validation failure. Restart only `com.belt.dashboard`, `com.klh-local.dashboard` and `com.suspenders.board`. It does not run registration, key, routing or model setup.

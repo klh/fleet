@@ -124,6 +124,7 @@ function pollData(){
       if (!j || typeof j.ts !== 'number' || !Array.isArray(j.projects)) throw new Error('bad /api/data payload');
       if (j.ts >= lastDataTs) { lastData = j; lastDataTs = j.ts; }
       noteProjects(j.projects.map(function(p){ return p.project; }).concat((j.sessions || []).map(function(s){ return s.project; })));
+      noteProjects(((j.laneObservations || {}).lanes || []).map(function(o){ return o.project; }));
       dataOkAt = Date.now(); dataErr = null;
     })
     .catch(function(e){ dataErr = String((e && e.message) || e); })
@@ -144,7 +145,7 @@ function pollDec(){
     .catch(function(e){ decErr = String((e && e.message) || e); })
     .finally(function(){ decBusy = false; renderAll(); });
 }
-function tick(){ pollData(); pollDec(); pollActiveTab(); if (task.id) { pollTask(false); pollTail(); } }
+function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); if (task.id) { pollTask(false); pollTail(); } }
 function noteNew(list){
   var base = projBaseline || !decBaseline;
   projBaseline = false;

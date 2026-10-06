@@ -11,7 +11,7 @@ const target: TargetStatus = {
 	state: "idle",
 	alert: false,
 	since: "",
-	lastProbe: null,
+	lastProbe: new Date(now).toISOString(),
 	lastOk: null,
 	restarts: 0,
 	restartsLastWindow: 0,
@@ -32,6 +32,17 @@ describe("dashboard observability", () => {
 		expect(endpointState(false, target, doc, now)).toBe("idle · on demand");
 	});
 	test("a stale snapshot never establishes current supervisor state", () => {
+		expect(
+			endpointState(
+				false,
+				{ ...target, lastProbe: new Date(now - 60_000).toISOString() },
+				doc,
+				now,
+			),
+		).toBe("not listening");
+		expect(supervisorFresh({ ...doc, intervalMs: Number.NaN }, now)).toBe(
+			false,
+		);
 		expect(supervisorFresh(doc, now + 15_001)).toBe(false);
 		expect(endpointState(false, target, doc, now + 15_001)).toBe(
 			"not listening",

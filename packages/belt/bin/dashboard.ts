@@ -16,12 +16,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import {
-	DOWNLOAD_MODELS,
-	ROUTER,
-	SPECIALIST_PROTOCOL,
-	SPECIALISTS,
-} from "./registry.ts";
+import { observation, observationFresh } from "./observation.ts";
+import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import {
 	checkAll,
 	discover,
@@ -30,8 +26,9 @@ import {
 	type RouteLogEntry,
 } from "./remotes.ts";
 import { metricsFor, metricsSnapshot } from "./metrics.ts";
-import { httpProbe, readStatus } from "./supervisor.ts";
+import { readStatus } from "./supervisor.ts";
 import { endpointState } from "./dashboard-state.ts";
+import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import {
 	citizenshipGate,
@@ -68,14 +65,19 @@ const readPrefs = (): Record<string, unknown> => {
 	}
 };
 
-// ─── liveness — delegates to supervisor.ts's hardened probe (W5): any HTTP
-// response = listening (the router at :4000 answers 404 on /v1/models by
-// design — it only implements Anthropic /v1/messages), 2000ms timeout. A
-// bare fetch() with a 1000ms timeout flipped the whole fleet to "offline" in
-// the UI under ordinary inference load; supervisor.ts's probe is what
-// watchdog.ts/liveness.ts already trust for restart decisions.
-const isUp = (port: number): Promise<boolean> =>
-	httpProbe(port, "/v1/models", "127.0.0.1", 2000);
+// A configured endpoint check passes only on 2xx. The router has its own
+// health path; a 404 response proves reachability, never model readiness.
+const isUp = async (port: number, path = "/v1/models"): Promise<boolean> => {
+	try {
+		const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+			signal: AbortSignal.timeout(2000),
+			redirect: "manual",
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+};
 
 const getModel = async (port: number): Promise<string> => {
 	try {
@@ -91,33 +93,26 @@ const getModel = async (port: number): Promise<string> => {
 
 // mlx_lm /v1/models lists the whole HF cache (first id ≠ served model) —
 // verify the actually-loaded model from the process args instead.
-const psModel = (port: number): string | null => {
-	const pid = Bun.spawnSync(["lsof", "-ti", `:${port}`])
-		.stdout.toString()
-		.trim()
-		.split("\n")[0];
-	if (!pid) return null;
-	const cmd = Bun.spawnSync([
-		"ps",
-		"-o",
-		"command",
-		"-p",
-		pid,
-	]).stdout.toString();
-	return cmd.match(/--model\s+(\S+)/)?.[1] ?? null;
-};
 
 // ─── status snapshot ───
 async function status() {
 	const supervisor = readStatus();
 	const router = {
-		up: await isUp(ROUTER.port),
+		up: await isUp(ROUTER.port, "/health/liveliness"),
 		port: ROUTER.port,
 		label: ROUTER.label,
 		role: ROUTER.role,
 		protocol: ROUTER.protocol,
 		good_at: ROUTER.good_at,
 		model_served: null as string | null,
+		observation: observation(
+			"belt-network",
+			`http://127.0.0.1:${ROUTER.port}/health/liveliness`,
+			"local-machine",
+			Date.now(),
+			10_000,
+			"http-check",
+		),
 		// machine-level tallies (every local port the router has routed to)
 		...metricsFor(LOCAL_NAME),
 	};
@@ -131,14 +126,14 @@ async function status() {
 	// "available to load" = DOWNLOAD_MODELS minus whatever is currently served.
 	const served = new Set<string>();
 	const specialists = await Promise.all(
-		SPECIALISTS.map(async (s) => {
-			const up = await isUp(s.port);
+		registryEntries().map(async (s) => {
+			const up = await isUp(s.port, probePathFor(s));
 			let model_served: string | null = null;
 			if (up) {
 				model_served =
 					s.engine === "rapid"
 						? await getModel(s.port)
-						: (psModel(s.port) ?? null);
+						: (modelFromProcess(s.port) ?? null);
 				if (model_served && model_served !== "?") served.add(model_served);
 			}
 			return {
@@ -146,12 +141,20 @@ async function status() {
 				label: s.label,
 				role: s.role,
 				model: s.model,
-				protocol: SPECIALIST_PROTOCOL,
+				protocol: s.protocol,
 				good_at: s.good_at,
 				tier: s.tier,
 				engine: s.engine ?? "mlx_lm",
 				ram_gb: s.ram_gb,
 				up,
+				observation: observation(
+					"belt-network",
+					`http://127.0.0.1:${s.port}${probePathFor(s)}`,
+					"local-machine",
+					Date.now(),
+					10_000,
+					"http-check",
+				),
 				state_label: endpointState(
 					up,
 					supervisor?.targets.find((t) => t.port === s.port),
@@ -179,6 +182,14 @@ async function status() {
 
 	return {
 		router: { ...router, state_label: routerState },
+		observation: observation(
+			"belt-network-and-registry",
+			"model-endpoints",
+			"local-machine",
+			Date.now(),
+			10_000,
+			"http-check",
+		),
 		specialists,
 		ram,
 		prefs,
@@ -608,6 +619,7 @@ const ROUTES: RouteMethods = {
 	"/api/remotes": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/supervisor": ["GET", "HEAD"],
+	"/observation.js": ["GET", "HEAD"],
 	"/api/route": ["POST"],
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
@@ -660,7 +672,37 @@ Bun.serve({
 		if (path === "/api/route") return serveRoute(req);
 		// W272 self-heal status (ports, last probe, restarts, since) written by
 		// `swarm.ts supervise`; null when no supervisor has ever run.
-		if (path === "/api/supervisor") return json(readStatus());
+		if (path === "/api/supervisor") {
+			const doc = readStatus();
+			if (
+				doc &&
+				(!Number.isFinite(Date.parse(doc.updated)) ||
+					!Number.isFinite(doc.intervalMs) ||
+					doc.intervalMs <= 0 ||
+					!Array.isArray(doc.targets))
+			)
+				return json(null);
+			return json(
+				doc
+					? {
+							...doc,
+							observation: observation(
+								"belt-supervisor",
+								"supervised-targets",
+								"local-machine",
+								Date.parse(doc.updated),
+								Math.max(15_000, doc.intervalMs * 3),
+								"supervisor",
+							),
+						}
+					: null,
+			);
+		}
+		if (path === "/observation.js")
+			return new Response(
+				`export const observationFresh = ${observationFresh.toString()};`,
+				{ headers: { "content-type": "text/javascript" } },
+			);
 		if (path === "/api/metrics")
 			return json({
 				...metricsSnapshot(),

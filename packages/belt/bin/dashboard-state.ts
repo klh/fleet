@@ -5,7 +5,8 @@ export function supervisorFresh(
 	doc: StatusDoc | null,
 	now = Date.now(),
 ): boolean {
-	if (!doc) return false;
+	if (!doc || !Number.isFinite(doc.intervalMs) || doc.intervalMs <= 0)
+		return false;
 	const updated = Date.parse(doc.updated);
 	return (
 		Number.isFinite(updated) &&
@@ -22,6 +23,13 @@ export function endpointState(
 ): string {
 	// A direct probe cannot prove health, but does prove the endpoint listens.
 	if (!supervisorFresh(doc, now) || !target)
+		return up ? "listening" : "not listening";
+	const lastProbe = Date.parse(target.lastProbe ?? "");
+	if (
+		!Number.isFinite(lastProbe) ||
+		lastProbe > now + 5000 ||
+		now - lastProbe > Math.max(15_000, (doc?.intervalMs ?? 0) * 3)
+	)
 		return up ? "listening" : "not listening";
 	if (target.preflightError) return "dependency blocked";
 	if (!up && target.kind === "ondemand" && target.state === "idle")

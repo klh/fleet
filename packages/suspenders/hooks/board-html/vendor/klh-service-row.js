@@ -1,4 +1,4 @@
-import{r,e,s}from"./lit-shared.js";var c=(o)=>o.state??(o.up?"up":"down"),l=(o)=>{let t=c(o),i=o.recovery,a=t!=="up"&&t!=="idle"&&i!==null;return{badge:t==="idle"?"IDLE":t==="up"?"UP":t==="degraded"?"DEGRADED":"DOWN",tone:t==="idle"?"dim":t==="up"?"ok":t==="degraded"?"warn":"bad",where:i?.probe.kind==="launchd"?"launchd":i?.probe.kind==="http"?`:${i.probe.port}${i.probe.path}`:`:${o.port}`,showRecovery:a,open:t==="down",saw:o.detail,what:i?.what??"",causes:a&&i?i.causes:[],steps:a&&i?i.recovery:[]}};class n{probe;busy=!1;err=null;constructor(o){this.probe=o}async reprobe(o){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let t=await o(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),i=await t.json();if(!t.ok||!i.ok||!i.service)throw Error(i.error??`HTTP ${t.status}`);this.probe=i.service}catch(t){this.err=t instanceof Error?t.message:String(t)}finally{this.busy=!1}return this.probe}}var d=15000;class p extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0}};static styles=r`
+import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=>t.state??(t.up?"up":"down"),d=(t,o=Date.now())=>{let a=u(t),l=!!t.observation&&!i(t.observation,o),n=t.recovery,c=!l&&a!=="up"&&a!=="idle"&&n!==null;return{badge:l?"STALE":a==="idle"?"IDLE":a==="up"?"UP":a==="degraded"?"DEGRADED":"DOWN",tone:l?"dim":a==="idle"?"dim":a==="up"?"ok":a==="degraded"?"warn":"bad",where:n?.probe.kind==="launchd"?"launchd":n?.probe.kind==="http"?`:${n.probe.port}${n.probe.path}`:`:${t.port}`,showRecovery:c,open:!l&&a==="down",saw:l?`Last known ${a}: ${t.detail}. Current state unknown.`:t.detail,what:n?.what??"",causes:c&&n?n.causes:[],steps:c&&n?n.recovery:[]}};class p{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),a=await o.json();if(!o.ok||!a.ok||!a.service)throw Error(a.error??`HTTP ${o.status}`);this.probe=a.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var h=15000;class b extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			background: var(--klh-surface, #1c1b19);
@@ -107,13 +107,13 @@ import{r,e,s}from"./lit-shared.js";var c=(o)=>o.state??(o.up?"up":"down"),l=(o)=
 			margin-top: 4px;
 			color: var(--klh-danger-ink, #c96a4f);
 		}
-	`;ctl=null;timer=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1}connectedCallback(){super.connectedCallback(),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},d)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new n(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let o=this.controller();if(!o||this.busy)return;this.busy=!0,this.probe=await o.reprobe((t)=>fetch(t,{cache:"no-store"})),this.err=o.err,this.busy=!1}async copy(o,t){try{await navigator.clipboard.writeText(t)}catch{let i=document.createElement("textarea");i.value=t,i.setAttribute("readonly",""),i.style.position="fixed",i.style.opacity="0",this.renderRoot.appendChild(i),i.select(),document.execCommand("copy"),i.remove()}this.copied=o,setTimeout(()=>{if(this.copied===o)this.copied=-1},1500)}when(o){let t=new Date(o);return Number.isNaN(t.getTime())?"":t.toLocaleTimeString()}render(){let o=this.probe;if(!o)return e``;let t=l(o);return e`
+	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},h)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new p(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let a=document.createElement("textarea");a.value=o,a.setAttribute("readonly",""),a.style.position="fixed",a.style.opacity="0",this.renderRoot.appendChild(a),a.select(),document.execCommand("copy"),a.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){let o=new Date(t);return Number.isNaN(o.getTime())?"":o.toLocaleTimeString()}render(){let t=this.probe;if(!t)return e``;let o=d(t,this.now);return e`
 			<div class="head">
-				<span class="badge ${t.tone}">${t.badge}</span>
-				<span class="name">${o.name}</span>
-				<span class="dim">${t.where}</span>
-				<span class="saw dim">${t.saw}</span>
-				<span class="dim">${this.when(o.probed_at)}</span>
+				<span class="badge ${o.tone}">${o.badge}</span>
+				<span class="name">${t.name}</span>
+				<span class="dim">${o.where}</span>
+				<span class="saw dim">${o.saw}</span>
+				<span class="dim">${this.when(t.probed_at)}</span>
 				<button
 					type="button"
 					?disabled=${this.busy}
@@ -122,33 +122,34 @@ import{r,e,s}from"./lit-shared.js";var c=(o)=>o.state??(o.up?"up":"down"),l=(o)=
 					${this.busy?"probing…":"re-probe"}
 				</button>
 			</div>
+			${t.observation?e`<div class="dim">Evidence: ${t.observation.source} · ${t.observation.kind} · ${t.observation.scope} · expires ${this.when(new Date(t.observation.expiresAt).toISOString())}</div>`:""}
 			${this.err?e`<output>re-probe failed: ${this.err}</output>`:""}
-			${t.showRecovery?this.recovery(t):""}
-		`}recovery(o){return e`
-			<details ?open=${o.open}>
+			${o.showRecovery?this.recovery(o):""}
+		`}recovery(t){return e`
+			<details ?open=${t.open}>
 				<summary>how to recover</summary>
-				<p class="what">${o.what}</p>
+				<p class="what">${t.what}</p>
 				<h4>what the probe saw</h4>
-				<div>${o.saw}</div>
+				<div>${t.saw}</div>
 				<h4>likely cause</h4>
 				<ul>
-					${o.causes.map((t)=>e`<li>${t}</li>`)}
+					${t.causes.map((o)=>e`<li>${o}</li>`)}
 				</ul>
 				<h4>recover — run in order, then re-probe</h4>
 				<ol>
-					${o.steps.map((t,i)=>e`<li>
-							<div class="dim">${t.label}</div>
+					${t.steps.map((o,a)=>e`<li>
+							<div class="dim">${o.label}</div>
 							<div class="step">
-								<code>${t.cmd}</code>
+								<code>${o.cmd}</code>
 								<button
 									type="button"
-									aria-label="copy: ${t.cmd}"
-									@click=${()=>this.copy(i,t.cmd)}
+									aria-label="copy: ${o.cmd}"
+									@click=${()=>this.copy(a,o.cmd)}
 								>
-									${this.copied===i?"copied":"copy"}
+									${this.copied===a?"copied":"copy"}
 								</button>
 							</div>
 						</li>`)}
 				</ol>
 			</details>
-		`}}if(!customElements.get("klh-service-row"))customElements.define("klh-service-row",p);
+		`}}if(!customElements.get("klh-service-row"))customElements.define("klh-service-row",b);

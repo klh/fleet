@@ -23,6 +23,9 @@ import {
 	laneModelOf,
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { observation } from "../lib/observation.ts";
+import { laneObservationSnapshot } from "./lane-observations.ts";
+import { getObservationRelayStatus } from "./observation-relay.ts";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -659,6 +662,16 @@ export function payload() {
 	};
 	return {
 		ts: Date.now(),
+		observation: observation(
+			"governor-ledger",
+			"work-and-lane-projection",
+			"all-projects",
+			Date.now(),
+			5_000,
+			"ledger",
+		),
+		laneObservations: laneObservationSnapshot(db, null),
+		observationRelay: getObservationRelayStatus(),
 		sessions: ss,
 		labels,
 		projects: board(),

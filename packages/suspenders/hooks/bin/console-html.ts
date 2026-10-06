@@ -21,6 +21,10 @@ import type {
 } from "../lib/board-config.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
+	matchingRegistrations,
+	registrationPort,
+} from "../lib/service-inventory.ts";
+import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
 	fleetNav,
@@ -58,6 +62,7 @@ const SHELL_CSS = `
 #cbar .cnav:hover { color:var(--klh-ink); }
 #cbar .cnav[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
 #cbar .cend { margin-left:auto; display:flex; align-items:center; gap:12px; }
+@media(max-width:600px){#cbar{flex-wrap:wrap;gap:4px 12px}#cbar .cnavs{order:3;flex:1 0 100%;flex-wrap:wrap}#cbar .cnav{padding:7px 9px}}
 .cavwrap { position:relative; }
 .cavbtn { width:26px; height:26px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 11px/1 var(--klh-font-sans); cursor:pointer; padding:0; }
 .cavbtn:hover, .cavbtn[aria-expanded="true"] { border-color:var(--klh-accent); color:var(--klh-accent); }
@@ -249,6 +254,7 @@ export interface LocalService {
 	name: string;
 	port: number;
 	created: string;
+	upstream?: string;
 }
 
 export interface LocalView {
@@ -262,11 +268,27 @@ export interface LocalView {
 export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 	const upCount = v.probes.filter((p) => p.up).length;
 	const idleCount = v.probes.filter((p) => p.state === "idle").length;
-	const probeRows = v.probes.map(withRecovery).map(serviceRowHtml).join("");
-	const regRows = v.services
+	const probeRows = v.probes
+		.map((p) => {
+			const registrations = matchingRegistrations(p.port, v.services);
+			return (
+				serviceRowHtml(withRecovery(p)) +
+				registrations
+					.map(
+						(s) =>
+							`<p class="cfoot">Registered as <a href="https://${esc(s.name)}.local/">${esc(s.name)}.local</a> · since ${esc(s.created.slice(0, 10))}</p>`,
+					)
+					.join("")
+			);
+		})
+		.join("");
+	const unmatched = v.services.filter(
+		(s) => !v.probes.some((p) => registrationPort(s) === p.port),
+	);
+	const regRows = unmatched
 		.map(
 			(s) =>
-				`<tr><td><b>${esc(s.name)}</b></td><td class="num">${s.port}</td><td>—</td><td><a href="https://${esc(s.name)}.local/">https://${esc(s.name)}.local/</a> <span class="dim">· since ${esc(s.created.slice(0, 10))}</span></td></tr>`,
+				`<tr><td><b>${esc(s.name)}</b></td><td class="num">${esc(s.upstream ?? String(s.port))}</td><td>Not monitored here</td><td><a href="https://${esc(s.name)}.local/">https://${esc(s.name)}.local/</a> <span class="dim">· since ${esc(s.created.slice(0, 10))}</span></td></tr>`,
 		)
 		.join("");
 	const body =
@@ -276,7 +298,7 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 		(v.probes.length
 			? probeRows
 			: `<p class="dimpl">no monitored services — the recovery map is empty in this deployment</p>`) +
-		(v.services.length
+		(unmatched.length
 			? `</div><div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2><table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>url</th></tr></thead><tbody>${regRows}</tbody></table>`
 			: "") +
 		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;

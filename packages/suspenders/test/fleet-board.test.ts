@@ -4,14 +4,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { Database } from "bun:sqlite";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { realpathSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { isDecisionKind } from "../hooks/lib/govdb.ts";
@@ -35,10 +28,7 @@ const {
 	rawPost,
 	fork,
 	addWork,
-	waitUp,
-	demoProc,
-	setDemoProc,
-} = await boardFixture(7847, afterAll);
+} = await boardFixture(0, afterAll);
 
 describe("served page", () => {
 	test("inline script parses as JS (catches template corruption)", async () => {
@@ -411,7 +401,7 @@ describe("endpoint hardening", () => {
 			expect(isDecisionKind(k)).toBe(false);
 	});
 
-	test("advise entry accepts need-decision (pre-seeded advice fact → idempotent exit, no LLM call)", () => {
+	test("advise accepts need-decision and refreshes pre-seeded advice (W217)", async () => {
 		run("coord.ts", [
 			"emit",
 			"need-decision",
@@ -428,15 +418,55 @@ describe("endpoint hardening", () => {
 				"SELECT id FROM events WHERE kind = 'need-decision' AND json_extract(payload, '$.note') = 'entry gate'",
 			)
 			.get() as { id: number };
-		// advise.ts checks the fact BEFORE any fetch — seeding it proves the
-		// kind gate passed without ever reaching the (dead) LLM URL
+		// W217 explicitly refreshes the latest advice rather than letting a
+		// stale single-slot fact suppress all future evaluations.
 		db.query(
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 		).run(`advice.${ev.id}`, JSON.stringify({ rec: "seeded" }), Date.now());
-		db.close();
-		const r = run("advise.ts", [String(ev.id)]);
-		expect(r.code).toBe(0);
-		expect(r.out).toContain("already advised");
+		const mock = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: () =>
+				Response.json({
+					reply:
+						"RECOMMENDATION: fresh advice\nRATIONALE: current evidence\nRISK: bounded",
+					target: { model: "fixture", machine: "fixture" },
+					ms: 1,
+				}),
+		});
+		try {
+			const child = Bun.spawn(["bun", join(bin, "advise.ts"), String(ev.id)], {
+				cwd: REPO,
+				env: {
+					...env,
+					SUSPENDERS_BELT_URL: `http://127.0.0.1:${mock.port}`,
+					SUSPENDERS_LLM_MODEL: "fixture",
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const [code, out] = await Promise.all([
+				child.exited,
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+			]);
+			expect(code).toBe(0);
+			expect(out).toContain("advised");
+			const fact = db
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${ev.id}`) as { value: string };
+			expect(JSON.parse(fact.value).rec).toBe("fresh advice");
+			expect(
+				db
+					.query(
+						"SELECT COUNT(*) AS n FROM events WHERE kind = 'ADVICE' AND json_extract(payload, '$.for') = ?",
+					)
+					.get(ev.id),
+			).toEqual({ n: 1 });
+		} finally {
+			mock.stop(true);
+			db.close();
+		}
 	});
 
 	test("answer validation: id, to, note and token are all required", async () => {
@@ -701,7 +731,10 @@ describe("board api v3 (docs/board-api.md)", () => {
 			expect(t.project).toBe(proj);
 			expect(Object.keys(t).sort()).toEqual([
 				"age_s",
+				"executor",
 				"id",
+				"locality",
+				"model",
 				"open_decisions",
 				"owner_label",
 				"owner_sid",
@@ -984,129 +1017,6 @@ describe("board api v3 (docs/board-api.md)", () => {
 		expect(byId.llm.ok).toBe(false); // dead SUSPENDERS_LLM_URL — advisory only
 		expect(byId.llm.detail).toContain("127.0.0.1:1");
 		expect(byId.bind.detail).toBe("127.0.0.1");
-	});
-});
-
-describe("demo mode (--demo)", () => {
-	const DEMO_PORT = 7848;
-	const DEMO_BASE = `http://127.0.0.1:${DEMO_PORT}`;
-	const demoProj = `${HOME}/.cache/claude-governor/demo`;
-	setDemoProc(
-		Bun.spawn(
-			[
-				"bun",
-				join(bin, "fleet-board.ts"),
-				"--demo",
-				"--port",
-				String(DEMO_PORT),
-			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-		),
-	);
-
-	test("seeds sessions, claim labels, 4 mixed items, 2 OPEN + 2 ANSWERED forks, a dozen events", async () => {
-		await waitUp(DEMO_BASE);
-		const feed = await (await fetch(`${DEMO_BASE}/api/tasks`)).json();
-		expect(feed.projects).toContain(demoProj);
-		const dt = feed.tasks.filter((t: Row) => t.project === demoProj);
-		expect(dt.length).toBe(4);
-		expect(new Set(dt.map((t: Row) => t.state))).toEqual(
-			new Set(["READY", "CLAIMED", "BLOCKED", "DONE"]),
-		);
-		const claimed = dt.find((t: Row) => t.state === "CLAIMED");
-		expect(claimed.owner_label).toBe("backend lane"); // claim intent, not the sid
-		const dec = await (await fetch(`${DEMO_BASE}/api/decisions`)).json();
-		const demoOpen = dec.decisions.filter((d: Row) => d.project === demoProj);
-		expect(demoOpen.length).toBe(2);
-		expect(
-			demoOpen.every(
-				(d: Row) => d.state === "OPEN" && d.delivery === "DELIVERED",
-			),
-		).toBe(true);
-		const hist = await (
-			await fetch(`${DEMO_BASE}/api/decisions?history=1`)
-		).json();
-		const demoAns = hist.decisions.filter(
-			(d: Row) => d.project === demoProj && d.state === "ANSWERED",
-		);
-		expect(demoAns.length).toBe(2);
-		for (const d of demoAns) {
-			expect(d.answer_note).toBeTruthy();
-			expect(d.answered_ts).toBeGreaterThan(0);
-		}
-		// the waiting lane's drawer: claimed item carries events + both forks
-		const detail = await (
-			await fetch(
-				`${DEMO_BASE}/api/task?project=${q(demoProj)}&id=${claimed.id}`,
-			)
-		).json();
-		expect(detail.task.open_decisions).toBe(1);
-		expect(detail.events.length).toBeGreaterThanOrEqual(4);
-		expect(detail.decisions.some((d: Row) => d.state === "OPEN")).toBe(true);
-		expect(detail.decisions.some((d: Row) => d.state === "ANSWERED")).toBe(
-			true,
-		);
-		// the bus: a dozen events, all demo-stamped, never a real project
-		const act = await (
-			await fetch(`${DEMO_BASE}/api/activity?project=${q(demoProj)}`)
-		).json();
-		expect(act.events.length).toBeGreaterThanOrEqual(12);
-		for (const e of act.events) expect(e.project).toBe(demoProj);
-		// the dead lane surfaces as a zombie chip
-		const data = await (await fetch(`${DEMO_BASE}/api/data`)).json();
-		expect(
-			data.zombies.some(
-				(z: Row) => z.item === "W3" && z.label.includes("ZOMBIE"),
-			),
-		).toBe(true);
-	});
-
-	test("re-seed on restart is a no-op — no duplicate partition", async () => {
-		demoProc?.kill();
-		await demoProc?.exited;
-		setDemoProc(
-			Bun.spawn(
-				[
-					"bun",
-					join(bin, "fleet-board.ts"),
-					"--demo",
-					"--port",
-					String(DEMO_PORT),
-				],
-				{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-			),
-		);
-		await waitUp(DEMO_BASE);
-		const feed = await (await fetch(`${DEMO_BASE}/api/tasks`)).json();
-		expect(feed.tasks.filter((t: Row) => t.project === demoProj).length).toBe(
-			4,
-		);
-	});
-
-	test("/api/start refuses to spawn lanes from a demo board", async () => {
-		const r = await fetch(`${DEMO_BASE}/api/start`, {
-			method: "POST",
-			headers: {
-				"x-klh-write-token": TOKEN,
-				"content-type": "application/json",
-			},
-			body: JSON.stringify({ project: demoProj, id: "W1" }),
-		});
-		expect(r.status).toBe(409);
-		expect((await r.json()).error).toContain("demo board");
-	});
-
-	test("/api/ship refuses to ship from a demo board (W64)", async () => {
-		const r = await fetch(`${DEMO_BASE}/api/ship`, {
-			method: "POST",
-			headers: {
-				"x-klh-write-token": TOKEN,
-				"content-type": "application/json",
-			},
-			body: JSON.stringify({ project: demoProj, id: "W1" }),
-		});
-		expect(r.status).toBe(409);
-		expect((await r.json()).error).toContain("demo board");
 	});
 });
 

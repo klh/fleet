@@ -35,6 +35,7 @@ function renderAct(){
   var html = '';
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i] || {};
+    if (!scopedSource(e.source, e.project)) continue;
     var row = '<div class="r"><span class="ts">' + agoShort(msAgo(e.ts)) + '</span><span>';
     row += '<span class="akind">' + esc(String(e.kind || '?')) + '</span> <span class="mono">' + esc(String(e.source || '?').slice(0, 16)) + '</span>';
     if (e.target) row += ' -&gt; ' + esc(String(e.target).slice(0, 12));
@@ -43,6 +44,6 @@ function renderAct(){
     html += row + '</span></div>';
   }
   if (!html) html = '<div class="r"><span class="dim">(no activity yet)</span></div>';
-  sigSet(body, String(actOkAt), html);
+  sigSet(body, String(actOkAt) + '|' + sel.value + '|' + hubOrigin + '|' + hubPeer, html);
 }
 `;

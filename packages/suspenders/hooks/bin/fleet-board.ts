@@ -26,10 +26,17 @@ import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleConsole } from "../board/routes-console.ts";
 import { handleMeta } from "../board/routes-meta.ts";
+import { handleObservations } from "../board/routes-observations.ts";
+import { ensureLaneObservations } from "../board/lane-observations.ts";
+import { startObservationRelay } from "../board/observation-relay.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
 // executed it inline before Bun.serve; the side-effect import keeps that
 // timing (nothing else imports the demo module)
 import "../board/demo.ts";
+
+ensureLaneObservations(db);
+const observationRelay = startObservationRelay(db);
+process.on("exit", () => observationRelay.stop());
 
 let tokAggAt = 0;
 function feedTokens(): void {
@@ -70,6 +77,7 @@ const base = {
 		// W157: the original 30-route if-chain, order preserved, split into
 		// per-area handlers — first match wins exactly as before
 		for (const h of [
+			handleObservations,
 			handleData,
 			handleUsage,
 			handleDrawer,

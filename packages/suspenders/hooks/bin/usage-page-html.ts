@@ -109,6 +109,7 @@ function filterHtml(
 	days: number,
 	team: string,
 	dept: string,
+	includeDemo: boolean,
 ): string {
 	const teams = r.facets.teams;
 	const depts = r.facets.depts;
@@ -116,6 +117,7 @@ function filterHtml(
 		days?: number;
 		team?: string | null;
 		dept?: string | null;
+		includeDemo?: boolean;
 	}): string => {
 		const p = new URLSearchParams();
 		p.set("days", String(over.days ?? days));
@@ -123,6 +125,7 @@ function filterHtml(
 		if (t) p.set("team", t);
 		const d = over.dept !== undefined ? over.dept : dept;
 		if (d) p.set("dept", d);
+		if (over.includeDemo ?? includeDemo) p.set("includeDemo", "true");
 		return `/usage?${p.toString()}`;
 	};
 	const tLinks = [7, 28]
@@ -153,7 +156,7 @@ function filterHtml(
 	return `<div class="ufilters">${group(
 		"window",
 		tLinks,
-	)}${teamChips}${deptChips}${labels}</div>`;
+	)}${teamChips}${deptChips}${labels}<a class="ufilter${includeDemo ? " on" : ""}" href="${esc(href({ includeDemo: !includeDemo }))}">${includeDemo ? "Hide synthetic demo usage" : "Include synthetic demo usage"}</a><span class="uon">${includeDemo ? "Synthetic demo usage included" : `Real usage · ${r.demo?.excludedActors ?? 0} synthetic actors excluded`}</span></div>`;
 }
 
 // ─── per-actor drill-down table (the report arrives pre-filtered) ─────────
@@ -182,7 +185,7 @@ function actorRows(r: UsageReport): string {
 			.join("");
 		const barW = Math.max(2, (a.totals.tok / maxTok) * 100);
 		const detail = `<tr class="udetail"><td colspan="4"><details><summary>per-model</summary><table class="umtab"><thead><tr><th>model</th><th class="unum">tokens</th><th class="unum">req</th></tr></thead><tbody>${models}</tbody></table></details></td></tr>`;
-		const main = `<tr class="uact"><td><b>${esc(a.actor)}</b>${chips}</td><td><div class="ubar" style="width:${barW.toFixed(1)}%">${segs}</div></td><td class="unum">${fmtTok(a.totals.tok)}</td><td class="unum">${fmtTok(a.totals.rq)}</td></tr>`;
+		const main = `<tr class="uact"><td><b>${esc(a.actor)}</b>${a.demo ? '<span class="uchip">synthetic demo</span>' : ""}${chips}</td><td><div class="ubar" style="width:${barW.toFixed(1)}%">${segs}</div></td><td class="unum">${fmtTok(a.totals.tok)}</td><td class="unum">${fmtTok(a.totals.rq)}</td></tr>`;
 		return main + detail;
 	});
 	return rows.join("");
@@ -198,7 +201,7 @@ function aidsHtml(r: UsageReport): string {
 				`<tr><td><b>${esc(a.aid)}</b></td><td>${esc(a.domain)}</td><td class="unum">${fmtTok(a.injected)}</td><td class="unum">${fmtTok(a.skipped)}</td><td class="unum">${fmtTok(a.tok_injected)}</td></tr>`,
 		)
 		.join("");
-	return `<div class="upanel"><h2>AID ROI · INJECTED VS SKIPPED</h2><p class="ufoot">${r.aids.join.length} aid-joined session hours in window · join: aid_events(sid) ⋈ sessions(sid→actor) ⋈ usage_rollup(actor, hour)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${roll}</tbody></table></div>`;
+	return `<div class="upanel"><h2>AID ROI · INJECTED VS SKIPPED</h2><p class="ufoot">${r.aids.join.length} aid-joined session hours in this filter · aggregate table covers all fleet actors because aid_rollup has no actor dimension · join: aid_events(sid) ⋈ sessions(sid→actor) ⋈ usage_rollup(actor, hour)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${roll}</tbody></table></div>`;
 }
 
 // ─── page CSS (scoped u*) — board dark palette, dataviz chrome ────────────
@@ -255,13 +258,24 @@ function legendHtml(): string {
 
 export function usagePage(
 	r: UsageReport,
-	opts: { days: number; team?: string; dept?: string } = { days: r.days },
+	opts: {
+		days: number;
+		team?: string;
+		dept?: string;
+		includeDemo?: boolean;
+	} = { days: r.days },
 ): string {
 	const team = opts.team ?? "";
 	const dept = opts.dept ?? "";
 	const head =
 		`<h1 class="utitle">USAGE</h1>` +
-		filterHtml(r, r.days, team, dept) +
+		filterHtml(
+			r,
+			r.days,
+			team,
+			dept,
+			opts.includeDemo ?? r.demo?.included ?? false,
+		) +
 		tilesHtml(r);
 	const timeline = `<div class="upanel"><div class="uhead"><h2>TOKENS · STACKED BY MODEL GROUP</h2><p class="ufoot">hover = values · drag = zoom · double-click = reset</p></div>${legendHtml()}<div id="u-timeline" class="uchart"></div></div>`;
 	const hours = `<div class="upanel"><h2>WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)</h2><div id="u-hours" class="uchart"></div></div>`;

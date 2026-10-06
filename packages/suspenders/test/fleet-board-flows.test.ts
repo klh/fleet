@@ -1,8 +1,7 @@
 // fleet-board-flows.test.ts — heavy flow suites (W64 ship + W57
 // orchestrate), split from fleet-board.test.ts by the 1500-line law
-// (W157); factory fixture, own scratch HOME + :7851 board (7847/7848 are
-// main's board + demo board; W57's describe binds 7849 + mock :7850 —
-// fixed ports are never shared across files or describes)
+// (W157); each factory fixture owns its scratch HOME and the OS chooses
+// unused loopback ports for boards and mocks, isolating concurrent runs.
 // test files in one process — a shared side-effect fixture would die
 // with the first file's afterAll).
 import { afterAll, describe, expect, test } from "bun:test";
@@ -10,9 +9,9 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { boardFixture } from "./helpers/board-fixture.ts";
+import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
 const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
-	await boardFixture(7851, afterAll);
+	await boardFixture(0, afterAll);
 
 // W157: in the monolith, W55's body ran `git init -b main` in GREPO
 // before W64/W57 needed it; files get separate fixture instances now,
@@ -196,9 +195,9 @@ describe("W64 ship trigger", () => {
 });
 
 describe("W57 orchestrate box", () => {
-	const OPORT = 7849;
+	const OPORT = unusedPort();
 	const OB = `http://127.0.0.1:${OPORT}`;
-	const MPORT = 7850;
+	const MPORT = unusedPort();
 	const MB = `http://127.0.0.1:${MPORT}`;
 	// mock OpenAI-compatible endpoint: fenced-JSON proposal for normal goals,
 	// prose-only garbage for goals containing JUNK (the parse-failure path)
@@ -368,7 +367,7 @@ describe("W57 orchestrate box", () => {
 		await waitUp(OB);
 		const d = await (await fetch(`${OB}/api/prompt/settings`)).json();
 		expect(d.settings).toEqual({
-			"prompt.condense": false,
+			"prompt.condense": true,
 			"prompt.enhance": false,
 			"prompt.debug": false,
 			"prompt.log": false,

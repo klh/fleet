@@ -8,7 +8,7 @@ import { buildUsageReport } from "../lib/usage.ts";
 import { usagePage } from "../bin/usage-page-html.ts";
 
 export async function handleUsage(
-	req: Request,
+	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/usage") {
@@ -18,17 +18,20 @@ export async function handleUsage(
 		const d = Number(url.searchParams.get("days") ?? 28) || 28;
 		const team = url.searchParams.get("team") ?? "";
 		const dept = url.searchParams.get("dept") ?? "";
+		const includeDemo = url.searchParams.get("includeDemo") === "true";
 		return new Response(
 			usagePage(
 				buildUsageReport(db, {
 					days: Math.min(90, Math.max(1, d)),
 					team,
 					dept,
+					includeDemo,
 				}),
 				{
 					days: Math.min(90, Math.max(1, d)),
 					team,
 					dept,
+					includeDemo,
 				},
 			),
 			{
@@ -51,6 +54,7 @@ export async function handleUsage(
 				days: Math.min(90, Math.max(1, d)),
 				team: url.searchParams.get("team") ?? "",
 				dept: url.searchParams.get("dept") ?? "",
+				includeDemo: url.searchParams.get("includeDemo") === "true",
 			}),
 		});
 	}

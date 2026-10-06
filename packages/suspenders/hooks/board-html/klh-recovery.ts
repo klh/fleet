@@ -1,11 +1,13 @@
 import { LitElement, css, html } from "lit";
 import type { RecoverySnapshot } from "../board/recovery.ts";
+import { observationFresh } from "../lib/observation.ts";
 
 class KlhRecovery extends LitElement {
 	static properties = {
 		data: { state: true },
 		error: { state: true },
 		busy: { state: true },
+		now: { state: true },
 	};
 	static styles = css`
 		:host { display:block; margin-bottom:20px; color:var(--klh-ink); font:13px/1.5 var(--klh-font-sans); }
@@ -21,17 +23,23 @@ class KlhRecovery extends LitElement {
 	declare data: RecoverySnapshot | null;
 	declare error: string;
 	declare busy: boolean;
+	declare now: number;
 	private project = "";
 	private generation = 0;
 	private timer: ReturnType<typeof setInterval> | null = null;
+	private clock: ReturnType<typeof setInterval> | null = null;
 	constructor() {
 		super();
 		this.data = null;
 		this.error = "";
 		this.busy = false;
+		this.now = Date.now();
 	}
 	connectedCallback(): void {
 		super.connectedCallback();
+		this.clock = setInterval(() => {
+			this.now = Date.now();
+		}, 1000);
 		document.addEventListener("change", this.projectChanged);
 		window.addEventListener("hashchange", this.activated);
 		this.timer = setInterval(() => {
@@ -43,6 +51,7 @@ class KlhRecovery extends LitElement {
 	disconnectedCallback(): void {
 		super.disconnectedCallback();
 		if (this.timer) clearInterval(this.timer);
+		if (this.clock) clearInterval(this.clock);
 		document.removeEventListener("change", this.projectChanged);
 		window.removeEventListener("hashchange", this.activated);
 		this.generation++;
@@ -94,10 +103,12 @@ class KlhRecovery extends LitElement {
 	}
 	protected render() {
 		const d = this.data;
-		const age = d ? Math.max(0, Math.round((Date.now() - d.ts) / 1000)) : null;
+		const age = d ? Math.max(0, Math.round((this.now - d.ts) / 1000)) : null;
+		const stale = !!d && !observationFresh(d.observation, this.now);
 		return html`
 			<header><h2>Recovery & collaboration</h2><span class="dim">last 24 hours · selected project</span><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh recovery"}</button></header>
-			<p class=${this.error || (age !== null && age > 30) ? "warn" : "dim"} role="status">${this.error ? `Recovery unavailable: ${this.error}. ${d ? "Last good snapshot retained." : "No snapshot loaded."}` : age !== null ? `${age > 30 ? "Stale snapshot" : "Checked"} · ${age}s ago` : "Loading recovery evidence…"}</p>
+			<p class=${this.error || stale ? "warn" : "dim"} role="status">${this.error ? `Recovery unavailable: ${this.error}. ${d ? "Last good snapshot retained." : "No snapshot loaded."}` : age !== null ? `${stale ? "Stale snapshot" : "Checked"} · ${age}s ago` : "Loading recovery evidence…"}</p>
+			${d?.observation ? html`<p class="dim">Evidence: ${d.observation.source} · ${d.observation.scope} · expires ${new Date(d.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
 			${
 				d
 					? html`

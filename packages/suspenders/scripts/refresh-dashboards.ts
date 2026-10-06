@@ -1,6 +1,14 @@
 // Code-only upgrade: operator config, registry, keys and launchd files stay outside
 // the file manifest. The installer is the sole entry point to this sync.
-import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import {
+	copyFile,
+	mkdir,
+	readFile,
+	readdir,
+	rename,
+	rm,
+	stat,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const root = join(import.meta.dir, "../..");
@@ -16,6 +24,7 @@ const groups = [
 		files: [
 			"dashboard.ts",
 			"dashboard-state.ts",
+			"inventory-probe.ts",
 			"dashboard-observability.js",
 			"klh-theme.ts",
 			"vendor/lit.js",
@@ -36,10 +45,21 @@ const groups = [
 		from: `${root}/suspenders/hooks`,
 		to: prefix,
 		files: [
+			"bin/fleet-board.ts",
 			"bin/fleet-board-html.ts",
 			"bin/console-html.ts",
+			"bin/usage-page-html.ts",
+			"bin/usage-seed.ts",
 			"lib/theme.ts",
+			"lib/service-inventory.ts",
+			"lib/recovery-map.ts",
+			"lib/usage.ts",
+			"lib/usage-provenance.ts",
 			"board/routes-data.ts",
+			"board/routes-usage.ts",
+			"board/routes-observations.ts",
+			"board/lane-observations.ts",
+			"board/observation-relay.ts",
 			"board/data.ts",
 			"board/recovery.ts",
 			"board/local-swarm.ts",
@@ -48,6 +68,7 @@ const groups = [
 			"board/console-view.ts",
 			"board-html/body.ts",
 			"board-html/core.ts",
+			"board-html/activity.ts",
 			"board-html/renders.ts",
 			"board-html/tabs.ts",
 			"board-html/fleet-lane-view.ts",
@@ -64,6 +85,29 @@ const groups = [
 const files = groups.flatMap((g) =>
 	g.files.map((f) => ({ source: join(g.from, f), target: join(g.to, f) })),
 );
+// Ship one implementation beside each installed consumer; source wrappers
+// resolve the workspace package while runtime copies need no monorepo paths.
+for (const target of [
+	join(belt, "observation.ts"),
+	join(local, "observation.ts"),
+	join(prefix, "lib/observation.ts"),
+])
+	files.push({ source: join(root, "local-llm/observation.ts"), target });
+files.push({
+	source: join(root, "belt/bin/inventory-probe.ts"),
+	target: join(prefix, "lib/inventory-probe.ts"),
+});
+// Split bundles use content hashes once several independent modules are shared.
+const vendor = join(root, "suspenders/hooks/board-html/vendor");
+const chunks = (await readdir(vendor)).filter(
+	(name) => /^lit-[a-z0-9]+\.js$/i.test(name) && name !== "lit-shared.js",
+);
+if (chunks.length > 20) throw new Error("Unexpected dashboard bundle count");
+for (const name of chunks)
+	files.push({
+		source: join(vendor, name),
+		target: join(prefix, "board-html/vendor", name),
+	});
 for (const entry of [
 	`${belt}/dashboard.ts`,
 	`${local}/dashboard.ts`,

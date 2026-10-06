@@ -19,6 +19,7 @@ for item in "$REPO_DIR"/bin/*; do
   [[ "$item" == *.test.ts ]] && continue
   cp -R "$item" "$PREFIX/bin/"
 done
+cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/bin/observation.ts"
 chmod +x "$PREFIX"/bin/*.ts
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$PREFIX/bin/klh-local.ts" "$HOME/.local/bin/klh-local"

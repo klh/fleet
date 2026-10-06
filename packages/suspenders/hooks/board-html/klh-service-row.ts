@@ -21,6 +21,7 @@ class KlhServiceRow extends LitElement {
 		busy: { state: true },
 		err: { state: true },
 		copied: { state: true },
+		now: { state: true },
 	};
 
 	static styles = css`
@@ -138,8 +139,10 @@ class KlhServiceRow extends LitElement {
 	declare busy: boolean;
 	declare err: string | null;
 	declare copied: number;
+	declare now: number;
 	private ctl: ServiceRowController | null = null;
 	private timer: ReturnType<typeof setInterval> | null = null;
+	private clock: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
 		super();
@@ -147,10 +150,14 @@ class KlhServiceRow extends LitElement {
 		this.busy = false;
 		this.err = null;
 		this.copied = -1;
+		this.now = Date.now();
 	}
 
 	connectedCallback(): void {
 		super.connectedCallback();
+		this.clock = setInterval(() => {
+			this.now = Date.now();
+		}, 1000);
 		this.timer = setInterval(() => {
 			// Keep both activation and return-to-idle visible on an open console.
 			if (this.probe && !document.hidden) void this.reprobe();
@@ -160,6 +167,7 @@ class KlhServiceRow extends LitElement {
 	disconnectedCallback(): void {
 		super.disconnectedCallback();
 		if (this.timer) clearInterval(this.timer);
+		if (this.clock) clearInterval(this.clock);
 		this.timer = null;
 	}
 
@@ -175,7 +183,9 @@ class KlhServiceRow extends LitElement {
 		const c = this.controller();
 		if (!c || this.busy) return;
 		this.busy = true;
-		this.probe = await c.reprobe((u) => fetch(u, { cache: "no-store" }));
+		this.probe = await c.reprobe((u) =>
+			fetch(u, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
+		);
 		this.err = c.err;
 		this.busy = false;
 	}
@@ -209,7 +219,7 @@ class KlhServiceRow extends LitElement {
 	protected render(): TemplateResult {
 		const p = this.probe;
 		if (!p) return html``;
-		const m = rowModel(p);
+		const m = rowModel(p, this.now);
 		return html`
 			<div class="head">
 				<span class="badge ${m.tone}">${m.badge}</span>
@@ -225,6 +235,7 @@ class KlhServiceRow extends LitElement {
 					${this.busy ? "probing…" : "re-probe"}
 				</button>
 			</div>
+			${p.observation ? html`<div class="dim">Evidence: ${p.observation.source} · ${p.observation.kind} · ${p.observation.scope} · expires ${this.when(new Date(p.observation.expiresAt).toISOString())}</div>` : ""}
 			${this.err ? html`<output>re-probe failed: ${this.err}</output>` : ""}
 			${m.showRecovery ? this.recovery(m) : ""}
 		`;

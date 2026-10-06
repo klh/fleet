@@ -176,4 +176,11 @@ sel.addEventListener('change', function(){
   renderAll();
   tick();
 });
+['originHub', 'peerHub'].forEach(function(id){
+  byId(id).addEventListener('change', function(){
+    hubOrigin = byId('originHub').value; hubPeer = byId('peerHub').value;
+    fleetHistoryPage = 0;
+    renderTab(); renderAct();
+  });
+});
 `;

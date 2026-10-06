@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	matchesHubScope,
 	selectGovernorCompletions,
 	selectGovernorLanes,
 } from "./fleet-lane-view.ts";
@@ -58,6 +59,89 @@ describe("Governor lane overview", () => {
 	});
 });
 
+test("hub scopes keep origin, immediate peer, unknown and expiry separate", () => {
+	const scope = {
+		origin: "spoke-a",
+		peer: "team-a",
+		now: 100,
+		observations: [
+			{
+				laneId: "a",
+				project: "/fleet/.git",
+				originHub: "spoke-a",
+				peerHub: "team-a",
+				expiresAt: 200,
+			},
+			{
+				laneId: "a",
+				project: "/fleet/.git",
+				originHub: "spoke-a",
+				peerHub: "team-b",
+				expiresAt: 200,
+			},
+			{
+				laneId: "expired",
+				project: "/fleet/.git",
+				originHub: "spoke-a",
+				peerHub: "team-a",
+				expiresAt: 100,
+			},
+		],
+	};
+	expect(matchesHubScope("a", "/fleet/.git", scope)).toBe(true);
+	expect(matchesHubScope("a", "/other/.git", scope)).toBe(false);
+	expect(
+		matchesHubScope("a", "/fleet/.git", { ...scope, origin: "team-a" }),
+	).toBe(false);
+	expect(
+		matchesHubScope("a", "/fleet/.git", { ...scope, peer: "team-b" }),
+	).toBe(true);
+	expect(
+		matchesHubScope("a", "/fleet/.git", {
+			...scope,
+			origin: "unknown",
+			peer: "all",
+		}),
+	).toBe(false);
+	expect(
+		matchesHubScope("expired", "/fleet/.git", {
+			...scope,
+			origin: "unknown",
+			peer: "unknown",
+		}),
+	).toBe(true);
+	expect(
+		matchesHubScope(null, null, { ...scope, origin: "unknown", peer: "all" }),
+	).toBe(true);
+	expect(
+		selectGovernorLanes(
+			[lane("a", 1), lane("unobserved", 2), lane("expired", 1)],
+			"all",
+			scope,
+		).current.map((s) => s.sid),
+	).toEqual(["a"]);
+	const projects = [
+		{
+			project: "/fleet/.git",
+			done: [
+				{ id: "observed", title: "done", updatedAgo: 10, owner: "a" },
+				{ id: "no-owner", title: "done", updatedAgo: 1, owner: null },
+			],
+		},
+	];
+	expect(
+		selectGovernorCompletions(projects, "all", scope).map((d) => d.id),
+	).toEqual(["observed"]);
+	const browserSelector = new Function(
+		"matchesHubScope",
+		`return (${selectGovernorLanes.toString()});`,
+	)(matchesHubScope);
+	expect(
+		browserSelector([lane("a", 1), lane("unobserved", 2)], "all", scope)
+			.current,
+	).toHaveLength(1);
+});
+
 /** Minimal DOM boundary lets the served script run without a browser dependency. */
 class Element {
 	children: Element[] = [];
@@ -68,6 +152,10 @@ class Element {
 	hidden = false;
 	disabled = false;
 	listeners: Record<string, () => void> = {};
+	get childNodes() {
+		return this.children;
+	}
+	setAttribute() {}
 	constructor(public tag = "div") {}
 	appendChild(child: Element) {
 		this.children.push(child);
@@ -162,6 +250,101 @@ test("served overview bounds history and filters it without inserting HTML", () 
 	byId("fleetHistoryNext")?.listeners.click();
 	expect(byId("fleetHistoryRange")?.textContent).toBe("51–100 of 120");
 	expect(byId("fleetHistoryPrev")?.disabled).toBe(false);
+});
+
+test("Governor claims and event rows use the same hub and project scope", () => {
+	const roots = Object.fromEntries(
+		["claims", "events", "filters"].map((id) => [id, new Element()]),
+	);
+	const document = {
+		createElement: (tag: string) => new Element(tag),
+		createDocumentFragment: () => new Element("fragment"),
+		createTextNode: (text: string) =>
+			Object.assign(new Element("text"), { textContent: text }),
+	};
+	const data = {
+		sessions: [
+			lane("ours", 1),
+			lane("other", 1, "RUNNING", "/other/.git"),
+			lane("unknown", 1),
+		],
+		laneObservations: {
+			lanes: [
+				{
+					laneId: "ours",
+					project: "/fleet/.git",
+					originHub: "spoke",
+					peerHub: "team",
+					expiresAt: Date.now() + 60_000,
+				},
+			],
+		},
+		claims: ["ours", "other", "unknown"].map((sid) => ({
+			sid,
+			scope: "<hostile>",
+			tsAgo: 1,
+		})),
+		events: ["ours", "other", "unknown"].map((source, id) => ({
+			id,
+			source,
+			kind: "landed",
+			tsAgo: 1,
+		})),
+	};
+	const run = new Function(
+		"document",
+		"byId",
+		"lastData",
+		"sel",
+		"ago",
+		"agoShort",
+		`var hubOrigin = 'spoke'; var hubPeer = 'team'; var evFilter = 'all'; ${RENDERS}; renderClaims(lastData); renderEvents(lastData);`,
+	);
+	run(
+		document,
+		(id: string) => roots[id],
+		data,
+		{ value: "/fleet/.git" },
+		String,
+		String,
+	);
+	expect(roots.claims.children).toHaveLength(1);
+	expect(roots.claims.children[0].children[0].textContent).toBe("<hostile>");
+	expect(roots.events.children).toHaveLength(1);
+	expect(roots.events.children[0].children[1].textContent).toContain("ours");
+});
+
+test("header expires a snapshot even when the request was just received", () => {
+	const attributes: Record<string, string> = {};
+	const conn = {
+		innerHTML: "",
+		title: "",
+		getAttribute: (key: string) => attributes[key],
+		setAttribute: (key: string, value: string) => {
+			attributes[key] = value;
+		},
+	};
+	const now = Date.now();
+	const data = {
+		observation: {
+			source: "board",
+			target: "ledger",
+			scope: "all",
+			observedAt: now - 2000,
+			expiresAt: now - 1,
+		},
+	};
+	const render = new Function(
+		"lastData",
+		"byId",
+		"ago",
+		"esc",
+		`var dataOkAt = Date.now(); var decOkAt = Date.now(); var dataErr = null; var decErr = null; var decLoaded = true; ${RENDERS}; renderConn();`,
+	);
+	render(data, (id: string) => (id === "conn" ? conn : null), String, String);
+	expect(conn.innerHTML).toContain("stale snapshot");
+	expect(conn.title).toContain("Source: board · target: ledger · scope: all");
+	expect(conn.title).toContain("expires:");
 });
 
 test("recent completions have a single global bound and recency order", () => {

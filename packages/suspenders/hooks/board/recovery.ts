@@ -1,4 +1,5 @@
 import type { GovernorStore } from "../lib/govdb.ts";
+import { observation, type Observation } from "../lib/observation.ts";
 
 export interface RecoveryIncident {
 	project: string;
@@ -21,6 +22,7 @@ export interface RecoveryConsult {
 }
 export interface RecoverySnapshot {
 	ts: number;
+	observation: Observation;
 	incidentsAvailable: boolean;
 	feedbackAvailable: boolean;
 	incidents: RecoveryIncident[];
@@ -75,6 +77,14 @@ export function recoverySnapshot(
 	}
 	return {
 		ts: now,
+		observation: observation(
+			"governor-ledger",
+			"incidents-and-consult-outcomes",
+			filtered ? project : "all-projects",
+			now,
+			30_000,
+			"ledger",
+		),
 		incidentsAvailable,
 		feedbackAvailable,
 		incidents,

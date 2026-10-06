@@ -3,6 +3,7 @@
 // round-trip live here so tests drive them with stub probe results; the
 // Lit component only renders this model.
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import { observationFresh, type Observation } from "../lib/observation.ts";
 
 export type RowState = "up" | "degraded" | "down" | "idle";
 
@@ -14,11 +15,12 @@ export interface RowProbe {
 	state: RowState;
 	detail: string;
 	probed_at: string;
+	observation?: Observation;
 	recovery: RecoveryEntry | null;
 }
 
 export interface RowModel {
-	badge: "UP" | "DEGRADED" | "DOWN" | "IDLE";
+	badge: "UP" | "DEGRADED" | "DOWN" | "IDLE" | "STALE";
 	tone: "ok" | "warn" | "bad" | "dim";
 	where: string;
 	showRecovery: boolean;
@@ -32,21 +34,25 @@ export interface RowModel {
 
 const stateOf = (p: RowProbe): RowState => p.state ?? (p.up ? "up" : "down");
 
-export const rowModel = (p: RowProbe): RowModel => {
+export const rowModel = (p: RowProbe, now = Date.now()): RowModel => {
 	const state = stateOf(p);
+	const stale = !!p.observation && !observationFresh(p.observation, now);
 	const r = p.recovery;
-	const showRecovery = state !== "up" && state !== "idle" && r !== null;
+	const showRecovery =
+		!stale && state !== "up" && state !== "idle" && r !== null;
 	return {
-		badge:
-			state === "idle"
+		badge: stale
+			? "STALE"
+			: state === "idle"
 				? "IDLE"
 				: state === "up"
 					? "UP"
 					: state === "degraded"
 						? "DEGRADED"
 						: "DOWN",
-		tone:
-			state === "idle"
+		tone: stale
+			? "dim"
+			: state === "idle"
 				? "dim"
 				: state === "up"
 					? "ok"
@@ -60,8 +66,10 @@ export const rowModel = (p: RowProbe): RowModel => {
 					? `:${r.probe.port}${r.probe.path}`
 					: `:${p.port}`,
 		showRecovery,
-		open: state === "down",
-		saw: p.detail,
+		open: !stale && state === "down",
+		saw: stale
+			? `Last known ${state}: ${p.detail}. Current state unknown.`
+			: p.detail,
 		what: r?.what ?? "",
 		causes: showRecovery && r ? r.causes : [],
 		steps: showRecovery && r ? r.recovery : [],

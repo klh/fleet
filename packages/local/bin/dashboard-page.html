@@ -20,6 +20,7 @@
   <fleet-local-board>Loading local service observations…</fleet-local-board>
   <script type="module">
     import {LitElement, html, css} from '/vendor/lit-shared.js';
+    import {observationFresh} from '/observation.js';
     class LocalBoard extends LitElement {
       static properties = { snapshot:{state:true}, error:{state:true}, pending:{state:true}, query:{state:true}, attention:{state:true}, now:{state:true} };
       static styles = css`
@@ -58,11 +59,12 @@
       render(){
         const snapshot=this.snapshot;
         const age=snapshot?Math.max(0,Math.floor((this.now-Date.parse(snapshot.ts))/1000)):0;
-        const stale=Boolean(this.error)||age>10;
+        const stale=Boolean(this.error)||!observationFresh(snapshot?.observation,this.now);
         const rows=(snapshot?.services||[]).filter(service=>service.name.toLowerCase().includes(this.query.toLowerCase())&&(!this.attention||this.needsAttention(service)));
         return html`
           <header><h1>Local services</h1><p class="mut">Caddy routes, configured endpoint checks and mDNS registrations.</p>
           <p role="status" class=${stale?'bad':'mut'}>${snapshot?`${stale?'Stale snapshot':'Last observation'} · ${age}s ago`:'Waiting for first observation'}${this.pending?' · refreshing':''}</p></header>
+          ${snapshot?.observation?html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires ${new Date(snapshot.observation.expiresAt).toLocaleTimeString()}</p>`:''}
           ${this.error?html`<p class="notice bad" role="alert">${this.error}. ${snapshot?'Showing the last successful snapshot.':'No service state is available yet.'}</p>`:''}
           ${snapshot?.error?html`<p class="notice bad" role="alert">${snapshot.error}</p>`:''}
           <h2>Caddy front</h2>

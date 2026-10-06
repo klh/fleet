@@ -1,5 +1,6 @@
 import { html, css, LitElement } from "/vendor/lit.js";
 import { supervisorFresh } from "/dashboard-state.js";
+import { observationFresh } from "/observation.js";
 
 class BeltSupervisor extends LitElement {
 	static properties = {
@@ -72,7 +73,10 @@ class BeltSupervisor extends LitElement {
 	}
 	render() {
 		const doc = this.snapshot;
-		const fresh = !this.error && supervisorFresh(doc, this.now);
+		const fresh =
+			!this.error &&
+			supervisorFresh(doc, this.now) &&
+			observationFresh(doc?.observation, this.now);
 		const targets = doc?.targets ?? [];
 		const alerts = targets.filter(
 			(target) => target.alert || target.preflightError,
@@ -84,16 +88,25 @@ class BeltSupervisor extends LitElement {
 		return html`
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (doc ? (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`) : "No supervisor snapshot. Current service state is unknown.")}</p>
+			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
 			${targets.map(
 				(
 					target,
-				) => html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
+				) => html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
 				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${target.restartsLastWindow} restarts in budget window · ${target.restarts} total</p>
 				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
 				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}
 			</details>`,
 			)}
 		`;
+	}
+	targetFresh(target, doc) {
+		const at = Date.parse(target.lastProbe || "");
+		return (
+			Number.isFinite(at) &&
+			at <= this.now + 5000 &&
+			this.now - at <= Math.max(15000, doc.intervalMs * 3)
+		);
 	}
 	label(target) {
 		if (target.preflightError) return "dependency blocked";

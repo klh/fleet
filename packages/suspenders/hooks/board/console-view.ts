@@ -126,6 +126,7 @@ export const gatherLocalView = async (): Promise<LocalView> => {
 			name?: string;
 			port?: number;
 			created_at?: string;
+			upstream?: string;
 		}[];
 		services = Array.isArray(doc)
 			? doc
@@ -134,6 +135,7 @@ export const gatherLocalView = async (): Promise<LocalView> => {
 						name: String(s.name),
 						port: Number(s.port ?? 0),
 						created: String(s.created_at ?? ""),
+						upstream: typeof s.upstream === "string" ? s.upstream : undefined,
 					}))
 			: [];
 	} catch {

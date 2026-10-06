@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const f = await boardFixture(17813, afterAll);
+const f = await boardFixture(0, afterAll);
 test("completion feed bounds by recency before truncating lexical work IDs", async () => {
 	const db = new Database(join(f.HOME, ".cache/claude-governor/governor.db"));
 	try {

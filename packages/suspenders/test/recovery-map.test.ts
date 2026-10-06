@@ -23,7 +23,7 @@ import {
 } from "../hooks/board-html/service-row-model.ts";
 import { beltPage, serviceRowHtml } from "../hooks/bin/console-html.ts";
 
-const NOW = new Date("2026-10-03T08:00:00Z");
+const NOW = new Date();
 
 // stub probe world: port → response (or throw = refused); label → launchctl
 const stubDeps = (
@@ -113,11 +113,12 @@ describe("recovery map completeness", () => {
 });
 
 describe("probes (stub results)", () => {
-	test("http: answered → up, 5xx → degraded, refused → down", async () => {
+	test("http: configured check success → up, 4xx/5xx → degraded, refused → down", async () => {
 		const deps = stubDeps({ 4000: 404, 4100: 503 });
 		const shim = await probeService("belt-gateway-4000", deps);
-		expect(shim?.state).toBe("up");
-		expect(shim?.up).toBe(true);
+		expect(shim?.state).toBe("degraded");
+		expect(shim?.up).toBe(false);
+		expect(shim?.detail).toContain("configured check failed");
 		const lite = await probeService("litellm-4100", deps);
 		expect(lite?.state).toBe("degraded");
 		expect(lite?.detail).toContain("HTTP 503");

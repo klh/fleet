@@ -15,7 +15,7 @@ import {
 	serviceRowHtml,
 } from "../hooks/bin/console-html.ts";
 
-const now = new Date("2026-10-06T06:00:00Z");
+const now = new Date();
 const target = {
 	port: 8901,
 	kind: "ondemand",
@@ -78,6 +78,43 @@ describe("on-demand service state", () => {
 			(await probeService("swarm-8901", deps(undefined, null)))?.state,
 		).toBe("down");
 		expect((await probeService("swarm-8902", deps()))?.state).toBe("down");
+	});
+	test("idle evidence retains the supervisor times and never gains freshness from a re-probe", async () => {
+		const doc = {
+			...snapshot,
+			updated: new Date(now.getTime() - 2_000).toISOString(),
+			targets: [
+				{
+					...target,
+					lastProbe: new Date(now.getTime() - 14_000).toISOString(),
+				},
+			],
+		};
+		const probe = await probeService("swarm-8901", deps(undefined, doc));
+		if (!probe) throw new Error("missing service");
+		expect(probe.state).toBe("idle");
+		expect(probe.observation).toMatchObject({
+			source: "belt-supervisor",
+			kind: "supervisor",
+			observedAt: now.getTime() - 14_000,
+			expiresAt: now.getTime() + 1_000,
+		});
+		expect(rowModel(withRecovery(probe), now.getTime() + 999).badge).toBe(
+			"IDLE",
+		);
+		expect(rowModel(withRecovery(probe), now.getTime() + 1_000).badge).toBe(
+			"STALE",
+		);
+		const repeated = await probeService("swarm-8901", {
+			...deps(undefined, doc),
+			now: () => new Date(now.getTime() + 500),
+		});
+		expect(repeated?.observation).toEqual(probe.observation);
+		const expired = await probeService("swarm-8901", {
+			...deps(undefined, doc),
+			now: () => new Date(now.getTime() + 1_000),
+		});
+		expect(expired?.state).toBe("down");
 	});
 	test("idle rows offer no restart commands in Lit or no-JS fallback", async () => {
 		const probe = await probeService("swarm-8901", deps());

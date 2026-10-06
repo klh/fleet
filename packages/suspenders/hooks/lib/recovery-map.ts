@@ -9,6 +9,7 @@
 // checkouts only. test/recovery-map.test.ts pins that, and pins that every
 // probed service has an entry.
 import { readFileSync } from "node:fs";
+import { MODEL_INVENTORY, probePathFor } from "./service-inventory.ts";
 
 export type ProbeSpec =
 	| { kind: "http"; port: number; path: string }
@@ -193,28 +194,27 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 			curl(4101, "/status"),
 		],
 	},
-	swarm(8901),
-	swarm(8902),
-	swarm(8903),
-	{
-		id: "kev-8912",
-		name: "kev :8912",
-		probe: { kind: "http", port: 8912, path: "/" },
-		what: "The kev model server is not answering, so anything routed to kev fails.",
+	...MODEL_INVENTORY.filter((s) => !s.external).map((s) => ({
+		...swarm(s.port),
+		name: `${s.label} · ${s.model} :${s.port}`,
+		probe: { kind: "http" as const, port: s.port, path: probePathFor(s) },
+	})),
+	...MODEL_INVENTORY.filter((s) => s.external).map((s) => ({
+		...swarm(s.port),
+		probe: {
+			kind: "http" as const,
+			port: s.port,
+			path: probePathFor(s),
+		},
+		id: s.role === "classify" ? `kev-${s.port}` : `swarm-${s.port}`,
+		name: `${s.label} · ${s.model} :${s.port}`,
+		what: `The external model service on :${s.port} is not answering; its owning application must load it.`,
 		causes: [
-			"the kev launchd agent (com.klh.kev) exited or is not loaded",
-			"the model is still downloading or loading after a restart",
-			"an orphaned kev process still holds :8912",
+			"the owning application has not loaded the model",
+			"the external process crashed or is still loading",
 		],
-		recovery: [
-			holder(8912),
-			killOrphan(8912),
-			kick("com.klh.kev"),
-			bootstrap("com.klh.kev"),
-			tail("~/.claude-insights/kev.log"),
-			curl(8912, "/"),
-		],
-	},
+		recovery: [holder(s.port), curl(s.port, probePathFor(s))],
+	})),
 	{
 		id: "suspenders-board",
 		name: "suspenders board :7799",

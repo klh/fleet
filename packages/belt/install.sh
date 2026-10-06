@@ -50,6 +50,7 @@ mkdir -p "$PREFIX"
 for item in "$REPO_DIR"/bin/*; do
   cp -R "$item" "$PREFIX/"
 done
+cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
 echo "→ fleet scripts in place"
 
 # --with-models / --with-launchd: setup/llm-stack.ts handles homebrew deps
@@ -59,7 +60,7 @@ echo "→ fleet scripts in place"
 # the ~40-60 GB); --skip-download always passes through.
 if $WITH_MODELS || $WITH_LAUNCHD; then
   args=()
-  $WITH_MODELS || args+=("--skip-download")
+  if ! $WITH_MODELS || $SKIP_DL; then args+=("--skip-download"); fi
   $WITH_LAUNCHD && args+=("--with-launchd")
   echo "→ running setup/llm-stack.ts ${args[*]:-}"
   bun "$REPO_DIR/setup/llm-stack.ts" ${args[@]+"${args[@]}"}

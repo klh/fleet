@@ -2,18 +2,21 @@
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
 import {
+	matchesHubScope,
 	selectGovernorCompletions,
 	selectGovernorLanes,
 } from "./fleet-lane-view.ts";
 
-export const RENDERS = String.raw`// --- 1: overall status + connection health (live / stale / error) ---
+export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
 function renderConn(){
-  var dAge = dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
+  var observed = lastData && lastData.observation;
+  var dAge = observed && typeof observed.observedAt === 'number' ? Math.max(0, Math.round((Date.now() - observed.observedAt) / 1000)) : dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
+  var evidenceStale = observed && (!Number.isFinite(observed.expiresAt) || observed.expiresAt <= Date.now() || observed.observedAt > Date.now() + 5000);
   var cAge = decOkAt ? Math.round((Date.now() - decOkAt) / 1000) : -1;
   var cls, txt;
   if (dataErr && !dataOkAt) { cls = 'err'; txt = 'connecting'; }
   else if (dataErr) { cls = 'err'; txt = 'error — last good ' + ago(dAge); }
-  else if (dAge >= 5) { cls = 'stale'; txt = 'stale — last good ' + ago(dAge); }
+  else if (evidenceStale || dAge >= 5) { cls = 'stale'; txt = 'stale snapshot — observed ' + ago(dAge); }
   else { cls = 'live'; txt = 'live'; }
   var dec;
   if (!decLoaded) dec = 'decisions loading';
@@ -21,6 +24,7 @@ function renderConn(){
   else dec = 'decisions checked ' + ago(cAge);
   var sig = cls + '|' + txt + '|' + dec;
   var el = byId('conn');
+  el.title = observed ? 'Source: ' + observed.source + ' · target: ' + observed.target + ' · scope: ' + observed.scope + ' · observed: ' + new Date(observed.observedAt).toLocaleTimeString() + ' · expires: ' + new Date(observed.expiresAt).toLocaleTimeString() : 'Legacy feed without observation provenance';
   if (el.getAttribute('data-sig') !== sig) {
     el.setAttribute('data-sig', sig);
     el.innerHTML = '<span class="dot ' + cls + '"></span>' + esc(txt) + ' <span class="dim">| ' + esc(dec) + '</span>' +
@@ -32,6 +36,57 @@ function renderConn(){
 // Current status is based on recent heartbeat evidence, not persistent state alone.
 var selectGovernorLanes = ${selectGovernorLanes.toString()};
 var selectGovernorCompletions = ${selectGovernorCompletions.toString()};
+var matchesHubScope = ${matchesHubScope.toString()};
+function hubScope(){
+  return { origin: typeof hubOrigin === 'string' ? hubOrigin : 'all', peer: typeof hubPeer === 'string' ? hubPeer : 'all', now: Date.now(), observations: ((lastData || {}).laneObservations || {}).lanes || [] };
+}
+function scopedLane(sid, project){ return matchesHubScope(sid, project, hubScope()); }
+function sourceProject(sid, project){
+  if (project) return project;
+  var session = ((lastData || {}).sessions || []).find(function(s){ return s.sid === sid; });
+  return session ? session.project : null;
+}
+function scopedSource(sid, project){
+  var p = sourceProject(sid, project);
+  return (sel.value === 'all' || p === sel.value) && scopedLane(sid, p);
+}
+function renderHubObservations(d){
+  var snapshot = d.laneObservations;
+  ['originHub', 'peerHub'].forEach(function(id){
+    var control = byId(id);
+    if (!control) return;
+    var selected = control.value;
+    var axis = id === 'originHub' ? 'originHub' : 'peerHub';
+    var values = Array.from(new Set((snapshot && snapshot.lanes || []).filter(function(o){ return o.expiresAt > Date.now() && (sel.value === 'all' || o.project === sel.value); }).map(function(o){ return o[axis]; }))).sort();
+    var signature = JSON.stringify(values);
+    if (control.getAttribute('data-options') === signature) return;
+    control.setAttribute('data-options', signature);
+    while (control.options.length > 2) control.remove(2);
+    values.forEach(function(value){ var option = document.createElement('option'); option.value = value; option.textContent = value; control.appendChild(option); });
+    if (selected !== 'all' && selected !== 'unknown' && values.indexOf(selected) < 0) {
+      var missing = document.createElement('option'); missing.value = selected; missing.textContent = selected + ' (no current observations)'; control.appendChild(missing);
+    }
+    control.value = selected;
+  });
+  var note = byId('hubScopeNote');
+  var relay = d.observationRelay;
+  var relayText = !relay || !relay.enabled ? 'Relay disabled: configure machine-level observation-relays.json.' : 'Relay ' + relay.localHub + ': ' + relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' + (relay.lastSuccessAt ? ' · last success ' + ago(msAgo(relay.lastSuccessAt)) : ' · awaiting first successful forward');
+  if (relay && relay.nextRetryAt) relayText += ' · next retry ' + new Date(relay.nextRetryAt).toLocaleTimeString();
+  if (relay && relay.lastError) relayText += ' · ' + relay.lastError;
+  if (note) setText(note, relayText + ' ' + (snapshot ? 'Authenticated operator observations · origin and immediate downstream are separate axes. Unobserved lanes remain unknown; observations grant no work authority.' : 'No hub observation feed installed. Lane provenance is unknown.'));
+  var body = byId('downstreamObservations');
+  if (!body) return;
+  var rows = (snapshot && snapshot.lanes || []).filter(function(o){ return o.expiresAt > Date.now() && scopedSource(o.laneId, o.project); });
+  var fragment = document.createDocumentFragment();
+  rows.slice(0, 100).forEach(function(o){
+    var row = document.createElement('p'); row.className = 'mono';
+    row.textContent = o.laneId + ' · origin ' + o.originHub + ' · via ' + o.peerHub + ' · ' + o.project + ' · observed ' + ago(msAgo(o.observedAt)) + ' · expires ' + new Date(o.expiresAt).toLocaleTimeString();
+    fragment.appendChild(row);
+  });
+  if (!rows.length) { var empty = document.createElement('p'); empty.className = 'dim'; empty.textContent = 'No unexpired downstream observations in this scope.'; fragment.appendChild(empty); }
+  if (rows.length > 100) { var bound = document.createElement('p'); bound.textContent = 'Showing 100 of ' + rows.length + ' observations. Narrow the filters.'; fragment.appendChild(bound); }
+  body.replaceChildren(fragment);
+}
 var fleetHistoryPage = 0;
 function renderFleetLanes(el, lanes, zombies, needs){
   var fragment = document.createDocumentFragment();
@@ -40,6 +95,8 @@ function renderFleetLanes(el, lanes, zombies, needs){
     var chip = document.createElement('span');
     chip.className = 'chip' + (s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies) ? ' zombie' : '');
     chip.title = s.sid;
+    var observed = hubScope().observations.filter(function(o){ return o.laneId === s.sid && o.project === s.project && o.expiresAt > Date.now(); });
+    chip.title += observed.length ? ' · ' + observed.map(function(o){ return 'origin ' + o.originHub + ' via ' + o.peerHub; }).join('; ') : ' · hub provenance unknown';
     var name = document.createElement('b');
     name.textContent = s.label || s.sid;
     chip.appendChild(name);
@@ -108,7 +165,8 @@ function fleetElements(body){
 function renderFleet(){
   var d = lastData;
   if (!d) { setText(byId('fleetLine'), 'fleet: loading...'); return; }
-  var view = selectGovernorLanes(d.sessions || [], sel.value);
+  renderHubObservations(d);
+  var view = selectGovernorLanes(d.sessions || [], sel.value, hubScope());
   var ss = view.current;
   var working = 0;
   for (var i = 0; i < ss.length; i++) if (ss[i].state === 'RUNNING') working++;
@@ -116,18 +174,18 @@ function renderFleet(){
   var zN = view.recent.filter(function(s){ return s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies); }).length;
   var blocked = 0;
   var proj = d.projects || [];
-  for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) blocked += (proj[p].gated || []).length;
-  var waiting = openDecs().filter(function(decision){ return sel.value === 'all' || decision.project === sel.value; }).length;
+  for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) blocked += (proj[p].gated || []).filter(function(item){ return scopedLane(item.owner, proj[p].project); }).length;
+  var waiting = openDecs().filter(function(decision){ return scopedSource(decision.asked_by || decision.target, decision.project); }).length;
   var line = 'fleet: ' + working + ' working · ' + waiting + ' waiting on you · ' + blocked + ' blocked' +
     ' · ' + view.recent.length + ' recent lanes' + (zN ? ' · ' + zN + ' recently flagged' : '');
   var ck = d.consults;
-  if (sel.value === 'all' && ck && (ck.human || ck.kbSolutions)) {
+  if (sel.value === 'all' && hubScope().origin === 'all' && hubScope().peer === 'all' && ck && (ck.human || ck.kbSolutions)) {
     line += ' · consults: ' + ck.open + ' open, ' + (ck.human + ck.kb) + ' answered' +
       (ck.kbSolutions ? ' · kb ' + ck.kbSolutions + ' solutions/' + ck.kbHits + ' hits' : '');
   }
   var el = byId('fleetLine');
   setText(el, line);
-  setText(byId('stamp'), 'updated ' + ago(Math.max(0, Math.round((Date.now() - d.ts) / 1000))));
+  setText(byId('stamp'), (d.observation ? d.observation.kind + ' snapshot · observed ' : 'updated ') + ago(Math.max(0, Math.round((Date.now() - (d.observation ? d.observation.observedAt : d.ts)) / 1000))));
   byId('blockedn').textContent = blocked ? blocked + ' blocked' : '';
   var body = byId('fleetBody');
   if (body.style.display === 'none') return; // collapsed: skip chip rebuild
@@ -158,25 +216,27 @@ function renderLlm(d){
   el.innerHTML = h;
 }
 function renderClaims(d){
-  var out = '';
+  var fragment = document.createDocumentFragment();
   var cs = d.claims || [];
   for (var i = 0; i < cs.length; i++) {
     var x = cs[i];
-    if (sel.value !== 'all' && !(d.sessions || []).some(function(s){ return s.sid === x.sid && s.project === sel.value; })) continue;
-    var owner = esc((d.labels || {})[x.sid] || String(x.sid || '').slice(0, 10));
-    var wait = x.waiters != null ? 'waiting ' + esc(String(x.waiters)) : '';
-    if (!wait && x.intent) wait = esc(x.intent).slice(0, 44);
-    var lease = x.lease != null ? esc(String(x.lease)) : 'held ' + ago(x.tsAgo);
-    out += '<div class="r' + (x.hot ? ' hot' : '') + '"><span class="mono">' + esc(x.scope || '?') + '</span>';
-    out += ' <span class="dim">-&gt;</span> ' + owner;
-    if (wait) out += ' <span class="dim">-&gt;</span> ' + wait;
-    out += ' <span class="dim">-&gt;</span> lease: ' + lease + '</div>';
+    if (!scopedSource(x.sid, x.project)) continue;
+    var owner = (d.labels || {})[x.sid] || String(x.sid || '').slice(0, 10);
+    var wait = x.waiters != null ? 'waiting ' + String(x.waiters) : '';
+    if (!wait && x.intent) wait = String(x.intent).slice(0, 44);
+    var lease = x.lease != null ? String(x.lease) : 'held ' + ago(x.tsAgo);
+    var row = document.createElement('div'); row.className = 'r' + (x.hot ? ' hot' : '');
+    var resource = document.createElement('span'); resource.className = 'mono'; resource.textContent = x.scope || '?';
+    row.appendChild(resource);
+    row.appendChild(document.createTextNode(' → ' + owner + (wait ? ' → ' + wait : '') + ' → lease: ' + lease));
+    fragment.appendChild(row);
   }
-  byId('claims').innerHTML = out || '<div class="r"><span class="dim">(no claims)</span></div>';
+  if (!fragment.childNodes.length) { var empty = document.createElement('div'); empty.className = 'r dim'; empty.textContent = '(no claims in this scope)'; fragment.appendChild(empty); }
+  byId('claims').replaceChildren(fragment);
 }
 function renderDone(d){
   var fragment = document.createDocumentFragment();
-  var completions = selectGovernorCompletions(d.projects || [], sel.value);
+  var completions = selectGovernorCompletions(d.projects || [], sel.value, hubScope());
   for (var i = 0; i < completions.length; i++) {
     var dn = completions[i];
     var row = document.createElement('div');
@@ -205,25 +265,31 @@ function renderDone(d){
 }
 function renderEvents(d){
   var filts = ['all','landed','blocked','need','checkpoint','alert','answer'];
-  var fh = '';
+  var buttons = document.createDocumentFragment();
   for (var f = 0; f < filts.length; f++) {
-    var on = evFilter === filts[f] ? ' on' : '';
-    fh += '<button class="' + on + '" onclick="setFilt(\'' + filts[f] + '\')">' + filts[f] + '</button>';
+    var button = document.createElement('button'); button.type = 'button';
+    button.className = evFilter === filts[f] ? 'on' : '';
+    button.textContent = filts[f];
+    button.setAttribute('aria-pressed', String(evFilter === filts[f]));
+    button.addEventListener('click', (function(filter){ return function(){ setFilt(filter); }; })(filts[f]));
+    buttons.appendChild(button);
   }
-  byId('filters').innerHTML = fh;
-  var ev = '';
+  byId('filters').replaceChildren(buttons);
+  var fragment = document.createDocumentFragment();
   var es = d.events || [];
   for (var j = es.length - 1; j >= 0; j--) {
     var e = es[j];
+    if (!scopedSource(e.source, e.project)) continue;
     var kl = String(e.kind).toLowerCase();
     if (evFilter !== 'all' && kl.indexOf(evFilter) < 0) continue;
-    var row = '<div class="r"><span class="ts">' + agoShort(e.tsAgo) + '</span>';
-    row += '<span><span class="mono">#' + e.id + '</span> <b>' + esc(e.kind) + '</b> ' + esc(e.source).slice(0, 12);
-    if (e.target) row += ' -&gt; ' + esc(e.target).slice(0, 10);
-    if (e.note) row += ' — ' + esc(e.note).slice(0, 56);
-    ev += row + '</span></div>';
+    var row = document.createElement('div'); row.className = 'r';
+    var ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = agoShort(e.tsAgo);
+    var text = document.createElement('span');
+    text.textContent = '#' + e.id + ' ' + e.kind + ' ' + String(e.source).slice(0, 12) + (e.target ? ' → ' + String(e.target).slice(0, 10) : '') + (e.note ? ' — ' + String(e.note).slice(0, 56) : '');
+    row.appendChild(ts); row.appendChild(text); fragment.appendChild(row);
   }
-  byId('events').innerHTML = ev || '<div class="r"><span class="dim">(none match)</span></div>';
+  if (!fragment.childNodes.length) { var empty = document.createElement('div'); empty.className = 'r dim'; empty.textContent = '(no matching events in this scope)'; fragment.appendChild(empty); }
+  byId('events').replaceChildren(fragment);
 }
 function setFilt(f){ evFilter = f; if (lastData) renderEvents(lastData); }
 `;

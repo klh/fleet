@@ -4,7 +4,7 @@
 // test file awaits its own instance via top-level await, so hooks stay
 // bound to the importing file. Bodies moved verbatim from
 // fleet-board.test.ts lines 22-157.
-import { afterAll, expect } from "bun:test";
+import { expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,
@@ -21,6 +21,19 @@ import { join } from "node:path";
 // callbacks honest without modeling every endpoint (the wire data is
 // untrusted until the assertion pins it)
 type Row = Record<string, unknown>;
+
+// Let the OS choose an unused loopback port; fixed test ports can silently
+// attach to a board left by another run and use its unrelated write token.
+export function unusedPort(): number {
+	const server = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: () => new Response(),
+	});
+	const port = server.port;
+	server.stop(true);
+	return port;
+}
 
 export async function boardFixture(
 	PORT: number,
@@ -47,7 +60,6 @@ export async function boardFixture(
 	addWork;
 	waitUp;
 	proc;
-	demoProc;
 	setDemoProc;
 }> {
 	const HOME = mkdtempSync(join(tmpdir(), "suspenders-board-"));
@@ -60,7 +72,10 @@ export async function boardFixture(
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 		SUSPENDERS_MDNS: "0",
+		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
+		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
 	};
+	if (PORT === 0) PORT = unusedPort();
 	const bin = join(import.meta.dir, "..", "..", "hooks", "bin");
 	const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -160,6 +175,15 @@ export async function boardFixture(
 		["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
+	// Register cleanup before awaiting startup so failed fixtures cannot leak
+	// processes. Drain output continuously to avoid a full pipe blocking them.
+	let output = "";
+	const drain = async (stream: ReadableStream<Uint8Array>) => {
+		for await (const chunk of stream)
+			output = `${output}${new TextDecoder().decode(chunk)}`.slice(-16_384);
+	};
+	void drain(proc.stdout);
+	void drain(proc.stderr);
 	// second instance for --demo seeding (same temp HOME — the demo partition
 	// lives in its governor.db, never in a real project)
 	let demoProc: Bun.Subprocess | null = null;
@@ -169,19 +193,19 @@ export async function boardFixture(
 	async function waitUp(base: string) {
 		for (let i = 0; i < 100; i++) {
 			try {
-				if ((await fetch(`${base}/api/data`)).ok) return;
+				if (
+					(
+						await fetch(`${base}/api/data`, {
+							signal: AbortSignal.timeout(500),
+						})
+					).ok
+				)
+					return;
 			} catch {}
 			await sleep(100);
 		}
-		throw new Error(`fleet board did not start on ${base}`);
+		throw new Error(`fleet board did not start on ${base}: ${output}`);
 	}
-	await waitUp(BASE);
-	// W264: the board mints its per-install write token at start (temp HOME)
-	const TOKEN = readFileSync(
-		`${HOME}/.cache/claude-governor/write-token`,
-		"utf8",
-	).trim();
-
 	afterAll(async () => {
 		proc.kill();
 		await proc.exited;
@@ -193,6 +217,12 @@ export async function boardFixture(
 		rmSync(REPO, { recursive: true, force: true });
 		rmSync(GREPO, { recursive: true, force: true });
 	});
+	await waitUp(BASE);
+	// W264: the board mints its per-install write token at start (temp HOME)
+	const TOKEN = readFileSync(
+		`${HOME}/.cache/claude-governor/write-token`,
+		"utf8",
+	).trim();
 	return {
 		TOKEN,
 		HOME,
@@ -215,7 +245,6 @@ export async function boardFixture(
 		addWork,
 		waitUp,
 		proc,
-		demoProc,
 		setDemoProc,
 	};
 }

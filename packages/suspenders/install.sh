@@ -78,6 +78,8 @@ done
 # the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
 # from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
 cp -R "$KIT_DIR" "$PREFIX/"
+cp "$KIT_DIR/observation.ts" "$PREFIX/lib/observation.ts"
+cp "$REPO_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
 # W422.5 — blam ships whole (manifest included): suspenders' manifest declares
 # "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
 # (below) symlinks node_modules/blam -> blam/ and board's package-name import
