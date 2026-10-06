@@ -3,6 +3,7 @@
 // entry's handler list); returns null when nothing matches.
 import { CLI, db, DEMO, WORK_CLI } from "./context.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
+import { resolveLlmTarget } from "./executor-catalog.ts";
 import { runCli, laneExecFacts, llmRoute, localSwarmChat } from "./exec.ts";
 import { specialistByPort } from "./local-swarm.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
@@ -408,7 +409,7 @@ export async function handleActions(
 				// W183.1 — this machine's own swarm: resolve the port<->
 				// model pair straight from registry.ts, no belt hop.
 				const port = Number(tail);
-				const spec = specialistByPort(port);
+				const spec = await specialistByPort(port);
 				if (!spec)
 					return json(
 						{ ok: false, error: `unknown local swarm port ${tail}` },
@@ -444,13 +445,12 @@ export async function handleActions(
 				});
 				return json({ ok: true, item: id, sid, executor: agent });
 			}
-			const ep = (await beltCheck()).find(
-				(r) =>
-					r.machine === machine &&
-					r.protocol === "openai" &&
-					(r.model === tail || String(r.port ?? "") === tail),
-			);
-			if (!ep)
+			// W224 — machine+tail resolves through executor-catalog's one
+			// reader: a port or default-model pick matches the row directly,
+			// a catalog pick falls back to machine-level targeting with the
+			// model riding belt's route-to --model. Garbage tails 409.
+			const target = resolveLlmTarget(await beltCheck(), machine, tail);
+			if (!target)
 				return json(
 					{
 						ok: false,
@@ -458,6 +458,7 @@ export async function handleActions(
 					},
 					409,
 				);
+			const { ep, override } = target;
 			const role = ep.roles?.includes("general")
 				? "general"
 				: (ep.roles?.[0] ?? "");
@@ -481,12 +482,14 @@ export async function handleActions(
 					{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
 					409,
 				);
-			laneExecFacts(sid, agent, ep.model ?? tail, rowLocality(ep));
+			laneExecFacts(sid, agent, override ?? ep.model ?? tail, rowLocality(ep));
 			void llmRoute({
 				item: id,
 				repo,
-				role,
-				target: `${machine}:${tail}`,
+				machine,
+				port: ep.port ?? 0,
+				model: override,
+				target: `${machine}:${override ?? ep.model ?? tail}`,
 				sid,
 				title: w.title,
 				desc: w.description ?? "",

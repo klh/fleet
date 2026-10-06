@@ -25,6 +25,7 @@
 // NEVER committed): <machine>:<port> → {last_ok, last_error}.
 import dgram from "node:dgram";
 import { endpointPassed } from "./health.ts";
+import { validModel } from "./remotes-validate.ts";
 import {
 	appendFileSync,
 	existsSync,
@@ -247,6 +248,38 @@ export async function probeEndpoint(
 	}
 }
 
+/** Live model catalog for one endpoint (W224): GET /v1/models (LAN) or
+ *  ${base}/models (cloud) with the endpoint's bearer, parsed from the
+ *  OpenAI shape {data:[{id}]}. llama-server answers /v1/models too; immich
+ *  has none. Empty on ANY failure — callers fall back to the configured
+ *  ep.model. Ids pass the same charset grammar as remotes.json fields —
+ *  catalog payloads are network input, not config (W192 lesson). */
+export async function catalogFor(
+	machine: RemoteMachine,
+	ep: RemoteEndpoint,
+): Promise<string[]> {
+	if (ep.protocol === "immich") return [];
+	const ip = ep.base ? "" : resolveHost(machine);
+	if (!ep.base && !ip) return [];
+	const headers: Record<string, string> = {};
+	const key = endpointKey(ep);
+	if (key) headers.authorization = `Bearer ${key}`;
+	try {
+		const r = await fetch(
+			ep.base ? `${ep.base}/models` : `http://${ip}:${ep.port}/v1/models`,
+			{ headers, signal: AbortSignal.timeout(4000) },
+		);
+		if (!r.ok) return [];
+		const j = (await r.json()) as { data?: { id?: unknown }[] };
+		const ids = (Array.isArray(j.data) ? j.data : [])
+			.map((d) => (typeof d?.id === "string" ? d.id : ""))
+			.filter((id) => validModel(id));
+		return [...new Set(ids)];
+	} catch {
+		return [];
+	}
+}
+
 /** Synology hibernation: NIC answers ARP but TCP is silent until a magic
  *  packet. Ported verbatim from suspenders hooks/lib/remotes.ts (spike w86,
  *  bfde191 — proven on the real NAS). Broadcast + 255.255.255.255 retry. */
@@ -290,6 +323,7 @@ export interface CheckRow {
 	protocol: RemoteEndpoint["protocol"];
 	roles: string[];
 	model?: string;
+	models?: string[]; // W224 — live /v1/models catalog; absent when the fetch fails or adds nothing
 	ok: boolean;
 	ms: number;
 	ip?: string;
@@ -305,6 +339,9 @@ export async function checkAll(): Promise<CheckRow[]> {
 			const ok = await probeEndpoint(m, ep);
 			const reason = ok ? undefined : probeReason(ep);
 			noteLiveness(m.name, ep.port, ok, reason);
+			// W224 — catalog on live endpoints only: a dead one already paid the
+			// probe timeout, a second /v1/models fetch would double it
+			const models = ok ? await catalogFor(m, ep) : [];
 			const st = stateFor(m.name);
 			rows.push({
 				machine: m.name,
@@ -313,6 +350,7 @@ export async function checkAll(): Promise<CheckRow[]> {
 				protocol: ep.protocol,
 				roles: ep.roles,
 				model: ep.model,
+				...(models.length ? { models } : {}),
 				ok,
 				ms: Date.now() - t0,
 				ip: st.resolved_ip,
@@ -508,8 +546,10 @@ export async function routeTask(
 	machine: RemoteMachine,
 	ep: RemoteEndpoint,
 	prompt: string,
+	modelOverride?: string,
 ): Promise<string> {
 	if (ep.protocol === "immich") return routeImmich(machine, ep, prompt);
+	const model = modelOverride ?? ep.model ?? "default";
 	const headers: Record<string, string> = {
 		"content-type": "application/json",
 	};
@@ -525,7 +565,7 @@ export async function routeTask(
 		return chatCompletion(
 			`${ep.base}/chat/completions`,
 			headers,
-			ep.model ?? "default",
+			model,
 			prompt,
 		);
 	}
@@ -534,9 +574,60 @@ export async function routeTask(
 	return chatCompletion(
 		`http://${ip}:${ep.port}/v1/chat/completions`,
 		headers,
-		ep.model ?? "default",
+		model,
 		prompt,
 	);
+}
+
+/** Pull `--model <id>` out of a route argv tail (W224): the override rides
+ *  the same argv as the prompt words and must be split before the join.
+ *  Bun strips a bare `--` before argv ever reaches us (W250), so the flag
+ *  is the only clean seam. A valueless flag stays in the prompt untouched. */
+export function splitModelFlag(rest: string[]): {
+	words: string[];
+	model?: string;
+} {
+	const i = rest.indexOf("--model");
+	if (i < 0 || i + 1 >= rest.length) return { words: rest };
+	return {
+		words: [...rest.slice(0, i), ...rest.slice(i + 2)],
+		model: rest[i + 1],
+	};
+}
+
+/** Shared tail of the route verbs (W224): wake, route, log + liveness
+ *  either way; returns the outcome for the verb to print/exit on. */
+async function runRouted(
+	role: string,
+	m: RemoteMachine,
+	ep: RemoteEndpoint,
+	prompt: string,
+	modelOverride: string | undefined,
+): Promise<{ answer: string; ok: boolean }> {
+	const t0 = Date.now();
+	const entry: RouteLogEntry = {
+		ts: new Date().toISOString(),
+		machine: m.name,
+		endpoint: `${m.host}:${ep.port}`,
+		protocol: ep.protocol,
+		role,
+		duration_ms: 0,
+		ok: false,
+		model: modelOverride ?? ep.model,
+	};
+	let answer = "";
+	try {
+		const woke = await wakeIfNeeded(m, ep);
+		answer = await routeTask(m, ep, prompt, modelOverride);
+		entry.ok = true;
+		if (woke) entry.woke = true;
+	} catch (err) {
+		answer = `route failed: ${err instanceof Error ? err.message : String(err)}`;
+	}
+	entry.duration_ms = Date.now() - t0;
+	logRoute(entry);
+	noteLiveness(m.name, ep.port, entry.ok, entry.ok ? undefined : answer);
+	return { answer, ok: entry.ok };
 }
 
 async function main() {
@@ -569,56 +660,48 @@ async function main() {
 	}
 	if (cmd === "route") {
 		const [role, ...rest] = process.argv.slice(3);
-		const prompt = rest.join(" ");
+		const { words, model } = splitModelFlag(rest);
+		const prompt = words.join(" ");
 		if (!role || !prompt) {
-			console.error("usage: remotes.ts route <role> <prompt>");
+			console.error("usage: remotes.ts route <role> <prompt> [--model <id>]");
 			process.exit(1);
 		}
 		for (const m of loadStatic())
 			for (const ep of m.endpoints)
 				if (ep.roles.includes(role)) {
 					console.log(`→ ${m.name}:${ep.port} (${ep.protocol})`);
-					const t0 = Date.now();
-					const entry: RouteLogEntry = {
-						ts: new Date().toISOString(),
-						machine: m.name,
-						endpoint: `${m.host}:${ep.port}`,
-						protocol: ep.protocol,
-						role,
-						duration_ms: 0,
-						ok: false,
-						model: ep.model,
-					};
-					try {
-						const woke = await wakeIfNeeded(m, ep);
-						const answer = await routeTask(m, ep, prompt);
-						entry.ok = true;
-						if (woke) entry.woke = true;
-						entry.duration_ms = Date.now() - t0;
-						logRoute(entry);
-						noteLiveness(m.name, ep.port, true);
-						console.log(answer);
-					} catch (err) {
-						entry.duration_ms = Date.now() - t0;
-						logRoute(entry);
-						noteLiveness(
-							m.name,
-							ep.port,
-							false,
-							err instanceof Error ? err.message : String(err),
-						);
-						console.error(
-							`route failed: ${err instanceof Error ? err.message : String(err)}`,
-						);
-						process.exit(1);
-					}
+					const r = await runRouted(role, m, ep, prompt, model);
+					console.log(r.answer);
+					if (!r.ok) process.exit(1);
 					return;
 				}
 		console.error(`no remote endpoint serves role '${role}'`);
 		process.exit(1);
 	}
+	if (cmd === "route-to") {
+		const [name, portStr, ...rest] = process.argv.slice(3);
+		const { words, model } = splitModelFlag(rest);
+		const prompt = words.join(" ");
+		if (!name || !portStr || !prompt) {
+			console.error(
+				"usage: remotes.ts route-to <machine> <port> <prompt> [--model <id>]",
+			);
+			process.exit(1);
+		}
+		const m = loadStatic().find((x) => x.name === name);
+		const ep = m?.endpoints.find((e) => String(e.port) === portStr);
+		if (!m || !ep) {
+			console.error(`no endpoint ${name}:${portStr} in remotes.json`);
+			process.exit(1);
+		}
+		console.log(`→ ${m.name}:${ep.port} (${ep.protocol})`);
+		const r = await runRouted("direct", m, ep, prompt, model);
+		console.log(r.answer);
+		if (!r.ok) process.exit(1);
+		return;
+	}
 	console.log(
-		"usage: remotes.ts check [--json] | discover [--json] | route <role> <prompt>",
+		"usage: remotes.ts check [--json] | discover [--json] | route <role> <prompt> [--model <id>] | route-to <machine> <port> <prompt> [--model <id>]",
 	);
 }
 

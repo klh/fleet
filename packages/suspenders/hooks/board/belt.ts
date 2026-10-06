@@ -2,9 +2,7 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { CLI, BELT_REPO } from "./context.ts";
-import { json } from "./helpers.ts";
-import { board } from "./data.ts";
+import { BELT_REPO } from "./context.ts";
 import { resolveBelt } from "../lib/belt-locate.ts";
 
 export interface BeltEndpoint {
@@ -16,6 +14,7 @@ export interface BeltEndpoint {
 	roles?: string[];
 	ip?: string;
 	host?: string;
+	models?: string[]; // W224 — live /v1/models catalog (rows from belt check --json / /api/remotes)
 }
 export let beltCache: { at: number; rows: BeltEndpoint[] } | null = null;
 export const beltCheck = async (): Promise<BeltEndpoint[]> => {
@@ -63,19 +62,8 @@ export const beltRegistry = async (): Promise<BeltEndpoint[]> => {
 // LOCAL = LAN/loopback endpoint (private ip, .local mDNS name); REMOTE =
 // everything else — the routing doctrine's default (glm-5.3-flash via z.ai)
 // and the stock CLI model endpoints (Anthropic/OpenAI) are cloud-hosted.
-export const rowLocality = (r: {
-	ip?: string;
-	host?: string;
-}): "local" | "remote" => {
-	const ip = r.ip ?? "";
-	const host = (r.host ?? "").toLowerCase();
-	return host.endsWith(".local") ||
-		ip === "::1" ||
-		ip.startsWith("127.") ||
-		ip.startsWith("192.168.") ||
-		ip.startsWith("10.") ||
-		/^172\.(1[6-9]|2\d|3[01])\./.test(ip)
-		? "local"
-		: "remote";
-};
+// (W224: implementation moved to executor-catalog.ts — this module stays
+// the import seam for the route modules.)
+export { rowLocality } from "./executor-catalog.ts";
+// one bun sibling-CLI call — stdout+stderr folded, trimmed
 // one bun sibling-CLI call — stdout+stderr folded, trimmed
