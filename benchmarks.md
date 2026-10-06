@@ -364,12 +364,3 @@ Findings (as measured, n=12 smoke-level):
    enable the enhance pass on the local swarm for task prompts, and keep the
    buckle outbound sideband (politeness) default OFF pending a quality bench
    on real responses. W368 re-benches all three blam tiers per model.
-
-## Service manifest emitter (W488.1, 2026-10-06)
-
-Manifest → launchd render, darwin target (install-services.ts, zero new deps):
-**12 services in 0.23–0.25 ms** per run (3 consecutive runs, wallMs in --json).
-Parity 12/12 field-equivalent against the hand templates (parsed-XML
-projection, placeholder-identical substitution), all 12 units pass
-`plutil -lint`. Baseline for the systemd/WinSW emitters (W488.2/3) and the
-install.ts cutover benchmark (W490.2).
