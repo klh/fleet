@@ -79,6 +79,8 @@ bun -e 'const p=process.argv[1];const j=JSON.parse(await Bun.file(p).text());del
 rm -f "$PREFIX/bun.lock"
 cp "$REPO_DIR/package.json" "$PREFIX/"
 (cd "$PREFIX" && bun install --production) # --production: skip devDeps — blam's authoring-time belt/suspenders devDeps don't ship; shell-quote, for the bash gate
+# Catch broken workspace links/imports before restarting the live services.
+bun -e 'await import(process.argv[1])' "$PREFIX/board/prompt-transform.ts"
 echo "→ harness in place"
 
 # ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
@@ -159,6 +161,8 @@ fi
 if [[ $WIRE -eq 1 ]]; then
   SETTINGS="$HOME/.claude/settings.json"
   [ -f "$SETTINGS" ] || echo "{}" >"$SETTINGS"
+  # The $HOME string below is a literal hook placeholder, expanded by JS.
+  # shellcheck disable=SC2016
   SUSPENDERS_EXAMPLE="$REPO_DIR/settings.example.json" SUSPENDERS_PREFIX="$PREFIX" bun -e '
     const fs = require("node:fs");
     const settingsPath = process.env.HOME + "/.claude/settings.json";
@@ -185,40 +189,31 @@ if [[ $WITH_LAUNCHD -eq 1 ]]; then
     BUN_BIN="$(command -v bun)"
     # W264: agent logs live in the private insights dir, never world-readable /tmp
     mkdir -p "$HOME/.claude-insights" && chmod 700 "$HOME/.claude-insights"
+    mkdir -p "$HOME/Library/LaunchAgents"
+    failed_agents=()
     for f in "$REPO_DIR"/hooks/launchd/*.plist; do
       name="$(basename "$f")"
       out="$HOME/Library/LaunchAgents/$name"
       sed -e "s|__BUN__|$BUN_BIN|" -e "s|__HOME__|$HOME|g" -e "s|__PREFIX__|$PREFIX|" -e "s|__REPO__|$REPO_DIR|" \
         -e "s|__BELT_URL__|${BELT_URL:-http://127.0.0.1:4100}|" -e "s|__BELT_TOKEN__|${BELT_TOKEN:-}|" "$f" >"$out"
-      launchctl bootout "gui/$(id -u)/${name%.plist}" 2>/dev/null || true
-      # launchd needs a beat after bootout before the same label can
-      # bootstrap again, else it intermittently errors "5: Input/output
-      # error" (observed race, not a real failure) — retry with backoff
-      # instead of letting `set -e` abort the whole install mid-loop.
-      ok=0
-      for attempt in 1 2 3; do
-        if launchctl bootstrap "gui/$(id -u)" "$out" 2>/tmp/suspenders-bootstrap-err; then
-          ok=1
-          break
-        fi
-        echo "  (bootstrap attempt $attempt failed, retrying…)" >&2
-        sleep 0.5
-      done
-      if [[ $ok -eq 1 ]]; then
-        echo "→ loaded $name"
-      else
-        echo "→ WARNING: failed to load $name (see /tmp/suspenders-bootstrap-err)" >&2
+      if ! bash "$REPO_DIR/scripts/load-launchd.sh" "$out" \
+        "$HOME/.claude-insights/launchd-${name%.plist}.log"; then
+        failed_agents+=("${name%.plist}")
       fi
     done
     # supersede the pre-namespacing agent labels so old and new never run side
     # by side (same jobs, stale script paths, double keepwarm/monitor pings)
-    for legacy in com.klh.llm-keepwarm com.klh.fleet-monitor; do
+    for legacy in com.klh.llm-keepwarm com.klh.fleet-monitor com.klh.local-llm; do
       launchctl bootout "gui/$(id -u)/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"
         echo "→ superseded legacy agent $legacy"
       fi
     done
+    if [[ ${#failed_agents[@]} -gt 0 ]]; then
+      echo "→ install incomplete: launchd jobs failed: ${failed_agents[*]}" >&2
+      exit 1
+    fi
   fi
 fi
 
