@@ -2,7 +2,7 @@
 description: Implement the next task incrementally — build, test, verify, commit
 ---
 
-Invoke the klh-systematic-debugging skill if anything breaks; use ast-grep for identifier-shaped changes and sd/ambr for mechanical ones.
+Use the incremental-implementation skill for multi-file changes: implement, test, verify and commit one small slice before expanding. Invoke the klh-systematic-debugging skill if anything breaks; use ast-grep for identifier-shaped changes and sd/ambr for mechanical ones.
 
 Pick the next pending task from the plan. For each task:
 

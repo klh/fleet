@@ -438,7 +438,7 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ## Available Skills Quick Reference
 
-36 active skills (klh-\* variants + registry adds; optional ones parked in `skills-available/`). Check this list when a task matches; invoke the skill before starting.
+Active skills live in `skills/` (klh-\* variants + registry adds; optional ones parked in `skills-available/`). Check this list when a task matches; invoke the skill before starting.
 
 ### Editing & Code Intelligence
 
@@ -475,11 +475,12 @@ RIGHT: npm test && qlty check && difft main...HEAD
 
 ### Debugging & Planning
 
-| Skill                      | When to use                                                          |
-| -------------------------- | -------------------------------------------------------------------- |
-| `klh-systematic-debugging` | Bugs, test failures, unexpected behavior — root cause before any fix |
-| `spec-driven-development`  | Starting a new project/feature with no specification                 |
-| `context-engineering`      | Setting up or repairing agent context/rules files for a project      |
+| Skill                        | When to use                                                             |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `klh-systematic-debugging`   | Bugs, test failures, unexpected behavior — root cause before any fix    |
+| `spec-driven-development`    | Starting a new project/feature with no specification                    |
+| `context-engineering`        | Setting up or repairing agent context/rules files for a project         |
+| `incremental-implementation` | Multi-file changes: implement, test, verify and commit each small slice |
 
 ### Docs & Setup
 
