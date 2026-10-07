@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-work-cli-home-"));
 const gitInit = (dir: string): void => {
@@ -74,6 +75,31 @@ function finish(
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
+});
+
+test("show --json gives dispatcher state and exact owner in either flag order", () => {
+	const id = idOf(
+		work("add", "JSON state test", "--desc", "state: CLAIMED by wrong-owner")
+			.out,
+	);
+	expect(work("take", id, "--as", "json-owner").code).toBe(0);
+	for (const args of [
+		["show", id, "--json"],
+		["show", "--json", id],
+	]) {
+		const result = work(...args);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.out)).toMatchObject({
+			id,
+			state: "CLAIMED",
+			owner_sid: "json-owner",
+		});
+		expect(isResumableClaim(result.out, id, "json-owner")).toBe(true);
+		expect(isResumableClaim(result.out, id, "wrong-owner")).toBe(false);
+	}
+	expect(work("show", id).out).toContain("owner_sid: json-owner");
+	expect(work("show", "W99999999", "--json").code).not.toBe(0);
+	expect(work("show", "--json").code).not.toBe(0);
 });
 
 describe("add — id allocation", () => {

@@ -1,59 +1,53 @@
 import { expect, test } from "bun:test";
 import { isResumableClaim } from "./resumable-claim.ts";
 
-test("current work show header permits the exact owner's unfinished claim", () => {
-	const output =
-		"◐ W517 CLAIMED  feature: .prefer discovery\n  owner_sid: autow517\n  description: state: DONE is an example\n";
-	expect(isResumableClaim(output, "W517", "autow517")).toBe(true);
-	expect(
-		isResumableClaim(output.replace("CLAIMED", "RUNNING"), "W517", "autow517"),
-	).toBe(true);
+test("structured claimed/running records preserve exact item and owner", () => {
+	for (const state of ["CLAIMED", "RUNNING"]) {
+		const output = JSON.stringify({
+			id: "W494.2",
+			state,
+			owner_sid: "autow494-2",
+			description: "state: DONE",
+		});
+		expect(isResumableClaim(output, "W494.2", "autow494-2")).toBe(true);
+		expect(isResumableClaim(output, "W494", "autow494-2")).toBe(false);
+		expect(isResumableClaim(output, "W494.2", "autow494")).toBe(false);
+	}
 });
-
-test("colors and hierarchical work IDs preserve exact identity", () => {
-	const output =
-		"\u001b[33m◐\u001b[0m W494.2 \u001b[33mCLAIMED\u001b[0m fix\n  \u001b[2mowner_sid:\u001b[0m autow494-2\n";
-	expect(isResumableClaim(output, "W494.2", "autow494-2")).toBe(true);
-});
-
-test("closed state and absent or different owners never resume", () => {
+test("closed or unowned records never resume", () => {
 	for (const state of ["DONE", "READY", "SUPERSEDED", "BLOCKED", "ORPHANED"]) {
 		expect(
 			isResumableClaim(
-				`◐ W517 ${state} title\n  owner_sid: autow517`,
+				JSON.stringify({
+					id: "W517",
+					state,
+					owner_sid: "autow517",
+					description: "CLAIMED autow517",
+				}),
 				"W517",
 				"autow517",
 			),
 		).toBe(false);
 	}
-	expect(
-		isResumableClaim(
-			"◐ W517 CLAIMED title\n  owner_sid: autow5170",
-			"W517",
-			"autow517",
-		),
-	).toBe(false);
-	expect(
-		isResumableClaim("◐ W517 CLAIMED title autow517", "W517", "autow517"),
-	).toBe(false);
-	expect(
-		isResumableClaim(
-			"◐ W518 CLAIMED title\n  owner_sid: autow517",
-			"W517",
-			"autow517",
-		),
-	).toBe(false);
+	for (const owner_sid of [null, "autow5170"]) {
+		expect(
+			isResumableClaim(
+				JSON.stringify({ id: "W517", state: "CLAIMED", owner_sid }),
+				"W517",
+				"autow517",
+			),
+		).toBe(false);
+	}
 });
-
-test("a description mentioning CLAIMED and the sid cannot impersonate state", () => {
-	expect(
-		isResumableClaim(
-			"✓ W517 DONE title\n  description: state: CLAIMED by autow517",
-			"W517",
-			"autow517",
-		),
-	).toBe(false);
-	expect(isResumableClaim("error reading work graph", "W517", "autow517")).toBe(
-		false,
-	);
+test("display text and malformed JSON fail closed", () => {
+	for (const output of [
+		"◐ W517 CLAIMED title owner_sid: autow517",
+		"error",
+		"null",
+		"[]",
+		"{}",
+		'{"id":',
+	]) {
+		expect(isResumableClaim(output, "W517", "autow517")).toBe(false);
+	}
 });

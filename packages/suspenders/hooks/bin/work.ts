@@ -71,6 +71,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 // flag-shaped.
 type Spec = {
 	flags: string[];
+	switches?: string[];
 	minPos: number;
 	reqFlags: string[];
 	usage: string;
@@ -112,7 +113,13 @@ const SCHEMA: Record<string, Spec> = {
 		lax: true,
 	},
 	owned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	show: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
+	show: {
+		flags: [...ITEM_FLAGS, "--json"],
+		switches: ["--json"],
+		minPos: 1,
+		reqFlags: [],
+		usage: "usage: show <id> [--json]",
+	},
 	take: {
 		flags: ITEM_FLAGS,
 		minPos: 1,
@@ -192,6 +199,10 @@ function parseArgs(spec: Spec): {
 	const pos: string[] = [];
 	const vals = new Map<string, string | null>();
 	for (let i = 0; i < rest.length; i++) {
+		if (spec.switches?.includes(rest[i])) {
+			vals.set(rest[i], "true");
+			continue;
+		}
 		if (spec.flags.includes(rest[i])) {
 			if (!vals.has(rest[i])) vals.set(rest[i], rest[i + 1] ?? null);
 			i++;
@@ -866,6 +877,10 @@ if (cmd === "add") {
 } else if (cmd === "show") {
 	const id = pos[0];
 	const it = get(id ?? "");
+	if (flag("--json")) {
+		console.log(JSON.stringify(it));
+		process.exit(0);
+	}
 	const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
 	console.log(`${col(g)} ${it.id} ${col(it.state as string)}  ${it.title}`);
 	for (const k of [

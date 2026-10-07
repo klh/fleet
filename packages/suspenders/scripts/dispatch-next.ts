@@ -986,7 +986,13 @@ const main = async (): Promise<void> => {
 	const resumeOf = new Map<string, Lane>();
 	for (const l of lanes.filter((x) => !live.includes(x))) {
 		if (worktreeLive(l.worktree)) continue; // raced between filter and here
-		const show = run([process.execPath, `${BIN}/work.ts`, "show", l.item]);
+		const show = run([
+			process.execPath,
+			`${BIN}/work.ts`,
+			"show",
+			l.item,
+			"--json",
+		]);
 		if (show.code !== 0 || !isResumableClaim(show.out, l.item, l.sid)) continue;
 		resumeOf.set(l.item, l);
 	}
