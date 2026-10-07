@@ -24,6 +24,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
@@ -38,13 +39,15 @@ import {
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import {
 	ensureLaneKey,
+	adminKey,
+	revokeLaneKey,
 	laneKeyMetaPath,
 	LANE_KEY_TTL_S,
 	type MintedLaneKey,
 } from "./lib/lane-auth.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -54,6 +57,13 @@ import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import {
+	resolveLaneExecutor,
+	releaseFailedLaunch,
+	acquireLaunchLease,
+	renewLaunchLease,
+	releaseLaunchLease,
+} from "./lib/launch-preflight.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
@@ -81,6 +91,7 @@ Refill agent lanes from READY work and resume unfinished claims.
   -h, --help               Print this help without dispatching
 
 Crash recovery defaults to three total launches per lane.
+Set SUSPENDERS_CLAUDE_BIN or SUSPENDERS_COPILOT_BIN to an absolute executable path.
 Set SUSPENDERS_LANE_MAX_ATTEMPTS to a value from 1 to 100 to override.`);
 	process.exit(0);
 }
@@ -123,7 +134,7 @@ const NO_BELT = argv.includes("--no-belt");
 // unless the operator passed this flag (loud, logged, disclosed in the brief).
 const ALLOW_UNGOVERNED = argv.includes("--allow-ungoverned");
 const SHOW_CAPSULE = val("--show-capsule");
-const BIN = `${process.env.HOME}/.claude/hooks/suspenders/bin`;
+const BIN = `${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin`;
 const FLEET = `${REPO}/.fleet`;
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
@@ -611,7 +622,7 @@ const dispatchItem = async (
 	resume?: Lane,
 ): Promise<string | null> => {
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
-	const attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
+	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
 	const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
@@ -681,233 +692,308 @@ const dispatchItem = async (
 		);
 		return `${item}→${sid}(dry)`;
 	}
-	const take = run([
-		process.execPath,
-		`${BIN}/work.ts`,
-		"take",
-		item,
-		"--as",
-		sid,
-		"--origin",
-		`${hostname()}:claude`,
-	]);
-	if (take.code !== 0) {
-		const show = run([
+	const store = openStore();
+	const project = projectIdentity(REPO);
+	const attemptKey = `lane.${sid}.launch-attempt`;
+	const prior = store
+		.query("SELECT value FROM facts WHERE key=?")
+		.get(attemptKey) as { value: string } | null;
+	if (prior && /^\d+$/.test(prior.value))
+		attempt = Math.max(attempt, Number(prior.value) + 1);
+	if (attempt >= limit) {
+		governanceRefusals.push(item);
+		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before resetting its launch-attempt fact`;
+		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
+		run([
+			process.execPath,
+			`${BIN}/coord.ts`,
+			"emit",
+			"NEED_DECISION",
+			"--as",
+			sid,
+			"--scope",
+			"suspenders",
+			"--note",
+			note,
+		]);
+		return null;
+	}
+	let pick = execPick(attempt);
+	let bin = resolveLaneExecutor(pick.bin);
+	if (!bin) {
+		governanceRefusals.push(item);
+		console.log(
+			`REFUSED ${item} — executor unavailable: ${pick.bin}; set SUSPENDERS_${pick.bin.toUpperCase()}_BIN or install in ~/.local/bin; nothing claimed or minted`,
+		);
+		return null;
+	}
+	const nonce = crypto.randomUUID();
+	if (!acquireLaunchLease(store, project, sid, nonce)) {
+		console.log(
+			`REFUSED ${item} — another dispatcher owns the launch lease; nothing claimed or minted`,
+		);
+		governanceRefusals.push(item);
+		return null;
+	}
+	let claimRevision: number | undefined;
+	let committedLaunch = false;
+	let launchedProc: ReturnType<typeof spawnClaude> | undefined;
+	let ownedKeyId: string | undefined;
+	const writtenFiles = new Map<string, string>();
+	try {
+		const published = loadLanes().find((l) => l.sid === sid);
+		if (published && laneProcessIdentity(published) !== false) {
+			governanceRefusals.push(item);
+			console.log(
+				`REFUSED ${item} — durable registry already holds a live or unknown lane; nothing claimed or minted`,
+			);
+			return null;
+		}
+		const latestAttempt = store
+			.query("SELECT value FROM facts WHERE key=?")
+			.get(attemptKey) as { value: string } | null;
+		if (latestAttempt && /^\d+$/.test(latestAttempt.value))
+			attempt = Math.max(attempt, Number(latestAttempt.value) + 1);
+		if (attempt >= limit) {
+			governanceRefusals.push(item);
+			console.log(
+				`REFUSED ${item} — launch budget exhausted; nothing claimed or minted`,
+			);
+			return null;
+		}
+		pick = execPick(attempt);
+		bin = resolveLaneExecutor(pick.bin);
+		if (!bin) {
+			governanceRefusals.push(item);
+			console.log(
+				`REFUSED ${item} — selected executor unavailable; nothing claimed or minted`,
+			);
+			return null;
+		}
+		const take = run([
 			process.execPath,
 			`${BIN}/work.ts`,
-			"show",
+			"take",
 			item,
-			"--json",
+			"--as",
+			sid,
+			"--origin",
+			`${hostname()}:claude`,
 		]);
-		if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
-			console.log(
-				`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
-			);
-			return null;
-		}
-		// claimed by this sid from a previous dispatch attempt — resume
-	}
-	if (!existsSync(wt)) {
-		const created = run([
-			process.execPath,
-			`${BIN}/worktree.ts`,
-			"create",
-			item,
-		]);
-		if (created.code !== 0) {
-			console.log(
-				`SKIP ${item} — worktree create failed: ${created.out.split("\n")[0]}`,
-			);
-			return null;
-		}
-	}
-	const branch =
-		sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
-	const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
-	const capsule = capsuleGet(sid);
-	// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
-	// attempt N having died is exactly the signal to try chain[N+1] next
-	// (owner directive 2026-10-03: sequential must/prefer, CLI-agnostic).
-	const pick = execPick(attempt);
-	if (pick.chainLen > 1)
-		console.log(
-			`NOTE — .prefer chain attempt ${pick.chainIdx}/${pick.chainLen - 1}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
-		);
-	// W293 session-name bridge: stamp the lane's user-facing name onto the
-	// sessions row (tags JSON) so coord fleet + the board show e.g.
-	// "[IKEA] opus W5" instead of an opaque sid. Renames on resume (the chain
-	// can switch executor between attempts). The lane's own session-start
-	// upsert never touches the tags column, so the name survives registration.
-	run([
-		process.execPath,
-		`${BIN}/coord.ts`,
-		"bootstrap",
-		"--as",
-		sid,
-		"--name",
-		`${pick.agent} ${item}`,
-	]);
-	const brief = composeBrief({
-		item,
-		showOut: show.out,
-		sid,
-		branch,
-		worktree: wt,
-		capsule,
-		agent: pick.agent,
-	});
-	// W223.2 dual-harness brief verification: copilot's prompt handling can
-	// mangle a brief claude renders fine, so the copilot harness gets a hard
-	// gate — a failing brief refuses the spawn AND reclaims the claim (a
-	// stranded claim on a never-spawned lane is the exact disease quota-sweep
-	// cures). claude runs the same checks warn-only (no observed claude
-	// mangling; hard-gating claude is a separate behavior change).
-	const harness: "claude" | "copilot" =
-		pick.bin === "copilot" ? "copilot" : "claude";
-	const verdict = verifyBrief(brief, { harness });
-	if (!verdict.ok && harness === "copilot") {
-		const why = briefVerdictLine(verdict, Buffer.byteLength(brief));
-		run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
-		console.log(
-			`SKIP ${item} — brief refused by ${harness} verification: ${why} — claim reclaimed → READY, nothing spawned`,
-		);
-		return null;
-	}
-	if (!verdict.ok)
-		console.log(
-			`NOTE — ${briefVerdictLine(verdict, Buffer.byteLength(brief))} (claude warn-only, dispatched anyway)`,
-		);
-	const briefFile = `${FLEET}/brief-${sid}.md`;
-	mkdirSync(FLEET, { recursive: true });
-	writeFileSync(briefFile, brief);
-	// W.F1 (2026-10-03): sandboxed lanes can read NOTHING outside their
-	// worktree — the .fleet/brief-<sid>.md copy in the main checkout is
-	// invisible to them (lesson.brief-sandbox-access; the whole [IKEA] demo
-	// family produced zero bytes because of this). The worktree copy is the
-	// one the lane reads; the .fleet copy stays for the orchestrator/board.
-	writeFileSync(`${wt}/.klh-brief.md`, brief);
-	// env + spawn recipe shared with supervise.ts per executor (W223):
-	// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
-	const env = laneEnv({ ...process.env }, NO_BELT);
-	env.SUSPENDERS_SID = sid;
-	// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)
-	// — executor knowledge lives in the table, dispatch has no per-executor
-	// branches. NO_BELT lanes speak their own API; nothing is inserted.
-	// (Model pins only make sense behind belt — belt routes by model id.)
-	// hub resolution (owner directive 2026-10-03): a .prefer hub= label now
-	// actually redirects lane traffic — resolveHub walks env override →
-	// repo one-off hub-url candidates → global hubs.json registry → mDNS
-	// <label>.local guess → null (degrades to local belt/buckle, loud note,
-	// never a silent wrong hub).
-	let hubNote = "";
-	let resolvedHub: string | undefined;
-	if (!NO_BELT) {
-		// always pin a model — an unpinned lane inherits the owner's global
-		// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
-		// client-side unrecognized_model before its first wire call
-		const ctx = insertionCtx(env, pick.model ?? "glm-5.3-flash");
-		if (pick.hub) {
-			const hub = await resolveHub(pick.hub, pick.hubUrls);
-			if (hub) {
-				ctx.anthropicBase = hub.url;
-				ctx.openaiBase = `${hub.url}/v1`;
-				env.SUSPENDERS_HUB = hub.label;
-				env.SUSPENDERS_HUB_VIA = hub.via;
-				hubNote = ` — hub ${hub.label} -> ${hub.url} (${hub.via})`;
-				resolvedHub = hub.label;
-			} else {
-				hubNote = ` — NOTE hub=${pick.hub} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
+		if (take.code !== 0) {
+			const show = run([
+				process.execPath,
+				`${BIN}/work.ts`,
+				"show",
+				item,
+				"--json",
+			]);
+			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
-					`NOTE — .prefer hub=${pick.hub} unreachable; using local belt`,
+					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
 				);
+				return null;
+			}
+			// claimed by this sid from a previous dispatch attempt — resume
+		}
+		const claimedRow = store
+			.query(
+				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
+			)
+			.get(project, item, sid) as { updated_at: number } | null;
+		if (!claimedRow) throw new Error("claim changed before launch preparation");
+		claimRevision = claimedRow.updated_at;
+		if (!existsSync(wt)) {
+			const created = run([
+				process.execPath,
+				`${BIN}/worktree.ts`,
+				"create",
+				item,
+			]);
+			if (created.code !== 0) {
+				console.log(
+					`SKIP ${item} — worktree create failed: ${created.out.split("\n")[0]}`,
+				);
+				return null;
 			}
 		}
-		applyInsertion(env, pick.bin, ctx);
-		// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
-		// front with /w/<sid> so usage attributes per lane (route_audit.lane).
-		// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
-		// REFUSES the lane — governance must not silently vanish — and only
-		// the explicit --allow-ungoverned override rides belt direct. Skipped
-		// entirely when a hub redirect won (the hub owns the base URL).
-		// W422.17: probe once — front up rides the W463 governed mint path,
-		// front down branches on the governance mode (strict refuses, solo
-		// keeps the belt-direct fallback). undefined = hub won, skip entirely.
-		const frontUp: string | null | undefined = resolvedHub
-			? undefined
-			: await probeBuckleFront();
-		if (frontUp) {
-			const decision = laneKeyDecision(
-				await ensureLaneKey(sid),
-				ALLOW_UNGOVERNED,
-				governanceMode(),
+		const branch =
+			sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
+		const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
+		const capsule = capsuleGet(sid);
+		// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
+		// attempt N having died is exactly the signal to try chain[N+1] next
+		// (owner directive 2026-10-03: sequential must/prefer, CLI-agnostic).
+		if (pick.chainLen > 1)
+			console.log(
+				`NOTE — .prefer chain attempt ${pick.chainIdx}/${pick.chainLen - 1}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 			);
-			if (decision.mode === "governed") {
-				applyLaneAttribution(env, sid);
-				env.ANTHROPIC_AUTH_TOKEN = decision.key;
-				writeFileSync(
-					laneKeyMetaPath(FLEET, sid),
-					`${JSON.stringify({ sid, key_id: decision.keyId, mintedAt: Date.now() }, null, 2)}\n`,
+		// W293 session-name bridge: stamp the lane's user-facing name onto the
+		// sessions row (tags JSON) so coord fleet + the board show e.g.
+		// "[IKEA] opus W5" instead of an opaque sid. Renames on resume (the chain
+		// can switch executor between attempts). The lane's own session-start
+		// upsert never touches the tags column, so the name survives registration.
+		run([
+			process.execPath,
+			`${BIN}/coord.ts`,
+			"bootstrap",
+			"--as",
+			sid,
+			"--name",
+			`${pick.agent} ${item}`,
+		]);
+		const brief = composeBrief({
+			item,
+			showOut: show.out,
+			sid,
+			branch,
+			worktree: wt,
+			capsule,
+			agent: pick.agent,
+		});
+		// W223.2 dual-harness brief verification: copilot's prompt handling can
+		// mangle a brief claude renders fine, so the copilot harness gets a hard
+		// gate — a failing brief refuses the spawn AND reclaims the claim (a
+		// stranded claim on a never-spawned lane is the exact disease quota-sweep
+		// cures). claude runs the same checks warn-only (no observed claude
+		// mangling; hard-gating claude is a separate behavior change).
+		const harness: "claude" | "copilot" =
+			pick.bin === "copilot" ? "copilot" : "claude";
+		const verdict = verifyBrief(brief, { harness });
+		if (!verdict.ok && harness === "copilot") {
+			const why = briefVerdictLine(verdict, Buffer.byteLength(brief));
+
+			console.log(
+				`SKIP ${item} — brief refused by ${harness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
+			);
+			return null;
+		}
+		if (!verdict.ok)
+			console.log(
+				`NOTE — ${briefVerdictLine(verdict, Buffer.byteLength(brief))} (claude warn-only, dispatched anyway)`,
+			);
+		const briefFile = `${FLEET}/brief-${sid}.md`;
+		mkdirSync(FLEET, { recursive: true });
+		writeFileSync(briefFile, brief);
+		// W.F1 (2026-10-03): sandboxed lanes can read NOTHING outside their
+		// worktree — the .fleet/brief-<sid>.md copy in the main checkout is
+		// invisible to them (lesson.brief-sandbox-access; the whole [IKEA] demo
+		// family produced zero bytes because of this). The worktree copy is the
+		// one the lane reads; the .fleet copy stays for the orchestrator/board.
+		writeFileSync(`${wt}/.klh-brief.md`, brief);
+		// env + spawn recipe shared with supervise.ts per executor (W223):
+		// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
+		const env = laneEnv({ ...process.env }, NO_BELT);
+		env.SUSPENDERS_SID = sid;
+		// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)
+		// — executor knowledge lives in the table, dispatch has no per-executor
+		// branches. NO_BELT lanes speak their own API; nothing is inserted.
+		// (Model pins only make sense behind belt — belt routes by model id.)
+		// hub resolution (owner directive 2026-10-03): a .prefer hub= label now
+		// actually redirects lane traffic — resolveHub walks env override →
+		// repo one-off hub-url candidates → global hubs.json registry → mDNS
+		// <label>.local guess → null (degrades to local belt/buckle, loud note,
+		// never a silent wrong hub).
+		let hubNote = "";
+		let resolvedHub: string | undefined;
+		if (!NO_BELT) {
+			// always pin a model — an unpinned lane inherits the owner's global
+			// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
+			// client-side unrecognized_model before its first wire call
+			const ctx = insertionCtx(env, pick.model ?? "glm-5.3-flash");
+			if (pick.hub) {
+				const hub = await resolveHub(pick.hub, pick.hubUrls);
+				if (hub) {
+					ctx.anthropicBase = hub.url;
+					ctx.openaiBase = `${hub.url}/v1`;
+					env.SUSPENDERS_HUB = hub.label;
+					env.SUSPENDERS_HUB_VIA = hub.via;
+					hubNote = ` — hub ${hub.label} -> ${hub.url} (${hub.via})`;
+					resolvedHub = hub.label;
+				} else {
+					hubNote = ` — NOTE hub=${pick.hub} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
+					console.log(
+						`NOTE — .prefer hub=${pick.hub} unreachable; using local belt`,
+					);
+				}
+			}
+			applyInsertion(env, pick.bin, ctx);
+			// W1 dispatch-side adoption (finding.w1): the lane rides the buckle
+			// front with /w/<sid> so usage attributes per lane (route_audit.lane).
+			// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
+			// REFUSES the lane — governance must not silently vanish — and only
+			// the explicit --allow-ungoverned override rides belt direct. Skipped
+			// entirely when a hub redirect won (the hub owns the base URL).
+			// W422.17: probe once — front up rides the W463 governed mint path,
+			// front down branches on the governance mode (strict refuses, solo
+			// keeps the belt-direct fallback). undefined = hub won, skip entirely.
+			const frontUp: string | null | undefined = resolvedHub
+				? undefined
+				: await probeBuckleFront();
+			if (frontUp) {
+				const decision = laneKeyDecision(
+					await ensureLaneKey(sid),
+					ALLOW_UNGOVERNED,
+					governanceMode(),
 				);
-				chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
-				hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
-			} else if (decision.mode === "ungoverned-override") {
-				console.log(`*** ${decision.note} ***`);
-				hubNote += ` — ${decision.note}`;
-				// W463: the override is disclosed IN the brief the lane reads.
-				const disclosed = `${brief}\n\nGOVERNANCE: ${decision.note}.\n`;
+				if (decision.mode === "governed") {
+					applyLaneAttribution(env, sid);
+					env.ANTHROPIC_AUTH_TOKEN = decision.key;
+					ownedKeyId = decision.keyId;
+					const meta = `${JSON.stringify({ sid, key_id: decision.keyId, mintedAt: Date.now() }, null, 2)}\n`;
+					writtenFiles.set(laneKeyMetaPath(FLEET, sid), meta);
+					writeFileSync(laneKeyMetaPath(FLEET, sid), meta);
+					chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
+					hubNote += ` — lane attribution: buckle front /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
+				} else if (decision.mode === "ungoverned-override") {
+					console.log(`*** ${decision.note} ***`);
+					hubNote += ` — ${decision.note}`;
+					// W463: the override is disclosed IN the brief the lane reads.
+					const disclosed = `${brief}\n\nGOVERNANCE: ${decision.note}.\n`;
+					writeFileSync(briefFile, disclosed);
+					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+				} else {
+					governanceRefusals.push(item);
+					console.log(
+						`REFUSED ${item} — ${decision.why}; launch refused; claim cleanup follows, nothing spawned`,
+					);
+					log(`REFUSED ${item} → ${sid} — ${decision.why}`);
+					return null;
+				}
+			} else if (frontUp !== undefined) {
+				// W422.17 probe-false: the buckle front did not answer. Strict (the
+				// default) refuses the lane with the same machinery as a mint
+				// failure; solo keeps the belt-direct fallback — loud, disclosed.
+				const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
+				if (probe.mode === "refuse") {
+					governanceRefusals.push(item);
+					console.log(
+						`REFUSED ${item} — ${probe.why}; launch refused; claim cleanup follows, nothing spawned`,
+					);
+					log(`REFUSED ${item} → ${sid} — ${probe.why}`);
+					return null;
+				}
+				console.log(`NOTE — ${probe.note}`);
+				hubNote += ` — ${probe.note}`;
+				// ungoverned rides are disclosed IN the brief the lane reads.
+				const disclosed = `${brief}\n\nGOVERNANCE: ${probe.note}.\n`;
 				writeFileSync(briefFile, disclosed);
 				writeFileSync(`${wt}/.klh-brief.md`, disclosed);
-			} else {
-				run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
-				governanceRefusals.push(item);
-				console.log(
-					`REFUSED ${item} — ${decision.why}; claim reclaimed → READY, nothing spawned`,
-				);
-				log(`REFUSED ${item} → ${sid} — ${decision.why}`);
-				return null;
 			}
-		} else if (frontUp !== undefined) {
-			// W422.17 probe-false: the buckle front did not answer. Strict (the
-			// default) refuses the lane with the same machinery as a mint
-			// failure; solo keeps the belt-direct fallback — loud, disclosed.
-			const probe = probeFrontDecision(ALLOW_UNGOVERNED, governanceMode());
-			if (probe.mode === "refuse") {
-				run([process.execPath, `${BIN}/work.ts`, "reclaim", item]);
-				governanceRefusals.push(item);
-				console.log(
-					`REFUSED ${item} — ${probe.why}; claim reclaimed → READY, nothing spawned`,
-				);
-				log(`REFUSED ${item} → ${sid} — ${probe.why}`);
-				return null;
-			}
-			console.log(`NOTE — ${probe.note}`);
-			hubNote += ` — ${probe.note}`;
-			// ungoverned rides are disclosed IN the brief the lane reads.
-			const disclosed = `${brief}\n\nGOVERNANCE: ${probe.note}.\n`;
-			writeFileSync(briefFile, disclosed);
-			writeFileSync(`${wt}/.klh-brief.md`, disclosed);
 		}
-	}
-	const bin = Bun.which(pick.bin);
-	if (!bin) {
-		console.log(`SKIP — executor binary not found on PATH: ${pick.bin}`);
-		return null;
-	}
-	// W432: the prompt points at the READABLE copy — sandboxed lanes read
-	// nothing outside their worktree (W.F1 above), so the canonical
-	// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
-	// the orchestrator/board; the worktree copy is what the lane actually gets.
-	const prompt = `Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
-	const laneLog = `${FLEET}/lane-${sid}.log`;
-	// settings.json env CLOBBERS the process env at CLI startup (probed live
-	// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
-	// --settings outranks user settings: write the lane-critical vars and pass
-	// the file on the CLI layer. 0600 — it carries the lane token.
-	const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
-	const m = pick.model ?? "glm-5.3-flash";
-	writeFileSync(
-		laneSettings,
-		JSON.stringify(
+		// W432: the prompt points at the READABLE copy — sandboxed lanes read
+		// nothing outside their worktree (W.F1 above), so the canonical
+		// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
+		// the orchestrator/board; the worktree copy is what the lane actually gets.
+		const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
+		const laneLog = `${FLEET}/lane-${sid}.log`;
+		// settings.json env CLOBBERS the process env at CLI startup (probed live
+		// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
+		// --settings outranks user settings: write the lane-critical vars and pass
+		// the file on the CLI layer. 0600 — it carries the lane token.
+		const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
+		const m = pick.model ?? "glm-5.3-flash";
+		const settingsData = JSON.stringify(
 			{
 				env: {
 					ANTHROPIC_MODEL: env.ANTHROPIC_MODEL ?? "opus",
@@ -921,69 +1007,170 @@ const dispatchItem = async (
 			},
 			null,
 			2,
-		),
-	);
-	chmodSync(laneSettings, 0o600);
-	const settingsArgs = ["--settings", laneSettings];
-	// Immutable evidence base survives resumes and later main-branch merges.
-	const completionContext = `${wt}/.fleet/lane-context.json`;
-	mkdirSync(`${wt}/.fleet`, { recursive: true });
-	if (!existsSync(completionContext))
-		writeFileSync(
-			completionContext,
-			JSON.stringify({
-				sid,
-				item,
-				baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
-				launchedAt: Date.now(),
-			}),
 		);
-	const proc = spawnClaude({
-		bin,
-		prompt,
-		cwd: wt,
-		logFile: laneLog,
-		env,
-		cliArgs:
-			pick.bin === "copilot"
-				? ["--allow-all-tools"]
-				: pick.fallbackModels.length > 0
-					? [
-							"--allowedTools",
-							DEFAULT_ALLOWED_TOOLS,
-							"--permission-mode",
-							"acceptEdits",
-							"--fallback-model",
-							pick.fallbackModels.join(","),
-							...settingsArgs,
-						]
-					: [
-							"--allowedTools",
-							DEFAULT_ALLOWED_TOOLS,
-							"--permission-mode",
-							"acceptEdits",
-							...settingsArgs,
-						],
-	});
-	proc.unref();
-	const entry: Lane = {
-		sid,
-		item,
-		pid: proc.pid,
-		branch,
-		worktree: wt,
-		agent: pick.agent,
-		host: hostname(),
-		hub: resolvedHub,
-		launchedAt: Date.now(),
-		attempt,
-	};
-	lanes.push(entry);
-	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
-	console.log(
-		`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}${hubNote}`,
-	);
-	return `${item}→${sid}(pid ${proc.pid})`;
+		writtenFiles.set(laneSettings, settingsData);
+		writeFileSync(laneSettings, settingsData);
+		chmodSync(laneSettings, 0o600);
+		const settingsArgs = ["--settings", laneSettings];
+		// Immutable evidence base survives resumes and later main-branch merges.
+		const completionContext = `${wt}/.fleet/lane-context.json`;
+		mkdirSync(`${wt}/.fleet`, { recursive: true });
+		if (!existsSync(completionContext))
+			writeFileSync(
+				completionContext,
+				JSON.stringify({
+					sid,
+					item,
+					baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+					launchedAt: Date.now(),
+				}),
+			);
+		if (
+			!store
+				.query(
+					"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND updated_at=? AND state IN ('CLAIMED','RUNNING')",
+				)
+				.get(project, item, sid, claimRevision)
+		)
+			throw new Error("claim changed before executor spawn");
+		if (!renewLaunchLease(store, project, sid, nonce))
+			throw new Error("launch lease replaced before spawn");
+		const proc = spawnClaude({
+			bin,
+			prompt,
+			cwd: wt,
+			logFile: laneLog,
+			env,
+			cliArgs:
+				pick.bin === "copilot"
+					? ["--allow-all-tools"]
+					: pick.fallbackModels.length > 0
+						? [
+								"--allowedTools",
+								DEFAULT_ALLOWED_TOOLS,
+								"--permission-mode",
+								"acceptEdits",
+								"--fallback-model",
+								pick.fallbackModels.join(","),
+								...settingsArgs,
+							]
+						: [
+								"--allowedTools",
+								DEFAULT_ALLOWED_TOOLS,
+								"--permission-mode",
+								"acceptEdits",
+								...settingsArgs,
+							],
+		});
+		launchedProc = proc;
+		store
+			.query(
+				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,?,1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,source=excluded.source,version=version+1,ts=excluded.ts",
+			)
+			.run(attemptKey, String(attempt), "dispatch", Date.now());
+		// This only rejects immediate startup failure; it is not a health proof.
+		const earlyExit = await Promise.race([
+			proc.exited,
+			Bun.sleep(1000).then(() => null),
+		]);
+		if (earlyExit !== null)
+			throw new Error(
+				`executor exited during launch (code ${earlyExit}); inspect ${laneLog}`,
+			);
+		proc.unref();
+		const entry: Lane = {
+			sid,
+			item,
+			pid: proc.pid,
+			branch,
+			worktree: wt,
+			agent: pick.agent,
+			host: hostname(),
+			hub: resolvedHub,
+			launchedAt: Date.now(),
+			attempt,
+		};
+		// Accept the launch only after its PID and ownership are durable.
+		if (!renewLaunchLease(store, project, sid, nonce))
+			throw new Error("launch lease replaced before registry persistence");
+		saveLanes([entry]);
+		lanes.push(entry);
+		committedLaunch = true;
+		log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
+		console.log(
+			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}${hubNote}`,
+		);
+		return `${item}→${sid}(pid ${proc.pid})`;
+	} catch (error) {
+		governanceRefusals.push(item);
+		console.log(`REFUSED ${item} — launch failed: ${String(error)}`);
+		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
+		return null;
+	} finally {
+		if (!committedLaunch) {
+			let ownsFiles = false;
+			try {
+				ownsFiles = renewLaunchLease(store, project, sid, nonce);
+			} catch (error) {
+				log(`LAUNCH-CLEANUP ${item} — lease check failed: ${String(error)}`);
+			}
+			if (launchedProc && launchedProc.exitCode === null) {
+				try {
+					launchedProc.kill();
+					await Promise.race([launchedProc.exited, Bun.sleep(1000)]);
+				} catch (error) {
+					log(
+						`LAUNCH-CLEANUP ${item} — own child termination failed: ${String(error)}`,
+					);
+				}
+			}
+			if (claimRevision !== undefined) {
+				try {
+					const released = releaseFailedLaunch(store, {
+						project,
+						item,
+						sid,
+						revision: claimRevision,
+						nonce,
+					});
+					log(
+						`LAUNCH-CLEANUP ${item} — ${released ? "claim released" : "claim changed; preserved"}`,
+					);
+				} catch (error) {
+					log(
+						`LAUNCH-CLEANUP ${item} — configured store release failed: ${String(error)}`,
+					);
+				}
+			}
+			if (ownedKeyId) {
+				try {
+					const admin = adminKey();
+					const revoked = admin
+						? await revokeLaneKey(ownedKeyId, admin)
+						: false;
+					log(
+						`LAUNCH-CLEANUP ${item} — own key ${ownedKeyId} ${revoked ? "revoked" : "revoke failed; TTL bounds it"}`,
+					);
+				} catch (error) {
+					log(
+						`LAUNCH-CLEANUP ${item} — own key revoke failed: ${String(error)}`,
+					);
+				}
+			}
+			for (const [path, expected] of ownsFiles ? writtenFiles : []) {
+				try {
+					if (readFileSync(path, "utf8") === expected) rmSync(path);
+				} catch {
+					/* foreign or absent file is preserved */
+				}
+			}
+		}
+		try {
+			releaseLaunchLease(store, project, sid, nonce);
+		} catch (error) {
+			log(`LAUNCH-CLEANUP ${item} — lease release failed: ${String(error)}`);
+		}
+	}
 };
 
 const main = async (): Promise<void> => {

@@ -34,7 +34,11 @@ const BIN = join(import.meta.dir, "..", "hooks", "bin");
 // misses = belt-direct note path (pre-W463 behavior), deterministic even on
 // a machine with a live spoke on :4101. Fail-closed refusal/override get
 // their own stub-front cases below.
+const testExecutor = join(HOME, "test-claude");
+writeFileSync(testExecutor, "#!/bin/sh\nexit 0\n");
+chmodSync(testExecutor, 0o700);
 const env = {
+	SUSPENDERS_CLAUDE_BIN: testExecutor,
 	...process.env,
 	HOME,
 	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
@@ -322,10 +326,37 @@ describe("dry-run dispatch", () => {
 		expect(
 			JSON.parse(tool("work.ts", "show", item, "--json").out).owner_sid,
 		).toBe(namespaced);
-		expect(
-			tool("work.ts", "done", item, "--sha", "deadbeef", "--as", namespaced)
-				.code,
-		).toBe(0);
+		const baseline = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], {
+			cwd: REPO,
+			encoding: "utf8",
+		}).stdout.trim();
+		writeFileSync(join(REPO, "fixture.ts"), "export const completed = true;\n");
+		g(["add", "fixture.ts"]);
+		g(["commit", "-m", "verified fixture completion"]);
+		const sha = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], {
+			cwd: REPO,
+			encoding: "utf8",
+		}).stdout.trim();
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const context = join(REPO, ".fleet/lane-context.json");
+		writeFileSync(context, JSON.stringify({ sid: namespaced, item, baseline }));
+		try {
+			expect(
+				tool(
+					"work.ts",
+					"done",
+					item,
+					"--sha",
+					sha,
+					"--as",
+					namespaced,
+					"--summary",
+					"Verified lane identity survives legacy prefix collisions; committed a real source change with immutable baseline evidence.",
+				).code,
+			).toBe(0);
+		} finally {
+			rmSync(context);
+		}
 	});
 	test("prints chosen item + full brief, takes nothing, spawns nothing", () => {
 		const added = tool("work.ts", "add", "sample lane mission");
@@ -506,33 +537,32 @@ describe("crash resume budget", () => {
 			PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
 			SUSPENDERS_LANE_MAX_ATTEMPTS: "2",
 		};
-		const registry = join(REPO, ".fleet", "lanes.json");
 		for (const attempt of [0, 1]) {
 			const result = dispatchWith(
-				extra,
+				{ ...extra, SUSPENDERS_CLAUDE_BIN: join(fakeBin, "claude") },
 				"--item",
 				id,
 				"--no-belt",
 				"--allow-ungoverned",
 			);
-			expect(result).toMatchObject({ code: 0 });
-			const lanes = JSON.parse(readFileSync(registry, "utf8"));
-			const lane = lanes.find((l: { item: string }) => l.item === id);
-			expect(lane?.attempt).toBe(attempt);
-			await Bun.sleep(25);
-			lane.pid = 99999999;
-			lane.launchedAt = 1;
-			writeFileSync(registry, JSON.stringify(lanes));
+			expect(result.code).not.toBe(0);
+			expect(result.out).toContain("executor exited during launch");
+			expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
+				"READY",
+			);
+			expect(
+				tool(
+					"coord.ts",
+					"fact",
+					"get",
+					`lane.${laneSid(id, projectIdentity(REPO))}.launch-attempt`,
+				).out,
+			).toContain(String(attempt));
 		}
 		expect(dispatchWith(extra, "--item", id).out).toContain(
-			"resume budget exhausted",
+			"launch budget exhausted",
 		);
-		expect(tool("work.ts", "show", id, "--json").out).toContain(
-			'"state":"FAILED"',
-		);
-		// An explicit item request cannot bypass terminal state via owner text.
 		expect(dispatchWith(extra, "--item", id).out).not.toContain("(pid");
-		rmSync(registry);
 	}, 60_000);
 
 	test("exhausted dead claim is preserved on preview and failed before another launch", () => {
@@ -576,7 +606,9 @@ describe("crash resume budget", () => {
 // spawnSync): a sync spawn blocks this process' event loop, which would stall
 // the stub buckle front and make the child's 600ms front probe time out.
 
-const stubBuckle = (): {
+const stubBuckle = (
+	mint = false,
+): {
 	port: number;
 	calls: string[];
 	stop: () => void;
@@ -588,6 +620,8 @@ const stubBuckle = (): {
 			const path = new URL(req.url).pathname;
 			calls.push(`${req.method} ${path}`);
 			if (path === "/status") return new Response("ok");
+			if (path === "/v1/admin/keys" && mint)
+				return Response.json({ key: "bksk_fixture_only", key_id: "owned-key" });
 			if (path === "/v1/admin/keys")
 				return new Response(JSON.stringify({ error: "stub-mint-fail" }), {
 					status: 500,
@@ -700,7 +734,7 @@ describe("fail-closed governance (W463)", () => {
 		stub.stop();
 	}, 60_000);
 
-	test("--allow-ungoverned proceeds with loud note + brief disclosure (no spawn: executor absent)", async () => {
+	test("--allow-ungoverned discloses bypass but rejects an immediately exiting executor", async () => {
 		const stub = stubBuckle();
 		const id = await addItem("ungoverned override e2e item");
 		const sid = laneSid(id, projectIdentity(REPO));
@@ -716,9 +750,9 @@ describe("fail-closed governance (W463)", () => {
 			id,
 			"--allow-ungoverned",
 		);
-		expect(out.code).toBe(0);
+		expect(out.code).not.toBe(0);
 		expect(out.out).toContain("UNGOVERNED DISPATCH — operator override");
-		expect(out.out).toContain("SKIP — executor binary not found");
+		expect(out.out).toContain("executor exited during launch");
 		expect(out.out).not.toContain("(pid");
 		const brief = readFileSync(join(REPO, ".fleet", `brief-${sid}.md`), "utf8");
 		expect(brief).toContain("UNGOVERNED DISPATCH — operator override");
@@ -729,6 +763,231 @@ describe("fail-closed governance (W463)", () => {
 		expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
 		stub.stop();
 	}, 60_000);
+});
+
+test("executor unavailable rejects before claim, worktree or key mint", async () => {
+	const stub = stubBuckle(true);
+	try {
+		const id = await addItem("missing executor preclaim fixture");
+		const result = await dispatchA(
+			{
+				SUSPENDERS_CLAUDE_BIN: join(HOME, "does-not-exist"),
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+			},
+			"--item",
+			id,
+		);
+		expect(result.code).not.toBe(0);
+		expect(result.out).toContain("nothing claimed or minted");
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
+		).toBe("READY");
+		expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
+		expect(stub.calls).toEqual([]);
+	} finally {
+		stub.stop();
+	}
+}, 60_000);
+
+test("early failed launch releases claim, revokes only its key, preserves baseline and worktree", async () => {
+	const stub = stubBuckle(true);
+	try {
+		const id = await addItem("failed executor owned-key fixture");
+		const sid = laneSid(id, projectIdentity(REPO));
+		const result = await dispatchA(
+			{
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+				SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+			},
+			"--item",
+			id,
+		);
+		expect(result.code).not.toBe(0);
+		expect(result.out).toContain("executor exited during launch");
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
+		).toBe("READY");
+		expect(stub.calls.filter((c) => c.endsWith("/revoke"))).toEqual([
+			"POST /v1/admin/keys/owned-key/revoke",
+		]);
+		expect(existsSync(join(REPO, ".fleet", `lane-settings-${sid}.json`))).toBe(
+			false,
+		);
+		expect(existsSync(join(REPO, ".fleet", `lane-key-${sid}.json`))).toBe(
+			false,
+		);
+		expect(
+			existsSync(join(REPO, ".worktrees", id, ".fleet/lane-context.json")),
+		).toBe(true);
+	} finally {
+		stub.stop();
+	}
+}, 60_000);
+
+test("registry persistence failure kills its launched child and cleans its own claim and key", async () => {
+	const stub = stubBuckle(true);
+	const registry = join(REPO, ".fleet/lanes.json");
+	const pidFile = join(HOME, "registry-failure.pid");
+	const executor = join(HOME, "registry-failure-executor");
+	writeFileSync(
+		executor,
+		`#!/bin/sh\necho $$ > "${pidFile}"\nmkdir "${registry}"\nexec /bin/sleep 30\n`,
+	);
+	chmodSync(executor, 0o700);
+	rmSync(registry, { recursive: true, force: true });
+	try {
+		const id = await addItem("registry persistence failure fixture");
+		const result = await dispatchA(
+			{
+				SUSPENDERS_CLAUDE_BIN: executor,
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+				SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+			},
+			"--item",
+			id,
+		);
+		expect(result.code).not.toBe(0);
+		expect(result.out).toContain("launch failed");
+		expect(result.out).not.toContain("dispatched ");
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
+		).toBe("READY");
+		expect(stub.calls.filter((c) => c.endsWith("/revoke"))).toEqual([
+			"POST /v1/admin/keys/owned-key/revoke",
+		]);
+		const pid = Number(readFileSync(pidFile, "utf8"));
+		expect(() => process.kill(pid, 0)).toThrow();
+	} finally {
+		rmSync(registry, { recursive: true, force: true });
+		stub.stop();
+	}
+}, 60_000);
+
+test("simultaneous dispatchers launch one harness and loser preserves winner", async () => {
+	const pidFile = join(HOME, "overlap-pids");
+	const executor = join(HOME, "overlap-executor");
+	writeFileSync(
+		executor,
+		`#!/bin/sh\necho $$ >> "${pidFile}"\nexec /bin/sleep 30\n`,
+	);
+	chmodSync(executor, 0o700);
+	const id = await addItem("overlapping dispatch fixture");
+	try {
+		const results = await Promise.all([
+			dispatchA(
+				{ SUSPENDERS_CLAUDE_BIN: executor },
+				"--item",
+				id,
+				"--no-belt",
+				"--allow-ungoverned",
+			),
+			dispatchA(
+				{ SUSPENDERS_CLAUDE_BIN: executor },
+				"--item",
+				id,
+				"--no-belt",
+				"--allow-ungoverned",
+			),
+		]);
+		expect(results.filter((r) => r.out.includes("dispatched "))).toHaveLength(
+			1,
+		);
+		expect(results.filter((r) => !r.out.includes("dispatched ")).length).toBe(
+			1,
+		);
+		expect(readFileSync(pidFile, "utf8").trim().split("\n")).toHaveLength(1);
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
+		).toBe("CLAIMED");
+	} finally {
+		if (existsSync(pidFile))
+			for (const pid of readFileSync(pidFile, "utf8").trim().split("\n")) {
+				try {
+					process.kill(Number(pid));
+				} catch {}
+			}
+	}
+}, 60_000);
+
+test("stale prelease snapshot rereads published live lane after winner releases lease", async () => {
+	const id = await addItem("stale dispatcher snapshot fixture");
+	const registry = join(REPO, ".fleet/lanes.json");
+	rmSync(registry, { force: true });
+	const block = join(HOME, "snapshot-block");
+	const unblock = join(HOME, "snapshot-release");
+	const pidFile = join(HOME, "stale-snapshot-pids");
+	const executorDir = join(HOME, "stale-harness");
+	mkdirSync(executorDir, { recursive: true });
+	const executor = join(executorDir, "claude");
+	writeFileSync(
+		executor,
+		`#!${process.execPath}\nimport {appendFileSync} from "node:fs"; appendFileSync(${JSON.stringify(pidFile)},String(process.pid)+"\\n");setInterval(()=>{},1000);\n`,
+	);
+	chmodSync(executor, 0o700);
+	const prefix = join(HOME, "stale-prefix");
+	mkdirSync(join(prefix, "bin"), { recursive: true });
+	for (const name of ["coord.ts", "worktree.ts"])
+		symlinkSync(join(BIN, name), join(prefix, "bin", name));
+	writeFileSync(
+		join(prefix, "bin/work.ts"),
+		`import {existsSync,writeFileSync} from "node:fs"; if(process.argv[2]==="lanes"){writeFileSync(${JSON.stringify(block)},"blocked");while(!existsSync(${JSON.stringify(unblock)}))await Bun.sleep(10);console.log("[]");}else{const p=Bun.spawnSync([process.execPath,${JSON.stringify(join(BIN, "work.ts"))},...process.argv.slice(2)],{stdout:"pipe",stderr:"pipe"});process.stdout.write(p.stdout);process.stderr.write(p.stderr);process.exit(p.exitCode);}
+`,
+	);
+	const stale = dispatchA(
+		{ SUSPENDERS_PREFIX: prefix, SUSPENDERS_CLAUDE_BIN: executor },
+		"--item",
+		id,
+		"--no-belt",
+		"--allow-ungoverned",
+	);
+	try {
+		for (let n = 0; !existsSync(block) && n < 500; n++) await Bun.sleep(10);
+		expect(existsSync(block)).toBe(true);
+		const winner = await dispatchA(
+			{ SUSPENDERS_CLAUDE_BIN: executor },
+			"--item",
+			id,
+			"--no-belt",
+			"--allow-ungoverned",
+		);
+		expect(winner.out).toContain("dispatched ");
+		writeFileSync(unblock, "release");
+		const loser = await stale;
+		expect(loser.out).toContain(
+			"durable registry already holds a live or unknown lane",
+		);
+		expect(readFileSync(pidFile, "utf8").trim().split("\n")).toHaveLength(1);
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
+		).toBe("CLAIMED");
+	} finally {
+		writeFileSync(unblock, "release");
+		await stale;
+		if (existsSync(pidFile))
+			for (const pid of readFileSync(pidFile, "utf8").trim().split("\n")) {
+				try {
+					process.kill(Number(pid));
+				} catch {}
+			}
+		rmSync(registry, { force: true });
+	}
+}, 60_000);
+
+test("custom installed prefix resolves work and coord helpers", () => {
+	const prefix = join(HOME, "custom-prefix");
+	mkdirSync(prefix, { recursive: true });
+	symlinkSync(BIN, join(prefix, "bin"), "dir");
+	const id =
+		(tool("work.ts", "add", "custom prefix fixture").out.match(/W\d+/) ??
+			[])[0] ?? "";
+	const result = dispatchWith(
+		{ SUSPENDERS_PREFIX: prefix },
+		"--item",
+		id,
+		"--dry-run",
+	);
+	expect(result.code).toBe(0);
+	expect(result.out).toContain(`bun ${prefix}/bin/coord.ts`);
 });
 
 describe("lane key lifecycle (W463)", () => {
@@ -827,10 +1086,10 @@ describe("governance mode e2e: probe-false solo (W422.17)", () => {
 		const id = await addItem("governance solo belt-direct item");
 		const sid = laneSid(id, projectIdentity(REPO));
 		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
-		expect(out.code).toBe(0);
+		expect(out.code).not.toBe(0);
 		expect(out.out).toContain("BELT-DIRECT DISPATCH");
 		expect(out.out).toContain("governance:solo");
-		expect(out.out).toContain("SKIP — executor binary not found");
+		expect(out.out).toContain("executor exited during launch");
 		expect(out.out).not.toContain("(pid");
 		const brief = readFileSync(join(REPO, ".fleet", `brief-${sid}.md`), "utf8");
 		expect(brief).toContain("GOVERNANCE: BELT-DIRECT DISPATCH");
