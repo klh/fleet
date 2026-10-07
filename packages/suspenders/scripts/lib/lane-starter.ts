@@ -30,6 +30,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+// W422: fork support per harness is adapter data (exact lookup — an unknown
+// harness cold-starts, it never inherits claude's fork grammar).
+import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
 // Registry cap — bounded history means bounded REGISTRY too: retired starter
@@ -104,15 +107,15 @@ export const readStarter = (
 	}
 };
 
-/** Fork args per harness. claude is wired end-to-end; codex/copy rows are
- *  catalog-only until their spawn recipes compose (see module header). */
+/** Fork args per harness — the W422 executor-adapter registry owns the
+ *  grammar now (claude row carries ["--resume", id, "--fork-session"];
+ *  codex/copilot/grok/cline rows are catalog-only → cold start). Exact
+ *  lookup only: an unknown harness must cold-start, never fork like claude. */
 export const forkArgsFor = (
 	harness: string,
 	sessionId: string,
-): string[] | null => {
-	if (harness === "claude") return ["--resume", sessionId, "--fork-session"];
-	return null;
-};
+): string[] | null =>
+	adapterForExact(harness)?.forkArgs(sessionId) ?? null;
 
 // Bounded registry: keep the newest STARTER_REGISTRY_CAP records per fleet
 // dir, delete the rest (retired versions are never resurrected).

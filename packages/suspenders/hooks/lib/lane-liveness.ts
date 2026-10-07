@@ -10,6 +10,9 @@
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+// W422: harness names come from the executor-adapter registry (shared
+// surface for hooks + scripts trees; adapters are runtime-independent data).
+import { HARNESS_PROCESS_NAMES } from "./executors/registry.ts";
 
 export type LaneRef = {
 	sid: string;
@@ -84,10 +87,15 @@ export const transcriptPath = (sid: string): string | null => {
 export const transcriptAlive = (sid: string): boolean =>
 	transcriptPath(sid) !== null;
 
-const HARNESS_NAMES = ["claude", "codex", "copilot", "cline", "grok"];
+// W422: the harness roster is ADAPTER registry data now (a new agent lands
+// in liveness by adding its adapter file + registry row — never an edit
+// here). HARNESS_ARG_RE builds from the union so both stay in lockstep.
+const HARNESS_NAMES = HARNESS_PROCESS_NAMES;
 /** Compatibility expression: command position only, never a prompt path. */
-export const HARNESS_ARG_RE =
-	/^\s*(?:\d+\s+)?(?:\S*\/)?(?:claude|codex|copilot|cline|grok)(?:\s|$)/i;
+export const HARNESS_ARG_RE = new RegExp(
+	`^\\s*(?:\\d+\\s+)?(?:\\S*\\/)?(?:${HARNESS_NAMES.join("|")})(?:\\s|$)`,
+	"i",
+);
 type ExecutableCache = { key: string; until: number; paths: Set<string> };
 let executableCache: ExecutableCache | undefined;
 const pathCache = new Map<string, { until: number; path: string | null }>();

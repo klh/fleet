@@ -2,8 +2,8 @@
 // (W146). supervise.ts and dispatch-next.ts must drive IDENTICAL spawn
 // recipes (env scrub, sh -c exec + stdin detach, lanes.json registry), so
 // the recipes live here. dispatch-next's inline copies of the small read
-// helpers (sh/run/worktreeLive/loadLanes) stay until a lane can afford
-// the churn — the mutation gate caps edits at 40 lines; the spawn/env core
+// helpers (sh/run/loadLanes) stay until a lane can afford the churn —
+// the mutation gate caps edits at 40 lines; the spawn/env core
 // (the part a divergence would corrupt lanes with) is shared for real.
 import {
 	laneRegistryFile,
@@ -13,18 +13,48 @@ import {
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 import { attachSubscribe } from "../../hooks/lib/subscribe-attach.ts";
 
-export type Lane = {
-	sid: string;
-	item: string;
-	pid: number;
-	branch: string;
-	worktree: string;
-	agent?: string;
-	host?: string;
-	slab?: string;
-	launchedAt: number;
-	attempt?: number;
-};
+// W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
+// dispatch carries ZERO executor branches — every agent's specifics live in
+// a tiny overlay module (hooks/lib/executors/<agent>.ts) registered in
+// hooks/lib/executors/registry.ts; a new agent = one adapter file + one
+// registry row. lane.ts itself imports no adapter: callers resolve one via
+// the registry and hand its composed tail to spawnClaude's cliArgs.
+/** Everything a per-agent spawn tail may consume (claude uses all of it;
+ *  narrower executors ignore what their CLI lacks). */
+export interface SpawnArgsSpec {
+	/** Tool-permission recipe (claude --allowedTools grammar). */
+	allowedTools?: string;
+	/** Same-bin model fallbacks (claude --fallback-model chain tail). */
+	fallbackModels?: string[];
+	/** --settings file args (the 0600 lane settings pin). */
+	settingsArgs?: string[];
+	/** Starter-session fork args (W454). */
+	forkArgs?: string[];
+}
+
+export interface ExecutorAdapter {
+	/** Registry key + the .prefer/default_executors token. */
+	id: string;
+	/** Additional chain tokens this adapter owns (aliases). */
+	names: string[];
+	/** The CLI binary this executor spawns. */
+	bin: string;
+	/** false = catalog-only (resolveLaneExecutor refuses the token). */
+	spawnable: boolean;
+	/** W223.2 brief-verify harness id + enforcement: true = a failing brief
+	 *  REFUSES the dispatch (claude/codex run warn-only). */
+	briefHarness: "claude" | "copilot";
+	briefHardGate: boolean;
+	/** Post-prompt spawn arg tail (order-stable). */
+	spawnArgs(spec: SpawnArgsSpec): string[];
+	/** The args that carry the prompt (`-p <p>` for the claude dialects,
+	 *  ["exec", <p>] for codex). */
+	promptArgs(prompt: string): string[];
+	/** W454 starter-session fork args; null = no fork support (cold start). */
+	forkArgs(sessionId: string): string[] | null;
+	/** Process-table names this executor answers to (liveness matcher). */
+	processNames: string[];
+}
 
 export const sh = (cmd: string[], cwd = process.cwd()): string => {
 	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -43,35 +73,10 @@ export const run = (
 };
 
 export { laneProcessIdentity as alive } from "../../hooks/lib/lane-liveness.ts";
-
-/** live claude/codex process with cwd inside the worktree — pid-independent
- *  liveness, same contract-free probe fleet-loop uses for its retire guard.
- *  Takes the sh() helper as a parameter so callers keep their own cwd. */
-export const worktreeLive = (
-	wt: string,
-	sh: (cmd: string[]) => string,
-): boolean => {
-	const pids = sh(["ps", "-axo", "pid=,comm="])
-		.split("\n")
-		.filter((l) => /claude|codex/.test(l))
-		.map((l) => Number.parseInt(l.trim(), 10));
-	if (pids.length === 0) return false;
-	const listing = sh([
-		"lsof",
-		"-a",
-		"-p",
-		pids.join(","),
-		"-d",
-		"cwd",
-		"-Fpcn",
-	]);
-	let pid = 0;
-	for (const line of listing.split("\n")) {
-		if (line.startsWith("p")) pid = Number.parseInt(line.slice(1), 10) || pid;
-		else if (line.startsWith("n") && line.slice(1).startsWith(wt)) return true;
-	}
-	return false;
-};
+// ONE liveness surface (W494.1): the hooks/lib probe replaced lane.ts's
+// inline ps/lsof folk-magic copy (which matched /claude|codex/ comms only,
+// blind to copilot/grok/cline) — supervise rides the law surface now.
+export { worktreeLive } from "../../hooks/lib/lane-liveness.ts";
 
 export const lanesFileFor = laneRegistryFile;
 export const loadLanes = (fleet: string): Lane[] =>
@@ -136,8 +141,11 @@ export const applyLaneAttribution = (
 	env.GOOGLE_GEMINI_BASE_URL = root;
 };
 
-export const DEFAULT_ALLOWED_TOOLS =
-	"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write";
+// The tool-permission recipe is the CLAUDE spawn recipe — it lives in the
+// claude adapter now; the local import feeds spawnClaude's default tail and
+// the re-export keeps existing importers stable.
+import { CLAUDE_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
+export { CLAUDE_ALLOWED_TOOLS as DEFAULT_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
 
 export const spawnClaude = (o: {
 	bin: string;
@@ -146,8 +154,8 @@ export const spawnClaude = (o: {
 	logFile: string;
 	env: Record<string, string>;
 	allowedTools?: string;
-	/** Executor-specific arg tail (W223 dual-harness): copilot takes
-	 * ["--allow-all-tools"], claude keeps the allowedTools recipe. */
+	/** The composed spawn tail — callers take it from the executor adapter
+	 *  (hooks/lib/executors/registry.ts, W422); omitted = the claude recipe. */
 	cliArgs?: string[];
 	agent?: string;
 	fleetDir?: string;
@@ -166,7 +174,7 @@ export const spawnClaude = (o: {
 	const tail = (
 		o.cliArgs ?? [
 			"--allowedTools",
-			o.allowedTools ?? DEFAULT_ALLOWED_TOOLS,
+			o.allowedTools ?? CLAUDE_ALLOWED_TOOLS,
 			"--permission-mode",
 			"acceptEdits",
 		]

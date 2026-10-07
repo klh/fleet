@@ -439,7 +439,7 @@ const main = async (): Promise<void> => {
 		const lanes = loadLanes(FLEET);
 		// pid-only liveness lies (daemonized lanes re-parent away; pids recycle)
 		// — the worktree cwd probe is the honest signal, grace covers fresh spawns
-		const live = lanes.filter((l) => worktreeLive(l.worktree, sh));
+		const live = lanes.filter((l) => worktreeLive(l.worktree));
 		const liveItems = new Set(live.map((l) => l.item));
 		// ── resume dead in-scope lanes FIRST (same sid, capsule carries over)
 		let dispatched = 0;
