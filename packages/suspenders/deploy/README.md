@@ -50,6 +50,32 @@ both from the stack's `version:` — a hub deploy without a pinned version
 and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
 monorepo. One version string pins the whole hub (stack.yaml law).
 
+## Runtime + embedded SQLite verification (W443)
+
+Fleet's ledgers run WAL, so the artifact's embedded SQLite must carry the
+[WAL-reset fix](https://sqlite.org/wal.html#walresetbug) — the race is
+present 3.7.0 → 3.51.2, fixed in 3.51.3 (2026-03-13), backported to
+3.44.6/3.50.7. The verdict reads the ARTIFACT, never the host `sqlite3`:
+
+- **Hub + sim containers** run `oven/bun:1`, whose bun vendors its own
+  SQLite amalgamation on Linux. `deploy/runtime-info.ts` reports and gates
+  it; the CI `runtime-sqlite` job runs `--check` inside the same floating
+  tag every push, and `hubctl status`/`deploy` exec it in the running
+  buckle-hub (informational — health gates the exit code).
+- **Verified (2026-10-07):** `oven/bun:1`, `1.4` and `1.4.2` resolve to one
+  digest family, bun v1.4.2 vendors SQLite **3.53.2** (source id
+  `2026-06-03 …f1a24`, `src/jsc/bindings/sqlite/sqlite3.c`) ≥ 3.51.3. bun
+  main vendors 3.53.4.
+- **Residual exposure:** bun on **macOS links the system SQLite** (Apple
+  build — source id carries the `aapl` suffix); this Mac's bun 1.4.2 reports
+  3.51.0, whose base is in the affected range and whose Apple patch state
+  cannot be verified from outside. Mac-side runtimes (spoke, governor) stay
+  exposed until the advisory's fix ships in an Apple system update — the
+  probe prints `UNVERIFIED` there by design.
+
+A version below 3.51.3 passes `--check` only with documented vendor-backport
+evidence (`SQLITE_PATCH_EVIDENCE` env).
+
 ## Enterprise layer
 
 The private `*-remote` overlays (buckle-remote, belt-remote,

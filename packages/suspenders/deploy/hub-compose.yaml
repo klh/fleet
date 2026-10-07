@@ -36,6 +36,10 @@ services:
     volumes:
       - fleet-repo:/srv/repo
 
+  # W443: oven/bun:1 is the ARTIFACT runtime — every service below runs its
+  # embedded SQLite (vendored amalgamation on Linux). CI (runtime-sqlite job)
+  # verifies the floating tag carries the WAL-reset fix (3.51.3+) each push;
+  # hubctl status reports the live verdict per hub.
   fleet-deps:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-fleet-deps

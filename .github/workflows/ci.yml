@@ -29,6 +29,21 @@ jobs:
         continue-on-error: ${{ matrix.tolerate == 'true' }}
         run: bun test packages/${{ matrix.pkg }}/test/
 
+  # W443: verify the SQLite embedded in the DEPLOY ARTIFACT — oven/bun:1 is
+  # the image every hub + sim container runs — carries the WAL-reset fix
+  # (3.51.3+; sqlite.org/wal.html#walresetbug; backports 3.44.6/3.50.7).
+  # Fails when the floating tag drifts below the fix, so a runtime change
+  # cannot deploy unverified. Host sqlite3 is irrelevant: bun vendors its
+  # amalgamation on Linux and links the system SQLite on macOS.
+  runtime-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: embedded SQLite inside oven/bun:1
+        run: |
+          docker run --rm -v "$PWD:/w:ro" -w /w oven/bun:1 \
+            bun packages/suspenders/deploy/runtime-info.ts --check --json
+
   # Every CLI entrypoint must at least parse/build.
   entrypoints:
     runs-on: ubuntu-latest
