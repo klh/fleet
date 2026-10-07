@@ -106,14 +106,50 @@ const PHRASES: [string, string][] = [
 ];
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const PHRASE_RULES: CasedRule[] = PHRASES.map(([from, to]) => ({
-	name: `phrase:${from.replace(/\s+/g, "-")}`,
-	re: new RegExp(
-		`\\b${from.split(" ").map(esc).join("\\s+")}\\b,?[ \\t]*`,
-		"gi",
-	),
-	to,
-}));
+// shared phrase→rule mapping (W238: one builder for both tables — the
+// belt table's rule shapes stay byte-identical, so the parity pins hold)
+const phraseRules = (phrases: [string, string][]): CasedRule[] =>
+	phrases.map(([from, to]) => ({
+		name: `phrase:${from.replace(/\s+/g, "-")}`,
+		re: new RegExp(
+			`\\b${from.split(" ").map(esc).join("\\s+")}\\b,?[ \\t]*`,
+			"gi",
+		),
+		to,
+	}));
+const PHRASE_RULES: CasedRule[] = phraseRules(PHRASES);
+
+// W238 packet phrase table (architecture/operational doc prose) —
+// conciseness rewrites that preserve meaning: the deterministic analog of
+// LLMLingua-2's task-agnostic token keep/drop for boilerplate-heavy docs.
+// Pure drops only for discourse markers (the restatement after "in other
+// words" carries the content; the marker does not).
+const PACKET_PHRASES: [string, string][] = [
+	["the fact that", "that"],
+	["prior to", "before"],
+	["subsequent to", "after"],
+	["in spite of", "despite"],
+	["with the exception of", "except"],
+	["a variety of", "several"],
+	["the majority of", "most"],
+	["at the present time", "now"],
+	["in the near future", "soon"],
+	["has the ability to", "can"],
+	["have the ability to", "can"],
+	["is required to", "must"],
+	["are required to", "must"],
+	["it is possible that", "may"],
+	["in addition to this", "also"],
+	["in addition to that", "also"],
+	["as mentioned above", ""],
+	["as noted above", ""],
+	["as described above", ""],
+	["in other words", ""],
+	["that is to say", ""],
+	["put differently", ""],
+];
+const PACKET_PHRASE_RULES: CasedRule[] = phraseRules(PACKET_PHRASES);
+
 // belt FILLER: the ref-condense hedge list. It VIOLATES the W287 hedge law
 // by design (strips just/very/really/quite), which is exactly why the
 // aggressive tier is EVAL-ONLY, excluded from production (spec law L2).
@@ -209,7 +245,22 @@ const machineSteps: Step[] = [
 	{ kind: "sentence-dedupe", scope: "text", mode: "exact", minWords: 3 },
 ];
 
-export type TierName = "politeness" | "caveman" | "aggressive" | "machine";
+// packet (W238) — machine PLUS the packet phrase table (doc-prose
+// conciseness rewrites) and exact line dedupe (repeated boilerplate
+// lines). LLMLingua-2-class: deeper task-agnostic extraction, still rule-
+// deterministic and offline. Union protect grammar — file pointers stay
+// verbatim (W112). Additive tier, no parity pin, CONDENSE_VERSION unbumped
+// (machine precedent).
+const packetSteps: Step[] = [
+	{ kind: "cased-replace", rules: [...PHRASE_RULES, ...PACKET_PHRASE_RULES] },
+	{ kind: "replace", scope: "text", rules: ARTICLE_STRIPS },
+	{ kind: "cap-resolve" },
+	{ kind: "replace", scope: "text", rules: BELT_SPACING },
+	{ kind: "sentence-dedupe", scope: "text", mode: "exact", minWords: 3 },
+	{ kind: "line-dedupe", minWords: 2 },
+];
+
+export type TierName = "politeness" | "caveman" | "aggressive" | "machine" | "packet";
 
 export const TIERS: Record<TierName, TierSpec> = {
 	politeness: {
@@ -245,6 +296,15 @@ export const TIERS: Record<TierName, TierSpec> = {
 		guardSentinels: true,
 		dedupeSlots: true,
 		steps: machineSteps,
+		finalTrim: "whole",
+		fixpointRounds: 5,
+	},
+	packet: {
+		name: "packet",
+		protect: PROTECT_GRAMMARS.union,
+		guardSentinels: true,
+		dedupeSlots: true,
+		steps: packetSteps,
 		finalTrim: "whole",
 		fixpointRounds: 5,
 	},
