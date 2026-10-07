@@ -22,6 +22,7 @@ import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import { Slots, type SlotLimits, slotsFromEnv } from "./slots.ts";
 import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
 
 export interface GovernanceOpts {
@@ -33,6 +34,9 @@ export interface GovernanceOpts {
 	// semantics (anonymous spoke-pull GETs, validated creds, spoke scope
 	// for POST); serving itself lives on the app deps.
 	federation?: Federation;
+	/** W468 admission control: simultaneous-generation pool caps
+	 *  (global + per-team); default resolves from env, 0 disables. */
+	slots?: SlotLimits;
 }
 
 export interface Principal {
@@ -59,6 +63,7 @@ export interface GovernanceDeps {
 export class Governance {
 	readonly keys: KeyStore;
 	readonly budgets: Budgets;
+	readonly slots: Slots;
 	readonly db: Database;
 	private readonly sm: Servicemon;
 	private readonly ledger: Ledger;
@@ -76,9 +81,13 @@ export class Governance {
 		this.db =
 			opts.federation?.db ?? new Database(opts.dbPath, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
+		// W468: cross-replica budget writes contend on the single writer —
+		// wait instead of surfacing SQLITE_BUSY to a request.
+		this.db.exec("PRAGMA busy_timeout = 5000");
 		applyGovernanceSchema(this.db);
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
+		this.slots = new Slots(this.db, opts.slots ?? slotsFromEnv());
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
 		this.rootHash = opts.rootKey ? hashKey(opts.rootKey) : null;
 		this.federation = opts.federation ?? null;
@@ -358,7 +367,14 @@ export class Governance {
 		void t0;
 		const ceiling = p.team !== null ? this.keys.teamCeilings(p.team) : null;
 		const limits = effectiveLimit({ rpm: p.rpm, tpm: p.tpm }, ceiling);
-		return this.admit(req, path, rid, p, limits, inner);
+		// W468: the team aggregate row is enforced against the raw ceiling
+		// (not the min()ed effective limit) so a tighter key limit never
+		// masks the team allowance the DB authority must also hold.
+		const team =
+			p.team !== null
+				? { id: p.team, limits: ceiling ?? { rpm: null, tpm: null } }
+				: null;
+		return this.admit(req, path, rid, p, limits, team, inner);
 	}
 
 	private async admit(
@@ -367,20 +383,56 @@ export class Governance {
 		rid: string,
 		p: Principal,
 		limits: { rpm: number | null; tpm: number | null },
+		team: {
+			id: string;
+			limits: { rpm: number | null; tpm: number | null };
+		} | null,
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
-		if (limits.rpm === null && limits.tpm === null) return inner(req);
-		const chk = this.budgets.check(
-			p.keyId,
-			limits,
-			Number(req.headers.get("content-length") ?? "0"),
+		// W468 admission control first: a slot is held for the whole
+		// generation; root keeps break-glass access during a storm. The
+		// finally below hands the slot back whatever the outcome.
+		if (p.kind !== "root" && !this.slots.acquire(p.team))
+			return this.slotLimited(path, rid, p);
+		try {
+			if (limits.rpm === null && limits.tpm === null)
+				return await inner(req);
+			const chk = this.budgets.check(
+				p.keyId,
+				limits,
+				Number(req.headers.get("content-length") ?? "0"),
+				team,
+			);
+			const view = this.rateView(limits, chk.view);
+			if (!chk.ok)
+				return this.rateLimited(path, rid, p, view, chk.retryAfterS);
+			const resp = await inner(req);
+			// http-citizenship: the trio rides every budgeted response.
+			if (view !== null) stampRateLimit(resp.headers, view);
+			return resp;
+		} finally {
+			if (p.kind !== "root") this.slots.release(p.team);
+		}
+	}
+
+	/** Pool full (429): audit + envelope; Retry-After is a short constant —
+	 *  slots free as in-flight generations settle, unlike a window reset. */
+	private slotLimited(path: string, rid: string, p: Principal): Response {
+		this.auditDenial({
+			rid,
+			actor: p.keyId,
+			route: path,
+			dialect: dialectOf(path),
+			code: "buckle.slot_exhausted",
+			status: 429,
+			why: "concurrency slots exhausted",
+		});
+		return authError(
+			429,
+			"buckle.slot_exhausted",
+			"concurrency slots exhausted",
+			{ instance: path, headers: { "retry-after": "2" } },
 		);
-		const view = this.rateView(limits, chk.view);
-		if (!chk.ok) return this.rateLimited(path, rid, p, view, chk.retryAfterS);
-		const resp = await inner(req);
-		// http-citizenship: the trio rides every budgeted response.
-		if (view !== null) stampRateLimit(resp.headers, view);
-		return resp;
 	}
 
 	/** The trio basis: rpm when bounded, else tpm. Unbounded principals get

@@ -20,6 +20,7 @@ async function startGate(
 		audience: string;
 	},
 	cfgOverride?: string,
+	slots?: { global: number; perTeam: number },
 ): Promise<GateServer> {
 	const dir = `/tmp/buckle-gate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 	const cfg =
@@ -30,7 +31,7 @@ async function startGate(
 		port: 0,
 		upstreamsPath: `${dir}.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT, jwt },
+		auth: { rootKey: ROOT, jwt, slots },
 	});
 	return {
 		base: `http://127.0.0.1:${server.port}`,
@@ -405,6 +406,39 @@ describe("gate: introspection + problem 404/405 (W155)", () => {
 		);
 		const mBody = (await missing.json()) as { code: string };
 		expect(mBody.code).toBe("buckle.no_route");
+		gate.stop();
+		upstream.close();
+	});
+});
+
+describe("gate: W468 admission-control slots", () => {
+	test("second in-flight generation is 429'd with buckle.slot_exhausted", async () => {
+		let release!: () => void;
+		const blocked = new Promise<void>((r) => {
+			release = r;
+		});
+		const upstream = await startMockUpstream(async (_req, _body, n) => {
+			if (n === 0) await blocked;
+			return Response.json({ id: "x", choices: [], usage: {} });
+		});
+		const gate = await startGate(upstream.url, undefined, undefined, {
+			global: 1,
+			perTeam: 0,
+		});
+		const { key } = await issueViaAdmin(gate.base, {
+			name: "slots",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const first = chat(gate.base, key);
+		while (upstream.calls.length === 0) await Bun.sleep(5);
+		const second = await chat(gate.base, key);
+		expect(second.status).toBe(429);
+		expect(
+			((await second.json()) as { code: string }).code,
+		).toBe("buckle.slot_exhausted");
+		expect(second.headers.get("retry-after")).toBe("2");
+		release();
+		expect((await first).status).toBe(200);
 		gate.stop();
 		upstream.close();
 	});

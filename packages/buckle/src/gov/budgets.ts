@@ -1,27 +1,17 @@
-// src/gov/budgets.ts — W141 rpm/tpm budgets: simple in-process counters with
-// a periodic flush into the W132 budget_state durable half (upsert-ADD, so a
-// retried batch can never lose counts; window_start moves to the flusher's
-// value so a rolled window restarts the count honestly). W143 optimizes to
-// O(1) + async flush; the ADMISSION approximation (input reservation =
-// ceil(bodyBytes/4)) is deliberate W141 scope — real usage threading is W143.
+// src/gov/budgets.ts — W468 replica-safe budgets: the DB row IS the budget
+// authority. Admission reserves input + bounded output inside one
+// BEGIN IMMEDIATE transaction (upsert-ADD into budget_state plus the W468
+// team_budget_state aggregate), reads back the post-reservation counts and
+// enforces the key limit and the team ceiling against those; a denial
+// ROLLBACKs, so two processes sharing one DB file serialize on SQLite's
+// single-writer lock and can no longer multiply a team's quota the way the
+// W141 in-process counters (periodic 5s flush) allowed. The W141
+// admission approximation (input reservation = ceil(bodyBytes/4)) stands.
 import type { Database } from "bun:sqlite";
 
 export interface BudgetLimits {
 	rpm: number | null;
 	tpm: number | null;
-}
-
-interface Win {
-	window: string;
-	reqs: number;
-	tks: number;
-	/** W457: provider-reported cache reads/writes riding the same window. */
-	cacheR: number;
-	cacheC: number;
-	flushedReqs: number;
-	flushedTks: number;
-	flushedCacheR: number;
-	flushedCacheC: number;
 }
 
 /** Minute-window id: `YYYY-MM-DDTHH:MM` in UTC. */
@@ -60,7 +50,7 @@ export function effectiveLimit(
 	};
 }
 
-const UPSERT_STATE = `INSERT INTO budget_state (
+const UPSERT_KEY = `INSERT INTO budget_state (
   key_id, window, used_rpm, used_tpm, cache_r, cache_c, window_start
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(key_id, window) DO UPDATE SET
@@ -70,132 +60,199 @@ ON CONFLICT(key_id, window) DO UPDATE SET
   cache_c = cache_c + excluded.cache_c,
   window_start = excluded.window_start`;
 
-export class Budgets {
-	private readonly wins = new Map<string, Win>();
-	private timer: ReturnType<typeof setInterval> | null = null;
+const UPSERT_KEY_REQ = `INSERT INTO budget_state (
+  key_id, window, used_rpm, used_tpm, window_start
+) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(key_id, window) DO UPDATE SET
+  used_rpm = used_rpm + excluded.used_rpm,
+  used_tpm = used_tpm + excluded.used_tpm,
+  window_start = excluded.window_start`;
 
+const UPSERT_TEAM = `INSERT INTO team_budget_state (
+  team_id, window, used_rpm, used_tpm, window_start
+) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(team_id, window) DO UPDATE SET
+  used_rpm = used_rpm + excluded.used_rpm,
+  used_tpm = used_tpm + excluded.used_tpm,
+  window_start = excluded.window_start`;
+
+const READ_KEY = `SELECT used_rpm, used_tpm FROM budget_state
+WHERE key_id = ? AND window = ?`;
+
+const READ_TEAM = `SELECT used_rpm, used_tpm FROM team_budget_state
+WHERE team_id = ? AND window = ?`;
+
+interface Counts {
+	used_rpm: number;
+	used_tpm: number;
+}
+
+/** Did this reservation push the window over `limits`? The rows already
+ *  carry the reservation, so "over" is strictly-greater. */
+function over(limits: BudgetLimits, c: Counts): boolean {
+	return (
+		(limits.rpm !== null && c.used_rpm > limits.rpm) ||
+		(limits.tpm !== null && c.used_tpm > limits.tpm)
+	);
+}
+
+export class Budgets {
 	constructor(
 		private readonly db: Database,
 		private readonly now: () => number = Date.now,
 	) {}
 
-	startFlushTimer(ms = 5000): void {
-		if (this.timer !== null) return;
-		const t = setInterval(() => this.flush(), ms);
-		t.unref?.();
-		this.timer = t;
-	}
-
-	stopFlushTimer(): void {
-		if (this.timer !== null) clearInterval(this.timer);
-		this.timer = null;
-	}
-
-	/** Admission check + request count. Denial returns retry-after seconds
-	 *  (window remainder + U[0,1) jitter — LiteLLM retry-after semantics);
-	 *  both arms carry the W155 BudgetView so the gate stamps the
-	 *  rate-limit trio without a second counter read. */
+	/** Atomic admission: reserve (1 req, ceil(bodyBytes/4) tks) on the key
+	 *  row and the team aggregate row in one immediate transaction, read
+	 *  both back, enforce key limit + team ceiling. Denial rolls the
+	 *  reservation back and returns retry-after (window remainder +
+	 *  U[0,1) jitter — LiteLLM retry-after semantics); the BudgetView
+	 *  carries the post-reservation counts either way so the gate stamps
+	 *  the rate-limit trio without a second counter read. */
 	check(
 		keyId: string,
 		limits: BudgetLimits,
 		bodyBytes: number,
+		team: { id: string; limits: BudgetLimits } | null = null,
 	):
 		| { ok: true; view: BudgetView }
 		| { ok: false; retryAfterS: number; view: BudgetView } {
 		const t = this.now();
-		const win = this.current(keyId, t);
-		const view = (): BudgetView => ({
-			usedReqs: win.reqs,
-			usedTks: win.tks,
-			resetS: windowRemainderS(t),
-			resetEpochS: Math.floor(t / 60_000) * 60 + 60,
-		});
+		const win = windowOf(t);
 		const estTks = Math.ceil(bodyBytes / 4);
-		if (limits.rpm !== null && win.reqs + 1 > limits.rpm) {
-			return {
-				ok: false,
-				retryAfterS: windowRemainderS(t) + Math.random(),
-				view: view(),
-			};
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
+			this.db
+				.query(UPSERT_KEY_REQ)
+				.run(keyId, win, 1, estTks, t);
+			if (team !== null)
+				this.db.query(UPSERT_TEAM).run(team.id, win, 1, estTks, t);
+			const kr = this.db.query(READ_KEY).get(keyId, win) as Counts;
+			let denied = over(limits, kr);
+			if (!denied && team !== null) {
+				const tr = this.db.query(READ_TEAM).get(team.id, win) as
+					| Counts
+					| null;
+				denied = tr !== null && over(team.limits, tr);
+			}
+			if (denied) {
+				this.db.exec("ROLLBACK");
+				return {
+					ok: false,
+					retryAfterS: windowRemainderS(t) + Math.random(),
+					view: this.view(kr, t),
+				};
+			}
+			this.db.exec("COMMIT");
+			return { ok: true, view: this.view(kr, t) };
+		} catch (e) {
+			try {
+				this.db.exec("ROLLBACK");
+			} catch {
+				/* the failed statement already unwound */
+			}
+			throw e;
 		}
-		if (limits.tpm !== null && win.tks + estTks > limits.tpm) {
-			return {
-				ok: false,
-				retryAfterS: windowRemainderS(t) + Math.random(),
-				view: view(),
-			};
-		}
-		win.reqs += 1;
-		win.tks += estTks;
-		return { ok: true, view: view() };
 	}
 
-	/** Release an admission reservation (denial after admit). */
-	release(keyId: string): void {
-		const win = this.wins.get(keyId);
-		if (win === undefined) return;
-		win.reqs = Math.max(0, win.reqs - 1);
+	/** Release an admission reservation (denial after admit): the request
+	 *  count drops on both the key row and the team aggregate; the input
+	 *  estimate stays counted, matching W141 bookkeeping. */
+	release(keyId: string, team: string | null = null): void {
+		const win = windowOf(this.now());
+		this.db
+			.query(
+				"UPDATE budget_state SET used_rpm = max(0, used_rpm - 1) WHERE key_id = ? AND window = ?",
+			)
+			.run(keyId, win);
+		if (team !== null)
+			this.db
+				.query(
+					"UPDATE team_budget_state SET used_rpm = max(0, used_rpm - 1) WHERE team_id = ? AND window = ?",
+				)
+				.run(team, win);
 	}
 
-	/** Post-response usage — real tokens when W143 threads them through.
-	 *  W457: provider-reported cache reads/writes ride the same window so
-	 *  the accounting aggregation carries cache telemetry too. */
+	/** Post-response real usage — atomic upsert-ADD on the key row (W457:
+	 *  provider-reported cache reads/writes ride the same row) and the
+	 *  team aggregate. Replaces the W141 flush: writes land at the
+	 *  authority the moment they are known. */
 	addUsage(
 		keyId: string,
 		requests: number,
 		tokens: number,
 		cacheR = 0,
 		cacheC = 0,
+		team: string | null = null,
 	): void {
-		const win = this.current(keyId, this.now());
-		win.reqs += requests;
-		win.tks += tokens;
-		win.cacheR += cacheR;
-		win.cacheC += cacheC;
-	}
-
-	private current(keyId: string, t: number): Win {
-		const label = windowOf(t);
-		const win = this.wins.get(keyId);
-		if (win !== undefined && win.window === label) return win;
-		const fresh: Win = {
-			window: label,
-			reqs: 0,
-			tks: 0,
-			cacheR: 0,
-			cacheC: 0,
-			flushedReqs: 0,
-			flushedTks: 0,
-			flushedCacheR: 0,
-			flushedCacheC: 0,
-		};
-		this.wins.set(keyId, fresh);
-		return fresh;
-	}
-
-	/** Flush dirty deltas to budget_state (upsert-ADD); rows written. */
-	flush(): number {
-		let n = 0;
-		for (const [keyId, win] of this.wins) {
-			const dR = win.reqs - win.flushedReqs;
-			const dT = win.tks - win.flushedTks;
-			const dCR = win.cacheR - win.flushedCacheR;
-			const dCC = win.cacheC - win.flushedCacheC;
-			if (dR === 0 && dT === 0 && dCR === 0 && dCC === 0) continue;
+		const t = this.now();
+		const win = windowOf(t);
+		this.db.exec("BEGIN IMMEDIATE");
+		try {
 			this.db
-				.query(UPSERT_STATE)
-				.run(keyId, win.window, dR, dT, dCR, dCC, Date.now());
-			win.flushedReqs = win.reqs;
-			win.flushedTks = win.tks;
-			win.flushedCacheR = win.cacheR;
-			win.flushedCacheC = win.cacheC;
-			n += 1;
+				.query(UPSERT_KEY)
+				.run(keyId, win, requests, tokens, cacheR, cacheC, t);
+			if (team !== null)
+				this.db.query(UPSERT_TEAM).run(team.id, win, requests, tokens, t);
+			this.db.exec("COMMIT");
+		} catch (e) {
+			try {
+				this.db.exec("ROLLBACK");
+			} catch {
+				/* the failed statement already unwound */
+			}
+			throw e;
 		}
-		return n;
 	}
 
-	/** Readback for admin/tests: current window counters. */
-	snapshot(): Array<{ keyId: string; win: Win }> {
-		return [...this.wins.entries()].map(([keyId, win]) => ({ keyId, win }));
+	/** Readback for admin/tests: the durable windows (the authority). */
+	snapshot(): Array<{
+		keyId: string;
+		window: string;
+		reqs: number;
+		tks: number;
+		cacheR: number;
+		cacheC: number;
+	}> {
+		return this.db
+			.query(
+				"SELECT key_id AS keyId, window, used_rpm AS reqs, used_tpm AS tks, cache_r AS cacheR, cache_c AS cacheC FROM budget_state ORDER BY keyId, window",
+			)
+			.all() as Array<{
+			keyId: string;
+			window: string;
+			reqs: number;
+			tks: number;
+			cacheR: number;
+			cacheC: number;
+		}>;
+	}
+
+	/** Admin/tests readback of the team aggregate rows. */
+	snapshotTeams(): Array<{
+		teamId: string;
+		window: string;
+		reqs: number;
+		tks: number;
+	}> {
+		return this.db
+			.query(
+				"SELECT team_id AS teamId, window, used_rpm AS reqs, used_tpm AS tks FROM team_budget_state ORDER BY teamId, window",
+			)
+			.all() as Array<{
+			teamId: string;
+			window: string;
+			reqs: number;
+			tks: number;
+		}>;
+	}
+
+	private view(c: Counts, t: number): BudgetView {
+		return {
+			usedReqs: c.used_rpm,
+			usedTks: c.used_tpm,
+			resetS: windowRemainderS(t),
+			resetEpochS: Math.floor(t / 60_000) * 60 + 60,
+		};
 	}
 }
