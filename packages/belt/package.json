@@ -1,10 +1,11 @@
 {
 	"name": "belt",
-	"version": "0.1.0",
+	"version": "2.0.0",
 	"description": "Local LLM fleet — MLX specialists, anthropic-wire router, benchmark rig",
 	"type": "module",
 	"license": "BUSL-1.1",
 	"private": true,
+	"engines": { "bun": ">=1.2" },
 	"scripts": {
 		"build:dashboard": "bun build ui/lit-vendor.ts --target browser --format esm --minify --production --outfile bin/vendor/lit.js"
 	},

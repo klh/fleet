@@ -1,6 +1,6 @@
 {
 	"name": "suspenders",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"description": "A control plane for agent fleets — SQLite state, capability-aware dispatch, zombie detection, decisions with LLM recommendations, a consult knowledge base, and a live fleet board",
 	"type": "module",
 	"workspaces": [
@@ -29,7 +29,7 @@
 		"ts-morph": "^28.0.0"
 	},
 	"engines": {
-		"bun": ">=1.1"
+		"bun": ">=1.2"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.63.0"

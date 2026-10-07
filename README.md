@@ -207,6 +207,11 @@ Separate clones require explicit identity/authorization design.
 
 - **One work ledger:** use the graph for tasks and claims; documentation describes
   contracts and decisions. Local project identity follows the Git common directory.
+- **One version per release:** a release is one git tag (`v2.0.0` style); every
+  `packages/*` manifest carries that version and the
+  [changelog](CHANGELOG.md) records the release line. The `version:` pin in
+  machine-level `stack.yaml` names the same ref — hubctl renders it as the ref
+  every hub pulls.
 - **Independent health:** a separate process probes the real target over the network.
   A listening gateway alone does not prove a model can execute tools.
 - **Config over code:** hub profiles and version pins live in
@@ -237,6 +242,7 @@ work graph before a fresh hub installation.
 | Understand health and federation | [Health contract](docs/health-status-contract.md) · [Project identity](docs/cross-hub-project-identity.md) · [Upstream observability](docs/upstream-observability-architecture.md) |
 | Evaluate performance and failure modes | [Measurements](benchmarks.md) · [BLAM taxonomy](packages/blam/docs/taxonomy.md) |
 | Understand consolidation findings | [Monorepo review](docs/monorepo-review-2026-10-05.md) |
+| Track stack releases | [Changelog](CHANGELOG.md) |
 
 ## License
 
