@@ -146,4 +146,26 @@ describe("lane-liveness surface", () => {
 		).toBe(true);
 		expect(HARNESS_ARG_RE.test("claude -p mission")).toBe(true);
 	});
+
+	// W466 bounding: the scan is a depth-capped readdir walk, not an
+	// unbounded `**` glob — but the documented layouts must still hit:
+	// main (depth 2) and subagents (<proj>/<parent>/subagents/, depth 4).
+	test("W466: subagent transcript at depth 4 found; stale memo transitions immediately", () => {
+		const home = `${import.meta.dir}/.tmp-home-w466-${Date.now()}`;
+		const deep = `${home}/.claude/projects/-tmp-proj/parent-session/subagents`;
+		mkdirSync(deep, { recursive: true });
+		const realHome = process.env.HOME;
+		process.env.HOME = home;
+		try {
+			writeFileSync(`${deep}/agent-autowsub.jsonl`, "{}");
+			expect(transcriptAlive("autowsub")).toBe(true);
+			// positive memo re-validates by stat: age the file past the floor
+			// and the SAME sid reads dead on the next probe
+			utimesSync(`${deep}/agent-autowsub.jsonl`, new Date(0), new Date(0));
+			expect(transcriptAlive("autowsub")).toBe(false);
+		} finally {
+			process.env.HOME = realHome;
+			Bun.spawnSync(["/bin/rm", "-rf", home]);
+		}
+	});
 });

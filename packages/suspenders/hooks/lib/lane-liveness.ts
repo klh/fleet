@@ -8,7 +8,7 @@
 // liveness term. Verdict: live = recorded pid alive AND anchored harness
 // args referencing the sid, or — pid gone — the claimant transcript fresh
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
 export type LaneRef = {
@@ -21,23 +21,64 @@ export type LaneRef = {
 };
 
 // claimant transcript freshness — the same liveness `work reclaim` trusts
-// (15-min mtime floor over ~/.claude/projects/**/*<sid>*.jsonl). Path-valued
-// primitive; work.ts's session settle keeps storing the path.
+// (15-min mtime floor over ~/.claude/projects/**/*<sid>*.jsonl). W466
+// bounding: the old `**` recursive glob walked EVERY project transcript on
+// every probe (per lane, per `work lanes`/fleet render). The known layout
+// is ≤4 levels (main: <proj>/<sid>.jsonl; subagents:
+// <proj>/<parent>/subagents/agent-<id>.jsonl) — so the scan is a
+// depth-capped readdir walk (≤4, ≤50k files) with early exit. Positive
+// results memoize for 10s, re-validated by one stat before reuse;
+// negatives always rescan — a fresh transcript must be immediately
+// observable to the reclaim lease.
+const transcriptMemo = new Map<string, string>(); // sid → fresh path, positive only
 export const transcriptPath = (sid: string): string | null => {
 	const floor = Date.now() - 15 * 60_000;
+	const hit = transcriptMemo.get(sid);
+	if (hit) {
+		try {
+			if (statSync(hit).mtimeMs > floor) return hit;
+		} catch {}
+		transcriptMemo.delete(sid); // stale memo entry — rescan
+	}
+	let found: string | null = null;
+	const stack: [string, number][] = [];
 	try {
-		const glob = new Bun.Glob(`**/*${sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			const f = `${process.env.HOME}/.claude/projects/${rel}`;
+		const root = `${process.env.HOME}/.claude/projects`;
+		let budget = 50_000; // file+dir entries the walk may touch
+		stack.push([root, 0]);
+		while (stack.length > 0 && !found && budget > 0) {
+			const [dir, depth] = stack.pop() as [string, number];
+			let entries;
 			try {
-				if (existsSync(f) && statSync(f).mtimeMs > floor) return f;
-			} catch {}
+				entries = readdirSync(dir, { withFileTypes: true });
+			} catch {
+				continue;
+			}
+			for (const e of entries) {
+				if (budget-- <= 0) break;
+				const p = `${dir}/${e.name}`;
+				if (e.isDirectory()) {
+					if (depth < 4) stack.push([p, depth + 1]);
+					continue;
+				}
+				if (!e.name.endsWith(".jsonl") || !e.name.includes(sid)) continue;
+				try {
+					if (statSync(p).mtimeMs > floor) {
+						found = p;
+						break;
+					}
+				} catch {}
+			}
 		}
 	} catch {}
-	return null;
+	if (found) {
+		transcriptMemo.set(sid, found);
+		if (transcriptMemo.size >= 64) {
+			const oldest = transcriptMemo.keys().next().value;
+			if (oldest !== undefined) transcriptMemo.delete(oldest);
+		}
+	}
+	return found;
 };
 
 export const transcriptAlive = (sid: string): boolean =>

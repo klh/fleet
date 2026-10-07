@@ -6,6 +6,7 @@ import { db } from "./context.ts";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
+import { transcriptAlive } from "../lib/lane-liveness.ts";
 import {
 	closeSync,
 	existsSync,
@@ -235,7 +236,9 @@ export const readShipJson = (repo: string): { ladder?: string } => {
 	}
 };
 
-// a transcript written within the last 15 minutes = live process
+// a transcript written within the last 15 minutes = live process — W466:
+// the glob fallback retired; the bounded depth-4 walk (lib/lane-liveness
+// .ts, memoized) is the one liveness scan
 export const transcriptWarm = (sid: string): boolean => {
 	const floor = Date.now() - 15 * 60_000;
 	const p = (
@@ -248,22 +251,7 @@ export const transcriptWarm = (sid: string): boolean => {
 			return statSync(p).mtimeMs > floor;
 		} catch {}
 	}
-	try {
-		const glob = new Bun.Glob(`**/*${sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			try {
-				if (
-					statSync(`${process.env.HOME}/.claude/projects/${rel}`).mtimeMs >
-					floor
-				)
-					return true;
-			} catch {}
-		}
-	} catch {}
-	return false;
+	return transcriptAlive(sid);
 };
 
 // live = RUNNING row + (fresh hb or warm transcript); coordinators are exempt
