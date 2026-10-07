@@ -53,6 +53,16 @@ cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/scripts/lib/"
 mkdir -p "$PREFIX/scripts"
 cp "$SCRIPT_DIR"/scripts/*.ts "$PREFIX/scripts/"
 cp "$SCRIPT_DIR"/scripts/*.sh "$PREFIX/scripts/" 2>/dev/null || true
+# W422.17 gui-disconnected law (owner 2026-10-07, HARD RULE): agent-facing
+# surfaces distribute as SKILLS via `npx skills add` (vercel style) — never
+# cp'd into ~/.claude/commands or any single CLI's dir. Best-effort here:
+# offline LANs skip with a note and the operator runs it manually.
+if [ -d "$SCRIPT_DIR/skills" ]; then
+  for skill in "$SCRIPT_DIR"/skills/*/; do
+    npx -y skills add "${skill%/}" 2>/dev/null \
+      || echo "  (skills: offline — run manually: npx skills add ${skill%/})"
+  done
+fi
 # W422.5 — blam ships whole (manifest included): suspenders' manifest declares
 # "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
 # (below) symlinks node_modules/blam -> blam/ and board's package-name import
