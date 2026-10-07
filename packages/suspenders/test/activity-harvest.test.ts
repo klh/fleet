@@ -79,6 +79,9 @@ const FACTS_DDL =
 	"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)";
 const ACTIVITY_DDL =
 	"CREATE TABLE activity_rollup (week_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model_group TEXT NOT NULL, activity TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, searches INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (week_bucket, actor, model_group, activity))";
+// W466: harvest cursors live here, not in facts (govdb v12)
+const MACHINE_CURSORS_DDL =
+	"CREATE TABLE machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)";
 
 const H = 3_600_000;
 const NOW = Date.parse("2026-10-01T12:00:00Z");
@@ -89,6 +92,7 @@ function freshDb(n: number): Database {
 	db.run(SESSIONS_DDL);
 	db.run(FACTS_DDL);
 	db.run(ACTIVITY_DDL);
+	db.run(MACHINE_CURSORS_DDL);
 	return db;
 }
 

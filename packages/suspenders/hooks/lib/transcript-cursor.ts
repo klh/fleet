@@ -1,9 +1,10 @@
 // hooks/lib/transcript-cursor.ts — shared transcript-tail machinery for the
 // journal miners (W127 usage-harvest, W243 activity-harvest): byte-offset
-// cursors over the facts table + the sync byte-tail reader. Cursor keys are
-// `<prefix>.<sha1(abs path)>` — prefix choice keeps each miner's cursors in
-// its own namespace while the key derivation stays byte-identical across
-// miners (existing usage.tp.* cursors survive the W243 refactor untouched).
+// cursors over the machine_cursors table + the sync byte-tail reader. Cursor
+// keys are `<prefix>.<sha1(abs path)>` — prefix choice keeps each miner's
+// cursors in its own namespace while the key derivation stays byte-identical
+// across miners. W466: cursors moved OUT of the facts table (govdb v12) —
+// machine bookkeeping never floods the knowledge read surface or facts_fts.
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 
@@ -48,9 +49,9 @@ const parse = (raw: string | null | undefined): TpCursor | null => {
 };
 
 export function loadCursor(db: Database, key: string): TpCursor | null {
-	const row = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
-		value: string | null;
-	} | null;
+	const row = db
+		.query("SELECT value FROM machine_cursors WHERE key = ?")
+		.get(key) as { value: string | null } | null;
 	return parse(row?.value);
 }
 
@@ -62,6 +63,6 @@ export function saveCursor(
 	nowMs: number,
 ): void {
 	db.query(
-		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
+		"INSERT INTO machine_cursors (key, value, source, ts) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
 	).run(key, JSON.stringify(cur), source, nowMs);
 }

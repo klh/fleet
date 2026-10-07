@@ -1018,6 +1018,27 @@ export function openGovernorDb(): Database {
 		"CREATE INDEX IF NOT EXISTS activity_rollup_actor ON activity_rollup(actor, week_bucket)",
 	);
 	if (uv < 11) db.run("PRAGMA user_version = 11");
+	// v12 (W466) — machine cursor keyspace: transcript-tail bookkeeping
+	// (activity.tp.*/usage.tp.*/usage.v2.tp.* — one row per transcript file)
+	// leaves the knowledge facts table. Cursor rows flooded `coord fact list`
+	// and the facts_fts index (openai-review reliability 1 + arch): the facts
+	// table is the human/knowledge surface, harvest offsets are machine
+	// state. The migration moves every cursor row once; the writers
+	// (transcript-cursor.ts, usage-harvest.ts) read/write machine_cursors
+	// directly. facts_fts cleans up via its AFTER DELETE trigger.
+	db.run(
+		"CREATE TABLE IF NOT EXISTS machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)",
+	);
+	if (uv < 12) {
+		const cursorPrefixes = ["activity.tp.", "usage.tp.", "usage.v2.tp."];
+		const where = cursorPrefixes.map(() => "key LIKE ?").join(" OR ");
+		db.run(
+			`INSERT OR IGNORE INTO machine_cursors (key, value, source, ts) SELECT key, value, source, ts FROM facts WHERE ${where}`,
+			cursorPrefixes.map((p) => `${p}%`),
+		);
+		db.run(`DELETE FROM facts WHERE ${where}`, cursorPrefixes.map((p) => `${p}%`));
+		db.run("PRAGMA user_version = 12");
+	}
 	migrateJSON(db);
 	return db;
 }

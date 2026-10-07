@@ -40,6 +40,12 @@ export function prepareUsageRebuild(
 				if (!schema) throw new Error(`required source table missing: ${name}`);
 				db.run(schema.sql);
 			}
+			// W466: harvest cursors live in machine_cursors (govdb v12) — the
+			// rebuilt report db is not opened through the govdb migration
+			// ladder, so the table is ensured here for harvestUsage.
+			db.run(
+				"CREATE TABLE IF NOT EXISTS machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)",
+			);
 			const actors = snapshot
 				.query("SELECT sid,actor FROM sessions WHERE actor IS NOT NULL")
 				.all() as { sid: string; actor: string }[];
