@@ -102,6 +102,55 @@ const dispatchWith = (
 };
 const dispatch = (...args: string[]) => dispatchWith({}, ...args);
 
+describe("CLI help is read-only", () => {
+	test("help flags print usage without creating runtime state or claiming work", () => {
+		const id =
+			(tool("work.ts", "add", "help must not dispatch fixture").out.match(
+				/W\d+/,
+			) ?? [])[0] ?? "";
+		const before = tool("work.ts", "show", id, "--json").out;
+		const stale =
+			(tool("work.ts", "add", "help must not resume fixture").out.match(
+				/W\d+/,
+			) ?? [])[0] ?? "";
+		expect(
+			tool(
+				"work.ts",
+				"take",
+				stale,
+				"--as",
+				"autowhelp",
+				"--origin",
+				`${hostname()}:claude`,
+			).code,
+		).toBe(0);
+		const row = JSON.parse(tool("work.ts", "show", stale, "--json").out);
+		const db = new Database(
+			join(HOME, ".cache", "claude-governor", "governor.db"),
+		);
+		db.run(
+			"UPDATE work_items SET updated_at = 1 WHERE project = ? AND id = ?",
+			[row.project, stale],
+		);
+		db.close();
+		const staleBefore = tool("work.ts", "show", stale, "--json").out;
+		for (const help of ["--help", "-h"]) {
+			// Even the buggy path cannot spawn real models in this regression.
+			const result = dispatch(help, "--target", "0");
+			expect(result.code).toBe(0);
+			expect(result.out).toContain("Usage: dispatch");
+			expect(result.out).not.toContain("lanes live:");
+			expect(existsSync(join(REPO, ".fleet"))).toBe(false);
+			expect(tool("work.ts", "show", id, "--json").out).toBe(before);
+			expect(tool("work.ts", "show", stale, "--json").out).toBe(staleBefore);
+			expect(existsSync(join(REPO, ".worktrees"))).toBe(false);
+		}
+		// This file shares a scratch graph; remove the fixture from later picks.
+		expect(tool("work.ts", "fail", id).code).toBe(0);
+		expect(tool("work.ts", "fail", stale).code).toBe(0);
+	});
+});
+
 describe("capsule protocol (real coord verb, scratch db)", () => {
 	test("write/read round-trip", () => {
 		const set = tool(

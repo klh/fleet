@@ -1277,10 +1277,11 @@ after a restart instead of repeatedly comparing it with the pre-restart PID.
 These are architectural follow-through areas; the work graph remains the task
 ledger and owns their current state.
 
-- **Safe command discovery:** `dispatch --help` currently enters the dispatch
-  path and can recover claims or start agents. W538 owns the fix. Help parsing
-  must precede every mutation; a contributed regression verifies graph and
-  registry preservation. Documentation checks must not assume help is harmless.
+- **Safe command discovery:** W538 fixes `dispatch --help` entering the dispatch
+  path and recovering claims or starting agents. Help parsing now precedes Git
+  lookup and every mutation. A regression preserves READY and stale automatic
+  claims and verifies that no runtime directories are created. Other command
+  discovery paths should adopt the same contract.
 - **Atomic ownership:** separate create and claim operations race the automatic
   coordinator. An atomic create-and-claim or reserved assignment would prevent
   two agents believing they own newly minted work. Preserve the actual graph

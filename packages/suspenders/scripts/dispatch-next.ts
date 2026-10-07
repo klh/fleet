@@ -52,6 +52,25 @@ import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 
 const argv = process.argv.slice(2);
+// Command discovery must precede repo lookup, claims, registry writes and spawn.
+if (import.meta.main && (argv.includes("--help") || argv.includes("-h"))) {
+	console.log(`Usage: dispatch [options]
+
+Refill agent lanes from READY work and resume unfinished claims.
+
+  --repo <dir>             Project checkout (default: Git root)
+  --target <N>             Desired live lane count (default: 6)
+  --dry-run                Preview without launching or changing claims
+  --item <Wn>              Dispatch one specific work item
+  --no-belt                Skip belt executor selection
+  --allow-ungoverned       Explicitly allow a surfaced governance bypass
+  --show-capsule <sid>      Print a lane's saved continuation capsule
+  -h, --help               Print this help without dispatching
+
+Crash recovery defaults to three total launches per lane.
+Set SUSPENDERS_LANE_MAX_ATTEMPTS to a value from 1 to 100 to override.`);
+	process.exit(0);
+}
 const val = (flag: string): string | undefined => {
 	const i = argv.indexOf(flag);
 	return i >= 0 ? argv[i + 1] : undefined;
