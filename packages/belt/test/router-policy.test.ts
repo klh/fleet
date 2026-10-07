@@ -25,6 +25,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 	test("committed default carries the hand-edit ladders + native knobs", () => {
 		const p = loadGatewayPolicy(REPO_POLICY);
 		expect(p.num_retries).toBe(1);
+		expect(p.litellm_num_retries).toBe(0);
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
 		expect(p.fallbacks).toEqual({
@@ -57,14 +58,49 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		};
 		expect(doc.router_settings).toEqual({
 			routing_strategy: "latency-based-routing",
-			num_retries: 1,
+			num_retries: 0,
+			default_litellm_params: { max_retries: 0 },
 			allowed_fails: 3,
 			cooldown_time: 30,
 		});
 	});
 
+	test("outer retries stay independent from bounded inner router retries", () => {
+		const policy = parsePolicy(
+			"gateway:\n  num_retries: 1\n  litellm_num_retries: 3\n",
+		);
+		const generated = Bun.YAML.parse(emitRouterSettings(policy));
+		expect(policy.num_retries).toBe(1);
+		expect(generated.router_settings.num_retries).toBe(3);
+		expect(generated.router_settings.default_litellm_params.max_retries).toBe(
+			0,
+		);
+	});
+
+	test("invalid inner retry budgets fail closed rather than generating YAML", () => {
+		for (const invalid of [
+			"-1",
+			"4",
+			"1.5",
+			"null",
+			'"2"',
+			"true",
+			".nan",
+			".inf",
+		]) {
+			expect(() =>
+				parsePolicy(`gateway:\n  litellm_num_retries: ${invalid}\n`),
+			).toThrow("integer from 0 to 3");
+		}
+		expect(() => emitRouterSettings({ litellm_num_retries: -1 })).toThrow(
+			"integer from 0 to 3",
+		);
+	});
+
 	test("emitFallbackSettings → YAML round-trip preserves the ladders", () => {
-		const doc = Bun.YAML.parse(emitFallbackSettings(emitterTestFallbacks())) as {
+		const doc = Bun.YAML.parse(
+			emitFallbackSettings(emitterTestFallbacks()),
+		) as {
 			litellm_settings: {
 				fallbacks: Record<string, string[]>[];
 			};
