@@ -5,8 +5,13 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import type { Database } from "bun:sqlite";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
+import {
+	listSpokes,
+	mintEnrollmentCode,
+} from "./federation-spokes.ts";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -102,6 +107,15 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/slots") {
 		return ok({ held: gov.slots.held() });
 	}
+	// W173 spoke enrollment + fleet registry: the hub names its fleet — mint
+	// a one-time enrollment code (admin-only by gate class), read the
+	// inventory (id, version, policy version applied, last-seen).
+	if (method === "POST" && path === "/v1/admin/spokes/enroll") {
+		return mintEnrollCode(req, p, gov);
+	}
+	if (method === "GET" && path === "/v1/admin/spokes") {
+		return listSpokesRoute(gov);
+	}
 	// W468: the /v1/admin/budgets/flush endpoint is gone with the W141
 	// flush — writes land at the DB authority the moment they are known.
 	// known path, wrong method → 405 + Allow (this runs post-auth)
@@ -171,6 +185,54 @@ async function revokeKey(
 		return bad(404, "buckle.no_route", `no such key: ${keyId}`);
 	gov.keys.recordAuthEvent(p.actor ?? keyId, "revoked", null, "api_key");
 	return ok({ revoked: keyId });
+}
+
+/** W173: the federation surface this deployment must hold for the spoke
+ *  routes; honest 501 when a gate runs federation-less. */
+function federationDb(gov: Governance): Database | null {
+	return gov.federation?.db ?? null;
+}
+
+/** W173 enrollment-code mint: {spoke_id, ttl_s?} → one-time code. The code
+ *  is raw material — exists exactly once, in this response. */
+async function mintEnrollCode(
+	req: Request,
+	p: Principal,
+	gov: Governance,
+): Promise<Response> {
+	const db = federationDb(gov);
+	if (db === null)
+		return bad(
+			501,
+			"buckle.no_federation",
+			"no federation surface on this gate",
+		);
+	const body = (await req.json().catch(() => null)) as Record<
+		string,
+		unknown
+	> | null;
+	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const spokeId = str(body.spoke_id);
+	if (spokeId === null)
+		return bad(400, "buckle.bad_body", "missing spoke_id");
+	const out = mintEnrollmentCode(db, {
+		spokeId,
+		ttlS: num(body.ttl_s),
+		actor: p.actor ?? p.keyId,
+	});
+	return ok({ spoke_id: spokeId, code: out.code, expires_at: out.expiresAt }, 201);
+}
+
+/** W173 fleet inventory: the registry the hub can finally read. */
+function listSpokesRoute(gov: Governance): Response {
+	const db = federationDb(gov);
+	if (db === null)
+		return bad(
+			501,
+			"buckle.no_federation",
+			"no federation surface on this gate",
+		);
+	return ok({ spokes: listSpokes(db) });
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {

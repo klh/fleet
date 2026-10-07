@@ -279,6 +279,19 @@ export class Governance {
 	): Promise<Response> {
 		if (this.federation === null) return inner(req);
 		const token = tokenFromHeaders(req.headers);
+		// W173: enrollment redeem — the one-time enrollment code IS the
+		// credential on this route; no bearer demanded. A presented bearer is
+		// still validated (never downgraded) and its principal rides along.
+		if (path === "/federation/enroll" && req.method === "POST") {
+			if (token === null) return inner(req);
+			const auth = await this.authenticate(req);
+			if (!auth.ok)
+				return authError(auth.status, auth.code, auth.why, {
+					instance: path,
+				});
+			stashPrincipal(req, auth.principal);
+			return inner(req);
+		}
 		if (token === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token", {
 				instance: path,

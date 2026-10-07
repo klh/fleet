@@ -91,6 +91,23 @@ CREATE TABLE IF NOT EXISTS federation_usage_rollup (
   received_at INTEGER NOT NULL,
   PRIMARY KEY (spoke, bucket, model_class)
 );
+CREATE TABLE IF NOT EXISTS federation_spokes (
+  spoke_id TEXT PRIMARY KEY,
+  key_id TEXT,
+  version TEXT,
+  policy_version TEXT,
+  enrolled_at INTEGER,
+  last_seen INTEGER
+);
+CREATE TABLE IF NOT EXISTS federation_enrollment_codes (
+  code_hash TEXT PRIMARY KEY,
+  spoke_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  redeemed_at INTEGER,
+  redeemed_key TEXT
+);
 CREATE TABLE IF NOT EXISTS federation_aid_rollup (
   spoke TEXT NOT NULL,
   team TEXT NOT NULL DEFAULT '',
