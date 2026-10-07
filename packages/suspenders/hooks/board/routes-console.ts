@@ -12,6 +12,9 @@ import {
 	settingsApply,
 } from "./settings.ts";
 import { scrub } from "../lib/servicemon.ts";
+// W183.2 — the settings form's preference editor picks from the same
+// merged catalog /api/executors serves (one source, both surfaces)
+import { executorFeed } from "./routes-data.ts";
 import { probeAll, probeService, withRecovery } from "./service-probe.ts";
 import {
 	ConfigError,
@@ -131,6 +134,9 @@ export async function handleConsole(
 		if (f !== "belt" && f !== "buckle" && f !== "suspenders")
 			return new Response("not found", { status: 404 });
 		const feature: Feature = f;
+		// W183.2 — the suspenders form carries the executor-preference editor;
+		// its add-picker lists the same catalog the dispatch feed serves
+		const executors = f === "suspenders" ? await executorFeed() : [];
 		const pol = resolvePolicy({ beltRepo: BELT_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
@@ -152,6 +158,7 @@ export async function handleConsole(
 							? readBoardSettings().path
 							: scrub(policyWritePath()),
 					set: readBoardSettings(),
+					executors,
 				},
 				consoleMe(),
 			),

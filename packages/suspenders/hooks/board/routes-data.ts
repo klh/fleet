@@ -34,6 +34,63 @@ import {
 export type { ExecutorEntry } from "./executor-catalog.ts";
 export { buildBeltEntries, resolveLlmTarget } from "./executor-catalog.ts";
 
+// W183.2 — the merged feed, shared by /api/executors and the settings
+// form executor-preference editor (one source for both surfaces).
+export const executorFeed = async (): Promise<ExecutorEntry[]> => {
+	const hubIds = hubModelIdsFrom(loadLastKnown());
+	const swarm = await localSwarmEntries();
+	const local: ExecutorEntry[] = swarm.map((s) => ({
+		value: `llm:local:${String(s.port)}`,
+		label: `${s.label}${s.ok ? "" : " (down)"}`,
+		model: s.model,
+		locality: "local",
+		plane: "local",
+		reasoningEffort: s.reasoningEffort,
+	}));
+	const user: ExecutorEntry[] = readUserPlane().entries.map((u) => ({
+		value: `llm:user:${u.name}`,
+		label: `${u.name} · ${u.model} (user)`,
+		model: u.model,
+		locality: "remote",
+		plane: "user",
+		reasoningEffort: u.roles?.includes("reasoning") ?? false,
+	}));
+	const rows = await beltRegistry();
+	const llms = buildBeltEntries(rows, hubIds);
+	return [
+		...local,
+		...user,
+		{
+			value: "claude",
+			label: "claude",
+			model: "claude",
+			locality: "remote",
+			plane: "remote",
+			reasoningEffort: false,
+		},
+		{
+			value: "codex",
+			label: "codex",
+			model: "codex",
+			locality: "remote",
+			plane: "remote",
+			reasoningEffort: false,
+		},
+		{
+			// W223.1 — fourth lane executor; fleet-loop.ts and
+			// routes-actions.ts already dispatch it with the right
+			// non-interactive flags; W183.1 — copilot effort dial is real.
+			value: "copilot",
+			label: "copilot",
+			model: "copilot",
+			locality: "remote",
+			plane: "remote",
+			reasoningEffort: true,
+		},
+		...llms,
+	];
+};
+
 export async function handleData(
 	_req: Request,
 	url: URL,
@@ -183,62 +240,7 @@ export async function handleData(
 		// can badge L/R, prefix [HUB], and surface an effort dial.
 		// W224 — belt rows carry their live /v1/models catalog: every model
 		// id an endpoint answers with is its own pick (buildBeltEntries).
-		const hubIds = hubModelIdsFrom(loadLastKnown());
-		const swarm = await localSwarmEntries();
-		const local: ExecutorEntry[] = swarm.map((s) => ({
-			value: `llm:local:${String(s.port)}`,
-			label: `${s.label}${s.ok ? "" : " (down)"}`,
-			model: s.model,
-			locality: "local",
-			plane: "local",
-			reasoningEffort: s.reasoningEffort,
-		}));
-		const user: ExecutorEntry[] = readUserPlane().entries.map((u) => ({
-			value: `llm:user:${u.name}`,
-			label: `${u.name} · ${u.model} (user)`,
-			model: u.model,
-			locality: "remote",
-			plane: "user",
-			reasoningEffort: u.roles?.includes("reasoning") ?? false,
-		}));
-		const rows = await beltRegistry();
-		const llms = buildBeltEntries(rows, hubIds);
-		return json({
-			ok: true,
-			executors: [
-				...local,
-				...user,
-				{
-					value: "claude",
-					label: "claude",
-					model: "claude",
-					locality: "remote",
-					plane: "remote",
-					reasoningEffort: false,
-				},
-				{
-					value: "codex",
-					label: "codex",
-					model: "codex",
-					locality: "remote",
-					plane: "remote",
-					reasoningEffort: false,
-				},
-				{
-					// W223.1 — fourth lane executor; fleet-loop.ts/
-					// routes-actions.ts already dispatch it with the right
-					// non-interactive flags (-p --allow-all-tools --allow-all-paths).
-					// W183.1 — copilot's --reasoning-effort flag is real.
-					value: "copilot",
-					label: "copilot",
-					model: "copilot",
-					locality: "remote",
-					plane: "remote",
-					reasoningEffort: true,
-				},
-				...llms,
-			],
-		});
+		return json({ ok: true, executors: await executorFeed() });
 	}
 	return null;
 }

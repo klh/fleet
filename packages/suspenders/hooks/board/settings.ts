@@ -53,6 +53,7 @@ export const suspPreview = (f: URLSearchParams, me: ConsoleMe): Response => {
 			status_refresh_s: f.get("status_refresh_s") ?? "",
 			harvest_ttl_s: f.get("harvest_ttl_s") ?? "",
 			default_actor: f.get("default_actor") ?? "",
+			default_executors: f.get("default_executors") ?? "",
 		});
 		return suspPreviewOk(p, me);
 	} catch (e) {
