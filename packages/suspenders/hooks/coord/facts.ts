@@ -1,21 +1,25 @@
 // hooks/coord/facts.ts — facts, capsules, kb lookup + retention (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
+
+import { existsSync } from "node:fs";
+import { ensureConsultTrust } from "./consult-trust.ts";
+import type { Database } from "./shared.ts";
 import {
-	die,
 	arg,
-	db,
-	green,
-	dim,
 	cyan,
+	db,
+	die,
+	dim,
+	green,
 	kbLookup,
 	projectIdentity,
 	pruneDeltas,
-	sweepStaleSessions,
+	readFileSync,
 	realpathSync,
+	resolve,
+	sweepStaleSessions,
 } from "./shared.ts";
-import type { Database } from "./shared.ts";
-import { ensureConsultTrust } from "./consult-trust.ts";
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -71,13 +75,34 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 		const cap = db
 			.query("SELECT value FROM facts WHERE key = ?")
 			.get(`lane.${as ?? ""}.capsule`) as { value: string } | null;
-		console.log(cap?.value ?? dim("(no capsule)"));
+		// W516 --verify: re-check the schema-delta fields against the disk
+		// (files exist? snippet ranges inside the file?) — a successor lane
+		// verifies instead of trusting prose
+		if (cap && rest.includes("--verify"))
+			console.log(renderCapsuleVerified(cap.value));
+		else console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
-		const extra: Record<string, string> = {};
+		const extra: Record<string, unknown> = {};
 		for (const t of process.argv.slice(2)) {
 			const m = /^--([\w-]+)=(.+)$/.exec(t);
 			if (m && !["as"].includes(m[1])) extra[m[1]] = m[2];
 		}
+		// W516 capsule schema delta (amp handoff lift, research-ampcode.md
+		// §M1): checkable fields — files-touched list, snippet paths WITH line
+		// ranges, todo list — stored as arrays so a successor lane can
+		// re-verify each on disk (capsule get --verify) instead of trusting
+		// prose
+		const toList = (key: string, sep: string): void => {
+			const v = extra[key];
+			if (typeof v === "string")
+				extra[key] = v
+					.split(sep)
+					.map((s) => s.trim())
+					.filter(Boolean);
+		};
+		toList("files", ",");
+		toList("snippets", ";");
+		toList("todos", ";");
 		db.query(
 			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
 		).run(
@@ -90,6 +115,55 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			`${green("✓")} ${dim(`capsule stored for @${as.slice(0, 8)}`)}`,
 		);
 	}
+}
+
+/** W516: human rendering of a capsule with the schema-delta fields
+ *  re-verified against the current worktree (cwd-relative paths). */
+export function renderCapsuleVerified(value: string): string {
+	let c: Record<string, unknown>;
+	try {
+		c = JSON.parse(value) as Record<string, unknown>;
+	} catch {
+		return `${value}\n  ✗ (capsule is not valid JSON — cannot verify)`;
+	}
+	const lines: string[] = [];
+	for (const [k, v] of Object.entries(c)) {
+		if (k === "ts") continue;
+		if (k === "files" || k === "snippets" || k === "todos") continue;
+		lines.push(`${k}: ${String(v)}`);
+	}
+	const lineCount = (p: string): number | null => {
+		try {
+			return readFileSync(existsSync(p) ? p : resolve(p), "utf8").split("\n")
+				.length;
+		} catch {
+			return null;
+		}
+	};
+	return finishCapsuleVerify(c, lines, lineCount);
+}
+
+/** W516 part two of the verified render (kept under the mutation cap). */
+function finishCapsuleVerify(
+	c: Record<string, unknown>,
+	lines: string[],
+	lineCount: (p: string) => number | null,
+): string {
+	if (Array.isArray(c.files))
+		for (const f of c.files as string[])
+			lines.push(`  ${lineCount(f) !== null ? "✓" : "✗ MISSING"} ${f}`);
+	if (Array.isArray(c.snippets))
+		for (const s of c.snippets as string[]) {
+			const m = /^(.+):(\d+)(?:-(\d+))?$/.exec(s);
+			const n = m ? lineCount(m[1] ?? "") : null;
+			if (!m || n === null) lines.push(`  ✗ MISSING ${s}`);
+			else if (Number(m[2]) > n)
+				lines.push(`  ✗ ${s} — range past EOF (file has ${n} lines)`);
+			else lines.push(`  ✓ ${s} (file has ${n} lines)`);
+		}
+	if (Array.isArray(c.todos))
+		for (const t of c.todos as string[]) lines.push(`  [ ] ${t}`);
+	return lines.join("\n");
 }
 
 export async function cmdLeaseRelease(rest: string[]): Promise<void> {
