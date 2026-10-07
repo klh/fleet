@@ -4,8 +4,8 @@
 // (hour_bucket, actor, model) buckets, and UPSERT-ADDS them into
 // governor.db's usage_rollup. Idempotent per transcript via a facts-table
 // cursor {offset, mtime}: an unchanged transcript is skipped (no double
-// count); a grown one is read as an append-only tail (JSONL transcripts are
-// append-only), so each usage line is aggregated exactly once. Runs as a
+// count); a grown one is read as an append-only tail. Durable assistant
+// message identities charge one request and only growth across blocks. Runs as a
 // board-API subroutine (TTL-gated maybeHarvest) — never a daemon.
 import type { Database } from "bun:sqlite";
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
@@ -13,6 +13,7 @@ import { basename, join } from "node:path";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { harvestAids } from "./aid-harvest.ts";
+import { usageMessageLedger } from "../lib/usage-message-ledger.ts";
 
 // routing-doctrine classes (belt routing-policy.yaml ladder: flash → local →
 // cloud full models); the raw model string is kept alongside the group.
@@ -41,6 +42,7 @@ export interface HarvestStats {
 interface Cursor {
 	o: number; // byte offset of the first unharvested byte
 	m: number; // mtimeMs at last harvest
+	v?: number; // metering schema; legacy cursors require reviewed rebuild
 }
 
 const tpKey = (p: string): string => {
@@ -95,9 +97,13 @@ export function harvestUsage(
 		} | null;
 		if (!row?.value) return null;
 		try {
-			const c = JSON.parse(row.value) as { o?: unknown; m?: unknown };
+			const c = JSON.parse(row.value) as {
+				o?: unknown;
+				m?: unknown;
+				v?: number;
+			};
 			return typeof c.o === "number" && typeof c.m === "number"
-				? { o: c.o, m: c.m }
+				? { o: c.o, m: c.m, v: c.v }
 				: null;
 		} catch {
 			return null;
@@ -123,10 +129,12 @@ export function harvestUsage(
 			req: number;
 		}
 	>();
+	const meter = usageMessageLedger(db);
 	const bump = (
 		h: number,
 		actor: string,
 		model: string,
+		requests: number,
 		u: {
 			input_tokens?: unknown;
 			output_tokens?: unknown;
@@ -153,74 +161,109 @@ export function harvestUsage(
 		r.out += n(u.output_tokens);
 		r.cr += n(u.cache_read_input_tokens);
 		r.cc += n(u.cache_creation_input_tokens);
-		r.req += 1;
+		r.req += requests;
 		add.set(key, r);
 	};
-	const glob = new Bun.Glob("**/*.jsonl");
-	for (const rel of [...glob.scanSync({ cwd: root, onlyFiles: true })].sort()) {
-		out.files++;
-		const abs = join(root, rel);
-		let st: { size: number; mtimeMs: number };
-		try {
-			const s = statSync(abs);
-			st = { size: s.size, mtimeMs: s.mtimeMs };
-		} catch {
-			continue; // vanished mid-scan — next harvest catches the remainder
-		}
-		const key = tpKey(abs);
-		let cur = getCur(key);
-		if (cur && st.size < cur.o) cur = null; // truncated → full re-read (rare)
-		if (cur && st.size === cur.o && st.mtimeMs === cur.m) {
-			out.skipped++;
-			continue; // unchanged transcript: the idempotency fast path
-		}
-		const start = cur?.o ?? 0;
-		const text = readTail(abs, start);
-		const nl = text.lastIndexOf("\n");
-		if (nl === -1) {
-			// no complete line in the tail — advance nothing, retry next pass
-			setCur.run(key, JSON.stringify({ o: start, m: st.mtimeMs }), Date.now());
-			continue;
-		}
-		const body = text.slice(0, nl + 1);
-		const next = start + nl + 1;
-		const sid = basename(rel).replace(/\.jsonl$/, "");
-		// attribution fallback: the settings default_actor (config-over-code)
-		// — "unassigned" only when no default is configured
-		const actor =
-			actorOf.get(sid)?.actor ??
-			readBoardSettings().settings.default_actor ??
-			"unassigned";
-		for (const line of body.split("\n")) {
-			if (!line.includes('"type":"assistant"')) continue;
-			let o:
-				| {
-						timestamp?: string;
-						message?: { model?: string; usage?: Record<string, unknown> };
-				  }
-				| undefined;
+	db.run("BEGIN IMMEDIATE");
+	try {
+		const glob = new Bun.Glob("**/*.jsonl");
+		for (const rel of [
+			...glob.scanSync({ cwd: root, onlyFiles: true }),
+		].sort()) {
+			out.files++;
+			const abs = join(root, rel);
+			let st: { size: number; mtimeMs: number };
 			try {
-				o = JSON.parse(line);
+				const s = statSync(abs);
+				st = { size: s.size, mtimeMs: s.mtimeMs };
 			} catch {
+				continue; // vanished mid-scan — next harvest catches the remainder
+			}
+			const key = tpKey(abs);
+			let cur = getCur(key);
+			if (cur && cur.o > 0 && cur.v !== 2)
+				throw new Error(
+					"usage source requires reviewed provenance rebuild before metering: " +
+						key,
+				);
+			if (cur && st.size < cur.o) cur = null; // truncated → full re-read (rare)
+			if (cur && st.size === cur.o && st.mtimeMs === cur.m) {
+				out.skipped++;
+				continue; // unchanged transcript: the idempotency fast path
+			}
+			const start = cur?.o ?? 0;
+			const text = readTail(abs, start);
+			const nl = text.lastIndexOf("\n");
+			if (nl === -1) {
+				// no complete line in the tail — advance nothing, retry next pass
+				setCur.run(
+					key,
+					JSON.stringify({ o: start, m: st.mtimeMs, v: 2 }),
+					Date.now(),
+				);
 				continue;
 			}
-			const ts = Date.parse(o?.timestamp ?? "");
-			const u = o?.message?.usage;
-			if (!u || !Number.isFinite(ts)) continue;
-			const model = o?.message?.model ?? "";
-			bump(Math.floor(ts / 3_600_000) * 3_600_000, actor, model, u);
-			out.requests++;
-			out.inTok += n(u.input_tokens);
-			out.outTok += n(u.output_tokens);
-			out.cacheR += n(u.cache_read_input_tokens);
-			out.cacheC += n(u.cache_creation_input_tokens);
+			const body = text.slice(0, nl + 1);
+			const next = start + Buffer.byteLength(body);
+			const sid = basename(rel).replace(/\.jsonl$/, "");
+			// attribution fallback: the settings default_actor (config-over-code)
+			// — "unassigned" only when no default is configured
+			const actor =
+				actorOf.get(sid)?.actor ??
+				readBoardSettings().settings.default_actor ??
+				"unassigned";
+			let offset = start;
+			for (const line of body.split("\n")) {
+				const lineOffset = offset;
+				offset += Buffer.byteLength(line) + 1;
+				let o:
+					| {
+							timestamp?: string;
+							uuid?: string;
+							type?: string;
+							message?: {
+								id?: string;
+								model?: string;
+								usage?: Record<string, unknown>;
+							};
+					  }
+					| undefined;
+				try {
+					o = JSON.parse(line);
+				} catch {
+					continue;
+				}
+				const ts = Date.parse(o?.timestamp ?? "");
+				const u = o?.message?.usage;
+				if (o?.type !== "assistant" || !u || !Number.isFinite(ts)) continue;
+				const model = o?.message?.model ?? "";
+				const delta = meter(
+					key,
+					o.message?.id
+						? `message:${o.message.id}`
+						: o.uuid
+							? `uuid:${o.uuid}`
+							: `offset:${lineOffset}`,
+					Math.floor(ts / 3_600_000) * 3_600_000,
+					actor,
+					model,
+					u,
+				);
+				bump(delta.hour, delta.actor, delta.model, delta.requests, delta.usage);
+				out.requests += delta.requests;
+				out.inTok += n(delta.usage.input_tokens);
+				out.outTok += n(delta.usage.output_tokens);
+				out.cacheR += n(delta.usage.cache_read_input_tokens);
+				out.cacheC += n(delta.usage.cache_creation_input_tokens);
+			}
+			setCur.run(
+				key,
+				JSON.stringify({ o: next, m: st.mtimeMs, v: 2 }),
+				Date.now(),
+			);
+			out.harvested++;
 		}
-		setCur.run(key, JSON.stringify({ o: next, m: st.mtimeMs }), Date.now());
-		out.harvested++;
-	}
-	if (add.size) {
-		db.run("BEGIN IMMEDIATE");
-		try {
+		if (add.size) {
 			for (const r of add.values())
 				upsert.run(
 					r.h,
@@ -233,13 +276,13 @@ export function harvestUsage(
 					r.cc,
 					r.req,
 				);
-			db.run("COMMIT");
-		} catch (e) {
-			try {
-				db.run("ROLLBACK");
-			} catch {}
-			throw e;
 		}
+		db.run("COMMIT");
+	} catch (e) {
+		try {
+			db.run("ROLLBACK");
+		} catch {}
+		throw e;
 	}
 	return out;
 }

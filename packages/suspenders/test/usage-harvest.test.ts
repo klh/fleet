@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-"));
 const REAL_HOME = process.env.HOME;
@@ -137,6 +138,117 @@ const rowOf = (db: Database, model: string): Record<string, string | number> =>
 		.get(model) as Record<string, string | number>;
 
 describe("harvestUsage", () => {
+	test("UTF-8 cursor resumes on byte boundary and legacy cursors fail closed", () => {
+		const db = freshDb();
+		const root = join(HOME, "unicode");
+		mkdirSync(root, { recursive: true });
+		const p = join(root, "session.jsonl");
+		writeFileSync(
+			p,
+			`{"type":"user","text":"æ中文"}\n${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`,
+		);
+		harvestFixture(db, root);
+		appendFileSync(p, `${al("gpt-5.2", 20, 2, "2026-10-01T10:31:00Z")}\n`);
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ requests: 2, in_tok: 120 });
+		db.run(
+			"UPDATE facts SET value=json_remove(value,'$.v') WHERE key LIKE 'usage.tp.%'",
+		);
+		expect(() => harvestFixture(db, root)).toThrow(
+			"reviewed provenance rebuild",
+		);
+		db.close();
+	});
+
+	test("offline rebuild snapshots source and keeps unrelated aggregates untouched", () => {
+		const db = freshDb();
+		db.run(
+			"INSERT INTO usage_rollup VALUES (0,'external','other','other',99,1,0,0,1)",
+		);
+		const root = join(HOME, "rebuild-transcripts");
+		mkdirSync(root, { recursive: true });
+		const row = JSON.parse(al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z"));
+		row.message.id = "rebuild-message";
+		writeFileSync(
+			join(root, "session.jsonl"),
+			`${JSON.stringify(row)}\n${JSON.stringify(row)}\n`,
+		);
+		const path = join(HOME, "source.sqlite");
+		writeFileSync(path, db.serialize());
+		db.close();
+		const manifest = prepareUsageRebuild(
+			path,
+			root,
+			join(HOME, "rebuild-output"),
+		);
+		expect(manifest.applyAllowed).toBe(false);
+		const source = new Database(path, { readonly: true });
+		expect(
+			source
+				.query("SELECT in_tok FROM usage_rollup WHERE actor='external'")
+				.get(),
+		).toEqual({ in_tok: 99 });
+		source.close();
+		const rebuilt = new Database(manifest.report, { readonly: true });
+		expect(rowOf(rebuilt, "gpt-5.2")).toMatchObject({
+			requests: 1,
+			in_tok: 100,
+		});
+		rebuilt.close();
+	});
+	test("one request per message, growing blocks add only token deltas", () => {
+		const db = freshDb();
+		const root = join(HOME, "blocks");
+		mkdirSync(root, { recursive: true });
+		const p = join(root, "session.jsonl");
+		const block = (out: number) => {
+			const row = JSON.parse(
+				al("gpt-5.2", 100, out, "2026-10-01T10:30:00Z", 200),
+			);
+			row.message.id = "msg-one";
+			return JSON.stringify(row);
+		};
+		writeFileSync(p, `${block(5)}\n${block(5)}\n${block(8)}\n`);
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({
+			in_tok: 100,
+			out_tok: 8,
+			cache_r: 200,
+			requests: 1,
+		});
+		appendFileSync(p, `${block(12)}\n`);
+		const update = harvestFixture(db, root);
+		expect(update.requests).toBe(0);
+		expect(update.outTok).toBe(4);
+		// Replay after truncation/restart still refers to the same request.
+		writeFileSync(p, `${block(12)}\n`);
+		expect(harvestFixture(db, root).requests).toBe(0);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ out_tok: 12, requests: 1 });
+		db.close();
+	});
+
+	test("rollup failure rolls back ledger and transcript cursor", () => {
+		const db = freshDb();
+		const root = join(HOME, "rollback");
+		mkdirSync(root, { recursive: true });
+		writeFileSync(
+			join(root, "session.jsonl"),
+			`${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`,
+		);
+		db.run(
+			"CREATE TRIGGER fail_usage BEFORE INSERT ON usage_rollup BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
+		);
+		expect(() => harvestFixture(db, root)).toThrow("injected failure");
+		expect(
+			db
+				.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'usage.tp.%'")
+				.get(),
+		).toEqual({ n: 0 });
+		db.run("DROP TRIGGER fail_usage");
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ requests: 1, in_tok: 100 });
+		db.close();
+	});
 	test("rollup math, actor attribution, idempotent re-harvest, append tail", () => {
 		const db = freshDb();
 		db.query(
