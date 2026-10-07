@@ -20,6 +20,7 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
+import { probeDispatchSyntax } from "./lib/dispatch-syntax.ts";
 import {
 	fleetProgress,
 	type ProgressState,
@@ -50,7 +51,11 @@ const sh = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 };
 
 // ---------- 1. prefix-lib parity ----------
-const libParity = (): { ok: boolean; missing: string[] } => {
+const libParity = (): {
+	ok: boolean;
+	missing: string[];
+	sourceBroken?: boolean;
+} => {
 	const srcDir = join(REPO, "packages/suspenders/scripts/lib");
 	const depths = [join(PREFIX, "scripts/lib"), join(PREFIX, "../scripts/lib")];
 	const missing: string[] = [];
@@ -66,25 +71,13 @@ const libParity = (): { ok: boolean; missing: string[] } => {
 				missing.push(`${p} (stale bytes)`);
 		}
 	}
-	// Parse-probe the critical entries (2026-10-07: unresolved conflict
-	// markers landed on main and killed dispatch while lib-parity held —
-	// byte equality of two equally-broken copies passes; only a parse
-	// catches it). Repo copy must build.
-	for (const entry of [
-		join(REPO, "packages/suspenders/scripts/dispatch-next.ts"),
-		join(REPO, "packages/suspenders/hooks/bin/fleet-loop.ts"),
-	]) {
-		const built = sh([
-			process.execPath,
-			"build",
-			entry,
-			"--target=bun",
-			"--outfile=/dev/null",
-		]);
-		if (built.code !== 0)
-			missing.push(`${entry} (PARSE FAIL: ${built.out.slice(-120)})`);
-	}
-	return { ok: missing.length === 0, missing };
+	const syntax = probeDispatchSyntax(REPO, PREFIX);
+	missing.push(...syntax.failures);
+	return {
+		ok: missing.length === 0,
+		missing,
+		sourceBroken: syntax.sourceBroken,
+	};
 };
 
 // ---------- 2. fleet-loop liveness ----------
@@ -255,7 +248,17 @@ const run = async (): Promise<number> => {
 
 	// 1. lib parity (+ repair via the installer)
 	const parity = libParity();
-	if (!parity.ok) {
+	let parityOk = parity.ok;
+	if (parity.sourceBroken) {
+		log(`FAIL source syntax: ${parity.missing.join(", ")}`);
+		verdicts.push(
+			"dispatch-syntax FAILED; source repair required, installer skipped",
+		);
+		emit(
+			"NEED_DECISION",
+			`dispatch-watchdog source cannot compile: ${parity.missing.join(", ")}; installing the same broken source cannot repair it`,
+		);
+	} else if (!parity.ok) {
 		log(`REPAIR lib parity broken: ${parity.missing.join(", ")}`);
 		const install = sh([
 			"/bin/bash",
@@ -264,6 +267,7 @@ const run = async (): Promise<number> => {
 			"--skip-models",
 		]);
 		const verified = install.code === 0 && libParity().ok;
+		parityOk = verified;
 		repaired = verified;
 		verdicts.push(
 			`lib-parity ${verified ? "REPAIRED" : "FAILED"} via installer`,
@@ -420,7 +424,7 @@ const run = async (): Promise<number> => {
 	log(verdicts.join(" | "));
 	if (repaired) console.log(`watchdog: repaired (${verdicts.join(" | ")})`);
 	else console.log(`watchdog: ${verdicts.join(" | ")}`);
-	return 0;
+	return parityOk && probe.ok ? 0 : 1;
 };
 
 // writeFileSync with parents
