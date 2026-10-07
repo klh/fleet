@@ -5,7 +5,7 @@
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import {
 	openGovernorDb,
 	projectIdentity,
@@ -385,12 +385,21 @@ outer: for (const dir of [".", "docs", "docs/design"]) {
 }
 if (input.cwd && !isSubagent) {
 	try {
+		const configPath = process.env.SUSPENDERS_REPO_POLICY_CONFIG;
+		if (
+			configPath !== undefined &&
+			(!isAbsolute(configPath) || !existsSync(configPath))
+		)
+			throw new Error(
+				"policy configuration override must exist at an absolute path",
+			);
 		out.push(
 			...(await checkSessionPolicies({
 				db,
 				sid: lane,
 				project,
 				repo: input.cwd,
+				configPath,
 			})),
 		);
 	} catch {

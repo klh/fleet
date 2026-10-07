@@ -151,6 +151,67 @@ test("satisfied policies stay silent and do not create decisions", async () => {
 	writeFileSync(join(fixture.REPO, "server.ts"), "api");
 });
 
+test("SessionStart uses a trusted absolute runtime configuration override", async () => {
+	const sid = "scoped-policy-start";
+	const defaultPath = join(fixture.HOME, ".config/klh/repo-policy.json");
+	const defaultBytes = readFileSync(defaultPath);
+	writeFileSync(defaultPath, "invalid default configuration");
+	const proc = Bun.spawn(
+		["bun", join(import.meta.dir, "../hooks/session-start.ts")],
+		{
+			cwd: fixture.REPO,
+			env: { ...fixture.env, SUSPENDERS_REPO_POLICY_CONFIG: configPath },
+			stdin: "pipe",
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	proc.stdin.write(JSON.stringify({ session_id: sid, cwd: fixture.REPO }));
+	proc.stdin.end();
+	const output = await new Response(proc.stdout).text();
+	const code = await proc.exited;
+	writeFileSync(defaultPath, defaultBytes);
+	expect(code).toBe(0);
+	expect(output).toContain("POLICY DECISION");
+	expect(output).toContain(sha256);
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+			)
+			.get(sid),
+	).toEqual({ n: 1 });
+});
+
+test("SessionStart refuses relative configuration overrides without creating decisions", async () => {
+	const sid = "unsafe-policy-start";
+	const proc = Bun.spawn(
+		["bun", join(import.meta.dir, "../hooks/session-start.ts")],
+		{
+			cwd: fixture.REPO,
+			env: {
+				...fixture.env,
+				SUSPENDERS_REPO_POLICY_CONFIG: "repo-policy.json",
+			},
+			stdin: "pipe",
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	proc.stdin.write(JSON.stringify({ session_id: sid, cwd: fixture.REPO }));
+	proc.stdin.end();
+	const output = await new Response(proc.stdout).text();
+	expect(await proc.exited).toBe(0);
+	expect(output).toContain("POLICY CHECK UNAVAILABLE");
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+			)
+			.get(sid),
+	).toEqual({ n: 0 });
+});
+
 test("pin mismatch and public credentials produce unavailable, never compliant", async () => {
 	const mismatch = join(home, "mismatch.json");
 	writeFileSync(
