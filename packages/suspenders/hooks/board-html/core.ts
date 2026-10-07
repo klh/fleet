@@ -63,6 +63,7 @@ function taskPill(state){
   var s = String(state || '').toLowerCase();
   if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + s + '</span>';
   if (state === 'DONE') return '<span class="pill done">done</span>';
+  if (state === 'CANCELLED') return '<span class="pill cancel">cancelled</span>';
   if (state === 'BLOCKED' || state === 'PAUSED' || state === 'FAILED') return '<span class="pill block">' + s + '</span>';
   return '<span class="pill ready">' + (s || '?') + '</span>';
 }

@@ -186,6 +186,92 @@ back. The merge goes through fleet-loop's shared `mergeOne` (MERGE_HEAD abort,
 ladder timeout, FAIL tail, 3-strike park, retire), so board-shipped branches
 obey the same discipline as loop merges; outcomes land in `<repo>/.fleet/loop.log`.
 
+## POST /api/release (W182)
+
+`{ project, id, force? }` — release a claim without closing the item (the
+GUI's ⏏ on claimed cards). A live lane 409s with `{ok:false, live:true}` so
+the GUI can offer a force — forcing first signals the lane (coord NOTE
+`--to <owner> --work=<id> --project=<p>`): bank your capsule and exit; the
+reaper (`worktree.ts sweep`) retires the worktree on the next pass, never an
+orphan. Validation order — first failure wins:
+
+| condition                                   | status |
+| ------------------------------------------- | ------ |
+| missing `project` or `id`                   | 400    |
+| no live claim (`owner_sid` unset / terminal) | 409    |
+| unknown work item                           | 404    |
+| project directory missing on disk           | 409    |
+| lane live and `force` not set               | 409 `{live:true}` |
+| CAS reclaim lost (claim changed under you)  | 409    |
+
+Success: `{ ok: true, item, released, forced, dispatched:false }` —
+`forced` marks the signal+reclaim path; the item returns to READY.
+
+## POST /api/reassign (W182)
+
+`{ project, id, agent? }` — change the executor on a claimed item keeping
+the thread + capsule (resume-on-another-brain: the deterministic lane sid
+means the coord thread and `lane.<sid>.capsule` fact carry over; the capsule
+IS the handoff). Release + re-dispatch composed: a live lane is signalled to
+bank + exit (same as forced release) and `/api/start` re-dispatches —
+`{ok:true, dispatched:false}` means the lane was signalled but fleet-loop
+will refuse dispatch until the worktree retires (GUI surfaces this). Only
+moves live claims — READY items dispatch via `/api/start`.
+
+| condition                          | status |
+| ---------------------------------- | ------ |
+| missing `project`, `id`            | 400    |
+| unclaimed/terminal item            | 409    |
+| unknown work item                  | 404    |
+| project directory missing on disk  | 409    |
+| release leg failed                 | 409    |
+
+Success: `{ ok: true, item, dispatched }` — dispatched=false = signalled
+only; dispatch when the lane process retires.
+
+## POST /api/cancel (W182)
+
+`{ project, id, reason }` — owner-override close: lands `work cancel
+<id> --note <reason>` (terminal CANCELLED — distinct from DONE/FAILED/
+SUPERSEDED), releases the claim and retires the worktree via the same
+`retireItemWorktree` path `work done` uses. Validation order:
+
+| condition                                   | status |
+| ------------------------------------------- | ------ |
+| missing `project`, `id` or `reason`         | 400    |
+| demo board (`--demo`)                       | 409    |
+| unknown work item                           | 404    |
+| item already terminal (DONE/FAILED/SUPERSEDED/CANCELLED/SHATTERED) | 409 |
+| project directory missing on disk           | 409    |
+| work CLI failed                             | 500    |
+
+Success: `{ ok: true, item, state: "CANCELLED" }`.
+
+## POST /api/second-opinion (W182)
+
+`{ project, id, executor }` — spawns a read-only REVIEW lane (no claim) on
+the item's diff + claims. Works on DONE items — reviewing landed work is the
+point. `executor` rides W105 routing: agent binaries (`codex`/`copilot`/
+`grok`/`cline`/`claude`) spawn directly, `llm:<machine>:<model>` resolves
+through the same catalog `/api/start` uses. The runner
+(`hooks/bin/review-lane.ts`, detached) assembles mission + thread + branch
+diff, asks the executor, and lands the verdict: coord NOTE(s) on the item
+thread, a `work.review` event, and fact `review.<id>.<executor>`
+(`{verdict, headline, ts}`).
+
+| condition                          | status |
+| ---------------------------------- | ------ |
+| missing `project`, `id` or `executor` | 400 |
+| unknown executor name              | 400    |
+| demo board (`--demo`)              | 409    |
+| unknown work item                  | 404    |
+| project directory missing on disk  | 409    |
+| executor binary not on the board's PATH | 409 |
+| llm:* leg unresolvable             | 409/500 |
+
+Success: `{ ok: true, item, executor, started: true }` — the review runs
+detached; the verdict lands on the drawer timeline when it completes.
+
 ## GET /api/tail (W76)
 
 Live lane tail for the drawer. `{ id }` resolves the owning lane via

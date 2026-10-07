@@ -209,7 +209,8 @@ var KCOLS = [
   { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
   { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
-  { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 }
+  { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
+  { key: 'CANCELLED', label: 'cancelled', states: ['CANCELLED'], cap: 12 }
 ];
 var starting = {}; // 'proj\u0000id' -> start POST in flight (rebuild-proof)
 var execPick = {}; // 'proj\u0000id' -> chosen executor (survives card rebuilds)
@@ -259,9 +260,83 @@ function startItem(id, proj, btn, agent, effort){
     pollTasks();
   });
 }
+// W182 — claimed-card lifecycle: reassign (release + re-dispatch on the
+// chosen executor, same deterministic sid — capsule IS the handoff) and
+// unclaim (release; a live lane 409s {live:true} → confirm offers force,
+// which signals it to bank its capsule and exit first).
+function reassignItem(id, proj, btn, agent){
+  var k = proj + '\u0000' + id;
+  if (starting[k]) return;
+  starting[k] = true;
+  if (btn) btn.disabled = true;
+  postJSON('/api/reassign', { project: proj, id: id, agent: agent || 'claude' }).then(function(j){
+    delete starting[k];
+    if (j && j.ok) toast(j.dispatched === false ? 'old lane signalled to bank + exit — re-dispatch when it retires' : 'reassigning ' + id + ' to ' + (agent || 'claude'));
+    else toast('reassign failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  });
+}
+function unclaimItem(id, proj, btn, force){
+  var k = proj + '\u0000' + id;
+  if (starting[k]) return;
+  starting[k] = true;
+  if (btn) btn.disabled = true;
+  postJSON('/api/release', { project: proj, id: id, force: !!force }).then(function(j){
+    delete starting[k];
+    if (j && j.ok) toast('released ' + id + (j.forced ? ' — lane signalled to bank + exit' : ''));
+    else if (j && j.live && !force) {
+      delete starting[k];
+      if (confirm('Lane looks live — force? It will be signalled to bank its capsule and exit.')) unclaimItem(id, proj, null, true);
+      else pollTasks();
+      return;
+    }
+    else toast('release failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  });
+}
+// W182 — cancel: owner-override close with a required reason (terminal
+// CANCELLED; server releases the claim + retires the worktree).
+function cancelItem(id, proj, reason, btn){
+  if (!reason || !reason.trim()) { toast('cancel needs a reason'); return; }
+  if (btn) btn.disabled = true;
+  postJSON('/api/cancel', { project: proj, id: id, reason: reason.trim() }).then(function(j){
+    if (btn) btn.disabled = false;
+    if (j && j.ok) { toast('cancelled ' + id); pollTasks(); if (task.id === id) pollTask(true); }
+    else toast('cancel failed: ' + String((j && j.error) || 'unknown error'));
+  });
+}
+// W182 — second opinion: spawns a read-only REVIEW lane on the item; the
+// verdict lands as a work.review event on the drawer timeline.
+function secondOpinion(id, proj, executor, btn){
+  if (btn) btn.disabled = true;
+  postJSON('/api/second-opinion', { project: proj, id: id, executor: executor }).then(function(j){
+    if (btn) btn.disabled = false;
+    if (j && j.ok) { toast('second opinion dispatched — ' + executor + ' reviews ' + id); pollTask(true); }
+    else toast('second opinion failed: ' + String((j && j.error) || 'unknown error'));
+  });
+}
+// W182 — executor dropdown facts shared by READY + claimed cards: the pick
+// survives card rebuilds; options ride the same live executor catalog.
+function defaultPick(t){
+  var k = t.project + '\u0000' + t.id;
+  if (execPick[k]) return execPick[k];
+  var prefs = (window.__execPrefs && window.__execPrefs.length) ? window.__execPrefs : ['glm-5.3-flash'];
+  for (var pi = 0; pi < prefs.length; pi++) for (var di = 0; di < execOpts.length; di++)
+    if (String(execOpts[di].value || '').indexOf(prefs[pi]) >= 0) return execOpts[di].value;
+  return 'claude';
+}
+function execOptions(pick){
+  var opts = '';
+  for (var xi = 0; xi < execOpts.length; xi++) {
+    var xo = execOpts[xi];
+    opts += '<option value="' + esc(xo.value) + '"' + (xo.value === pick ? ' selected' : '') + '>' + esc(execBadge(xo) + xo.label) + '</option>';
+  }
+  return opts;
+}
 function kanbanCard(t){
   var od = t.open_decisions || 0;
   var startable = t.state === 'READY' && !t.owner_sid;
+  var active = (t.state === 'CLAIMED' || t.state === 'RUNNING') && t.owner_sid;
   var html = '<div class="kcard"' + preferStyle(t) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
   html += '<div class="krow">' + taskPill(t.state) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
@@ -272,17 +347,8 @@ function kanbanCard(t){
   if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (startable) {
-    var pick = execPick[t.project + '\u0000' + t.id] || (function(){
-      var prefs = (window.__execPrefs && window.__execPrefs.length) ? window.__execPrefs : ['glm-5.3-flash'];
-      for (var pi = 0; pi < prefs.length; pi++) for (var di = 0; di < execOpts.length; di++)
-        if (String(execOpts[di].value || '').indexOf(prefs[pi]) >= 0) return execOpts[di].value;
-      return 'claude';
-    })();
-    var opts = '';
-    for (var xi = 0; xi < execOpts.length; xi++) {
-      var xo = execOpts[xi];
-      opts += '<option value="' + esc(xo.value) + '"' + (xo.value === pick ? ' selected' : '') + '>' + esc(execBadge(xo) + xo.label) + '</option>';
-    }
+    var pick = defaultPick(t);
+    var opts = execOptions(pick);
     var pickedOpt = execOpts.filter(function(o){ return o.value === pick; })[0];
     var effOpts = '';
     for (var ei = 0; ei < EFFORT_LEVELS.length; ei++)
@@ -293,6 +359,12 @@ function kanbanCard(t){
     html += '<div class="kexec"><select class="kexecsel" aria-label="executor for ' + esc(t.id) + '">' + opts + '</select>' +
       effortSel +
       '<button type="button" class="kstart" data-start="' + esc(t.id) + '" data-startproj="' + esc(t.project || '') + '" title="dispatch on the chosen executor">▶</button></div>';
+  }
+  if (active) {
+    var pick2 = defaultPick(t);
+    html += '<div class="kexec"><select class="kexecsel" aria-label="reassign executor for ' + esc(t.id) + '">' + execOptions(pick2) + '</select>' +
+      '<button type="button" class="kstart" data-reassign="' + esc(t.id) + '" data-reassignproj="' + esc(t.project || '') + '" title="release + re-dispatch on the chosen executor (capsule is the handoff)">↻</button>' +
+      '<button type="button" class="kstart" data-unclaim="' + esc(t.id) + '" data-unclaimproj="' + esc(t.project || '') + '" title="release the claim — a live lane is asked to bank its capsule and exit">⏏</button></div>';
   }
   return html + '</div>';
 }
@@ -425,11 +497,33 @@ function renderDrawer(){
       (e.sha ? ' <span class="mono">@' + esc(String(e.sha).slice(0, 7)) + '</span>' : '') + '</span></div>';
   }
   if (!tl) tl = '<div class="r"><span class="dim">(no events)</span></div>';
+  // Actions feed: cancel (reason-required) + second opinion. The reason
+  // draft + its focus survive the 5s drawer re-render (capture → render → restore).
+  var prevReason = byId('acancel');
+  var keepReason = prevReason ? prevReason.value : '';
+  var reasonFocused = !!(prevReason && document.activeElement === prevReason);
+  var acts = '<div class="r"><label class="dim" for="acancel">cancel reason</label> ' +
+    '<input id="acancel" type="text" maxlength="300" placeholder="why this item closes unfinished" value="' + esc(keepReason) + '">' +
+    '<button type="button" class="retry" id="acancelBtn">cancel item</button></div>' +
+    '<div class="r"><label class="dim" for="asop">second opinion</label> ' +
+    '<select id="asop" aria-label="second-opinion executor">' + execOptions(defaultPick(t)) + '</select>' +
+    '<button type="button" class="retry" id="asopBtn">request review</button></div>';
   var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
-    '<div class="feed"><h2>Timeline</h2>' + tl + '</div>';
+    '<div class="feed"><h2>Timeline</h2>' + tl + '</div>' +
+    '<div class="feed"><h2>Actions</h2>' + acts + '</div>';
   if (task.err) html += '<div class="derr">refresh failed — ' + esc(String(task.err).slice(0, 120)) + '</div>';
   sigSet(body, String(task.okAt) + '|' + (task.err || ''), html);
+  // reason draft: restore focus + caret after the re-render
+  var nr = byId('acancel');
+  if (nr && keepReason) {
+    nr.value = keepReason;
+    if (reasonFocused) { nr.focus(); nr.setSelectionRange(nr.value.length, nr.value.length); }
+  }
+  var cb = byId('acancelBtn');
+  if (cb) cb.addEventListener('click', function(){ cancelItem(t.id, t.project, byId('acancel').value, cb); });
+  var sb = byId('asopBtn');
+  if (sb) sb.addEventListener('click', function(){ secondOpinion(t.id, t.project, byId('asop').value, sb); });
   renderTaskDiff();
   renderTaskTail();
 }

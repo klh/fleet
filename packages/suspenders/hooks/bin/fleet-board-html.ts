@@ -216,6 +216,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.run { color:var(--klh-accent); border-color:var(--klh-accent); }
 .pill.done { color:var(--klh-ok-ink); border-color:var(--klh-ok); }
 .pill.block { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
+.pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
 .rq { color:var(--klh-danger-ink); }
 .scard .shead { display:flex; gap:8px; align-items:baseline; font-size:12.5px; }
