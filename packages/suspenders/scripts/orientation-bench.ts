@@ -61,11 +61,6 @@ const TIMEOUT = Number(arg("timeout") ?? 240_000);
 // only variable is cold vs forked orientation.
 const TASK = 'Run the command "git rev-parse HEAD" and reply with ONLY its output.';
 
-const outputTokens = (out: string): number | null => {
-	const m = out.match(/"output_tokens":\s*(\d+)/);
-	return m ? Number(m[1]) : null;
-};
-
 const reading = (ok: boolean): ProbeReading => ({
 	ok,
 	wall_ms: null,
@@ -76,30 +71,45 @@ const reading = (ok: boolean): ProbeReading => ({
 	session_id: null,
 });
 
-// claude result-JSON parse: usage split + duration + session id.
+// claude result-JSON parse: usage split + duration + session id. The CLI can
+// append diagnostics AFTER the result object (observed live 2026-10-07:
+// an [claude-code:unrecognized_model] line), so walk candidate object
+// windows and accept the first that parses with a session id or usage.
 export const parseClaude = (out: string): ProbeReading => {
-	const start = out.indexOf("{");
-	if (start < 0) return reading(false);
-	try {
-		const r = JSON.parse(out.slice(start)) as {
-			is_error?: boolean;
-			duration_ms?: number;
-			session_id?: string;
-			usage?: Record<string, number>;
-		};
-		if (r.is_error) return reading(false);
-		return {
-			ok: Boolean(r.session_id || r.usage),
-			wall_ms: r.duration_ms ?? null,
-			input_tokens: r.usage?.input_tokens ?? null,
-			output_tokens: r.usage?.output_tokens ?? outputTokens(out),
-			cache_read: r.usage?.cache_read_input_tokens ?? null,
-			cache_creation: r.usage?.cache_creation_input_tokens ?? null,
-			session_id: r.session_id ?? null,
-		};
-	} catch {
-		return reading(false);
+	for (
+		let start = out.indexOf("{");
+		start >= 0;
+		start = out.indexOf("{", start + 1)
+	) {
+		for (
+			let end = out.lastIndexOf("}");
+			end > start;
+			end = out.lastIndexOf("}", end - 1)
+		) {
+			try {
+				const r = JSON.parse(out.slice(start, end + 1)) as {
+					is_error?: boolean;
+					duration_ms?: number;
+					duration_api_ms?: number;
+					session_id?: string;
+					usage?: Record<string, number>;
+				};
+				if (!r.session_id && !r.usage) continue;
+				return {
+					ok: true,
+					wall_ms: r.duration_ms ?? r.duration_api_ms ?? null,
+					input_tokens: r.usage?.input_tokens ?? null,
+					output_tokens: r.usage?.output_tokens ?? null,
+					cache_read: r.usage?.cache_read_input_tokens ?? null,
+					cache_creation: r.usage?.cache_creation_input_tokens ?? null,
+					session_id: r.session_id ?? null,
+				};
+			} catch {
+				// try the next (shorter) window
+			}
+		}
 	}
+	return reading(false);
 };
 
 // Recipe table: verified surfaces only. codex/copilot rows are catalog
@@ -174,6 +184,9 @@ const runOne = (
 		task: TASK,
 	};
 	if (spawned.code !== 0 || !parsed.ok) {
+		const flat = spawned.out.replaceAll("\n", " ");
+		const snippet = flat.slice(0, 120);
+		const tail = flat.slice(-160);
 		return {
 			...base,
 			input_tokens: null,
@@ -181,7 +194,7 @@ const runOne = (
 			cache_read: null,
 			cache_creation: null,
 			session_id: null,
-			error: `exit ${spawned.code}${parsed.ok ? "" : "; result unparseable"}`,
+			error: `exit ${spawned.code}; len ${flat.length}; head: ${snippet} … tail: ${tail}`,
 		};
 	}
 	return { ...base, ...parsed, error: undefined };
@@ -195,25 +208,40 @@ const summarize = (records: BenchRecord[]): string => {
 	const cache = good.filter((r) => r.cache_read !== null);
 	const mean = (xs: number[]): number =>
 		xs.length === 0 ? NaN : xs.reduce((a, b) => a + b, 0) / xs.length;
+	const share = (xs: BenchRecord[]): number => {
+		const pairs = xs
+			.map((r) => [r.input_tokens, r.cache_read] as const)
+			.filter(([i, c]) => i !== null && c !== null) as [number, number][];
+		const totIn = pairs.reduce((a, [i]) => a + i, 0);
+		const totC = pairs.reduce((a, [, c]) => a + c, 0);
+		return totIn + totC === 0
+			? NaN
+			: Math.round((totC / (totIn + totC)) * 100);
+	};
 	return [
 		`runs=${good.length}/${records.length}`,
 		`wall_ms mean=${Math.round(mean(wall.map((r) => r.wall_ms as number)))}`,
 		`input mean=${Math.round(mean(inTok.map((r) => r.input_tokens as number)))}`,
-		`cache_read mean input+cache_read share=${Math.round(mean(cache.map((r) => r.cache_read as number)))}`,
+		`cache_read mean=${Math.round(mean(cache.map((r) => r.cache_read as number)))}`,
+		`cache_read share=${share(good)}%`,
 	].join(" · ");
 };
 
 if (import.meta.main) {
 	const recipe = recipeFor(HARNESS);
-	const bin = process.env.SUSPENDERS_CLAUDE_BIN;
+	const bin = arg("bin") ?? process.env.SUSPENDERS_CLAUDE_BIN;
 	if (!recipe || !bin) {
 		console.log(`UNAVAILABLE ${HARNESS} — no recipe or no executor bin env`);
 		process.exit(3);
 	}
 	mkdirSync(OUT, { recursive: true });
-	const wantFork = PHASE === "post" && starterEnabled(process.env);
+	const wantFork =
+		PHASE === "post" &&
+		(starterEnabled(process.env) || arg("starter") === "on");
 	const fork = wantFork
-		? ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env)
+		? ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env, {
+				log: (l) => console.log(`[starter] ${l}`),
+			})
 		: null;
 	const mode: "cold" | "fork" = fork ? "fork" : "cold";
 	const outFile = join(OUT, `${PHASE}-${HARNESS}.ndjson`);
