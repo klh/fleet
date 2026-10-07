@@ -20,6 +20,19 @@ export function withSpawnLedger<T>(
 		let rows: SpawnLedger = {};
 		try {
 			rows = JSON.parse(readFileSync(path, "utf8"));
+			if (!rows || Array.isArray(rows) || typeof rows !== "object")
+				throw new Error("invalid spawn ledger object");
+			for (const row of Object.values(rows)) {
+				if (
+					!row ||
+					!Number.isFinite(row.pid) ||
+					row.pid <= 0 ||
+					!Number.isFinite(row.startedAt) ||
+					(row.ram_gb !== undefined &&
+						(!Number.isFinite(row.ram_gb) || row.ram_gb < 0))
+				)
+					throw new Error("invalid spawn ledger reservation");
+			}
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}

@@ -65,6 +65,14 @@ test("invalid ledger and unknown wired usage fail closed", () => {
 	expect(attempt).toThrow("memory admission refused");
 	writeFileSync(path, "broken JSON");
 	expect(attempt).toThrow();
+	for (const invalid of [
+		null,
+		[],
+		{ x: { pid: 1, startedAt: 0, ram_gb: -20 } },
+	]) {
+		writeFileSync(path, JSON.stringify(invalid));
+		expect(attempt).toThrow("invalid spawn ledger");
+	}
 });
 
 test("persistence failure cancels the newly spawned process", () => {
