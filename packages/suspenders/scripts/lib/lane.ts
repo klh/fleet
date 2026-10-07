@@ -5,7 +5,11 @@
 // helpers (sh/run/alive/worktreeLive/loadLanes) stay until a lane can afford
 // the churn — the mutation gate caps edits at 40 lines; the spawn/env core
 // (the part a divergence would corrupt lanes with) is shared for real.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	laneRegistryFile,
+	loadLaneRegistry,
+	mergeLaneRegistry,
+} from "../../hooks/lib/lane-registry.ts";
 
 export type Lane = {
 	sid: string;
@@ -16,6 +20,7 @@ export type Lane = {
 	agent?: string;
 	host?: string;
 	launchedAt: number;
+	attempt?: number;
 };
 
 export const sh = (cmd: string[], cwd = process.cwd()): string => {
@@ -72,20 +77,11 @@ export const worktreeLive = (
 	return false;
 };
 
-export const lanesFileFor = (fleet: string): string => `${fleet}/lanes.json`;
-
-export const loadLanes = (fleet: string): Lane[] => {
-	try {
-		return JSON.parse(readFileSync(lanesFileFor(fleet), "utf8")) as Lane[];
-	} catch {
-		return [];
-	}
-};
-
-export const saveLanes = (lanes: Lane[], fleet: string): void => {
-	mkdirSync(fleet, { recursive: true });
-	writeFileSync(lanesFileFor(fleet), JSON.stringify(lanes, null, 2));
-};
+export const lanesFileFor = laneRegistryFile;
+export const loadLanes = (fleet: string): Lane[] =>
+	loadLaneRegistry<Lane>(fleet);
+export const saveLanes = (lanes: Lane[], fleet: string): void =>
+	mergeLaneRegistry(fleet, lanes);
 
 // env: belt routing rides into the lane (the launchd plist carries
 // ANTHROPIC_BASE_URL/AUTH_TOKEN); model overrides must NOT — a GLM-routed

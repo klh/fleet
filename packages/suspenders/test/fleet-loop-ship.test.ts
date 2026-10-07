@@ -54,13 +54,15 @@ async function scratchRepo() {
 		g(["commit", "-m", "lane change"], join(dir, ".worktrees", "SHIP1"))
 			.exitCode,
 	).toBe(0);
+	mkdirSync(join(dir, ".fleet"), { recursive: true });
+	writeFileSync(join(dir, ".fleet", "lanes.json"), "[]");
 	return dir;
 }
 
 function ship(repo: string, extra: string[] = []) {
 	const p = Bun.spawnSync(["bun", LOOP, "ship", "--repo", repo, ...extra], {
 		cwd: repo,
-		env,
+		env: { ...env, HOME: join(repo, ".test-home"), GOVERNOR_STORE_URL: "" },
 		stdout: "pipe",
 		stderr: "pipe",
 	});

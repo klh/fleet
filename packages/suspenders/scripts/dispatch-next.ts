@@ -26,8 +26,8 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { hostname } from "node:os";
 import { resolve } from "node:path";
+import { hostname } from "node:os";
 import {
 	applyLaneAttribution,
 	DEFAULT_ALLOWED_TOOLS,
@@ -45,6 +45,11 @@ import {
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import {
+	canonicalProjectRoot,
+	loadLaneRegistry,
+	mergeLaneRegistry,
+} from "../hooks/lib/lane-registry.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
@@ -101,7 +106,8 @@ const gitToplevel = (): string => {
 	const out = p.stdout ? new TextDecoder().decode(p.stdout).trim() : "";
 	return out || process.cwd();
 };
-const REPO = resolve(val("--repo") ?? gitToplevel());
+const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
+const REPO = canonicalProjectRoot(CALLER_REPO);
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
 // up): bypasses the FIFO ready-pool pick so a caller with its own priority
@@ -116,7 +122,6 @@ const ALLOW_UNGOVERNED = argv.includes("--allow-ungoverned");
 const SHOW_CAPSULE = val("--show-capsule");
 const BIN = `${process.env.HOME}/.claude/hooks/suspenders/bin`;
 const FLEET = `${REPO}/.fleet`;
-const LANES_JSON = `${FLEET}/lanes.json`;
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
@@ -148,7 +153,9 @@ const preferOf = (): {
 		const prefers: string[] = [];
 		let hub: string | null = null;
 		let hubUrlRaw = "";
-		for (const line of readFileSync(`${REPO}/.prefer`, "utf8").split("\n")) {
+		for (const line of readFileSync(`${CALLER_REPO}/.prefer`, "utf8").split(
+			"\n",
+		)) {
 			const i = line.indexOf("=");
 			if (i <= 0) continue;
 			const k = line.slice(0, i).trim();
@@ -333,25 +340,8 @@ const log = (msg: string): void => {
 	mkdirSync(FLEET, { recursive: true });
 	appendFileSync(LOOP_LOG, `${new Date().toISOString()} ${msg}\n`);
 };
-const loadLanes = (): Lane[] => {
-	try {
-		return JSON.parse(readFileSync(LANES_JSON, "utf8")) as Lane[];
-	} catch {
-		return [];
-	}
-};
-const saveLanes = (lanes: Lane[]): void => {
-	mkdirSync(FLEET, { recursive: true });
-	// dedupe by sid (latest launch wins) — resume re-dispatches appended
-	// without dedupe and autow366 sat in the registry three times
-	const bySid = new Map<string, Lane>();
-	for (const l of lanes) {
-		const prev = bySid.get(l.sid);
-		if (!prev || (l.launchedAt ?? 0) >= (prev.launchedAt ?? 0))
-			bySid.set(l.sid, l);
-	}
-	writeFileSync(LANES_JSON, JSON.stringify([...bySid.values()], null, 2));
-};
+const loadLanes = (): Lane[] => loadLaneRegistry<Lane>(FLEET);
+const saveLanes = (lanes: Lane[]): void => mergeLaneRegistry(FLEET, lanes);
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 

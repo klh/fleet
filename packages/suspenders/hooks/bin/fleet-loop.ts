@@ -33,10 +33,18 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
-import { laneSid } from "../lib/laneslug.ts";
+import {
+	canonicalProjectRoot,
+	loadLaneRegistry,
+	readLaneRegistry,
+	mergeLaneRegistry,
+	safeToRetire,
+	retirementProcessLive,
+} from "../lib/lane-registry.ts";
+import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { resolve } from "node:path";
-import { laneAlive, worktreeLive } from "../lib/lane-liveness.ts";
+import { laneSid } from "../lib/laneslug.ts";
+import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
@@ -68,7 +76,8 @@ const num = (flag: string, dflt: number): number =>
 
 const requestedRepo = val("--repo");
 if (!requestedRepo) process.exit(1); // usage block above already explained
-const REPO = resolve(requestedRepo);
+const CALLER_REPO = resolve(requestedRepo);
+const REPO = canonicalProjectRoot(CALLER_REPO);
 const MAIN = val("--main", "main");
 const GLOB = val("--glob", "lane/autow*");
 const LADDER = val("--ladder");
@@ -80,7 +89,6 @@ const EVERY_MS = num("--every", 120) * 1000;
 const CYCLE_TIMEOUT_MS = num("--cycle-timeout", 15) * 60_000;
 const LOG = val("--log", `${REPO}/.fleet/loop.log`);
 const FAILS = `${REPO}/.fleet/merge-fails.json`;
-const LANES_JSON = `${REPO}/.fleet/lanes.json`;
 
 const log = (msg: string): void => {
 	const line = `${new Date().toISOString()} ${msg}\n`;
@@ -120,7 +128,7 @@ function readJsonSync<T>(p: string): T | null {
 	}
 }
 
-const lanes = (): Lane[] => readJsonSync(LANES_JSON) ?? [];
+const lanes = (): Lane[] => loadLaneRegistry<Lane>(REPO);
 const readFails = (): Record<string, number> => readJsonSync(FAILS) ?? {};
 const writeFails = (o: Record<string, number>): void => {
 	try {
@@ -150,7 +158,7 @@ const runTemplate = (
 ): { code: number; tail: string } => {
 	const cmd = template.split("{branch}").join(branch);
 	const p = Bun.spawnSync(["/bin/sh", "-c", cmd], {
-		cwd: REPO,
+		cwd: CALLER_REPO,
 		stdout: "pipe",
 		stderr: "pipe",
 		timeout: timeoutMs,
@@ -205,13 +213,13 @@ function wtPathFromGit(b: string): string | null {
  * lanes; untracked branches keep the worktree-cwd probe as EVIDENCE for this
  * sweep (W494.1: cwd is evidence, never a liveness term). Survives the
  * unregistered spawn window and DISPATCHED-less dispatchers. */
-function laneIsAlive(b: string): boolean {
+function laneIsAlive(b: string): boolean | null {
 	// W494.1: tracked lanes ask THE surface (work lanes verdict — shared with
 	// dispatch-next); untracked branches keep the worktree evidence probe
 	const tracked = lanes().find((l) => l.branch === b);
-	if (tracked) return laneAlive(tracked);
+	if (tracked && laneAlive(tracked)) return true;
 	const wt = wtPathFromGit(b) ?? `${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;
-	return worktreeLive(wt);
+	return retirementProcessLive(wt);
 }
 
 function retireMerged(b: string): void {
@@ -220,13 +228,58 @@ function retireMerged(b: string): void {
 	// .fleet/retires-paused to pause ALL retires; delete the file to resume.
 	if (existsSync(`${REPO}/.fleet/retires-paused`)) return;
 	if (ahead(b) !== 0) return;
+	const registry = readLaneRegistry<Lane>(REPO);
+	if (!registry.known) {
+		log(`RETIRE-BLOCKED ${b} — registry unknown: ${registry.error}`);
+		return;
+	}
+	const entry = registry.lanes.find((row) => row.branch === b);
+	const item = entry?.item ?? b.split("/").at(-1);
+	let claimKnown = false,
+		claimed = false;
+	try {
+		const store = openStore();
+		try {
+			const claim = store
+				.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+				.get(projectIdentity(REPO), item) as { state: string } | undefined;
+			claimKnown =
+				!claim ||
+				[
+					"READY",
+					"CLAIMED",
+					"RUNNING",
+					"DONE",
+					"FAILED",
+					"BLOCKED",
+					"SHATTERED",
+					"SUPERSEDED",
+					"PAUSED",
+					"CANCELLED",
+				].includes(claim.state);
+			claimed = !!claim && ["CLAIMED", "RUNNING"].includes(claim.state);
+		} finally {
+			store.close();
+		}
+	} catch {}
+	if (
+		!safeToRetire({
+			registryKnown: registry.known,
+			claimKnown,
+			claimed,
+			recentlyLaunched:
+				!!entry && Date.now() - (entry.launchedAt ?? 0) < 10 * 60_000,
+			live: laneIsAlive(b),
+		})
+	)
+		return;
+
 	// ahead=0 is also true for a freshly-dispatched lane's pre-commit branch —
 	// never retire a branch a LIVE lane still owns. Tracked-pid alone raced
 	// gaps' dispatch-next (registers lanes.json async, writes no DISPATCHED
 	// lines) — liveness is now tracked pid OR any live supported-agent process
 	// whose cwd is inside the worktree (gaps 2026-09-30 incident; W309 widened
 	// the process match beyond claude/codex)
-	if (laneIsAlive(b)) return;
 	const tracked = lanes().find((l) => l.branch === b);
 	// worktree path: git's registry is ground truth — gaps parks lanes under
 	// .claude/worktrees/ (not .worktrees/), so the bare default guess misses
@@ -980,7 +1033,7 @@ if (MODE === "dispatch") {
 	};
 	const all = lanes().filter((l) => l.sid !== sid);
 	all.push(entry);
-	writeFileSync(`${REPO}/.fleet/lanes.json`, JSON.stringify(all, null, 2));
+	mergeLaneRegistry(REPO, all);
 	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})`);
 	console.log(`dispatched ${item} → ${sid} (pid ${proc.pid})`);
 	process.exit(0);
@@ -1049,8 +1102,11 @@ log(
 	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
 );
 while (true) {
+	const childArgs = argv.slice(1);
+	const repoIndex = childArgs.indexOf("--repo");
+	if (repoIndex >= 0) childArgs[repoIndex + 1] = CALLER_REPO;
 	const child = Bun.spawn(
-		[process.execPath, import.meta.path, "once", ...argv.slice(1)],
+		[process.execPath, import.meta.path, "once", ...childArgs],
 		{ cwd: REPO, stdout: "inherit", stderr: "inherit", stdin: "ignore" },
 	);
 	const timer = setTimeout(() => {

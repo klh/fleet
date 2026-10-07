@@ -40,6 +40,11 @@ import {
 	CAPABILITIES,
 	type GovernorStore,
 } from "../lib/govdb.ts";
+import { basename } from "node:path";
+import {
+	loadLaneRegistry,
+	loadLaneRegistryFile,
+} from "../lib/lane-registry.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 
 const die = (m: string): never => {
@@ -1209,19 +1214,19 @@ if (cmd === "add") {
 	// .fleet/lanes.json — process-identity + worktree cwd for local lanes,
 	// transcript freshness for host/remote lanes (never permanent trust).
 	// --json for dispatch-next/fleet-loop; text for humans.
-	const file =
-		flag("--fleet") ??
-		`${String(PROJECT).replace(/\/\.git$/, "")}/.fleet/lanes.json`;
-	const entries = (
-		existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : []
-	) as Array<{
+	const readRegistry =
+		flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
+			? loadLaneRegistryFile
+			: loadLaneRegistry;
+	const entries = readRegistry<{
 		sid: string;
 		item: string;
 		pid?: number;
 		worktree?: string;
 		host?: string;
 		launchedAt?: number;
-	}>;
+	}>(flag("--fleet") ?? process.cwd());
+
 	const audit = entries.map((l) => ({
 		sid: l.sid,
 		item: l.item,
