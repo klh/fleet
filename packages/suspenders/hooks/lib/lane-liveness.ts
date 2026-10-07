@@ -8,7 +8,8 @@
 // liveness term. Verdict: live = recorded pid alive AND anchored harness
 // args referencing the sid, or — pid gone — the claimant transcript fresh
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { basename } from "node:path";
 
 export type LaneRef = {
 	sid: string;
@@ -42,12 +43,91 @@ export const transcriptPath = (sid: string): string | null => {
 export const transcriptAlive = (sid: string): boolean =>
 	transcriptPath(sid) !== null;
 
-/** A lane harness appears in ps args as its own command word: line-start
- *  or a path segment, followed by space/end. An UNANCHORED match turned
- *  every args line containing ".claude/..." into a "lane harness" — 19
- *  orphaned coord-subscribe phantoms kept dead rows live forever
- *  (2026-10-06 ghost anatomy). */
-export const HARNESS_ARG_RE = /(^|\/)(claude|codex|copilot|cline|grok)(\s|$)/i;
+const HARNESS_NAMES = ["claude", "codex", "copilot", "cline", "grok"];
+/** Compatibility expression: command position only, never a prompt path. */
+export const HARNESS_ARG_RE =
+	/^\s*(?:\d+\s+)?(?:\S*\/)?(?:claude|codex|copilot|cline|grok)(?:\s|$)/i;
+type ExecutableCache = { key: string; until: number; paths: Set<string> };
+let executableCache: ExecutableCache | undefined;
+const pathCache = new Map<string, { until: number; path: string | null }>();
+function resolvedExecutable(path: string): string | null {
+	const cached = pathCache.get(path);
+	if (cached && cached.until > Date.now()) return cached.path;
+	let resolved: string | null = null;
+	try {
+		resolved = realpathSync(path);
+	} catch {}
+	if (pathCache.size >= 32) pathCache.clear();
+	pathCache.set(path, { until: Date.now() + 10_000, path: resolved });
+	return resolved;
+}
+
+function canonicalExecutable(
+	token: string,
+	canonical: ReadonlySet<string>,
+): boolean {
+	if (canonical.has(token)) return true;
+	const resolved = resolvedExecutable(token);
+	return resolved !== null && canonical.has(resolved);
+}
+
+/** At most five resolved install paths; refresh upgrades without per-row filesystem probes. */
+function harnessExecutables(): Set<string> {
+	const key = `${process.env.PATH ?? ""}\0${process.env.HOME ?? ""}`;
+	if (executableCache?.key === key && executableCache.until > Date.now())
+		return executableCache.paths;
+	const paths = new Set<string>();
+	for (const name of HARNESS_NAMES) {
+		try {
+			const executable = Bun.which(name, { PATH: process.env.PATH });
+			if (executable) paths.add(realpathSync(executable));
+		} catch {}
+	}
+	executableCache = { key, until: Date.now() + 10_000, paths };
+	return paths;
+}
+
+function commandToken(args: string): { token: string; rest: string } | null {
+	const match = args.match(/^\s*(?:"([^"]+)"|'([^']+)'|(\S+))(?:\s+|$)/);
+	if (!match) return null;
+	return {
+		token: match[1] ?? match[2] ?? match[3],
+		rest: args.slice(match[0].length),
+	};
+}
+
+/** Recognize the executable, or a Node/Bun script entrypoint, never later arguments. */
+export function isHarnessProcess(
+	row: string,
+	canonical: ReadonlySet<string> = harnessExecutables(),
+): boolean | null {
+	const args = row.replace(/^\s*\d+\s+/, "").trimStart();
+	// Native install paths may contain spaces that ps does not quote.
+	if (
+		[...canonical].some((path) => args === path || args.startsWith(`${path} `))
+	)
+		return true;
+	const command = commandToken(args);
+	if (!command) return false;
+	if (HARNESS_NAMES.includes(basename(command.token))) return true;
+	if (canonicalExecutable(command.token, canonical)) return true;
+	if (/\/claude\/versions\/[^/]+$/.test(command.token)) return null;
+	if (!/^(?:node|nodejs|bun)$/.test(basename(command.token))) return false;
+	const entrypoint = commandToken(command.rest);
+	if (!entrypoint || entrypoint.token.startsWith("-")) return false;
+	if (
+		HARNESS_NAMES.includes(basename(entrypoint.token)) ||
+		canonicalExecutable(entrypoint.token, canonical)
+	)
+		return true;
+	if (
+		/\/node_modules\/@(?:anthropic-ai\/claude-code|openai\/codex|github\/copilot)\//.test(
+			entrypoint.token,
+		)
+	)
+		return null;
+	return false;
+}
 
 const psArgs = (): string[] =>
 	Bun.spawnSync(["ps", "-axo", "pid=,args="])
@@ -91,7 +171,7 @@ export function laneProcessIdentity(
 		const referencesSid = new RegExp(
 			`(^|[^A-Za-z0-9_-])${sid}([^A-Za-z0-9_-]|$)`,
 		);
-		return HARNESS_ARG_RE.test(args) && referencesSid.test(args);
+		return referencesSid.test(args) ? isHarnessProcess(args) : false;
 	} catch {
 		return null;
 	}
@@ -104,7 +184,7 @@ export function laneProcessIdentity(
 export const worktreeLive = (wt?: string): boolean => {
 	if (!wt || !existsSync(wt)) return false;
 	const pids = psArgs()
-		.filter((l) => HARNESS_ARG_RE.test(l))
+		.filter((l) => isHarnessProcess(l))
 		.map((l) => l.trim().split(/\s+/)[0]);
 	if (pids.length === 0) return false;
 	const listing = Bun.spawnSync([

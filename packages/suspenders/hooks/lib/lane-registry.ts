@@ -10,7 +10,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { HARNESS_ARG_RE } from "./lane-liveness.ts";
+import { isHarnessProcess } from "./lane-liveness.ts";
 import { basename, dirname, join, resolve } from "node:path";
 
 export interface RegistryLane {
@@ -180,10 +180,11 @@ export function retirementProcessLive(worktree: string): boolean | null {
 			stderr: "pipe",
 		});
 		if (processes.exitCode !== 0) return null;
-		const pids = processes.stdout
-			.toString()
-			.split("\n")
-			.filter((line) => HARNESS_ARG_RE.test(line))
+		const rows = processes.stdout.toString().split("\n").filter(Boolean);
+		const identities = rows.map((line) => isHarnessProcess(line));
+		if (identities.includes(null)) return null;
+		const pids = rows
+			.filter((_line, index) => identities[index] === true)
 			.map((line) => line.trim().split(/\s+/)[0]);
 		if (!pids.length) return false;
 		const cwd = Bun.spawnSync(

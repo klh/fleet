@@ -1,9 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import {
 	laneProcessIdentity,
+	isHarnessProcess,
 	type ProcessInspector,
 } from "../hooks/lib/lane-liveness.ts";
 import { safeToRetire } from "../hooks/lib/lane-registry.ts";
@@ -14,6 +21,95 @@ const roster =
 	(stdout: string, exitCode = 0): ProcessInspector =>
 	() => ({ stdout, exitCode });
 const roots: string[] = [];
+
+test("native versioned executable and runtime entrypoint are command-position identities", () => {
+	const native = "/home/agent/.local/share/claude/versions/2.1.283";
+	const script = "/opt/node_modules/@anthropic-ai/claude-code/cli.js";
+	const canonical = new Set([native, script]);
+	for (const args of [
+		`${native} -p autow562`,
+		`562 ${native} -p autow562`,
+		`/usr/bin/node ${script} -p autow562`,
+		`/usr/bin/bun ${script} -p autow562`,
+		"claude -p autow562",
+		"/bin/codex exec autow562",
+	])
+		expect(isHarnessProcess(args, canonical)).toBe(true);
+	for (const args of [
+		"/usr/bin/bun /review.ts -p read /opt/claude autow562",
+		"/usr/bin/node -e /opt/claude autow562",
+		"bun /home/.claude/coord.ts subscribe --as autow562",
+		`/usr/bin/node /review.ts -p ${script} autow562`,
+	])
+		expect(isHarnessProcess(args, canonical)).toBe(false);
+	expect(
+		isHarnessProcess(
+			"/home/agent/.local/share/claude/versions/9.9.9 -p autow562",
+			canonical,
+		),
+	).toBeNull();
+});
+
+test("canonical symlink resolution recognizes native upgrades and actual Node entrypoints", () => {
+	const root = mkdtempSync(join(tmpdir(), "fleet-executable-"));
+	roots.push(root);
+	const bin = join(root, "bin");
+	const versions = join(root, "claude/versions");
+	mkdirSync(bin);
+	mkdirSync(versions, { recursive: true });
+	const native = join(versions, "2.1.283");
+	const entrypoint = join(root, "copilot-cli.js");
+	writeFileSync(native, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+	writeFileSync(entrypoint, "#!/usr/bin/env node\n", { mode: 0o700 });
+	symlinkSync(native, join(bin, "claude"));
+	symlinkSync(entrypoint, join(bin, "copilot"));
+	const path = process.env.PATH;
+	process.env.PATH = bin;
+	try {
+		expect(laneProcessIdentity(lane, roster(`562 ${native} -p autow562`))).toBe(
+			true,
+		);
+		expect(isHarnessProcess(`/usr/bin/node ${entrypoint} -p autow562`)).toBe(
+			true,
+		);
+		expect(
+			isHarnessProcess(`/usr/bin/bun /review.ts -p ${entrypoint} autow562`),
+		).toBe(false);
+	} finally {
+		process.env.PATH = path;
+	}
+	expect(
+		isHarnessProcess(`${join(versions, "missing")} -p autow562`),
+	).toBeNull();
+});
+
+test("retirement retains an unresolved native executable and ignores prompt-only harness paths", () => {
+	const root = mkdtempSync(join(tmpdir(), "fleet-retirement-identity-"));
+	roots.push(root);
+	const ps = join(root, "ps");
+	const observe = () => {
+		const script = `import { retirementProcessLive } from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/lane-registry.ts"))}; console.log(JSON.stringify(retirementProcessLive(${JSON.stringify(root)})));`;
+		const child = Bun.spawnSync([process.execPath, "-e", script], {
+			env: { ...process.env, PATH: root },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(child.exitCode).toBe(0);
+		return JSON.parse(child.stdout.toString());
+	};
+	writeFileSync(
+		ps,
+		"#!/bin/sh\nprintf '%s\\n' '562 /missing/claude/versions/2.1.283 -p autow562'\n",
+		{ mode: 0o700 },
+	);
+	expect(observe()).toBeNull();
+	writeFileSync(
+		ps,
+		"#!/bin/sh\nprintf '%s\\n' '562 /usr/bin/bun /review.ts -p read /opt/claude autow562'\n",
+		{ mode: 0o700 },
+	);
+	expect(observe()).toBe(false);
+});
 afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });
