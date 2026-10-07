@@ -23,7 +23,12 @@ import {
 	statSync,
 } from "node:fs";
 import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
-import { clearLedgerPort, mlxLogPath, spawnArgs } from "./spawner.ts";
+import {
+	clearLedgerPort,
+	mlxLogPath,
+	spawnArgs,
+	spawnReserved,
+} from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
 import { gatewaySupervisor } from "./gateway-supervision.ts";
 
@@ -102,13 +107,11 @@ async function cmdStart(): Promise<void> {
 			continue;
 		}
 		console.log(`  → :${s.port} ${s.label} (loading in background)`);
-		const log = mlxLogPath(s.port);
-		const shellCmd = `nohup ${spawnArgs(s).join(" ")} >> ${log} 2>&1 &`;
-		Bun.spawn(["/bin/sh", "-c", shellCmd], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
+		try {
+			spawnReserved(s).unref();
+		} catch (error) {
+			console.error(`refused :${s.port}: ${String(error)}`);
+		}
 	}
 
 	// Router
@@ -286,9 +289,19 @@ async function reviveOne(t: ServeTarget): Promise<void> {
 	);
 	if (rec.revivals > 0 && Date.now() - rec.lastReviveAt < backoff) return;
 	killPort(t.port);
+	const specialist = SPECIALISTS.find((s) => s.port === t.port);
 	const fd = openSync(mlxLogPath(t.port), "a");
-	const proc = Bun.spawn(t.argv, { stdin: "ignore", stdout: fd, stderr: fd });
-	closeSync(fd);
+	let proc: ReturnType<typeof Bun.spawn>;
+	try {
+		proc = specialist
+			? spawnReserved(specialist)
+			: Bun.spawn(t.argv, { stdin: "ignore", stdout: fd, stderr: fd });
+	} catch (error) {
+		serveLog(`refused :${t.port}: ${String(error)}`);
+		return;
+	} finally {
+		closeSync(fd);
+	}
 	serveChildren.set(t.port, {
 		proc,
 		revivals: rec.revivals + 1,

@@ -37,7 +37,7 @@ import { dirname } from "node:path";
 import { endpointPassed } from "./health.ts";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
 import { DEFAULT_PATHS, litellmTarget } from "./litellm-target.ts";
-import { mlxLogPath, spawnArgs } from "./spawner.ts";
+import { spawnArgs, spawnReserved } from "./spawner.ts";
 
 const HOME = process.env.HOME ?? "";
 const LOG_DIR = `${HOME}/.claude-insights`;
@@ -813,9 +813,7 @@ export function fleetTargets(): Target[] {
 			// /health; only a closed port triggers a respawn.
 			killHung: false,
 			bindTimeoutMs: 180_000,
-			spawn: owned
-				? () => spawnLogged(spawnArgs(s), mlxLogPath(s.port))
-				: undefined,
+			spawn: owned ? () => spawnReserved(s) : undefined,
 		});
 	}
 	for (const e of EXTERNAL) {

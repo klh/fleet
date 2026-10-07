@@ -17,7 +17,7 @@
 import { spawn, execSync } from "node:child_process";
 import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
 import { LITELLM_PORT } from "./litellm-target.ts";
-import { spawnArgs, mlxLogPath } from "./spawner.ts";
+import { spawnReserved } from "./spawner.ts";
 import {
 	fleetTargets,
 	httpProbe,
@@ -100,13 +100,11 @@ async function cmdStart(): Promise<void> {
 			continue;
 		}
 		console.log(`  → :${s.port} ${s.label} (loading in background)`);
-		const log = mlxLogPath(s.port);
-		const shellCmd = `nohup ${spawnArgs(s).join(" ")} >> ${log} 2>&1 &`;
-		Bun.spawn(["/bin/sh", "-c", shellCmd], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
+		try {
+			spawnReserved(s).unref();
+		} catch (error) {
+			console.error(`  refused :${s.port}: ${String(error)}`);
+		}
 	}
 
 	// Router

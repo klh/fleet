@@ -120,7 +120,9 @@ const runLeg = async (leg: Leg, task: keyof typeof TASKS): Promise<Round> => {
 			},
 			body: JSON.stringify({
 				model: leg.model,
-				max_tokens: 4096,
+				// 16384: glm-5.3-flash's reasoning burned the whole 4096 budget
+				// and emitted zero text (finish=length, 2026-10-07 05:42 round)
+				max_tokens: 16384,
 				temperature: 0.2,
 				messages: [{ role: "user", content: TASKS[task] }],
 			}),

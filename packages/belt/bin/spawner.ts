@@ -18,7 +18,13 @@
 //   3. wired-RAM budget gate — past the guard band a cold load is refused
 //      and the router's ladder falls through to the next route.
 
-import { openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import {
+	admitSpawn,
+	withSpawnLedger,
+	type SpawnRow,
+} from "./spawn-admission.ts";
 import type { Specialist } from "./registry.ts";
 import { modelBudgetGb, rapidMemoryArgs } from "./memory-policy.ts";
 
@@ -28,7 +34,7 @@ const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
 // (brew formula still on 0.14.3; benched 2026-09-23: 115.9 vs 107.4 tok/s
 // under load, flat vs quiet-machine — adopted for flags/aliases, not speed).
 const RAPID = `${HOME}/.local/share/uv/tools/rapid-mlx/bin/rapid-mlx`;
-const LOG_DIR = `${HOME}/.claude-insights`;
+const LOG_DIR = process.env.LOCAL_LLM_LOG_DIR ?? `${HOME}/.claude-insights`;
 
 export const mlxLogPath = (port: number): string =>
 	`${LOG_DIR}/mlx-${port}.log`;
@@ -98,7 +104,7 @@ const pending = new Map<number, Promise<EnsureResult>>();
 // fresh router recognizes a still-loading specialist instead of stacking a
 // second instance. Rows: port → {pid, startedAt}.
 const LEDGER_PATH = `${HOME}/.claude/local-llm/.spawn-ledger.json`;
-type LedgerRow = { pid: number; startedAt: number };
+type LedgerRow = SpawnRow;
 
 const readLedger = (): Record<string, LedgerRow> => {
 	try {
@@ -111,17 +117,11 @@ const readLedger = (): Record<string, LedgerRow> => {
 	}
 };
 
-const writeLedger = (rows: Record<string, LedgerRow>): void => {
-	try {
-		writeFileSync(LEDGER_PATH, JSON.stringify(rows));
-	} catch {}
-};
-
 export const clearLedgerPort = (port: number): void => {
-	const rows = readLedger();
-	if (rows[String(port)] === undefined) return;
-	delete rows[String(port)];
-	writeLedger(rows);
+	withSpawnLedger(LEDGER_PATH, (rows) => {
+		const row = rows[String(port)];
+		if (row && !pidAlive(row.pid)) delete rows[String(port)];
+	});
 };
 
 const pidAlive = (pid: number): boolean =>
@@ -138,18 +138,37 @@ export const wiredGb = (): number => {
 	return m ? (Number(m[1]) * 16384) / 2 ** 30 : Number.POSITIVE_INFINITY;
 };
 
+/** All resident, boot and demand paths share the same process-wide admission. */
+export function spawnReserved(s: Specialist): ReturnType<typeof Bun.spawn> {
+	const log = mlxLogPath(s.port);
+	mkdirSync(dirname(log), { recursive: true });
+	const fd = openSync(log, "a");
+	try {
+		return admitSpawn({
+			path: LEDGER_PATH,
+			port: s.port,
+			budgetGb: modelBudgetGb(s.ram_gb),
+			guardGb: WIRED_GUARD_GB,
+			wiredGb,
+			alive: pidAlive,
+			spawn: () =>
+				Bun.spawn(spawnArgs(s), { stdin: "ignore", stdout: fd, stderr: fd }),
+			cancel: (child) => child.kill(),
+		});
+	} finally {
+		closeSync(fd);
+	}
+}
+
 async function spawnAndWait(s: Specialist): Promise<EnsureResult> {
 	const t0 = Date.now();
 	const log = mlxLogPath(s.port);
-	const fd = openSync(log, "a");
-	const child = Bun.spawn(spawnArgs(s), {
-		stdin: "ignore",
-		stdout: fd,
-		stderr: fd,
-	});
-	const rows = readLedger();
-	rows[String(s.port)] = { pid: child.pid, startedAt: t0 };
-	writeLedger(rows);
+	let child: ReturnType<typeof Bun.spawn>;
+	try {
+		child = spawnReserved(s);
+	} catch (error) {
+		return { up: false, cold: false, waitedMs: 0, error: String(error) };
+	}
 	const cap = coldTimeoutMs(s);
 	while (Date.now() - t0 < cap) {
 		if (child.exitCode !== null || child.signalCode !== null) {
@@ -189,7 +208,6 @@ export function ensureUp(s: Specialist): Promise<EnsureResult> {
 	if (inflight) return inflight;
 	const job = (async (): Promise<EnsureResult> => {
 		if (await isUp(s.port)) {
-			clearLedgerPort(s.port); // listening — no orphan tracking needed
 			return { up: true, cold: false, waitedMs: 0 };
 		}
 		// A recent spawn may still be loading — wait on it, never stack.

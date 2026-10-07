@@ -42,30 +42,37 @@ export function admitSpawn<T extends { pid: number }>(options: {
 	wiredGb: () => number;
 	alive: (pid: number) => boolean;
 	spawn: () => T;
+	cancel?: (child: T) => void;
 }): T {
-	return withSpawnLedger(options.path, (rows) => {
-		for (const [port, row] of Object.entries(rows)) {
-			if (!options.alive(row.pid)) delete rows[port];
-		}
-		if (rows[String(options.port)])
-			throw new Error(
-				`model :${options.port} already reserved by a live process`,
+	let child: T | undefined;
+	try {
+		return withSpawnLedger(options.path, (rows) => {
+			for (const [port, row] of Object.entries(rows)) {
+				if (!options.alive(row.pid)) delete rows[port];
+			}
+			if (rows[String(options.port)])
+				throw new Error(
+					`model :${options.port} already reserved by a live process`,
+				);
+			const reserved = Object.values(rows).reduce(
+				(sum, row) => sum + (row.ram_gb ?? options.guardGb),
+				0,
 			);
-		const reserved = Object.values(rows).reduce(
-			(sum, row) => sum + (row.ram_gb ?? options.guardGb),
-			0,
-		);
-		const projected = options.wiredGb() + reserved + options.budgetGb;
-		if (!Number.isFinite(projected) || projected > options.guardGb)
-			throw new Error(
-				`model memory admission refused: projected ${projected.toFixed(1)}GB exceeds ${options.guardGb}GB`,
-			);
-		const child = options.spawn();
-		rows[String(options.port)] = {
-			pid: child.pid,
-			startedAt: Date.now(),
-			ram_gb: options.budgetGb,
-		};
-		return child;
-	});
+			const projected = options.wiredGb() + reserved + options.budgetGb;
+			if (!Number.isFinite(projected) || projected > options.guardGb)
+				throw new Error(
+					`model memory admission refused: projected ${projected.toFixed(1)}GB exceeds ${options.guardGb}GB`,
+				);
+			child = options.spawn();
+			rows[String(options.port)] = {
+				pid: child.pid,
+				startedAt: Date.now(),
+				ram_gb: options.budgetGb,
+			};
+			return child;
+		});
+	} catch (error) {
+		if (child) options.cancel?.(child);
+		throw error;
+	}
 }

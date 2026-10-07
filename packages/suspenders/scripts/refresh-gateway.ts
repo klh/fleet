@@ -48,11 +48,40 @@ export async function refreshGateway(
 				"row.pid} exceeded deadline; refusing duplicate spawn` };",
 		);
 	}
+	// W506: upgrade the minimal supervisor's two model launch paths without
+	// replacing its gateway ownership or any operator configuration.
+	spawner = await readFile(join(root, "belt/bin/spawner.ts"), "utf8");
+	if (!swarm.includes("spawnReserved")) {
+		swarm = swarm.replace(
+			"mlxLogPath, spawnArgs }",
+			"mlxLogPath, spawnArgs, spawnReserved }",
+		);
+		const start = swarm.indexOf("\t\tconst log = mlxLogPath(s.port);");
+		const end = swarm.indexOf("\n\t}\n", start);
+		if (start < 0 || end < 0)
+			throw new Error("unsupported swarm boot admission anchor");
+		swarm = `${swarm.slice(0, start)}\t\ttry { spawnReserved(s).unref(); }\n\t\tcatch (error) { console.error(String(error)); }${swarm.slice(end)}`;
+		const direct =
+			'const proc = Bun.spawn(t.argv, { stdin: "ignore", stdout: fd, stderr: fd });';
+		if (!swarm.includes(direct))
+			throw new Error("unsupported swarm resident admission anchor");
+		swarm = swarm.replace(
+			direct,
+			`const specialist = SPECIALISTS.find((s) => s.port === t.port);
+\tlet proc: ReturnType<typeof Bun.spawn>;
+\ttry { proc = specialist ? spawnReserved(specialist) : Bun.spawn(t.argv, { stdin: "ignore", stdout: fd, stderr: fd }); }
+\tcatch (error) { closeSync(fd); serveLog(String(error)); return; }`,
+		);
+	}
 	if (dryRun) {
 		console.log("Would refresh gateway supervision and model limits");
 		return;
 	}
 	await mkdir(runtime, { recursive: true });
+	await copyFile(
+		join(root, "belt/bin/spawn-admission.ts"),
+		join(runtime, "spawn-admission.ts"),
+	);
 	for (const file of ["gateway-supervision.ts", "memory-policy.ts"])
 		await copyFile(join(root, "local-llm", file), join(runtime, file));
 	await copyFile(

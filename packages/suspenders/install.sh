@@ -127,7 +127,7 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
   # is retired. spawner/health stay kit-local. Runtime copies are never
   # clobbered (kept = the live fleet's possibly-customized source of truth).
-  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts; do
+  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts spawner.ts spawn-admission.ts; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
     else
@@ -135,14 +135,9 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
       echo "+ $LLM_HOME/$f (from belt/bin)"
     fi
   done
-  for f in spawner.ts health.ts; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
-    else
-      cp "$KIT_DIR/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f"
-    fi
-  done
+  if [ ! -f "$LLM_HOME/health.ts" ]; then
+    cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
+  fi
   # swarm.ts is the one kit file that MAY refresh a present copy: an older
   # installed swarm.ts lacks the serve supervisor, and a serve-less swarm.ts
   # under launchd KeepAlive is exactly the busy-loop flaw this fixes.
