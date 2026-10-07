@@ -16,8 +16,8 @@
 // has a worktree. `work done` calls retire automatically.
 
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { join } from "node:path";
+import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
@@ -31,8 +31,11 @@ if (!cmd || !id) {
 	process.exit(2);
 }
 
-const PROJECT = projectIdentity();
-const ROOT = dirname(PROJECT); // project identity is "<repo-root>/.git"
+// W459.1: the graph key and the local checkout root resolve together —
+// .worktrees lives at the checkout root even when run inside a worktree
+const RP = resolveProject();
+const PROJECT = RP.id;
+const ROOT = RP.root;
 const wtDir = join(ROOT, ".worktrees", id);
 const branch = `suspenders/${id}`;
 

@@ -40,6 +40,7 @@ import {
 	openStore,
 	openMemoryStore,
 	projectIdentity,
+	projectRootOf,
 } from "../lib/govdb.ts";
 import { basename } from "node:path";
 import {
@@ -383,10 +384,8 @@ type Item = Record<string, string | number | null>;
 
 // PROJECT is the git COMMON dir (<repo>/.git for a normal checkout — shared by
 // every worktree), so the mirror belongs beside it in the repo working tree.
-const mirrorPath = (): string => {
-	const base = PROJECT.split("/").pop() ?? "";
-	return `${base === ".git" ? PROJECT.slice(0, -"/.git".length) : PROJECT}/${MIRROR_NAME}`;
-};
+const mirrorPath = (): string =>
+	`${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
 
 // tolerant parse: an absent, truncated, or hand-mangled mirror is never a hard
 // failure — reads then just have nothing to fall back to

@@ -11,6 +11,7 @@
 // suppressed detections park in the finding.wisdom.queue digest.
 import { spawnSync } from "node:child_process";
 import { db, green, dim, projectIdentity } from "./shared.ts";
+import { projectRootOf } from "../lib/govdb.ts";
 import { emitEvent } from "./bus.ts";
 
 // rules-as-data (spec §4.5): a ruling can promote one of these into a
@@ -127,7 +128,7 @@ function detectC2(since: number): { subject: string; label: string } | null {
 			continue;
 		}
 		if (!p.work || !p.sha || !p.project) continue;
-		const root = p.project.replace(/\/\.git$/, "");
+		const root = projectRootOf(p.project);
 		const r = spawnSync(
 			"git",
 			["-C", root, "cat-file", "-e", `${p.sha}^{commit}`],

@@ -35,7 +35,7 @@ import {
 	type RepoLawsEntry,
 } from "../lib/repo-laws.ts";
 import { scrub } from "../lib/servicemon.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, projectRootOf } from "../lib/govdb.ts";
 
 // ─── deps (injected by the board hookup; sane standalone defaults) ────────
 export interface RepoLawDeps {
@@ -76,7 +76,7 @@ export function listRepos(deps: RepoLawDeps): string[] {
 		return [
 			...new Set(
 				rows
-					.map((r) => r.project.replace(/\/\.git$/, ""))
+					.map((r) => projectRootOf(r.project))
 					.filter((p) => existsSync(p) && existsSync(join(p, ".git"))),
 			),
 		].sort();

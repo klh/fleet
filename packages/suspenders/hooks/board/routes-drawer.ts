@@ -6,6 +6,7 @@ import {
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
+import { projectRootOf } from "../lib/govdb.ts";
 import { json } from "./helpers.ts";
 import { LANE_TAIL_BYTES, transcriptTail, transcriptTailAll } from "./lanes.ts";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
@@ -112,7 +113,7 @@ export async function handleDrawer(
 				{ ok: false, error: `work item ${id} has no owning lane` },
 				404,
 			);
-		const repo = w.project.replace(/\/\.git$/, "");
+		const repo = projectRootOf(w.project);
 		const logFile = `${repo}/.fleet/lane-${w.owner_sid}.log`;
 		let log: {
 			size: number;
