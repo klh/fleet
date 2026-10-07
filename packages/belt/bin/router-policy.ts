@@ -14,7 +14,8 @@
 // fallbacks = ordered cross-group ladders tried after num_retries;
 // allowed_fails + cooldown_time = passive outlier ejection. Buckle owns
 // gateway.num_retries; gateway.litellm_num_retries independently controls
-// the inner router and defaults to zero. Provider SDK retries stay disabled.
+// the inner router and preserves the existing default of one. Operators opt
+// into zero for verified Buckle-fronted deployments. SDK retries stay disabled.
 // Owner directives: never flashx; operators edit the YAML, never code.
 import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
@@ -22,7 +23,7 @@ import { existsSync, readFileSync } from "node:fs";
 export interface GatewayPolicy {
 	/** Buckle's outer retry budget; independent of the engine below it. */
 	num_retries?: number;
-	/** Inner LiteLLM router retries (0..3); zero avoids nested retry loops. */
+	/** Inner router retries (0..3); opt into zero behind a verified retry owner. */
 	litellm_num_retries?: number;
 	allowed_fails?: number;
 	cooldown_time?: number;
@@ -37,7 +38,7 @@ interface PolicyDoc {
 /** Native-free defaults; the committed YAML carries the same values. */
 const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
 	num_retries: 1,
-	litellm_num_retries: 0,
+	litellm_num_retries: 1,
 	allowed_fails: 3,
 	cooldown_time: 30,
 };

@@ -142,6 +142,14 @@ in `test/klh-theme.test.ts`.
 Deterministic, keyword-based, 0 ms — no LLM overhead for routing decisions.
 Full doctrine with the measured table: [`docs/routing.md`](docs/routing.md).
 
+`gateway.num_retries` controls Buckle's outer retry budget;
+`gateway.litellm_num_retries` independently controls the LiteLLM router
+(integer 0–3, default 1). Set the latter to 0 only where Buckle is verified
+to own retries for all clients. Direct LiteLLM clients retain one retry by
+default. Provider SDK retries stay at 0; configured fallback ladders remain
+in place. Change machine-level `routing-policy.yaml` and regenerate the
+gateway config during an approved maintenance window.
+
 - short tasks → `:8902`, code → `:8901`, deep reasoning → `:8903`,
   Danish/multilingual → `:8906` (on-demand), rerank → `:8913`
 - `>32k` context or frontier-quality production work → remote (z.ai)
