@@ -54,10 +54,15 @@ const env = {
 	BELT_POLICY: POLICY,
 	KLH_LOCAL_REGISTRY: REG,
 	SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
+	SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 	SUSPENDERS_MDNS: "0",
+	// W360: probes ride stub deps — DOWN tiles are deterministic and no real
+	// loopback port is touched (the live stack running here flipped them UP)
+	SUSPENDERS_PROBE_DEPS: "stub",
 };
 const bin = join(import.meta.dir, "..", "hooks", "bin");
-const PORT = 7891;
+// random port per run — a leaked board from a dead run must never answer
+const PORT = 20000 + Math.floor(Math.random() * 20000);
 const BASE = `http://127.0.0.1:${PORT}`;
 writeFileSync(
 	REG,
@@ -222,7 +227,7 @@ describe("console routes (real board, temp config)", () => {
 		expect(belt).toContain("glm-5.3-flash");
 		expect(belt).toContain("local-swarm");
 		expect(belt).toContain("aria-current"); // belt menu item active
-		// :4100/:4101 unreachable in the test env → honest DOWN tiles
+		// stub probes → every tile classifies DOWN, deterministically
 		expect(belt).toMatch(/DOWN/);
 		const local = await (await fetch(`${BASE}/console/local`)).text();
 		expect(local).toContain("bar");
