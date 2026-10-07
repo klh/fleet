@@ -13,3 +13,7 @@ node_modules/
 .fleet/
 .workgraph.jsonl
 .research/
+
+# W353 Playwright e2e artifacts (config: e2e/playwright.config.ts)
+e2e/test-results/
+e2e/playwright-report/
