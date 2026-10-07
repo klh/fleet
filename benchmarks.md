@@ -314,7 +314,7 @@ candidates must carry text.
 | ------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | copilot BYOK openai-wire → local tier | `COPILOT_PROVIDER_*` → :8903 `/v1`     | PASS — answered `PROOF-BYOK-LOCAL`, zero AI credits, no GitHub auth                                                                                               |
 | claude CLI → belt router              | `ANTHROPIC_BASE_URL=:4000` + model pin | PASS — daily lanes run this                                                                                                                                       |
-| copilot BYOK anthropic-wire → :4000   | `COPILOT_PROVIDER_TYPE=anthropic`      | FAIL — silent 1s abort; diagnosis pending (W223)                                                                                                                  |
+| copilot BYOK anthropic-wire → buckle front | `COPILOT_PROVIDER_TYPE=anthropic` → :4101 | PASS — root cause was the gate, not the wire: buckle read only `Authorization Bearer`, copilot's SDK sends `x-api-key` → 401 `auth_missing` in ~1ms (the "silent 1s abort"). Gate fixed (W422.17.2): x-api-key accepted beside Bearer; live leg 200 in 1.4s vs Bearer 1.9s on `glm-5.3-flash` (2026-10-07) |
 | codex → :4100 responses wire          | CODEX_HOME `model_providers`           | PASS — temp CODEX_HOME + `wire_api="responses"` + `env_key=LITELLM_KEY`: `ENGINE-REACHABLE` (2026-10-03; ~12.5k harness tokens on a 1-line task = codex overhead) |
 
 ---
