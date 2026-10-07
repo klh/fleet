@@ -21,6 +21,7 @@ import {
 import { basename, dirname } from "node:path";
 import { probeService, serviceTarget } from "./dashboard-health.ts";
 import { activeRouteMatches, reconcileDnsClaim } from "./dns-reconcile.ts";
+import { maintainDnsClaims, releaseOwnedClaims } from "./dns-maintenance.ts";
 
 const die = (msg: string): never => {
 	console.error(`✗ ${msg}`);
@@ -855,11 +856,23 @@ const cmdReload = (): void => {
 	}
 };
 
-const cmdDnsReconcile = async (name: string): Promise<void> => {
+const dnsProcessMatches = (pid: number, argv: string[]): boolean => {
+	const args = run(["/bin/ps", "-p", String(pid), "-o", "args="]);
+	return args.code === 0 && args.out.split(/\s+/).join(" ") === argv.join(" ");
+};
+
+const cmdDnsReconcile = async (
+	name: string,
+	options?: {
+		owned: Map<string, { pid: number; argv: string[] }>;
+		stopped: () => boolean;
+	},
+): Promise<void> => {
 	if (!NAME_RE.test(name))
 		die("usage: klh-local dns-reconcile <registered-name>");
 	const existing = readRegistry().find((service) => service.name === name);
-	if (!existing) die(`not registered: ${name}`);
+	if (!existing) throw new Error(`not registered: ${name}`);
+	if (options && !existing.dns.claimed) return;
 	const target = serviceTarget(existing);
 	const response = await fetch("http://127.0.0.1:2019/config/", {
 		signal: AbortSignal.timeout(3000),
@@ -868,12 +881,15 @@ const cmdDnsReconcile = async (name: string): Promise<void> => {
 		!response.ok ||
 		!activeRouteMatches(await response.json(), `${name}.local`, target)
 	)
-		die("active Caddy route does not match registry; DNS unchanged");
+		throw new Error(
+			"active Caddy route does not match registry; DNS unchanged",
+		);
+	if (options?.stopped()) return;
 	withRegistryLock(() => {
 		const registry = readRegistry();
 		const current = registry.find((service) => service.name === name);
 		if (!current || JSON.stringify(current) !== JSON.stringify(existing))
-			die(
+			throw new Error(
 				"registry changed during route verification; retry DNS reconciliation",
 			);
 		const expected = dnsArgv(
@@ -881,13 +897,7 @@ const cmdDnsReconcile = async (name: string): Promise<void> => {
 			current.port,
 			current.lan ? lanIp() : "127.0.0.1",
 		);
-		const matches = (pid: number): boolean => {
-			const args = run(["/bin/ps", "-p", String(pid), "-o", "args="]);
-			return (
-				args.code === 0 &&
-				args.out.split(/\s+/).join(" ") === expected.join(" ")
-			);
-		};
+		const matches = (pid: number): boolean => dnsProcessMatches(pid, expected);
 		const result = reconcileDnsClaim({
 			current: current.dns,
 			matches,
@@ -902,15 +912,49 @@ const cmdDnsReconcile = async (name: string): Promise<void> => {
 			publish: (claim) => {
 				current.dns = claim;
 				saveRegistry(registry);
+				if (options && claim.pid)
+					options.owned.set(name, { pid: claim.pid, argv: expected });
 			},
 			cleanupNew: (pid) => {
 				if (matches(pid)) process.kill(pid, "SIGTERM");
 			},
 		});
-		console.log(
-			`✓ ${name} DNS ${result}; Caddy listeners and routes unchanged`,
-		);
+		if (!options || result === "reconciled")
+			console.log(
+				`✓ ${name} DNS ${result}; Caddy listeners and routes unchanged`,
+			);
 	});
+};
+
+const cmdDnsServe = async (): Promise<void> => {
+	const owned = new Map<string, { pid: number; argv: string[] }>();
+	let stopped = false;
+	const stop = (): void => {
+		stopped = true;
+		releaseOwnedClaims({
+			owned,
+			currentPid: (name) =>
+				readRegistry().find((row) => row.name === name)?.dns.pid,
+			matches: dnsProcessMatches,
+			terminate: (pid) => {
+				try {
+					process.kill(pid, "SIGTERM");
+				} catch {}
+			},
+		});
+	};
+	process.once("SIGTERM", stop);
+	process.once("SIGINT", stop);
+	while (!stopped) {
+		await maintainDnsClaims({
+			registrations: readRegistry(),
+			reconcile: (name) =>
+				cmdDnsReconcile(name, { owned, stopped: () => stopped }),
+			onError: (name, error) => console.error(`DNS ${name}: ${String(error)}`),
+		});
+		for (let elapsed = 0; !stopped && elapsed < 30; elapsed++)
+			await Bun.sleep(1000);
+	}
 };
 
 const usage = `klh-local — one command per local service
@@ -923,6 +967,7 @@ const usage = `klh-local — one command per local service
   status                           health + dns + fragment per service
   reload                           caddy validate + reload (user-level, zero downtime)
   dns-reconcile <name>             restore registered mDNS claim without reloading Caddy
+  dns-serve                        restore enabled DNS claims at login and after claim loss
   hosts-apply [--registry PATH]    rewrite the managed /etc/hosts block from the registry (sudo)`;
 
 if (import.meta.main) {
@@ -934,6 +979,7 @@ if (import.meta.main) {
 	else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
 	else if (cmd === "reload") cmdReload();
 	else if (cmd === "dns-reconcile") await cmdDnsReconcile(rest[0] ?? "");
+	else if (cmd === "dns-serve") await cmdDnsServe();
 	else if (cmd === "hosts-apply") cmdHostsApply(rest);
 	else {
 		console.log(usage);
