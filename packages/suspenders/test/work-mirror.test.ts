@@ -79,7 +79,7 @@ const seedMirror = (
 
 // home A: working DB (the mirror-writing path); repos live under the checkout
 const HOME = mkdtempSync(join(tmpdir(), "claude-work-mirror-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-work-mirror-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo-"));
 gitInit(REPO);
 const work = (...args: string[]) => run(REPO, HOME, ...args);
 
@@ -90,7 +90,7 @@ const HOME_BROKEN = mkdtempSync(join(tmpdir(), "claude-work-mirror-broken-"));
 writeFileSync(join(HOME_BROKEN, ".cache"), "not a directory");
 
 // repo 2 carries only a hand-seeded mirror — never a single work command
-const REPO2 = mkdtempSync(join(process.cwd(), ".tmp-work-mirror-repo2-"));
+const REPO2 = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo2-"));
 gitInit(REPO2);
 const MIRROR_ITEM = {
 	id: "W1",
@@ -183,7 +183,7 @@ describe("mirror reader — fallback when governor.db cannot serve the project",
 	});
 
 	test("fresh clone with an empty partition and no mirror stays quiet", () => {
-		const repo3 = mkdtempSync(join(process.cwd(), ".tmp-work-mirror-repo3-"));
+		const repo3 = mkdtempSync(join(tmpdir(), "suspenders-work-mirror-repo3-"));
 		gitInit(repo3);
 		try {
 			const r = run(repo3, HOME_FRESH, "list");

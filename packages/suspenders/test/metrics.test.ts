@@ -175,11 +175,12 @@ describe("W3 — coord metrics", () => {
 	});
 });
 
-// W24 — tokenUsage: synthetic mini-transcript under cwd (never /tmp), windowed
-// summation, mtime-keyed cache hit/refresh, null handling for missing
-// transcripts. Whole-ms mtimes so the cache key round-trips exactly (utimes
-// stores ms; raw APFS mtimes carry ns).
-const TOKEN_DIR = join(process.cwd(), ".tmp-w24-tokens");
+// W24 — tokenUsage: synthetic mini-transcript, windowed summation, mtime-keyed
+// cache hit/refresh, null handling for missing transcripts. Whole-ms mtimes so
+// the cache key round-trips exactly (utimes stores ms; raw APFS mtimes carry
+// ns). tokenUsage resolves absolute transcript paths, so the fixture lives
+// under os.tmpdir() like every other scratch dir (W520).
+const TOKEN_DIR = mkdtempSync(join(tmpdir(), "suspenders-w24-tokens-"));
 const TOKKEY = [
 	"metrics.tokens",
 	PROJECT.replace(/[^A-Za-z0-9._-]/g, "-"),

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-lane-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-lane-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-lane-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const hook = join(import.meta.dir, "..", "hooks", "session-start.ts");

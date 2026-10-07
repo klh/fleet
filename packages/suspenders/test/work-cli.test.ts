@@ -28,7 +28,7 @@ const gitInit = (dir: string): void => {
 	});
 	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
 };
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-work-cli-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo-"));
 gitInit(REPO);
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
@@ -379,7 +379,7 @@ describe("block — dependencies and cycles", () => {
 
 describe("project partitioning", () => {
 	test("another repo sees none of this project's work", () => {
-		const repo2 = mkdtempSync(join(process.cwd(), ".tmp-work-cli-repo2-"));
+		const repo2 = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo2-"));
 		gitInit(repo2);
 		try {
 			expect(workIn(repo2, "list").out).toContain("(none)");

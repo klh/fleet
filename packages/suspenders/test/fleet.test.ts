@@ -5,10 +5,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const HOME = mkdtempSync(join(process.cwd(), ".fleet-test-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".fleet-test-repo-"));
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-fleet-test-home-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-fleet-test-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const LANES = join(import.meta.dir, "..", "hooks", "board", "lanes.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");

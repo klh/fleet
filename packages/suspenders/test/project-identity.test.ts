@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-pid-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-pid-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-pid-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
@@ -72,10 +72,6 @@ run(REPO, coord, "kb", "stats");
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
-	rmSync(join(process.cwd(), ".tmp-pid-wtrepo-"), {
-		recursive: true,
-		force: true,
-	});
 });
 
 describe("coord project rekey (W460)", () => {
@@ -178,7 +174,7 @@ describe("coord project rekey (W460)", () => {
 
 describe("project identity resolver (W460)", () => {
 	test("linked worktree resolves to the parent common dir, not the .git file", () => {
-		const R = mkdtempSync(join(process.cwd(), ".tmp-pid-wtrepo-"));
+		const R = mkdtempSync(join(tmpdir(), "suspenders-pid-wtrepo-"));
 		try {
 			const git = (args: string[], cwd = R) =>
 				Bun.spawnSync(["git", "-C", cwd, ...args], {

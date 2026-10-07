@@ -8,6 +8,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
 	mkdirSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 	readFileSync,
@@ -23,7 +24,9 @@ import {
 } from "../hooks/dialects/grok/lib.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w296-repo-"));
+// realpath: the governor canonicalizes lease paths, and macOS tmpdir() sits
+// behind a /var → /private/var symlink — a non-canonical seed misses it (W520)
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-repo-")));
 const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");
 const WIRE = join(
 	import.meta.dir,

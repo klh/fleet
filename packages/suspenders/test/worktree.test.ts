@@ -23,7 +23,7 @@ const gitInit = (dir: string): void => {
 		stderr: "ignore",
 	});
 };
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-worktree-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-worktree-repo-"));
 gitInit(REPO);
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");

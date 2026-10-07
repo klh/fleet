@@ -8,6 +8,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	chmodSync,
@@ -29,7 +30,7 @@ import {
 } from "../scripts/dispatch-next.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w145-dispatch-repo-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 // W463: pin the buckle front to a dead port for the legacy cases — probe
 // misses = belt-direct note path (pre-W463 behavior), deterministic even on

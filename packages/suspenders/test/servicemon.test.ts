@@ -12,6 +12,7 @@
 //    token/key value shapes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	DEFAULT_BUCKETS,
@@ -26,9 +27,9 @@ const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
 
 // temp HOMEs under the repo (never /tmp) — the spawned services open their own
 // governor.db/knowledge stores under HOME, never the live one
-const home = mkdtempSync(join(process.cwd(), ".servicemon-home-"));
-const boardHome = mkdtempSync(join(process.cwd(), ".servicemon-boardhome-"));
-const repo = mkdtempSync(join(process.cwd(), ".servicemon-repo-"));
+const home = mkdtempSync(join(tmpdir(), "suspenders-servicemon-home-"));
+const boardHome = mkdtempSync(join(tmpdir(), "suspenders-servicemon-boardhome-"));
+const repo = mkdtempSync(join(tmpdir(), "suspenders-servicemon-repo-"));
 const procs: Bun.Subprocess[] = [];
 
 afterAll(() => {
