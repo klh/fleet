@@ -11,7 +11,14 @@ import { Database } from "bun:sqlite";
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-lane-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-lane-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
-const env = { ...process.env, HOME };
+// harness lane identity must not leak into the spawned hook: a live
+// SUSPENDERS_SID + canonical-v1 protocol trips the declared-lane gate for
+// the test's own sid, and a real front + belt.env would mint real keys
+const env: Record<string, string | undefined> = { ...process.env, HOME };
+delete env.SUSPENDERS_SID;
+delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+env.SUSPENDERS_BUCKLE_FRONT = "http://127.0.0.1:1";
+env.SUSPENDERS_BELT_ENV = join(HOME, "absent-belt.env");
 const hook = join(import.meta.dir, "..", "hooks", "session-start.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 const PARENT = "parent-sess-11111111";

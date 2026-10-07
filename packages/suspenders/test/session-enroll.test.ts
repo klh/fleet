@@ -74,12 +74,17 @@ const runHook = (hook: string, repo: string, sid: string, front: string) => {
 		payload,
 		JSON.stringify({ session_id: sid, source: "startup", cwd: repo }),
 	);
-	const env = {
+	// same hygiene as session-start-lane: the harness's lane identity
+	// (SUSPENDERS_SID + canonical-v1) trips the declared-lane gate for the
+	// test's own sid
+	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME,
 		SUSPENDERS_BUCKLE_FRONT: front,
 		SUSPENDERS_BELT_ENV: BELT,
 	};
+	delete env.SUSPENDERS_SID;
+	delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 	const p = Bun.spawnSync(["bun", hook], {
 		cwd: repo,
 		env,
@@ -181,6 +186,7 @@ describe("hook round-trip (real session-start / session-end)", () => {
 			sid,
 			cwd: repo,
 			govMode: "strict",
+			front,
 			probeFn: async () => front,
 		});
 		expect(note1).toContain("GOVERNANCE: enrolled");
@@ -199,6 +205,7 @@ describe("hook round-trip (real session-start / session-end)", () => {
 			sid,
 			cwd: repo,
 			govMode: "strict",
+			front,
 			probeFn: async () => front,
 		});
 		expect(note2).toContain("GOVERNANCE: enrolled");

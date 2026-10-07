@@ -15,6 +15,16 @@ process.env.HOME = HOME;
 const { openGovernorDb, openKnowledgeDb } = await import(
 	`../hooks/lib/govdb.ts?w159=${encodeURIComponent(HOME)}`
 );
+// the store rides the same bust: settle.ts's own openKnowledgeDb default
+// resolves through whatever plain govdb module the suite cached first
+// (load-time HOME pin), so each settle below injects its store explicitly.
+const { SqliteKnowledgeStore } = await import(
+	`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
+);
+const settleStore = (
+	db: Database,
+): InstanceType<typeof SqliteKnowledgeStore> =>
+	new SqliteKnowledgeStore(openKnowledgeDb(), db);
 const { settleSessionWith, sessionDomain, recordSessionDomain } = await import(
 	"../hooks/lib/settle.ts"
 );
@@ -108,7 +118,9 @@ test("hub session settles hub-eligible; private settles local-only", async () =>
 	queueRow("s-hub2");
 	queueRow("s-hub2");
 	knowledgeRow("s-hub2");
-	const r = await settleSessionWith(db, "s-hub2");
+	const r = await settleSessionWith(db, "s-hub2", {
+		store: settleStore(db),
+	});
 	expect(r.domain).toBe("hub");
 	expect(r.queueMarked).toBe(2);
 	expect(r.rowsBackfilled).toBe(1);
@@ -118,7 +130,9 @@ test("hub session settles hub-eligible; private settles local-only", async () =>
 	seedSession("s-p2");
 	queueRow("s-p2");
 	knowledgeRow("s-p2");
-	const rp = await settleSessionWith(db, "s-p2");
+	const rp = await settleSessionWith(db, "s-p2", {
+		store: settleStore(db),
+	});
 	expect(rp.domain).toBe("private");
 	expect(rp.queueMarked).toBe(1);
 	expect(flags("knowledge_queue", "s-p2")).toEqual([0]);
@@ -132,7 +146,9 @@ test("mixed session (hub then private) takes most-restrictive: private", async (
 	recordSessionDomain(db, "s-mixed", "private");
 	queueRow("s-mixed");
 	knowledgeRow("s-mixed");
-	const r = await settleSessionWith(db, "s-mixed");
+	const r = await settleSessionWith(db, "s-mixed", {
+		store: settleStore(db),
+	});
 	expect(r.domain).toBe("private");
 	expect(flags("knowledge_queue", "s-mixed")).toEqual([0]);
 	expect(flags("knowledge", "s-mixed")).toEqual([0]);
@@ -143,12 +159,17 @@ test("settle is idempotent and never re-flips settled rows", async () => {
 	seedSession("s-idem", "hub");
 	queueRow("s-idem");
 	knowledgeRow("s-idem");
-	expect((await settleSessionWith(db, "s-idem")).queueMarked).toBe(1);
+	expect(
+		(await settleSessionWith(db, "s-idem", { store: settleStore(db) }))
+			.queueMarked,
+	).toBe(1);
 	// even if the session domain changes later, settled rows keep their flag
 	db.query("UPDATE sessions SET data_domain = 'private' WHERE sid = ?").run(
 		"s-idem",
 	);
-	const r2 = await settleSessionWith(db, "s-idem");
+	const r2 = await settleSessionWith(db, "s-idem", {
+		store: settleStore(db),
+	});
 	expect(r2.queueMarked).toBe(0);
 	expect(r2.rowsBackfilled).toBe(0);
 	expect(flags("knowledge_queue", "s-idem")).toEqual([1]);
@@ -158,7 +179,7 @@ test("emits a knowledge.settled event for observability", async () => {
 	const db = freshDb();
 	seedSession("s-evt", "hub");
 	queueRow("s-evt");
-	await settleSessionWith(db, "s-evt");
+	await settleSessionWith(db, "s-evt", { store: settleStore(db) });
 	const evt = db
 		.query(
 			"SELECT payload FROM events WHERE kind = 'knowledge.settled' ORDER BY id DESC LIMIT 1",

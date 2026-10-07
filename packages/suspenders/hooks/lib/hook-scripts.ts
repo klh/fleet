@@ -27,13 +27,16 @@ const gitToplevel = (cwd: string): string | null => {
 /** Interactive-session enrollment for a top-level session: resolve the
  *  shared lane-auth/lane modules, probe the buckle front, reuse-or-mint the
  *  per-session key, return the GOVERNANCE note (null = not enrollable —
- *  no git toplevel / no shared lib). probeFn injectable for tests. */
+ *  no git toplevel / no shared lib). probeFn + front injectable for tests —
+ *  lane.ts pins BUCKLE_FRONT at module load, so a cached module in a shared
+ *  test process would otherwise aim the mint at the live spoke. */
 export const enrollTopLevel = async (o: {
 	hookDir: string;
 	sid: string;
 	cwd: string;
 	govMode: "strict" | "solo";
 	probeFn?: (front: string) => Promise<string | null>;
+	front?: string;
 }): Promise<string | null> => {
 	const laP = scriptsLibPath(o.hookDir, "lane-auth.ts");
 	const laneP = scriptsLibPath(o.hookDir, "lane.ts");
@@ -41,7 +44,7 @@ export const enrollTopLevel = async (o: {
 	if (!laP || !laneP || !top) return null;
 	const la = await import(laP);
 	const lm = await import(laneP);
-	const front: string = lm.BUCKLE_FRONT;
+	const front: string = o.front ?? lm.BUCKLE_FRONT;
 	const probe = o.probeFn ?? lm.probeBuckleFront;
 	const r = await la.enrollSessionKey({
 		fleet: `${top}/.fleet`,

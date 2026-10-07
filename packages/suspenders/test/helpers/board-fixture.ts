@@ -67,14 +67,22 @@ export async function boardFixture(
 	mkdirSync(join(REPO, ".git"), { recursive: true });
 	// W55: a REAL git repo for the diff endpoint (REPO's .git is an empty dir)
 	const GREPO = mkdtempSync(join(tmpdir(), "suspenders-boardgit-"));
-	const env = {
+	// fixture hygiene: the harness's lane identity (SUSPENDERS_SID +
+	// canonical-v1 protocol) must not leak into spawned hooks — the
+	// declared-lane gate refuses the test's own sid — and the live buckle
+	// front + real belt.env would let an enrollment mint real keys
+	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
+		SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
+		SUSPENDERS_BELT_ENV: join(HOME, "absent-belt.env"),
 	};
+	delete env.SUSPENDERS_SID;
+	delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 	if (PORT === 0) PORT = unusedPort();
 	const bin = join(import.meta.dir, "..", "..", "hooks", "bin");
 	const BASE = `http://127.0.0.1:${PORT}`;
