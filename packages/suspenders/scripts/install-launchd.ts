@@ -25,12 +25,17 @@ import {
 } from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
-// supersede the pre-namespacing agent labels so old and new never run side by
-// side (same jobs, stale script paths, double keepwarm/monitor pings)
+// supersede the pre-namespacing agent labels + the per-repo belt/local plists
+// (W389 folded them into the manifest) so old and new never run side by side
+// (same jobs, stale script paths, double :7791/:7792/:8912 supervision)
 export const LEGACY_LABELS = [
 	"com.klh.llm-keepwarm",
 	"com.klh.fleet-monitor",
 	"com.klh.local-llm",
+	"com.belt.dashboard",
+	"com.belt.swarm",
+	"com.belt.kev",
+	"com.klh-local.dashboard",
 ] as const;
 
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {

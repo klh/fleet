@@ -206,7 +206,7 @@ export async function refreshDashboards(
 			shimBin: options.shimBin ?? join(options.home, ".local/bin"),
 			expectedRevision: revision,
 		});
-		return `Refreshed ${files.length} dashboard code files at ${revision}. Restart com.belt.dashboard, com.klh-local.dashboard and com.suspenders.board to activate.`;
+		return `Refreshed ${files.length} dashboard code files at ${revision}. Restart com.suspenders.belt-dashboard, com.suspenders.klh-local-bar and com.suspenders.board to activate.`;
 	} catch (error) {
 		for (const [target, old] of backups) {
 			if (old) {

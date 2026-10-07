@@ -45,7 +45,7 @@ git clone https://github.com/klh/belt && cd belt
 ./install.sh                      # deploy bin/ to ~/.claude/local-llm/ (full tier)
 ./install.sh --tier minimal       # small machines: resident fleet ≤4GB (:8902 extract + :8913 rerank)
 ./install.sh --with-models        # + deps (uv/mlx-lm/rapid-mlx) + model weights (~40-60 GB)
-./install.sh --with-launchd       # + KeepAlive agents (com.belt.swarm, com.belt.kev, per-port rapid servers)
+./install.sh --with-launchd       # + belt-dashboard (:7791) + kev (:8912) from the fleet services manifest
 ```
 
 **Tiers.** `BELT_TIER` (or `--tier minimal|full` at install time) scopes the
@@ -128,7 +128,7 @@ server advertises itself via dns-sd as `http://belt.local:7791`;
 optionally, `klh-local` (klh/local) fronts that with Caddy at
 `http://belt.local` — belt works fine without it, dashboard direct on :7791.
 For always-on, `./install.sh --with-launchd` loads it as the
-`com.belt.dashboard` KeepAlive agent (logs: `~/.claude-insights/belt-dashboard.log`).
+`com.suspenders.belt-dashboard` KeepAlive agent (logs: `~/.claude-insights/belt-dashboard.log`).
 
 The page wears the shared klh theme so it reads as one product with
 suspenders.local and bar.local: dark/light tokens, the settings gear (theme:

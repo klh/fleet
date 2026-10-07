@@ -1,16 +1,14 @@
-// test/services-manifest.test.ts — W488.1 parity: every service in
-// deploy/services.yaml renders FIELD-EQUIVALENT to the hand-written template
-// plist it migrates (hooks/launchd/*.plist). Field-equivalence, not byte-
-// equality: formatting differs. Both sides get the SAME fixture placeholder
-// substitution before parsing, so a divergence in args, schedule keys, env,
-// logs, cwd or Nice fails loudly. Also covers placeholder validation (used
-// but undeclared / declared but unused / unresolvable tokens) and the
-// install.sh-matching belt defaults.
+// test/services-manifest.test.ts — the services manifest is the ONE source:
+// every service renders on all three targets with resolved placeholders,
+// mapped schedules (launchd → launchd units / systemd INI / WinSW XML), env
+// and envFile as PATH references only, and the install.sh-matching belt
+// defaults. Covers placeholder validation (used but undeclared / declared
+// but unused / unresolvable tokens), the exactly-one-of bunEntry | program
+// contract, and the W389 per-repo adoptees (belt-dashboard, klh-local-bar,
+// kev).
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	TEMPLATE_DIR,
 	defaultRenderValues,
 	loadManifest,
 	renderDarwin,
@@ -19,7 +17,6 @@ import {
 	renderTarget,
 	renderUnits,
 	renderWin32,
-	substitute,
 	usedPlaceholders,
 	validateSpec,
 	type RenderValues,
@@ -29,6 +26,7 @@ import { parsePlistXml, project } from "./plist-fields.ts";
 
 const FIXTURE: RenderValues = {
 	bun: "/usr/local/bin/bun-fixture",
+	uv: "/opt/homebrew/bin/uv-fixture",
 	home: "/Users/fleet-fixture",
 	prefix: "/Users/fleet-fixture/.claude/hooks/suspenders",
 	repo: "/Volumes/fleet-fixture/packages/suspenders",
@@ -45,31 +43,6 @@ const byName = (name: string): ServiceSpec => {
 };
 
 describe("services manifest (W488.1)", () => {
-	test("manifest covers exactly the templated plists on disk", () => {
-		const onDisk = readdirSync(TEMPLATE_DIR)
-			.filter((f) => f.endsWith(".plist"))
-			.map((f) => f.replace("com.suspenders.", "").replace(".plist", ""))
-			.sort();
-		expect(services.map((s) => s.name).sort()).toEqual(onDisk);
-	});
-
-	for (const spec of services) {
-		test(`${spec.name}: manifest render is field-equivalent to the template plist`, () => {
-			const templatePath = join(
-				TEMPLATE_DIR,
-				`com.suspenders.${spec.name}.plist`,
-			);
-			const templateXml = substitute(
-				readFileSync(templatePath, "utf8"),
-				FIXTURE,
-			);
-			const rendered = renderDarwin(spec, FIXTURE);
-			expect(project(parsePlistXml(rendered))).toEqual(
-				project(parsePlistXml(templateXml)),
-			);
-		});
-	}
-
 	test("fixture substitution reaches every placeholder class (fleet-loop carries five)", () => {
 		const d = parsePlistXml(renderDarwin(byName("fleet-loop"), FIXTURE));
 		const args = d.ProgramArguments as string[];
@@ -148,6 +121,41 @@ describe("services manifest (W488.1)", () => {
 	});
 });
 
+// ---- W389 per-repo adoptees: belt/local plists folded into the manifest ----
+describe("per-repo adoptees (W389)", () => {
+	test("kev: program service — uv argv0, no bun prepend, full argv", () => {
+		const d = parsePlistXml(renderDarwin(byName("kev"), FIXTURE));
+		const args = d.ProgramArguments as string[];
+		expect(args[0]).toBe(FIXTURE.uv);
+		expect(args).not.toContain(FIXTURE.bun);
+		expect(args).toContain(join(FIXTURE.home, "dev/kev"));
+		expect(args.at(-1)).toBe("8912");
+	});
+
+	test("belt-dashboard + klh-local-bar: runtime-copy entries keepalive", () => {
+		for (const name of ["belt-dashboard", "klh-local-bar"]) {
+			const d = parsePlistXml(renderDarwin(byName(name), FIXTURE));
+			expect(d.Label).toBe(`com.suspenders.${name}`);
+			expect(d.KeepAlive).toBe(true);
+			expect(d.ProgramArguments as string[]).toContain(
+				name === "belt-dashboard"
+					? join(FIXTURE.home, ".claude/local-llm/dashboard.ts")
+					: join(FIXTURE.home, ".local/klh-local/bin/dashboard.ts"),
+			);
+		}
+	});
+
+	test("exactly one of bunEntry | program is enforced", () => {
+		const base = byName("board");
+		expect(() =>
+			validateSpec({ ...base, bunEntry: undefined }),
+		).toThrow(/exactly one of/);
+		expect(() => validateSpec({ ...base, program: "/usr/bin/env" })).toThrow(
+			/exactly one of/,
+		);
+	});
+});
+
 // ---- linux/systemd (W488.2) verification WITHOUT systemd: structural INI
 // checks — every unit parses, required keys present, placeholders resolved,
 // keepalive -> Restart=always, interval/calendar -> timer units.
@@ -185,7 +193,9 @@ describe("services manifest linux (W488.2)", () => {
 			expect(ini.Unit?.Description).toBe(
 				`fleet ${spec.name} (deploy/services.yaml)`,
 			);
-			expect(ini.Service?.ExecStart).toStartWith(`"${FIXTURE.bun}"`);
+			expect(ini.Service?.ExecStart).toStartWith(
+				`"${spec.program === undefined ? FIXTURE.bun : FIXTURE.uv}"`,
+			);
 			expect(ini.Service?.StandardOutput).toStartWith("append:");
 			expect(ini.Service?.StandardError).toStartWith("append:");
 			expect(ini.Install?.WantedBy).toBe("default.target");
@@ -288,7 +298,9 @@ describe("services manifest win32 (W488.3)", () => {
 			xmlElementsBalanced(xml);
 			expect(xmlText(xml, "id")).toBe(`suspenders-${spec.name}`);
 			expect(xmlText(xml, "name")).toBe(`suspenders-${spec.name}`);
-			expect(xmlText(xml, "executable")).toBe(FIXTURE.bun);
+			expect(xmlText(xml, "executable")).toBe(
+				spec.program === undefined ? FIXTURE.bun : FIXTURE.uv,
+			);
 			expect(xmlText(xml, "arguments")).not.toBe("");
 			expect(xmlText(xml, "logpath")).not.toBe("");
 			expect(xml).toContain('<log mode="roll"/>');

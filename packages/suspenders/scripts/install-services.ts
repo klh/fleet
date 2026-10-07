@@ -15,6 +15,8 @@
 //   BELT_URL token   belt front for fleet-loop ($BELT_URL, else
 //                    http://127.0.0.1:4100 — install.sh's default)
 //   BELT_TOKEN token belt auth token ($BELT_TOKEN, else empty)
+//   UV token         uv binary for non-bun `program` services (Bun.which("uv"),
+//                    else "uv") — kev's uv/python argv (W389)
 // (Written as prose here so the rendered-unit residual-placeholder check
 // below can never trip on this file's own header.)
 // Secrets are NEVER in the manifest or the emitted units: a service may
@@ -42,7 +44,6 @@ import { parse } from "yaml";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
-export const TEMPLATE_DIR = join(PACKAGE_ROOT, "hooks", "launchd");
 export const LABEL_PREFIX = "com.suspenders";
 
 export interface Schedule {
@@ -55,7 +56,10 @@ export interface Schedule {
 
 export interface ServiceSpec {
 	name: string;
-	bunEntry: string;
+	// exactly one of bunEntry (argv0 = the bun binary, prepended by the
+	// emitter) or program (non-bun runner: argv0 verbatim, W389)
+	bunEntry?: string;
+	program?: string;
 	args: string[];
 	cwd?: string;
 	env: Record<string, string>;
@@ -74,6 +78,7 @@ interface ManifestFile {
 
 export interface RenderValues {
 	bun: string;
+	uv: string;
 	home: string;
 	prefix: string;
 	repo: string;
@@ -83,6 +88,7 @@ export interface RenderValues {
 
 const PLACEHOLDER_VALUES: Record<string, (v: RenderValues) => string> = {
 	__BUN__: (v) => v.bun,
+	__UV__: (v) => v.uv,
 	__HOME__: (v) => v.home,
 	__PREFIX__: (v) => v.prefix,
 	__REPO__: (v) => v.repo,
@@ -102,6 +108,7 @@ const KNOWN_MANIFEST_KEYS = new Set(["labelPrefix", "defaults", "services"]);
 const KNOWN_SERVICE_KEYS = new Set([
 	"name",
 	"bunEntry",
+	"program",
 	"args",
 	"cwd",
 	"env",
@@ -118,6 +125,7 @@ export function defaultRenderValues(
 	const home = overrides.home ?? process.env.HOME ?? "";
 	return {
 		bun: overrides.bun ?? Bun.which("bun") ?? "bun",
+		uv: overrides.uv ?? Bun.which("uv") ?? "uv",
 		home,
 		prefix:
 			overrides.prefix ??
@@ -161,11 +169,13 @@ function envFilePaths(spec: ServiceSpec): string[] {
 	return paths;
 }
 
-// every placeholder the EMITTED unit will contain: __BUN__ is implicit (the
-// emitter always prepends the bun binary as ProgramArguments[0])
+// every placeholder the EMITTED unit will contain: __BUN__ is implicit for
+// bunEntry services (the emitter prepends the bun binary as argv0); `program`
+// services are scanned verbatim — their runner carries its own tokens (W389)
 export function usedPlaceholders(spec: ServiceSpec): string[] {
-	const found = new Set<string>(["__BUN__"]);
-	scanText(spec.bunEntry, found);
+	const found = new Set<string>(spec.bunEntry ? ["__BUN__"] : []);
+	if (spec.program !== undefined) scanText(spec.program, found);
+	if (spec.bunEntry !== undefined) scanText(spec.bunEntry, found);
 	if (spec.cwd !== undefined) scanText(spec.cwd, found);
 	for (const path of envFilePaths(spec)) scanText(path, found);
 	for (const a of spec.args) scanText(a, found);
@@ -181,8 +191,22 @@ export function usedPlaceholders(spec: ServiceSpec): string[] {
 export function validateSpec(spec: ServiceSpec): void {
 	const problems: string[] = [];
 	if (!/^[a-z0-9-]+$/.test(spec.name)) problems.push(`bad name "${spec.name}"`);
-	if (typeof spec.bunEntry !== "string" || spec.bunEntry.length === 0) {
+	if (
+		(spec.bunEntry === undefined) === (spec.program === undefined)
+	) {
+		problems.push("exactly one of bunEntry | program is required");
+	}
+	if (
+		spec.bunEntry !== undefined &&
+		(typeof spec.bunEntry !== "string" || spec.bunEntry.length === 0)
+	) {
 		problems.push("bunEntry must be a non-empty string");
+	}
+	if (
+		spec.program !== undefined &&
+		(typeof spec.program !== "string" || spec.program.length === 0)
+	) {
+		problems.push("program must be a non-empty string");
 	}
 	envFilePaths(spec);
 	const cal = spec.schedule.calendar;
@@ -262,7 +286,6 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			throw new Error(`${path}: logs.out is required`);
 		const spec: ServiceSpec = {
 			name: entry.name as string,
-			bunEntry: entry.bunEntry as string,
 			args: (entry.args ?? []) as string[],
 			env,
 			schedule: {
@@ -272,6 +295,9 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			logs: { out: logOut, err: (rawLogs.err as string) ?? logOut },
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
+		if (entry.bunEntry !== undefined)
+			spec.bunEntry = entry.bunEntry as string;
+		if (entry.program !== undefined) spec.program = entry.program as string;
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
 		if (entry.envFile !== undefined)
 			spec.envFile = entry.envFile as string | string[];
@@ -321,16 +347,24 @@ function xmlInt(key: string, value: number, indent: string): string {
 	return `${indent}<key>${key}</key>\n${indent}<integer>${value}</integer>\n`;
 }
 
+// full argv of a rendered unit: `program` services run their runner verbatim
+// as argv0; bunEntry services get the bun binary prepended (W389). Shared by
+// all three emitters — one source of truth for the launch argv.
+function unitArgv(spec: ServiceSpec, values: RenderValues): string[] {
+	const s = (t: string): string => substitute(t, values);
+	const rest =
+		spec.bunEntry === undefined
+			? spec.args.map(s)
+			: [s(spec.bunEntry), ...spec.args.map(s)];
+	return [spec.program === undefined ? values.bun : s(spec.program), ...rest];
+}
+
 export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const s = (text: string): string => substitute(text, values);
 	const body: string[] = [];
 	body.push(xmlStr("Label", `${LABEL_PREFIX}.${spec.name}`, "\t"));
 	body.push("\t<key>ProgramArguments</key>\n\t<array>\n");
-	const directArgs = [
-		values.bun,
-		s(spec.bunEntry),
-		...spec.args.map((a) => s(a)),
-	];
+	const directArgs = unitArgv(spec, values);
 	const files = envFilePaths(spec).map(s);
 	// launchd has no EnvironmentFile. Positional arguments keep machine
 	// paths and service argv out of shell syntax; exec preserves supervision.
@@ -434,7 +468,7 @@ function linuxServiceSection(
 			spec.schedule.throttleSeconds ?? SYSTEMD_DEFAULT_RESTART_SEC;
 		l.push("Restart=always", `RestartSec=${restartSec}s`);
 	}
-	const argv = [values.bun, s(spec.bunEntry), ...spec.args.map((a) => s(a))];
+	const argv = unitArgv(spec, values);
 	l.push(`ExecStart=${argv.map(systemdQuote).join(" ")}`);
 	if (spec.cwd !== undefined) l.push(`WorkingDirectory=${s(spec.cwd)}`);
 	if (spec.nice !== undefined) l.push(`Nice=${spec.nice}`);
@@ -597,11 +631,7 @@ function schtasksHint(spec: ServiceSpec, values: RenderValues): string | null {
 	const interval = spec.schedule.intervalSeconds;
 	const cal = spec.schedule.calendar;
 	if (interval === undefined && cal === undefined) return null;
-	const argv = [
-		values.bun,
-		substitute(spec.bunEntry, values),
-		...spec.args.map((a) => substitute(a, values)),
-	];
+	const argv = unitArgv(spec, values);
 	const cmd = argv.map(winQuotedIfNeeded).join(" ");
 	if (interval !== undefined) {
 		const minutes = Math.round(interval / 60);
@@ -637,10 +667,10 @@ function winComment(spec: ServiceSpec, values: RenderValues): string[] {
 
 function winIdentity(spec: ServiceSpec, values: RenderValues): string[] {
 	const s = (t: string): string => substitute(t, values);
-	const argv = [s(spec.bunEntry), ...spec.args.map((a) => s(a))];
+	const argv = unitArgv(spec, values);
 	const l: string[] = [
-		`  <executable>${escXml(values.bun)}</executable>`,
-		`  <arguments>${escXml(argv.map(winQuotedIfNeeded).join(" "))}</arguments>`,
+		`  <executable>${escXml(argv[0])}</executable>`,
+		`  <arguments>${escXml(argv.slice(1).map(winQuotedIfNeeded).join(" "))}</arguments>`,
 	];
 	if (spec.cwd !== undefined) {
 		l.push(`  <workingdirectory>${escXml(s(spec.cwd))}</workingdirectory>`);

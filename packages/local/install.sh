@@ -31,15 +31,20 @@ bun "$PREFIX/bin/klh-local.ts" install
 
 # bar — the status dashboard, fronted by caddy at http://bar.local/
 if [[ "$(uname)" == "Darwin" ]]; then
-  echo "→ bar LaunchAgent (com.klh-local.dashboard)"
+  echo "→ bar LaunchAgent (com.suspenders.klh-local-bar, fleet services manifest)"
   uid="$(id -u)"
-  out="$HOME/Library/LaunchAgents/com.klh-local.dashboard.plist"
-  # launchd has no login PATH — bake in the bun this shell resolves (Homebrew
-  # on either arch, or the default ~/.bun/bin install).
-  bun_bin="$(command -v bun)"
-  sed -e "s|__HOME__|$HOME|g" -e "s|__BUN__|$bun_bin|g" "$REPO_DIR/launchd/com.klh-local.dashboard.plist" >"$out"
+  # klh-local deploys to ~/.local/klh-local — the manifest entry runs that
+  # deployed copy. The pre-manifest label is booted out after the new agent
+  # renders (KeepAlive on both would fight over :7792 otherwise).
+  bun "$REPO_DIR/../suspenders/scripts/install-services.ts" --target darwin \
+    --service klh-local-bar --out "$HOME/Library/LaunchAgents" --home "$HOME"
+  out="$HOME/Library/LaunchAgents/com.suspenders.klh-local-bar.plist"
   plutil -lint "$out" >/dev/null
   launchctl bootout "gui/$uid/com.klh-local.dashboard" 2>/dev/null || true
+  if [ -f "$HOME/Library/LaunchAgents/com.klh-local.dashboard.plist" ]; then
+    rm "$HOME/Library/LaunchAgents/com.klh-local.dashboard.plist"
+    echo "→ superseded legacy agent com.klh-local.dashboard"
+  fi
   if ! launchctl bootstrap "gui/$uid" "$out"; then
     sleep 1
     launchctl bootstrap "gui/$uid" "$out"

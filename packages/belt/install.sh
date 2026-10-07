@@ -73,25 +73,33 @@ if $WITH_MODELS || $WITH_LAUNCHD; then
   bun "$REPO_DIR/setup/llm-stack.ts" ${args[@]+"${args[@]}"}
 fi
 
-# --with-launchd: the templated swarm + kev agents. bootout before bootstrap so
-# re-runs refresh cleanly. Darwin only.
+# --with-launchd: belt's launchd agents render from the FLEET services
+# manifest (packages/suspenders/deploy/services.yaml, W389) — the per-repo
+# plists are gone. belt-dashboard (:7791) + kev (:8912) ride it; the swarm
+# supervisor is com.suspenders.local-llm in the same manifest (never double-
+# owned here). The pre-manifest labels are booted out AFTER the new agents
+# load (set -e aborts before supersession if a load fails — the old label
+# keeps serving). Darwin only.
 if $WITH_LAUNCHD; then
   if [[ "$(uname)" != "Darwin" ]]; then
     echo "→ --with-launchd skipped (not macOS)"
   else
     bUid="$(id -u)"
     mkdir -p "$HOME/.claude-insights"
-    for f in "$REPO_DIR"/launchd/*.plist; do
-      name="$(basename "$f")"
-      out="$HOME/Library/LaunchAgents/$name"
-      sed -e "s|__HOME__|$HOME|g" "$f" >"$out"
-      launchctl bootout "gui/$bUid/${name%.plist}" 2>/dev/null || true
-      launchctl bootstrap "gui/$bUid" "$out"
-      echo "→ loaded $name"
+    renderer="$REPO_DIR/../suspenders/scripts/install-services.ts"
+    for svc in belt-dashboard kev; do
+      label="com.suspenders.$svc"
+      bun "$renderer" --target darwin --service "$svc" \
+        --out "$HOME/Library/LaunchAgents" --home "$HOME"
+      plutil -lint "$HOME/Library/LaunchAgents/$label.plist" >/dev/null
+      launchctl bootout "gui/$bUid/$label" 2>/dev/null || true
+      launchctl bootstrap "gui/$bUid" "$HOME/Library/LaunchAgents/$label.plist"
+      echo "→ loaded $label (fleet services manifest)"
     done
-    # supersede the pre-belt agent labels so old and new never run side by side
-    # (same jobs on stale script paths, double swarm starts)
-    for legacy in com.klh.local-llm com.klh.kev; do
+    # supersede the pre-manifest belt labels + the pre-belt agent labels so
+    # old and new never run side by side (stale paths, double :7791/:8912
+    # KeepAlive fights)
+    for legacy in com.belt.dashboard com.belt.swarm com.belt.kev com.klh.local-llm com.klh.kev; do
       launchctl bootout "gui/$bUid/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"
@@ -121,7 +129,7 @@ fi
 echo
 echo "done. next:"
 echo "  bun $PREFIX/coordinator.ts status   # every port: up/down, model, RAM"
-echo "  bun $PREFIX/dashboard.ts            # fleet dashboard on :7791 (belt.local:7791 on the LAN; launchd: com.belt.dashboard)"
+echo "  bun $PREFIX/dashboard.ts            # fleet dashboard on :7791 (belt.local:7791 on the LAN; launchd: com.suspenders.belt-dashboard)"
 echo "  bun $PREFIX/swarm.ts start          # start the fleet (or let launchd keep it alive)"
 echo "  bun $PREFIX/set-cloud.ts off        # pin the router local-only"
 echo "docs: docs/routing.md (routing) · docs/add-a-model.md (add a model) · bench/RESULTS.md"

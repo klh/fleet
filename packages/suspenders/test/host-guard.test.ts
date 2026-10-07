@@ -11,6 +11,7 @@ import {
 	hostnameOf,
 	withWriteCookie,
 } from "../hooks/lib/host-guard.ts";
+import { loadManifest } from "../scripts/install-services.ts";
 
 const TOKEN = "a".repeat(64);
 const env = { HOME: "/nonexistent" } as NodeJS.ProcessEnv;
@@ -168,11 +169,12 @@ describe("write token file", () => {
 describe("loopback default binding", () => {
 	const root = join(import.meta.dir, "..", "hooks");
 	const read = (p: string) => readFileSync(join(root, p), "utf8");
-	test("board plist sets no wildcard bind and no /tmp log", () => {
-		const plist = read("launchd/com.suspenders.board.plist");
-		expect(plist).not.toContain("SUSPENDERS_BIND");
-		expect(plist).not.toContain("0.0.0.0");
-		expect(plist).not.toContain("/tmp/");
+	test("board manifest entry sets no wildcard bind and no /tmp log", () => {
+		const board = loadManifest().find((s) => s.name === "board");
+		expect(board).toBeDefined();
+		expect(board?.env.SUSPENDERS_BIND).toBeUndefined();
+		expect(JSON.stringify(board?.env)).not.toContain("0.0.0.0");
+		expect(board?.logs.out.startsWith("/tmp/")).toBe(false);
 	});
 	test("board + knowledge-api default to 127.0.0.1", () => {
 		expect(read("board/context.ts")).toContain(

@@ -1,12 +1,10 @@
-# deploy/services.yaml — the ONE declarative manifest for every custom bun
-# runner in the fleet (W488.1). scripts/install-services.ts renders each entry
-# into a platform service unit:
-#   darwin → launchd plist com.suspenders.<name>.plist (W488.1)
-#   linux  → systemd USER units suspenders-<name>.service (+ .timer) (W488.2)
-#   win32  → WinSW v5 XML suspenders-<name>.xml (W488.3)
-# The hand-written templates in hooks/launchd/ stay in place (with a parity
-# test asserting field-equivalence) until the cutover child (W490.2) flips
-# install.sh to render from THIS manifest.
+# deploy/services.yaml — the ONE declarative manifest for every custom
+# runner in the fleet (W488.1; every-runner since W389 folded the belt/local
+# per-repo plists in). scripts/install-services.ts renders each entry into a
+# platform service unit:
+#   darwin → launchd plist com.suspenders.<name>.plist
+#   linux  → systemd USER units suspenders-<name>.service (+ .timer)
+#   win32  → WinSW v5 XML suspenders-<name>.xml
 #
 # Field guide:
 #   name         service short name — unit label is <labelPrefix>.<name>
@@ -244,3 +242,60 @@ services:
     schedule: { keepalive: true, throttleSeconds: 10 }
     logs: { out: "__HOME__/.claude-insights/consult-relay.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # ─── per-repo adoptees (W389): the belt/local launchd plists, folded into
+  # the ONE manifest. bunEntry = a deployed runtime copy (belt's prefix is
+  # ~/.claude/local-llm; klh-local deploys to ~/.local/klh-local), not the
+  # harness prefix. DELIVERED NOT INSTALLED: the live labels are still the
+  # per-repo ones (com.belt.dashboard, com.klh-local.dashboard, com.belt.kev)
+  # until the fleet installer runs with this manifest — belt/install.sh and
+  # local/install.sh supersede those labels on their next --with-launchd /
+  # install run.
+  # belt fleet dashboard (:7791) — belt.local on the LAN via caddy
+  - name: belt-dashboard
+    bunEntry: "__HOME__/.claude/local-llm/dashboard.ts"
+    env:
+      HOME: "__HOME__"
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/belt-dashboard.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
+  # klh-local bar (:7792) — bar.local on the LAN via caddy
+  - name: klh-local-bar
+    bunEntry: "__HOME__/.local/klh-local/bin/dashboard.ts"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.local/state/klh-local/dashboard.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
+  # kev — Kev-4B typed-question classifier on :8912 (System One protocol,
+  # registry EXTERNAL row, 8GB resident). First `program` service: the uv/
+  # python runner is argv0 verbatim — no bun prepend; __UV__ carries the uv
+  # binary (Bun.which at render time, like __BUN__).
+  - name: kev
+    program: "__UV__"
+    args:
+      - "run"
+      - "--python"
+      - "3.13"
+      - "--extra"
+      - "serve"
+      - "--directory"
+      - "__HOME__/dev/kev"
+      - "python"
+      - "-m"
+      - "kev.serve"
+      - "--run"
+      - "jaredpalmer/kev-4b"
+      - "--port"
+      - "8912"
+    env:
+      KEV_DTYPE: "bf16"
+      HOME: "__HOME__"
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/kev.log" }
+    placeholders: ["__HOME__", "__UV__"]
