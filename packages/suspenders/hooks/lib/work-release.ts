@@ -17,10 +17,12 @@ export function releaseWorkClaim(
 		by: string;
 		reason: "owner-release" | "operator-reclaim" | "reclaim-all";
 	},
+	guard?: () => boolean,
 ): boolean {
 	if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(expected.state))
 		return false;
 	return store.transaction(() => {
+		if (guard && !guard()) return false;
 		const now = Math.max(Date.now(), expected.updatedAt + 1);
 		const changed = store
 			.query(

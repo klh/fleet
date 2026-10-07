@@ -30,7 +30,9 @@ import {
 } from "../scripts/dispatch-next.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
-const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")));
+const REPO = realpathSync(
+	mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")),
+);
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 // W463: pin the buckle front to a dead port for the legacy cases — probe
 // misses = belt-direct note path (pre-W463 behavior), deterministic even on
@@ -955,9 +957,7 @@ test("stale prelease snapshot rereads published live lane after winner releases 
 		expect(winner.out).toContain("dispatched ");
 		writeFileSync(unblock, "release");
 		const loser = await stale;
-		expect(loser.out).toContain(
-			"durable registry already holds a live or unknown lane",
-		);
+		expect(loser.out).toContain("durable launch intent alive or uncertain");
 		expect(readFileSync(pidFile, "utf8").trim().split("\n")).toHaveLength(1);
 		expect(
 			JSON.parse((await toolA({}, "work.ts", "show", id, "--json")).out).state,
@@ -1162,3 +1162,131 @@ test("malformed recovery feed is a visible refusal before dispatch or claims", (
 	);
 	expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
 });
+
+test("explicit fresh item respects uncertain occupied target capacity", async () => {
+	const item = await addItem("capacity guarded explicit fixture");
+	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+	const { launchSchema } = await import("../scripts/lib/launch-fencing.ts");
+	launchSchema(db as unknown as import("../hooks/lib/govdb.ts").GovernorStore);
+	const project = projectIdentity(REPO);
+	db.query(
+		"INSERT INTO lane_launch_intents VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+	).run(
+		project,
+		"WHELD",
+		"held-lane",
+		"held-nonce",
+		1,
+		testExecutor,
+		hostname(),
+		0,
+		"PREPARING",
+		null,
+		null,
+	);
+	try {
+		const result = await dispatchA(
+			{},
+			"--item",
+			item,
+			"--target",
+			"1",
+			"--no-belt",
+		);
+		expect(result.code).not.toBe(0);
+		expect(result.out).toContain(
+			"target capacity occupied by live or uncertain launches",
+		);
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", item, "--json")).out)
+				.state,
+		).toBe("READY");
+		expect(existsSync(join(REPO, ".worktrees", item))).toBe(false);
+	} finally {
+		db.query(
+			"DELETE FROM lane_launch_intents WHERE project=? AND item='WHELD'",
+		).run(project);
+		db.close();
+	}
+});
+test("poisoned preparation consumes durable item budget before any fork", async () => {
+	const item = await addItem("poison preparation fixture");
+	const blocked = join(REPO, ".worktrees", item);
+	mkdirSync(join(REPO, ".worktrees"), { recursive: true });
+	writeFileSync(blocked, "not a directory");
+	try {
+		const settings = { SUSPENDERS_LANE_MAX_ATTEMPTS: "1" };
+		const first = await dispatchA(settings, "--item", item, "--no-belt");
+		expect(first.code).not.toBe(0);
+		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+		expect(
+			db
+				.query(
+					"SELECT reservations FROM lane_launch_budgets WHERE project=? AND item=?",
+				)
+				.get(projectIdentity(REPO), item),
+		).toEqual({ reservations: 1 });
+		expect(
+			db
+				.query(
+					"SELECT state FROM lane_launch_intents WHERE project=? AND item=?",
+				)
+				.get(projectIdentity(REPO), item),
+		).toEqual({ state: "FAILED" });
+		db.close();
+		const second = await dispatchA(settings, "--item", item, "--no-belt");
+		expect(second.code).not.toBe(0);
+		expect(second.out).toContain("launch budget exhausted");
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", item, "--json")).out)
+				.state,
+		).toBe("READY");
+	} finally {
+		rmSync(blocked, { force: true });
+	}
+});
+
+test("fast legitimate work start survives dispatcher registry publication", async () => {
+	const item = await addItem("fast lifecycle start fixture"),
+		sid = laneSid(item, projectIdentity(REPO));
+	const exe = join(HOME, "fast-start-executor.ts"),
+		stop = join(HOME, "stop-fast-start");
+	writeFileSync(
+		exe,
+		`#!${process.execPath}\nimport {existsSync} from "node:fs";const start=Bun.spawnSync([process.execPath,${JSON.stringify(join(BIN, "work.ts"))},"start",${JSON.stringify(item)},"--as",process.env.SUSPENDERS_SID],{cwd:process.cwd(),env:process.env,stdout:"ignore",stderr:"ignore"});if(start.exitCode!==0)process.exit(7);const until=Date.now()+10000;setInterval(()=>{if(existsSync(${JSON.stringify(stop)})||Date.now()>until)process.exit(0)},20);`,
+	);
+	chmodSync(exe, 0o700);
+	let pid: number | undefined;
+	try {
+		const result = await dispatchA(
+			{ SUSPENDERS_CLAUDE_BIN: exe },
+			"--item",
+			item,
+			"--no-belt",
+		);
+		expect(result.code).toBe(0);
+		expect(result.out).toContain("dispatched ");
+		expect(
+			JSON.parse((await toolA({}, "work.ts", "show", item, "--json")).out)
+				.state,
+		).toBe("RUNNING");
+		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+		pid = (
+			db
+				.query("SELECT pid FROM lane_launch_intents WHERE project=? AND item=?")
+				.get(projectIdentity(REPO), item) as { pid: number }
+		).pid;
+		db.close();
+		const registry = JSON.parse(
+			readFileSync(join(REPO, ".fleet/lanes.json"), "utf8"),
+		) as { sid: string; pid: number }[];
+		expect(registry.find((row) => row.sid === sid)?.pid).toBe(pid);
+	} finally {
+		writeFileSync(stop, "stop");
+		if (pid) {
+			const { processBirth } = await import("../scripts/lib/launch-fencing.ts");
+			for (let i = 0; i < 100 && processBirth(pid) !== false; i++)
+				await Bun.sleep(20);
+		}
+	}
+}, 15000);

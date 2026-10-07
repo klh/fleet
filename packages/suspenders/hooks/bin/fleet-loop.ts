@@ -58,6 +58,30 @@ import {
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
+import {
+	acquireLaunchLease,
+	releaseLaunchLease,
+	resolveLaneExecutor,
+	releaseFailedLaunch,
+} from "../../scripts/lib/launch-preflight.ts";
+import {
+	launchIntent,
+	inspectLaunchIntent,
+	nextReservedAttempt,
+	reserveLaunchIntent,
+	fencedExecutor,
+	awaitLaunchRegistration,
+	assertLaunchClaim,
+	terminateOwnLaunch,
+	finishFailedLaunch,
+	type LaunchIntent,
+} from "../../scripts/lib/launch-fencing.ts";
+import { laneAttemptLimit } from "../../scripts/lib/lane-retry-budget.ts";
+import {
+	canonicalWorkClaim,
+	canonicalWorkReclaim,
+} from "../../scripts/lib/work-inspection.ts";
+import { isResumableClaim } from "../../scripts/lib/resumable-claim.ts";
 import { guardedMerge } from "../lib/merge-guard.ts";
 
 const argv = process.argv.slice(2);
@@ -592,28 +616,17 @@ function stallWatch(): void {
 	const project = projectIdentity(REPO);
 	const seen = new Set<string>();
 	for (const l of lanes()) {
-		const item = sh([
-			process.execPath,
-			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-			"show",
+		const claim = canonicalWorkClaim(
+			REPO,
 			l.item,
-			"--project",
 			project,
-			"--json",
-		]);
-		let claim: {
-			project?: string;
-			id?: string;
-			state?: string;
-			owner_sid?: string;
-			updated_at?: number;
-		};
-		try {
-			claim = JSON.parse(item);
-		} catch {
+			`${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin/work.ts`,
+		);
+		if (!claim) {
 			delete dead[JSON.stringify([project, l.item])];
 			continue;
 		}
+
 		if (
 			claim.project !== project ||
 			claim.id !== l.item ||
@@ -647,37 +660,24 @@ function stallWatch(): void {
 							l.host === hostname() &&
 							laneProcessIdentity(l) === false &&
 							!transcriptAlive(l.sid),
-						() => {
-							const r = Bun.spawnSync(
-								[
-									process.execPath,
-									`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-									"reclaim",
-									l.item,
-									"--project",
-									project,
-									"--expect-owner",
-									l.sid,
-									"--expect-updated-at",
-									String(claim.updated_at),
-									"--json",
-								],
-								{ cwd: REPO, stdout: "pipe", stderr: "pipe" },
-							);
-							return { code: r.exitCode ?? 1, out: r.stdout.toString() };
-						},
 						() =>
-							JSON.parse(
-								sh([
-									process.execPath,
-									`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-									"show",
-									l.item,
-									"--project",
+							canonicalWorkReclaim(
+								REPO,
+								{
 									project,
-									"--json",
-								]),
+									id: l.item,
+									owner: l.sid,
+									revision: claim.updated_at,
+								},
+								`${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin/work.ts`,
 							),
+						() =>
+							canonicalWorkClaim(
+								REPO,
+								l.item,
+								project,
+								`${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin/work.ts`,
+							) ?? {},
 					);
 				} catch {
 					/* authoritative failure holds ownership; no local fallback */
@@ -881,287 +881,358 @@ if (MODE === "dispatch") {
 			out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 		};
 	};
-	const take = runTool([
-		`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-		"take",
-		item,
-		"--as",
-		sid,
-		"--origin",
-		`${hostname()}:${AGENT}`,
-	]);
-	if (take.code !== 0) {
-		const mine = runTool([
+	const bin = resolveLaneExecutor(AGENT);
+	if (!bin) {
+		console.error(
+			`${AGENT} binary not found or configured executor unavailable`,
+		);
+		process.exit(1);
+	}
+	const store = openStore(),
+		project = projectIdentity(REPO),
+		nonce = crypto.randomUUID();
+	let revision: number | undefined,
+		intent: LaunchIntent | undefined,
+		proc: Bun.Subprocess | undefined,
+		accepted = false;
+	if (!acquireLaunchLease(store, project, sid, nonce)) {
+		console.error("another dispatcher owns launch lease");
+		process.exit(1);
+	}
+	try {
+		const prior = launchIntent(store, project, item);
+		if (prior && inspectLaunchIntent(prior) !== "dead")
+			throw new Error("durable launch intent alive or uncertain");
+		const published = lanes().find((l) => l.sid === sid);
+		if (published && laneProcessIdentity(published) !== false)
+			throw new Error("published lane identity alive or uncertain");
+		const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
+		const attempt = nextReservedAttempt(store, project, item, 0, sid);
+		if (attempt >= limit)
+			throw new Error("item launch budget exhausted; operator review required");
+		const take = runTool([
+			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+			"take",
+			item,
+			"--as",
+			sid,
+			"--origin",
+			`${hostname()}:${AGENT}`,
+		]);
+		if (take.code !== 0) {
+			const mine = runTool([
+				`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+				"show",
+				item,
+				"--json",
+			]);
+			if (mine.code !== 0 || !isResumableClaim(mine.out, item, sid)) {
+				console.error(`work take failed and not ours: ${take.out}`);
+				throw new Error("direct launch preparation failed");
+			} // claimed by us from a previous dispatch attempt — resume
+		}
+		const claim = store
+			.query(
+				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
+			)
+			.get(project, item, sid) as { updated_at: number } | null;
+		if (!claim) throw new Error("claim changed during direct launch");
+		revision = claim.updated_at;
+		intent = reserveLaunchIntent(
+			store,
+			{ project, item, sid, nonce, revision, executor: bin },
+			limit,
+			attempt - 1,
+		);
+
+		// reuse path: an existing worktree (dead lane's leftover) is used as-is —
+		// only a missing one is created. Codex workspaces are NOT git worktrees:
+		// a plain dir whose .git file points at the private store (see below).
+		if (!existsSync(wt)) {
+			if (AGENT === "codex") {
+				mkdirSync(wt, { recursive: true });
+				// build dirs symlinked from the repo root — parity with worktree.ts
+				// create, so codex lanes skip reinstalls too
+				symlinkBuildDirs(REPO, wt);
+			} else {
+				const wtree = runTool([
+					`${process.env.HOME}/.claude/hooks/suspenders/bin/worktree.ts`,
+					"create",
+					item,
+				]);
+				if (wtree.code !== 0) {
+					console.error(`worktree create failed: ${wtree.out}`);
+					throw new Error("direct launch preparation failed");
+				}
+			}
+		}
+		const branch =
+			Bun.spawnSync(["git", "-C", wt, "branch", "--show-current"], {
+				cwd: REPO,
+				stdout: "pipe",
+			})
+				.stdout?.toString()
+				.trim() || `suspenders/${item}`;
+		const show = runTool([
 			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
 			"show",
 			item,
 		]);
-		if (!mine.out.includes(sid)) {
-			console.error(`work take failed and not ours: ${take.out}`);
-			process.exit(1);
-		} // claimed by us from a previous dispatch attempt — resume
-	}
-	// reuse path: an existing worktree (dead lane's leftover) is used as-is —
-	// only a missing one is created. Codex workspaces are NOT git worktrees:
-	// a plain dir whose .git file points at the private store (see below).
-	if (!existsSync(wt)) {
+		// mechanical, not advisory: a one-shot lane only gets one mission read
+		// before it starts acting, so anything pending (fleet broadcast, a
+		// consult addressed to it before it even existed) must already be in
+		// the brief text — the DB query is sub-ms, no reason to gate it behind
+		// the lane remembering to run `coord inbox` itself.
+		const inboxAtDispatch = runTool([
+			`${process.env.HOME}/.claude/hooks/suspenders/bin/coord.ts`,
+			"inbox",
+			"--as",
+			sid,
+		]).out;
+		// W304.1 — deterministic condense (W270 prose-only ruleset) on the free-text
+		// portions of the brief; code fences/paths/flags are protected verbatim by
+		// condensePrompt itself, so mission/inbox prose shrinks without losing the
+		// technical surface the lane actually has to act on.
+		const brief = [
+			`You are lane "${sid}", Work Graph item ${item}, repo ${REPO}.`,
+			``,
+			`MISSION (from work show):`,
+			condensePrompt(show.out),
+			``,
+			`INBOX AT DISPATCH (coordinator/board messages pending for you — already pulled, no need to re-fetch):`,
+			inboxAtDispatch ? condensePrompt(inboxAtDispatch) : "(empty)",
+			``,
+			`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
+			`Inbox: check again before finishing — coordinator and board messages still arrive after dispatch: bun ~/.claude/hooks/suspenders/bin/coord.ts inbox --as ${sid}.`,
+			`Work in the EXISTING worktree ${wt} (branch ${branch}).`,
+			`Finish: bun ~/.claude/hooks/suspenders/bin/work.ts done ${item} --sha <branch-head>.`,
+			`Final line: DONE <sha> | SPLIT ${item} | BLOCKED (after 3 honest attempts, tree restored).`,
+		].join("\n");
+		mkdirSync(`${REPO}/.fleet`, { recursive: true });
+		const briefFile = `${REPO}/.fleet/brief-${sid}.md`;
+		writeFileSync(briefFile, brief);
+		// W432 (mirrors dispatch-next W.F1): sandboxed lanes read NOTHING outside
+		// their worktree (lesson.brief-sandbox-access), so the readable copy lands
+		// in the worktree and the prompt points there; the .fleet copy stays
+		// canonical for the coordinator/board.
+		writeFileSync(`${wt}/.klh-brief.md`, brief);
+		const env = { ...process.env };
+		delete env.ANTHROPIC_BASE_URL;
+		delete env.ANTHROPIC_AUTH_TOKEN;
+		// model overrides must not ride the coordinator's env into lanes — a
+		// dispatch from a GLM-routed shell hung W57 at model init
+		// (claude-code:unrecognized_model, 2026-09-28)
+		delete env.ANTHROPIC_MODEL;
+		delete env.ANTHROPIC_SMALL_FAST_MODEL;
+		// the DEFAULT_*_MODEL trio joined the scrub 2026-09-29: a board launched
+		// from a GLM-routed shell passed them into lanes, which failed model init
+		delete env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+		delete env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+		delete env.ANTHROPIC_DEFAULT_SONNET_MODEL;
 		if (AGENT === "codex") {
-			mkdirSync(wt, { recursive: true });
-			// build dirs symlinked from the repo root — parity with worktree.ts
-			// create, so codex lanes skip reinstalls too
-			symlinkBuildDirs(REPO, wt);
-		} else {
-			const wtree = runTool([
-				`${process.env.HOME}/.claude/hooks/suspenders/bin/worktree.ts`,
-				"create",
-				item,
-			]);
-			if (wtree.code !== 0) {
-				console.error(`worktree create failed: ${wtree.out}`);
-				process.exit(1);
+			env.GIT_DIR = `${wt}/.gitstore`;
+			env.GIT_WORK_TREE = wt;
+			// W73: the fleet sid rides the lane env — hooks inherit it, making
+			// SUSPENDERS_SID the primary identity channel for the codex adapter
+			// (ppid-walk into lanes.json stays the fallback, lib/fleetlane.ts).
+			env.SUSPENDERS_SID = sid;
+		} else if (AGENT === "copilot" || AGENT === "grok" || AGENT === "cline") {
+			// W296: same identity-channel parity as codex above, minus the
+			// seatbelt-driven private git store workaround — these dialects use
+			// normal worktrees, so only the sid needs to ride the lane env.
+			env.SUSPENDERS_SID = sid;
+		}
+		// W432: same rule as dispatch-next — the lane prompt points at the
+		// READABLE worktree copy, not the canonical .fleet path lanes can't read.
+		const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
+		// the agent binary resolves at dispatch time — a bare name ENOENTs under
+		// launchd, where PATH is minimal
+		// W73/W296 gate wiring: idempotent merge-not-clobber into each CLI's own
+		// hook config, right before the lane starts, after the binary check (a
+		// missing binary must fail dispatch with its own error, not a wiring
+		// one). A failed wire aborts — never a silent gate-less lane (W68
+		// degradation rule). Every dialect's wire.ts targets a GLOBAL config
+		// file (not per-worktree), so this is safe to re-run on every dispatch.
+		const WIRE_BY_AGENT: Record<string, string> = {
+			codex: "codex",
+			copilot: "copilot",
+			grok: "grok",
+			cline: "cline",
+		};
+		const wireDialect = WIRE_BY_AGENT[AGENT];
+		if (wireDialect) {
+			const wire = Bun.spawnSync(
+				[
+					process.execPath,
+					`${import.meta.dir}/../dialects/${wireDialect}/wire.ts`,
+				],
+				{
+					cwd: REPO,
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			if (wire.exitCode !== 0) {
+				console.error(
+					`${wireDialect} gate wiring failed: ${new TextDecoder().decode(wire.stderr ?? new Uint8Array()).trim()}`,
+				);
+				throw new Error("direct launch preparation failed");
 			}
 		}
-	}
-	const branch =
-		Bun.spawnSync(["git", "-C", wt, "branch", "--show-current"], {
-			cwd: REPO,
-			stdout: "pipe",
-		})
-			.stdout?.toString()
-			.trim() || `suspenders/${item}`;
-	const show = runTool([
-		`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-		"show",
-		item,
-	]);
-	// mechanical, not advisory: a one-shot lane only gets one mission read
-	// before it starts acting, so anything pending (fleet broadcast, a
-	// consult addressed to it before it even existed) must already be in
-	// the brief text — the DB query is sub-ms, no reason to gate it behind
-	// the lane remembering to run `coord inbox` itself.
-	const inboxAtDispatch = runTool([
-		`${process.env.HOME}/.claude/hooks/suspenders/bin/coord.ts`,
-		"inbox",
-		"--as",
-		sid,
-	]).out;
-	// W304.1 — deterministic condense (W270 prose-only ruleset) on the free-text
-	// portions of the brief; code fences/paths/flags are protected verbatim by
-	// condensePrompt itself, so mission/inbox prose shrinks without losing the
-	// technical surface the lane actually has to act on.
-	const brief = [
-		`You are lane "${sid}", Work Graph item ${item}, repo ${REPO}.`,
-		``,
-		`MISSION (from work show):`,
-		condensePrompt(show.out),
-		``,
-		`INBOX AT DISPATCH (coordinator/board messages pending for you — already pulled, no need to re-fetch):`,
-		inboxAtDispatch ? condensePrompt(inboxAtDispatch) : "(empty)",
-		``,
-		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
-		`Inbox: check again before finishing — coordinator and board messages still arrive after dispatch: bun ~/.claude/hooks/suspenders/bin/coord.ts inbox --as ${sid}.`,
-		`Work in the EXISTING worktree ${wt} (branch ${branch}).`,
-		`Finish: bun ~/.claude/hooks/suspenders/bin/work.ts done ${item} --sha <branch-head>.`,
-		`Final line: DONE <sha> | SPLIT ${item} | BLOCKED (after 3 honest attempts, tree restored).`,
-	].join("\n");
-	mkdirSync(`${REPO}/.fleet`, { recursive: true });
-	const briefFile = `${REPO}/.fleet/brief-${sid}.md`;
-	writeFileSync(briefFile, brief);
-	// W432 (mirrors dispatch-next W.F1): sandboxed lanes read NOTHING outside
-	// their worktree (lesson.brief-sandbox-access), so the readable copy lands
-	// in the worktree and the prompt points there; the .fleet copy stays
-	// canonical for the coordinator/board.
-	writeFileSync(`${wt}/.klh-brief.md`, brief);
-	const env = { ...process.env };
-	delete env.ANTHROPIC_BASE_URL;
-	delete env.ANTHROPIC_AUTH_TOKEN;
-	// model overrides must not ride the coordinator's env into lanes — a
-	// dispatch from a GLM-routed shell hung W57 at model init
-	// (claude-code:unrecognized_model, 2026-09-28)
-	delete env.ANTHROPIC_MODEL;
-	delete env.ANTHROPIC_SMALL_FAST_MODEL;
-	// the DEFAULT_*_MODEL trio joined the scrub 2026-09-29: a board launched
-	// from a GLM-routed shell passed them into lanes, which failed model init
-	delete env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
-	delete env.ANTHROPIC_DEFAULT_OPUS_MODEL;
-	delete env.ANTHROPIC_DEFAULT_SONNET_MODEL;
-	if (AGENT === "codex") {
-		env.GIT_DIR = `${wt}/.gitstore`;
-		env.GIT_WORK_TREE = wt;
-		// W73: the fleet sid rides the lane env — hooks inherit it, making
-		// SUSPENDERS_SID the primary identity channel for the codex adapter
-		// (ppid-walk into lanes.json stays the fallback, lib/fleetlane.ts).
-		env.SUSPENDERS_SID = sid;
-	} else if (AGENT === "copilot" || AGENT === "grok" || AGENT === "cline") {
-		// W296: same identity-channel parity as codex above, minus the
-		// seatbelt-driven private git store workaround — these dialects use
-		// normal worktrees, so only the sid needs to ride the lane env.
-		env.SUSPENDERS_SID = sid;
-	}
-	// W432: same rule as dispatch-next — the lane prompt points at the
-	// READABLE worktree copy, not the canonical .fleet path lanes can't read.
-	const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
-	// the agent binary resolves at dispatch time — a bare name ENOENTs under
-	// launchd, where PATH is minimal
-	const bin = Bun.which(AGENT);
-	if (!bin) {
-		console.error(`${AGENT} binary not found on PATH`);
-		process.exit(1);
-	}
-	// W73/W296 gate wiring: idempotent merge-not-clobber into each CLI's own
-	// hook config, right before the lane starts, after the binary check (a
-	// missing binary must fail dispatch with its own error, not a wiring
-	// one). A failed wire aborts — never a silent gate-less lane (W68
-	// degradation rule). Every dialect's wire.ts targets a GLOBAL config
-	// file (not per-worktree), so this is safe to re-run on every dispatch.
-	const WIRE_BY_AGENT: Record<string, string> = {
-		codex: "codex",
-		copilot: "copilot",
-		grok: "grok",
-		cline: "cline",
-	};
-	const wireDialect = WIRE_BY_AGENT[AGENT];
-	if (wireDialect) {
-		const wire = Bun.spawnSync(
+		// codex lanes: codex's seatbelt denies every write into any .git
+		// directory (name-based, verified empirically 2026-09-28), so the standard
+		// worktree layout (admin dir + objects under REPO/.git) can never commit.
+		// The lane gets a PRIVATE git store under a non-.git name inside its
+		// workspace, wired with GIT_DIR/GIT_WORK_TREE env: main-repo objects are
+		// shared read-only via alternates; the lane's own objects/refs land in
+		// the private store — the main object db stays seatbelt-protected.
+		if (AGENT === "codex") {
+			const store = `${wt}/.gitstore`;
+			if (!existsSync(`${store}/HEAD`)) {
+				Bun.spawnSync(["git", "init", "--quiet", "--bare", store]);
+				const g = (args: string[]): void => {
+					Bun.spawnSync(["git", "--git-dir", store, ...args], {
+						cwd: REPO,
+						stdout: "ignore",
+						stderr: "ignore",
+					});
+				};
+				g(["config", "core.bare", "false"]);
+				g(["config", "core.worktree", wt]);
+				writeFileSync(
+					`${store}/objects/info/alternates`,
+					`${REPO}/.git/objects\n`,
+				);
+				g([
+					"update-ref",
+					`refs/heads/suspenders/${item}`,
+					sh(["git", "-C", REPO, "rev-parse", MAIN]),
+				]);
+				g(["symbolic-ref", "HEAD", `refs/heads/suspenders/${item}`]);
+				g(["reset", "--hard", "--quiet"]);
+				g([
+					"remote",
+					"add",
+					"origin",
+					sh(["git", "-C", REPO, "remote", "get-url", "origin"]),
+				]);
+				// loud, never silent: verify the store landed on the lane's branch
+				// before spawning anyone (unborn main = lane can push origin main)
+				const head = Bun.spawnSync(
+					["git", "--git-dir", store, "symbolic-ref", "--short", "HEAD"],
+					{ stdout: "pipe" },
+				)
+					.stdout?.toString()
+					.trim();
+				if (head !== `suspenders/${item}`) {
+					console.error(
+						`codex store init failed: HEAD=${head || "unborn"} — inspect ${store}`,
+					);
+					throw new Error("direct launch preparation failed");
+				}
+			}
+			writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
+		}
+		const agentArgs =
+			AGENT === "codex"
+				? // full access — owner directive 2026-09-28: codex lanes are
+					// EQUIVALENT to claude lanes (same trust class, unsandboxed).
+					// The seatbelt structurally denies git writes, which forked the
+					// protocol into lane-commits vs coordinator-commits; one
+					// approach, two backends. The private git store stays: even
+					// unsandboxed, a codex lane's commits never touch the main
+					// object db until the coordinator merges.
+					["exec", "--sandbox", "danger-full-access", prompt]
+				: AGENT === "copilot"
+					? // W223.1 — copilot's own non-interactive flags (verified via
+						// `copilot --help`): -p/--prompt exits after one turn;
+						// --allow-all-tools is REQUIRED for non-interactive mode
+						// (copilot otherwise blocks on a confirmation prompt it can
+						// never receive headless); --allow-all-paths matches the
+						// other dialects' unsandboxed worktree access.
+						["-p", prompt, "--allow-all-tools", "--allow-all-paths"].concat(
+							// W183.1 — only forward when the owner actually chose
+							// a level; belt/llm: dispatch never reaches this branch
+							// (separate litellm-gateway stack, out of scope here).
+							EFFORT ? ["--reasoning-effort", EFFORT] : [],
+						)
+					: [
+							"-p",
+							prompt,
+							"--allowedTools",
+							"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write",
+							"--permission-mode",
+							"acceptEdits",
+						];
+		// Detached harness children survive dispatcher process-group teardown.
+		// unref only releases Bun's event-loop reference. exec keeps
+		// the registry PID, stdin EOF avoids input waits, and logs feed the board.
+		const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
+		const laneLog = `${REPO}/.fleet/lane-${sid}.log`;
+		const fenced = fencedExecutor(`${REPO}/.fleet`, intent);
+		proc = Bun.spawn(
 			[
-				process.execPath,
-				`${import.meta.dir}/../dialects/${wireDialect}/wire.ts`,
+				"/bin/sh",
+				"-c",
+				`exec ${sq(fenced)} ${agentArgs.map(sq).join(" ")} < /dev/null >> ${sq(laneLog)} 2>&1`,
 			],
 			{
-				cwd: REPO,
-				stdout: "pipe",
-				stderr: "pipe",
+				detached: true,
+				cwd: wt,
+				env,
+				stdout: "ignore",
+				stderr: "ignore",
+				stdin: "ignore",
 			},
 		);
-		if (wire.exitCode !== 0) {
-			console.error(
-				`${wireDialect} gate wiring failed: ${new TextDecoder().decode(wire.stderr ?? new Uint8Array()).trim()}`,
-			);
-			process.exit(1);
-		}
-	}
-	// codex lanes: codex's seatbelt denies every write into any .git
-	// directory (name-based, verified empirically 2026-09-28), so the standard
-	// worktree layout (admin dir + objects under REPO/.git) can never commit.
-	// The lane gets a PRIVATE git store under a non-.git name inside its
-	// workspace, wired with GIT_DIR/GIT_WORK_TREE env: main-repo objects are
-	// shared read-only via alternates; the lane's own objects/refs land in
-	// the private store — the main object db stays seatbelt-protected.
-	if (AGENT === "codex") {
-		const store = `${wt}/.gitstore`;
-		if (!existsSync(`${store}/HEAD`)) {
-			Bun.spawnSync(["git", "init", "--quiet", "--bare", store]);
-			const g = (args: string[]): void => {
-				Bun.spawnSync(["git", "--git-dir", store, ...args], {
-					cwd: REPO,
-					stdout: "ignore",
-					stderr: "ignore",
-				});
-			};
-			g(["config", "core.bare", "false"]);
-			g(["config", "core.worktree", wt]);
-			writeFileSync(
-				`${store}/objects/info/alternates`,
-				`${REPO}/.git/objects\n`,
-			);
-			g([
-				"update-ref",
-				`refs/heads/suspenders/${item}`,
-				sh(["git", "-C", REPO, "rev-parse", MAIN]),
-			]);
-			g(["symbolic-ref", "HEAD", `refs/heads/suspenders/${item}`]);
-			g(["reset", "--hard", "--quiet"]);
-			g([
-				"remote",
-				"add",
-				"origin",
-				sh(["git", "-C", REPO, "remote", "get-url", "origin"]),
-			]);
-			// loud, never silent: verify the store landed on the lane's branch
-			// before spawning anyone (unborn main = lane can push origin main)
-			const head = Bun.spawnSync(
-				["git", "--git-dir", store, "symbolic-ref", "--short", "HEAD"],
-				{ stdout: "pipe" },
-			)
-				.stdout?.toString()
-				.trim();
-			if (head !== `suspenders/${item}`) {
-				console.error(
-					`codex store init failed: HEAD=${head || "unborn"} — inspect ${store}`,
-				);
-				process.exit(1);
+		await awaitLaunchRegistration(store, `${REPO}/.fleet`, intent, proc);
+		const earlyExit = await Promise.race([
+			proc.exited,
+			Bun.sleep(1000).then(() => null),
+		]);
+		if (earlyExit !== null)
+			throw new Error(`executor exited during launch (code ${earlyExit})`);
+		proc.unref();
+		const entry = {
+			sid,
+			item,
+			pid: proc.pid,
+			branch,
+			worktree: wt,
+			agent: AGENT,
+			host: hostname(),
+			launchedAt: Date.now(),
+			attempt: intent.attempt,
+		};
+		const all = lanes().filter((l) => l.sid !== sid);
+		all.push(entry);
+		assertLaunchClaim(store, intent, true);
+		mergeLaneRegistry(REPO, all);
+		accepted = true;
+		log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})`);
+		console.log(`dispatched ${item} → ${sid} (pid ${proc.pid})`);
+	} catch (error) {
+		console.error(`REFUSED ${item} — ${String(error)}`);
+		process.exitCode = 1;
+	} finally {
+		if (!accepted) {
+			let stopped = true;
+			try {
+				if (proc) await terminateOwnLaunch(proc);
+			} catch {
+				stopped = false;
+				console.error("own child exit uncertain; claim preserved");
+			}
+			if (stopped) {
+				if (intent) finishFailedLaunch(store, intent);
+				if (revision !== undefined)
+					releaseFailedLaunch(store, { project, item, sid, revision, nonce });
 			}
 		}
-		writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
+		releaseLaunchLease(store, project, sid, nonce);
+		store.close();
 	}
-	const agentArgs =
-		AGENT === "codex"
-			? // full access — owner directive 2026-09-28: codex lanes are
-				// EQUIVALENT to claude lanes (same trust class, unsandboxed).
-				// The seatbelt structurally denies git writes, which forked the
-				// protocol into lane-commits vs coordinator-commits; one
-				// approach, two backends. The private git store stays: even
-				// unsandboxed, a codex lane's commits never touch the main
-				// object db until the coordinator merges.
-				["exec", "--sandbox", "danger-full-access", prompt]
-			: AGENT === "copilot"
-				? // W223.1 — copilot's own non-interactive flags (verified via
-					// `copilot --help`): -p/--prompt exits after one turn;
-					// --allow-all-tools is REQUIRED for non-interactive mode
-					// (copilot otherwise blocks on a confirmation prompt it can
-					// never receive headless); --allow-all-paths matches the
-					// other dialects' unsandboxed worktree access.
-					["-p", prompt, "--allow-all-tools", "--allow-all-paths"].concat(
-						// W183.1 — only forward when the owner actually chose
-						// a level; belt/llm: dispatch never reaches this branch
-						// (separate litellm-gateway stack, out of scope here).
-						EFFORT ? ["--reasoning-effort", EFFORT] : [],
-					)
-				: [
-						"-p",
-						prompt,
-						"--allowedTools",
-						"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write",
-						"--permission-mode",
-						"acceptEdits",
-					];
-	// Detached harness children survive dispatcher process-group teardown.
-	// unref only releases Bun's event-loop reference. exec keeps
-	// the registry PID, stdin EOF avoids input waits, and logs feed the board.
-	const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
-	const laneLog = `${REPO}/.fleet/lane-${sid}.log`;
-	const proc = Bun.spawn(
-		[
-			"/bin/sh",
-			"-c",
-			`exec ${sq(bin)} ${agentArgs.map(sq).join(" ")} < /dev/null >> ${sq(laneLog)} 2>&1`,
-		],
-		{
-			detached: true,
-			cwd: wt,
-			env,
-			stdout: "ignore",
-			stderr: "ignore",
-			stdin: "ignore",
-		},
-	);
-	proc.unref();
-	const entry = {
-		sid,
-		item,
-		pid: proc.pid,
-		branch,
-		worktree: wt,
-		agent: AGENT,
-		host: hostname(),
-		launchedAt: Date.now(),
-	};
-	const all = lanes().filter((l) => l.sid !== sid);
-	all.push(entry);
-	mergeLaneRegistry(REPO, all);
-	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})`);
-	console.log(`dispatched ${item} → ${sid} (pid ${proc.pid})`);
-	process.exit(0);
+	process.exit(process.exitCode ?? 0);
 }
 
 // ship: one branch through the ladder NOW — the board's one-click ship

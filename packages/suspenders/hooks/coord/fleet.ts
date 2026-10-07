@@ -766,6 +766,17 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		)
 			die("rekey refused: target already holds recovery budget records");
 	}
+	const launchTables = [
+		"lane_launch_intents",
+		"lane_launch_budgets",
+		"lane_launch_leases",
+	].filter(
+		(table) =>
+			!!db
+				.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+				.get(table),
+	);
+	for (const table of launchTables) counts[table] = countIn(table);
 	const hasCompletions = !!db
 		.query(
 			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_completion_records'",
@@ -796,6 +807,16 @@ export async function cmdProject(rest: string[]): Promise<void> {
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
+		for (const table of launchTables) {
+			const target = db
+				.query(`SELECT COUNT(*) AS n FROM ${table} WHERE project=?`)
+				.get(to) as { n: number };
+			if (target.n)
+				throw new Error(
+					`rekey refused: target already holds launch records in ${table}`,
+				);
+			db.run(`UPDATE ${table} SET project=? WHERE project=?`, to, from);
+		}
 		if (
 			hasRecovery &&
 			(

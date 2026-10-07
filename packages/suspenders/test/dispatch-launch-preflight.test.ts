@@ -68,6 +68,24 @@ test("missing executor never guesses an unbounded installation tree", () => {
 		resolveLaneExecutor("copilot", { HOME: home(), PATH: "/nonexistent" }),
 	).toBeNull();
 });
+test("codex configured executor uses the same authoritative bounded resolution", () => {
+	const h = home(),
+		p = executable(join(h, "codex"));
+	expect(
+		resolveLaneExecutor("codex", {
+			HOME: h,
+			PATH: "",
+			SUSPENDERS_CODEX_BIN: p,
+		}),
+	).toBe(p);
+	expect(
+		resolveLaneExecutor("codex", {
+			HOME: h,
+			PATH: "",
+			SUSPENDERS_CODEX_BIN: join(h, "missing"),
+		}),
+	).toBeNull();
+});
 function dbFixture() {
 	const db = new Database(":memory:");
 	db.run(
@@ -149,4 +167,61 @@ test("launch lease serializes dispatch and replaced nonce cannot release winner"
 		state: "CLAIMED",
 	});
 	db.close();
+});
+
+test("failed launch preserves unrelated and shared-scope claims under same owner", () => {
+	const db = dbFixture();
+	db.run(
+		"INSERT INTO work_items VALUES ('project','W2','RUNNING','lane','src',200)",
+	);
+	db.run(
+		"INSERT INTO claims VALUES ('lane','src','W1 mission'),('lane','src','W10 mission'),('lane','src','review unrelated')",
+	);
+	expect(
+		releaseFailedLaunch(db, {
+			project: "project",
+			item: "W1",
+			sid: "lane",
+			revision: 100,
+		}),
+	).toBe(true);
+	expect(
+		db
+			.query("SELECT intent FROM claims WHERE sid='lane' ORDER BY intent")
+			.all(),
+	).toEqual([
+		{ intent: "W10 mission" },
+		{ intent: "review unrelated" },
+		{ intent: "work-graph" },
+	]);
+	expect(db.query("SELECT state FROM work_items WHERE id='W2'").get()).toEqual({
+		state: "RUNNING",
+	});
+});
+test("same item id in another project prevents ambiguous claim deletion", () => {
+	const db = dbFixture();
+	db.run(
+		"INSERT INTO work_items VALUES ('other-project','W1','CLAIMED','lane','src',200)",
+	);
+	db.run("INSERT INTO claims VALUES ('lane','src','W1 other project mission')");
+	expect(
+		releaseFailedLaunch(db, {
+			project: "project",
+			item: "W1",
+			sid: "lane",
+			revision: 100,
+		}),
+	).toBe(true);
+	expect(
+		db
+			.query("SELECT intent FROM claims WHERE sid='lane' ORDER BY intent")
+			.all(),
+	).toEqual([{ intent: "W1 other project mission" }, { intent: "work-graph" }]);
+	expect(
+		db
+			.query(
+				"SELECT state,owner_sid FROM work_items WHERE project='other-project'",
+			)
+			.get(),
+	).toEqual({ state: "CLAIMED", owner_sid: "lane" });
 });

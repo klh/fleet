@@ -1,5 +1,6 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { releaseWorkClaim } from "../../hooks/lib/work-release.ts";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
 
 /** Daemon PATHs differ from interactive shells. Explicit operator paths are
@@ -8,7 +9,7 @@ export function resolveLaneExecutor(
 	name: string,
 	env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-	if (name !== "claude" && name !== "copilot") return null;
+	if (!["claude", "copilot", "codex"].includes(name)) return null;
 	const configured = env[`SUSPENDERS_${name.toUpperCase()}_BIN`];
 	const candidates = configured
 		? [configured]
@@ -44,44 +45,29 @@ export function releaseFailedLaunch(
 		nonce?: string;
 	},
 ): boolean {
-	return store.transaction(() => {
-		if (
-			claim.nonce &&
-			!ownsLaunchLease(store, claim.project, claim.sid, claim.nonce)
+	const item = store
+		.query(
+			"SELECT state FROM work_items WHERE project=? AND id=? AND owner_sid=? AND updated_at=? AND state IN ('CLAIMED','RUNNING')",
 		)
-			return false;
-		const item = store
-			.query(
-				"SELECT scope FROM work_items WHERE project=? AND id=? AND owner_sid=? AND updated_at=? AND state IN ('CLAIMED','RUNNING')",
-			)
-			.get(claim.project, claim.item, claim.sid, claim.revision) as {
-			scope: string | null;
-		} | null;
-		if (!item) return false;
-		const changed = store
-			.query(
-				"UPDATE work_items SET state='READY',owner_sid=NULL,updated_at=? WHERE project=? AND id=? AND owner_sid=? AND updated_at=? AND state IN ('CLAIMED','RUNNING')",
-			)
-			.run(Date.now(), claim.project, claim.item, claim.sid, claim.revision);
-		if (!changed.changes) return false;
-		store
-			.query("DELETE FROM claims WHERE sid=? AND (scope=? OR intent LIKE ?)")
-			.run(claim.sid, item.scope, `${claim.item} %`);
-		store
-			.query(
-				"INSERT INTO events (ts,source,kind,scope,payload,target) VALUES (?,'dispatch','work.released',?,?,NULL)",
-			)
-			.run(
-				Date.now(),
-				claim.item,
-				JSON.stringify({
+		.get(claim.project, claim.item, claim.sid, claim.revision) as {
+		state: string;
+	} | null;
+	return item
+		? releaseWorkClaim(
+				store,
+				{
 					project: claim.project,
-					by: claim.sid,
-					reason: "launch-failed",
-				}),
-			);
-		return true;
-	})();
+					id: claim.item,
+					owner: claim.sid,
+					state: item.state,
+					updatedAt: claim.revision,
+				},
+				{ by: claim.sid, reason: "owner-release" },
+				() =>
+					!claim.nonce ||
+					ownsLaunchLease(store, claim.project, claim.sid, claim.nonce),
+			)
+		: false;
 }
 
 const LEASE_MS = 10 * 60_000;

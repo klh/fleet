@@ -64,6 +64,20 @@ import {
 	renewLaunchLease,
 	releaseLaunchLease,
 } from "./lib/launch-preflight.ts";
+import {
+	heldLaunchItems,
+	nextReservedAttempt,
+	awaitLaunchRegistration,
+	readConfiguredLaunches,
+	assertLaunchClaim,
+	launchIntent,
+	inspectLaunchIntent,
+	reserveLaunchIntent,
+	fencedExecutor,
+	finishFailedLaunch,
+	terminateOwnLaunch,
+	type LaunchIntent,
+} from "./lib/launch-fencing.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
@@ -626,6 +640,18 @@ const dispatchItem = async (
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
 	const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
+	if (!DRY) {
+		const pending = readConfiguredLaunches((store) =>
+			launchIntent(store, projectIdentity(REPO), item),
+		);
+		if (pending && inspectLaunchIntent(pending) !== "dead") {
+			governanceRefusals.push(item);
+			console.log(
+				`REFUSED ${item} — durable launch intent alive or uncertain; nothing claimed or minted`,
+			);
+			return null;
+		}
+	}
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
 		console.log(`${DRY ? "DRY" : "STOP"} ${note}`);
@@ -702,9 +728,10 @@ const dispatchItem = async (
 		.get(attemptKey) as { value: string } | null;
 	if (prior && /^\d+$/.test(prior.value))
 		attempt = Math.max(attempt, Number(prior.value) + 1);
+	attempt = nextReservedAttempt(store, project, item, attempt);
 	if (attempt >= limit) {
 		governanceRefusals.push(item);
-		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before resetting its launch-attempt fact`;
+		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
 		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
 		run([
 			process.execPath,
@@ -718,6 +745,7 @@ const dispatchItem = async (
 			"--note",
 			note,
 		]);
+		store.close();
 		return null;
 	}
 	let pick = execPick(attempt);
@@ -727,6 +755,7 @@ const dispatchItem = async (
 		console.log(
 			`REFUSED ${item} — executor unavailable: ${pick.bin}; set SUSPENDERS_${pick.bin.toUpperCase()}_BIN or install in ~/.local/bin; nothing claimed or minted`,
 		);
+		store.close();
 		return null;
 	}
 	const nonce = crypto.randomUUID();
@@ -735,12 +764,14 @@ const dispatchItem = async (
 			`REFUSED ${item} — another dispatcher owns the launch lease; nothing claimed or minted`,
 		);
 		governanceRefusals.push(item);
+		store.close();
 		return null;
 	}
 	let claimRevision: number | undefined;
 	let committedLaunch = false;
 	let launchedProc: ReturnType<typeof spawnClaude> | undefined;
 	let ownedKeyId: string | undefined;
+	let intent: LaunchIntent | undefined;
 	const writtenFiles = new Map<string, string>();
 	try {
 		const published = loadLanes().find((l) => l.sid === sid);
@@ -751,11 +782,15 @@ const dispatchItem = async (
 			);
 			return null;
 		}
+		const pending = launchIntent(store, project, item);
+		if (pending && inspectLaunchIntent(pending) !== "dead")
+			throw new Error("durable launch intent alive or uncertain");
 		const latestAttempt = store
 			.query("SELECT value FROM facts WHERE key=?")
 			.get(attemptKey) as { value: string } | null;
 		if (latestAttempt && /^\d+$/.test(latestAttempt.value))
 			attempt = Math.max(attempt, Number(latestAttempt.value) + 1);
+		attempt = nextReservedAttempt(store, project, item, attempt);
 		if (attempt >= limit) {
 			governanceRefusals.push(item);
 			console.log(
@@ -805,6 +840,14 @@ const dispatchItem = async (
 			.get(project, item, sid) as { updated_at: number } | null;
 		if (!claimedRow) throw new Error("claim changed before launch preparation");
 		claimRevision = claimedRow.updated_at;
+		intent = reserveLaunchIntent(
+			store,
+			{ project, item, sid, nonce, revision: claimRevision, executor: bin },
+			limit,
+			attempt - 1,
+		);
+		attempt = intent.attempt;
+
 		if (!existsSync(wt)) {
 			const created = run([
 				process.execPath,
@@ -1038,7 +1081,7 @@ const dispatchItem = async (
 		if (!renewLaunchLease(store, project, sid, nonce))
 			throw new Error("launch lease replaced before spawn");
 		const proc = spawnClaude({
-			bin,
+			bin: fencedExecutor(FLEET, intent),
 			prompt,
 			cwd: wt,
 			logFile: laneLog,
@@ -1065,6 +1108,7 @@ const dispatchItem = async (
 							],
 		});
 		launchedProc = proc;
+		await awaitLaunchRegistration(store, FLEET, intent, proc);
 		store
 			.query(
 				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,?,1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,source=excluded.source,version=version+1,ts=excluded.ts",
@@ -1095,6 +1139,7 @@ const dispatchItem = async (
 		// Accept the launch only after its PID and ownership are durable.
 		if (!renewLaunchLease(store, project, sid, nonce))
 			throw new Error("launch lease replaced before registry persistence");
+		assertLaunchClaim(store, intent, true);
 		saveLanes([entry]);
 		lanes.push(entry);
 		committedLaunch = true;
@@ -1111,6 +1156,7 @@ const dispatchItem = async (
 	} finally {
 		if (!committedLaunch) {
 			let ownsFiles = false;
+			let childStopped = true;
 			try {
 				ownsFiles = renewLaunchLease(store, project, sid, nonce);
 			} catch (error) {
@@ -1118,15 +1164,24 @@ const dispatchItem = async (
 			}
 			if (launchedProc && launchedProc.exitCode === null) {
 				try {
-					launchedProc.kill();
-					await Promise.race([launchedProc.exited, Bun.sleep(1000)]);
+					await terminateOwnLaunch(launchedProc);
 				} catch (error) {
+					childStopped = false;
 					log(
 						`LAUNCH-CLEANUP ${item} — own child termination failed: ${String(error)}`,
 					);
 				}
 			}
-			if (claimRevision !== undefined) {
+			if (childStopped && intent) {
+				try {
+					finishFailedLaunch(store, intent);
+				} catch (error) {
+					log(
+						`LAUNCH-CLEANUP ${item} — intent update failed: ${String(error)}`,
+					);
+				}
+			}
+			if (childStopped && claimRevision !== undefined) {
 				try {
 					const released = releaseFailedLaunch(store, {
 						project,
@@ -1144,7 +1199,7 @@ const dispatchItem = async (
 					);
 				}
 			}
-			if (ownedKeyId) {
+			if (childStopped && ownedKeyId) {
 				try {
 					const admin = adminKey();
 					const revoked = admin
@@ -1159,7 +1214,9 @@ const dispatchItem = async (
 					);
 				}
 			}
-			for (const [path, expected] of ownsFiles ? writtenFiles : []) {
+			for (const [path, expected] of ownsFiles && childStopped
+				? writtenFiles
+				: []) {
 				try {
 					if (readFileSync(path, "utf8") === expected) rmSync(path);
 				} catch {
@@ -1172,6 +1229,7 @@ const dispatchItem = async (
 		} catch (error) {
 			log(`LAUNCH-CLEANUP ${item} — lease release failed: ${String(error)}`);
 		}
+		store.close();
 	}
 };
 
@@ -1194,6 +1252,11 @@ const main = async (): Promise<void> => {
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
 	const audit = laneAudit();
+	const held = DRY
+		? new Set<string>()
+		: readConfiguredLaunches((store) =>
+				heldLaunchItems(store, projectIdentity(REPO)),
+			);
 	// Old automatic claims can outlive their registry rows. Reconstruct the
 	// original sid instead of reclaiming it and losing capsule/retry identity.
 	let orphaned: Record<string, unknown>[];
@@ -1225,7 +1288,7 @@ const main = async (): Promise<void> => {
 		);
 		const slots = Math.max(
 			0,
-			TARGET - [...audit.values()].filter(Boolean).length,
+			TARGET - Math.max(held.size, [...audit.values()].filter(Boolean).length),
 		);
 		for (const row of candidates
 			.filter((r) => !ITEM || r.id === ITEM)
@@ -1256,6 +1319,9 @@ const main = async (): Promise<void> => {
 			(worktreeLive(l.worktree) ||
 				Date.now() - (l.launchedAt ?? 0) < 10 * 60_000),
 	);
+	const heldSlots = [...held].filter(
+		(item) => !live.some((l) => l.item === item),
+	).length;
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
@@ -1276,13 +1342,23 @@ const main = async (): Promise<void> => {
 	}
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
-		if (live.length + dispatched.length >= TARGET) break;
+		if (live.length + heldSlots + dispatched.length >= TARGET) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
-		const out = await dispatchItem(ITEM, live);
-		if (out) dispatched.push(out);
+		if (
+			live.length + heldSlots + dispatched.length >= TARGET &&
+			!held.has(ITEM)
+		) {
+			console.log(
+				`REFUSED ${ITEM} — target capacity occupied by live or uncertain launches`,
+			);
+			governanceRefusals.push(ITEM);
+		} else {
+			const out = await dispatchItem(ITEM, live);
+			if (out) dispatched.push(out);
+		}
 	}
 	// fresh READY pool (id order = FIFO priority; `work ready` already gates on
 	// requires/blocks deps AND on DONE-but-unmerged dep shas via depsMet).
@@ -1293,11 +1369,12 @@ const main = async (): Promise<void> => {
 		: parseReady(run([process.execPath, `${BIN}/work.ts`, "ready"]).out).filter(
 				(r) =>
 					!live.some((l) => l.item === r.id) &&
+					!held.has(r.id) &&
 					!resumeOf.has(r.id) &&
 					!isOwnerGated(r.title),
 			);
 	for (const r of ready) {
-		if (live.length + dispatched.length >= TARGET) break;
+		if (live.length + heldSlots + dispatched.length >= TARGET) break;
 		const out = await dispatchItem(r.id, live);
 		if (out) dispatched.push(out);
 	}
@@ -1365,7 +1442,7 @@ const main = async (): Promise<void> => {
 		}
 	}
 	console.log(
-		`lanes live: ${live.length}/${TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
+		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
 	// W463: a governance refusal is an ERROR the caller must see — the run
 	// never reads as a clean "pool drained" exit.

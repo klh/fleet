@@ -271,3 +271,106 @@ test("CLI scoped orphan listing and expected-owner reclaim preserve other claims
 		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
 	).toBe("READY");
 });
+
+test("authoritative remote guarded release is one transaction and refused guard changes nothing", async () => {
+	const home = mkdtempSync(join(tmpdir(), "work-release-remote-"));
+	directories.push(home);
+	const reservation = Bun.serve({
+		port: 0,
+		fetch: () => new Response("fixture"),
+	});
+	const port = reservation.port;
+	reservation.stop(true);
+	const server = Bun.spawn(
+		[
+			process.execPath,
+			join(import.meta.dir, "../hooks/bin/store-server.ts"),
+			"--port",
+			String(port),
+		],
+		{
+			env: { ...process.env, HOME: home, GOVERNOR_STORE_URL: "local" },
+			stdout: "ignore",
+			stderr: "ignore",
+		},
+	);
+	try {
+		const url = `http://127.0.0.1:${port}`;
+		let ready = false;
+		for (let n = 0; n < 100; n++) {
+			try {
+				if ((await fetch(`${url}/health`)).ok) {
+					ready = true;
+					break;
+				}
+			} catch {}
+			await Bun.sleep(20);
+		}
+		expect(ready).toBe(true);
+		const { HttpGovernorStore } = await import("../hooks/lib/govdb.ts");
+		const store = new HttpGovernorStore(url, null);
+		store
+			.query(
+				"INSERT INTO work_items(project,id,title,state,owner_sid,scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+			)
+			.run("project", "W1", "fixture", "CLAIMED", "old", "src", 100, 100);
+		store
+			.query("INSERT INTO claims(sid,scope,intent,ts) VALUES (?,?,?,?)")
+			.run("old", "src", "work-graph", 100);
+		const { acquireLaunchLease, releaseFailedLaunch } = await import(
+			"../scripts/lib/launch-preflight.ts"
+		);
+		acquireLaunchLease(store, "project", "old", "nonce");
+		const before = {
+			claims: store.query("SELECT * FROM claims").all(),
+			events: store.query("SELECT * FROM events").all(),
+			item: store
+				.query(
+					"SELECT state,owner_sid,updated_at FROM work_items WHERE project=? AND id=?",
+				)
+				.get("project", "W1"),
+		};
+		expect(
+			releaseFailedLaunch(store, {
+				project: "project",
+				item: "W1",
+				sid: "old",
+				revision: 100,
+				nonce: "wrong-generation",
+			}),
+		).toBe(false);
+		expect({
+			claims: store.query("SELECT * FROM claims").all(),
+			events: store.query("SELECT * FROM events").all(),
+			item: store
+				.query(
+					"SELECT state,owner_sid,updated_at FROM work_items WHERE project=? AND id=?",
+				)
+				.get("project", "W1"),
+		}).toEqual(before);
+		expect(
+			releaseFailedLaunch(store, {
+				project: "project",
+				item: "W1",
+				sid: "old",
+				revision: 100,
+				nonce: "nonce",
+			}),
+		).toBe(true);
+		expect(
+			store
+				.query(
+					"SELECT state,owner_sid FROM work_items WHERE project=? AND id=?",
+				)
+				.get("project", "W1"),
+		).toEqual({ state: "READY", owner_sid: null });
+		expect(store.query("SELECT * FROM claims").all()).toHaveLength(0);
+		expect(
+			store.query("SELECT kind FROM events WHERE kind='work.released'").all(),
+		).toHaveLength(1);
+		store.close();
+	} finally {
+		server.kill("SIGKILL");
+		await server.exited;
+	}
+}, 30000);
