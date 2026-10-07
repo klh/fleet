@@ -44,7 +44,17 @@ import {
 import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { resolve } from "node:path";
 import { laneSid } from "../lib/laneslug.ts";
-import { laneAlive, laneProcessIdentity } from "../lib/lane-liveness.ts";
+import {
+	observeDeadClaim,
+	attemptRecovery,
+	recordRecoveryResult,
+	type DeadEpisode,
+} from "../lib/dead-claim-recovery.ts";
+import {
+	laneAlive,
+	laneProcessIdentity,
+	transcriptAlive,
+} from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
@@ -119,6 +129,7 @@ type Lane = {
 	worktree: string;
 	agent?: string;
 	launchedAt?: number;
+	host?: string;
 };
 
 function readJsonSync<T>(p: string): T | null {
@@ -518,8 +529,10 @@ function mergeRunnerAlive(): number | null {
 // job is the EARLIER verdict: a tracked, pid-alive lane with no log or
 // worktree activity for STALL_WARN_MS gets ONE lane.stalled broadcast per
 // episode (state in .fleet/stall.json — survives loop restarts), cleared
-// with lane.resumed when activity returns. Dead lanes exit the ledger.
+// with lane.resumed when activity returns. Dead claims remain held pending
+// explicit recovery; automatic bulk reclaim cannot establish safe ownership.
 const STALL_FILE = `${REPO}/.fleet/stall.json`;
+const DEAD_FILE = `${REPO}/.fleet/dead-recovery.json`;
 const STALL_WARN_MS = num("--stall-warn-min", 10) * 60_000;
 type StallState = Record<string, { since: number; warned: boolean }>;
 
@@ -564,7 +577,7 @@ function newestFileMtime(dir: string, depth = 0): number | null {
 // graph's events table is the broadcast plane (same idiom as work.landed).
 function emitLaneEvent(kind: string, item: string, payload: object): void {
 	try {
-		openGovernorDb()
+		openStore()
 			.query(
 				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', ?, ?, ?, NULL)",
 			)
@@ -575,6 +588,8 @@ function emitLaneEvent(kind: string, item: string, payload: object): void {
 function stallWatch(): void {
 	const now = Date.now();
 	const state: StallState = readJsonSync(STALL_FILE) ?? {};
+	const dead: Record<string, DeadEpisode> = readJsonSync(DEAD_FILE) ?? {};
+	const project = projectIdentity(REPO);
 	const seen = new Set<string>();
 	for (const l of lanes()) {
 		const item = sh([
@@ -582,47 +597,116 @@ function stallWatch(): void {
 			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
 			"show",
 			l.item,
+			"--project",
+			project,
 			"--json",
 		]);
-		let claim: { state?: string; owner_sid?: string };
+		let claim: {
+			project?: string;
+			id?: string;
+			state?: string;
+			owner_sid?: string;
+			updated_at?: number;
+		};
 		try {
 			claim = JSON.parse(item);
 		} catch {
+			delete dead[JSON.stringify([project, l.item])];
 			continue;
 		}
 		if (
+			claim.project !== project ||
+			claim.id !== l.item ||
+			typeof claim.updated_at !== "number" ||
 			claim.owner_sid !== l.sid ||
 			!["CLAIMED", "RUNNING"].includes(claim.state ?? "")
-		)
+		) {
+			delete dead[JSON.stringify([project, l.item])];
 			continue;
+		}
 		seen.add(l.sid);
-		if (!laneAlive(l)) {
-			// W545: announce once, then AUTO-RECLAIM after a grace window.
-			// The old code announced "needs recovery" and never acted — a
-			// coordinator had to run `work reclaim all` by hand, starving
-			// dispatch for hours. Safe now: liveness is process-backed and
-			// close requires sha evidence, so reclaiming a genuinely dead
-			// lane loses nothing (capsules + graph state survive). Grace
-			// guards against a mid-flight restart blip.
-			const since = state[l.sid]?.since ?? now;
-			if (now - since > 10 * 60_000) {
+		const key = JSON.stringify([project, l.item]);
+		const observation = observeDeadClaim(dead[key], {
+			lane: l,
+			localHost: hostname(),
+			owner: l.sid,
+			revision: claim.updated_at,
+			identity: laneProcessIdentity(l),
+			transcriptFresh: transcriptAlive(l.sid),
+			now,
+		});
+		dead[key] = observation.episode;
+		if (observation.action !== "live") {
+			if (observation.action === "quarantine") {
+				let recovery: "released" | "held" | "exhausted" = "held";
+				try {
+					recovery = attemptRecovery(
+						openStore(),
+						{ project, id: l.item, owner: l.sid, revision: claim.updated_at },
+						() =>
+							l.host === hostname() &&
+							laneProcessIdentity(l) === false &&
+							!transcriptAlive(l.sid),
+						() => {
+							const r = Bun.spawnSync(
+								[
+									process.execPath,
+									`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+									"reclaim",
+									l.item,
+									"--project",
+									project,
+									"--expect-owner",
+									l.sid,
+									"--expect-updated-at",
+									String(claim.updated_at),
+									"--json",
+								],
+								{ cwd: REPO, stdout: "pipe", stderr: "pipe" },
+							);
+							return { code: r.exitCode ?? 1, out: r.stdout.toString() };
+						},
+						() =>
+							JSON.parse(
+								sh([
+									process.execPath,
+									`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+									"show",
+									l.item,
+									"--project",
+									project,
+									"--json",
+								]),
+							),
+					);
+				} catch {
+					/* authoritative failure holds ownership; no local fallback */
+				}
+				if (recovery === "released") {
+					delete dead[key];
+					emitLaneEvent("lane.reclaimed", l.item, {
+						project,
+						sid: l.sid,
+						previousUpdatedAt: claim.updated_at,
+					});
+					log(
+						`RECLAIM ${l.sid} on ${l.item} — exact scoped receipt and READY state verified`,
+					);
+				} else if (recordRecoveryResult(observation.episode, recovery)) {
+					log(
+						`RECOVERY-HELD ${l.sid} on ${l.item} — ${recovery}; operator decision required`,
+					);
+					emitLaneEvent("NEED_DECISION", l.item, {
+						project,
+						sid: l.sid,
+						reason: `automatic recovery ${recovery}; inspect identity/claim/budget before explicit reset`,
+					});
+				}
+			} else if (observation.notify) {
 				log(
-					`RECLAIM ${l.sid} on ${l.item} — dead > 10min, auto-reclaiming ghost claims`,
+					`DEAD ${l.sid} on ${l.item} — exact local identity absent; observation grace started`,
 				);
-				sh([
-					process.execPath,
-					`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
-					"reclaim",
-					"all",
-				]);
-				emitLaneEvent("lane.reclaimed", l.item, { sid: l.sid });
-				state[l.sid] = { since: now, warned: true };
-			} else if (!state[l.sid]?.warned) {
-				state[l.sid] = { since, warned: true };
-				log(
-					`DEAD ${l.sid} on ${l.item} — unfinished claim (auto-reclaim after 10min grace)`,
-				);
-				emitLaneEvent("lane.dead", l.item, { sid: l.sid });
+				emitLaneEvent("lane.dead", l.item, { project, sid: l.sid });
 			}
 			continue;
 		}
@@ -635,6 +719,7 @@ function stallWatch(): void {
 	}
 	for (const sid of Object.keys(state)) if (!seen.has(sid)) delete state[sid];
 	writeFileSync(STALL_FILE, JSON.stringify(state));
+	writeFileSync(DEAD_FILE, JSON.stringify(dead), { mode: 0o600 });
 }
 
 // per-lane episode bookkeeping, split from stallWatch for the mutation gate

@@ -198,10 +198,12 @@ const SCHEMA: Record<string, Spec> = {
 	},
 	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
 	reclaim: {
-		flags: [...ITEM_FLAGS, "--expect-owner"],
+		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
+		switches: ["--json"],
 		minPos: 1,
 		reqFlags: [],
-		usage: "usage: reclaim <id> [--expect-owner sid] | reclaim all",
+		usage:
+			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 	},
 	"migrate-ledger": {
 		flags: [],
@@ -1317,7 +1319,12 @@ if (cmd === "add") {
 	// each reclaim is listed for audit and `work reclaim <id>` stays the
 	// careful per-item path.
 	if (pos[0] === "all") {
-		if (flag("--expect-owner")) die("--expect-owner requires a single item");
+		if (
+			flag("--expect-owner") ||
+			flag("--expect-updated-at") ||
+			rest.includes("--json")
+		)
+			die("expected claim/JSON requires a single item");
 		const rows = db()
 			.query(
 				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
@@ -1350,9 +1357,26 @@ if (cmd === "add") {
 		const expectedOwner = flag("--expect-owner");
 		if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
 			die(`${id} owner changed — reclaim refused`);
+		const revision = flag("--expect-updated-at");
+		if (
+			revision &&
+			(!Number.isSafeInteger(Number(revision)) ||
+				Number(revision) !== it.updated_at)
+		)
+			die(`${id} revision changed — reclaim refused`);
 		if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
 			die(`${id} claim changed — reclaim refused; inspect before retrying`);
-		console.log(`${cyan("·")} ${id} reclaimed → READY`);
+		console.log(
+			rest.includes("--json")
+				? JSON.stringify({
+						project: PROJECT,
+						id,
+						previousOwner: it.owner_sid,
+						previousUpdatedAt: it.updated_at,
+						released: true,
+					})
+				: `${cyan("·")} ${id} reclaimed → READY`,
+		);
 	}
 } else if (cmd === "migrate-ledger") {
 	// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED

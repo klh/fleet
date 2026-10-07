@@ -748,6 +748,24 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		)
 		.get();
 	if (hasDecisions) counts.decisions = countIn("decisions");
+	const hasRecovery = !!db
+		.query(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_recovery_attempts'",
+		)
+		.get();
+	if (hasRecovery) {
+		counts.work_recovery_attempts = countIn("work_recovery_attempts");
+		if (
+			(
+				db
+					.query(
+						"SELECT COUNT(*) AS n FROM work_recovery_attempts WHERE project=?",
+					)
+					.get(to) as { n: number }
+			).n
+		)
+			die("rekey refused: target already holds recovery budget records");
+	}
 	const hasCompletions = !!db
 		.query(
 			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_completion_records'",
@@ -778,6 +796,19 @@ export async function cmdProject(rest: string[]): Promise<void> {
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
+		if (
+			hasRecovery &&
+			(
+				db
+					.query(
+						"SELECT COUNT(*) AS n FROM work_recovery_attempts WHERE project=?",
+					)
+					.get(to) as { n: number }
+			).n
+		)
+			throw new Error(
+				"rekey refused: target already holds recovery budget records",
+			);
 		if (hasCompletions) {
 			ensureCompletionIdentityMigration(db);
 			db.run(
@@ -791,6 +822,12 @@ export async function cmdProject(rest: string[]): Promise<void> {
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
 		if (hasDecisions)
 			db.run("UPDATE decisions SET project = ? WHERE project = ?", to, from);
+		if (hasRecovery)
+			db.run(
+				"UPDATE work_recovery_attempts SET project=? WHERE project=?",
+				to,
+				from,
+			);
 		db.run(
 			"UPDATE events SET payload = json_set(payload, '$.project', ?) WHERE json_extract(payload, '$.project') = ?",
 			to,
