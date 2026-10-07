@@ -67,6 +67,8 @@ services:
       - "watch"
       - "--repo"
       - "__REPO__"
+      - "--target"
+      - "6"
       - "--glob"
       - "suspenders/*"
       - "--ladder"
@@ -182,11 +184,12 @@ services:
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["serve"]
     env:
-      # 2026-10-06: full — the routing ladder's primary local rung for
-      # flash-class is :8903 reason (22GB); minimal (≤4GB) starved it, so
-      # lanes fell through dark z.ai to the 401-less anthropic escape and
-      # died. Full residents ≈ 51GB of 128GB.
-      BELT_TIER: "full"
+      # 2026-10-07 OOM root-cause: full tier wired ~40GB of MLX residents
+      # (coder 18 + reason 22) and lane-burst KV growth doubled reason to
+      # 46.5GB RSS — python fleet hit ~91GB of 128GB, jetsam at 22:14, the
+      # machine died. Minimal (≤4GB) + on-demand spawns for the heavy models
+      # (the router owns spawn); memory caps + idle-unload = W500.
+      BELT_TIER: "minimal"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]

@@ -56,7 +56,10 @@ const val = (flag: string): string | undefined => {
 // Governance target (owner directive 2026-10-05: everything under buckle +
 // suspenders — lanes are the governed path, so the default fleet width rises
 // from 3 to 8; --target still overrides per invocation).
-const TARGET = Number(val("--target") ?? 8);
+// W500 OOM: 8 concurrent lanes × local-model KV growth helped kill the
+// machine (python fleet 91GB of 128GB, jetsam 2026-10-06 22:14). The
+// fanout-rate-budget lesson's cap is 6 — default follows it.
+const TARGET = Number(val("--target") ?? 6);
 // W494: REPO is the repo ROOT, never cwd — the loop runs from
 // packages/<name> in the monorepo, and worktrees/briefs live at
 // <root>/.worktrees (worktree.ts derives toplevel from the project
