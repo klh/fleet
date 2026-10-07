@@ -1298,3 +1298,39 @@ ledger and owns their current state.
 - **Capability-aware fallback:** any route reachable by tool-bearing lanes must
   preserve the tool contract or refuse the request visibly. A tool-less overflow
   route must not silently turn an agent task into a text-only model response.
+
+## Implemented: corporate policy workflow state machines (W462)
+
+The three state machines from the health-policy design above exist as a
+prototype in `packages/suspenders/hooks/lib/policy-workflow/`, persisted over
+governor.db with their own tables (`policy_assessments`,
+`policy_remediations`, `policy_decisions`, `policy_attestations`), piloted on
+the one health policy (`health-policy.ts`, `corp.api.independent-health`).
+The machines stay separate: assessment states are
+pending/assessing/conforming/gap/unknown/stale, remediation states are
+proposed/approved/claimed/in-review/merged/cancelled, attestation states are
+pending/verified/failed/expired, and no transition edge crosses machines — a
+merged patch cannot fast-track a pending attestation.
+
+- Assessment evidence is fenced by a lease with expiry (one assessor at a
+  time) and tied to a sha256 inputs hash; unchanged inputs reuse evidence,
+  changed inputs invalidate to stale. The health assessor classifies
+  conforming/gap/partial/unknown, with partial folding into gap and missing
+  deployment information never producing conformance.
+- Remediation proposals are idempotent by payload digest; decisions are
+  recorded outside the agent — they bind to the exact proposal hash, are
+  one-time per action (unique index), and exceptions carry an expiry without
+  overwriting the assessment's factual gap.
+- Attestations are per deployment instance; verified results expire (TTL
+  sweep), failures re-open, and monitoring wiring to API liveness instead of
+  the reporter verdict is classified as a gap.
+
+The workflow is driven by `hooks/bin/policy-workflow.ts`
+(assess/propose/decide/remediation/attest/list/expire). Remaining boundaries:
+organization-assigned cross-hub identity is still a parameter (`--org`), the
+decision actor is a CLI flag rather than authenticated corporate identity,
+and nothing here gates release by itself — see the boundaries above.
+Validation: unit tests cover lease fencing, invalidation, digest-bound
+one-time decisions, guarded lifecycles and attestation expiry
+(`test/policy-workflow.test.ts`); the CLI was exercised end-to-end against an
+isolated store.
