@@ -40,6 +40,10 @@ export function taskShape(
 		state: w.state,
 		owner_sid: w.owner_sid ?? null,
 		owner_label: ownerLabel(w.owner_sid),
+		// W353: the dispatch origin stamp (`work take --origin host:agent`) —
+		// the kanban card + drawer template both render t.origin; the feed
+		// never carried it, so delegation provenance was invisible in the GUI
+		origin: w.origin ?? null,
 		requires: w.requires ?? null,
 		scope: w.scope ?? null,
 		parent_id: w.parent_id ?? null,

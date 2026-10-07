@@ -736,6 +736,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"locality",
 				"model",
 				"open_decisions",
+				"origin",
 				"owner_label",
 				"owner_sid",
 				"parent_id",
