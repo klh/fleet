@@ -50,6 +50,24 @@ defaults:
     runAtLoad: true
 
 services:
+  # W355 spoke policy-pull — this machine pulls the hub policy manifest +
+  # entitlements on an interval (hooks/bin/federation-pull.ts, loop mode,
+  # 300s default). Credentials ride the machine-level spoke profile (0600,
+  # config-over-code): BUCKLE_HUB_URL + BUCKLE_SPOKE_TOKEN (spoke-scoped,
+  # minted on the hub, revocable via the admin API). The sim pointing
+  # document stays sim/spoke-profile.env — never point the spoke at a sim.
+  - name: federation-pull
+    bunEntry: "__PREFIX__/bin/federation-pull.ts"
+    args: []
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    envFile:
+      - "__HOME__/.claude/local-llm/spoke-profile.env"
+    schedule: { keepalive: true, throttleSeconds: 30 }
+    logs: { out: "__HOME__/.claude-insights/federation-pull.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
   # W501: the lane gateway is supervised outside interactive agent sessions.
   # Routing credentials come from belt.env; spoke-only auth/bind settings win.
   - name: buckle-spoke
