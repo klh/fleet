@@ -6,9 +6,23 @@
 // unit via scripts/load-launchd.sh, and supersedes the pre-namespacing
 // com.klh.* labels. Non-darwin: a no-op ("skipped"), matching install.sh's
 // "--with-launchd skipped (not macOS)".
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
+import {
+	digestUnit,
+	readActivation,
+	retainActivation,
+	writeActivation,
+	type ActivationReceipt,
+	type ActivationService,
+} from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
 // supersede the pre-namespacing agent labels so old and new never run side by
@@ -67,6 +81,16 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		s.files.filter((f) => f.endsWith(".plist")),
 	);
 	const failed: string[] = [];
+	const activated: ActivationService[] = [];
+	const ports = JSON.parse(
+		process.env.SUSPENDERS_SERVICE_PORTS_JSON ?? "{}",
+	) as Record<string, number>;
+	if (
+		Object.values(ports).some(
+			(port) => !Number.isInteger(port) || port < 1 || port > 65535,
+		)
+	)
+		throw new Error("Invalid machine service port mapping");
 	for (const file of plists) {
 		const label = file.replace(/\.plist$/, "");
 		const unit = join(agentsDir, file);
@@ -79,7 +103,49 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			{ reject: false, stdout: "pipe", stderr: "pipe" },
 		);
 		if (load.exitCode !== 0) failed.push(label);
+		else {
+			try {
+				const parsed = await execa(
+					"/usr/bin/plutil",
+					["-convert", "json", "-o", "-", unit],
+					{ stdout: "pipe", stderr: "pipe" },
+				);
+				const definition = JSON.parse(parsed.stdout) as {
+					ProgramArguments: string[];
+					KeepAlive?: boolean;
+				};
+				activated.push({
+					label,
+					unit,
+					unitSha256: digestUnit(readFileSync(unit)),
+					arguments: definition.ProgramArguments,
+					resident: definition.KeepAlive === true,
+					...(ports[label] === undefined ? {} : { port: ports[label] }),
+				});
+			} catch {
+				failed.push(label);
+			}
+		}
 	}
+	// Record only successful explicit registration attempts; generated files alone are not activation.
+	const receipt: ActivationReceipt = {
+		schema: "fleet.service-activation.v1",
+		platform: "darwin",
+		domain: `gui/${process.getuid()}`,
+		manifest: join(ctx.repo, "deploy/services.yaml"),
+		manifestSha256: digestUnit(
+			readFileSync(join(ctx.repo, "deploy/services.yaml")),
+		),
+		services: activated,
+	};
+	const receiptPath = join(home, ".config/klh/service-activation.json");
+	let previous: ActivationReceipt | undefined;
+	try {
+		previous = readActivation(receiptPath);
+	} catch {
+		/* Unknown or absent intent is never invented. */
+	}
+	writeActivation(receiptPath, retainActivation(receipt, previous));
 	const superseded: string[] = [];
 	for (const legacy of LEGACY_LABELS) {
 		await execa("launchctl", ["bootout", `gui/${process.getuid()}/${legacy}`], {

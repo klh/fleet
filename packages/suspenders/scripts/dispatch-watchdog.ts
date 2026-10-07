@@ -19,6 +19,12 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	driftNotices,
+	inspectServices,
+	readActivation,
+	type ServiceVerdict,
+} from "./lib/service-drift.ts";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
 import { probeDispatchSyntax } from "./lib/dispatch-syntax.ts";
 import {
@@ -80,16 +86,33 @@ const libParity = (): {
 	};
 };
 
-// ---------- 2. fleet-loop liveness ----------
-const loopPid = (): number | null => {
-	const out = sh(["launchctl", "list"]).out;
-	const line = out
-		.split("\n")
-		.find((l) => l.includes("com.suspenders.fleet-loop"));
-	if (!line) return null;
-	const pid = Number.parseInt(line.split("\t")[0], 10);
-	return Number.isFinite(pid) && pid > 0 ? pid : null;
+// Explicit activation receipt, exact-domain inspection; never adopt a manual listener.
+const effectiveServices = (): ServiceVerdict[] => {
+	try {
+		return inspectServices(
+			readActivation(join(HOME, ".config/klh/service-activation.json")),
+			`gui/${process.getuid()}`,
+			process.env.SUSPENDERS_SERVICE_MANIFEST ??
+				join(REPO, "packages/suspenders/deploy/services.yaml"),
+		);
+	} catch {
+		return [
+			{
+				label: "activation-receipt",
+				state: "unknown",
+				reason:
+					"explicit service activation receipt unavailable; installer audit required",
+				pid: null,
+			},
+		];
+	}
 };
+const loopPid = (): number | null =>
+	effectiveServices().find(
+		(service) =>
+			service.label === "com.suspenders.fleet-loop" &&
+			service.state === "running",
+	)?.pid ?? null;
 
 // ---------- 3. dispatch flow ----------
 const progressSnapshot = (): { stats: WorkStats; live: number } => {
@@ -234,7 +257,11 @@ const emit = (kind: string, note: string): void => {
 	]);
 };
 
-const readState = (): ProgressState & { loopPid: number | null } => {
+const readState = (): ProgressState & {
+	loopPid: number | null;
+	serviceFingerprints?: Record<string, string>;
+	serviceCheckAt?: number;
+} => {
 	try {
 		return JSON.parse(readFileSync(statePath, "utf8"));
 	} catch {
@@ -280,42 +307,34 @@ const run = async (): Promise<number> => {
 		);
 	} else verdicts.push("lib-parity ok");
 
-	// 2. loop liveness (pid stability across runs)
-	const pid = loopPid();
+	// 2. Service drift is read-only. Legitimate PID changes are not restart requests.
 	const previous = readState();
-	const prev = previous.loopPid;
-	let kicked = false;
-	if (pid === null) {
-		sh([
-			"launchctl",
-			"kickstart",
-			"-k",
-			`gui/${process.getuid()}/com.suspenders.fleet-loop`,
-		]);
-		repaired = true;
-		kicked = true;
-		verdicts.push("fleet-loop DOWN → kickstarted");
+	const services = effectiveServices();
+	const drift = driftNotices(
+		services,
+		previous.serviceFingerprints,
+		Date.now(),
+		previous.serviceCheckAt,
+	);
+	for (const finding of drift.notices) {
+		const healthy =
+			finding.state === "running" ||
+			finding.state === "scheduled-idle" ||
+			finding.state === "starting";
 		emit(
-			"BROADCAST",
-			"dispatch-watchdog kickstarted com.suspenders.fleet-loop (no live pid)",
+			healthy ? "BROADCAST" : "NEED_DECISION",
+			`service supervision ${finding.label}: ${finding.state} — ${finding.reason}; read-only audit, no restart performed`,
 		);
-	} else if (prev !== null && prev !== pid) {
-		verdicts.push(
-			`fleet-loop pid churn ${prev}→${pid} — crash-loop suspected, kickstarting`,
-		);
-		sh([
-			"launchctl",
-			"kickstart",
-			"-k",
-			`gui/${process.getuid()}/com.suspenders.fleet-loop`,
-		]);
-		repaired = true;
-		kicked = true;
-		emit(
-			"BROADCAST",
-			`dispatch-watchdog saw fleet-loop pid churn (${prev}→${pid}) — kickstarted; check /tmp/fleet-loop.log for the crash cause`,
-		);
-	} else verdicts.push(`fleet-loop ok pid=${pid}`);
+	}
+	verdicts.push(
+		...services.map((service) => `service ${service.label} ${service.state}`),
+	);
+	const pid =
+		services.find(
+			(service) =>
+				service.label === "com.suspenders.fleet-loop" &&
+				service.state === "running",
+		)?.pid ?? null;
 	// 3. Project graph/liveness, never dispatch-log timestamps.
 	let nextState: ProgressState = previous;
 	try {
@@ -330,29 +349,11 @@ const run = async (): Promise<number> => {
 		verdicts.push(
 			`work flow ${flow.stalled ? "STALLED" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, done=${flow.state.done})`,
 		);
-		if (flow.restart && !kicked) {
-			const kick = sh([
-				"launchctl",
-				"kickstart",
-				"-k",
-				`gui/${process.getuid()}/com.suspenders.fleet-loop`,
-			]);
-			if (kick.code === 0) {
-				kicked = true;
-				repaired = true;
-				nextState.progressRestarts = (nextState.progressRestarts ?? 0) + 1;
-				nextState.restartAt = Date.now();
-				emit(
-					"BROADCAST",
-					`dispatch-watchdog: stalled graph with ${flow.pending} pending and zero live lanes; recovery kick ${nextState.progressRestarts}/2`,
-				);
-			} else verdicts.push("stalled recovery kick failed");
-		} else if (flow.stalled && (nextState.progressRestarts ?? 0) >= 2) {
+		if (flow.stalled)
 			emit(
 				"NEED_DECISION",
-				"Fleet work remains stalled after two recovery kicks; inspect dead claims/routes before another retry.",
+				"Fleet graph stalled; inspect dead claims and service activation before an owner-authorized recovery. No automatic restart performed.",
 			);
-		}
 	} catch {
 		verdicts.push("work flow UNKNOWN: structured graph/liveness unavailable");
 		emit(
@@ -365,7 +366,9 @@ const run = async (): Promise<number> => {
 		statePath,
 		JSON.stringify({
 			...nextState,
-			loopPid: kicked ? null : pid,
+			loopPid: pid,
+			serviceFingerprints: drift.fingerprints,
+			serviceCheckAt: drift.notifiedAt,
 			at: new Date().toISOString(),
 		}),
 	);
