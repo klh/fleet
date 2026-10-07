@@ -902,6 +902,19 @@ const dispatchItem = async (
 	);
 	chmodSync(laneSettings, 0o600);
 	const settingsArgs = ["--settings", laneSettings];
+	// Immutable evidence base survives resumes and later main-branch merges.
+	const completionContext = `${wt}/.fleet/lane-context.json`;
+	mkdirSync(`${wt}/.fleet`, { recursive: true });
+	if (!existsSync(completionContext))
+		writeFileSync(
+			completionContext,
+			JSON.stringify({
+				sid,
+				item,
+				baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+				launchedAt: Date.now(),
+			}),
+		);
 	const proc = spawnClaude({
 		bin,
 		prompt,
