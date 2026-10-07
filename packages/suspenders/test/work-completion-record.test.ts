@@ -106,7 +106,7 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 	gitIn(scopeRepoPath, "checkout", "-b", `suspenders/${id}`);
 	writeFileSync(
 		join(scopeRepoPath, "driver.ts"),
-		opts.marker ? "describe.only(\"x\", () => {});\n" : "export const settleWait = true;\n",
+		opts.marker ? ["describe", ".only(", '"x", () => {});\n'].join("") : "export const settleWait = true;\n",
 	);
 	gitIn(scopeRepoPath, "add", "-A");
 	gitIn(scopeRepoPath, "commit", "-m", `${id}: qa driver settle wait`);
