@@ -4,7 +4,7 @@
 // injected-context disclosure and secret redaction for the debug/log
 // preview. Pure module: no db, no board context — deps are injected so the
 // unit tests drive every branch without a live board.
-import { condenseTier } from "blam/src/condense/tiers.ts";
+import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import { scrub } from "../lib/servicemon.ts";
 
 // ─── settings (persisted in suspenders-board.json, W269-compatible keys) ──

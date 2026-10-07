@@ -1,5 +1,5 @@
 {
-	"name": "suspenders",
+	"name": "@klh/suspenders",
 	"version": "2.0.0",
 	"description": "A control plane for agent fleets — SQLite state, capability-aware dispatch, zombie detection, decisions with LLM recommendations, a consult knowledge base, and a live fleet board",
 	"type": "module",
@@ -22,7 +22,7 @@
 		"xdg-basedir": "^5.1.0",
 		"yaml": "^2.9.1",
 		"zod": "^4.0.0",
-		"blam": "workspace:*",
+		"@klh/blam": "workspace:*",
 		"execa": "^9.6.0",
 		"meow": "^14.0.0",
 		"ora": "^9.0.0",

@@ -1,5 +1,5 @@
 {
-	"name": "local",
+	"name": "@klh/local",
 	"version": "2.0.0",
 	"private": true,
 	"description": "the local service front — Caddy registration, Bonjour/mDNS names, loopback defaults, service registry",

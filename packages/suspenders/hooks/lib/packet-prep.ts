@@ -11,8 +11,8 @@
 // input must survive the output verbatim. Any loss degrades honestly to the
 // uncompressed input: a packet that cannot prove pointer integrity is not
 // served.
-import type { CondenseResult } from "blam/src/condense/engine.ts";
-import { condenseTier } from "blam/src/condense/tiers.ts";
+import type { CondenseResult } from "@klh/blam/src/condense/engine.ts";
+import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 
 // pointer-shaped tokens, two forms (no escapes — teeth over-check is safe,
 // the pass only ever falls back to MORE text):

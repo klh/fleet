@@ -16,7 +16,7 @@ import {
 	preparePrompt,
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
-import { condenseTier } from "blam/src/condense/tiers.ts";
+import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import { projectRootOf } from "../lib/govdb.ts";
 
 export const ORCH = {
