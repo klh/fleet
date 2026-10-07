@@ -10,6 +10,7 @@
 //   bun deploy/hubctl.ts push  <hub>    # stream compose template + .env to the hub
 //   bun deploy/hubctl.ts up    <hub>    # docker compose up -d on the hub
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
+//   bun deploy/hubctl.ts deploy <hub>   # install-grade one-shot: mint → push → up → status
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
@@ -230,13 +231,35 @@ function status(hub: HubProfile): number {
 	return failed;
 }
 
+/** Install-grade hub deploy (W363): the README chain in one idempotent
+ *  command — mint → push → up, stop on first failure, then the outside-process
+ *  probes gate the exit code (a deploy is done when health says so). */
+function deployHub(
+	hub: HubProfile,
+	name: string,
+	authRequired?: boolean,
+	version?: string,
+): void {
+	mintRootKey(hub);
+	pushConfig(hub, name, authRequired, version);
+	composeUp(hub);
+	const failed = status(hub);
+	if (failed > 0) {
+		console.log(
+			`deploy: ${name} — ${failed} probe(s) failed after up (services may still be starting; re-check: hubctl status ${name})`,
+		);
+		process.exit(1);
+	}
+	console.log(`deploy: ${name} all healthy`);
+}
+
 function main(): void {
 	const [verb, hubName] = process.argv.slice(2);
 	const stack = loadStack();
 	const authRequired = stack.auth?.required;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status> <hub> — config: ~/.config/klh/stack.yaml",
+			"usage: hubctl <render|mint|push|up|status|deploy> <hub> — config: ~/.config/klh/stack.yaml",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -259,9 +282,12 @@ function main(): void {
 		case "up":
 			composeUp(hub);
 			return;
+		case "deploy":
+			deployHub(hub, hubName, authRequired, stack.version);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy`,
 			);
 			process.exit(2);
 	}

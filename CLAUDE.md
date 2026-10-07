@@ -99,6 +99,9 @@ secret PATHS):
 - `mint <hub>` — root key generated ON the hub (0600, idempotent)
 - `push <hub>` — template + .env streamed (scp -O; Synology has no SFTP)
 - `up <hub>` — docker compose up -d · `status <hub>` — health probes
+- `deploy <hub>` — install-grade one-shot: mint → push → up → status
+  (alias: `bash install.sh --hub <name>` from packages/suspenders;
+  `--dry-run` renders the .env only)
 - live profiles: `nas` (kk@nas.threads.dk) and `desktop` (local Docker)
 
 Board (`bun packages/suspenders/hooks/bin/fleet-board.ts` — :7799):
