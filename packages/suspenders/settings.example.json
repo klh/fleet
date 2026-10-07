@@ -73,6 +73,16 @@
 						"timeout": 10
 					}
 				]
+			},
+			{
+				"matcher": "Bash|Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts post-fail",
+						"timeout": 10
+					}
+				]
 			}
 		],
 		"Stop": [

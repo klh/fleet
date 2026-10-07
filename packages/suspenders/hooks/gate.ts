@@ -18,6 +18,7 @@ import { filesGate } from "./gates/files.ts";
 import { governorGate } from "./gates/governor.ts";
 import { readGate } from "./gates/read.ts";
 import { stopGate } from "./gates/stop.ts";
+import { postFailGate } from "./gates/post-fail.ts";
 import { preFilesChain } from "./gates/chain.ts";
 
 const hook = await readHook();
@@ -33,6 +34,9 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: filesGate is `: never` — the call ends the case
 	case "post-files":
 		filesGate(hook);
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: postFailGate is `: never` — the call ends the case
+	case "post-fail":
+		postFailGate(hook); // W514: tool-failure counter + anti-thrash guidance
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow() is `: never` — the case always exits
 	case "pre-read":
 		readGate(hook); // W110: void — fat-read deny / re-read nudge, else falls through
