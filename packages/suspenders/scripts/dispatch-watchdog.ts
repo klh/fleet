@@ -258,6 +258,7 @@ const run = async (): Promise<number> => {
 	// 2. loop liveness (pid stability across runs)
 	const pid = loopPid();
 	const prev = readState().loopPid;
+	let kicked = false;
 	if (pid === null) {
 		sh([
 			"launchctl",
@@ -266,6 +267,7 @@ const run = async (): Promise<number> => {
 			`gui/${process.getuid()}/com.suspenders.fleet-loop`,
 		]);
 		repaired = true;
+		kicked = true;
 		verdicts.push("fleet-loop DOWN → kickstarted");
 		emit(
 			"BROADCAST",
@@ -282,14 +284,21 @@ const run = async (): Promise<number> => {
 			`gui/${process.getuid()}/com.suspenders.fleet-loop`,
 		]);
 		repaired = true;
+		kicked = true;
 		emit(
 			"BROADCAST",
 			`dispatch-watchdog saw fleet-loop pid churn (${prev}→${pid}) — kickstarted; check /tmp/fleet-loop.log for the crash cause`,
 		);
 	} else verdicts.push(`fleet-loop ok pid=${pid}`);
+	// After OUR OWN kickstart the next run MUST adopt fresh: writing the old
+	// pid made every subsequent run see churn and kickstart again forever
+	// (restart churn caused BY the watchdog — external finding, verified).
 	writeFileSync2(
 		statePath,
-		JSON.stringify({ loopPid: pid, at: new Date().toISOString() }),
+		JSON.stringify({
+			loopPid: kicked ? null : pid,
+			at: new Date().toISOString(),
+		}),
 	);
 
 	// 3. dispatch flow
