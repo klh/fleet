@@ -47,6 +47,7 @@ import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import { isResumableClaim } from "./lib/resumable-claim.ts";
 
 const argv = process.argv.slice(2);
 const val = (flag: string): string | undefined => {
@@ -986,8 +987,7 @@ const main = async (): Promise<void> => {
 	for (const l of lanes.filter((x) => !live.includes(x))) {
 		if (worktreeLive(l.worktree)) continue; // raced between filter and here
 		const show = run([process.execPath, `${BIN}/work.ts`, "show", l.item]);
-		if (!/state:\s*(CLAIMED|RUNNING)/.test(show.out)) continue;
-		if (!show.out.includes(l.sid)) continue;
+		if (show.code !== 0 || !isResumableClaim(show.out, l.item, l.sid)) continue;
 		resumeOf.set(l.item, l);
 	}
 	const dispatched: string[] = [];
