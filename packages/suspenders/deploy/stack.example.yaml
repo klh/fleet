@@ -31,7 +31,11 @@ hubs:
     store_health_port: 7793
     belt_health_port: 7789
     allowed_hosts: [nas-hub.local]
-    peers: []
+    peers:
+      - desktop # first topology edge (W322): nas declares desktop as peer.
+        # Hub LABELS only — hosts/ports/keys resolve at runtime from the
+        # real stack.yaml; the belt-remote hub profile mirrors the edge as
+        # federation.peers.
     # deployment knobs (hubctl, deploy/hubctl.ts): binds + repo trees +
     # deploy transport + secret PATHS (values minted on the hub, never here)
     bind: 0.0.0.0
