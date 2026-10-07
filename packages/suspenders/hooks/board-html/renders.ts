@@ -196,6 +196,7 @@ function renderFleet(){
 // --- W28 LLM telemetry (Governor tab): per-model token sums vs budgets + routing log ---
 function renderLlm(d){
   var el = byId('llmview');
+  if (sel.value !== 'all') { el.textContent = 'Model telemetry is fleet-wide; select all projects to view it.'; return; }
   if (!d.llm) { el.innerHTML = '<div class="dim">no llm telemetry in payload (older board build)</div>'; return; }
   var h = '';
   var u = d.llm.usage || [];

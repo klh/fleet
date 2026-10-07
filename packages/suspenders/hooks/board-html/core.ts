@@ -89,6 +89,32 @@ function postJSON(url, body){
       });
     });
 }
+function projectFromUrl(){
+  return new URL(location.href).searchParams.get('project') || 'all';
+}
+function selectProject(project){
+  var value = project || 'all';
+  noteProjects(value === 'all' ? [] : [value]);
+  sel.value = value;
+}
+function writeProjectUrl(){
+  var url = new URL(location.href);
+  if (sel.value === 'all') url.searchParams.delete('project');
+  else url.searchParams.set('project', sel.value);
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+function changeProjectScope(){
+  projBaseline = true;
+  lastDec = null; decLoaded = false; decErr = null; decOkAt = 0;
+  histData = null; histLoaded = false; histErr = null; histOkAt = 0;
+  tasksData = null; tasksLoaded = false; tasksErr = null; tasksOkAt = 0;
+  actData = null; actLoaded = false; actErr = null; actOkAt = 0;
+  taskProj = 'all'; taskOwner = 'all';
+  closeTask(); resetTail();
+  byId('histBody').replaceChildren();
+  fleetHistoryPage = 0;
+  renderAll(); tick();
+}
 function projQuery(){
   if (!sel.value || sel.value === 'all') return '';
   return '?project=' + encodeURIComponent(sel.value);

@@ -12,6 +12,8 @@ function setCollapsed(v){
   decCollapsed = v;
   renderDecisions();
 }
+selectProject(projectFromUrl()); // scope before the first request or render
+if (sel.value !== 'all') { taskProj = 'all'; taskOwner = 'all'; }
 setInterval(tick, 1000);
 pollExecutors(); // belt targets for the dispatch dropdown (page-load, not polled)
 if (!location.hash) history.replaceState(null, '', '#decisions');

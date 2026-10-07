@@ -6,15 +6,17 @@ export const ACTIVITY = String.raw`// --- 5: activity feed (Activity tab, /api/a
 function pollAct(){
   if (actBusy || curTab !== 'activity') return;
   actBusy = true;
-  fetch('/api/activity' + projQuery(), { signal: AbortSignal.timeout(8000) })
+  var scope = projQuery();
+  fetch('/api/activity' + scope, { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
+      if (scope !== projQuery()) return;
       if (!j || j.ok === false || !Array.isArray(j.events)) throw new Error('bad /api/activity payload');
       actData = j; actOkAt = Date.now(); actErr = null; actLoaded = true;
       noteProjects(j.projects);
     })
-    .catch(function(e){ actErr = String((e && e.message) || e); })
-    .finally(function(){ actBusy = false; renderAct(); });
+    .catch(function(e){ if (scope !== projQuery()) return; actErr = String((e && e.message) || e); })
+    .finally(function(){ actBusy = false; renderAct(); if (scope !== projQuery()) pollAct(); });
 }
 function renderAct(){
   var errEl = byId('actErr');

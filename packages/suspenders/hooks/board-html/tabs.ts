@@ -173,13 +173,14 @@ document.addEventListener('keydown', function(e){
   setCollapsed(true); // collapses the section, not the decisions
 });
 sel.addEventListener('change', function(){
-  projBaseline = true; // fresh scope — re-baseline toasts
-  lastDec = null; decLoaded = false; decErr = null; decOkAt = 0;
-  histData = null; histLoaded = false; histErr = null; histOkAt = 0;
-  byId('histBody').replaceChildren();
-  fleetHistoryPage = 0;
-  renderAll();
-  tick();
+  writeProjectUrl();
+  changeProjectScope();
+});
+window.addEventListener('popstate', function(){
+  var project = projectFromUrl();
+  if (project === sel.value) return;
+  selectProject(project);
+  changeProjectScope();
 });
 ['originHub', 'peerHub'].forEach(function(id){
   byId(id).addEventListener('change', function(){

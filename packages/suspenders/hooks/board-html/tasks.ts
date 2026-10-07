@@ -118,15 +118,17 @@ function paintSort(){
 function pollTasks(){
   if (tasksBusy || (curTab !== 'tasks' && curTab !== 'lanes')) return;
   tasksBusy = true;
-  fetch('/api/tasks' + projQuery(), { signal: AbortSignal.timeout(8000) })
+  var scope = projQuery();
+  fetch('/api/tasks' + scope, { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
+      if (scope !== projQuery()) return;
       if (!j || j.ok === false || !Array.isArray(j.tasks)) throw new Error('bad /api/tasks payload');
       tasksData = j; tasksOkAt = Date.now(); tasksErr = null; tasksLoaded = true;
       noteProjects(j.projects);
     })
-    .catch(function(e){ tasksErr = String((e && e.message) || e); })
-    .finally(function(){ tasksBusy = false; renderTasks(); renderKanban(); });
+    .catch(function(e){ if (scope !== projQuery()) return; tasksErr = String((e && e.message) || e); })
+    .finally(function(){ tasksBusy = false; renderTasks(); renderKanban(); if (scope !== projQuery()) pollTasks(); });
 }
 function taskRow(t, parentId){
   var owner = ownerName(t);
@@ -157,7 +159,7 @@ function renderTasks(){
     clearErr(errEl);
   }
   if (!tasksData) return; // nothing good yet — keep loading/error row
-  var ts = tasksData.tasks;
+  var ts = tasksData.tasks.filter(function(t){ return sel.value === 'all' || t.project === sel.value; });
   buildOwnerDisp(ts);
   renderTaskProjOptions(ts);
   renderTaskOwnerOptions(ts);
@@ -292,7 +294,7 @@ function renderKanban(){
     clearErr(byId('kanbanErr'));
   }
   if (!tasksData) return;
-  var ts = tasksData.tasks;
+  var ts = tasksData.tasks.filter(function(t){ return sel.value === 'all' || t.project === sel.value; });
   buildOwnerDisp(ts);
   if (hashFilter) ts = ts.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
   var html = '<div class="kanban">';
