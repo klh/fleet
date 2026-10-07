@@ -99,3 +99,46 @@ test("registration command has no bootstrap, kickstart, bootout, signal or insta
 	expect(source).toContain("--record-existing");
 	expect(source).toContain("inspectActivatedDispatch");
 });
+test("serialization changes are accepted only when all parsed declaration fields match", () => {
+	const actual = '{"env":{"TOKEN":"private"},"args":["/bun","/loop"]}';
+	const expected = '{ "args": ["/bun", "/loop"], "env": {"TOKEN": "private"} }';
+	let publications = 0;
+	const f = fixture();
+	const deps = {
+		inspect: (args: string[]) =>
+			args[1] === "print-disabled"
+				? { code: 0, out: "", error: "" }
+				: {
+						code: 0,
+						out: "\n arguments = {\n /bun\n /loop\n }\n pid = 12\n",
+						error: "",
+					},
+		read: (path: string) => (path === "/manifest" ? manifest : actual),
+		birth: () => ({ birth: "original", command: "bun" }),
+		parseUnit: JSON.parse,
+		publish: () => {
+			publications++;
+		},
+	};
+	expect(
+		recordExistingService(
+			receipt,
+			{ ...service, unitSha256: digestUnit(actual) },
+			expected,
+			undefined,
+			deps,
+		),
+	).toBe(12);
+	expect(publications).toBe(1);
+	expect(() =>
+		recordExistingService(
+			receipt,
+			{ ...service, unitSha256: digestUnit(actual) },
+			expected.replace("private", "changed"),
+			undefined,
+			deps,
+		),
+	).toThrow();
+	expect(publications).toBe(1);
+	expect(f.published).toHaveLength(0);
+});
