@@ -20,6 +20,7 @@ export const meowFlags = {
 	verbose: { type: "boolean" },
 	step: { type: "string" },
 	wireRepo: { type: "string" },
+	gatewayReview: { type: "string" },
 } as const;
 
 export interface ResolvedFlags {
@@ -29,6 +30,7 @@ export interface ResolvedFlags {
 	verbose: boolean;
 	step: string | null;
 	wireRepo: string | null;
+	gatewayReview?: string;
 }
 
 export function resolvePaths(): {
@@ -72,6 +74,9 @@ export function parseFlags(
 		verbose: bool("verbose"),
 		step,
 		wireRepo,
+		...(typeof raw.gatewayReview === "string"
+			? { gatewayReview: raw.gatewayReview }
+			: {}),
 	};
 	const known = Object.keys(meowFlags);
 	const unknown = Object.keys(raw).filter((k) => !known.includes(k));
@@ -99,6 +104,16 @@ export function parseFlags(
 			flags,
 		};
 	}
+	if (
+		raw.gatewayReview !== undefined &&
+		(typeof raw.gatewayReview !== "string" ||
+			!/^[a-f0-9]{64}$/.test(raw.gatewayReview) ||
+			step !== "upgradeGateway")
+	)
+		return {
+			error: "--gateway-review requires a SHA256 and --step upgradeGateway",
+			flags,
+		};
 	return { flags };
 }
 

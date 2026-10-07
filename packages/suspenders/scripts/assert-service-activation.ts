@@ -1,7 +1,10 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
+import {
+	inspectActivatedDispatch,
+	inspectServiceGeneration,
+} from "./lib/activated-dispatch.ts";
 import { assertServiceActivation } from "./lib/service-activation-fence.ts";
 import { readActivation, type ActivationReceipt } from "./lib/service-drift.ts";
 
@@ -60,6 +63,23 @@ export function assertBuckleActivation(
 					"utf8",
 				)
 			: "";
+	const service = receipt?.services.find(
+		(service) => service.label === definition.Label,
+	);
+	if (service?.generation) {
+		const generation = inspectServiceGeneration(service.generation);
+		if (
+			generation.state !== "ok" ||
+			generation.revision !== service.generation.revision ||
+			!generation.root ||
+			!definition.ProgramArguments.includes(
+				join(generation.root, "packages/buckle/src/server.bundle.js"),
+			)
+		)
+			throw new Error(
+				"activation refused: reviewed gateway generation integrity differs",
+			);
+	}
 	assertServiceActivation(
 		receipt,
 		definition.Label,
