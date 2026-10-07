@@ -46,6 +46,8 @@ export interface RouteAuditOutcome {
 	duration_ms: number;
 	ok: boolean;
 	err: string | null;
+	decision?: string;
+	error_code?: string;
 }
 
 /** W457 cache telemetry: provider-reported cache numbers joined onto the
@@ -328,9 +330,17 @@ export class Ledger {
 	private updateAudit(rid: string, out: RouteAuditOutcome): void {
 		this.db
 			.query(
-				"UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ? WHERE rid = ?",
+				"UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?, decision = COALESCE(?, decision), error_code = COALESCE(?, error_code) WHERE rid = ?",
 			)
-			.run(out.status, out.duration_ms, out.ok ? 1 : 0, out.err, rid);
+			.run(
+				out.status,
+				out.duration_ms,
+				out.ok ? 1 : 0,
+				out.err,
+				out.decision ?? null,
+				out.error_code ?? null,
+				rid,
+			);
 	}
 
 	/** W457: provider-reported cache usage onto the per-request audit row

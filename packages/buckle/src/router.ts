@@ -7,7 +7,11 @@
 // semantics: upstream retry-after verbatim when present, capped exponential
 // 2**attempt + U[0,1) jitter when absent). Owner directive enforced
 // structurally: flashx tiers are refused in every ladder walk.
-import { type ErrorKind, normalizeUpstreamError } from "./adapters/errors.ts";
+import {
+	type ErrorKind,
+	normalizeUpstreamError,
+	routerErrorEnvelope,
+} from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
 import { bridgeRequest, bridgeResponse, crossDialectOn } from "./bridge.ts";
@@ -92,6 +96,8 @@ interface WalkState {
 	status: number;
 	error: string;
 	ctxWindow?: Response;
+	rateLimit?: { response: Response; tier: string };
+	pendingRetryMs?: number;
 }
 
 /** Error bodies are small; never buffer an unbounded one. */
@@ -240,7 +246,22 @@ export class Router {
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
 			const base = {
 				ok: false as const,
-				response: replay,
+				response:
+					err.kind === "rate_limited"
+						? Response.json(routerErrorEnvelope(err, req.dialect), {
+								status: 429,
+								headers: {
+									...Object.fromEntries(replay.headers),
+									"content-type": "application/json",
+									...(ra === null
+										? {}
+										: {
+												"retry-after":
+													replay.headers.get("retry-after") ?? String(ra),
+											}),
+								},
+							})
+						: replay,
 				status: resp.status,
 				retryAfterS: ra,
 				kind: err.kind,
@@ -308,8 +329,20 @@ export class Router {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			const dep = candidates.at(Math.min(attempt, candidates.length - 1));
 			if (!dep) break;
+			if (st.pendingRetryMs !== undefined) {
+				await this.sleepMs(st.pendingRetryMs);
+				st.pendingRetryMs = undefined;
+				if (req.signal?.aborted) return { kind: "aborted" };
+			}
 			st.attempts++;
-			const r = await this.tryOnce(req, dep, timeoutMs);
+			let r: TryOutcome;
+			try {
+				r = await this.tryOnce(req, dep, timeoutMs);
+			} catch (error) {
+				if (req.signal?.aborted) return { kind: "aborted" };
+				if (!st.rateLimit || !(error instanceof UpstreamError)) throw error;
+				break; // An unreachable fallback cannot erase the provider's rate limit.
+			}
 			if (r.ok) {
 				return {
 					kind: "upstream",
@@ -323,7 +356,10 @@ export class Router {
 			}
 			st.status = r.status;
 			st.error = r.error;
+			if (r.kind === "rate_limited" && !st.rateLimit)
+				st.rateLimit = { response: r.response, tier };
 			if (r.clientFault) {
+				if (st.rateLimit) return exhausted(st);
 				return {
 					kind: "client-error",
 					response: r.response,
@@ -333,9 +369,8 @@ export class Router {
 			}
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
-			await this.sleepMs(
-				retryDelayS(attempt, r.retryAfterS, this.rng, capS) * 1000,
-			);
+			st.pendingRetryMs =
+				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS) * 1000;
 		}
 		return null;
 	}
@@ -451,6 +486,13 @@ export class Router {
 /** End of a walk with nothing delivered: an all-rungs context-window
  *  overflow answers the upstream's 4xx; anything else is exhausted. */
 function exhausted(st: WalkState): ExecuteResult {
+	if (st.rateLimit)
+		return {
+			kind: "client-error",
+			response: st.rateLimit.response,
+			tier: st.rateLimit.tier,
+			attempts: st.attempts,
+		};
 	if (st.ctxWindow)
 		return {
 			kind: "client-error",

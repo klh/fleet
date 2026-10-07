@@ -56,7 +56,7 @@ describe("retry + cooldown in the walk", () => {
 		});
 		expect(r.kind).toBe("upstream");
 		expect(calls).toBe(2);
-		expect(slept).toEqual([50]); // retry-after 0.05s honored, jitter 0
+		expect(slept).toEqual([1000]); // Provider floor honored, with a nonzero exponential minimum.
 	});
 
 	test("allowed_fails consecutive failures eject the deployment", async () => {
