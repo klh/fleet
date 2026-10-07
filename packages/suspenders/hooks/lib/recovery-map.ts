@@ -12,7 +12,12 @@ import { readFileSync } from "node:fs";
 import { MODEL_INVENTORY, probePathFor } from "./service-inventory.ts";
 
 export type ProbeSpec =
-	| { kind: "http"; port: number; path: string }
+	| {
+			kind: "http";
+			port: number;
+			path: string;
+			contract?: "litellm-process-liveness";
+	  }
 	| { kind: "launchd"; label: string };
 
 export interface RecoveryStep {
@@ -155,7 +160,12 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 	{
 		id: "litellm-4100",
 		name: "litellm engine :4100",
-		probe: { kind: "http", port: 4100, path: "/health/liveliness" },
+		probe: {
+			kind: "http",
+			port: 4100,
+			path: "/health/liveliness",
+			contract: "litellm-process-liveness",
+		},
 		what: "The litellm engine on :4100 is not answering, so routed model calls fail.",
 		causes: [
 			// W277: litellm joined the swarm supervisor's respawn/circuit-breaker

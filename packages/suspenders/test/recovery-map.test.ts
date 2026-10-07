@@ -34,6 +34,7 @@ const stubDeps = (
 		const port = Number(new URL(url).port);
 		const v = http[port] ?? "refused";
 		if (v === "refused") throw new Error("Unable to connect. ECONNREFUSED");
+		if (port === 4100) return Response.json("I'm alive!", { status: v });
 		return new Response(
 			JSON.stringify({ uptime_s: 12, requests: { total: 3 } }),
 			{
@@ -252,7 +253,7 @@ describe("server rendering", () => {
 		expect(html).not.toContain("how to recover");
 	});
 
-	test("belt page: every service row, the module, no leakage", async () => {
+	test("belt page: gateway transport rows, the module, no leakage", async () => {
 		const health = (await probeAll(stubDeps({ 4101: 200 }))).map(withRecovery);
 		const page = beltPage({
 			policy: null,
@@ -262,13 +263,14 @@ describe("server rendering", () => {
 			health,
 			groups: null,
 		});
-		for (const id of PROBED_SERVICES)
-			expect(page).toContain(`data-service="${id}"`);
+		const transports = ["belt-gateway-4000", "litellm-4100", "buckle-4101"];
+		for (const id of transports) expect(page).toContain(`data-service="${id}"`);
+		expect(page).not.toContain('data-service="swarm-8901"');
 		expect(page).toContain('src="/vendor/klh-service-row.js"');
-		expect(page).toContain(`${1}/${PROBED_SERVICES.length} up`);
+		expect(page).toContain("1/3 up");
 		const rows =
 			page.match(/<klh-service-row[\s\S]*?<\/klh-service-row>/g) ?? [];
-		expect(rows.length).toBe(PROBED_SERVICES.length);
+		expect(rows.length).toBe(transports.length);
 		const text = rows
 			.join("\n")
 			.replaceAll("&lt;", "<")

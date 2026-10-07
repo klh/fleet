@@ -73,10 +73,19 @@ export const activeDeps = (): ProbeDeps =>
 
 const httpDetail = async (
 	r: Response,
+	contract?: "litellm-process-liveness",
 ): Promise<{ detail: string; ok: boolean }> => {
 	const base = `HTTP ${r.status}`;
 	let ok = r.ok;
 	try {
+		if (contract === "litellm-process-liveness")
+			return {
+				ok:
+					r.ok &&
+					r.headers.get("content-type")?.includes("json") === true &&
+					(await r.json()) === "I'm alive!",
+				detail: `${base} · process liveness`,
+			};
 		const j = (await r.json()) as {
 			uptime_s?: number;
 			requests?: { total?: number };
@@ -107,7 +116,7 @@ const httpDetail = async (
 				detail: `${base} · uptime ${Math.round(j.uptime_s)}s · ${j.requests?.total ?? 0} req`,
 			};
 	} catch {
-		if (r.headers.get("content-type")?.includes("json")) ok = false;
+		if (contract || r.headers.get("content-type")?.includes("json")) ok = false;
 	}
 	return { ok, detail: base };
 };
@@ -157,7 +166,7 @@ const probeOne = async (
 			signal: AbortSignal.timeout(1500),
 			redirect: "manual",
 		});
-		const { detail, ok } = await httpDetail(r);
+		const { detail, ok } = await httpDetail(r, p.contract);
 		if (!ok)
 			return {
 				port: p.port,
