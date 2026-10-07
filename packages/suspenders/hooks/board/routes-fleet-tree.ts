@@ -411,7 +411,7 @@ const source = createTreeSource(realDeps);
 const esc = (s: string): string =>
 	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const page = (): Response =>
+const page = (presentation: boolean): Response =>
 	new Response(
 		`<!doctype html>
 <html><head><meta charset="utf-8"><title>fleet tree</title>
@@ -439,6 +439,7 @@ ${fleetNav("suspenders")}
 <div id="tree">loading…</div>
 <script type="module">
 const tree = document.getElementById("tree");
+const presentation = ${JSON.stringify(presentation)};
 const label = ${displayLabel.toString()};
 const el = (tag, cls, text) => {
 	const n = document.createElement(tag);
@@ -461,15 +462,16 @@ const load = async (force) => {
 		for (const root of data.tree) {
 			const row = el("div", "root");
 			const head = el("div");
-			head.append(el("span", root.demo ? "demo" : "rootlabel", label(root.label)));
-			if (root.note) head.append(el("span", "tier", "  — " + root.note));
-			if (root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
-			if (root.authorization) {
+			const heading = presentation ? (root.simulationOf ?? root.label) : root.label;
+			head.append(el("span", !presentation && root.demo ? "demo" : "rootlabel", label(heading)));
+			if (!presentation && root.note) head.append(el("span", "tier", "  — " + root.note));
+			if (!presentation && root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
+			if (!presentation && root.authorization) {
 				const auth = root.authorization;
 				const text = auth.mode === "simulated" ? "  simulated authorization: " + auth.status + " · " + auth.principal + " · " + auth.scopes.join(", ") : "  authorization required · capacity unknown";
 				head.append(el("span", "tier", text));
 			}
-			if (root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
+			if (!presentation && root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
 			if (root.down) head.append(el("span", "down", "  (down)"));
 			row.append(head);
 			const kids = root.models;
@@ -517,7 +519,8 @@ export async function handleFleetTree(
 		const snap = await src.tree(url.searchParams.get("refresh") === "1");
 		return Response.json(snap);
 	}
-	if (url.pathname === "/fleet-tree") return page();
+	if (url.pathname === "/fleet-tree")
+		return page(url.searchParams.get("presentation") === "1");
 	return null;
 }
 
