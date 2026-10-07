@@ -19,6 +19,7 @@
 // tabular-nums, native <title> hovers on the non-uPlot marks, dark palette.
 import { readFileSync } from "node:fs";
 import { GROUPS, type UsageReport } from "../lib/usage.ts";
+import { ACTIVITIES, type ActivityReport } from "./activity-harvest.ts";
 // W147: every page wears the console shell — topbar + avatar dropdown JS
 import { TOPBAR_JS, topbar } from "./console-html.ts";
 import { USAGE_CHART_JS } from "./usage-charts.ts";
@@ -44,6 +45,15 @@ const SLOT: Record<string, string> = {
 	luna: "#199e70",
 	local: "#c98500",
 	other: "#d55181",
+};
+
+// W243 activity hues — fixed per bucket (color follows the entity), same
+// validated-dark family as the SLOT palette
+const ACT_COLOR: Record<string, string> = {
+	context: "#3987e5",
+	planning: "#199e70",
+	code: "#d95926",
+	communicating: "#c98500",
 };
 
 const esc = (s: string): string =>
@@ -251,6 +261,36 @@ table.umtab td, table.umtab th { padding:2px 10px 2px 0; font-size:11px; text-al
 .uplot text { font-size:10px; }
 `;
 
+// ─── W243 activity panel: weekly classify + context-share per lane ────────
+function activityHtml(a: ActivityReport): string {
+	const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
+	const cell = (share: number, key: string): string => {
+		if (!share) return `<span class="uempty">—</span>`;
+		return `<div class="ubar" style="width:100%"><i style="width:${pct(share)};background:${ACT_COLOR[key] ?? "#888"}" title="${key}: ${pct(share)}"></i></div><span class="unum">${pct(share)}</span>`;
+	};
+	const weekRow = (w: {
+		week: number;
+		cost: number;
+		shares: Record<string, number>;
+		orientShare: number;
+	}): string =>
+		`<tr><td>${new Date(w.week).toISOString().slice(0, 10)}</td><td class="unum">${fmtTok(Math.round(w.cost))}</td><td style="width:44%">${ACTIVITIES.map((k) => cell(w.shares[k], k)).join("<span class='usep'>·</span>")}</td><td class="unum">${pct(w.orientShare)}</td></tr>`;
+	const laneRow = (ar: {
+		actor: string;
+		requests: number;
+		searchesPerReq: number;
+		cost: number;
+		contextShare: number;
+		orientShare: number;
+	}): string =>
+		`<tr><td><b>${esc(ar.actor)}</b></td><td>${cell(ar.contextShare, "context")}</td><td class="unum">${pct(ar.orientShare)}</td><td class="unum">${ar.searchesPerReq.toFixed(2)}</td><td class="unum">${fmtTok(Math.round(ar.cost))}</td><td class="unum">${fmtTok(ar.requests)}</td></tr>`;
+	const weeks = a.weekly.map(weekRow).join("");
+	const lanes = a.actors.length
+		? a.actors.map(laneRow).join("")
+		: `<tr><td colspan="6" class="uempty">no classified activity yet — first harvest fills this table</td></tr>`;
+	return `<div class="upanel"><h2>ACTIVITY · DECANT SHAPE (W243)</h2><p class="ufoot">cost shares on the pricing shape in ${a.pricing.in}x / cacheW ${a.pricing.cacheC}x / cacheR ${a.pricing.cacheR}x / out ${a.pricing.out}x · requestId dedup: largest-output snapshot · searches normalized per request</p><table class="uacts"><thead><tr><th>week</th><th class="unum">cost</th><th>context · planning · code · communicating</th><th class="unum">orient</th></tr></thead><tbody>${weeks}</tbody></table><table class="uacts" style="margin-top:10px"><thead><tr><th>lane</th><th>context share</th><th class="unum">orient</th><th class="unum">searches/req</th><th class="unum">cost</th><th class="unum">req</th></tr></thead><tbody>${lanes}</tbody></table></div>`;
+}
+
 // ─── page assembly ───────────────────────────────────────────────────────
 function legendHtml(): string {
 	const items = GROUPS.map(
@@ -266,6 +306,7 @@ export function usagePage(
 		team?: string;
 		dept?: string;
 		includeDemo?: boolean;
+		activity?: ActivityReport;
 	} = { days: r.days },
 ): string {
 	const team = opts.team ?? "";
@@ -283,7 +324,10 @@ export function usagePage(
 	const timeline = `<div class="upanel"><div class="uhead"><h2>TOKENS · STACKED BY MODEL GROUP</h2><p class="ufoot">hover = values · drag = zoom · double-click = reset</p></div>${legendHtml()}<div id="u-timeline" class="uchart"></div></div>`;
 	const hours = `<div class="upanel"><h2>WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)</h2><div id="u-hours" class="uchart"></div></div>`;
 	const tbl = `<div class="upanel"><h2>ACTORS</h2><table class="uacts"><thead><tr><th>actor</th><th style="width:38%">tokens by model group</th><th class="unum">total</th><th class="unum">req</th></tr></thead><tbody>${actorRows(r)}</tbody></table></div>`;
+	const activity = opts.activity
+		? activityHtml(opts.activity)
+		: `<div class="upanel"><h2>ACTIVITY · DECANT SHAPE (W243)</h2><p class="uempty">meter not wired on this route — pass activity report to usagePage</p></div>`;
 	const back = `<div class="uback"><a href="/">&larr; fleet board</a><span class="uwin">${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view</span></div>`;
 	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${chartPayload(r)}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>FLEET USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${back}${head}${timeline}${hours}${tbl}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><title>FLEET USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${back}${head}${timeline}${hours}${tbl}${activity}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
 }

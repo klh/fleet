@@ -10,7 +10,6 @@
 import type { Database } from "bun:sqlite";
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { openGovernorDb } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { harvestAids } from "./aid-harvest.ts";
 import { usageMessageLedger } from "../lib/usage-message-ledger.ts";
@@ -348,6 +347,9 @@ export function maybeHarvest(
 }
 
 if (import.meta.main) {
+	// CLI-only, lazy: the library must not bind an un-busted govdb module
+	// entry at import time (shared with un-busted consumers like settle.ts).
+	const { openGovernorDb } = await import("../lib/govdb.ts");
 	const db = openGovernorDb();
 	const force = process.argv.includes("--force");
 	const s = maybeHarvest(db, force ? 0 : undefined);

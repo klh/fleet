@@ -943,6 +943,23 @@ export function openGovernorDb(): Database {
 	}
 	// v10 (W166) — knowledge.db split; see migrateKnowledgeSplit above.
 	if (uv < 10) migrateKnowledgeSplit(db);
+	// v11 (W243) — the decant-shape activity meter: weekly (week_bucket =
+	// Monday-00:00-UTC) token ledger by activity bucket
+	// (context|planning|code|communicating), classified by
+	// hooks/bin/activity-harvest.ts off the same transcript tail discipline
+	// as usage_rollup. UPSERT-ADD semantics: harvesters add, never overwrite.
+	// searches = search-class tool_use count (Grep/Glob/WebSearch/ToolSearch/
+	// rg-like shell); cost shape (in 1x / cacheC 1.25x / cacheR 0.1x / out 5x)
+	// is applied at report time, never stored — pricing moves, history must
+	// not. Not in deltaTables: rollup churn is audit noise (usage_rollup
+	// precedent).
+	db.run(
+		"CREATE TABLE IF NOT EXISTS activity_rollup (week_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model_group TEXT NOT NULL, activity TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, searches INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (week_bucket, actor, model_group, activity))",
+	);
+	db.run(
+		"CREATE INDEX IF NOT EXISTS activity_rollup_actor ON activity_rollup(actor, week_bucket)",
+	);
+	if (uv < 11) db.run("PRAGMA user_version = 11");
 	migrateJSON(db);
 	return db;
 }
