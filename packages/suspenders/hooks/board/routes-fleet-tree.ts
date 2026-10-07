@@ -259,8 +259,16 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 		inFlight = (async () => {
 			try {
 				const snap = await sweep();
-				cache = { at: deps.now(), snap };
-				return snap;
+				// Cache the served snapshot, including last-good fallback. Keeping
+				// the failed sweep here would make the next TTL hit lose stale data.
+				const effective =
+					!snap.tree.some((r) => !r.down && !r.demo) &&
+					lastGood &&
+					lastGood !== snap
+						? { ...lastGood, stale: true }
+						: snap;
+				cache = { at: deps.now(), snap: effective };
+				return effective;
 			} finally {
 				inFlight = null;
 			}
@@ -270,17 +278,9 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 
 	return {
 		tree: async (force = false) => {
+			if (inFlight) return inFlight;
 			if (!force && cache && deps.now() - cache.at < TTL) return cache.snap;
-			const snap = await refresh();
-			// last-good: only demo/down roots this sweep → serve the previous
-			// good snapshot, stamped stale (no last good yet = serve it honestly)
-			if (
-				!snap.tree.some((r) => !r.down && !r.demo) &&
-				lastGood &&
-				lastGood !== snap
-			)
-				return { ...lastGood, stale: true };
-			return snap;
+			return refresh();
 		},
 	};
 };

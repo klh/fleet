@@ -36,7 +36,12 @@ const stubDeps = (home: string, registry: string, s: Scenario): TreeDeps => ({
 				JSON.stringify({
 					router: { port: 5999 },
 					entries: [
-						{ alias: "nas-coder", label: "nas-coder", port: 5999, tier: "coder" },
+						{
+							alias: "nas-coder",
+							label: "nas-coder",
+							port: 5999,
+							tier: "coder",
+						},
 					],
 				}),
 				{ status: 200 },
@@ -180,6 +185,42 @@ describe("W530.2 fleet tree refresh", () => {
 		// the stale view IS the last good tree — local was fine moments ago
 		expect(stale.tree[0].down).toBeUndefined();
 		expect(stale.tree.some((r: Row) => r.demo === true)).toBe(true);
+	});
+
+	test("failed refresh caches the same stale fallback for ordinary and concurrent callers", async () => {
+		writeHome({}, DEMO);
+		let now = 1_000;
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+			latencyMs: 10,
+		};
+		const deps = stubDeps(home, "http://127.0.0.1:4000", s);
+		const src = createTreeSource({ ...deps, now: () => now });
+		const good = await src.tree();
+		now = 2_000;
+		s.registryOk = false;
+		const [forced, concurrent, ordinaryDuringRefresh] = await Promise.all([
+			src.tree(true),
+			src.tree(true),
+			src.tree(),
+		]);
+		expect(forced.stale).toBe(true);
+		expect(forced.generated_at).toBe(good.generated_at);
+		expect(forced.tree).toBe(good.tree);
+		expect(concurrent).toBe(forced);
+		expect(ordinaryDuringRefresh).toBe(forced);
+		const [cached, anotherCached] = await Promise.all([src.tree(), src.tree()]);
+		expect(cached).toBe(forced);
+		expect(anotherCached).toBe(forced);
+		expect(s.seen.registry).toBe(2);
+		now = 33_000;
+		s.registryOk = true;
+		const recovered = await src.tree();
+		expect(recovered.stale).toBeUndefined();
+		expect(recovered.generated_at).not.toBe(good.generated_at);
+		expect(await src.tree()).toBe(recovered);
 	});
 
 	test("no last good yet: registry down serves the honest all-down view", async () => {
