@@ -84,6 +84,15 @@
 						"timeout": 10
 					}
 				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts push",
+						"timeout": 10
+					}
+				]
 			}
 		],
 		"Stop": [
