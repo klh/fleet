@@ -96,6 +96,8 @@ export function allowOf(path: string): string | null {
 		return "GET, HEAD, OPTIONS";
 	if (path === "/v1/admin/keys" || path === "/v1/admin/teams")
 		return "GET, POST, OPTIONS";
+	if (path === "/v1/admin/spokes") return "GET, OPTIONS";
+	if (path === "/v1/admin/spokes/enroll") return "POST, OPTIONS";
 	if (
 		path === "/v1/admin/keys/verify" ||
 		path === "/v1/admin/budgets/flush" ||

@@ -33,6 +33,11 @@ import {
 } from "./federation-usage.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
+import {
+	redeemEnrollmentCode,
+	touchSpoke,
+	type RedeemResult,
+} from "./federation-spokes.ts";
 import type { ManifestSigner } from "./federation-signing.ts";
 
 export interface FederationOpts {
@@ -201,9 +206,11 @@ export class Federation {
 
 	/** W193: the manifest response — the hub signs the EXACT response bytes
 	 *  (detached JWS in x-buckle-manifest-signature). Unsigned only when no
-	 *  signing identity is wired (spokes degrade honestly). */
-	private manifestResponse(): Response {
-		const body = JSON.stringify(this.manifest());
+	 *  signing identity is wired (spokes degrade honestly). Accepts a
+	 *  precomputed manifest so the W173 heartbeat touches the registry with
+	 *  the exact version it serves. */
+	private manifestResponse(m?: FedManifest): Response {
+		const body = JSON.stringify(m ?? this.manifest());
 		const headers: Record<string, string> = {
 			"content-type": "application/json; charset=utf-8",
 		};
@@ -214,15 +221,34 @@ export class Federation {
 		return new Response(body, { headers });
 	}
 
+	/** W173 heartbeat: the pull IS the heartbeat — registry last_seen moves,
+	 *  the spoke may report its version header, policy_version = the exact
+	 *  manifest version being served (pull == apply). */
+	private pullHeartbeat(
+		req: Request,
+		p: Principal | null,
+		m: FedManifest,
+	): Response {
+		if (p !== null)
+			touchSpoke(this.db, {
+				keyId: p.keyId,
+				version: str(req.headers.get("x-buckle-spoke-version")),
+				policyVersion: m.version,
+			});
+		return this.manifestResponse(m);
+	}
+
 	/** Route dispatch. CR delivery confirmation POST carries the spoke's
 	 *  principal (gate enforces buckle:spoke:WRITE_; auth-off dev refuses
 	 *  honestly when no principal ever got stashed). */
 	async handle(req: Request, p: Principal | null): Promise<Response> {
 		const url = new URL(req.url);
 		if (req.method === "GET" && url.pathname === "/federation/policy-manifest")
-			return this.manifestResponse();
+			return this.pullHeartbeat(req, p, this.manifest());
 		if (req.method === "GET" && url.pathname === "/federation/entitlements")
 			return Response.json(this.entitlements(p));
+		if (req.method === "POST" && url.pathname === "/federation/enroll")
+			return this.enroll(req);
 		if (req.method === "POST" && url.pathname === "/federation/usage")
 			return this.usageIngest(req, p);
 		if (req.method === "GET" && url.pathname === "/federation/usage")
@@ -235,6 +261,40 @@ export class Federation {
 		if (req.method === "POST" && cr !== null)
 			return this.crStatus(req, decodeURIComponent(cr[1] ?? ""), p);
 		return this.notFound(`${req.method} ${url.pathname}`);
+	}
+
+	/** W173 enrollment redeem — the code IS the credential on this route (the
+	 *  gate lets POST /federation/enroll through bearer-optional; a presented
+	 *  bearer is still validated). Unknown/expired → 401, already-redeemed →
+	 *  409, bad body → 400; success 201 {spoke_id, key_id, key, scopes,
+	 *  expires_at}. Raw key material exists exactly once — this response. */
+	private async enroll(req: Request): Promise<Response> {
+		const body = (await req.json().catch(() => null)) as Record<
+			string,
+			unknown
+		> | null;
+		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+		const code = str(body.code);
+		if (code === null)
+			return bad(400, "buckle.bad_body", "missing code");
+		const out: RedeemResult = redeemEnrollmentCode(this.db, { code });
+		if (!out.ok) {
+			const status =
+				out.code === "buckle.enroll_used"
+					? 409
+					: 401;
+			return bad(status, out.code, out.why);
+		}
+		return Response.json(
+			{
+				spoke_id: out.spokeId,
+				key_id: out.keyId,
+				key: out.key,
+				scopes: ["buckle:spoke:READ_", "buckle:spoke:WRITE_"],
+				expires_at: out.expiresAt,
+			},
+			{ status: 201 },
+		);
 	}
 
 	/** Spoke-reported CR transition: {state, note?} body → lifecycle-enforced
