@@ -39,6 +39,11 @@ import {
 } from "./lib/governance-decide.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
+// W519: .prefer prefer= soft routing — the brief carries the constraint
+import {
+	preferRoutingBriefLines,
+	resolveRoutingPrefer,
+} from "./lib/prefer-routing.ts";
 import {
 	applyLaneAttribution,
 	DEFAULT_ALLOWED_TOOLS,
@@ -170,6 +175,15 @@ const LOOP_LOG = `${FLEET}/loop.log`;
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
 const governanceRefusals: string[] = [];
 
+// W519: .prefer routing constraints ride the brief — prefer= soft, must=
+// reserved (lib/prefer-routing.ts); parse errors loud on the dispatch log,
+// never fatal.
+const routingExtra = (): string[] => {
+	const r = resolveRoutingPrefer(CALLER_REPO);
+	for (const e of r.errors) console.log(`NOTE — .prefer ${e}`);
+	return preferRoutingBriefLines(r);
+};
+
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
  * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
  * hub label. `hub` is resolved to a real endpoint by hub-locate.ts (owner
@@ -204,6 +218,12 @@ const preferOf = (): {
 			const k = line.slice(0, i).trim();
 			const v = line.slice(i + 1).trim();
 			if (!v) continue;
+			// W519 plane split: a quoted value (or any value carrying a space)
+			// is the .prefer ROUTING plane (lib/prefer-routing.ts) — never an
+			// executor-chain entry; a chain entry with a space can only ever
+			// pin a garbage model. Legacy executor files (must=opus) are
+			// unquoted single tokens and ride the chain exactly as before.
+			if (v.startsWith('"') || /\s/.test(v)) continue;
 			if (k === "must") musts.push(v);
 			else if (k === "prefer") prefers.push(v);
 			else if (k === "hub") hub = v;
@@ -655,6 +675,7 @@ const dispatchItem = async (
 			capsule,
 			agent: pick.agent,
 			landing: await landingRedirect(REPO, branch),
+			extra: routingExtra(),
 		});
 		console.log(brief);
 		// W223.2: dry-run shows the verdict the spawn path would enforce
@@ -841,6 +862,8 @@ const dispatchItem = async (
 		]);
 		if (registered.code !== 0)
 			throw new Error("lane session metadata registration failed");
+		// W519: .prefer routing constraints ride the brief — prefer= soft,
+		// must= reserved (lib/prefer-routing.ts); errors loud, never fatal.
 		const brief = composeBrief({
 			item,
 			showOut: show.out,
@@ -849,6 +872,7 @@ const dispatchItem = async (
 			worktree: wt,
 			capsule,
 			agent: pick.agent,
+			extra: routingExtra(),
 		});
 		// W223.2 dual-harness brief verification: copilot's prompt handling can
 		// mangle a brief claude renders fine, so the copilot harness gets a hard
