@@ -223,16 +223,25 @@ fi
 
 # optional: register the board with klh-local's user-level Caddy so the LAN
 # gets http://suspenders.local:7799. Idempotent (converges on re-run) and
-# never fatal — the loopback board works without it.
+# optional absence is skipped; attempted registration failure is reported as
+# a degraded install without aborting the remaining harness/release work.
+report_caddy() {
+  if [[ -n "${SUSPENDERS_LEGACY_REPORT:-}" ]]; then
+    printf '{"name":"registerCaddy","status":"%s","note":"%s"}\n' "$1" "$2" >> "$SUSPENDERS_LEGACY_REPORT"
+  fi
+}
 KLH_LOCAL_BIN="$HOME/.local/bin/klh-local"
 if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
   if "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
     echo "→ suspenders.local → 127.0.0.1:7799 (klh-local / Caddy)"
+    report_caddy ok "board registered with klh-local/Caddy"
   else
-    echo "→ klh-local register failed (non-fatal) — board stays on http://127.0.0.1:7799"
+    echo "→ degraded install: klh-local register failed — loopback board URL: http://127.0.0.1:7799"
+    report_caddy failed "optional Caddy registration failed; harness installed, use the loopback board URL and inspect Caddy reload/rollback"
   fi
 else
   echo "optional: install klh-local + caddy to also serve this board at http://suspenders.local:7799"
+  report_caddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
 fi
 
 echo

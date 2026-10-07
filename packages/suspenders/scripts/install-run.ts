@@ -3,6 +3,8 @@
 // pause builder, and executePlan. Pure logic — no CLI parsing, no printing.
 // The contract (scripts/install-contract.ts) is the frozen surface.
 import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { execa } from "execa";
 import {
 	type ContractStep,
@@ -41,6 +43,13 @@ export interface Executed {
 export type RowSink = (row: StepOutcomeRow) => void;
 
 type StepImpl = (ctx: StepContext) => Promise<StepResult>;
+
+interface DelegatedResult {
+	ok: boolean;
+	note: string;
+	detail: string;
+	steps: Partial<Record<StepName, StepResult>>;
+}
 
 // ─── v1 step implementations (only "real" steps live here; the rest delegate) ───
 
@@ -82,26 +91,75 @@ async function refreshDashboards(ctx: StepContext): Promise<StepResult> {
  * __legacy full entrypoint (the legacy body blocks install.ts has no step
  * for yet) — never the wrapper front, which would recurse.
  */
-async function delegateBash(
-	ctx: StepContext,
-): Promise<{ ok: boolean; note: string; detail: string }> {
+async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 	const script = join(ctx.repo, "install.sh");
+	const reportDir = mkdtempSync(join(tmpdir(), "fleet-install-report-"));
+	const report = join(reportDir, "steps.ndjson");
 	try {
 		const res = await execa("bash", [script, "__legacy", "full"], {
 			cwd: ctx.repo,
 			stdout: ctx.json ? "pipe" : "inherit",
 			stderr: "inherit",
+			env: { SUSPENDERS_LEGACY_REPORT: report },
+			reject: false,
 		});
+		if (res.exitCode !== 0) {
+			return {
+				ok: false,
+				note: `bash delegation failed (exit ${res.exitCode ?? "signal"})`,
+				detail: "",
+				steps: {},
+			};
+		}
 		const text = typeof res.stdout === "string" ? res.stdout : "";
 		const tail = text.trim().split("\n").at(-1) ?? "";
+		const steps: DelegatedResult["steps"] = {
+			registerCaddy: {
+				status: "failed",
+				note: "Caddy registration outcome was not reported; installation cannot be verified",
+			},
+		};
+		try {
+			for (const line of readFileSync(report, "utf8")
+				.split("\n")
+				.filter(Boolean)) {
+				const row = JSON.parse(line) as {
+					name: unknown;
+					status: unknown;
+					note: unknown;
+				};
+				if (
+					row.name !== "registerCaddy" ||
+					typeof row.status !== "string" ||
+					!["ok", "failed", "skipped"].includes(row.status) ||
+					typeof row.note !== "string"
+				)
+					throw new Error("invalid legacy step report");
+				steps.registerCaddy = {
+					status: row.status as StepStatus,
+					note: row.note,
+				};
+			}
+		} catch (err) {
+			if (!(err instanceof Error && "code" in err && err.code === "ENOENT"))
+				throw new Error("invalid legacy step report");
+		}
 		return {
 			ok: true,
 			note: "executed via the v1 bash delegation (install.sh __legacy full)",
 			detail: tail,
+			steps,
 		};
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		return { ok: false, note: `bash delegation failed — ${msg}`, detail: "" };
+		return {
+			ok: false,
+			note: `bash delegation failed — ${msg}`,
+			detail: "",
+			steps: {},
+		};
+	} finally {
+		rmSync(reportDir, { recursive: true, force: true });
 	}
 }
 
@@ -162,7 +220,7 @@ export async function executePlan(
 		onRow(row);
 	};
 	let outcome: OutcomeStatus = "ok";
-	let delegated: { ok: boolean; note: string; detail: string } | undefined;
+	let delegated: DelegatedResult | undefined;
 	let delegationFailed = false;
 	const selected: ReadonlySet<StepName> = new Set<StepName>(
 		mode === "step" && stepName !== null
@@ -228,13 +286,15 @@ export async function executePlan(
 				delegated = await delegateBash(ctx);
 				delegationFailed = !delegated.ok;
 			}
-			emit({
+			const row: StepOutcomeRow = {
 				name: step.name,
 				status: delegated.ok ? "delegated" : "failed",
 				note: delegated.note,
 				detail: ctx.verbose ? delegated.detail : undefined,
-			});
-			if (!delegated.ok) outcome = "failed";
+				...(delegated.ok ? delegated.steps[step.name] : undefined),
+			};
+			emit(row);
+			if (row.status === "failed") outcome = "failed";
 			continue;
 		}
 		// real implementation
