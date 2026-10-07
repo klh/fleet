@@ -55,6 +55,8 @@ import {
 } from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { reapIfIdle } from "../lib/subscribe-attach.ts";
+import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
@@ -368,19 +370,6 @@ const MUTATING_CMDS = new Set([
 	"migrate-ledger",
 ]);
 
-const GLYPH: Record<string, [string, (s: string) => string]> = {
-	READY: ["·", cyan],
-	CLAIMED: ["◐", cyan],
-	RUNNING: ["▶", green],
-	BLOCKED: ["⚠", red],
-	PAUSED: ["⏸", amber],
-	DONE: ["✓", green],
-	FAILED: ["✗", red],
-	CANCELLED: ["⊘", dim],
-	SUPERSEDED: ["■", dim],
-	SHATTERED: ["⊞", cyan],
-	ORPHANED: ["◌", amber],
-};
 
 type Item = Record<string, string | number | null>;
 
@@ -753,14 +742,6 @@ function releaseObserved(
 	);
 }
 
-function renderRow(r: Item): string {
-	const [g, col] = GLYPH[r.state as string] ?? ["?", dim];
-	const owner = r.owner_sid ? dim(String(r.owner_sid).slice(0, 6)) : "";
-	const req = r.requires ? dim(` ⟨needs ${r.requires}⟩`) : "";
-	const tg = r.tags ? dim(` #${String(r.tags)}`) : "";
-	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}${tg}`;
-}
-
 // claimant transcript path — moved to hooks/lib/lane-liveness.ts so the
 // lanes verb, dispatch-next and fleet-loop share ONE liveness (2026-10-05)
 function liveTranscript(sid: string): string | null {
@@ -1047,6 +1028,9 @@ if (cmd === "add") {
 		);
 	if (!releaseObserved(it, owner, "owner-release"))
 		die(`${id} claim changed — release refused; inspect before retrying`);
+	// W418: an idle owner's WS subscribe is reaped — no unfinished item, no
+	// inbox to push to (subscribe lifecycle rides the work graph)
+	reapIfIdle(db(), owner);
 	console.log(`${cyan("·")} ${dim(`${id} → READY`)}`);
 } else if (cmd === "start") {
 	const id = pos[0];
@@ -1131,6 +1115,9 @@ if (cmd === "add") {
 	// W52: retire the item's per-item worktree if it has one (clean → removed,
 	// dirty → kept with a note; branch suspenders/<id> always survives)
 	retireItemWorktree(id);
+	// W418: the item is DONE — when the owner holds nothing else, their WS
+	// inbox connection is reaped (subscribe lifecycle rides the work graph)
+	reapIfIdle(db(), String(it.owner_sid ?? ""));
 } else if (cmd === "fail") {
 	const id = pos[0];
 	const note = flag("--note") ?? "";

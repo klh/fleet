@@ -9,6 +9,7 @@
 import { openStore } from "./lib/govdb.ts";
 import { settleSession } from "./lib/settle.ts";
 import { retireTopLevel } from "./lib/hook-scripts.ts";
+import { reapSubscribe } from "./lib/subscribe-attach.ts";
 
 // W514 (claudecode research §1.8): the SessionEnd payload is tiny — race
 // the stdin read against 1 s so a detached or late-stdin invocation (async
@@ -27,6 +28,14 @@ if (input.session_id) {
 	openStore()
 		.query("UPDATE sessions SET state = 'CLOSED', hb = ? WHERE sid = ?")
 		.run(Date.now(), input.session_id);
+	// W418: the WS inbox connection is per-session — a closed session's
+	// subscribe is reaped here instead of idling into the W494 staleness
+	// exit. Degrade-honest: a reap failure never blocks the close.
+	try {
+		reapSubscribe(input.session_id);
+	} catch (e) {
+		console.error(`[subscribe] reap degraded (session end proceeds): ${String(e)}`);
+	}
 	try {
 		const r = await settleSession(input.session_id);
 		if (r.queueMarked > 0 || r.rowsBackfilled > 0)

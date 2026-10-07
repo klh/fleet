@@ -65,3 +65,52 @@ export const attachSubscribe = (
 	).unref();
 	return true;
 };
+
+// W418: the lifecycle twin of attach — anchored pkill for the sid's
+// subscribe. Session end, a final work-done, and the coord gc sweep land
+// here instead of waiting out the W494 15-min staleness exit.
+export const reapSubscribe = (sid: string): boolean => {
+	if (!subscribeLive(sid)) return false;
+	Bun.spawnSync(["/usr/bin/pkill", "-f", `coord[.]ts subscribe --as ${sid}$`]);
+	return true;
+};
+
+// gc sweep: ONE pgrep pass lists every live subscribe; sids the predicate
+// calls dead get reaped. Returns the reaped sids. The caller owns the
+// deadness verdict (session CLOSED / not live) — this file stays DB-free.
+export const reapDeadSubscribes = (
+	sid_dead: (sid: string) => boolean,
+): string[] => {
+	const p = Bun.spawnSync([
+		"/usr/bin/pgrep",
+		"-fl",
+		"coord[.]ts subscribe --as ",
+	]);
+	if (p.exitCode !== 0) return [];
+	const reaped: string[] = [];
+	for (const line of new TextDecoder()
+		.decode(p.stdout ?? new Uint8Array())
+		.split("\n")) {
+		const m = / --as (\S+)/.exec(line);
+		if (!m || !sid_dead(m[1])) continue;
+		if (reapSubscribe(m[1])) reaped.push(m[1]);
+	}
+	return reaped;
+};
+
+// W418 reap-on-idle: when a work item closes (done) or is given back
+// (release) and its owner holds no other unfinished item, the lane's WS
+// subscribe has nothing left to push to — reap it. The store comes in as a
+// parameter so this lifecycle file stays DB-free; the SQL mirrors
+// releaseWorkClaim's unfinished set (CLAIMED/RUNNING/ORPHANED).
+type Storeish = {
+	query: (sql: string) => { get: (...params: unknown[]) => unknown };
+};
+export const reapIfIdle = (store: Storeish, sid: string): boolean => {
+	if (!sid) return false;
+	const busy = store.query(
+		"SELECT 1 FROM work_items WHERE owner_sid = ? AND state IN ('CLAIMED','RUNNING','ORPHANED') LIMIT 1",
+	).get(sid);
+	if (busy) return false;
+	return reapSubscribe(sid);
+};
