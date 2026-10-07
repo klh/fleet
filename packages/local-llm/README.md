@@ -11,7 +11,7 @@ proved the shared client surface.
 ## Layout
 
 **Flat kit** — the package root mirrors the runtime home one-to-one: the
-four `.ts` files sit at the root (no `src/`, no `bin/`) because install.sh
+runtime modules sit at the root (no `src/`, no `bin/`) because install.sh
 copies them individually into a flat directory and they import each other
 relatively (`./registry.ts`, `./spawner.ts`).
 
@@ -20,6 +20,9 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)            |
 | `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
 | `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                  |
+| `gateway-supervision.ts` | LiteLLM adoption, revival and bounded retry backoff |
+| `litellm-target.ts` | Re-export of Belt's canonical LiteLLM target |
+| `memory-policy.ts` | Per-model Metal budget, bounded caches and concurrency |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
 
@@ -35,7 +38,10 @@ runtime home from belt/bin (W465).
 | `:8902` | extract / menial                                 |
 | `:8903` | reason                                           |
 | `:8906` | general / Danish                                 |
+| `:8913` | reranker |
 | `:4000` | belt router-shim (anthropic seam over the swarm) |
+| `:4100` | LiteLLM engine, owned by the serving swarm |
+| `:4101` | Buckle authenticated front door, separate service |
 
 ## Runtime home
 
@@ -56,6 +62,36 @@ bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
 
 launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
 `launchctl kickstart gui/$(id -u)/com.suspenders.local-llm` revives.
+
+### Recover a legacy swarm missing gateway ownership
+
+```sh
+bash packages/suspenders/install.sh --refresh-gateway --dry-run
+bash packages/suspenders/install.sh --refresh-gateway
+launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm
+```
+
+This code-only upgrade preserves runtime customizations, makes backups of
+changed modules, and keeps registry, routing policy and credentials intact.
+The advanced Belt supervisor already owns LiteLLM and uses
+`--refresh-supervisor` instead. Keep `com.belt.gateway` unloaded: there
+must be one restarter for port 4100.
+
+Rapid engines receive a model-sized Metal allocation budget (weights × 1.2
+plus 4 GiB, capped at 40 GiB), a 1 GiB prefix cache and concurrency of two.
+The allocation fraction is calculated against host RAM; Rapid applies it to
+its Metal working-set budget, so the effective limit can be lower. Native
+idle handling clears caches after 60 seconds and unloads model weights after
+15 minutes without inference. Health probes do not count as inference.
+Cold admission includes the prospective model budget in the 60 GiB wired-RAM
+guard, and a live loading PID is never replaced just because its deadline
+expired. These limits constrain each engine; they are not an OS-wide RSS cap
+or a transactional reservation across concurrent launchers.
+
+Buckle liveness alone cannot verify inference: recovery verification must
+include an authenticated request through its governed route, then revoke the
+temporary test key. On 2026-10-07, Buckle was listening while its LiteLLM
+backend was absent because the minimal legacy swarm did not supervise it.
 
 ## Config stubs
 

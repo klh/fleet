@@ -348,6 +348,12 @@ export const INSTALL_CONTRACT = {
 	],
 	bashFlags: [
 		{
+			flag: "--refresh-gateway",
+			meaning:
+				"targeted minimal-swarm gateway supervision and model limits upgrade (early exit)",
+			mappedStep: "seedLocalLlm",
+		},
+		{
 			flag: "--wire",
 			meaning: "merge hooks into ~/.claude/settings.json",
 			mappedStep: "wireSettings",

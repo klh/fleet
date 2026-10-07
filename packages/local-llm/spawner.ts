@@ -10,6 +10,7 @@
 
 import { openSync, readFileSync } from "node:fs";
 import type { Specialist } from "./registry.ts";
+import { rapidMemoryArgs } from "./memory-policy.ts";
 
 const HOME = process.env.HOME;
 const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
@@ -35,6 +36,7 @@ export function spawnArgs(s: Specialist): string[] {
 			"--port",
 			String(s.port),
 			...(s.flags ?? []),
+			...rapidMemoryArgs(s.ram_gb),
 		];
 	}
 	return [

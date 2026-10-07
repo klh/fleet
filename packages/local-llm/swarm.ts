@@ -25,6 +25,7 @@ import {
 import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
 import { mlxLogPath, spawnArgs } from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
+import { gatewaySupervisor } from "./gateway-supervision.ts";
 
 const HOME = process.env.HOME;
 // download-only — server argv lives in spawner.ts (spawnArgs), shared with the
@@ -222,7 +223,10 @@ const serveTargets = (): ServeTarget[] => [
 	{ port: 4000, argv: [process.execPath, ROUTER], label: "router" },
 ];
 
+const ensureGateway = gatewaySupervisor(undefined, serveLog);
+
 async function serveOnce(): Promise<void> {
+	await ensureGateway();
 	for (const t of serveTargets()) {
 		const up = await isUp(t.port);
 		if (up) {

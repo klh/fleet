@@ -114,6 +114,14 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
+  for f in gateway-supervision.ts memory-policy.ts; do
+    if [[ ! -f "$LLM_HOME/$f" ]]; then
+      cp "$KIT_DIR/$f" "$LLM_HOME/$f"
+    fi
+  done
+  if [[ ! -f "$LLM_HOME/litellm-target.ts" ]]; then
+    cp "$SCRIPT_DIR/../belt/bin/litellm-target.ts" "$LLM_HOME/litellm-target.ts"
+  fi
   # W465 one-source: the registry and the :4000 router are BELT-owned now —
   # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
   # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
@@ -259,7 +267,7 @@ fi
 
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
-LEG_DASHBOARDS=0 LEG_DRY_RUN=0
+LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0
 NATIVE=()
 prev_step=0
 for arg in "$@"; do
@@ -271,12 +279,17 @@ for arg in "$@"; do
     --no-llm) LEG_NO_LLM=1 ;;
     --refresh-supervisor) LEG_SUPERVISOR=1 ;;
     --refresh-dashboards) LEG_DASHBOARDS=1 ;;
+    --refresh-gateway) LEG_GATEWAY=1 ;;
     --dry-run) LEG_DRY_RUN=1; NATIVE+=("$arg") ;;
     --yes|--json|--verbose) NATIVE+=("$arg") ;;
     --step) NATIVE+=("$arg"); prev_step=1 ;;
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
+
+if [[ $LEG_GATEWAY -eq 1 ]]; then
+  exec bun "$SCRIPT_DIR/scripts/refresh-gateway.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
 
 # --refresh-dashboards: safe GUI-only early exit (native step; --dry-run plans)
 if [[ $LEG_DASHBOARDS -eq 1 ]]; then
