@@ -16,13 +16,31 @@ type Row = Record<string, unknown>;
 type Scenario = {
 	registryOk: boolean;
 	upLeaves: Set<string>;
-	seen: { registry: number; inflight: number; maxInflight: number };
+	seen: {
+		registry: number;
+		inflight: number;
+		maxInflight: number;
+		urls: string[];
+	};
 	latencyMs?: number;
 };
 
 const stubDeps = (home: string, registry: string, s: Scenario): TreeDeps => ({
 	fetchImpl: (async (url: string | URL | Request) => {
 		const u = String(url);
+		s.seen.urls.push(u);
+		// the hub candidate gets its OWN doc: leaves ride port 5999 on the hub
+		// host — the W530.2 origin fix makes probes hit :5999, never :5999:5999
+		if (u === "http://127.0.0.1:5999/registry.json" && s.registryOk)
+			return new Response(
+				JSON.stringify({
+					router: { port: 5999 },
+					entries: [
+						{ alias: "nas-coder", label: "nas-coder", port: 5999, tier: "coder" },
+					],
+				}),
+				{ status: 200 },
+			);
 		if (u.endsWith("/registry.json")) {
 			s.seen.registry++;
 			if (s.latencyMs) await new Promise((r) => setTimeout(r, s.latencyMs));
@@ -78,7 +96,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set(["u"]),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const [a, b] = await Promise.all([src.tree(true), src.tree(true)]);
@@ -91,7 +109,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set(),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 			latencyMs: 15,
 		};
 		const raw = stubDeps(home, "http://127.0.0.1:4000", s);
@@ -123,7 +141,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set([coderUrl]),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const before = await src.tree(true);
@@ -148,7 +166,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set(["u"]),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const raw = stubDeps(home, "http://127.0.0.1:4000", s);
 		const deps: TreeDeps = { ...raw, now: () => (t += 1000) };
@@ -169,7 +187,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: false,
 			upLeaves: new Set<string>(),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const snap = await src.tree(true);
@@ -184,7 +202,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set<string>(),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const snap = await src.tree(true);
@@ -215,7 +233,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const s: Scenario = {
 			registryOk: true,
 			upLeaves: new Set<string>(),
-			seen: { registry: 0, inflight: 0, maxInflight: 0 },
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
 		};
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const get = (u: string) => handleFleetTree(new Request(u), new URL(u), src);
@@ -230,5 +248,21 @@ describe("W530.2 fleet tree refresh", () => {
 		expect(html).toContain('id="refresh"');
 		expect(html).toContain("refresh=1");
 		expect(html).toContain("visibilitychange");
+	}, 10000);
+
+	test("hub leaves probe the candidate HOST with the registry PORT", async () => {
+		writeHome(HUBS, DEMO);
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set<string>(["http://127.0.0.1:5999/v1/models"]),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const snap = await src.tree(true);
+		const hub = snap.tree.find((r: Row) => r.label === "nas");
+		expect(hub?.models.length).toBe(2); // router + one entry, both :5999
+		expect(hub?.models.every((m: Row) => m.up === true)).toBe(true);
+		expect(s.seen.urls).toContain("http://127.0.0.1:5999/v1/models");
+		expect(s.seen.urls).not.toContain("http://127.0.0.1:5999:5999/v1/models");
 	}, 10000);
 });

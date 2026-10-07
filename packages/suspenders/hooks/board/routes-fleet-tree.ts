@@ -155,7 +155,7 @@ const leafModels = async (
 	return built.map((b, i) => ({ ...b.leaf, up: ups[i] }));
 };
 
-const localRoot = async (): Promise<Root> => {
+const localRoot = async (deps: TreeDeps): Promise<Root> => {
 	const root: Root = { label: "local", models: [] };
 	try {
 		const r = await deps.fetchImpl(`${deps.localRegistry()}/registry.json`, {
@@ -163,7 +163,8 @@ const localRoot = async (): Promise<Root> => {
 		});
 		if (!r.ok) throw new Error(String(r.status));
 		const doc = (await r.json()) as RegistryDoc;
-		root.models = await leafModels(deps, doc, "");
+		const o = new URL(deps.localRegistry());
+		root.models = await leafModels(deps, doc, `${o.protocol}//${o.hostname}`);
 	} catch {
 		root.down = true;
 	}
@@ -182,9 +183,12 @@ const hubRoot = async (
 			});
 			if (!r.ok) continue;
 			const doc = (await r.json()) as RegistryDoc;
+			// leaf ports ride the candidate HOST, never the candidate's own port
+			// (W530.2: origin double-port made every hub leaf probe miss)
+			const u = new URL(c);
 			return {
 				label,
-				models: await leafModels(deps, doc, new URL(c).origin),
+				models: await leafModels(deps, doc, `${u.protocol}//${u.hostname}`),
 			};
 		} catch {}
 	}
