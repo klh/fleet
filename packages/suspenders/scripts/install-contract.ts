@@ -293,7 +293,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "seedLocalLlm",
 			oneLiner:
-				"seed the local-llm baseline into the runtime home — kit files and config stubs only when absent, never clobber",
+				"seed the local-llm baseline into the runtime home — belt-owned code copies converge on hash mismatch (prior copy → .before-refresh), operator config only when absent",
 			mutates: true,
 			optIn: false,
 			v1: "delegated",

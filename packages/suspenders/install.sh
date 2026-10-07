@@ -64,32 +64,15 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
       cp "$KIT_DIR/$f" "$LLM_HOME/$f"
     fi
   done
-  if [[ ! -f "$LLM_HOME/litellm-target.ts" ]]; then
-    cp "$SCRIPT_DIR/../belt/bin/litellm-target.ts" "$LLM_HOME/litellm-target.ts"
-  fi
-  # W465 one-source: the registry and the :4000 router are BELT-owned now —
-  # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
-  # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
-  # is retired. spawner/health stay kit-local. Runtime copies are never
-  # clobbered (kept = the live fleet's possibly-customized source of truth).
-  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts spawner.ts spawn-admission.ts; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
-    else
-      cp "$SCRIPT_DIR/../belt/bin/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f (from belt/bin)"
-    fi
-  done
+  # W465 one-source: registry/router/admission/spawn kit + litellm-target.ts
+  # are BELT-owned CODE — the seeder converges them on hash mismatch
+  # (W422.6.1: a pre-W507 registry-emit.ts otherwise survives every install
+  # and tier.json never emits; prior copy → .before-refresh). spawner/health
+  # stay kit-local. Operator-owned config below is never clobbered (kept =
+  # the live fleet's possibly-customized source of truth).
+  bun "$SCRIPT_DIR/scripts/seed-local-llm.ts" --home "$LLM_HOME" --belt "$SCRIPT_DIR/../belt/bin"
   if [ ! -f "$LLM_HOME/health.ts" ]; then
     cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
-  fi
-  # W507: the tier choice is machine config, not launchd env — every install
-  # re-emits the tier manifest the swarm supervisor and llm-keepwarm both
-  # read (smallest-fit law = minimal). A stale kit copy (no `tier` kind)
-  # degrades to a note, never a failed install.
-  if [ -f "$LLM_HOME/registry-emit.ts" ]; then
-    BELT_TIER=minimal bun "$LLM_HOME/registry-emit.ts" tier --out "$LLM_HOME/tier.json" \
-      || echo "→ tier manifest emission skipped (stale kit registry-emit.ts)"
   fi
   # swarm.ts is the one kit file that MAY refresh a present copy: an older
   # installed swarm.ts lacks the serve supervisor, and a serve-less swarm.ts

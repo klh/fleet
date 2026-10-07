@@ -47,10 +47,11 @@ runtime home from belt/bin (W465).
 ## Runtime home
 
 The kit RUNS from `~/.claude/local-llm/`, never from this repo.
-`packages/suspenders/install.sh` copies the kit there (registry/spawner/
-router-shim only when absent, swarm.ts refreshed when the copy lacks
-`serve`, config stubs never clobbered — the runtime copy is the live
-fleet's possibly-customized source of truth). Machine config lives ONLY in
+`packages/suspenders/install.sh` copies the kit there (belt-owned code —
+litellm-target, registry, router, admission, spawn kit — converges on hash
+mismatch with the pre-refresh copy backed up as `<file>.before-refresh`;
+swarm.ts refreshed when the copy lacks `serve`; operator config never
+clobbered). Machine config lives ONLY in
 that home (mode 600): filled `belt.env`, operator-edited
 `routing-policy.yaml`, `prefs.json`. Repos carry placeholders only.
 
