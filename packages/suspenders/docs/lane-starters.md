@@ -28,6 +28,20 @@ any wiring; **unavailable** = no local binary.
 | gemini | not in the executor ladder (`resolveLaneExecutor`: claude/copilot/codex) | — | not supported | unavailable |
 | grok | hook adapter exists (hook-adapter-grok); session fork surface unverified | — | catalog-only | doc-pending |
 
+## Measured results (2026-10-07, this host, n=3, belt-front routing)
+
+| Phase | mode | wall mean | fresh input mean | cache_read mean | cache share |
+| --- | --- | --- | --- | --- | --- |
+| PRE | cold | 29.8 s | 10 432 tok | 93 035 tok | 90% |
+| POST | fork | 16.7 s | 1 100 tok | 49 195 tok | 98% |
+
+Forks got NEW session ids per run (`--fork-session`) — the starter session
+stays 1-turn intact. Caveats: n=3 with high wall variance (gateway), warm
+provider cache, probe child rode the measuring lane's attribution. Seed
+success criterion is session-id presence, NOT exit code (the CLI exits 1 on
+trailing `unrecognized_model` diagnostics while the session is valid —
+observed live).
+
 ## Benchmark protocol (Phase 1 PRE / Phase 3 POST)
 
 `bun scripts/orientation-bench.ts --harness claude --runs 3 --phase pre|post`

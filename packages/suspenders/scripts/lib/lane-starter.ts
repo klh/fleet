@@ -175,18 +175,19 @@ export const ensureStarter = (
 		});
 		return {
 			code: p.exitCode ?? 1,
-			out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`,
+			out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""} ${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`,
 		};
 	});
 	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
 	const res = run(executorBin, seedArgs, env);
-	if (res.code !== 0) {
-		options.log?.(`starter seed failed (${harness}, code ${res.code})`);
-		return null;
-	}
+	// Session-id presence is the success criterion, NOT the exit code: the CLI
+	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
+	// unrecognized_model line) while the session + usage are perfectly valid.
 	const sessionId = parseSessionId(res.out);
 	if (!sessionId) {
-		options.log?.(`starter seed produced no session id (${harness})`);
+		options.log?.(
+			`starter seed failed (${harness}, code ${res.code}): ${res.out.replaceAll("\n", " ").slice(0, 220)}`,
+		);
 		return null;
 	}
 	mkdirSync(startersDir(fleet), { recursive: true });
@@ -205,19 +206,33 @@ export const ensureStarter = (
 	return record;
 };
 
-/** Pull the session id out of a `--output-format json` result — tolerant of
- *  a leading log line before the JSON object. */
+/** Pull the session id out of a `--output-format json` result. Tolerant of
+ *  leading/trailing non-JSON text (the CLI can append diagnostics after the
+ *  result object — same live finding as the bench parser): walk candidate
+ *  object windows and accept the first parse with a string session id. */
 export const parseSessionId = (out: string): string | null => {
-	const start = out.indexOf("{");
-	if (start < 0) return null;
-	try {
-		const parsed = JSON.parse(out.slice(start)) as { session_id?: unknown };
-		return typeof parsed.session_id === "string" && parsed.session_id.length > 0
-			? parsed.session_id
-			: null;
-	} catch {
-		return null;
+	for (
+		let start = out.indexOf("{");
+		start >= 0;
+		start = out.indexOf("{", start + 1)
+	) {
+		for (
+			let end = out.lastIndexOf("}");
+			end > start;
+			end = out.lastIndexOf("}", end - 1)
+		) {
+			try {
+				const parsed = JSON.parse(out.slice(start, end + 1)) as {
+					session_id?: unknown;
+				};
+				if (typeof parsed.session_id === "string" && parsed.session_id.length > 0)
+					return parsed.session_id;
+			} catch {
+				// try the next (shorter) window
+			}
+		}
 	}
+	return null;
 };
 
 /** Dispatch-facing wiring (W454): when the starter flag is on and the
