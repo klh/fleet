@@ -253,3 +253,15 @@ services:
     schedule: { keepalive: true, throttleSeconds: 10 }
     logs: { out: "__HOME__/.claude-insights/consult-relay.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # W179.3 nightly real-provider soak — 03:15 calendar, DELIVERED NOT
+  # INSTALLED: activation is a coordinator step. Tiny caps by default
+  # (SOAK_MAX_USD / SOAK_MAX_TOKENS / SOAK_ITERS / SOAK_MAX_MINUTES env at
+  # render time); belt auth resolves via resolveBelt() from HOME. A cap hit
+  # is a clean exit (the cap working).
+  - name: soak
+    bunEntry: "__PREFIX__/bin/soak.ts"
+    schedule: { calendar: { hour: 3, minute: 15 }, runAtLoad: false }
+    nice: 10
+    logs: { out: /tmp/soak.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
