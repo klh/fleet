@@ -1163,7 +1163,16 @@ and gateway telemetry. Cross-hub project identity and authorized knowledge shari
 remain the separate architecture described above; local Git identity has not been
 replaced by this work.
 
-### Implemented: automatic cross-hub consultation outbox (W480)
+### Implemented: automatic cross-hub consultation outbox (W480, closes W475)
+
+The W471 boundary item W475 (bounded relay so automatic governor consults can
+reach a remote hub inbox) is delivered in full by this W480 work — same scope,
+one delivery. Work item W475 closes against this section's commit; the residual
+step is operational, not code: install the receiving store version plus
+`GOVERNOR_STORE_TOKEN` on each participating hub (owner GO, credentials minted
+on-device).
+
+### Implementation detail (W480)
 
 Automatic governor consultation still writes through the local lease registry,
 but now commits a durable delivery UUID in the same SQLite transaction as the
