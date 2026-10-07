@@ -102,20 +102,16 @@ export function activateTranscriptUsage(
 					"SELECT sql FROM sqlite_master WHERE name='usage_message_ledger'",
 				)
 				.get() as { sql: string };
-			if (
-				db
-					.query(
-						"SELECT 1 FROM sqlite_master WHERE name='usage_message_ledger'",
-					)
-					.get()
-			)
-				db.run(
-					"CREATE TABLE usage_message_ledger_legacy_archive AS SELECT * FROM usage_message_ledger",
-				);
-			db.run("DROP TABLE IF EXISTS usage_message_ledger");
-			db.run(ledgerSchema.sql);
+			// Cached legacy producers keep their ledger and aggregate. They must
+			// never consume deltas belonging to the verified source.
+			db.run(
+				ledgerSchema.sql.replace(
+					/usage_message_ledger/,
+					"usage_verified_message_ledger",
+				),
+			);
 			const ledger = db.query(
-				"INSERT INTO usage_message_ledger VALUES (?,?,?,?,?,?,?,?,?)",
+				"INSERT INTO usage_verified_message_ledger VALUES (?,?,?,?,?,?,?,?,?)",
 			);
 			for (const row of report
 				.query("SELECT * FROM usage_message_ledger")

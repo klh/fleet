@@ -9,7 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { harvestUsage } from "../hooks/bin/usage-harvest.ts";
 import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
 import {
@@ -77,6 +77,51 @@ function fixture(wal = false) {
 		path: join(dir, "report/manifest.json"),
 	};
 }
+
+test("cached legacy harvester cannot consume verified deltas after activation", async () => {
+	const f = fixture();
+	const previous = Bun.spawnSync(
+		["git", "show", "63ea547^:packages/suspenders/hooks/bin/usage-harvest.ts"],
+		{
+			cwd: resolve(import.meta.dir, "../../.."),
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	expect(previous.exitCode, previous.stderr.toString()).toBe(0);
+	const source = previous.stdout
+		.toString()
+		.replace(
+			/from "(\.\.?\/[^"\n]+)"/g,
+			(_match, relative) =>
+				`from ${JSON.stringify(resolve(import.meta.dir, "../hooks/bin", relative))}`,
+		);
+	const cachedModule = join(dirname(f.root), "cached-legacy.ts");
+	writeFileSync(cachedModule, source);
+	const oldHarvest = (await import(cachedModule))
+		.harvestUsage as typeof harvestUsage;
+	oldHarvest(f.db, { root: f.root });
+	// Include the old producer's cursor/ledger in the reviewed snapshot.
+	prepareUsageRebuild(
+		join(dirname(f.root), "source.sqlite"),
+		f.root,
+		join(dirname(f.root), "fresh-report"),
+	);
+	activateTranscriptUsage(
+		f.db,
+		join(dirname(f.root), "fresh-report/manifest.json"),
+		{ reviewedSourceSelection: true },
+	);
+	appendFileSync(f.transcript, `${block(12)}\n`);
+	expect(oldHarvest(f.db, { root: f.root }).outTok).toBe(7);
+	expect(harvestUsage(f.db, { root: f.root }).outTok).toBe(7);
+	expect(buildUsageReport(f.db, { nowMs: NOW }).totals.o).toBe(12);
+	appendFileSync(f.transcript, `${block(19)}\n`);
+	expect(harvestUsage(f.db, { root: f.root }).outTok).toBe(7);
+	expect(oldHarvest(f.db, { root: f.root }).outTok).toBe(7);
+	expect(harvestUsage(f.db, { root: f.root }).outTok).toBe(0);
+	expect(buildUsageReport(f.db, { nowMs: NOW }).totals.o).toBe(19);
+});
 
 test("WAL source snapshot is normalized privately and hashes remain usable", () => {
 	const f = fixture(true);
@@ -164,7 +209,7 @@ test("interrupted cursor import rolls back archive, ledger and state together", 
 	expect(
 		f.db
 			.query(
-				"SELECT name FROM sqlite_master WHERE name IN ('usage_migration_state','usage_rollup_legacy_archive','usage_verified_rollup','usage_message_ledger')",
+				"SELECT name FROM sqlite_master WHERE name IN ('usage_migration_state','usage_rollup_legacy_archive','usage_verified_rollup','usage_message_ledger','usage_verified_message_ledger')",
 			)
 			.all(),
 	).toEqual([]);

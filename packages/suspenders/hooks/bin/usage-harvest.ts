@@ -141,7 +141,10 @@ export function harvestUsage(
 			req: number;
 		}
 	>();
-	const meter = usageMessageLedger(db);
+	const meter = usageMessageLedger(
+		db,
+		verified ? "usage_verified_message_ledger" : "usage_message_ledger",
+	);
 	const bump = (
 		h: number,
 		actor: string,
