@@ -369,12 +369,22 @@ export class Ledger {
 	}
 }
 
-/** Bearer token → truncated sha-256 hex id (12 chars). */
-export function keyIdFromAuth(header: string | null): string {
-	const m = /Bearer\s+(.+)/i.exec(header ?? "");
-	if (!m) return "";
+/** Presented credential → truncated sha-256 hex id (12 chars). */
+export function keyIdFromToken(token: string | null): string {
+	if (!token) return "";
 	return new Bun.CryptoHasher("sha256")
-		.update(m[1] ?? "")
+		.update(token)
 		.digest("hex")
 		.slice(0, 12);
+}
+
+/** Credential presented by a request: Authorization Bearer first, then the
+ *  Anthropic-wire x-api-key (copilot's anthropic dialect rides the official
+ *  SDK, which authenticates via x-api-key — W422.17.2). null when neither
+ *  header is present; present-but-empty yields "". */
+export function tokenFromHeaders(headers: Headers): string | null {
+	const m = /^Bearer\s+(.+)$/i.exec(headers.get("authorization") ?? "");
+	if (m) return m[1]?.trim() ?? "";
+	const apiKey = headers.get("x-api-key");
+	return apiKey === null ? null : apiKey.trim();
 }

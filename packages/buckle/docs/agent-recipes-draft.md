@@ -93,6 +93,16 @@ diagnosable from the gateway side. Note the asymmetry for recipes:
 copilot openai-type appends `/chat/completions` to the given base (proven
 against `:8903/v1`), anthropic-type appends `/v1/messages`.
 
+**Second root cause, at the buckle front (W422.17.2, 2026-10-07):** with
+the path right, the gate still 401'd — `authenticate()` read only
+`Authorization Bearer`, while copilot's anthropic dialect rides the
+official SDK (UA `Anthropic/JS`), which authenticates via `x-api-key`.
+Live: x-api-key-only → 401 `buckle.auth_missing` in ~1ms; same body with
+Bearer → 200. Fixed in the gate: `tokenFromHeaders()` (Bearer first, then
+x-api-key) feeds authenticate, actor/attribution, and the federation
+pre-check. Recipe for the buckle front: base WITHOUT `/v1` plus the key —
+the gate now takes either header form.
+
 ## Recipes
 
 ### claude (Claude Code) — PROVEN
@@ -147,8 +157,10 @@ BYOK via `copilot help providers`. Env-only, GitHub auth not required once
 activated:
 
 ```sh
-# anthropic dialect — base WITHOUT /v1 (copilot appends /v1/messages)
-COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:4000 \
+# anthropic dialect — base WITHOUT /v1 (copilot appends /v1/messages);
+# against the buckle front the key rides either header (x-api-key is what
+# the SDK sends; W422.17.2 gate fix accepts it)
+COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:4101 \
 COPILOT_PROVIDER_TYPE=anthropic \
 COPILOT_MODEL=glm-5.3-flash \
   copilot -p "Reply with the word OK"
