@@ -72,7 +72,7 @@ const libParity = (): { ok: boolean; missing: string[] } => {
 	// catches it). Repo copy must build.
 	for (const entry of [
 		join(REPO, "packages/suspenders/scripts/dispatch-next.ts"),
-		join(REPO, "packages/suspenders/scripts/fleet-loop.ts"),
+		join(REPO, "packages/suspenders/hooks/bin/fleet-loop.ts"),
 	]) {
 		const built = sh([
 			process.execPath,
