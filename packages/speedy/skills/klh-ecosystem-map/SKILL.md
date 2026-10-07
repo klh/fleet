@@ -58,14 +58,17 @@ guessing at an API:
 `bun ~/.claude/hooks/suspenders/bin/coord.ts` — the cross-session message
 bus, independent of any single PR/branch:
 
-- `coord inbox --as <sid>` — read messages addressed to this session
+- `coord subscribe --as <sid>` — live WS push inbox (W303); bootstrap opens
+  it once — one persistent connection, never poll
+- `coord inbox --as <sid>` — catch-up read of messages addressed to this
+  session (session start, before finishing)
 - `coord message <target> "text" --as <sid>` / `--all` — send one
 - `coord broadcast --as <sid> --note "..."` — fan out to every live session
 - `coord targets` / `coord fleet` — who's active right now
 
-Poll your inbox at session start and before finishing a task — the fleet
-uses this to hand off findings (e.g. "W277 retired com.belt.gateway, don't
-re-enable it").
+`coord inbox --as <sid>` at session start and before finishing a task — the
+fleet uses this to hand off findings (e.g. "W277 retired com.belt.gateway,
+don't re-enable it").
 
 ## Work graph: `work` CLI
 

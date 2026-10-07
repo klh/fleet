@@ -35,8 +35,10 @@ bun ~/.claude/bin/coord.ts emit landed --scope <scope> --sha <sha> --as <sid>
 
 - Checkpoint commits (every 10-20 min): `coord emit checkpoint --sha <sha> --as <sid>`
 - Landings: `coord emit landed ...` + `coord fact set integration.head <sha>`
-- Lanes waiting on another lane: `coord wait --as <sid> --scope <other-scope> --max-seconds 600`
-  (adaptive 250ms→2s backoff, instant wake)
+- Inbox is WS-first (W303): bootstrap opens `coord subscribe --as <sid>` ONCE
+  per session — live WebSocket push, one persistent connection, never exited
+  or relaunched; `coord wait`'s poll/relaunch loop is retired. `coord inbox
+--as <sid>` is a catch-up read (session start, before finishing), not a poll
 - **Direct messages are interrupts-only**: STOP, CONFLICT, DEPENDENCY_CHANGED,
 - **Transport guarantees**: `coord` events/inbox are the guaranteed unattended path; native cross-session messaging is permission-mode sensitive (may queue for human approval) - opportunistic only. Retired ledgers become tombstone files pointing at the Work Graph; never append operational state to them.
   NEED_DECISION. Everything else is a `coord` event/fact.
@@ -115,7 +117,7 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 
 ### Canonical coordinator identity
 
-- exactly ONE coordinator identity: publish it — `coord fact set coordinator.sid <sid>` — and target THAT on the bus. Aliases that never poll are dead-letter boxes: orders and protocol notes sent to names instead of the fact vanish silently
+- exactly ONE coordinator identity: publish it — `coord fact set coordinator.sid <sid>` — and target THAT on the bus. Aliases that never subscribe are dead-letter boxes: orders and protocol notes sent to names instead of the fact vanish silently
 
 ### Zombie lanes (three-state, multi-signal)
 
@@ -125,7 +127,9 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 
 ### Signalling discipline (self-serve, inbox, checkpoints, decisions)
 
-- lanes self-serve: between items, poll `coord inbox --as <sid>`; if READY work matches your capabilities, take it yourself — don't wait for dispatch (a coordinator-mediated handoff costs minutes; a self-claim costs seconds)
+- lanes self-serve: `coord subscribe --as <sid>` (W303, opened at bootstrap)
+  keeps your inbox PUSHED — one persistent connection, never poll it with
+  repeated CLI probes; if READY work matches your capabilities, take it yourself — don't wait for dispatch (a coordinator-mediated handoff costs minutes; a self-claim costs seconds)
 - checkpoint every landed milestone (`work done --sha` / capsule) so preemption is resume, not salvage — lanes that die at usage cliffs without checkpoints get rescued heroically or not at all
 - decisions: `coord emit NEED_DECISION --to <any-target> --note "<question>"` — the fleet board surfaces every unconsumed NEED event for the owner to answer inline; decisions held only in an agent's context are invisible to everyone
 - progress on long tasks: `bin/progress.ts set <id> <done> <total> [label]` — the statusline aggregates entries; these are also the lane-level progress heartbeat

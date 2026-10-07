@@ -18,9 +18,11 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
 "child two title" --reason independent-scopes --keep 1`, work only the
    kept child, end with `SPLIT <id>` — the fleet refills the rest. A split
    beyond 2 children needs a registered plan item first (`work add "plan: …"`,
-   then `split --plan <id>`). Poll your inbox before starting and before
-   finishing — `coord inbox --as <sid>` carries coordinator/board messages
-   (drawer "send message" delivers there).
+   then `split --plan <id>`). Your inbox is WS-first (W303): bootstrap
+   opens `coord subscribe --as <sid>` at session start — one persistent
+   push connection; never poll it. `coord inbox --as <sid>` is the
+   catch-up read before starting and before finishing — coordinator/board
+   messages arrive there (drawer "send message" delivers there).
 2. Work in the worktree + branch your brief names. SMALL anchored edits;
    co-situated tests for new logic; never hand-edit files another live lane
    owns.
