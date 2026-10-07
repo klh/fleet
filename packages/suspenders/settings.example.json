@@ -96,5 +96,13 @@
 				]
 			}
 		]
+	},
+	"statusLine": {
+		"type": "command",
+		"command": "bun $HOME/.claude/hooks/suspenders/statusline.ts"
+	},
+	"subagentStatusLine": {
+		"type": "command",
+		"command": "bun $HOME/.claude/hooks/suspenders/subagent-statusline.ts"
 	}
 }

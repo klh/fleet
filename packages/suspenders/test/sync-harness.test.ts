@@ -66,6 +66,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"gate.ts",
 		"session-start.ts",
 		"session-end.ts",
+		"statusline.ts",
+		"subagent-statusline.ts",
 		"bin/coord.ts",
 		"bin/work.ts",
 		"bin/fleet-loop.ts",
