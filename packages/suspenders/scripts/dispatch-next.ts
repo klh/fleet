@@ -335,7 +335,11 @@ export const composeBrief = (o: {
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
 		`FORMAT: Read the nearest .qlty/qlty.toml and Biome config, and match adjacent code. Use qlty fmt on changed files before final checks, tests and commit; never manually chase formatter wrapping. Successful auto-formatting is advisory: re-read only before editing that file again.`,
-		`Inbox: before planning and again before finishing, check bun ${BIN}/coord.ts inbox --as ${o.sid} — coordinator and board messages arrive there.`,
+		// W417.2: the inbox contract rides EVERY brief — one line, all executors.
+		// Claude lanes get the same contract pushed at session bootstrap; non-claude
+		// executors get no hooks, so THIS line is their delivery. Push feed = the
+		// spawn/bootstrap-attached coord subscribe (W303, idempotent per sid).
+		`INBOX CONTRACT (WS-first): your inbox pushes over one live coord subscribe — attached at spawn/bootstrap, idempotent per sid, its feed tails into ~/.claude-insights/coord-subscribe-${o.sid}.log (read it with tail). The pull path works on EVERY executor: bun ${BIN}/coord.ts inbox --as ${o.sid}. Check both before planning and again before finishing — coordinator and board messages arrive there.`,
 		`COLLABORATION: after a second unchanged failure or an interface conflict, consult one relevant expert: bun ${BIN}/coord.ts consult --best "<command, error, attempts, precise question>" --scope "<package/path>" --as ${o.sid}. Inspect evidence before acting; avoid fleet-wide broadcasts. If no expert or no answer within 60 seconds, retain evidence in the capsule, continue independent work and request a decision before another unchanged attempt.`,
 		`Reply with answer, evidence, applicability and next action. After trying an answer: bun ${BIN}/coord.ts consult-reply <Cnumber> --feedback resolved|failed|unused --evidence "<command and observed result>" --as ${o.sid}. Only verified answers at the same project, scope and code version are reused.`,
 		`REPORT VERDICTS: any report-shaped output — review, QA pass, consult answer, paired-lane findings — ends with ONE machine-parseable verdict line, never paraphrased: review = VERDICT: PASS | VERDICT: FAIL - <reason> · critique = APPROVED | NEEDS REVISION - <reason> · gap analysis = CLEAR | GAPS_FOUND - <detail> | INSUFFICIENT_CONTEXT. Parents regex the final line, not the prose.`,

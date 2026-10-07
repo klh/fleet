@@ -143,6 +143,19 @@ describe("W223.2 brief verification (dual-harness)", () => {
 		expect(BRIEF_MAX_BYTES).toBe(32 * 1024);
 	});
 
+	// W417.2: the inbox contract is brief-carried for the hookless executors —
+	// it must ride (and verify clean) no matter which harness the lane spawns.
+	test("inbox contract rides the brief for both harnesses", () => {
+		const brief = baseBrief();
+		expect(brief).toContain("INBOX CONTRACT (WS-first)");
+		expect(brief).toContain("coord-subscribe-autow900.log");
+		expect(brief).toContain("inbox --as autow900");
+		for (const harness of ["claude", "copilot"] as const) {
+			const v = verifyBrief(brief, { harness });
+			expect(v.ok).toBe(true);
+		}
+	});
+
 	test("structure: a stripped section is rejected by name", () => {
 		const stripped = baseBrief()
 			.split("\n")
