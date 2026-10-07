@@ -39,6 +39,17 @@ placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
 
+## Source pinning (mono deploy, W422.7)
+
+Hubs build from ONE pinned Fleet monorepo checkout, not per-package repos:
+the compose `fleet-repo` sidecar clones `$HUB_FLEET_REPO_URL` at
+`$HUB_FLEET_REF` and every service runs from its `packages/<name>` subtree
+(`fleet-deps` installs the workspace once, frozen-lockfile). hubctl renders
+both from the stack's `version:` — a hub deploy without a pinned version
+(a branch name, `main`) is refused, per-package refs/origins are rejected,
+and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
+monorepo. One version string pins the whole hub (stack.yaml law).
+
 ## Enterprise layer
 
 The private `*-remote` overlays (buckle-remote, belt-remote,
