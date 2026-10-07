@@ -6,6 +6,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { RpcAdmission } from "./admission.ts";
 import { PrefixAffinity } from "./affinity.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
@@ -29,6 +30,16 @@ import { loadUpstreams } from "./upstreams.ts";
 
 export const SHADOW_PORT = 4101;
 export const FORBIDDEN_PORT = 4100;
+
+/** W450: Bun's connection idle timeout applies to quiet SSE streams — the
+ *  10s default can kill a slow-generation body mid-flight. 0-255s per Bun's
+ *  contract (0 disables); BUCKLE_IDLE_TIMEOUT_S overrides; default 120s. */
+export function resolveIdleTimeout(v?: string): number {
+	const raw = v ?? process.env.BUCKLE_IDLE_TIMEOUT_S;
+	const n = Number(raw);
+	if (raw === undefined || raw === "" || !Number.isFinite(n)) return 120;
+	return Math.min(255, Math.max(0, Math.floor(n)));
+}
 
 /** W199.2 request-body cap: Bun's silent default is 128 MiB — an unbounded
  *  LLM ingress invites memory-hangup abuse. 32 MiB bounds a request while
@@ -142,6 +153,9 @@ export function buildDeps(
 				.inc({ tier }),
 	};
 	const router = new Router(policy, { pool, metrics, cooldowns });
+	// W450 bounded RPC admission: explicit overload (429 + Retry-After) past
+	// the in-flight bound instead of uncontrolled memory growth.
+	const admission = new RpcAdmission();
 	// W143 speed pass: the warm-rate gate's servicemon counter + the boot
 	// pre-warm — one GET /v1/models per unique deployment origin (the
 	// gateway-config.ts precedent), so TLS/auth are established before the
@@ -186,6 +200,7 @@ export function buildDeps(
 	return {
 		router,
 		ledger,
+		admission,
 		aids,
 		preseeder,
 		aidsPolicy,
@@ -244,6 +259,9 @@ export function startServer(
 		// W199.2: the explicit body cap — over-cap requests get Bun's 413 and
 		// never reach the governance gate, the ledger or the pool.
 		maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+		// W450: quiet streams survive longer than Bun's 10s connection-idle
+		// default (see resolveIdleTimeout for the knob and the range law).
+		idleTimeout: resolveIdleTimeout(),
 		fetch: inner,
 	});
 	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {

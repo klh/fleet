@@ -175,6 +175,7 @@ export interface RouterDeps {
 		dep: Deployment,
 		req: UpstreamRequest,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
 }
@@ -188,6 +189,7 @@ export class Router {
 		dep: Deployment,
 		req: UpstreamRequest,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
 
@@ -228,13 +230,14 @@ export class Router {
 		req: UpstreamRequest,
 		dep: Deployment,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	): Promise<TryOutcome> {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
 		const bridged = wireReq !== req;
 		try {
-			const resp = await this.fetchImpl(dep, wireReq, timeoutMs);
+			const resp = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
 				const response = bridged
@@ -325,6 +328,15 @@ export class Router {
 		const retries = this.policy.num_retries ?? 1;
 		const capS = this.policy.retry_max_delay_s ?? 8;
 		const timeoutMs = (this.policy.request_timeout_s ?? 120) * 1000;
+		// W450: streaming bodies get idle+total guards; non-streaming keeps
+		// request_timeout_s as its whole-exchange cap (the wire applies it).
+		const stream =
+			req.body.stream === true
+				? {
+						idleMs: (this.policy.stream_idle_timeout_s ?? 60) * 1000,
+						totalMs: (this.policy.stream_total_timeout_s ?? 900) * 1000,
+					}
+				: undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			const dep = candidates.at(Math.min(attempt, candidates.length - 1));
@@ -337,7 +349,7 @@ export class Router {
 			st.attempts++;
 			let r: TryOutcome;
 			try {
-				r = await this.tryOnce(req, dep, timeoutMs);
+				r = await this.tryOnce(req, dep, timeoutMs, stream);
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
 				if (!st.rateLimit || !(error instanceof UpstreamError)) throw error;
@@ -512,7 +524,8 @@ async function defaultFetchImpl(
 	dep: Deployment,
 	req: UpstreamRequest,
 	timeoutMs: number,
+	stream?: { idleMs: number; totalMs: number },
 ): Promise<Response> {
 	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs);
+	return defaultFetch(dep, req, timeoutMs, stream);
 }
