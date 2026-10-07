@@ -193,7 +193,9 @@ describe("pruneTrajectory (openai + determinism)", () => {
 		const out = pruneTrajectory(input, "openai", OPTS);
 		const msgs = out.body.messages as AnyRec[];
 		// msg layout: 0 system, 1 user, then pairs; tool msgs at 3,5,7,9,11,13
-		expect((msgs[3]?.content as string).startsWith("[buckle diet:")).toBe(true);
+		expect(String(msgs[3]?.content ?? "").startsWith("[buckle diet:")).toBe(
+			true,
+		);
 		expect(msgs[5]?.content).toBe(
 			"[buckle diet: elided Read result (~8.0KB, 5 tool-turns old)]",
 		);
@@ -201,8 +203,8 @@ describe("pruneTrajectory (openai + determinism)", () => {
 		expect(msgs[3]?.tool_call_id).toBe("c1");
 		expect(msgs[3]?.role).toBe("tool");
 		// recent window intact
-		expect((msgs[11]?.content as string).length).toBe(9 * 1024);
-		expect((msgs[13]?.content as string).length).toBe(6 * 1024);
+		expect(String(msgs[11]?.content ?? "").length).toBe(9 * 1024);
+		expect(String(msgs[13]?.content ?? "").length).toBe(6 * 1024);
 		// system + task statement untouched
 		expect(msgs[0]?.role).toBe("system");
 		expect(msgs[1]?.content).toBe("fix the gate");
@@ -283,7 +285,7 @@ describe("applyPrune via applyWireAids (gainful path)", () => {
 		const out = await applyWireAids(d, "prune", body, "anthropic", "r2");
 		expect(out.body).not.toBe(body);
 		const msgs = out.body.messages as AnyRec[];
-		const c0 = (msgs[2]?.content as AnyRec[])[0] as AnyRec;
+		const c0 = ((msgs[2]?.content ?? []) as AnyRec[])[0] as AnyRec;
 		expect(c0.content).toBe(
 			"[buckle diet: elided Bash result (~10.0KB, 6 tool-turns old)]",
 		);
@@ -485,7 +487,7 @@ describe("wire e2e: prune through createApp", () => {
 		expect(res.status).toBe(200);
 		const sent = (upstream.calls[0]?.body ?? {}) as AnyRec;
 		const sentMsgs = sent.messages as AnyRec[];
-		const c0 = (sentMsgs[2]?.content as AnyRec[])[0] as AnyRec;
+		const c0 = ((sentMsgs[2]?.content ?? []) as AnyRec[])[0] as AnyRec;
 		expect(c0.content).toBe(
 			"[buckle diet: elided Bash result (~10.0KB, 6 tool-turns old)]",
 		);
@@ -529,15 +531,15 @@ describe("wire e2e: prune (kept window + raw one GET away)", () => {
 		const rid = res.headers.get("x-belt-rid") ?? "";
 		const sentMsgs = ((upstream.calls[0]?.body ?? {}) as AnyRec)
 			.messages as AnyRec[];
-		const kept = (sentMsgs[8]?.content as AnyRec[])[0] as AnyRec;
-		expect((kept.content as string).length).toBe(3 * 1024);
+		const kept = ((sentMsgs[8]?.content ?? []) as AnyRec[])[0] as AnyRec;
+		expect(String(kept.content ?? "").length).toBe(3 * 1024);
 		const raw = await app.fetch(new Request(`${upstream.url}/diet/${rid}`));
 		expect(raw.status).toBe(200);
 		const row = (await raw.json()) as {
 			rows: Array<{ raw: string; bytes: number }>;
 		};
 		expect(row.rows).toHaveLength(3);
-		expect((row.rows[0]?.raw as string).length).toBe(10 * 1024);
+		expect(String(row.rows[0]?.raw ?? "").length).toBe(10 * 1024);
 		expect(row.rows[0]?.bytes).toBe(10 * 1024);
 		upstream.close();
 	});
@@ -572,8 +574,8 @@ describe("wire e2e: prune (kept window + raw one GET away)", () => {
 		expect(res.status).toBe(200);
 		const sentMsgs = ((upstream.calls[0]?.body ?? {}) as AnyRec)
 			.messages as AnyRec[];
-		const c0 = (sentMsgs[2]?.content as AnyRec[])[0] as AnyRec;
-		expect((c0.content as string).length).toBe(10 * 1024);
+		const c0 = ((sentMsgs[2]?.content ?? []) as AnyRec[])[0] as AnyRec;
+		expect(String(c0.content ?? "").length).toBe(10 * 1024);
 		const rid = res.headers.get("x-belt-rid") ?? "";
 		expect(d.diet.get(rid)).toBeNull();
 		upstream.close();
