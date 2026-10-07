@@ -68,6 +68,14 @@ nas` — expect belt/board/buckle/store `running` + sidecars `200`.
 5. Re-check `buckle-ready :4113` against its pre-upgrade baseline (`000`
    today; anything ≠ baseline is new signal, not update damage).
 
+## Results live on the plane
+
+Post-flight outcomes are ops state — they land in coord fact `finding.w484.1`
+and work item W484.1, never edited into this doc. W484.1's first pass
+(2026-10-07) found the upgrade not yet applied (owner GO decision #25531
+still open) and parked; a resumed lane re-checks that decision before
+running the checklist above.
+
 ## Rollback posture
 
 DSM major upgrades are one-way on-device. Back-out = restore config from
