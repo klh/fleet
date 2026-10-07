@@ -50,6 +50,15 @@ defaults:
     runAtLoad: true
 
 services:
+  # Restore ephemeral Bonjour claims after login; no routes or model services.
+  - name: local-dns
+    bunEntry: "__HOME__/.local/klh-local/bin/klh-local.ts"
+    args: ["dns-serve"]
+    env: { HOME: "__HOME__" }
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.local/state/klh-local/dns.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
   # Cloud transport remains available while the local model swarm is paused.
   # Only LiteLLM is owned here; model/router startup is never part of this unit.
   - name: cloud-gateway
