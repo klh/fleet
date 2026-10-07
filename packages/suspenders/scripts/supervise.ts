@@ -55,6 +55,11 @@ import {
 	worktreeLive,
 	type Lane,
 } from "./lib/lane.ts";
+// W519: .prefer prefer= soft routing rides every (re)brief, resume included
+import {
+	preferRoutingBriefLines,
+	resolveRoutingPrefer,
+} from "./lib/prefer-routing.ts";
 // W177: the resolved slab class is stamped into the lanes.json entry.
 import { laneClassOf } from "./lib/jobslab.ts";
 
@@ -334,6 +339,7 @@ const main = async (): Promise<void> => {
 			repo: REPO,
 			aids: AIDS,
 			extra: [
+				...preferRoutingBriefLines(resolveRoutingPrefer(REPO)),
 				`SUPERVISION: this lane runs under micro-supervisor ${SUP} (subtree of ${PARENT}). It reads the graph + your capsule every cycle; you are reachable via coord inbox --as ${sid}.`,
 				`On a conflict or ambiguity you cannot resolve: bun ${BIN}/coord.ts emit NEED_DECISION --to ${SUP} --note "..." --as ${sid} — never silently wait.`,
 			],

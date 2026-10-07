@@ -377,6 +377,21 @@ describe("dry-run dispatch", () => {
 		expect(existsSync(join(REPO, ".worktrees"))).toBe(false);
 		expect(existsSync(join(REPO, ".fleet", "lanes.json"))).toBe(false);
 	});
+
+	// W519: a repo .prefer prefer= rides the brief as a SOFT routing note
+	// (must= reserved); cleanup keeps the constraint out of sibling cases.
+	test("repo .prefer prefer= notes SOFT routing in the dry-run brief", () => {
+		writeFileSync(join(REPO, ".prefer"), 'prefer = "ikea llms"\nmust = "cloud"\n');
+		try {
+			const out = dispatch("--dry-run", "--target", "1");
+			expect(out.out).toContain('ROUTING: .prefer prefer="ikea llms"');
+			expect(out.out).toContain("SOFT");
+			expect(out.out).toContain('ROUTING: .prefer must="cloud"');
+			expect(out.out).toContain("RESERVED");
+		} finally {
+			rmSync(join(REPO, ".prefer"));
+		}
+	});
 });
 
 describe("resume-rebrief composition", () => {
