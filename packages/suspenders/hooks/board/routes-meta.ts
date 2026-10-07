@@ -20,7 +20,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/decisions  decision forks; default OPEN only, ?history=1 adds resolved rows
 - GET /api/tasks      every work item, newest activity first (?project=<path> or all)
 - GET /api/task       one work item + its bus events + its decisions (?project=<path>&id=<id>)
-- GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300)
+- GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300; ?before=<id> keyset-drains older pages — a partial page means the end)
+- GET /api/events     W451 bounded event deltas — the WS cursor contract over HTTP: ?since=<id>&limit=<n> (strict id > since, ascending, cap 300); response {events[], cursor} — cursor = last shown id, drain with ?since=<cursor>
 - GET /api/setup      advisory wiring checks (hooks, monitor agent, advice LLM, bind)
 - GET /api/executors  dispatch targets for the READY-card dropdown: claude, codex, copilot (W223.1), then belt's live openai endpoints as llm:<machine>:<model or port> (belt's registry at the resolveBelt chain + CLI fallback, cached 60s; failed probes included; each entry carries its model id and a local/remote locality marker — W105). W224: every openai row also lists its LIVE /v1/models catalog as one llm:<machine>:<model id> pick per model — the user picks from everything the endpoint serves; dispatch routes the picked model via belt's route-to --model override (garbage tails still 409).
 - GET /api/diff       per-item branch diff for the drawer: repo + branch suspenders/<id> (worktree.ts naming), base = merge-base with main (fallback master); JSON {ok,id,branch,base,stat,diff}, patch tail-capped at 200KB

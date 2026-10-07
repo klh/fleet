@@ -60,9 +60,19 @@ answer_note|null }]` for the item. Missing id → 404 shape.
 
 ## GET /api/activity?project=&limit=
 
-`{ ok, projects, events: [{ id, ts, kind, source, target|null, note, sha|null, project }] }`
+`{ ok, projects, events: [{ id, ts, kind, source, target|null, note, sha|null, project }], nextCursor }`
 — newest first, default limit 80, cap 300. Note/sha parsed from payload; BROADCAST
-included (it is fleet news, not noise).
+included (it is fleet news, not noise). Keyset pagination (W451): `?before=<id>`
+drains older pages strictly by id (never OFFSET); `nextCursor` is the id to
+pass as the next `before`, null on a partial page = the end.
+
+## GET /api/events?since=&limit=
+
+W451 bounded event deltas — the WS cursor contract (coord poll) over HTTP:
+`{ ok, events: [{ id, ts, source, kind, scope, payload(parsed), target }], cursor }`
+— strict `id > since`, ascending, cap 300. The client holds the cursor; a full
+page means more (drain with `?since=<cursor>`), the cursor advances only past
+shown rows.
 
 ## GET /api/decisions (v3 addition)
 
