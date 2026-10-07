@@ -20,6 +20,7 @@ import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
+import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
@@ -201,12 +202,26 @@ export function buildDeps(
 	const affinity = new PrefixAffinity();
 	// W461 stage 2: the lane-observation outbox. BUCKLE_OBSERVATIONS_PATH
 	// (config-over-code) enables it; unset = observations inert.
-	const observations = process.env.BUCKLE_OBSERVATIONS_PATH
+	const obsPath = process.env.BUCKLE_OBSERVATIONS_PATH;
+	const observations = obsPath
 		? new ObservationOutbox({
-				path: process.env.BUCKLE_OBSERVATIONS_PATH,
+				path: obsPath,
 				hubId: process.env.BUCKLE_HUB_ID,
 			})
 		: undefined;
+	// W461 stage 3: the read model — ingest the outbox into the projected
+	// lane/route tables on a short poll (the board reads the same db).
+	let projection: LaneProjection | undefined;
+	if (obsPath) {
+		projection = new LaneProjection(
+			process.env.BUCKLE_OBSERVATIONS_DB ?? `${obsPath}.db`,
+		);
+		const tailer = new OutboxTailer(projection, obsPath);
+		const ingest = setInterval(() => {
+			void tailer.poll().catch(() => {});
+		}, 2000);
+		ingest.unref();
+	}
 	return {
 		router,
 		ledger,
