@@ -37,6 +37,8 @@ import {
 	spawnClaude,
 } from "./lib/lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
+// W512: lane --settings composer — env grammar + the Task-pin hook block
+import { laneSettingsData } from "./lib/lane-settings.ts";
 import {
 	ensureLaneKey,
 	adminKey,
@@ -993,23 +995,12 @@ const dispatchItem = async (
 		// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
 		// --settings outranks user settings: write the lane-critical vars and pass
 		// the file on the CLI layer. 0600 — it carries the lane token.
+		// W512: the Task layer joins the same file as a hooks block — subagent
+		// requests get the pinned model injected at call time (PreToolUse
+		// updatedInput), the one channel no settings-env merge can clobber.
 		const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
 		const m = pick.model ?? "glm-5.3-flash";
-		const settingsData = JSON.stringify(
-			{
-				env: {
-					ANTHROPIC_MODEL: env.ANTHROPIC_MODEL ?? "opus",
-					ANTHROPIC_DEFAULT_OPUS_MODEL: m,
-					ANTHROPIC_DEFAULT_SONNET_MODEL:
-						env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? m,
-					ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? m,
-					ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
-					ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
-				},
-			},
-			null,
-			2,
-		);
+		const settingsData = laneSettingsData(env, m, BIN);
 		writtenFiles.set(laneSettings, settingsData);
 		writeFileSync(laneSettings, settingsData);
 		chmodSync(laneSettings, 0o600);

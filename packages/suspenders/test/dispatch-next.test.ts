@@ -12,6 +12,7 @@ import {
 	rmSync,
 	symlinkSync,
 	chmodSync,
+	statSync,
 } from "node:fs";
 import { tmpdir, hostname } from "node:os";
 import { Database } from "bun:sqlite";
@@ -30,7 +31,9 @@ import {
 } from "../scripts/dispatch-next.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
-const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")));
+const REPO = realpathSync(
+	mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")),
+);
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 // W463: pin the buckle front to a dead port for the legacy cases — probe
 // misses = belt-direct note path (pre-W463 behavior), deterministic even on
@@ -1161,4 +1164,59 @@ test("malformed recovery feed is a visible refusal before dispatch or claims", (
 		"READY",
 	);
 	expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
+});
+
+// ─── W512 Task-layer model pin via PreToolUse updatedInput ─────────────────
+describe("W512 lane settings Task-pin hook", () => {
+	test("dispatch writes the Task-pin hook into the lane --settings file", async () => {
+		const stub = stubBuckle(true);
+		const id = await addItem("W512 task-pin settings fixture");
+		const sid = laneSid(id, projectIdentity(REPO));
+		const pidFile = join(HOME, "w512-sleeper.pid");
+		const executor = join(HOME, "w512-sleeper");
+		writeFileSync(
+			executor,
+			`#!/bin/sh\necho $$ > "${pidFile}"\nexec /bin/sleep 30\n`,
+		);
+		chmodSync(executor, 0o700);
+		try {
+			const result = await dispatchA(
+				{
+					SUSPENDERS_CLAUDE_BIN: executor,
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+				},
+				"--item",
+				id,
+			);
+			expect(result.out).toContain(`dispatched ${id}`);
+			const settingsPath = join(REPO, ".fleet", `lane-settings-${sid}.json`);
+			const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+				env: Record<string, string>;
+				hooks: {
+					PreToolUse: Array<{
+						matcher: string;
+						hooks: Array<{ type: string; command: string; timeout: number }>;
+					}>;
+				};
+			};
+			const group = settings.hooks.PreToolUse[0];
+			expect(group.matcher).toBe("Task");
+			expect(group.hooks[0].type).toBe("command");
+			expect(group.hooks[0].timeout).toBe(10);
+			expect(group.hooks[0].command).toContain(
+				"bin/lane-model-pin.ts --model glm-5.3-flash",
+			);
+			expect(settings.env.ANTHROPIC_MODEL).toBe("opus");
+			expect(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("glm-5.3-flash");
+			expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+		} finally {
+			stub.stop();
+			try {
+				process.kill(Number(readFileSync(pidFile, "utf8")));
+			} catch {}
+			rmSync(join(REPO, ".fleet", "lanes.json"), { force: true });
+			await toolA({}, "work.ts", "fail", id);
+		}
+	}, 60_000);
 });
