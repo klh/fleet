@@ -26,6 +26,10 @@ import {
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
+	watchdogVerdict,
+	type WatchdogDimension,
+} from "./lib/watchdog-verdict.ts";
+import {
 	fleetProgress,
 	type ProgressState,
 	type WorkStats,
@@ -193,19 +197,21 @@ const wiredNowGb = (): number => {
 	return m ? (Number(m[1]) * 16384) / 2 ** 30 : -1;
 };
 
-const portRssGb = (port: number): number => {
-	const pid = sh([
+const portRssGb = (port: number): number | null => {
+	const inspection = sh([
 		"/usr/sbin/lsof",
 		"-ti",
 		`tcp:${port}`,
 		"-sTCP:LISTEN",
-	]).out.split("\n")[0];
-	if (!pid) return 0;
+	]);
+	if (inspection.code !== 0 && inspection.out.trim()) return null;
+	const pid = inspection.out.split("\n")[0];
+	if (!pid) return inspection.code === 1 ? 0 : null;
 	const kb = Number.parseInt(
 		sh(["/bin/ps", "-o", "rss=", "-p", pid]).out.trim(),
 		10,
 	);
-	return Number.isFinite(kb) ? kb / 1048576 : 0;
+	return Number.isFinite(kb) ? kb / 1048576 : null;
 };
 
 const reapHeaviestMlx = (): string => {
@@ -216,7 +222,8 @@ const reapHeaviestMlx = (): string => {
 		if (!m) continue;
 		const port = Number.parseInt(m[2], 10);
 		if (EXEMPT_PORTS.has(port)) continue;
-		rows.push({ port, pid: Number(m[1]), rss: portRssGb(port) });
+		const rss = portRssGb(port);
+		if (rss !== null) rows.push({ port, pid: Number(m[1]), rss });
 	}
 	if (rows.length === 0) return "no reapable MLX listener";
 	rows.sort((a, b) => b.rss - a.rss);
@@ -259,7 +266,6 @@ const run = async (): Promise<number> => {
 
 	// 1. Immutable activation integrity. Deployment belongs to the installer owner.
 	const parity = libParity();
-	const parityOk = parity.ok;
 	verdicts.push(`activation integrity ${parity.state}`);
 	if (!parity.ok)
 		emit(
@@ -297,6 +303,11 @@ const run = async (): Promise<number> => {
 		)?.pid ?? null;
 	// 3. Project graph/liveness, never dispatch-log timestamps.
 	let nextState: ProgressState = previous;
+	let progress: WatchdogDimension = {
+		name: "progress",
+		state: "unknown",
+		detail: "structured graph/liveness unavailable",
+	};
 	try {
 		const snapshot = progressSnapshot();
 		const flow = fleetProgress(
@@ -306,6 +317,11 @@ const run = async (): Promise<number> => {
 			Date.now(),
 		);
 		nextState = flow.state;
+		progress = {
+			name: "progress",
+			state: flow.stalled ? "stalled" : "ok",
+			detail: `pending=${flow.pending}, live=${flow.live}, done=${flow.state.done}`,
+		};
 		verdicts.push(
 			`work flow ${flow.stalled ? "STALLED" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, done=${flow.state.done})`,
 		);
@@ -321,18 +337,6 @@ const run = async (): Promise<number> => {
 			"Watchdog cannot verify graph progress; restore structured work stats/liveness.",
 		);
 	}
-	// All kick paths adopt the fresh PID next run, including progress recovery.
-	writeFileSync2(
-		statePath,
-		JSON.stringify({
-			...nextState,
-			loopPid: pid,
-			serviceFingerprints: drift.fingerprints,
-			serviceCheckAt: drift.notifiedAt,
-			at: new Date().toISOString(),
-		}),
-	);
-
 	// 4. governed-path probe — a DOWN front must verdict, never crash the
 	// watchdog (the post-reboot run exited 1 with the spoke down: the mint
 	// fetch rejected unhandled).
@@ -346,6 +350,18 @@ const run = async (): Promise<number> => {
 
 	// 5. memory guard (W500) — act on OOM precursors, never crash on them.
 	const wired = wiredNowGb();
+	const litellmGb = portRssGb(4100);
+	const memory: WatchdogDimension = {
+		name: "memory",
+		state:
+			wired > WIRED_GUARD_GB ||
+			(litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB)
+				? "degraded"
+				: wired < 0 || litellmGb === null
+					? "unknown"
+					: "ok",
+		detail: `wired=${wired < 0 ? "unknown" : `${wired.toFixed(1)}GB`}, gatewayRSS=${litellmGb === null ? "unknown" : `${litellmGb.toFixed(1)}GB`}; emergency action does not prove recovery`,
+	};
 	if (wired >= 0) {
 		if (wired > WIRED_GUARD_GB) {
 			const action = reapHeaviestMlx();
@@ -358,8 +374,7 @@ const run = async (): Promise<number> => {
 			);
 			repaired = true;
 		} else verdicts.push(`memory ok (wired ${wired.toFixed(0)}GB)`);
-		const litellmGb = portRssGb(4100);
-		if (litellmGb > LITELLM_RSS_GUARD_GB) {
+		if (litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB) {
 			const pid = sh([
 				"/usr/sbin/lsof",
 				"-ti",
@@ -384,10 +399,41 @@ const run = async (): Promise<number> => {
 		);
 	}
 
+	const health = watchdogVerdict({
+		activation: {
+			name: "activation",
+			state: parity.state,
+			detail:
+				parity.missing.join("; ") ||
+				"activated payload and dispatch syntax verified",
+		},
+		services,
+		requiredServices: ["com.suspenders.fleet-loop"],
+		progress,
+		lane: {
+			name: "lane",
+			state: probe.ok ? "ok" : "degraded",
+			detail: probe.detail,
+		},
+		memory,
+	});
+	// Preserve prior action history, but observation alone never increments restart counts.
+	writeFileSync2(
+		statePath,
+		JSON.stringify({
+			...nextState,
+			loopPid: pid,
+			serviceFingerprints: drift.fingerprints,
+			serviceCheckAt: drift.notifiedAt,
+			at: health.at,
+			health,
+		}),
+	);
+	verdicts.unshift(`aggregate ${health.state}`);
 	log(verdicts.join(" | "));
 	if (repaired) console.log(`watchdog: repaired (${verdicts.join(" | ")})`);
 	else console.log(`watchdog: ${verdicts.join(" | ")}`);
-	return parityOk && probe.ok ? 0 : 1;
+	return health.exitCode;
 };
 
 // writeFileSync with parents
