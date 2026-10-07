@@ -86,6 +86,7 @@ export function rowOf(
 	nonce: string,
 	userChars: number,
 	tm?: TMeta,
+	flags?: { identity?: boolean },
 ) {
 	const c = costOf(leg, o);
 	return {
@@ -123,6 +124,7 @@ export function rowOf(
 		kev: o.kev,
 		cost_usd: c.usd,
 		priced: c.priced,
+		identity_mismatch: flags?.identity ?? false,
 		score: s?.score ?? null,
 		pass: s?.pass ?? null,
 		conf: s?.conf ?? null,
@@ -280,6 +282,7 @@ export async function runVariant(o: RunOpts): Promise<string> {
 			prices: PRICES,
 			load1: loadavg()[0],
 			engine_key_src: engineKeySrc(),
+			identity_control: o.legs.some((l) => l.servedExpect),
 			transform_failures: [...prepared.values()].flatMap((r) => r.failures),
 		});
 	}
@@ -359,6 +362,17 @@ async function runClass(
 		const q = buildReq(cls, t, leg, non, which);
 		const out = await callLeg(leg, q, which === 1 ? KEV_Q : undefined);
 		const s = await scoreOut(cls, t, leg, out, which);
+		// W532 identity control: a round that served a different model than
+		// the leg pins is failed and flagged — quality from the wrong model
+		// must never enter the stats silently.
+		const expect = leg.servedExpect?.(q.port) ?? null;
+		let identity = false;
+		if (expect && out.ok && out.served && out.served !== expect) {
+			s.score = 0;
+			s.pass = false;
+			s.detail = `identity mismatch: served=${out.served} expected=${expect} (${s.detail ?? ""})`;
+			identity = true;
+		}
 		put(
 			rowOf(
 				{ run, variant, cls, task: t.id, phase },
@@ -368,6 +382,7 @@ async function runClass(
 				non,
 				q.user.length,
 				p.meta[fieldOf(cls, which)],
+				identity ? { identity: true } : undefined,
 			),
 		);
 		return { out, s };
