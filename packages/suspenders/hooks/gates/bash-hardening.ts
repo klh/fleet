@@ -268,6 +268,39 @@ export const throwaway = (p: string) =>
 	p.startsWith("/dev/") ||
 	p.includes("$TMPDIR");
 
+/** Replacement tools take two data operands before their path operands. */
+function replacementPaths(v: string, args: string[]): string[] {
+	const valueOpts = new Set(
+		v === "sd"
+			? ["-f", "--flags", "-n", "--max-replacements"]
+			: [
+					"--max-threads",
+					"--size-per-thread",
+					"--bin-check-bytes",
+					"--mmap-bytes",
+				],
+	);
+	const positional: string[] = [];
+	let options = true;
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i];
+		if (a.startsWith("<op:")) {
+			i++; // redirects are collected separately
+			continue;
+		}
+		if (options && a === "--") {
+			options = false;
+			continue;
+		}
+		if (options && a.startsWith("-")) {
+			if (valueOpts.has(a)) i++;
+			continue;
+		}
+		positional.push(a);
+	}
+	return positional.slice(2);
+}
+
 // ---- write-target collection (moved from the bash.ts lease section) ----
 // Every path a shell segment WRITES through a path target: redirects,
 // tee/touch/truncate/sd/ambr args, cp/mv/rsync/ditto destinations, rm args,
@@ -288,7 +321,12 @@ export function collectWriteTargets(SEGS: string[][], CWD: string): string[] {
 					targets.push(resolve(segCwd, next));
 			}
 		}
-		if (["tee", "touch", "truncate", "sd", "ambr"].includes(v)) {
+		if (v === "sd" || v === "ambr") {
+			const paths = replacementPaths(v, rest);
+			if (v === "ambr" && paths.length === 0) targets.push(segCwd);
+			for (const t of paths) targets.push(resolve(segCwd, t));
+		}
+		if (["tee", "touch", "truncate"].includes(v)) {
 			for (const t of rest)
 				if (!t.startsWith("-")) targets.push(resolve(segCwd, t));
 		}

@@ -99,6 +99,23 @@ describe("bash-hardening through the real gate", () => {
 		expect(decision(r)).toBe("allow");
 	});
 
+	test("lane: replacement operands are data, actual target paths stay governed", () => {
+		writeLanes(laneEntry(process.pid));
+		for (const cmd of [
+			"sd old /replacement pkg/in.txt",
+			"sd -f i old .env pkg/in.txt",
+			"sd -n 1 old /dev/disk0 pkg/in.txt",
+			"ambr --max-threads 2 old /replacement pkg",
+		])
+			expect(decision(spawnGate(cmd, tmp))).toBe("allow");
+		for (const cmd of [
+			"sd old new /etc/hosts",
+			"sd --flags i old new .env",
+			"ambr old new /etc",
+		])
+			expect(decision(spawnGate(cmd, tmp))).toBe("deny");
+	});
+
 	test("lane: symlink escaping the worktree → containment deny", () => {
 		writeLanes(laneEntry(process.pid));
 		// real symlink: inside the worktree, pointing OUT
