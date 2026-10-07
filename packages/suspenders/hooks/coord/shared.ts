@@ -187,8 +187,9 @@ export function renderKnowledgeHit(
 ): void {
 	if (h.kind === "knowledge") {
 		const trust = trustOf(h.source_ref, h.source_hash);
+		const hop = h.hop === 1 ? ` · 1-hop ${h.via}` : "";
 		console.log(
-			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
+			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}${hop}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
 		);
 	} else if (h.kind === "fact")
 		console.log(`${cyan(String(h.key))}\n  ${h.snippet}`);
