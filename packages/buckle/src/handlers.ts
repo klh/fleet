@@ -39,6 +39,11 @@ import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import { type CondenseStore, pipelineRoutes } from "./pipeline.ts";
 import { condenseInbound } from "./pipeline-wire.ts";
 import type { AidsPolicy } from "./policy.ts";
+import {
+	type ObservationData,
+	type ObservationOutbox,
+	type ObservationType,
+} from "./observe.ts";
 import type { Preseeder } from "./preseed.ts";
 import type { RepoPolicyRow } from "./repo-policy.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
@@ -93,6 +98,9 @@ export interface AppDeps {
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
+	// W461 stage 2: the bounded observation outbox. Optional — absent =
+	// observations inert (bare deps, or BUCKLE_OBSERVATIONS_PATH unset).
+	observations?: ObservationOutbox;
 }
 
 interface App {
@@ -203,6 +211,9 @@ interface Ctx {
 	/** W461 stage 1: request trace context (inbound traceparent or a fresh
 	 *  root; baggage filtered to the fleet allowlist). */
 	trace: TraceContext;
+	/** W461 stage 2: set once the admitted observation is published —
+	 *  ended events only ride admitted requests. */
+	admitted?: boolean;
 }
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -235,7 +246,28 @@ function deny(
 		error_code: code,
 		why,
 	});
+	if (ctx.admitted)
+		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
 	return auditAndStamp(deps, ctx, status, why, code, decision);
+}
+
+/** W461 stage 2: publish one lane observation for this request. Inert
+ *  unless the outbox is wired (BUCKLE_OBSERVATIONS_PATH). */
+function observe(
+	deps: AppDeps,
+	ctx: Ctx,
+	type: ObservationType,
+	extra?: Partial<ObservationData>,
+): void {
+	deps.observations?.emit(type, {
+		rid: ctx.rid,
+		lane: ctx.lane,
+		actor: ctx.key,
+		dialect: ctx.dialect,
+		model: ctx.model,
+		traceparent: ctx.trace.traceparent,
+		...extra,
+	});
 }
 
 /** Outcome row + dialect envelope + stamped headers for a refusal. */
@@ -297,6 +329,9 @@ async function proxy(
 	const model = typeof body.model === "string" ? body.model : "";
 	if (model.length === 0)
 		return deny(deps, ctx, 400, "missing model", null, "denied");
+	// W461 stage 2: admitted — unsampled, published before any routing.
+	ctx.admitted = true;
+	observe(deps, ctx, "lane.request.admitted");
 	const wire = await applyWireAids(
 		deps,
 		req.headers.get("x-belt-aids"),
@@ -403,6 +438,8 @@ async function runExecute(
 		ctx.slot = release;
 	}
 	let result: ExecuteResult;
+	// W461 stage 2: started — the upstream dispatch begins.
+	observe(deps, ctx, "lane.request.started");
 	try {
 		result = await deps.router.execute({
 			group: ctx.model,
@@ -491,6 +528,15 @@ function finishResponse(
 	deps.sm
 		.counter("buckle_route_decisions_total", "Routing decisions.")
 		.inc({ decision, dialect: ctx.dialect });
+	// W461 stage 2: ended — the request settled (attempts/status on the
+	// delivered outcome; streams that outlive this stay open-ended until
+	// drain reconciliation, never faked as ended).
+	if (ctx.admitted)
+		observe(deps, ctx, "lane.request.ended", {
+			outcome: decision,
+			status: resp.status,
+			attempts: result.kind === "upstream" ? result.attempts : undefined,
+		});
 	return stamped(resp, ctx, { decision, row, code });
 }
 
