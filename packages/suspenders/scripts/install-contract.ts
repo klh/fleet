@@ -269,10 +269,10 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "syncHarness",
 			oneLiner:
-				"copy harness dirs + local-llm kit + blam into the prefix, refresh package.json, bun install --production, import sanity check",
+				"stage committed harness code and offline dependencies, validate imports, publish with rollback receipt; no services restarted",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "refreshSupervisor",

@@ -16,6 +16,7 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
+import { syncHarness } from "./sync-harness.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -177,6 +178,8 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	// --yes makes the resume self-sufficient through the TS plan runner
 	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;
 	switch (step.name) {
+		case "syncHarness":
+			return `${bash} --step syncHarness`;
 		case "refreshSupervisor":
 			return `${bash} --refresh-supervisor`;
 		case "wireSettings":
@@ -203,6 +206,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	probeEnvironment,
 	refreshDashboards,
 	registerLaunchd,
+	syncHarness,
 };
 
 // ─── plan runner ───
@@ -273,7 +277,10 @@ export async function executePlan(
 			continue;
 		}
 		// consented full run: one bash delegation covers the delegated steps
-		if (step.v1 === "delegated" && mode === "plan") {
+		if (
+			(step.v1 === "delegated" || step.name === "syncHarness") &&
+			mode === "plan"
+		) {
 			if (delegationFailed) {
 				emit({
 					name: step.name,

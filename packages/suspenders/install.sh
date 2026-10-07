@@ -26,63 +26,9 @@ legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
 echo "→ installing to $PREFIX"
-mkdir -p "$PREFIX"
-# W183.1 follow-up (W300) — local-llm rides along as a harness-relative copy
-# too: hooks/board/local-swarm.ts imports registry.ts via a repo-relative
-# path (../local-llm/registry.ts), which only resolves if $PREFIX has its
-# own local-llm/ sibling to board/. This is separate from $LLM_HOME below
-# (the swarm's runtime home, user-customizable, never clobbered) — this
-# copy is pure harness code, refreshed every install like bin/lib/board.
-for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md; do
-  cp -R "$SCRIPT_DIR/hooks/$item" "$PREFIX/"
-done
-# the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
-# from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
-cp -R "$KIT_DIR" "$PREFIX/"
-cp "$KIT_DIR/observation.ts" "$PREFIX/lib/observation.ts"
-cp "$SCRIPT_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
-# W463 install gap (closed W490.2): prefix bin/* (worktree.ts, fleet-loop.ts,
-# copilot-usage.ts) import ../../scripts/lib/*.ts — from $PREFIX/bin that depth
-# is the PREFIX PARENT (~/.claude/hooks/scripts/lib), so materialize the shared
-# lib there; $PREFIX/scripts/lib mirrors it for prefix-relative imports.
-mkdir -p "$PREFIX/../scripts/lib" "$PREFIX/scripts/lib"
-cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/../scripts/lib/"
-cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/scripts/lib/"
-# W494: manifest services run __PREFIX__/scripts/*.ts — the top-level scripts
-# dir syncs like hooks/ does (lib/* materialized separately, above).
-mkdir -p "$PREFIX/scripts"
-cp "$SCRIPT_DIR"/scripts/*.ts "$PREFIX/scripts/"
-cp "$SCRIPT_DIR"/scripts/*.sh "$PREFIX/scripts/" 2>/dev/null || true
-# W422.17 gui-disconnected law (owner 2026-10-07, HARD RULE): agent-facing
-# surfaces distribute as SKILLS via `npx skills add` (vercel style) — never
-# cp'd into ~/.claude/commands or any single CLI's dir. Best-effort here:
-# offline LANs skip with a note and the operator runs it manually.
-if [ -d "$SCRIPT_DIR/skills" ]; then
-  for skill in "$SCRIPT_DIR"/skills/*/; do
-    npx -y skills add "${skill%/}" 2>/dev/null \
-      || echo "  (skills: offline — run manually: npx skills add ${skill%/})"
-  done
-fi
-# W422.5 — blam ships whole (manifest included): suspenders' manifest declares
-# "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
-# (below) symlinks node_modules/blam -> blam/ and board's package-name import
-# (blam/src/condense) resolves. Retires the W422.14 sed-on-copies hack.
-rm -rf "$PREFIX/blam"
-cp -R "$SCRIPT_DIR/../blam" "$PREFIX/blam"
-rm -rf "$PREFIX/blam/node_modules"
-# authoring-time devDeps (belt/suspenders workspace:*) don't ship — bun
-# --production still resolves member devDeps, so strip them from the copy
-bun -e 'const p=process.argv[1];const j=JSON.parse(await Bun.file(p).text());delete j.devDependencies;await Bun.write(p,JSON.stringify(j,null,"\t")+"\n")' "$PREFIX/blam/package.json"
-# W422.5: the manifest copies, the repo lockfile does NOT — its
-# blam@workspace:packages/blam entry references repo paths that do not exist
-# at $PREFIX, which hard-fails install. $PREFIX re-resolves from the ranges,
-# so any stale PREFIX lockfile from earlier installs goes first.
-rm -f "$PREFIX/bun.lock"
-cp "$SCRIPT_DIR/package.json" "$PREFIX/"
-(cd "$PREFIX" && bun install --production) # --production: skip devDeps — blam's authoring-time belt/suspenders devDeps don't ship; shell-quote, for the bash gate
-# Catch broken workspace links/imports before restarting the live services.
-bun -e 'await import(process.argv[1])' "$PREFIX/board/prompt-transform.ts"
-echo "→ harness in place"
+# Native staged sync is shared by full installs and --step syncHarness.
+# It preserves runtime config and publishes only a validated committed payload.
+bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}"
 
 # Targeted code upgrade for the advanced installed belt supervisor. The kit's
 # older swarm implementation and operator-owned config must remain untouched.
@@ -104,18 +50,7 @@ if [[ "${SUSPENDERS_LEGACY_SUPERVISOR:-0}" -eq 1 ]]; then
   echo "→ refreshed supervisor code (restart com.suspenders.local-llm to activate)"
 fi
 
-# ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
-# One-line exec wrappers; every session and lane calls the control plane
-# without inlining bun + full .ts paths. Idempotent: refreshed every install.
-SHIM_BIN="${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}"
-mkdir -p "$SHIM_BIN"
-for shim in coord work; do
-  printf '#!/bin/sh\nexec bun %s/bin/%s.ts "$@"\n' "$PREFIX" "$shim" > "$SHIM_BIN/$shim"
-  chmod +x "$SHIM_BIN/$shim"
-done
-printf '#!/bin/sh\nexec bun %s/scripts/dispatch-next.ts "$@"\n' "$SCRIPT_DIR" > "$SHIM_BIN/dispatch"
-chmod +x "$SHIM_BIN/dispatch"
-echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
+# PATH shims are published transactionally by sync-harness.ts above.
 
 # ─── local-llm baseline (owner law 2026-10-01) ───
 # Installing suspenders ALWAYS installs the local-llm swarm — smallest models
