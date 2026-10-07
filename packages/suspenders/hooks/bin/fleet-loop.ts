@@ -35,7 +35,7 @@ import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
+import { laneAlive, worktreeLive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
@@ -199,50 +199,13 @@ function wtPathFromGit(b: string): string | null {
 	return null;
 }
 
-/** live agent-CLI process with cwd inside the worktree — contract-free
- * liveness, independent of lanes.json registration state and DISPATCHED log
- * formats (gaps 2026-09-30: their dispatch-next registers lanes.json async
- * 22-55s after spawn and no longer writes DISPATCHED lines, so both
- * registration-derived guards race the dispatcher). Matches the FULL
- * supported-dispatch-agent set (claude/codex/copilot/cline/grok — same
- * roster as DISPATCHABLE_AGENTS in routes-actions.ts), not just claude/codex:
- * a Copilot/cline/grok session working directly in a worktree was invisible
- * here (W309), so its merged branch got force-retired out from under it. */
-function worktreeLive(wt: string): boolean {
-	try {
-		// args=, not comm=: macOS truncates comm= to 15 chars, which cuts off
-		// npm-global shim paths like .../@github/copilot-darwin-arm64/copilot
-		// before "copilot" ever appears — comm= silently never matched it.
-		const pids = runCap(["ps", "-axo", "pid=,args="])
-			.out.split("\n")
-			.filter((l) => /claude|codex|copilot|cline|grok/i.test(l))
-			.map((l) => Number.parseInt(l.trim(), 10));
-		if (pids.length === 0) return false;
-		const listing = runCap([
-			"lsof",
-			"-a",
-			"-p",
-			pids.join(","),
-			"-d",
-			"cwd",
-			"-Fpcn",
-		]).out;
-		let pid = 0;
-		for (const line of listing.split("\n")) {
-			if (line.startsWith("p")) pid = Number.parseInt(line.slice(1), 10) || pid;
-			else if (line.startsWith("n") && line.slice(1).startsWith(wt))
-				return true;
-		}
-	} catch {}
-	return false;
-}
-
-/** liveness = tracked pid alive OR any live supported-agent process with cwd
- * in the worktree. Survives the unregistered spawn window and DISPATCHED-less
- * dispatchers; replaces the tracked-pid-only guard that raced dispatch-next. */
+/** liveness = THE surface's verdict (hooks/lib/lane-liveness.ts) for tracked
+ * lanes; untracked branches keep the worktree-cwd probe as EVIDENCE for this
+ * sweep (W494.1: cwd is evidence, never a liveness term). Survives the
+ * unregistered spawn window and DISPATCHED-less dispatchers. */
 function laneIsAlive(b: string): boolean {
-	// 2026-10-05: tracked lanes ask THE surface (work lanes verdict — shared
-	// with dispatch-next); untracked branches keep the local worktree probe
+	// W494.1: tracked lanes ask THE surface (work lanes verdict — shared with
+	// dispatch-next); untracked branches keep the worktree evidence probe
 	const tracked = lanes().find((l) => l.branch === b);
 	if (tracked) return laneAlive(tracked);
 	const wt = wtPathFromGit(b) ?? `${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;

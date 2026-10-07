@@ -50,6 +50,9 @@ import { resolveHub } from "../hooks/lib/hub-locate.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
+// W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
+// verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
+import { worktreeLive } from "../hooks/lib/lane-liveness.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -346,31 +349,6 @@ const saveLanes = (lanes: Lane[]): void => {
 			bySid.set(l.sid, l);
 	}
 	writeFileSync(LANES_JSON, JSON.stringify([...bySid.values()], null, 2));
-};
-
-/** live claude/codex process with cwd inside the worktree — pid-independent
- *  liveness, same contract-free probe fleet-loop uses for its retire guard. */
-const worktreeLive = (wt: string): boolean => {
-	const pids = sh(["ps", "-axo", "pid=,comm="])
-		.split("\n")
-		.filter((l) => /claude|codex/.test(l))
-		.map((l) => Number.parseInt(l.trim(), 10));
-	if (pids.length === 0) return false;
-	const listing = sh([
-		"lsof",
-		"-a",
-		"-p",
-		pids.join(","),
-		"-d",
-		"cwd",
-		"-Fpcn",
-	]);
-	let pid = 0;
-	for (const line of listing.split("\n")) {
-		if (line.startsWith("p")) pid = Number.parseInt(line.slice(1), 10) || pid;
-		else if (line.startsWith("n") && line.slice(1).startsWith(wt)) return true;
-	}
-	return false;
 };
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");

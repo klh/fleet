@@ -1,9 +1,13 @@
-// lane-liveness.ts — THE lane-liveness surface (2026-10-05).
-// Three consumers, one truth: `work lanes` (human + --json), dispatch-next
-// pool counting, fleet-loop retire guards. Replaces the ps|grep folk-magic
-// whose two leaks clogged the dispatch pool with ghosts: recycled pids read
-// as live lanes (kill(pid,0) passes for a random process), and the host
-// field made remote/codex lanes permanently "live" with no expiry.
+// lane-liveness.ts — THE lane-liveness surface (2026-10-05; W494.1 law
+// 2026-10-07). Three consumers, one truth: `work lanes` (human + --json),
+// dispatch-next pool counting, fleet-loop retire guards. Replaces the
+// ps|grep folk-magic whose leaks clogged the dispatch pool with ghosts:
+// recycled pids (kill(pid,0) passes for a random process), permanently-
+// trusted host lanes, and worktree cwd — W494.1: a cwd is a location, not
+// a heartbeat, so it is EVIDENCE for sweeps (worktreeLive), never a
+// liveness term. Verdict: live = recorded pid alive AND anchored harness
+// args referencing the sid, or — pid gone — the claimant transcript fresh
+// inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
 import { existsSync, statSync } from "node:fs";
 
 export type LaneRef = {
@@ -64,16 +68,21 @@ const processReferencesSid = (pid: number, sid: string): boolean => {
 	);
 };
 
-const worktreeLive = (wt?: string): boolean => {
+/** Evidence probe for the sweep surfaces (dispatch-next prune, fleet-loop
+ *  retire guard): a live harness process with cwd inside the worktree.
+ *  W494.1: NEVER a liveness term — a cwd is a location, not a heartbeat.
+ *  args= roster (W309 comm= truncation), anchored match (W494 phantom). */
+export const worktreeLive = (wt?: string): boolean => {
 	if (!wt || !existsSync(wt)) return false;
+	const pids = psArgs()
+		.filter((l) => HARNESS_ARG_RE.test(l))
+		.map((l) => l.trim().split(/\s+/)[0]);
+	if (pids.length === 0) return false;
 	const listing = Bun.spawnSync([
 		"lsof",
 		"-a",
 		"-p",
-		psArgs()
-			.filter((l) => HARNESS_ARG_RE.test(l))
-			.map((l) => l.trim().split(/\s+/)[0])
-			.join(","),
+		pids.join(","),
 		"-d",
 		"cwd",
 		"-Fn",
@@ -83,7 +92,11 @@ const worktreeLive = (wt?: string): boolean => {
 		.some((line) => line.startsWith("n") && line.slice(1).startsWith(wt));
 };
 
-// the verdict dispatch-next/fleet-loop/`work lanes` all share. `host` is
+// the verdict dispatch-next/fleet-loop/`work lanes` all share (W494.1):
+// live = recorded pid alive AND anchored harness args referencing the sid,
+// or — pid gone — the claimant transcript fresh inside the 15-min reclaim
+// lease (the same heartbeat `work reclaim` trusts). pid gone + heartbeat
+// stale = stale; the worktree cwd never rescues a dead lease. `host` is
 // stamped on EVERY dispatch entry (hostname()), so it means nothing by
 // itself — only a FOREIGN host carries no process-table trust; those lanes
 // live on claimant-transcript freshness alone
@@ -92,4 +105,4 @@ const THIS_HOST = hostname();
 export const laneAlive = (l: LaneRef): boolean =>
 	l.host !== undefined && l.host !== THIS_HOST
 		? transcriptAlive(l.sid)
-		: processReferencesSid(l.pid ?? 0, l.sid) || worktreeLive(l.worktree);
+		: processReferencesSid(l.pid ?? 0, l.sid) || transcriptAlive(l.sid);
