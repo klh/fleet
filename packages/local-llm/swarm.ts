@@ -23,7 +23,7 @@ import {
 	statSync,
 } from "node:fs";
 import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
-import { mlxLogPath, spawnArgs } from "./spawner.ts";
+import { clearLedgerPort, mlxLogPath, spawnArgs } from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
 import { gatewaySupervisor } from "./gateway-supervision.ts";
 
@@ -223,6 +223,42 @@ const serveTargets = (): ServeTarget[] => [
 	{ port: 4000, argv: [process.execPath, ROUTER], label: "router" },
 ];
 
+// W500 idle reaper — any specialist NOT in the active resident set (BELT_TIER
+// scoped) that loaded once and went quiet is pure wired-RAM waste: the OOM
+// mechanism of the 2026-10-06/07 crashes. Quiet = log mtime older than
+// IDLE_REAP_MS and no ESTABLISHED client connection on the port. Residents
+// are never reaped.
+const IDLE_REAP_MS = 15 * 60_000;
+
+async function reapIdle(): Promise<void> {
+	const active = new Set(residentSet().map((s) => s.port));
+	for (const s of SPECIALISTS) {
+		if (active.has(s.port)) continue;
+		if (!(await isUp(s.port))) continue;
+		let quiet: boolean;
+		try {
+			quiet = Date.now() - statSync(mlxLogPath(s.port)).mtimeMs > IDLE_REAP_MS;
+		} catch {
+			continue; // no log = not ours — never reap blind
+		}
+		if (!quiet) continue;
+		const conns = Bun.spawnSync([
+			"/usr/sbin/lsof",
+			"-ti",
+			`:${s.port}`,
+			"-sTCP:ESTABLISHED",
+		])
+			.stdout.toString()
+			.trim();
+		if (conns) continue; // a client is mid-request — not idle
+		killPort(s.port);
+		clearLedgerPort(s.port);
+		serveLog(
+			`♻ reaped idle :${s.port} ${s.label} (>${IDLE_REAP_MS / 60_000}min quiet)`,
+		);
+	}
+}
+
 const ensureGateway = gatewaySupervisor(undefined, serveLog);
 
 async function serveOnce(): Promise<void> {
@@ -236,6 +272,7 @@ async function serveOnce(): Promise<void> {
 		}
 		await reviveOne(t);
 	}
+	await reapIdle();
 }
 
 async function reviveOne(t: ServeTarget): Promise<void> {

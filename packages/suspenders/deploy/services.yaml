@@ -144,9 +144,13 @@ services:
     logs: { out: "__HOME__/.claude-insights/dispatch-watchdog-launchd.log" }
     placeholders: ["__BUN__", "__PREFIX__", "__HOME__"]
 
-  # local-llm keepwarm — every 4 min, niced off the interactive foreground
+  # local-llm keepwarm — every 4 min, niced off the interactive foreground.
+  # BELT_TIER must match the local-llm service below — a keepwarm that warms
+  # past the tier re-loads the 22GB reasoner forever (the W500 crash trigger).
   - name: llm-keepwarm
     bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
+    env:
+      BELT_TIER: "minimal"
     schedule: { intervalSeconds: 240 }
     nice: 10
     logs:

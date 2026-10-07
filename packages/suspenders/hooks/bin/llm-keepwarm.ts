@@ -4,7 +4,13 @@
 // keeps them resident. The prompt carries a nonce so the specialists'
 // response-cache doesn't answer from cache (a HIT would skip the forward
 // pass and leave the weights paged out).
-const PORTS = [8901, 8902, 8903, 8913]; // resident tier only (8912 Kev excluded: launchd-managed separately)
+// W500: the warmed set follows BELT_TIER (the crash root cause was this list
+// hardcoding the FULL tier — :8903's 22GB reasoner got re-warmed every 4 min
+// even after the machine moved to minimal). Keep in lockstep with
+// residentSet() in belt bin/registry.ts; 8912 Kev excluded: launchd-managed
+// separately.
+const PORTS: number[] =
+	process.env.BELT_TIER === "minimal" ? [8902, 8913] : [8901, 8902, 8903, 8913];
 
 async function ping(port: number): Promise<number> {
 	const t0 = Date.now();

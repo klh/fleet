@@ -164,6 +164,54 @@ const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
 	}
 };
 
+// ---------- 5. memory guard (W500) ----------
+// The crash valve lives OUTSIDE belt (health-is-outside-process): wired past
+// the guard band or litellm ballooning are the OOM precursors — act, don't
+// just verdict. The always-exempt set is minimal tier's ≤4GB residents
+// (residentSet() minimal in belt bin/registry.ts); everything else MLX is
+// reapable when wired crosses the band.
+const WIRED_GUARD_GB = 60;
+const LITELLM_RSS_GUARD_GB = 4;
+const EXEMPT_PORTS = new Set([8902, 8913]);
+
+const wiredNowGb = (): number => {
+	const out = sh(["/usr/bin/vm_stat"]).out;
+	const m = /Pages wired down:\s+(\d+)/.exec(out);
+	return m ? (Number(m[1]) * 16384) / 2 ** 30 : -1;
+};
+
+const portRssGb = (port: number): number => {
+	const pid = sh([
+		"/usr/sbin/lsof",
+		"-ti",
+		`tcp:${port}`,
+		"-sTCP:LISTEN",
+	]).out.split("\n")[0];
+	if (!pid) return 0;
+	const kb = Number.parseInt(
+		sh(["/bin/ps", "-o", "rss=", "-p", pid]).out.trim(),
+		10,
+	);
+	return Number.isFinite(kb) ? kb / 1048576 : 0;
+};
+
+const reapHeaviestMlx = (): string => {
+	const out = sh(["/usr/sbin/lsof", "-nP", "-iTCP", "-sTCP:LISTEN"]).out;
+	const rows: { port: number; pid: number; rss: number }[] = [];
+	for (const line of out.split("\n")) {
+		const m = /^\S+\s+(\d+)\s+\S+\s+.*127\.0\.0\.1:(890\d|891\d)\s/.exec(line);
+		if (!m) continue;
+		const port = Number.parseInt(m[2], 10);
+		if (EXEMPT_PORTS.has(port)) continue;
+		rows.push({ port, pid: Number(m[1]), rss: portRssGb(port) });
+	}
+	if (rows.length === 0) return "no reapable MLX listener";
+	rows.sort((a, b) => b.rss - a.rss);
+	const h = rows[0];
+	sh(["/bin/kill", "-9", String(h.pid)]);
+	return `killed :${h.port} pid ${h.pid} (${h.rss.toFixed(1)}GB)`;
+};
+
 // ---------- repair + report ----------
 const emit = (kind: string, note: string): void => {
 	sh([
@@ -279,6 +327,40 @@ const run = async (): Promise<number> => {
 		probe = { ok: false, detail: `probe threw: ${String(e).slice(0, 120)}` };
 	}
 	verdicts.push(`lane probe ${probe.ok ? "ok" : `FAIL: ${probe.detail}`}`);
+
+	// 5. memory guard (W500) — act on OOM precursors, never crash on them.
+	const wired = wiredNowGb();
+	if (wired >= 0) {
+		if (wired > WIRED_GUARD_GB) {
+			const action = reapHeaviestMlx();
+			verdicts.push(
+				`memory GUARD: wired ${wired.toFixed(0)}GB > ${WIRED_GUARD_GB}GB → ${action}`,
+			);
+			emit(
+				"BROADCAST",
+				`dispatch-watchdog memory guard: wired ${wired.toFixed(0)}GB — ${action}; recurrence = the tier/spawn guards need review`,
+			);
+			repaired = true;
+		} else verdicts.push(`memory ok (wired ${wired.toFixed(0)}GB)`);
+		const litellmGb = portRssGb(4100);
+		if (litellmGb > LITELLM_RSS_GUARD_GB) {
+			const pid = sh([
+				"/usr/sbin/lsof",
+				"-ti",
+				"tcp:4100",
+				"-sTCP:LISTEN",
+			]).out.trim();
+			if (pid) sh(["/bin/kill", "-9", ...pid.split("\n")]);
+			verdicts.push(
+				`litellm RSS ${litellmGb.toFixed(1)}GB > ${LITELLM_RSS_GUARD_GB}GB → killed :4100 (supervisor revives)`,
+			);
+			emit(
+				"BROADCAST",
+				`dispatch-watchdog restarted litellm (:4100 RSS ${litellmGb.toFixed(1)}GB — retry-storm buffering class)`,
+			);
+			repaired = true;
+		}
+	}
 	if (!probe.ok) {
 		emit(
 			"NEED_DECISION",
