@@ -37,6 +37,7 @@ export class RouterError extends Error {
 		public readonly family: AdapterFamily | null = null,
 		public readonly retryAfterS: number | null = null,
 		public readonly contextWindow = false,
+		public readonly providerCode: string | number | null = null,
 	) {
 		super(message);
 	}
@@ -204,6 +205,11 @@ export function normalizeUpstreamError(
 	const fromStatus: ErrorKind | undefined =
 		STATUS_KINDS[family]?.[status] ?? TIER2_STATUS[family]?.[status];
 	const kind: ErrorKind =
+		(status === 429
+			? "rate_limited"
+			: status === 401 || status === 403
+				? "auth"
+				: undefined) ??
 		fromSig ??
 		fromStatus ??
 		(status >= 500 || status < 400 ? "server" : "bad_request");
@@ -215,7 +221,27 @@ export function normalizeUpstreamError(
 		family,
 		retryAfterOf(headers, wire),
 		contextWindow,
+		typeof errorOf(wire)?.code === "string" ||
+			typeof errorOf(wire)?.code === "number"
+			? (errorOf(wire)?.code as string | number)
+			: null,
 	);
+}
+
+/** Native SDK envelope; preserve provider codes without changing their meaning. */
+export function routerErrorEnvelope(
+	error: RouterError,
+	dialect: "anthropic" | "openai",
+	message = error.message,
+): Record<string, unknown> {
+	const detail = {
+		type: error.kind === "rate_limited" ? "rate_limit_error" : "api_error",
+		message,
+		...(error.providerCode === null ? {} : { code: error.providerCode }),
+	};
+	return dialect === "anthropic"
+		? { type: "error", error: detail }
+		: { error: detail };
 }
 
 /** fetch-throw normalization: abort/timeout vs network (the W134 §1 table's

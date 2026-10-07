@@ -45,6 +45,7 @@ import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
+import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
 
 export interface AppDeps {
@@ -387,6 +388,7 @@ function finishResponse(
 	let decision: DecisionKind = sel.decision;
 	let row: CandidateRow | undefined = sel.head;
 	let code: string | null = null;
+	const rateLimited = result.kind === "client-error" && resp.status === 429;
 	if (result.kind === "upstream") {
 		row = deps.table.rowFor(result.candidateId) ?? sel.head;
 		if (result.candidateId !== sel.head.candidate_id) decision = "fallback";
@@ -396,8 +398,14 @@ function finishResponse(
 	} else if (result.kind === "aborted") {
 		decision = "errored";
 	}
+	if (rateLimited) {
+		decision = "errored";
+		code = "rate_limited";
+	}
 	const ms = Date.now() - ctx.t0;
-	const ok = result.kind === "upstream" || result.kind === "client-error";
+	const ok =
+		result.kind === "upstream" ||
+		(result.kind === "client-error" && !rateLimited);
 	deps.table.inflight(sel.head.candidate_id, -1);
 	const winner =
 		result.kind === "upstream" ? result.candidateId : sel.head.candidate_id;
@@ -409,7 +417,12 @@ function finishResponse(
 		status: resp.status,
 		duration_ms: ms,
 		ok,
-		err: result.kind === "exhausted" ? result.error : null,
+		err: rateLimited
+			? "rate_limited"
+			: result.kind === "exhausted"
+				? result.error
+				: null,
+		...(rateLimited ? { decision: "errored", error_code: "rate_limited" } : {}),
 	});
 	deps.sm
 		.counter("buckle_route_decisions_total", "Routing decisions.")
@@ -541,10 +554,14 @@ function writeErrorEvent(
 		err instanceof Error ? err.message : "upstream stream failed",
 	);
 	const w = writable.getWriter();
+	const envelope =
+		err instanceof RouterError
+			? routerErrorEnvelope(err, dialect, message)
+			: { error: { message, type: "api_error", code: "stream_failed" } };
 	const body =
 		dialect === "anthropic"
-			? `event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message } })}\n\n`
-			: `data: ${JSON.stringify({ error: { message, type: "api_error", code: "stream_failed" } })}\n\n`;
+			? `event: error\ndata: ${JSON.stringify({ type: "error", ...envelope })}\n\n`
+			: `data: ${JSON.stringify(envelope)}\n\n`;
 	void w
 		.write(enc.encode(body))
 		.then(() => w.close())

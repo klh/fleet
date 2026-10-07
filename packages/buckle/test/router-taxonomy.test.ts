@@ -140,7 +140,7 @@ describe("error taxonomy in the walk", () => {
 				: Response.json({ ok: 1 }),
 		);
 		await h.run();
-		expect(h.slept).toEqual([250]);
+		expect(h.slept).toEqual([1000]); // Provider minimum plus the exponential retry floor.
 	});
 
 	test("auth 401 exhausts the tier and falls through the ladder", async () => {
