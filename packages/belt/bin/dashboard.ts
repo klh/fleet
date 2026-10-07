@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { endpointPassed, livenessResponse } from "./health.ts";
+import { hubLlmsRows, readHubs } from "./hubs.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import {
@@ -572,6 +573,10 @@ recent routes across locals and remotes, and the /api/route audit trail
 ~/.claude/local-llm/metrics.db (bun:sqlite), fed incrementally from the two
 JSONL route logs belt already writes.
 
+GET /api/supervisor returns the self-heal status doc: per-target probe
+state (up/degraded/down), last probe/ok, restart budgets. Rows with
+kind = hub are the remote buckle hubs from hubs.json.
+
 POST /api/route — the policy endpoint (bearer token required; tokens in
 ~/.claude/local-llm/belt-tokens.json). Body {role?, model?, messages?,
 max_tokens?, temperature?, execute?}. Advisory (no execute): picks the
@@ -604,6 +609,31 @@ default 120 rpm per token).
 - Source: https://github.com/klh/belt
 - A Threads thing — http://www.threads.dk
 `;
+
+// W351: the hub rows are live state — labels/URLs from hubs.json, states
+// from the supervisor status doc — so /llms.txt rebuilds the section per
+// request and appends it after the static body (agents parse by heading).
+function llmsText(): string {
+	const targets = readStatus()?.targets ?? [];
+	const rows = hubLlmsRows(readHubs(), (h) => {
+		const t = targets.find(
+			(x) => x.kind === "hub" && x.name === h.label && x.port === h.port,
+		);
+		return t?.state ?? "unknown";
+	});
+	return `${LLMS}
+
+## Remote hubs
+
+Supervised probe-only rows for the buckle hubs registered in
+~/.claude/local-llm/hubs.json (the registry suspenders resolveHub walks;
+SUSPENDERS_HUBS_FILE overrides the path). Belt observes them from here — it
+never spawns on another host. TCP up + any HTTP answer on /api/health = up;
+live state rides GET /api/supervisor (targets where kind = hub).
+
+${rows.length ? rows.join("\n") : "none registered"}
+`;
+}
 
 // ─── server ───
 const json = (x: unknown, status = 200): Response =>
@@ -716,7 +746,7 @@ Bun.serve({
 				headers: { "content-type": "text/html; charset=utf-8" },
 			});
 		if (path === "/llms.txt")
-			return new Response(LLMS, {
+			return new Response(llmsText(), {
 				headers: { "content-type": "text/plain; charset=utf-8" },
 			});
 		if (path === "/threads-mark.js")
