@@ -102,6 +102,15 @@ test("show --json gives dispatcher state and exact owner in either flag order", 
 	expect(work("show", "--json").code).not.toBe(0);
 });
 
+test("stats reports project graph counts as structured data", () => {
+	const result = work("stats");
+	expect(result.code).toBe(0);
+	const stats = JSON.parse(result.out);
+	expect(stats.project).toBeTruthy();
+	expect(stats.counts.CLAIMED).toBeGreaterThan(0);
+	expect(stats.latest_done).toBeNull();
+});
+
 describe("add — id allocation", () => {
 	test("root ids allocate sequentially per project", () => {
 		const a = idOf(work("add", "alpha item").out);

@@ -107,6 +107,7 @@ type Lane = {
 	branch: string;
 	worktree: string;
 	agent?: string;
+	launchedAt?: number;
 };
 
 function readJsonSync<T>(p: string): T | null {
@@ -503,6 +504,17 @@ function newestFileMtime(dir: string, depth = 0): number | null {
 		return null;
 	}
 	for (const e of ents) {
+		if (
+			[
+				".git",
+				".fleet",
+				".claude",
+				"node_modules",
+				".klh-brief.md",
+				".workgraph.jsonl",
+			].includes(e.name)
+		)
+			continue;
 		const p = `${dir}/${e.name}`;
 		if (e.isDirectory()) {
 			if (e.name === ".git" || depth >= 6) continue;
@@ -517,14 +529,6 @@ function newestFileMtime(dir: string, depth = 0): number | null {
 	}
 	return newest;
 }
-
-const mtimeOf = (p: string): number | null => {
-	try {
-		return statSync(p).mtimeMs;
-	} catch {
-		return null;
-	}
-};
 
 // one lane.stalled event per episode, one lane.resumed on recovery — the
 // graph's events table is the broadcast plane (same idiom as work.landed).
@@ -543,19 +547,38 @@ function stallWatch(): void {
 	const state: StallState = readJsonSync(STALL_FILE) ?? {};
 	const seen = new Set<string>();
 	for (const l of lanes()) {
-		let pidAlive = false;
+		const item = sh([
+			process.execPath,
+			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+			"show",
+			l.item,
+			"--json",
+		]);
+		let claim: { state?: string; owner_sid?: string };
 		try {
-			process.kill(l.pid, 0);
-			pidAlive = true;
-		} catch {}
-		if (!pidAlive) continue;
+			claim = JSON.parse(item);
+		} catch {
+			continue;
+		}
+		if (
+			claim.owner_sid !== l.sid ||
+			!["CLAIMED", "RUNNING"].includes(claim.state ?? "")
+		)
+			continue;
 		seen.add(l.sid);
-		const acts = [
-			mtimeOf(`${REPO}/.fleet/lane-${l.sid}.log`),
-			l.worktree ? newestFileMtime(l.worktree) : null,
-		].filter((v): v is number => v !== null);
-		if (acts.length === 0) continue;
-		const activity = Math.max(...acts);
+		if (!laneAlive(l)) {
+			if (!state[l.sid]?.warned) {
+				state[l.sid] = { since: now, warned: true };
+				log(`DEAD ${l.sid} on ${l.item} — unfinished claim needs recovery`);
+				emitLaneEvent("lane.dead", l.item, { sid: l.sid });
+			}
+			continue;
+		}
+		const activity =
+			(l.worktree ? newestFileMtime(l.worktree) : null) ??
+			l.launchedAt ??
+			state[l.sid]?.since ??
+			now;
 		watchLane(state, seen, l, now, activity);
 	}
 	for (const sid of Object.keys(state)) if (!seen.has(sid)) delete state[sid];
@@ -580,7 +603,7 @@ function watchLane(
 	if (state[l.sid].warned) return;
 	state[l.sid].warned = true;
 	log(
-		`STALLED ${l.sid} on ${l.item} — log/worktree frozen ${Math.round((now - activity) / 60000)}m`,
+		`STALLED ${l.sid} on ${l.item} — product artifacts unchanged ${Math.round((now - activity) / 60000)}m`,
 	);
 	emitLaneEvent("lane.stalled", l.item, {
 		sid: l.sid,

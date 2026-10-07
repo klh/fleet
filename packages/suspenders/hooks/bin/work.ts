@@ -120,6 +120,12 @@ const SCHEMA: Record<string, Spec> = {
 		reqFlags: [],
 		usage: "usage: show <id> [--json]",
 	},
+	stats: {
+		flags: [],
+		minPos: 0,
+		reqFlags: [],
+		usage: "usage: stats (project-scoped JSON progress snapshot)",
+	},
 	take: {
 		flags: ITEM_FLAGS,
 		minPos: 1,
@@ -294,6 +300,7 @@ const red = paint("31");
 const MIRROR_NAME = ".workgraph.jsonl";
 const MIRROR_MAX_AGE = 15 * 60_000;
 const READ_CMDS = new Set([
+	"stats",
 	"list",
 	"ready",
 	"mine",
@@ -874,6 +881,24 @@ if (cmd === "add") {
 		)
 		.all(PROJECT) as Item[];
 	console.log(rows.map(renderRow).join("\n") || dim("(nothing owned)"));
+} else if (cmd === "stats") {
+	const counts = db()
+		.query(
+			"SELECT state, COUNT(*) AS n FROM work_items WHERE project = ? GROUP BY state",
+		)
+		.all(PROJECT) as { state: string; n: number }[];
+	const done = db()
+		.query(
+			"SELECT MAX(updated_at) AS latest_done FROM work_items WHERE project = ? AND state = 'DONE'",
+		)
+		.get(PROJECT) as { latest_done: number | null };
+	console.log(
+		JSON.stringify({
+			project: PROJECT,
+			counts: Object.fromEntries(counts.map((r) => [r.state, r.n])),
+			latest_done: done.latest_done,
+		}),
+	);
 } else if (cmd === "show") {
 	const id = pos[0];
 	const it = get(id ?? "");

@@ -9,9 +9,8 @@
 //      ONLY repo→prefix sync; the watchdog never hand-cps).
 //   2. fleet-loop liveness — same-pid stability across checks; a churning pid
 //      (crash-loop) or no pid at all → kickstart.
-//   3. dispatch flow — a DISPATCHED line in .fleet/loop.log within the last
-//     30 min while READY > 0 means the pipeline moved; silence + READY > 0
-//     = stalled → kickstart + broadcast.
+//   3. work flow — project graph completions + process-backed live lanes;
+//      dead claimed backlog is pending, dispatch chatter is not progress.
 //   4. governed-path probe — mint a throwaway lane key and push one tiny
 //     inference through the :4101 front; the end-to-end proof lanes depend on.
 //
@@ -21,6 +20,11 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
+import {
+	fleetProgress,
+	type ProgressState,
+	type WorkStats,
+} from "./lib/fleet-progress.ts";
 
 const HOME = process.env.HOME ?? "";
 const REPO =
@@ -28,7 +32,6 @@ const REPO =
 const PREFIX =
 	process.env.SUSPENDERS_PREFIX ?? `${HOME}/.claude/hooks/suspenders`;
 const FLEET = process.env.SUSPENDERS_FLEET_DIR ?? `${REPO}/.fleet`;
-const LOOP_LOG = process.env.SUSPENDERS_LOOP_LOG ?? `${FLEET}/loop.log`;
 const SID = process.env.SUSPENDERS_WATCHDOG_SID ?? "watchdog";
 
 const statePath = join(FLEET, "dispatch-watchdog.json");
@@ -38,8 +41,8 @@ const log = (msg: string): void => {
 	appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`);
 };
 
-const sh = (cmd: string[]): { code: number; out: string } => {
-	const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+const sh = (cmd: string[], cwd = REPO): { code: number; out: string } => {
+	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
 	return {
 		code: p.exitCode ?? 1,
 		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
@@ -59,9 +62,7 @@ const libParity = (): { ok: boolean; missing: string[] } => {
 		for (const d of depths) {
 			const p = join(d, f);
 			if (!existsSync(p)) missing.push(p);
-			else if (
-				readFileSync(p).byteLength !== readFileSync(join(srcDir, f)).byteLength
-			)
+			else if (!readFileSync(p).equals(readFileSync(join(srcDir, f))))
 				missing.push(`${p} (stale bytes)`);
 		}
 	}
@@ -80,22 +81,22 @@ const loopPid = (): number | null => {
 };
 
 // ---------- 3. dispatch flow ----------
-const lastDispatchAgeMin = (): number | null => {
-	if (!existsSync(LOOP_LOG)) return null;
-	const lines = readFileSync(LOOP_LOG, "utf8")
-		.split("\n")
-		.filter((l) => l.includes("DISPATCHED"));
-	if (lines.length === 0) return null;
-	const last = lines[lines.length - 1];
-	const m = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(last);
-	if (!m) return null;
-	return (Date.now() - Date.parse(m[1])) / 60_000;
+const progressSnapshot = (): { stats: WorkStats; live: number } => {
+	const stats = sh([process.execPath, `${PREFIX}/bin/work.ts`, "stats"]);
+	const lanes = sh([
+		process.execPath,
+		`${PREFIX}/bin/work.ts`,
+		"lanes",
+		"--json",
+	]);
+	if (stats.code !== 0 || lanes.code !== 0)
+		throw new Error("work progress/liveness unavailable");
+	return {
+		stats: JSON.parse(stats.out),
+		live: (JSON.parse(lanes.out) as { live: boolean }[]).filter((l) => l.live)
+			.length,
+	};
 };
-
-const readyCount = (): number =>
-	sh([process.execPath, `${PREFIX}/bin/work.ts`, "ready"])
-		.out.split("\n")
-		.filter((l) => l.trim().startsWith("·")).length;
 
 // ---------- 4. governed-path probe ----------
 const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
@@ -222,7 +223,7 @@ const emit = (kind: string, note: string): void => {
 	]);
 };
 
-const readState = (): { loopPid: number | null } => {
+const readState = (): ProgressState & { loopPid: number | null } => {
 	try {
 		return JSON.parse(readFileSync(statePath, "utf8"));
 	} catch {
@@ -238,20 +239,29 @@ const run = async (): Promise<number> => {
 	const parity = libParity();
 	if (!parity.ok) {
 		log(`REPAIR lib parity broken: ${parity.missing.join(", ")}`);
-		sh(["/bin/bash", join(REPO, "packages/suspenders/install.sh"), "--no-llm"]);
-		repaired = true;
+		const install = sh([
+			"/bin/bash",
+			join(REPO, "packages/suspenders/install.sh"),
+			"--no-llm",
+			"--skip-models",
+		]);
+		const verified = install.code === 0 && libParity().ok;
+		repaired = verified;
 		verdicts.push(
-			`lib-parity REPAIRED via installer (was: ${parity.missing.length} missing/stale)`,
+			`lib-parity ${verified ? "REPAIRED" : "FAILED"} via installer`,
 		);
 		emit(
-			"BROADCAST",
-			`dispatch-watchdog repaired prefix-lib parity (${parity.missing.length} files) via install.sh — fleet-loop was crash-looping; lanes dispatch normally again`,
+			verified ? "BROADCAST" : "NEED_DECISION",
+			verified
+				? "dispatch-watchdog repaired and reverified installed helper parity"
+				: "dispatch-watchdog installer/parity verification failed; inspect install logs before retrying",
 		);
 	} else verdicts.push("lib-parity ok");
 
 	// 2. loop liveness (pid stability across runs)
 	const pid = loopPid();
-	const prev = readState().loopPid;
+	const previous = readState();
+	const prev = previous.loopPid;
 	let kicked = false;
 	if (pid === null) {
 		sh([
@@ -284,41 +294,59 @@ const run = async (): Promise<number> => {
 			`dispatch-watchdog saw fleet-loop pid churn (${prev}→${pid}) — kickstarted; check /tmp/fleet-loop.log for the crash cause`,
 		);
 	} else verdicts.push(`fleet-loop ok pid=${pid}`);
-	// After OUR OWN kickstart the next run MUST adopt fresh: writing the old
-	// pid made every subsequent run see churn and kickstart again forever
-	// (restart churn caused BY the watchdog — external finding, verified).
+	// 3. Project graph/liveness, never dispatch-log timestamps.
+	let nextState: ProgressState = previous;
+	try {
+		const snapshot = progressSnapshot();
+		const flow = fleetProgress(
+			snapshot.stats,
+			snapshot.live,
+			previous,
+			Date.now(),
+		);
+		nextState = flow.state;
+		verdicts.push(
+			`work flow ${flow.stalled ? "STALLED" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, done=${flow.state.done})`,
+		);
+		if (flow.restart && !kicked) {
+			const kick = sh([
+				"launchctl",
+				"kickstart",
+				"-k",
+				`gui/${process.getuid()}/com.suspenders.fleet-loop`,
+			]);
+			if (kick.code === 0) {
+				kicked = true;
+				repaired = true;
+				nextState.progressRestarts = (nextState.progressRestarts ?? 0) + 1;
+				nextState.restartAt = Date.now();
+				emit(
+					"BROADCAST",
+					`dispatch-watchdog: stalled graph with ${flow.pending} pending and zero live lanes; recovery kick ${nextState.progressRestarts}/2`,
+				);
+			} else verdicts.push("stalled recovery kick failed");
+		} else if (flow.stalled && (nextState.progressRestarts ?? 0) >= 2) {
+			emit(
+				"NEED_DECISION",
+				"Fleet work remains stalled after two recovery kicks; inspect dead claims/routes before another retry.",
+			);
+		}
+	} catch {
+		verdicts.push("work flow UNKNOWN: structured graph/liveness unavailable");
+		emit(
+			"NEED_DECISION",
+			"Watchdog cannot verify graph progress; restore structured work stats/liveness.",
+		);
+	}
+	// All kick paths adopt the fresh PID next run, including progress recovery.
 	writeFileSync2(
 		statePath,
 		JSON.stringify({
+			...nextState,
 			loopPid: kicked ? null : pid,
 			at: new Date().toISOString(),
 		}),
 	);
-
-	// 3. dispatch flow
-	const age = lastDispatchAgeMin();
-	const ready = readyCount();
-	if (age === null && ready > 0)
-		verdicts.push(`dispatch flow: never dispatched, ${ready} ready — watching`);
-	else if (age !== null && age > 30 && ready > 0) {
-		verdicts.push(
-			`dispatch STALLED: last DISPATCHED ${age.toFixed(0)}min ago, ${ready} ready → kickstart loop`,
-		);
-		sh([
-			"launchctl",
-			"kickstart",
-			"-k",
-			`gui/${process.getuid()}/com.suspenders.fleet-loop`,
-		]);
-		repaired = true;
-		emit(
-			"BROADCAST",
-			`dispatch-watchdog: no dispatch for ${age.toFixed(0)}min with ${ready} READY — kicked fleet-loop; if it recurs the loop itself needs eyes`,
-		);
-	} else
-		verdicts.push(
-			`dispatch flow ok (last ${age === null ? "never" : `${age.toFixed(0)}min ago`}, ready=${ready})`,
-		);
 
 	// 4. governed-path probe — a DOWN front must verdict, never crash the
 	// watchdog (the post-reboot run exited 1 with the spoke down: the mint
@@ -388,10 +416,15 @@ const dry = process.argv.includes("--dry-run");
 if (dry) {
 	const parity = libParity();
 	const pid = loopPid();
-	const age = lastDispatchAgeMin();
-	const ready = readyCount();
+	const snapshot = progressSnapshot();
+	const flow = fleetProgress(
+		snapshot.stats,
+		snapshot.live,
+		readState(),
+		Date.now(),
+	);
 	console.log(
-		`dry: lib-parity=${parity.ok ? "ok" : `BROKEN(${parity.missing.length})`} loop-pid=${pid ?? "none"} last-dispatch=${age === null ? "never" : `${age.toFixed(0)}min`} ready=${ready}`,
+		`dry: lib-parity=${parity.ok ? "ok" : "BROKEN"} loop-pid=${pid ?? "none"} pending=${flow.pending} live=${flow.live} stalled=${flow.stalled}`,
 	);
 	process.exit(0);
 }
