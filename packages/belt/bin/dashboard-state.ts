@@ -55,3 +55,25 @@ export function endpointState(
 	if (!up && target.state === "up") return "probe disagreement";
 	return target.state;
 }
+
+/** Per-target state label from the supervisor's probe evidence. Expired
+ *  evidence renders unknown — the row's details keep the timestamps, the
+ *  label never asserts a stale state as current (W556). */
+export function targetStateLabel(
+	target: TargetStatus,
+	doc: StatusDoc,
+	now = Date.now(),
+): string {
+	const lastProbe = Date.parse(target.lastProbe ?? "");
+	if (
+		!Number.isFinite(lastProbe) ||
+		lastProbe > now + 5000 ||
+		now - lastProbe > Math.max(15_000, doc.intervalMs * 3)
+	)
+		return "unknown";
+	if (target.preflightError) return "dependency blocked";
+	if (target.state === "idle") return "idle · on demand";
+	if (target.state === "unhealthy") return "restart limit reached";
+	if (target.state === "backoff") return "retry scheduled";
+	return target.state;
+}
