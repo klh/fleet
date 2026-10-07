@@ -25,6 +25,8 @@ export interface GatewayPolicy {
 	num_retries?: number;
 	/** Inner router retries (0..3); opt into zero behind a verified retry owner. */
 	litellm_num_retries?: number;
+	/** Keep inner fallback ladders unless a verified front owns those hops. */
+	litellm_fallbacks?: boolean;
 	allowed_fails?: number;
 	cooldown_time?: number;
 	fallbacks?: Record<string, string[]>;
@@ -39,6 +41,7 @@ interface PolicyDoc {
 const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
 	num_retries: 1,
 	litellm_num_retries: 1,
+	litellm_fallbacks: true,
 	allowed_fails: 3,
 	cooldown_time: 30,
 };
@@ -48,6 +51,7 @@ export function parsePolicy(text: string): GatewayPolicy {
 	const doc = YAML.parse(text) as PolicyDoc;
 	const policy = { ...DEFAULTS, ...(doc.gateway ?? {}) };
 	validateInnerRetries(policy.litellm_num_retries);
+	validateInnerFallbacks(policy.litellm_fallbacks);
 	return policy;
 }
 
@@ -60,6 +64,14 @@ function validateInnerRetries(value: unknown): number {
 	)
 		throw new Error(
 			"router-policy: gateway.litellm_num_retries must be an integer from 0 to 3",
+		);
+	return value;
+}
+
+function validateInnerFallbacks(value: unknown): boolean {
+	if (typeof value !== "boolean")
+		throw new Error(
+			"router-policy: gateway.litellm_fallbacks must be a boolean",
 		);
 	return value;
 }
@@ -101,11 +113,15 @@ export function emitRouterSettings(p: GatewayPolicy): string {
 }
 
 /** Emit the litellm_settings YAML block carrying the fallback ladders
- *  (W219.2). Empty string when no fallbacks are configured — gateway-config
+ *  (W219.2). Empty when omitted or explicitly disabled for the inner engine — gateway-config
  *  composes router_settings + litellm_settings + general_settings. Shape is
  *  the native one: a list of single-key maps, validated by Router
  *  .validate_fallbacks. */
 export function emitFallbackSettings(p: GatewayPolicy): string {
+	if (
+		!validateInnerFallbacks(p.litellm_fallbacks ?? DEFAULTS.litellm_fallbacks)
+	)
+		return "";
 	const fallbackLines = Object.entries(p.fallbacks ?? {})
 		.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
 		.join("\n");
