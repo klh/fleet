@@ -190,17 +190,20 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		probe: { kind: "http", port: 4101, path: "/status" },
 		what: "The buckle router is not answering, so its routing view and metering on this board are blank.",
 		causes: [
-			"buckle is not started (it has no launchd agent — it runs from its checkout)",
-			"an orphaned buckle process still holds :4101",
-			"buckle crashed on a bad upstreams.yaml or policy edit",
+			// W546: the spoke IS supervised (com.suspenders.buckle-spoke,
+			// deploy/services.yaml) — the old "no launchd agent, start it by
+			// hand" advice manufactured exactly the orphan holders that leave
+			// supervised restarts dying on EADDRINUSE.
+			"an orphaned buckle still holds :4101, so the supervised agent crash-loops on EADDRINUSE (seen 2026-10-07)",
+			"the agent is not loaded — never installed or bootout-ed",
+			"buckle crashed on a bad upstreams.yaml or policy edit — the log says which",
 		],
 		recovery: [
 			holder(4101),
 			killOrphan(4101),
-			{
-				label: "start buckle from its checkout (BUCKLE_REPO = your clone)",
-				cmd: 'cd "$BUCKLE_REPO" && bun run start',
-			},
+			kick("com.suspenders.buckle-spoke"),
+			bootstrap("com.suspenders.buckle-spoke"),
+			tail("~/.claude-insights/buckle-spoke.log"),
 			curl(4101, "/status"),
 		],
 	},

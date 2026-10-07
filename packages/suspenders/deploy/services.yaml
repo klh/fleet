@@ -30,6 +30,12 @@
 #                one EnvironmentFile directive per path. Later files override
 #                earlier values. All files are required. WinSW documents paths
 #                for operator injection. Secrets are NEVER embedded in units.
+#   port         optional declared listener port (receipt metadata only —
+#                never rendered into any unit). The activation receipt
+#                records it so supervision lsof-verifies the LISTENER, not
+#                just the PID (W546: a spoke that died on EADDRINUSE showed
+#                a live process tree while :4101 was dark). The
+#                SUSPENDERS_SERVICE_PORTS_JSON env overrides per machine.
 #   schedule     runAtLoad        RunAtLoad — all current runners load at
 #                                 login (defaults to true)
 #                keepalive        KeepAlive — restart on exit (residents)
@@ -90,9 +96,13 @@ services:
 
   # W501: the lane gateway is supervised outside interactive agent sessions.
   # Routing credentials come from belt.env; spoke-only auth/bind settings win.
+  # W546: port feeds the activation receipt so supervision verifies the
+  # :4101 LISTENER — a restart that dies on EADDRINUSE can no longer pass
+  # as running just because a PID exists.
   - name: buckle-spoke
     bunEntry: "__REPO__/../buckle/src/server.ts"
     args: []
+    port: 4101
     cwd: "__REPO__/../buckle"
     env:
       HOME: "__HOME__"

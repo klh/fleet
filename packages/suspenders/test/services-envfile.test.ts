@@ -107,7 +107,34 @@ describe("W501 supervised gateway env files", () => {
 			keepalive: true,
 			throttleSeconds: 10,
 		});
+		// W546: declared listener port rides into the activation receipt —
+		// supervision lsof-verifies :4101, not just the agent PID.
+		expect(spec?.port).toBe(4101);
 		expect(spec?.bunEntry).toBe("__REPO__/../buckle/src/server.ts");
+	});
+	test("declared listener port rides the renderer's --json (receipt source, W546)", () => {
+		const f = fixture();
+		const out = join(f.dir, "units");
+		const proc = Bun.spawnSync(
+			[
+				process.execPath,
+				join(import.meta.dir, "../scripts/install-services.ts"),
+				"--target",
+				"darwin",
+				"--service",
+				"buckle-spoke",
+				"--out",
+				out,
+				"--json",
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		expect(proc.exitCode).toBe(0);
+		const report = JSON.parse(proc.stdout.toString()) as {
+			services: { service: string; port?: number }[];
+		};
+		expect(report.services[0]?.service).toBe("buckle-spoke");
+		expect(report.services[0]?.port).toBe(4101);
 	});
 	test("all env files are resolved in cross-platform units without reading contents", () => {
 		const f = fixture();
@@ -134,6 +161,14 @@ describe("W501 supervised gateway env files", () => {
 		for (const envFile of [[], [null], 123, ["/valid.env", ""]]) {
 			expect(() =>
 				validateSpec({ ...f.spec, envFile } as unknown as ServiceSpec),
+			).toThrow();
+		}
+	});
+	test("invalid declared port fails spec validation (W546)", () => {
+		const f = fixture();
+		for (const port of [0, 70000, 10.5, Number.NaN]) {
+			expect(() =>
+				validateSpec({ ...f.spec, port } as unknown as ServiceSpec),
 			).toThrow();
 		}
 	});
