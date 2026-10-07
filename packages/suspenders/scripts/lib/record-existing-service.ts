@@ -6,7 +6,7 @@ import {
 	type ActivationService,
 	type Inspect,
 } from "./service-drift.ts";
-import { processBirth } from "./launch-fencing.ts";
+import type { processBirth } from "./launch-fencing.ts";
 import { identityMatches } from "./owned-process.ts";
 
 export interface ExistingServiceDeps {
