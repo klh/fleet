@@ -127,12 +127,27 @@ export function activateTranscriptUsage(
 					row.cache_r,
 					row.cache_c,
 				);
-			const cursor = db.query(
-				"INSERT INTO facts (key,value,source,ts) VALUES (?,?,'usage-v2-migration',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,source=excluded.source,ts=excluded.ts",
+			// W466: the rebuilt store keeps cursors in machine_cursors (govdb
+			// v12); pre-W466 report artifacts kept them in facts — read both.
+			db.run(
+				"CREATE TABLE IF NOT EXISTS machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)",
 			);
-			for (const row of report
-				.query("SELECT key,value FROM facts WHERE key LIKE 'usage.tp.%'")
-				.iterate() as Iterable<{ key: string; value: string }>)
+			const cursor = db.query(
+				"INSERT INTO machine_cursors (key,value,source,ts) VALUES (?,?,'usage-v2-migration',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,source=excluded.source,ts=excluded.ts",
+			);
+			const reportHasCursorTable = report
+				.query(
+					"SELECT 1 FROM sqlite_master WHERE type='table' AND name='machine_cursors'",
+				)
+				.get();
+			const cursorRows = report
+				.query(
+					reportHasCursorTable
+						? "SELECT key,value FROM machine_cursors WHERE key LIKE 'usage.tp.%'"
+						: "SELECT key,value FROM facts WHERE key LIKE 'usage.tp.%'",
+				)
+				.iterate() as Iterable<{ key: string; value: string }>;
+			for (const row of cursorRows)
 				cursor.run(
 					row.key.replace("usage.tp.", "usage.v2.tp."),
 					row.value,

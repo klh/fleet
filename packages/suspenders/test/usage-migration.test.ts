@@ -55,6 +55,10 @@ function fixture(wal = false) {
 	db.run(
 		"CREATE TABLE facts (key TEXT PRIMARY KEY,value TEXT,source TEXT,ts INTEGER)",
 	);
+	// W466: the caller-owned store is post-v12 — cursors live in machine_cursors
+	db.run(
+		"CREATE TABLE machine_cursors (key TEXT PRIMARY KEY,value TEXT NOT NULL,source TEXT NOT NULL,ts INTEGER NOT NULL)",
+	);
 	db.run(
 		"CREATE TABLE usage_rollup (hour_bucket INTEGER,actor TEXT,model TEXT,model_group TEXT,in_tok INTEGER,out_tok INTEGER,cache_r INTEGER,cache_c INTEGER,requests INTEGER,PRIMARY KEY(hour_bucket,actor,model))",
 	);
@@ -201,7 +205,8 @@ test("stale legacy snapshot refuses migration rather than erase new external rec
 test("interrupted cursor import rolls back archive, ledger and state together", () => {
 	const f = fixture();
 	f.db.run(
-		"CREATE TRIGGER fail_cursor BEFORE INSERT ON facts BEGIN SELECT RAISE(ABORT,'injected cursor failure'); END",
+		// W466: the cursor import lands in machine_cursors (govdb v12)
+		"CREATE TRIGGER fail_cursor BEFORE INSERT ON machine_cursors BEGIN SELECT RAISE(ABORT,'injected cursor failure'); END",
 	);
 	expect(() =>
 		activateTranscriptUsage(f.db, f.path, { reviewedSourceSelection: true }),

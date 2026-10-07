@@ -103,9 +103,10 @@ export function harvestUsage(
 		.all() as { sid: string; actor: string | null }[])
 		actorOf.set(r.sid, { actor: r.actor });
 	const getCur = (key: string): Cursor | null => {
-		const row = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
-			value: string | null;
-		} | null;
+		// W466: cursors live in machine_cursors (govdb v12), not facts
+		const row = db
+			.query("SELECT value FROM machine_cursors WHERE key = ?")
+			.get(key) as { value: string | null } | null;
 		if (!row?.value) return null;
 		try {
 			const c = JSON.parse(row.value) as {
@@ -121,7 +122,7 @@ export function harvestUsage(
 		}
 	};
 	const setCur = db.query(
-		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'usage-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
+		"INSERT INTO machine_cursors (key, value, source, ts) VALUES (?, ?, 'usage-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
 	);
 	const upsert = db.query(
 		`INSERT INTO ${rollup} (hour_bucket, actor, model, model_group, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hour_bucket, actor, model) DO UPDATE SET in_tok = in_tok + excluded.in_tok, out_tok = out_tok + excluded.out_tok, cache_r = cache_r + excluded.cache_r, cache_c = cache_c + excluded.cache_c, requests = requests + excluded.requests`,
