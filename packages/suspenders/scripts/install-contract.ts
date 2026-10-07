@@ -23,7 +23,8 @@ export type StepName =
 	| "registerLaunchd"
 	| "registerCaddy"
 	| "releaseNotify"
-	| "refreshDashboards";
+	| "refreshDashboards"
+	| "deployHub";
 
 export type StepV1 = "real" | "delegated" | "stub";
 
@@ -345,6 +346,14 @@ export const INSTALL_CONTRACT = {
 			optIn: true,
 			v1: "real",
 		},
+		{
+			name: "deployHub",
+			oneLiner:
+				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (bash flag --hub <name>)",
+			mutates: true,
+			optIn: true,
+			v1: "stub",
+		},
 	],
 	bashFlags: [
 		{
@@ -384,6 +393,12 @@ export const INSTALL_CONTRACT = {
 			flag: "--no-llm",
 			meaning: "skip the local-llm baseline entirely (CI/containers)",
 			mappedStep: "seedLocalLlm",
+		},
+		{
+			flag: "--hub <name>",
+			meaning:
+				"install-grade hub deploy from ~/.config/klh/stack.yaml: deploy/hubctl.ts mint → push → up → status; --dry-run renders the hub .env only",
+			mappedStep: "deployHub",
 		},
 	],
 	agentNextSteps: {

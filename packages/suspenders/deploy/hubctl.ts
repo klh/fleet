@@ -10,6 +10,7 @@
 //   bun deploy/hubctl.ts push  <hub>    # stream compose template + .env to the hub
 //   bun deploy/hubctl.ts up    <hub>    # docker compose up -d on the hub
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
+//   bun deploy/hubctl.ts deploy <hub>   # validated mint → push → up → status
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
@@ -95,14 +96,35 @@ function renderEnv(
 	authRequired?: boolean,
 	version?: string,
 ): string {
+	const ref = version;
+	if (!ref || ref === "main" || ref === "master")
+		throw new Error(
+			"hub deploy requires a pinned stack version (reviewed SHA or release tag)",
+		);
+	if (version && hub.repos?.ref && hub.repos.ref !== version)
+		throw new Error("hub repo ref must match the shared stack version");
+	const origins = [
+		...new Set(
+			[hub.repos?.buckle, hub.repos?.suspenders, hub.repos?.belt].filter(
+				Boolean,
+			),
+		),
+	];
+	if (origins.length > 1)
+		throw new Error("hub packages must share one Fleet monorepo origin");
+	const origin = origins[0] ?? "https://github.com/klh/fleet.git";
+	if (/github\.com[:/]klh\/(?:buckle|suspenders|belt)(?:\.git)?$/.test(origin))
+		throw new Error(
+			"archived package origin cannot deploy Fleet; configure the monorepo origin",
+		);
 	const lines = [`HUB_NAME=${name}`];
 	const kv = (key: string, v: unknown): void => {
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);
 	};
 	kv("HUB_BUCKLE_PORT", hub.buckle_port);
 	kv("HUB_BUCKLE_BIND", hub.bind);
-	kv("HUB_BUCKLE_REF", hub.repos?.ref ?? version);
-	kv("HUB_BUCKLE_REPO_URL", hub.repos?.buckle);
+	kv("HUB_FLEET_REF", ref);
+	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
 	if (authRequired !== undefined)
 		kv("HUB_BUCKLE_AUTH", authRequired ? "on" : "off");
@@ -118,10 +140,6 @@ function renderEnv(
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
 	kv("HUB_STORE_HEALTH_PORT", hub.store_health_port);
 	kv("HUB_BELT_HEALTH_PORT", hub.belt_health_port);
-	kv("HUB_SUSPENDERS_REF", hub.repos?.ref ?? version);
-	kv("HUB_SUSPENDERS_REPO_URL", hub.repos?.suspenders);
-	kv("HUB_BELT_REF", hub.repos?.ref ?? version);
-	kv("HUB_BELT_REPO_URL", hub.repos?.belt);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -277,13 +295,37 @@ function status(hub: HubProfile): number {
 	return failed;
 }
 
+/** Install-grade hub deploy (W363): the README chain in one idempotent
+ *  command — mint → push → up, stop on first failure, then the outside-process
+ *  probes gate the exit code (a deploy is done when health says so). */
+function deployHub(
+	hub: HubProfile,
+	name: string,
+	authRequired?: boolean,
+	version?: string,
+): void {
+	// Validate the immutable source before minting or copying anything.
+	renderEnv(hub, name, authRequired, version);
+	mintRootKey(hub);
+	pushConfig(hub, name, authRequired, version);
+	composeUp(hub);
+	const failed = status(hub);
+	if (failed > 0) {
+		console.log(
+			`deploy: ${name} — ${failed} probe(s) failed after up (services may still be starting; re-check: hubctl status ${name})`,
+		);
+		process.exit(1);
+	}
+	console.log(`deploy: ${name} all healthy`);
+}
+
 function main(): void {
 	const [verb, hubName] = process.argv.slice(2);
 	const stack = loadStack();
 	const authRequired = stack.auth?.required;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status> <hub> — config: ~/.config/klh/stack.yaml",
+			"usage: hubctl <render|mint|push|up|status|deploy> <hub> — config: ~/.config/klh/stack.yaml",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -306,9 +348,12 @@ function main(): void {
 		case "up":
 			composeUp(hub);
 			return;
+		case "deploy":
+			deployHub(hub, hubName, authRequired, stack.version);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy`,
 			);
 			process.exit(2);
 	}
