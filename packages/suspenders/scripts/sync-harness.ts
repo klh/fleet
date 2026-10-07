@@ -40,6 +40,8 @@ const HOOK_ITEMS = [
 	"session-start.ts",
 	"session-end.ts",
 	"knowledgeworker.md",
+	"statusline.ts",
+	"subagent-statusline.ts",
 ];
 const ENTRYPOINTS = [
 	"hooks/gate.ts",
