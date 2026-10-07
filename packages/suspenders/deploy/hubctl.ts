@@ -245,7 +245,38 @@ function status(hub: HubProfile): number {
 			`${ok ? "✓" : "✗"} ${svc} :${port}${path} → ${code || "no answer"}`,
 		);
 	}
+	// W443: artifact diagnostics — the runtime + embedded SQLite of the
+	// RUNNING container (buckle-hub owns the WAL ledger), never the host.
+	// Informational: health gates the exit code; CI gates the version.
+	runtimeReport(hub, docker, dir);
 	return failed;
+}
+
+/** Exec deploy/runtime-info.ts inside buckle-hub and print the verdict. */
+function runtimeReport(hub: HubProfile, docker: string, dir: string): void {
+	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
+	try {
+		const out = runOnHub(
+			hub,
+			`${compose} exec -T buckle-hub bun /src/fleet/packages/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
+		);
+		const line = [...out.split("\n")].reverse().find((l) => l.startsWith("{"));
+		if (line) {
+			const r = JSON.parse(line) as {
+				bun: string;
+				sqlite: string;
+				verified: boolean;
+				reason: string;
+			};
+			console.log(
+				`· runtime: bun ${r.bun} · SQLite ${r.sqlite} — ${r.verified ? "WAL-reset fix verified" : "WAL-reset fix UNVERIFIED"} (${r.reason})`,
+			);
+			return;
+		}
+	} catch {
+		// degrade — diagnostics, not a health gate
+	}
+	console.log("· runtime: unknown (buckle-hub container did not answer)");
 }
 
 /** Install-grade hub deploy (W363): the README chain in one idempotent
