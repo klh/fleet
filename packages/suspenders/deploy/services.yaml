@@ -50,6 +50,17 @@ defaults:
     runAtLoad: true
 
 services:
+  # Cloud transport remains available while the local model swarm is paused.
+  # Only LiteLLM is owned here; model/router startup is never part of this unit.
+  - name: cloud-gateway
+    bunEntry: "__PREFIX__/.harness/packages/belt/bin/cloud-gateway.ts"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/cloud-gateway.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
   # W501: the lane gateway is supervised outside interactive agent sessions.
   # Routing credentials come from belt.env; spoke-only auth/bind settings win.
   - name: buckle-spoke
