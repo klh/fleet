@@ -12,7 +12,8 @@ import {
 	symlinkSync,
 	chmodSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname } from "node:os";
+import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import {
 	composeBrief,
@@ -233,6 +234,56 @@ describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnosti
 });
 
 describe("crash resume budget", () => {
+	test("an old missing-registry claim resumes with its original sid and capsule", () => {
+		const id =
+			(tool("work.ts", "add", "missing registry fixture").out.match(/W\d+/) ??
+				[])[0] ?? "";
+		const sid = `autow${id.slice(1)}-legacy`;
+		expect(
+			tool(
+				"work.ts",
+				"take",
+				id,
+				"--as",
+				sid,
+				"--origin",
+				`${hostname()}:claude`,
+			).code,
+		).toBe(0);
+		expect(
+			tool(
+				"coord.ts",
+				"capsule",
+				"set",
+				"--as",
+				sid,
+				"--next=preserve this checkpoint",
+			).code,
+		).toBe(0);
+		const row = JSON.parse(tool("work.ts", "show", id, "--json").out);
+		const db = new Database(
+			join(HOME, ".cache", "claude-governor", "governor.db"),
+		);
+		db.run(
+			"UPDATE work_items SET updated_at = 1 WHERE project = ? AND id = ?",
+			[row.project, id],
+		);
+		db.close();
+		const registry = join(REPO, ".fleet", "lanes.json");
+		expect(
+			JSON.parse(tool("work.ts", "orphaned", "--json").out).some(
+				(r: { id: string }) => r.id === id,
+			),
+		).toBe(true);
+		const result = dispatch("--dry-run", "--item", id);
+		expect(result.out).toContain(`DRY dispatch ${id} → ${sid}`);
+		expect(result.out).toContain("preserve this checkpoint");
+		expect(existsSync(registry)).toBe(false);
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"CLAIMED"',
+		);
+		expect(tool("work.ts", "fail", id, "--as", sid).code).toBe(0);
+	});
 	test("automatic failure cannot alter another owner's claim", () => {
 		const id =
 			(tool("work.ts", "add", "ownership-safe failure fixture").out.match(

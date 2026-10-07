@@ -1197,7 +1197,13 @@ if (cmd === "add") {
 		)
 		.all(PROJECT) as Item[];
 	const out = rows.filter((r) => !liveTranscript(String(r.owner_sid)));
-	console.log(out.length ? out.map(renderRow).join("\n") : dim("(no orphans)"));
+	console.log(
+		rest.includes("--json")
+			? JSON.stringify(out)
+			: out.length
+				? out.map(renderRow).join("\n")
+				: dim("(no orphans)"),
+	);
 } else if (cmd === "lanes") {
 	// THE lane-liveness surface (2026-10-05): one honest audit of
 	// .fleet/lanes.json — process-identity + worktree cwd for local lanes,

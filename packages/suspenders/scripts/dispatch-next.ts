@@ -49,6 +49,7 @@ import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
+import { recoverableClaims } from "./lib/claim-recovery.ts";
 
 const argv = process.argv.slice(2);
 const val = (flag: string): string | undefined => {
@@ -1020,6 +1021,44 @@ const main = async (): Promise<void> => {
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
 	const audit = laneAudit();
+	// Old automatic claims can outlive their registry rows. Reconstruct the
+	// original sid instead of reclaiming it and losing capsule/retry identity.
+	const orphaned = run([
+		process.execPath,
+		`${BIN}/work.ts`,
+		"orphaned",
+		"--json",
+	]);
+	if (orphaned.code === 0) {
+		try {
+			const candidates = recoverableClaims(
+				JSON.parse(orphaned.out),
+				new Set(lanes.map((l) => l.sid)),
+				Date.now(),
+				isOwnerGated,
+				hostname(),
+			);
+			const slots = Math.max(
+				0,
+				TARGET - [...audit.values()].filter(Boolean).length,
+			);
+			for (const row of candidates.slice(0, slots)) {
+				lanes.push({
+					sid: row.owner_sid,
+					item: row.id,
+					pid: 0,
+					branch: `suspenders/${row.id}`,
+					worktree: `${REPO}/.worktrees/${row.id}`,
+					host: hostname(),
+					launchedAt: row.updated_at,
+					attempt: 0,
+				});
+				const note = `recovered missing registry identity ${row.id} → ${row.owner_sid}`;
+				console.log(`${DRY ? "DRY " : ""}${note}`);
+				if (!DRY) log(note);
+			}
+		} catch {} // old prefixes without --json support cannot authorize recovery
+	}
 	// W494.1: the audit (session rows) alone lies — daemonized `claude -p`
 	// lanes die silently and their session lease outlives them. A lane is
 	// live only if the audit votes yes AND a claude/codex process actually
