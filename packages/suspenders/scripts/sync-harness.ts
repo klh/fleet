@@ -13,6 +13,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+	HOOK_ITEMS,
+	MANAGED_PREFIX_ENTRIES,
+	PRUNE_ALLOWLIST,
+	payloadChecksum,
+} from "../hooks/lib/harness-manifest.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
 const SOURCE_PATHS = [
@@ -26,22 +32,6 @@ const SOURCE_PATHS = [
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
-];
-const HOOK_ITEMS = [
-	"bin",
-	"lib",
-	"board-html",
-	"coord",
-	"board",
-	"gates",
-	"launchd",
-	"rules",
-	"gate.ts",
-	"session-start.ts",
-	"session-end.ts",
-	"knowledgeworker.md",
-	"statusline.ts",
-	"subagent-statusline.ts",
 ];
 const ENTRYPOINTS = [
 	"hooks/gate.ts",
@@ -120,17 +110,13 @@ async function validate(stage: string): Promise<string> {
 	const payload = join(stage, ".harness");
 	const suspenders = join(payload, "packages/suspenders");
 	const transpiler = new Bun.Transpiler({ loader: "ts" });
-	const files = [
+	for (const file of [
 		...new Bun.Glob("**/*").scanSync({ cwd: payload, onlyFiles: true }),
-	];
-	const hash = new Bun.CryptoHasher("sha256");
-	for (const file of files
-		.filter((file) => !file.includes("node_modules/"))
-		.sort()) {
-		const content = readFileSync(join(payload, file));
+	]) {
 		if (file.endsWith(".ts") && !file.endsWith(".d.ts"))
-			transpiler.transformSync(content.toString("utf8"));
-		hash.update(file).update("\0").update(content).update("\0");
+			transpiler.transformSync(
+				readFileSync(join(payload, file)).toString("utf8"),
+			);
 	}
 	for (const relative of ENTRYPOINTS) {
 		const result = await Bun.build({
@@ -157,12 +143,12 @@ async function validate(stage: string): Promise<string> {
 			],
 			stage,
 		);
-	return hash.digest("hex");
+	return payloadChecksum(payload);
 }
 
 /** Code-only publication. No runtime home, service manager, model or Caddy operations. */
 export async function syncHarness(
-	ctx: StepContext & { expectedRevision?: string },
+	ctx: StepContext & { expectedRevision?: string; prune?: boolean },
 	publish: (source: string, destination: string) => void = renameSync,
 ): Promise<StepResult> {
 	const repo = git(ctx.repo, ["rev-parse", "--show-toplevel"]);
@@ -200,6 +186,7 @@ export async function syncHarness(
 	let oldLink: string | null = null;
 	let backedUp = false,
 		published = false;
+	const pruned = new Set<string>(); // W420: unmanaged entries prune drops
 	const shims: { path: string; old: string | null }[] = [];
 	const pointer = `${prefix}.next-${crypto.randomUUID()}`;
 	const temporaryShims: string[] = [];
@@ -212,22 +199,24 @@ export async function syncHarness(
 				: null;
 		if (existsSync(prefix)) {
 			const installed = realpathSync(prefix);
-			const managed = new Set([
-				...HOOK_ITEMS,
-				".harness",
-				"scripts",
-				"local-llm",
-				"blam",
-				"node_modules",
-				"package.json",
-				"bun.lock",
-				"harness-receipt.json",
-			]);
+			// W420 mirror mode: unmanaged entries ride along only when the
+			// generated-files allowlist covers them; anything else is the cp -R
+			// fork this flag exists to prune. Default keeps today's behavior —
+			// every unmanaged entry is preserved (receipt.pruned = null).
+			const keepUnmanaged = (top: string): boolean =>
+				ctx.prune ? PRUNE_ALLOWLIST.has(top) : true;
 			cpSync(installed, stage, {
 				recursive: true,
 				dereference: false,
-				filter: (source) =>
-					!managed.has(relative(installed, source).split(/[\\/]/)[0]),
+				filter: (source) => {
+					const top = relative(installed, source).split(/[\\/]/)[0];
+					if (!top || MANAGED_PREFIX_ENTRIES.has(top)) return true;
+					if (!keepUnmanaged(top)) {
+						pruned.add(top);
+						return false;
+					}
+					return true;
+				},
 			});
 		}
 		const payload = join(stage, ".harness");
@@ -315,6 +304,7 @@ export async function syncHarness(
 			schema: "fleet.harness.v1",
 			revision,
 			source: repo,
+			pruned: ctx.prune ? [...pruned].sort() : null,
 			payloadSha256: digest,
 			dependencyLockSha256: dependencyLock
 				? new Bun.CryptoHasher("sha256")
@@ -364,9 +354,14 @@ export async function syncHarness(
 			);
 			publish(temp, shim.path);
 		}
+		const pruneNote = !ctx.prune
+			? ""
+			: pruned.size
+				? `; pruned ${pruned.size} unmanaged entries: ${[...pruned].sort().join(", ")}`
+				: "; mirror clean";
 		return {
 			status: "ok",
-			note: `harness code synced at ${revision.slice(0, 12)}; no services restarted`,
+			note: `harness code synced at ${revision.slice(0, 12)}${pruneNote}; no services restarted`,
 			detail: JSON.stringify(receipt),
 		};
 	} catch (error) {
@@ -397,6 +392,7 @@ if (import.meta.main) {
 	const repo = argument("--repo"),
 		prefix = argument("--prefix"),
 		shimBin = argument("--shim-bin");
+	const prune = process.argv.includes("--prune"); // W420 mirror mode
 	if (!repo || !prefix || !shimBin)
 		throw new Error("sync-harness requires --repo, --prefix and --shim-bin");
 	console.log(
@@ -410,6 +406,7 @@ if (import.meta.main) {
 				yes: true,
 				json: false,
 				verbose: false,
+				prune,
 			})
 		).note,
 	);
