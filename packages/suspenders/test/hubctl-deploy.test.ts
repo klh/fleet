@@ -177,6 +177,50 @@ test("an unpinned deployment is refused before mint, push or up", () => {
 	expect(readFileSync(calls, "utf8")).toBe("");
 });
 
+test("an overlay origin pulls its own repos.ref, not the stack version", () => {
+	resetCalls();
+	const overlay = join(dir, "overlay-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	config.hubs.w363.repos = {
+		ref: "stack-5234813",
+		buckle: "https://git.example/klh/fleet-enterprise.git",
+	};
+	writeFileSync(overlay, JSON.stringify(config));
+	const result = hubctl(["render", "w363"], { KLH_STACK: overlay });
+	expect(result.code).toBe(0);
+	expect(result.out).toContain("HUB_FLEET_REF=stack-5234813");
+	expect(result.out).toContain(
+		"HUB_FLEET_REPO_URL=https://git.example/klh/fleet-enterprise.git",
+	);
+	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
+test("an overlay origin without repos.ref is refused", () => {
+	resetCalls();
+	const overlay = join(dir, "overlay-noref-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	config.hubs.w363.repos = {
+		buckle: "https://git.example/klh/fleet-enterprise.git",
+	};
+	writeFileSync(overlay, JSON.stringify(config));
+	const result = hubctl(["deploy", "w363"], { KLH_STACK: overlay });
+	expect(result.code).toBe(1);
+	expect(result.out).toContain("overlay origin needs repos.ref");
+	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
+test("the public origin still demands repos.ref == the stack version", () => {
+	resetCalls();
+	const mismatch = join(dir, "mismatch-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	config.hubs.w363.repos = { ref: "stack-other" };
+	writeFileSync(mismatch, JSON.stringify(config));
+	const result = hubctl(["deploy", "w363"], { KLH_STACK: mismatch });
+	expect(result.code).toBe(1);
+	expect(result.out).toContain("must match the shared stack version");
+	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
 test("install.sh --hub routes into the same chain and lands a healthy hub", () => {
 	resetCalls();
 	const r = Bun.spawnSync(

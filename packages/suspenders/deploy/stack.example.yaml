@@ -42,10 +42,14 @@ hubs:
     board_bind: 0.0.0.0
     belt_bind: 0.0.0.0
     services_json: /state/hub-home/services.json
+    # deploy source (W422.7 mono deploy): ONE monorepo origin + ref. The ref
+    # the hub pulls: the stack version on the public origin; an overlay
+    # origin (private tier) sets its OWN deployable ref here — the 40-hex
+    # stack version cannot be a ref in a private origin (GH002); the public
+    # base rides the version via the overlay's git-dep pins.
     repos:
-      buckle: /volume1/docker/hub/buckle
-      suspenders: /volume1/docker/hub/suspenders
-      belt: /volume1/docker/hub/belt
+      ref: v1.2.3
+      buckle: https://github.com/klh/fleet.git
     deploy:
       ssh: user@nas.example
       dir: /volume1/docker/hub
