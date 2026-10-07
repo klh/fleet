@@ -63,7 +63,8 @@ export interface ServerOpts {
 	 *  Defaults: BUCKLE_SECRETS_HOME env, else ~/.claude/local-llm. */
 	secretsHome?: string;
 	// W141 governance: root break-glass key + optional JWT validator config.
-	auth?: Pick<GovernanceOpts, "rootKey" | "jwt">;
+	// W468: slots overrides the env-resolved admission-control pool caps.
+	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots">;
 }
 
 /** Port resolution with the 4100 guard; explicit arg wins over env. */
@@ -260,9 +261,9 @@ export function startServer(
 			rootKey: opts.auth?.rootKey,
 			jwt: opts.auth?.jwt,
 			federation: deps.federation,
+			slots: opts.auth?.slots,
 		},
 	);
-	gov.budgets.startFlushTimer();
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
 	const inner = deps.sm.fetch(gated);
 	// W162.1 hub bind: a spoke (the common case) never leaves opts.hostname/

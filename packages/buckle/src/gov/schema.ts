@@ -42,6 +42,19 @@ CREATE TABLE IF NOT EXISTS budget_state (
   window_start INTEGER NOT NULL,
   PRIMARY KEY (key_id, window)
 );
+CREATE TABLE IF NOT EXISTS team_budget_state (
+  team_id TEXT NOT NULL,
+  window TEXT NOT NULL,
+  used_rpm INTEGER NOT NULL DEFAULT 0,
+  used_tpm INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL,
+  PRIMARY KEY (team_id, window)
+);
+CREATE TABLE IF NOT EXISTS admission_slots (
+  scope TEXT PRIMARY KEY,
+  held INTEGER NOT NULL DEFAULT 0,
+  touched INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,

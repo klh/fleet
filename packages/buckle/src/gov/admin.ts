@@ -99,9 +99,11 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/budgets") {
 		return ok({ windows: gov.budgets.snapshot() });
 	}
-	if (method === "POST" && path === "/v1/admin/budgets/flush") {
-		return ok({ flushed: gov.budgets.flush() });
+	if (method === "GET" && path === "/v1/admin/slots") {
+		return ok({ held: gov.slots.held() });
 	}
+	// W468: the /v1/admin/budgets/flush endpoint is gone with the W141
+	// flush — writes land at the DB authority the moment they are known.
 	// known path, wrong method → 405 + Allow (this runs post-auth)
 	if (allowOf(path) !== null) return methodNotAllowed(path);
 	return bad(404, "buckle.no_route", `no admin route: ${method} ${path}`, path);
