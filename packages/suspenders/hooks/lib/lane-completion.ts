@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { run } from "./run.ts";
 import type { HookInput } from "./hookio.ts";
 
@@ -10,10 +11,6 @@ type Context = {
 	launchedAt?: number;
 	worktree?: string;
 };
-const productPath = (path: string): boolean =>
-	!/^((\.fleet|\.claude|node_modules)(\/|$)|\.klh-brief\.md$|\.workgraph\.jsonl$)/.test(
-		path,
-	);
 
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */
 export function laneCompletion(
@@ -53,103 +50,146 @@ export function laneCompletion(
 	);
 	if (!show.ok)
 		return "STOP-GATE: cannot verify this lane's work claim; restore the control plane before stopping.";
-	let row: { owner_sid?: string; state?: string };
+	let row: {
+		owner_sid?: string;
+		state?: string;
+		project?: string;
+		result_sha?: string;
+		completion?: {
+			project?: string;
+			item?: string;
+			summary?: string;
+			summary_hash?: string;
+			commit_sha?: string;
+			completed_by?: string;
+		};
+	};
 	try {
 		row = JSON.parse(show.out);
+		if (!row || typeof row !== "object" || typeof row.state !== "string")
+			return "STOP-GATE: invalid structured work state.";
 	} catch {
 		return "STOP-GATE: invalid structured work state.";
 	}
-	if (
-		row.owner_sid !== context.sid ||
-		!["CLAIMED", "RUNNING"].includes(row.state ?? "")
-	)
-		return null;
-	const status = Bun.spawnSync(
-		["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-		{ cwd: wt, stdout: "pipe", stderr: "pipe" },
-	);
-	if (status.exitCode !== 0) return "STOP-GATE: cannot verify lane changes.";
-	if (
-		status.stdout
-			.toString()
-			.split("\0")
-			.filter(Boolean)
-			.some((field) => productPath(field.slice(3)))
-	)
-		return null;
-	// Older live lanes predate baseline stamping; use their recorded launch time.
-	const baseline =
-		context.baseline ??
-		(context.launchedAt
-			? run(
-					"git",
-					[
-						"rev-list",
-						"-1",
-						`--before=${new Date(context.launchedAt).toISOString()}`,
-						"HEAD",
-					],
-					{ cwd: wt },
-				).out.trim()
-			: "");
-	if (baseline) {
-		const committed = run("git", ["diff", "--name-only", baseline, "HEAD"], {
-			cwd: wt,
-		});
+	if (row.owner_sid && row.owner_sid !== context.sid) return null;
+	const marker = join(wt, ".fleet/completion-attempt.json");
+	let previous: Record<string, unknown> = {};
+	try {
+		const value = JSON.parse(readFileSync(marker, "utf8"));
 		if (
-			committed.ok &&
-			committed.out.split("\n").filter(Boolean).some(productPath)
+			value.sid === context.sid &&
+			value.item === context.item &&
+			value.launchedAt === context.launchedAt
 		)
-			return null;
+			previous = value;
+	} catch {}
+	const recordDecision = (reason: string, tries: number): boolean => {
+		const decision = run(
+			process.execPath,
+			[
+				join(bin, "coord.ts"),
+				"emit",
+				"NEED_DECISION",
+				"--scope",
+				"suspenders",
+				"--as",
+				context.sid,
+				`--project=${row.project}`,
+				`--item=${context.item}`,
+				"--note",
+				`${context.item} incomplete: ${reason}. Review before retrying.`,
+			],
+			{ cwd: wt },
+		);
+		writeFileSync(
+			marker,
+			JSON.stringify({
+				...context,
+				tries,
+				outcome: "FAILED",
+				reason,
+				decisionPending: !decision.ok,
+			}),
+		);
+		return decision.ok;
+	};
+	if (row.state === "DONE") {
+		const record = row.completion;
+		const summary = record?.summary;
+		if (
+			!record ||
+			typeof summary !== "string" ||
+			summary.trim().length < 40 ||
+			summary.length > 4000 ||
+			record.project !== row.project ||
+			record.item !== context.item ||
+			!record.completed_by ||
+			record.commit_sha !== row.result_sha ||
+			!record.commit_sha ||
+			!/^[a-f0-9]{40}$/i.test(record.commit_sha) ||
+			createHash("sha256").update(summary).digest("hex") !== record.summary_hash
+		)
+			return `STOP-GATE: ${context.item} is DONE without verified saved completion evidence. Restore its work done paragraph and completion record before stopping.`;
+		return null;
 	}
+	if (row.state === "FAILED" && previous.decisionPending === true) {
+		if (
+			!recordDecision(
+				String(previous.reason ?? "lane incomplete"),
+				Number(previous.tries) || 0,
+			)
+		)
+			return `STOP-GATE: ${context.item} is FAILED but its NEED_DECISION could not be recorded; restore the control plane.`;
+	}
+	if (["FAILED", "SPLIT", "SHATTERED", "SUPERSEDED"].includes(row.state ?? ""))
+		return null;
+	if (!["CLAIMED", "RUNNING"].includes(row.state ?? ""))
+		return `STOP-GATE: ${context.item} has no verified terminal outcome or transferred owner; control-plane intervention required.`;
 	const dir = join(wt, ".fleet");
 	mkdirSync(dir, { recursive: true });
-	const marker = join(dir, "completion-attempt.json");
-	let tries = 0;
-	try {
-		const previous = JSON.parse(readFileSync(marker, "utf8"));
-		if (
-			previous.sid === context.sid &&
-			previous.launchedAt === context.launchedAt
-		)
-			tries = previous.tries;
-	} catch {}
+	const tries =
+		typeof previous.tries === "number" &&
+		Number.isInteger(previous.tries) &&
+		previous.tries >= 0
+			? previous.tries
+			: 0;
 	const declaration = /^(NO_OP|BLOCKED)\s+(\S+):\s*(.{10,})$/m.exec(
 		hook.last_assistant_message ?? "",
 	);
 	const declared = declaration?.[2] === context.item;
 	if (tries < 2 && !declared) {
 		writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
-		return `STOP-GATE: ${context.item} is claimed by ${context.sid} but has no product edits or commits since dispatch. Execute the brief. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/2; exhaustion records FAILED, never DONE.`;
+		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Edits and commits are progress, not completion. Finish with work done ${context.item} --sha <commit> --summary <completion paragraph>. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/2; exhaustion records FAILED, never DONE.`;
 	}
 	const reason = declared
 		? (declaration?.[0] ?? "declared blocked")
-		: "empty lane exhausted two completion re-asks";
+		: "lane remains incomplete after two completion re-asks";
 	const failed = run(
 		process.execPath,
-		[join(bin, "work.ts"), "fail", context.item, "--note", reason],
+		[
+			join(bin, "work.ts"),
+			"fail",
+			context.item,
+			"--as",
+			context.sid,
+			"--note",
+			reason,
+		],
 		{ cwd: wt },
 	);
 	if (!failed.ok)
 		return `STOP-GATE: failed to record incomplete ${context.item}; control-plane intervention required.`;
 	writeFileSync(
 		marker,
-		JSON.stringify({ ...context, tries, outcome: "FAILED", reason }),
+		JSON.stringify({
+			...context,
+			tries,
+			outcome: "FAILED",
+			reason,
+			decisionPending: true,
+		}),
 	);
-	run(
-		process.execPath,
-		[
-			join(bin, "coord.ts"),
-			"emit",
-			"NEED_DECISION",
-			"--scope",
-			"suspenders",
-			"--as",
-			context.sid,
-			"--note",
-			`${context.item} incomplete: ${reason}. Review before retrying.`,
-		],
-		{ cwd: wt },
-	);
+	if (!recordDecision(reason, tries))
+		return `STOP-GATE: ${context.item} is FAILED but its NEED_DECISION could not be recorded; restore the control plane.`;
 	return null;
 }

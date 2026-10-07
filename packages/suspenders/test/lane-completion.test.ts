@@ -1,12 +1,19 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-completion-"));
 const home = join(root, "home");
 mkdirSync(home);
-const env = { ...process.env, HOME: home };
+const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
 const source = join(import.meta.dir, "../hooks");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 let sequence = 0;
@@ -72,14 +79,26 @@ test("empty lane cannot bypass stop checks; third stop records FAILED", () => {
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
 });
 
-test("real documentation edits and committed changes count; scaffold does not", () => {
+test("documentation edits and commits remain progress until verified work done", () => {
 	const f = fixture();
 	writeFileSync(join(f.cwd, "README.md"), "meaningful change\n");
-	expect(f.stop().code).toBe(0);
+	expect(f.stop().err).toContain("STOP-GATE");
 	f.git("add", "README.md");
 	f.git("commit", "-qm", "delivered docs");
-	expect(f.stop().code).toBe(0);
+	expect(f.stop().err).toContain("STOP-GATE");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	expect(
+		f.work(
+			"done",
+			f.id,
+			"--sha",
+			sha,
+			"--summary",
+			"Updated the documentation to describe the delivered behavior and verified its completion evidence.",
+		).code,
+	).toBe(0);
+	expect(f.stop().code).toBe(0);
 });
 
 test("explicit blocked reason records incomplete work, never success", () => {
@@ -98,4 +117,96 @@ test("a different graph owner is not controlled by this lane", () => {
 	expect(JSON.parse(f.work("show", f.id, "--json").out).owner_sid).toBe(
 		"other-owner",
 	);
+});
+
+test("landed product commits do not bypass bounded failure and decision recording", () => {
+	const f = fixture();
+	for (let commit = 0; commit < 3; commit++) {
+		writeFileSync(join(f.cwd, "feature.txt"), `implementation ${commit}\n`);
+		f.git("add", "feature.txt");
+		f.git("commit", "-qm", `progress ${commit}`);
+	}
+	expect(f.work("start", f.id, "--as", "dispatch-owner").code).toBe(0);
+	for (let attempt = 1; attempt <= 2; attempt++)
+		expect(f.stop().err).toContain(`Re-ask ${attempt}/2`);
+	expect(f.stop().code).toBe(0);
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	expect(row.state).toBe("FAILED");
+	expect(row.completion).toBeNull();
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind = 'NEED_DECISION' AND json_extract(payload, '$.project') = ? AND json_extract(payload, '$.item') = ?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 1 });
+	} finally {
+		db.close();
+	}
+});
+
+test("a dispatched DONE item without its saved paragraph cannot stop", () => {
+	const f = fixture();
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		const row = JSON.parse(f.work("show", f.id, "--json").out);
+		db.query(
+			"UPDATE work_items SET state='DONE', owner_sid=NULL WHERE project=? AND id=?",
+		).run(row.project, f.id);
+	} finally {
+		db.close();
+	}
+	expect(f.stop().err).toContain(
+		"DONE without verified saved completion evidence",
+	);
+});
+
+test("a legacy manual DONE without lane context remains outside the lane gate", () => {
+	const f = fixture();
+	rmSync(join(f.cwd, ".fleet/lane-context.json"));
+	f.work("release", f.id, "--as", "dispatch-owner");
+	f.work("take", f.id, "--as", "manual-owner");
+	expect(
+		f.work("done", f.id, "--sha", f.git("rev-parse", "HEAD").out.trim()).code,
+	).toBe(0);
+	expect(f.stop().code).toBe(0);
+});
+
+test("FAILED with a pending decision retries recording once before permitting stop", () => {
+	const f = fixture();
+	expect(
+		f.work("fail", f.id, "--as", "dispatch-owner", "--note", "incomplete").code,
+	).toBe(0);
+	const context = JSON.parse(
+		readFileSync(join(f.cwd, ".fleet/lane-context.json"), "utf8"),
+	);
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	writeFileSync(
+		marker,
+		JSON.stringify({
+			...context,
+			tries: 2,
+			outcome: "FAILED",
+			reason: "event write was interrupted",
+			decisionPending: true,
+		}),
+	);
+	expect(f.stop().code).toBe(0);
+	expect(JSON.parse(readFileSync(marker, "utf8")).decisionPending).toBe(false);
+	expect(f.stop().code).toBe(0);
+	const row = JSON.parse(f.work("show", f.id, "--json").out);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.project')=? AND json_extract(payload, '$.item')=?",
+				)
+				.get(row.project, f.id),
+		).toEqual({ n: 1 });
+	} finally {
+		db.close();
+	}
 });
