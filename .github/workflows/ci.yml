@@ -89,3 +89,17 @@ jobs:
           ./packages/suspenders/install.sh --wire
           python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});n=sum(len(v) for v in h.values());sys.exit(1) if n!=7 else print('wired', n, 'entries, idempotent')"
           (cd /tmp && "$GITHUB_WORKSPACE/packages/suspenders/install.sh" --wire) # works from any cwd
+
+  # W422.16: single-source package docs — every CLAUDE.md is a one-line
+  # @AGENTS.md stub; the canonical doc per package is AGENTS.md. Fails on
+  # drift: real content back in a CLAUDE.md, or a CLAUDE.md without an
+  # AGENTS.md sibling.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: docs drift guard
+        run: bun test tests/
