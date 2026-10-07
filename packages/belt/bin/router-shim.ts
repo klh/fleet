@@ -12,11 +12,15 @@
 // leaves the machine).
 
 import { appendFileSync } from "node:fs";
-import { createAdmission, overloaded } from "./admission.ts";
+import {
+	createAdmission,
+	overloaded,
+	parsePortCaps,
+} from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
-import { byPort, fallbackFor, type Specialist } from "./registry.ts";
+import { byPort, fallbackFor, SPECIALISTS, type Specialist } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
 import {
 	applyInboundCondense,
@@ -42,7 +46,17 @@ import {
 import { escalate } from "./escalate.ts";
 import { ensureUp } from "./spawner.ts";
 
-const admission = createAdmission();
+// W504: per-provider request caps — registry rows carry maxInflight for the
+// big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
+// overrides per port (operator knob wins over code default). A full port →
+// 429 + Retry-After: fall-through per the ladder, the router never queues.
+const REGISTRY_CAPS: Record<number, number> = {};
+for (const s of SPECIALISTS)
+	if (typeof s.maxInflight === "number") REGISTRY_CAPS[s.port] = s.maxInflight;
+const admission = createAdmission(undefined, undefined, {
+	...REGISTRY_CAPS,
+	...parsePortCaps(process.env.BELT_PORT_CAPS),
+});
 
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
@@ -495,6 +509,7 @@ Bun.serve({
 				port: route.port,
 				...promptFingerprint(text),
 				outcome: "overloaded",
+				cap: admission.capOf(route.port), // W504 per-provider cap
 			});
 			return overloaded(route.port, admission);
 		}

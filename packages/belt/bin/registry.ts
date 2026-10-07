@@ -15,6 +15,11 @@ export interface Specialist {
 	// route on measured prompt tokens against this, not prose
 	contextTokens: number;
 	tier: "resident" | "ondemand";
+	// W504 request-side cap: max in-flight /v1 calls the :4000 router admits
+	// for this port before 429 + ladder fall-through. Big unified-memory
+	// backends swap under bursts (the W500 OOM class). Unset = global default
+	// (BELT_MAX_INFLIGHT, 4); BELT_PORT_CAPS overrides per port.
+	maxInflight?: number;
 	engine?: "mlx_lm" | "rapid"; // default mlx_lm; rapid = rapid-mlx (MTP, prefix cache, batching)
 	flags?: string[]; // extra server args for the chosen engine
 	// terse capability tags, comma-separated — written so an LLM picking an
@@ -62,6 +67,7 @@ export const SPECIALISTS: Specialist[] = [
 		alias: "local-coder",
 		role: "code",
 		ram_gb: 18,
+		maxInflight: 2, // 30B MoE — 2 concurrent before KV pressure (W504)
 		contextTokens: 262_144,
 		tier: "resident",
 		engine: "rapid",
@@ -95,6 +101,7 @@ export const SPECIALISTS: Specialist[] = [
 		alias: "local-reason",
 		role: "reason",
 		ram_gb: 22,
+		maxInflight: 2, // 35B — the W500 OOM class; ≤2 concurrent (W504)
 		contextTokens: 262_144,
 		tier: "resident",
 		engine: "rapid",
