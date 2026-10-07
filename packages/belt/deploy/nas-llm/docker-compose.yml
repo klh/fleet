@@ -3,10 +3,22 @@
 # the announcer advertises _klh-llm._tcp over host networking so belt's
 # dynamic discovery finds it. DNS name nas.threads.dk resolves first; the
 # static ip_fallback covers resolver hiccups; WoL covers hibernation.
+# W451 hub longevity: bounded json-file logs + memory ceilings. Rotation caps
+# unbounded log growth on long-lived hubs; a leaking service degrades only
+# itself, never the device. Values are code-level defaults.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   ollama:
-    image: ollama/ollama:latest
+    # digest pinned (W451): ollama/ollama:latest as of 2026-10-07
+    image: ollama/ollama:latest@sha256:1bef639749741b375e9a1eb2c1346fb57ce52f5432de1f74846e44ccc18e1687
     container_name: nas-llm
+    logging: *default-logging
+    # memory left uncapped (W451): model-resident RAM varies per device — cap via Container Manager if the host needs it
     ports:
       - "11434:11434"
     volumes:
@@ -14,8 +26,13 @@ services:
     restart: unless-stopped
 
   announcer:
-    image: python:3.12-alpine
+    image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
     container_name: nas-llm-announce
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     network_mode: host
     restart: unless-stopped
     entrypoint:
