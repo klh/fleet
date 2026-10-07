@@ -3,7 +3,12 @@
 // entry's handler list); returns null when nothing matches.
 import { BELT_REPO } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
-import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
+import {
+	consoleMe,
+	gatherBeltView,
+	gatherLocalView,
+	cachedProbes,
+} from "./console-view.ts";
 import {
 	htmlHdr,
 	suspPreview,
@@ -11,7 +16,7 @@ import {
 	settingsApply,
 } from "./settings.ts";
 import { scrub } from "../lib/servicemon.ts";
-import { probeAll, probeService, withRecovery } from "./service-probe.ts";
+import { probeService, withRecovery } from "./service-probe.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -52,8 +57,10 @@ export async function handleConsole(
 			},
 		});
 	if (url.pathname === "/api/services" && req.method === "GET")
-		// W273: every monitored service + its recovery-map entry
-		return json({ ok: true, services: (await probeAll()).map(withRecovery) });
+		// W361: served over the console's 15s probe cache — one shared fan-out
+		// for the console pages, the SPA board and API lanes; /api/services/probe
+		// below stays the fresh one-shot re-probe.
+		return json({ ok: true, services: (await cachedProbes()).map(withRecovery) });
 	if (url.pathname === "/api/services/probe" && req.method === "GET") {
 		// W273 re-probe: one service, fresh (the row's self-check affordance)
 		const p = await probeService(url.searchParams.get("id") ?? "");

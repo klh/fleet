@@ -88,8 +88,10 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		}
 	}
 	const belt = await resolveBelt();
-	// W273: every monitored service in the recovery map, not just two ports
-	const health = (await probeAll()).map(withRecovery);
+	// W273: every monitored service in the recovery map, not just two ports.
+	// W361: over the shared 15s cache — belt page, local page and /api/services
+	// serve one fan-out.
+	const health = (await cachedProbes()).map(withRecovery);
 	return {
 		policy: pol,
 		gateway,
@@ -107,7 +109,7 @@ let probeCache: {
 	probes: Awaited<ReturnType<typeof probeAll>>;
 } | null = null;
 const PROBE_TTL_MS = 15_000;
-const cachedProbes = async () => {
+export const cachedProbes = async () => {
 	if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS)
 		return probeCache.probes;
 	const probes = await probeAll();

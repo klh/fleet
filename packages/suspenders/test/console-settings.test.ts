@@ -57,7 +57,9 @@ const env = {
 	SUSPENDERS_MDNS: "0",
 };
 const bin = join(import.meta.dir, "..", "hooks", "bin");
-const PORT = 7891;
+// W361: overridable so a leaked board on the default port can't poison the
+// suite (spawn fails to bind, every fetch then hits the stale process)
+const PORT = Number(process.env.W147_TEST_PORT ?? 7891);
 const BASE = `http://127.0.0.1:${PORT}`;
 writeFileSync(
 	REG,
@@ -207,7 +209,9 @@ describe("policy config surface (board-config)", () => {
 });
 
 describe("console routes (real board, temp config)", () => {
-	test("shell on / and /usage; console sections render", async () => {
+	test(
+		"shell on / and /usage; console sections render",
+		async () => {
 		const home = await (await fetch(`${BASE}/`)).text();
 		expect(home).toContain('id="cbar"');
 		expect(home).toContain('href="/console/belt"');
@@ -227,7 +231,9 @@ describe("console routes (real board, temp config)", () => {
 		const local = await (await fetch(`${BASE}/console/local`)).text();
 		expect(local).toContain("bar");
 		expect(local).toContain("7792");
-	});
+		},
+		15_000, // cold board boot + first probe fan-out land in this test
+	);
 
 	test("W273: service rows + re-probe endpoint + vendored row module", async () => {
 		const belt = await (await fetch(`${BASE}/console/belt`)).text();
@@ -235,11 +241,19 @@ describe("console routes (real board, temp config)", () => {
 		expect(belt).toContain('data-service="belt-gateway-4000"');
 		const all = (await (await fetch(`${BASE}/api/services`)).json()) as {
 			ok: boolean;
-			services: { id: string; recovery: unknown }[];
+			services: { id: string; recovery: unknown; probed_at: string }[];
 		};
 		expect(all.ok).toBe(true);
 		expect(all.services.length).toBeGreaterThan(5);
 		expect(all.services.every((s) => s.recovery !== null)).toBe(true);
+		// W361: /api/services serves the console probe cache — a second call
+		// inside the 15s TTL returns the same batch (identical probed_at stamps)
+		const again = (await (await fetch(`${BASE}/api/services`)).json()) as {
+			services: { probed_at: string }[];
+		};
+		expect(again.services.map((s) => s.probed_at)).toEqual(
+			all.services.map((s) => s.probed_at),
+		);
 		const one = await fetch(`${BASE}/api/services/probe?id=buckle-4101`);
 		expect(one.status).toBe(200);
 		const d = (await one.json()) as { service: { id: string; state: string } };

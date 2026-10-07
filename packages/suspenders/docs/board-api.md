@@ -97,15 +97,19 @@ LAN/loopback endpoints (private ip, `.local` mDNS name) and `remote` for
 everything else — the routing doctrine's default (`glm-5.3-flash` via z.ai)
 and the stock CLI model endpoints count as remote.
 
-## GET /api/services (W273)
+## GET /api/services (W273, W361)
 
 `{ ok, services: [{ id, name, port, up, state, detail, probed_at, recovery }] }`
-— every service in the recovery map (`hooks/lib/recovery-map.ts`), probed
-now. `state`: `up` (answered, <500), `degraded` (HTTP 5xx, or launchd agent
+— every service in the recovery map (`hooks/lib/recovery-map.ts`). W361:
+served from the console's 15 s probe cache — one probe fan-out shared with
+`/console/belt` and `/console/local`, so the endpoint returns the same
+service truth those pages render; rows carry `probed_at` for staleness.
+`state`: `up` (answered, <500), `degraded` (HTTP 5xx, or launchd agent
 loaded but not running), `down` (nothing answered / agent not loaded).
 `recovery` = `{ id, name, probe, what, causes[], recovery: [{ label, cmd }] }`:
 a one-line plain-language "what happened", likely causes, and exact copyable
 commands (placeholder law: no secrets, no real hosts, no home paths).
+A fresh one-shot probe (cache bypass) is `GET /api/services/probe?id=`.
 
 ## GET /api/services/probe?id= (W273)
 
