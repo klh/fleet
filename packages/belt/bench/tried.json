@@ -75,5 +75,26 @@
 		"date": "2026-10-03",
 		"slot": 8913,
 		"note": "rank-only: acc@0.5 4/10 card pairs, rank 3/3, p50 22ms — passage reranker, never a card gate"
+	},
+	{
+		"id": "mlx-community/Qwopus3.6-27B-Coder-oQ4-mtp",
+		"verdict": "lose",
+		"date": "2026-10-07",
+		"slot": 8901,
+		"note": "27.0 vs 89.3 tok/s nonce-cold"
+	},
+	{
+		"id": "mlx-community/Fara1.5-27B-OptiQ-4bit",
+		"verdict": "lose",
+		"date": "2026-10-07",
+		"slot": 8903,
+		"note": "22.7 vs 118.0 tok/s nonce-cold"
+	},
+	{
+		"id": "mlx-community/Xing4.0-29B-A4B-OptiQ-4bit",
+		"verdict": "lose",
+		"date": "2026-10-07",
+		"slot": 8903,
+		"note": "W535 revisit: MLX port exists (20.6GB) but unservable — rapid-mlx 0.14.3's mlx_lm has no xing4_0 arch (Model type xing4_0 not supported); weights deleted, re-download when the runner supports it"
 	}
 ]
