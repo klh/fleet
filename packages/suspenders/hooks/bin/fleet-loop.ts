@@ -893,7 +893,7 @@ if (MODE === "dispatch") {
 	}
 	// W432: same rule as dispatch-next — the lane prompt points at the
 	// READABLE worktree copy, not the canonical .fleet path lanes can't read.
-	const prompt = `Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
+	const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
 	// the agent binary resolves at dispatch time — a bare name ENOENTs under
 	// launchd, where PATH is minimal
 	const bin = Bun.which(AGENT);

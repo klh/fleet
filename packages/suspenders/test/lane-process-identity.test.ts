@@ -22,6 +22,71 @@ const roster =
 	() => ({ stdout, exitCode });
 const roots: string[] = [];
 
+test("legacy brief and settings filenames retain ambiguous Claude and Copilot lanes", () => {
+	for (const executable of ["/missing/claude/versions/2.1.283", "copilot"]) {
+		for (const reference of [
+			"/project/.fleet/brief-autow562.md",
+			"--settings /project/.fleet/lane-settings-autow562.json",
+		])
+			expect(
+				laneProcessIdentity(
+					lane,
+					roster(`562 ${executable} -p Read ${reference}`),
+				),
+			).toBeNull();
+	}
+	expect(
+		laneProcessIdentity(
+			lane,
+			roster("562 bun /review.ts -p /project/.fleet/brief-autow562.md"),
+		),
+	).toBe(false);
+	expect(
+		laneProcessIdentity(
+			lane,
+			roster("562 claude -p /project/.fleet/brief-autow5620.md"),
+		),
+	).toBe(false);
+	expect(
+		laneProcessIdentity(
+			lane,
+			roster("562 claude -p /project/.fleet/lane-settings-autow5620.json"),
+		),
+	).toBe(false);
+});
+
+test("legacy references require the canonical project path when the worktree identifies it", () => {
+	const scoped = { ...lane, worktree: "/project/.worktrees/W562" };
+	expect(
+		laneProcessIdentity(
+			scoped,
+			roster("562 claude -p Read /project/.fleet/brief-autow562.md"),
+		),
+	).toBeNull();
+	expect(
+		laneProcessIdentity(
+			scoped,
+			roster("562 claude -p Read /other/.fleet/brief-autow562.md"),
+		),
+	).toBe(false);
+	expect(
+		laneProcessIdentity(
+			scoped,
+			roster(
+				"562 claude -p Read --settings /other/.fleet/lane-settings-autow562.json",
+			),
+		),
+	).toBe(false);
+	expect(
+		laneProcessIdentity(
+			scoped,
+			roster(
+				"562 claude -p Lane autow562. Read /project/.worktrees/W562/.klh-brief.md",
+			),
+		),
+	).toBe(true);
+});
+
 test("native versioned executable and runtime entrypoint are command-position identities", () => {
 	const native = "/home/agent/.local/share/claude/versions/2.1.283";
 	const script = "/opt/node_modules/@anthropic-ai/claude-code/cli.js";
@@ -69,6 +134,20 @@ test("canonical symlink resolution recognizes native upgrades and actual Node en
 		expect(laneProcessIdentity(lane, roster(`562 ${native} -p autow562`))).toBe(
 			true,
 		);
+		expect(
+			laneProcessIdentity(
+				lane,
+				roster(`562 ${native} -p Read /project/.fleet/brief-autow562.md`),
+			),
+		).toBeNull();
+		expect(
+			laneProcessIdentity(
+				lane,
+				roster(
+					`562 /usr/bin/node ${entrypoint} -p Read /project/.fleet/brief-autow562.md`,
+				),
+			),
+		).toBeNull();
 		expect(isHarnessProcess(`/usr/bin/node ${entrypoint} -p autow562`)).toBe(
 			true,
 		);

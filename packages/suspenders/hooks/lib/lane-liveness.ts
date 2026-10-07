@@ -9,7 +9,7 @@
 // args referencing the sid, or — pid gone — the claimant transcript fresh
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 export type LaneRef = {
 	sid: string;
@@ -148,6 +148,25 @@ const inspectProcesses: ProcessInspector = () => {
 	return { exitCode: result.exitCode, stdout: result.stdout.toString() };
 };
 
+const escapePattern = (value: string): string =>
+	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function legacyLaneReference(args: string, lane: LaneRef): boolean {
+	const sid = escapePattern(lane.sid);
+	const filename = `(?:brief-${sid}\\.md|lane-settings-${sid}\\.json)`;
+	const worktree = lane.worktree ? resolve(lane.worktree) : null;
+	const root =
+		worktree &&
+		basename(dirname(worktree)) === ".worktrees" &&
+		basename(worktree) === lane.item
+			? dirname(dirname(worktree))
+			: null;
+	const reference = root
+		? `(^|[\\s"'(:=])${escapePattern(root)}/\\.fleet/${filename}`
+		: `(^|[/\\s"'(:=])${filename}`;
+	return new RegExp(`${reference}($|[\\s"'),:])`).test(args);
+}
+
 /** True = this lane's harness; false = observed absent/reused PID; null = unknown.
  * Unknown never authorizes another spawn or filesystem retirement. */
 export function laneProcessIdentity(
@@ -167,11 +186,16 @@ export function laneProcessIdentity(
 		);
 		if (!row) return false;
 		const args = row.replace(/^\s*\d+\s+/, "");
-		const sid = lane.sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const harness = isHarnessProcess(args);
+		if (harness === false) return false;
+		const sid = escapePattern(lane.sid);
 		const referencesSid = new RegExp(
 			`(^|[^A-Za-z0-9_-])${sid}([^A-Za-z0-9_-]|$)`,
 		);
-		return referencesSid.test(args) ? isHarnessProcess(args) : false;
+		if (referencesSid.test(args)) return harness;
+		// ps flattens argv: an exact old brief/settings path can be prompt text.
+		// Retain that ambiguity without blessing it or launching a duplicate.
+		return legacyLaneReference(args, lane) ? null : false;
 	} catch {
 		return null;
 	}
