@@ -26,8 +26,28 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
 import { hostname } from "node:os";
+import { resolve } from "node:path";
+import { condensePrompt } from "../hooks/board/prompt-transform.ts";
+import { readBoardSettings } from "../hooks/lib/board-config.ts";
+import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { resolveHub } from "../hooks/lib/hub-locate.ts";
+// W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
+// verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
+import {
+	laneProcessIdentity,
+	worktreeLive,
+} from "../hooks/lib/lane-liveness.ts";
+import {
+	canonicalProjectRoot,
+	loadLaneRegistry,
+	mergeLaneRegistry,
+} from "../hooks/lib/lane-registry.ts";
+import { laneSid } from "../hooks/lib/laneslug.ts";
+import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+import { recoverableClaims } from "./lib/claim-recovery.ts";
+import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import {
 	applyLaneAttribution,
 	DEFAULT_ALLOWED_TOOLS,
@@ -35,34 +55,14 @@ import {
 	probeBuckleFront,
 	spawnClaude,
 } from "./lib/lane.ts";
-import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import {
 	ensureLaneKey,
-	laneKeyMetaPath,
 	LANE_KEY_TTL_S,
+	laneKeyMetaPath,
 	type MintedLaneKey,
 } from "./lib/lane-auth.ts";
-import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
-import {
-	canonicalProjectRoot,
-	loadLaneRegistry,
-	mergeLaneRegistry,
-} from "../hooks/lib/lane-registry.ts";
-import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
-import { condensePrompt } from "../hooks/board/prompt-transform.ts";
-import { readBoardSettings } from "../hooks/lib/board-config.ts";
-import { resolveHub } from "../hooks/lib/hub-locate.ts";
-import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
-import { recoverableClaims } from "./lib/claim-recovery.ts";
-// W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
-// verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
-import {
-	laneProcessIdentity,
-	worktreeLive,
-} from "../hooks/lib/lane-liveness.ts";
+import { isResumableClaim } from "./lib/resumable-claim.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -515,6 +515,7 @@ export const composeBrief = (o: {
 		``,
 		`IDENTITY: prefix every progress note, inbox reply and your final report lines with [${o.item}] plus a locality tag when it aids scanning — [${o.item}·local], [${o.item}·remote], [${o.item}·sim], [${o.item}·buckle] — the owner's agent list shows your live activity text, and the id is what ties it to the graph. Humans deep-link your item on the fleet board as #task=${o.item}${process.env.FLEET_BOARD_URL ? ` (full URL: ${process.env.FLEET_BOARD_URL}/#task=${o.item})` : ""}; include the link in your final report.`,
 		`CRAFT: ≤25-line anchored edits per write (content gate parse-checks; splice via /tmp chunks for larger); build verify every ~3rd edit; GUI deliverables get a headless-Chrome render-and-look pass against the LIVE surface with real data — report what you saw; evidence before claims, always.`,
+		`ORACLE: need a review or hard analysis? bun ${BIN}/oracle.ts review [--staged|<git-range>] | ask "<question>" — the named stateless escalation on the pinned strong route (belt reasoning tier); never ad-hoc "please review" phrasing.`,
 		`VOICE (owner law 2026-10-03): terse — no preamble, no restating the task, no filler; minimal prose in commits, progress notes, questions and .klh-done.md. Tokens spent on prose are tokens not spent on work.`,
 		``,
 		`Final: DONE <sha> | SPLIT ${o.item} | BLOCKED (after 3 honest attempts, tree restored).`,
