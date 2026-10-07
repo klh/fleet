@@ -66,6 +66,24 @@ const libParity = (): { ok: boolean; missing: string[] } => {
 				missing.push(`${p} (stale bytes)`);
 		}
 	}
+	// Parse-probe the critical entries (2026-10-07: unresolved conflict
+	// markers landed on main and killed dispatch while lib-parity held —
+	// byte equality of two equally-broken copies passes; only a parse
+	// catches it). Repo copy must build.
+	for (const entry of [
+		join(REPO, "packages/suspenders/scripts/dispatch-next.ts"),
+		join(REPO, "packages/suspenders/scripts/fleet-loop.ts"),
+	]) {
+		const built = sh([
+			process.execPath,
+			"build",
+			entry,
+			"--target=bun",
+			"--outfile=/dev/null",
+		]);
+		if (built.code !== 0)
+			missing.push(`${entry} (PARSE FAIL: ${built.out.slice(-120)})`);
+	}
 	return { ok: missing.length === 0, missing };
 };
 
