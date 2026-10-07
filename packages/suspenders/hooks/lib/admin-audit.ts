@@ -33,11 +33,18 @@ export function adminAudit(store: GovernorStore, a: AdminAction): void {
 		.run(Date.now(), a.actor, a.action, a.target, a.detail);
 }
 
-// recent trail for the console (rows are small; LIMIT bounds the read)
-export function recentAdminAudit(db: Database, limit = 25): AdminAuditRow[] {
+// recent trail for the console. Keyset pagination (W451): `before` = the
+// previous page's last id — a partial page means the end; never OFFSET.
+export function recentAdminAudit(
+	db: Database,
+	limit = 25,
+	before?: number,
+): AdminAuditRow[] {
 	return db
 		.query(
-			"SELECT id, ts, actor, action, target, detail FROM admin_audit ORDER BY id DESC LIMIT ?",
+			`SELECT id, ts, actor, action, target, detail FROM admin_audit
+			${typeof before === "number" ? "WHERE id < ?" : ""}
+			ORDER BY id DESC LIMIT ?`,
 		)
-		.all(limit) as AdminAuditRow[];
+		.all(...(typeof before === "number" ? [before, limit] : [limit])) as AdminAuditRow[];
 }

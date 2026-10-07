@@ -123,16 +123,20 @@ export async function handleData(
 		});
 	}
 	if (url.pathname === "/api/activity") {
-		// newest-first bus feed; limit default 80, cap 300
+		// newest-first bus feed; limit default 80, cap 300; keyset pagination
+		// (W451): ?before=<id> drains older pages — a partial page means the end
 		const p = url.searchParams.get("project");
 		const limit = Math.min(
 			Math.max(Number(url.searchParams.get("limit")) || 80, 1),
 			300,
 		);
+		const before = Number(url.searchParams.get("before")) || undefined;
+		const { events, nextCursor } = activity(p, limit, before);
 		return json({
 			ok: true,
 			projects: projectList(),
-			events: activity(p, limit),
+			events,
+			nextCursor,
 		});
 	}
 	if (url.pathname === "/api/setup")

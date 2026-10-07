@@ -142,25 +142,33 @@ export function taskDecisions(p: string, id: string): unknown[] {
 }
 
 // newest-first bus feed. note/sha ride the payload; project too (CLI emitters
-// stamp it — the source session's project covers anything older)
-export function activity(p: string | null, limit: number): unknown[] {
+// stamp it — the source session's project covers anything older). Keyset
+// pagination (W451): `before` is the previous page's last id — the caller
+// drains history with ?before=<nextCursor>; a partial page means the end.
+export function activity(
+	p: string | null,
+	limit: number,
+	before?: number,
+): { events: unknown[]; nextCursor: number | null } {
+	const hasCursor = typeof before === "number" && Number.isFinite(before);
+	const cursorSql = hasCursor ? " AND id < ?" : "";
 	const evs = (
 		p && p !== "all"
 			? db
 					.query(
 						`SELECT id, ts, source, kind, payload, target FROM events
-					WHERE json_extract(payload, '$.project') = ?
-						OR (json_extract(payload, '$.project') IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?))
+					WHERE (json_extract(payload, '$.project') = ?
+						OR (json_extract(payload, '$.project') IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?)))${cursorSql}
 					ORDER BY id DESC LIMIT ?`,
 					)
-					.all(p, p, limit)
+					.all(...(hasCursor ? [p, p, before, limit] : [p, p, limit]))
 			: db
 					.query(
-						"SELECT id, ts, source, kind, payload, target FROM events ORDER BY id DESC LIMIT ?",
+						`SELECT id, ts, source, kind, payload, target FROM events WHERE 1=1${cursorSql} ORDER BY id DESC LIMIT ?`,
 					)
-					.all(limit)
+					.all(...(hasCursor ? [before, limit] : [limit]))
 	) as EventRow[];
-	return evs.map((e) => {
+	const rows = evs.map((e) => {
 		const pl = payloadOf(e.payload);
 		return {
 			id: e.id,
@@ -173,6 +181,10 @@ export function activity(p: string | null, limit: number): unknown[] {
 			project: pl.project ?? projOf(e.source) ?? null,
 		};
 	});
+	return {
+		events: rows,
+		nextCursor: evs.length === limit ? (evs[evs.length - 1]?.id ?? null) : null,
+	};
 }
 
 // advisory wiring checks — never throw; a failed check is information, not an
