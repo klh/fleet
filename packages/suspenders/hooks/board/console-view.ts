@@ -21,8 +21,8 @@ import type {
 	LocalView,
 } from "../bin/console-html.ts";
 import { probeAll, withRecovery } from "./service-probe.ts";
-import { YAML } from "bun";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { readEffectiveUpstreams } from "./console-upstreams.ts";
 
 // ─── W147 console: data gathering for the console pages ───────────────────
 export const consoleMe = (): ConsoleMe => {
@@ -52,24 +52,17 @@ export const consoleMe = (): ConsoleMe => {
 
 // buckle upstreams.yaml (read-only display): group name == wire id; an empty
 // group is DORMANT — in the ladder but resolving to zero deployments.
-export interface UpstreamsDoc {
-	groups?: Record<string, unknown>;
-}
-
-export const readUpstreams = (): UpstreamGroup[] | null => {
-	const p = `${process.env.BUCKLE_REPO ?? "/Volumes/Sensitive/github/klh/buckle"}/upstreams.yaml`;
-	try {
-		const doc = YAML.parse(readFileSync(p, "utf8")) as UpstreamsDoc;
-		if (!doc || typeof doc !== "object" || !doc.groups) return null;
-		return Object.entries(doc.groups).map(([name, tiers]) => ({
-			name,
-			tiers: Array.isArray(tiers) ? tiers.length : 0,
-			dormant: !Array.isArray(tiers) || tiers.length === 0,
-		}));
-	} catch {
-		return null;
-	}
-};
+const upstreamSnapshot = () =>
+	readEffectiveUpstreams({
+		basePath: process.env.BUCKLE_REPO
+			? `${process.env.BUCKLE_REPO}/upstreams.yaml`
+			: new URL("../../../buckle/upstreams.yaml", import.meta.url).pathname,
+		overridePath:
+			process.env.BUCKLE_UPSTREAMS ??
+			`${process.env.HOME}/.claude/local-llm/upstreams.yaml`,
+	});
+export const readUpstreams = (): UpstreamGroup[] | null =>
+	upstreamSnapshot()?.groups ?? null;
 
 export const gatherBeltView = async (): Promise<BeltView> => {
 	const pol = resolvePolicy({ beltRepo: BELT_REPO });
@@ -90,13 +83,15 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 	const belt = await resolveBelt();
 	// W273: every monitored service in the recovery map, not just two ports
 	const health = (await probeAll()).map(withRecovery);
+	const upstreams = upstreamSnapshot();
 	return {
 		policy: pol,
 		gateway,
 		policyError,
 		beltApi: belt ? { url: belt.url, via: belt.via } : null,
 		health,
-		groups: readUpstreams(),
+		groups: upstreams?.groups ?? null,
+		upstreamSource: upstreams?.source,
 	};
 };
 
