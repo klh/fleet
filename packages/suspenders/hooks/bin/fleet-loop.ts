@@ -43,6 +43,14 @@ import {
 	retirementProcessLive,
 } from "../lib/lane-registry.ts";
 import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+// W177: lane resource caps live with the other spawn plumbing (lane.ts);
+// the dispatch verb's inline recipe embeds the same jobslab preamble.
+import {
+	jobslabFor,
+	jobslabPrefix,
+	jobslabTag,
+	laneClassOf,
+} from "../../scripts/lib/jobslab.ts";
 import { resolve } from "node:path";
 import { laneSid } from "../lib/laneslug.ts";
 import {
@@ -1189,12 +1197,17 @@ if (MODE === "dispatch") {
 		// the registry PID, stdin EOF avoids input waits, and logs feed the board.
 		const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
 		const laneLog = `${REPO}/.fleet/lane-${sid}.log`;
+		// W177 jobslab: the same per-class ceilings the fleet scripts' spawn
+		// recipe applies — claude/codex get the working caps, config-overridable
+		// via <repo>/.fleet/jobslab.json.
+		const slab = laneClassOf(AGENT);
+		const js = jobslabFor(slab, `${REPO}/.fleet`);
 		const fenced = fencedExecutor(`${REPO}/.fleet`, intent);
 		proc = Bun.spawn(
 			[
 				"/bin/sh",
 				"-c",
-				`exec ${sq(fenced)} ${agentArgs.map(sq).join(" ")} < /dev/null >> ${sq(laneLog)} 2>&1`,
+				`${jobslabPrefix(js)}${sq(fenced)} ${agentArgs.map(sq).join(" ")} < /dev/null >> ${sq(laneLog)} 2>&1`,
 			],
 			{
 				detached: true,
@@ -1221,6 +1234,7 @@ if (MODE === "dispatch") {
 			worktree: wt,
 			agent: AGENT,
 			host: hostname(),
+			slab,
 			launchedAt: Date.now(),
 			attempt: intent.attempt,
 		};
@@ -1229,7 +1243,9 @@ if (MODE === "dispatch") {
 		assertLaunchClaim(store, intent, true);
 		mergeLaneRegistry(REPO, all);
 		accepted = true;
-		log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})`);
+		log(
+			`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch}, slab ${jobslabTag(slab, js)})`,
+		);
 		console.log(`dispatched ${item} → ${sid} (pid ${proc.pid})`);
 	} catch (error) {
 		console.error(`REFUSED ${item} — ${String(error)}`);
