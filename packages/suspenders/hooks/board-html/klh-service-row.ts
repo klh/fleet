@@ -7,6 +7,7 @@
 // Built by `bun run build:vendor` to hooks/board-html/vendor/ (one shared
 // lit-shared.js chunk with klh-components — offline, never CDN).
 import { LitElement, css, html, type TemplateResult } from "lit";
+import { displayLabel } from "../lib/theme.ts";
 import {
 	type RowProbe,
 	ServiceRowController,
@@ -27,19 +28,17 @@ class KlhServiceRow extends LitElement {
 	static styles = css`
 		:host {
 			display: block;
-			background: var(--klh-surface, #1c1b19);
-			border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.1));
-			border-radius: 3px;
-			padding: 8px 12px;
-			margin: 0 0 8px;
-			font: 12px/1.45 ui-sans-serif, system-ui;
+			background: transparent;
+			border-bottom: 1px solid var(--klh-edge);
+			padding: var(--klh-space-4) 0;
+			font: var(--klh-text-lg)/1.6 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e6e1);
 		}
 		.head {
-			display: flex;
-			gap: 10px;
-			align-items: baseline;
-			flex-wrap: wrap;
+			display: grid;
+			grid-template-columns: 92px minmax(180px, 2fr) minmax(150px, 1fr) auto;
+			gap: var(--klh-space-3) var(--klh-space-5);
+			align-items: start;
 		}
 		.badge {
 			font-weight: 700;
@@ -47,7 +46,7 @@ class KlhServiceRow extends LitElement {
 			min-width: 76px;
 		}
 		.ok {
-			color: var(--klh-ok, #5c7a35);
+			color: var(--klh-ok-ink);
 		}
 		.warn {
 			color: var(--klh-accent, #d8900f);
@@ -57,7 +56,12 @@ class KlhServiceRow extends LitElement {
 		}
 		.name {
 			font-weight: 600;
+			overflow-wrap: anywhere;
 		}
+		.identity .dim {display:block;font:var(--klh-text-sm)/1.5 var(--klh-font-mono);}
+		.tags {display:flex;gap:var(--klh-space-3);align-items:center;flex-wrap:wrap;margin:var(--klh-space-2) 0;}
+		.tag {border:1px solid var(--klh-edge);border-radius:var(--klh-radius);padding:0 var(--klh-space-3);font:var(--klh-text-xs)/1.8 var(--klh-font-mono);color:var(--klh-ink-3);}
+		@media(max-width:760px){.head{grid-template-columns:80px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
 		.dim {
 			color: var(--klh-dim, #98958e);
 		}
@@ -223,10 +227,9 @@ class KlhServiceRow extends LitElement {
 		return html`
 			<div class="head">
 				<span class="badge ${m.tone}">${m.badge}</span>
-				<span class="name">${p.name}</span>
-				<span class="dim">${m.where}</span>
+				<div class="identity"><span class="name">${displayLabel(p.name)}</span><span class="dim">${m.where}</span><div class="tags"><span class="tag">${p.id.startsWith("swarm-") || p.id.startsWith("kev-") ? "Model" : p.id.includes("gateway") || p.id.startsWith("buckle-") || p.id.startsWith("litellm-") ? "Gateway" : "Service"}</span><span class="tag">${p.observation?.scope ?? "Local machine"}</span></div></div>
 				<span class="saw dim">${m.saw}</span>
-				<span class="dim">${this.when(p.probed_at)}</span>
+				<div class="actions">
 				<button
 					type="button"
 					?disabled=${this.busy}
@@ -234,6 +237,7 @@ class KlhServiceRow extends LitElement {
 				>
 					${this.busy ? "probing…" : "re-probe"}
 				</button>
+				<div class="dim">${this.when(p.probed_at)}</div></div>
 			</div>
 			${p.observation ? html`<div class="dim">Evidence: ${p.observation.source} · ${p.observation.kind} · ${p.observation.scope} · expires ${this.when(new Date(p.observation.expiresAt).toISOString())}</div>` : ""}
 			${this.err ? html`<output>re-probe failed: ${this.err}</output>` : ""}

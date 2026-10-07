@@ -363,7 +363,7 @@ ${FLEET_NAV_CSS}
 ${THEME_SETTINGS_CSS}
 </style></head>
 <body>
-${fleetNav("belt")}
+${fleetNav("belt", "models")}
 
 <header><span class="mark">belt</span><span class="sub">local LLM fleet</span>
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>

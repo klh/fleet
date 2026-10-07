@@ -13,6 +13,12 @@
 // hubs/hubs-demo dir, SUSPENDERS_LOCAL_REGISTRY swaps the local belt URL.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import {
+	THEME_HEAD,
+	FLEET_NAV_CSS,
+	fleetNav,
+	displayLabel,
+} from "../lib/theme.ts";
 
 export const simulationAuthorizationSchema = z.object({
 	principal: z.string().trim().min(1).max(100),
@@ -409,33 +415,35 @@ const page = (): Response =>
 	new Response(
 		`<!doctype html>
 <html><head><meta charset="utf-8"><title>fleet tree</title>
-<style>
-:root{color-scheme:dark}
-body{margin:24px;background:#0d1117;color:#e6edf3;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace}
+${THEME_HEAD}<style>
+${FLEET_NAV_CSS}
+body{margin:24px;background:var(--klh-bg);color:var(--klh-ink);font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace}
 h1{font-size:15px;font-weight:600;margin:0 0 12px}
 .root{margin:6px 0}
-.rootlabel{font-weight:700;color:#79c0ff}
-.demo{color:#d29922;font-weight:600}
-.down{color:#f85149;font-style:italic}
+.rootlabel{font-weight:700;color:var(--klh-ink)}
+.demo{color:var(--klh-accent);font-weight:600}
+.down{color:var(--klh-danger-ink);font-style:italic}
 .leaf{padding-left:2ch;white-space:pre}
-.glyph{color:#30363d}
-.up{color:#3fb950}
-.downleaf{color:#f85149}
-.tier{color:#8b949e}
-a{color:#58a6ff;text-decoration:none}
-button{font:inherit;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:2px 10px;cursor:pointer}
+.glyph{color:var(--klh-edge-strong)}
+.up{color:var(--klh-ok-ink)}
+.downleaf{color:var(--klh-danger-ink)}
+.tier{color:var(--klh-dim)}
+a{color:var(--klh-ink);text-decoration:none}
+button{font:inherit;background:var(--klh-surface);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:6px;padding:2px 10px;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
-#stamp{color:#8b949e;margin-left:12px;font-weight:400}
+#stamp{color:var(--klh-dim);margin-left:12px;font-weight:400}
 </style></head><body>
+${fleetNav("suspenders")}
 <h1>fleet tree — <a href="/">board</a><span id="stamp"></span></h1>
 <div style="margin:0 0 12px"><button id="refresh" type="button">refresh</button></div>
 <div id="tree">loading…</div>
 <script type="module">
 const tree = document.getElementById("tree");
+const label = ${displayLabel.toString()};
 const el = (tag, cls, text) => {
 	const n = document.createElement(tag);
 	if (cls) n.className = cls;
-	if (text !== undefined) n.textContent = text;
+	if (text !== undefined) n.textContent = label(String(text));
 	return n;
 };
 const stamp = document.getElementById("stamp");

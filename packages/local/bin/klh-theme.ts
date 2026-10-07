@@ -18,7 +18,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.1.0";
+export const KLH_THEME_VERSION = "1.2.0";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -202,8 +202,32 @@ const fleetLink = (s: FleetLink, current: FleetSite | ""): string =>
 		? `<a href="${s.href}" aria-current="page" title="${s.title}">${s.id}</a>`
 		: `<a href="${s.href}" data-repo="${s.repo}" title="${s.title}">${s.id}</a>`;
 
-export const fleetNav = (current: FleetSite | ""): string =>
-	`<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet"><span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>${FLEET_SITES.map((s) => fleetLink(s, current)).join("")}</nav>`;
+export const FLEET_ICONS = {
+	models:
+		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 6-12 6M6 6v12M18 6L6 12l12 6"/><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>',
+	workflows:
+		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12m0-6h12V6"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/></svg>',
+	metrics:
+		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 16V9m6 7V4m6 12v-5"/></svg>',
+} as const;
+export const displayLabel = (name: string): string =>
+	name.replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, "").trim();
+
+export const fleetNav = (current: FleetSite | "", view = ""): string => {
+	const routes = [
+		["models", "Models", "https://belt.local/", "models"],
+		["belt", "Gateway", "https://suspenders.local/console/belt", "models"],
+		["suspenders", "Workflows", "https://suspenders.local/", "workflows"],
+		[
+			"local",
+			"Services",
+			"https://suspenders.local/console/local",
+			"workflows",
+		],
+		["usage", "Metrics", "https://suspenders.local/usage", "metrics"],
+	] as const;
+	return `<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet"><div class="klh-fleet-sites"><span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>${FLEET_SITES.map((s) => fleetLink(s, current)).join("")}</div><div class="klh-fleet-views">${routes.map(([id, label, href, icon]) => `<a href="${current === "suspenders" && href.startsWith("https://suspenders.local/") ? href.slice("https://suspenders.local".length) : href}"${id === view ? ' aria-current="page"' : ""}>${FLEET_ICONS[icon]}<span>${label}</span></a>`).join("")}</div></nav>`;
+};
 
 export const FLEET_NAV_CSS = `.klh-fleetnav{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--klh-space-1) var(--klh-space-4);padding:var(--klh-space-2) 0;margin:0 0 var(--klh-space-3);border-bottom:1px solid var(--klh-edge-faint);font:var(--klh-text-sm)/1.6 var(--klh-font-mono);letter-spacing:.04em;}
 .klh-fleetnav-brand{color:var(--klh-ink-3);font-size:var(--klh-text-xs);text-transform:uppercase;letter-spacing:.14em;}
@@ -212,7 +236,14 @@ export const FLEET_NAV_CSS = `.klh-fleetnav{display:flex;align-items:baseline;fl
 .klh-fleetnav a:hover{color:var(--klh-ink);}
 .klh-fleetnav a:focus-visible{outline:2px solid var(--klh-accent);outline-offset:2px;}
 .klh-fleetnav a[aria-current]{color:var(--klh-ink);border-bottom-color:var(--klh-accent);}
-.klh-fleetnav a.down{opacity:.4;}`;
+.klh-fleetnav a.down{opacity:.4;}
+.klh-fleetnav{align-items:center;gap:var(--klh-space-4);padding:var(--klh-space-4) 0;border-bottom:1px solid var(--klh-edge);}
+.klh-fleet-sites,.klh-fleet-views{display:flex;align-items:center;flex-wrap:wrap;gap:var(--klh-space-4);}
+.klh-fleet-views{margin-left:auto;gap:var(--klh-space-3);}
+.klh-fleet-views a{display:inline-flex;align-items:center;gap:var(--klh-space-3);padding:var(--klh-space-3);border-radius:var(--klh-radius);}
+.klh-fleet-views a[aria-current]{background:var(--klh-accent-wash);}
+.klh-fleetnav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none;}
+@media(max-width:760px){.klh-fleet-views{margin-left:0;width:100%;gap:var(--klh-space-2);}.klh-fleet-views a{padding:var(--klh-space-2) var(--klh-space-3);}}`;
 
 // Navigation remains stable: failed background probes must not change destinations.
 export const FLEET_NAV_JS = "";

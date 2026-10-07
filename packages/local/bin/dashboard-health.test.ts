@@ -2,6 +2,24 @@ import { afterEach, expect, test } from "bun:test";
 import { probeService, serviceTarget } from "./dashboard-health.ts";
 
 const servers: ReturnType<typeof Bun.serve>[] = [];
+test("registered virtual host is preserved for remote board checks", async () => {
+	const server = Bun.serve({
+		port: 0,
+		fetch: (request) =>
+			new Response(null, {
+				status: request.headers.get("host") === "nas-hub.local" ? 204 : 403,
+			}),
+	});
+	servers.push(server);
+	expect(
+		await probeService(
+			`127.0.0.1:${server.port}`,
+			"/status",
+			1500,
+			"nas-hub.local",
+		),
+	).toMatchObject({ ok: true, code: 204 });
+});
 afterEach(() => {
 	for (const server of servers.splice(0)) server.stop(true);
 });

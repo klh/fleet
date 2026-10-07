@@ -144,7 +144,8 @@ describe("on-demand service state", () => {
 			health: [row],
 			groups: null,
 		});
-		expect(belt).toContain("0/1 up · 1 on demand");
+		expect(belt).toContain("Gateway transports · 0/0 up");
+		expect(belt).not.toContain('data-service="swarm-8901"');
 		expect(belt).not.toContain("need recovery");
 	});
 	test("idle rows can observe activation through the existing re-probe controller", async () => {
