@@ -13,6 +13,8 @@ import {
 	type AssessmentKey,
 } from "../hooks/lib/policy-workflow/types.ts";
 import {
+	authorizeRemediation,
+	activeException,
 	completeAssessment,
 	completeAttestation,
 	createAttestation,
@@ -37,6 +39,16 @@ function database(): Database {
 	db.run(
 		"CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, source TEXT, kind TEXT, scope TEXT, payload TEXT, target TEXT)",
 	);
+	// the work graph surface authorizeRemediation mints into (same shape as
+	// govdb.ts; PK (project, id), per-project sequence allocator)
+	db.run(
+		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
+	);
+	db.run(
+		"CREATE TABLE work_sequences (project TEXT PRIMARY KEY, next_id INTEGER NOT NULL)",
+	);
+	db.run("ALTER TABLE work_items ADD COLUMN requires TEXT");
+	db.run("ALTER TABLE work_items ADD COLUMN tags TEXT");
 	return db;
 }
 const key: AssessmentKey = healthAssessmentKey("proj", "org1", "orders-api");
@@ -335,4 +347,130 @@ test("health policy classifies deployments, never conformance from missing info"
 		base,
 	);
 	expect(healthInputsHash(goodDeployment)).toBe(base);
+});
+
+test("the evidence revision token participates in the inputs hash", () => {
+	const base = healthInputsHash(goodDeployment);
+	const clean = healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:clean" });
+	const dirty = healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:dirty" });
+	expect(clean).not.toBe(base);
+	expect(dirty).not.toBe(clean);
+	// unchanged source revision reuses evidence; changed source invalidates
+	expect(healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:clean" })).toBe(clean);
+});
+
+test("authorize mints exactly ONE remediation work item under concurrent approvals", () => {
+	const db = database();
+	const created = proposeRemediation(db, {
+		project: "proj",
+		orgId: "org1",
+		serviceId: "orders-api",
+		policyId: HEALTH_POLICY_ID,
+		proposal: { observedGap: "no independent reporter" },
+	});
+	const rem = getRemediationById(db, "proj", created.id);
+	const hash = rem?.proposalHash ?? "";
+	const first = authorizeRemediation(db, {
+		project: "proj",
+		remediationId: created.id,
+		actor: "alice",
+		proposalHash: hash,
+	});
+	expect(first.ok).toBe(true);
+	expect(first.created).toBe(true);
+	expect(first.workId).toBe("W1");
+	// second developer replays the same digest concurrently: same work id,
+	// no duplicate item
+	const second = authorizeRemediation(db, {
+		project: "proj",
+		remediationId: created.id,
+		actor: "bob",
+		proposalHash: hash,
+	});
+	expect(second.ok).toBe(true);
+	expect(second.created).toBe(false);
+	expect(second.workId).toBe("W1");
+	const items = db
+		.query("SELECT COUNT(*) AS n FROM work_items WHERE project = 'proj'")
+		.get() as { n: number };
+	expect(items.n).toBe(1);
+});
+
+test("an approve decided before the mint completes on authorize", () => {
+	const db = database();
+	const created = proposeRemediation(db, {
+		project: "proj",
+		orgId: "org1",
+		serviceId: "orders-api",
+		policyId: HEALTH_POLICY_ID,
+		proposal: { observedGap: "no independent reporter" },
+	});
+	const rem = getRemediationById(db, "proj", created.id);
+	const hash = rem?.proposalHash ?? "";
+	const decided = decideRemediation(db, {
+		project: "proj",
+		remediationId: created.id,
+		action: "approve",
+		actor: "alice",
+		proposalHash: hash,
+	});
+	expect(decided.ok).toBe(true);
+	const done = authorizeRemediation(db, {
+		project: "proj",
+		remediationId: created.id,
+		actor: "bob",
+		proposalHash: hash,
+	});
+	expect(done.ok).toBe(true);
+	expect(done.created).toBe(true);
+	expect(done.workId).toBe("W1");
+});
+
+test("activeException honors scope and expiry", () => {
+	const db = database();
+	const a = proposeRemediation(db, {
+		project: "proj",
+		orgId: "org1",
+		serviceId: "orders-api",
+		policyId: HEALTH_POLICY_ID,
+		proposal: { observedGap: "gap on orders" },
+	});
+	const aHash = getRemediationById(db, "proj", a.id)?.proposalHash ?? "";
+	decideRemediation(db, {
+		project: "proj",
+		remediationId: a.id,
+		action: "exception",
+		actor: "corp",
+		proposalHash: aHash,
+		exceptionExpiresAt: Date.now() + 60_000,
+	});
+	const got = activeException(db, {
+		project: "proj",
+		orgId: "org1",
+		serviceId: "orders-api",
+		policyId: HEALTH_POLICY_ID,
+	});
+	expect(got?.action).toBe("exception");
+	// a different service stays inside the prompting loop
+	expect(
+		activeException(db, {
+			project: "proj",
+			orgId: "org1",
+			serviceId: "shipping-api",
+			policyId: HEALTH_POLICY_ID,
+		}),
+	).toBeNull();
+	// expiry passes → the reminder loop resumes
+	expect(
+		activeException(
+			db,
+			{
+				project: "proj",
+				orgId: "org1",
+				serviceId: "orders-api",
+				policyId: HEALTH_POLICY_ID,
+			},
+			Date.now() + 120_000,
+		),
+	).toBeNull();
 });

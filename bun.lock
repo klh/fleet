@@ -7,7 +7,7 @@
     },
     "packages/belt": {
       "name": "belt",
-      "version": "0.1.0",
+      "version": "2.0.0",
       "dependencies": {
         "blam": "workspace:*",
         "lit": "^3.3.3",
@@ -15,7 +15,7 @@
     },
     "packages/blam": {
       "name": "blam",
-      "version": "0.1.0",
+      "version": "2.0.0",
       "devDependencies": {
         "belt": "workspace:*",
         "suspenders": "workspace:*",
@@ -23,7 +23,7 @@
     },
     "packages/buckle": {
       "name": "buckle",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "blam": "workspace:*",
       },
@@ -40,7 +40,7 @@
     },
     "packages/local-llm": {
       "name": "local-llm",
-      "version": "0.1.0",
+      "version": "2.0.0",
     },
     "packages/speedy": {
       "name": "speedy",
@@ -48,7 +48,7 @@
     },
     "packages/suspenders": {
       "name": "suspenders",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "dependencies": {
         "@clack/prompts": "^1.8.1",
         "blam": "workspace:*",

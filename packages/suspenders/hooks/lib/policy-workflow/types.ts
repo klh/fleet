@@ -101,6 +101,9 @@ export interface RemediationRecord {
 	state: RemediationState;
 	claimedBy: string | null;
 	decisionRef: string | null;
+	/** the ONE authorized remediation work item (work graph id) once an
+	 *  approval minted it — idempotency anchor for concurrent approvers */
+	workId: string | null;
 	createdAt: number;
 	updatedAt: number;
 }

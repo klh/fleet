@@ -12,6 +12,10 @@ import {
 } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
+import {
+	activeException,
+	type DecisionRecord,
+} from "./policy-workflow/store.ts";
 
 type Condition = {
 	exists?: string;
@@ -28,6 +32,12 @@ type Row = {
 	check: Condition[];
 	missingQuestion: string;
 	policySource: string;
+	/** org-assigned stable service identity (never a checkout path) — when
+	 *  present together with policyId the gap consults the policy workflow's
+	 *  approved scoped exceptions before prompting the session */
+	serviceId?: string;
+	policyId?: string;
+	orgId?: string;
 };
 type Hub = { url: string; keyFile: string; sha256: string };
 const MAX_BYTES = 1024 * 1024;
@@ -102,6 +112,25 @@ function condition(root: string, value: Condition): boolean {
 	return targets.some((path) => {
 		const text = boundedText(path);
 		return text !== null && pattern.test(text);
+	});
+}
+
+/** Gap with an org/service/policy scope consults the policy workflow's
+ *  approved exceptions: an active exception suppresses the per-session
+ *  NEED_DECISION with an honest note (mandatory policy is never silently
+ *  waived — the waiver carries its expiry on the record). */
+function activeExceptionFor(
+	db: Database,
+	gap: Row,
+	project: string,
+	now: number,
+): DecisionRecord | null {
+	if (!gap.serviceId || !gap.policyId) return null;
+	return activeException(db, {
+		project,
+		orgId: gap.orgId ?? "klh",
+		serviceId: gap.serviceId,
+		policyId: gap.policyId,
 	});
 }
 
@@ -299,6 +328,18 @@ export async function checkSessionPolicies(options: {
 			const gaps = await boundedPolicyEvaluation(options.repo, manifest.rows);
 			const target = policyAuthority(options.db, options.sid, options.project);
 			for (const gap of gaps) {
+				const exception = activeExceptionFor(
+					options.db,
+					gap,
+					options.project,
+					Date.now(),
+				);
+				if (exception) {
+					notes.push(
+						`POLICY EXCEPTION active for ${gap.serviceId} until ${exception.expiresAt === null ? "indefinite" : new Date(exception.expiresAt).toISOString()} (${exception.id} by ${exception.actor}); the gap stays on record — no per-session decision requested.`,
+					);
+					continue;
+				}
 				const dedupe = `policy.session.${digest([target, options.project, hub.url, hub.sha256, gap.id])}`;
 				const question = gap.missingQuestion;
 				const eventId = options.db.transaction(() => {

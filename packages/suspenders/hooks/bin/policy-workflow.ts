@@ -14,6 +14,9 @@
 //       [--org <id>] [--project <id>]    idempotent remediation proposal
 //   bun hooks/bin/policy-workflow.ts decide <remediation-id> <approve|defer|exception>
 //       --actor <id> --hash <proposal-hash> [--expires <ms-epoch>]
+//   bun hooks/bin/policy-workflow.ts authorize <remediation-id>
+//       --actor <id> --hash <proposal-hash>   approve + mint the ONE remediation
+//       work item (exact-once under concurrent approvals)
 //   bun hooks/bin/policy-workflow.ts remediation <remediation-id> <claim|review|merge|cancel>
 //       --actor <id>
 //   bun hooks/bin/policy-workflow.ts attest <service> --instance <id>
@@ -42,6 +45,7 @@ import {
 	proposeRemediation,
 	startAssessment,
 	transitionRemediation,
+	authorizeRemediation,
 } from "../lib/policy-workflow/store.ts";
 
 function usage(): never {
@@ -51,6 +55,29 @@ function usage(): never {
 
 function readJson(path: string): Record<string, unknown> {
 	return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+/** Evidence-revision token over the assessed source tree. A changed tree
+ *  (new commit or uncommitted edits) invalidates recorded evidence — the
+ *  inputs hash carries it, unchanged trees reuse the assessment. Git
+ *  unavailable = "unknown", a stable token that still participates. */
+function sourceRevision(): string {
+	const cwd = process.cwd();
+	const sha = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+		cwd,
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	if (sha.exitCode !== 0) return "unknown";
+	const id = new TextDecoder().decode(sha.stdout).trim().slice(0, 12);
+	const dirty = Bun.spawnSync(["git", "status", "--porcelain"], {
+		cwd,
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	const edited =
+		dirty.exitCode === 0 && new TextDecoder().decode(dirty.stdout).trim().length > 0;
+	return edited ? `${id}:dirty` : `${id}:clean`;
 }
 
 function main(): void {
@@ -77,11 +104,17 @@ function main(): void {
 						reporterSupervision: "none",
 						monitoringWiring: "none",
 					};
+			deployment.sourceRevision = sourceRevision();
 			const inputsHash = healthInputsHash(deployment);
 			const existing = getAssessment(db, key);
-			if (existing && existing.inputsHash === inputsHash && existing.state !== "stale") {
+			if (
+				existing &&
+				existing.inputsHash === inputsHash &&
+				existing.policyVersion === HEALTH_POLICY_VERSION &&
+				existing.state !== "stale"
+			) {
 				console.log(
-					`reusing assessment ${existing.state}/${existing.verdict ?? "-"} (inputs unchanged, ${existing.updatedAt})`,
+					`reusing assessment ${existing.state}/${existing.verdict ?? "-"} (inputs and policy ${existing.policyVersion} unchanged, ${existing.updatedAt})`,
 				);
 				return;
 			}
@@ -158,6 +191,25 @@ function main(): void {
 				process.exit(1);
 			}
 			console.log(`decision ${result.decisionId} recorded (${action} by ${actor})`);
+			return;
+		}
+		if (verb === "authorize" && subject) {
+			const hash = flag("hash");
+			const actor = flag("actor") ?? "cli";
+			if (!hash) usage();
+			const result = authorizeRemediation(db, {
+				project,
+				remediationId: subject,
+				actor,
+				proposalHash: hash,
+			});
+			if (!result.ok) {
+				console.error(`policy-workflow: ${result.reason}`);
+				process.exit(1);
+			}
+			console.log(
+				`${result.created ? "authorized" : "already authorized"} remediation ${subject} → work item ${result.workId}`,
+			);
 			return;
 		}
 		if (verb === "remediation" && subject && action) {
