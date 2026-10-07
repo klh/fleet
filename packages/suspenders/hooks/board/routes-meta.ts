@@ -47,6 +47,7 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - POST /api/orchestrate/preview    W270 prompt-transform preview: runs condense (default off, W287) / enhance (opt-in, rides the buckle front :4101 with the SUSPENDERS_PROMPT_ENHANCE_KEY scoped key — route_audit shows it; falls back to no-enhance) on the goal and returns what WILL be dispatched (debug: final prompt; log: every stage + injected context with byte counts; secrets redacted) + a one-shot previewId; no plan LLM call, nothing written
 - GET|POST /api/prompt/settings     W270 prompt toggles persisted in suspenders-board.json: prompt.condense (default false, W287 politeness-only), prompt.enhance, prompt.debug, prompt.log (default false); POST takes booleans only
 - POST /api/orchestrate/register   register a proposed plan as a plan-gated work split through the work CLI (project, title, children required; children 2..8; the plan item is the split parent — the AGENTS.md add-plan-then-split flow)
+- POST /api/suggest   expand a terse composer draft into a brief-shaped prompt (the local minimal model reads the draft + running lanes; project, draft required — 502 when the model fails or answers junk)
 - POST /console/settings/preview   settings diff preview (host/origin + write-token guarded; form-encoded feature+values; invalid config = rejected with the parser's error, nothing written)
 - POST /console/settings/apply     settings apply (host/origin + write-token guarded; feature + values JSON + preview mtime; mtime guard rejects concurrent edits; atomic tmp+rename write to the allowlisted config path only)
 
@@ -71,14 +72,13 @@ export async function handleMeta(
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/llms.txt")
-		if (url.pathname === "/llms.txt")
-			// static plain-text agent contract (see LLMS_TXT above)
-			return new Response(LLMS_TXT, {
-				headers: {
-					"content-type": "text/plain; charset=utf-8",
-					"cache-control": "no-store",
-				},
-			});
+		// static plain-text agent contract (see LLMS_TXT above)
+		return new Response(LLMS_TXT, {
+			headers: {
+				"content-type": "text/plain; charset=utf-8",
+				"cache-control": "no-store",
+			},
+		});
 	if (url.pathname === "/")
 		return new Response(HTML, {
 			headers: {

@@ -157,8 +157,12 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W57 orchestrate box — LLM proposes a plan + parallel children from a goal; the human registers it as a plan-gated work split */
 .orch { border:1px solid var(--klh-edge); border-radius:6px; padding:10px 12px; margin:0 0 12px; background:var(--klh-wash); }
 .orchrow { display:flex; gap:8px; align-items:center; }
-#orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; }
+#orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; resize:none; }
 #orchGoal:focus { outline:none; border-color:var(--klh-accent); }
+#orch.expanded .orchrow { align-items:flex-start; }
+#orchSuggest { background:none; border:1px solid var(--klh-edge-strong); border-radius:4px; color:var(--klh-dim); font:inherit; font-size:11px; padding:4px 10px; cursor:pointer; }
+#orchSuggest:disabled { opacity:.45; cursor:default; }
+#orchSuggest:hover:not(:disabled) { color:var(--klh-ink); border-color:var(--klh-edge); }
 #orchGo { background:none; border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:4px 10px; cursor:pointer; }
 #orchGo:disabled { opacity:.45; cursor:default; }
 #orchGo:hover:not(:disabled) { background:var(--klh-accent-wash); }
