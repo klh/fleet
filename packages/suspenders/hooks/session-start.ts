@@ -4,10 +4,11 @@
 // active work) and source is `resume`, then injects the restart packet
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
+import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
-	openGovernorDb,
+	openStore,
 	projectIdentity,
 	CAPABILITIES,
 	sweepStaleSessions,
@@ -135,7 +136,7 @@ const OWNED_SQL =
 	"WHERE project = ? AND owner_sid = ? " +
 	"AND state NOT IN ('DONE','SUPERSEDED','FAILED') ORDER BY id";
 
-const db = openGovernorDb();
+const db = openStore();
 // The executor may mint a different SDK session ID. Only a registered lane
 // with a current claim in this exact worktree can supply the canonical ID.
 const declaredSid = process.env.SUSPENDERS_SID;
@@ -235,8 +236,9 @@ const out = [
 	}
 }
 
-// automagic hygiene: every bootstrap sweeps stale sessions fleet-wide
-const sweptN = sweepStaleSessions(db);
+// automagic hygiene: every bootstrap sweeps stale sessions fleet-wide —
+// sweeps read THIS host's transcripts, so they ride db.local only (W92 seam)
+const sweptN = db.local ? sweepStaleSessions(db as Database) : 0;
 if (sweptN)
 	out.push(
 		`SWEPT ${sweptN} stale session(s) — hb-stale + transcript-dead (coordinator/waiting kept)`,

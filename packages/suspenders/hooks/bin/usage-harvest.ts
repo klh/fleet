@@ -7,9 +7,9 @@
 // count); a grown one is read as an append-only tail. Durable assistant
 // message identities charge one request and only growth across blocks. Runs as a
 // board-API subroutine (TTL-gated maybeHarvest) — never a daemon.
-import type { Database } from "bun:sqlite";
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import type { GovernorStore } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { harvestAids } from "./aid-harvest.ts";
 import { usageMessageLedger } from "../lib/usage-message-ledger.ts";
@@ -70,7 +70,7 @@ function readTail(path: string, start: number): string {
 }
 
 export function harvestUsage(
-	db: Database,
+	db: GovernorStore,
 	opts: { root?: string } = {},
 ): HarvestStats {
 	const root = opts.root ?? `${process.env.HOME}/.claude/projects`;
@@ -313,7 +313,7 @@ const defaultTtlMs = (): number => {
 	return s && s >= 1 ? s * 1000 : 5 * 60_000;
 };
 export function maybeHarvest(
-	db: Database,
+	db: GovernorStore,
 	ttlMs = defaultTtlMs(),
 ): HarvestStats | null {
 	const row = db
@@ -349,8 +349,8 @@ export function maybeHarvest(
 if (import.meta.main) {
 	// CLI-only, lazy: the library must not bind an un-busted govdb module
 	// entry at import time (shared with un-busted consumers like settle.ts).
-	const { openGovernorDb } = await import("../lib/govdb.ts");
-	const db = openGovernorDb();
+	const { openStore } = await import("../lib/govdb.ts");
+	const db = openStore();
 	const force = process.argv.includes("--force");
 	const s = maybeHarvest(db, force ? 0 : undefined);
 	console.log(JSON.stringify(s ?? { skipped: "ttl-fresh" }));
