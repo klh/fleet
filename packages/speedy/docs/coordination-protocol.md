@@ -35,10 +35,13 @@ bun ~/.claude/bin/coord.ts emit landed --scope <scope> --sha <sha> --as <sid>
 
 - Checkpoint commits (every 10-20 min): `coord emit checkpoint --sha <sha> --as <sid>`
 - Landings: `coord emit landed ...` + `coord fact set integration.head <sha>`
-- Inbox is WS-first (W303): bootstrap opens `coord subscribe --as <sid>` ONCE
-  per session — live WebSocket push, one persistent connection, never exited
-  or relaunched; `coord wait`'s poll/relaunch loop is retired. `coord inbox
---as <sid>` is a catch-up read (session start, before finishing), not a poll
+- Inbox is WS-first (W303): `coord subscribe --as <sid>` attaches at
+  spawn/bootstrap ONCE per session — live WebSocket push, one persistent
+  connection, never exited or relaunched; idempotent per sid, its feed tails
+  `~/.claude-insights/coord-subscribe-<sid>.log` (the delivery for hookless
+  executors — codex/copilot/cline/grok get the same inbox without Claude
+  hooks). `coord wait`'s poll/relaunch loop is retired. `coord inbox --as
+  <sid>` is a catch-up read (session start, before finishing), not a poll
 - **Direct messages are interrupts-only**: STOP, CONFLICT, DEPENDENCY_CHANGED,
 - **Transport guarantees**: `coord` events/inbox are the guaranteed unattended path; native cross-session messaging is permission-mode sensitive (may queue for human approval) - opportunistic only. Retired ledgers become tombstone files pointing at the Work Graph; never append operational state to them.
   NEED_DECISION. Everything else is a `coord` event/fact.
@@ -94,7 +97,7 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 - PAUSE intends to continue this exact lane (capsule kept); STOP supersedes it (commits/facts remain, capsule dropped).
 - resume_ready carries the delta summary — the lane updates its worktree onto the new integration HEAD, reruns targeted tests, continues. Reconciliation conflict → repair path.
 
-- **Spawn ritual: `coord bootstrap --as <lane-sid> --role worker --parent <coordinator-sid>` for EVERY lane at spawn** - lanes need session identity (full sid, never a display truncation) so liveness sweep / orphaned / doctor-session can see them; use the SAME sid for claims and `work take`.
+- **Spawn ritual: `coord bootstrap --as <lane-sid> --role worker --parent <coordinator-sid>` for EVERY lane at spawn** - lanes need session identity (full sid, never a display truncation) so liveness sweep / orphaned / doctor-session can see them; use the SAME sid for claims and `work take`. The WS inbox attaches at spawn too: `coord subscribe --as <sid>` (W303, idempotent per sid).
 
 ### Work Graph (operational state lives here — never in Markdown)
 
@@ -127,7 +130,8 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 
 ### Signalling discipline (self-serve, inbox, checkpoints, decisions)
 
-- lanes self-serve: `coord subscribe --as <sid>` (W303, opened at bootstrap)
+- lanes self-serve: `coord subscribe --as <sid>` (W303, attached at
+  spawn/bootstrap, idempotent per sid)
   keeps your inbox PUSHED — one persistent connection, never poll it with
   repeated CLI probes; if READY work matches your capabilities, take it yourself — don't wait for dispatch (a coordinator-mediated handoff costs minutes; a self-claim costs seconds)
 - checkpoint every landed milestone (`work done --sha` / capsule) so preemption is resume, not salvage — lanes that die at usage cliffs without checkpoints get rescued heroically or not at all
