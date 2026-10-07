@@ -1,20 +1,18 @@
 #!/usr/bin/env bun
 // dispatch-watchdog.ts — the supervisor's supervisor (2026-10-06 outage class).
 // Every 5 minutes (launchd interval), probe the four failure points that
-// silently stalled crunching today, repair what is repairable, and SAY SO:
+// silently stalled crunching today and report them:
 //
-//   1. prefix-lib parity — prefix bin/* import ../../scripts/lib/*.ts (W463);
-//      a missing/stale copy crash-loops fleet-loop while launchd keeps it
-//      "running". Repair = bash install.sh --no-llm (the installer is the
-//      ONLY repo→prefix sync; the watchdog never hand-cps).
+//   1. Receipt-backed integrity of the activated generation, never the mutable
+//      checkout. Findings cannot invoke installation or service restart.
 //   2. fleet-loop liveness — same-pid stability across checks; a churning pid
-//      (crash-loop) or no pid at all → kickstart.
+//      (crash-loop) or no pid at all → report to the deployment owner.
 //   3. work flow — project graph completions + process-backed live lanes;
 //      dead claimed backlog is pending, dispatch chatter is not progress.
 //   4. governed-path probe — mint a throwaway lane key and push one tiny
 //     inference through the :4101 front; the end-to-end proof lanes depend on.
 //
-// Every verdict lands in .fleet/dispatch-watchdog.log; repairs + probe
+// Every verdict lands in .fleet/dispatch-watchdog.log; resource actions + probe
 // failures broadcast on the coord bus so the fleet sees the outage.
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -26,8 +24,7 @@ import {
 	type ServiceVerdict,
 } from "./lib/service-drift.ts";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
-import { probeDispatchSyntax } from "./lib/dispatch-syntax.ts";
-import { inspectDispatchParity } from "./lib/dispatch-parity.ts";
+import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
 	fleetProgress,
 	type ProgressState,
@@ -61,26 +58,26 @@ const sh = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 const libParity = (): {
 	ok: boolean;
 	missing: string[];
-	sourceBroken?: boolean;
+	state: "ok" | "degraded" | "unknown";
 } => {
-	const missing = inspectDispatchParity(REPO, PREFIX);
-	const syntax = probeDispatchSyntax(REPO, PREFIX);
-	missing.push(...syntax.failures);
+	const integrity = inspectActivatedDispatch(PREFIX);
 	return {
-		ok: missing.length === 0,
-		missing,
-		sourceBroken: syntax.sourceBroken,
+		ok: integrity.state === "ok",
+		missing: integrity.failures,
+		state: integrity.state,
 	};
 };
 
 // Explicit activation receipt, exact-domain inspection; never adopt a manual listener.
 const effectiveServices = (): ServiceVerdict[] => {
 	try {
+		const activated = inspectActivatedDispatch(PREFIX);
+		if (activated.state !== "ok" || !activated.root)
+			throw new Error("activated service manifest provenance unavailable");
 		return inspectServices(
 			readActivation(join(HOME, ".config/klh/service-activation.json")),
 			`gui/${process.getuid()}`,
-			process.env.SUSPENDERS_SERVICE_MANIFEST ??
-				join(REPO, "packages/suspenders/deploy/services.yaml"),
+			join(activated.root, "packages/suspenders/deploy/services.yaml"),
 		);
 	} catch {
 		return [
@@ -260,39 +257,15 @@ const run = async (): Promise<number> => {
 	const verdicts: string[] = [];
 	let repaired = false;
 
-	// 1. lib parity (+ repair via the installer)
+	// 1. Immutable activation integrity. Deployment belongs to the installer owner.
 	const parity = libParity();
-	let parityOk = parity.ok;
-	if (parity.sourceBroken) {
-		log(`FAIL source syntax: ${parity.missing.join(", ")}`);
-		verdicts.push(
-			"dispatch-syntax FAILED; source repair required, installer skipped",
-		);
+	const parityOk = parity.ok;
+	verdicts.push(`activation integrity ${parity.state}`);
+	if (!parity.ok)
 		emit(
 			"NEED_DECISION",
-			`dispatch-watchdog source cannot compile: ${parity.missing.join(", ")}; installing the same broken source cannot repair it`,
+			`dispatch activation ${parity.state}: ${parity.missing.join(", ")}; observation only, no installer or restart invoked`,
 		);
-	} else if (!parity.ok) {
-		log(`REPAIR lib parity broken: ${parity.missing.join(", ")}`);
-		const install = sh([
-			"/bin/bash",
-			join(REPO, "packages/suspenders/install.sh"),
-			"--no-llm",
-			"--skip-models",
-		]);
-		const verified = install.code === 0 && libParity().ok;
-		parityOk = verified;
-		repaired = verified;
-		verdicts.push(
-			`lib-parity ${verified ? "REPAIRED" : "FAILED"} via installer`,
-		);
-		emit(
-			verified ? "BROADCAST" : "NEED_DECISION",
-			verified
-				? "dispatch-watchdog repaired and reverified installed helper parity"
-				: "dispatch-watchdog installer/parity verification failed; inspect install logs before retrying",
-		);
-	} else verdicts.push("lib-parity ok");
 
 	// 2. Service drift is read-only. Legitimate PID changes are not restart requests.
 	const previous = readState();
