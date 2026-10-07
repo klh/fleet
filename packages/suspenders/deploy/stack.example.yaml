@@ -42,10 +42,23 @@ hubs:
     board_bind: 0.0.0.0
     belt_bind: 0.0.0.0
     services_json: /state/hub-home/services.json
+    # deploy source (W422.7 mono deploy): ONE monorepo origin for all
+    # packages + the stack version pin; `src` is the packages root inside
+    # the clone hub services run from (an overlay monorepo — private tier —
+    # resolves its pinned public base under node_modules/<dep>/packages).
     repos:
-      buckle: /volume1/docker/hub/buckle
-      suspenders: /volume1/docker/hub/suspenders
-      belt: /volume1/docker/hub/belt
+      ref: 0123456789abcdef0123456789abcdef01234567 # hub ref == stack version
+      # ONE shared monorepo origin, on any of the named keys (must agree);
+      # unset = https://github.com/klh/fleet.git. A private-tier overlay
+      # monorepo sets its origin here + src to its node_modules base root.
+      buckle: https://example.invalid/mirror/fleet.git
+      src: /src/fleet/node_modules/fleet/packages
+    deploy:
+      ssh: user@nas.example
+      dir: /volume1/docker/hub
+      docker: /usr/local/bin/docker
+    secrets:
+      buckle_root_key: /volume1/docker/hub/buckle/buckle.env
     deploy:
       ssh: user@nas.example
       dir: /volume1/docker/hub

@@ -71,20 +71,34 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 			"fleet-repo:/src/fleet:ro",
 		);
 	}
+	// the packages root is config: every runtime path rides HUB_FLEET_SRC
+	// (W493) — compose interpolation inlines the default, commands that are
+	// argv lists join to one string for the assertion
+	const cmd = (name: string): string => {
+		const command = compose.services[name].command;
+		return Array.isArray(command) ? command.join(" ") : command;
+	};
 	for (const name of [
 		"buckle-health",
+		"buckle-ready",
 		"board-health",
 		"store-health",
 		"belt-health",
 	])
-		expect(compose.services[name].command).toContain(
-			"/src/fleet/packages/suspenders/deploy/healthcheck/probe.ts",
+		expect(cmd(name)).toContain(
+			"${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts",
 		);
-	expect(compose.services["board-hub"].command).toContain(
-		"/src/fleet/packages/suspenders/hooks/bin/fleet-board.ts",
+	expect(compose.services["buckle-hub"].working_dir).toBe(
+		"${HUB_FLEET_SRC:-/src/fleet/packages}/buckle",
 	);
-	expect(compose.services["belt-hub"].command).toContain(
-		"/src/fleet/packages/belt/bin/dashboard.ts",
+	expect(compose.services["buckle-hub"].environment.BUCKLE_POLICY).toBe(
+		"${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml",
+	);
+	expect(cmd("board-hub")).toContain(
+		"${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts",
+	);
+	expect(cmd("belt-hub")).toContain(
+		"${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/dashboard.ts",
 	);
 	for (const name of ["buckle-state", "hub-state", "hub-secrets", "belt-state"])
 		expect(name in compose.volumes).toBe(true);
@@ -98,6 +112,14 @@ test("renderer resolves one origin and one version and rejects legacy split sour
 		"HUB_FLEET_REPO_URL=https://github.com/klh/fleet.git",
 	);
 	expect(rendered.text).not.toContain("HUB_BUCKLE_REF");
+	// W493: repos.src renders HUB_FLEET_SRC — the overlay packages root;
+	// unset = not emitted, the compose default keeps the public layout
+	expect(rendered.text).not.toContain("HUB_FLEET_SRC");
+	expect(
+		render("reviewed-sha", {
+			src: "/src/fleet/node_modules/fleet/packages",
+		}).text,
+	).toContain("HUB_FLEET_SRC=/src/fleet/node_modules/fleet/packages");
 	expect(render("reviewed-sha", { ref: "other-sha" }).code).toBe(1);
 	expect(
 		render("reviewed-sha", {
