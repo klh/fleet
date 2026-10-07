@@ -46,6 +46,7 @@ export interface RemoteEndpoint {
 	protocol: "openai" | "llama" | "immich";
 	roles: string[]; // routing roles this endpoint serves (code/extract/...)
 	model?: string; // openai-protocol model id, if the provider needs one
+	provider?: "openai" | "zai"; // transport adapter; OpenAI-compatible wire need not mean OpenAI provider
 	// ── cloud endpoints — base URL + bearer key instead of LAN ip:port ──
 	tls?: boolean; // informational: the endpoint speaks https
 	base?: string; // full base URL (probe: ${base}/models, route:
