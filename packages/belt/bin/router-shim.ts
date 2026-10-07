@@ -12,8 +12,9 @@
 // leaves the machine).
 
 import { appendFileSync } from "node:fs";
-import { livenessResponse } from "./health.ts";
 import { createAdmission, overloaded } from "./admission.ts";
+import { audioSpeech, audioTranscribe } from "./audio.ts";
+import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
 import { byPort, fallbackFor, type Specialist } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -411,6 +412,15 @@ Bun.serve({
 			url.pathname === "/registry.json"
 		)
 			return registryResponse(req);
+
+		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
+		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
+		// the vendor key is machine config — a missing key is a clean 503.
+		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
+			return audioSpeech(req);
+
+		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
+			return audioTranscribe(req);
 
 		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
 			return Response.json({ error: "not found" }, { status: 404 });
