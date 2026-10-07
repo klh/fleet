@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { GovernorStore } from "./govdb.ts";
+import { dirname, join } from "node:path";
+import { projectRootOf, type GovernorStore } from "./govdb.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
 
 type CompletionStore = Pick<GovernorStore, "query" | "run">;
@@ -76,6 +76,84 @@ const productPath = (path: string): boolean =>
 	!/^((\.fleet|\.claude|\.agents|node_modules)(\/|$)|\.klh-(brief|done)\.md$|\.workgraph\.jsonl$)/.test(
 		path,
 	);
+type LaneContext = { sid?: string; item?: string; baseline?: string };
+/** Lane identity is absolute: missing → null, corrupt → hard error, and a
+ * context bound to another item or owner is rejected, never ignored. */
+const laneContextAt = (
+	path: string,
+	item: string,
+	sid: string,
+): LaneContext | null => {
+	if (!existsSync(path)) return null;
+	let context: LaneContext;
+	try {
+		context = JSON.parse(readFileSync(path, "utf8")) as LaneContext;
+	} catch {
+		throw new Error(
+			"Invalid lane completion context; restore it before completing",
+		);
+	}
+	if (context?.item !== item || context.sid !== sid)
+		throw new Error(
+			"Lane completion context does not match this item and owner",
+		);
+	return context;
+};
+/** W601: scope=<name> pins a sibling checkout as the item's evidence repo —
+ * the directory beside the graph project's checkout root. Charset-guarded:
+ * free-text scope can never path-escape that parent. */
+const scopeRepo = (project: string, scope: string): string => {
+	const dir = join(dirname(projectRootOf(project)), scope);
+	if (
+		!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(scope) ||
+		!existsSync(join(dir, ".git"))
+	)
+		throw new Error(
+			`Item scope "${scope}" does not name a sibling repo checkout of ${dirname(projectRootOf(project))}`,
+		);
+	return dir;
+};
+const hasCommit = (cwd: string, ref: string): boolean => {
+	try {
+		git(cwd, "rev-parse", "--verify", `${ref}^{commit}`);
+		return true;
+	} catch {
+		return false;
+	}
+};
+const tryGit = (cwd: string, ...args: string[]): boolean => {
+	try {
+		git(cwd, ...args);
+		return true;
+	} catch {
+		return false;
+	}
+};
+/** W601: cross-repo closure evidence — the scope repo's own lane-branch diff
+ * (suspenders/<item> vs merge-base with the default head), degrading to the
+ * single closure commit when no branch resolves. */
+const crossRepoEvidence = (shaRepo: string, item: string, sha: string): { paths: string[]; diffText: string; diffBase: string | null } => {
+	const branch = `suspenders/${item}`;
+	let diffBase: string | null = null;
+	if (hasCommit(shaRepo, `refs/heads/${branch}`) && tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)) {
+		const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
+		if (head) {
+			diffBase = git(shaRepo, "merge-base", sha, head);
+			if (diffBase === sha) diffBase = null;
+		}
+	}
+	return {
+		diffBase,
+		paths: (diffBase
+			? git(shaRepo, "diff", "--name-only", diffBase, sha)
+			: git(shaRepo, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", sha))
+			.split("\n")
+			.filter(Boolean),
+		diffText: diffBase
+			? git(shaRepo, "diff", "-U0", diffBase, sha)
+			: git(shaRepo, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha),
+	};
+};
 export function prepareCompletion(
 	db: CompletionStore,
 	o: {
@@ -87,24 +165,20 @@ export function prepareCompletion(
 		summary: string | null;
 	},
 ): CompletionRecord | null {
-	let context: { sid?: string; item?: string; baseline?: string } | null = null;
+	let context: LaneContext | null = null;
 	let top = o.cwd;
 	try {
 		top = git(o.cwd, "rev-parse", "--show-toplevel");
 	} catch {}
-	const contextPath = join(top, ".fleet", "lane-context.json");
-	if (existsSync(contextPath)) {
-		try {
-			context = JSON.parse(readFileSync(contextPath, "utf8"));
-		} catch {
-			throw new Error(
-				"Invalid lane completion context; restore it before completing",
-			);
+	let contextRepo = top;
+	context = laneContextAt(join(top, ".fleet", "lane-context.json"), o.item, o.sid);
+	if (!context && /^autow/.test(o.sid)) {
+		const wt = join(projectRootOf(o.project), ".worktrees", o.item);
+		const fallback = laneContextAt(join(wt, ".fleet", "lane-context.json"), o.item, o.sid);
+		if (fallback) {
+			context = fallback;
+			contextRepo = wt;
 		}
-		if (context?.item !== o.item || context.sid !== o.sid)
-			throw new Error(
-				"Lane completion context does not match this item and owner",
-			);
 	}
 	if (/^autow/.test(o.sid) && !context)
 		throw new Error(
@@ -139,7 +213,32 @@ export function prepareCompletion(
 		throw new Error(
 			"Completion requires a real --sha commit, not a no-op or placeholder",
 		);
-	const sha = git(top, "rev-parse", "--verify", `${o.sha}^{commit}`);
+	const scope = (
+		db.query("SELECT scope FROM work_items WHERE project = ? AND id = ?").get(
+			o.project,
+			o.item,
+		) as { scope?: string | null } | undefined
+	)?.scope?.trim();
+	let sha: string;
+	let shaRepo = top;
+	try {
+		sha = git(top, "rev-parse", "--verify", `${o.sha}^{commit}`);
+	} catch {
+		// W601: foreign sha — the item's scope repo owns the evidence
+		if (!scope)
+			throw new Error(
+				`Cannot verify completion commit evidence: ${o.sha} is not a commit in this repo and the item declares no scope repo`,
+			);
+		shaRepo = scopeRepo(o.project, scope);
+		try {
+			sha = git(shaRepo, "rev-parse", "--verify", `${o.sha}^{commit}`);
+		} catch {
+			throw new Error(
+				`Cannot verify completion commit evidence: ${o.sha} is not a commit in the graph repo or its scope repo (${scope})`,
+			);
+		}
+	}
+	const crossRepo = contextRepo !== shaRepo;
 	if (!o.summary) {
 		if (capsule.item && capsule.item !== o.item)
 			throw new Error(
@@ -147,7 +246,7 @@ export function prepareCompletion(
 			);
 		if (
 			typeof capsule.checkpoint !== "string" ||
-			git(top, "rev-parse", "--verify", `${capsule.checkpoint}^{commit}`) !==
+			git(shaRepo, "rev-parse", "--verify", `${capsule.checkpoint}^{commit}`) !==
 				sha
 		)
 			throw new Error(
@@ -156,8 +255,12 @@ export function prepareCompletion(
 	}
 
 	let baseline: string | null = null;
+	let diffBase: string | null = null;
 	let paths: string[];
-	if (context?.baseline) {
+	let diffText: string;
+	if (crossRepo) {
+		({ diffBase, paths, diffText } = crossRepoEvidence(shaRepo, o.item, sha));
+	} else if (context?.baseline) {
 		baseline = git(
 			top,
 			"rev-parse",
@@ -169,18 +272,12 @@ export function prepareCompletion(
 		paths = git(top, "diff", "--name-only", baseline, sha)
 			.split("\n")
 			.filter(Boolean);
+		diffText = git(top, "diff", "-U0", baseline, sha);
 	} else {
-		paths = git(
-			top,
-			"diff-tree",
-			"--root",
-			"--no-commit-id",
-			"--name-only",
-			"-r",
-			sha,
-		)
+		paths = git(top, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", sha)
 			.split("\n")
 			.filter(Boolean);
+		diffText = git(top, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha);
 	}
 	if (!paths.some(productPath))
 		throw new Error(
@@ -189,9 +286,6 @@ export function prepareCompletion(
 	// W511: fake-completion integrity scan on the closing diff's added lines —
 	// the gate refuses closure while gated tests, stub notes or
 	// placeholder-error throws ride the sha being claimed as done
-	const diffText = baseline
-		? git(top, "diff", "-U0", baseline, sha)
-		: git(top, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha);
 	const hits = scanCompletionDiff(diffText).filter((hit) =>
 		productPath(hit.path),
 	);
@@ -225,6 +319,7 @@ export function prepareCompletion(
 			origin_project: o.project,
 			paths: paths.filter(productPath),
 			verified_at: completedAt,
+			...(crossRepo ? { scope, verify_repo: shaRepo, diff_base: diffBase } : {}),
 		}),
 	};
 }
