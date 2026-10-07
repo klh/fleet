@@ -8,18 +8,21 @@ primitives. Compiled 2026-10-07.
 
 - **VERIFIED** — fetched from primary docs during this item; exact param
   names and URLs below were read from the live page.
-- **LEAD** — primary docs unreachable from this lane (web allowlist was
-  Anthropic-domains-only; NEED_DECISION #25436). Written from model
-  knowledge, NOT verified. Treat as a lead, never a fact; re-verify
-  against the named doc before any W454 prototyping.
+- **SNIPPET** — search-result snippets or partial page fetches
+  (lane web allowlist was Anthropic-domains-only; NEED_DECISION
+  #25436). The named param/flag/page existence was seen in tool
+  output; surrounding semantics were not.
+- **LEAD** — written from model knowledge, NOT verified. Treat as a
+  lead, never a fact; re-verify against the named doc before any W454
+  prototyping.
 
 ## Executor matrix
 
 | Executor | Prompt caching | Session resume/fork | Batch | Structured outputs | Background mode | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude (Anthropic) | Explicit `cache_control` breakpoints + TTL knob (VERIFIED) | CLI `--resume --fork-session` (VERIFIED) | Message Batches API, −50% (VERIFIED) | `output_config.format` json_schema GA; CLI `--json-schema` (VERIFIED) | CLI `--bg` background sessions (VERIFIED) | complete |
-| Codex / OpenAI | Auto prefix caching, no user TTL control; `prompt_cache_key` hint (LEAD) | `codex resume` / `exec resume`; Responses `previous_response_id` chaining (LEAD) | Batch API −50% (LEAD) | `text.format` json_schema, strict mode (LEAD) | `background: true` + polling/webhooks (LEAD) | LEAD-only |
-| Copilot CLI | No user-facing cache control documented; premium-request multipliers instead (LEAD) | Session semantics undocumented in reach (LEAD) | none known (LEAD) | none known (LEAD) | n/a (LEAD) | LEAD-only |
+| Codex / OpenAI | Auto prefix caching ≥1024 tokens, 1024-token increments; `prompt_cache_key` routing; no explicit control (SNIPPET) | Responses `previous_response_id` chaining, 30-day retention, `store: false` opt-out (SNIPPET); `codex resume` / `exec resume` (LEAD) | Batch API −50% (LEAD) | `text.format` json_schema, strict mode (LEAD) | `background: true` + polling/webhooks (LEAD) | partial |
+| Copilot CLI | No user-facing cache control documented; premium-request multipliers instead (LEAD) | `copilot --resume=SESSION-ID`, `--plan` (SNIPPET) | none known (LEAD) | none known (LEAD) | n/a (LEAD) | partial |
 | Gemini | Explicit `cachedContents` resource + TTL; storage billed/h (LEAD) | CLI session storage, no documented fork (LEAD) | `batches.create` −50% (LEAD) | `responseSchema` + `responseMimeType` (LEAD) | Batch-as-background (LEAD) | LEAD-only |
 | Grok / x.ai | Automatic prefix caching, discount on cached input tokens (LEAD) | Official CLI absent; community `grok-dev` (VERIFIED community, W296) | none known (LEAD) | OpenAI-shape `response_format` (LEAD) | n/a (LEAD) | LEAD-only |
 
@@ -104,20 +107,26 @@ Env: `ANTHROPIC_BASE_URL` (belt/buckle front), `ANTHROPIC_API_KEY`,
   all requests end or 24h (expiry, unbilled expired requests); poll +
   `results_url` .jsonl; no webhooks.
 
-## Codex / OpenAI — LEADS, verify before use
+## Codex / OpenAI — partial (SNIPPET rows marked)
 
 Codex CLI 0.158.0 is installed locally (brew cask). Verify against
 developers.openai.com/codex and platform.openai.com docs.
 
-- Responses API conversation state: `previous_response_id` chains
-  server-side history; a new response referencing an old response_id
-  is a fork. Requires `store: true` — a problem for our gate posture
-  unless using encrypted-reasoning stateless carryover
-  (`include: ["reasoning.encrypted_content"]`).
-- Prompt caching is automatic prefix-based (1024-token multiples,
-  ~50–90% input discount on cached tokens, usage at
-  `prompt_tokens_details.cached_tokens`); `prompt_cache_key` steers
-  routing for hit affinity. No user TTL, no explicit breakpoints.
+- **SNIPPET** conversation-state guide (developers.openai.com/api/docs/
+  guides/conversation-state): `previous_response_id` chains server-side
+  history; response objects retained **30 days** by default; `store:
+  false` disables storage. A new response referencing an old
+  response_id as a fork remains a LEAD. For buckle's posture,
+  stateless carryover via `include:
+  ["reasoning.encrypted_content"]` + `store: false` stays the lead to
+  verify first.
+- **SNIPPET** prompt-caching guide (developers.openai.com/api/docs/
+  guides/prompt-caching): fully automatic prefix cache, ≥1024 tokens
+  in 1024-token increments; `prompt_cache_key` steers per-customer
+  cache routing; `safety_identifier` fingerprints abuse; usage at
+  `prompt_tokens_details.cached_tokens`. NO cache_control-style
+  marker, NO user TTL. A `prompt_cache_retention` extended-retention
+  param reportedly exists — LEAD.
 - Background mode: `background: true` → poll `GET /responses/{id}`,
   webhooks on completion, cancel verb.
 - Structured outputs: `text.format: {type:"json_schema", strict:true}`.
@@ -126,19 +135,26 @@ developers.openai.com/codex and platform.openai.com docs.
   ("responses"|"chat") — the gateway seam for buckle.
 - Batch API −50%, 24h window.
 
-## Copilot CLI — LEADS
+## Copilot CLI — partial (SNIPPET rows marked)
 
 Verify against docs.github.com Copilot CLI pages.
 
-- No user-facing prompt-cache control; cost model is premium-request
-  multipliers per model tier, not tokens. Caching upstream (if any) is
-  transparent to the user.
-- BYOK / model gateway exists for Copilot Enterprise; bypasses
-  premium requests on some plans — verify current plan gating.
-- CLI: `copilot` with `--resume`/`--continue`-style session flags,
-  `--allow-all-tools`/`--allow-tool`/`--deny-tool`, `--model`, MCP
-  config, GitHub auth. Hook surface documented in
-  `docs/cli-surface-survey.md` §3 (W296).
+- **SNIPPET** session resume: `copilot --resume=SESSION-ID` (from the
+  CLI command reference); `--plan` enters plan mode. Headless
+  programmatic mode exists ("Running GitHub Copilot CLI
+  programmatically" page; exact flag not captured).
+- **SNIPPET** config: user settings in `~/.copilot/settings.json`
+  (written by `/settings` / `/config`).
+- **SNIPPET** BYOK: a "Use your own model provider" how-to subpage
+  exists under the CLI reference — providers, plan gating, and
+  premium-request bypass semantics NOT captured.
+- Premium-request multipliers per model tier confirmed as the billing
+  model (legacy request-based billing); caching semantics: NOT
+  retrieved.
+- Live doc roots: docs.github.com/en/copilot/concepts/agents/
+  about-copilot-cli · /reference/copilot-cli-reference ·
+  /how-tos/use-copilot-cli.
+- Hook surface documented in `docs/cli-surface-survey.md` §3 (W296).
 
 ## Gemini — LEADS
 
@@ -222,7 +238,7 @@ Verify against docs.x.ai.
 
 ## Open decision
 
-NEED_DECISION #25436: LEAD-only sections need either a lane with a
-broader web allowlist or owner-pasted docs. Until then W454 phase 1
-benchmarks should proceed Claude-only (all its primitives are
-verified) and treat the rest as survey rows.
+NEED_DECISION #25436: SNIPPET gaps and every LEAD row still need a
+lane with a broader web allowlist or owner-pasted docs. Until then
+W454 phase 1 benchmarks should proceed Claude-only (all its
+primitives are verified) and treat the rest as survey rows.
