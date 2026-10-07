@@ -9,6 +9,7 @@
 // known blind spot (backlog W9), surfaced by `work orphaned` instead.
 // usage: bun ~/.claude/bin/monitor.ts [--fix]
 import { statSync, openSync, readSync, fstatSync, closeSync } from "node:fs";
+import { transcriptAlive } from "../lib/lane-liveness.ts";
 import {
 	openGovernorDb,
 	projectIdentity,
@@ -57,24 +58,9 @@ for (const s of db
 	role: string;
 	hb: number;
 }[]) {
-	let live = false;
-	try {
-		const glob = new Bun.Glob(`**/*${s.sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			try {
-				if (
-					statSync(`${process.env.HOME}/.claude/projects/${rel}`).mtimeMs >
-					now - 15 * 60_000
-				) {
-					live = true;
-					break;
-				}
-			} catch {}
-		}
-	} catch {}
+	// W466: the per-session `**` glob retired — transcriptAlive rides the
+	// bounded depth-4 walk in lib/lane-liveness.ts (same 15-min floor)
+	const live = transcriptAlive(s.sid);
 	if (!live) {
 		if (waiting.has(s.sid)) {
 			// waiting on a human, not dead — surfaced, never swept

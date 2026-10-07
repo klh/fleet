@@ -14,6 +14,7 @@ import {
 	statSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { transcriptAlive } from "./lane-liveness.ts";
 
 const REG = `${process.env.HOME}/.cache/claude-governor`;
 
@@ -1429,23 +1430,10 @@ export function tagNameOf(raw: string | null | undefined): string | null {
 	}
 }
 
-// a transcript written within the last 15 minutes = live process
+// a transcript written within the last 15 minutes = live process — W466:
+// one bounded liveness scan lives in lib/lane-liveness.ts; this delegate
+// retires the last unbounded `**` transcript glob (govdb sweeps hit it per
+// stale session)
 function liveTranscript(sid: string): boolean {
-	const floor = Date.now() - 15 * 60_000;
-	try {
-		const glob = new Bun.Glob(`**/*${sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			try {
-				if (
-					statSync(`${process.env.HOME}/.claude/projects/${rel}`).mtimeMs >
-					floor
-				)
-					return true;
-			} catch {}
-		}
-	} catch {}
-	return false;
+	return transcriptAlive(sid);
 }

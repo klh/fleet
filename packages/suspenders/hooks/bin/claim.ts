@@ -18,9 +18,8 @@
 // portable: the governor matches them as path-segment suffixes.
 import { Database } from "bun:sqlite";
 import { openGovernorDb } from "../lib/govdb.ts";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { transcriptPath } from "../lib/lane-liveness.ts";
 
-const PROJECTS = `${process.env.HOME}/.claude/projects`;
 const TTL = 15 * 60_000;
 
 interface Row {
@@ -53,21 +52,11 @@ const db: Database = openGovernorDb();
 
 // Runtime-side validation: a claim target must be a REAL live session —
 // fabricated ids are rejected here, not discovered by the governor later.
-// Layout-agnostic: main sessions live at <proj>/<sid>.jsonl, subagents at
-// <proj>/<parent-session>/subagents/agent-<id>.jsonl — a glob over both
-// beats hardcoding the harness's directory shape.
+// W466: the transcript scan lives in lib/lane-liveness.ts (bounded depth-4
+// walk, same 15-min TTL this module used to carry itself) — one liveness
+// surface, no per-tool glob copies.
 function liveTranscript(sid: string): string | null {
-	const floor = Date.now() - TTL;
-	try {
-		const glob = new Bun.Glob(`**/*${sid}*.jsonl`);
-		for (const rel of glob.scanSync({ cwd: PROJECTS, onlyFiles: true })) {
-			const f = `${PROJECTS}/${rel}`;
-			try {
-				if (existsSync(f) && statSync(f).mtimeMs > floor) return f;
-			} catch {}
-		}
-	} catch {}
-	return null;
+	return transcriptPath(sid);
 }
 
 function scopeMatch(a: string, b: string): boolean {

@@ -49,9 +49,28 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
 	} else if (sub === "list") {
+		// W466 bounding: the facts table is the knowledge read surface. Machine
+		// cursor namespaces (govdb v12 moved them to machine_cursors, but
+		// pre-v12 writers can re-insert in a mixed fleet) never render by
+		// default; --prefix filters, --limit caps, --all lifts the hiding.
+		const prefixes = ["activity.tp.", "usage.tp.", "usage.v2.tp."];
+		const showAll = rest.includes("--all");
+		const prefix = arg("--prefix");
+		const limit = Number(arg("--limit") ?? 0);
+		let where = prefix ? "key LIKE ?" : "1=1";
+		const params: (string | number)[] = prefix ? [`${prefix}%`] : [];
+		// an explicit --prefix is a deliberate drill-in: hiding applies only
+		// to the unscoped default listing
+		if (!showAll && !prefix) {
+			const hidden = prefixes.map(() => "key NOT LIKE ?").join(" AND ");
+			where += ` AND ${hidden}`;
+			for (const p of prefixes) params.push(`${p}%`);
+		}
+		const orderLimit =
+			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
 		const rows = db
-			.query("SELECT key, value, version, ts FROM facts ORDER BY key")
-			.all() as {
+			.query(`SELECT key, value, version, ts FROM facts WHERE ${where}${orderLimit}`)
+			.all(...params) as {
 			key: string;
 			value: string;
 			version: number;
@@ -62,7 +81,10 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				? rows.map((r) => `${r.key} = ${r.value}  (v${r.version})`).join("\n")
 				: "(no facts)",
 		);
-	} else die("usage: fact set <key> <value> | fact get <key> | fact list");
+	} else
+		die(
+			"usage: fact set <key> <value> | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+		);
 }
 
 export async function cmdCapsule(rest: string[]): Promise<void> {
@@ -324,6 +346,19 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const f = db
 		.query("DELETE FROM facts WHERE key LIKE 'lane.%' AND ts < ?")
 		.run(cut).changes;
+	// W466: machine cursors live in machine_cursors (govdb v12) — facts rows
+	// in the cursor namespaces are strays from pre-v12 writers (mixed fleet);
+	// move them along so the knowledge surface stays clean. The machine
+	// keyspace itself gets NO time-prune: a cursor is an offset into a
+	// transcript that may still exist — deleting it would re-harvest the file
+	// from byte 0 into UPSERT-ADD rollups (double count).
+	for (const p of ["activity.tp.%", "usage.tp.%", "usage.v2.tp.%"]) {
+		db.run(
+			"INSERT OR IGNORE INTO machine_cursors (key, value, source, ts) SELECT key, value, source, ts FROM facts WHERE key LIKE ?",
+			p,
+		);
+		db.run("DELETE FROM facts WHERE key LIKE ?", p);
+	}
 	// consults: open questions expire after 1h; closed threads age out
 	const x = db
 		.query(
