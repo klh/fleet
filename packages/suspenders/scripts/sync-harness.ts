@@ -157,11 +157,15 @@ async function validate(stage: string): Promise<string> {
 
 /** Code-only publication. No runtime home, service manager, model or Caddy operations. */
 export async function syncHarness(
-	ctx: StepContext,
+	ctx: StepContext & { expectedRevision?: string },
 	publish: (source: string, destination: string) => void = renameSync,
 ): Promise<StepResult> {
 	const repo = git(ctx.repo, ["rev-parse", "--show-toplevel"]);
 	const revision = git(repo, ["rev-parse", "HEAD"]);
+	if (ctx.expectedRevision && ctx.expectedRevision !== revision)
+		throw new Error(
+			"Source revision changed during dashboard refresh; rerun from a consistent capture",
+		);
 	if (
 		git(repo, [
 			"status",

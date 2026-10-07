@@ -1,26 +1,25 @@
-// Code-only upgrade: operator config, registry, keys and launchd files stay outside
-// the file manifest. The installer is the sole entry point to this sync.
+// Code-only GUI refresh. One committed source revision, one protected publication.
 import {
+	chmod,
+	lstat,
 	copyFile,
 	mkdir,
+	mkdtemp,
 	readFile,
-	readdir,
+	realpath,
 	rename,
 	rm,
 	stat,
+	writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, isAbsolute } from "node:path";
+import { hostname } from "node:os";
+import { syncHarness } from "./sync-harness.ts";
 
-const root = join(import.meta.dir, "../..");
-const home = process.env.HOME ?? "";
-const prefix =
-	process.env.SUSPENDERS_PREFIX ?? `${home}/.claude/hooks/suspenders`;
-const belt = `${home}/.claude/local-llm`;
-const local = `${home}/.local/klh-local/bin`;
 const groups = [
 	{
-		from: `${root}/belt/bin`,
-		to: belt,
+		package: "belt/bin",
+		destination: "belt",
 		files: [
 			"dashboard.ts",
 			"dashboard-state.ts",
@@ -33,8 +32,8 @@ const groups = [
 		],
 	},
 	{
-		from: `${root}/local/bin`,
-		to: local,
+		package: "local/bin",
+		destination: "local",
 		files: [
 			"dashboard.ts",
 			"dashboard-health.ts",
@@ -45,120 +44,192 @@ const groups = [
 			"vendor/lit-shared.js",
 		],
 	},
-	{
-		from: `${root}/suspenders/hooks`,
-		to: prefix,
-		files: [
-			"bin/fleet-board.ts",
-			"bin/fleet-board-html.ts",
-			"bin/console-html.ts",
-			"bin/usage-page-html.ts",
-			"bin/usage-seed.ts",
-			"lib/theme.ts",
-			"lib/service-inventory.ts",
-			"lib/recovery-map.ts",
-			"lib/usage.ts",
-			"lib/usage-provenance.ts",
-			"board/routes-data.ts",
-			"board/routes-usage.ts",
-			"board/routes-observations.ts",
-			"board/lane-observations.ts",
-			"board/observation-relay.ts",
-			"board/data.ts",
-			"board/recovery.ts",
-			"board/local-swarm.ts",
-			"board/service-probe.ts",
-			"board/supervisor-snapshot.ts",
-			"board/console-view.ts",
-			"board-html/body.ts",
-			"board-html/core.ts",
-			"board-html/activity.ts",
-			"board-html/renders.ts",
-			"board-html/tabs.ts",
-			"board-html/fleet-lane-view.ts",
-			"board-html/service-row-model.ts",
-			"board-html/klh-service-row.ts",
-			"board-html/klh-recovery.ts",
-			"board-html/vendor/klh-components.js",
-			"board-html/vendor/klh-service-row.js",
-			"board-html/vendor/klh-recovery.js",
-			"board-html/vendor/lit-shared.js",
-		],
-	},
-];
-const files = groups.flatMap((g) =>
-	g.files.map((f) => ({ source: join(g.from, f), target: join(g.to, f) })),
-);
-// Ship one implementation beside each installed consumer; source wrappers
-// resolve the workspace package while runtime copies need no monorepo paths.
-for (const target of [
-	join(belt, "observation.ts"),
-	join(local, "observation.ts"),
-	join(prefix, "lib/observation.ts"),
-])
-	files.push({ source: join(root, "local-llm/observation.ts"), target });
-files.push({
-	source: join(root, "belt/bin/inventory-probe.ts"),
-	target: join(prefix, "lib/inventory-probe.ts"),
-});
-// Split bundles use content hashes once several independent modules are shared.
-const vendor = join(root, "suspenders/hooks/board-html/vendor");
-const chunks = (await readdir(vendor)).filter(
-	(name) => /^lit-[a-z0-9]+\.js$/i.test(name) && name !== "lit-shared.js",
-);
-if (chunks.length > 20) throw new Error("Unexpected dashboard bundle count");
-for (const name of chunks)
-	files.push({
-		source: join(vendor, name),
-		target: join(prefix, "board-html/vendor", name),
-	});
-for (const entry of [
-	`${belt}/dashboard.ts`,
-	`${local}/dashboard.ts`,
-	`${prefix}/bin/fleet-board.ts`,
-]) {
-	await stat(entry); // Existing installation required; never bootstrap config here.
-}
-for (const { source } of files) await stat(source);
-if (process.argv.includes("--dry-run")) {
-	console.log(
-		`Would refresh ${files.length} dashboard code files; no config or processes changed.`,
+] as const;
+const within = (parent: string, child: string): boolean => {
+	const path = relative(parent, child);
+	return (
+		path === "" ||
+		(!isAbsolute(path) && path !== ".." && !path.startsWith("../"))
 	);
-} else {
+};
+function git(repo: string, args: string[]): string {
+	const result = Bun.spawnSync(["git", "-C", repo, ...args], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0)
+		throw new Error(`Dashboard source git ${args[0]} failed`);
+	return result.stdout.toString().trim();
+}
+async function capture(
+	repo: string,
+	revision: string,
+	paths: string[],
+	destination: string,
+): Promise<void> {
+	const archive = Bun.spawn(
+		["git", "-C", repo, "archive", revision, ...paths],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const unpack = Bun.spawn(["tar", "-x", "-C", destination], {
+		stdin: archive.stdout,
+		stdout: "ignore",
+		stderr: "pipe",
+	});
+	const [sourceCode, unpackCode] = await Promise.all([
+		archive.exited,
+		unpack.exited,
+		new Response(archive.stderr).text(),
+		new Response(unpack.stderr).text(),
+	]);
+	if (sourceCode !== 0 || unpackCode !== 0)
+		throw new Error("Committed dashboard capture failed");
+}
+export type RefreshOptions = {
+	home: string;
+	prefix: string;
+	packageRoot?: string;
+	shimBin?: string;
+	dryRun?: boolean;
+};
+/** Publisher injection exercises transaction failures without changing runtime services. */
+export async function refreshDashboards(
+	options: RefreshOptions,
+	publish: typeof syncHarness = syncHarness,
+): Promise<string> {
+	const root = await realpath(
+		options.packageRoot ?? join(import.meta.dir, "../.."),
+	);
+	const repo = git(root, ["rev-parse", "--show-toplevel"]);
+	const belt = join(options.home, ".claude/local-llm");
+	const local = join(options.home, ".local/klh-local/bin");
+	const destinations = { belt, local };
+	const files = groups.flatMap((group) =>
+		group.files.map((file) => ({
+			source: join(root, group.package, file),
+			target: join(destinations[group.destination], file),
+		})),
+	);
+	for (const destination of [belt, local])
+		files.push({
+			source: join(root, "local-llm/observation.ts"),
+			target: join(destination, "observation.ts"),
+		});
+	for (const entry of [
+		join(belt, "dashboard.ts"),
+		join(local, "dashboard.ts"),
+		join(options.prefix, "bin/fleet-board.ts"),
+	])
+		await stat(entry);
+	const installed = await realpath(options.prefix);
+	for (const destination of [belt, local]) {
+		const target = await realpath(destination);
+		if (within(installed, target) || within(target, installed))
+			throw new Error(
+				"Dashboard target overlaps the installed harness generation; refusing writes",
+			);
+	}
+	if (options.dryRun)
+		return `Would refresh ${files.length} external dashboard code files and publish a validated harness generation; no config or processes changed.`;
+	const lock = `${options.prefix}.refresh-lock`;
+	await mkdir(lock); // Exclusive before any backup or target mutation.
+	let stage: string | undefined;
 	const backups = new Map<string, { data: Buffer; mode: number } | null>();
 	try {
-		for (const { source, target } of files) {
+		await writeFile(
+			join(lock, "owner.json"),
+			JSON.stringify({
+				pid: process.pid,
+				host: hostname(),
+				createdAt: Date.now(),
+			}),
+			{ mode: 0o600 },
+		);
+		const revision = git(repo, ["rev-parse", "HEAD"]);
+		const paths = [
+			...new Set(files.map((file) => relative(repo, file.source))),
+		];
+		if (
+			git(repo, [
+				"status",
+				"--porcelain",
+				"--untracked-files=all",
+				"--",
+				...paths,
+			])
+		)
+			throw new Error(
+				"Commit reviewed dashboard sources before refresh; working payload is dirty",
+			);
+		stage = await mkdtemp(join(dirname(options.prefix), ".dashboard-capture-"));
+		await capture(repo, revision, paths, stage);
+		for (const file of files) {
+			if (!(await lstat(join(stage, relative(repo, file.source)))).isFile())
+				throw new Error(
+					"Dashboard capture must contain regular files, not mutable symlinks",
+				);
+		}
+		for (const file of files) {
 			let old: { data: Buffer; mode: number } | null = null;
 			try {
 				old = {
-					data: await readFile(target),
-					mode: (await stat(target)).mode & 0o777,
+					data: await readFile(file.target),
+					mode: (await stat(file.target)).mode & 0o777,
 				};
-			} catch (e) {
-				if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			}
-			backups.set(target, old);
-			await mkdir(dirname(target), { recursive: true });
-			await copyFile(source, `${target}.refreshing`);
-			await rename(`${target}.refreshing`, target);
+			backups.set(file.target, old);
+			await mkdir(dirname(file.target), { recursive: true });
+			await copyFile(
+				join(stage, relative(repo, file.source)),
+				`${file.target}.refreshing`,
+			);
+			await rename(`${file.target}.refreshing`, file.target);
 		}
 		for (const entry of [
-			`${belt}/dashboard.ts`,
-			`${local}/dashboard.ts`,
-			`${prefix}/bin/fleet-board.ts`,
+			join(belt, "dashboard.ts"),
+			join(local, "dashboard.ts"),
 		]) {
 			const result = await Bun.build({ entrypoints: [entry], target: "bun" });
 			if (!result.success) throw new Error(result.logs.map(String).join("\n"));
 		}
-		console.log(
-			`Refreshed ${files.length} dashboard code files. Restart com.belt.dashboard, com.klh-local.dashboard and com.suspenders.board to activate.`,
-		);
+		await publish({
+			dryRun: false,
+			yes: true,
+			json: false,
+			verbose: false,
+			repo: join(root, "suspenders"),
+			prefix: options.prefix,
+			llmHome: belt,
+			shimBin: options.shimBin ?? join(options.home, ".local/bin"),
+			expectedRevision: revision,
+		});
+		return `Refreshed ${files.length} dashboard code files at ${revision}. Restart com.belt.dashboard, com.klh-local.dashboard and com.suspenders.board to activate.`;
 	} catch (error) {
 		for (const [target, old] of backups) {
-			if (old) await Bun.write(target, old.data, { mode: old.mode });
-			else await rm(target, { force: true });
+			if (old) {
+				await writeFile(`${target}.refreshing`, old.data);
+				await chmod(`${target}.refreshing`, old.mode);
+				await rename(`${target}.refreshing`, target);
+			} else await rm(target, { force: true });
 			await rm(`${target}.refreshing`, { force: true });
 		}
 		throw error;
+	} finally {
+		if (stage) await rm(stage, { recursive: true, force: true });
+		await rm(lock, { recursive: true, force: true });
 	}
+}
+if (import.meta.main) {
+	const home = process.env.HOME ?? "";
+	console.log(
+		await refreshDashboards({
+			home,
+			prefix:
+				process.env.SUSPENDERS_PREFIX ?? join(home, ".claude/hooks/suspenders"),
+			shimBin: process.env.SUSPENDERS_SHIM_BIN,
+			dryRun: process.argv.includes("--dry-run"),
+		}),
+	);
 }
