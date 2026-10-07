@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+	emitFallbackSettings,
 	emitRouterSettings,
 	loadGatewayPolicy,
 	parsePolicy,
@@ -11,14 +12,25 @@ import {
 const REPO_POLICY = new URL("../bin/routing-policy.yaml", import.meta.url)
 	.pathname;
 
-describe("routing policy (W124)", () => {
-	test("committed default carries the owner ladder + native knobs", () => {
+/** Fixed ladder — pins the EMITTER shape independent of policy drift. */
+const emitterTestFallbacks = () => ({
+	fallbacks: {
+		"glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"],
+		"glm-5.3": ["zai-glm-5.3", "local-reason"],
+		"glm-5.2": ["zai-glm-5.2", "local-reason"],
+	},
+});
+
+describe("routing policy (W124 + W219.2 fold)", () => {
+	test("committed default carries the hand-edit ladders + native knobs", () => {
 		const p = loadGatewayPolicy(REPO_POLICY);
 		expect(p.num_retries).toBe(1);
 		expect(p.allowed_fails).toBe(3);
 		expect(p.cooldown_time).toBe(30);
 		expect(p.fallbacks).toEqual({
-			"glm-5.3-flash": ["local-swarm", "gpt-5.2", "claude-sonnet-5"],
+			"glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"],
+			"glm-5.3": ["zai-glm-5.3", "local-reason"],
+			"glm-5.2": ["zai-glm-5.2", "local-reason"],
 		});
 	});
 
@@ -27,40 +39,47 @@ describe("routing policy (W124)", () => {
 		expect(JSON.stringify(p).toLowerCase().includes("flashx")).toBe(false);
 	});
 
-	test("fallback order is local → OpenAI → Anthropic", () => {
+	test("fallback order is zai twin → local-reason, per glm group", () => {
 		const p = loadGatewayPolicy(REPO_POLICY);
-		const ladder = p.fallbacks?.["glm-5.3-flash"];
-		expect(ladder).toEqual(["local-swarm", "gpt-5.2", "claude-sonnet-5"]);
-		expect(ladder?.indexOf("local-swarm")).toBeLessThan(
-			ladder?.indexOf("gpt-5.2"),
-		);
-		expect(ladder?.indexOf("gpt-5.2")).toBeLessThan(
-			ladder?.indexOf("claude-sonnet-5"),
-		);
+		for (const [group, ladder] of Object.entries(p.fallbacks ?? {})) {
+			expect(ladder).toHaveLength(2);
+			expect(ladder?.[0]).toBe(`zai-${group}`);
+			expect(ladder?.[1]).toBe("local-reason");
+		}
 	});
 
-	test("emit → YAML round-trip preserves ladder + knobs", () => {
+	test("emit → YAML round-trip: knobs in router_settings, no fallbacks", () => {
 		const p = loadGatewayPolicy(REPO_POLICY);
 		const doc = Bun.YAML.parse(emitRouterSettings(p)) as {
-			router_settings: {
-				fallbacks?: Record<string, string[]>[];
-			} & Record<string, unknown>;
+			router_settings: Record<string, unknown> & {
+				fallbacks?: unknown;
+			};
 		};
 		expect(doc.router_settings).toEqual({
 			routing_strategy: "latency-based-routing",
 			num_retries: 1,
 			allowed_fails: 3,
 			cooldown_time: 30,
-			fallbacks: [
-				{ "glm-5.3-flash": ["local-swarm", "gpt-5.2", "claude-sonnet-5"] },
-			],
 		});
 	});
 
+	test("emitFallbackSettings → YAML round-trip preserves the ladders", () => {
+		const doc = Bun.YAML.parse(emitFallbackSettings(emitterTestFallbacks())) as {
+			litellm_settings: {
+				fallbacks: Record<string, string[]>[];
+			};
+		};
+		expect(doc.litellm_settings.fallbacks).toEqual([
+			{ "glm-5.3-flash": ["zai-glm-5.3-flash", "local-reason"] },
+			{ "glm-5.3": ["zai-glm-5.3", "local-reason"] },
+			{ "glm-5.2": ["zai-glm-5.2", "local-reason"] },
+		]);
+	});
+
 	test("emitted ladder line is verbatim LiteLLM fallback shape", () => {
-		const out = emitRouterSettings(loadGatewayPolicy(REPO_POLICY));
+		const out = emitFallbackSettings(emitterTestFallbacks());
 		expect(out).toContain(
-			"    - glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]",
+			"    - glm-5.3-flash: [zai-glm-5.3-flash, local-reason]",
 		);
 	});
 
@@ -99,5 +118,6 @@ describe("routing policy (W124)", () => {
 		const out = emitRouterSettings(parsePolicy("version: 1\n"));
 		expect(out.includes("fallbacks")).toBe(false);
 		expect(out).toContain("routing_strategy: latency-based-routing");
+		expect(emitFallbackSettings(parsePolicy("version: 1\n"))).toBe("");
 	});
 });

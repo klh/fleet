@@ -95,3 +95,20 @@ if (probeables.length) {
 	);
 	console.log(`${dim(`  remotes`)}  ${remote.join("  ")}`);
 }
+
+// W219.2 gateway fallback drill — /v1/models liveness says nothing about the
+// fallback machinery (the 2026-10-06 z.ai TLS outage: gateway "up", lanes
+// hard-died on Fallbacks=None). One real glm-5.3-flash request through the
+// gateway; when z.ai is dark only a local rung can answer, so a 200 here
+// proves the ladder. Skipped (no key) prints, never throws.
+import { drillFallback } from "./fallback-drill.ts";
+const drill = await drillFallback();
+{
+	const mark = drill.verdict === "pass" ? green("✓") : red("✗");
+	const detail =
+		drill.verdict === "pass"
+			? `${drill.dark ? "z.ai dark, local answered" : "z.ai up"}${drill.model ? ` via ${drill.model}` : ""}`
+			: drill.why;
+	const ms = drill.verdict === "skipped" ? "" : ` ${fmtMs(drill.ms)}`;
+	console.log(`  ${dim("fallback")}  ${mark} glm-5.3-flash ${dim(detail + ms)}`);
+}

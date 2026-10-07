@@ -2,16 +2,20 @@
 // single config source is bin/routing-policy.yaml (committed default); a
 // runtime copy at ~/.claude/local-llm/routing-policy.yaml overrides it, and
 // BELT_POLICY overrides both. bin/gateway-config.ts emits the `gateway`
-// section verbatim as LiteLLM router_settings into the private litellm.yaml.
+// section as router_settings plus the ladders as litellm_settings.fallbacks
+// (W219.2 — the placement the installed litellm reads; verified in pinned
+// source, proxy_server.py setattr default → litellm.fallbacks, and router.py
+// `_fallbacks = fallbacks or litellm.fallbacks`). router_settings.
+// model_group_fallbacks is NOT a key the proxy knows — it is warned on and
+// ignored (the 2026-10-06 z.ai TLS outage hard-failed lanes that way).
 //
-// Everything the policy expresses is NATIVE LiteLLM 1.103.0 router behavior
-// (pinned-source verified, W126 audit docs/research/
-// litellm-enterprise-audit-2026-10-01.md): fallbacks = ordered cross-group
-// ladders tried after num_retries; allowed_fails + cooldown_time = passive
-// outlier ejection; num_retries = per-call retries whose backoff honors the
-// upstream retry-after header with jitter (utils.py::_calculate_retry_after).
-// Owner directives 2026-10-01: ladder flash → local(:4000) → OpenAI →
-// Anthropic, never flashx; operators edit the YAML, never code.
+// Everything the policy expresses is NATIVE router behavior (pinned-source
+// verified, W126 audit docs/research/litellm-enterprise-audit-2026-10-01.md):
+// fallbacks = ordered cross-group ladders tried after num_retries;
+// allowed_fails + cooldown_time = passive outlier ejection; num_retries =
+// per-call retries whose backoff honors the upstream retry-after header with
+// jitter (utils.py::_calculate_retry_after).
+// Owner directives: never flashx; operators edit the YAML, never code.
 import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -59,20 +63,29 @@ export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 }
 
 /** Emit the router_settings YAML block (newline-terminated, LiteLLM
- *  semantics: in-order fallback ladders after num_retries, allowed_fails +
- *  cooldown as passive outlier ejection). */
+ *  semantics: allowed_fails + cooldown as passive outlier ejection, retries
+ *  with native retry-after backoff). */
 export function emitRouterSettings(p: GatewayPolicy): string {
-	const fallbackLines = Object.entries(p.fallbacks ?? {})
-		.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
-		.join("\n");
 	return (
 		"router_settings:\n" +
 		"  routing_strategy: latency-based-routing\n" +
 		`  num_retries: ${p.num_retries}\n` +
 		`  allowed_fails: ${p.allowed_fails}\n` +
-		`  cooldown_time: ${p.cooldown_time}\n` +
-		(fallbackLines ? `  fallbacks:\n${fallbackLines}\n` : "")
+		`  cooldown_time: ${p.cooldown_time}\n`
 	);
+}
+
+/** Emit the litellm_settings YAML block carrying the fallback ladders
+ *  (W219.2). Empty string when no fallbacks are configured — gateway-config
+ *  composes router_settings + litellm_settings + general_settings. Shape is
+ *  the native one: a list of single-key maps, validated by Router
+ *  .validate_fallbacks. */
+export function emitFallbackSettings(p: GatewayPolicy): string {
+	const fallbackLines = Object.entries(p.fallbacks ?? {})
+		.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
+		.join("\n");
+	if (!fallbackLines) return "";
+	return `litellm_settings:\n  fallbacks:\n${fallbackLines}\n`;
 }
 
 // ─── direct-tier bypass (W270) ───
