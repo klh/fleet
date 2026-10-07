@@ -249,3 +249,13 @@ global project `<select>`, decision history (collapsed under OPEN), task drawer
 tails, ▶ start on unclaimed READY cards → POST /api/start; card click opens the
 drawer directly), named state labels, a11y (buttons not divs, aria-live on toasts
 and decision counter, focus-visible, ≥4.5:1 text contrast), no decorative controls.
+
+## Project-scoped browser URLs
+
+Open `/?project=<URL-encoded git-common-dir>#lanes` (or `#decisions`,
+`#tasks`, `#activity`, `#governor`) to establish the visible project selector
+before the first poll. Unknown/empty projects remain selected; they never
+fall back to all projects. Selecting a different project updates the URL,
+while tab changes and reloads preserve the scope. Stale responses from a
+previous project are discarded. This is display filtering, not an authorization
+boundary. Fleet-wide model telemetry is labelled and withheld in project scope.
