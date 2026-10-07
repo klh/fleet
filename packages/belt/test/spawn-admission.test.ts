@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { admitSpawn } from "../bin/spawn-admission.ts";
@@ -65,4 +65,25 @@ test("invalid ledger and unknown wired usage fail closed", () => {
 	expect(attempt).toThrow("memory admission refused");
 	writeFileSync(path, "broken JSON");
 	expect(attempt).toThrow();
+});
+
+test("persistence failure cancels the newly spawned process", () => {
+	const path = join(root, "persist-fail.json");
+	mkdirSync(`${path}.${process.pid}.new`);
+	let cancelled = false;
+	expect(() =>
+		admitSpawn({
+			path,
+			port: 1,
+			budgetGb: 1,
+			guardGb: 60,
+			wiredGb: () => 0,
+			alive: () => false,
+			spawn: () => ({ pid: 123 }),
+			cancel: () => {
+				cancelled = true;
+			},
+		}),
+	).toThrow();
+	expect(cancelled).toBe(true);
 });
