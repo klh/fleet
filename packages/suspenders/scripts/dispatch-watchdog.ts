@@ -27,6 +27,7 @@ import {
 } from "./lib/service-drift.ts";
 import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
 import { probeDispatchSyntax } from "./lib/dispatch-syntax.ts";
+import { inspectDispatchParity } from "./lib/dispatch-parity.ts";
 import {
 	fleetProgress,
 	type ProgressState,
@@ -62,21 +63,7 @@ const libParity = (): {
 	missing: string[];
 	sourceBroken?: boolean;
 } => {
-	const srcDir = join(REPO, "packages/suspenders/scripts/lib");
-	const depths = [join(PREFIX, "scripts/lib"), join(PREFIX, "../scripts/lib")];
-	const missing: string[] = [];
-	if (!existsSync(srcDir))
-		return { ok: false, missing: ["repo scripts/lib gone"] };
-	for (const f of sh(["/bin/ls", srcDir])
-		.out.split("\n")
-		.filter((f) => f.endsWith(".ts"))) {
-		for (const d of depths) {
-			const p = join(d, f);
-			if (!existsSync(p)) missing.push(p);
-			else if (!readFileSync(p).equals(readFileSync(join(srcDir, f))))
-				missing.push(`${p} (stale bytes)`);
-		}
-	}
+	const missing = inspectDispatchParity(REPO, PREFIX);
 	const syntax = probeDispatchSyntax(REPO, PREFIX);
 	missing.push(...syntax.failures);
 	return {
