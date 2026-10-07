@@ -17,6 +17,8 @@ import {
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { isLiveSession, type LivenessRow } from "./bus.ts";
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -375,8 +377,20 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		.query("DELETE FROM locks WHERE ts < ?")
 		.run(Date.now() - 15 * 60_000).changes;
 	const d = pruneDeltas(db as Database, days * 86_400_000);
+	// W418: ghost-subscribe sweep — a CLOSED or transcript-dead session's WS
+	// subscribe is a dead connection riding the process table; gc reaps it
+	// with the session garbage (done/release reap at the transition, this is
+	// the backstop for sessions that die un-ended).
+	const rs = reapDeadSubscribes((sid) => {
+		const row = db
+			.query(
+				"SELECT hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
+			)
+			.get(sid) as (LivenessRow & { state: string }) | undefined;
+		return !row || row.state === "CLOSED" || !isLiveSession(row);
+	});
 	console.log(
-		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
+		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${rs.length} ghost subscribe(s) reaped, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
 	);
 	console.log(
 		`gc: archived → ${ra} route_audit (>${auditDays}d), ${ae} auth_events, ${ur} usage_rollup (>${usageDays}d), ${aa} admin_audit (365d); ${af} stale archive files; NDJSON in ~/.cache/claude-governor/archive/`,
