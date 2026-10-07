@@ -231,13 +231,13 @@ services:
     logs: { out: "__HOME__/.claude-insights/suspenders-knowledge-api.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
 
-  # knowledge ingest worker — resident; distill target is the local large
-  # model (owner 2026-09-30: slow-queue chore stays off the paid cloud;
-  # unset/override via env to route through belt instead)
+  # knowledge ingest worker — resident; distill rides belt with the W96
+  # 'prefer local distill reasoning' hint (belt decides, local-first — the
+  # :8903 INGEST_LLM_URL pin is retired; INGEST_LLM_URL env still wins in
+  # makeDistillClient() as the enterprise override)
   - name: knowledge-worker
     bunEntry: "__PREFIX__/bin/knowledge-worker.ts"
     env:
-      INGEST_LLM_URL: "http://127.0.0.1:8903/v1/chat/completions"
       KNOWLEDGE_DOCS_ROOT: "__REPO__"
     schedule: { keepalive: true }
     logs: { out: /tmp/suspenders-knowledge-worker.log }
