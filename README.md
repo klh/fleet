@@ -256,4 +256,4 @@ has a separate CC-BY-4.0 notice. This repository is not a blanket open-source gr
 
 ---
 
-A [Threads](https://www.threads.dk) thing.
+A [Threads](http://www.threads.dk) thing.

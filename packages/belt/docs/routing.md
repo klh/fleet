@@ -1,6 +1,6 @@
 # Hybrid LLM Routing Doctrine
 
-> Relocated from global CLAUDE.md (2026-09-14). Consult when building routers, automation, or choosing where to send LLM work. Measured 2026-09-04 on M5 Max 128GB. Owner directive 2026-09-27: **speed-first** — the fastest local model with adequate quality wins over cloud; cloud is the frontier ceiling, and the tokens-expired degradation goes all-local, never the other way. Measured numbers behind every "why" below: [benchmarks.md](../benchmarks.md) (canonical since 2026-10-02 — no bench data in this doc).
+> Relocated from global CLAUDE.md (2026-09-14). Consult when building routers, automation, or choosing where to send LLM work. Measured 2026-09-04 on M5 Max 128GB. Owner directive 2026-09-29 (supersedes the 2026-09-27 speed-first wording): **cloud-default** — cloud is fastest for most items and stays the default; the local swarm serves background/long-running work and the cloud-down fallback, and the tokens-expired degradation goes all-local, never the other way. Measured numbers behind every "why" below: [benchmarks.md](../benchmarks.md) (canonical since 2026-10-02 — no bench data in this doc).
 
 | Decision point                        | Route                               | Why                                                                                                       |
 | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ reasons per row there.
 
 ## Rules
 
-1. **Speed-first, local-first** (owner 2026-09-27): the fastest adequate-quality local model wins over cloud — the driver is latency and residency, not cost.
+1. **Speed-first, cloud-default** (owner 2026-09-29, superseding the 2026-09-27 local-first wording): cloud is fastest for most items and stays the default — the driver is SPEED, not cost; the local swarm serves background/long-running work and the cloud-down fallback.
 2. **Cold start penalty** (~800ms first hit) — keep specialists resident via launchd KeepAlive.
 3. **The router is deterministic** (keyword-based, 0ms) — no LLM overhead for routing decisions.
 4. **claude-fast checks the local swarm first** — cloud escalation fires only when local failed twice AND the task is COMPLEX+ (SIMPLE/MEDIUM never leave the machine); falls back cleanly if the local stack is down.
