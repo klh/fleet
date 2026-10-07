@@ -162,6 +162,7 @@ export interface UpstreamGroup {
 	name: string;
 	tiers: number;
 	dormant: boolean;
+	source?: string;
 }
 
 export interface BeltView {
@@ -171,6 +172,7 @@ export interface BeltView {
 	beltApi: { url: string; via: string } | null;
 	health: HealthProbe[];
 	groups: UpstreamGroup[] | null;
+	upstreamSource?: string;
 }
 
 const ladderHtml = (gw: PolicyGatewayParsed): string =>
@@ -230,10 +232,10 @@ const upstreamsCard = (v: BeltView): string => {
 	const rows = v.groups
 		.map(
 			(g) =>
-				`<tr><td><b>${esc(g.name)}</b></td><td class="num">${g.tiers}</td><td>${g.dormant ? `<span class="bad">dormant</span>` : `<span class="ok">active</span>`}</td></tr>`,
+				`<tr><td><b>${esc(g.name)}</b></td><td class="num">${g.tiers}</td><td>${g.dormant ? `<span class="dim">dormant</span>` : `<span>configured</span>`}</td><td>${esc(g.source ?? "configured")}</td></tr>`,
 		)
 		.join("");
-	return `<div class="panel"><h2>Upstream pool (buckle upstreams.yaml)</h2><table class="ct"><thead><tr><th>group</th><th>deployments</th><th>state</th></tr></thead><tbody>${rows}</tbody></table><p class="cfoot">dormant = in the ladder but resolving to zero deployments until a BUCKLE_UPSTREAMS override supplies them</p></div>`;
+	return `<div class="panel"><h2>Configured upstream pool · ${esc(v.upstreamSource ?? "configuration")}</h2><table class="ct"><thead><tr><th>group</th><th>deployments</th><th>state</th><th>source</th></tr></thead><tbody>${rows}</tbody></table><p class="cfoot">Deployment counts merge the fleet default with machine overrides. Reachability is shown by the endpoint checks above.</p></div>`;
 };
 
 const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
