@@ -57,6 +57,20 @@ export const realDeps: ProbeDeps = {
 	readSupervisor: readSupervisorSnapshot,
 };
 
+// W360: SUSPENDERS_PROBE_DEPS=stub pins every probe to a deterministic miss —
+// a board under test renders honest DOWN tiles without touching real loopback
+// ports (machine-state-coupled flake, proven 2026-10-04).
+export const stubDeps: ProbeDeps = {
+	fetch: () => Promise.reject(new Error("stub probe: network disabled")),
+	launchctl: () => Promise.resolve({ code: 1, out: "" }),
+	now: () => new Date(),
+	readSupervisor: () => null,
+};
+
+// resolved per call so a long-lived board picks the knob up at probe time
+export const activeDeps = (): ProbeDeps =>
+	process.env.SUSPENDERS_PROBE_DEPS === "stub" ? stubDeps : realDeps;
+
 const httpDetail = async (
 	r: Response,
 ): Promise<{ detail: string; ok: boolean }> => {
@@ -178,7 +192,7 @@ const probeOne = async (
 
 export const probeService = async (
 	id: string,
-	deps: ProbeDeps = realDeps,
+	deps: ProbeDeps = activeDeps(),
 ): Promise<ServiceProbe | null> => {
 	const e = recoveryFor(id);
 	if (!e) return null;
@@ -208,7 +222,7 @@ export const probeService = async (
 };
 
 export const probeAll = async (
-	deps: ProbeDeps = realDeps,
+	deps: ProbeDeps = activeDeps(),
 ): Promise<ServiceProbe[]> =>
 	(
 		await Promise.all(PROBED_SERVICES.map((id) => probeService(id, deps)))
