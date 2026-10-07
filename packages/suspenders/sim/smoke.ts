@@ -15,6 +15,17 @@
 
 const BODY_CAP = 64 * 1024;
 
+// W352: the work-delegation e2e check declares with a real admin capability
+// (operator-wired, machine config — the smoke never guesses credentials)
+import {
+	declareWorkCr,
+	openMemoryWorkGraph,
+	reconcileWorkCrs,
+	WORK_CR_ACTION,
+	WORK_CR_TARGET_PREFIX,
+} from "../hooks/lib/work-cr.ts";
+const SIM_E2E_ADMIN_KEY = process.env.SIM_E2E_ADMIN_KEY ?? "";
+
 type Outcome = "PASS" | "RED" | "ERR";
 interface Row {
 	name: string;
@@ -274,6 +285,118 @@ if (manifest !== null && Array.isArray(manifest.cr_queue)) {
 		"RED",
 		"no cr_queue in policy manifest — awaiting W160 (CR channel)",
 	);
+}
+
+// (d2) the W352 e2e run: credential-gated, temp spoke key revoked after
+if (SIM_E2E_ADMIN_KEY.length === 0) {
+	report(
+		WORK_CR_E2E_TAG,
+		"RED",
+		"no SIM_E2E_ADMIN_KEY wired — the declare leg needs buckle:admin:WRITE_ (operator env)",
+	);
+} else {
+	try {
+		const minted = await workCrE2eMint();
+		const d = await workCrE2eDeclare();
+		const r = await workCrE2eReconcile(minted.key, d.crId);
+		// revoke the temp spoke key before judging (cleanup always runs)
+		await fetch(`${SIM_BUCKLE_URL}/v1/admin/keys/${minted.keyId}/revoke`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${SIM_E2E_ADMIN_KEY}` },
+		}).then((res) => readCapped(res));
+		const back = d.ok && r.applied === 1 && r.hubState === "applied";
+		report(
+			WORK_CR_E2E_TAG,
+			back ? "PASS" : "RED",
+			back
+				? `declare → reconcile → applied round-trip on the composed hub (cr=${d.crId}, temp spoke key revoked)`
+				: `chain did not converge: declared=${String(d.ok)} applied=${String(r.applied)} hub_state=${r.hubState}${r.errors.length > 0 ? ` errors=${r.errors.join("; ")}` : ""}`,
+		);
+	} catch (e) {
+		report(WORK_CR_E2E_TAG, "ERR", String(e));
+	}
+}
+
+// (d2) W352 work-delegation e2e: declare → spoke reconcile → status back.
+// Credential-gated (SIM_E2E_ADMIN_KEY): the sim hub mints its root INSIDE
+// the hub-secrets volume and never prints it, so the operator passes one
+// admin capability; the smoke mints a TEMPORARY spoke key for the status
+// reports and revokes it after (test keys are never left behind).
+const WORK_CR_E2E_TAG = "federation/work-cr-e2e";
+
+/** Temp spoke key for the report leg — minted and revoked within the run. */
+async function workCrE2eMint(): Promise<{ keyId: string; key: string }> {
+	const res = await fetch(`${SIM_BUCKLE_URL}/v1/admin/keys`, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${SIM_E2E_ADMIN_KEY}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			name: "w352-sim-spoke",
+			scopes: ["buckle:spoke:WRITE_"],
+		}),
+	});
+	const body = await readCapped(res);
+	return {
+		keyId: String((body as Record<string, unknown>).key_id),
+		key: String((body as Record<string, unknown>).key),
+	};
+}
+
+/** Pull the hub CR queue as the spoke (spoke:READ_ rides the manifest). */
+async function workCrE2ePull(
+	spokeKey: string,
+): Promise<Array<Record<string, unknown>>> {
+	const r = await getJson(`${SIM_BUCKLE_URL}/federation/policy-manifest`, {
+		headers: { authorization: `Bearer ${spokeKey}` },
+	});
+	const b = r.body;
+	return isRecord(b) && Array.isArray(b.cr_queue)
+		? (b.cr_queue as Array<Record<string, unknown>>)
+		: [];
+}
+
+/** Declare leg: one work CR as the origin (admin capability). */
+async function workCrE2eDeclare(): Promise<{ crId: string; ok: boolean }> {
+	const crId = `wcr-sim-${Date.now().toString(36)}`;
+	const out = await declareWorkCr({
+		hubUrl: SIM_BUCKLE_URL,
+		adminKey: SIM_E2E_ADMIN_KEY,
+		spec: {
+			id: crId,
+			action: WORK_CR_ACTION,
+			target: `${WORK_CR_TARGET_PREFIX}W352`,
+			payload: {
+				title: "w352 sim delegation",
+				description: "sim smoke: declare → reconcile → status back",
+			},
+			origin: { system: "suspenders", actor: "w352-sim" },
+		},
+	});
+	return { crId, ok: out.ok };
+}
+
+/** Reconcile leg: pull → reconcile (throwaway in-memory graph — the smoke
+ *  never writes the host governor.db) → re-pull, report the hub row state. */
+async function workCrE2eReconcile(spokeKey: string, crId: string): Promise<{
+	applied: number;
+	hubState: string;
+	errors: string[];
+}> {
+	const rec = await reconcileWorkCrs({
+		manifest: { cr_queue: await workCrE2ePull(spokeKey) },
+		db: openMemoryWorkGraph(),
+		project: "sim-work-cr",
+		hubUrl: SIM_BUCKLE_URL,
+		spokeKey,
+	});
+	const row = (await workCrE2ePull(spokeKey)).find((c) => c.id === crId);
+	return {
+		applied: rec.applied,
+		hubState: String(row?.state ?? "missing"),
+		errors: rec.errors,
+	};
 }
 
 // (e) echo menu — hub entitlement payload shapes the spoke menu (W154 echo)
