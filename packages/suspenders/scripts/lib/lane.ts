@@ -158,8 +158,10 @@ export const spawnClaude = (o: {
 	)
 		.map((a) => (a.includes(" ") ? sq(a) : a))
 		.join(" ");
-	// sh -c exec + stdin detach: the intermediary survives parent exit (the
-	// dns-sd lesson); the log file is the board's live-tail surface.
+	// A detached child has its own process group, so dispatcher group teardown
+	// cannot terminate the harness. unref releases the event-loop reference.
+	// exec preserves the recorded harness PID,
+	// stdin EOF prevents input waits, and the log is the board's tail surface.
 	return Bun.spawn(
 		[
 			"/bin/sh",
@@ -167,6 +169,7 @@ export const spawnClaude = (o: {
 			`exec ${sq(o.bin)} -p ${sq(o.prompt)} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
 		],
 		{
+			detached: true,
 			cwd: o.cwd,
 			env: o.env,
 			stdout: "ignore",
