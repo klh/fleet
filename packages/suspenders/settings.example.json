@@ -16,7 +16,8 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts"
+						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts",
+						"async": true
 					}
 				]
 			}
