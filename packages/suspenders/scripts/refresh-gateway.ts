@@ -12,6 +12,9 @@ export async function refreshGateway(
 		files.map((file) => readFile(join(runtime, file), "utf8")),
 	);
 	let [swarm, spawner] = originals;
+	// Source-tree DRY exports cannot resolve from the flattened runtime home.
+	if (spawner.includes('export * from "../belt/bin/spawner.ts"'))
+		spawner = await readFile(join(root, "belt/bin/spawner.ts"), "utf8");
 	if (swarm.includes('from "./supervisor.ts"'))
 		throw new Error(
 			"advanced supervisor already owns LiteLLM; use --refresh-supervisor",
