@@ -229,6 +229,158 @@ The current rekey command must not be run on live corporate graphs merely to
 demonstrate this design. Identity migration and graph import require a reviewed
 mapping and recoverable backup; this audit performed neither.
 
+## Stage detail: transactional graph migration and provenance (stages 4-8)
+
+These stages are specified here at the level the current source supports.
+Paths are relative to `packages/suspenders/`. Anchors: the existing rekey
+verb (`hooks/coord/fleet.ts:742-914`, W428) and the W460 pre-migration
+fixes (commit `8ae66c8` — rekey now moves `decisions`, lane slugs are
+injective, worktree and harvest use the canonical resolver). The stages
+extend that verb into a planned migration; they do not change it.
+
+### Stage 4: backup, dry-run alias map, one transaction
+
+A consistent backup requires the same fence the migration uses: pause or
+fence writers, checkpoint WAL, then take the backup through SQLite's own
+copy path (backup API or `VACUUM INTO`) on the store the migration will
+run against. A filesystem copy of a live WAL database taken while writers
+run is not consistent, and a backup taken without the fence can miss the
+last writes the migration then moves.
+
+The dry-run alias map is produced before the fence and reviewed by
+humans. One row per legacy project key:
+
+| Column               | Content                                                                         |
+| :------------------- | :------------------------------------------------------------------------------ |
+| legacy key           | the git-common-dir string the graph is keyed on today                           |
+| new project_id       | the minted logical ID this key binds to                                         |
+| per-table row counts | the pre-migration counts the transaction must move exactly                      |
+| per-item disposition | import (remap), duplicate snapshot (discard), or legacy alias (rename in place) |
+| lane sid map         | legacy slug versus project-qualified slug (`hooks/lib/laneslug.ts`)             |
+| backup reference     | backup path, store head, authority epoch, timestamp                             |
+
+The migration itself is one `BEGIN IMMEDIATE` transaction. Composite
+foreign keys (`work_deps` → `work_items(project, id)`) are checked at
+`COMMIT`, so the transaction runs `PRAGMA defer_foreign_keys = ON` and
+updates children with their parents in one transaction — without the
+deferral, a parent-first order violates them, which aborted the W428
+rekey with HTTP 500s on exactly those two tables
+(`hooks/coord/fleet.ts:748-751, 858-861`).
+
+Row counts are the primary integrity check. The transaction pre-counts
+every project-scoped table — the six `PROJECT_TABLES` plus the
+conditionally present `decisions`, `work_recovery_attempts`,
+`lane_launch_*` and `work_completion_records` tables
+(`hooks/coord/fleet.ts:752-849`) — and events via
+`json_extract(payload, '$.project')`. Post-update counts must move
+exactly; residual rows under the legacy key fail the migration.
+
+Referential checks bracket the update: orphan counts for `work_deps` →
+`work_items`, `work_items.parent_id` and `consult_kb.consult_id` →
+`consults.id` must be identical before and after. The migration creates
+no new orphans and loses none.
+
+Sequence reconciliation protects ID minting after import. `nextRootId()`
+seeds `work_sequences.next_id` from the maximum top-level numeric id
+(`id GLOB 'W[0-9]*' AND id NOT LIKE '%.%'`, `hooks/bin/work.ts:638-655`),
+and `nextChildId()` allocates `<parent>.<n>` from the maximum existing
+child suffix. Imported work that keeps its original labels must raise the
+target's `next_id` past the largest imported top-level number before the
+next `work add` runs, or the allocator mints a colliding `W`-id into the
+target's primary key.
+
+The legacy-key mapping is retained, not discarded after the move: one
+migration record per legacy key with the alias-map columns above, so old
+keys resolve through the map for the lifetime of the graph. A rename with
+no retained mapping is not a migration.
+
+### Stage 5: occupied destinations are explicit decisions
+
+The current rekey is a rename with an exclusivity rail: it refuses when
+the target already holds work items, recovery budgets, completion records
+or launch records (`hooks/coord/fleet.ts:779-849`). It never merges two
+graphs. Everything beyond that rail — importing independent work into an
+occupied destination — is the planned migration of these stages, never a
+sequence of rekey calls.
+
+Equal or colliding work labels are never evidence of identity. `W1` in
+two clones is two pieces of work; `W1.23` and `W12.3` differ by one
+character in the label but were distinct lane sids before the W460 slug
+fix. During dry-run review, every destination-colliding item is
+classified explicitly and the disposition is written into the alias map:
+
+| Disposition        | Meaning                                                                    |
+| :----------------- | :------------------------------------------------------------------------- |
+| import             | independent work; new ID, edges remapped, provenance preserved (stage 6)   |
+| duplicate snapshot | the same graph copied; discard the copy, keep the authoritative rows       |
+| legacy alias       | a pure rename target; rekey applies and the map records the old key        |
+
+The classification is a human decision recorded in the map; the migration
+refuses rows without one. Rekey also does not touch the global namespaces
+— `facts` (capsules keyed `lane.<sid>.*`), `cursors`, `locks` and
+`claims` (`hooks/lib/govdb.ts:411-538`) — so a cross-graph import decides
+each global row's disposition explicitly rather than inheriting the
+rename.
+
+### Stage 6: provenance
+
+Imported independent work receives its new `(project_id, id)` and all
+references remap inside the same transaction as the ID mint: `parent_id`,
+`work_deps` edges, `owner_sid` and session bindings, `result_sha`,
+consults and consult-KB rows. No window exists in which edges point at
+the legacy IDs.
+
+Legacy identity is preserved, not rewritten away. The alias map keeps the
+original `(project, id)` per imported item. Migration events are additive
+records (source key, new key, migration ID, original timestamps) appended
+to the event log. The `events.$.project` payload rewrite the rekey
+performs (`hooks/coord/fleet.ts:903-907`) is acceptable for a rename
+inside one authority; it is not acceptable as the provenance mechanism
+for cross-graph import of an audit trail that must stay reconstructable.
+
+Lane identity follows the same rule through the W460 slugs: new lanes
+mint project-qualified, injective sids (`hooks/lib/laneslug.ts`), legacy
+slugs keep resolving for recorded lanes. The mapping — not a slug rewrite
+— is the provenance mechanism.
+
+### Stage 7: cutover without duplicate writes
+
+Every managed writer runs the canonical authority and one resolver
+version (stage 1's resolved-project interface); the authority epoch
+rejects obsolete writers. After cutover, a legacy project key arriving at
+a resolver resolves server-side through the retained alias map or is
+rejected with a reference to it — never translated client-side from a
+stale copy of the map.
+
+The duplicate-write hazard is an old clone booted after cutover under its
+legacy key: it opens a local store and recreates the old partition. The
+resolver therefore fails closed for managed projects (no silent writable
+local graph), while the local-only namespace remains available for
+unregistered work. Mirrors stay read-only through the cutover, and local
+path generation stays separate from the logical ID (stage 2 inventory).
+
+### Stage 8: rollback semantics, verified
+
+Before any new authoritative write, rollback is the transaction itself:
+any count, referential or sequence check failure aborts before `COMMIT`,
+and deferred foreign-key violations surface exactly at `COMMIT`, so no
+partial state survives. The backup restore path is rehearsed on a
+disposable store before the fence is armed, including the WAL checkpoint.
+
+After new authoritative activity, restoring the backup would discard that
+work. Recovery is a forward correction — apply the reverse of the alias
+map to the post-cutover state and reconcile — or a reviewed reverse
+mapping; the retained map is stored bidirectionally for exactly this. The
+authority epoch keeps the fenced old authority from accepting writes
+while reconciliation runs, and re-running a completed migration is a
+no-op by map lookup, not a repeated row update.
+
+Verified means rehearsed: these scenarios run in disposable homes and
+stores (see acceptance tests below), with the current rekey behavior
+pinned by `test/project-identity.test.ts` (W460). A rollback that has
+never been rehearsed against a real store copy is a design claim, not a
+verified semantic.
+
 ## Acceptance tests
 
 | Scenario                                                | Required outcome                                                             |

@@ -125,6 +125,12 @@ const UPDATE_USAGE = `
 UPDATE route_audit SET cache_r = ?, cache_c = ? WHERE rid = ?
 `;
 
+const UPDATE_AUDIT = `
+UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?,
+  decision = COALESCE(?, decision), error_code = COALESCE(?, error_code)
+WHERE rid = ?
+`;
+
 export interface LedgerOptions {
 	/** async flush cadence (W143 speed §3; default 5s) */
 	flushMs?: number;
@@ -132,22 +138,40 @@ export interface LedgerOptions {
 	flushRows?: number;
 	/** flush attempts a row survives before it is dropped (default 5) */
 	maxFlushAttempts?: number;
+	/** W450 pending-entry cap per ring: flush latency must not grow with
+	 *  unbounded queue depth. Overflow sheds the OLDEST row (counted). */
+	maxPendingEntries?: number;
+	/** W450 pending-byte cap per ring: one huge err/why string (readCapped
+	 *  error bodies reach 256 KiB) cannot balloon the ring. */
+	maxPendingBytes?: number;
 	/** drop observer — the servicemon counter seam (buckle_ledger_dropped_total) */
 	onDrop?: (kind: "usage" | "audit", n: number) => void;
 }
 
-/** A ring entry with its failed-flush count (bounded retry). */
-type Pending<T> = { v: T; tries: number };
+/** A ring entry with its failed-flush count (bounded retry) and its byte
+ *  estimate (W450 ring bounds — tracked at push, O(1) to shed). */
+type Pending<T> = { v: T; tries: number; b: number };
 
 export class Ledger {
 	private readonly db: Database;
 	private readonly upsert: ReturnType<Database["query"]>;
+	// W450: audit statements prepared once (measured ~5%/op over the cached
+	// db.query() lookup at 2k-op flushes; the flush is background, but the
+	// hoist is free and keeps every hot statement beside upsert).
+	private readonly insAudit: ReturnType<Database["query"]>;
+	private readonly updAudit: ReturnType<Database["query"]>;
+	private readonly updUsage: ReturnType<Database["query"]>;
 	private readonly flushMs: number;
 	private readonly flushRows: number;
 	private readonly maxAttempts: number;
+	private readonly maxPending: number;
+	private readonly maxPendingBytes: number;
 	private readonly onDrop?: (kind: "usage" | "audit", n: number) => void;
 	private usageRing: Array<Pending<UsageRecord & { bucket: string }>> = [];
 	private auditRing: Array<Pending<AuditOp>> = [];
+	/** W450 ring byte loads (sum of the entries' `b`). */
+	private usageBytes = 0;
+	private auditBytes = 0;
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private flushQueued = false;
 	/** flush transactions that threw — the fire-and-forget counter. */
@@ -185,20 +209,90 @@ export class Ledger {
 		if (!auditCols.includes("cache_c"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
 		this.upsert = this.db.query(UPSERT);
+		this.insAudit = this.db.query(INSERT_AUDIT);
+		this.updAudit = this.db.query(UPDATE_AUDIT);
+		this.updUsage = this.db.query(UPDATE_USAGE);
 		this.flushMs = opts.flushMs ?? 5000;
 		this.flushRows = opts.flushRows ?? 256;
 		this.maxAttempts = Math.max(1, opts.maxFlushAttempts ?? 5);
+		this.maxPending = Math.max(1, opts.maxPendingEntries ?? 4096);
+		this.maxPendingBytes = Math.max(1, opts.maxPendingBytes ?? 4 * 1024 * 1024);
 		this.onDrop = opts.onDrop;
 		this.timer = setInterval(() => this.flush(), this.flushMs);
 		// never holds the process open (bun test, the bench harness)
 		this.timer.unref?.();
 	}
 
+	/** W450 ring-byte estimates: fixed-shape numbers cost a constant base,
+	 *  strings count as UTF-16 length (an honest over-count of UTF-8). The
+	 *  upd estimate skips decision/error_code — router-bounded small; err is
+	 *  the only unbounded string (readCapped error bodies reach 256 KiB). */
+	private usageRecBytes(r: UsageRecord & { bucket: string }): number {
+		return 96 + r.key.length + r.group.length + r.model.length;
+	}
+	private auditOpBytes(op: AuditOp): number {
+		if (op.t === "ins") {
+			const r = op.row;
+			return (
+				96 +
+				r.rid.length +
+				r.ts.length +
+				r.actor.length +
+				r.lane.length +
+				r.dialect.length +
+				r.hint.length +
+				r.candidates_top.length +
+				r.decision.length +
+				r.latency_class.length +
+				r.tier.length +
+				r.why.length
+			);
+		}
+		if (op.t === "upd") return 64 + op.rid.length + (op.out.err?.length ?? 0);
+		return 32 + op.rid.length;
+	}
+
+	/** Enqueue a usage row / audit op, then enforce the ring caps. */
+	private pushUsage(v: UsageRecord & { bucket: string }): void {
+		const b = this.usageRecBytes(v);
+		this.usageBytes += b;
+		this.usageRing.push({ v, tries: 0, b });
+		this.bound(this.usageRing, "usage");
+	}
+
+	private pushAudit(op: AuditOp): void {
+		const b = this.auditOpBytes(op);
+		this.auditBytes += b;
+		this.auditRing.push({ v: op, tries: 0, b });
+		this.bound(this.auditRing, "audit");
+	}
+
+	/** W450 ring bound: shed the OLDEST entries until the ring fits its
+	 *  entry/byte caps — freshest observations win, every drop is counted. */
+	private bound<T>(ring: Array<Pending<T>>, kind: "usage" | "audit"): void {
+		let evicted = 0;
+		const bytes = () => (kind === "usage" ? this.usageBytes : this.auditBytes);
+		while (
+			ring.length > this.maxPending ||
+			(ring.length > 0 && bytes() > this.maxPendingBytes)
+		) {
+			const old = ring.shift();
+			if (old === undefined) break;
+			if (kind === "usage") this.usageBytes -= old.b;
+			else this.auditBytes -= old.b;
+			evicted++;
+		}
+		if (evicted > 0) {
+			this.dropped += evicted;
+			this.onDrop?.(kind, evicted);
+		}
+	}
+
 	/** Upsert-add into the hour bucket for now(): enqueued (bounded by the
 	 *  5s timer / the row threshold — never on the request's stack). */
 	record(rec: UsageRecord): void {
 		const bucket = `${this.now().toISOString().slice(0, 13)}:00`;
-		this.usageRing.push({ v: { ...rec, bucket }, tries: 0 });
+		this.pushUsage({ ...rec, bucket });
 		if (this.usageRing.length >= this.flushRows) this.flushSoon();
 	}
 
@@ -225,6 +319,8 @@ export class Ledger {
 		if (usage.length === 0 && audit.length === 0) return;
 		this.usageRing = [];
 		this.auditRing = [];
+		this.usageBytes = 0;
+		this.auditBytes = 0;
 		try {
 			this.db.transaction(() => {
 				for (const { v: r } of usage)
@@ -247,8 +343,12 @@ export class Ledger {
 			})();
 		} catch {
 			this.flushFails++;
-			this.usageRing = [...this.requeue("usage", usage), ...this.usageRing];
-			this.auditRing = [...this.requeue("audit", audit), ...this.auditRing];
+			const ku = this.requeue("usage", usage);
+			const ka = this.requeue("audit", audit);
+			this.usageBytes = ku.reduce((s, p) => s + p.b, 0);
+			this.auditBytes = ka.reduce((s, p) => s + p.b, 0);
+			this.usageRing = [...ku, ...this.usageRing];
+			this.auditRing = [...ka, ...this.auditRing];
 		}
 	}
 
@@ -262,7 +362,7 @@ export class Ledger {
 		let lost = 0;
 		for (const p of batch) {
 			if (p.tries + 1 >= this.maxAttempts) lost++;
-			else keep.push({ v: p.v, tries: p.tries + 1 });
+			else keep.push({ v: p.v, tries: p.tries + 1, b: p.b });
 		}
 		if (lost > 0) {
 			this.dropped += lost;
@@ -274,6 +374,11 @@ export class Ledger {
 	/** Rows waiting for the next flush (usage + audit ops). */
 	pending(): number {
 		return this.usageRing.length + this.auditRing.length;
+	}
+
+	/** W450: bytes held by the pending rings (usage + audit estimates). */
+	pendingBytes(): number {
+		return this.usageBytes + this.auditBytes;
 	}
 
 	/** Read-back for tests / status inspection. Read barrier: pending rows
@@ -291,15 +396,13 @@ export class Ledger {
 	/** Insert the decision row (target already known at dispatch): enqueued;
 	 *  the flush applies INSERTs and UPDATEs in arrival order. */
 	auditDecision(row: RouteAuditDecision): void {
-		this.auditRing.push({ v: { t: "ins", row }, tries: 0 });
+		this.pushAudit({ t: "ins", row });
 		if (this.auditRing.length >= this.flushRows) this.flushSoon();
 	}
 
 	/** The flush-time INSERT (extracted from the old inline body). */
 	private insertAudit(row: RouteAuditDecision): void {
-		this.db
-			.query(INSERT_AUDIT)
-			.run(
+		this.insAudit.run(
 				row.rid,
 				row.ts,
 				row.actor,
@@ -323,16 +426,12 @@ export class Ledger {
 
 	/** Update the decision row with the outcome (joined by rid): enqueued. */
 	auditOutcome(rid: string, out: RouteAuditOutcome): void {
-		this.auditRing.push({ v: { t: "upd", rid, out }, tries: 0 });
+		this.pushAudit({ t: "upd", rid, out });
 	}
 
 	/** The flush-time UPDATE (extracted from the old inline body). */
 	private updateAudit(rid: string, out: RouteAuditOutcome): void {
-		this.db
-			.query(
-				"UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?, decision = COALESCE(?, decision), error_code = COALESCE(?, error_code) WHERE rid = ?",
-			)
-			.run(
+		this.updAudit.run(
 				out.status,
 				out.duration_ms,
 				out.ok ? 1 : 0,
@@ -348,15 +447,16 @@ export class Ledger {
 	 *  UPDATE is skipped so the columns stay NULL, never estimated. */
 	auditUsage(rid: string, u: Usage | null): void {
 		if (u === null) return;
-		this.auditRing.push({
-			v: { t: "use", rid, u: { cache_r: u.cache_r, cache_c: u.cache_c } },
-			tries: 0,
+		this.pushAudit({
+			t: "use",
+			rid,
+			u: { cache_r: u.cache_r, cache_c: u.cache_c },
 		});
 	}
 
 	/** The flush-time cache UPDATE (W457). */
 	private updateUsageRow(rid: string, u: RouteAuditUsage): void {
-		this.db.query(UPDATE_USAGE).run(u.cache_r, u.cache_c, rid);
+		this.updUsage.run(u.cache_r, u.cache_c, rid);
 	}
 
 	/** Read-back for tests / dashboards. Read barrier: pending audit ops

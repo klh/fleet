@@ -35,5 +35,8 @@ test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {
 		cooldown_time: 30,
 		retry_max_delay_s: 8,
 		request_timeout_s: 120,
+		// W450 long-generation deadlines
+		stream_idle_timeout_s: 60,
+		stream_total_timeout_s: 900,
 	});
 });

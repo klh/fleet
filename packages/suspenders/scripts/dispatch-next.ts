@@ -83,6 +83,7 @@ import {
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
+import { dispatchStarterFork } from "./lib/lane-starter.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -1041,6 +1042,23 @@ const dispatchItem = async (
 		// .fleet/brief-<sid>.md is invisible to them. The .fleet copy stays for
 		// the orchestrator/board; the worktree copy is what the lane actually gets.
 		const prompt = `Lane ${sid}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief — canonical: ${briefFile}) and execute it fully.`;
+		// W454 starter sessions (SUSPENDERS_LANE_STARTER=on): fork a versioned
+		// shared-prefix starter session instead of cold orientation; the seed
+		// rides a fleet identity (fleet-starter attribution slug), never the
+		// lane's minted key. Wiring lives in scripts/lib/lane-starter.ts.
+		const { forkArgs: starterFork, prompt: lanePrompt } =
+			await dispatchStarterFork({
+				env,
+				noBelt: NO_BELT,
+				harness: pick.bin ?? "claude",
+				fleet: FLEET,
+				bin,
+				item,
+				sid,
+				wt,
+				coldPrompt: prompt,
+				log,
+			});
 		const laneLog = `${FLEET}/lane-${sid}.log`;
 		// settings.json env CLOBBERS the process env at CLI startup (probed live
 		// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
@@ -1092,7 +1110,7 @@ const dispatchItem = async (
 			throw new Error("launch lease replaced before spawn");
 		const proc = spawnClaude({
 			bin: fencedExecutor(FLEET, intent),
-			prompt,
+			prompt: lanePrompt,
 			cwd: wt,
 			logFile: laneLog,
 			env,
@@ -1108,6 +1126,7 @@ const dispatchItem = async (
 								"--fallback-model",
 								pick.fallbackModels.join(","),
 								...settingsArgs,
+								...starterFork,
 							]
 						: [
 								"--allowedTools",
@@ -1115,6 +1134,7 @@ const dispatchItem = async (
 								"--permission-mode",
 								"acceptEdits",
 								...settingsArgs,
+								...starterFork,
 							],
 			fleetDir: FLEET,
 		});

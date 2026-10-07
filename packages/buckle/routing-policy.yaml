@@ -22,6 +22,13 @@ gateway:
   cooldown_time: 30
   fallbacks:
     glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]
+  # W450 long-generation deadlines: a streaming body that sits silent
+  # longer than stream_idle_timeout_s is hung (aborted); a healthy stream
+  # runs to stream_total_timeout_s regardless of request_timeout_s (which
+  # stays the cap for the non-streaming exchange). The server-side
+  # connection idle bound is BUCKLE_IDLE_TIMEOUT_S (0-255s, default 120).
+  stream_idle_timeout_s: 60
+  stream_total_timeout_s: 900
 
 # W136 §3.2 capability tags — the string hint tag regexps match against
 # (capability_text = tags + wire id). The fix for a must-miss is data, not

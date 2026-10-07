@@ -45,6 +45,7 @@ import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
+import type { RpcAdmission } from "./admission.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
 
@@ -83,6 +84,9 @@ export interface AppDeps {
 	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
 	// deps (testDeps, dev) route without affinity and the seam no-ops.
 	affinity?: PrefixAffinity;
+	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
+	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
+	admission?: RpcAdmission;
 }
 
 interface App {
@@ -187,6 +191,9 @@ interface Ctx {
 	condenseIn: boolean;
 	/** W237: packet-prefix key (null = no packet block, no affinity). */
 	affKey: string | null;
+	/** W450 bounded RPC admission: the slot release fn while this request's
+	 *  upstream RPC is in flight (set in runExecute, released at drain). */
+	slot?: () => void;
 }
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -355,6 +362,30 @@ async function runExecute(
 		why: sel.why,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
+	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
+	// the cap the gateway 429s + Retry-After (never queues blindly).
+	if (deps.admission) {
+		const release = deps.admission.tryAcquire(ctx.group);
+		if (release === null) {
+			deps.sm
+				.counter(
+					"buckle_admission_refusals_total",
+					"Proxy requests refused at the in-flight bound.",
+				)
+				.inc({ group: ctx.group });
+			const resp = deny(
+				deps,
+				ctx,
+				429,
+				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))})`,
+				"overloaded",
+				"errored",
+			);
+			resp.headers.set("retry-after", String(deps.admission.retryAfterS));
+			return resp;
+		}
+		ctx.slot = release;
+	}
 	let result: ExecuteResult;
 	try {
 		result = await deps.router.execute({
@@ -370,11 +401,18 @@ async function runExecute(
 		});
 	} catch (e) {
 		deps.table.inflight(sel.head.candidate_id, -1);
+		ctx.slot?.(); // no upstream body will own the slot — release now
 		if (e instanceof UpstreamError)
 			return deny(deps, ctx, 502, e.message, "no_route", "errored");
 		throw e;
 	}
-	const resp = await handleResult(deps, ctx, result);
+	let resp: Response;
+	try {
+		resp = await handleResult(deps, ctx, result);
+	} catch (e) {
+		ctx.slot?.(); // never leak a slot on a handler throw
+		throw e;
+	}
 	return finishResponse(deps, ctx, sel, result, resp);
 }
 
@@ -410,6 +448,12 @@ function finishResponse(
 		result.kind === "upstream" ||
 		(result.kind === "client-error" && !rateLimited);
 	deps.table.inflight(sel.head.candidate_id, -1);
+	if (result.kind === "upstream" && result.stream) {
+		// the slot rides the whole stream drain — streamResponse's finish
+		// releases it when the client branch settles (the RPC is still live)
+	} else {
+		ctx.slot?.();
+	}
 	const winner =
 		result.kind === "upstream" ? result.candidateId : sel.head.candidate_id;
 	deps.table.recordOutcome(winner, ms, result.kind === "upstream");
@@ -514,6 +558,7 @@ function streamResponse(
 	const finish = once(() => {
 		sniffer.flush();
 		record(deps, ctx, sniffer.usage());
+		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
 		// the sniff branch failing must not affect the client branch
