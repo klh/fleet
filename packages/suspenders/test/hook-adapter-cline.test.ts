@@ -1,6 +1,14 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildDecision,
@@ -8,8 +16,8 @@ import {
 	resolveClineSid,
 } from "../hooks/dialects/cline/lib.ts";
 
-const HOME = join(process.cwd(), ".tmp-w296-cline-home");
-const REPO = join(process.cwd(), ".tmp-w296-cline-repo");
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-cline-home-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-cline-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
 mkdirSync(HOME, { recursive: true });
 

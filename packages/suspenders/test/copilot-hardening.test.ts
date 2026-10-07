@@ -25,7 +25,7 @@ import {
 } from "../scripts/lib/copilot-meter.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w2232-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w2232-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-w2232-repo-"));
 const FLEET = join(REPO, ".fleet");
 mkdirSync(FLEET, { recursive: true });
 mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });

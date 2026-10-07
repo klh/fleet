@@ -6,6 +6,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	mkdirSync,
 	writeFileSync,
@@ -21,7 +22,7 @@ import {
 } from "../hooks/dialects/codex/lib.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w73-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w73-repo-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w73-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
 const env = (): Record<string, string> => ({
 	...(process.env as Record<string, string>),

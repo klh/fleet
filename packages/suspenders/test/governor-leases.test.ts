@@ -22,7 +22,7 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-leases-"));
 // lease arbitration by design, and on Linux os.tmpdir() IS /tmp — the lease
 // tests would silently test nothing. The checkout (process.cwd()) is never
 // under /tmp, on macOS, Linux, or CI.
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-lease-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-lease-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 mkdirSync(join(REPO, "sub"), { recursive: true });
 const env = { ...process.env, HOME };

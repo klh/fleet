@@ -9,6 +9,7 @@ import {
 	existsSync,
 	lstatSync,
 	mkdtempSync,
+	realpathSync,
 	readlinkSync,
 	readdirSync,
 	rmSync,
@@ -20,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w72-dispatch-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-fleet-dispatch-repo-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-fleet-dispatch-repo-")));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const env = { ...process.env, HOME };
 

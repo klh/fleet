@@ -25,7 +25,7 @@ import { join, resolve } from "node:path";
 import { inScope } from "../scripts/supervise.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w146-sup-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w146-sup-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-w146-sup-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const env = {
 	...process.env,

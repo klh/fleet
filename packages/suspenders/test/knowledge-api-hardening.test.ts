@@ -141,7 +141,7 @@ describe("proseCards honors precomputed trust", () => {
 
 // ─── API-level: the live HTTP face (spawn the real bin) ───
 const HOME = mkdtempSync(join(tmpdir(), "w203-api-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w203-api-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-w203-api-repo-"));
 mkdirSync(join(REPO, "docs"), { recursive: true });
 const DOC_TEXT =
 	"w203 trust anchor doc: hashes must verify mechanically. w203zq";

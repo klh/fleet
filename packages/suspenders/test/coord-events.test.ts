@@ -5,11 +5,12 @@
 // (coord-diff.test.ts recipe).
 import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const home = mkdtempSync(join(process.cwd(), ".coord-events-test-"));
+const home = mkdtempSync(join(tmpdir(), "suspenders-coord-events-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 

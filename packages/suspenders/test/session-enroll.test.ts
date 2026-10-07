@@ -59,7 +59,7 @@ const stubFront = Bun.serve({
 process.env.SUSPENDERS_BUCKLE_FRONT = `http://127.0.0.1:${stubFront.port}`;
 
 const newRepo = (): string => {
-	const dir = mkdtempSync(join(process.cwd(), ".tmp-enroll-repo-"));
+	const dir = mkdtempSync(join(tmpdir(), "suspenders-enroll-repo-"));
 	Bun.spawnSync(["git", "init", "-q", dir]);
 	REPOS.push(dir);
 	return dir;

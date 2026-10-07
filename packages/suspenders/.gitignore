@@ -1,12 +1,13 @@
 node_modules/
 *.log
 .DS_Store
-.tmp-lease-repo-*/
-.tmp-kb-repo-*/
-.tmp-work-cli-repo*/
-.tmp-work-mirror-repo*/
-.tmp-secrets-repo-*/
+# W520: test scratch lives under os.tmpdir(); the gate suites are the one
+# exception (fixtures must not dodge the bash-hardening /tmp exemption).
 .gates-test-*/
+.gate-writes-test-*/
+.read-test-*/
+.anchor-test-*/
+.bashhard-gate-test-*/
 
 .worktrees/
 .fleet/

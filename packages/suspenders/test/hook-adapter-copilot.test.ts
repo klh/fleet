@@ -8,6 +8,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	mkdirSync,
 	writeFileSync,
@@ -29,7 +30,7 @@ import {
 } from "../hooks/dialects/copilot/schemas.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w296-repo-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
 const env = (): Record<string, string> => ({
 	...(process.env as Record<string, string>),
