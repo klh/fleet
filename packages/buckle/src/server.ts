@@ -161,6 +161,7 @@ export function buildDeps(
 		dialect: Dialect;
 		hint: RouteHint | null;
 		hintRaw: string;
+		allowCross: boolean;
 	}) =>
 		decideRoute({
 			...input,

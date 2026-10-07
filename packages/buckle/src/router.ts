@@ -14,7 +14,7 @@ import {
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
-import { bridgeRequest, bridgeResponse, crossDialectOn } from "./bridge.ts";
+import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
@@ -209,14 +209,15 @@ export class Router {
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
 	}
 
-	/** Same-dialect deployments first; with BUCKLE_CROSS_DIALECT=on the
-	 *  bridgeable other-dialect deployments follow (failover only). */
+	/** Same-dialect deployments first (pass-through precedence); the
+	 *  bridgeable other-dialect deployments follow — native translation
+	 *  (W426), not opt-in failover. Unbridgeable hops (count_tokens, a
+	 *  transform that rejects) are skipped, never attempted. */
 	private tierCandidates(tier: string, req: UpstreamRequest): Deployment[] {
 		const live = this.deps.pool
 			.deployments(tier)
 			.filter((d) => !this.cooldowns.benched(d));
 		const same = live.filter((d) => d.dialect === req.dialect);
-		if (!crossDialectOn()) return same;
 		const cross = live.filter(
 			(d) => d.dialect !== req.dialect && bridgeRequest(req, d) !== null,
 		);
@@ -417,6 +418,11 @@ export class Router {
 		const sel = req.sel;
 		if (!sel) return exhausted(st); // unreachable (guarded)
 		const tried = new Set<string>();
+		// Unbridgeable rows (count_tokens on an openai row, a transform that
+		// rejects) are skipped, never attempted — skip-not-fail.
+		const ordered = sel.ordered.filter(
+			(row) => bridgeRequest(req, row.dep) !== null,
+		);
 		// The escalation law applies to any post-failure local→cloud hop:
 		// only the hint's head (and must's demanded set) bypass the tier
 		// gate — cloud rows below the head are failure-hops (W136 §5.2).
@@ -431,7 +437,7 @@ export class Router {
 				prefs: sel.prefs,
 				cloudGroups: sel.cloudGroups,
 			});
-		for (const [idx, row] of sel.ordered.entries()) {
+		for (const [idx, row] of ordered.entries()) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (gate(row, idx)) continue;
 			tried.add(row.candidate_id);
