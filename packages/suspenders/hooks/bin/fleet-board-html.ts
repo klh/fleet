@@ -182,8 +182,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--klh-edge-mid); padding-top:6px; }
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
-.kcard { border:1px solid var(--klh-edge-soft); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
-.kcard:hover { border-color:var(--klh-edge-hover); }
+/* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
+.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
+.kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
+.pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 .krow { display:flex; gap:8px; align-items:baseline; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
