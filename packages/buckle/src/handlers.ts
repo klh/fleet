@@ -45,6 +45,12 @@ import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
+import {
+	allowlistedBaggage,
+	type TraceContext,
+	parseTraceparent,
+	newTraceparent,
+} from "./trace.ts";
 import type { RpcAdmission } from "./admission.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
@@ -194,6 +200,9 @@ interface Ctx {
 	/** W450 bounded RPC admission: the slot release fn while this request's
 	 *  upstream RPC is in flight (set in runExecute, released at drain). */
 	slot?: () => void;
+	/** W461 stage 1: request trace context (inbound traceparent or a fresh
+	 *  root; baggage filtered to the fleet allowlist). */
+	trace: TraceContext;
 }
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -268,6 +277,13 @@ async function proxy(
 		tier: "",
 		condenseIn: false,
 		affKey: null,
+		// W461 stage 1: accept a caller traceparent, else root a fresh trace;
+		// baggage survives only in the fleet-allowlisted subset.
+		trace: {
+			traceparent:
+				parseTraceparent(req.headers.get("traceparent")) ?? newTraceparent(),
+			baggage: allowlistedBaggage(req.headers.get("baggage")),
+		},
 	};
 	ctx.t0 = Date.now();
 	const hint = hintFromHeaders(req.headers);
@@ -394,6 +410,7 @@ async function runExecute(
 			path,
 			body,
 			key: ctx.key,
+			trace: ctx.trace,
 			signal: req.signal,
 			sel,
 			tier: ctx.tier,

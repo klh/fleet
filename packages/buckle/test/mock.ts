@@ -4,6 +4,7 @@ export interface MockCall {
 	path: string;
 	body: Record<string, unknown> | null;
 	auth: string | null;
+	headers: Headers;
 	n: number;
 }
 
@@ -37,6 +38,7 @@ export async function startMockUpstream(
 				path: new URL(req.url).pathname,
 				body,
 				auth: req.headers.get("authorization"),
+				headers: req.headers,
 				n: calls.length + 1,
 			});
 			return handler(req, body, calls.length);
