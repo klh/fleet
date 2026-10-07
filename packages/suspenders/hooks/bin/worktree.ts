@@ -20,12 +20,12 @@
 // has a worktree. `work done` calls retire automatically.
 
 import { existsSync, readFileSync, appendFileSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
-import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import { registryWorktrees, resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 
 const [cmd, id, ...flags] = process.argv.slice(2);
@@ -228,24 +228,25 @@ if (cmd === "sweep") {
 	let considered = 0;
 	let would = 0;
 	const db = openGovernorDb();
-	// porcelain is ground truth: worktree <path> + optional branch <ref>
-	const entries: { path: string; branch: string | null }[] = [];
-	let cur: { path: string; branch: string | null } | null = null;
-	for (const line of git(["worktree", "list", "--porcelain"]).out.split("\n")) {
-		if (line.startsWith("worktree ")) {
-			cur = { path: line.slice("worktree ".length), branch: null };
-			entries.push(cur);
-		} else if (line.startsWith("branch ") && cur)
-			cur.branch = line
-				.slice("branch ".length)
-				.trim()
-				.replace(/^refs\/heads\//, "");
-	}
+	// porcelain is ground truth — registryWorktrees, the W211 lib (one parser)
+	const entries = registryWorktrees(ROOT);
 	for (const e of entries) {
-		const wid = basename(e.path) || e.path;
 		if (e.path === ROOT) continue; // the main checkout itself
-		if (!e.branch) {
-			kept(wid, "detached HEAD");
+		// W600: the item id resolves from the BRANCH (suspenders/<id>), never
+		// the basename — codex-parked trees and .fleet/reviews slugs share the
+		// basename 'fleet'; no item 'fleet' exists, so a basename id bypassed
+		// the claim guard and cherry/NEED_DECISION-verdicted foreign trees.
+		// Anything not on suspenders/<id> is not ours to judge: kept, always.
+		const wid = e.branch?.startsWith("suspenders/")
+			? e.branch.slice("suspenders/".length)
+			: null;
+		if (!wid || !e.branch) {
+			kept(
+				e.path,
+				e.branch
+					? `not a fleet item tree (branch ${e.branch})`
+					: "detached HEAD — not a fleet item tree",
+			);
 			considered++;
 			continue;
 		}

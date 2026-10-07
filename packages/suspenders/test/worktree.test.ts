@@ -354,4 +354,54 @@ describe("worktree sweep (W494.2.2)", () => {
 		expect(s.out).toContain(`KEPT ${id} — claim live`);
 		expect(existsSync(dir)).toBe(true);
 	});
+	test("W600: parked trees with a fleet basename are not item ids — kept, never cherry-verdicted", () => {
+		// the live incident: 6+ codex trees at ~/.codex/worktrees/<hash>/fleet
+		// (basename 'fleet', foreign branch, unmerged work) — a basename wid
+		// bypassed the claim guard and NEED_DECISION'd them every sweep
+		const codexRoot = mkdtempSync(join(tmpdir(), "codex-worktrees-"));
+		const parked = join(codexRoot, "abc123", "fleet");
+		mkdirSync(join(parked, ".."), { recursive: true });
+		expect(
+			gc(["worktree", "add", "-b", "codex/task-abc123", parked]).code,
+		).toBe(0);
+		// unmerged work so the OLD code would read NEED_DECISION here
+		writeFileSync(join(parked, "orphan.ts"), "export const z = 3;\n");
+		expect(gc(["-C", parked, "add", "orphan.ts"]).code).toBe(0);
+		expect(gc(["-C", parked, "commit", "-m", "orphan"]).code).toBe(0);
+		// a detached HEAD is not a fleet item tree either
+		const detached = join(codexRoot, "detached");
+		expect(gc(["worktree", "add", "--detach", detached]).code).toBe(0);
+
+		const s = sweep("sweep", "--main", MAIN());
+		expect(s.code).toBe(0);
+		const parkedLine = s.out
+			.split("\n")
+			.find((l) => l.startsWith(`KEPT ${realpathSync(parked)}`));
+		expect(parkedLine).toContain("not a fleet item tree (branch codex/task-abc123)");
+		expect(s.out).not.toContain(`KEPT fleet `);
+		expect(s.out).not.toContain(`SWEPT ${parked}`);
+		// tree, branch, and unmerged commit all survive the sweep
+		expect(existsSync(parked)).toBe(true);
+		expect(gc(["rev-parse", "--verify", "codex/task-abc123"]).code).toBe(0);
+		// no NEED_DECISION ever targets the bogus 'fleet' item
+		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+		const ev = db
+			.query(
+				"SELECT payload FROM events WHERE kind = 'NEED_DECISION' AND scope = 'fleet'",
+			)
+			.get();
+		expect(ev).toBeFalsy(); // null (no row) — never a bogus 'fleet' decision
+		db.close();
+		// a detached HEAD is not a fleet item tree either
+		const dLine = s.out
+			.split("\n")
+			.find((l) => l.startsWith(`KEPT ${realpathSync(detached)}`));
+		expect(dLine).toContain("detached HEAD — not a fleet item tree");
+		expect(existsSync(detached)).toBe(true);
+		// teardown — the parked trees survive the sweep BY DESIGN
+		gc(["worktree", "remove", parked]);
+		gc(["worktree", "remove", detached]);
+		gc(["worktree", "prune"]);
+		rmSync(codexRoot, { recursive: true, force: true });
+	});
 });
