@@ -21,6 +21,17 @@ Each scenario directory: `scenario.md` (fixture, injection, window,
 properties) + `harness.ts` (deterministic driver). Reference
 implementation for S4 is in progress; the others are specced.
 
+## Consult policy suite (W447)
+
+`consult/` — deterministic, LLM-optional comparison of three consult
+policies (current instructions, trigger, trigger+verified-reuse) on
+matched tasks, with injected delivery failures and a stale-KB plane.
+Scores the W447 metric list (attempted calls, delivery failures,
+useful/applied answers, stale answers, blocked time, duplicate
+investigation, token cost) and holds six reproducibility properties.
+Spec: `consult/scenario.md`. Run:
+`bun packages/blam/bench/consult/harness.ts`.
+
 ## Control-plane adapter
 
 A control plane under test implements:
