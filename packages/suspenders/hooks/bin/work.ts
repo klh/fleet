@@ -55,6 +55,7 @@ import {
 } from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { reapOwnerSubscribe } from "../lib/subscribe-registry.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
@@ -740,7 +741,7 @@ function releaseObserved(
 	by: string,
 	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
 ): boolean {
-	return releaseWorkClaim(
+	const ok = releaseWorkClaim(
 		db(),
 		{
 			project: PROJECT,
@@ -751,6 +752,9 @@ function releaseObserved(
 		},
 		{ by, reason },
 	);
+	// W417.3: the claim went back to READY — the owner's subscribe follows it
+	if (ok) reapOwnerSubscribe(db(), it.owner_sid as string | null);
+	return ok;
 }
 
 function renderRow(r: Item): string {
@@ -1128,6 +1132,8 @@ if (cmd === "add") {
 		console.log(
 			`${amber("●")} ${g.note} — ${cyan(g.id)} stays gated (W60 dep-merge gate)`,
 		);
+	// W417.3: the item went DONE — the owner's lane subscribe follows it
+	reapOwnerSubscribe(db(), it.owner_sid as string | null);
 	// W52: retire the item's per-item worktree if it has one (clean → removed,
 	// dirty → kept with a note; branch suspenders/<id> always survives)
 	retireItemWorktree(id);

@@ -17,6 +17,7 @@ import {
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { sweepSubscribes } from "../lib/subscribe-registry.ts";
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -371,12 +372,17 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		)
 		.run(cut).changes;
 	const sw = db.local ? sweepStaleSessions(db as Database) : 0;
+	// W417.3: transcript-stale lane subscribers get swept with the rest of the
+	// dead-session hygiene — processes are host-local, so db.local only
+	const sub = db.local
+		? sweepSubscribes(db as Database)
+		: { signalled: 0, unregistered: 0, checked: 0 };
 	const lk = db
 		.query("DELETE FROM locks WHERE ts < ?")
 		.run(Date.now() - 15 * 60_000).changes;
 	const d = pruneDeltas(db as Database, days * 86_400_000);
 	console.log(
-		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
+		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${sub.signalled} subscribes reaped, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
 	);
 	console.log(
 		`gc: archived → ${ra} route_audit (>${auditDays}d), ${ae} auth_events, ${ur} usage_rollup (>${usageDays}d), ${aa} admin_audit (365d); ${af} stale archive files; NDJSON in ~/.cache/claude-governor/archive/`,

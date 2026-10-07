@@ -5,6 +5,10 @@ import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
 import { transcriptAlive } from "../lib/lane-liveness.ts";
 import {
+	registerSubscribe,
+	unregisterSubscribe,
+} from "../lib/subscribe-registry.ts";
+import {
 	die,
 	arg,
 	db,
@@ -316,6 +320,9 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 		arg("--as") ?? die("usage: subscribe --as <sid> [--scope s] [--kinds a,b]");
 	const scope = arg("--scope");
 	const kinds = arg("--kinds") ?? "";
+	// W417.3 — self-register the pid so done/release + gc can reap this
+	// subscriber without waiting on the transcript-staleness exit
+	registerSubscribe(db, as, process.pid);
 	const bound = resolveStoreHttpBase();
 	if (!bound) {
 		console.log(
@@ -353,6 +360,7 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 	const sessionStaleness = setInterval(() => {
 		if (!transcriptAlive(as)) {
 			clearInterval(sessionStaleness);
+			unregisterSubscribe(db, as); // leave no stale registry row behind
 			process.exit(0);
 		}
 	}, 30_000);
