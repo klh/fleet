@@ -76,6 +76,7 @@ function renderEnv(
 	kv("HUB_BUCKLE_BIND", hub.bind);
 	kv("HUB_FLEET_REF", ref);
 	kv("HUB_FLEET_REPO_URL", origin);
+	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
 	if (authRequired !== undefined)
 		kv("HUB_BUCKLE_AUTH", authRequired ? "on" : "off");

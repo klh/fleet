@@ -82,7 +82,7 @@ services:
           memory: 512m
     network_mode: host
     restart: unless-stopped
-    working_dir: /src/fleet/packages/buckle
+    working_dir: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle
     command: bun run src/server.ts
     depends_on:
       fleet-deps:
@@ -101,8 +101,8 @@ services:
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
       BUCKLE_BIND: ${HUB_BUCKLE_BIND:-127.0.0.1}
       BUCKLE_DB: /state/buckle/buckle.db
-      BUCKLE_POLICY: /src/fleet/packages/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: /src/fleet/packages/buckle/upstreams.yaml
+      BUCKLE_POLICY: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml
+      BUCKLE_UPSTREAMS: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/upstreams.yaml
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
     volumes:
@@ -127,7 +127,7 @@ services:
     depends_on:
       buckle-hub:
         condition: service_started
-    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BUCKLE_HEALTH_PORT: ${HUB_BUCKLE_HEALTH_PORT:-4112}
@@ -166,7 +166,7 @@ services:
         condition: service_started
     command:
       - bun
-      - /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts
+      - ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts
       - --target
       - http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/v1/chat/completions
       - --listen
@@ -203,7 +203,7 @@ services:
           memory: 512m
     network_mode: host
     restart: unless-stopped
-    command: bun /src/fleet/packages/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
@@ -237,7 +237,7 @@ services:
     depends_on:
       board-hub:
         condition: service_started
-    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BOARD_HEALTH_PORT: ${HUB_BOARD_HEALTH_PORT:-7800}
@@ -262,7 +262,7 @@ services:
           memory: 256m
     network_mode: host
     restart: unless-stopped
-    command: bun /src/fleet/packages/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
@@ -288,7 +288,7 @@ services:
     depends_on:
       store-hub:
         condition: service_started
-    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_STORE_HEALTH_PORT: ${HUB_STORE_HEALTH_PORT:-7794}
@@ -314,7 +314,7 @@ services:
     ports:
       - "${HUB_BELT_BIND:-127.0.0.1}:${HUB_BELT_PORT:-7792}:7791"
     restart: unless-stopped
-    command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun /src/fleet/packages/belt/bin/dashboard.ts'
+    command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun ${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/dashboard.ts'
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
@@ -339,7 +339,7 @@ services:
     depends_on:
       belt-hub:
         condition: service_started
-    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BELT_HEALTH_PORT: ${HUB_BELT_HEALTH_PORT:-7790}
@@ -370,7 +370,7 @@ services:
           memory: 128m
     network_mode: host
     restart: unless-stopped
-    command: bun /src/fleet/packages/suspenders/hooks/bin/federation-peers.ts
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/federation-peers.ts
     depends_on:
       fleet-deps:
         condition: service_completed_successfully

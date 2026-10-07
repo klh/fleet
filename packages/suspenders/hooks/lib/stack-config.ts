@@ -39,6 +39,10 @@ export interface HubProfile {
 		buckle?: string;
 		suspenders?: string;
 		belt?: string;
+		/** Packages root inside the clone the hub services run from. An
+		 *  overlay monorepo (private tier) resolves its pinned public base
+		 *  under node_modules/<dep>/packages; unset = the public layout. */
+		src?: string;
 	};
 	deploy?: {
 		ssh?: string;

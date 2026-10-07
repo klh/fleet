@@ -101,6 +101,14 @@ suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
 the base), admin.gui. Entra ID tenant/app values live only in stack.yaml.
 
+A hub rides the private tier purely by config (W493): the profile's
+`repos` entries carry the overlay monorepo's origin and — because an
+overlay resolves its pinned public base under `node_modules/<dep>/packages`
+— `repos.src` points at that packages root (`HUB_FLEET_SRC` in the rendered
+.env; unset keeps the public monorepo layout). The private git-pull needs a
+deploy key minted ON the hub device (0600, never printed); nothing in the
+public repo changes to flip.
+
 ## Peer edges
 
 Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS
