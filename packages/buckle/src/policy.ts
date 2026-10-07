@@ -10,8 +10,9 @@
 // + cooldown_time = passive outlier ejection; num_retries = per-tier retries
 // whose backoff honors the upstream retry-after header with jitter
 // (utils.py::_calculate_retry_after semantics).
-import { YAML } from "bun";
+
 import { existsSync, readFileSync } from "node:fs";
+import { YAML } from "bun";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
  *  group, no ladder, no alias — same upstream family saturates together and
@@ -72,6 +73,16 @@ export interface AidsPolicy {
 	 *  (served bytes never change), so declarations are honored by default;
 	 *  `default: "off"` is the operator kill switch. */
 	"condense-in"?: { default?: "on" | "off"; max_bytes?: number };
+	/** W207 trajectory pruning (diet.ts): the gateway tombstones stale tool
+	 *  results past the keep-window pre-routing. DEFAULT-OFF (W137
+	 *  economics): a prefix rewrite costs provider KV-cache re-reads — it
+	 *  must prove ROI on cache-miss traffic before an operator flips it. */
+	prune?: {
+		default?: "on" | "off";
+		keep_turns?: number;
+		min_bytes?: number;
+		max_store_bytes?: number;
+	};
 	// W171 federation phase 3: opt-in aggregate self-report. The hub lists
 	// the teams a spoke may report for; ABSENT BLOCK = OFF (the default —
 	// no teams, no reporting, the manifest carries no rule at all).
