@@ -69,6 +69,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/coord.ts",
 		"bin/work.ts",
 		"bin/fleet-loop.ts",
+		"bin/fleet-tracker.ts",
 		"bin/morph.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
@@ -94,6 +95,10 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 			'throw new Error("bad runtime import");',
 		);
 	put("packages/belt/bin/fixture.ts", "export const value = 1;");
+	put(
+		"packages/buckle/upstreams.yaml",
+		"groups:\n  fixture:\n    - name: reviewed-default\n      tier: 4\n",
+	);
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
 	put(
@@ -149,8 +154,16 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	);
 	expect(existsSync(join(f.root, "service-called"))).toBe(false);
 	expect(existsSync(f.ctx.llmHome)).toBe(false);
+	const packagedDefaults = join(
+		f.ctx.prefix,
+		".harness/packages/buckle/upstreams.yaml",
+	);
+	expect(readFileSync(packagedDefaults, "utf8")).toBe(
+		`${f.git("show", `${receipt.revision}:packages/buckle/upstreams.yaml`)}\n`,
+	);
 	// Runtime code and shared imports survive deletion of the source checkout.
 	rmSync(f.source, { recursive: true, force: true });
+	expect(readFileSync(packagedDefaults, "utf8")).toContain("reviewed-default");
 	const imported = Bun.spawnSync(
 		[
 			process.execPath,
@@ -241,6 +254,13 @@ test("repeat sync preserves private config permissions without nesting previous 
 test("dirty reviewed payload is refused before prefix changes", async () => {
 	const f = fixture();
 	f.put("packages/suspenders/hooks/gate.ts", "export const unreviewed = 2;");
+	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+});
+
+test("unreviewed Buckle defaults are refused before prefix changes", async () => {
+	const f = fixture();
+	f.put("packages/buckle/upstreams.yaml", "groups: { unreviewed: [] }");
 	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 });

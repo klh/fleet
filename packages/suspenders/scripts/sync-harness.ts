@@ -22,6 +22,7 @@ const SOURCE_PATHS = [
 	"packages/suspenders/package.json",
 	"packages/belt/bin",
 	"packages/belt/package.json",
+	"packages/buckle/upstreams.yaml",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
