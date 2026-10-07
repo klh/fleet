@@ -10,6 +10,7 @@ import { RouterError } from "./adapters/errors.ts";
 import type { Deployment } from "./upstreams.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { poolWarm } from "./pool-warm.ts";
+import { childSpanOf, stripPrivateTrace } from "./trace.ts";
 
 /** Streaming-body deadlines (W450): idle resets per chunk, total counts
  *  from fetch start. Absent → no stream-specific policy (the old shape). */
@@ -30,6 +31,12 @@ export async function defaultFetch(
 ): Promise<Response> {
 	const adapter = resolveAdapter(dep);
 	const wire = await adapter.buildCall(dep, req, req.body);
+	// W461 stage 1: one child traceparent per outbound attempt — same trace
+	// id, fresh span id (retry ordinals distinct). Baggage never rides the
+	// upstream leg (external-provider egress redaction): providers get the
+	// traceparent only.
+	wire.headers.traceparent = childSpanOf(req.trace?.traceparent);
+	stripPrivateTrace(wire.headers);
 	// W143 warm-rate gate: a cold origin (first dispatch since boot/pre-warm)
 	// counts one pool_refill and marks warm — the connect cost is counted,
 	// never silently mixed into the warm distribution.

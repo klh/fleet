@@ -19,6 +19,7 @@ import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
+import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 
 export { FLASHX };
@@ -55,6 +56,9 @@ export interface UpstreamRequest {
 	path: string;
 	body: Record<string, unknown>;
 	key: string;
+	/** W461 stage 1: request-scoped W3C trace context (correlation only —
+	 *  never identity/authz). Absent → the wire roots a fresh trace. */
+	trace?: TraceContext;
 	signal?: AbortSignal;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,
