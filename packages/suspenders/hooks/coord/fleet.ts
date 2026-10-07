@@ -244,6 +244,23 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
 			.get() as { value: string } | null
 	)?.value;
+	// W522 fleet-watch feed — the same projection, machine-readable: lane
+	// state facts + session names + claim intents, no ANSI. Undefined state
+	// facts mean a fresh claim (text path paints ▶ too).
+	if (_rest.includes("--json")) {
+		console.log(
+			JSON.stringify({
+				head: head?.slice(0, 7) ?? null,
+				lanes: lanes.map((l) => ({
+					sid: l,
+					name: sessionNames.get(l) ?? null,
+					intent: names.get(l) ?? null,
+					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
+				})),
+			}),
+		);
+		return;
+	}
 	const parts = lanes.map((l) => {
 		const st = byKey.get(`lane.${l.sid}.state`);
 		const g =

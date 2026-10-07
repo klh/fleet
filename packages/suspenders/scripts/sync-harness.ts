@@ -49,6 +49,7 @@ const ENTRYPOINTS = [
 	"hooks/bin/work.ts",
 	"hooks/bin/fleet-loop.ts",
 	"hooks/bin/fleet-tracker.ts",
+	"hooks/bin/fleet-watch.ts",
 	"hooks/bin/morph.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
