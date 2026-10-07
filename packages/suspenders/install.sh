@@ -19,8 +19,8 @@ LLM_HOME="$HOME/.claude/local-llm"
 KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/local-llm"
 
 # ─── legacy body (TODO(install.ts): syncHarness, ensureShims, seedLocalLlm,
-# downloadModels, wireSettings, refreshSupervisor, registerCaddy and
-# releaseNotify still live here — install.ts's delegation runs THIS function,
+# downloadModels, wireSettings, refreshSupervisor, registerCaddy, registerSkills
+# and releaseNotify still live here — install.ts's delegation runs THIS function,
 # never the wrapper front, which would re-enter install.ts) ───
 legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
@@ -186,6 +186,21 @@ if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
 else
   echo "optional: install klh-local + caddy to also serve this board at http://suspenders.local:7799"
   report_caddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
+fi
+
+# ─── agent skills (TODO(install.ts): registerSkills) — register every skill
+# package under skills/ with the skills CLI (owner hard rule 2026-10-07:
+# agent surfaces distribute as SKILL.md packages, never cp'd into one CLI's
+# dir). Flags are load-bearing: -g global, -y unattended, -a explicit agent —
+# a bare add hits the interactive agent-picker and exits 1 in a non-TTY. One
+# parent-dir add discovers every skills/*/ subpackage (verified: "Found 10").
+# Best-effort: failure prints the manual command, never aborts the install.
+if [ -d "$SCRIPT_DIR/skills" ]; then
+  if bunx skills add "$SCRIPT_DIR/skills" -g -y -a claude-code </dev/null; then
+    echo "→ skills: registered all packages under $SCRIPT_DIR/skills"
+  else
+    echo "  (skills: registration failed — run manually: bunx skills add $SCRIPT_DIR/skills -g -y -a claude-code)"
+  fi
 fi
 
 echo
