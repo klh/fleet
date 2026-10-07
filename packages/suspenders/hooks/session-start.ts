@@ -15,7 +15,7 @@ import {
 } from "./lib/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
-import { attachSubscribe } from "./lib/subscribe-attach.ts";
+import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 
 type In = {
 	session_id?: string;
@@ -40,11 +40,9 @@ const now = Date.now();
 // W30, 2026-09-26: the owner's id showed on lanes they never ran). Same
 // discriminator as the governor's laneId — register the subagent as its own
 // session row and hand it a lane id for claims, checkpoints, and emits.
-const laneMatch = (input.transcript_path ?? "").match(
-	/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/,
-);
-const isSubagent = !!laneMatch;
-let lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
+const suffix = subagentLaneSuffix(input.transcript_path ?? "");
+const isSubagent = suffix !== "";
+let lane = `${sid}${suffix}`; // suffix re-derived in the canonical branch below
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -179,7 +177,7 @@ if (identityProtocol === "canonical-v1") {
 			)
 				throw new Error("declared lane parent is outside this project");
 			sid = declaredSid;
-			lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
+			lane = `${sid}${suffix}`;
 		}
 	} catch {
 		console.log(

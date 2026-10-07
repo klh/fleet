@@ -25,6 +25,15 @@ export const coordCliPath = (): string => {
 export const coordSubscribeLog = (sid: string): string =>
 	`${process.env.HOME}/.claude-insights/coord-subscribe-${sid}.log`;
 
+// Claude Code subagents share the parent's session_id; session-start
+// registers (and attaches their subscribe under) `<sid>#<agent>` — the lane
+// id every subscribe-log consumer must derive the same way. Shared by
+// session-start and the W417.4 push gate.
+export const subagentLaneSuffix = (transcriptPath: string): string => {
+	const m = transcriptPath.match(/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/);
+	return m ? `#${m[1]}` : "";
+};
+
 // anchored on the exact `--as <sid>` tail — at most one live subscribe per
 // sid; the W494 staleness exit keeps dead sessions' subscribes from
 // haunting the process table, after which a re-attach is allowed again.
