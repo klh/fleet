@@ -33,11 +33,13 @@ import {
 	resourceAction,
 	type ResourceAction,
 } from "./lib/resource-actuator.ts";
+import type { ProgressState, WorkStats } from "./lib/fleet-progress.ts";
+
 import {
-	fleetProgress,
-	type ProgressState,
-	type WorkStats,
-} from "./lib/fleet-progress.ts";
+	watchdogLiveness,
+	watchdogProgress,
+	type LaneAudit,
+} from "./lib/watchdog-liveness.ts";
 
 const HOME = process.env.HOME ?? "";
 const REPO =
@@ -107,7 +109,11 @@ const loopPid = (): number | null =>
 	)?.pid ?? null;
 
 // ---------- 3. dispatch flow ----------
-const progressSnapshot = (): { stats: WorkStats; live: number } => {
+const progressSnapshot = (): {
+	stats: WorkStats;
+	live: number;
+	unknown: number;
+} => {
 	const stats = sh([process.execPath, `${PREFIX}/bin/work.ts`, "stats"]);
 	const lanes = sh([
 		process.execPath,
@@ -119,8 +125,7 @@ const progressSnapshot = (): { stats: WorkStats; live: number } => {
 		throw new Error("work progress/liveness unavailable");
 	return {
 		stats: JSON.parse(stats.out),
-		live: (JSON.parse(lanes.out) as { live: boolean }[]).filter((l) => l.live)
-			.length,
+		...watchdogLiveness(REPO, JSON.parse(lanes.out) as LaneAudit[]),
 	};
 };
 
@@ -331,20 +336,20 @@ const run = async (): Promise<number> => {
 	};
 	try {
 		const snapshot = progressSnapshot();
-		const flow = fleetProgress(
+		const flow = watchdogProgress(
 			snapshot.stats,
-			snapshot.live,
+			snapshot,
 			previous,
 			Date.now(),
 		);
 		nextState = flow.state;
 		progress = {
 			name: "progress",
-			state: flow.stalled ? "stalled" : "ok",
-			detail: `pending=${flow.pending}, live=${flow.live}, done=${flow.state.done}`,
+			state: flow.verdict,
+			detail: `pending=${flow.pending}, live=${flow.live}, unknown=${flow.unknown}, done=${flow.state.done}`,
 		};
 		verdicts.push(
-			`work flow ${flow.stalled ? "STALLED" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, done=${flow.state.done})`,
+			`work flow ${flow.stalled ? "STALLED" : flow.unknown > 0 ? "UNKNOWN" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, unknown=${flow.unknown}, done=${flow.state.done})`,
 		);
 		if (flow.stalled)
 			emit(
@@ -486,14 +491,14 @@ if (dry) {
 	const parity = libParity();
 	const pid = loopPid();
 	const snapshot = progressSnapshot();
-	const flow = fleetProgress(
+	const flow = watchdogProgress(
 		snapshot.stats,
-		snapshot.live,
+		snapshot,
 		readState(),
 		Date.now(),
 	);
 	console.log(
-		`dry: lib-parity=${parity.ok ? "ok" : "BROKEN"} loop-pid=${pid ?? "none"} pending=${flow.pending} live=${flow.live} stalled=${flow.stalled}`,
+		`dry: lib-parity=${parity.ok ? "ok" : "BROKEN"} loop-pid=${pid ?? "none"} pending=${flow.pending} live=${flow.live} unknown=${flow.unknown} stalled=${flow.stalled}`,
 	);
 	process.exit(0);
 }
