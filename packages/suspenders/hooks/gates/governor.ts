@@ -17,6 +17,7 @@
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
 import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { expireObservedLease } from "../lib/lease-expiry.ts";
 import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
 import type { Database } from "bun:sqlite";
 import {
@@ -119,8 +120,8 @@ export function governorGate(hook: HookInput): void {
 	if (db) {
 		db.query("UPDATE sessions SET hb = ? WHERE sid = ?").run(now, lane);
 
-		// Owner-predicated: a row re-leased to someone else between the SELECT and
-		// the DELETE is never touched. No renewal here: ts advances only through
+		// Generation-predicated: transfer OR same-owner renewal between SELECT
+		// and DELETE is never touched. No renewal here: ts advances only through
 		// real touches of that file (the acquire/upsert below), so the denial
 		// message's age reports the holder's last real touch.
 		const rows = db.query("SELECT path, sid, ts FROM locks").all() as {
@@ -128,10 +129,7 @@ export function governorGate(hook: HookInput): void {
 			sid: string;
 			ts: number;
 		}[];
-		const del = db.query("DELETE FROM locks WHERE path = ? AND sid = ?");
-		for (const r of rows) {
-			if (now - r.ts > TTL_MS) del.run(r.path, r.sid);
-		}
+		for (const r of rows) expireObservedLease(db, r, now, TTL_MS);
 	}
 
 	const P = canon(F);
@@ -241,11 +239,9 @@ export function governorGate(hook: HookInput): void {
 		if (row && row.sid !== lane) {
 			if (now - row.ts > TTL_MS) {
 				// expired but not yet swept (another gate's sweep lost the race) —
-				// reclaimable right now
-				db.query("DELETE FROM locks WHERE path = ? AND sid = ?").run(
-					P,
-					row.sid,
-				);
+				// Conditional expiry cannot delete a subsequent renewal. A lost
+				// expiry race leaves the lock for atomic acquire to reject below.
+				expireObservedLease(db, row, now, TTL_MS);
 			} else {
 				denyRecovery(
 					`GOVERNOR: ${P} is leased to another agent (session ${row.sid.slice(0, 8)}, ` +
