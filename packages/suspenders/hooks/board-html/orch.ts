@@ -7,6 +7,8 @@ export const ORCH = String.raw`// --- W57 orchestrate box: LLM proposes a plan +
 // /api/orchestrate → /api/orchestrate/register). Target = the global project
 // filter; the proposal is read-only until registered.
 var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '' };
+// W163 composer suggest: draft -> brief-shaped prompt via /api/suggest
+var sugg = { busy: false };
 function orchProject(){
   var v = sel.value;
   return v && v !== 'all' ? v : null;
@@ -17,6 +19,8 @@ function renderOrch(){
   else clearErr(errEl);
   var go = byId('orchGo');
   if (go) { go.disabled = orch.busy; setText(go, orch.busy ? 'proposing…' : 'orchestrate'); }
+  var sb = byId('orchSuggest');
+  if (sb) { sb.disabled = sugg.busy; setText(sb, sugg.busy ? 'suggesting…' : 'suggest'); }
   var out = byId('orchOut');
   if (!out) return;
   if (!orch.prop) { sigSet(out, 'idle', ''); return; }

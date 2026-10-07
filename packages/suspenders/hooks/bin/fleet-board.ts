@@ -28,6 +28,7 @@ import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleConsole } from "../board/routes-console.ts";
 import { handleMeta } from "../board/routes-meta.ts";
+import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleObservations } from "../board/routes-observations.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
@@ -88,6 +89,7 @@ const base = {
 			handleDrawer,
 			handleActions,
 			handleOrch,
+			handleSuggest,
 			handleConsole,
 			handleMeta,
 		]) {
