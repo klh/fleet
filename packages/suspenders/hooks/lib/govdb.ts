@@ -817,7 +817,15 @@ export function openGovernorDb(): Database {
 		{
 			tbl: "teams",
 			pk: "$.team_id",
-			cols: ["team_id", "name", "department", "created_at"],
+			cols: [
+				"team_id",
+				"name",
+				"department",
+				"rpm_ceiling",
+				"tpm_ceiling",
+				"tok_ceiling",
+				"created_at",
+			],
 		},
 		{
 			tbl: "route_audit",
@@ -921,8 +929,11 @@ export function openGovernorDb(): Database {
 		"CREATE UNIQUE INDEX IF NOT EXISTS api_keys_hash ON api_keys(key_hash)",
 	); // auth = one hash lookup
 	db.run("CREATE UNIQUE INDEX IF NOT EXISTS api_keys_jti ON api_keys(jti)"); // denylist checks
+	// W210: team entitlement ceilings — rpm/tpm per-minute (the W141 buckle
+	// teams shape verbatim) + tok_ceiling = the team's lifetime token budget
+	// (the api_keys max_tokens budget at team grain). NULL = no ceiling.
 	db.run(
-		"CREATE TABLE IF NOT EXISTS teams (team_id TEXT PRIMARY KEY, name TEXT, department TEXT, created_at INTEGER NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS teams (team_id TEXT PRIMARY KEY, name TEXT, department TEXT, created_at INTEGER NOT NULL, rpm_ceiling INTEGER, tpm_ceiling INTEGER, tok_ceiling INTEGER)",
 	);
 	// route_audit (W136 §6): one row per request — INSERTed at dispatch
 	// (target already known), UPDATEd in place with the outcome joined by
@@ -972,13 +983,18 @@ export function openGovernorDb(): Database {
 	// block): a trigger references its table at creation time, so on a fresh
 	// DB the loop must see every table it covers already in sqlite_master.
 	// CREATE TRIGGER IF NOT EXISTS keeps it idempotent and self-healing.
-	for (const { tbl, pk, cols } of deltaTables)
-		for (const op of ["insert", "update", "delete"] as const) {
-			const R = op === "delete" ? "OLD" : "NEW";
-			db.run(
-				`CREATE TRIGGER IF NOT EXISTS deltas_${tbl}_${op} AFTER ${op.toUpperCase()} ON ${tbl} BEGIN INSERT INTO deltas (ts, tbl, op, pk, before, after) VALUES (${deltaNow}, '${tbl}', '${op}', ${pk.replaceAll("$.", `${R}.`)}, ${op === "insert" ? "NULL" : deltaImg(cols, "OLD")}, ${op === "delete" ? "NULL" : deltaImg(cols, "NEW")}); END`,
-			);
-		}
+	// Extracted (W210) so the v13 ceiling heal can drop stale teams triggers
+	// and rerun it — one generation mechanism, zero copies of the template.
+	const createDeltasTriggers = (): void => {
+		for (const { tbl, pk, cols } of deltaTables)
+			for (const op of ["insert", "update", "delete"] as const) {
+				const R = op === "delete" ? "OLD" : "NEW";
+				db.run(
+					`CREATE TRIGGER IF NOT EXISTS deltas_${tbl}_${op} AFTER ${op.toUpperCase()} ON ${tbl} BEGIN INSERT INTO deltas (ts, tbl, op, pk, before, after) VALUES (${deltaNow}, '${tbl}', '${op}', ${pk.replaceAll("$.", `${R}.`)}, ${op === "insert" ? "NULL" : deltaImg(cols, "OLD")}, ${op === "delete" ? "NULL" : deltaImg(cols, "NEW")}); END`,
+				);
+			}
+	};
+	createDeltasTriggers();
 	// v9 — W159 provenance sort: sessions.data_domain carries the W154
 	// domain label (hub | private). NULL = nothing routed through yet (never
 	// assume); recorded sticky most-restrictive by the routing plane via
@@ -1045,6 +1061,30 @@ export function openGovernorDb(): Database {
 		);
 		db.run(`DELETE FROM facts WHERE ${where}`, cursorPrefixes.map((p) => `${p}%`));
 		db.run("PRAGMA user_version = 12");
+	}
+	// v13 (W210) — team entitlement ceilings (the v9→v11-era promise): the
+	// W141 buckle teams shape (rpm_ceiling/tpm_ceiling) verbatim + tok_ceiling
+	// (the api_keys max_tokens budget at team grain). NULL = no ceiling.
+	// Guarded ALTERs heal pre-v13 DBs; on the heal path the teams deltas
+	// triggers drop and re-create via the loop above so the audit images
+	// carry the ceilings (the audit trail IS the deltas log — an entitlement
+	// change is exactly what it must show).
+	if (uv < 13) {
+		const teamCols13 = (
+			db.query("PRAGMA table_info(teams)").all() as { name: string }[]
+		).map((c) => c.name);
+		let healed = false;
+		for (const col of ["rpm_ceiling", "tpm_ceiling", "tok_ceiling"])
+			if (!teamCols13.includes(col)) {
+				db.run(`ALTER TABLE teams ADD COLUMN ${col} INTEGER`);
+				healed = true;
+			}
+		if (healed) {
+			for (const op of ["insert", "update", "delete"] as const)
+				db.run(`DROP TRIGGER IF EXISTS deltas_teams_${op}`);
+			createDeltasTriggers();
+		}
+		db.run("PRAGMA user_version = 13");
 	}
 	migrateJSON(db);
 	return db;
