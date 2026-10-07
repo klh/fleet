@@ -69,6 +69,7 @@ sim-store-hub bun /src/suspenders/hooks/bin/auth.ts issue --actor w162-sim
 | `federation/jwks-*`          | W156      | RS256 keys generated at first boot INSIDE hub-secrets; `GET /.well-known/jwks.json` → 200 `{keys[]}` with `kid` + `use=sig`, served by the hub |
 | `federation/policy-manifest` | W154      | `GET /federation/policy-manifest` on buckle-hub → 200 `{version, rules[], cr_queue[]}`                                                         |
 | `federation/cr-queue`        | W160      | `cr_queue[]` entries with `id, action, target, declared_at`; lifecycle declared→delivered→applied→verified→reported-up                         |
+| `federation/work-cr-e2e`     | W352      | with `SIM_E2E_ADMIN_KEY` wired: declare (admin) → spoke reconcile into a throwaway graph → hub row `applied`, claim bound; temp spoke key minted+revoked in-run |
 | `federation/echo-menu`       | W154 echo | `GET /federation/entitlements` → `{models[]}`; spoke belt mirrors hub menu + spoke-private entries; local models never in the hub menu         |
 | `citizenship/*`              | W155      | trio + problem+json + ETag/304 + no-store per docs/design/http-citizenship.md                                                                  |
 
