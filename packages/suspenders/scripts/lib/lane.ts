@@ -10,6 +10,7 @@ import {
 	loadLaneRegistry,
 	mergeLaneRegistry,
 } from "../../hooks/lib/lane-registry.ts";
+import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 
 export type Lane = {
 	sid: string;
@@ -19,6 +20,7 @@ export type Lane = {
 	worktree: string;
 	agent?: string;
 	host?: string;
+	slab?: string;
 	launchedAt: number;
 	attempt?: number;
 };
@@ -146,8 +148,14 @@ export const spawnClaude = (o: {
 	/** Executor-specific arg tail (W223 dual-harness): copilot takes
 	 * ["--allow-all-tools"], claude keeps the allowedTools recipe. */
 	cliArgs?: string[];
+	agent?: string;
+	fleetDir?: string;
 }) => {
 	const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
+	// W177 jobslab: nice + ulimit ceilings + env caps per lane class, before
+	// the exec — a runaway lane dies at the rlimit instead of forkbombing
+	// the user machine. Zero-cap classes (llm) keep the bare recipe.
+	const js = jobslabFor(o.agent ?? "claude", o.fleetDir);
 	const tail = (
 		o.cliArgs ?? [
 			"--allowedTools",
@@ -166,12 +174,12 @@ export const spawnClaude = (o: {
 		[
 			"/bin/sh",
 			"-c",
-			`exec ${sq(o.bin)} -p ${sq(o.prompt)} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
+			`${jobslabPrefix(js)}${sq(o.bin)} -p ${sq(o.prompt)} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
 		],
 		{
 			detached: true,
 			cwd: o.cwd,
-			env: o.env,
+			env: jobslabEnv(js, o.env),
 			stdout: "ignore",
 			stderr: "ignore",
 			stdin: "ignore",

@@ -36,6 +36,7 @@ import {
 	probeBuckleFront,
 	spawnClaude,
 } from "./lib/lane.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import {
 	ensureLaneKey,
@@ -316,6 +317,7 @@ type Lane = {
 	agent?: string;
 	host?: string;
 	hub?: string;
+	slab?: string;
 	launchedAt: number;
 	attempt?: number;
 };
@@ -1114,6 +1116,7 @@ const dispatchItem = async (
 								"acceptEdits",
 								...settingsArgs,
 							],
+			fleetDir: FLEET,
 		});
 		launchedProc = proc;
 		await awaitLaunchRegistration(store, FLEET, intent, proc);
@@ -1132,6 +1135,8 @@ const dispatchItem = async (
 				`executor exited during launch (code ${earlyExit}); inspect ${laneLog}`,
 			);
 		proc.unref();
+		const slab = laneClassOf(pick.agent ?? "claude");
+		const js = jobslabFor(slab, FLEET);
 		const entry: Lane = {
 			sid,
 			item,
@@ -1141,6 +1146,7 @@ const dispatchItem = async (
 			agent: pick.agent,
 			host: hostname(),
 			hub: resolvedHub,
+			slab,
 			launchedAt: Date.now(),
 			attempt,
 		};
@@ -1151,7 +1157,9 @@ const dispatchItem = async (
 		saveLanes([entry]);
 		lanes.push(entry);
 		committedLaunch = true;
-		log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
+		log(
+			`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch}, slab ${jobslabTag(slab, js)})${hubNote}`,
+		);
 		console.log(
 			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}${hubNote}`,
 		);
