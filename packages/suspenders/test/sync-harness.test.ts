@@ -376,3 +376,35 @@ exec ${quote(realGit)} "$@"
 		readFileSync(join(f.ctx.prefix, "scripts/lib/shared.ts"), "utf8"),
 	).toContain("value = 1");
 });
+
+test("prune mirrors the prefix: unmanaged entries ride along only when allowlisted", async () => {
+	const f = fixture();
+	writeFileSync(join(f.ctx.prefix, "governor.db"), "runtime");
+	mkdirSync(join(f.ctx.prefix, ".fleet"));
+	writeFileSync(join(f.ctx.prefix, ".fleet", "brief.md"), "brief");
+	// default sync preserves every unmanaged entry — the fork the mission named
+	await syncHarness(f.ctx);
+	expect(existsSync(join(f.ctx.prefix, "old-code.ts"))).toBe(true);
+	let receipt = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
+	);
+	expect(receipt.pruned).toBeNull();
+	// prune: mirror mode — non-allowlisted unmanaged entries drop
+	const result = await syncHarness({ ...f.ctx, prune: true });
+	expect(result.status).toBe("ok");
+	expect(result.note).toContain(
+		"pruned 2 unmanaged entries: old-code.ts, operator.env",
+	);
+	expect(existsSync(join(f.ctx.prefix, "old-code.ts"))).toBe(false);
+	expect(existsSync(join(f.ctx.prefix, "operator.env"))).toBe(false);
+	expect(readFileSync(join(f.ctx.prefix, "governor.db"), "utf8")).toBe(
+		"runtime",
+	);
+	expect(readFileSync(join(f.ctx.prefix, ".fleet", "brief.md"), "utf8")).toBe(
+		"brief",
+	);
+	receipt = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
+	);
+	expect(receipt.pruned).toEqual(["old-code.ts", "operator.env"]);
+});

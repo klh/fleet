@@ -5,7 +5,8 @@
 # step yet (each marked TODO(install.ts) inline). Flags unchanged:
 #   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models]
 #                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
-#                [--hub <name>] [--yes] [--json] [--verbose] [--step <name>]
+#                [--prune] [--hub <name>] [--yes] [--json] [--verbose]
+#                [--step <name>]
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
@@ -28,7 +29,15 @@ command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh fir
 echo "→ installing to $PREFIX"
 # Native staged sync is shared by full installs and --step syncHarness.
 # It preserves runtime config and publishes only a validated committed payload.
-bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}"
+# --prune rides the env knob exported by the front (SUSPENDERS_LEGACY_PRUNE):
+# mirror mode drops unmanaged prefix entries outside the generated-files
+# allowlist (governor.db, bun.lock, node_modules, .fleet) instead of
+# preserving them — W420.
+PRUNE_ARGS=()
+if [[ "${SUSPENDERS_LEGACY_PRUNE:-0}" -eq 1 ]]; then
+  PRUNE_ARGS+=(--prune)
+fi
+bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"}
 
 # Targeted code upgrade for the advanced installed belt supervisor. The kit's
 # older swarm implementation and operator-owned config must remain untouched.
@@ -241,7 +250,7 @@ fi
 
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
-LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0
+LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0 LEG_PRUNE=0
 NATIVE=()
 prev_step=0
 LEG_HUB=""
@@ -258,6 +267,7 @@ for arg in "$@"; do
     --no-llm) LEG_NO_LLM=1 ;;
     --refresh-supervisor) LEG_SUPERVISOR=1 ;;
     --refresh-dashboards) LEG_DASHBOARDS=1 ;;
+    --prune) LEG_PRUNE=1 ;;
     --refresh-gateway) LEG_GATEWAY=1 ;;
     --dry-run) LEG_DRY_RUN=1; NATIVE+=("$arg") ;;
     --yes|--json|--verbose) NATIVE+=("$arg") ;;
@@ -304,6 +314,7 @@ fi
 
 # legacy-only flags ride env knobs into the delegated legacy body
 # (TODO(install.ts): no native flags yet — contract.bashFlags documents these)
+export SUSPENDERS_LEGACY_PRUNE="$LEG_PRUNE"
 export SUSPENDERS_LEGACY_WIRE="$LEG_WIRE"
 export SUSPENDERS_LEGACY_SKIP_MODELS="$LEG_SKIP_MODELS"
 export SUSPENDERS_LEGACY_NO_LLM="$LEG_NO_LLM"

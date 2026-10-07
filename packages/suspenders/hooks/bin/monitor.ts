@@ -8,8 +8,24 @@
 // here are therefore ts-based or pure-DB; ownership liveness for lanes is a
 // known blind spot (backlog W9), surfaced by `work orphaned` instead.
 // usage: bun ~/.claude/bin/monitor.ts [--fix]
-import { statSync, openSync, readSync, fstatSync, closeSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	fstatSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	readSync,
+	statSync,
+} from "node:fs";
+import { join } from "node:path";
 import { transcriptAlive } from "../lib/lane-liveness.ts";
+import {
+	MANAGED_PREFIX_ENTRIES,
+	PRUNE_ALLOWLIST,
+	payloadChecksum,
+} from "../lib/harness-manifest.ts";
 import {
 	openGovernorDb,
 	projectIdentity,
@@ -338,6 +354,59 @@ for (const [key, kids] of bursts) {
 	}
 	flush();
 }
+
+// 5d. harness drift: repo-vs-prefix (W420) — the ALWAYS-anchor install law
+// (install.sh is the only repo→prefix sync) becomes observable. Report-only:
+// the repair is always a fresh install.sh run (add --prune for mirror mode),
+// never a monitor mutation. Silent when no harness is installed at this HOME.
+const harnessPrefix =
+	process.env.SUSPENDERS_PREFIX ??
+	`${process.env.HOME}/.claude/hooks/suspenders`;
+try {
+	const installed = realpathSync(harnessPrefix);
+	const receipt = JSON.parse(
+		readFileSync(join(installed, "harness-receipt.json"), "utf8"),
+	) as {
+		revision?: string;
+		source?: string;
+		payloadSha256?: string;
+	};
+	if (receipt.payloadSha256 && existsSync(join(installed, ".harness"))) {
+		// in-place edits: the payload no longer matches the checksum its own
+		// receipt pinned at install time (same scheme, shared helper)
+		if (
+			payloadChecksum(join(installed, ".harness")) !== receipt.payloadSha256
+		)
+			issues.push(
+				`harness drift: installed payload checksum ≠ harness-receipt.json (${receipt.revision?.slice(0, 10) ?? "unknown revision"}) — in-place edits; re-run install.sh`,
+			);
+	}
+	if (receipt.source && receipt.revision) {
+		// stale: the source repo's HEAD has moved past the installed revision
+		const head = Bun.spawnSync(
+			["git", "-C", receipt.source, "rev-parse", "HEAD"],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		if (head.exitCode !== 0)
+			issues.push(
+				`harness drift: source repo unreadable at ${receipt.source}`,
+			);
+		else if (head.stdout.toString().trim() !== receipt.revision)
+			issues.push(
+				`harness drift: prefix pinned at ${receipt.revision.slice(0, 10)} but ${receipt.source} HEAD is ${head.stdout.toString().trim().slice(0, 10)} — re-run install.sh to sync`,
+			);
+	}
+	const extras = readdirSync(installed, { withFileTypes: true })
+		.map((entry) => entry.name)
+		.filter(
+			(name) =>
+				!MANAGED_PREFIX_ENTRIES.has(name) && !PRUNE_ALLOWLIST.has(name),
+		);
+	if (extras.length)
+		issues.push(
+			`harness drift: prefix holds ${extras.length} unmanaged ${extras.length === 1 ? "entry" : "entries"} (${extras.join(", ")}) — install.sh --prune mirrors these away`,
+		);
+} catch {} // no harness at this HOME — nothing to observe
 
 // 7. zombie lanes: CLAIMED items whose owner went silent — usage-limit
 // deaths freeze subagents silently while the claim and the wall clock keep

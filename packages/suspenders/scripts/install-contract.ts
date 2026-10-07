@@ -395,6 +395,12 @@ export const INSTALL_CONTRACT = {
 			mappedStep: "seedLocalLlm",
 		},
 		{
+			flag: "--prune",
+			meaning:
+				"mirror-mode harness sync (W420) — drop unmanaged prefix entries outside the generated-files allowlist (governor.db, bun.lock, node_modules, .fleet) instead of preserving them",
+			mappedStep: "syncHarness",
+		},
+		{
 			flag: "--hub <name>",
 			meaning:
 				"install-grade hub deploy from ~/.config/klh/stack.yaml: deploy/hubctl.ts mint → push → up → status; --dry-run renders the hub .env only",

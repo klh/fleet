@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { Database } from "bun:sqlite";
+import { payloadChecksum } from "../hooks/lib/harness-manifest.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-monitor-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-monitorrepo-"));
@@ -581,5 +582,115 @@ describe("monitor W51 — stalled lanes", () => {
 			).n,
 		).toBe(0);
 		d.close();
+	});
+});
+
+// W420 — harness drift: repo-vs-prefix, report-only and default-on. The
+// installed generation's receipt pins source repo + revision + checksum;
+// three signals: tampering (checksum ≠ receipt), staleness (revision ≠ HEAD),
+// fork (unmanaged prefix entries). Silent with no installed harness — every
+// HOME above has none.
+const HOME3 = mkdtempSync(join(tmpdir(), "suspenders-monitor-drift-"));
+const DRIFT_REPO = mkdtempSync(join(tmpdir(), "suspenders-monitor-repo-"));
+const P3 = join(HOME3, ".claude", "hooks", "suspenders");
+afterAll(() => {
+	rmSync(HOME3, { recursive: true, force: true });
+	rmSync(DRIFT_REPO, { recursive: true, force: true });
+});
+
+function run3() {
+	const p = Bun.spawnSync(["bun", join(bin, "monitor.ts")], {
+		cwd: DRIFT_REPO,
+		env: { ...process.env, HOME: HOME3 },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
+}
+const git3 = (...args: string[]) => {
+	const r = Bun.spawnSync(["git", "-C", DRIFT_REPO, ...args], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(r.exitCode).toBe(0);
+	return r.stdout.toString().trim();
+};
+const PAYLOAD_TS = join(
+	P3,
+	".harness",
+	"packages",
+	"suspenders",
+	"hooks",
+	"lib",
+	"fixture.ts",
+);
+function installFixture(revision: string) {
+	mkdirSync(dirname(PAYLOAD_TS), { recursive: true });
+	writeFileSync(PAYLOAD_TS, "export const value = 1;");
+	writeFileSync(
+		join(P3, "harness-receipt.json"),
+		JSON.stringify({
+			schema: "fleet.harness.v1",
+			revision,
+			source: DRIFT_REPO,
+			payloadSha256: payloadChecksum(join(P3, ".harness")),
+		}),
+	);
+}
+git3("init");
+writeFileSync(join(DRIFT_REPO, "f.txt"), "one\n");
+git3("add", ".");
+git3(
+	"-c",
+	"user.name=t",
+	"-c",
+	"user.email=t@t.invalid",
+	"commit",
+	"-m",
+	"one",
+);
+installFixture(git3("rev-parse", "HEAD"));
+
+describe("monitor W420 — harness drift (repo-vs-prefix)", () => {
+	test("matching revision + checksum + no extras → clean", () => {
+		const r = run3();
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("health clean");
+		expect(r.err).not.toContain("harness drift");
+	});
+
+	test("repo HEAD ahead of the receipt revision → stale-prefix issue", () => {
+		writeFileSync(join(DRIFT_REPO, "f.txt"), "two\n");
+		git3("add", ".");
+		git3(
+			"-c",
+			"user.name=t",
+			"-c",
+			"user.email=t@t.invalid",
+			"commit",
+			"-m",
+			"two",
+		);
+		const r = run3();
+		expect(r.err).toContain("harness drift: prefix pinned at");
+		expect(r.err).toContain("HEAD is");
+	});
+
+	test("edited payload file → checksum drift vs receipt", () => {
+		writeFileSync(PAYLOAD_TS, "export const value = 2;");
+		const r = run3();
+		expect(r.err).toContain("checksum ≠ harness-receipt.json");
+	});
+
+	test("unmanaged prefix entry flagged; allowlisted ones are not", () => {
+		writeFileSync(join(P3, "AGENTS.md"), "forked leftover");
+		writeFileSync(join(P3, "governor.db"), "runtime db");
+		const r = run3();
+		expect(r.err).toContain("1 unmanaged entry (AGENTS.md)");
+		expect(r.err).not.toContain("governor.db");
 	});
 });
