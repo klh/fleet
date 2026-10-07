@@ -370,6 +370,14 @@ describe("dry-run dispatch", () => {
 		expect(out.out).toContain(`DRY dispatch ${id}`);
 		expect(out.out).toContain("CAPSULE PROTOCOL");
 		expect(out.out).toContain("LANDING CHAIN");
+		// W417.2: the inbox contract rides the brief through the real CLI
+		expect(out.out).toContain("INBOX CONTRACT (WS-first)");
+		expect(out.out).toContain(
+			`coord-subscribe-${laneSid(id, projectIdentity(REPO))}.log`,
+		);
+		expect(out.out).toContain(
+			`inbox --as ${laneSid(id, projectIdentity(REPO))}`,
+		);
 		expect(out.out).toContain(`lane "${laneSid(id, projectIdentity(REPO))}"`);
 		// no side effects: no claim, no worktree, no lane registry
 		const show = tool("work.ts", "show", id);
@@ -417,6 +425,25 @@ describe("resume-rebrief composition", () => {
 		});
 		expect(resumed).toContain("RESUME CONTEXT —");
 		expect(resumed).toContain("abc123");
+	});
+	// W417.2: the inbox contract is executor-agnostic — one line on every
+	// brief, regardless of the agent the lane rides (claude, codex, copilot,
+	// cline, grok). Asserted across executor classes.
+	test("inbox contract line rides every brief, all executors", () => {
+		const opts = {
+			item: "W140",
+			showOut: "◐ W140 RUNNING  sample item\n  owner_sid: autow140",
+			sid: "autow140",
+			branch: "suspenders/W140",
+			worktree: "/tmp/nowhere/.worktrees/W140",
+			capsule: null,
+		};
+		for (const agent of ["claude", "codex", "copilot", "cline", "grok"]) {
+			const brief = composeBrief({ ...opts, agent });
+			expect(brief).toContain("INBOX CONTRACT (WS-first)");
+			expect(brief).toContain(`coord-subscribe-${opts.sid}.log`);
+			expect(brief).toContain(`inbox --as ${opts.sid}`);
+		}
 	});
 });
 
