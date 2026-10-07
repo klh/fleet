@@ -4,21 +4,23 @@
 // dispatch, and nothing else. Gate logic lives in gates/*.ts, contracts in
 // lib/hookio.ts, execution in lib/run.ts. One pattern everywhere.
 //
-//   bun gate.ts pre-bash    PreToolUse  (Bash: secrets/governor-lease/edit/skill/tool gates)
-//   bun gate.ts pre-files   PreToolUse  (Edit|Write|NotebookEdit: leases → mutation-size →
-//                            operational-marker → config-guard — ONE process, W14)
-//   bun gate.ts post-files  PostToolUse (Edit|Write: syntax gate + md-format)
-//   bun gate.ts governor    PreToolUse  (standalone lease check; pre-files chains it
-//                            in-process, so the separate registration is now redundant)
-//   bun gate.ts stop        Stop        (claim-done gate)
-//   bun gate.ts session     SessionStart (optional operator motd)
-import { readHook, allow } from "./lib/hookio.ts";
+//   bun gate.ts pre-bash     PreToolUse  (Bash: secrets/governor-lease/edit/skill/tool gates)
+//   bun gate.ts pre-files    PreToolUse  (Edit|Write|NotebookEdit: leases → mutation-size →
+//                             operational-marker → config-guard — ONE process, W14)
+//   bun gate.ts post-files   PostToolUse (Edit|Write: syntax gate + md-format)
+//   bun gate.ts governor     PreToolUse  (standalone lease check; pre-files chains it
+//                             in-process, so the separate registration is now redundant)
+//   bun gate.ts stop         Stop        (claim-done gate + W510 context-pressure guard)
+//   bun gate.ts pre-compact  PreCompact  (W510: lane-state flush into the coord capsule)
+//   bun gate.ts session      SessionStart (optional operator motd)
 import { bashGate } from "./gates/bash.ts";
+import { preFilesChain } from "./gates/chain.ts";
 import { filesGate } from "./gates/files.ts";
 import { governorGate } from "./gates/governor.ts";
+import { preCompactGate } from "./gates/pre-compact.ts";
 import { readGate } from "./gates/read.ts";
 import { stopGate } from "./gates/stop.ts";
-import { preFilesChain } from "./gates/chain.ts";
+import { allow, readHook } from "./lib/hookio.ts";
 
 const hook = await readHook();
 const event = process.argv[2] ?? "";
@@ -44,6 +46,9 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: stopGate is `: never` — the call ends the case
 	case "stop":
 		stopGate(hook);
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preCompactGate is `: never` — the call ends the case
+	case "pre-compact":
+		preCompactGate(hook); // W510: PreCompact lane-state flush into the coord capsule
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: codexGate never resolves — await parks the case
 	case "codex": {
 		// W73 codex adapter — dialect bound by argv (`gate.ts codex <mode>`):

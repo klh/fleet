@@ -5,12 +5,14 @@
 // matching the list cap, files newer than a cap only.
 // W14: re-verify runs filesCheck IN-PROCESS — the old loop spawned one
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
-import { allow, feedback, type HookInput } from "../lib/hookio.ts";
-import { run } from "../lib/run.ts";
+
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { filesCheck } from "./files.ts";
+import { stopPressure } from "../lib/context-pressure.ts";
+import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { laneCompletion } from "../lib/lane-completion.ts";
+import { run } from "../lib/run.ts";
+import { filesCheck } from "./files.ts";
 
 const CODE_EXT =
 	/\.(json|py|sh|bash|zsh|dash|ts|tsx|js|jsx|mjs|cjs|mts|cts|yaml|yml|toml)$/i;
@@ -18,6 +20,13 @@ const CODE_EXT =
 export function stopGate(hook: HookInput): never {
 	const incomplete = laneCompletion(hook);
 	if (incomplete) feedback(incomplete);
+
+	// W510: context-pressure guard — transcript-tail estimate, 70/85% bands,
+	// once per session per band. Never blocks continuations (stop_hook_active),
+	// aborts/API errors, or >=95% (likely the context limit itself — blocking
+	// there deadlocks compaction).
+	const pressure = stopPressure(hook);
+	if (pressure) feedback(pressure.message);
 
 	// W497: the session-end knowledge ask — ONCE per session, only for
 	// substantive ones (transcript > 20KB): block this stop and make the

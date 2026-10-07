@@ -1,16 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { run } from "./run.ts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { HookInput } from "./hookio.ts";
-
-type Context = {
-	sid: string;
-	item: string;
-	baseline?: string;
-	launchedAt?: number;
-	worktree?: string;
-};
+import { type LaneContext, laneContext } from "./lane-context.ts";
+import { run } from "./run.ts";
 
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */
 export function laneCompletion(
@@ -21,26 +14,7 @@ export function laneCompletion(
 	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (!top.ok) return null;
 	const wt = top.out.trim();
-	let context: Context | undefined;
-	try {
-		const local = join(wt, ".fleet/lane-context.json");
-		if (existsSync(local)) context = JSON.parse(readFileSync(local, "utf8"));
-		else {
-			const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
-			if (!common.ok) return null;
-			const index = join(
-				dirname(resolve(wt, common.out.trim())),
-				".fleet/lanes.json",
-			);
-			const rows = JSON.parse(readFileSync(index, "utf8")) as Context[];
-			const matches = rows.filter(
-				(row) => row.worktree && resolve(row.worktree) === wt,
-			);
-			if (matches.length === 1) context = matches[0];
-		}
-	} catch {
-		return null;
-	}
+	const context: LaneContext | undefined = laneContext(wt);
 	if (!context?.sid || !context.item) return null;
 	const bin = resolve(import.meta.dir, "../bin");
 	const show = run(
