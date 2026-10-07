@@ -30,6 +30,8 @@ import { handleConsole } from "../board/routes-console.ts";
 import { handleMeta } from "../board/routes-meta.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleObservations } from "../board/routes-observations.ts";
+import { handleLaneModel } from "../board/routes-lane-model.ts";
+import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
@@ -39,6 +41,7 @@ import { startObservationRelay } from "../board/observation-relay.ts";
 import "../board/demo.ts";
 
 ensureLaneObservations(db);
+ensureLaneReadModel(db);
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
 
@@ -81,6 +84,7 @@ const base = {
 		// W157: the original 30-route if-chain, order preserved, split into
 		// per-area handlers — first match wins exactly as before
 		for (const h of [
+			handleLaneModel,
 			handleObservations,
 			handleFleetTree,
 			handleData,
