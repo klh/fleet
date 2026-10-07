@@ -28,6 +28,7 @@ import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
 	fleetNav,
+	displayLabel,
 	settingsBlock,
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
@@ -102,7 +103,7 @@ export const topbar = (
 	const dropInner = me
 		? `<div class="cavhead"><span class="cavbig">${esc(initial(actor))}</span><span><span class="cavname">${esc(actor)}</span><br><span class="cavsub">${tagLine(me.tags)}</span></span></div><div class="cavsec">switch actor (demo preview)</div>${sel()}<div class="cavnote">demo preview — stamps nothing live; live switching is a follow-up item</div>`
 		: `<div class="cavname" id="cavload">loading actor…</div>`;
-	return `<style>${SHELL_CSS}${THEME_SETTINGS_CSS}${FLEET_NAV_CSS}</style>${fleetNav("suspenders")}<nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh<span class="cwdot">·</span>console</a><span class="cnavs"><a class="cnav"${cur("belt")} href="/console/belt">belt gateway</a><a class="cnav"${cur("suspenders")} href="/">fleet board</a><a class="cnav"${cur("local")} href="/console/local">local services</a></span><span class="cend">${settingsBlock(`<a${cur("settings")} href="/console/settings">all console settings &rarr;</a>`)}<span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
+	return `<style>${SHELL_CSS}${THEME_SETTINGS_CSS}${FLEET_NAV_CSS}</style>${fleetNav("suspenders", active)}<nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh<span class="cwdot">·</span>console</a><span class="cend">${settingsBlock(`<a${cur("settings")} href="/console/settings">all console settings &rarr;</a>`)}<span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
 };
 
 // Dropdown behavior: click toggles, outside-click + Escape close (focus
@@ -151,7 +152,7 @@ export const consolePage = (
 	body: string,
 	me?: ConsoleMe,
 ): string =>
-	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:14px;letter-spacing:.08em;margin:16px 0 10px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:980px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
+	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:var(--klh-text-lg)/1.6 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:28px;letter-spacing:0;margin:28px 0 20px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:1400px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
 
 // ─── belt gateway view (/console/belt) ────────────────────────────────────
 // W273: a probe row carries its recovery-map entry (null = unmapped)
@@ -198,15 +199,15 @@ export const serviceRowHtml = (p: HealthProbe): string => {
 	const st = stateOf(p);
 	const cls = st === "idle" ? "dim" : st === "up" ? "ok" : "bad";
 	const where = p.port ? ` :${p.port}` : "";
-	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(p.name)}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
+	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(displayLabel(p.name))}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
 };
 
-const healthHtml = (h: HealthProbe[]): string => {
+const healthHtml = (h: HealthProbe[], title = "Fleet services"): string => {
 	const dark = h.filter(
 		(p) => stateOf(p) !== "up" && stateOf(p) !== "idle",
 	).length;
 	const idle = h.filter((p) => stateOf(p) === "idle").length;
-	return `<div class="panel"><h2>Fleet services · ${h.length - dark - idle}/${h.length} up${idle ? ` · ${idle} on demand` : ""}${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+	return `<div class="panel"><h2>${esc(title)} · ${h.length - dark - idle}/${h.length} up${idle ? ` · ${idle} on demand` : ""}${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
 };
 
 const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:var(--klh-surface);border:1px solid var(--klh-edge);border-radius:2px;padding:4px 8px;font:11px/1.5 var(--klh-font-mono);white-space:pre-wrap}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
@@ -240,13 +241,19 @@ const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kc
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}</style>` +
-		healthHtml(v.health) +
+		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		healthHtml(
+			v.health.filter((p) =>
+				["belt-gateway-4000", "litellm-4100", "buckle-4101"].includes(p.id),
+			),
+			"Gateway transports",
+		) +
 		policyCard(v) +
 		upstreamsCard(v) +
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
 			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`);
-	return consolePage("BELT · GATEWAY", "belt", body, me);
+	return consolePage("Belt gateway", "belt", body, me);
 };
 
 // ─── local services view (/console/local) — static registry first ─────────
@@ -282,27 +289,19 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 			);
 		})
 		.join("");
-	const unmatched = v.services.filter(
-		(s) => !v.probes.some((p) => registrationPort(s) === p.port),
-	);
-	const regRows = unmatched
+	const registryRows = v.services
 		.map(
 			(s) =>
-				`<tr><td><b>${esc(s.name)}</b></td><td class="num">${esc(s.upstream ?? String(s.port))}</td><td>Not monitored here</td><td><a href="https://${esc(s.name)}.local/">https://${esc(s.name)}.local/</a> <span class="dim">· since ${esc(s.created.slice(0, 10))}</span></td></tr>`,
+				`<tr><td><a href="https://${esc(s.name)}.local/">${esc(s.name)}.local</a></td><td><span class="pill">${registrationPort(s) === null ? "Remote upstream" : "Local upstream"}</span></td><td class="mono">${esc(s.upstream ?? String(s.port))}</td><td>${v.probes.some((p) => registrationPort(s) === p.port) ? "Monitored below" : "Not monitored here"}</td></tr>`,
 		)
 		.join("");
 	const body =
-		`<style>${PAGE_CSS}${PILL_CSS}</style>` +
+		`<style>${PAGE_CSS}${PILL_CSS}</style><p class="dimpl">Registered .local routes, local model capacity and process observations.</p>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<div class="panel"><h2>monitored fleet services — ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>` +
-		(v.probes.length
-			? probeRows
-			: `<p class="dimpl">no monitored services — the recovery map is empty in this deployment</p>`) +
-		(unmatched.length
-			? `</div><div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2><table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>url</th></tr></thead><tbody>${regRows}</tbody></table>`
-			: "") +
-		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;
-	return consolePage("LOCAL · SERVICES", "local", body, me);
+		`<div class="panel"><h2>Registered services · ${v.services.length}</h2><table class="ct"><thead><tr><th>Service</th><th>Scope</th><th>Upstream</th><th>Observation</th></tr></thead><tbody>${registryRows}</tbody></table><p class="cfoot">Route registration is configuration; local endpoint evidence is shown below. <a href="https://bar.local/">Inspect Caddy checks and mDNS claims</a></p></div>` +
+		`<div class="panel"><h2>Local machine · ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>${probeRows || '<p class="dimpl">No monitored services</p>'}<p class="cfoot">${esc(v.source)} · ${esc(scrub(v.regPath))}</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+
+	return consolePage("Local services", "local", body, me);
 };
 
 // ─── settings (/console/settings) — one entry per feature ─────────────────
