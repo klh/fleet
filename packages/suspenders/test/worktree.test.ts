@@ -14,6 +14,7 @@ import {
 	mkdirSync,
 	cpSync,
 	appendFileSync,
+	realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -176,6 +177,52 @@ describe("worktree lifecycle", () => {
 		expect(existsSync(dir)).toBe(false);
 	});
 });
+// ─── W211 — registry resolution: done/retire/create/path resolve the item's
+// tree from git's worktree registry by branch, never a derived path ───
+describe("worktree registry resolution (W211)", () => {
+	const gc = (args: string[]): { out: string; err: string; code: number } => {
+		const p = Bun.spawnSync(["git", "-C", REPO, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return {
+			out: p.stdout.toString().trim(),
+			err: p.stderr.toString().trim(),
+			code: p.exitCode,
+		};
+	};
+	test("work done retires a tree parked outside .worktrees/ (registry by branch), branch kept", () => {
+		const added = work("add", "registry parked done");
+		expect(added.code).toBe(0);
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		expect(id).toBeTruthy();
+		expect(
+			run(REPO, "coord.ts", "bootstrap", "--as", "wt-parked", "--role", "worker")
+				.code,
+		).toBe(0);
+		expect(work("take", id, "--as", "wt-parked").code).toBe(0);
+		// park the tree outside the convention, as registry lanes do
+		const parked = join(REPO, "..", "w211-parked", id);
+		mkdirSync(join(REPO, "..", "w211-parked"), { recursive: true });
+		expect(
+			gc(["worktree", "add", "-b", `suspenders/${id}`, parked]).code,
+		).toBe(0);
+		writeFileSync(join(parked, "feat.ts"), "export const x = 1;\n");
+		expect(gc(["-C", parked, "add", "feat.ts"]).code).toBe(0);
+		expect(gc(["-C", parked, "commit", "-m", "feat"]).code).toBe(0);
+		const tip = gc(["-C", parked, "rev-parse", "HEAD"]).out;
+		// resolve verbs see the parked tree, create refuses it
+		expect(wt("path", id).out.trim()).toBe(realpathSync(parked));
+		expect(wt("create", id).code).not.toBe(0);
+		// done retires the PARKED tree — the W211 silent no-op is dead
+		expect(
+			work("done", id, "--sha", tip, "--summary", "W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees").code,
+		).toBe(0);
+		expect(existsSync(parked)).toBe(false);
+		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).toBe(0);
+	});
+});
+
 // ─── W494.2.2 — supported sweep ───
 describe("worktree sweep (W494.2.2)", () => {
 	const sweep = (
