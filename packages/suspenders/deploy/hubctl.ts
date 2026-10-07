@@ -20,6 +20,7 @@ import { join } from "node:path";
 // stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
+	inQuietHours,
 	loadStack,
 	STACK_PATH,
 	type HubProfile,
@@ -372,6 +373,14 @@ function main(): void {
 	}
 	const hub = requireHub(stack, hubName);
 	if (verb === "status") {
+		// W483: inside the hub's quiet-hours window the hub is EXPECTED down
+		// (NAS nightly poweroff) — probing would only page dead-letter noise.
+		if (inQuietHours(hub)) {
+			console.log(
+				`quiet hours ${hub.quiet_hours} — ${hubName} expected down; probes suppressed`,
+			);
+			process.exit(0);
+		}
 		const failed = status(hub);
 		console.log(failed === 0 ? "all healthy" : `${failed} probe(s) failed`);
 		process.exit(failed === 0 ? 0 : 1);
