@@ -64,3 +64,25 @@ bun bin/registry-emit.ts all --out DIR
 `GET /registry.json` with a strong `ETag` (`If-None-Match` → 304). Each row
 and the document carry `source: local | hub:<name>` — hub-fed mode (a hub
 serves its registry, spokes pull) is designed, not yet wired.
+
+## Audio tier (W440)
+Cloud TTS/STT rows live in `bin/registry.ts` (`AUDIO_SERVICES`, also served
+as the `audio:` section of `/registry.json`) — NOT in the chat ladder:
+`chatEntries()` and the LiteLLM/direct/buckle emitters never see them, and
+the ladder stays operator-owned (routing-policy.yaml). The helper is
+`bin/audio.ts`; the router exposes the OpenAI-wire surface:
+
+```sh
+curl -s http://127.0.0.1:4000/v1/audio/speech \
+  -H 'content-type: application/json' \
+  -d '{"input":"lane W440 needs a decision"}' --out alert.mp3
+curl -s -F file=@note.m4a http://127.0.0.1:4000/v1/audio/transcriptions
+```
+
+Config-over-code: the vendor key is machine config only — `ELEVENLABS_API_KEY`
+in `~/.claude/local-llm/belt.env` (0600); a missing key is a clean 503 naming
+the env var, never a value on the wire. `ELEVENLABS_BASE` overrides the
+vendor base (tests/staging). CLI: `bun bin/audio.ts speak <text...> --out
+FILE [--voice ID] [--model ID] | transcribe FILE | status`. Candidate uses:
+spoken NEED_DECISION alerts from the board, voice-dictate missions (STT →
+`work add`), lane-status audio summaries.

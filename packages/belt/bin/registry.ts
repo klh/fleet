@@ -199,6 +199,54 @@ export const EXTERNAL: ExternalService[] = [
 	},
 ];
 
+// ─── audio tier (W440) — cloud TTS/STT rows in the fleet catalog ───
+// NOT chat entries: registryEntries()/chatEntries() stay port-served models
+// only, so the LiteLLM/direct/buckle emitters never see these rows — audio
+// rides bin/audio.ts and the router's /v1/audio/* routes, and the ladder
+// stays operator-owned (routing-policy.yaml, W440).
+// Config-over-code: keyEnv carries the env NAME only — the key itself lives
+// in machine config (~/.claude/local-llm/belt.env, 0600). Voice ids are
+// public catalog values (like model ids); ELEVENLABS_BASE overrides base.
+export type AudioClass = "tts" | "stt";
+
+export interface AudioService {
+	alias: string; // belt-facing alias (x-belt-audio on router audio replies)
+	provider: string;
+	model: string; // vendor model id
+	class: AudioClass;
+	base: string; // vendor public API base (override: ELEVENLABS_BASE)
+	keyEnv: string; // env NAME holding the key — machine config only
+	voice?: string; // default voice id (tts rows)
+	good_at: string;
+}
+
+export const AUDIO_SERVICES: AudioService[] = [
+	{
+		alias: "elevenlabs-tts",
+		provider: "elevenlabs",
+		// stable multilingual production model (29 langs incl. Danish); pass
+		// --model / body.model to ride a newer one (e.g. eleven_v3)
+		model: "eleven_multilingual_v2",
+		class: "tts",
+		base: "https://api.elevenlabs.io/v1",
+		keyEnv: "ELEVENLABS_API_KEY",
+		voice: "21m00Tcm4TlvDq8ikWAM", // Rachel — the vendor's catalog default
+		good_at: "lifelike speech synthesis, spoken alerts, danish + 28 langs",
+	},
+	{
+		alias: "elevenlabs-stt",
+		provider: "elevenlabs",
+		model: "scribe_v1",
+		class: "stt",
+		base: "https://api.elevenlabs.io/v1",
+		keyEnv: "ELEVENLABS_API_KEY",
+		good_at: "speech-to-text transcription, voice dictation, 90+ langs",
+	},
+];
+
+export const audioService = (cls: AudioClass): AudioService | undefined =>
+	AUDIO_SERVICES.find((s) => s.class === cls);
+
 export const DOWNLOAD_MODELS: string[] = [
 	...SPECIALISTS.map((s) => s.model),
 	"mlx-community/translategemma-4b-it-4bit",
@@ -269,6 +317,7 @@ export interface RegistryDoc {
 	source: RegistrySource;
 	router: typeof ROUTER;
 	entries: RegistryEntry[];
+	audio: AudioService[];
 }
 
 export const REGISTRY_SOURCE: RegistrySource = "local";
@@ -335,5 +384,6 @@ export function registryDoc(
 		source,
 		router: ROUTER,
 		entries: registryEntries(source),
+		audio: AUDIO_SERVICES,
 	};
 }
