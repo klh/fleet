@@ -112,22 +112,6 @@ describe("registerLaunchd parity (W490.2)", () => {
 			const tsSide = project(
 				parsePlistXml(readFileSync(join(outDir, file), "utf8")),
 			);
-			if (file === "com.suspenders.fleet-loop.plist") {
-				// Canonical manifest explicitly adds target 6; legacy template predates that policy.
-				const args = bashSide.programArguments;
-				const position = args.indexOf("--glob");
-				args.splice(position, 0, "--target", "6");
-			}
-			if (
-				file === "com.suspenders.llm-keepwarm.plist" ||
-				file === "com.suspenders.local-llm.plist"
-			) {
-				// W500 minimal-tier safety policy is canonical; old sed templates predate it.
-				bashSide.environmentVariables = {
-					...bashSide.environmentVariables,
-					BELT_TIER: "minimal",
-				};
-			}
 			expect(tsSide, file).toEqual(bashSide);
 		}
 		expect(templates.length).toBeGreaterThan(10);
