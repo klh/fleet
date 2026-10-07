@@ -50,6 +50,17 @@ defaults:
     runAtLoad: true
 
 services:
+  # Cloud transport remains available while the local model swarm is paused.
+  # Only LiteLLM is owned here; model/router startup is never part of this unit.
+  - name: cloud-gateway
+    bunEntry: "__PREFIX__/.harness/packages/belt/bin/cloud-gateway.ts"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/cloud-gateway.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
   # W355 spoke policy-pull — this machine pulls the hub policy manifest +
   # entitlements on an interval (hooks/bin/federation-pull.ts, loop mode,
   # 300s default). Credentials ride the machine-level spoke profile (0600,
