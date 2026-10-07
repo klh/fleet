@@ -597,9 +597,31 @@ function stallWatch(): void {
 			continue;
 		seen.add(l.sid);
 		if (!laneAlive(l)) {
-			if (!state[l.sid]?.warned) {
+			// W545: announce once, then AUTO-RECLAIM after a grace window.
+			// The old code announced "needs recovery" and never acted — a
+			// coordinator had to run `work reclaim all` by hand, starving
+			// dispatch for hours. Safe now: liveness is process-backed and
+			// close requires sha evidence, so reclaiming a genuinely dead
+			// lane loses nothing (capsules + graph state survive). Grace
+			// guards against a mid-flight restart blip.
+			const since = state[l.sid]?.since ?? now;
+			if (now - since > 10 * 60_000) {
+				log(
+					`RECLAIM ${l.sid} on ${l.item} — dead > 10min, auto-reclaiming ghost claims`,
+				);
+				sh([
+					process.execPath,
+					`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
+					"reclaim",
+					"all",
+				]);
+				emitLaneEvent("lane.reclaimed", l.item, { sid: l.sid });
 				state[l.sid] = { since: now, warned: true };
-				log(`DEAD ${l.sid} on ${l.item} — unfinished claim needs recovery`);
+			} else if (!state[l.sid]?.warned) {
+				state[l.sid] = { since, warned: true };
+				log(
+					`DEAD ${l.sid} on ${l.item} — unfinished claim (auto-reclaim after 10min grace)`,
+				);
 				emitLaneEvent("lane.dead", l.item, { sid: l.sid });
 			}
 			continue;
