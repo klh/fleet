@@ -35,6 +35,7 @@ import { createHash } from "node:crypto";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { endpointPassed } from "./health.ts";
+import { hubTargets } from "./hubs.ts";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
 import { DEFAULT_PATHS, litellmTarget } from "./litellm-target.ts";
 import { spawnArgs, spawnReserved } from "./spawner.ts";
@@ -52,7 +53,10 @@ export type Kind =
 	| "specialist"
 	| "gateway"
 	| "ondemand"
-	| "external";
+	| "external"
+	// W351: remote buckle hub — probe-only row for a hubs.json registry entry;
+	// belt observes it, never spawns on another host.
+	| "hub";
 export type State =
 	| "unknown"
 	| "up"
@@ -76,6 +80,8 @@ export interface Target {
 	kind: Kind;
 	owned: boolean;
 	host?: string;
+	/** TLS transport to the host (remote hubs; default http). */
+	scheme?: "http" | "https";
 	healthPath?: string;
 	spawn?: () => Child;
 	bindTimeoutMs?: number;
@@ -241,6 +247,8 @@ export interface HttpProbeOptions {
 	headers?: Record<string, string>;
 	/** Statuses that count as serving; omitted = any reply (even 404). */
 	okStatus?: number[];
+	/** TLS transport (remote hubs may speak https; default http). */
+	scheme?: "http" | "https";
 }
 
 /** Any HTTP response (even 404) means the server's request loop is alive,
@@ -253,7 +261,7 @@ export const httpProbe = async (
 	opts: HttpProbeOptions = {},
 ): Promise<boolean> => {
 	try {
-		const r = await fetch(`http://${host}:${port}${path}`, {
+		const r = await fetch(`${opts.scheme ?? "http"}://${host}:${port}${path}`, {
 			headers: opts.headers,
 			signal: AbortSignal.timeout(timeoutMs),
 			redirect: "manual",
@@ -273,6 +281,7 @@ export async function probeTarget(t: Target): Promise<ProbeResult> {
 	const http = await httpProbe(t.port, t.healthPath, host, 2000, {
 		headers: t.probeHeaders?.(),
 		okStatus: t.okStatus,
+		scheme: t.scheme,
 	});
 	return { tcp: true, http };
 }
@@ -835,5 +844,15 @@ export function fleetTargets(): Target[] {
 			]),
 		);
 	targets.push(gateway);
+	// W351: remote buckle hubs (hubs.json registry) as probe-only rows —
+	// belt observes them, never spawns on another host. The status map is
+	// keyed by port, so a registry URL shadowing an existing local port is
+	// skipped rather than silently overwriting the local row.
+	const seen = new Set(targets.map((t) => t.port));
+	for (const hub of hubTargets()) {
+		if (seen.has(hub.port)) continue;
+		seen.add(hub.port);
+		targets.push(hub);
+	}
 	return targets;
 }

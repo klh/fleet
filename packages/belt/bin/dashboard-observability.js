@@ -22,6 +22,7 @@ class BeltSupervisor extends LitElement {
 		.state { margin-inline:var(--klh-space-3); color:var(--klh-dim); }
 		.alert { color:var(--klh-danger); }
 		.reason { color:var(--klh-ink); overflow-wrap:anywhere; }
+		.group { margin-block-start:var(--klh-space-3); font-size:var(--klh-text-xs); text-transform:uppercase; letter-spacing:.14em; color:var(--klh-dim); }
 	`;
 	constructor() {
 		super();
@@ -78,6 +79,8 @@ class BeltSupervisor extends LitElement {
 			supervisorFresh(doc, this.now) &&
 			observationFresh(doc?.observation, this.now);
 		const targets = doc?.targets ?? [];
+		const fleetRows = targets.filter((t) => t.kind !== "hub");
+		const hubs = targets.filter((t) => t.kind === "hub");
 		const alerts = targets.filter(
 			(target) => target.alert || target.preflightError,
 		).length;
@@ -89,16 +92,11 @@ class BeltSupervisor extends LitElement {
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (doc ? (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`) : "No supervisor snapshot. Current service state is unknown.")}</p>
 			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
-			${targets.map(
-				(
-					target,
-				) => html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
-				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${restartEvidence(target)}</p>
-				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
-				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}
-			</details>`,
-			)}
-		`;
+			${fleetRows.map((target) => this.row(target, fresh, doc))}
+			${hubs.length
+				? html`<p class="group">hubs — remote buckle fronts, probe-only</p>${hubs.map((target) => this.row(target, fresh, doc))}`
+				: ""}
+			`;
 	}
 	targetFresh(target, doc) {
 		const at = Date.parse(target.lastProbe || "");
@@ -114,6 +112,13 @@ class BeltSupervisor extends LitElement {
 		if (target.state === "unhealthy") return "restart limit reached";
 		if (target.state === "backoff") return "retry scheduled";
 		return target.state;
+	}
+	row(target, fresh, doc) {
+		return html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
+				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${restartEvidence(target)}</p>
+				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
+				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}
+			</details>`;
 	}
 }
 customElements.define("belt-supervisor", BeltSupervisor);
