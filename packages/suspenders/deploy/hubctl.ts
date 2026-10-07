@@ -14,74 +14,24 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+// stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
+// from it, coord hubs projects the topology from it
+import {
+	loadStack,
+	STACK_PATH,
+	type HubProfile,
+	type StackConfig,
+} from "../hooks/lib/stack-config.ts";
 
-interface HubProfile {
-	host: string;
-	buckle_port?: number;
-	board_port?: number;
-	store_port?: number;
-	belt_port?: number;
-	/** Health sidecar serve ports (W422.10) — where each *-health probe
-	 *  serves its verdict; falls through to the template default when
-	 *  undeclared. */
-	buckle_health_port?: number;
-	board_health_port?: number;
-	store_health_port?: number;
-	belt_health_port?: number;
-	bind?: string;
-	board_bind?: string;
-	belt_bind?: string;
-	allowed_hosts?: string[];
-	services_json?: string;
-	peers?: string[];
-	/** Deploy source: `ref` pins the git ref for all three repos; the named
-	 *  entries override origins (forks/mirrors) — never host paths, the hub
-	 *  pulls its code from the git origins into volumes. */
-	repos?: {
-		ref?: string;
-		buckle?: string;
-		suspenders?: string;
-		belt?: string;
-	};
-	deploy?: {
-		ssh?: string;
-		dir: string;
-		docker?: string;
-		compose?: string;
-	};
-	secrets?: { buckle_root_key?: string };
-}
-
-interface StackConfig {
-	/** The stack version: ONE string pins buckle+suspenders+belt — the ref
-	 *  every repo sidecar pulls. Absent = main (dev posture). */
-	version?: string;
-	hubs: Record<string, HubProfile>;
-	auth?: { required?: boolean };
-}
-
-const STACK_PATH =
-	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
-
-/** Parse the machine-level stack config; `hubs:` is mandatory. */
-function loadStack(): StackConfig {
-	const raw = parse(readFileSync(STACK_PATH, "utf8")) as StackConfig;
-	if (!raw?.hubs || typeof raw.hubs !== "object") {
-		throw new Error(`no hubs: section in ${STACK_PATH}`);
-	}
-	return raw;
-}
 
 /** Resolve a hub by name, listing what exists on a miss. */
 function requireHub(stack: StackConfig, name: string): HubProfile {
 	const hub = stack.hubs[name];
 	if (!hub) {
 		throw new Error(
-			`hub "${name}" not in ${STACK_PATH} — known: ${Object.keys(stack.hubs).join(", ")}`,
+			`hub "${name}" not in ${STACK_PATH()} — known: ${Object.keys(stack.hubs).join(", ")}`,
 		);
 	}
 	return hub;
@@ -211,7 +161,7 @@ function requireDir(hub: HubProfile): string {
 	const dir = hub.deploy?.dir;
 	if (!dir) {
 		throw new Error(
-			`hub has no deploy.dir in ${STACK_PATH} — declare where hub-compose.yaml + .env live on the hub`,
+			`hub has no deploy.dir in ${STACK_PATH()} — declare where hub-compose.yaml + .env live on the hub`,
 		);
 	}
 	return dir;

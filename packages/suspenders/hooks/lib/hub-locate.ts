@@ -22,11 +22,11 @@ export interface HubLocation {
 
 type HubRegistry = Record<string, { candidates?: string[]; token?: string }>;
 
-const REGISTRY_PATH = (): string =>
+export const REGISTRY_PATH = (): string =>
 	process.env.SUSPENDERS_HUBS_FILE ??
 	`${process.env.HOME}/.claude/local-llm/hubs.json`;
 
-function readRegistry(): HubRegistry {
+export function readRegistry(): HubRegistry {
 	try {
 		return JSON.parse(readFileSync(REGISTRY_PATH(), "utf8")) as HubRegistry;
 	} catch {
@@ -81,7 +81,7 @@ async function discoverHub(label: string): Promise<string | null> {
 
 // a server that answers AT ALL counts as present (even a 404) — belt-locate
 // precedent: we are locating a host, not a route.
-async function alive(base: string): Promise<boolean> {
+export async function alive(base: string): Promise<boolean> {
 	for (const path of ["/api/health", "/health/liveliness", "/"]) {
 		try {
 			await fetch(base.replace(/\/$/, "") + path, {
