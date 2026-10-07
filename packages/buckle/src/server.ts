@@ -6,11 +6,12 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { PrefixAffinity } from "./affinity.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
-import { Expander, directCall, pickLocalDirect } from "./expand.ts";
+import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
@@ -181,6 +182,7 @@ export function buildDeps(
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
+	const affinity = new PrefixAffinity();
 	return {
 		router,
 		ledger,
@@ -194,6 +196,7 @@ export function buildDeps(
 		decide,
 		table,
 		federation,
+		affinity,
 	};
 }
 

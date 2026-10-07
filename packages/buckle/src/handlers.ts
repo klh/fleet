@@ -7,12 +7,15 @@
 // streams record requests without token columns — honest omission, never
 // estimated.
 
+import {
+	affinityOn,
+	affKeyOf,
+	applyAffinity,
+	type PrefixAffinity,
+} from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
 import { aidsRoutes, applyWireAids } from "./aids-routes.ts";
-import type { RepoPolicyRow } from "./repo-policy.ts";
-import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import type { CandidateRow, CandidateTable } from "./candidates.ts";
-import type { Expander } from "./expand.ts";
 import {
 	allowOf,
 	lanePrefixOf,
@@ -28,13 +31,16 @@ import {
 	latencyClass,
 	type RouteSelection,
 } from "./decide.ts";
+import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
-import { keyIdFromToken, tokenFromHeaders, type Ledger } from "./ledger.ts";
+import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
+import { type CondenseStore, pipelineRoutes } from "./pipeline.ts";
+import { condenseInbound } from "./pipeline-wire.ts";
 import type { AidsPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
-import { pipelineRoutes, type CondenseStore } from "./pipeline.ts";
-import { condenseInbound } from "./pipeline-wire.ts";
+import type { RepoPolicyRow } from "./repo-policy.ts";
+import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
@@ -72,6 +78,9 @@ export interface AppDeps {
 	// W7 repo-policy gate: the loaded rows (absent/empty = engine inert);
 	// the route 404s honestly when unwired.
 	repoPolicy?: RepoPolicyRow[];
+	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
+	// deps (testDeps, dev) route without affinity and the seam no-ops.
+	affinity?: PrefixAffinity;
 }
 
 interface App {
@@ -174,6 +183,8 @@ interface Ctx {
 	sel?: RouteSelection;
 	/** W5: the request declared `condense-in` in its x-belt-aids stanza. */
 	condenseIn: boolean;
+	/** W237: packet-prefix key (null = no packet block, no affinity). */
+	affKey: string | null;
 }
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -247,6 +258,7 @@ async function proxy(
 		t0: 0,
 		tier: "",
 		condenseIn: false,
+		affKey: null,
 	};
 	ctx.t0 = Date.now();
 	const hint = hintFromHeaders(req.headers);
@@ -268,6 +280,7 @@ async function proxy(
 	);
 	body = wire.body;
 	ctx.condenseIn = wire.condenseIn;
+	ctx.affKey = deps.affinity ? affKeyOf(body) : null;
 	ctx.group = model;
 	ctx.model = model;
 	ctx.hint = hint.hint;
@@ -296,8 +309,27 @@ async function runExecute(
 	body: Record<string, unknown>,
 	deps: AppDeps,
 ): Promise<Response> {
-	const sel = ctx.sel;
+	let sel = ctx.sel;
 	if (!sel) return deny(deps, ctx, 503, "no selection", "no_route", "errored");
+	// W237 prefix-affinity: a candidate bound to this packet prefix delivers
+	// first (same provider identity → provider KV cache hit). Reorders the
+	// selection only — never injects, never a must-hint, cooldown-benched
+	// rows skipped; off or bare deps → zero touch.
+	if (ctx.affKey && deps.affinity && affinityOn()) {
+		const bound = deps.affinity.probe(ctx.affKey);
+		const reordered = applyAffinity(sel, bound);
+		const applied = reordered !== sel;
+		ctx.sel = reordered;
+		sel = reordered;
+		deps.sm
+			.counter(
+				"buckle_route_affinity_total",
+				"Prefix-affinity dispatch outcomes.",
+			)
+			.inc({
+				outcome: bound === null ? "miss" : applied ? "hit" : "skip",
+			});
+	}
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
 		ts: new Date().toISOString(),
@@ -370,6 +402,9 @@ function finishResponse(
 	const winner =
 		result.kind === "upstream" ? result.candidateId : sel.head.candidate_id;
 	deps.table.recordOutcome(winner, ms, result.kind === "upstream");
+	// W237: the delivered candidate owns this prefix for the TTL window.
+	if (result.kind === "upstream" && ctx.affKey && deps.affinity && affinityOn())
+		deps.affinity.bind(ctx.affKey, result.candidateId);
 	deps.ledger.auditOutcome(ctx.rid, {
 		status: resp.status,
 		duration_ms: ms,
