@@ -111,4 +111,37 @@ describe("worktree lifecycle", () => {
 		);
 		expect(b.exitCode).toBe(0); // branch kept for integration
 	});
+
+	test("create re-checks out a surviving branch at its tip (W349 re-mint)", () => {
+		const added = work("add", "re-mint reuses the surviving branch");
+		expect(added.code).toBe(0);
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		expect(id).toBeTruthy();
+		expect(
+			run(REPO, "coord.ts", "bootstrap", "--as", "wt-lane2", "--role", "worker")
+				.code,
+		).toBe(0);
+		expect(work("take", id, "--as", "wt-lane2").code).toBe(0);
+		expect(wt("create", id).code).toBe(0);
+		const dir = join(REPO, ".worktrees", id);
+		// commit on the item branch, retire (branch survives), re-create
+		writeFileSync(join(dir, "wip2.txt"), "wip");
+		Bun.spawnSync(["git", "-C", dir, "add", "-A"], { stdout: "ignore" });
+		Bun.spawnSync(["git", "-C", dir, "commit", "-q", "-m", "wip2"], {
+			stdout: "ignore",
+		});
+		const tipBefore = Bun.spawnSync(
+			["git", "-C", REPO, "rev-parse", `suspenders/${id}`],
+			{ stdout: "pipe" },
+		).stdout.toString();
+		expect(wt("retire", id).code).toBe(0);
+		expect(existsSync(dir)).toBe(false);
+		expect(wt("create", id).code).toBe(0); // branch exists → re-checkout
+		expect(existsSync(join(dir, "wip2.txt"))).toBe(true); // tip of branch
+		const tipAfter = Bun.spawnSync(
+			["git", "-C", REPO, "rev-parse", `suspenders/${id}`],
+			{ stdout: "pipe" },
+		).stdout.toString();
+		expect(tipAfter).toBe(tipBefore); // branch untouched by re-create
+	});
 });

@@ -6,7 +6,10 @@
 // refuses to destroy a dirty one (work is never silently discarded — the
 // branch survives either way for the integration spine).
 //
-//   bun worktree.ts create <id>               # item must be CLAIMED/RUNNING
+//   bun worktree.ts create <id>               # item must be CLAIMED/RUNNING;
+//                                             # a branch surviving an earlier
+//                                             # lifecycle is re-checked out at
+//                                             # its tip (W349)
 //   bun worktree.ts retire <id> [--force]     # clean → remove; dirty → keep (exit 3)
 //   bun worktree.ts path <id>                 # print the worktree path
 //
@@ -106,13 +109,26 @@ if (cmd === "create") {
 		appendFileSync(giPath, "\n.worktrees/\n");
 	}
 
-	const r = git(["worktree", "add", "-b", branch, wtDir]);
+	// W349: the branch survives a retire (integration spine) — a re-minted
+	// item re-checks out the surviving ref at its tip instead of failing on
+	// -b; the fresh checkout IS the reset.
+	const branchExists =
+		git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).code ===
+		0;
+	const r = branchExists
+		? git(["worktree", "add", wtDir, branch])
+		: git(["worktree", "add", "-b", branch, wtDir]);
 	if (r.code !== 0) die(`git worktree add failed: ${r.out || "(stderr)"}`);
 
 	// symlink canonical gitignored build dirs so lanes skip reinstalls
 	symlinkBuildDirs(ROOT, wtDir);
 
-	emit("work.tree", id, { path: wtDir, branch });
+	emit(
+		"work.tree",
+		branchExists
+			? { path: wtDir, branch, branch_existed: "1" }
+			: { path: wtDir, branch },
+	);
 	console.log(`${wtDir}`);
 	process.exit(0);
 }
@@ -149,7 +165,7 @@ if (cmd === "retire") {
 		payload.lane_key_revoked = rk.revoked ? "1" : "0";
 	}
 	// the branch suspenders/<id> survives — integration merges from refs
-	emit("work.tree", id, payload);
+	emit("work.tree", payload);
 	console.log(
 		`retired ${wtDir} — branch ${branch} kept for integration${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
 	);
