@@ -7,6 +7,7 @@ import { db } from "./context.ts";
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
 import { transcriptAlive } from "../lib/lane-liveness.ts";
+import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import {
 	closeSync,
 	existsSync,
@@ -448,6 +449,42 @@ export function transcriptTailAll(
 		}
 	}
 	return out;
+}
+
+// W417.6 — cross-executor floor for the lane-card tail: every lane's
+// subscribe (W417.1 spawn attach) tails coord-subscribe-<sid>.log, while
+// only claude lanes have a parseable transcript. When the transcript
+// yields nothing the card falls to the lane's last coord event.
+export function subscribeTail(
+	sid: string | null | undefined,
+): { text: string; ts: string | null } | null {
+	if (!sid) return null;
+	const path = coordSubscribeLog(sid);
+	if (!existsSync(path) || statSync(path).size < 1) return null;
+	const size = statSync(path).size;
+	const start = Math.max(0, size - TAIL_BYTES);
+	const buf = Buffer.alloc(size - start);
+	try {
+		const fd = openSync(path, "r");
+		readSync(fd, buf, 0, buf.length, start);
+		closeSync(fd);
+	} catch {
+		return null;
+	}
+	const lines = buf.toString("utf8").split("\n");
+	if (start > 0) lines.shift(); // first line may be a partial record
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const text = lines[i]
+			.replace(/\u001b\[[0-9;]*m/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!text) continue;
+		return {
+			text: text.slice(0, TAIL_MAX),
+			ts: new Date(statSync(path).mtimeMs).toISOString(),
+		};
+	}
+	return null;
 }
 
 // done→ready auto-start (W50): newest work.ready event per item, keyed by

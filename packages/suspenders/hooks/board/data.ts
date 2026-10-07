@@ -21,6 +21,7 @@ import {
 	payloadOf,
 	sessionAlive,
 	transcriptTail,
+	subscribeTail,
 	unblockedBy,
 	laneModelOf,
 } from "./lanes.ts";
@@ -59,7 +60,8 @@ export function taskShape(
 		open_decisions: openDecisions,
 		tail:
 			(w.state === "DONE" ? completionTail(db, w.project, w.id) : null) ??
-			transcriptTail(w.owner_sid),
+			transcriptTail(w.owner_sid) ??
+			subscribeTail(w.owner_sid),
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
 			w.state === "READY"
