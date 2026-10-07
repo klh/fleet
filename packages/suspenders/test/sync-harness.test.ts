@@ -38,7 +38,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		mkdirSync(join(file, ".."), { recursive: true });
 		writeFileSync(file, value);
 	};
-	for (const name of ["suspenders", "belt", "local-llm", "blam"])
+	for (const name of ["suspenders", "belt", "local-llm", "blam", "buckle"])
 		put(
 			`packages/${name}/package.json`,
 			JSON.stringify({
@@ -77,6 +77,9 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		put(`packages/suspenders/hooks/${file}`, "export const value = 1;");
 	for (const file of ["dispatch-next.ts", "supervise.ts"])
 		put(`packages/suspenders/scripts/${file}`, "export const value = 1;");
+	put("packages/buckle/src/server.ts", "export const value = 1;");
+	put("packages/buckle/routing-policy.yaml", "gateway: {}");
+	put("packages/buckle/repo-policy.yaml", "repos: []");
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
 	put("packages/suspenders/deploy/services.yaml", "services: []");
 	put(
@@ -148,6 +151,16 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	);
 	expect(receipt.revision).toBe(f.git("rev-parse", "HEAD"));
 	expect(receipt.payloadSha256).toMatch(/^[0-9a-f]{64}$/);
+	expect(
+		existsSync(
+			join(f.ctx.prefix, ".harness/packages/buckle/src/server.bundle.js"),
+		),
+	).toBe(true);
+	expect(
+		statSync(
+			join(f.ctx.prefix, ".harness/packages/buckle/src/server.bundle.js"),
+		).mode & 0o222,
+	).toBe(0);
 	expect(existsSync(join(receipt.backup, "operator.env"))).toBe(true);
 	expect(readFileSync(join(f.ctx.shimBin, "dispatch"), "utf8")).toContain(
 		join(f.ctx.prefix, "scripts/dispatch-next.ts"),
@@ -372,4 +385,27 @@ exec ${quote(realGit)} "$@"
 	expect(
 		readFileSync(join(f.ctx.prefix, "scripts/lib/shared.ts"), "utf8"),
 	).toContain("value = 1");
+});
+
+test("gateway dependency import failures abort publication without executing server", async () => {
+	const f = fixture();
+	f.put(
+		"packages/buckle/src/server.ts",
+		'import "./missing.ts"; throw new Error("must not execute");',
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"reviewed broken import fixture",
+	);
+	await expect(syncHarness(f.ctx)).rejects.toThrow("Bundle failed");
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
 });

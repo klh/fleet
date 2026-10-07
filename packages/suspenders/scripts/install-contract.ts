@@ -20,6 +20,7 @@ export type StepName =
 	| "seedLocalLlm"
 	| "downloadModels"
 	| "wireSettings"
+	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
 	| "releaseNotify"
@@ -216,6 +217,11 @@ export const INSTALL_CONTRACT = {
 			flag: "--verbose",
 			meaning: "include per-step detail and resolved paths in the outcome",
 		},
+		gatewayReview: {
+			flag: "--gateway-review",
+			meaning:
+				"approve the exact staged gateway candidate SHA256 for the explicit upgradeGateway step",
+		},
 		step: {
 			flag: "--step",
 			meaning:
@@ -313,6 +319,14 @@ export const INSTALL_CONTRACT = {
 			mutates: true,
 			optIn: true,
 			v1: "stub",
+		},
+		{
+			name: "upgradeGateway",
+			oneLiner:
+				"stage or explicitly activate a reviewed immutable gateway candidate, preserving machine database state",
+			mutates: true,
+			optIn: true,
+			v1: "real",
 		},
 		{
 			name: "registerLaunchd",

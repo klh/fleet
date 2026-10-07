@@ -79,3 +79,37 @@ export function inspectActivatedDispatch(prefix: string): ActivatedDispatch {
 		};
 	}
 }
+
+/** Pin a service to its own generation even after the harness pointer advances. */
+export function inspectServiceGeneration(proof: {
+	root: string;
+	revision: string;
+	payloadSha256: string;
+}): ActivatedDispatch {
+	try {
+		if (realpathSync(proof.root) !== proof.root)
+			throw new Error("service generation path is not canonical");
+		const checked = inspectActivatedDispatch(proof.root);
+		if (checked.state !== "ok") return checked;
+		const receipt = JSON.parse(
+			readFileSync(join(proof.root, "harness-receipt.json"), "utf8"),
+		);
+		if (
+			checked.revision !== proof.revision ||
+			receipt.payloadSha256 !== proof.payloadSha256
+		)
+			return {
+				...checked,
+				state: "degraded",
+				failures: ["service generation differs from activation source proof"],
+			};
+		return checked;
+	} catch {
+		return {
+			state: "unknown",
+			revision: null,
+			root: null,
+			failures: ["service generation provenance unavailable"],
+		};
+	}
+}

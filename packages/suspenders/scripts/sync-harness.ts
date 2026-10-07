@@ -23,6 +23,10 @@ const SOURCE_PATHS = [
 	"packages/belt/bin",
 	"packages/belt/package.json",
 	"packages/buckle/upstreams.yaml",
+	"packages/buckle/routing-policy.yaml",
+	"packages/buckle/repo-policy.yaml",
+	"packages/buckle/src",
+	"packages/buckle/package.json",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
@@ -120,14 +124,12 @@ async function validate(stage: string): Promise<string> {
 	const files = [
 		...new Bun.Glob("**/*").scanSync({ cwd: payload, onlyFiles: true }),
 	];
-	const hash = new Bun.CryptoHasher("sha256");
 	for (const file of files
 		.filter((file) => !file.includes("node_modules/"))
 		.sort()) {
 		const content = readFileSync(join(payload, file));
 		if (file.endsWith(".ts") && !file.endsWith(".d.ts"))
 			transpiler.transformSync(content.toString("utf8"));
-		hash.update(file).update("\0").update(content).update("\0");
 	}
 	for (const relative of ENTRYPOINTS) {
 		const result = await Bun.build({
@@ -140,6 +142,30 @@ async function validate(stage: string): Promise<string> {
 				`Staged import graph failed (${relative}): ${result.logs.map(String).join("; ").slice(0, 1500)}`,
 			);
 	}
+	// Bundle the gateway's complete dependency graph (including vendored blam).
+	// Never execute the server while validating or publishing code.
+	const gateway = await Bun.build({
+		entrypoints: [join(payload, "packages/buckle/src/server.ts")],
+		target: "bun",
+		write: false,
+	});
+	if (!gateway.success || gateway.outputs.length !== 1)
+		throw new Error("Staged gateway import graph failed");
+	const bundle = await gateway.outputs[0].text();
+	const bundledFile = "packages/buckle/src/server.bundle.js";
+	writeFileSync(join(payload, bundledFile), bundle, { mode: 0o444 });
+	// Rehash after adding the bundled runtime artifact; archive hash alone omits it.
+	const finalHash = new Bun.CryptoHasher("sha256");
+	for (const file of [
+		...new Bun.Glob("**/*").scanSync({ cwd: payload, onlyFiles: true }),
+	]
+		.filter((file) => !file.includes("node_modules/"))
+		.sort())
+		finalHash
+			.update(file)
+			.update("\0")
+			.update(readFileSync(join(payload, file)))
+			.update("\0");
 	// This import is side-effect-free; CLI entrypoints are built, never executed.
 	for (const module of [
 		"hooks/board/prompt-transform.ts",
@@ -154,7 +180,7 @@ async function validate(stage: string): Promise<string> {
 			],
 			stage,
 		);
-	return hash.digest("hex");
+	return finalHash.digest("hex");
 }
 
 /** Code-only publication. No runtime home, service manager, model or Caddy operations. */

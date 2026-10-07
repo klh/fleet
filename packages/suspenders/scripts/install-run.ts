@@ -15,6 +15,7 @@ import {
 	type StepOutcomeRow,
 	type StepStatus,
 } from "./install-contract.ts";
+import { upgradeGateway } from "./upgrade-gateway.ts";
 import { registerLaunchd } from "./install-launchd.ts";
 import { syncHarness } from "./sync-harness.ts";
 
@@ -23,6 +24,7 @@ export interface StepContext {
 	yes: boolean;
 	json: boolean;
 	verbose: boolean;
+	gatewayReview?: string;
 	repo: string;
 	prefix: string;
 	shimBin: string;
@@ -211,6 +213,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	probeEnvironment,
 	refreshDashboards,
 	registerLaunchd,
+	upgradeGateway,
 	syncHarness,
 };
 

@@ -6,6 +6,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { inspectServiceGeneration } from "./activated-dispatch.ts";
 import { dirname } from "node:path";
 import { stableDescendant, type OwnershipDeps } from "./owned-process.ts";
 
@@ -16,6 +17,7 @@ export interface ActivationService {
 	arguments: string[];
 	resident: boolean;
 	port?: number;
+	generation?: { root: string; revision: string; payloadSha256: string };
 }
 export interface ActivationReceipt {
 	schema: "fleet.service-activation.v1";
@@ -67,6 +69,10 @@ export function readActivation(path: string): ActivationReceipt {
 			service.arguments.length === 0 ||
 			service.arguments.some((arg) => typeof arg !== "string") ||
 			typeof service.resident !== "boolean" ||
+			(service.generation !== undefined &&
+				(!service.generation.root.startsWith("/") ||
+					!/^[a-f0-9]{40}$/.test(service.generation.revision) ||
+					!/^[a-f0-9]{64}$/.test(service.generation.payloadSha256))) ||
 			(service.port !== undefined &&
 				(!Number.isInteger(service.port) ||
 					service.port < 1 ||
@@ -159,6 +165,14 @@ export function inspectServices(
 				manifestState,
 				"canonical manifest differs from receipt or cannot be inspected",
 			);
+		if (service.generation) {
+			const generation = inspectServiceGeneration(service.generation);
+			if (generation.state !== "ok")
+				return result(
+					generation.state === "degraded" ? "drift" : "unknown",
+					"activated service source integrity differs or cannot be inspected",
+				);
+		}
 		if (disabled?.code !== 0)
 			return result("unknown", "disabled state inspection failed");
 		if (disabled.out.includes(`"${service.label}" => true`))
