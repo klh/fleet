@@ -42,6 +42,15 @@ suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
 the base), admin.gui. Entra ID tenant/app values live only in stack.yaml.
 
+## Peer edges
+
+Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS
+this hub reaches directly — the start-topology graph is data, never
+hardcoded (hubctl reads it; `deploy/stack.example.yaml` shows the shape).
+First edge (W322): the nas hub declares `desktop`. The belt-remote hub
+profile mirrors its hub's edges as `federation.peers` — labels only, the
+host/port/key values stay behind the labels in stack.yaml.
+
 ## Browsing a remote hub board
 
 Boards enforce the W264 host guard: only `*.local` names + loopback pass.
