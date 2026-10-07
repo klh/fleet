@@ -136,6 +136,8 @@ kickstart gui/$(id -u)/<label>` revives
   models on :8901 (coder), :8902 (extract/menial), :8903 (reason),
   :8906 (general/Danish); the anthropic-shim :4000 is the
   Anthropic↔OpenAI seam lanes ride
+- ikea-shim :4102 — anthropic→copilot gateway (W226); interactive claude
+  CLI rides the Copilot seat via settings.json env; lanes untouched
 - belt gateway :4000 · litellm :4100 · buckle spoke :4101 (Mac), hubs
   :4101 (NAS) / :4111 (desktop) · board :7799 · store :7795 (NAS) / :7796
 - NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
