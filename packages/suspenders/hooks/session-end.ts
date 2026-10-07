@@ -10,9 +10,19 @@ import { openGovernorDb } from "./lib/govdb.ts";
 import { settleSession } from "./lib/settle.ts";
 import { retireTopLevel } from "./lib/hook-scripts.ts";
 
-const input = JSON.parse(await new Response(Bun.stdin.stream()).text()) as {
-	session_id?: string;
-};
+// W514 (claudecode research §1.8): the SessionEnd payload is tiny — race
+// the stdin read against 1 s so a detached or late-stdin invocation (async
+// wiring, dialect bridge) can never hang teardown.
+const raw = await Promise.race([
+	new Response(Bun.stdin.stream()).text(),
+	new Promise<string>((resolve) => setTimeout(() => resolve(""), 1_000)),
+]);
+let input: { session_id?: string } = {};
+try {
+	input = JSON.parse(raw) as { session_id?: string };
+} catch {
+	// empty/dead stdin: nothing to close — exit clean below
+}
 if (input.session_id) {
 	openGovernorDb()
 		.query("UPDATE sessions SET state = 'CLOSED', hb = ? WHERE sid = ?")

@@ -16,7 +16,8 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts"
+						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts",
+						"async": true
 					}
 				]
 			}
@@ -70,6 +71,16 @@
 					{
 						"type": "command",
 						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts post-files",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Bash|Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts post-fail",
 						"timeout": 10
 					}
 				]
