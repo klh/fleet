@@ -461,6 +461,14 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS cursors (sid TEXT PRIMARY KEY, event_id INTEGER NOT NULL)",
 	);
+	// W451 hub longevity: measured hot-path indexes — the bus had NO index
+	// beyond the rowid PK, so every kind/target-filtered tail read (coord
+	// events --kinds, the board's per-second /api/data scans, inbox polling)
+	// walked the whole table. EXPLAIN QUERY PLAN evidence lives in
+	// test/w451-event-indexes.test.ts (SCAN→SEARCH asserted per read shape).
+	db.run("CREATE INDEX IF NOT EXISTS events_kind_id ON events(kind, id)");
+	db.run("CREATE INDEX IF NOT EXISTS events_kind_ts ON events(kind, ts)");
+	db.run("CREATE INDEX IF NOT EXISTS events_target_id ON events(target, id)");
 	// work graph: hierarchical, claimable, shatterable work items (bin/work.ts).
 	// project = repo root realpath — partitions the graph per project so
 	// sessions in different repos never see (or steal) each other's work.
@@ -929,6 +937,7 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS aid_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, sid TEXT, work_item TEXT, aid TEXT NOT NULL, packet_id TEXT, tokens_injected INTEGER NOT NULL DEFAULT 0, est_tok_saved INTEGER)",
 	);
+	db.run("CREATE INDEX IF NOT EXISTS aid_events_ts ON aid_events(ts)"); // W451: aids window scans + usage ROI join
 	db.run(
 		"CREATE TABLE IF NOT EXISTS aid_rollup (hour_bucket INTEGER NOT NULL, aid TEXT NOT NULL, domain TEXT NOT NULL, model_group TEXT NOT NULL, injected INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, tok_injected INTEGER NOT NULL DEFAULT 0, est_tok_saved INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour_bucket, aid, domain, model_group))",
 	);
@@ -942,6 +951,7 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS auth_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT, event TEXT NOT NULL, jti TEXT, via TEXT)",
 	);
+	db.run("CREATE INDEX IF NOT EXISTS auth_events_ts ON auth_events(ts)"); // W451: retention window DELETEs
 	// admin_audit (W174): the who/when trail for admin mutations the deltas
 	// log alone cannot attribute — console settings applies, policy edits,
 	// key revocations. actor = the human/lane that DROVE the action (the
