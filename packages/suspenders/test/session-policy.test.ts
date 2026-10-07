@@ -18,6 +18,12 @@ import {
 	evaluateSessionPolicy,
 	policyAuthority,
 } from "../hooks/lib/session-policy.ts";
+import {
+	proposeRemediation,
+	decideRemediation,
+	getRemediationById,
+} from "../hooks/lib/policy-workflow/store.ts";
+import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const fixture = await boardFixture(0, afterAll);
@@ -31,6 +37,9 @@ const rows = [
 		check: [{ grep: "server.ts", pattern: "/health|/status" }],
 		missingQuestion: "This service lacks a health endpoint. Implement one?",
 		policySource: "operator:service-health-v1",
+		serviceId: "orders-api",
+		policyId: "corp.api.independent-health",
+		orgId: "org1",
 	},
 ];
 writeFileSync(
@@ -411,4 +420,45 @@ test("oversized files and pathological regex cannot claim a missing endpoint", a
 			1,
 		),
 	).rejects.toThrow("timed out");
+});
+
+test("an approved scoped exception suppresses the per-session decision until it expires", async () => {
+	// baseline: a fresh session still gets its own decision event
+	await checkSessionPolicies({ ...options, sid: "exc-baseline" });
+	const n = (sid: string): { n: number } =>
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+			)
+			.get(sid) as { n: number };
+	expect(n("exc-baseline")).toEqual({ n: 1 });
+	// the org grants a scoped exception through the policy workflow (the
+	// same governor.db the session check reads)
+	const created = proposeRemediation(db, {
+		project: fixture.REPO,
+		orgId: "org1",
+		serviceId: "orders-api",
+		policyId: HEALTH_POLICY_ID,
+		proposal: { observedGap: "health endpoints missing" },
+	});
+	const hash =
+		getRemediationById(db, fixture.REPO, created.id)?.proposalHash ?? "";
+	decideRemediation(db, {
+		project: fixture.REPO,
+		remediationId: created.id,
+		action: "exception",
+		actor: "corp",
+		proposalHash: hash,
+		exceptionExpiresAt: Date.now() + 60_000,
+	});
+	// a fresh session while the waiver is live: suppressed with an honest
+	// note — no new decision event
+	const notes = await checkSessionPolicies({ ...options, sid: "exc-live" });
+	expect(notes).toHaveLength(1);
+	expect(notes[0]).toContain("POLICY EXCEPTION active");
+	expect(n("exc-live")).toEqual({ n: 0 });
+	// the waiver expires → the reminder loop resumes for the next session
+	db.query("UPDATE policy_decisions SET expires_at = ?").run(Date.now() - 1);
+	await checkSessionPolicies({ ...options, sid: "exc-resumed" });
+	expect(n("exc-resumed")).toEqual({ n: 1 });
 });

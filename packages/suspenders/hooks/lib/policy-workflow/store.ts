@@ -13,6 +13,7 @@ import {
 	type AssessmentRecord,
 	type AssessmentState,
 	type AttestationRecord,
+	type DecisionRecord,
 	type AttestationState,
 	type DecisionAction,
 	type RemediationRecord,
@@ -62,6 +63,15 @@ function schema(db: Database): void {
 		verified_at INTEGER, expires_at INTEGER,
 		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 		PRIMARY KEY (project, id))`);
+	// W539 — the ONE authorized remediation work item: concurrent approvers
+	// replay the same digest and all read back the same graph id.
+	const remCols = (
+		db.query("PRAGMA table_info(policy_remediations)").all() as {
+			name: string;
+		}[]
+	).map((c) => c.name);
+	if (!remCols.includes("work_id"))
+		db.run("ALTER TABLE policy_remediations ADD COLUMN work_id TEXT");
 }
 
 export function canonicalHash(value: unknown): string {
@@ -346,6 +356,7 @@ function getRemediation(
 		state: r.state as RemediationState,
 		claimedBy: (r.claimed_by as string | null) ?? null,
 		decisionRef: (r.decision_ref as string | null) ?? null,
+		workId: (r.work_id as string | null) ?? null,
 		createdAt: r.created_at as number,
 		updatedAt: r.updated_at as number,
 	};
@@ -593,5 +604,160 @@ export function expireAttestations(db: Database, now = Date.now()): number {
 			});
 		}
 		return rows.length;
+	})();
+}
+
+/** The active scoped exception for an org/service/policy triple: an
+ *  unexpired approved waiver. null = no exception — the session reminder
+ *  loop keeps prompting. */
+export function activeException(
+	db: Database,
+	key: AssessmentKey,
+	now = Date.now(),
+): DecisionRecord | null {
+	schema(db);
+	const row = db
+		.query(
+			"SELECT d.* FROM policy_decisions d JOIN policy_remediations r" +
+				" ON r.project = d.project AND r.id = d.remediation_id" +
+				" WHERE d.project = ? AND r.org_id = ? AND r.service_id = ?" +
+				" AND r.policy_id = ? AND d.action = 'exception'" +
+				" AND (d.expires_at IS NULL OR d.expires_at > ?)" +
+				" ORDER BY d.decided_at DESC LIMIT 1",
+		)
+		.get(key.project, key.orgId, key.serviceId, key.policyId, now) as Record<
+		string,
+		unknown
+	> | null;
+	if (!row) return null;
+	return {
+		project: row.project as string,
+		id: row.id as string,
+		remediationId: row.remediation_id as string,
+		action: row.action as DecisionAction,
+		actor: row.actor as string,
+		proposalHash: row.proposal_hash as string,
+		expiresAt: (row.expires_at as number | null) ?? null,
+		decidedAt: row.decided_at as number,
+	};
+}
+
+function mintRemediationWorkItem(
+	db: Database,
+	rem: RemediationRecord,
+	actor: string,
+	priority: number,
+	now: number,
+): string {
+	db.query(
+		"INSERT INTO work_sequences (project, next_id)" +
+			" SELECT ?, COALESCE(MAX(CAST(SUBSTR(id, 2) AS INTEGER)), 0) + 1" +
+			" FROM work_items WHERE project = ? AND id GLOB 'W[0-9]*'" +
+			" AND id NOT LIKE '%.%'" +
+			" ON CONFLICT(project) DO UPDATE SET next_id = next_id + 1",
+	).run(rem.project, rem.project);
+	const nextId = (
+		db.query("SELECT next_id FROM work_sequences WHERE project = ?").get(
+			rem.project,
+		) as { next_id: number }
+	).next_id;
+	const workId = `W${nextId}`;
+	db.query(
+		"INSERT INTO work_items (id, parent_id, title, state, priority," +
+			" created_by, scope, why_parallel, project, required, requires," +
+			" tags, created_at, updated_at, description)" +
+			" VALUES (?, NULL, ?, 'READY', ?, ?, ?, NULL, ?, 1, NULL, NULL, ?, ?, ?)",
+	).run(
+		workId,
+		`remediation ${rem.id}: ${rem.serviceId} — independent health reporter`,
+		priority,
+		actor,
+		`policy/${rem.orgServicePolicyKey}`,
+		rem.project,
+		now,
+		now,
+		JSON.stringify({
+			remediationId: rem.id,
+			proposalHash: rem.proposalHash,
+			orgId: rem.orgId,
+			serviceId: rem.serviceId,
+			policyId: rem.policyId,
+			proposal: JSON.parse(rem.proposal) as unknown,
+			landing: [
+				"spec",
+				"tests",
+				"commit",
+				"deploy evidence",
+				`attest: policy-workflow attest ${rem.serviceId} --instance <id> --verify --evidence <json>`,
+			],
+		}),
+	);
+	return workId;
+}
+
+/** Approval → the ONE authorized remediation work item. Concurrent
+ *  approvals replay the same digest; the one-time decision + the work_id
+ *  backfill make the mint exact-once inside one transaction, so the second
+ *  approver reads back the SAME work id — never a duplicate lane. An approve
+ *  decided earlier by plain `decide approve` completes here. */
+export function authorizeRemediation(
+	db: Database,
+	input: {
+		project: string;
+		remediationId: string;
+		actor: string;
+		proposalHash: string;
+		priority?: number;
+	},
+	now = Date.now(),
+): { ok: boolean; reason?: string; workId?: string; created?: boolean } {
+	schema(db);
+	return db.transaction(() => {
+		const rem = getRemediation(db, input.project, input.remediationId);
+		if (!rem) return { ok: false, reason: "unknown remediation" };
+		if (rem.proposalHash !== input.proposalHash)
+			return {
+				ok: false,
+				reason: `proposal hash mismatch: decision binds to ${rem.proposalHash}`,
+			};
+		if (rem.workId) return { ok: true, workId: rem.workId, created: false };
+		const decided = db
+			.query(
+				"SELECT id FROM policy_decisions WHERE project = ? AND remediation_id = ? AND action = 'approve'",
+			)
+			.get(input.project, input.remediationId) as {
+			id: string;
+		} | null;
+		const decisionId = decided?.id ?? `PD-${randomUUID().slice(0, 8)}`;
+		if (!decided) {
+			db.query(
+				"INSERT INTO policy_decisions (project, id, remediation_id, action, actor, proposal_hash, decided_at)" +
+					" VALUES (?, ?, ?, 'approve', ?, ?, ?)",
+			).run(
+				input.project,
+				decisionId,
+				input.remediationId,
+				input.actor,
+				input.proposalHash,
+				now,
+			);
+		}
+		const workId = mintRemediationWorkItem(
+			db,
+			rem,
+			input.actor,
+			input.priority ?? 2,
+			now,
+		);
+		db.query(
+			"UPDATE policy_remediations SET work_id = ?, state = 'approved', decision_ref = ?, updated_at = ? WHERE project = ? AND id = ?",
+		).run(workId, decisionId, now, input.project, input.remediationId);
+		emit(db, now, "policy.authorized", rem.serviceId, {
+			id: rem.id,
+			workId,
+			proposalHash: rem.proposalHash,
+			actor: input.actor,
+		});
+		return { ok: true, workId, created: true };
 	})();
 }

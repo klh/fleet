@@ -22,6 +22,9 @@ export interface HealthDeploymentInput {
 	reporterSupervision: "independent" | "shared" | "none";
 	/** what central monitoring evaluates: the reporter's verdict or API liveness */
 	monitoringWiring: "reporter-verdict" | "api-liveness" | "none";
+	/** evidence-revision token over the assessed source tree ("<sha>:<dirty|clean>"
+	 *  or "unknown") — a changed tree invalidates the recorded evidence. */
+	sourceRevision?: string;
 }
 
 export interface HealthAssessment {
@@ -94,6 +97,7 @@ export function healthInputsHash(input: HealthDeploymentInput): string {
 				roles: [...input.roles].sort(),
 				reporterSupervision: input.reporterSupervision,
 				monitoringWiring: input.monitoringWiring,
+				sourceRevision: input.sourceRevision ?? "unknown",
 			}),
 		)
 		.digest("hex")
