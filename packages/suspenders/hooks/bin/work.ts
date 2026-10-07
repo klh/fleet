@@ -57,6 +57,7 @@ import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
+import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -714,8 +715,11 @@ function releaseClaim(
 // by done and cancel): clean → removed, dirty → kept with a note (work is
 // never silently discarded); branch suspenders/<id> always survives
 function retireItemWorktree(id: string): void {
-	const wtDir = `${PROJECT.slice(0, -4)}.worktrees/${id}`;
-	if (!existsSync(wtDir)) return;
+	// W211: resolve from git's registry by branch, never a derived path — the
+	// old PROJECT.slice(0, -4) guess silently skipped the retire whenever the
+	// tree stood outside .worktrees/ or the identity wasn't <root>/.git
+	const wtDir = resolveItemWorktree(projectRootOf(PROJECT), id);
+	if (!wtDir) return;
 	const w = Bun.spawnSync(
 		[
 			process.execPath,

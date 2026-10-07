@@ -25,6 +25,7 @@ import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
+import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 
 const [cmd, id, ...flags] = process.argv.slice(2);
@@ -41,7 +42,9 @@ if (!cmd || (!id && cmd !== "sweep")) {
 const RP = resolveProject();
 const PROJECT = RP.id;
 const ROOT = RP.root;
-const wtDir = id ? join(ROOT, ".worktrees", id) : "";
+// W211: resolve the item's tree from git's registry by branch, falling back
+// to the conventional .worktrees/<id> — never derive-and-pray
+const wtDir = id ? resolveItemWorktree(ROOT, id) : null;
 const branch = id ? `suspenders/${id}` : "";
 
 // Retiring a migrated item must still revoke the key of its retire/sweep path.
@@ -113,7 +116,10 @@ if (cmd === "create") {
 		die(
 			`${id} is ${it.state} — a worktree follows a live claim (work take first)`,
 		);
-	if (existsSync(wtDir)) die(`${wtDir} already exists — retire it first`);
+	if (wtDir)
+		die(
+			`${wtDir} already exists — retire it first (W211: registry-resolved, any path)`,
+		);
 
 	// keep the isolation dir itself out of every checkout
 	const giPath = join(ROOT, ".gitignore");
@@ -126,14 +132,17 @@ if (cmd === "create") {
 		appendFileSync(giPath, "\n.worktrees/\n");
 	}
 
-	const r = git(["worktree", "add", "-b", branch, wtDir]);
+	// W211: a new tree always plants at the conventional .worktrees/<id> —
+	// resolution is registry-first, planting stays conventional
+	const target = join(ROOT, ".worktrees", id);
+	const r = git(["worktree", "add", "-b", branch, target]);
 	if (r.code !== 0) die(`git worktree add failed: ${r.out || "(stderr)"}`);
 
 	// symlink canonical gitignored build dirs so lanes skip reinstalls
-	symlinkBuildDirs(ROOT, wtDir);
+	symlinkBuildDirs(ROOT, target);
 
-	emit(id, "work.tree", { path: wtDir, branch });
-	console.log(`${wtDir}`);
+	emit(id, "work.tree", { path: target, branch });
+	console.log(`${target}`);
 	process.exit(0);
 }
 
@@ -143,7 +152,7 @@ if (cmd === "retire") {
 	// below keeps a POSSIBLY-LIVE lane's key (exit 3 = the lane may still be
 	// running); exit 4 (the W123 liveness guard below) keeps it too — the
 	// clean exits retire it and delete the per-lane files.
-	if (!existsSync(wtDir) || !existsSync(join(wtDir, ".git"))) {
+	if (!wtDir || !existsSync(join(wtDir, ".git"))) {
 		console.log(`no worktree for ${id}`);
 		const rk = await retireItemKey(id);
 		if (rk.keyId)
@@ -191,7 +200,7 @@ if (cmd === "retire") {
 
 // ─── path ───
 if (cmd === "path") {
-	console.log(wtDir);
+	console.log(wtDir ?? join(ROOT, ".worktrees", id));
 	process.exit(0);
 }
 
