@@ -26,6 +26,7 @@ import {
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { observation } from "../lib/observation.ts";
+import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
 
@@ -34,6 +35,10 @@ export function taskShape(
 	openDecisions: number,
 	unblocked: Map<string, string | null> = new Map(),
 ): Record<string, unknown> {
+	// W517 — .prefer tree identity: the stamped tag wins, live resolve
+	// covers rows added before coverage; color is a tree attribute, always
+	// live (TTL-cached per project in prefer.ts)
+	const pref = preferForProject(w.project);
 	return {
 		project: w.project,
 		id: w.id,
@@ -45,6 +50,8 @@ export function taskShape(
 		// the kanban card + drawer template both render t.origin; the feed
 		// never carried it, so delegation provenance was invisible in the GUI
 		origin: w.origin ?? null,
+		tag: w.tags ?? pref.tag,
+		tag_color: pref.color,
 		requires: w.requires ?? null,
 		scope: w.scope ?? null,
 		parent_id: w.parent_id ?? null,
