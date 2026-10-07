@@ -11,12 +11,16 @@
 //   bun worktree.ts retire <id> [--force]     # clean+idle → remove; dirty → keep (exit 3);
 //                                             # clean but live lane inside → keep (exit 4)
 //   bun worktree.ts path <id>                 # print the worktree path
+//   bun worktree.ts sweep [--main <b>] [--dry-run]  # W494.2.2 supported sweep:
+//                                             # patch-id cherry vs main; dirty/
+//                                             # live/claimed/young kept; unmerged
+//                                             # trees stay with a NEED_DECISION
 //
 // The path is DERIVED (no schema change): .worktrees/<id> existing = the item
 // has a worktree. `work done` calls retire automatically.
 
-import { existsSync, readFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, appendFileSync, statSync } from "node:fs";
+import { join, basename } from "node:path";
 import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
@@ -26,8 +30,9 @@ import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 const [cmd, id, ...flags] = process.argv.slice(2);
 const FORCE = flags.includes("--force");
 
-if (!cmd || !id) {
+if (!cmd || (!id && cmd !== "sweep")) {
 	console.log("usage: worktree.ts {create|retire|path} <id> [--force]");
+	console.log("       worktree.ts sweep [--main <branch>] [--dry-run]");
 	process.exit(2);
 }
 
@@ -36,11 +41,11 @@ if (!cmd || !id) {
 const RP = resolveProject();
 const PROJECT = RP.id;
 const ROOT = RP.root;
-const wtDir = join(ROOT, ".worktrees", id);
-const branch = `suspenders/${id}`;
+const wtDir = id ? join(ROOT, ".worktrees", id) : "";
+const branch = id ? `suspenders/${id}` : "";
 
-// Retiring a migrated item must still revoke the key of its recorded lane.
-async function retireItemKey() {
+// Retiring a migrated item must still revoke the key of its retire/sweep path.
+async function retireItemKey(id: string) {
 	const sids = new Set([laneSid(id, PROJECT), laneSid(id)]);
 	try {
 		const rows = JSON.parse(
@@ -56,12 +61,19 @@ async function retireItemKey() {
 	return result as Awaited<ReturnType<typeof retireLaneKey>>;
 }
 
-const git = (args: string[], cwd = ROOT): { out: string; code: number } => {
+const git = (
+	args: string[],
+	cwd = ROOT,
+): { out: string; code: number; err: string } => {
 	const p = Bun.spawnSync(["/usr/bin/git", "-C", cwd, ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-	return { out: p.stdout.toString().trim(), code: p.exitCode };
+	return {
+		out: p.stdout.toString().trim(),
+		err: p.stderr.toString().trim(),
+		code: p.exitCode,
+	};
 };
 
 const die = (msg: string, code = 1): never => {
@@ -69,19 +81,21 @@ const die = (msg: string, code = 1): never => {
 	process.exit(code);
 };
 
-const emit = (kind: string, extra: Record<string, string>): void => {
+const emit = (
+	wid: string,
+	kind: string,
+	extra: Record<string, string>,
+): void => {
 	try {
 		openGovernorDb()
 			.query(
-				"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'worktree', ?, ?, ?, NULL)",
 			)
 			.run(
 				Date.now(),
-				"worktree",
 				kind,
-				JSON.stringify({ work: id, project: PROJECT, ...extra }),
-				PROJECT,
-				id,
+				wid,
+				JSON.stringify({ work: wid, project: PROJECT, ...extra }),
 			);
 	} catch {
 		// bus unavailable (offline mirror fallback) — worktree still works
@@ -118,7 +132,7 @@ if (cmd === "create") {
 	// symlink canonical gitignored build dirs so lanes skip reinstalls
 	symlinkBuildDirs(ROOT, wtDir);
 
-	emit("work.tree", id, { path: wtDir, branch });
+	emit(id, "work.tree", { path: wtDir, branch });
 	console.log(`${wtDir}`);
 	process.exit(0);
 }
@@ -131,7 +145,7 @@ if (cmd === "retire") {
 	// clean exits retire it and delete the per-lane files.
 	if (!existsSync(wtDir) || !existsSync(join(wtDir, ".git"))) {
 		console.log(`no worktree for ${id}`);
-		const rk = await retireItemKey();
+		const rk = await retireItemKey(id);
 		if (rk.keyId)
 			console.log(
 				`lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed — 24h TTL bounds it"}`,
@@ -151,7 +165,7 @@ if (cmd === "retire") {
 	// keeps it; --force overrides, like dirty. Exit 4 = clean-but-live; dirty
 	// stays exit 3.
 	if (!dirty && !FORCE && worktreeLive(wtDir)) {
-		emit("work.tree", id, { kept: "live-lane", path: wtDir, branch });
+		emit(id, "work.tree", { kept: "live-lane", path: wtDir, branch });
 		console.error(
 			`${wtDir} has a live lane inside — keeping it (liveness guard; --force to override)`,
 		);
@@ -161,14 +175,14 @@ if (cmd === "retire") {
 	if (r.code !== 0) die(`git worktree remove failed: ${r.out}`);
 	// W463: terminal lane state — revoke the key, delete the per-lane files
 	// (0600 key meta + the settings file); the key id rides the event for audit.
-	const rk = await retireItemKey();
+	const rk = await retireItemKey(id);
 	const payload: Record<string, string> = { retired: "1", path: wtDir, branch };
 	if (rk.keyId) {
 		payload.lane_key_id = rk.keyId;
 		payload.lane_key_revoked = rk.revoked ? "1" : "0";
 	}
 	// the branch suspenders/<id> survives — integration merges from refs
-	emit("work.tree", id, payload);
+	emit(id, "work.tree", payload);
 	console.log(
 		`retired ${wtDir} — branch ${branch} kept for integration${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
 	);
@@ -178,6 +192,162 @@ if (cmd === "retire") {
 // ─── path ───
 if (cmd === "path") {
 	console.log(wtDir);
+	process.exit(0);
+}
+
+// ─── sweep ───
+// W494.2.2: the supported sweep. 2026-10-06: 14 worktrees of DONE items
+// stood after a crash skipped their retire — 8 ghost lanes filled the
+// dispatch pool and fleet-loop dispatched nothing for hours. The merge test
+// is PATCH-ID cherry vs the main branch, never ancestry (amend-era rewrites
+// make ancestry lie — a non-ancestor branch can be fully EQUIV). Guards keep
+// anything that can still be work: dirty → live lane → live claim → young
+// (mid-spawn grace), then the merge verdict. Unmerged trees stay with a
+// NEED_DECISION; swept branches pin a refs/recover/* tip before removal.
+// --dry-run previews the verdicts without writing anything.
+if (cmd === "sweep") {
+	// args, counters, the graph handle
+	const mi = flags.indexOf("--main");
+	const MAIN = mi >= 0 ? (flags[mi + 1] ?? "main") : "main";
+	const DRY = flags.includes("--dry-run");
+	const GRACE = Number(process.env.WORKTREE_SWEEP_GRACE_MS ?? 600_000);
+	const kept = (wid: string, reason: string): void => {
+		console.log(`KEPT ${wid} — ${reason}`);
+	};
+	let swept = 0;
+	let unmerged = 0;
+	let considered = 0;
+	let would = 0;
+	const db = openGovernorDb();
+	// porcelain is ground truth: worktree <path> + optional branch <ref>
+	const entries: { path: string; branch: string | null }[] = [];
+	let cur: { path: string; branch: string | null } | null = null;
+	for (const line of git(["worktree", "list", "--porcelain"]).out.split("\n")) {
+		if (line.startsWith("worktree ")) {
+			cur = { path: line.slice("worktree ".length), branch: null };
+			entries.push(cur);
+		} else if (line.startsWith("branch ") && cur)
+			cur.branch = line
+				.slice("branch ".length)
+				.trim()
+				.replace(/^refs\/heads\//, "");
+	}
+	for (const e of entries) {
+		const wid = basename(e.path) || e.path;
+		if (e.path === ROOT) continue; // the main checkout itself
+		if (!e.branch) {
+			kept(wid, "detached HEAD");
+			considered++;
+			continue;
+		}
+		// loop-local: the module-level `branch` is suspenders/<argv-id> — for
+		// sweep there IS no id, so it must never leak into this verdict
+		const br = e.branch;
+		const dirty = git(["status", "--porcelain"], e.path).out;
+		if (dirty !== "") {
+			// name the first dirt line — a sweep that says only "dirty" sends
+			// the operator spelunking; the evidence belongs in the verdict
+			kept(
+				wid,
+				`dirty — work is never silently discarded (${(dirty.split("\n")[0] ?? "").slice(0, 60)})`,
+			);
+			considered++;
+			continue;
+		}
+		if (worktreeLive(e.path)) {
+			kept(wid, "live lane inside — liveness guard");
+			considered++;
+			continue;
+		}
+		const it = db
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(PROJECT, wid) as { state: string } | null;
+		if (it && ["CLAIMED", "RUNNING"].includes(it.state)) {
+			kept(wid, `claim live (${it.state})`);
+			considered++;
+			continue;
+		}
+		// mid-spawn grace: a seconds-old tree is the pre-spawn window, not
+		// debris (gaps 2026-09-28 doctrine) — WORKTREE_SWEEP_GRACE_MS=0 ages
+		// everything for tests and scripted cleanup
+		try {
+			if (Date.now() - statSync(e.path).birthtimeMs < GRACE) {
+				kept(wid, "young — mid-spawn grace");
+				considered++;
+				continue;
+			}
+		} catch {}
+		// merge verdict: PATCH-ID cherry vs MAIN. "-" = an equivalent patch
+		// landed in MAIN; "+" = nothing matches. A FAILED cherry reads
+		// unmerged, never merged (gaps 2026-09-28: failed probes read UNMERGED)
+		const ch = git(["cherry", MAIN, br]);
+		const lines = ch.code === 0 ? ch.out.split("\n").filter(Boolean) : ["+"];
+		const plus = lines.filter((l) => l.startsWith("+"));
+		if (plus.length > 0) {
+			unmerged++;
+			kept(
+				wid,
+				`${plus.length} patch(es) not in ${MAIN} — NEED_DECISION emitted [${ch.err || `cherry exit ${ch.code}`}]`,
+			);
+			if (!DRY)
+				emit(wid, "NEED_DECISION", {
+					branch: br,
+					ahead: String(plus.length),
+					note: `worktree ${e.path} holds ${plus.length} commit(s) with no patch-id equivalent in ${MAIN} — keep for inspection or force-delete?`,
+				});
+			continue;
+		}
+		const equiv = lines.length > 0; // all "-": non-ancestor but fully EQUIV
+		if (DRY) {
+			would++;
+			console.log(
+				`WOULD-SWEPT ${wid} — ${equiv ? "patch-equiv" : "ancestry-merged"}`,
+			);
+			continue;
+		}
+		// REFERENCE BEFORE DELETE (gaps 2026-09-28): pin the tip before any
+		// destructive step so no -D can orphan the commits
+		const tip = git(["rev-parse", "--verify", br]).out;
+		if (tip)
+			git([
+				"update-ref",
+				`refs/recover/${br.replace(/\//g, "-")}-${Date.now()}`,
+				tip,
+			]);
+		let rm = git(["worktree", "remove", e.path]);
+		if (rm.code !== 0) {
+			// stale registration outlived a dead lane — prune and retry once
+			git(["worktree", "prune"]);
+			rm = git(["worktree", "remove", e.path]);
+			if (rm.code !== 0) {
+				kept(
+					wid,
+					`worktree remove failed: ${rm.out.split("\n").at(-1) ?? "?"}`,
+				);
+				considered++;
+				continue;
+			}
+		}
+		// -d refuses non-ancestor branches; patch-equivalence just proved the
+		// content is in MAIN, so -D is the honest verb there
+		const delD = git(["branch", "-d", br]);
+		let via: string | null = delD.code === 0 ? "-d" : null;
+		if (!via && equiv) via = git(["branch", "-D", br]).code === 0 ? "-D" : null;
+		if (!via) {
+			kept(wid, `branch delete failed: ${delD.out.split("\n").at(-1) ?? "?"}`);
+			considered++;
+			continue;
+		}
+		swept++;
+		emit(wid, "work.tree", { swept: "1", path: e.path, branch: br, via });
+		const rk = await retireItemKey(wid);
+		console.log(
+			`SWEPT ${wid} — ${equiv ? "patch-equiv" : "ancestry-merged"} (${via})${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
+		);
+	}
+	console.log(
+		`sweep: ${DRY ? "would-sweep" : "swept"}=${DRY ? would : swept} unmerged=${unmerged} kept=${considered}`,
+	);
 	process.exit(0);
 }
 

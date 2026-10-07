@@ -4,6 +4,7 @@
 // process.cwd() (a /tmp checkout would test nothing — the bash gate exempts
 // /tmp paths by design).
 import { describe, test, expect, afterAll } from "bun:test";
+import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,
 	rmSync,
@@ -12,6 +13,7 @@ import {
 	writeFileSync,
 	mkdirSync,
 	cpSync,
+	appendFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +21,7 @@ import { join } from "node:path";
 const HOME = mkdtempSync(join(tmpdir(), "claude-worktree-home-"));
 const gitInit = (dir: string): void => {
 	mkdirSync(dir, { recursive: true });
-	const r = Bun.spawnSync(["git", "init", "-q", dir], {
+	Bun.spawnSync(["git", "init", "-q", dir], {
 		stdout: "ignore",
 		stderr: "ignore",
 	});
@@ -130,10 +132,13 @@ describe("worktree lifecycle", () => {
 			stdout: "ignore",
 			stderr: "ignore",
 		});
-		Bun.spawnSync(["git", "-C", dir, "commit", "-q", "-m", "w", "--allow-empty"], {
-			stdout: "ignore",
-			stderr: "ignore",
-		});
+		Bun.spawnSync(
+			["git", "-C", dir, "commit", "-q", "-m", "w", "--allow-empty"],
+			{
+				stdout: "ignore",
+				stderr: "ignore",
+			},
+		);
 
 		// fake a live lane: the binary name is the harness contract (ps args
 		// match), so a copy of /bin/sleep named "codex" with cwd in the tree
@@ -169,5 +174,137 @@ describe("worktree lifecycle", () => {
 		}
 		expect(r2?.code).toBe(0);
 		expect(existsSync(dir)).toBe(false);
+	});
+});
+// ─── W494.2.2 — supported sweep ───
+describe("worktree sweep (W494.2.2)", () => {
+	const sweep = (
+		...args: string[]
+	): { out: string; err: string; code: number } => {
+		const p = Bun.spawnSync(["bun", join(BIN, "worktree.ts"), ...args], {
+			cwd: REPO,
+			env: { ...env, WORKTREE_SWEEP_GRACE_MS: "0" },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return {
+			out: p.stdout.toString(),
+			err: p.stderr.toString(),
+			code: p.exitCode,
+		};
+	};
+	const gc = (args: string[]): { out: string; err: string; code: number } => {
+		const p = Bun.spawnSync(["git", "-C", REPO, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (p.exitCode !== 0)
+			console.error(
+				`git ${args.join(" ")} → ${p.exitCode}: ${p.stderr.toString().trim()}`,
+			);
+		return {
+			out: p.stdout.toString().trim(),
+			err: p.stderr.toString().trim(),
+			code: p.exitCode,
+		};
+	};
+	// mint an item + session + worktree; returns the ids the sweep reads
+	const mintTree = (title: string): { id: string; dir: string } => {
+		const added = work("add", title);
+		expect(added.code).toBe(0);
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		expect(id).toBeTruthy();
+		const sid = `sw-${id}`;
+		expect(
+			run(REPO, "coord.ts", "bootstrap", "--as", sid, "--role", "worker").code,
+		).toBe(0);
+		expect(work("take", id, "--as", sid).code).toBe(0);
+		expect(sweep("create", id).code).toBe(0);
+		// fresh trees read clean — node_modules is ignored (above), so no
+		// typechange dirt; a --allow-empty commit would ADD a patch-id main
+		// lacks and read unmerged in cherry
+		return { id, dir: join(REPO, ".worktrees", id) };
+	};
+	// lazy: HEAD is unborn at module load — the init commit lands in test 1
+	const MAIN = (): string => gc(["rev-parse", "--abbrev-ref", "HEAD"]).out;
+	// node_modules must be ignored BEFORE any tree is minted — the first
+	// describe commits it (tracked), and a tracked node_modules defeats the
+	// symlink hygiene symlinkBuildDirs assumes
+	appendFileSync(join(REPO, ".gitignore"), "node_modules\n");
+	test("patch-equiv DONE worktree is swept: patch-id cherry vs main, -D after -d refuses, recovery ref pinned", () => {
+		const { id, dir } = mintTree("sweep equiv");
+		// one commit on the branch: feat.ts ONLY (a bare `add -A` would stage
+		// the node_modules typechange and conflict the cherry-pick)
+		writeFileSync(join(dir, "feat.ts"), "export const x = 1;\n");
+		expect(gc(["-C", dir, "add", "feat.ts"]).code).toBe(0);
+		expect(gc(["-C", dir, "commit", "-m", "feat"]).code).toBe(0);
+		const tip = gc(["-C", dir, "rev-parse", "HEAD"]).out;
+		// land the SAME patch on main via cherry-pick → patch-id equiv, non-ancestor
+		// (REPO must be clean: wt create appended .worktrees/ to .gitignore)
+		expect(gc(["-C", REPO, "add", "-A"]).code).toBe(0);
+		expect(gc(["-C", REPO, "commit", "-m", "gitignore"]).code).toBe(0);
+		expect(gc(["-C", REPO, "cherry-pick", tip]).code).toBe(0);
+		// dirty-keep trick: done with junk present → retire exits 3 and keeps
+		// the tree; item lands DONE with its worktree still standing (the
+		// 2026-10-06 incident state this sweep exists for)
+		writeFileSync(join(dir, "junk.txt"), "junk");
+		expect(work("done", id, "--sha", tip).code).toBe(0);
+		expect(existsSync(dir)).toBe(true);
+		rmSync(join(dir, "junk.txt")); // clean again — only debris ever blocked retire
+		const s = sweep("sweep", "--main", MAIN());
+		expect(s.code).toBe(0);
+		expect(
+			s.out,
+			`sweep err: ${s.err} — main=${MAIN()} cherry=[${gc(["cherry", MAIN(), `suspenders/${id}`]).out}]`,
+		).toContain(`SWEPT ${id}`);
+		expect(s.out).toContain("patch-equiv");
+		expect(existsSync(dir)).toBe(false);
+		// branch deleted — only -D could, the branch is non-ancestor
+		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).not.toBe(0);
+		// recovery ref pinned before the delete (REFERENCE BEFORE DELETE)
+		const rec = gc(["for-each-ref", "refs/recover", "--format=%(refname)"]).out;
+		expect(rec).toContain(`suspenders-${id}-`);
+		// work.tree swept event rides the bus
+		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+		const ev = db
+			.query(
+				"SELECT payload FROM events WHERE kind = 'work.tree' AND scope = ? AND payload LIKE '%swept%'",
+			)
+			.get(id);
+		expect(ev).toBeTruthy();
+		db.close();
+	});
+	test("unmerged DONE worktree stays with a NEED_DECISION; live claim keeps even a patch-equiv tree", () => {
+		const { id, dir } = mintTree("sweep unmerged");
+		writeFileSync(join(dir, "orphan.ts"), "export const y = 2;\n");
+		expect(gc(["-C", dir, "add", "-A"]).code).toBe(0);
+		expect(gc(["-C", dir, "commit", "-m", "orphan"]).code).toBe(0);
+		const tip = gc(["-C", dir, "rev-parse", "HEAD"]).out;
+		// dirty-keep trick again: item lands DONE, tree stays standing
+		writeFileSync(join(dir, "junk.txt"), "junk");
+		expect(work("done", id, "--sha", tip).code).toBe(0);
+		rmSync(join(dir, "junk.txt"));
+		const s = sweep("sweep", "--main", MAIN());
+		expect(s.code).toBe(0);
+		expect(s.out).toContain(`KEPT ${id}`);
+		expect(s.out).toContain("NEED_DECISION emitted");
+		expect(existsSync(dir)).toBe(true);
+		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).toBe(0);
+		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+		const ev = db
+			.query(
+				"SELECT payload FROM events WHERE kind = 'NEED_DECISION' AND scope = ?",
+			)
+			.get(id);
+		expect(ev).toBeTruthy();
+		db.close();
+	});
+	test("live claim keeps its worktree even when the branch is patch-equiv (empty branch)", () => {
+		const { id, dir } = mintTree("sweep claimed");
+		// fresh tree reads clean — only the CLAIM guard decides; the empty
+		// branch is trivially patch-equiv (0 commits not in main)
+		const s = sweep("sweep", "--main", MAIN());
+		expect(s.out).toContain(`KEPT ${id} — claim live`);
+		expect(existsSync(dir)).toBe(true);
 	});
 });
