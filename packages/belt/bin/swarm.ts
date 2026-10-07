@@ -91,7 +91,9 @@ async function cmdStart(): Promise<void> {
 
 	// Fire-and-forget: spawn all MLX servers + router, then exit immediately.
 	// Specialists load in the background; check readiness with `swarm.ts status`.
-	// BELT_TIER=minimal scopes this to the ≤4GB residents (extract + rerank).
+	// The tier (via residentSet) scopes this to the ≤4GB residents (extract +
+	// rerank) — tier comes from the emitted tier manifest (W507), env override
+	// still honored.
 	const resident = residentSet();
 
 	for (const s of resident) {

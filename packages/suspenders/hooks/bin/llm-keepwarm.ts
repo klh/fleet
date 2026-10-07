@@ -4,13 +4,36 @@
 // keeps them resident. The prompt carries a nonce so the specialists'
 // response-cache doesn't answer from cache (a HIT would skip the forward
 // pass and leave the weights paged out).
-// W500: the warmed set follows BELT_TIER (the crash root cause was this list
-// hardcoding the FULL tier — :8903's 22GB reasoner got re-warmed every 4 min
-// even after the machine moved to minimal). Keep in lockstep with
-// residentSet() in belt bin/registry.ts; 8912 Kev excluded: launchd-managed
-// separately.
-const PORTS: number[] =
-	process.env.BELT_TIER === "minimal" ? [8902, 8913] : [8901, 8902, 8903, 8913];
+// W507: the warmed set is the emitted tier manifest (belt bin/registry-emit.ts
+// `tier` → ~/.claude/local-llm/tier.json) — ONE emission for the swarm AND
+// this script, so the lockstep that was comment-only (the W500 crash root
+// cause: this list hardcoding the FULL tier) is structural now. 8912 Kev
+// excluded: launchd-managed separately. Missing/unreadable manifest fails
+// safe to the ≤4GB set — under-warming heals in one pass, warming past the
+// tier re-loads the 22GB reasoner forever.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const TIER_PATH =
+	process.env.BELT_TIER_MANIFEST ??
+	join(homedir(), ".claude", "local-llm", "tier.json");
+const PORTS: number[] = (() => {
+	try {
+		const doc = JSON.parse(readFileSync(TIER_PATH, "utf8")) as {
+			warm_ports?: unknown;
+		};
+		if (
+			Array.isArray(doc.warm_ports) &&
+			doc.warm_ports.every((p) => typeof p === "number" && p > 0 && p < 65536)
+		)
+			return doc.warm_ports as number[];
+	} catch {
+		// fall through to the fail-safe set
+	}
+	console.error(`keepwarm: no tier manifest at ${TIER_PATH} — minimal set`);
+	return [8902, 8913];
+})();
 
 async function ping(port: number): Promise<number> {
 	const t0 = Date.now();

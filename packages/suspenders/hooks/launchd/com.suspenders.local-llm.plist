@@ -9,11 +9,6 @@
 		<string>__HOME__/.claude/local-llm/swarm.ts</string>
 		<string>serve</string>
 	</array>
-	<key>EnvironmentVariables</key>
-	<dict>
-		<key>BELT_TIER</key>
-		<string>full</string>
-	</dict>
 	<key>KeepAlive</key>
 	<true/>
 	<key>RunAtLoad</key>

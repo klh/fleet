@@ -161,12 +161,11 @@ services:
     placeholders: ["__BUN__", "__PREFIX__", "__HOME__"]
 
   # local-llm keepwarm — every 4 min, niced off the interactive foreground.
-  # BELT_TIER must match the local-llm service below — a keepwarm that warms
-  # past the tier re-loads the 22GB reasoner forever (the W500 crash trigger).
+  # W507: the warm set is the emitted tier manifest (~/.claude/local-llm/
+  # tier.json, registry-emit `tier`) — no tier env here; missing manifest
+  # fails safe to the ≤4GB set (the W500 crash trigger).
   - name: llm-keepwarm
     bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
-    env:
-      BELT_TIER: "minimal"
     schedule: { intervalSeconds: 240 }
     nice: 10
     logs:
@@ -199,17 +198,11 @@ services:
   # local-llm swarm supervisor (W158) — runs `swarm.ts serve` from the
   # runtime HOME copy (not the harness prefix): children revive with
   # backoff; KeepAlive restarts only the supervisor, which adopts live
-  # children on relaunch
+  # children on relaunch. Tier rides the emitted tier manifest
+  # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
   - name: local-llm
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["serve"]
-    env:
-      # 2026-10-07 OOM root-cause: full tier wired ~40GB of MLX residents
-      # (coder 18 + reason 22) and lane-burst KV growth doubled reason to
-      # 46.5GB RSS — python fleet hit ~91GB of 128GB, jetsam at 22:14, the
-      # machine died. Minimal (≤4GB) + on-demand spawns for the heavy models
-      # (the router owns spawn); memory caps + idle-unload = W500.
-      BELT_TIER: "minimal"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]

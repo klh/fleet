@@ -94,7 +94,7 @@ describe("emitters (W271)", () => {
 					.map((f) => `${f}\n${readFileSync(join(d, f), "utf8")}`)
 					.join("\n"),
 			);
-			expect(readdirSync(dirs[0] ?? "").length).toBe(4);
+			expect(readdirSync(dirs[0] ?? "").length).toBe(5);
 			expect(a).toBe(b);
 		} finally {
 			for (const d of dirs) rmSync(d, { recursive: true, force: true });
