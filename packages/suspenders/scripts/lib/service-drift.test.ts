@@ -76,8 +76,13 @@ function probe(
 	};
 }
 const inspect = (options: Parameters<typeof probe>[0] = {}, custom = receipt) =>
-	inspectServices(custom, "gui/501", "/manifest", probe(options), (path) =>
-		path === "/manifest" ? manifest : unit,
+	inspectServices(
+		custom,
+		"gui/501",
+		"/manifest",
+		probe(options),
+		(path) => (path === "/manifest" ? manifest : unit),
+		{ birth: () => false, parent: () => 1 },
 	)[0];
 test("activation list is authoritative; optional manifest services are not inferred", () => {
 	expect(
@@ -300,4 +305,61 @@ test("retention preserves explicit optional intent only in the same activation d
 		],
 	};
 	expect(retainActivation(changed, receipt).services).toEqual(changed.services);
+});
+
+function descendantVerdict(
+	options: {
+		changed?: boolean;
+		unknown?: boolean;
+		unrelated?: boolean;
+		reparented?: boolean;
+		listenerChanged?: boolean;
+	} = {},
+) {
+	let reads = 0,
+		parents = 0,
+		listeners = 0;
+	const base = probe({ listeners: "13" });
+	return inspectServices(
+		receipt,
+		"gui/501",
+		"/manifest",
+		(args) => {
+			if (
+				args[0].includes("lsof") &&
+				options.listenerChanged &&
+				++listeners > 1
+			)
+				return { code: 0, out: "14", error: "" };
+			return base(args);
+		},
+		(path) => (path === "/manifest" ? manifest : unit),
+		{
+			birth: (pid) => {
+				if (options.unknown) return null;
+				if (pid === 13 && options.changed && ++reads > 1)
+					return { birth: "new", command: "python" };
+				return { birth: String(pid), command: pid === 12 ? "bun" : "python" };
+			},
+			parent: () =>
+				options.unrelated || (options.reparented && ++parents > 1) ? 1 : 12,
+		},
+	)[0];
+}
+test("activated wrapper owns a stable child listener", () => {
+	const verdict = descendantVerdict();
+	expect(verdict.state).toBe("running");
+	expect(verdict.pid).toBe(12);
+	expect(verdict.reason).toContain("descendant");
+});
+test("child PID reuse or reparenting cannot paint the supervisor healthy", () => {
+	expect(descendantVerdict({ changed: true }).state).toBe("unknown");
+	expect(descendantVerdict({ reparented: true }).state).toBe("unknown");
+});
+test("unknown child identity differs from a verified unrelated listener", () => {
+	expect(descendantVerdict({ unknown: true }).state).toBe("unknown");
+	expect(descendantVerdict({ unrelated: true }).state).toBe("degraded");
+});
+test("listener replacement during descendant inspection remains unknown", () => {
+	expect(descendantVerdict({ listenerChanged: true }).state).toBe("unknown");
 });
