@@ -9,18 +9,21 @@
 // model_group_fallbacks is NOT a key the proxy knows — it is warned on and
 // ignored (the 2026-10-06 z.ai TLS outage hard-failed lanes that way).
 //
-// Everything the policy expresses is NATIVE router behavior (pinned-source
+// Emitted engine settings are NATIVE router behavior (pinned-source
 // verified, W126 audit docs/research/litellm-enterprise-audit-2026-10-01.md):
 // fallbacks = ordered cross-group ladders tried after num_retries;
-// allowed_fails + cooldown_time = passive outlier ejection; num_retries =
-// per-call retries whose backoff honors the upstream retry-after header with
-// jitter (utils.py::_calculate_retry_after).
+// allowed_fails + cooldown_time = passive outlier ejection. Buckle owns
+// gateway.num_retries; gateway.litellm_num_retries independently controls
+// the inner router and defaults to zero. Provider SDK retries stay disabled.
 // Owner directives: never flashx; operators edit the YAML, never code.
 import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
 
 export interface GatewayPolicy {
+	/** Buckle's outer retry budget; independent of the engine below it. */
 	num_retries?: number;
+	/** Inner LiteLLM router retries (0..3); zero avoids nested retry loops. */
+	litellm_num_retries?: number;
 	allowed_fails?: number;
 	cooldown_time?: number;
 	fallbacks?: Record<string, string[]>;
@@ -34,6 +37,7 @@ interface PolicyDoc {
 /** Native-free defaults; the committed YAML carries the same values. */
 const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
 	num_retries: 1,
+	litellm_num_retries: 0,
 	allowed_fails: 3,
 	cooldown_time: 30,
 };
@@ -41,7 +45,22 @@ const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
 /** Parse a policy document (tests + loader share this path). */
 export function parsePolicy(text: string): GatewayPolicy {
 	const doc = YAML.parse(text) as PolicyDoc;
-	return { ...DEFAULTS, ...(doc.gateway ?? {}) };
+	const policy = { ...DEFAULTS, ...(doc.gateway ?? {}) };
+	validateInnerRetries(policy.litellm_num_retries);
+	return policy;
+}
+
+function validateInnerRetries(value: unknown): number {
+	if (
+		typeof value !== "number" ||
+		!Number.isInteger(value) ||
+		value < 0 ||
+		value > 3
+	)
+		throw new Error(
+			"router-policy: gateway.litellm_num_retries must be an integer from 0 to 3",
+		);
+	return value;
 }
 
 /** Resolution order: explicit path → BELT_POLICY → runtime copy in the
@@ -66,10 +85,15 @@ export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
  *  semantics: allowed_fails + cooldown as passive outlier ejection, retries
  *  with native retry-after backoff). */
 export function emitRouterSettings(p: GatewayPolicy): string {
+	const innerRetries = validateInnerRetries(
+		p.litellm_num_retries ?? DEFAULTS.litellm_num_retries,
+	);
 	return (
 		"router_settings:\n" +
 		"  routing_strategy: latency-based-routing\n" +
-		`  num_retries: ${p.num_retries}\n` +
+		`  num_retries: ${innerRetries}\n` +
+		"  default_litellm_params:\n" +
+		"    max_retries: 0\n" +
 		`  allowed_fails: ${p.allowed_fails}\n` +
 		`  cooldown_time: ${p.cooldown_time}\n`
 	);
