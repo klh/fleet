@@ -10,6 +10,7 @@ import {
 	resolvePolicy,
 } from "../lib/board-config.ts";
 import {
+	ENHANCE_URL,
 	enhancePrompt,
 	type PromptPlan,
 	preparePrompt,
@@ -184,7 +185,7 @@ export async function orchPrepare(
 			orchTelemetry({
 				for: "prompt.enhance",
 				model,
-				host: "127.0.0.1:4000",
+				host: new URL(ENHANCE_URL).host,
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
