@@ -20,6 +20,11 @@ frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON 
 
 ## Conventions
 
+The fleet tree supports `/fleet-tree?presentation=1` for recording: plain hub
+headings and service leaves, with verbose discovery and authorization metadata
+omitted from the visual layout. The default page and `/api/fleet-tree` retain
+full provenance; this option changes no routing, authentication, or health state.
+
 - `project` values are git-common-dir strings (`/path/repo/.git`). Every list endpoint
   accepts `?project=<full-path>`; the literal `all` (or omission) returns everything.
   Each response also carries `projects: string[]` — the distinct project list the UI
