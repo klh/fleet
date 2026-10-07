@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { run } from "./run.ts";
+import { openGovernorDb } from "./govdb.ts";
 import type { HookInput } from "./hookio.ts";
 
 type Context = {
@@ -11,6 +12,41 @@ type Context = {
 	launchedAt?: number;
 	worktree?: string;
 };
+
+// ---- W502: checkpoint-parked continuation (lifted: omc persistent-mode) ----
+// omc's persistent-mode.mjs never lets a stop end a session with work in
+// flight. Ours is ONE offer per episode, bounded by the loop guard
+// stop_hook_active (true on every stop after the first of an episode), after
+// which the existing 2-re-ask → FAILED bound runs unchanged. A banked capsule
+// checkpoint that git proves reachable from HEAD parks the item
+// CLAIMED/resumable — checkpoint instead of a hard FAILED. Any capsule/git
+// probe failure degrades to the ordinary re-ask path (omc's allow-on-error).
+const CAPSULE_SHA = /^[a-f0-9]{40}$/i;
+
+function bankedCheckpoint(sid: string): string | null {
+	try {
+		const row = openGovernorDb()
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`lane.${sid}.capsule`) as { value: string } | undefined;
+		const cap = JSON.parse(row?.value ?? "{}") as { checkpoint?: unknown };
+		return typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)
+			? cap.checkpoint
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+/** A capsule checkpoint the worktree's HEAD can actually reach. */
+function checkpointParked(wt: string, sid: string): string | null {
+	const sha = bankedCheckpoint(sid);
+	if (!sha) return null;
+	if (!run("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: wt }).ok)
+		return null;
+	return run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], { cwd: wt }).ok
+		? sha
+		: null;
+}
 
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */
 export function laneCompletion(
@@ -157,6 +193,30 @@ export function laneCompletion(
 		hook.last_assistant_message ?? "",
 	);
 	const declared = declaration?.[2] === context.item;
+	// W502: checkpoint park + the ONE bounded continuation offer. The offer
+	// runs only on the episode's first stop (loop guard stop_hook_active);
+	// it burns re-ask slot 1, so the total stop bound is unchanged (offer →
+	// Re-ask 2/2 → FAILED). A declared BLOCKED/NO_OP skips both — explicit
+	// failure intent beats an implicit park.
+	if (!declared) {
+		const parked = checkpointParked(wt, context.sid);
+		if (parked) {
+			writeFileSync(
+				marker,
+				JSON.stringify({
+					...context,
+					tries,
+					outcome: "PARKED",
+					checkpoint: parked,
+				}),
+			);
+			return null;
+		}
+		if (tries < 2 && hook.stop_hook_active !== true) {
+			writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
+			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume: (a) FINISH — complete and run work done ${context.item} --sha <commit> --summary <completion paragraph>; or (b) CHECKPOINT — commit progress and bank a capsule: coord capsule set --as ${context.sid} --checkpoint=<head> --done=<progress> --next=<step>; a git-reachable checkpoint parks the item CLAIMED/resumable and the stop is allowed. Edits and commits are progress, not completion.`;
+		}
+	}
 	if (tries < 2 && !declared) {
 		writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
 		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Edits and commits are progress, not completion. Finish with work done ${context.item} --sha <commit> --summary <completion paragraph>. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/2; exhaustion records FAILED, never DONE.`;

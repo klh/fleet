@@ -66,7 +66,16 @@ function fixture() {
 			stop_hook_active: true,
 			last_assistant_message: message,
 		});
-	return { cwd, git, work, id, stop };
+	const stopFresh = (message?: string) =>
+		command(cwd, [process.execPath, join(source, "gate.ts"), "stop"], {
+			cwd,
+			session_id: "harness-uuid-different-from-owner",
+			stop_hook_active: false,
+			last_assistant_message: message,
+		});
+	const coord = (...args: string[]) =>
+		command(cwd, [process.execPath, join(source, "bin/coord.ts"), ...args]);
+	return { cwd, git, work, id, stop, stopFresh, coord };
 }
 
 test("empty lane cannot bypass stop checks; third stop records FAILED", () => {
@@ -172,6 +181,76 @@ test("a legacy manual DONE without lane context remains outside the lane gate", 
 		f.work("done", f.id, "--sha", f.git("rev-parse", "HEAD").out.trim()).code,
 	).toBe(0);
 	expect(f.stop().code).toBe(0);
+});
+
+test("first stop with work in flight offers one bounded continuation", () => {
+	const f = fixture();
+	const result = f.stopFresh();
+	expect(result.err).toContain("One bounded continuation");
+	expect(result.err).toContain("CHECKPOINT");
+	expect(result.err).toContain(f.id);
+	const marker = JSON.parse(
+		readFileSync(join(f.cwd, ".fleet/completion-attempt.json"), "utf8"),
+	);
+	expect(marker.tries).toBe(1);
+	// the loop guard ends the offer: the follow-up stop is a plain re-ask
+	expect(f.stop().err).toContain("Re-ask 2/2");
+	expect(f.stop().code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
+});
+
+test("a git-reachable capsule checkpoint parks the claimed item instead of failing it", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	writeFileSync(join(f.cwd, "checkpoint.txt"), "progress\n");
+	f.git("add", "checkpoint.txt");
+	f.git("commit", "-qm", "checkpoint progress");
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		`--checkpoint=${sha}`,
+		"--done=progress committed",
+		"--next=finish and work done",
+	);
+	expect(f.stop().code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+	const marker = JSON.parse(
+		readFileSync(join(f.cwd, ".fleet/completion-attempt.json"), "utf8"),
+	);
+	expect(marker.outcome).toBe("PARKED");
+});
+
+test("a capsule checkpoint HEAD cannot reach does not park", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--checkpoint=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+	);
+	expect(f.stop().err).toContain("Re-ask");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("a declared BLOCKED skips the checkpoint park and records FAILED", () => {
+	const f = fixture();
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		`--checkpoint=${sha}`,
+		"--done=stale progress",
+		"--next=irrelevant",
+	);
+	expect(f.stop(`BLOCKED ${f.id}: upstream unavailable`).code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
 });
 
 test("FAILED with a pending decision retries recording once before permitting stop", () => {
