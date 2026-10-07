@@ -129,14 +129,37 @@ Machines and processes:
 - install: `bash install.sh [--wire] [--with-launchd]` from
   fleet/packages/suspenders — the ONLY repo→prefix sync (SUSPENDERS_PREFIX /
   SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
-- launchd: `com.suspenders.*` labels — local-llm swarm (`serve`,
-  KeepAlive), fleet-monitor, knowledge-worker, db-backup; `launchctl
-kickstart gui/$(id -u)/<label>` revives
+- launchd labels (port/process map; `launchctl kickstart
+  gui/$(id -u)/<label>` revives):
+  - `com.suspenders.local-llm` — the swarm kit's `serve` supervisor
+    (KeepAlive): spawns :4000 + the MLX specialists below
+  - `com.suspenders.cloud-gateway` — cloud transport lifecycle
+    (belt/bin/cloud-gateway.ts → litellm :4100); never starts
+    router/swarm
+  - `com.suspenders.llm-keepwarm` — llm-keepwarm.ts every 240s, no port
+  - `com.belt.dashboard` — fleet dashboard :7791 (LAN:
+    belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
+  - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
+  - `com.suspenders.board` — fleet board :7799
+  - `com.klh-local.caddy` — the Caddy .local front
+  - same namespace, no ports: fleet-monitor, knowledge-worker, db-backup
+  - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
+    `com.klh.fleet-monitor` (superseded — installers boot them out and
+    rm the plists) and `com.belt.gateway` (retired W277 — was the :4100
+    litellm wrapper; a plist may linger on disk but must stay UNLOADED)
 - local-llm swarm: `bun ~/.claude/local-llm/swarm.ts status|serve` —
-  models on :8901 (coder), :8902 (extract/menial), :8903 (reason),
-  :8906 (general/Danish); the anthropic-shim :4000 is the
-  Anthropic↔OpenAI seam lanes ride
-- belt gateway :4000 · litellm :4100 · buckle spoke :4101 (Mac), hubs
+  dual home since W422.4: source = packages/local-llm (the kit) with the
+  belt bin/* overlay, runtime home = ~/.claude/local-llm (W556: the
+  runtime swarm.ts is its own source of truth — install refuses to
+  clobber it). Specialists (belt registry.ts): :8901 coder · :8902
+  extract · :8903 reason · :8906 danish/general · :8907 embeddings ·
+  :8912 kev · :8913 rerank — the tier manifest `tier.json` scopes the
+  RESIDENT set (BELT_TIER=minimal = :8902 + :8913; the rest load on
+  demand). :4000 = belt/bin/router-shim.ts — the Anthropic-format API
+  (complexity-v3 router) that is the seam lanes ride; `serve` spawns it
+  from the runtime-home copy
+- belt router :4000 (= router-shim, see above) · litellm :4100
+  (com.suspenders.cloud-gateway) · buckle spoke :4101 (Mac), hubs
   :4101 (NAS) / :4111 (desktop) · board :7799 · store :7795 (NAS) / :7796
 - NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
   non-interactive PATH); compose v5.6.0 per-user plugin
@@ -148,5 +171,6 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
   `hubs.json` (label → candidate URLs resolveHub walks),
   `routing-policy.yaml` (operator-owned ladder — edit THIS, never code),
-  `upstreams.yaml` (group overrides — the anthropic-shim rows),
+  `upstreams.yaml` (group overrides — per-model upstream ladders over
+  swarm :8902 / router :4000 / litellm :4100),
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY)

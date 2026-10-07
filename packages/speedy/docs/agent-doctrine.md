@@ -58,7 +58,21 @@ Exceptions (and ONLY these):
 - **Test with real agent runs** — schema validation proves fields exist; only real runs prove the wording steers agents correctly. One clear sentence in agent_next_steps beats ten optional fields.
 - **API stability** — renaming a field like check_command breaks every agent reading the response. Freeze field names.
 
-## Hybrid LLM routing doctrine (measured 2026-09-04, M5 Max 128GB)
+## LLM routing doctrine
+
+Owner directive 2026-09-29 (supersedes the 2026-09-04 default-to-local
+residue this section carried): ASK BELT what LLMs are available before
+dispatching LLM work — `bun bin/remotes.ts check` (liveness) or
+`bun bin/remotes.ts discover` (DNS-SD) from packages/belt. Cloud is
+fastest for most items and stays the DEFAULT; use the local swarm (and
+NAS ollama) to refine a prompt or plan, for long-running background
+tasks, or as fallback when cloud is down. The optimization target is
+SPEED, not cost. Canonical text: packages/belt/AGENTS.md and
+packages/belt/docs/routing.md.
+
+Local specialist ladder (packages/belt/bin/registry.ts; measured
+2026-09-04, M5 Max 128GB) — what the router :4000 falls back to when
+cloud is down or the work stays on-machine:
 
 | Decision point                        | Route                              | Why (measured)                    |
 | ------------------------------------- | ---------------------------------- | --------------------------------- |
@@ -71,7 +85,9 @@ Exceptions (and ONLY these):
 
 Rules:
 
-1. **Default to local** — it is free and 2.4x faster. Only go remote when context or quality demands it.
+1. **Default to cloud** — cloud is fastest for most items (owner
+   directive 2026-09-29); the local swarm serves background/long-running
+   work and the cloud-down fallback.
 2. **Cold start penalty** (~800ms first hit) — keep specialists resident via launchd KeepAlive.
 3. **The router is deterministic** (keyword-based, 0ms) — no LLM overhead for routing decisions.
 4. **Always check claude-fast first** — it falls back to remote automatically if the local stack is down.
