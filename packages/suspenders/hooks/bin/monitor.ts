@@ -610,14 +610,14 @@ for (const { project } of zProjects) {
 // 6. FOCUS: workload surface per project — health-clean ≠ nothing to do
 const projs = db
 	.query(
-		"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') ORDER BY project",
+		"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY project",
 	)
 	.all() as { project: string }[];
 for (const { project } of projs) {
 	const name = project.split("/").pop()?.replace(".git", "") || project;
 	const all = db
 		.query(
-			"SELECT id, state, owner_sid, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+			"SELECT id, state, owner_sid, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 		)
 		.all(project) as {
 		id: string;

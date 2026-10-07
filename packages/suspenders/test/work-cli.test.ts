@@ -6,17 +6,18 @@
 // nothing (on Linux os.tmpdir() IS /tmp). Each temp repo gets a real
 // `git init`: an empty mkdir'd .git is NOT a valid gitdir, and discovery
 // would walk up into the checkout's own .git, colliding project identity.
-import { describe, test, expect, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
-	mkdtempSync,
-	rmSync,
 	mkdirSync,
-	writeFileSync,
+	mkdtempSync,
 	readFileSync,
+	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-work-cli-home-"));
@@ -260,6 +261,49 @@ describe("done — roll-up for shattered parents", () => {
 		expect(work("done").err).toContain(
 			"usage: done <id> [--as sid] --sha <sha>",
 		);
+	});
+});
+
+describe("cancel — W182 CANCELLED terminal state", () => {
+	test("cancel closes with a required note, clears the claim, emits work.cancelled", () => {
+		const c = idOf(work("add", "cancel me").out);
+		expect(work("cancel", c).code).toBe(2); // --note required
+		expect(work("take", c, "--as", "lane-cx").code).toBe(0);
+		const done = work("cancel", c, "--note", "no longer wanted");
+		expect(done.code).toBe(0);
+		expect(done.out).toContain("CANCELLED");
+		expect(firstLine(work("show", c).out)).toContain("CANCELLED");
+		expect(work("mine", "--as", "lane-cx").out).not.toContain(c); // claim released
+		withDb((db) => {
+			const row = db
+				.query("SELECT owner_sid, state FROM work_items WHERE id = ?")
+				.get(c) as { owner_sid: string | null; state: string };
+			expect(row.state).toBe("CANCELLED");
+			expect(row.owner_sid).toBeNull();
+		});
+	});
+
+	test("terminal states refuse cancel; list/mine hide CANCELLED", () => {
+		const t = idOf(work("add", "already closed").out);
+		expect(work("take", t, "--as", "lane-t1").code).toBe(0);
+		expect(work("done", t, "--sha", "s").code).toBe(0);
+		const again = work("cancel", t, "--note", "x");
+		expect(again.code).toBe(2);
+		expect(again.err).toContain("already closed");
+		const z = idOf(work("add", "cancelled hidden").out);
+		expect(work("cancel", z, "--note", "why").code).toBe(0);
+		expect(work("list").out).not.toContain(z);
+		expect(work("owned").out).not.toContain(z);
+	});
+
+	test("a CANCELLED child keeps its SHATTERED parent open (rollUp doctrine)", () => {
+		const q = idOf(work("add", "cancel rollup root").out);
+		expect(
+			work("split", q, "x", "y", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(work("take", `${q}.1`, "--as", "lane-cq").code).toBe(0);
+		expect(work("cancel", `${q}.1`, "--note", "dead end").code).toBe(0);
+		expect(firstLine(work("show", q).out)).toContain("SHATTERED"); // NOT rolled up
 	});
 });
 

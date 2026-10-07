@@ -113,7 +113,7 @@ export function orchContext(project: string, repo: string): string {
 	const items = (
 		db
 			.query(
-				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
+				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
 			)
 			.all(project, ORCH.CTX_ITEMS) as {
 			id: string;

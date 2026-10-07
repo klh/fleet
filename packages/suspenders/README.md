@@ -90,6 +90,7 @@ work take <id> --as <sid>                           # claim it
 work start <id> --as <sid>                          # mark RUNNING
 work done <id> --as <sid> --sha <commit>            # close with evidence
 work fail <id> --as <sid> --note "why"              # close as failed
+work cancel <id> --note "reason"                    # close unfinished work
 work release <id> --as <sid>                        # give it back
 work reclaim <id> --as <sid>                        # take a stalled claim
 work reclaim all                                    # bulk-free dead claims
