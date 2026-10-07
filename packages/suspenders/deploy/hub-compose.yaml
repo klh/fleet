@@ -21,12 +21,26 @@
 
 name: klh-hub-${HUB_NAME:-desktop}
 
+# W451 hub longevity: bounded json-file logs + memory ceilings. Rotation caps
+# unbounded log growth on long-lived hubs; a leaking service degrades only
+# itself, never the device. Values are code-level defaults.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # One pinned Fleet checkout shared by every package. Existing state and
   # secret volumes retain their names; only the code volume is replaced.
   fleet-repo:
-    image: alpine/git
+    image: alpine/git@sha256:a4bb51f1a3553df194ce679fc1db721d8bfba2046fa1a88fe9d4ac551ffbce25
     container_name: ${HUB_NAME:-desktop}-fleet-repo
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     entrypoint: ["sh", "-c"]
     command:
       - if [ ! -d /srv/repo/.git ]; then git init /srv/repo && git -C /srv/repo remote add origin "$HUB_FLEET_REPO_URL"; fi; git -C /srv/repo remote set-url origin "$HUB_FLEET_REPO_URL" && git -C /srv/repo fetch --depth 1 origin "$HUB_FLEET_REF" && git -C /srv/repo reset --hard FETCH_HEAD
@@ -37,8 +51,13 @@ services:
       - fleet-repo:/srv/repo
 
   fleet-deps:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-fleet-deps
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     working_dir: /src/fleet
     command: bun install --frozen-lockfile --ignore-scripts
     environment:
@@ -50,8 +69,13 @@ services:
       - fleet-repo:/src/fleet
 
   buckle-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-buckle-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     network_mode: host
     restart: unless-stopped
     working_dir: /src/fleet/packages/buckle
@@ -87,8 +111,13 @@ services:
   # target over the wire and serves the result; compose health hits the
   # sidecar. A wedged server runtime cannot paint itself healthy.
   buckle-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-buckle-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -110,8 +139,13 @@ services:
       start_period: 15s
 
   board-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     network_mode: host
     restart: unless-stopped
     command: bun /src/fleet/packages/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
@@ -136,8 +170,13 @@ services:
         condition: service_healthy
 
   board-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -159,8 +198,13 @@ services:
       start_period: 15s
 
   store-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME}-store-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     network_mode: host
     restart: unless-stopped
     command: bun /src/fleet/packages/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
@@ -177,8 +221,13 @@ services:
       - hub-state:/state/hub-home
 
   store-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-store-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -200,8 +249,13 @@ services:
       start_period: 15s
 
   belt-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     ports:
       - "${HUB_BELT_BIND:-127.0.0.1}:${HUB_BELT_PORT:-7792}:7791"
     restart: unless-stopped
@@ -218,8 +272,13 @@ services:
       - belt-state:/state/belt-home
 
   belt-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -247,8 +306,13 @@ services:
   # (last-known kept), never the hub. Peer auth = a spoke-scoped key minted
   # on the peer, carried per label in the hub-home registry (hubs.json).
   peer-pull:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-peer-pull
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     command: bun /src/fleet/packages/suspenders/hooks/bin/federation-peers.ts

@@ -122,7 +122,7 @@ const MINT_SCRIPT = [
 	"if command -v openssl >/dev/null 2>&1; then",
 	"  K=$(openssl rand -hex 32)",
 	"else",
-	'  K=$(docker run --rm oven/bun:1 bun -e \'console.log([...new Uint8Array(crypto.getRandomValues(new Uint8Array(32)))].map(b=>b.toString(16).padStart(2,"0")).join(""))\')',
+	'  K=$(docker run --rm oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 bun -e \'console.log([...new Uint8Array(crypto.getRandomValues(new Uint8Array(32)))].map(b=>b.toString(16).padStart(2,"0")).join(""))\')',
 	"fi",
 	'printf \'BUCKLE_ROOT_KEY=%s\\n\' "$K" > "$F"',
 	"echo minted",
