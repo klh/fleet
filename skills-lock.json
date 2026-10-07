@@ -1,0 +1,10 @@
+{
+	"version": 1,
+	"skills": {
+		"fleet": {
+			"source": "./packages/suspenders/skills/fleet",
+			"sourceType": "local",
+			"computedHash": "4a56f0c8004b44410dafb9069d9b943d14a9e651670adfc1ea7e3e913d4099a7"
+		}
+	}
+}
