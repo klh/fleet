@@ -1,5 +1,10 @@
 # buckle cut-over runbook (:4101 shadow → :4100 live)
 
+**SUPERSEDED 2026-10-07 (verified W413):** the scripted :4100 swap never
+ran and buckle's guard inverted — :4101 is buckle's permanent live address,
+:4100 stays LiteLLM. Record + outcome:
+`packages/suspenders/docs/design/buckle/cut-over-record-2026-10-02.md`.
+
 **OWNER GATE: cut-over needs owner sign-off.** This runbook makes that
 decision trivial; it never makes it. No lane flips ports, swaps launchd
 labels, or restarts the live :4100 gateway — restarts happen between
