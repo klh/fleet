@@ -38,10 +38,14 @@ const WIRE = join(
 );
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
 
-const env = (): Record<string, string> => ({
-	...(process.env as Record<string, string>),
-	HOME,
-});
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env = (): Record<string, string> => {
+	const e = { ...(process.env as Record<string, string>), HOME };
+	delete e.SUSPENDERS_SID;
+	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	return e;
+};
 
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });

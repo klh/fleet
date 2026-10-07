@@ -40,10 +40,14 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
 // lanesFileFor() canary in the manual-session test keeps the vector dead.
 const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
-const env = (): Record<string, string> => ({
-	...(process.env as Record<string, string>),
-	HOME,
-});
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env = (): Record<string, string> => {
+	const e = { ...(process.env as Record<string, string>), HOME };
+	delete e.SUSPENDERS_SID;
+	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	return e;
+};
 const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");
 const WIRE = join(
 	import.meta.dir,

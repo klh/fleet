@@ -8,7 +8,15 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
-const env = { ...process.env, HOME, NO_COLOR: "1" };
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env: Record<string, string> = {
+	...(process.env as Record<string, string>),
+	HOME,
+	NO_COLOR: "1",
+};
+delete env.SUSPENDERS_SID;
+delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 mkdirSync(REPO, { recursive: true });
 Bun.spawnSync(["git", "init", "-q", REPO], {
 	stdout: "ignore",

@@ -38,6 +38,15 @@ const GATE_MOD = join(
 	"gate.ts",
 );
 
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const baseEnv = (): Record<string, string> => {
+	const e = { ...(process.env as Record<string, string>), HOME };
+	delete e.SUSPENDERS_SID;
+	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	return e;
+};
+
 function runBun(
 	args: string[],
 	input: unknown,
@@ -54,8 +63,7 @@ function runBun(
 	const proc = Bun.spawnSync(["bun", ...args], {
 		cwd: REPO,
 		env: {
-			...(process.env as Record<string, string>),
-			HOME,
+			...baseEnv(),
 			...extra,
 		},
 		stdin: Bun.file(payloadFile),
