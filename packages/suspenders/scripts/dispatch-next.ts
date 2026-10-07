@@ -960,6 +960,7 @@ const dispatchItem = async (
 								...starterFork,
 							],
 			fleetDir: FLEET,
+			sid,
 		});
 		launchedProc = proc;
 		await awaitLaunchRegistration(store, FLEET, intent, proc);

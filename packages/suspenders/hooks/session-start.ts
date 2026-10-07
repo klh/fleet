@@ -15,6 +15,7 @@ import {
 } from "./lib/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
+import { attachSubscribe } from "./lib/subscribe-attach.ts";
 
 type In = {
 	session_id?: string;
@@ -205,36 +206,15 @@ const out = [
 ];
 
 // WS-first inbox (W303, owner directive 2026-10-05): bootstrap opens the
-// live subscribe ONCE per session — agents never poll the plane. Idempotent:
-// a live subscribe for this lane id is detected and left alone.
-{
-	const SUB_LOG = `${process.env.HOME}/.claude-insights/coord-subscribe-${lane}.log`;
-	const live = Bun.spawnSync([
-		"/usr/bin/pgrep",
-		"-f",
-		`coord[.]ts subscribe --as ${lane}$`,
-	]);
-	if (live.exitCode !== 0) {
-		const cmd =
-			"nohup bun " +
-			import.meta.dir +
-			"/bin/coord.ts subscribe --as " +
+// live subscribe ONCE per session — agents never poll the plane. The
+// attach recipe is shared with spawnClaude's spawn-level attach (W417.1);
+// idempotent: a live subscribe for this lane id is detected and left alone.
+if (attachSubscribe(lane))
+	out.push(
+		"WS inbox live: coord subscribe --as " +
 			lane +
-			" >> " +
-			SUB_LOG +
-			" 2>&1 &";
-		Bun.spawn(["/bin/sh", "-c", cmd], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
-		out.push(
-			"WS inbox live: coord subscribe --as " +
-				lane +
-				" (events push; never poll)",
-		);
-	}
-}
+			" (events push; never poll)",
+	);
 
 // automagic hygiene: every bootstrap sweeps stale sessions fleet-wide —
 // sweeps read THIS host's transcripts, so they ride db.local only (W92 seam)

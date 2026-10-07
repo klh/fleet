@@ -190,6 +190,7 @@ const main = async (): Promise<void> => {
 		],
 		agent: "claude",
 		fleetDir: FLEET,
+		sid: SID,
 	});
 	const exitCode = await Promise.race([
 		proc.exited,
