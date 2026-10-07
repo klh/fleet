@@ -15,7 +15,9 @@ const home = mkdtempSync(join(tmpdir(), "policy-adapter-"));
 const prefix = join(import.meta.dir, "../hooks");
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 const codexFile = join(home, ".codex/hooks.json");
+const copilotFile = join(home, ".copilot/settings.json");
 mkdirSync(join(home, ".codex"), { recursive: true });
+mkdirSync(join(home, ".copilot"), { recursive: true });
 const existing = {
 	hooks: {
 		SessionStart: [{ hooks: [{ type: "command", command: "user-existing" }] }],
@@ -24,6 +26,21 @@ const existing = {
 	description: "user config",
 };
 writeFileSync(codexFile, JSON.stringify(existing));
+const copilotExisting = {
+	theme: "dark",
+	hooks: {
+		SessionStart: [
+			{ hooks: [{ type: "command", command: "user-copilot-start" }] },
+		],
+		PreToolUse: [
+			{
+				matcher: "Bash",
+				hooks: [{ type: "command", command: "user-copilot-gate" }],
+			},
+		],
+	},
+};
+writeFileSync(copilotFile, JSON.stringify(copilotExisting));
 
 test("canonical adapter install is additive and idempotent", () => {
 	installPolicyAdapters({ home, prefix });
@@ -33,43 +50,55 @@ test("canonical adapter install is additive and idempotent", () => {
 	expect(value.hooks.Stop).toEqual(existing.hooks.Stop);
 	expect(value.hooks.SessionStart[0]).toEqual(existing.hooks.SessionStart[0]);
 	expect(value.hooks.SessionStart).toHaveLength(2);
-	const copilot = JSON.parse(
-		readFileSync(
-			join(home, ".copilot/hooks/fleet-session-policy.json"),
-			"utf8",
-		),
+	const copilot = JSON.parse(readFileSync(copilotFile, "utf8"));
+	expect(copilot.theme).toBe(copilotExisting.theme);
+	expect(copilot.hooks.PreToolUse).toEqual(copilotExisting.hooks.PreToolUse);
+	expect(copilot.hooks.SessionStart[0]).toEqual(
+		copilotExisting.hooks.SessionStart[0],
 	);
-	expect(copilot.version).toBe(1);
-	expect(copilot.hooks.sessionStart[0].args).toEqual([
-		join(prefix, "bin/session-policy-hook.ts"),
-		"copilot",
-	]);
+	expect(copilot.hooks.SessionStart).toHaveLength(2);
+	expect(copilot.hooks.SessionStart[1].hooks[0].command).toContain(
+		"/session-policy-hook.ts",
+	);
+	expect(
+		copilot.hooks.SessionStart[1].hooks[0].command.endsWith(" copilot"),
+	).toBe(true);
 });
 
 test("dry run does not write and symlink configuration is refused", () => {
 	const other = join(home, "dry");
 	installPolicyAdapters({ home: other, prefix, dryRun: true });
 	expect(() => readFileSync(join(other, ".codex/hooks.json"))).toThrow();
+	expect(() => readFileSync(join(other, ".copilot/settings.json"))).toThrow();
 	const link = join(home, "linked");
-	mkdirSync(link);
-	symlinkSync(codexFile, join(link, "hooks.json"));
+	mkdirSync(join(link, ".codex"), { recursive: true });
+	mkdirSync(join(link, ".copilot"), { recursive: true });
+	symlinkSync(codexFile, join(link, ".codex/hooks.json"));
+	symlinkSync(copilotFile, join(link, ".copilot/settings.json"));
 	expect(() =>
-		installPolicyAdapters({ home, prefix, codexHome: link }),
+		installPolicyAdapters({ home, prefix, codexHome: join(link, ".codex") }),
+	).toThrow("symlink");
+	expect(() =>
+		installPolicyAdapters({
+			home,
+			prefix,
+			copilotHome: join(link, ".copilot"),
+		}),
 	).toThrow("symlink");
 });
 
-test("an unrelated Copilot hook refuses adoption before changing Codex", () => {
-	const other = join(home, "unrelated");
+test("an invalid Copilot hooks map refuses before Codex is written", () => {
+	const other = join(home, "invalid");
 	mkdirSync(join(other, ".codex"), { recursive: true });
-	mkdirSync(join(other, ".copilot/hooks"), { recursive: true });
+	mkdirSync(join(other, ".copilot"), { recursive: true });
 	const prior = JSON.stringify(existing);
 	writeFileSync(join(other, ".codex/hooks.json"), prior);
 	writeFileSync(
-		join(other, ".copilot/hooks/fleet-session-policy.json"),
-		JSON.stringify({ description: "user-owned" }),
+		join(other, ".copilot/settings.json"),
+		JSON.stringify({ hooks: "not-a-map" }),
 	);
 	expect(() => installPolicyAdapters({ home: other, prefix })).toThrow(
-		"unrelated",
+		"invalid Copilot hooks map",
 	);
 	expect(readFileSync(join(other, ".codex/hooks.json"), "utf8")).toBe(prior);
 });

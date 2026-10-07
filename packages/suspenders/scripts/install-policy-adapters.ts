@@ -57,14 +57,16 @@ export function installPolicyAdapters(
 	if (!Array.isArray(groups))
 		throw new Error("invalid Codex SessionStart groups");
 	const command = `${quote(process.execPath)} ${quote(adapter)} codex`;
+	// Marker-based, not exact-command: a bun upgrade changes process.execPath
+	// (Cellar version path), and re-detecting by exact string would stack a
+	// second managed group instead of converging.
 	const present = groups.some(
 		(group) =>
 			Array.isArray(group?.hooks) &&
 			group.hooks.some(
 				(hook) =>
-					hook?.command === command ||
-					(typeof hook?.command === "string" &&
-						hook.command.includes("/suspenders/session-start.ts")),
+					typeof hook?.command === "string" &&
+					hook.command.includes("/session-policy-hook.ts"),
 			),
 	);
 	if (!present)
@@ -75,34 +77,39 @@ export function installPolicyAdapters(
 	events.SessionStart = groups;
 	codex.hooks = events;
 	if (!options.codexOnly) {
+		// Copilot CLI (>=1.0) reads hooks from the inline `hooks` field of
+		// ~/.copilot/settings.json (docs.github.com/copilot/reference/
+		// hooks-reference) — same schema as Claude's settings.json. Merge our
+		// SessionStart group additively; never touch other events or entries.
 		const copilotFile = join(
 			options.copilotHome ?? process.env.COPILOT_HOME ?? join(home, ".copilot"),
-			"hooks/fleet-session-policy.json",
+			"settings.json",
 		);
-		const current = readObject(copilotFile);
-		if (
-			Object.keys(current).length &&
-			current.description !== "Fleet session policy adapter"
-		)
-			throw new Error("refusing unrelated Copilot hook file");
-		writeObject(
-			copilotFile,
-			{
-				version: 1,
-				description: "Fleet session policy adapter",
-				hooks: {
-					sessionStart: [
-						{
-							type: "command",
-							exec: process.execPath,
-							args: [adapter, "copilot"],
-							timeoutSec: 40,
-						},
-					],
-				},
-			},
-			options.dryRun ?? false,
+		const settings = readObject(copilotFile);
+		const hooks = settings.hooks ?? {};
+		if (!hooks || typeof hooks !== "object" || Array.isArray(hooks))
+			throw new Error("invalid Copilot hooks map");
+		const events = hooks as Record<string, unknown>;
+		const groups = events.SessionStart ?? [];
+		if (!Array.isArray(groups))
+			throw new Error("invalid Copilot SessionStart groups");
+		const command = `${quote(process.execPath)} ${quote(adapter)} copilot`;
+		const present = groups.some(
+			(group) =>
+				Array.isArray(group?.hooks) &&
+				group.hooks.some(
+					(hook) =>
+						typeof hook?.command === "string" &&
+						hook.command.includes("/session-policy-hook.ts"),
+				),
 		);
+		if (!present)
+			groups.push({
+				hooks: [{ type: "command", command }],
+			});
+		events.SessionStart = groups;
+		settings.hooks = events;
+		writeObject(copilotFile, settings, options.dryRun ?? false);
 	}
 	writeObject(codexFile, codex, options.dryRun ?? false);
 }
