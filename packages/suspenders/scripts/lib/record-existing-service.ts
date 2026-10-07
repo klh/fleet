@@ -14,6 +14,17 @@ export interface ExistingServiceDeps {
 	read: (path: string) => string;
 	birth: typeof processBirth;
 	publish: (receipt: ActivationReceipt) => void;
+	parseUnit?: (bytes: string) => unknown;
+}
+function canonical(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonical);
+	if (value !== null && typeof value === "object")
+		return Object.fromEntries(
+			Object.entries(value)
+				.sort(([a], [b]) => a.localeCompare(b))
+				.map(([key, entry]) => [key, canonical(entry)]),
+		);
+	return value;
 }
 /** Explicit owner intent only: validate an already-loaded exact definition, never start or stop it. */
 export function recordExistingService(
@@ -23,9 +34,12 @@ export function recordExistingService(
 	previous: ActivationReceipt | undefined,
 	deps: ExistingServiceDeps,
 ): number {
+	const actualUnit = deps.read(service.unit);
+	const parse = deps.parseUnit ?? ((bytes: string) => bytes);
 	if (
-		digestUnit(expectedUnit) !== service.unitSha256 ||
-		digestUnit(deps.read(service.unit)) !== service.unitSha256
+		JSON.stringify(canonical(parse(expectedUnit))) !==
+			JSON.stringify(canonical(parse(actualUnit))) ||
+		digestUnit(actualUnit) !== service.unitSha256
 	)
 		throw new Error("existing unit differs from reviewed declaration");
 	const candidate = { ...receipt, services: [service] };

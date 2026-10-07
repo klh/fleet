@@ -38,13 +38,22 @@ export function recordFleetLoopActivation(options: {
 		spec,
 		defaultRenderValues({ ...options, repo: options.repo ?? packageRoot }),
 	);
-	const parsed = Bun.spawnSync(
-		["/usr/bin/plutil", "-convert", "json", "-o", "-", "-"],
-		{ stdin: Buffer.from(expected), stdout: "pipe", stderr: "ignore" },
+	const parseUnit = (bytes: string): unknown => {
+		const parsed = Bun.spawnSync(
+			["/usr/bin/plutil", "-convert", "json", "-o", "-", "-"],
+			{ stdin: Buffer.from(bytes), stdout: "pipe", stderr: "ignore" },
+		);
+		if (parsed.exitCode !== 0) throw new Error("unit could not be parsed");
+		return JSON.parse(parsed.stdout.toString());
+	};
+	const definition = parseUnit(expected) as {
+		ProgramArguments: string[];
+		KeepAlive?: boolean;
+	};
+	const unitPath = join(
+		options.home,
+		"Library/LaunchAgents/com.suspenders.fleet-loop.plist",
 	);
-	if (parsed.exitCode !== 0)
-		throw new Error("reviewed unit could not be parsed");
-	const definition = JSON.parse(parsed.stdout.toString());
 	const path = join(options.home, ".config/klh/service-activation.json");
 	let previous: ActivationReceipt | undefined;
 	try {
@@ -63,17 +72,15 @@ export function recordFleetLoopActivation(options: {
 		},
 		{
 			label: "com.suspenders.fleet-loop",
-			unit: join(
-				options.home,
-				"Library/LaunchAgents/com.suspenders.fleet-loop.plist",
-			),
-			unitSha256: digestUnit(expected),
+			unit: unitPath,
+			unitSha256: digestUnit(readFileSync(unitPath)),
 			arguments: definition.ProgramArguments,
 			resident: definition.KeepAlive === true,
 		},
 		expected,
 		previous,
 		{
+			parseUnit,
 			read: (file) => readFileSync(file, "utf8"),
 			birth: processBirth,
 			inspect: (args) => {
