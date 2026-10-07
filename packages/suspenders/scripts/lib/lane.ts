@@ -11,6 +11,7 @@ import {
 	mergeLaneRegistry,
 } from "../../hooks/lib/lane-registry.ts";
 import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
+import { attachSubscribe } from "../../hooks/lib/subscribe-attach.ts";
 
 export type Lane = {
 	sid: string;
@@ -150,7 +151,13 @@ export const spawnClaude = (o: {
 	cliArgs?: string[];
 	agent?: string;
 	fleetDir?: string;
+	/** W417.1: when set, the lane's W303 coord subscribe is attached at
+	 * spawn level — idempotent pgrep per sid — so the WS inbox is live
+	 * before the harness boots (codex/copilot lanes have no Claude hooks
+	 * to open it from session-start). */
+	sid?: string;
 }) => {
+	if (o.sid) attachSubscribe(o.sid);
 	const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
 	// W177 jobslab: nice + ulimit ceilings + env caps per lane class, before
 	// the exec — a runaway lane dies at the rlimit instead of forkbombing

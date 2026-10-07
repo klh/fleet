@@ -361,6 +361,7 @@ const main = async (): Promise<void> => {
 			logFile: `${FLEET}/lane-${sid}.log`,
 			env,
 			fleetDir: FLEET,
+			sid,
 		});
 		proc.unref();
 		journal.dispatchedAt[item] = Date.now();
