@@ -142,6 +142,57 @@ services:
       retries: 3
       start_period: 15s
 
+  # Synthetic readiness (W467, openai-review reliability 3): /status proves
+  # the gate answers — only a real completion proves the serving chain
+  # (auth → routing ladder → upstream → response). This sidecar POSTs a
+  # 1-token chat completion through the hub's own front on a slow cadence
+  # and serves the verdict on its own port. INFORMATIONAL surface: hubctl
+  # status reports it; compose health still hits buckle-health (a dead
+  # upstream must degrade the verdict, never restart-loop the gate).
+  # HUB_READY_MODEL is machine-level config (stack.yaml) — it must name a
+  # model the hub's routing ladder actually serves.
+  buckle-ready:
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-buckle-ready
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      buckle-hub:
+        condition: service_started
+    command:
+      - bun
+      - /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts
+      - --target
+      - http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/v1/chat/completions
+      - --listen
+      - ${HUB_BUCKLE_READY_PORT:-4113}
+      - --auth-env
+      - BUCKLE_ROOT_KEY
+      - --expect-path
+      - choices.0
+      - --synthetic-json
+      - '{"model":"${HUB_READY_MODEL:-general}","messages":[{"role":"user","content":"Reply with the single word: ready"}],"max_tokens":4,"stream":false}'
+      - --every
+      - ${HUB_READY_EVERY_MS:-60000}
+      - --timeout
+      - ${HUB_READY_TIMEOUT_MS:-30000}
+      - --misses
+      - "2"
+    env_file:
+      # the synthetic call rides the same break-glass root credential as
+      # the gate (buckle.env, 0600, never transported)
+      - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_BUCKLE_READY_PORT: ${HUB_BUCKLE_READY_PORT:-4113}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+
   board-hub:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-hub

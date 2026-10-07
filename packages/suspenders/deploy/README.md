@@ -39,6 +39,24 @@ placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
 
+## Synthetic readiness (W467)
+
+A `/status` answer proves the gate responds; only a real completion proves
+the serving chain (auth → routing ladder → upstream → response). The
+`buckle-ready` sidecar POSTs a 1-token chat completion through the hub's own
+front every 60s and serves the verdict on its own port (`/healthz`,
+`/status` — same wire contract as the *-health sidecars):
+
+- the model is machine-level config: `ready_model:` in the hub's stack.yaml
+  section (`HUB_READY_MODEL`, template default `general`) — it must name a
+  model the hub's routing ladder actually serves;
+- the request rides the same break-glass root credential as the gate
+  (`buckle.env`), resolved inside the container via `--auth-env` — an unset
+  credential fails closed (config error, never "up");
+- `hubctl status` reports the row and gates the exit code on it; compose
+  health still hits `buckle-health` — a dead upstream degrades the verdict,
+  it never restart-loops the gate.
+
 ## Source pinning (mono deploy, W422.7)
 
 Hubs build from ONE pinned Fleet monorepo checkout, not per-package repos:

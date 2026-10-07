@@ -38,6 +38,7 @@ writeFileSync(
 				deploy: { dir, docker },
 				// 0 = skip the network probes — they would hit machine defaults
 				buckle_health_port: 0,
+				buckle_ready_port: 0,
 				board_health_port: 0,
 				store_health_port: 0,
 				belt_health_port: 0,
