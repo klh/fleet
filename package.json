@@ -4,5 +4,5 @@
 	"private": true,
 	"description": "the klh agent stack — one monorepo, one version, every service",
 	"workspaces": ["packages/*"],
-	"engines": { "bun": ">=1.1" }
+	"engines": { "bun": ">=1.2" }
 }
