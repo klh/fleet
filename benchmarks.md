@@ -310,6 +310,32 @@ candidates must carry text.
 
 ---
 
+### 4e. Dispatch — lane vs in-session subagent (W498, smoke n=5 pairs)
+
+Same task class (small logic fix + frozen failing test, 3–4 cases), 5
+interleaved pairs (lane, session per variant), same model (glm-5.3-flash via
+buckle :4101), 2026-10-07. Lane arm = full production dispatch path
+(dispatch-next --item: claim, brief condense, per-lane key, worktree, landing
+chain incl. `work done` + fact). Session arm = Agent-tool subagent on a fresh
+clone. Quality: 10/10 `bun test` green; test/ untouched 10/10; review vs
+pre-validated reference fix: PASS 10/10 (9/10 byte-identical to reference).
+
+| Arm                  | wall p50 | spread  | tokens p50                                              | Verdict                           |
+| -------------------- | -------: | ------- | ------------------------------------------------------- | --------------------------------- |
+| dispatched lane      |   73.2 s | 48–80 s | 22.9k in + 2.6k out (API usage, deduped) + ~138k cacheR | **wins wall 5/5 pairs**           |
+| in-session subagent  |  166.3 s | 144–249 | 19.0k harness `subagent_tokens` (different meter — no like-for-like token claim) | slower per task   |
+
+**Lane = 2.3× faster end-to-end (paired median ratio 0.44, 5/5 pairs)** —
+including ~5.5 s dispatch overhead and the governance landing chain.
+Dispatch policy: small isolated fix+test work → dispatch a lane; in-session
+subagents win only when the task needs the session's accumulated context.
+Mechanism notes: the lane ran with native file tools in its own worktree;
+the in-session arm hit permission-walled /tmp (Read/Edit blocked → splice
+workarounds), part of the real in-session cost. Other fleet lanes were live
+during the run (contention uncontrolled); AC power unverified; meters differ
+per arm (transcript API usage vs harness subagent total) — wall is the only
+same-meter column. Raw records: /tmp ephemeral, not committed.
+
 ## 5. Wire/adapter probes (verified 2026-10-02)
 
 | Probe                                 | Path                                   | Result                                                                                                                                                            |
