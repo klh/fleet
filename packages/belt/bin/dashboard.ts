@@ -42,6 +42,7 @@ import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
 	fleetNav,
+	displayLabel,
 	settingsBlock,
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
@@ -723,7 +724,12 @@ Bun.serve({
 			return new Response(Bun.file(`${import.meta.dir}/threads-mark.js`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
-		if (path === "/dashboard-observability.js" || path === "/vendor/lit.js")
+		if (path === "/dashboard-observability.js")
+			return new Response(
+				`const displayLabel = ${displayLabel.toString()};\n${await Bun.file(new URL("./dashboard-observability.js", import.meta.url)).text()}`,
+				{ headers: { "content-type": "text/javascript; charset=utf-8" } },
+			);
+		if (path === "/vendor/lit.js")
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
