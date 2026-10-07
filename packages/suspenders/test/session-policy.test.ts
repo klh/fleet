@@ -170,6 +170,34 @@ test("pin mismatch and public credentials produce unavailable, never compliant",
 	chmodSync(keyFile, 0o600);
 });
 
+test("unreachable hub surfaces unknown compliance without a decision", async () => {
+	const down = join(home, "down.json");
+	writeFileSync(
+		down,
+		JSON.stringify({
+			version: 1,
+			hubs: [{ url: "http://127.0.0.1:9", keyFile, sha256 }],
+		}),
+	);
+	const sid = "hub-down-session";
+	const notes = await checkSessionPolicies({
+		...options,
+		configPath: down,
+		sid,
+	});
+	expect(notes).toHaveLength(1);
+	expect(notes[0]).toContain("POLICY CHECK UNAVAILABLE");
+	expect(notes[0]).toContain("http://127.0.0.1:9");
+	expect(notes[0]).toContain("policy compliance is unknown");
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+			)
+			.get(sid),
+	).toEqual({ n: 0 });
+});
+
 test("unsafe paths, symlinks and remote probe instructions are refused", () => {
 	for (const check of [
 		[{ exists: "../outside" }],
