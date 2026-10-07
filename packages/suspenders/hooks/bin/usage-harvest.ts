@@ -14,6 +14,7 @@ import { openGovernorDb } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { harvestAids } from "./aid-harvest.ts";
 import { usageMessageLedger } from "../lib/usage-message-ledger.ts";
+import { usageRollupSource, verifiedUsageActive } from "../lib/usage-source.ts";
 
 // routing-doctrine classes (belt routing-policy.yaml ladder: flash → local →
 // cloud full models); the raw model string is kept alongside the group.
@@ -74,6 +75,17 @@ export function harvestUsage(
 	opts: { root?: string } = {},
 ): HarvestStats {
 	const root = opts.root ?? `${process.env.HOME}/.claude/projects`;
+	const verified = verifiedUsageActive(db);
+	if (
+		!verified &&
+		db
+			.query("SELECT 1 FROM sqlite_master WHERE name='usage_migration_state'")
+			.get()
+	)
+		throw new Error(
+			"usage migration deactivated: metering paused until verified source is reactivated",
+		);
+	const rollup = usageRollupSource(db);
 	const out: HarvestStats = {
 		files: 0,
 		harvested: 0,
@@ -113,7 +125,7 @@ export function harvestUsage(
 		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'usage-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
 	);
 	const upsert = db.query(
-		"INSERT INTO usage_rollup (hour_bucket, actor, model, model_group, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hour_bucket, actor, model) DO UPDATE SET in_tok = in_tok + excluded.in_tok, out_tok = out_tok + excluded.out_tok, cache_r = cache_r + excluded.cache_r, cache_c = cache_c + excluded.cache_c, requests = requests + excluded.requests",
+		`INSERT INTO ${rollup} (hour_bucket, actor, model, model_group, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hour_bucket, actor, model) DO UPDATE SET in_tok = in_tok + excluded.in_tok, out_tok = out_tok + excluded.out_tok, cache_r = cache_r + excluded.cache_r, cache_c = cache_c + excluded.cache_c, requests = requests + excluded.requests`,
 	);
 	const add = new Map<
 		string,
@@ -179,7 +191,9 @@ export function harvestUsage(
 			} catch {
 				continue; // vanished mid-scan — next harvest catches the remainder
 			}
-			const key = tpKey(abs);
+			const key = verified
+				? tpKey(abs).replace("usage.tp.", "usage.v2.tp.")
+				: tpKey(abs);
 			let cur = getCur(key);
 			if (cur && cur.o > 0 && cur.v !== 2)
 				throw new Error(
@@ -238,7 +252,7 @@ export function harvestUsage(
 				if (o?.type !== "assistant" || !u || !Number.isFinite(ts)) continue;
 				const model = o?.message?.model ?? "";
 				const delta = meter(
-					key,
+					tpKey(abs),
 					o.message?.id
 						? `message:${o.message.id}`
 						: o.uuid

@@ -1,7 +1,10 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { harvestUsage } from "../bin/usage-harvest.ts";
+
+const hash = (bytes: Uint8Array) =>
+	new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 
 /** Produce review artifacts only. Aggregate legacy rows cannot prove which
  * producer owns them, so this tool never overwrites the live usage database. */
@@ -18,17 +21,26 @@ export function prepareUsageRebuild(
 	try {
 		// serialize is a consistent SQLite snapshot, including committed WAL.
 		writeFileSync(backup, source.serialize(), { mode: 0o600, flag: "wx" });
+		// serialize preserves a WAL-mode header. Normalize the private snapshot
+		// before reopening read-only; no live WAL/SHM files are copied or touched.
+		const normalized = new Database(backup);
+		try {
+			normalized.run("PRAGMA journal_mode=DELETE");
+		} finally {
+			normalized.close();
+		}
+		const snapshot = new Database(backup, { readonly: true });
 		const db = new Database(report, { create: true });
 		chmodSync(report, 0o600);
 		try {
 			for (const name of ["sessions", "facts", "usage_rollup"]) {
-				const schema = source
+				const schema = snapshot
 					.query("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
 					.get(name) as { sql: string } | null;
 				if (!schema) throw new Error(`required source table missing: ${name}`);
 				db.run(schema.sql);
 			}
-			const actors = source
+			const actors = snapshot
 				.query("SELECT sid,actor FROM sessions WHERE actor IS NOT NULL")
 				.all() as { sid: string; actor: string }[];
 			const insert = db.query(
@@ -49,9 +61,11 @@ export function prepareUsageRebuild(
 				report,
 				stats,
 				totals,
-				applyAllowed: false,
+				automaticApplyAllowed: false,
+				backupHash: hash(readFileSync(backup)),
+				reportHash: hash(db.serialize()),
 				reason:
-					"Transcript-only evidence. Legacy aggregate ownership and non-transcript producers require reconciliation before any live replacement.",
+					"Review artifacts only. Explicit reviewed activation selects the verified transcript source while preserving legacy aggregates separately; it does not reconcile all historical producers.",
 			};
 			writeFileSync(
 				join(dir, "manifest.json"),
@@ -61,6 +75,7 @@ export function prepareUsageRebuild(
 			return manifest;
 		} finally {
 			db.close();
+			snapshot.close();
 		}
 	} finally {
 		source.close();

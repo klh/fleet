@@ -181,7 +181,7 @@ describe("harvestUsage", () => {
 			root,
 			join(HOME, "rebuild-output"),
 		);
-		expect(manifest.applyAllowed).toBe(false);
+		expect(manifest.automaticApplyAllowed).toBe(false);
 		const source = new Database(path, { readonly: true });
 		expect(
 			source

@@ -159,7 +159,7 @@ function filterHtml(
 	return `<div class="ufilters">${group(
 		"window",
 		tLinks,
-	)}${teamChips}${deptChips}${labels}<a class="ufilter${includeDemo ? " on" : ""}" href="${esc(href({ includeDemo: !includeDemo }))}">${includeDemo ? "Hide synthetic demo usage" : "Include synthetic demo usage"}</a><span class="uon">${includeDemo ? "Synthetic demo usage included" : `Real usage · ${r.demo?.excludedActors ?? 0} synthetic actors excluded`}</span></div>`;
+	)}${teamChips}${deptChips}${labels}${r.provenance?.source === "transcript-v2" ? "" : `<a class="ufilter${includeDemo ? " on" : ""}" href="${esc(href({ includeDemo: !includeDemo }))}">${includeDemo ? "Hide synthetic demo usage" : "Include synthetic demo usage"}</a>`}<span class="uon">${includeDemo && r.provenance?.source !== "transcript-v2" ? "Synthetic demo usage included" : `${r.provenance?.source === "transcript-v2" ? "Verified transcript usage" : "Legacy aggregate usage"} · ${r.demo?.excludedActors ?? 0} synthetic actors excluded${r.provenance?.legacy ? ` · Legacy aggregate retained separately (${fmtTok(r.provenance.legacy.tok)} tokens)` : ""}`}</span></div>`;
 }
 
 // ─── per-actor drill-down table (the report arrives pre-filtered) ─────────
