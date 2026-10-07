@@ -439,12 +439,18 @@ export class Router {
 		const ordered = sel.ordered.filter(
 			(row) => bridgeRequest(req, row.dep) !== null,
 		);
-		// The escalation law applies to any post-failure local→cloud hop:
-		// only the hint's head (and must's demanded set) bypass the tier
-		// gate — cloud rows below the head are failure-hops (W136 §5.2).
-		const gate = (row: CandidateRow, idx: number): boolean =>
-			sel.verb !== "must" &&
-			idx > 0 &&
+		// The escalation law owns EVERY prefer/no-hint cloud delivery: the
+		// hint ranks the head, it does not authorize leaving the machine
+		// (W136 §5.2 — prefs AND tier-warrant AND failed-twice, all AND-ed).
+		// Only must's demanded set bypasses (law 2; prefs already checked at
+		// decide with the loud cloud_forbidden). W209: the old idx-0 head
+		// exemption delivered prefer/no-hint cloud heads at attempts=0 with
+		// the tier-warrant and failed-twice conditions never consulted; an
+		// empty-demand must (total=0) is not a demanded set and does not
+		// ride the exemption either.
+		const demanded = sel.verb === "must" && sel.total > 0;
+		const gate = (row: CandidateRow): boolean =>
+			!demanded &&
 			row.kind === "cloud" &&
 			!mayEscalate({
 				group: row.group,
@@ -453,9 +459,9 @@ export class Router {
 				prefs: sel.prefs,
 				cloudGroups: sel.cloudGroups,
 			});
-		for (const [idx, row] of ordered.entries()) {
+		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
-			if (gate(row, idx)) continue;
+			if (gate(row)) continue;
 			tried.add(row.candidate_id);
 			const r = await this.attemptTier(req, row.group, [row.dep], st);
 			if (r !== null) return r;
