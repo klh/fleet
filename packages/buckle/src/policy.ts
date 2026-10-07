@@ -32,6 +32,12 @@ export interface GatewayPolicy {
 	// compatible): backoff cap for absent retry-after, per-attempt timeout.
 	retry_max_delay_s?: number;
 	request_timeout_s?: number;
+	// W450 long-generation deadlines: a streaming body that stalls longer
+	// than the idle deadline is hung (abort); a healthy stream may run to
+	// the total deadline regardless of request_timeout_s. Non-streaming
+	// exchanges keep request_timeout_s as their whole-exchange cap.
+	stream_idle_timeout_s?: number;
+	stream_total_timeout_s?: number;
 	// W142 knowledge-aids policy (buckle enforcement, belt ignores): the
 	// preseed allowlist is the operator's on-switch per domain; compress is
 	// DEFAULT-OFF per the W137 economics (cache reads are 0.1x — compression
@@ -90,17 +96,27 @@ interface PolicyDoc {
 export const POLICY_DEFAULTS: Required<
 	Omit<
 		GatewayPolicy,
-		"fallbacks" | "tags" | "retry_max_delay_s" | "request_timeout_s" | "aids"
+		| "fallbacks"
+		| "tags"
+		| "retry_max_delay_s"
+		| "request_timeout_s"
+		| "stream_idle_timeout_s"
+		| "stream_total_timeout_s"
+		| "aids"
 	>
 > & {
 	retry_max_delay_s: number;
 	request_timeout_s: number;
+	stream_idle_timeout_s: number;
+	stream_total_timeout_s: number;
 } = {
 	num_retries: 1,
 	allowed_fails: 3,
 	cooldown_time: 30,
 	retry_max_delay_s: 8,
 	request_timeout_s: 120,
+	stream_idle_timeout_s: 60,
+	stream_total_timeout_s: 900,
 };
 
 /** Parse a policy file: gateway knobs + the W136 tags block. */
