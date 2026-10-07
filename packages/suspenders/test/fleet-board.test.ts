@@ -207,6 +207,89 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		expect(dismiss.json.error).toBe("already answered");
 	});
 
+	test("W487: owner-needed classification and dead targets resolve as owner rulings, never Send-to-lane", async () => {
+		// classified owner-needed: target alive, the card is still owner-actionable
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"board-lane",
+				"--note",
+				"owner ruling fork",
+				"--as",
+				"board-lane",
+				"--classification=owner-needed",
+			]).code,
+		).toBe(0);
+		const rec = fork(await getDecisions(), "owner ruling fork");
+		expect(rec).toBeDefined();
+		expect(rec.owner_actionable).toBe(true);
+		expect(rec.owner_reason).toBe("owner-needed");
+		const ans = await post("/api/answer", {
+			id: rec.id,
+			to: rec.target,
+			note: "hold until W500",
+			token: rec.answer_token,
+		});
+		expect(ans.status).toBe(200);
+		expect(ans.json.ok).toBe(true);
+		expect(ans.json.ruling).toBe(true);
+		const ruled = fork(await getDecisions(), "owner ruling fork");
+		expect(ruled.state).toBe("ANSWERED");
+		expect(ruled.answer_to).toBe("board-lane");
+		// the ruling is an owner record on the bus — no lane target on the event
+		const wdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		wdb.run("PRAGMA busy_timeout = 4000");
+		const ev = wdb
+			.query(
+				"SELECT target, payload FROM events WHERE kind = 'ANSWER' AND json_extract(payload, '$.decision') = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(String(rec.id)) as { target: string | null; payload: string };
+		wdb.close();
+		expect(ev.target).toBeNull();
+		expect((JSON.parse(ev.payload) as Row).ruling).toBe("owner");
+
+		// dead target: session not RUNNING → owner-actionable with reason target-dead
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"board-lane",
+				"--note",
+				"dead target fork",
+				"--as",
+				"board-lane",
+			]).code,
+		).toBe(0);
+		const rec2 = fork(await getDecisions(), "dead target fork");
+		expect(rec2).toBeDefined();
+		const kdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		kdb.run("PRAGMA busy_timeout = 4000");
+		kdb.run("UPDATE sessions SET state = 'DEAD' WHERE sid = 'board-lane'");
+		kdb.close();
+		const rec2dead = fork(await getDecisions(), "dead target fork");
+		expect(rec2dead.owner_actionable).toBe(true);
+		expect(rec2dead.owner_reason).toBe("target-dead");
+		const ans2 = await post("/api/answer", {
+			id: rec2.id,
+			to: rec2.target,
+			note: "owner decides: proceed",
+			token: rec2.answer_token,
+		});
+		expect(ans2.status).toBe(200);
+		expect(ans2.json.ruling).toBe(true);
+		expect(fork(await getDecisions(), "dead target fork").state).toBe(
+			"ANSWERED",
+		);
+		// restore so later tests see board-lane alive
+		const rdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		rdb.run("PRAGMA busy_timeout = 4000");
+		rdb.run("UPDATE sessions SET state = 'RUNNING' WHERE sid = 'board-lane'");
+		rdb.close();
+	});
+
 	test("v1 DISMISSED rows fold into CANCELLED on sync", async () => {
 		// a NEED event with no target never backfills — host for a legacy row
 		expect(

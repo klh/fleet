@@ -178,15 +178,17 @@ function decNode(d){
   setText(q.querySelector('.dq'), d.question || '(no question text)');
   var blocks = 'blocks: ' + (d.task_title || (d.task_id ? 'task ' + d.task_id : 'no linked task'));
   setText(q.querySelector('.dblocks'), blocks);
+  var ruling = !!d.owner_actionable;
   var errEl2 = q.querySelector('.derr');
-  var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? 'delivery failed — press Send to retry' : '');
+  var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? (ruling ? 'target lane is dead or absent — record the owner ruling' : 'delivery failed — press Send to retry') : '');
   if (errEl2.getAttribute('data-sig') !== errTxt) {
     errEl2.setAttribute('data-sig', errTxt);
     errEl2.textContent = errTxt;
   }
   var sb = q.querySelector('.send');
   sb.disabled = !!answering[d.id];
-  setText(sb, sentOk[d.id] ? 'Sent' : 'Send');
+  // W487: owner-actionable cards resolve on the board — no Send-to-lane step
+  setText(sb, sentOk[d.id] ? 'Sent' : ruling ? 'Record ruling' : 'Send');
   q.querySelector('.getrec').disabled = !!advising[d.id];
   var optEl = q.querySelector('.dopts');
   var opts = Array.isArray(d.options) ? d.options : [];
