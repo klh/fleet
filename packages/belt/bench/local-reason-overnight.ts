@@ -120,10 +120,11 @@ const runLeg = async (leg: Leg, task: keyof typeof TASKS): Promise<Round> => {
 			},
 			body: JSON.stringify({
 				model: leg.model,
-				// 32768 both legs (owner: z.ai budget is not a constraint): the
-				// original 4096 was consumed by glm's thinking tokens alone
-				// (finish=length, 2026-10-07 05:42 round) — never cap mid-thought.
-				max_tokens: 32768,
+				// z.ai gets an effectively unbounded budget (owner: enough to
+				// burn; the API clamps to the model's real max) — the original
+				// 4096 was consumed by glm's thinking alone and truncated every
+				// round. Local stays bounded by its own context window reality.
+				max_tokens: leg.wire === "openai" ? 32768 : 1_000_000,
 				temperature: 0.2,
 				messages: [{ role: "user", content: TASKS[task] }],
 			}),
