@@ -153,6 +153,83 @@ describe("CLI help is read-only", () => {
 	});
 });
 
+describe("explicit dispatch ownership scope", () => {
+	test("one requested item never recovers unrelated orphan claims", () => {
+		const add = (title: string) =>
+			tool("work.ts", "add", title).out.match(/W\d+/)?.[0] ?? "";
+		const target = add("explicit dispatch target");
+		const stale = add("unrelated orphan must stay put");
+		expect(
+			tool(
+				"work.ts",
+				"take",
+				stale,
+				"--as",
+				"autowunrelated",
+				"--origin",
+				`${hostname()}:claude`,
+			).code,
+		).toBe(0);
+		const row = JSON.parse(tool("work.ts", "show", stale, "--json").out);
+		const db = new Database(
+			join(HOME, ".cache", "claude-governor", "governor.db"),
+		);
+		db.run(
+			"UPDATE work_items SET updated_at = 1 WHERE project = ? AND id = ?",
+			[row.project, stale],
+		);
+		db.close();
+		const before = tool("work.ts", "show", stale, "--json").out;
+		const result = dispatch(
+			"--dry-run",
+			"--item",
+			target,
+			"--target",
+			"1",
+			"--no-belt",
+		);
+		expect(result.code).toBe(0);
+		expect(result.out).toContain(`DRY dispatch ${target}`);
+		expect(result.out).not.toContain(
+			`recovered missing registry identity ${stale}`,
+		);
+		expect(result.out).not.toContain(`DRY dispatch ${stale}`);
+		expect(tool("work.ts", "show", stale, "--json").out).toBe(before);
+		const fleet = join(REPO, ".fleet");
+		mkdirSync(fleet, { recursive: true });
+		writeFileSync(
+			join(fleet, "lanes.json"),
+			JSON.stringify([
+				{
+					sid: "autowunrelated",
+					item: stale,
+					pid: 99999999,
+					branch: `suspenders/${stale}`,
+					worktree: join(REPO, ".worktrees", stale),
+					launchedAt: 1,
+					attempt: 0,
+				},
+			]),
+		);
+		const registered = dispatch(
+			"--dry-run",
+			"--item",
+			target,
+			"--target",
+			"1",
+			"--no-belt",
+		);
+		expect(registered.code).toBe(0);
+		expect(registered.out).toContain(`DRY dispatch ${target}`);
+		expect(registered.out).not.toContain(`DRY dispatch ${stale}`);
+		expect(tool("work.ts", "show", stale, "--json").out).toBe(before);
+		rmSync(join(fleet, "lanes.json"));
+
+		expect(tool("work.ts", "fail", target).code).toBe(0);
+		expect(tool("work.ts", "fail", stale).code).toBe(0);
+	});
+});
+
 describe("capsule protocol (real coord verb, scratch db)", () => {
 	test("write/read round-trip", () => {
 		const set = tool(

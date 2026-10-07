@@ -1041,7 +1041,9 @@ const main = async (): Promise<void> => {
 				0,
 				TARGET - [...audit.values()].filter(Boolean).length,
 			);
-			for (const row of candidates.slice(0, slots)) {
+			for (const row of candidates
+				.filter((r) => !ITEM || r.id === ITEM)
+				.slice(0, slots)) {
 				lanes.push({
 					sid: row.owner_sid,
 					item: row.id,
@@ -1073,7 +1075,9 @@ const main = async (): Promise<void> => {
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
 	const resumeOf = new Map<string, Lane>();
-	for (const l of lanes.filter((x) => !live.includes(x))) {
+	for (const l of lanes.filter(
+		(x) => !live.includes(x) && (!ITEM || x.item === ITEM),
+	)) {
 		if (worktreeLive(l.worktree)) continue; // raced between filter and here
 		const show = run([
 			process.execPath,
