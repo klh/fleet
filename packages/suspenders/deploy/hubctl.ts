@@ -9,6 +9,7 @@
 //   bun deploy/hubctl.ts mint  <hub>    # ensure secrets exist on the hub (0600)
 //   bun deploy/hubctl.ts push  <hub>    # stream compose template + .env to the hub
 //   bun deploy/hubctl.ts up    <hub>    # docker compose up -d on the hub
+//                                     #   (refuses a stale/unpinned hub .env; --force overrides)
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
 //   bun deploy/hubctl.ts deploy <hub>   # install-grade one-shot: mint → push → up → status
 // Config: KLH_STACK env overrides the stack path (tests).
@@ -200,6 +201,60 @@ function composeUp(hub: HubProfile): void {
 	);
 }
 
+/** The HUB_FLEET_REF a hub's deployed .env pins — null when there is none
+ *  (never-pushed hub, or a stale pre-pin env like the W422.6 poison). */
+function hubEnvRef(hub: HubProfile, dir: string): string | null {
+	try {
+		if (!hub.deploy?.ssh) {
+			const path = `${dir}/.env`;
+			if (!existsSync(path)) return null;
+			return (
+				/^HUB_FLEET_REF=(.*)$/m.exec(readFileSync(path, "utf8"))?.[1].trim() ??
+				null
+			);
+		}
+		const text = runOnHub(
+			hub,
+			`cat ${JSON.stringify(`${dir}/.env`)} 2>/dev/null || true`,
+		);
+		return /^HUB_FLEET_REF=(.*)$/m.exec(text)?.[1].trim() ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/** W422.6.2: `up` honors the same pinned-version gate deploy enforces — it
+ *  used to compose-up whatever .env sat on the hub (the desktop hub ran a
+ *  stale pre-pin env and crash-looped every container). A missing or
+ *  mismatched HUB_FLEET_REF is refused; --force proceeds with a warning.
+ *  `up` never re-renders the env: staleness is fixed by `hubctl push` (the
+ *  write surface), not a silent write from up. */
+function upHub(
+	hub: HubProfile,
+	name: string,
+	version: string | undefined,
+	force: boolean,
+): void {
+	const dir = requireDir(hub);
+	const ref = hubEnvRef(hub, dir);
+	if (ref !== null && version !== undefined && ref === version) {
+		composeUp(hub);
+		return;
+	}
+	const reason =
+		ref === null
+			? `no HUB_FLEET_REF in ${dir}/.env — re-render: hubctl push ${name}`
+			: version === undefined
+				? `hub .env pins ${ref} but stack.yaml has no pinned version — set version: then hubctl push ${name}`
+				: `hub .env pins ${ref} but stack.yaml pins ${version} — re-render: hubctl push ${name}`;
+	if (!force)
+		throw new Error(
+			`hubctl up refused: ${reason} (override: hubctl up ${name} --force)`,
+		);
+	console.log(`! up --force: proceeding on a stale env — ${reason}`);
+	composeUp(hub);
+}
+
 /** Probe every service port; exit non-zero when any probe fails. */
 function status(hub: HubProfile): number {
 	const docker = hub.deploy?.docker ?? "docker";
@@ -304,12 +359,14 @@ function deployHub(
 }
 
 function main(): void {
-	const [verb, hubName] = process.argv.slice(2);
+	const [verb, hubName, ...flags] = process.argv.slice(2);
+	const force = flags.includes("--force");
 	const stack = loadStack();
 	const authRequired = stack.auth?.required;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy> <hub> — config: ~/.config/klh/stack.yaml",
+			"usage: hubctl <render|mint|push|up|status|deploy> <hub> — config: ~/.config/klh/stack.yaml\n" +
+				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -330,7 +387,7 @@ function main(): void {
 			pushConfig(hub, hubName, authRequired, stack.version);
 			return;
 		case "up":
-			composeUp(hub);
+			upHub(hub, hubName, stack.version, force);
 			return;
 		case "deploy":
 			deployHub(hub, hubName, authRequired, stack.version);
