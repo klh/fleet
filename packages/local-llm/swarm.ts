@@ -13,7 +13,7 @@
 // LOCAL_LLM_HOME / LOCAL_LLM_LOG_DIR env override the kit/home locations so
 // installs and tests can point the tools at scratch dirs.
 
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
 	appendFileSync,
 	closeSync,
@@ -35,6 +35,7 @@ import {
 	spawnReserved,
 } from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
+import { killListeners } from "./kill-listeners.ts";
 import { litellmTarget } from "./litellm-target.ts";
 import { serveObserver, type ObservedTarget } from "./serve-observation.ts";
 
@@ -73,11 +74,7 @@ const getModel = async (port: number): Promise<string> => {
 };
 
 const killPort = (port: number): void => {
-	try {
-		execSync(`lsof -ti :${port} | xargs kill -9 2>/dev/null`, {
-			stdio: "pipe",
-		});
-	} catch {}
+	killListeners(port);
 };
 
 // mlx_lm /v1/models lists the whole HF cache (first id ≠ served model) —
