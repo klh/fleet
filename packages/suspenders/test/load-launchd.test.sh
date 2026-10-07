@@ -7,7 +7,7 @@ trap 'rm -rf "$scratch"' EXIT
 mkdir "$scratch/bin"
 export LAUNCHD_TEST_STATE="$scratch/state"
 export PATH="$scratch/bin:$PATH"
-printf '<plist/>\n' >"$scratch/com.test.job.plist"
+printf '<plist version="1.0"><dict><key>Label</key><string>com.test.job</string></dict></plist>\n' >"$scratch/com.test.job.plist"
 printf '#!/bin/sh\nexit 0\n' >"$scratch/bin/plutil"
 printf '#!/bin/sh\nexit 0\n' >"$scratch/bin/sleep"
 cat >"$scratch/bin/launchctl" <<'SH'

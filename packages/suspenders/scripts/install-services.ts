@@ -39,6 +39,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
+import { assertBuckleActivation } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
@@ -708,6 +709,7 @@ function main(argv: string[]): number {
 	let target = process.platform;
 	let outDir: string | null = null;
 	let json = false;
+	let initialInstall = false;
 	const only: string[] = [];
 	const overrides: Partial<RenderValues> = {};
 	for (let i = 0; i < argv.length; i++) {
@@ -721,6 +723,7 @@ function main(argv: string[]): number {
 		if (a === "--target") target = val(a);
 		else if (a === "--out") outDir = val(a);
 		else if (a === "--json") json = true;
+		else if (a === "--owner-initial-install") initialInstall = true;
 		else if (a === "--service") only.push(val(a));
 		else if (a === "--bun") overrides.bun = val(a);
 		else if (a === "--home") overrides.home = val(a);
@@ -756,6 +759,20 @@ function main(argv: string[]): number {
 		files: string[];
 	}[] = [];
 	if (outDir !== null) {
+		// Check all governed active destinations before writing any output.
+		for (const r of rendered)
+			for (const u of r.units) {
+				const destination = join(resolve(outDir), u.file);
+				if (
+					target === "darwin" &&
+					destination ===
+						join(
+							values.home,
+							"Library/LaunchAgents/com.suspenders.buckle-spoke.plist",
+						)
+				)
+					assertBuckleActivation(destination, u.body, initialInstall);
+			}
 		mkdirSync(outDir, { recursive: true });
 		for (const r of rendered) {
 			for (const u of r.units) {
