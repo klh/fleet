@@ -32,12 +32,14 @@ import {
 	classifierText,
 	kevEligible,
 	openLocalStream,
-	retryAfterMs,
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
 	viaLocal,
 } from "./router-core.ts";
+// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
+// out; this adds the import for the extracted escalation leg.
+import { escalate } from "./escalate.ts";
 import { ensureUp } from "./spawner.ts";
 
 const admission = createAdmission();
@@ -188,66 +190,12 @@ function isDanish(text: string): boolean {
 	return strong >= 2 || (strong >= 1 && weak >= 1) || weak >= 3;
 }
 
-// ─── cloud escalation (z.ai, Anthropic format; creds read at request time,
-// never logged or cached). Budget policy applies (GLM always thinks); an
-// upstream 429 surfaces its Retry-After instead of an empty answer. ───
-async function viaCloud(
-	body: AnthropicBody,
-	maxTokens: number,
-	wantFast: boolean,
-): Promise<{
-	text: string;
-	model: string;
-	status?: number;
-	retryAfterMs?: number;
-	note?: string;
-}> {
-	const model = wantFast ? "glm-5.3-flash" : "glm-5.3";
-	const settings = JSON.parse(
-		await Bun.file(`${HOME}/.claude/settings.json`).text(),
-	);
-	const tok = settings.env?.ANTHROPIC_AUTH_TOKEN;
-	const base = settings.env?.ANTHROPIC_BASE_URL;
-	if (!tok || !base) return { text: "", model };
-	const budget = applyBudget(model, maxTokens);
-	const res = await fetch(`${base}/v1/messages`, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			"x-api-key": tok,
-			authorization: `Bearer ${tok}`,
-			"anthropic-version": "2023-06-01",
-		},
-		signal: AbortSignal.timeout(120_000),
-		body: JSON.stringify({
-			// litellm group names — the [1m] 1M-context ids exist in no litellm
-			// model_list; lanes 400'd on unrecognized_model through this path
-			model,
-			max_tokens: budget.maxTokens,
-			...(body.system === undefined ? {} : { system: body.system }),
-			messages: body.messages,
-		}),
-	});
-	if (res.status === 429) {
-		await res.body?.cancel();
-		return {
-			text: "",
-			model,
-			status: 429,
-			retryAfterMs: retryAfterMs(res.headers.get("retry-after")),
-		};
-	}
-	const j = (await res.json()) as { content?: Array<{ text?: string }> };
-	return {
-		text: (j.content ?? [])
-			.map((b) => b.text ?? "")
-			.join("")
-			.trim(),
-		model,
-		status: res.status,
-		note: budget.note,
-	};
-}
+// ─── cloud escalation ───
+// W422.17.3: the escalation leg lives in escalate.ts — gate mode
+// (BELT_ESCALATE_URL/KEY, operator-minted buckle:proxy:WRITE_ key,
+// route_audit row) with the legacy settings.json litellm leg as fallback.
+// The one call site passes body + budget + tier; creds live in machine
+// config, never code.
 
 // selftest: fire one request whose primary target is a dead port, asserting
 // the fallback branch answers. The path otherwise almost never runs — first
@@ -733,11 +681,10 @@ Bun.serve({
 				prefs.cost_speed === "quality";
 			if (!response && cloudAllowed && cloudWarranted) {
 				try {
-					const c = await viaCloud(
-						body,
-						clientMax,
-						score.tier !== "VERY_COMPLEX",
-					);
+					const c = await escalate(body, {
+						maxTokens: clientMax,
+						wantFast: score.tier !== "VERY_COMPLEX",
+					});
 					if (c.note) note.push(c.note);
 					if (c.status === 429)
 						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);

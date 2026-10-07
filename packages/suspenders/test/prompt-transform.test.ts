@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	condensePrompt,
+	ENHANCE_URL,
 	enhancePrompt,
 	type Fetcher,
 	holdPlan,
@@ -124,6 +125,35 @@ describe("enhance (belt router, Anthropic wire)", () => {
 		const r = await enhancePrompt("g", { model: "m", fetcher: empty });
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("g");
+	});
+	test("W422.17.3: key rides both wire forms; keyless sends no credential", async () => {
+		const seen: { url: string; headers: Headers }[] = [];
+		const fetcher: Fetcher = async (url, init) => {
+			seen.push({ url: String(url), headers: new Headers(init?.headers) });
+			return Response.json({
+				content: [{ type: "text", text: "Add CSV export." }],
+			});
+		};
+		await enhancePrompt("g", { model: "m", fetcher, key: "bksk_test" });
+		expect(seen[0].url).toBe(ENHANCE_URL);
+		expect(seen[0].headers.get("x-api-key")).toBe("bksk_test");
+		expect(seen[0].headers.get("authorization")).toBe("Bearer bksk_test");
+		await enhancePrompt("g", { model: "m", fetcher, key: "" });
+		expect(seen[1].headers.get("x-api-key")).toBeNull();
+		expect(seen[1].headers.get("authorization")).toBeNull();
+	});
+	test("W422.17.3: gate refusal degrades honestly, never invents text", async () => {
+		const r = await enhancePrompt("add csv", {
+			model: "m",
+			url: ENHANCE_URL,
+			key: "bksk_revoked",
+			fetcher: async () => new Response('{"error":"missing credential"}', {
+				status: 401,
+			}),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.text).toBe("add csv");
+		expect(r.note).toContain("HTTP 401");
 	});
 });
 

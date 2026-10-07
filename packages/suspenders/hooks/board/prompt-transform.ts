@@ -53,9 +53,17 @@ export function condensePrompt(text: string): string {
 }
 
 // ─── enhance (opt-in local LLM rewrite) ──────────────────────────────────
+// W422.17.3: the default target is the BUCKLE FRONT (:4101), not the belt
+// router :4000 — every LLM egress rides the gate and lands in route_audit.
+// SUSPENDERS_PROMPT_ENHANCE_URL still overrides (solo machines pin :4000
+// there); SUSPENDERS_PROMPT_ENHANCE_KEY carries the operator-minted scoped
+// key (buckle:proxy:WRITE_ — never the admin key). Buckle down / key absent
+// → the enhance pass honestly skips (same graceful fallback as any router
+// error); the goal text is never lost to an enhancement outage.
 export const ENHANCE_URL =
 	process.env.SUSPENDERS_PROMPT_ENHANCE_URL ??
-	"http://127.0.0.1:4000/v1/messages";
+	"http://127.0.0.1:4101/v1/messages";
+export const ENHANCE_KEY = process.env.SUSPENDERS_PROMPT_ENHANCE_KEY ?? "";
 export const ENHANCE_MAX_TOKENS = 400;
 export const ENHANCE_TIMEOUT_MS = 15_000;
 export const ENHANCE_SYS =
@@ -73,7 +81,13 @@ export interface EnhanceResult {
 
 export async function enhancePrompt(
 	text: string,
-	opts: { model: string; url?: string; fetcher?: Fetcher; timeoutMs?: number },
+	opts: {
+		model: string;
+		url?: string;
+		key?: string;
+		fetcher?: Fetcher;
+		timeoutMs?: number;
+	},
 ): Promise<EnhanceResult> {
 	const t0 = Date.now();
 	const f = opts.fetcher ?? fetch;
@@ -84,12 +98,16 @@ export async function enhancePrompt(
 		model: opts.model,
 		ms: Date.now() - t0,
 	});
+	const key = opts.key ?? ENHANCE_KEY;
 	try {
 		const r = await f(opts.url ?? ENHANCE_URL, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
 				"anthropic-version": "2023-06-01",
+				// gate credentials: the scoped bksk_ key, both wire forms (belt
+				// :4000 ignores them; buckle accepts either)
+				...(key ? { "x-api-key": key, authorization: `Bearer ${key}` } : {}),
 			},
 			body: JSON.stringify({
 				model: opts.model,
