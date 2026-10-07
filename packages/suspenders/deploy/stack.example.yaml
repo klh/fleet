@@ -42,10 +42,16 @@ hubs:
     board_bind: 0.0.0.0
     belt_bind: 0.0.0.0
     services_json: /state/hub-home/services.json
+    # the deploy source — MANDATORY per hub (hubctl fail-louds on render
+    # when omitted, W422.15): `ref` pins the git ref all three sidecars
+    # pull (absent = the stack `version:`, else main); the named entries
+    # override origins (forks/mirrors). Never host paths — the hub pulls
+    # its code from the git origins into volumes.
     repos:
-      buckle: /volume1/docker/hub/buckle
-      suspenders: /volume1/docker/hub/suspenders
-      belt: /volume1/docker/hub/belt
+      ref: main # or e.g. "v1.2.3" — the stack version pins it at render
+      buckle: https://github.com/klh/fleet.git
+      suspenders: https://github.com/klh/fleet.git
+      belt: https://github.com/klh/fleet.git
     deploy:
       ssh: user@nas.example
       dir: /volume1/docker/hub

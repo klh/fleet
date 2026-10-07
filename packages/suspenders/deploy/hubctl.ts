@@ -39,13 +39,21 @@ function requireHub(stack: StackConfig, name: string): HubProfile {
 }
 
 /** Render the compose .env from the profile — declared knobs only (the
- *  template's own defaults cover everything else; single source of truth). */
+ *  template's own defaults cover everything else; single source of truth).
+ *  Repos are the exception: the deploy source is NEVER defaulted (W422.15)
+ *  — a profile that omits `repos:` fails the render instead of silently
+ *  deploying whatever the template points at. */
 function renderEnv(
 	hub: HubProfile,
 	name: string,
 	authRequired?: boolean,
 	version?: string,
 ): string {
+	if (!hub.repos) {
+		throw new Error(
+			`hub "${name}" has no repos: in ${STACK_PATH()} — declare the deploy source (ref + origin overrides); the deploy source is never defaulted`,
+		);
+	}
 	const lines = [`HUB_NAME=${name}`];
 	const kv = (key: string, v: unknown): void => {
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);

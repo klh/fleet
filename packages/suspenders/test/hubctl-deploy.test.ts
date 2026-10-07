@@ -22,7 +22,6 @@ const stack = join(dir, "stack.json");
 const calls = join(dir, "calls");
 const deployDir = join(dir, "hub");
 const rootKeyPath = join(deployDir, "buckle/buckle.env");
-
 const docker = join(bin, "docker");
 writeFileSync(
 	docker,
@@ -61,6 +60,20 @@ console.log(process.env.TEST_KEY ?? "a".repeat(64));
 `,
 );
 for (const f of [docker, curl, openssl]) chmodSync(f, 0o755);
+// W422.15: a profile WITHOUT repos: must fail the render (the deploy
+// source is never defaulted) — this second fixture exercises that.
+const stackNoRepos = join(dir, "stack-no-repos.json");
+writeFileSync(
+	stackNoRepos,
+	JSON.stringify({
+		hubs: {
+			w363: {
+				host: "127.0.0.1",
+				deploy: { dir: deployDir, docker },
+			},
+		},
+	}),
+);
 writeFileSync(
 	stack,
 	JSON.stringify({
@@ -79,6 +92,7 @@ writeFileSync(
 				belt_health_port: 18306,
 				allowed_hosts: ["w363.local"],
 				services_json: join(deployDir, "services.json"),
+				repos: { ref: "v1.2.3-w363" },
 				deploy: { dir: deployDir, docker },
 				secrets: { buckle_root_key: rootKeyPath },
 			},
@@ -134,6 +148,16 @@ test("deploy runs the full chain: mint → push → up → probes gate exit", ()
 		"utf8",
 	);
 	expect(readFileSync(join(deployDir, "hub-compose.yaml"), "utf8")).toBe(tpl);
+	// W422.15: template defaults point at the living fleet monorepo, never
+	// the archived per-package originals
+	expect(tpl).toContain("HUB_BUCKLE_REPO_URL:-https://github.com/klh/fleet.git");
+	expect(tpl).toContain(
+		"HUB_SUSPENDERS_REPO_URL:-https://github.com/klh/fleet.git",
+	);
+	expect(tpl).toContain("HUB_BELT_REPO_URL:-https://github.com/klh/fleet.git");
+	expect(tpl).not.toContain("github.com/klh/buckle.git");
+	expect(tpl).not.toContain("github.com/klh/suspenders.git");
+	expect(tpl).not.toContain("github.com/klh/belt.git");
 	const key = readFileSync(rootKeyPath, "utf8");
 	expect(key).toMatch(/^BUCKLE_ROOT_KEY=[0-9a-f]{64}$/m);
 	expect(r.out).toContain("all healthy");
@@ -162,6 +186,14 @@ test("unknown hub names fail the deploy before anything runs", () => {
 	resetCalls();
 	const r = hubctl(["deploy", "hub-missing"]);
 	expect(r.code).toBe(1);
+	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
+test("W422.15: a profile without repos: fails the render — no silent default", () => {
+	resetCalls();
+	const r = hubctl(["render", "w363"], { KLH_STACK: stackNoRepos });
+	expect(r.code).toBe(1);
+	expect(r.out).toContain("no repos:");
 	expect(readFileSync(calls, "utf8")).toBe("");
 });
 
