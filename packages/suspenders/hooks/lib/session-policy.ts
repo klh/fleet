@@ -186,6 +186,44 @@ async function limitedJson(response: Response): Promise<unknown> {
 	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/** Follow only registered, recently reporting ancestry inside the project. */
+export function policyAuthority(
+	db: Database,
+	sid: string,
+	project: string,
+): string {
+	const visited = new Set<string>();
+	let current = sid;
+	for (let depth = 0; depth < 16; depth++) {
+		if (visited.has(current)) throw new Error("policy session ancestry cycle");
+		visited.add(current);
+		const row = db
+			.query("SELECT project,parent_sid,state,hb FROM sessions WHERE sid=?")
+			.get(current) as {
+			project: string;
+			parent_sid: string | null;
+			state: string;
+			hb: number;
+		} | null;
+		if (!row && current === sid) return sid;
+		if (
+			!row ||
+			row.project !== project ||
+			(current !== sid &&
+				(row.state !== "RUNNING" ||
+					!Number.isFinite(row.hb) ||
+					Date.now() - row.hb > 15 * 60_000 ||
+					row.hb > Date.now() + 30_000))
+		)
+			throw new Error(
+				"policy parent is not a live registered session in this project",
+			);
+		if (!row.parent_sid) return current;
+		current = row.parent_sid;
+	}
+	throw new Error("policy session ancestry exceeds limit");
+}
+
 export async function checkSessionPolicies(options: {
 	db: Database;
 	sid: string;
@@ -259,20 +297,37 @@ export async function checkSessionPolicies(options: {
 			)
 				throw new Error("hub policy provenance/content pin mismatch");
 			const gaps = await boundedPolicyEvaluation(options.repo, manifest.rows);
+			const target = policyAuthority(options.db, options.sid, options.project);
 			for (const gap of gaps) {
-				const dedupe = `policy.session.${digest([options.sid, options.project, hub.url, hub.sha256, gap.id])}`;
-				const target =
-					(
-						options.db
-							.query("SELECT parent_sid FROM sessions WHERE sid = ?")
-							.get(options.sid) as { parent_sid: string | null } | null
-					)?.parent_sid ?? options.sid;
+				const dedupe = `policy.session.${digest([target, options.project, hub.url, hub.sha256, gap.id])}`;
 				const question = gap.missingQuestion;
 				const eventId = options.db.transaction(() => {
 					const prior = options.db
 						.query("SELECT value FROM facts WHERE key = ?")
 						.get(dedupe) as { value: string } | null;
-					if (prior) return null;
+					if (prior) {
+						const id = Number(prior.value);
+						if (!Number.isSafeInteger(id) || id <= 0)
+							throw new Error("invalid shared policy decision reference");
+						const event = options.db
+							.query("SELECT kind,payload,target FROM events WHERE id=?")
+							.get(id) as {
+							kind: string;
+							payload: string;
+							target: string;
+						} | null;
+						const payload = event ? JSON.parse(event.payload) : null;
+						if (
+							event?.kind !== "NEED_DECISION" ||
+							event.target !== target ||
+							payload?.project !== options.project ||
+							payload?.policy?.hub !== hub.url ||
+							payload?.policy?.sha256 !== hub.sha256 ||
+							payload?.policy?.id !== gap.id
+						)
+							throw new Error("shared policy decision provenance mismatch");
+						return { id, created: false };
+					}
 					const result = options.db
 						.query(
 							"INSERT INTO events (ts,source,kind,payload,target) VALUES (?,?,'NEED_DECISION',?,?)",
@@ -297,11 +352,15 @@ export async function checkSessionPolicies(options: {
 					options.db
 						.query("INSERT INTO facts (key,value,ts) VALUES (?,?,?)")
 						.run(dedupe, String(id), Date.now());
-					return id;
+					return { id, created: true };
 				})();
-				if (eventId !== null)
+				if (eventId.created)
 					notes.push(
-						`POLICY DECISION ${eventId}: ${question} [hub=${hub.url} row=${gap.id} sha256=${hub.sha256}] Ask for approval; do not implement without the owner's answer.`,
+						`POLICY DECISION ${eventId.id}: ${question} [hub=${hub.url} row=${gap.id} sha256=${hub.sha256}] Ask for approval; do not implement without the owner's answer.`,
+					);
+				else if (target !== options.sid)
+					notes.push(
+						`POLICY REFERENCE ${eventId.id}: shared with parent ${target}; consult that decision before any remediation. [hub=${hub.url} row=${gap.id} sha256=${hub.sha256}] Do not ask a duplicate question.`,
 					);
 			}
 		} catch (error) {

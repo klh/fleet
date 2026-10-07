@@ -4,7 +4,7 @@
 // active work) and source is `resume`, then injects the restart packet
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
 	openGovernorDb,
@@ -28,7 +28,7 @@ const raw = await new Response(Bun.stdin.stream()).text();
 const input = JSON.parse(raw) as In;
 if (!input.session_id) process.exit(0);
 
-const sid = input.session_id;
+let sid = input.session_id;
 const src = input.source ?? "startup";
 const project = projectIdentity(input.cwd ?? process.cwd());
 const now = Date.now();
@@ -42,7 +42,7 @@ const laneMatch = (input.transcript_path ?? "").match(
 	/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/,
 );
 const isSubagent = !!laneMatch;
-const lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
+let lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -123,7 +123,7 @@ const actorDefault = (() => {
 const UPSERT =
 	"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path, actor) " +
 	"VALUES (?, ?, 'worker', ?, NULL, ?, ?, 'RUNNING', ?, ?, ?) " +
-	"ON CONFLICT(sid) DO UPDATE SET project = excluded.project, parent_sid = excluded.parent_sid, hb = excluded.hb, state = 'RUNNING', capabilities = COALESCE(excluded.capabilities, sessions.capabilities), transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path), actor = CASE WHEN sessions.actor IS NULL OR sessions.actor = '' THEN excluded.actor ELSE sessions.actor END";
+	"ON CONFLICT(sid) DO UPDATE SET project = excluded.project, parent_sid = COALESCE(excluded.parent_sid, CASE WHEN (SELECT project FROM sessions parent WHERE parent.sid = sessions.parent_sid) = excluded.project THEN sessions.parent_sid END), hb = excluded.hb, state = 'RUNNING', capabilities = COALESCE(excluded.capabilities, sessions.capabilities), transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path), actor = CASE WHEN sessions.actor IS NULL OR sessions.actor = '' THEN excluded.actor ELSE sessions.actor END";
 
 const DEAD_SQL =
 	"SELECT s.sid FROM sessions s WHERE s.project = ? AND s.state = 'CLOSED' " +
@@ -136,6 +136,57 @@ const OWNED_SQL =
 	"AND state NOT IN ('DONE','SUPERSEDED','FAILED') ORDER BY id";
 
 const db = openGovernorDb();
+// The executor may mint a different SDK session ID. Only a registered lane
+// with a current claim in this exact worktree can supply the canonical ID.
+const declaredSid = process.env.SUSPENDERS_SID;
+const identityProtocol = process.env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+if (identityProtocol !== undefined && identityProtocol !== "canonical-v1") {
+	console.log("SESSION IDENTITY REFUSED: unsupported identity protocol.");
+	db.close();
+	process.exit(1);
+}
+if (identityProtocol === "canonical-v1") {
+	try {
+		if (!declaredSid) throw new Error("canonical lane ID missing");
+		const registered = db
+			.query("SELECT project, worktree, parent_sid FROM sessions WHERE sid = ?")
+			.get(declaredSid) as {
+			project: string;
+			worktree: string | null;
+			parent_sid: string | null;
+		} | null;
+		const claimed = db
+			.query(
+				"SELECT 1 FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
+			)
+			.get(project, declaredSid);
+		if (!registered || registered.project !== project || !claimed || !input.cwd)
+			throw new Error(
+				"declared lane lacks matching project, claim or worktree",
+			);
+		// Older live controllers did not register worktree metadata. Retain
+		// their SDK identity until a supported bootstrap supplies strong binding.
+		if (registered.worktree !== null) {
+			if (realpathSync(registered.worktree) !== realpathSync(input.cwd))
+				throw new Error("declared lane belongs to another worktree");
+			if (
+				registered.parent_sid &&
+				!db
+					.query("SELECT 1 FROM sessions WHERE sid = ? AND project = ?")
+					.get(registered.parent_sid, project)
+			)
+				throw new Error("declared lane parent is outside this project");
+			sid = declaredSid;
+			lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
+		}
+	} catch {
+		console.log(
+			"SESSION IDENTITY REFUSED: declared lane lacks matching project, active claim or worktree.",
+		);
+		db.close();
+		process.exit(1);
+	}
+}
 db.query(UPSERT).run(
 	lane,
 	project,

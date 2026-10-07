@@ -34,6 +34,40 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// project identity is always derived (projectIdentity) — no --project
 	// override, it would let sessions fragment the graph by hand
 	const project = projectIdentity();
+	const parent = arg("--parent");
+	const worktree = arg("--worktree");
+	const existing = db
+		.query("SELECT project,parent_sid,worktree FROM sessions WHERE sid=?")
+		.get(as) as {
+		project: string;
+		parent_sid: string | null;
+		worktree: string | null;
+	} | null;
+	if ((parent || worktree) && existing && existing.project !== project)
+		die("bootstrap metadata cannot cross project identity");
+	if (parent) {
+		const registered = db
+			.query("SELECT project,state FROM sessions WHERE sid=?")
+			.get(parent) as { project: string; state: string } | null;
+		if (
+			parent === as ||
+			!registered ||
+			registered.project !== project ||
+			registered.state !== "RUNNING"
+		)
+			die("bootstrap parent must be a registered live session in this project");
+		if (existing?.parent_sid && existing.parent_sid !== parent)
+			die("bootstrap cannot reassign an existing parent");
+	}
+	const canonicalWorktree = worktree ? realpathSync(resolve(worktree)) : null;
+	if (canonicalWorktree && projectIdentity(canonicalWorktree) !== project)
+		die("bootstrap worktree must belong to this project");
+	if (
+		canonicalWorktree &&
+		existing?.worktree &&
+		realpathSync(existing.worktree) !== canonicalWorktree
+	)
+		die("bootstrap cannot reassign an existing worktree");
 	const role = arg("--role") ?? "worker";
 	// capability-aware dispatch (v2): --caps csv registers what this agent type
 	// offers; lanes inherit the parent's capabilities unless overridden — a
@@ -95,20 +129,37 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// liveness sweeps read THIS host's transcript tree — a remote lane's view
 	// would close live sessions it cannot see; sweeping stays a host concern
 	if (db.local) sweepStaleSessions(db as Database);
-	db.query(
-		"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, actor, tags) VALUES (?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?) ON CONFLICT(sid) DO UPDATE SET project = excluded.project, role = excluded.role, hb = excluded.hb, capabilities = COALESCE(excluded.capabilities, sessions.capabilities), actor = COALESCE(excluded.actor, sessions.actor), tags = COALESCE(excluded.tags, sessions.tags)",
-	).run(
-		as,
-		project,
-		role,
-		arg("--parent"),
-		arg("--worktree") ?? null,
-		Date.now(),
-		Date.now(),
-		caps,
-		actor,
-		tags,
-	);
+	// Bind provenance atomically. Earlier reads improve errors, but cannot
+	// authorize a competing writer that registered this SID in the meantime.
+	const binding = db
+		.query(
+			`INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, actor, tags)
+		SELECT ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?
+		WHERE ? IS NULL OR EXISTS (SELECT 1 FROM sessions WHERE sid=? AND project=? AND state='RUNNING')
+		ON CONFLICT(sid) DO UPDATE SET role = excluded.role, parent_sid = COALESCE(sessions.parent_sid,excluded.parent_sid), worktree = COALESCE(sessions.worktree,excluded.worktree), hb = excluded.hb, capabilities = COALESCE(excluded.capabilities, sessions.capabilities), actor = COALESCE(excluded.actor, sessions.actor), tags = COALESCE(excluded.tags, sessions.tags)
+		WHERE sessions.project=excluded.project
+		AND (sessions.parent_sid IS NULL OR excluded.parent_sid IS NULL OR sessions.parent_sid=excluded.parent_sid)
+		AND (sessions.worktree IS NULL OR excluded.worktree IS NULL OR sessions.worktree=excluded.worktree)`,
+		)
+		.run(
+			as,
+			project,
+			role,
+			parent,
+			canonicalWorktree,
+			Date.now(),
+			Date.now(),
+			caps,
+			actor,
+			tags,
+			parent,
+			parent,
+			project,
+		);
+	if (!binding.changes)
+		die(
+			"bootstrap identity binding changed concurrently or conflicts with registered provenance",
+		);
 	const mine = db
 		.query(
 			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",

@@ -33,6 +33,7 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
+import { launchParent } from "../../scripts/lib/launch-parent.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -973,6 +974,20 @@ if (MODE === "dispatch") {
 			})
 				.stdout?.toString()
 				.trim() || `suspenders/${item}`;
+		if (AGENT !== "codex") {
+			const parentSid = launchParent(store, project, item);
+			const registered = runTool([
+				`${process.env.HOME}/.claude/hooks/suspenders/bin/coord.ts`,
+				"bootstrap",
+				"--as",
+				sid,
+				"--worktree",
+				wt,
+				...(parentSid ? ["--parent", parentSid] : []),
+			]);
+			if (registered.code !== 0)
+				throw new Error("lane session metadata registration failed");
+		}
 		const show = runTool([
 			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
 			"show",
@@ -1017,6 +1032,11 @@ if (MODE === "dispatch") {
 		// canonical for the coordinator/board.
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
 		const env = { ...process.env };
+		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+		if (AGENT !== "codex") {
+			env.SUSPENDERS_SID = sid;
+			env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
+		}
 		delete env.ANTHROPIC_BASE_URL;
 		delete env.ANTHROPIC_AUTH_TOKEN;
 		// model overrides must not ride the coordinator's env into lanes — a

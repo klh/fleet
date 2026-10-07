@@ -16,6 +16,7 @@ import {
 	checkSessionPolicies,
 	boundedPolicyEvaluation,
 	evaluateSessionPolicy,
+	policyAuthority,
 } from "../hooks/lib/session-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
@@ -66,6 +67,115 @@ const options = {
 	configPath,
 	sid: "policy-session",
 };
+
+test("mother, siblings and grandchild share one decision while new mothers still ask", async () => {
+	const insert = db.query(
+		"INSERT INTO sessions (sid,project,parent_sid,state,started_at,hb) VALUES (?,?,?,'RUNNING',?,?)",
+	);
+	for (const [sid, parent] of [
+		["family-mother", null],
+		["family-child-a", "family-mother"],
+		["family-child-b", "family-mother"],
+		["family-grandchild", "family-child-a"],
+		["independent-mother", null],
+	])
+		insert.run(sid, options.project, parent, Date.now(), Date.now());
+	const mother = await checkSessionPolicies({
+		...options,
+		sid: "family-mother",
+	});
+	const id = mother[0].match(/POLICY DECISION (\d+)/)?.[1];
+	expect(id).toBeDefined();
+	for (const sid of ["family-child-a", "family-child-b", "family-grandchild"])
+		expect((await checkSessionPolicies({ ...options, sid }))[0]).toContain(
+			`POLICY REFERENCE ${id}`,
+		);
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE target='family-mother' AND kind='NEED_DECISION'",
+			)
+			.get(),
+	).toEqual({ n: 1 });
+	const response = await fetch(
+		`${fixture.BASE}/api/decisions?project=${encodeURIComponent(options.project)}`,
+	);
+	expect(
+		(await response.json()).decisions.some(
+			(row: { id: number }) => String(row.id) === id,
+		),
+	).toBe(true);
+	expect(
+		(await checkSessionPolicies({ ...options, sid: "independent-mother" }))[0],
+	).toContain("POLICY DECISION");
+});
+
+test("policy ancestry rejects cross-project, stale and cyclic parents", () => {
+	const insert = db.query(
+		"INSERT INTO sessions (sid,project,parent_sid,state,started_at,hb) VALUES (?,?,?,'RUNNING',?,?)",
+	);
+	insert.run("foreign-parent", "foreign-project", null, Date.now(), Date.now());
+	insert.run(
+		"foreign-child",
+		options.project,
+		"foreign-parent",
+		Date.now(),
+		Date.now(),
+	);
+	expect(() => policyAuthority(db, "foreign-child", options.project)).toThrow(
+		"this project",
+	);
+	insert.run("stale-parent", options.project, null, 0, 0);
+	insert.run(
+		"stale-child",
+		options.project,
+		"stale-parent",
+		Date.now(),
+		Date.now(),
+	);
+	expect(() => policyAuthority(db, "stale-child", options.project)).toThrow(
+		"live registered",
+	);
+	db.query("UPDATE sessions SET hb=? WHERE sid='stale-parent'").run(
+		Date.now() + 60_000,
+	);
+	expect(() => policyAuthority(db, "stale-child", options.project)).toThrow(
+		"live registered",
+	);
+	insert.run("cycle-a", options.project, "cycle-b", Date.now(), Date.now());
+	insert.run("cycle-b", options.project, "cycle-a", Date.now(), Date.now());
+	expect(() => policyAuthority(db, "cycle-a", options.project)).toThrow(
+		"cycle",
+	);
+});
+
+test("corrupt or missing dedupe event references cannot suppress policy assessment", async () => {
+	const sid = "corrupt-policy-reference";
+	const first = await checkSessionPolicies({ ...options, sid });
+	const id = Number(first[0].match(/POLICY DECISION (\d+)/)?.[1]);
+	expect(Number.isSafeInteger(id)).toBe(true);
+	const fact = db
+		.query("SELECT key FROM facts WHERE value=?")
+		.get(String(id)) as { key: string };
+	for (const value of ["not-an-event", "999999999"]) {
+		db.query("UPDATE facts SET value=? WHERE key=?").run(value, fact.key);
+		expect((await checkSessionPolicies({ ...options, sid }))[0]).toContain(
+			"POLICY CHECK UNAVAILABLE",
+		);
+	}
+	db.query("UPDATE facts SET value=? WHERE key=?").run(String(id), fact.key);
+	db.query("UPDATE events SET target='different-parent' WHERE id=?").run(id);
+	expect((await checkSessionPolicies({ ...options, sid }))[0]).toContain(
+		"provenance mismatch",
+	);
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source=? AND kind='NEED_DECISION'",
+			)
+			.get(sid),
+	).toEqual({ n: 1 });
+});
 
 test("remote authenticated policy persists provenance and a real board decision once per session", async () => {
 	const notes = await checkSessionPolicies(options);

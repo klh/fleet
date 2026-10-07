@@ -48,6 +48,7 @@ import {
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
+import { launchParent } from "./lib/launch-parent.ts";
 import {
 	canonicalProjectRoot,
 	loadLaneRegistry,
@@ -878,7 +879,8 @@ const dispatchItem = async (
 		// "[IKEA] opus W5" instead of an opaque sid. Renames on resume (the chain
 		// can switch executor between attempts). The lane's own session-start
 		// upsert never touches the tags column, so the name survives registration.
-		run([
+		const parentSid = launchParent(store, project, item);
+		const registered = run([
 			process.execPath,
 			`${BIN}/coord.ts`,
 			"bootstrap",
@@ -886,7 +888,12 @@ const dispatchItem = async (
 			sid,
 			"--name",
 			`${pick.agent} ${item}`,
+			"--worktree",
+			wt,
+			...(parentSid ? ["--parent", parentSid] : []),
 		]);
+		if (registered.code !== 0)
+			throw new Error("lane session metadata registration failed");
 		const brief = composeBrief({
 			item,
 			showOut: show.out,
@@ -930,6 +937,7 @@ const dispatchItem = async (
 		// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
 		const env = laneEnv({ ...process.env }, NO_BELT);
 		env.SUSPENDERS_SID = sid;
+		env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
 		// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)
 		// — executor knowledge lives in the table, dispatch has no per-executor
 		// branches. NO_BELT lanes speak their own API; nothing is inserted.
