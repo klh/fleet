@@ -77,12 +77,20 @@ export async function handleConsole(
 	}
 	if (url.pathname === "/api/console/audit") {
 		// W174: the admin-action trail as JSON — settings/policy applies and
-		// key revocations, newest first; ?limit= clamps to 1..200
+		// key revocations, newest first; ?limit= clamps to 1..200; keyset
+		// pagination (W451): ?before=<id> drains older pages
 		const limit = Math.min(
 			200,
 			Math.max(1, Number(url.searchParams.get("limit") ?? 25) || 25),
 		);
-		return json({ ok: true, audit: recentAdminAudit(db, limit) });
+		const before = Number(url.searchParams.get("before")) || undefined;
+		const audit = recentAdminAudit(db, limit, before);
+		return json({
+			ok: true,
+			audit,
+			nextCursor:
+				audit.length === limit ? (audit[audit.length - 1]?.id ?? null) : null,
+		});
 	}
 	if (url.pathname === "/console/settings") {
 		const pol = resolvePolicy({ beltRepo: BELT_REPO });
