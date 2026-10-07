@@ -6,7 +6,7 @@
 // W159: the settle phase runs here too — provenance-sorted knowledge
 // write-back (hooks/lib/settle.ts). Degrade-honest: a settle failure logs to
 // stderr and NEVER blocks the session closing.
-import { openGovernorDb } from "./lib/govdb.ts";
+import { openStore } from "./lib/govdb.ts";
 import { settleSession } from "./lib/settle.ts";
 import { retireTopLevel } from "./lib/hook-scripts.ts";
 
@@ -24,7 +24,7 @@ try {
 	// empty/dead stdin: nothing to close — exit clean below
 }
 if (input.session_id) {
-	openGovernorDb()
+	openStore()
 		.query("UPDATE sessions SET state = 'CLOSED', hb = ? WHERE sid = ?")
 		.run(Date.now(), input.session_id);
 	try {
