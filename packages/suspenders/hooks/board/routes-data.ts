@@ -122,6 +122,39 @@ export async function handleData(
 			decisions: taskDecisions(p, id),
 		});
 	}
+	if (url.pathname === "/api/events") {
+		// W451 bounded event deltas — the WS cursor contract (coord poll,
+		// hooks/coord/bus.ts) over plain HTTP: strict `id > since`, ascending,
+		// advance only past SHOWN rows. The client holds the cursor; a full
+		// page means more (drain with ?since=<cursor>). Rows match the WS
+		// /subscribe read-back shape (payload parsed).
+		const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+		const limit = Math.min(
+			Math.max(Number(url.searchParams.get("limit")) || 50, 1),
+			300,
+		);
+		const rows = db
+			.query(
+				"SELECT id, ts, source, kind, scope, payload, target FROM events WHERE id > ? ORDER BY id LIMIT ?",
+			)
+			.all(since, limit) as {
+			id: number;
+			ts: number;
+			source: string;
+			kind: string;
+			scope: string | null;
+			payload: string | null;
+			target: string | null;
+		}[];
+		return json({
+			ok: true,
+			events: rows.map((e) => ({
+				...e,
+				payload: e.payload ? (JSON.parse(e.payload) as unknown) : null,
+			})),
+			cursor: rows.at(-1)?.id ?? since,
+		});
+	}
 	if (url.pathname === "/api/activity") {
 		// newest-first bus feed; limit default 80, cap 300; keyset pagination
 		// (W451): ?before=<id> drains older pages — a partial page means the end
