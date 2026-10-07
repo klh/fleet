@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { processBirth, type ProcessBirth } from "./launch-fencing.ts";
+import { descendant, identityMatches, parentPid } from "./owned-process.ts";
 import type { ServiceVerdict } from "./service-drift.ts";
 
 export interface ResourceTarget {
@@ -23,16 +24,6 @@ export interface ActuatorDeps {
 	kill: (pid: number) => void;
 	now: () => number;
 }
-const parent = (pid: number): number | null => {
-	const result = Bun.spawnSync(["/bin/ps", "-p", String(pid), "-o", "ppid="], {
-		stdout: "pipe",
-		stderr: "ignore",
-	});
-	const value = Number(result.stdout.toString().trim());
-	return result.exitCode === 0 && Number.isSafeInteger(value) && value > 0
-		? value
-		: null;
-};
 const listener = (pid: number, port: number): boolean => {
 	const result = Bun.spawnSync(
 		["/usr/sbin/lsof", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
@@ -43,33 +34,6 @@ const listener = (pid: number, port: number): boolean => {
 		result.stdout.toString().trim().split(/\s+/).includes(String(pid))
 	);
 };
-function descendant(
-	pid: number,
-	owner: number,
-	inspect: ActuatorDeps["parent"],
-): boolean {
-	const seen = new Set<number>();
-	for (let depth = 0; depth < 8; depth++) {
-		if (seen.has(pid)) return false;
-		seen.add(pid);
-		const next = inspect(pid);
-		if (next === owner) return true;
-		if (!next || next <= 1) return false;
-		pid = next;
-	}
-	return false;
-}
-function identityMatches(
-	first: ProcessBirth,
-	current: ProcessBirth | false | null,
-): boolean {
-	return (
-		!!current &&
-		first.birth === current.birth &&
-		first.command === current.command
-	);
-}
-
 /** Reserve a durable per-service action before signaling; crashes consume budget. */
 export function resourceAction(
 	path: string,
@@ -80,7 +44,7 @@ export function resourceAction(
 	const deps: ActuatorDeps = {
 		owner,
 		birth: processBirth,
-		parent,
+		parent: parentPid,
 		listener,
 		kill: (pid) => process.kill(pid, "SIGKILL"),
 		now: Date.now,

@@ -7,6 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { stableDescendant, type OwnershipDeps } from "./owned-process.ts";
 
 export interface ActivationService {
 	label: string;
@@ -129,6 +130,7 @@ export function inspectServices(
 		if (statSync(path).size > 262144) throw new Error("unit too large");
 		return readFileSync(path, "utf8");
 	},
+	ownership?: OwnershipDeps,
 ): ServiceVerdict[] {
 	let manifestState: "unknown" | "drift" | null = null;
 	try {
@@ -273,6 +275,41 @@ export function inspectServices(
 						"supervised listener verified after bounded PID recheck",
 						Number(freshPid),
 					);
+				if (
+					freshPid === String(pid) &&
+					JSON.stringify(freshArgs) === JSON.stringify(service.arguments)
+				) {
+					const owned = stableDescendant(Number(owners[0]), pid, ownership);
+					if (owned === "unknown")
+						return result(
+							"unknown",
+							"supervised descendant start identity or ancestry unavailable or changed",
+							pid,
+						);
+					if (owned === "owned") {
+						const currentListeners = inspect([
+							"/usr/sbin/lsof",
+							"-nP",
+							"-t",
+							`-iTCP:${service.port}`,
+							"-sTCP:LISTEN",
+						]);
+						if (
+							currentListeners.code !== 0 ||
+							currentListeners.out.trim() !== owners[0]
+						)
+							return result(
+								"unknown",
+								"descendant listener changed during ownership verification",
+								pid,
+							);
+						return result(
+							"running",
+							"activated supervisor owns listener through stable bounded descendant ancestry",
+							pid,
+						);
+					}
+				}
 			}
 			if (owners.length !== 1 || owners[0] !== String(pid))
 				return result(
