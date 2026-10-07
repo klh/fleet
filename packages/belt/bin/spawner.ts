@@ -90,6 +90,9 @@ const COLD_TIMEOUT_FLOOR_MS = 90_000;
 export const coldTimeoutMs = (s: Specialist): number =>
 	Math.max(COLD_TIMEOUT_FLOOR_MS, s.ram_gb * 20_000);
 
+// Single-flight per port — concurrent cold requests share one load wait.
+const pending = new Map<number, Promise<EnsureResult>>();
+
 // ─── W500: spawn ledger (dedup ACROSS router restarts) ───
 // The in-memory single-flight map dies with the process; the ledger is how a
 // fresh router recognizes a still-loading specialist instead of stacking a

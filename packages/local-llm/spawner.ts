@@ -28,7 +28,7 @@ const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
 // (brew formula still on 0.14.3; benched 2026-09-23: 115.9 vs 107.4 tok/s
 // under load, flat vs quiet-machine — adopted for flags/aliases, not speed).
 const RAPID = `${HOME}/.local/share/uv/tools/rapid-mlx/bin/rapid-mlx`;
-const LOG_DIR = process.env.LOCAL_LLM_LOG_DIR ?? `${HOME}/.claude-insights`;
+const LOG_DIR = process.env.LOCAL_LLM_LOG_DIR ?? `/.claude-insights`;
 
 export const mlxLogPath = (port: number): string =>
 	`${LOG_DIR}/mlx-${port}.log`;
@@ -89,6 +89,9 @@ export interface EnsureResult {
 const COLD_TIMEOUT_FLOOR_MS = 90_000;
 export const coldTimeoutMs = (s: Specialist): number =>
 	Math.max(COLD_TIMEOUT_FLOOR_MS, s.ram_gb * 20_000);
+
+// Single-flight per port — concurrent cold requests share one load wait.
+const pending = new Map<number, Promise<EnsureResult>>();
 
 // ─── W500: spawn ledger (dedup ACROSS router restarts) ───
 // The in-memory single-flight map dies with the process; the ledger is how a
