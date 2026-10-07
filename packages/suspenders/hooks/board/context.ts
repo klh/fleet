@@ -38,6 +38,7 @@ export interface WorkItemRow {
 	updated_at: number;
 	requires: string | null;
 	origin: string | null;
+	tags: string | null;
 }
 
 // W92.2: the board binds the control-plane store port — colocation-free

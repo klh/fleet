@@ -555,6 +555,12 @@ export function openGovernorDb(): Database {
 	// take keeps the first dispatch's stamp across resume re-takes.
 	if (!wiCols.includes("origin"))
 		db.run("ALTER TABLE work_items ADD COLUMN origin TEXT");
+	// W517 — .prefer tree tag (lib/prefer.ts): stamped at insert by every
+	// creation path (add/split/migrate funnel through work.ts insertItem);
+	// display + board fall back to a live resolve for rows added before
+	// coverage, so the tag rides regardless of origin.
+	if (!wiCols.includes("tags"))
+		db.run("ALTER TABLE work_items ADD COLUMN tags TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a

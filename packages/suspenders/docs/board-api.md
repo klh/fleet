@@ -37,11 +37,18 @@ newest activity first:
   "project": "/p/repo/.git", "id": "W7", "title": "…", "state": "READY|CLAIMED|RUNNING|BLOCKED|DONE|SHATTERED",
   "owner_sid": "…|null", "owner_label": "lane-name|null", "requires": "shell,git|null",
   "scope": "src/x|null", "parent_id": "W6|null", "age_s": 4210,
+  "tag": "ikea|null", "tag_color": "#0058A3|null",
   "open_decisions": 1,
   "tail": { "text": "→ Bash: bun test test/", "ts": "2026-09-28T07:19:35.016Z" } | null,
   "unblocked_by": "W6|null"
 }
 ```
+
+`tag`/`tag_color` = the repo tree's `.prefer` identity (W517): `tag` is the
+value stamped on the item at `work add` (rows added before coverage fall back
+to a live resolve), `tag_color` is the tree's RGBHEX color, always live-resolved.
+See `hooks/lib/prefer.ts` — a `.prefer` file at any directory covers everything
+under it, nearest definition wins per key.
 
 `open_decisions` = OPEN decisions rows with `task_id = id`. `owner_label` = the owner's
 newest claim intent, else session name, else null. `tail` = the claiming session's latest

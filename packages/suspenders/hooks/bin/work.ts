@@ -56,6 +56,7 @@ import {
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
+import { preferTagFor } from "../lib/prefer.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -413,7 +414,7 @@ function mirrorDb(): GovernorStore | null {
 	if (!m) return null;
 	const d = openMemoryStore();
 	d.run(
-		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, requires TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
+		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, requires TEXT, tags TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
 	);
 	d.run(
 		"CREATE TABLE work_deps (project TEXT NOT NULL, work_id TEXT NOT NULL, depends_on TEXT NOT NULL, PRIMARY KEY (project, work_id, depends_on))",
@@ -439,6 +440,7 @@ function mirrorDb(): GovernorStore | null {
 		"result_sha",
 		"required",
 		"requires",
+		"tags",
 		"created_at",
 		"updated_at",
 	];
@@ -666,7 +668,7 @@ function insertItem(
 ): void {
 	db()
 		.query(
-			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
 		)
 		.run(
 			id,
@@ -678,6 +680,7 @@ function insertItem(
 			why,
 			PROJECT,
 			requires,
+			preferTagFor(projectRootOf(PROJECT)),
 			Date.now(),
 			Date.now(),
 			description,
@@ -750,7 +753,8 @@ function renderRow(r: Item): string {
 	const [g, col] = GLYPH[r.state as string] ?? ["?", dim];
 	const owner = r.owner_sid ? dim(String(r.owner_sid).slice(0, 6)) : "";
 	const req = r.requires ? dim(` ⟨needs ${r.requires}⟩`) : "";
-	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}`;
+	const tg = r.tags ? dim(` #${String(r.tags)}`) : "";
+	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}${tg}`;
 }
 
 // claimant transcript path — moved to hooks/lib/lane-liveness.ts so the
@@ -951,6 +955,7 @@ if (cmd === "add") {
 		"result_sha",
 		"why_parallel",
 		"requires",
+		"tags",
 		"description",
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);

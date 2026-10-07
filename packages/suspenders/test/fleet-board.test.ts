@@ -827,6 +827,8 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"requires",
 				"scope",
 				"state",
+				"tag",
+				"tag_color",
 				"tail",
 				"title",
 				"unblocked_by",
