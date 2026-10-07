@@ -9,7 +9,15 @@ test("upgrade preserves custom runtime code and is idempotent", async () => {
 	try {
 		await writeFile(
 			join(runtime, "swarm.ts"),
-			"async function serveOnce(): Promise<void> {\n}\n",
+			[
+				// pre-W506 boot shape — the exact anchors the W506 block upgrades
+				'import { clearLedgerPort, mlxLogPath, spawnArgs } from "./spawner.ts";',
+				"async function serveOnce(): Promise<void> {",
+				"\t\tconst log = mlxLogPath(s.port);",
+				"\t}",
+				"const fd = 1;",
+				'const proc = Bun.spawn(t.argv, { stdin: "ignore", stdout: fd, stderr: fd });',
+			].join("\n"),
 		);
 		await writeFile(
 			join(runtime, "spawner.ts"),
