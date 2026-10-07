@@ -1,16 +1,18 @@
 # Belt routing policy — LiteLLM-router config. The single policy file:
 # bin/router-policy.ts loads it, bin/gateway-config.ts emits the `gateway`
-# section verbatim as LiteLLM router_settings into the private litellm.yaml.
-# All native 1.103.0 router semantics (pinned-source verified, W126 audit):
-# fallbacks = ordered cross-group ladders tried after num_retries;
-# allowed_fails + cooldown_time = passive outlier ejection; num_retries =
-# per-call retries with native retry-after-honoring jittered backoff
-# (utils.py::_calculate_retry_after). One file an SRE recognizes.
+# section as router_settings into the private litellm.yaml, and the ladders
+# as litellm_settings.fallbacks (W219.2: the placement the installed litellm
+# actually reads — pinned-source verified, proxy_server.py setattr default +
+# router.py `_fallbacks = fallbacks or litellm.fallbacks`;
+# router_settings.model_group_fallbacks is NOT a key the proxy knows and is
+# ignored with a warning — the 2026-10-06 z.ai TLS outage hard-failed lanes
+# that way).
 #
-# OWNER DIRECTIVES 2026-10-01 (lesson.fanout-rate-budget):
-#   - ladder: glm-5.3-flash → local(:4000 shim, anthropic/ backend) →
-#     OpenAI → Anthropic. NEVER flashx — same upstream family saturates
-#     together, and flashx is too expensive.
+# OWNER DIRECTIVES (lesson.fanout-rate-budget + the 2026-10-04/06 hand-edit
+# fold, W219.2): the 429 wall proved glm groups need cross-group ladders to
+# the zai twins + local-reason; the TLS outage proved they must be live
+# (placement law above). NEVER flashx — same upstream family saturates
+# together, and flashx is too expensive.
 #   - operators edit THIS FILE — never code. Runtime copy
 #     ~/.claude/local-llm/routing-policy.yaml beats the committed default;
 #     BELT_POLICY env beats both.
@@ -31,8 +33,14 @@ gateway:
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
+  # Ordered cross-group ladders (tried after num_retries): glm group →
+  # openai-dialect zai twin → local-reason. When z.ai is dark both z.ai
+  # rungs fail and local-reason answers — the drill in llm-keepwarm.ts
+  # (fallback-drill.ts) asserts exactly this every 4 min.
   fallbacks:
-    glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]
+    glm-5.3-flash: [zai-glm-5.3-flash, local-reason]
+    glm-5.3: [zai-glm-5.3, local-reason]
+    glm-5.2: [zai-glm-5.2, local-reason]
 
 # Direct-tier bypass (W270) — hot local classes skip the LiteLLM hop.
 # Bench 2026-10-02 (REPORT.md): litellm on local = 1.35-3.92× wall vs the
