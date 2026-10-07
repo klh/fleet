@@ -1,16 +1,19 @@
 // test/hook-adapter-grok.test.ts - W296: the grok-cli hook adapter.
 // Covers the two translations (payload in / decision out), the identity
 // invariant (fleet sid on every governor row), the emitter's merge-not-
-// clobber contract, and real entrypoint integration through a gate.ts fixture
-// with the grok case injected but the tracked gate.ts file left untouched.
+// clobber contract, and real entrypoint integration through the tracked
+// gate.ts grok entrypoint (W509: the copy-into-hooks fixture leaked
+// into the real tree and is retired — the tracked gate ships the case).
 import { describe, test, expect, afterAll } from "bun:test";
 import {
+	mkdtempSync,
 	mkdirSync,
 	rmSync,
 	writeFileSync,
 	readFileSync,
 	existsSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import {
@@ -19,15 +22,9 @@ import {
 	normalizeGrok,
 } from "../hooks/dialects/grok/lib.ts";
 
-const ROOT = join(process.cwd(), `.tmp-w296-grok-${process.pid}`);
-const HOME = join(ROOT, "home");
-const REPO = join(ROOT, "repo");
-const GATE = join(
-	import.meta.dir,
-	"..",
-	"hooks",
-	`gate-grok-fixture-${process.pid}.ts`,
-);
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
+const REPO = mkdtempSync(join(process.cwd(), ".tmp-w296-repo-"));
+const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");
 const WIRE = join(
 	import.meta.dir,
 	"..",
@@ -36,26 +33,7 @@ const WIRE = join(
 	"grok",
 	"wire.ts",
 );
-const GROK_CASE = `	// biome-ignore lint/suspicious/noFallthroughSwitchClause: grokGate never resolves - await parks the case
-	case "grok": {
-		// W296 grok-cli adapter - dialect bound by argv (\`gate.ts grok <mode>\`):
-		// payload normalization + decision translation + fleet sid resolution
-		// live in gates/grok.ts + lib/grok.ts; gates keep zero grok knowledge.
-		const { grokGate } = await import("./gates/grok.ts");
-		await grokGate(process.argv[3] ?? "", hook as Record<string, unknown>);
-	}
-`;
-
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
-mkdirSync(HOME, { recursive: true });
-const gateSource = readFileSync(
-	join(import.meta.dir, "..", "hooks", "gate.ts"),
-	"utf8",
-);
-writeFileSync(
-	GATE,
-	gateSource.replace('	case "session": {', `${GROK_CASE}	case "session": {`),
-);
 
 const env = (): Record<string, string> => ({
 	...(process.env as Record<string, string>),
@@ -63,8 +41,8 @@ const env = (): Record<string, string> => ({
 });
 
 afterAll(() => {
-	rmSync(GATE, { force: true });
-	rmSync(ROOT, { recursive: true, force: true });
+	rmSync(HOME, { recursive: true, force: true });
+	rmSync(REPO, { recursive: true, force: true });
 });
 
 const run = (
