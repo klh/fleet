@@ -46,6 +46,12 @@ import { resolve } from "node:path";
 import { laneSid } from "../lib/laneslug.ts";
 import { laneAlive, laneProcessIdentity } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
+import {
+	parsePosture,
+	readPosture,
+	writePosture,
+	POSTURES,
+} from "../../scripts/lib/posture.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
 import { guardedMerge } from "../lib/merge-guard.ts";
@@ -54,16 +60,19 @@ const argv = process.argv.slice(2);
 const MODE = argv[0];
 if (
 	!MODE ||
-	!["once", "watch", "lanes", "dispatch", "ship"].includes(MODE) ||
+	!["once", "watch", "lanes", "dispatch", "ship", "posture"].includes(MODE) ||
 	!argv.includes("--repo")
 ) {
 	console.error(
-		`usage: fleet-loop once|watch|lanes|dispatch|ship --repo <dir> [--glob lane/autow*] [--main main]\n` +
+		`usage: fleet-loop once|watch|lanes|dispatch|ship|posture --repo <dir> [--glob lane/autow*] [--main main]\n` +
 			`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
 			`          [--ladder-timeout 10]                    minutes; watchdog-kills a hung ladder\n` +
 			`          [--dispatch-cmd <template>]              optional policy script\n` +
-			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
+			`          [--agent claude|supported agent]         dispatch backend (default claude)\n` +
 			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
+			`          posture [steady|plaid]                   show/set dispatch posture (W503: plaid =\n` +
+			`                                                   keyword fan-out, work-driven width — read per\n` +
+			`                                                   cycle by --dispatch-cmd, no restart needed)\n` +
 			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
 	);
 	process.exit(MODE ? 1 : 0);
@@ -1106,6 +1115,29 @@ if (MODE === "lanes") {
 	process.exit(0);
 }
 
+// posture: the owner's keyword fan-out flip (W503) — `posture` shows the
+// current mode, `posture plaid` sets it. plaid = every READY/resumable item
+// dispatches each cycle (work-driven width) until flipped back; dispatch
+// policy (dispatch-next) reads the same `.fleet/posture` file per cycle, so
+// the flip lands on the next cycle with no restart.
+if (MODE === "posture") {
+	// positional mode rides IMMEDIATELY after the verb (`posture plaid`); any
+	// dash-prefixed token there is a flag, not the mode — `posture --repo X`
+	// is a SHOW, never a set of "--repo"
+	const arg = argv[1] && !argv[1].startsWith("-") ? argv[1] : undefined;
+	const to = arg ? parsePosture(arg) : "show";
+	if (!to) {
+		console.error(`posture: unknown mode "${arg}" — use ${POSTURES.join(" | ")}`);
+		process.exit(1);
+	}
+	if (to !== "show") {
+		writePosture(`${REPO}/.fleet`, to);
+		log(`POSTURE ${to}`);
+	}
+	console.log(`posture: ${readPosture(`${REPO}/.fleet`)}`);
+	process.exit(0);
+}
+
 if (MODE === "once") {
 	await cycle();
 	process.exit(0);
@@ -1113,7 +1145,7 @@ if (MODE === "once") {
 
 // watch: each cycle is a killable --once child under a watchdog timer
 log(
-	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
+	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min posture=${readPosture(`${REPO}/.fleet`)}`,
 );
 while (true) {
 	const childArgs = argv.slice(1);

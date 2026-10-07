@@ -67,6 +67,13 @@ import {
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
+import {
+	parsePosture,
+	postureWidth,
+	readPosture,
+	POSTURES,
+	type Posture,
+} from "./lib/posture.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
@@ -83,6 +90,8 @@ Refill agent lanes from READY work and resume unfinished claims.
 
   --repo <dir>             Project checkout (default: Git root)
   --target <N>             Desired live lane count (default: 6)
+  --posture <steady|plaid> Override the .fleet/posture file for this run
+                           (plaid = work-driven width, keyword fan-out)
   --dry-run                Preview without launching or changing claims
   --item <Wn>              Dispatch one specific work item
   --no-belt                Skip belt executor selection
@@ -106,6 +115,18 @@ const val = (flag: string): string | undefined => {
 // machine (python fleet 91GB of 128GB, jetsam 2026-10-06 22:14). The
 // fanout-rate-budget lesson's cap is 6 — default follows it.
 const TARGET = Number(val("--target") ?? 6);
+// W503 keyword fan-out posture: `.fleet/posture` says how wide the fleet
+// runs — steady caps at --target; plaid drives EVERY ready/resumable item
+// (owner keywords ultrawork/plaid/rw) until flipped back. The flag
+// overrides the file; an invalid flag is a usage error, a junk FILE reads
+// steady (fail-safe narrow — see lib/posture.ts).
+const POSTURE_FLAG = parsePosture(val("--posture"));
+if (val("--posture") !== undefined && !POSTURE_FLAG) {
+	console.error(`--posture must be one of: ${POSTURES.join(", ")}`);
+	process.exit(1);
+}
+const POSTURE: Posture = POSTURE_FLAG ?? readPosture(FLEET);
+const WIDTH = postureWidth(POSTURE, TARGET);
 // W494: REPO is the repo ROOT, never cwd — the loop runs from
 // packages/<name> in the monorepo, and worktrees/briefs live at
 // <root>/.worktrees (worktree.ts derives toplevel from the project
@@ -1211,7 +1232,7 @@ const main = async (): Promise<void> => {
 			);
 			const slots = Math.max(
 				0,
-				TARGET - [...audit.values()].filter(Boolean).length,
+				WIDTH - [...audit.values()].filter(Boolean).length,
 			);
 			for (const row of candidates
 				.filter((r) => !ITEM || r.id === ITEM)
@@ -1263,7 +1284,7 @@ const main = async (): Promise<void> => {
 	}
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
-		if (live.length + dispatched.length >= TARGET) break;
+		if (live.length + dispatched.length >= WIDTH) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
@@ -1284,7 +1305,7 @@ const main = async (): Promise<void> => {
 					!isOwnerGated(r.title),
 			);
 	for (const r of ready) {
-		if (live.length + dispatched.length >= TARGET) break;
+		if (live.length + dispatched.length >= WIDTH) break;
 		const out = await dispatchItem(r.id, live);
 		if (out) dispatched.push(out);
 	}
@@ -1352,7 +1373,7 @@ const main = async (): Promise<void> => {
 		}
 	}
 	console.log(
-		`lanes live: ${live.length}/${TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
+		`lanes live: ${live.length}/${WIDTH === Number.POSITIVE_INFINITY ? `∞ (plaid, target ${TARGET} ignored)` : TARGET}${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
 	// W463: a governance refusal is an ERROR the caller must see — the run
 	// never reads as a clean "pool drained" exit.

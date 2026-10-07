@@ -128,6 +128,15 @@ bun hooks/bin/fleet-loop.ts watch \
   --ladder 'git merge --no-ff {branch}' \
   --dispatch-cmd 'bun scripts/dispatch-next.ts' \
   --target 8 --every 120         # merge ladder + dispatcher (launchd)
+
+# dispatch posture (W503) — owner keyword fan-out (ultrawork/plaid/rw):
+#   steady = --target cap (default) · plaid = work-driven width: every
+#   READY/resumable item dispatches until flipped back. Runtime flip — the
+#   dispatcher reads `.fleet/posture` each cycle, no plist edit/restart.
+#   plaid passes the ~6-lane 429 rate cap by design: an owner-explicit choice.
+bun hooks/bin/fleet-loop.ts posture --repo .            # show
+bun hooks/bin/fleet-loop.ts posture plaid --repo .      # fan out until stopped
+bun hooks/bin/fleet-loop.ts posture steady --repo .     # back to --target
 ```
 
 ### Quota sweep — `bun hooks/bin/quota-sweep.ts`
