@@ -133,17 +133,19 @@ function pollData(){
 function pollDec(){
   if (decBusy) return;
   decBusy = true;
-  fetch('/api/decisions' + projQuery(), { signal: AbortSignal.timeout(8000) })
+  var scope = projQuery();
+  fetch('/api/decisions' + scope, { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
+      if (scope !== projQuery()) return;
       if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload');
       if (!lastDec || j.ts >= lastDec.ts) lastDec = j;
       decOkAt = Date.now(); decErr = null; decLoaded = true;
       noteProjects(j.projects);
       noteNew(j.decisions);
     })
-    .catch(function(e){ decErr = String((e && e.message) || e); })
-    .finally(function(){ decBusy = false; renderAll(); });
+    .catch(function(e){ if (scope === projQuery()) decErr = String((e && e.message) || e); })
+    .finally(function(){ decBusy = false; renderAll(); if (scope !== projQuery()) pollDec(); });
 }
 function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); if (task.id) { pollTask(false); pollTail(); } }
 function noteNew(list){
@@ -151,6 +153,7 @@ function noteNew(list){
   projBaseline = false;
   for (var i = 0; i < list.length; i++) {
     var d = list[i];
+    if (!decisionInProject(d)) continue;
     if (d.state && d.state !== 'OPEN') continue;
     if (base) { seen[d.id] = true; continue; } // baseline or fresh project filter, no toast storm
     if (seen[d.id]) continue;

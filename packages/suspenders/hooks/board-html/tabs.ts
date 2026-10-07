@@ -98,6 +98,7 @@ if (ownSel) ownSel.addEventListener('change', function(e){
 var projSel = byId('taskProj');
 if (projSel) projSel.addEventListener('change', function(e){
   taskProj = e.target.value || 'all';
+  closeTask(); resetTail();
   saveTaskView(); renderTasks();
 });
 var doneCb = byId('taskDone');
@@ -172,6 +173,9 @@ document.addEventListener('keydown', function(e){
 });
 sel.addEventListener('change', function(){
   projBaseline = true; // fresh scope — re-baseline toasts
+  lastDec = null; decLoaded = false; decErr = null; decOkAt = 0;
+  histData = null; histLoaded = false; histErr = null; histOkAt = 0;
+  byId('histBody').replaceChildren();
   fleetHistoryPage = 0;
   renderAll();
   tick();

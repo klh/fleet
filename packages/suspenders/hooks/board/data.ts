@@ -1,3 +1,4 @@
+import { completionTail } from "../lib/work-completion-record.ts";
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
@@ -44,7 +45,9 @@ export function taskShape(
 		parent_id: w.parent_id ?? null,
 		age_s: ago(w.updated_at),
 		open_decisions: openDecisions,
-		tail: transcriptTail(w.owner_sid),
+		tail:
+			(w.state === "DONE" ? completionTail(db, w.project, w.id) : null) ??
+			transcriptTail(w.owner_sid),
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
 			w.state === "READY"
@@ -488,14 +491,18 @@ export function inbox(sid: string): unknown[] {
 // OPEN decisions first, then newest resolved; advice (hooks/bin/advise.ts,
 // fact advice.<id> or advice.<id>.error) rides along so the card can show
 // the recommendation — the LLM advises, the human decides.
-export function decisionRecords(): Record<string, unknown>[] {
+export function decisionRecords(
+	project: string | null = null,
+): Record<string, unknown>[] {
+	const selected = project && project !== "all" ? project : null;
 	const rows = db
 		.query(
 			`SELECT d.*, w.title AS task_title FROM decisions d
 			LEFT JOIN work_items w ON w.project = d.project AND w.id = d.task_id
+			${selected ? "WHERE d.project = ?" : ""}
 			ORDER BY (d.state = 'OPEN') DESC, d.event_id DESC LIMIT 200`,
 		)
-		.all() as {
+		.all(...(selected ? [selected] : [])) as {
 		event_id: number;
 		target: string;
 		asked_by: string | null;
@@ -564,9 +571,12 @@ export function decisionRecords(): Record<string, unknown>[] {
 	});
 }
 
-export function decisionsPayload(history: boolean): unknown {
+export function decisionsPayload(
+	history: boolean,
+	project: string | null = null,
+): unknown {
 	syncDecisions();
-	const recs = decisionRecords();
+	const recs = decisionRecords(project);
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];

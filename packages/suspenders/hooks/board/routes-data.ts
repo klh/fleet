@@ -68,7 +68,12 @@ export async function handleData(
 	if (url.pathname === "/api/decisions")
 		// full decision records + counts — the decisions feed the UI polls.
 		// Default OPEN-only; &history=1 folds in the resolved rows
-		return json(decisionsPayload(url.searchParams.get("history") === "1"));
+		return json(
+			decisionsPayload(
+				url.searchParams.get("history") === "1",
+				url.searchParams.get("project"),
+			),
+		);
 	{
 		// W217: evaluation history for one decision (the card's hydrate feed)
 		const m = url.pathname.match(/^\/api\/decisions\/(\d+)\/evals$/);

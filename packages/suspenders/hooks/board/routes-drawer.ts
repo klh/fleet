@@ -1,14 +1,17 @@
+import {
+	completionRecord,
+	completionTail,
+} from "../lib/work-completion-record.ts";
 // hooks/board/routes-drawer.ts — drawer feeds: /api/diff /api/tail (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
 import { json } from "./helpers.ts";
 import { LANE_TAIL_BYTES, transcriptTail, transcriptTailAll } from "./lanes.ts";
-import { board } from "./data.ts";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 
 export async function handleDrawer(
-	req: Request,
+	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/api/diff") {
@@ -75,12 +78,35 @@ export async function handleDrawer(
 		const id = url.searchParams.get("id") ?? "";
 		if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))
 			return json({ ok: false, error: "bad item id" }, 404);
-		const w = db
+		const project = url.searchParams.get("project");
+		const matches = db
 			.query(
-				"SELECT project, owner_sid FROM work_items WHERE id = ? ORDER BY updated_at DESC LIMIT 1",
+				"SELECT project, owner_sid, state FROM work_items WHERE id = ? AND (? IS NULL OR project = ?) LIMIT 2",
 			)
-			.get(id) as { project: string; owner_sid: string | null } | null;
+			.all(id, project, project) as {
+			project: string;
+			owner_sid: string | null;
+			state: string;
+		}[];
+		if (matches.length > 1)
+			return json(
+				{ ok: false, error: "ambiguous item id; supply the exact project" },
+				409,
+			);
+		const w = matches[0];
 		if (!w) return json({ ok: false, error: `unknown work item: ${id}` }, 404);
+		const completion = completionRecord(db, w.project, id);
+		if (completion && w.state === "DONE")
+			return json({
+				ok: true,
+				id,
+				project: w.project,
+				sid: completion.completed_by,
+				log: null,
+				transcript: completionTail(db, w.project, id),
+				recent: [completionTail(db, w.project, id)],
+				completion,
+			});
 		if (!w.owner_sid)
 			return json(
 				{ ok: false, error: `work item ${id} has no owning lane` },
@@ -119,6 +145,7 @@ export async function handleDrawer(
 		return json({
 			ok: true,
 			id,
+			project: w.project,
 			sid: w.owner_sid,
 			log,
 			transcript: transcriptTail(w.owner_sid),

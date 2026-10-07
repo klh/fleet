@@ -1,20 +1,22 @@
 // hooks/board-html/decisions.ts — decisions tab (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const DECISIONS = String.raw`// --- 2: decisions needed (Decisions tab, /api/decisions) ---
+function decisionInProject(d){
+  return !sel.value || sel.value === 'all' || d.project === sel.value;
+}
 function openDecs(){
   var ds = (lastDec && lastDec.decisions) || [];
   var out = [];
   for (var i = 0; i < ds.length; i++) {
-    if (!ds[i].state || ds[i].state === 'OPEN') out.push(ds[i]);
+    if (decisionInProject(ds[i]) && (!ds[i].state || ds[i].state === 'OPEN')) out.push(ds[i]);
   }
   return out;
 }
 function decById(id){
   var ds = (lastDec && lastDec.decisions) || [];
   for (var i = 0; i < ds.length; i++) {
-    if (ds[i].id === id) return ds[i];
+    if (ds[i].id === id && decisionInProject(ds[i])) return ds[i];
   }
   return null;
 }

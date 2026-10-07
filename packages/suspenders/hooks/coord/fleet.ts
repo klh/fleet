@@ -1,3 +1,4 @@
+import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
@@ -747,6 +748,26 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		)
 		.get();
 	if (hasDecisions) counts.decisions = countIn("decisions");
+	const hasCompletions = !!db
+		.query(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_completion_records'",
+		)
+		.get();
+	if (hasCompletions) {
+		counts.work_completion_records = countIn("work_completion_records");
+		const targetRecords = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM work_completion_records WHERE project = ?",
+				)
+				.get(to) as { n: number }
+		).n;
+		if (targetRecords)
+			die(
+				`rekey refused: target already holds ${targetRecords} completion record(s)`,
+			);
+	}
+
 	const eventsN = (
 		db
 			.query(
@@ -757,6 +778,15 @@ export async function cmdProject(rest: string[]): Promise<void> {
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
+		if (hasCompletions) {
+			ensureCompletionIdentityMigration(db);
+			db.run(
+				"UPDATE work_completion_records SET project = ? WHERE project = ?",
+				to,
+				from,
+			);
+		}
+
 		for (const t of PROJECT_TABLES)
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
 		if (hasDecisions)

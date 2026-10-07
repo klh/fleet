@@ -10,12 +10,13 @@ function pollHist(){
   fetch('/api/decisions' + q + (q ? '&' : '?') + 'history=1', { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
+      if (q !== projQuery()) return;
       if (!j || j.ok === false || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload');
       histData = j; histOkAt = Date.now(); histErr = null; histLoaded = true;
       noteProjects(j.projects);
     })
-    .catch(function(e){ histErr = String((e && e.message) || e); })
-    .finally(function(){ histBusy = false; renderHist(); });
+    .catch(function(e){ if (q === projQuery()) histErr = String((e && e.message) || e); })
+    .finally(function(){ histBusy = false; renderHist(); if (q !== projQuery()) pollHist(); });
 }
 function renderHist(){
   var st = byId('histState');
@@ -25,7 +26,7 @@ function renderHist(){
   var rows = [];
   if (histData) {
     var ds = histData.decisions || [];
-    for (var i = 0; i < ds.length; i++) if (ds[i].state && ds[i].state !== 'OPEN') rows.push(ds[i]);
+    for (var i = 0; i < ds.length; i++) if (decisionInProject(ds[i]) && ds[i].state && ds[i].state !== 'OPEN') rows.push(ds[i]);
   }
   if (!histLoaded && !histErr) { setText(st, 'loading history...'); clearErr(errEl); return; }
   if (histErr) {

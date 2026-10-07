@@ -1,7 +1,6 @@
 // hooks/board-html/tail.ts — live lane tail (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const TAIL = String.raw`// --- 4d: live lane tail + message-to-lane (W76, /api/tail + /api/message) ---
 // #taskTail sits outside the sigSet'd drawer body like #taskDiff: the tail
 // rebuilds on its own signature so the poll never blows away the message
@@ -19,16 +18,18 @@ function toggleTail(){
 }
 function fetchTail(){
   if (tailView.busy || !task.id) return;
+  var tailId = task.id, tailProject = task.proj || (task.data && task.data.project) || '', tailState = tailView;
   tailView.busy = true; tailView.err = null;
-  fetch('/api/tail?id=' + encodeURIComponent(task.id), { signal: AbortSignal.timeout(8000) })
+  fetch('/api/tail?id=' + encodeURIComponent(tailId) + (tailProject ? '&project=' + encodeURIComponent(tailProject) : ''), { signal: AbortSignal.timeout(8000) })
     .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { status: r.status, j: j || {} }; }); })
     .then(function(res){
+      if (tailView !== tailState || task.id !== tailId || (task.proj || (task.data && task.data.project) || '') !== tailProject) return;
       tailView.busy = false; tailView.at = Date.now();
       if (res.status === 200 && res.j && res.j.ok) { tailView.data = res.j; tailView.okAt = Date.now(); }
       else tailView.err = (res.j && res.j.error) || 'HTTP ' + res.status;
       renderTaskTail();
     })
-    .catch(function(e){ tailView.busy = false; tailView.err = String((e && e.message) || e); renderTaskTail(); });
+    .catch(function(e){ if (tailView !== tailState || task.id !== tailId || (task.proj || (task.data && task.data.project) || '') !== tailProject) return; tailView.busy = false; tailView.err = String((e && e.message) || e); renderTaskTail(); });
 }
 function pollTail(){
   if (!tailView.open || tailView.busy || !task.id) return;
@@ -41,7 +42,7 @@ function renderTaskTail(){
   var d = tailView.data;
   var lg = d && d.log;
   var rc = d && d.recent;
-  var sig = [task.id, tailView.open, tailView.busy, tailView.err || '', tailView.okAt ? (lg && lg.size != null ? lg.size + '@' + lg.mtime : 'nolog') + (rc && rc.length ? '|r' + rc.length : '') : 'idle', tailView.msg ? (tailView.msgErr ? 'e' : 'o') + tailView.msg : ''].join('|');
+  var sig = [task.id, task.proj || '', tailView.open, tailView.busy, tailView.err || '', tailView.okAt ? (lg && lg.size != null ? lg.size + '@' + lg.mtime : 'nolog') + (rc && rc.length ? '|r' + rc.length : '') : 'idle', tailView.msg ? (tailView.msgErr ? 'e' : 'o') + tailView.msg : ''].join('|');
   if (el.getAttribute('data-sig') !== sig) {
     el.setAttribute('data-sig', sig);
     var h = '<div class="tailbar"><button type="button" class="tailbtn' + (tailView.open ? ' on' : '') + '">' + (tailView.busy ? 'tail…' : 'tail') + '</button>';

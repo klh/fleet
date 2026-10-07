@@ -45,6 +45,12 @@ import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
 } from "../lib/lane-registry.ts";
+import {
+	completionRecord,
+	prepareCompletion,
+	persistCompletion,
+	type CompletionRecord,
+} from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 
 const die = (m: string): never => {
@@ -144,11 +150,18 @@ const SCHEMA: Record<string, Spec> = {
 		usage: "usage: release <id> --as <sid>",
 	},
 	start: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	done: {
-		flags: ITEM_FLAGS,
+	summary: {
+		flags: ["--json"],
+		switches: ["--json"],
 		minPos: 1,
 		reqFlags: [],
-		usage: "usage: done <id> [--as sid] --sha <sha>",
+		usage: "usage: summary <id> [--json]",
+	},
+	done: {
+		flags: [...ITEM_FLAGS, "--summary"],
+		minPos: 1,
+		reqFlags: [],
+		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
 	},
 	fail: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
 	supersede: {
@@ -311,6 +324,7 @@ const READ_CMDS = new Set([
 	"mine",
 	"owned",
 	"show",
+	"summary",
 	"orphaned",
 ]);
 const MUTATING_CMDS = new Set([
@@ -908,7 +922,12 @@ if (cmd === "add") {
 	const id = pos[0];
 	const it = get(id ?? "");
 	if (flag("--json")) {
-		console.log(JSON.stringify(it));
+		console.log(
+			JSON.stringify({
+				...it,
+				completion: completionRecord(db(), PROJECT, String(it.id)),
+			}),
+		);
 		process.exit(0);
 	}
 	const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
@@ -1026,6 +1045,12 @@ if (cmd === "add") {
 		);
 	if (it.state !== "RUNNING") setState(id, "RUNNING");
 	console.log(`${green("▶")} ${id}`);
+} else if (cmd === "summary") {
+	const id = pos[0];
+	get(id ?? "");
+	const record = completionRecord(db(), PROJECT, id);
+	if (!record) die(`${id} has no verified permanent completion record`);
+	console.log(flag("--json") ? JSON.stringify(record) : record.summary);
 } else if (cmd === "done") {
 	const id = pos[0];
 	const sha = flag("--sha");
@@ -1041,9 +1066,27 @@ if (cmd === "add") {
 		die(
 			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
 		);
+	let record: CompletionRecord | null;
+	try {
+		record = prepareCompletion(db(), {
+			project: PROJECT,
+			item: id,
+			sid: String(it.owner_sid ?? as ?? "manual"),
+			cwd: process.cwd(),
+			sha,
+			summary: flag("--summary"),
+		});
+	} catch (error) {
+		die(error instanceof Error ? error.message : String(error));
+	}
 	const tx = db().transaction(() => {
-		setState(id, "DONE", null, sha);
-		emit("work.done", id, { sha: sha ?? "" });
+		if (record) persistCompletion(db(), record);
+		setState(id, "DONE", null, record?.commit_sha ?? sha);
+		emit("work.done", id, {
+			sha: record?.commit_sha ?? sha ?? "",
+			verified: !!record,
+			summary: record?.summary ?? null,
+		});
 		const unblocked = freeDependents(id);
 		releaseClaim(
 			(it.owner_sid as string) ?? "",
@@ -1059,6 +1102,7 @@ if (cmd === "add") {
 	console.log(
 		`${green("✓")} ${cyan(id)} DONE${sha ? ` @${sha.slice(0, 8)}` : ""}`,
 	);
+	if (record) console.log(record.summary);
 	if (freed.length)
 		console.log(
 			`${amber("▶")} startable now: ${cyan(freed.join(", "))} ${dim(`— unblocked by ${id}`)}`,
