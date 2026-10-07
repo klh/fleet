@@ -1,5 +1,9 @@
 import { html, css, LitElement } from "/vendor/lit.js";
-import { supervisorFresh, restartEvidence } from "/dashboard-state.js";
+import {
+	supervisorFresh,
+	restartEvidence,
+	targetStateLabel,
+} from "/dashboard-state.js";
 import { observationFresh } from "/observation.js";
 
 class BeltSupervisor extends LitElement {
@@ -100,23 +104,9 @@ class BeltSupervisor extends LitElement {
 			}
 			`;
 	}
-	targetFresh(target, doc) {
-		const at = Date.parse(target.lastProbe || "");
-		return (
-			Number.isFinite(at) &&
-			at <= this.now + 5000 &&
-			this.now - at <= Math.max(15000, doc.intervalMs * 3)
-		);
-	}
-	label(target) {
-		if (target.preflightError) return "dependency blocked";
-		if (target.state === "idle") return "idle · on demand";
-		if (target.state === "unhealthy") return "restart limit reached";
-		if (target.state === "backoff") return "retry scheduled";
-		return target.state;
-	}
 	row(target, fresh, doc) {
-		return html`<details><summary>${displayLabel(target.name)} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
+		const state = fresh ? targetStateLabel(target, doc, this.now) : "unknown";
+		return html`<details><summary>${displayLabel(target.name)} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${state}</span></summary>
 				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${restartEvidence(target)}</p>
 				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
 				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}

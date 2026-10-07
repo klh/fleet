@@ -48,6 +48,15 @@ fi
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
 for item in "$REPO_DIR"/bin/*; do
+  # W556: never clobber the kit serve supervisor the launchd label runs
+  # (com.suspenders.local-llm → swarm.ts serve). Copying belt's swarm.ts
+  # over it would flip the producer's semantics silently — observation-only
+  # serve → self-heal supervise — behind the same argv. Owner law
+  # 2026-10-01: the runtime home's kit runtime is its own source of truth.
+  if [ "$(basename "$item")" = "swarm.ts" ] && [ -f "$PREFIX/swarm.ts" ] && grep -q 'serve-observation' "$PREFIX/swarm.ts"; then
+    echo "= $PREFIX/swarm.ts kept (kit serve runtime is the producer)"
+    continue
+  fi
   cp -R "$item" "$PREFIX/"
 done
 cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"

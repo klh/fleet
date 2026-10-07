@@ -4,6 +4,7 @@ import {
 	supervisorFresh,
 	supervisorSource,
 	restartEvidence,
+	targetStateLabel,
 } from "../bin/dashboard-state.ts";
 import type { StatusDoc, TargetStatus } from "../bin/supervisor.ts";
 
@@ -99,5 +100,20 @@ describe("dashboard observability", () => {
 		expect(endpointState(true, { ...target, state: "up" }, doc, now)).toBe(
 			"ready",
 		);
+	});
+	test("expired probe evidence renders unknown, never the stale state", () => {
+		expect(targetStateLabel(target, doc, now)).toBe("idle · on demand");
+		expect(targetStateLabel({ ...target, state: "up" }, doc, now)).toBe("up");
+		const expired = now - 16_000; // beyond max(15s, intervalMs*3)
+		expect(
+			targetStateLabel(
+				{ ...target, state: "up", lastProbe: new Date(expired).toISOString() },
+				doc,
+				now,
+			),
+		).toBe("unknown");
+		expect(
+			targetStateLabel({ ...target, lastProbe: null }, doc, now),
+		).toBe("unknown");
 	});
 });
