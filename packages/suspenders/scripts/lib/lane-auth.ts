@@ -7,7 +7,14 @@
 // fleet-loop retireMerged). Dispatch is FAIL-CLOSED (W463): a mint failure
 // refuses the lane unless the operator passes --allow-ungoverned.
 
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -176,3 +183,162 @@ export async function ensureLaneKey(
 	if (!admin) return null;
 	return mintLaneKey(sid, admin, fetch, front);
 }
+
+// ---- W422.17.1: interactive-session enrollment — the session shape of the
+// per-lane key lifecycle. Same mint, same 0600 files, same retire; the
+// difference is failure posture: a lane is refused at dispatch, a session
+// cannot be, so every buckle miss folds belt-direct with a loud,
+// mode-rendered note — the GOVERNANCE line the bootstrap injects.
+
+/** Bootstraps re-fire on resume/clear/compact: a meta younger than TTL
+ *  minus this slack reuses the minted key instead of churning a new one
+ *  per SessionStart event. */
+export const SESSION_KEY_REUSE_SLACK_S = 5 * 60;
+
+export type SessionEnrollment =
+	| {
+			mode: "enrolled";
+			front: string;
+			key: string;
+			keyId: string;
+			note: string;
+	  }
+	| { mode: "belt-direct"; note: string };
+
+/** One loud belt-direct line — why + mode-rendered governance tail. */
+const beltDirectNote = (why: string, govMode: "strict" | "solo"): string =>
+	govMode === "solo"
+		? `GOVERNANCE: belt-direct — ${why} (governance:solo): session rides belt direct ungoverned`
+		: `GOVERNANCE: belt-direct — ${why} (governance:strict): session ungoverned; LANE DISPATCH STILL REFUSES (solo relents: coord governance solo)`;
+
+/** Pure outcome matrix (unit-testable): front probe × mint × admin × mode.
+ *  Sessions never refuse — the owner keeps working; belt-direct stays loud. */
+export const sessionEnrollDecision = (o: {
+	sid: string;
+	front: string;
+	frontUp: boolean;
+	minted: MintedLaneKey | null;
+	hasAdmin: boolean;
+	govMode: "strict" | "solo";
+}): SessionEnrollment => {
+	if (o.frontUp && o.minted)
+		return {
+			mode: "enrolled",
+			front: o.front,
+			key: o.minted.key,
+			keyId: o.minted.keyId,
+			note: `GOVERNANCE: enrolled — session rides the buckle front /w/${o.sid.slice(0, 8)} (scoped key, ttl ${LANE_KEY_TTL_S}s)`,
+		};
+	if (!o.hasAdmin)
+		return {
+			mode: "belt-direct",
+			note: beltDirectNote("no BUCKLE_ADMIN_KEY (belt.env)", o.govMode),
+		};
+	if (!o.frontUp)
+		return {
+			mode: "belt-direct",
+			note: beltDirectNote("buckle front unreachable", o.govMode),
+		};
+	return {
+		mode: "belt-direct",
+		note: beltDirectNote("buckle key mint failed", o.govMode),
+	};
+};
+
+/** The 0600 enrollment files — same names/lifecycle as lanes, one retire
+ *  path (retireLaneKey cleans both): key meta {sid, key_id, mintedAt} plus
+ *  the settings env file. Grammar = the lane-settings env WITHOUT model
+ *  pins: an interactive session keeps the owner's model choice; only
+ *  routing + token enroll. */
+export const writeSessionEnrollmentFiles = (
+	fleet: string,
+	sid: string,
+	minted: MintedLaneKey,
+	front: string,
+): string => {
+	const root = `${front}/w/${sid}`;
+	mkdirSync(fleet, { recursive: true });
+	writeFileSync(
+		laneKeyMetaPath(fleet, sid),
+		`${JSON.stringify({ sid, key_id: minted.keyId, mintedAt: Date.now() }, null, 2)}\n`,
+	);
+	chmodSync(laneKeyMetaPath(fleet, sid), 0o600);
+	writeFileSync(
+		laneSettingsPath(fleet, sid),
+		JSON.stringify(
+			{
+				env: {
+					ANTHROPIC_BASE_URL: root,
+					OPENAI_BASE_URL: `${root}/v1`,
+					OPENAI_API_BASE: `${root}/v1`,
+					GOOGLE_GEMINI_BASE_URL: root,
+					ANTHROPIC_AUTH_TOKEN: minted.key,
+				},
+			},
+			null,
+			2,
+		),
+	);
+	chmodSync(laneSettingsPath(fleet, sid), 0o600);
+	return laneSettingsPath(fleet, sid);
+};
+
+/** A fresh enrollment (meta inside the reuse window AND its settings token)
+ *  — reused instead of a re-mint when bootstrap re-fires on resume/clear/
+ *  compact. The 5-min slack keeps the local window strictly inside the
+ *  server-side 24h TTL. null = mint fresh. */
+export const readSessionEnrollment = (
+	fleet: string,
+	sid: string,
+	now = Date.now(),
+): MintedLaneKey | null => {
+	try {
+		const m = JSON.parse(readFileSync(laneKeyMetaPath(fleet, sid), "utf8")) as {
+			sid?: string;
+			key_id?: string;
+			mintedAt?: number;
+		};
+		if (
+			m?.sid !== sid ||
+			typeof m.key_id !== "string" ||
+			typeof m.mintedAt !== "number" ||
+			now - m.mintedAt > (LANE_KEY_TTL_S - SESSION_KEY_REUSE_SLACK_S) * 1000
+		)
+			return null;
+		const s = JSON.parse(
+			readFileSync(laneSettingsPath(fleet, sid), "utf8"),
+		) as { env?: { ANTHROPIC_AUTH_TOKEN?: string } };
+		const t = s?.env?.ANTHROPIC_AUTH_TOKEN;
+		if (typeof t !== "string" || !t.startsWith("bksk_")) return null;
+		return { key: t, keyId: m.key_id };
+	} catch {
+		return null;
+	}
+};
+
+/** Enroll one interactive session: reuse-or-mint the per-session key and
+ *  write the 0600 files on a fresh mint. Probe result comes in; the hook
+ *  stays thin and every branch is unit-testable. Reuse never rewrites the
+ *  meta — a refreshed mintedAt would extend the local window past the
+ *  server-side TTL. */
+export const enrollSessionKey = async (o: {
+	fleet: string;
+	sid: string;
+	front: string;
+	frontUp: boolean;
+	govMode: "strict" | "solo";
+	admin?: string | null;
+	fetchFn?: typeof fetch;
+}): Promise<SessionEnrollment> => {
+	const admin = o.admin !== undefined ? o.admin : adminKey();
+	if (!o.frontUp || !admin)
+		return sessionEnrollDecision({ ...o, minted: null, hasAdmin: !!admin });
+	const minted =
+		readSessionEnrollment(o.fleet, o.sid) ??
+		(await (async () => {
+			const m = await mintLaneKey(o.sid, admin, o.fetchFn ?? fetch, o.front);
+			if (m) writeSessionEnrollmentFiles(o.fleet, o.sid, m, o.front);
+			return m;
+		})());
+	return sessionEnrollDecision({ ...o, minted, hasAdmin: true });
+};
