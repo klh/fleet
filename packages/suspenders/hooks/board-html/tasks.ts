@@ -128,12 +128,28 @@ function pollTasks(){
     .catch(function(e){ tasksErr = String((e && e.message) || e); })
     .finally(function(){ tasksBusy = false; renderTasks(); renderKanban(); });
 }
+// W518: the .prefer tag + color ride every board row (W517's lib resolves
+// the repo tree's .prefer; taskShape emits t.tag + t.tag_color — the stamped
+// tag wins, color is always the live tree color). Absent color = no
+// affordance. The color feeds the --prefer token: kanban card border + a
+// small list dot; the tag names the title tooltip.
+function preferOf(t){
+  var c = t && t.tag_color ? String(t.tag_color) : '';
+  if (!c) return null;
+  return { tag: (t && t.tag ? String(t.tag) : ''), color: c };
+}
+function preferStyle(t){
+  var p = preferOf(t);
+  return p ? ' style="--prefer:' + esc(p.color) + '"' : '';
+}
 function taskRow(t, parentId){
   var owner = ownerName(t);
+  var prefer = preferOf(t);
+  var pdot = prefer ? '<span class="pdot" style="--prefer:' + esc(prefer.color) + '" title="prefer: ' + esc(prefer.tag || prefer.color) + '"></span>' : '';
   var od = t.open_decisions || 0;
   var kid = parentId ? '<span class="kidmark">↳</span>' : '';
   var ub = (t.state === 'READY' && t.unblocked_by) ? '<span class="dim" title="unblocked by ' + esc(t.unblocked_by) + ' — startable">▶ </span>' : '';
-  return '<tr data-tid="' + esc(t.id) + '"><td>' + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button></td>' +
+  return '<tr data-tid="' + esc(t.id) + '"><td>' + pdot + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button></td>' +
     '<td class="mono dim">' + esc(projShort(t.project)) + '</td>' +
     '<td class="ttitle">' + esc(String(t.title || '(untitled)')).slice(0, 120) +
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
@@ -246,7 +262,7 @@ function startItem(id, proj, btn, agent, effort){
 function kanbanCard(t){
   var od = t.open_decisions || 0;
   var startable = t.state === 'READY' && !t.owner_sid;
-  var html = '<div class="kcard" data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
+  var html = '<div class="kcard"' + preferStyle(t) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
   html += '<div class="krow">' + taskPill(t.state) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
