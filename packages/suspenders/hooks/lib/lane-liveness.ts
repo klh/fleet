@@ -220,9 +220,14 @@ export const worktreeLive = (wt?: string): boolean => {
 		"cwd",
 		"-Fn",
 	]).stdout.toString();
-	return listing
-		.split("\n")
-		.some((line) => line.startsWith("n") && line.slice(1).startsWith(wt));
+	// W123 prefix discipline (ported W395): exact-or-subdir only —
+	// `.worktrees/W12` must not match a W123 lane's cwd; a cwd in a SUBDIR
+	// of the tree still counts.
+	return listing.split("\n").some((line) => {
+		if (!line.startsWith("n")) return false;
+		const cwd = line.slice(1);
+		return cwd === wt || cwd.startsWith(`${wt}/`);
+	});
 };
 
 // the verdict dispatch-next/fleet-loop/`work lanes` all share (W494.1):

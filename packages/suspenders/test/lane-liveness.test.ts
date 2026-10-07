@@ -101,6 +101,34 @@ describe("lane-liveness surface", () => {
 		}
 	});
 
+	test("worktreeLive prefix discipline (W123): sibling with shared id-prefix reads not-live, subdir still counts", () => {
+		// `.worktrees/W12` must not match a lane sitting in `.worktrees/W123`
+		// (bare startsWith collided on shared id-prefixes) while a cwd in a
+		// SUBDIR of the tree still counts — pin both sides at once by sitting
+		// the lane in a subdir.
+		const base = `${import.meta.dir}/.tmp-wtcol-${Date.now()}`;
+		const short = `${base}/W12`;
+		const long = `${base}/W123`;
+		mkdirSync(`${long}/sub`, { recursive: true });
+		mkdirSync(short, { recursive: true });
+		// the binary name is the harness contract: a sleep copy named `claude`
+		// gives ps args "…/W123/sub/claude 30"
+		Bun.spawnSync(["/bin/ln", "-sf", "/bin/sleep", `${long}/sub/claude`]);
+		const proc = Bun.spawn([`${long}/sub/claude`, "30"], { cwd: `${long}/sub` });
+		try {
+			// poll: ps/lsof visibility lags the spawn by a few hundred ms
+			let pinned = false;
+			for (let i = 0; i < 20 && !pinned; i++) {
+				pinned = worktreeLive(long) && !worktreeLive(short);
+				if (!pinned) Bun.spawnSync(["/bin/sleep", "0.1"]);
+			}
+			expect(pinned).toBe(true);
+		} finally {
+			proc.kill();
+			Bun.spawnSync(["/bin/rm", "-rf", base]);
+		}
+	});
+
 	test("harness anchor (W494): coord-subscribe phantoms read dead, real lanes live", () => {
 		// args verbatim from the machine, 2026-10-06 ghost anatomy: 19
 		// orphaned `coord.ts subscribe` processes (PPID 1, cwd pinned to the
