@@ -265,3 +265,22 @@ services:
     nice: 10
     logs: { out: /tmp/soak.log }
     placeholders: ["__BUN__", "__PREFIX__"]
+
+  # coord-worker (W529) — the headless coordinator cadence: every 15 min a
+  # governed claude run drains inbox/consults, takes at most ONE READY
+  # coordinator-class item (tagged #coord), capsules, exits. No KeepAlive —
+  # the interval IS the cadence and launchd coalesces fires while a run
+  # lives. Fails closed (W463 posture): front down or mint failed refuses
+  # the run; the interactive coordinator's warm transcript (fact
+  # coordinator.sid) stands in front of the worker (skip-live).
+  - name: coord-worker
+    bunEntry: "__PREFIX__/scripts/coord-worker.ts"
+    args: ["--repo", "__REPO__"]
+    cwd: "__REPO__"
+    env:
+      HOME: "__HOME__"
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { intervalSeconds: 900 }
+    nice: 10
+    logs: { out: /tmp/coord-worker.log }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
