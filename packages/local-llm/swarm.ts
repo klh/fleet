@@ -35,7 +35,6 @@ import {
 	spawnReserved,
 } from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
-import { gatewaySupervisor } from "./gateway-supervision.ts";
 import { litellmTarget } from "./litellm-target.ts";
 import { serveObserver, type ObservedTarget } from "./serve-observation.ts";
 
@@ -272,7 +271,6 @@ async function reapIdle(): Promise<void> {
 	}
 }
 
-const ensureGateway = gatewaySupervisor(undefined, serveLog);
 const gateway = litellmTarget();
 const observe = serveObserver(
 	process.env.BELT_SUPERVISOR_STATUS ??
@@ -294,7 +292,7 @@ function observedTargets(): ObservedTarget[] {
 			name: gateway.name,
 			port: gateway.port,
 			kind: "gateway",
-			owned: true,
+			owned: false, // cloud-gateway launchd service owns its lifecycle
 			healthPath: gateway.healthPath ?? "/v1/models",
 			probeHeaders: gateway.probeHeaders,
 			okStatus: gateway.okStatus,
@@ -321,7 +319,6 @@ function observedTargets(): ObservedTarget[] {
 }
 
 async function serveOnce(): Promise<void> {
-	await ensureGateway();
 	for (const t of serveTargets()) {
 		const up = await isUp(t.port);
 		if (up) {
