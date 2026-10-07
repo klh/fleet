@@ -277,7 +277,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "refreshSupervisor",
 			oneLiner:
-				"targeted belt supervisor.ts code upgrade with backup, import check and restore-on-failure",
+				"refresh the existing kit serve or advanced Belt supervisor code with backup and import validation; preserve machine config",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
@@ -366,7 +366,8 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			flag: "--refresh-supervisor",
-			meaning: "targeted belt supervisor code upgrade",
+			meaning:
+				"code-only refresh of the installed supervisor family; preserve machine configuration",
 			mappedStep: "refreshSupervisor",
 		},
 		{

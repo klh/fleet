@@ -164,6 +164,10 @@ else
   echo "  · klh-local not found — .local registration skipped (optional: https://github.com/klh/local)"
 fi
 
+if command -v bun >/dev/null 2>&1; then
+  bun "$REPO_DIR/bin/install-policy-adapters.ts" || warn "session policy adapter wiring failed"
+fi
+
 # ─── Skills: speedy skills/ → ~/.claude/skills (idempotent copy), then
 # ~/.agents/skills → ~/.claude/skills (zero-copy symlink, cross-CLI) ────
 # Gap found 2026-10-0X: this step never existed, so a fresh install never

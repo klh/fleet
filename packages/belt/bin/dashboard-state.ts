@@ -1,5 +1,20 @@
 import type { StatusDoc, TargetStatus } from "./supervisor.ts";
 
+export function supervisorSource(
+	doc: { source?: unknown } | StatusDoc,
+): string {
+	return "source" in doc && doc.source === "local-llm-serve"
+		? "local-llm-serve"
+		: "belt-supervisor";
+}
+
+export function restartEvidence(target: {
+	restarts?: number | null;
+	restartsLastWindow?: number | null;
+}): string {
+	return `${target.restartsLastWindow ?? "not recorded"} restarts in budget window · ${target.restarts ?? "not recorded"} total`;
+}
+
 /** Supervisor state is useful only while its independent probes are recent. */
 export function supervisorFresh(
 	doc: StatusDoc | null,

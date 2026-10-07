@@ -13,6 +13,7 @@ import {
 	sweepStaleSessions,
 } from "./lib/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
+import { checkSessionPolicies } from "./lib/session-policy.ts";
 
 type In = {
 	session_id?: string;
@@ -29,7 +30,7 @@ if (!input.session_id) process.exit(0);
 
 const sid = input.session_id;
 const src = input.source ?? "startup";
-const project = projectIdentity();
+const project = projectIdentity(input.cwd ?? process.cwd());
 const now = Date.now();
 
 // Subagent lanes: Claude Code gives a subagent the PARENT's session_id, so
@@ -380,6 +381,22 @@ outer: for (const dir of [".", "docs", "docs/design"]) {
 			);
 			break outer;
 		} catch {}
+	}
+}
+if (input.cwd && !isSubagent) {
+	try {
+		out.push(
+			...(await checkSessionPolicies({
+				db,
+				sid: lane,
+				project,
+				repo: input.cwd,
+			})),
+		);
+	} catch {
+		out.push(
+			"POLICY CHECK UNAVAILABLE: invalid runtime configuration; policy compliance is unknown.",
+		);
 	}
 }
 console.log(out.join("\n"));

@@ -21,6 +21,7 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
 | `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                  |
 | `gateway-supervision.ts` | LiteLLM adoption, revival and bounded retry backoff |
+| `serve-observation.ts` | Bounded network probes and atomic Belt-compatible evidence snapshot |
 | `litellm-target.ts` | Re-export of Belt's canonical LiteLLM target |
 | `memory-policy.ts` | Per-model Metal budget, bounded caches and concurrency |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
@@ -62,6 +63,29 @@ bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
 
 launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
 `launchctl kickstart gui/$(id -u)/com.suspenders.local-llm` revives.
+
+The serving kit writes outside-process HTTP observations to
+`~/.claude-insights/belt-supervisor.json` every supervision cycle
+(`BELT_SUPERVISOR_STATUS` overrides the path). Belt reads this same contract;
+expired evidence stays unknown. External services are observed only, missing
+on-demand targets are idle only after a refused network connection, and probe
+errors remain unknown. Unrecorded gateway restart totals and breaker budgets
+stay explicitly unavailable. This observer never launches additional models.
+
+To explicitly replace kit supervision code while preserving machine registry,
+routing, tier, credentials and gateway configuration:
+
+```sh
+bash packages/suspenders/install.sh --refresh-supervisor --dry-run
+bash packages/suspenders/install.sh --refresh-supervisor
+launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm
+```
+
+The installer validates staged code imports and saves changed code backups.
+It keeps the installed supervisor family: a kit refresh cannot enable the
+advanced Belt supervisor. Existing operator code customizations in the four
+refreshed kit modules are replaced explicitly and retained in `.serve-backup`
+files; ordinary installation continues to preserve existing runtime copies.
 
 ### Recover a legacy swarm missing gateway ownership
 

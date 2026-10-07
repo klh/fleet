@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { endpointState, supervisorFresh } from "../bin/dashboard-state.ts";
+import {
+	endpointState,
+	supervisorFresh,
+	supervisorSource,
+	restartEvidence,
+} from "../bin/dashboard-state.ts";
 import type { StatusDoc, TargetStatus } from "../bin/supervisor.ts";
 
 const now = Date.parse("2026-10-06T06:00:00Z");
@@ -28,6 +33,21 @@ const doc: StatusDoc = {
 };
 
 describe("dashboard observability", () => {
+	test("advanced counts retain their meaning while kit missing accounting is explicit", () => {
+		expect(supervisorSource({})).toBe("belt-supervisor");
+		expect(supervisorSource({ source: "local-llm-serve" })).toBe(
+			"local-llm-serve",
+		);
+		expect(restartEvidence({ restarts: 2, restartsLastWindow: 0 })).toBe(
+			"0 restarts in budget window · 2 total",
+		);
+		expect(restartEvidence({ restarts: 2, restartsLastWindow: null })).toBe(
+			"not recorded restarts in budget window · 2 total",
+		);
+		expect(
+			restartEvidence({ restarts: null, restartsLastWindow: null }),
+		).toContain("not recorded total");
+	});
 	test("on-demand absence is idle rather than a failure", () => {
 		expect(endpointState(false, target, doc, now)).toBe("idle · on demand");
 	});

@@ -1,0 +1,215 @@
+import { afterAll, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	checkSessionPolicies,
+	boundedPolicyEvaluation,
+	evaluateSessionPolicy,
+} from "../hooks/lib/session-policy.ts";
+import { boardFixture } from "./helpers/board-fixture.ts";
+
+const fixture = await boardFixture(0, afterAll);
+const home = mkdtempSync(join(tmpdir(), "session-policy-"));
+afterAll(() => rmSync(home, { recursive: true, force: true }));
+const rows = [
+	{
+		id: "service-health",
+		repoClass: "api",
+		detect: [{ exists: "server.ts" }],
+		check: [{ grep: "server.ts", pattern: "/health|/status" }],
+		missingQuestion: "This service lacks a health endpoint. Implement one?",
+		policySource: "operator:service-health-v1",
+	},
+];
+writeFileSync(
+	join(fixture.REPO, "server.ts"),
+	"Bun.serve({fetch:()=>new Response('api')})",
+);
+const sha256 = createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+const server = Bun.serve({
+	hostname: "127.0.0.1",
+	port: 0,
+	fetch(request) {
+		if (request.headers.get("authorization") !== "Bearer fixture-private-key")
+			return new Response("denied", { status: 401 });
+		return Response.json({ ok: true, version: 1, sha256, rows });
+	},
+});
+afterAll(() => server.stop(true));
+const keyFile = join(home, "key");
+writeFileSync(keyFile, "fixture-private-key", { mode: 0o600 });
+const configPath = join(home, "policy.json");
+writeFileSync(
+	configPath,
+	JSON.stringify({
+		version: 1,
+		hubs: [{ url: server.url.origin, keyFile, sha256 }],
+	}),
+);
+const db = new Database(`${fixture.HOME}/.cache/claude-governor/governor.db`);
+afterAll(() => db.close());
+const options = {
+	db,
+	repo: fixture.REPO,
+	project: fixture.REPO,
+	configPath,
+	sid: "policy-session",
+};
+
+test("remote authenticated policy persists provenance and a real board decision once per session", async () => {
+	const notes = await checkSessionPolicies(options);
+	expect(notes).toHaveLength(1);
+	expect(notes[0]).toContain("Ask for approval");
+	expect(await checkSessionPolicies(options)).toEqual([]);
+	const events = db
+		.query(
+			"SELECT payload,target FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+		)
+		.all(options.sid) as { payload: string; target: string }[];
+	expect(events).toHaveLength(1);
+	expect(JSON.parse(events[0].payload).policy).toEqual({
+		hub: server.url.origin,
+		sha256,
+		id: "service-health",
+		source: "operator:service-health-v1",
+	});
+	expect(events[0].target).toBe(options.sid);
+	const response = await fetch(
+		`${fixture.BASE}/api/decisions?project=${encodeURIComponent(fixture.REPO)}`,
+	);
+	const data = await response.json();
+	expect(
+		data.decisions.some(
+			(row) =>
+				row.question.startsWith(rows[0].missingQuestion) &&
+				row.question.includes(sha256),
+		),
+	).toBe(true);
+	await checkSessionPolicies({ ...options, sid: "next-session" });
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source IN ('policy-session','next-session') AND kind = 'NEED_DECISION'",
+			)
+			.get(),
+	).toEqual({ n: 2 });
+});
+
+test("actual SessionStart automatically checks configured remote policy", async () => {
+	const configDir = join(fixture.HOME, ".config/klh");
+	mkdirSync(configDir, { recursive: true });
+	writeFileSync(join(configDir, "repo-policy.json"), readFileSync(configPath));
+	const payload = join(home, "startup.json");
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			session_id: "actual-policy-start",
+			cwd: fixture.REPO,
+			source: "startup",
+		}),
+	);
+	const proc = Bun.spawn(
+		["bun", join(import.meta.dir, "../hooks/session-start.ts")],
+		{
+			cwd: fixture.REPO,
+			env: fixture.env,
+			stdin: Bun.file(payload),
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	const output = await new Response(proc.stdout).text();
+	expect(await proc.exited).toBe(0);
+	expect(output).toContain("POLICY DECISION");
+	expect(output).toContain(sha256);
+	expect(output).toContain(server.url.origin);
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = 'actual-policy-start' AND kind = 'NEED_DECISION'",
+			)
+			.get(),
+	).toEqual({ n: 1 });
+});
+
+test("satisfied policies stay silent and do not create decisions", async () => {
+	writeFileSync(join(fixture.REPO, "server.ts"), "GET /health");
+	expect(
+		await checkSessionPolicies({ ...options, sid: "satisfied-session" }),
+	).toEqual([]);
+	writeFileSync(join(fixture.REPO, "server.ts"), "api");
+});
+
+test("pin mismatch and public credentials produce unavailable, never compliant", async () => {
+	const mismatch = join(home, "mismatch.json");
+	writeFileSync(
+		mismatch,
+		JSON.stringify({
+			version: 1,
+			hubs: [{ url: server.url.origin, keyFile, sha256: "0".repeat(64) }],
+		}),
+	);
+	expect(
+		(await checkSessionPolicies({ ...options, configPath: mismatch }))[0],
+	).toContain("pin mismatch");
+	chmodSync(keyFile, 0o644);
+	expect((await checkSessionPolicies(options))[0]).toContain(
+		"private bounded file",
+	);
+	chmodSync(keyFile, 0o600);
+});
+
+test("unsafe paths, symlinks and remote probe instructions are refused", () => {
+	for (const check of [
+		[{ exists: "../outside" }],
+		[{ exists: "/etc/passwd" }],
+		[{ httpGet: "https://elsewhere" }],
+	])
+		expect(() =>
+			evaluateSessionPolicy(fixture.REPO, [{ ...rows[0], check }]),
+		).toThrow();
+	symlinkSync(home, join(fixture.REPO, "outside"));
+	expect(() =>
+		evaluateSessionPolicy(fixture.REPO, [
+			{ ...rows[0], check: [{ exists: "outside/key" }] },
+		]),
+	).toThrow("symlink leaves repo");
+});
+
+test("oversized files and pathological regex cannot claim a missing endpoint", async () => {
+	writeFileSync(join(fixture.REPO, "oversize.ts"), "x".repeat(1024 * 1024 + 1));
+	await expect(
+		boundedPolicyEvaluation(fixture.REPO, [
+			{
+				...rows[0],
+				detect: [],
+				check: [{ grep: "oversize.ts", pattern: "/health" }],
+			},
+		]),
+	).rejects.toThrow("read limit");
+	writeFileSync(join(fixture.REPO, "pathological.ts"), `${"a".repeat(200)}!`);
+	await expect(
+		boundedPolicyEvaluation(
+			fixture.REPO,
+			[
+				{
+					...rows[0],
+					detect: [],
+					check: [{ grep: "pathological.ts", pattern: "^(a+)+$" }],
+				},
+			],
+			1,
+		),
+	).rejects.toThrow("timed out");
+});

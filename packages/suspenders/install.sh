@@ -124,7 +124,7 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  for f in gateway-supervision.ts memory-policy.ts; do
+  for f in gateway-supervision.ts memory-policy.ts serve-observation.ts observation.ts; do
     if [[ ! -f "$LLM_HOME/$f" ]]; then
       cp "$KIT_DIR/$f" "$LLM_HOME/$f"
     fi
@@ -216,6 +216,7 @@ if [[ "${SUSPENDERS_LEGACY_WIRE:-0}" -eq 1 ]]; then
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     console.log("→ wired " + settingsPath);
   '
+  SUSPENDERS_PREFIX="$PREFIX" bun "$SCRIPT_DIR/scripts/install-policy-adapters.ts"
 fi
 
 # --with-launchd is native since W490.2: install.ts --step registerLaunchd
@@ -303,6 +304,12 @@ done
 
 if [[ $LEG_GATEWAY -eq 1 ]]; then
   exec bun "$SCRIPT_DIR/scripts/refresh-gateway.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# Upgrade the existing kit code explicitly, never switch supervisor families.
+# Advanced Belt runtimes retain the legacy supervisor.ts refresh below.
+if [[ $LEG_SUPERVISOR -eq 1 ]] && ! grep -q 'from "./supervisor.ts"' "$LLM_HOME/swarm.ts" 2>/dev/null; then
+  exec bun "$SCRIPT_DIR/scripts/refresh-swarm.ts" ${NATIVE[@]+"${NATIVE[@]}"}
 fi
 
 # --refresh-dashboards: safe GUI-only early exit (native step; --dry-run plans)

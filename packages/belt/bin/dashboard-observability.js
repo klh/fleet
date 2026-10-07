@@ -1,5 +1,5 @@
 import { html, css, LitElement } from "/vendor/lit.js";
-import { supervisorFresh } from "/dashboard-state.js";
+import { supervisorFresh, restartEvidence } from "/dashboard-state.js";
 import { observationFresh } from "/observation.js";
 
 class BeltSupervisor extends LitElement {
@@ -93,7 +93,7 @@ class BeltSupervisor extends LitElement {
 				(
 					target,
 				) => html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
-				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${target.restartsLastWindow} restarts in budget window · ${target.restarts} total</p>
+				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${restartEvidence(target)}</p>
 				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
 				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}
 			</details>`,

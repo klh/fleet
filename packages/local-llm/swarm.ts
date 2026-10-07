@@ -22,7 +22,12 @@ import {
 	renameSync,
 	statSync,
 } from "node:fs";
-import { DOWNLOAD_MODELS, residentSet, SPECIALISTS } from "./registry.ts";
+import {
+	DOWNLOAD_MODELS,
+	EXTERNAL,
+	residentSet,
+	SPECIALISTS,
+} from "./registry.ts";
 import {
 	clearLedgerPort,
 	mlxLogPath,
@@ -31,6 +36,8 @@ import {
 } from "./spawner.ts";
 import { endpointPassed } from "./health.ts";
 import { gatewaySupervisor } from "./gateway-supervision.ts";
+import { litellmTarget } from "./litellm-target.ts";
+import { serveObserver, type ObservedTarget } from "./serve-observation.ts";
 
 const HOME = process.env.HOME;
 // download-only — server argv lives in spawner.ts (spawnArgs), shared with the
@@ -203,6 +210,7 @@ interface ServeChild {
 }
 
 const serveChildren = new Map<number, ServeChild>();
+const totalRevivals = new Map<number, number>();
 
 function serveLog(msg: string): void {
 	try {
@@ -263,6 +271,52 @@ async function reapIdle(): Promise<void> {
 }
 
 const ensureGateway = gatewaySupervisor(undefined, serveLog);
+const gateway = litellmTarget();
+const observe = serveObserver(
+	process.env.BELT_SUPERVISOR_STATUS ??
+		`${HOME}/.claude-insights/belt-supervisor.json`,
+	SERVE_INTERVAL_MS,
+);
+
+function observedTargets(): ObservedTarget[] {
+	const residents = new Set(residentSet().map((s) => s.port));
+	return [
+		{
+			name: "router",
+			port: 4000,
+			kind: "router",
+			owned: true,
+			healthPath: "/health/liveness",
+		},
+		{
+			name: gateway.name,
+			port: gateway.port,
+			kind: "gateway",
+			owned: true,
+			healthPath: gateway.healthPath ?? "/v1/models",
+			probeHeaders: gateway.probeHeaders,
+			okStatus: gateway.okStatus,
+		},
+		...SPECIALISTS.map(
+			(s): ObservedTarget => ({
+				name: s.label,
+				port: s.port,
+				kind: residents.has(s.port) ? "specialist" : "ondemand",
+				owned: residents.has(s.port),
+				healthPath: "/v1/models",
+			}),
+		),
+		...EXTERNAL.map(
+			(s): ObservedTarget => ({
+				name: s.label,
+				port: s.port,
+				kind: s.tier === "ondemand" ? "ondemand" : "external",
+				owned: false,
+				healthPath: "/health",
+			}),
+		),
+	];
+}
 
 async function serveOnce(): Promise<void> {
 	await ensureGateway();
@@ -276,6 +330,29 @@ async function serveOnce(): Promise<void> {
 		await reviveOne(t);
 	}
 	await reapIdle();
+}
+
+async function publishObservation(): Promise<void> {
+	try {
+		await observe(
+			observedTargets(),
+			new Map(
+				[...serveChildren].map(([port, child]) => [
+					port,
+					{
+						pid: child.proc?.pid ?? null,
+						alive:
+							!!child.proc &&
+							child.proc.exitCode === null &&
+							child.proc.signalCode === null,
+						restarts: totalRevivals.get(port) ?? 0,
+					},
+				]),
+			),
+		);
+	} catch (error) {
+		serveLog(`observation publish failed: ${String(error)}`);
+	}
 }
 
 async function reviveOne(t: ServeTarget): Promise<void> {
@@ -307,6 +384,7 @@ async function reviveOne(t: ServeTarget): Promise<void> {
 		revivals: rec.revivals + 1,
 		lastReviveAt: Date.now(),
 	});
+	totalRevivals.set(t.port, (totalRevivals.get(t.port) ?? 0) + 1);
 	serveLog(
 		`♨ revived :${t.port} ${t.label} (revive #${rec.revivals + 1}, pid ${proc.pid})`,
 	);
@@ -323,42 +401,49 @@ async function cmdServe(): Promise<void> {
 			process.exit(0);
 		});
 	}
-	for (;;) {
-		await serveOnce();
-		await Bun.sleep(SERVE_INTERVAL_MS);
-	}
+	// Independent observer work cannot delay revival or be blocked by a model
+	// launch/preflight. Both loops live in the existing supervisor process.
+	await Promise.all(
+		[serveOnce, publishObservation].map(async (tick) => {
+			for (;;) {
+				await tick();
+				await Bun.sleep(SERVE_INTERVAL_MS);
+			}
+		}),
+	);
 }
 
 // ─── dispatch ───
 const cmd = process.argv[2] ?? "status";
-switch (cmd) {
-	case "start":
-		await cmdStart();
-		break;
-	case "serve":
-		await cmdServe();
-		break;
-	case "stop":
-		await cmdStop();
-		break;
-	case "status":
-		await cmdStatus();
-		break;
-	case "restart":
-		await cmdStop();
-		await new Promise((r) => setTimeout(r, 2000));
-		await cmdStart();
-		break;
-	case "download":
-		await cmdDownload();
-		break;
-	default:
-		console.log(
-			`Usage: bun swarm.ts {start|serve|stop|status|restart|download}\n`,
-		);
-		console.log(`Specialists (from registry.ts):`);
-		for (const s of SPECIALISTS) {
-			console.log(`  :${s.port}  ${s.label}  (${s.ram_gb}GB, ${s.tier})`);
-		}
-		console.log(`  :4000  router (Anthropic API entrypoint)`);
-}
+if (import.meta.main)
+	switch (cmd) {
+		case "start":
+			await cmdStart();
+			break;
+		case "serve":
+			await cmdServe();
+			break;
+		case "stop":
+			await cmdStop();
+			break;
+		case "status":
+			await cmdStatus();
+			break;
+		case "restart":
+			await cmdStop();
+			await new Promise((r) => setTimeout(r, 2000));
+			await cmdStart();
+			break;
+		case "download":
+			await cmdDownload();
+			break;
+		default:
+			console.log(
+				`Usage: bun swarm.ts {start|serve|stop|status|restart|download}\n`,
+			);
+			console.log(`Specialists (from registry.ts):`);
+			for (const s of SPECIALISTS) {
+				console.log(`  :${s.port}  ${s.label}  (${s.ram_gb}GB, ${s.tier})`);
+			}
+			console.log(`  :4000  router (Anthropic API entrypoint)`);
+	}

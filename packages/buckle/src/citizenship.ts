@@ -74,6 +74,7 @@ export function problem(p: ProblemInput): Response {
  *  /status and /metrics live here too even though servicemon serves them
  *  outside the gate — the table is the one truth about what exists. */
 export function allowOf(path: string): string | null {
+	if (path === "/repo-policy/manifest") return "GET, OPTIONS";
 	if (path === "/health" || path === "/v1/models") return "GET, HEAD, OPTIONS";
 	if (path === "/status" || path === "/metrics") return "GET, HEAD, OPTIONS";
 	if (path === "/.well-known/jwks.json") return "GET, HEAD, OPTIONS";

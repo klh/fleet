@@ -28,7 +28,7 @@ import {
 } from "./remotes.ts";
 import { metricsFor, metricsSnapshot } from "./metrics.ts";
 import { readStatus } from "./supervisor.ts";
-import { endpointState } from "./dashboard-state.ts";
+import { endpointState, supervisorSource } from "./dashboard-state.ts";
 import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import {
@@ -690,7 +690,7 @@ Bun.serve({
 					? {
 							...doc,
 							observation: observation(
-								"belt-supervisor",
+								supervisorSource(doc),
 								"supervised-targets",
 								"local-machine",
 								Date.parse(doc.updated),
