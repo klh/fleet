@@ -27,8 +27,18 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
 import { hostname } from "node:os";
+import { resolve } from "node:path";
+import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+// W157 decomposition: the pure governance decisions live in their module;
+// re-exported so existing importers (tests, scripts) keep their path.
+import {
+	laneKeyDecision,
+	parseGovernanceMode,
+	probeFrontDecision,
+} from "./lib/governance-decide.ts";
+import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
+import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 import {
 	applyLaneAttribution,
 	DEFAULT_ALLOWED_TOOLS,
@@ -36,61 +46,62 @@ import {
 	probeBuckleFront,
 	spawnClaude,
 } from "./lib/lane.ts";
-import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
-import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import {
-	ensureLaneKey,
 	adminKey,
-	revokeLaneKey,
-	laneKeyMetaPath,
+	ensureLaneKey,
 	LANE_KEY_TTL_S,
-	type MintedLaneKey,
+	laneKeyMetaPath,
+	revokeLaneKey,
 } from "./lib/lane-auth.ts";
-import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
-import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
-import { launchParent } from "./lib/launch-parent.ts";
-import {
-	canonicalProjectRoot,
-	loadLaneRegistry,
-	mergeLaneRegistry,
-} from "../hooks/lib/lane-registry.ts";
-import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+
+export type { GovernanceDecision } from "./lib/governance-decide.ts";
+export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
+
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
+import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
-import {
-	resolveLaneExecutor,
-	releaseFailedLaunch,
-	acquireLaunchLease,
-	renewLaunchLease,
-	releaseLaunchLease,
-} from "./lib/launch-preflight.ts";
-import {
-	heldLaunchItems,
-	nextReservedAttempt,
-	awaitLaunchRegistration,
-	readConfiguredLaunches,
-	assertLaunchClaim,
-	launchIntent,
-	inspectLaunchIntent,
-	reserveLaunchIntent,
-	fencedExecutor,
-	finishFailedLaunch,
-	terminateOwnLaunch,
-	type LaunchIntent,
-} from "./lib/launch-fencing.ts";
-import { isResumableClaim } from "./lib/resumable-claim.ts";
-import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
-import { captureClaimFeed } from "./lib/structured-feed.ts";
-import { dispatchStarterFork } from "./lib/lane-starter.ts";
-import { recoverableClaims } from "./lib/claim-recovery.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
 	laneProcessIdentity,
 	worktreeLive,
 } from "../hooks/lib/lane-liveness.ts";
+import {
+	canonicalProjectRoot,
+	loadLaneRegistry,
+	mergeLaneRegistry,
+} from "../hooks/lib/lane-registry.ts";
+import { laneSid } from "../hooks/lib/laneslug.ts";
+import { darkHubNow } from "../hooks/lib/stack-config.ts";
+import { recoverableClaims } from "./lib/claim-recovery.ts";
+import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
+import { dispatchStarterFork } from "./lib/lane-starter.ts";
+import {
+	assertLaunchClaim,
+	awaitLaunchRegistration,
+	fencedExecutor,
+	finishFailedLaunch,
+	heldLaunchItems,
+	inspectLaunchIntent,
+	type LaunchIntent,
+	launchIntent,
+	nextReservedAttempt,
+	readConfiguredLaunches,
+	reserveLaunchIntent,
+	terminateOwnLaunch,
+} from "./lib/launch-fencing.ts";
+import { launchParent } from "./lib/launch-parent.ts";
+import {
+	acquireLaunchLease,
+	releaseFailedLaunch,
+	releaseLaunchLease,
+	renewLaunchLease,
+	resolveLaneExecutor,
+} from "./lib/launch-preflight.ts";
+import { isResumableClaim } from "./lib/resumable-claim.ts";
+import { captureClaimFeed } from "./lib/structured-feed.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -389,73 +400,6 @@ export const isOwnerGated = (title: string): boolean =>
 	/OWNER-GATED|OWNER GATE|\bGATED\b|\bHELD\b|NEED_DECISION|\bDECISION\b|PAUSED/i.test(
 		title,
 	);
-
-/** W463 fail-closed governance (pure — unit-testable): given the lane-key
- *  mint outcome and the operator override flag, what happens to the lane?
- *  Default is REFUSE: a mint failure means no scopes, no attribution, no
- *  budgets — governance must not silently vanish. Belt-direct survives only
- *  as the explicit, loud, audited --allow-ungoverned operator override. */
-export type GovernanceDecision =
-	| { mode: "governed"; key: string; keyId: string }
-	| { mode: "ungoverned-override"; note: string }
-	| { mode: "belt-direct"; note: string }
-	| { mode: "refuse"; why: string };
-
-export const laneKeyDecision = (
-	minted: MintedLaneKey | null,
-	allowUngoverned: boolean,
-	govMode: "strict" | "solo" = "strict",
-): GovernanceDecision => {
-	if (minted) return { mode: "governed", key: minted.key, keyId: minted.keyId };
-	if (allowUngoverned)
-		return {
-			mode: "ungoverned-override",
-			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): buckle lane-key mint failed; lane rides belt direct with no buckle scopes, attribution or budgets",
-		};
-	return {
-		mode: "refuse",
-		// W422.17: solo relents only at the front probe, never at mint failures
-		why:
-			govMode === "solo"
-				? "buckle lane-key mint failed — governance:solo does not relent at mint failures (fail-closed W463; --allow-ungoverned overrides)"
-				: "buckle lane-key mint failed — check belt.env BUCKLE_ADMIN_KEY (fail-closed W463; --allow-ungoverned overrides)",
-	};
-};
-
-/** W422.17 (owner ruling 2026-10-06): `coord fact get fleet.governance`
- *  output → "strict" | "solo". Absent/unknown → strict (fail-closed
- *  default). Pure — unit-testable. */
-export const parseGovernanceMode = (factOut: string): "strict" | "solo" => {
-	const first = (factOut.split("\n")[0] ?? "").trim();
-	if (first === "(unset)") return "strict";
-	return first.replace(/\s*\(v\d+\)$/, "").trim() === "solo"
-		? "solo"
-		: "strict";
-};
-
-/** W422.17 probe-false decision (pure — unit-testable): the buckle front did
- *  not answer the probe. --allow-ungoverned overrides BOTH modes; solo keeps
- *  the belt-direct fallback (loud, disclosed); strict refuses the lane with
- *  the same machinery as a W463 mint failure. */
-export const probeFrontDecision = (
-	allowUngoverned: boolean,
-	govMode: "strict" | "solo",
-): GovernanceDecision => {
-	if (allowUngoverned)
-		return {
-			mode: "ungoverned-override",
-			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): buckle front unreachable; lane rides belt direct with no buckle scopes, attribution or budgets",
-		};
-	if (govMode === "solo")
-		return {
-			mode: "belt-direct",
-			note: "BELT-DIRECT DISPATCH — buckle front unreachable (governance:solo): lane rides belt direct with no buckle scopes, attribution or budgets",
-		};
-	return {
-		mode: "refuse",
-		why: "buckle front unreachable + governance:strict — lanes dispatch only through the buckle front (W422.17; --allow-ungoverned overrides per-invocation, coord governance solo relents)",
-	};
-};
 
 // governance mode: read ONCE per dispatch run, through the coord CLI the
 // script already uses for facts (copilot-meter pattern) — no second store,
@@ -951,13 +895,23 @@ const dispatchItem = async (
 		// <label>.local guess → null (degrades to local belt/buckle, loud note,
 		// never a silent wrong hub).
 		let hubNote = "";
+		// W483: a hub inside its stack.yaml quiet-hours window is EXPECTED to
+		// vanish — place the lane on local belt instead of a host that powers
+		// off mid-flight (surfaced, never silent).
+		const hubDark = pick.hub ? darkHubNow(pick.hub) : false;
+		if (hubDark) {
+			hubNote = ` — NOTE hub=${pick.hub} in quiet hours, using local belt`;
+			console.log(
+				`NOTE — .prefer hub=${pick.hub} in quiet hours; using local belt`,
+			);
+		}
 		let resolvedHub: string | undefined;
 		if (!NO_BELT) {
 			// always pin a model — an unpinned lane inherits the owner's global
 			// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
 			// client-side unrecognized_model before its first wire call
 			const ctx = insertionCtx(env, pick.model ?? "glm-5.3-flash");
-			if (pick.hub) {
+			if (pick.hub && !hubDark) {
 				const hub = await resolveHub(pick.hub, pick.hubUrls);
 				if (hub) {
 					ctx.anthropicBase = hub.url;

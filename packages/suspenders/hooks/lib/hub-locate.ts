@@ -12,6 +12,7 @@
 // style <label>.local guess (the suspenders.local/belt.local precedent) →
 // null (callers degrade to local belt — never a silent wrong hub).
 import { readFileSync } from "node:fs";
+import { darkHubNow } from "./stack-config.ts";
 
 export interface HubLocation {
 	label: string;
@@ -103,6 +104,10 @@ export async function resolveHub(
 ): Promise<HubLocation | null> {
 	const norm = label.trim();
 	if (!norm) return null;
+	// 0. W483 quiet hours — a hub inside its stack.yaml dark window is
+	// EXPECTED down (NAS nightly poweroff); resolving it would pin lanes to
+	// a host that vanishes mid-flight. Degrade like any unresolved label.
+	if (darkHubNow(norm)) return null;
 	// 1. explicit env override, per label (SUSPENDERS_HUB_IKEA_URL, etc.)
 	const envKey = `SUSPENDERS_HUB_${norm.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_URL`;
 	const envUrl = process.env[envKey];

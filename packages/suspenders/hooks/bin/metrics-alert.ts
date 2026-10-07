@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { openGovernorDb } from "../lib/govdb.ts";
+import { urlInQuietHours } from "../lib/stack-config.ts";
 
 export interface Series {
 	name: string;
@@ -357,11 +358,27 @@ export const arg = (name: string): string | null => {
 	return i > 0 ? (process.argv[i + 1] ?? null) : null;
 };
 
+// W483: a quiet-hours hub is EXPECTED dark — skip the scrape (no DROP
+// accumulates) and forgive misses so the 08:00 boot never pages a stale
+// DROP; an active DROP from before the window survives and RECOVERs.
+export function skipQuietTarget(
+	s: AlertState,
+	url: string,
+	now: Date = new Date(),
+): boolean {
+	if (!urlInQuietHours(url, now)) return false;
+	const st = s.targets[url];
+	if (st) st.misses = 0;
+	return true;
+}
+
 export async function runPass(s: AlertState): Promise<number> {
 	const now = Date.now();
 	const alerts: Alert[] = [];
-	for (const t of resolveTargets())
+	for (const t of resolveTargets()) {
+		if (skipQuietTarget(s, t)) continue;
 		alerts.push(...(await scrapeTarget(s, t, now)));
+	}
 	alerts.push(...queuePass(s, now));
 	const out = arg("--json")
 		? (a: Alert) => console.log(JSON.stringify(a))
