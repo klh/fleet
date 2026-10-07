@@ -52,6 +52,7 @@ import {
 	type CompletionRecord,
 } from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
+import { releaseWorkClaim } from "../lib/work-release.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -188,9 +189,20 @@ const SCHEMA: Record<string, Spec> = {
 		reqFlags: ["--reason"],
 		usage: `usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]`,
 	},
-	orphaned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
+	orphaned: {
+		flags: ["--item", "--json"],
+		switches: ["--json"],
+		minPos: 0,
+		reqFlags: [],
+		usage: "usage: orphaned [--item <id>] [--json]",
+	},
 	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
-	reclaim: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
+	reclaim: {
+		flags: [...ITEM_FLAGS, "--expect-owner"],
+		minPos: 1,
+		reqFlags: [],
+		usage: "usage: reclaim <id> [--expect-owner sid] | reclaim all",
+	},
 	"migrate-ledger": {
 		flags: [],
 		minPos: 1,
@@ -732,6 +744,23 @@ function releaseClaim(
 		)
 		.run(sid, scope, itemId ?? null, itemId ?? "");
 }
+function releaseObserved(
+	it: Item,
+	by: string,
+	reason: "owner-release" | "operator-reclaim" | "reclaim-all",
+): boolean {
+	return releaseWorkClaim(
+		db(),
+		{
+			project: PROJECT,
+			id: String(it.id),
+			owner: it.owner_sid as string | null,
+			state: String(it.state),
+			updatedAt: Number(it.updated_at),
+		},
+		{ by, reason },
+	);
+}
 
 function renderRow(r: Item): string {
 	const [g, col] = GLYPH[r.state as string] ?? ["?", dim];
@@ -1023,13 +1052,8 @@ if (cmd === "add") {
 		die(
 			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${owner.slice(0, 8)} cannot release it`,
 		);
-	setState(id, "READY", null);
-	releaseClaim(
-		(it.owner_sid as string) ?? "",
-		it.scope as string | null,
-		it.id as string,
-	);
-	emit("work.released", id, { by: owner.slice(0, 8) });
+	if (!releaseObserved(it, owner, "owner-release"))
+		die(`${id} claim changed — release refused; inspect before retrying`);
 	console.log(`${cyan("·")} ${dim(`${id} → READY`)}`);
 } else if (cmd === "start") {
 	const id = pos[0];
@@ -1240,11 +1264,12 @@ if (cmd === "add") {
 } else if (cmd === "orphaned") {
 	// CLAIMED/RUNNING items whose owner transcript is dead — inspect capsules
 	// before reclaiming (do NOT silently return work with uncommitted state)
+	const item = flag("--item");
 	const rows = db()
 		.query(
-			"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
+			`SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING')${item ? " AND id = ?" : ""} ORDER BY id`,
 		)
-		.all(PROJECT) as Item[];
+		.all(...(item ? [PROJECT, item] : [PROJECT])) as Item[];
 	const out = rows.filter((r) => !liveTranscript(String(r.owner_sid)));
 	console.log(
 		rest.includes("--json")
@@ -1292,6 +1317,7 @@ if (cmd === "add") {
 	// each reclaim is listed for audit and `work reclaim <id>` stays the
 	// careful per-item path.
 	if (pos[0] === "all") {
+		if (flag("--expect-owner")) die("--expect-owner requires a single item");
 		const rows = db()
 			.query(
 				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
@@ -1300,13 +1326,10 @@ if (cmd === "add") {
 		let n = 0;
 		for (const r of rows) {
 			if (liveTranscript(String(r.owner_sid))) continue;
-			setState(String(r.id), "READY", null);
-			releaseClaim(
-				(r.owner_sid as string) ?? "",
-				r.scope as string | null,
-				r.id as string,
-			);
-			emit("work.released", String(r.id), { by: "reclaim-all" });
+			if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
+				console.log(`${dim(String(r.id))} claim changed — skipped`);
+				continue;
+			}
 			console.log(
 				`${cyan("·")} ${r.id} reclaimed → READY (was ${String(r.owner_sid).slice(0, 8)})`,
 			);
@@ -1324,15 +1347,11 @@ if (cmd === "add") {
 			die(
 				`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
 			);
-		setState(id, "READY", null);
-		releaseClaim(
-			(it.owner_sid as string) ?? "",
-			it.scope as string | null,
-			it.id as string,
-		);
-		emit("work.released", id, {
-			by: ((it.owner_sid as string) ?? "").slice(0, 8),
-		});
+		const expectedOwner = flag("--expect-owner");
+		if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
+			die(`${id} owner changed — reclaim refused`);
+		if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
+			die(`${id} claim changed — reclaim refused; inspect before retrying`);
 		console.log(`${cyan("·")} ${id} reclaimed → READY`);
 	}
 } else if (cmd === "migrate-ledger") {
