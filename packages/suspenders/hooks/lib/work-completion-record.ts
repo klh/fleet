@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GovernorStore } from "./govdb.ts";
+import { scanCompletionDiff } from "./fake-completion.ts";
 
 type CompletionStore = Pick<GovernorStore, "query" | "run">;
 
@@ -184,6 +185,22 @@ export function prepareCompletion(
 	if (!paths.some(productPath))
 		throw new Error(
 			"Completion has no product commit evidence; retain the claim and record a blocked decision instead",
+		);
+	// W511: fake-completion integrity scan on the closing diff's added lines —
+	// the gate refuses closure while gated tests, stub notes or
+	// placeholder-error throws ride the sha being claimed as done
+	const diffText = baseline
+		? git(top, "diff", "-U0", baseline, sha)
+		: git(top, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha);
+	const hits = scanCompletionDiff(diffText).filter((hit) =>
+		productPath(hit.path),
+	);
+	if (hits.length)
+		throw new Error(
+			`Completion diff carries fake-completion markers (${hits.length}) — remove or finish them, then land a new sha:\n${hits
+				.slice(0, 10)
+				.map((hit) => `  ${hit.path}:${hit.line} [${hit.marker}] ${hit.text}`)
+				.join("\n")}${hits.length > 10 ? `\n  … ${hits.length - 10} more` : ""}`,
 		);
 	const completedAt = Date.now();
 	const finalCapsule = {

@@ -96,6 +96,28 @@ test("a dispatched no-op cannot become DONE using an old valid commit", () => {
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
 });
 
+test("done refuses a closing diff that adds fake-completion markers (W511)", () => {
+	const f = fixture();
+	const gated = ["describe", ".only(", '"smoke", () => {});\n'].join("");
+	writeFileSync(join(f.repo, "gate-extra.ts"), gated);
+	const git = (...args: string[]) => {
+		const p = Bun.spawnSync(["git", "-C", f.repo, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(p.exitCode).toBe(0);
+		return p.stdout.toString().trim();
+	};
+	git("add", "-A");
+	git("commit", "-m", "ship the gated extra");
+	const sha = git("rev-parse", "HEAD");
+	const done = f.work("done", f.id, "--sha", sha, "--summary", summary);
+	expect(done.code).toBe(2);
+	expect(done.err).toContain("fake-completion markers");
+	expect(done.err).toContain("gate-extra.ts");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
 test("final capsule paragraph can supply the durable summary", () => {
 	const f = fixture();
 	const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
