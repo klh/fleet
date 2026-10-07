@@ -20,6 +20,7 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { laneToolRoundtrip } from "./lib/lane-tool-probe.ts";
 
 const HOME = process.env.HOME ?? "";
 const REPO =
@@ -112,6 +113,7 @@ const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
 	const admin = env.BUCKLE_ADMIN_KEY;
 	if (!admin) return { ok: false, detail: "BUCKLE_ADMIN_KEY unset" };
 	const mint = await fetch("http://127.0.0.1:4101/v1/admin/keys", {
+		signal: AbortSignal.timeout(10_000),
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
@@ -130,35 +132,27 @@ const laneProbe = async (): Promise<{ ok: boolean; detail: string }> => {
 	if (!mint.ok || !mb.key || !mb.key_id)
 		return { ok: false, detail: `mint failed ${mint.status}` };
 	try {
-		const t0 = Date.now();
-		const r = await fetch(
-			"http://127.0.0.1:4101/w/watchdog-probe/v1/messages",
-			{
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					authorization: `Bearer ${mb.key}`,
-					"anthropic-version": "2023-06-01",
+		return await laneToolRoundtrip(async (body) => {
+			const r = await fetch(
+				"http://127.0.0.1:4101/w/watchdog-probe/v1/messages",
+				{
+					method: "POST",
+					signal: AbortSignal.timeout(25_000),
+					headers: {
+						"content-type": "application/json",
+						authorization: `Bearer ${mb.key}`,
+						"anthropic-version": "2023-06-01",
+					},
+					body: JSON.stringify(body),
 				},
-				body: JSON.stringify({
-					model: "glm-5.3-flash",
-					max_tokens: 16,
-					messages: [{ role: "user", content: "ping" }],
-				}),
-			},
-		);
-		const ms = Date.now() - t0;
-		if (r.status !== 200) {
-			const b = (await r.json().catch(() => ({}))) as { detail?: string };
-			return {
-				ok: false,
-				detail: `front ${r.status}: ${(b.detail ?? "").slice(0, 120)}`,
-			};
-		}
-		return { ok: true, detail: `200 in ${ms}ms` };
+			);
+			if (!r.ok) throw new Error(`lane front HTTP ${r.status}`);
+			return await r.json();
+		});
 	} finally {
 		await fetch(`http://127.0.0.1:4101/v1/admin/keys/${mb.key_id}/revoke`, {
 			method: "POST",
+			signal: AbortSignal.timeout(10_000),
 			headers: { authorization: `Bearer ${admin}` },
 		}).catch(() => {});
 	}
