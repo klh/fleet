@@ -48,6 +48,7 @@ import { laneAlive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
+import { guardedMerge } from "../lib/merge-guard.ts";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -362,20 +363,29 @@ function retireMerged(b: string): void {
 			.catch(() => {});
 }
 
-// a failed ladder: abort the merge, log the tail, count the strike, park at 3
+// A rejected isolated ladder: preserve shared main, count the strike, park at 3.
 function mergeFail(b: string, tail: string): void {
-	// a failed ladder leaves MERGE_HEAD behind — abort it; NEVER reset --hard.
-	// A plain abort can itself fail on staged debris (run() ignores the exit
-	// code) — verify, and escalate straight to the surgical heal: cycle-start
-	// heal is a full cycle too late, and the debris poisons the NEXT branch's
-	// attempt inside the same cycle (autow316/319 innocent strikes, 2026-09-28)
-	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
-		run(["git", "merge", "--abort"]);
-		if (existsSync(`${REPO}/.git/MERGE_HEAD`)) healCrashedMerge();
-	}
+	// guardedMerge cleans only its owned scratch worktree. Never abort an
+	// unrelated merge another runner may have begun in the shared checkout.
 	log(
-		`FAIL ${b} — ladder failed, merge aborted, branch left for inspection${tail ? `: ${tail}` : ""}`,
+		`FAIL ${b} — isolated ladder rejected, shared checkout preserved, branch left for inspection${tail ? `: ${tail}` : ""}`,
 	);
+	try {
+		openGovernorDb()
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'BROADCAST', ?, ?, NULL)",
+			)
+			.run(
+				Date.now(),
+				b,
+				JSON.stringify({
+					project: projectIdentity(REPO),
+					note: `Merge rejected for ${b}: ${tail || "ladder failure"}; branch preserved for inspection.`,
+				}),
+			);
+	} catch {
+		/* rejection remains recorded in loop.log if the bus is unavailable */
+	}
 	const n = bumpFail(b);
 	if (n >= 3) {
 		const parked = b.replace(/^([^/]+)\//, "parked/");
@@ -432,12 +442,13 @@ function mergeOne(b: string): void {
 		}),
 	);
 	const before = sh(["git", "rev-parse", "--short", "HEAD"]);
-	const mv = LADDER
-		? runTemplate(LADDER, b, LADDER_TIMEOUT_MS)
-		: {
-				code: run(["git", "merge", "--no-ff", b, "-m", `Merge ${b}`]),
-				tail: "",
-			};
+	const mv = guardedMerge({
+		repo: REPO,
+		callerRepo: CALLER_REPO,
+		branch: b,
+		ladder: LADDER,
+		timeoutMs: LADDER_TIMEOUT_MS,
+	});
 	if (mv.code === 0) {
 		const after = sh(["git", "rev-parse", "--short", "HEAD"]);
 		log(`MERGED ${b} ${before}→${after}`);
