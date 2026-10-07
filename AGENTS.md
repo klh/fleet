@@ -3,8 +3,8 @@
 One monorepo, one version, every service. packages/: suspenders (control
 plane), buckle (LLM gateway), belt (dashboard/gateway), speedy (config
 layer), local (Caddy front), local-llm (MLX swarm kit), blam (agent-mishap
-benchmark). The private enterprise tier = fleet-remote (mirrors packages/,
-depends on fleet) — pending W422.9.
+benchmark). The private enterprise tier = klh-remote (mirrors packages/,
+depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 
 ## Laws (project-wide, every package)
 
@@ -36,10 +36,10 @@ depends on fleet) — pending W422.9.
 - **Streams over buffers**: streaming interfaces by default; NDJSON for
   logs/feeds; bounded rings with backpressure for async writes.
 - **Old repos are push-dead**: all 9 originals (suspenders, belt, buckle,
-  local, speedy, blam + the 3 -remotes) are ARCHIVED with redirect stubs.
-  Every commit lands in THIS repo at `packages/<name>/*`. The old local
-  checkouts still WORK for the installed harness (shims point there) until
-  W422.6 re-anchors the install to fleet.
+  local, speedy, blam + the 3 -remotes) are ARCHIVED with redirect stubs
+  (verified 2026-10-07 via gh). Every commit lands in THIS repo at
+  `packages/<name>/*`; install.sh syncs the prefix from fleet
+  (W422.4/W422.6 re-anchor landed).
 
 ## Working agreements
 
