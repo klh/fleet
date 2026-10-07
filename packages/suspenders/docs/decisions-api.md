@@ -15,7 +15,7 @@ and this document disagree, fix the code or amend this file in the same commit.
 | question      | TEXT — payload.note (plain language, shown verbatim)         |
 | options       | TEXT — JSON array of {label, tradeoff} from payload.options, else [] |
 | state         | TEXT — OPEN \| ANSWERED \| ACKNOWLEDGED \| CANCELLED \| SUPERSEDED |
-| delivery      | TEXT — DELIVERED \| FAILED (did the lane ack pickup; FAILED shows in UI as "delivery failed — retry") |
+| delivery      | TEXT — DELIVERED \| FAILED (did the lane ack pickup; FAILED shows in UI as "delivery failed — retry", or as the owner-ruling prompt when owner_actionable) |
 | answer_note   | TEXT — the human's answer                                    |
 | answer_to     | TEXT — sid the answer was addressed to                       |
 | answer_token  | TEXT — uuid rotated on every state change; POST /api/answer must carry the token the client read (multi-tab + stale protection) |
@@ -29,6 +29,15 @@ globally unambiguous (event id + project in the record).
 
 OPEN → ANSWERED (human sends; POST /api/answer idempotent: same token+note
 replays return 200 {ok:true, replay:true}; stale token → 409 {error:"stale"})
+OPEN → ANSWERED as OWNER RULING (W487): a fork whose source event carries
+`classification: owner-needed`, or whose target session is not RUNNING, never
+dead-ends on Send-to-lane — the board renders it owner-actionable (record
+fields `owner_actionable: true`, `owner_reason: "owner-needed" | "target-dead"`)
+and POST /api/answer captures the ruling directly: an ANSWER event on the bus
+with `ruling: owner` + `decision: <id>` and NO lane target, answer_to kept as
+the raw stored addressee. The decision resolves without a lane ack (no
+ANSWERED → ACKNOWLEDGED transition is possible — the addressee is gone by
+definition).
 OPEN → CANCELLED (asking lane supersede/cancel event; NOT by board dismiss)
 ANSWERED → ACKNOWLEDGED (lane inbox sees the ANSWER and the lane's next
 checkpoint/message references it — best-effort heuristic, monotonic)
@@ -52,7 +61,10 @@ last good update Xs ago" (fetch/render failure is NEVER rendered as zero).
 Card: question, project · task · agent, why-required/what-blocks (task title
 or "no linked task"), age (readable), options with tradeoffs (selectable ≠
 submitting), recommendation (when a fact exists) with rationale + "use"
-fills the field, custom answer field, explicit Send. Unresolved decisions
+fills the field, custom answer field, explicit Send — labelled "Record
+ruling" on owner-actionable cards (W487: those resolve on the board; a
+dead/absent target renders as "target lane is dead or absent — record the
+owner ruling", never as a retry offer). Unresolved decisions
 persist across reloads/restarts (server state is the truth). Badge with
 pending count visible when collapsed. Toast once per NEW decision id — never
 per poll. Global pending count shown when the view is project-filtered.

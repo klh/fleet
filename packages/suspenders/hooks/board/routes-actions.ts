@@ -13,6 +13,7 @@ import {
 	lanesOf,
 	readShipJson,
 	sessionAlive,
+	payloadOf,
 } from "./lanes.ts";
 import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
 import {
@@ -24,6 +25,45 @@ import { laneSid } from "../lib/laneslug.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+
+// W487 owner ruling: capture the human's answer directly for the owner when
+// the fork must not dead-end on Send-to-lane — classified owner-needed, or
+// the target session is not RUNNING. The ruling lands on the bus as an
+// owner-recorded ANSWER (no lane target); answer_to keeps the raw stored
+// target as the record of the addressee. /api/answer response contract.
+function recordOwnerRuling(
+	id: number,
+	to: string,
+	note: string,
+	token: string,
+): Response {
+	const p = Bun.spawnSync(
+		[
+			process.execPath,
+			CLI("coord.ts"),
+			"emit",
+			"ANSWER",
+			"--note",
+			note,
+			"--as",
+			"fleet-board",
+			`--decision=${id}`,
+			"--ruling=owner",
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const out = `${p.stdout.toString()} ${p.stderr.toString()}`.trim();
+	if (p.exitCode !== 0)
+		return json({ ok: false, output: out.slice(0, 400), to }, 500);
+	const done = db
+		.query(
+			"UPDATE decisions SET state = 'ANSWERED', answer_note = ?, answer_to = ?, answered_at = ?, answer_token = ? WHERE event_id = ? AND state = 'OPEN' AND answer_token = ?",
+		)
+		.run(note, to, Date.now(), crypto.randomUUID(), id, token);
+	return Number(done.changes) === 0
+		? json({ ok: false, error: "stale" }, 409)
+		: json({ ok: true, ruling: true, to });
+}
 
 export async function handleActions(
 	req: Request,
@@ -50,13 +90,14 @@ export async function handleActions(
 		syncDecisions();
 		const row = db
 			.query(
-				"SELECT state, answer_note, answer_token, answer_to FROM decisions WHERE event_id = ?",
+				"SELECT state, answer_note, answer_token, answer_to, target FROM decisions WHERE event_id = ?",
 			)
 			.get(id) as {
 			state: string;
 			answer_note: string | null;
 			answer_token: string | null;
 			answer_to: string | null;
+			target: string | null;
 		} | null;
 		// reject unknown ids instead of silently answering nothing
 		if (!row)
@@ -67,6 +108,21 @@ export async function handleActions(
 				: json({ ok: false, error: "stale" }, 409);
 		if (row.state !== "OPEN" || row.answer_token !== token)
 			return json({ ok: false, error: "stale" }, 409);
+		// W487 owner ruling gate: owner-needed classification or a target
+		// session that is not RUNNING resolves here, never via Send-to-lane.
+		const classification = String(
+			payloadOf(
+				(
+					db.query("SELECT payload FROM events WHERE id = ?").get(id) as {
+						payload: string | null;
+					} | null
+				)?.payload,
+			).classification ?? "",
+		);
+		const ownerNeeded =
+			classification === "owner-needed" || classification === "owner_needed";
+		if (ownerNeeded || !sessionAlive(row.target ?? to))
+			return recordOwnerRuling(id, row.target ?? to, note, token);
 		// accept full sids, unique prefixes, or live bus aliases (an identity
 		// that has emitted before — e.g. a coordinator's chosen --as name)
 		const exact = db

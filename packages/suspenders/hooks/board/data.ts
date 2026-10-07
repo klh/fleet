@@ -19,6 +19,7 @@ import {
 	label,
 	ownerLabel,
 	payloadOf,
+	sessionAlive,
 	transcriptTail,
 	unblockedBy,
 	laneModelOf,
@@ -563,6 +564,22 @@ export function decisionRecords(
 					role: string | null;
 				} | null
 			)?.role ?? "worker";
+		// W487 owner-actionable: a fork classified owner-needed, or one whose
+		// target session is not RUNNING, must not dead-end on Send-to-lane —
+		// the board renders it as an owner ruling and /api/answer resolves it
+		// without a lane ack (same accept-set as routes-actions.ts).
+		const classification = String(
+			payloadOf(
+				(
+					db
+						.query("SELECT payload FROM events WHERE id = ?")
+						.get(d.event_id) as { payload: string | null } | null
+				)?.payload,
+			).classification ?? "",
+		);
+		const ownerNeeded =
+			classification === "owner-needed" || classification === "owner_needed";
+		const targetGone = !sessionAlive(d.target);
 		return {
 			id: d.event_id,
 			project: d.project || null,
@@ -578,6 +595,12 @@ export function decisionRecords(
 			answer_note: d.answer_note,
 			answer_to: d.answer_to,
 			answer_token: d.answer_token,
+			owner_actionable: ownerNeeded || targetGone,
+			owner_reason: ownerNeeded
+				? "owner-needed"
+				: targetGone
+					? "target-dead"
+					: null,
 			created_ts: d.created_at,
 			answered_ts: d.answered_at,
 			ack_ts: d.ack_ts,
