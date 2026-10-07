@@ -140,6 +140,22 @@ bun hooks/bin/quota-sweep.ts --act     # pickup: reclaim dead sid's claims →
                                        # (launchd, every 15 min)
 ```
 
+### Premium-credit headroom — `bun hooks/bin/credit-forecast.ts`
+
+```sh
+bun hooks/bin/credit-forecast.ts sample --used 29986 --limit 50000 \
+    --plan business --multipliers "opus=15,sonnet=1" --source dashboard
+bun hooks/bin/credit-forecast.ts forecast [--json] [--act]
+```
+
+Windowed burn deltas over the sampled plan counter → remaining, runway vs
+horizon, and the queued-work budget (explicit cost/item config — tokens are
+never inferred to be credits, no reset ETA is invented). Two alert arms
+(projected push need > remaining, pessimistic runway < horizon), deduped via
+a state file; the dispatch loop runs the alert (`W566`) and `--act` also
+stamps the `copilot.credits.headroom` fact. Policy knobs: `CREDIT_FORECAST_*`
+env (queued, cost/item, horizon, overage).
+
 ### Fleet board
 
 Served at `http://suspenders.local/` (LAN); API map at `/llms.txt`,

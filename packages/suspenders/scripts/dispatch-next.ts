@@ -81,6 +81,7 @@ import { laneSid } from "../hooks/lib/laneslug.ts";
 import { darkHubNow } from "../hooks/lib/stack-config.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
+import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { dispatchStarterFork } from "./lib/lane-starter.ts";
 import {
@@ -1452,6 +1453,20 @@ const main = async (): Promise<void> => {
 		} catch (e) {
 			console.log(
 				`NOTE — copilot meter flush failed (soft): ${e instanceof Error ? e.message : String(e)}`,
+			);
+		}
+	}
+	// W566 premium-credit headroom: forecast the push against the sampled
+	// plan counter (fail-soft, meter-flush doctrine — forecasting never
+	// kills a dispatch). Alerts dedupe via the shared state file, so this
+	// is quiet unless an arm fires or the dedupe window lapses.
+	if (!DRY) {
+		try {
+			const line = forecastPush({ act: true, queued: ready.length });
+			if (line !== null) console.log(`credit forecast: ${line}`);
+		} catch (e) {
+			console.log(
+				`NOTE — credit forecast failed (soft): ${e instanceof Error ? e.message : String(e)}`,
 			);
 		}
 	}
