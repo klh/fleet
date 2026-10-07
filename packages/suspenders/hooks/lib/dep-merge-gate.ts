@@ -10,6 +10,7 @@
 // exit 1) gates. Spawned with an argument array; exit 1 is expected control
 // flow, never an error.
 import { existsSync } from "node:fs";
+import { projectRootOf } from "./govdb.ts";
 
 export type DepRow = {
 	depends_on: string;
@@ -25,7 +26,7 @@ export function projectWorktree(project: string): string | null {
 	// integration worktree lives beside it. Bare/odd layouts have none → null
 	// → fail-open (same suffix logic as the work-graph mirror path).
 	if (!project.endsWith("/.git")) return null;
-	return project.slice(0, -"/.git".length);
+	return projectRootOf(project);
 }
 
 export function shaOnMain(sha: string, project: string): boolean | null {

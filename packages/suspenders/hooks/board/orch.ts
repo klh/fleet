@@ -17,6 +17,7 @@ import {
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
 import { condenseTier } from "blam/src/condense/tiers.ts";
+import { projectRootOf } from "../lib/govdb.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -169,7 +170,7 @@ export async function orchPrepare(
 	| { ok: true; plan: PromptPlan; ctx: string }
 	| { ok: false; status: number; error: string }
 > {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			ok: false,
@@ -209,7 +210,7 @@ export async function orchestrate(
 	goal: string,
 	prepared?: { ctx: string },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			status: 404,
@@ -297,7 +298,7 @@ export function orchRegister(
 	title: string,
 	kids: string[],
 ): { status: number; body: Record<string, unknown> } {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			status: 404,

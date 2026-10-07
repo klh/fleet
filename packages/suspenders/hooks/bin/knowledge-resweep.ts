@@ -27,6 +27,7 @@ import { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { realpathSync } from "node:fs";
 import { extractDocPaths, pointerFromText } from "../lib/knowledge.ts";
+import { projectRootOf } from "../lib/govdb.ts";
 
 export interface ResweepRow {
 	id: number;
@@ -51,7 +52,7 @@ export interface RootIndex {
 // "<root>/.git" (projectIdentity, main worktree) → repo root; other shapes
 // pass through. Nonexistent paths are dropped (stale cross-machine rows).
 function sessionRoot(project: string): string | null {
-	const root = project.replace(/\/\.git$/, "");
+	const root = projectRootOf(project);
 	if (root === project && !project.endsWith(".git")) return norm(project);
 	return norm(root);
 }

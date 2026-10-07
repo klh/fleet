@@ -2,23 +2,18 @@
 // Read-only lane view: verified harness identity via the shared lib's alive(),
 // agent names trimmed to 24 chars, dead/unknown rows explicitly marked.
 import { existsSync } from "node:fs";
-import { basename, dirname } from "node:path";
-import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { basename } from "node:path";
+import { resolveProject } from "../hooks/lib/govdb.ts";
 import { readLaneUsage } from "./lib/copilot-meter.ts";
 import { alive, lanesFileFor, loadLanes } from "./lib/lane.ts";
 
 const argv = process.argv.slice(2);
 const flag = argv.indexOf("--repo");
 // fleet dir lives at the MAIN checkout root (.fleet beside .git);
-// projectIdentity() is the shared common-git-dir, so a worktree default
-// resolves to its parent. Non-git projects use the dir itself.
-const pi = projectIdentity();
-const repo =
-	flag >= 0 && argv[flag + 1]
-		? argv[flag + 1]
-		: pi.endsWith("/.git")
-			? dirname(pi)
-			: pi;
+// resolveProject().root is the parent checkout root even from inside a
+// worktree. Non-git projects use the dir itself.
+const rp = resolveProject();
+const repo = flag >= 0 && argv[flag + 1] ? argv[flag + 1] : rp.root;
 const fleet = `${repo}/.fleet`;
 
 const file = lanesFileFor(fleet);

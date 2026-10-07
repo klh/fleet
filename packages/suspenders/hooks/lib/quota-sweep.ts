@@ -57,9 +57,10 @@ export const auditRowIsQuota = (r: AuditRowLike): boolean =>
 	(SOFT_429.test(`${r.error_code ?? ""} ${r.err ?? ""}`) &&
 		/\berror\b/i.test(`${r.error_code ?? ""} ${r.err ?? ""}`));
 
-// project identity is the repo's common git dir; the worktree root is its parent
-export const projectRootOf = (project: string): string =>
-	project.endsWith("/.git") ? project.slice(0, -5) : project;
+// W459.1: projectRootOf moved to govdb.ts — the ONE path getter (this module
+// re-exports it for existing importers).
+import { projectRootOf } from "./govdb.ts";
+export { projectRootOf };
 
 // /Users/<name> paths never leave through a broadcast (buckle scrub parity)
 const scrub = (s: string): string => s.replace(/\/Users\/[^/\s'"]+/g, "~");

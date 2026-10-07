@@ -15,7 +15,11 @@ import {
 	sessionAlive,
 } from "./lanes.ts";
 import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
-import { isDecisionKind, projectIdentity } from "../lib/govdb.ts";
+import {
+	isDecisionKind,
+	projectIdentity,
+	projectRootOf,
+} from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
@@ -390,7 +394,7 @@ export async function handleActions(
 				},
 				409,
 			);
-		const repo = w.project.replace(/\/\.git$/, "");
+		const repo = projectRootOf(w.project);
 		if (!existsSync(repo))
 			return json(
 				{ ok: false, error: `project directory missing: ${repo}` },
@@ -551,7 +555,7 @@ export async function handleActions(
 				{ ok: false, error: `no work item ${id} in ${project}` },
 				404,
 			);
-		const repo = project.replace(/\/\.git$/, "");
+		const repo = projectRootOf(project);
 		if (!existsSync(repo))
 			return json(
 				{ ok: false, error: `project directory missing: ${repo}` },

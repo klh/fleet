@@ -12,6 +12,7 @@ import { statSync, openSync, readSync, fstatSync, closeSync } from "node:fs";
 import {
 	openGovernorDb,
 	projectIdentity,
+	projectRootOf,
 	sweepStaleSessions,
 } from "../lib/govdb.ts";
 
@@ -580,9 +581,7 @@ for (const { project } of zProjects) {
 				.get(fkSince) as { ts: number } | null;
 			if (since && now - since.ts > RECLAIM_MS) {
 				const age = `${((now - since.ts) / 86_400_000).toFixed(1)}d`;
-				const wt = OWN_PROJECT.endsWith("/.git")
-					? OWN_PROJECT.slice(0, -"/.git".length)
-					: OWN_PROJECT;
+				const wt = projectRootOf(OWN_PROJECT);
 				const r = Bun.spawnSync(
 					[
 						process.execPath,
