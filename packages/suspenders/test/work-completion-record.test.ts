@@ -1,3 +1,4 @@
+import { TAIL } from "../hooks/board-html/tail.ts";
 import { createHash } from "node:crypto";
 import {
 	persistCompletion,
@@ -309,4 +310,70 @@ test("project rekey upgrades old immutable triggers and preserves completion evi
 		migrated.run("UPDATE work_completion_records SET summary='changed'"),
 	).toThrow("immutable");
 	migrated.close();
+});
+
+test("tail requests carry project and discard stale cross-project responses", async () => {
+	const task = { id: "W1", proj: "/project/a/.git", data: null };
+	const pending: { url: string; resolve: (response: unknown) => void }[] = [];
+	const fetch = (url: string) =>
+		new Promise((resolve) => pending.push({ url, resolve }));
+	const api = new Function(
+		"task",
+		"fetch",
+		"AbortSignal",
+		`${TAIL}\nrenderTaskTail=function(){}; return {fetchTail,resetTail,state:function(){return tailView;}};`,
+	)(task, fetch, AbortSignal);
+	api.fetchTail();
+	expect(
+		new URL(pending[0].url, "http://localhost").searchParams.get("project"),
+	).toBe(task.proj);
+	task.proj = "/project/b/.git";
+	api.resetTail();
+	api.fetchTail();
+	pending[0].resolve({
+		status: 200,
+		json: async () => ({ ok: true, summary: "project A" }),
+	});
+	await Bun.sleep(0);
+	expect(api.state().data).toBeNull();
+	expect(api.state().busy).toBe(true);
+	pending[1].resolve({
+		status: 200,
+		json: async () => ({ ok: true, summary: "project B" }),
+	});
+	await Bun.sleep(0);
+	expect(api.state().data.summary).toBe("project B");
+});
+
+test("rekey refuses an orphaned destination completion without partially moving the graph", () => {
+	const f = fixture();
+	expect(f.work("done", f.id, "--sha", f.sha, "--summary", summary).code).toBe(
+		0,
+	);
+	const original = JSON.parse(
+		f.work("summary", f.id, "--json").out,
+	) as CompletionRecord;
+	const destination = `${original.project}-occupied`;
+	const db = new Database(
+		join(f.home, ".cache", "claude-governor", "governor.db"),
+	);
+	persistCompletion(db, { ...original, project: destination });
+	db.close();
+	const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
+	const result = Bun.spawnSync(
+		[
+			process.execPath,
+			coord,
+			"project",
+			"rekey",
+			original.project,
+			destination,
+		],
+		{ cwd: f.repo, env: f.env, stdout: "pipe", stderr: "pipe" },
+	);
+	expect(result.exitCode).toBe(2);
+	expect(result.stderr.toString()).toContain("completion record");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).project).toBe(
+		original.project,
+	);
 });
