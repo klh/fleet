@@ -443,7 +443,7 @@ const label = ${displayLabel.toString()};
 const el = (tag, cls, text) => {
 	const n = document.createElement(tag);
 	if (cls) n.className = cls;
-	if (text !== undefined) n.textContent = label(String(text));
+	if (text !== undefined) n.textContent = String(text);
 	return n;
 };
 const stamp = document.getElementById("stamp");
@@ -461,7 +461,7 @@ const load = async (force) => {
 		for (const root of data.tree) {
 			const row = el("div", "root");
 			const head = el("div");
-			head.append(el("span", root.demo ? "demo" : "rootlabel", root.label));
+			head.append(el("span", root.demo ? "demo" : "rootlabel", label(root.label)));
 			if (root.note) head.append(el("span", "tier", "  — " + root.note));
 			if (root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
 			if (root.authorization) {
@@ -476,7 +476,7 @@ const load = async (force) => {
 			kids.forEach((m, i) => {
 				const line = el("div", "leaf");
 				line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
-				line.append(el("span", m.up === true ? "up" : m.up === false ? "downleaf" : "tier", m.label));
+				line.append(el("span", m.up === true ? "up" : m.up === false ? "downleaf" : "tier", label(m.label)));
 				if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
 				if (m.note) line.append(el("span", "tier", "  " + m.note));
 				row.append(line);

@@ -93,9 +93,11 @@ class BeltSupervisor extends LitElement {
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (doc ? (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`) : "No supervisor snapshot. Current service state is unknown.")}</p>
 			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
 			${fleetRows.map((target) => this.row(target, fresh, doc))}
-			${hubs.length
-				? html`<p class="group">hubs — remote buckle fronts, probe-only</p>${hubs.map((target) => this.row(target, fresh, doc))}`
-				: ""}
+			${
+				hubs.length
+					? html`<p class="group">hubs — remote buckle fronts, probe-only</p>${hubs.map((target) => this.row(target, fresh, doc))}`
+					: ""
+			}
 			`;
 	}
 	targetFresh(target, doc) {
@@ -114,7 +116,7 @@ class BeltSupervisor extends LitElement {
 		return target.state;
 	}
 	row(target, fresh, doc) {
-		return html`<details><summary>${target.name} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
+		return html`<details><summary>${displayLabel(target.name)} :${target.port}<span class="state ${fresh && target.alert ? "alert" : ""}">${fresh && this.targetFresh(target, doc) ? this.label(target) : `last known: ${this.label(target)}`}</span></summary>
 				<p>${target.kind} · ${target.owned ? "supervised" : "observed"} · ${restartEvidence(target)}</p>
 				<p>Last successful probe: ${target.lastOk || "none recorded"}${target.nextRetryAt ? ` · retry after ${target.nextRetryAt}` : ""}</p>
 				${target.preflightError || target.lastError ? html`<p class="reason">${target.preflightError || target.lastError}</p>` : ""}
