@@ -120,9 +120,10 @@ const runLeg = async (leg: Leg, task: keyof typeof TASKS): Promise<Round> => {
 			},
 			body: JSON.stringify({
 				model: leg.model,
-				// 16384: glm-5.3-flash's reasoning burned the whole 4096 budget
-				// and emitted zero text (finish=length, 2026-10-07 05:42 round)
-				max_tokens: 16384,
+				// 32768 both legs (owner: z.ai budget is not a constraint): the
+				// original 4096 was consumed by glm's thinking tokens alone
+				// (finish=length, 2026-10-07 05:42 round) — never cap mid-thought.
+				max_tokens: 32768,
 				temperature: 0.2,
 				messages: [{ role: "user", content: TASKS[task] }],
 			}),
