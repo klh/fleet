@@ -64,6 +64,9 @@ export interface ServiceSpec {
 	nice?: number;
 	logs: { out: string; err: string };
 	placeholders: string[];
+	/** Declared listener port — receipt metadata for supervision, never
+	 *  rendered into any unit (W546). */
+	port?: number;
 }
 
 interface ManifestFile {
@@ -110,6 +113,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"nice",
 	"logs",
 	"placeholders",
+	"port",
 ]);
 
 export function defaultRenderValues(
@@ -199,6 +203,13 @@ export function validateSpec(spec: ServiceSpec): void {
 	) {
 		problems.push("intervalSeconds must be a positive integer");
 	}
+	// same range the activation receipt enforces (lib/service-drift.ts)
+	if (
+		spec.port !== undefined &&
+		(!Number.isInteger(spec.port) || spec.port < 1 || spec.port > 65535)
+	) {
+		problems.push("port must be an integer 1..65535");
+	}
 	const used = usedPlaceholders(spec);
 	const declared = [...spec.placeholders].sort();
 	const missing = used.filter((t) => !declared.includes(t));
@@ -276,6 +287,7 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 		if (entry.envFile !== undefined)
 			spec.envFile = entry.envFile as string | string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
+		if (entry.port !== undefined) spec.port = entry.port as number;
 		for (const a of spec.args) {
 			if (typeof a !== "string")
 				throw new Error(
@@ -754,6 +766,7 @@ function main(argv: string[]): number {
 		target: string;
 		outFile: string | null;
 		files: string[];
+		port?: number;
 	}[] = [];
 	if (outDir !== null) {
 		mkdirSync(outDir, { recursive: true });
@@ -766,6 +779,7 @@ function main(argv: string[]): number {
 				target,
 				outFile: join(resolve(outDir), r.units[0].file),
 				files: r.units.map((u) => u.file),
+				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
 			});
 		}
 	} else {
@@ -779,6 +793,7 @@ function main(argv: string[]): number {
 				target,
 				outFile: null,
 				files: r.units.map((u) => u.file),
+				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
 			});
 		}
 	}

@@ -99,7 +99,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		{ cwd: ctx.repo, stderr: "inherit" },
 	);
 	const rendered = JSON.parse(res.stdout) as {
-		services: Array<{ service: string; files: string[] }>;
+		services: Array<{ service: string; files: string[]; port?: number }>;
 	};
 	const plists = rendered.services.flatMap((s) =>
 		s.files.filter((f) => f.endsWith(".plist")),
@@ -109,6 +109,14 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	const ports = JSON.parse(
 		process.env.SUSPENDERS_SERVICE_PORTS_JSON ?? "{}",
 	) as Record<string, number>;
+	// W546: the manifest may declare a listener port (buckle-spoke :4101) —
+	// the receipt records it so supervision lsof-verifies the LISTENER, not
+	// just the PID. A machine-level env override wins over the declaration.
+	const declaredPorts = new Map(
+		rendered.services.flatMap((s) =>
+			s.port === undefined ? [] : [[`com.suspenders.${s.service}`, s.port]],
+		),
+	);
 	if (
 		Object.values(ports).some(
 			(port) => !Number.isInteger(port) || port < 1 || port > 65535,
@@ -138,13 +146,15 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 					ProgramArguments: string[];
 					KeepAlive?: boolean;
 				};
+				// machine env override wins, else the manifest declaration
+				const port = ports[label] ?? declaredPorts.get(label);
 				activated.push({
 					label,
 					unit,
 					unitSha256: digestUnit(readFileSync(unit)),
 					arguments: definition.ProgramArguments,
 					resident: definition.KeepAlive === true,
-					...(ports[label] === undefined ? {} : { port: ports[label] }),
+					...(port === undefined ? {} : { port }),
 				});
 			} catch {
 				failed.push(label);
