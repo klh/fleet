@@ -206,6 +206,7 @@ fi
 echo
 echo "done. restart Claude Code so the hooks register, then:"
 echo "  bun $PREFIX/bin/fleet-board.ts        # live fleet board (+ decision forks)"
+echo "  bun $PREFIX/bin/fleet-tracker.ts      # tracker-style lane sidecar (read-only TUI)"
 echo "  bun $PREFIX/bin/work.ts ready         # what the fleet can pick up"
 echo "  bun $PREFIX/bin/monitor.ts            # control-plane health"
 echo "env knobs: SUSPENDERS_LLM_URL / SUSPENDERS_LLM_MODEL / SUSPENDERS_LLM_KEY (advice worker)"
