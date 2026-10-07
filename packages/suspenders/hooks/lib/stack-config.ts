@@ -20,6 +20,11 @@ export interface HubProfile {
 	board_health_port?: number;
 	store_health_port?: number;
 	belt_health_port?: number;
+	/** Synthetic readiness (W467): where the buckle-ready sidecar serves the
+	 *  completion-leg verdict, and which model the synthetic 1-token request
+	 *  names (must be one the hub's routing ladder actually serves). */
+	buckle_ready_port?: number;
+	ready_model?: string;
 	bind?: string;
 	board_bind?: string;
 	belt_bind?: string;

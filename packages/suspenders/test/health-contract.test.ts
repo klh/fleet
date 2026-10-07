@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { createMonitor, probeOnce } from "../deploy/healthcheck/probe.ts";
+import {
+	createMonitor,
+	type ProbeArgs,
+	probeOnce,
+	syntheticRequest,
+} from "../deploy/healthcheck/probe.ts";
+import { type ProbeDeps, probeService } from "../hooks/board/service-probe.ts";
 import { servicemon } from "../hooks/lib/servicemon.ts";
-import { probeService, type ProbeDeps } from "../hooks/board/service-probe.ts";
 
 describe("outside-process health", () => {
 	test("live sidecar reports first failure, rejects wrong paths and supports safe methods", async () => {
@@ -178,3 +183,83 @@ describe("status is telemetry with a fresh health verdict", () => {
 		}
 	});
 });
+
+describe("synthetic readiness (W467)", () => {
+	const readyBody = JSON.stringify({
+		choices: [{ message: { content: "ready" } }],
+	});
+
+	test("POSTs the declared body with the bearer credential and demands the expect-path", async () => {
+		let seen: { method?: string; auth?: string } = {};
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: (req) => {
+				seen = {
+					method: req.method,
+					auth: req.headers.get("authorization") ?? undefined,
+				};
+				return new Response(readyBody, {
+					headers: { "content-type": "application/json" },
+				});
+			},
+		});
+		try {
+			process.env.W467_TOKEN = "sk-test";
+			const req = syntheticRequest(args(server.url.toString()));
+			expect(req?.method).toBe("POST");
+			expect(req?.headers?.authorization).toBe("Bearer sk-test");
+			expect(req?.body).toContain("max_tokens");
+			const ok = await probeOnce(server.url.toString(), 500, req);
+			expect(ok.ok).toBe(true);
+			expect(seen.method).toBe("POST");
+			expect(seen.auth).toBe("Bearer sk-test");
+		} finally {
+			delete process.env.W467_TOKEN;
+			server.stop(true);
+		}
+	});
+
+	test("a missing expect-path answer and an unset AUTH_ENV both fail closed", async () => {
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: () =>
+				new Response(JSON.stringify({ error: { message: "boom" } }), {
+					headers: { "content-type": "application/json" },
+				}),
+		});
+		try {
+			process.env.W467_TOKEN = "sk-test";
+			const noPath = await probeOnce(
+				server.url.toString(),
+				500,
+				syntheticRequest(args(server.url.toString())),
+			);
+			expect(noPath.ok).toBe(false);
+			delete process.env.W467_TOKEN;
+			const monitor = createMonitor(args(server.url.toString()));
+			await monitor.poll();
+			const snap = monitor.snapshot();
+			expect(snap.ok).toBe(false);
+			expect(snap.mode).toBe("synthetic");
+			expect(snap.error).toContain("W467_TOKEN");
+		} finally {
+			delete process.env.W467_TOKEN;
+			server.stop(true);
+		}
+	});
+});
+
+function args(target: string): ProbeArgs {
+	return {
+		target,
+		every: 1,
+		timeout: 1,
+		misses: 1,
+		ring: 1,
+		synthetic: '{"model":"general","max_tokens":4}',
+		authEnv: "W467_TOKEN",
+		expect: "choices.0",
+	};
+}

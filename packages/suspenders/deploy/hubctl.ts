@@ -94,6 +94,9 @@ function renderEnv(
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
 	kv("HUB_STORE_HEALTH_PORT", hub.store_health_port);
 	kv("HUB_BELT_HEALTH_PORT", hub.belt_health_port);
+	// synthetic readiness (W467) — the completion leg's verdict port + model
+	kv("HUB_BUCKLE_READY_PORT", hub.buckle_ready_port);
+	kv("HUB_READY_MODEL", hub.ready_model);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -284,6 +287,7 @@ function status(hub: HubProfile): number {
 	}
 	const probes: Array<[string, number, string]> = [
 		["buckle-health", hub.buckle_health_port ?? 4112, "/healthz"],
+		["buckle-ready", hub.buckle_ready_port ?? 4113, "/healthz"],
 		["board-health", hub.board_health_port ?? 7800, "/healthz"],
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
