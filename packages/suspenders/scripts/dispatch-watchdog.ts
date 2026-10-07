@@ -30,6 +30,10 @@ import {
 	type WatchdogDimension,
 } from "./lib/watchdog-verdict.ts";
 import {
+	resourceAction,
+	type ResourceAction,
+} from "./lib/resource-actuator.ts";
+import {
 	fleetProgress,
 	type ProgressState,
 	type WorkStats,
@@ -214,7 +218,19 @@ const portRssGb = (port: number): number | null => {
 	return Number.isFinite(kb) ? kb / 1048576 : null;
 };
 
-const reapHeaviestMlx = (): string => {
+const actOnResource = (
+	label: string,
+	pid: number,
+	port: number,
+	reason: string,
+): ResourceAction =>
+	resourceAction(
+		join(HOME, ".config/klh/watchdog-actions.sqlite"),
+		{ label, pid, port, reason },
+		(owner) => effectiveServices().find((service) => service.label === owner),
+	);
+
+const reapHeaviestMlx = (): ResourceAction => {
 	const out = sh(["/usr/sbin/lsof", "-nP", "-iTCP", "-sTCP:LISTEN"]).out;
 	const rows: { port: number; pid: number; rss: number }[] = [];
 	for (const line of out.split("\n")) {
@@ -225,11 +241,16 @@ const reapHeaviestMlx = (): string => {
 		const rss = portRssGb(port);
 		if (rss !== null) rows.push({ port, pid: Number(m[1]), rss });
 	}
-	if (rows.length === 0) return "no reapable MLX listener";
+	if (rows.length === 0)
+		return { state: "held", detail: "no reapable MLX listener" };
 	rows.sort((a, b) => b.rss - a.rss);
 	const h = rows[0];
-	sh(["/bin/kill", "-9", String(h.pid)]);
-	return `killed :${h.port} pid ${h.pid} (${h.rss.toFixed(1)}GB)`;
+	return actOnResource(
+		"com.suspenders.local-llm",
+		h.pid,
+		h.port,
+		`wired memory guard; listener RSS ${h.rss.toFixed(1)}GB`,
+	);
 };
 
 // ---------- repair + report ----------
@@ -362,17 +383,19 @@ const run = async (): Promise<number> => {
 					: "ok",
 		detail: `wired=${wired < 0 ? "unknown" : `${wired.toFixed(1)}GB`}, gatewayRSS=${litellmGb === null ? "unknown" : `${litellmGb.toFixed(1)}GB`}; emergency action does not prove recovery`,
 	};
+	const resourceActions: ResourceAction[] = [];
 	if (wired >= 0) {
 		if (wired > WIRED_GUARD_GB) {
 			const action = reapHeaviestMlx();
+			resourceActions.push(action);
 			verdicts.push(
-				`memory GUARD: wired ${wired.toFixed(0)}GB > ${WIRED_GUARD_GB}GB → ${action}`,
+				`memory GUARD: wired ${wired.toFixed(0)}GB > ${WIRED_GUARD_GB}GB → ${action.state}: ${action.detail}`,
 			);
 			emit(
-				"BROADCAST",
-				`dispatch-watchdog memory guard: wired ${wired.toFixed(0)}GB — ${action}; recurrence = the tier/spawn guards need review`,
+				action.state === "signaled" ? "BROADCAST" : "NEED_DECISION",
+				`dispatch-watchdog memory guard: wired ${wired.toFixed(0)}GB — ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`,
 			);
-			repaired = true;
+			repaired ||= action.state === "signaled";
 		} else verdicts.push(`memory ok (wired ${wired.toFixed(0)}GB)`);
 		if (litellmGb !== null && litellmGb > LITELLM_RSS_GUARD_GB) {
 			const pid = sh([
@@ -381,15 +404,28 @@ const run = async (): Promise<number> => {
 				"tcp:4100",
 				"-sTCP:LISTEN",
 			]).out.trim();
-			if (pid) sh(["/bin/kill", "-9", ...pid.split("\n")]);
+			const pids = pid.split("\n").filter(Boolean);
+			const action: ResourceAction =
+				pids.length === 1
+					? actOnResource(
+							"com.suspenders.cloud-gateway",
+							Number(pids[0]),
+							4100,
+							`gateway RSS ${litellmGb.toFixed(1)}GB exceeds ${LITELLM_RSS_GUARD_GB}GB`,
+						)
+					: {
+							state: "held",
+							detail: "UNKNOWN gateway listener ownership; no unique target",
+						};
+			resourceActions.push(action);
 			verdicts.push(
-				`litellm RSS ${litellmGb.toFixed(1)}GB > ${LITELLM_RSS_GUARD_GB}GB → killed :4100 (supervisor revives)`,
+				`litellm RSS ${litellmGb.toFixed(1)}GB > ${LITELLM_RSS_GUARD_GB}GB → ${action.state}: ${action.detail}`,
 			);
 			emit(
-				"BROADCAST",
-				`dispatch-watchdog restarted litellm (:4100 RSS ${litellmGb.toFixed(1)}GB — retry-storm buffering class)`,
+				action.state === "signaled" ? "BROADCAST" : "NEED_DECISION",
+				`dispatch-watchdog cloud resource action ${action.state}: ${action.detail}; receipt=${action.receipt ?? "none"}`,
 			);
-			repaired = true;
+			repaired ||= action.state === "signaled";
 		}
 	}
 	if (!probe.ok) {
@@ -427,11 +463,13 @@ const run = async (): Promise<number> => {
 			serviceCheckAt: drift.notifiedAt,
 			at: health.at,
 			health,
+			resourceActions,
 		}),
 	);
 	verdicts.unshift(`aggregate ${health.state}`);
 	log(verdicts.join(" | "));
-	if (repaired) console.log(`watchdog: repaired (${verdicts.join(" | ")})`);
+	if (repaired)
+		console.log(`watchdog: resource action sent (${verdicts.join(" | ")})`);
 	else console.log(`watchdog: ${verdicts.join(" | ")}`);
 	return health.exitCode;
 };
