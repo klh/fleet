@@ -7,11 +7,12 @@
 //   - device redirects deny EVERY session (zero legit agent use)
 //   - sensitive-state writes (.git/.ssh/.env): lanes deny, owner nudges
 //   - realpath containment + destructive git: lanes only (owner stays free)
-import { parse } from "shell-quote";
-import { deny, nudge } from "../lib/hookio.ts";
-import { resolveFleetLane, type FleetLane } from "../lib/fleetlane.ts";
-import { basename, dirname, resolve } from "node:path";
+
 import { realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
+import { parse } from "shell-quote";
+import { type FleetLane, resolveFleetLane } from "../lib/fleetlane.ts";
+import { deny, nudge } from "../lib/hookio.ts";
 
 // ---- token utilities (moved from bash.ts) ----
 export type Op = { op: string };
@@ -467,7 +468,14 @@ export function destructiveGitLabel(w: string[]): string {
 }
 
 // ---- gate entry: the four checks over the collected targets ----
-export function hardeningGate(SEGS: string[][], CWD: string): void {
+// `approved` = a W250 two-person approval was consumed for this command — the
+// co-signer covered the destructive-git family, so its lane denies stand down
+// for this command (device/sensitive/containment absolutes never do).
+export function hardeningGate(
+	SEGS: string[][],
+	CWD: string,
+	approved = false,
+): void {
 	const targets = collectWriteTargets(SEGS, CWD);
 	let lane: FleetLane | null | undefined; // resolved lazily, once, on first need
 
@@ -490,7 +498,7 @@ export function hardeningGate(SEGS: string[][], CWD: string): void {
 	for (const w of SEGS) {
 		if (verb(w) !== "git") continue;
 		const label = destructiveGitLabel(w);
-		if (label)
+		if (label && !approved)
 			forLanes(() =>
 				deny(
 					`bash-hardening: ${label} denied for fleet lanes — it destroys work the merge ladder and other lanes can see. Selective paths (git checkout -- <file>), the coordinator, or the owner must own the discard.`,
