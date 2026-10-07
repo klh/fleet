@@ -19,6 +19,13 @@
 // {name, url, token_env} — the token itself NEVER lands in config, only in a
 // 0600 env file, referenced by env name.
 //
+// ONE revision (W422.20): every phase consumes the same fleet monorepo
+// checkout — never the archived legacy repos. withFleetCheckout resolves the
+// source once: FLEET_CHECKOUT (explicit), else the checkout containing this
+// script (running from a clone installs THAT revision), else a shallow clone
+// of FLEET_REPO_URL at FLEET_REF. Phases then run packages/<name> installers
+// inside that root, so belt/buckle/suspenders/local can never drift apart.
+//
 // Everything spawns through argument arrays, never shell strings; launchd
 // gets an absolute bun path (belt lesson — launchd PATH is minimal).
 
@@ -43,8 +50,13 @@ import { join } from "node:path";
 const HUB_ASK_PROMPT =
   "Do you want to buckle up and connect to a belt hub? [y/N] ";
 const TOKEN_ENV_NAME = "KLH_HUB_SPOKE_TOKEN";
-const SUSPENDERS_REPO = "https://github.com/klh/suspenders";
-const LOCAL_REPO = "https://github.com/klh/local";
+// The fleet monorepo is the ONLY living source (the 9 originals are archived
+// and push-dead); env overrides pick forks/mirrors or pin a revision.
+const FLEET_REPO = () =>
+  process.env.FLEET_REPO_URL ?? "https://github.com/klh/fleet";
+const FLEET_REF = () => process.env.FLEET_REF ?? "main";
+// Explicit fleet checkout (config-over-code escape hatch for testing/offline).
+const FLEET_CHECKOUT = () => process.env.FLEET_CHECKOUT;
 const SUSPENDERS_MARKER = () =>
   join(fleetHome(), ".claude/hooks/suspenders/bin/work.ts");
 const SWARM_MARKER = () => join(fleetHome(), ".claude/local-llm/registry.ts");
@@ -93,10 +105,11 @@ function withTempDir<T>(fn: (dir: string) => T): T {
   }
 }
 
-function cloneShallow(repo: string, into: string): boolean {
-  const r = spawnSync("git", ["clone", "--depth", "1", repo, into], {
-    stdio: "pipe",
-  });
+function cloneShallow(repo: string, into: string, ref?: string): boolean {
+  const args = ["clone", "--depth", "1", "--single-branch"];
+  if (ref) args.push("--branch", ref);
+  args.push(repo, into);
+  const r = spawnSync("git", args, { stdio: "pipe" });
   return r.status === 0;
 }
 
@@ -137,7 +150,7 @@ export function buildPlan(flags: FleetFlags): PhaseStep[] {
     steps.push({
       phase: "buckle",
       label:
-        "klh/buckle — clone, bun install, launchd com.klh.buckle (shadow :4101)",
+        "packages/buckle — bun install, launchd com.klh.buckle (shadow :4101)",
       state: existsSync(BUCKLE_MARKER()) ? "present — skip" : "install",
     });
   }
@@ -215,15 +228,28 @@ function depsPhase(): PhaseResult {
   };
 }
 
-// Locate the suspenders installer: prefer the installed control-plane checkout
-// (it ships install.sh), else a shallow clone in a temp dir (removed after).
-function withSuspendersInstaller<T>(fn: (installer: string | null) => T): T {
-  const installed = join(fleetHome(), ".claude/hooks/suspenders/install.sh");
-  if (existsSync(installed)) return fn(installed);
+// A fleet monorepo root: the tree that carries every phase installer.
+export function isFleetRoot(dir: string): boolean {
+  return existsSync(join(dir, "packages/suspenders/install.sh"));
+}
+
+// ONE acquisition (W422.20): resolve the fleet checkout every phase consumes.
+// Order: FLEET_CHECKOUT (explicit) → the checkout containing this script →
+// a shallow clone of FLEET_REPO_URL at FLEET_REF in a temp dir (removed after).
+// fn(null) = no fleet source available — phases degrade individually.
+export function withFleetCheckout<T>(fn: (root: string | null) => T): T {
+  const explicit = FLEET_CHECKOUT();
+  if (explicit && isFleetRoot(explicit)) return fn(explicit);
+  // import.meta.dir = <root>/packages/speedy/bin when run from a clone.
+  const bin = import.meta.dir;
+  const candidates = [join(bin, "..", "..", ".."), join(bin, "..")];
+  for (const candidate of candidates) {
+    if (isFleetRoot(candidate)) return fn(candidate);
+  }
   return withTempDir((dir) => {
-    const checkout = join(dir, "suspenders");
-    if (!cloneShallow(SUSPENDERS_REPO, checkout)) return fn(null);
-    return fn(join(checkout, "install.sh"));
+    const checkout = join(dir, "fleet");
+    if (!cloneShallow(FLEET_REPO(), checkout, FLEET_REF())) return fn(null);
+    return fn(checkout);
   });
 }
 
@@ -235,18 +261,19 @@ function beltPhase(flags: FleetFlags): PhaseResult {
         "swarm already deployed — keeping its tier (upgrade never demotes)",
     };
   }
-  return withSuspendersInstaller((installer) => {
+  return withFleetCheckout((root) => {
+    const installer = root ? join(root, "packages/suspenders/install.sh") : null;
     if (!installer)
       return {
         ok: false,
         detail:
-          "no suspenders installer available (clone failed) — swarm not deployed",
+          "no fleet checkout available (clone failed) — swarm not deployed",
       };
     const env = { ...process.env, BELT_TIER: "minimal" };
     const args = [installer, "--wire", "--with-launchd"];
     if (flags.skipModels) args.push("--skip-models");
     console.log(
-      `  → suspenders install.sh ${args.slice(1).join(" ")} (BELT_TIER=minimal)`,
+      `  → fleet packages/suspenders/install.sh ${args.slice(1).join(" ")} (BELT_TIER=minimal)`,
     );
     const r = spawnSync("/bin/bash", args, { env, stdio: "inherit" });
     if (r.status === 0)
@@ -267,20 +294,23 @@ function bucklePhase(): PhaseResult {
   if (existsSync(marker)) {
     return { ok: true, detail: "buckle already deployed" };
   }
-  const repo =
-    process.env.BUCKLE_REPO_URL ?? "https://github.com/klh/buckle.git";
   const bunAbs = resolveBun();
-  return withTempDir((dir) => {
-    const checkout = join(dir, "buckle");
-    if (!cloneShallow(repo, checkout)) {
+  return withFleetCheckout((root) => {
+    const source = root ? join(root, "packages/buckle") : null;
+    if (!source || !existsSync(join(source, "src/server.ts"))) {
       return {
         ok: false,
-        detail: `clone failed (set BUCKLE_REPO_URL) — continuing without the router plane`,
+        detail:
+          "no fleet checkout available (clone failed) — continuing without the router plane",
       };
     }
     const target = join(fleetHome(), ".claude/buckle");
     mkdirSync(target, { recursive: true });
-    cpSync(checkout, target, { recursive: true });
+    cpSync(source, target, {
+      recursive: true,
+      // a dev checkout carries node_modules/.git — the target reinstalls fresh
+      filter: (src) => !/(^|\/)node_modules$|(^|\/)\.git$/.test(src),
+    });
     const inst = spawnSync(bunAbs, ["install"], {
       cwd: target,
       stdio: "inherit",
@@ -344,11 +374,12 @@ function suspendersPhase(): PhaseResult {
   if (existsSync(SUSPENDERS_MARKER())) {
     return { ok: true, detail: "control plane already installed" };
   }
-  return withSuspendersInstaller((installer) => {
+  return withFleetCheckout((root) => {
+    const installer = root ? join(root, "packages/suspenders/install.sh") : null;
     if (!installer)
       return {
         ok: false,
-        detail: "no suspenders installer available (clone failed)",
+        detail: "no fleet checkout available (clone failed)",
       };
     const r = spawnSync("/bin/bash", [installer, "--wire", "--with-launchd"], {
       stdio: "inherit",
@@ -368,9 +399,9 @@ function suspendersPhase(): PhaseResult {
 function localPhase(): PhaseResult {
   const klhLocal = KLH_LOCAL_MARKER();
   if (!existsSync(klhLocal)) {
-    const ok = withTempDir((dir) => {
-      const checkout = join(dir, "local");
-      if (!cloneShallow(LOCAL_REPO, checkout)) return false;
+    const ok = withFleetCheckout((root) => {
+      const checkout = root ? join(root, "packages/local") : null;
+      if (!checkout || !existsSync(join(checkout, "install.sh"))) return false;
       const r = spawnSync("/bin/bash", [join(checkout, "install.sh")], {
         cwd: checkout,
         stdio: "inherit",

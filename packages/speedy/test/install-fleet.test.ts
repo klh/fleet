@@ -16,6 +16,7 @@ import {
   enrollHub,
   firstPolicyPull,
   hubAsk,
+  withFleetCheckout,
   writeStandaloneHubConfig,
   type FleetFlags,
   type HubIO,
@@ -310,4 +311,62 @@ test("plan: fresh home → install states, deterministic (idempotency)", () => {
   expect(belt?.label).toContain("BELT_TIER=minimal");
   expect(a.find((s) => s.label.includes("hub ask"))).toBeDefined();
   expect(h).toBe(SANDBOX);
+});
+
+// W422.20 — ONE fleet revision: every phase consumes the same checkout.
+function fakeFleetRoot(): string {
+  const root = join(SANDBOX, "fake-fleet");
+  mkdirSync(join(root, "packages/suspenders"), { recursive: true });
+  writeFileSync(join(root, "packages/suspenders/install.sh"), "#!/bin/bash\n");
+  mkdirSync(join(root, "packages/buckle/src"), { recursive: true });
+  writeFileSync(join(root, "packages/buckle/src/server.ts"), "export {}\n");
+  mkdirSync(join(root, "packages/local"), { recursive: true });
+  writeFileSync(join(root, "packages/local/install.sh"), "#!/bin/bash\n");
+  return root;
+}
+
+test("withFleetCheckout: FLEET_CHECKOUT wins when it is a fleet root", () => {
+  const root = fakeFleetRoot();
+  process.env.FLEET_CHECKOUT = root;
+  try {
+    let seen: string | null = null;
+    withFleetCheckout((r) => {
+      seen = r;
+    });
+    expect(seen).toBe(root);
+  } finally {
+    delete process.env.FLEET_CHECKOUT;
+  }
+});
+
+test("withFleetCheckout: non-root FLEET_CHECKOUT falls through to the containing checkout", () => {
+  bareHome();
+  process.env.FLEET_CHECKOUT = SANDBOX; // exists but carries no fleet tree
+  try {
+    let seen: string | null = null;
+    withFleetCheckout((r) => {
+      seen = r;
+    });
+    // the worktree this test runs in IS the monorepo — its root resolves
+    expect(seen).toBe(join(REPO, "..", ".."));
+    expect(seen && existsSync(seen + "/packages/suspenders/install.sh")).toBe(
+      true,
+    );
+  } finally {
+    delete process.env.FLEET_CHECKOUT;
+  }
+});
+
+test("withFleetCheckout: containing checkout wins — FLEET_REPO_URL never consulted", () => {
+  bareHome();
+  process.env.FLEET_REPO_URL = join(SANDBOX, "no-such-repo");
+  try {
+    let seen: string | null = null;
+    withFleetCheckout((r) => {
+      seen = r;
+    });
+    expect(seen).toBe(join(REPO, "..", ".."));
+  } finally {
+    delete process.env.FLEET_REPO_URL;
+  }
 });
