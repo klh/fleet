@@ -24,6 +24,13 @@ export const LOCAL_IDS: Record<number, string> = {
 	8902: "local-extract",
 	8903: "local-reason",
 };
+/** Canonical per-port model ids as the swarm reports them on /v1/models —
+ *  the W532 identity control asserts served against these for local-direct. */
+export const LOCAL_MODEL: Record<number, string> = {
+	8901: "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+	8902: "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+	8903: "mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit",
+};
 export const ENGINE_IDS = [
 	"zai-glm-5.3-flash",
 	"local-coder",

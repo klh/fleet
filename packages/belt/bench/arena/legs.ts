@@ -10,6 +10,7 @@ import {
 	KEV,
 	LINE_CAP,
 	LOCAL_IDS,
+	LOCAL_MODEL,
 	longPrompt,
 	PRICES,
 	PURE_MODEL,
@@ -32,6 +33,12 @@ export interface Leg {
 	priced: "remote" | "local" | "routed";
 	knob?: "body" | "extra_body";
 	only?: ClassId[];
+	/** W532 identity control: expected `served` model id, per class port. A
+	 *  round whose served id differs is failed and flagged. Router legs
+	 *  (stack-anthropic/stack-router) deliberately omit it — their `served`
+	 *  echoes the requested pin, not the actual route; identity there is the
+	 *  recorded `_routing` block. */
+	servedExpect?: (port: number) => string | null;
 	desc: string;
 }
 export const LEGS: Leg[] = [
@@ -40,6 +47,7 @@ export const LEGS: Leg[] = [
 		wire: "openai",
 		priced: "remote",
 		knob: "body",
+		servedExpect: () => PURE_MODEL,
 		desc: `z.ai direct ${PURE_MODEL} (baseline)`,
 	},
 	{
@@ -53,18 +61,29 @@ export const LEGS: Leg[] = [
 		wire: "openai",
 		priced: "remote",
 		knob: "extra_body",
+		servedExpect: () => "zai-glm-5.3-flash",
 		desc: ":4100 litellm zai-glm-5.3-flash",
+	},
+	{
+		id: "stack-engine-zai-frontier",
+		wire: "openai",
+		priced: "remote",
+		knob: "extra_body",
+		servedExpect: () => "zai-glm-5.3",
+		desc: ":4100 litellm zai-glm-5.3 (frontier glm-5.3, W532 leg)",
 	},
 	{
 		id: "stack-engine-local",
 		wire: "openai",
 		priced: "local",
+		servedExpect: (port) => LOCAL_IDS[port] ?? null,
 		desc: ":4100 litellm class-mapped local-*",
 	},
 	{
 		id: "local-direct",
 		wire: "openai",
 		priced: "local",
+		servedExpect: (port) => LOCAL_MODEL[port] ?? null,
 		desc: ":890x raw tier, class-mapped",
 	},
 	{
@@ -149,9 +168,19 @@ export function target(
 				key: process.env.BELT_ROUTER_KEY,
 			};
 		case "stack-engine-zai":
+		case "stack-engine-zai-frontier":
 			return {
 				url: `${ENGINE}/chat/completions`,
-				model: "zai-glm-5.3-flash",
+				model:
+					leg.id === "stack-engine-zai-frontier"
+						? "zai-glm-5.3"
+						: "zai-glm-5.3-flash",
+				key: engineKey(),
+			};
+		case "stack-engine-local":
+			return {
+				url: `${ENGINE}/chat/completions`,
+				model: LOCAL_IDS[port] ?? "local-extract",
 				key: engineKey(),
 			};
 		case "stack-engine-local":
