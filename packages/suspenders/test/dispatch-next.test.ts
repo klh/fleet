@@ -15,6 +15,7 @@ import {
 import { tmpdir, hostname } from "node:os";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
 import {
@@ -1096,4 +1097,67 @@ describe("governance mode e2e: probe-false solo (W422.17)", () => {
 		// restore the default so the scratch db ends strict
 		expect((await toolA({}, "coord.ts", "governance", "strict")).code).toBe(0);
 	}, 60_000);
+});
+
+test("actual orphan CLI feed exceeds 64 KiB without losing trailing claims", async () => {
+	expect(tool("work.ts", "add", "large feed initializer").code).toBe(0);
+	const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
+	const insert = db.query(
+		"INSERT INTO work_items(project,id,title,description,state,owner_sid,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+	);
+	try {
+		for (let i = 0; i < 100; i++)
+			insert.run(
+				projectIdentity(REPO),
+				`W${900000 + i}`,
+				"large feed fixture",
+				"x".repeat(2000),
+				"CLAIMED",
+				"manual-fixture",
+				Date.now(),
+				Date.now(),
+			);
+		const rows = await captureClaimFeed(
+			[process.execPath, join(BIN, "work.ts"), "orphaned", "--json"],
+			REPO,
+			{ env },
+		);
+		expect(Buffer.byteLength(JSON.stringify(rows))).toBeGreaterThan(65536);
+		expect(rows.some((row) => row.id === "W900099")).toBe(true);
+	} finally {
+		db.query("DELETE FROM work_items WHERE project=? AND owner_sid=?").run(
+			projectIdentity(REPO),
+			"manual-fixture",
+		);
+		db.close();
+	}
+}, 60_000);
+
+test("malformed recovery feed is a visible refusal before dispatch or claims", () => {
+	const prefix = join(HOME, "invalid-feed-prefix");
+	mkdirSync(join(prefix, "bin"), { recursive: true });
+	for (const name of ["coord.ts", "worktree.ts"])
+		symlinkSync(join(BIN, name), join(prefix, "bin", name));
+	writeFileSync(
+		join(prefix, "bin/work.ts"),
+		`if(process.argv[2]==="orphaned")console.log("[{");else{const p=Bun.spawnSync([process.execPath,${JSON.stringify(join(BIN, "work.ts"))},...process.argv.slice(2)],{stdout:"pipe",stderr:"pipe"});process.stdout.write(p.stdout);process.stderr.write(p.stderr);process.exit(p.exitCode);}
+`,
+	);
+	const id =
+		(tool("work.ts", "add", "invalid feed must not dispatch").out.match(
+			/W\d+/,
+		) ?? [])[0] ?? "";
+	const result = dispatchWith(
+		{ SUSPENDERS_PREFIX: prefix },
+		"--item",
+		id,
+		"--dry-run",
+	);
+	expect(result.code).not.toBe(0);
+	expect(result.err).toContain("RECOVERY REFUSED");
+	expect(result.err).toContain("invalid or incomplete structured feed");
+	expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
+		"READY",
+	);
+	expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
 });

@@ -66,6 +66,7 @@ import {
 } from "./lib/launch-preflight.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
+import { captureClaimFeed } from "./lib/structured-feed.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
@@ -1194,43 +1195,54 @@ const main = async (): Promise<void> => {
 	const audit = laneAudit();
 	// Old automatic claims can outlive their registry rows. Reconstruct the
 	// original sid instead of reclaiming it and losing capsule/retry identity.
-	const orphaned = run([
-		process.execPath,
-		`${BIN}/work.ts`,
-		"orphaned",
-		"--json",
-	]);
-	if (orphaned.code === 0) {
-		try {
-			const candidates = recoverableClaims(
-				JSON.parse(orphaned.out),
-				new Set(lanes.map((l) => l.sid)),
-				Date.now(),
-				isOwnerGated,
-				hostname(),
-			);
-			const slots = Math.max(
-				0,
-				TARGET - [...audit.values()].filter(Boolean).length,
-			);
-			for (const row of candidates
-				.filter((r) => !ITEM || r.id === ITEM)
-				.slice(0, slots)) {
-				lanes.push({
-					sid: row.owner_sid,
-					item: row.id,
-					pid: 0,
-					branch: `suspenders/${row.id}`,
-					worktree: `${REPO}/.worktrees/${row.id}`,
-					host: hostname(),
-					launchedAt: row.updated_at,
-					attempt: 0,
-				});
-				const note = `recovered missing registry identity ${row.id} → ${row.owner_sid}`;
-				console.log(`${DRY ? "DRY " : ""}${note}`);
-				if (!DRY) log(note);
-			}
-		} catch {} // old prefixes without --json support cannot authorize recovery
+	let orphaned: Record<string, unknown>[];
+	try {
+		orphaned = await captureClaimFeed(
+			[
+				process.execPath,
+				`${BIN}/work.ts`,
+				"orphaned",
+				"--json",
+				...(ITEM ? ["--item", ITEM] : []),
+			],
+			REPO,
+		);
+	} catch (error) {
+		const note = `RECOVERY REFUSED — ${String(error)}; no lanes dispatched`;
+		console.error(note);
+		if (!DRY) log(note);
+		process.exitCode = 1;
+		return;
+	}
+	{
+		const candidates = recoverableClaims(
+			orphaned,
+			new Set(lanes.map((l) => l.sid)),
+			Date.now(),
+			isOwnerGated,
+			hostname(),
+		);
+		const slots = Math.max(
+			0,
+			TARGET - [...audit.values()].filter(Boolean).length,
+		);
+		for (const row of candidates
+			.filter((r) => !ITEM || r.id === ITEM)
+			.slice(0, slots)) {
+			lanes.push({
+				sid: row.owner_sid,
+				item: row.id,
+				pid: 0,
+				branch: `suspenders/${row.id}`,
+				worktree: `${REPO}/.worktrees/${row.id}`,
+				host: hostname(),
+				launchedAt: row.updated_at,
+				attempt: 0,
+			});
+			const note = `recovered missing registry identity ${row.id} → ${row.owner_sid}`;
+			console.log(`${DRY ? "DRY " : ""}${note}`);
+			if (!DRY) log(note);
+		}
 	}
 	// W494.1: the audit (session rows) alone lies — daemonized `claude -p`
 	// lanes die silently and their session lease outlives them. A lane is
