@@ -1,8 +1,10 @@
 // hooks/lib/hookio.ts — the ONE definition of hook input/output contracts.
 // Every gate imports from here; no gate builds its own JSON or exit codes.
+
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { createHash } from "node:crypto";
+import { resolveFleetLane } from "./fleetlane.ts";
 import {
 	readSessionState,
 	sessionStatePath,
@@ -71,7 +73,9 @@ export function auditPath(): string {
 	return `${process.env.HOME ?? ""}/.cache/claude-governor/denied-calls.jsonl`;
 }
 
-export function auditDeny(reason: string): void {
+// shared line builder: one JSONL shape for every audit event; the lane sid
+// rides along (W250) so denials and approvals attribute to a fleet lane.
+function auditLine(tool: string, reason: string, cmd?: string): void {
 	try {
 		const file = auditPath();
 		mkdirSync(dirname(file), { recursive: true });
@@ -79,16 +83,31 @@ export function auditDeny(reason: string): void {
 		const line = {
 			at: new Date().toISOString(),
 			event: process.argv[2] ?? "",
-			tool: HOOK.tool_name ?? "",
-			cmd: (ti.command ?? "").slice(0, 200),
+			tool,
+			cmd: (ti.command ?? cmd ?? "").slice(0, 200),
 			path: (ti.file_path ?? ti.notebook_path ?? "").slice(0, 300),
 			cwd: process.cwd(),
 			reason: reason.slice(0, 300),
+			lane: resolveFleetLane(HOOK.cwd ?? process.cwd())?.sid ?? "",
 		};
 		appendFileSync(file, `${JSON.stringify(line)}\n`);
 	} catch {
 		// fire-and-forget: audit failures never break the deny path
 	}
+}
+
+export function auditDeny(reason: string): void {
+	auditLine(HOOK.tool_name ?? "", reason);
+}
+
+// W250 two-person rule: a consumed approval is evidence the second person
+// co-signed — same JSONL, tool:"approval".
+export function auditApproval(cmd: string): void {
+	auditLine(
+		"approval",
+		"two-person: human-signed approval consumed (single-use)",
+		cmd,
+	);
 }
 
 export function allow(): never {

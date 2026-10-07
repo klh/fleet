@@ -5,15 +5,26 @@
 // approvals moved to lib/approvals.ts (fixes the trivial-token bind bug).
 // W513: shell-syntax primitives + hardening denies live in bash-hardening.ts
 // (oh-my-claudecode lift; scope decisions in that module's header).
-import { allow, deny, nudge, type HookInput } from "../lib/hookio.ts";
-import { have, run } from "../lib/run.ts";
-import { verifyAndConsume, extractSourceRef } from "../lib/approvals.ts";
-import { resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
-import { openGovernorDb } from "../lib/govdb.ts";
+
 import type { Database } from "bun:sqlite";
-import { laneId, leaseExpired } from "./governor.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+	extractSourceRef,
+	verifyAndConsume,
+	verifyAndConsumeCmd,
+} from "../lib/approvals.ts";
+import { credScopeDeny, loadCredScope } from "../lib/credscope.ts";
+import { lanesFileFor, resolveFleetLane } from "../lib/fleetlane.ts";
+import { openGovernorDb } from "../lib/govdb.ts";
+import {
+	allow,
+	auditApproval,
+	deny,
+	type HookInput,
+	nudge,
+} from "../lib/hookio.ts";
+import { have, run } from "../lib/run.ts";
 import {
 	canonPath,
 	collectWriteTargets,
@@ -24,6 +35,12 @@ import {
 	throwaway,
 	verb,
 } from "./bash-hardening.ts";
+import {
+	destructiveHit,
+	pipeToShellScan,
+	twoPersonReason,
+} from "./destructive.ts";
+import { laneId, leaseExpired } from "./governor.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
@@ -332,10 +349,84 @@ export function bashGate(hook: HookInput): never {
 			}
 		}
 	}
+	// ---- W250 cred-scope: lane credential blast radius. A fleet lane may
+	// touch only DECLARED secrets named by its sid or work item (the config
+	// recipe rides the deny reason). Undeclared paths and owner sessions are
+	// never blocked; absent/unreadable config = inert gate (fail-inert, the
+	// documented posture in lib/credscope.ts). Cheap-first: the declared
+	// secrets load runs before any lane resolution (the ppid walk).
+	{
+		const secrets = loadCredScope();
+		if (secrets.length > 0 && lanesFileFor(CWD)) {
+			const lane = resolveFleetLane(CWD);
+			if (lane) {
+				let segCwd = CWD;
+				for (const w of SEGS) {
+					const v = verb(w);
+					if (v === "cd") {
+						const tgt = w[w.length - 1];
+						if (tgt && !tgt.startsWith("<op"))
+							segCwd = tgt.startsWith("/") ? tgt : resolve(segCwd, tgt);
+						continue;
+					}
+					for (const t of w) {
+						if (t.startsWith("-") || t.startsWith("<op")) continue;
+						const d = credScopeDeny(t, segCwd, lane, secrets);
+						if (d) deny(d);
+					}
+				}
+			}
+		}
+	}
+
+	// ---- W250 two-person rule: a lane-issued destructive command needs a
+	// human co-signer. The detector is conservative; the approval is a
+	// signed, single-use, command-hash-bound file the SECOND person mints
+	// from their own terminal (bin/approve-destructive.ts), and the
+	// consumption lands in the denied-call audit. Owner sessions exempt
+	// (the human is the driver there). SUSPENDERS_TWO_PERSON=0 disables.
+	// Runs BEFORE the W513 hardening layer: a consumed approval stands down
+	// hardening's overlapping destructive-git denies for THIS command (the
+	// device/sensitive/containment absolutes never stand down).
+	let cmdApproved = false;
+	if (process.env.SUSPENDERS_TWO_PERSON !== "0") {
+		const pipeHit = pipeToShellScan(CMD);
+		if (pipeHit) {
+			if (verifyAndConsumeCmd(CMD)) {
+				auditApproval(CMD);
+				cmdApproved = true;
+			} else {
+				const lane = resolveFleetLane(CWD);
+				if (lane) deny(twoPersonReason(lane.sid, pipeHit));
+			}
+		}
+		let segCwd = CWD;
+		const home = process.env.HOME ?? "";
+		for (const w of SEGS) {
+			if (cmdApproved) break; // co-signed once — the WHOLE command was
+			const v = verb(w);
+			if (v === "cd") {
+				const tgt = w[w.length - 1];
+				if (tgt && !tgt.startsWith("<op"))
+					segCwd = tgt.startsWith("/") ? tgt : resolve(segCwd, tgt);
+				continue;
+			}
+			const hit = destructiveHit(w, segCwd, home);
+			if (!hit) continue;
+			if (verifyAndConsumeCmd(CMD)) {
+				auditApproval(CMD);
+				cmdApproved = true;
+				continue;
+			}
+			const lane = lanesFileFor(CWD) ? resolveFleetLane(CWD) : null;
+			if (lane) deny(twoPersonReason(lane.sid, hit));
+		}
+	}
+
 	// ---- W513 hardening lift (oh-my-claudecode deny-layer primitives) ----
 	// Device redirects deny everyone; sensitive-state writes deny lanes and
 	// nudge the owner; containment + destructive-git deny lanes only.
-	hardeningGate(SEGS, CWD);
+	hardeningGate(SEGS, CWD, cmdApproved);
 
 	// ---- edit-enforce ----
 	for (const w of SEGS) {

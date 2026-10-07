@@ -2,8 +2,8 @@
 // (bun hooks/gate.ts pre-bash), lane-identity fixtures per gates.test.ts.
 // The gate collects write targets with REAL filesystem resolution — fixture
 // dirs are created for real so containment/sensitive checks see them.
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const tmp = mkdtempSync(join(process.cwd(), ".bashhard-gate-test-"));
@@ -128,11 +128,11 @@ describe("bash-hardening through the real gate", () => {
 		expect(reason(r)).toContain("outside this lane's worktree");
 	});
 
-	test("lane: git reset --hard → deny", () => {
+	test("lane: git reset --hard → deny (W250 two-person: approvable, not hard-denied)", () => {
 		writeLanes(laneEntry(process.pid));
 		const r = spawnGate("git reset --hard", tmp);
 		expect(decision(r)).toBe("deny");
-		expect(reason(r)).toContain("bash-hardening");
+		expect(reason(r)).toContain("two-person");
 	});
 
 	test("lane: git clean -fd → deny; -nd → allow", () => {
@@ -164,7 +164,8 @@ describe("bash-hardening through the real gate", () => {
 		writeLanes(laneEntry(process.pid));
 		const r = spawnGate("sh -c 'git reset --hard'", tmp);
 		expect(decision(r)).toBe("deny");
-		expect(reason(r)).toContain("bash-hardening");
+		// W250: the nested segment resolves in the two-person detector now
+		expect(reason(r)).toContain("two-person");
 	});
 
 	test("non-lane: reset --hard/clean -f/checkout . → allow (owner free)", () => {
