@@ -8,6 +8,7 @@
 // focusing a session shows its project's TODO / IN-FLIGHT / DONE board,
 // its claims, inbox, lane state, and the event tail.
 
+import type { Database } from "bun:sqlite";
 import { db, PORT, BIND } from "../board/context.ts";
 import { projectList } from "../board/lanes.ts";
 import { tokenUsage } from "../lib/govdb.ts";
@@ -47,7 +48,7 @@ function feedTokens(): void {
 	tokAggAt = Date.now();
 	for (const p of projectList()) {
 		const agg = { in: 0, out: 0, cacheR: 0, cacheC: 0 };
-		for (const t of tokenUsage(db, p, Date.now()).values()) {
+		for (const t of tokenUsage(db as Database, p, Date.now()).values()) {
 			if (!t) continue;
 			agg.in += t.in;
 			agg.out += t.out;
