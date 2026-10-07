@@ -66,6 +66,19 @@ byId('kanban').addEventListener('click', function(e){
     startItem(s.getAttribute('data-start'), s.getAttribute('data-startproj'), s, selEl ? selEl.value : 'claude', effEl ? effEl.value : '');
     return;
   }
+  // W182 — claimed-card lifecycle: reassign (release + re-dispatch) / unclaim
+  var r = e.target.closest && e.target.closest('[data-reassign]');
+  if (r) {
+    var rcard = r.closest('.kcard');
+    var rsel = rcard ? rcard.querySelector('.kexecsel') : null;
+    reassignItem(r.getAttribute('data-reassign'), r.getAttribute('data-reassignproj'), r, rsel ? rsel.value : 'claude');
+    return;
+  }
+  var u = e.target.closest && e.target.closest('[data-unclaim]');
+  if (u) {
+    unclaimItem(u.getAttribute('data-unclaim'), u.getAttribute('data-unclaimproj'), u, false);
+    return;
+  }
   // executor/effort pick — selecting a lane is not a card open (the click
   // would otherwise fall through to .kcard and pop the task drawer mid-pick)
   if (e.target.classList && (e.target.classList.contains('kexecsel') || e.target.classList.contains('keffortsel'))) return;
