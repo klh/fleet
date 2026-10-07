@@ -19,6 +19,7 @@ import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
+import { ObservationOutbox } from "./observe.ts";
 import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
@@ -198,6 +199,14 @@ export function buildDeps(
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
 	const affinity = new PrefixAffinity();
+	// W461 stage 2: the lane-observation outbox. BUCKLE_OBSERVATIONS_PATH
+	// (config-over-code) enables it; unset = observations inert.
+	const observations = process.env.BUCKLE_OBSERVATIONS_PATH
+		? new ObservationOutbox({
+				path: process.env.BUCKLE_OBSERVATIONS_PATH,
+				hubId: process.env.BUCKLE_HUB_ID,
+			})
+		: undefined;
 	return {
 		router,
 		ledger,
@@ -213,6 +222,7 @@ export function buildDeps(
 		table,
 		federation,
 		affinity,
+		observations,
 	};
 }
 
