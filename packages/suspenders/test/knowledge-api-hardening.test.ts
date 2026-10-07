@@ -317,4 +317,19 @@ describe("knowledge-api live face (W181 F2)", () => {
 		).rows;
 		expect(authRows[0].sourceRef).toBe("docs/w203-trust-doc.md");
 	});
+
+	// W189: the domain axis through the LIVE face. A scope filter must never
+	// surface rows the axis cannot gate (W181 F2 predicate). Post-W166 split
+	// face: facts + consult_kb ride governor.db behind dedicated faces (coord
+	// fact verbs / consult kbSearch) — /search serves knowledge rows only, so
+	// the scoped face serves the knowledge domain subset and nothing leaks.
+	test("domain-scoped /search: no aux rows, the axis filters knowledge", async () => {
+		const scoped = await search({ query: "w203zq", domain: "suspenders" });
+		const hits = scoped.data.hits as Record<string, unknown>[];
+		expect(hits.map((h) => h.kind)).toEqual(["knowledge"]);
+		// the axis bites: a domain with no matching rows serves nothing
+		const empty = await search({ query: "w203zq", domain: "buckle" });
+		expect(empty.status).toBe(200);
+		expect(empty.data.hits).toEqual([]);
+	});
 });
