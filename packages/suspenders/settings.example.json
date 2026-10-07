@@ -110,7 +110,8 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts precompact"
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts precompact",
+						"timeout": 10
 					}
 				]
 			}

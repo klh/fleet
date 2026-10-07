@@ -6,7 +6,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { allow, context, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
-import { capsuleEvidence, laneContext } from "../lib/lane-completion.ts";
+import { capsuleEvidence } from "../lib/lane-completion.ts";
+import { laneContext } from "../lib/lane-context.ts";
 import { projectIdentity } from "../lib/govdb-project.ts";
 import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
 import { join, resolve } from "node:path";
@@ -39,9 +40,73 @@ function recentDirectives(transcript: string | null): string[] {
 	return found;
 }
 
+/** W510: PreCompact capsule bank — when this session is a lane, refresh the
+ * lane's coord capsule (the SAME surface the re-dispatch RESUME PATH reads)
+ * with the in-flight state: current head, branch, dirty files. done/next are
+ * PRESERVED from the existing item-key capsule (banking replaces the whole
+ * payload; a flush must never erase a hand-banked hand-off). No lane context
+ * → silent no-op; any probe failure degrades — compaction proceeds. */
+export function bankCapsule(hook: HookInput): void {
+	const cwd = hook.cwd;
+	if (!cwd) return;
+	const ctx = laneContext(cwd);
+	if (!ctx?.sid || !ctx.item) return;
+	const coord = join(resolve(import.meta.dir, ".."), "bin", "coord.ts");
+	const git = (...a: string[]) => run("git", a, { cwd });
+	const head = git("rev-parse", "HEAD");
+	const dirty = git("status", "--porcelain=v1", "-z");
+	const files = dirty.ok
+		? dirty.out
+				.split("\0")
+				.filter(Boolean)
+				.map((f) => {
+					const p = f.slice(3);
+					const arrow = p.indexOf(" -> ");
+					return arrow === -1 ? p : p.slice(arrow + 4);
+				})
+				.filter((p) => p && !p.includes(".claude/"))
+				.slice(0, 10)
+				.join(",")
+		: "";
+	const prev = (() => {
+		const g = run(
+			process.execPath,
+			[coord, "capsule", "get", "--as", ctx.sid, "--item", ctx.item],
+			{ cwd },
+		);
+		try {
+			return g.ok
+				? (JSON.parse(g.out.trim()) as { done?: unknown; next?: unknown })
+				: null;
+		} catch {
+			return null;
+		}
+	})();
+	run(
+		process.execPath,
+		[
+			coord,
+			"capsule",
+			"set",
+			"--as",
+			ctx.sid,
+			"--item",
+			ctx.item,
+			`--checkpoint=${head.ok ? head.out.trim() : "none"}`,
+			`--branch=${git("rev-parse", "--abbrev-ref", "HEAD").out.trim()}`,
+			`--files=${files}`,
+			"--note=pre-compact auto-bank",
+			`--done=${typeof prev?.done === "string" ? prev.done : "(none banked pre-compact)"}`,
+			`--next=${typeof prev?.next === "string" ? prev.next : `resume: bun work show ${ctx.item}`}`,
+		],
+		{ cwd },
+	);
+}
+
 export function preCompactGate(hook: HookInput): never {
 	const cwd = hook.cwd ?? "";
 	if (!cwd || !existsSync(cwd)) allow();
+	bankCapsule(hook); // W510: refresh the lane capsule before the summarizer
 	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (!top.ok) allow();
 	const wt = top.out.trim();

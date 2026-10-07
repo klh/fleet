@@ -17,6 +17,7 @@ import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import { run } from "./lib/run.ts";
+import { laneContext } from "./lib/lane-context.ts";
 
 type In = {
 	session_id?: string;
@@ -248,6 +249,26 @@ if (dead.length === 1 && dead[0].sid !== sid) {
 } else if (dead.length > 1) {
 	const ids = dead.map((d) => d.sid.slice(0, 8)).join(", ");
 	out.push(`LINEAGE AMBIGUOUS: ${ids} — resolve with coord resume-session`);
+}
+
+// W510: post-compaction resume — the PreCompact gate banks the lane capsule
+// before the summarizer runs; inject it here (source=compact) so the thread
+// survives in-band. Lanes only: interactive sessions hold no claim.
+if (src === "compact" && input.cwd) {
+	try {
+		const ctx = laneContext(input.cwd);
+		if (ctx?.sid && ctx.item) {
+			const cap = db
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`lane.${ctx.sid}.capsule`) as { value: string } | null;
+			if (cap?.value)
+				out.push(
+					`PRE-COMPACT CAPSULE ${ctx.item} (coord capsule get --as ${ctx.sid}): ${cap.value.slice(0, 400)}`,
+				);
+		}
+	} catch {
+		// degrade: bootstrap must never break on capsule injection
+	}
 }
 
 // governance mode: read once — feeds the rules line AND the W422.17.1

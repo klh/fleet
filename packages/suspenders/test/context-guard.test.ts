@@ -60,18 +60,17 @@ function stop(cwd: string, input: Record<string, unknown>) {
 	};
 }
 
-test(">=75% blocks once with a checkpoint directive, capped at 2/session", () => {
+test("warn band fires once, then stands down for the session", () => {
 	const f = fixture(usageLine(155_000)); // ~77.5% of 200k
 	const base = { cwd: f.cwd, session_id: f.sid, transcript_path: f.transcript };
 	const s1 = stop(f.cwd, base);
 	expect(s1.code).toBe(2);
 	expect(s1.err).toContain("CONTEXT PRESSURE");
 	expect(s1.err).toContain("capsule");
+	// once-per-session-per-band dedup (W510): the second stop stands down
 	const s2 = stop(f.cwd, base);
-	expect(s2.code).toBe(2);
-	const s3 = stop(f.cwd, base);
-	expect(s3.code).toBe(0);
-	expect(s3.out).toBe("{}");
+	expect(s2.code).toBe(0);
+	expect(s2.out).toBe("{}");
 });
 
 test(">=95% stands down even on the first crossing", () => {
@@ -127,7 +126,7 @@ test("native used_percentage drives the reading without a transcript", () => {
 		context_window: { used_percentage: 80, context_window_size: 200_000 },
 	});
 	expect(s.code).toBe(2);
-	expect(s.err).toContain("CONTEXT PRESSURE 80%");
+	expect(s.err).toContain("CONTEXT PRESSURE ~80%");
 });
 
 test("a different session id gets its own block budget", () => {

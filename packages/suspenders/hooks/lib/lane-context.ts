@@ -5,28 +5,52 @@
 // rebind runs inside the same transaction as the shatter (a failed rewrite
 // rolls the shatter back). Pre-fix splits left the context bound to the
 // SHATTERED parent and the W621.1 lane had to hand-edit its own context to
-// close.
+// close. W510: the sid+item reader lives here too — one module owns the file.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { run } from "./run.ts";
 import { resolveItemWorktree } from "./worktree-lookup.ts";
 
-export interface LaneActivationContext {
+export interface LaneContext {
 	sid: string;
 	item: string;
 	baseline?: string;
 	launchedAt?: number;
+	worktree?: string;
 }
 
 export const laneContextFile = (dir: string): string =>
 	join(dir, ".fleet", "lane-context.json");
 
+/** The lane's activation context: .fleet/lane-context.json in this worktree,
+ * else the main checkout's .fleet/lanes.json index matched by worktree. */
+export function laneContext(wt: string): LaneContext | undefined {
+	try {
+		const local = join(wt, ".fleet/lane-context.json");
+		if (existsSync(local)) return JSON.parse(readFileSync(local, "utf8"));
+		const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
+		if (!common.ok) return undefined;
+		const index = join(
+			dirname(resolve(wt, common.out.trim())),
+			".fleet/lanes.json",
+		);
+		const rows = JSON.parse(readFileSync(index, "utf8")) as LaneContext[];
+		const matches = rows.filter(
+			(row) => row.worktree && resolve(row.worktree) === wt,
+		);
+		return matches.length === 1 ? matches[0] : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Parsed context, or null when absent/corrupt. A corrupt file is
  * completion-time's hard error, never split's to overwrite blind. */
-export function readLaneContextFile(dir: string): LaneActivationContext | null {
+export function readLaneContextFile(dir: string): LaneContext | null {
 	const path = laneContextFile(dir);
 	if (!existsSync(path)) return null;
 	try {
-		return JSON.parse(readFileSync(path, "utf8")) as LaneActivationContext;
+		return JSON.parse(readFileSync(path, "utf8")) as LaneContext;
 	} catch {
 		return null;
 	}

@@ -1,19 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { run } from "./run.ts";
 import { openGovernorDb } from "./govdb.ts";
 import { projectIdentity } from "./govdb-project.ts";
 import { itemCapsuleKey } from "./capsule-fence.ts";
+import { type LaneContext, laneContext } from "./lane-context.ts";
 import type { HookInput } from "./hookio.ts";
-
-type Context = {
-	sid: string;
-	item: string;
-	baseline?: string;
-	launchedAt?: number;
-	worktree?: string;
-};
 
 // ---- W502: checkpoint-parked continuation (lifted: omc persistent-mode) ----
 // omc's persistent-mode.mjs never lets a stop end a session with work in
@@ -74,7 +67,7 @@ export function capsuleEvidence(
 
 /** The one capsule checkpoint allowed to park: fresh, owner-banked on the
  * item key, and git-proven strictly-new progress over the dispatch baseline. */
-function parkedCheckpoint(wt: string, context: Context): string | null {
+function parkedCheckpoint(wt: string, context: LaneContext): string | null {
 	const cap = capsuleEvidence(
 		context.item,
 		context.sid,
@@ -102,28 +95,6 @@ function parkedCheckpoint(wt: string, context: Context): string | null {
 		.ok
 		? sha
 		: null;
-}
-
-/** The lane's activation context: .fleet/lane-context.json in this worktree,
- * else the main checkout's .fleet/lanes.json index matched by worktree. */
-export function laneContext(wt: string): Context | undefined {
-	try {
-		const local = join(wt, ".fleet/lane-context.json");
-		if (existsSync(local)) return JSON.parse(readFileSync(local, "utf8"));
-		const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
-		if (!common.ok) return undefined;
-		const index = join(
-			dirname(resolve(wt, common.out.trim())),
-			".fleet/lanes.json",
-		);
-		const rows = JSON.parse(readFileSync(index, "utf8")) as Context[];
-		const matches = rows.filter(
-			(row) => row.worktree && resolve(row.worktree) === wt,
-		);
-		return matches.length === 1 ? matches[0] : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */

@@ -12,7 +12,8 @@
 //                            in-process, so the separate registration is now redundant)
 //   bun gate.ts push        PostToolUse (W417.4: subscribe-log tail → context,
 //                            offset per lane)
-//   bun gate.ts stop        Stop        (claim-done gate)
+//   bun gate.ts stop        Stop        (claim-done gate + W510 context-pressure guard)
+//   bun gate.ts precompact   PreCompact  (W642 state flush + W510 capsule bank)
 //   bun gate.ts session     SessionStart (optional operator motd)
 import { readHook, allow } from "./lib/hookio.ts";
 import { bashGate } from "./gates/bash.ts";
