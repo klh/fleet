@@ -15,6 +15,8 @@ import {
 import { tmpdir, hostname } from "node:os";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb.ts";
 import {
 	composeBrief,
 	isOwnerGated,
@@ -178,6 +180,76 @@ describe("capsule protocol (real coord verb, scratch db)", () => {
 
 describe("dry-run dispatch", () => {
 	let id = "";
+	test("relative repo input produces absolute lane brief and worktree paths", () => {
+		const added = tool("work.ts", "add", "relative-path dispatch regression");
+		const item = added.out.match(/W\d+/)?.[0] ?? "";
+		const r = Bun.spawnSync(
+			[
+				process.execPath,
+				join(import.meta.dir, "../scripts/dispatch-next.ts"),
+				"--repo",
+				".",
+				"--item",
+				item,
+				"--dry-run",
+			],
+			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		);
+		expect(r.exitCode).toBe(0);
+		expect(r.stdout.toString()).toContain(`repo ${REPO}`);
+		expect(r.stdout.toString()).not.toContain("repo .\n");
+		expect(
+			tool("work.ts", "take", item, "--as", "relative-repo-test").code,
+		).toBe(0);
+		expect(
+			tool(
+				"work.ts",
+				"done",
+				item,
+				"--sha",
+				"deadbeef",
+				"--as",
+				"relative-repo-test",
+			).code,
+		).toBe(0);
+	});
+	test("new project lane can be claimed despite legacy session prefix collisions", () => {
+		const added = tool("work.ts", "add", "project-qualified claim regression");
+		const item = added.out.match(/W\d+/)?.[0] ?? "";
+		const legacy = laneSid(item);
+		expect(
+			tool(
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				`${legacy}0`,
+				"--name",
+				"old lane A",
+			).code,
+		).toBe(0);
+		expect(
+			tool(
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				`${legacy}1`,
+				"--name",
+				"old lane B",
+			).code,
+		).toBe(0);
+		expect(tool("work.ts", "take", item, "--as", legacy).err).toContain(
+			"ambiguous sid prefix",
+		);
+		const namespaced = laneSid(item, projectIdentity(REPO));
+		expect(tool("work.ts", "take", item, "--as", namespaced).code).toBe(0);
+		expect(
+			JSON.parse(tool("work.ts", "show", item, "--json").out).owner_sid,
+		).toBe(namespaced);
+		expect(
+			tool("work.ts", "done", item, "--sha", "deadbeef", "--as", namespaced)
+				.code,
+		).toBe(0);
+	});
 	test("prints chosen item + full brief, takes nothing, spawns nothing", () => {
 		const added = tool("work.ts", "add", "sample lane mission");
 		id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
@@ -186,7 +258,7 @@ describe("dry-run dispatch", () => {
 		expect(out.out).toContain(`DRY dispatch ${id}`);
 		expect(out.out).toContain("CAPSULE PROTOCOL");
 		expect(out.out).toContain("LANDING CHAIN");
-		expect(out.out).toContain(`lane "autow${id.slice(1)}"`);
+		expect(out.out).toContain(`lane "${laneSid(id, projectIdentity(REPO))}"`);
 		// no side effects: no claim, no worktree, no lane registry
 		const show = tool("work.ts", "show", id);
 		expect(show.out).toContain("READY");
@@ -554,7 +626,7 @@ describe("fail-closed governance (W463)", () => {
 	test("--allow-ungoverned proceeds with loud note + brief disclosure (no spawn: executor absent)", async () => {
 		const stub = stubBuckle();
 		const id = await addItem("ungoverned override e2e item");
-		const sid = `autow${id.slice(1)}`;
+		const sid = laneSid(id, projectIdentity(REPO));
 		const out = await dispatchA(
 			{
 				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
@@ -583,38 +655,46 @@ describe("fail-closed governance (W463)", () => {
 });
 
 describe("lane key lifecycle (W463)", () => {
-	test("worktree retire revokes the lane key and removes per-lane files", async () => {
-		const stub = stubBuckle();
-		const id = await addItem("lane key lifecycle item");
-		const sid = `autow${id.slice(1)}`;
-		expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(0);
-		expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
-		mkdirSync(join(REPO, ".fleet"), { recursive: true });
-		const metaPath = join(REPO, ".fleet", `lane-key-${sid}.json`);
-		const settingsPath = join(REPO, ".fleet", `lane-settings-${sid}.json`);
-		writeFileSync(
-			metaPath,
-			JSON.stringify({ sid, key_id: "deadbeefcafe", mintedAt: 1 }),
-		);
-		writeFileSync(settingsPath, "{}");
-		const out = await toolA(
-			{
-				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
-				SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
-			},
-			"worktree.ts",
-			"retire",
-			id,
-		);
-		expect(out.code).toBe(0);
-		expect(out.out).toContain("deadbeefcafe");
-		expect(
-			stub.calls.some((c) => c.includes("/v1/admin/keys/deadbeefcafe/revoke")),
-		).toBe(true);
-		expect(existsSync(metaPath)).toBe(false);
-		expect(existsSync(settingsPath)).toBe(false);
-		stub.stop();
-	}, 60_000);
+	test.each([false, true])(
+		"worktree retire revokes legacy or project-qualified lane keys (%s)",
+		async (qualified) => {
+			const stub = stubBuckle();
+			const id = await addItem("lane key lifecycle item");
+			const sid = laneSid(id, qualified ? projectIdentity(REPO) : undefined);
+			expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(
+				0,
+			);
+			expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
+			mkdirSync(join(REPO, ".fleet"), { recursive: true });
+			const metaPath = join(REPO, ".fleet", `lane-key-${sid}.json`);
+			const settingsPath = join(REPO, ".fleet", `lane-settings-${sid}.json`);
+			writeFileSync(
+				metaPath,
+				JSON.stringify({ sid, key_id: "deadbeefcafe", mintedAt: 1 }),
+			);
+			writeFileSync(settingsPath, "{}");
+			const out = await toolA(
+				{
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+				},
+				"worktree.ts",
+				"retire",
+				id,
+			);
+			expect(out.code).toBe(0);
+			expect(out.out).toContain("deadbeefcafe");
+			expect(
+				stub.calls.some((c) =>
+					c.includes("/v1/admin/keys/deadbeefcafe/revoke"),
+				),
+			).toBe(true);
+			expect(existsSync(metaPath)).toBe(false);
+			expect(existsSync(settingsPath)).toBe(false);
+			stub.stop();
+		},
+		60_000,
+	);
 });
 
 // ─── governance mode (W422.17, owner ruling 2026-10-06) ──────────────────
@@ -668,7 +748,7 @@ describe("governance mode e2e: probe-false solo (W422.17)", () => {
 	test("probe-false + solo → proceeds belt-direct with the loud note", async () => {
 		expect((await toolA({}, "coord.ts", "governance", "solo")).code).toBe(0);
 		const id = await addItem("governance solo belt-direct item");
-		const sid = `autow${id.slice(1)}`;
+		const sid = laneSid(id, projectIdentity(REPO));
 		const out = await dispatchA({ PATH: "/usr/bin:/bin" }, "--item", id);
 		expect(out.code).toBe(0);
 		expect(out.out).toContain("BELT-DIRECT DISPATCH");

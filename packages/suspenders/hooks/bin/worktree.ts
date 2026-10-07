@@ -33,6 +33,23 @@ const ROOT = dirname(PROJECT); // project identity is "<repo-root>/.git"
 const wtDir = join(ROOT, ".worktrees", id);
 const branch = `suspenders/${id}`;
 
+// Retiring a migrated item must still revoke the key of its recorded lane.
+async function retireItemKey() {
+	const sids = new Set([laneSid(id, PROJECT), laneSid(id)]);
+	try {
+		const rows = JSON.parse(
+			readFileSync(join(ROOT, ".fleet/lanes.json"), "utf8"),
+		) as { item: string; sid: string }[];
+		for (const row of rows) if (row.item === id) sids.add(row.sid);
+	} catch {}
+	let result: Awaited<ReturnType<typeof retireLaneKey>> | undefined;
+	for (const sid of sids) {
+		const current = await retireLaneKey({ fleet: join(ROOT, ".fleet"), sid });
+		if (!result || current.keyId) result = current;
+	}
+	return result as Awaited<ReturnType<typeof retireLaneKey>>;
+}
+
 const git = (args: string[], cwd = ROOT): { out: string; code: number } => {
 	const p = Bun.spawnSync(["/usr/bin/git", "-C", cwd, ...args], {
 		stdout: "pipe",
@@ -107,10 +124,7 @@ if (cmd === "retire") {
 	// running); the clean exits retire it and delete the per-lane files.
 	if (!existsSync(wtDir) || !existsSync(join(wtDir, ".git"))) {
 		console.log(`no worktree for ${id}`);
-		const rk = await retireLaneKey({
-			fleet: join(ROOT, ".fleet"),
-			sid: laneSid(id),
-		});
+		const rk = await retireItemKey();
 		if (rk.keyId)
 			console.log(
 				`lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed — 24h TTL bounds it"}`,
@@ -128,10 +142,7 @@ if (cmd === "retire") {
 	if (r.code !== 0) die(`git worktree remove failed: ${r.out}`);
 	// W463: terminal lane state — revoke the key, delete the per-lane files
 	// (0600 key meta + the settings file); the key id rides the event for audit.
-	const rk = await retireLaneKey({
-		fleet: join(ROOT, ".fleet"),
-		sid: laneSid(id),
-	});
+	const rk = await retireItemKey();
 	const payload: Record<string, string> = { retired: "1", path: wtDir, branch };
 	if (rk.keyId) {
 		payload.lane_key_id = rk.keyId;

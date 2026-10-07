@@ -33,8 +33,9 @@ import {
 import { hostname } from "node:os";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
+import { resolve } from "node:path";
 import { laneAlive, worktreeLive } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
@@ -65,8 +66,9 @@ const val = (flag: string, dflt?: string): string | undefined => {
 const num = (flag: string, dflt: number): number =>
 	Number(val(flag, String(dflt)));
 
-const REPO = val("--repo");
-if (!REPO) process.exit(1); // usage block above already explained
+const requestedRepo = val("--repo");
+if (!requestedRepo) process.exit(1); // usage block above already explained
+const REPO = resolve(requestedRepo);
 const MAIN = val("--main", "main");
 const GLOB = val("--glob", "lane/autow*");
 const LADDER = val("--ladder");
@@ -678,7 +680,9 @@ if (MODE === "dispatch") {
 		console.error("dispatch --agent must be claude or codex");
 		process.exit(1);
 	}
-	const sid = laneSid(item);
+	const sid =
+		lanes().find((lane) => lane.item === item)?.sid ??
+		laneSid(item, projectIdentity(REPO));
 	const wt = `${REPO}/.worktrees/${item}`;
 	// live-lane guard: a running lane still owns its worktree — refuse. An
 	// existing worktree with NO live lane is reused (resume path).

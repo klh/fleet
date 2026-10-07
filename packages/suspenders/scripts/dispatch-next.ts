@@ -27,6 +27,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
+import { resolve } from "node:path";
 import {
 	applyLaneAttribution,
 	DEFAULT_ALLOWED_TOOLS,
@@ -43,6 +44,7 @@ import {
 } from "./lib/lane-auth.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
+import { projectIdentity } from "../hooks/lib/govdb.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
@@ -99,7 +101,7 @@ const gitToplevel = (): string => {
 	const out = p.stdout ? new TextDecoder().decode(p.stdout).trim() : "";
 	return out || process.cwd();
 };
-const REPO = val("--repo") ?? gitToplevel();
+const REPO = resolve(val("--repo") ?? gitToplevel());
 const DRY = argv.includes("--dry-run");
 // explicit single-item dispatch (W145 docstring promised this, never wired
 // up): bypasses the FIFO ready-pool pick so a caller with its own priority
@@ -623,7 +625,7 @@ const dispatchItem = async (
 	lanes: Lane[],
 	resume?: Lane,
 ): Promise<string | null> => {
-	const sid = resume?.sid ?? sidOf(item);
+	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	const attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
 	const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
 	if (resume && attempt >= limit) {

@@ -7,6 +7,14 @@ import { laneSid } from "../hooks/lib/laneslug.ts";
 import { sidOf } from "../scripts/dispatch-next.ts";
 
 describe("lane sid derivation (W460)", () => {
+	test("fresh lanes are unique across projects with equal work labels", () => {
+		const first = laneSid("W1", "/repos/one/.git");
+		const second = laneSid("W1", "/repos/two/.git");
+		expect(first).not.toBe(second);
+		expect(first).toBe(laneSid("W1", "/repos/one/.git"));
+		expect(first).toMatch(/^autow1-p[0-9a-f]{16}$/);
+		expect(first.startsWith(laneSid("W10", "/repos/one/.git"))).toBe(false);
+	});
 	test("dotless labels keep the legacy slug", () => {
 		expect(laneSid("W44")).toBe("autow44");
 		expect(laneSid("W1230")).toBe("autow1230");
