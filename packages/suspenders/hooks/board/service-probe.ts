@@ -71,6 +71,36 @@ export const stubDeps: ProbeDeps = {
 export const activeDeps = (): ProbeDeps =>
 	process.env.SUSPENDERS_PROBE_DEPS === "stub" ? stubDeps : realDeps;
 
+const liteLlmLivenessPassed = async (r: Response): Promise<boolean> => {
+	if (
+		r.status !== 200 ||
+		r.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+			"application/json"
+	) {
+		await r.body?.cancel();
+		return false;
+	}
+	const reader = r.body?.getReader();
+	if (!reader) return false;
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let body = "";
+	try {
+		for (;;) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			bytes += chunk.value.byteLength;
+			if (bytes > 1024) return false;
+			body += decoder.decode(chunk.value, { stream: true });
+		}
+		return JSON.parse(body + decoder.decode()) === "I'm alive!";
+	} catch {
+		return false;
+	} finally {
+		await reader.cancel().catch(() => {});
+	}
+};
+
 const httpDetail = async (
 	r: Response,
 	contract?: "litellm-process-liveness",
@@ -80,10 +110,7 @@ const httpDetail = async (
 	try {
 		if (contract === "litellm-process-liveness")
 			return {
-				ok:
-					r.ok &&
-					r.headers.get("content-type")?.includes("json") === true &&
-					(await r.json()) === "I'm alive!",
+				ok: await liteLlmLivenessPassed(r),
 				detail: `${base} · process liveness`,
 			};
 		const j = (await r.json()) as {

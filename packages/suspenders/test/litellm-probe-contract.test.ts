@@ -42,6 +42,7 @@ test("LiteLLM contract rejects arbitrary scalars and misleading success objects"
 
 test("LiteLLM contract requires successful JSON response, not redirect or plain text", async () => {
 	for (const response of [
+		() => Response.json("I'm alive!", { status: 201 }),
 		() => Response.json("I'm alive!", { status: 503 }),
 		() => Response.redirect("/", 302),
 		() => new Response("I'm alive!"),
@@ -55,4 +56,40 @@ test("LiteLLM contract requires successful JSON response, not redirect or plain 
 			{ state: "degraded", up: false },
 		);
 	}
+});
+
+test("LiteLLM contract bounds streamed JSON to 1KiB and cancels overflow", async () => {
+	let cancelled = false;
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode(" ".repeat(1025)));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	expect(
+		await probeService(
+			"litellm-4100",
+			depsFor(
+				() =>
+					new Response(stream, {
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		),
+	).toMatchObject({ state: "degraded", up: false });
+	expect(cancelled).toBe(true);
+	const valid = JSON.stringify("I'm alive!");
+	expect(
+		await probeService(
+			"litellm-4100",
+			depsFor(
+				() =>
+					new Response(`${" ".repeat(1024 - valid.length)}${valid}`, {
+						headers: { "content-type": "application/json; charset=utf-8" },
+					}),
+			),
+		),
+	).toMatchObject({ state: "up", up: true });
 });
