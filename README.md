@@ -8,7 +8,7 @@
 
 One monorepo for the tools that turn individual coding agents into an operated fleet.
 
-[Examples](#what-you-can-do-with-fleet) · [The stack](#the-stack) · [Architecture](#how-it-fits-together) · [Get started](#get-started) · [Benchmarks](benchmarks.md)
+[Start here](#get-started) · [Examples](#what-you-can-do-with-fleet) · [Agents together](#chatgpt-codex-claude-code-and-copilot-together) · [Architecture](#how-it-fits-together) · [Documentation](#read-further)
 
 </div>
 
@@ -23,7 +23,7 @@ Use it to coordinate coding agents on shared repositories, run specialist models
 on an Apple Silicon Mac, or operate hubs with connected spokes. Local inference,
 cloud providers, and federation are configurable parts of the stack.
 
-> **Migration snapshot · 6 October 2026**
+> **Deployment boundary**
 > All seven packages have workspace manifests and a root lockfile. The Suspenders
 > installer now ships BLAM and verifies imports before restarting services.
 > Hub Compose conversion and unified installation remain migration work.
@@ -67,6 +67,78 @@ adopts running services, probes them and uses persistent restart budgets,
 jittered backoff and dependency checks to recover from failures. A capsule lets
 a replacement lane resume completed work after an agent process dies.
 
+### ChatGPT, Codex, Claude Code and Copilot together
+
+The shared handoff is a **work item, an owned scope and a commit**. Each product
+keeps its own conversation; Fleet supplies the work ledger and coordination
+surface available to agents with local tool access.
+
+| Surface        | Example role                                                      | How it participates                                                                                                                                                        |
+| :------------- | :---------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ChatGPT GUI    | Refine the goal and acceptance criteria                           | The operator transfers the agreed brief to Fleet or a local coding agent. Web chat does not automatically acquire Fleet's shell or coordination tools.                     |
+| Codex desktop  | Inspect the checkout, implement an API change, review integration | A local agent can run the installed `work` and `coord` tools in its checkout when authorized and available. Its conversation ID and Fleet lane ID are separate identities. |
+| Claude Code    | Implement independently owned UI changes                          | The dispatcher supports the Claude CLI; the configured harness supplies briefs, hooks and model routing.                                                                   |
+| GitHub Copilot | Implement independently owned contract tests                      | The dispatcher supports the Copilot CLI. This is a CLI lane, not automatic control of an editor's Copilot chat.                                                            |
+| Fleet Board    | See claims, decisions, lane activity and evidence                 | The operator uses the same ledger the local lanes update.                                                                                                                  |
+
+**Example: ship order pagination.** Agree the contract in ChatGPT: preserve the
+existing fields, bound page size, and test empty and final pages. Give Codex
+desktop the API scope, Claude Code the UI scope, and Copilot the contract-test
+scope. Let one integration lane review and test the resulting commits together.
+Use separate linked worktrees and avoid assigning the same files to two agents.
+
+Register the items from the project checkout. `work add` returns the actual IDs;
+use those in later commands rather than copying fictional item numbers.
+
+```sh
+work add "Orders API: bounded pagination" --scope src/api/orders \
+  --desc "Preserve response fields; document cursor and page-size behavior."
+work add "Orders UI: next and previous pages" --scope src/ui/orders \
+  --desc "Use the agreed API contract; retain loading and empty states."
+work add "Orders contract tests: paging boundaries" --scope test/orders \
+  --desc "Cover empty, final and oversized page requests."
+work ready
+```
+
+For a manual Codex lane, use its registered Fleet session ID and the returned API
+item ID. Claim before editing; record the verified commit after implementation.
+These commands are also usable by other locally connected agents.
+
+```sh
+work take "$API_ITEM" --as "$CODEX_LANE_ID"
+coord subscribe --as "$CODEX_LANE_ID"
+# Keep the subscription in a separate terminal while the lane works.
+# After implementation, checks and a commit:
+work done "$API_ITEM" --as "$CODEX_LANE_ID" --sha "$(git rev-parse HEAD)"
+```
+
+Give the UI and test item IDs to the corresponding Claude and Copilot lanes.
+They follow the same claim/check/commit protocol using their own lane IDs. For
+automatic CLI dispatch, executor preferences and installed binaries determine
+which harness runs; `.prefer` can supply a sequential preference chain:
+
+```ini
+# Project .prefer: preference order across dispatch/resume attempts.
+prefer=claude
+prefer=copilot
+```
+
+This is a preference chain, not a rule that assigns the UI to Claude and tests
+to Copilot. The current dispatcher chooses the `claude` or `copilot` binary;
+it does not launch Codex desktop. Other executor labels can select models
+through the Claude harness. Preview configured dispatch before starting lanes:
+
+```sh
+dispatch --dry-run --target 1
+```
+
+If the test lane finds an ambiguous cursor rule, it consults the API lane through
+`coord`; a decision requiring a person appears on the board. The integration lane
+checks the commits together and records the final evidence. Copying a brief into
+a product chat remains an operator handoff unless that product has an explicitly
+configured tool connection. See the [lane walkthrough](packages/suspenders/examples/walkthrough.md)
+and [lane protocol](packages/suspenders/AGENTS.md) for the full working agreement.
+
 ### With distributed hubs: use a remote gateway from a developer laptop
 
 Your laptop runs the agent tools while a configured desktop or NAS hub provides
@@ -108,6 +180,22 @@ work: give agents the policy and acceptance criteria, register remediation items
 assign lanes, surface developer decisions and retain commit evidence. Reuse the
 existing probe sidecar where it meets the service's deployment contract.
 
+For a pilot, choose one service repository and register a bounded implementation
+item with a deployment acceptance test:
+
+```sh
+# From the selected service checkout, with Fleet tools installed.
+work add "Orders service: independent health reporter" --scope deploy \
+  --desc "Reuse the Fleet probe contract. Stop the API in staging: the reporter must remain reachable and return an unhealthy verdict. Restore the API and verify recovery. Record patch SHA and staging evidence separately."
+work ready
+```
+
+An approved local lane implements the reporter; the platform operator deploys
+through the service's existing release process. Use the
+[health/status contract](docs/health-status-contract.md) as the acceptance
+reference. A committed patch establishes implementation evidence; the staging
+exercise establishes deployed behavior.
+
 The intended enterprise workflow is to assess each service once per relevant
 code/configuration version, share that assessment across authorized teams and
 propose missing reporters to developers. An approved lane implements the change;
@@ -136,7 +224,7 @@ for the implementation boundaries and enterprise rollout design.
 | **[belt](packages/belt/)**             | Operate the model fleet            | Specialist registry, MLX lifecycle and routing, dashboard, remote discovery, evaluation and benchmark tools                                |
 | **[speedy](packages/speedy/)**         | Equip the developer environment    | CLI tools, curated skills, personas, hooks, settings, statusline, installation and harness configuration                                   |
 | **[local](packages/local/)**           | Give services a local front        | Caddy registration, Bonjour/mDNS names, loopback defaults, authenticated LAN exposure, service registry and bar dashboard                  |
-| **[local-llm](packages/local-llm/)**   | Run the shared inference runtime   | Extracted flat kit: resident-model supervisor, specialist registry, model spawner, Anthropic-wire router, and runtime config templates     |
+| **[local-llm](packages/local-llm/)**   | Run the shared inference runtime   | Flat runtime kit: resident-model supervisor, model spawner and config templates; registry and router are canonical in belt                 |
 | **[blam](packages/blam/)**             | Study and reproduce agent failures | CRASH taxonomy, sanitized incident dataset, deterministic benchmark scenarios, labeling tools, and the shared prompt-condense engine       |
 
 The boundaries matter: **suspenders assigns and tracks work; buckle controls LLM
@@ -158,7 +246,8 @@ flowchart TB
     BOARD["Fleet board<br/>tasks · lanes · decisions · usage"]
   end
 
-  AGENTS["Agent lanes<br/>Claude Code · Codex · Copilot"]
+  AGENTS["Dispatched CLI lanes<br/>Claude Code · Copilot"]
+  MANUAL["Connected local agents<br/>Codex desktop · manual CLI sessions"]
   GATE["buckle<br/>scoped access · adapters · routing"]
   LOCAL["Local specialist endpoints<br/>MLX swarm"]
   CLOUD["Configured cloud / remote providers"]
@@ -167,6 +256,8 @@ flowchart TB
   OP --> BOARD
   ENV -.-> AGENTS
   WORK --> DISPATCH --> AGENTS
+  MANUAL <-->|"claim · coordinate · commit evidence"| WORK
+  MANUAL --> BUS
   AGENTS --> BUS --> BOARD
   WORK --> BOARD
   AGENTS -->|"when the scoped front is enabled"| GATE
@@ -276,7 +367,8 @@ migration work.
 ## Everyday operations
 
 Once installed and wired, PATH shims expose the command surfaces.
-Every verb has `--help`.
+Work and coordination verbs expose per-verb `--help`. Preview dispatch with
+`--dry-run` before activating it.
 
 | Need                               | Command                                                                  |
 | :--------------------------------- | :----------------------------------------------------------------------- |
@@ -287,7 +379,7 @@ Every verb has `--help`.
 | See fleet activity                 | `coord fleet`                                                            |
 | Subscribe to coordination events   | `coord subscribe --as <sid>`                                             |
 | Retrieve a durable lesson          | `coord fact get lesson.<topic>`                                          |
-| Dispatch work                      | `dispatch --help`                                                        |
+| Preview dispatch                   | `dispatch --dry-run --target 1`                                          |
 | Render a hub profile's environment | `bun packages/suspenders/deploy/hubctl.ts render <hub>`                  |
 | Inspect hub health                 | `bun packages/suspenders/deploy/hubctl.ts status <hub>`                  |
 
@@ -357,13 +449,18 @@ conversion (W422.7) are in flight. Consult the live graph for item status.
 
 ## Read further
 
-- [Monorepo review](docs/monorepo-review-2026-10-05.md) — verified integration findings and validation limits.
-- [Control plane](packages/suspenders/README.md) — work, coordination, dispatch and board surfaces.
-- [Gateway](packages/buckle/README.md) — adapters, routing and governance.
-- [Model fleet](packages/belt/README.md) — model roles, lifecycle and evaluation.
-- [Developer environment](packages/speedy/README.md) and [local services](packages/local/README.md).
-- [Hub deployment](packages/suspenders/deploy/README.md) and [example configuration](packages/suspenders/deploy/stack.example.yaml).
-- [Local-LLM runtime](packages/local-llm/README.md) — kit layout, operation and provenance.
+| To understand or do this                           | Start with                                                                                                                                     |
+| :------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run a lane and hand off work                       | [Walkthrough](packages/suspenders/examples/walkthrough.md), [lane protocol](packages/suspenders/AGENTS.md)                                     |
+| Operate tasks, coordination and the board          | [Suspenders](packages/suspenders/README.md), [GUI and observability review](docs/gui-observability-review.md)                                  |
+| Configure routing, keys and providers              | [Buckle](packages/buckle/README.md)                                                                                                            |
+| Operate models and connect machines                | [Belt](packages/belt/README.md), [multi-machine guide](packages/belt/docs/multi-machine.md), [local-LLM runtime](packages/local-llm/README.md) |
+| Set up the developer environment and service front | [Speedy](packages/speedy/README.md), [Local](packages/local/README.md)                                                                         |
+| Configure a hub                                    | [Deployment guide](packages/suspenders/deploy/README.md), [profile template](packages/suspenders/deploy/stack.example.yaml)                    |
+| Understand health verdicts and activation limits   | [Health/status contract](docs/health-status-contract.md)                                                                                       |
+| Design an enterprise rollout                       | [Project identity](docs/cross-hub-project-identity.md), [upstream observability](docs/upstream-observability-architecture.md)                  |
+| Evaluate performance and failure modes             | [Measurements](benchmarks.md), [BLAM taxonomy](packages/blam/docs/taxonomy.md)                                                                 |
+| Check consolidation findings                       | [Monorepo review](docs/monorepo-review-2026-10-05.md)                                                                                          |
 
 ## Licensing
 
