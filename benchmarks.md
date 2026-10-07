@@ -252,6 +252,8 @@ class-d spread: leg means differ 660 vs 428 inside one run).
 | rapid-mlx vs mlx_lm.server (reason, dense 27B)      | 29.5 vs 24.8 tok/s (+19%)  | rapid-mlx runner wins       |
 | Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)   | 107.2 vs 86.0 tok/s (+25%) | OptiQ takes the :8903 slot  |
 | Engine swap (Coder-30B, mlx_lm → rapid-mlx)         | 97.4 → 123.7 tok/s         | biggest single lever so far |
+| Qwopus3.6-27B-Coder-oQ4-mtp vs Coder-30B-A3B (:8901, W535) | 27.0 vs 89.3 tok/s   | dense oQ4 coder loses — slot unchanged |
+| Fara1.5-27B-OptiQ-4bit vs 35B-A3B-OptiQ (:8903, W535) | 22.7 vs 118.0 tok/s      | dense 27B loses — slot unchanged |
 
 ### 4a. Installer cutover — bash vs TS full-install wall-time (W490.2, 2026-10-06)
 
@@ -331,6 +333,9 @@ candidates must carry text.
 | 2026-10-02 | kev-4B as fit backend (belt + buckle)  | 4/12 agreement, 3.6× latency, 1.6× tokens vs :8902 chat-JSON (W225)                            |
 | 2026-10-02 | Jev as first-hit classifier            | 62.6% single-question phishing; only decomposition + fitted weights reached 95%                |
 | 2026-10-03 | Qwen3.5-9B-OptiQ-4bit                  | 68.5 vs 87.0 tok/s re-benched same-day (load1 ~9.7) — :8906 stays 9B-MLX-4bit, weights deleted |
+| 2026-10-07 | Qwopus3.6-27B-Coder-oQ4-mtp            | 27.0 vs 89.3 tok/s nonce-cold (W535) — :8901 stays Coder-30B-A3B, weights deleted              |
+| 2026-10-07 | Fara1.5-27B-OptiQ-4bit                 | 22.7 vs 118.0 tok/s nonce-cold (W535) — :8903 stays 35B-A3B-OptiQ, weights deleted             |
+| 2026-10-07 | Xing4.0-29B-A4B (MLX port revisit)     | port exists (OptiQ 4bit, 20.6GB) but mlx_lm has no xing4_0 arch — unservable on rapid-mlx 0.14.3 (W535); weights pending deletion |
 
 ---
 
@@ -341,7 +346,5 @@ candidates must carry text.
   early local legs identity-unverified; frontier never a leg).
 - **W536** — W274 post-W270 rerun (router/engine-local rows pre-date the
   fix) + buckle gateway acceptance probes (still OPEN).
-- **W535** — fleet-refresh A/Bs (Qwopus3.6-27B, Fara1.5-27B, Xing4.0
-  revisit).
 
 buckle gateway curated table: pending W536's acceptance probes.
