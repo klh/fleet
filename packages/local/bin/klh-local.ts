@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { basename, dirname } from "node:path";
 import { probeService, serviceTarget } from "./dashboard-health.ts";
+import { activeRouteMatches, reconcileDnsClaim } from "./dns-reconcile.ts";
 
 const die = (msg: string): never => {
 	console.error(`✗ ${msg}`);
@@ -622,13 +623,7 @@ const registerLocked = (
 		content: fragmentConf(name, port, routes, exposure),
 		validate: (cf) => run([CADDY, "validate", "--config", cf]),
 		reload: (cf, force) =>
-			run([
-				CADDY,
-				"reload",
-				...(force ? ["--force"] : []),
-				"--config",
-				cf,
-			]),
+			run([CADDY, "reload", ...(force ? ["--force"] : []), "--config", cf]),
 	});
 	if (!res.ok) {
 		if (res.stage === "validate")
@@ -722,7 +717,12 @@ const cmdStatus = async (): Promise<void> => {
 	}
 	for (const s of reg) {
 		const target = serviceTarget(s);
-		const h = await probeService(target, s.health_path);
+		const h = await probeService(
+			target,
+			s.health_path,
+			1500,
+			`${s.name}.local`,
+		);
 		const dns = s.dns.claimed
 			? dnsAlive(s.dns.pid)
 				? `alive (pid ${s.dns.pid})`
@@ -846,19 +846,71 @@ const cmdReload = (): void => {
 	caddyValidate();
 	console.log(`→ caddy reload`);
 	const r = reloadWithRetry(CADDYFILE, (cf, force) =>
-		run([
-			CADDY,
-			"reload",
-			...(force ? ["--force"] : []),
-			"--config",
-			cf,
-		]),
+		run([CADDY, "reload", ...(force ? ["--force"] : []), "--config", cf]),
 	);
 	if (r.code !== 0) {
 		if (r.out.includes("connection refused") || r.out.includes("admin API"))
 			die(`caddy not reachable — run: klh-local install`);
 		die(`caddy reload failed:\n${r.out}`);
 	}
+};
+
+const cmdDnsReconcile = async (name: string): Promise<void> => {
+	if (!NAME_RE.test(name))
+		die("usage: klh-local dns-reconcile <registered-name>");
+	const existing = readRegistry().find((service) => service.name === name);
+	if (!existing) die(`not registered: ${name}`);
+	const target = serviceTarget(existing);
+	const response = await fetch("http://127.0.0.1:2019/config/", {
+		signal: AbortSignal.timeout(3000),
+	});
+	if (
+		!response.ok ||
+		!activeRouteMatches(await response.json(), `${name}.local`, target)
+	)
+		die("active Caddy route does not match registry; DNS unchanged");
+	withRegistryLock(() => {
+		const registry = readRegistry();
+		const current = registry.find((service) => service.name === name);
+		if (!current || JSON.stringify(current) !== JSON.stringify(existing))
+			die(
+				"registry changed during route verification; retry DNS reconciliation",
+			);
+		const expected = dnsArgv(
+			name,
+			current.port,
+			current.lan ? lanIp() : "127.0.0.1",
+		);
+		const matches = (pid: number): boolean => {
+			const args = run(["/bin/ps", "-p", String(pid), "-o", "args="]);
+			return (
+				args.code === 0 &&
+				args.out.split(/\s+/).join(" ") === expected.join(" ")
+			);
+		};
+		const result = reconcileDnsClaim({
+			current: current.dns,
+			matches,
+			spawn: () => {
+				const claim = claimDns(name, current.port, Boolean(current.lan));
+				for (let attempt = 0; attempt < 10; attempt++) {
+					if (claim.pid && matches(claim.pid)) break;
+					Bun.sleepSync(100);
+				}
+				return claim;
+			},
+			publish: (claim) => {
+				current.dns = claim;
+				saveRegistry(registry);
+			},
+			cleanupNew: (pid) => {
+				if (matches(pid)) process.kill(pid, "SIGTERM");
+			},
+		});
+		console.log(
+			`✓ ${name} DNS ${result}; Caddy listeners and routes unchanged`,
+		);
+	});
 };
 
 const usage = `klh-local — one command per local service
@@ -870,6 +922,7 @@ const usage = `klh-local — one command per local service
   list                             registry table
   status                           health + dns + fragment per service
   reload                           caddy validate + reload (user-level, zero downtime)
+  dns-reconcile <name>             restore registered mDNS claim without reloading Caddy
   hosts-apply [--registry PATH]    rewrite the managed /etc/hosts block from the registry (sudo)`;
 
 if (import.meta.main) {
@@ -880,6 +933,7 @@ if (import.meta.main) {
 	else if (cmd === "status") await cmdStatus();
 	else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
 	else if (cmd === "reload") cmdReload();
+	else if (cmd === "dns-reconcile") await cmdDnsReconcile(rest[0] ?? "");
 	else if (cmd === "hosts-apply") cmdHostsApply(rest);
 	else {
 		console.log(usage);
