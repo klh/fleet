@@ -39,7 +39,9 @@ RunAtLoad; log `/tmp/governor-backup.log`):
 
 - governor.db via `VACUUM INTO` (consistent incl. WAL) → integrity check +
   row-count sanity line, red exit code on integrity failure.
-- knowledge.db checkpoint + copy (W166).
+- knowledge.db via `VACUUM INTO` (W444) — the same snapshot discipline as
+  governor.db: consistent incl. WAL, never mutates the live store, red exit
+  code on integrity failure.
 - W178: the secrets-home identity material — `buckle-jwt.key`,
   `buckle-jwt-ring.json`, `buckle-*.token`, `buckle-*.refresh` — copied 0600
   into `identity-<stamp>/` (dir 0700). Two generations kept: restoring
