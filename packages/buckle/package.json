@@ -1,5 +1,5 @@
 {
-	"name": "buckle",
+	"name": "@klh/buckle",
 	"version": "2.0.0",
 	"module": "src/server.ts",
 	"type": "module",
@@ -16,7 +16,7 @@
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"blam": "workspace:*"
+		"@klh/blam": "workspace:*"
 	},
 	"license": "BUSL-1.1"
 }

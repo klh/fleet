@@ -1,5 +1,5 @@
 {
-	"name": "blam",
+	"name": "@klh/blam",
 	"version": "2.0.0",
 	"description": "BLAM — Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
 	"type": "module",
@@ -12,7 +12,7 @@
 		"bun": ">=1.2"
 	},
 	"devDependencies": {
-		"belt": "workspace:*",
-		"suspenders": "workspace:*"
+		"@klh/belt": "workspace:*",
+		"@klh/suspenders": "workspace:*"
 	}
 }

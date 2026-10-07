@@ -1,5 +1,5 @@
 {
-	"name": "local-llm",
+	"name": "@klh/local-llm",
 	"version": "2.0.0",
 	"description": "MLX local swarm kit — resident specialist lifecycle (spawner + supervisor); registry re-exports belt/bin/registry.ts, the :4000 router is belt-owned",
 	"type": "module",

@@ -11,8 +11,8 @@
 // drops ("Let me know…", "Hope this helps!") are NOT in the politeness
 // tier's rule table and now survive; sanctioned by the one-engine law.
 import { Database } from "bun:sqlite";
-import { condenseTier } from "blam/src/condense/tiers.ts";
-import { CONDENSE_VERSION } from "blam/src/condense/version.ts";
+import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
+import { CONDENSE_VERSION } from "@klh/blam/src/condense/version.ts";
 
 export { CONDENSE_VERSION };
 

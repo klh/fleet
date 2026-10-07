@@ -45,10 +45,10 @@ interface BlamEngine {
 let blam: BlamEngine | null = null;
 let blamMissing = false;
 try {
-	const tiers = require("blam/src/condense/tiers.ts") as {
+	const tiers = require("@klh/blam/src/condense/tiers.ts") as {
 		condenseTier: BlamEngine["condenseTier"];
 	};
-	const version = require("blam/src/condense/version.ts") as {
+	const version = require("@klh/blam/src/condense/version.ts") as {
 		CONDENSE_VERSION: string;
 	};
 	blam = {

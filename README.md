@@ -24,6 +24,10 @@ machine; connect configured hubs when you need shared services or model capacity
 
 ## The stack
 
+Packages are named `@klh/*` in the bun workspace: `@klh/suspenders`,
+`@klh/buckle`, `@klh/belt`, `@klh/speedy`, `@klh/local`, `@klh/local-llm`
+and `@klh/blam`.
+
 | Package | Purpose | Start here |
 | --- | --- | --- |
 | **Suspenders** | Work graph, claims, coordination, consultations, hooks, lanes, integration and Fleet Board | [Guide](packages/suspenders/README.md) |
