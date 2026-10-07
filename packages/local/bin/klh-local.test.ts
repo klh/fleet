@@ -154,6 +154,52 @@ describe("applyFragment rollback", () => {
 		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("prior-good");
 	});
 
+	test("transient reload failure is retried with --force and converges", () => {
+		const { sites, caddyfile } = setup();
+		writeFileSync(join(sites, "svc.caddy"), "prior-good");
+		const forces: boolean[] = [];
+		let calls = 0;
+		const res = applyFragment({
+			sites,
+			caddyfile,
+			name: "svc",
+			content: "new",
+			validate: () => ok,
+			reload: (cf, force) => {
+				calls++;
+				forces.push(force);
+				return calls === 1
+					? { code: 1, out: "bind: permission denied" }
+					: ok;
+			},
+		});
+		expect(res).toEqual({ ok: true });
+		expect(forces).toEqual([false, true]);
+		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("new");
+	});
+
+	test("persistent reload failure exhausts retries, then rolls back", () => {
+		const { sites, caddyfile } = setup();
+		writeFileSync(join(sites, "svc.caddy"), "prior-good");
+		const forces: boolean[] = [];
+		const res = applyFragment({
+			sites,
+			caddyfile,
+			name: "svc",
+			content: "new",
+			validate: () => ok,
+			reload: (cf, force) => {
+				void cf;
+				forces.push(force);
+				return { code: 1, out: "bind: permission denied" };
+			},
+		});
+		expect(res.ok).toBe(false);
+		expect((res as { out?: string }).out).toBe("bind: permission denied");
+		expect(forces).toEqual([false, true, true]);
+		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("prior-good");
+	});
+
 	test("reload failure on a new service removes the fragment", () => {
 		const { sites, caddyfile } = setup();
 		applyFragment({

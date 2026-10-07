@@ -329,14 +329,32 @@ const plistConf = (): string => `<?xml version="1.0" encoding="UTF-8"?>
 // failed reload restores the prior fragment content (or removes a new one).
 export type FragmentResult =
 	| { ok: true }
-	| { ok: false; stage: "validate" | "reload"; out: string };
+	| { ok: false; stage: "reload" | "validate"; out: string };
+// macOS maps cross-process port conflicts to EACCES (specific-vs-wildcard) or
+// EADDRINUSE (wildcard-vs-wildcard) — both transient: the conflicting holder
+// (a draining KeepAlive restart, a lane's scratch caddy) exits within seconds.
+// Backoff then --force: force re-provisions identical bytes, re-attempting the
+// binds the first reload lost.
+const RELOAD_BACKOFF_MS = [250, 750];
+const reloadWithRetry = (
+	caddyfile: string,
+	reload: (caddyfile: string, force: boolean) => { code: number; out: string },
+): { code: number; out: string } => {
+	let r = reload(caddyfile, false);
+	for (const ms of RELOAD_BACKOFF_MS) {
+		if (r.code === 0) return r;
+		Bun.sleepSync(ms);
+		r = reload(caddyfile, true);
+	}
+	return r;
+};
 export const applyFragment = (opts: {
 	sites: string;
 	caddyfile: string;
 	name: string;
 	content: string;
 	validate: (caddyfile: string) => { code: number; out: string };
-	reload: (caddyfile: string) => { code: number; out: string };
+	reload: (caddyfile: string, force: boolean) => { code: number; out: string };
 }): FragmentResult => {
 	const { sites, caddyfile, name, content } = opts;
 	const frag = `${sites}/${name}.caddy`;
@@ -365,7 +383,7 @@ export const applyFragment = (opts: {
 	}
 	const prior = existsSync(frag) ? readFileSync(frag, "utf8") : null;
 	writeAtomic(frag, content);
-	const r = opts.reload(caddyfile);
+	const r = reloadWithRetry(caddyfile, opts.reload);
 	if (r.code === 0) return { ok: true };
 	if (prior === null) rmSync(frag, { force: true });
 	else writeAtomic(frag, prior);
@@ -603,7 +621,14 @@ const registerLocked = (
 		name,
 		content: fragmentConf(name, port, routes, exposure),
 		validate: (cf) => run([CADDY, "validate", "--config", cf]),
-		reload: (cf) => run([CADDY, "reload", "--config", cf]),
+		reload: (cf, force) =>
+			run([
+				CADDY,
+				"reload",
+				...(force ? ["--force"] : []),
+				"--config",
+				cf,
+			]),
 	});
 	if (!res.ok) {
 		if (res.stage === "validate")
@@ -820,7 +845,15 @@ const cmdReload = (): void => {
 	console.log(`→ caddy validate`);
 	caddyValidate();
 	console.log(`→ caddy reload`);
-	const r = run([CADDY, "reload", "--config", CADDYFILE]);
+	const r = reloadWithRetry(CADDYFILE, (cf, force) =>
+		run([
+			CADDY,
+			"reload",
+			...(force ? ["--force"] : []),
+			"--config",
+			cf,
+		]),
+	);
 	if (r.code !== 0) {
 		if (r.out.includes("connection refused") || r.out.includes("admin API"))
 			die(`caddy not reachable — run: klh-local install`);
