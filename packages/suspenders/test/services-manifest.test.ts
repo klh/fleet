@@ -247,7 +247,7 @@ describe("services manifest linux (W488.2)", () => {
 		};
 		const ini = parseIni(renderLinux(withFile, FIXTURE));
 		expect(ini.Service?.EnvironmentFile).toBe(
-			`${FIXTURE.home}/.claude/local-llm/belt.env`,
+			`"${FIXTURE.home}/.claude/local-llm/belt.env"`,
 		);
 	});
 });

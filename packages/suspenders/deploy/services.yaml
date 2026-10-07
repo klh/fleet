@@ -25,11 +25,11 @@
 #                BELT_URL (belt front; default http://127.0.0.1:4100) ·
 #                BELT_TOKEN (belt auth token; default empty). Values come
 #                from flags / process env at render time.
-#   envFile      PATH reference to a machine-level env file the runner may
-#                source — PATH ONLY: secrets NEVER live in this manifest or
-#                in an emitted unit (config-over-code law). No current
-#                service needs one; belt secrets ride render-time env
-#                (BELT_URL/BELT_TOKEN) exactly as install.sh does today.
+#   envFile      PATH or ordered list of machine-level env PATHS. Darwin
+#                sources them with export enabled before exec; systemd gets
+#                one EnvironmentFile directive per path. Later files override
+#                earlier values. All files are required. WinSW documents paths
+#                for operator injection. Secrets are NEVER embedded in units.
 #   schedule     runAtLoad        RunAtLoad — all current runners load at
 #                                 login (defaults to true)
 #                keepalive        KeepAlive — restart on exit (residents)
@@ -50,6 +50,22 @@ defaults:
     runAtLoad: true
 
 services:
+  # W501: the lane gateway is supervised outside interactive agent sessions.
+  # Routing credentials come from belt.env; spoke-only auth/bind settings win.
+  - name: buckle-spoke
+    bunEntry: "__REPO__/../buckle/src/server.ts"
+    args: []
+    cwd: "__REPO__/../buckle"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    envFile:
+      - "__HOME__/.claude/local-llm/belt.env"
+      - "__HOME__/.claude/local-llm/buckle-spoke.env"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/buckle-spoke.log" }
+    placeholders: ["__BUN__", "__HOME__", "__REPO__"]
+
   # control-plane health sweep — every 15 min, --fix (W264-era monitor)
   - name: fleet-monitor
     bunEntry: "__PREFIX__/bin/monitor.ts"

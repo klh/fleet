@@ -59,7 +59,7 @@ export interface ServiceSpec {
 	args: string[];
 	cwd?: string;
 	env: Record<string, string>;
-	envFile?: string;
+	envFile?: string | string[];
 	schedule: Schedule;
 	nice?: number;
 	logs: { out: string; err: string };
@@ -142,13 +142,32 @@ function scanText(text: string, into: Set<string>): void {
 	for (const m of text.matchAll(PLACEHOLDER_RE)) into.add(m[0]);
 }
 
+function envFilePaths(spec: ServiceSpec): string[] {
+	if (spec.envFile === undefined) return [];
+	const paths = Array.isArray(spec.envFile) ? spec.envFile : [spec.envFile];
+	if (
+		paths.length === 0 ||
+		paths.some(
+			(path) =>
+				typeof path !== "string" ||
+				!/[/$~_]/.test(path) ||
+				/[\0\r\n]/.test(path),
+		)
+	) {
+		throw new Error(
+			`service "${spec.name}": envFile must be a PATH reference or non-empty list of PATH references`,
+		);
+	}
+	return paths;
+}
+
 // every placeholder the EMITTED unit will contain: __BUN__ is implicit (the
 // emitter always prepends the bun binary as ProgramArguments[0])
 export function usedPlaceholders(spec: ServiceSpec): string[] {
 	const found = new Set<string>(["__BUN__"]);
 	scanText(spec.bunEntry, found);
 	if (spec.cwd !== undefined) scanText(spec.cwd, found);
-	if (spec.envFile !== undefined) scanText(spec.envFile, found);
+	for (const path of envFilePaths(spec)) scanText(path, found);
 	for (const a of spec.args) scanText(a, found);
 	for (const [k, v] of Object.entries(spec.env)) {
 		scanText(k, found);
@@ -165,9 +184,7 @@ export function validateSpec(spec: ServiceSpec): void {
 	if (typeof spec.bunEntry !== "string" || spec.bunEntry.length === 0) {
 		problems.push("bunEntry must be a non-empty string");
 	}
-	if (spec.envFile !== undefined && !/[/$~_]/.test(spec.envFile)) {
-		problems.push(`envFile must be a PATH reference (got "${spec.envFile}")`);
-	}
+	envFilePaths(spec);
 	const cal = spec.schedule.calendar;
 	if (cal !== undefined) {
 		if (!Number.isInteger(cal.hour) || cal.hour < 0 || cal.hour > 23)
@@ -256,7 +273,8 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
-		if (entry.envFile !== undefined) spec.envFile = entry.envFile as string;
+		if (entry.envFile !== undefined)
+			spec.envFile = entry.envFile as string | string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
 		for (const a of spec.args) {
 			if (typeof a !== "string")
@@ -308,18 +326,35 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const body: string[] = [];
 	body.push(xmlStr("Label", `${LABEL_PREFIX}.${spec.name}`, "\t"));
 	body.push("\t<key>ProgramArguments</key>\n\t<array>\n");
-	for (const arg of [
+	const directArgs = [
 		values.bun,
 		s(spec.bunEntry),
 		...spec.args.map((a) => s(a)),
-	]) {
+	];
+	const files = envFilePaths(spec).map(s);
+	// launchd has no EnvironmentFile. Positional arguments keep machine
+	// paths and service argv out of shell syntax; exec preserves supervision.
+	const args =
+		files.length === 0
+			? directArgs
+			: [
+					"/bin/sh",
+					"-c",
+					["set -ae", ...files.map(() => '. "$1"; shift'), 'exec "$@"'].join(
+						"; ",
+					),
+					`fleet-${spec.name}`,
+					...files,
+					...directArgs,
+				];
+	for (const arg of args) {
 		body.push(`\t\t<string>${escXml(arg)}</string>\n`);
 	}
 	body.push("\t</array>\n");
 	if (spec.cwd !== undefined)
 		body.push(xmlStr("WorkingDirectory", s(spec.cwd), "\t"));
 	const envKeys = Object.keys(spec.env);
-	if (envKeys.length > 0 || spec.envFile !== undefined) {
+	if (envKeys.length > 0) {
 		body.push("\t<key>EnvironmentVariables</key>\n\t<dict>\n");
 		for (const k of envKeys) body.push(xmlStr(k, s(spec.env[k]), "\t\t"));
 		body.push("\t</dict>\n");
@@ -406,8 +441,8 @@ function linuxServiceSection(
 	for (const [k, v] of Object.entries(spec.env)) {
 		l.push(`Environment=${systemdQuote(`${k}=${s(v)}`)}`);
 	}
-	if (spec.envFile !== undefined) {
-		l.push(`EnvironmentFile=${s(spec.envFile)}`);
+	for (const path of envFilePaths(spec)) {
+		l.push(`EnvironmentFile=${systemdQuote(s(path))}`);
 	}
 	l.push(`StandardOutput=append:${s(spec.logs.out)}`);
 	l.push(`StandardError=append:${s(spec.logs.err)}`);
@@ -619,11 +654,11 @@ function winRuntime(spec: ServiceSpec, values: RenderValues): string[] {
 	for (const [k, v] of Object.entries(spec.env)) {
 		l.push(`  <env name="${escXmlAttr(k)}" value="${escXmlAttr(s(v))}"/>`);
 	}
-	if (spec.envFile !== undefined) {
+	for (const path of envFilePaths(spec)) {
 		l.push(
 			"  <!-- envFile PATH reference only — WinSW core has no envfile element;",
 			"       inject per README-windows.md (contents NEVER embedded):",
-			`       ${s(spec.envFile)} -->`,
+			`       ${s(path)} -->`,
 		);
 	}
 	l.push(`  <logpath>${escXml(winDirname(s(spec.logs.out)))}</logpath>`);
