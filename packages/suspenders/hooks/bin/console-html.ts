@@ -36,6 +36,7 @@ import {
 	THEME_SETTINGS_JS,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
+import type { ExecutorEntry } from "../board/executor-catalog.ts";
 import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
 
 export interface ConsoleMe {
@@ -323,6 +324,8 @@ export interface FormCur {
 	polError: string | null;
 	target: string;
 	set: BoardSettingsState;
+	// W183.2 — the suspenders form's add-picker rides the merged catalog
+	executors?: ExecutorEntry[];
 }
 
 const numField = (
@@ -341,7 +344,13 @@ const textField = (
 ): string =>
 	`<div><label class="k" for="f_${name}">${label}</label><input class="wide" id="f_${name}" name="${name}" type="text" value="${esc(val)}"><div class="cfoot">${hint}</div></div>`;
 
-const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}`;
+const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}
+.exlist{list-style:none;counter-reset:ex;margin:8px 0;padding:0;max-width:640px}
+.exlist li{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--klh-rule)}
+.exlist li::before{counter-increment:ex;content:counter(ex)". ";font-size:11px;color:var(--klh-dim);min-width:22px}
+.exv{flex:1;font:12px var(--klh-font-mono);word-break:break-all}
+.exadd{display:flex;gap:8px;align-items:flex-end;margin-top:8px;max-width:640px}
+.exadd select{flex:1}`;
 
 const ladderFields = (gw: PolicyGatewayParsed): string =>
 	Object.entries(gw.fallbacks)
@@ -368,6 +377,60 @@ const formFrame = (
 
 const HIDDEN_FEATURE = (f: Feature): string =>
 	`<input type="hidden" name="feature" value="${f}">`;
+
+// W183.2 — editor behavior: the hidden input is the single source of truth
+// (comma-joined feed values — the exact shape formToBoardSettings parses);
+// rows render client-side from it. DOM template APIs only (UI law);
+// the add-picker disables entries already in the chain, dups refused.
+const EXECUTOR_EDITOR_JS = `(function(){
+var list=document.getElementById('exlist');if(!list)return;
+var sel=document.getElementById('exadd'),add=document.getElementById('exaddbtn');
+var hid=document.querySelector('input[name=default_executors]');if(!hid)return;
+var tpl=document.getElementById('exrow');if(!tpl)return;
+var vals=function(){var vs=[];list.querySelectorAll('li').forEach(function(li){vs.push(li.getAttribute('data-v'));});return vs;};
+var have=function(v){return vals().indexOf(v)>=0;};
+var sync=function(){hid.value=vals().join(',');};
+var row=function(v){var li=tpl.content.firstElementChild.cloneNode(true);li.setAttribute('data-v',v);
+li.querySelector('.exv').textContent=v;
+li.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-label',b.dataset.act+' '+v);});
+return li;};
+var refresh=function(){var vs=vals();Array.from(sel.options).forEach(function(o){o.disabled=vs.indexOf(o.getAttribute('value'))>=0;});};
+list.addEventListener('click',function(ev){
+var t=ev.target;if(!(t instanceof HTMLButtonElement)||!t.dataset.act)return;
+var li=t.closest('li');if(!li)return;
+if(t.dataset.act==='rm')li.remove();
+else if(t.dataset.act==='up'&&li.previousElementSibling)list.insertBefore(li,li.previousElementSibling);
+else if(t.dataset.act==='down'&&li.nextElementSibling)list.insertBefore(li.nextElementSibling,li);
+else return;
+sync();refresh();
+});
+add.addEventListener('click',function(){var v=sel.value;if(v&&!have(v)){list.appendChild(row(v));sync();refresh();}});
+hid.value.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(v){list.appendChild(row(v));});
+refresh();
+})();`;
+
+// W183.2 — the ordered executor-preference editor panel for the suspenders
+// settings form. The hidden input round-trips the comma-joined chain
+// through preview → apply even with JS off; rows render client-side from
+// the hidden input (clone of the #exrow template).
+const executorPrefsEditor = (
+	executors: ExecutorEntry[],
+	current: string[],
+): string =>
+	`<div class="panel"><h2>executor preference order</h2>` +
+	`<p class="cfield-hint">dispatch walks this order as its fallback chain — first entry first; a dead lane re-dispatch advances to the next; the same-model tail rides claude's --fallback-model; claude is appended as the last resort unless enabled_executors blocks it. Empty list = claude only.</p>` +
+	`<ol id="exlist" class="exlist" aria-label="executor preference order"></ol>` +
+	`<template id="exrow"><li><span class="exv"></span>` +
+	`<button type="button" class="btn2 exb" data-act="up" aria-label="move up">↑</button>` +
+	`<button type="button" class="btn2 exb" data-act="down" aria-label="move down">↓</button>` +
+	`<button type="button" class="btn2 exb" data-act="rm" aria-label="remove">✕</button></li></template>` +
+	`<div class="exadd"><label class="k" for="exadd">add executor (catalog)</label><div class="exaddrow"><select id="exadd">` +
+	executors
+		.map((e) => `<option value="${esc(e.value)}">${esc(e.label)}</option>`)
+		.join("") +
+	`</select><button type="button" id="exaddbtn" class="btn2">add</button></div></div>` +
+	`<input type="hidden" name="default_executors" value="${esc(current.join(","))}">` +
+	`<script>${EXECUTOR_EDITOR_JS}</script></div>`;
 
 export const settingsFormPage = (
 	feature: Feature,
@@ -402,6 +465,7 @@ export const settingsFormPage = (
 				s.default_actor ?? "",
 				"preselects the avatar dropdown's demo switch; coord bootstrap default is a follow-up",
 			) +
+			executorPrefsEditor(cur.executors ?? [], s.default_executors ?? []) +
 			`</div>`;
 		return formFrame(
 			"SETTINGS · SUSPENDERS",
@@ -482,7 +546,7 @@ export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 		`<div class="panel"><h2>suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}</h2>` +
 		(s.error
 			? `<div class="errbox">current file does not parse: ${esc(s.error)}</div>`
-			: `<div class="knobs"><span class="kchip">STATUS_REFRESH_S: <b>${s.settings.status_refresh_s ?? "default (5s)"}</b></span><span class="kchip">harvest TTL: <b>${s.settings.harvest_ttl_s ? `${s.settings.harvest_ttl_s}s` : "default (300s)"}</b></span><span class="kchip">default actor: <b>${s.settings.default_actor ? esc(s.settings.default_actor) : "unset"}</b></span></div>`) +
+			: `<div class="knobs"><span class="kchip">STATUS_REFRESH_S: <b>${s.settings.status_refresh_s ?? "default (5s)"}</b></span><span class="kchip">harvest TTL: <b>${s.settings.harvest_ttl_s ? `${s.settings.harvest_ttl_s}s` : "default (300s)"}</b></span><span class="kchip">default actor: <b>${s.settings.default_actor ? esc(s.settings.default_actor) : "unset"}</b></span><span class="kchip">executors: <b>${s.settings.default_executors?.length ? s.settings.default_executors.map((x) => esc(x)).join(" → ") : "claude (default)"}</b></span></div>`) +
 		`</div>`;
 	// W174: the who/when trail — settings/policy applies + key revocations,
 	// newest first, block-mode chips (no new CSS; palette classes only)

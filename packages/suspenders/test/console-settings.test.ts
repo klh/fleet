@@ -187,6 +187,25 @@ describe("policy config surface (board-config)", () => {
 		).toThrow(/changed since the preview/);
 		expect(readBoardSettings(p).settings.status_refresh_s).toBe(12);
 	});
+	test("W183.2 form coercion: default_executors comma-list parses to the chain", () => {
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "llm:local:8901, glm-5.3-flash ,, claude",
+			}).default_executors,
+		).toEqual(["llm:local:8901", "glm-5.3-flash", "claude"]);
+		// empty clears — dispatch falls back to bare claude
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "",
+			}).default_executors,
+		).toEqual([]);
+	});
 
 	test("resolvePolicy + policyWritePath walk env → runtime → default", () => {
 		const r = resolvePolicy({
@@ -345,6 +364,41 @@ describe("console routes (real board, temp config)", () => {
 		const st = readBoardSettings(boardSettingsPath(HOME));
 		expect(st.settings.status_refresh_s).toBe(9);
 		expect(st.settings.harvest_ttl_s).toBe(120);
+	});
+	test("W183.2: the executor-preference editor renders + the chain round-trips", async () => {
+		const page = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(page).toContain("executor preference order");
+		expect(page).toContain('id="exlist"');
+		expect(page).toContain('id="exadd"');
+		// the add-picker serves the merged catalog (bare executors at minimum)
+		expect(page).toContain('value="claude"');
+		// write a chain through the same preview → apply flow the editor posts
+		const pv = await postForm("/console/settings/preview", {
+			feature: "suspenders",
+			status_refresh_s: "",
+			harvest_ttl_s: "",
+			default_actor: "",
+			default_executors: "llm:desktop:glm-x,claude",
+		});
+		const page2 = await pv.text();
+		const values = page2.match(/name="values" value="([^"]*)"/)?.[1] ?? "";
+		const mtime = page2.match(/name="mtime" value="([^"]*)"/)?.[1] ?? "";
+		const ap = await postForm("/console/settings/apply", {
+			feature: "suspenders",
+			values,
+			mtime,
+		});
+		expect(ap.status).toBe(303);
+		expect(
+			readBoardSettings(boardSettingsPath(HOME)).settings.default_executors,
+		).toEqual(["llm:desktop:glm-x", "claude"]);
+		// the form now carries the saved chain in its hidden input
+		const after = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(after).toContain('value="llm:desktop:glm-x,claude"');
 	});
 
 	test("W174: applies land in the admin audit trail", async () => {
