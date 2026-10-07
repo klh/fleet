@@ -5,10 +5,15 @@
 // /registry.json + hubs.json
 // candidate probes + hubs-demo.json static demo roots (W534). Demo content
 // lives in machine config ONLY — this module has zero IKEA knowledge.
+// W530.2: single-flight refresh (concurrent misses coalesce into ONE sweep),
+// bounded parallel leaf probes (probeLimit, was sequential 700ms each),
+// generated_at + last-good snapshot (`stale` on the wire when only demo roots
+// answer), manual `?refresh=1` + bounded auto refresh (page, TTL cadence,
+// visible tab only). Env knobs (test/CI): SUSPENDERS_LLM_HOME swaps the
+// hubs/hubs-demo dir, SUSPENDERS_LOCAL_REGISTRY swaps the local belt URL.
 import { readFileSync } from "node:fs";
 import { json } from "./helpers.ts";
 
-const LLM_HOME = `${process.env.HOME}/.claude/local-llm`;
 type Leaf = {
 	label: string;
 	port?: number;
@@ -36,6 +41,30 @@ type RegistryDoc = {
 	}[];
 };
 
+// W530.2: deps injection (service-probe.ts pattern) — tests drive stub
+// registries/leaves without sockets; realDeps reads env knobs per call.
+export interface TreeDeps {
+	fetchImpl: typeof fetch;
+	now: () => number;
+	llmHome: () => string;
+	localRegistry: () => string;
+	probeLimit: number; // max concurrent leaf probes
+	probeTimeoutMs: number; // leaf /v1/models probe budget
+	registryTimeoutMs: number; // /registry.json fetch budget
+}
+
+export const realDeps: TreeDeps = {
+	fetchImpl: (url, init) => fetch(url, init),
+	now: () => Date.now(),
+	llmHome: () =>
+		process.env.SUSPENDERS_LLM_HOME ?? `${process.env.HOME}/.claude/local-llm`,
+	localRegistry: () =>
+		process.env.SUSPENDERS_LOCAL_REGISTRY ?? "http://127.0.0.1:4000",
+	probeLimit: 4,
+	probeTimeoutMs: 700,
+	registryTimeoutMs: 2000,
+};
+
 const readJson = (p: string): unknown => {
 	try {
 		return JSON.parse(readFileSync(p, "utf8")) as unknown;
@@ -44,85 +73,130 @@ const readJson = (p: string): unknown => {
 	}
 };
 
-const up = async (url: string): Promise<boolean | null> => {
+const up = async (deps: TreeDeps, url: string): Promise<boolean> => {
 	try {
-		await fetch(url, { signal: AbortSignal.timeout(700) });
-		return true; // any HTTP answer = listening
+		// any HTTP answer = listening
+		await deps.fetchImpl(url, {
+			signal: AbortSignal.timeout(deps.probeTimeoutMs),
+		});
+		return true;
 	} catch {
 		return false;
 	}
 };
 
-const localRoot = async (): Promise<Root> => {
+// W530.2: bounded parallel leaf probes — a worker pool so a registry with
+// many entries never serializes 700ms timeouts per leaf.
+export const pooled = async <T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> => {
+	const out: R[] = new Array(items.length);
+	let next = 0;
+	const worker = async (): Promise<void> => {
+		while (next < items.length) {
+			const at = next++;
+			out[at] = await fn(items[at]);
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+	);
+	return out;
+};
+
+// registry doc → leaves; probeable ports fanned through the bounded pool,
+// cloud/demo leaves ride along unprobed (up stays null). `origin` prefixes
+// hub leaf URLs ("" for local loopback leaves).
+const docLeaves = (
+	doc: RegistryDoc,
+	origin: string,
+): { leaf: Leaf; url: string | null }[] => {
+	const out: { leaf: Leaf; url: string | null }[] = [];
+	if (doc.router?.port)
+		out.push({
+			leaf: {
+				label: `router :${doc.router.port}`,
+				port: doc.router.port,
+				tier: "anthropic-shim",
+				up: false,
+			},
+			url: `${origin}:${doc.router.port}/v1/models`,
+		});
+	for (const e of doc.entries ?? []) {
+		if (e.external) {
+			out.push({ leaf: { label: `${e.label} (cloud)`, up: null }, url: null });
+			continue;
+		}
+		out.push({
+			leaf: {
+				label: `${e.label} :${e.port}`,
+				port: e.port,
+				tier: e.tier,
+				up: false,
+			},
+			url: `${origin}:${e.port}/v1/models`,
+		});
+	}
+	return out;
+};
+
+// registry doc → probed leaves; cloud entries stay up:null
+const leafModels = async (
+	deps: TreeDeps,
+	doc: RegistryDoc,
+	origin: string,
+): Promise<Leaf[]> => {
+	const built = docLeaves(doc, origin);
+	const ups = await pooled(built, deps.probeLimit, (b) =>
+		b.url === null ? Promise.resolve(b.leaf.up) : up(deps, b.url),
+	);
+	return built.map((b, i) => ({ ...b.leaf, up: ups[i] }));
+};
+
+const localRoot = async (deps: TreeDeps): Promise<Root> => {
 	const root: Root = { label: "local", models: [] };
 	try {
-		const r = await fetch("http://127.0.0.1:4000/registry.json", {
+		const r = await deps.fetchImpl(`${deps.localRegistry()}/registry.json`, {
 			signal: AbortSignal.timeout(1500),
 		});
 		if (!r.ok) throw new Error(String(r.status));
 		const doc = (await r.json()) as RegistryDoc;
-		if (doc.router?.port)
-			root.models.push({
-				label: `router :${doc.router.port}`,
-				port: doc.router.port,
-				tier: "anthropic-shim",
-				up: await up(`http://127.0.0.1:${doc.router.port}/v1/models`),
-			});
-		for (const e of doc.entries ?? []) {
-			if (e.external) {
-				root.models.push({ label: `${e.label} (cloud)`, up: null });
-				continue;
-			}
-			root.models.push({
-				label: `${e.label} :${e.port}`,
-				port: e.port,
-				tier: e.tier,
-				up: await up(`http://127.0.0.1:${e.port}/v1/models`),
-			});
-		}
+		const o = new URL(deps.localRegistry());
+		root.models = await leafModels(deps, doc, `${o.protocol}//${o.hostname}`);
 	} catch {
 		root.down = true;
 	}
 	return root;
 };
 
-const hubRoot = async (label: string, cands: string[]): Promise<Root> => {
+const hubRoot = async (
+	deps: TreeDeps,
+	label: string,
+	cands: string[],
+): Promise<Root> => {
 	for (const c of cands) {
 		try {
-			const r = await fetch(`${c.replace(/\/$/, "")}/registry.json`, {
-				signal: AbortSignal.timeout(2000),
+			const r = await deps.fetchImpl(`${c.replace(/\/$/, "")}/registry.json`, {
+				signal: AbortSignal.timeout(deps.registryTimeoutMs),
 			});
 			if (!r.ok) continue;
 			const doc = (await r.json()) as RegistryDoc;
-			const origin = new URL(c).origin;
-			const models: Leaf[] = [];
-			if (doc.router?.port)
-				models.push({
-					label: `router :${doc.router.port}`,
-					port: doc.router.port,
-					tier: "anthropic-shim",
-					up: await up(`${origin}:${doc.router.port}/v1/models`),
-				});
-			for (const e of doc.entries ?? []) {
-				if (e.external) {
-					models.push({ label: `${e.label} (cloud)`, up: null });
-					continue;
-				}
-				models.push({
-					label: `${e.label} :${e.port}`,
-					port: e.port,
-					tier: e.tier,
-					up: await up(`${origin}:${e.port}/v1/models`),
-				});
-			}
-			return { label, models };
+			// leaf ports ride the candidate HOST, never the candidate's own port
+			// (W530.2: origin double-port made every hub leaf probe miss)
+			const u = new URL(c);
+			return {
+				label,
+				models: await leafModels(deps, doc, `${u.protocol}//${u.hostname}`),
+			};
 		} catch {}
 	}
 	return { label, down: true, models: [] };
 };
 
-const demoRoots = (): Root[] => {
-	const raw = readJson(`${LLM_HOME}/hubs-demo.json`);
+const demoRoots = (deps: TreeDeps): Root[] => {
+	const raw = readJson(`${deps.llmHome()}/hubs-demo.json`);
 	if (typeof raw !== "object" || raw === null) return [];
 	const out: Root[] = [];
 	for (const [label, v] of Object.entries(raw as Record<string, unknown>)) {
@@ -136,21 +210,82 @@ const demoRoots = (): Root[] => {
 	return out;
 };
 
-let cache: { at: number; tree: Root[] } | null = null;
+// W530.2 snapshot wire: what a sweep produces and when. `stale` marks a
+// last-good serve: the latest sweep found nothing live, so the last
+// fully-good snapshot is shown instead of a bare all-down view.
+export interface TreeSnapshot {
+	tree: Root[];
+	generated_at: string;
+	stale?: boolean;
+}
 
-const fleetTree = async (): Promise<Root[]> => {
-	if (cache && Date.now() - cache.at < 30_000) return cache.tree;
-	const hubs = readJson(`${LLM_HOME}/hubs.json`) as Record<
-		string,
-		{ candidates?: string[] }
-	> | null;
-	const jobs: Promise<Root>[] = Object.entries(hubs ?? {})
-		.filter(([label]) => label !== "local" && !label.startsWith("_"))
-		.map(([label, v]) => hubRoot(label, v?.candidates ?? []));
-	const tree = await Promise.all([localRoot(), ...jobs, ...demoRoots()]);
-	cache = { at: Date.now(), tree };
-	return tree;
+// single-flight refresh, last-good fallback, TTL cache — per-instance, so
+// tests build isolated sources; the module singleton rides realDeps.
+export type TreeSource = {
+	tree: (force?: boolean) => Promise<TreeSnapshot>;
 };
+
+export const createTreeSource = (deps: TreeDeps): TreeSource => {
+	const TTL = 30_000;
+	let cache: { at: number; snap: TreeSnapshot } | null = null;
+	let lastGood: TreeSnapshot | null = null;
+	let inFlight: Promise<TreeSnapshot> | null = null;
+
+	const sweep = async (): Promise<TreeSnapshot> => {
+		const hubs = readJson(`${deps.llmHome()}/hubs.json`) as Record<
+			string,
+			{ candidates?: string[] }
+		> | null;
+		const jobs: Promise<Root>[] = Object.entries(hubs ?? {})
+			.filter(([label]) => label !== "local" && !label.startsWith("_"))
+			.map(([label, v]) => hubRoot(deps, label, v?.candidates ?? []));
+		const tree = await Promise.all([
+			localRoot(deps),
+			...jobs,
+			...demoRoots(deps),
+		]);
+		const snap: TreeSnapshot = {
+			tree,
+			generated_at: new Date(deps.now()).toISOString(),
+		};
+		if (tree.some((r) => !r.down && !r.demo)) lastGood = snap;
+		return snap;
+	};
+
+	const refresh = (): Promise<TreeSnapshot> => {
+		// single-flight: every caller of an in-flight sweep coalesces onto THAT
+		// sweep — manual/force refreshes included (no probe stampede)
+		if (inFlight) return inFlight;
+		inFlight = (async () => {
+			try {
+				const snap = await sweep();
+				cache = { at: deps.now(), snap };
+				return snap;
+			} finally {
+				inFlight = null;
+			}
+		})();
+		return inFlight;
+	};
+
+	return {
+		tree: async (force = false) => {
+			if (!force && cache && deps.now() - cache.at < TTL) return cache.snap;
+			const snap = await refresh();
+			// last-good: only demo/down roots this sweep → serve the previous
+			// good snapshot, stamped stale (no last good yet = serve it honestly)
+			if (
+				!snap.tree.some((r) => !r.down && !r.demo) &&
+				lastGood &&
+				lastGood !== snap
+			)
+				return { ...lastGood, stale: true };
+			return snap;
+		},
+	};
+};
+
+const source = createTreeSource(realDeps);
 
 const esc = (s: string): string =>
 	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -173,8 +308,12 @@ h1{font-size:15px;font-weight:600;margin:0 0 12px}
 .downleaf{color:#f85149}
 .tier{color:#8b949e}
 a{color:#58a6ff;text-decoration:none}
+button{font:inherit;background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:2px 10px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+#stamp{color:#8b949e;margin-left:12px;font-weight:400}
 </style></head><body>
-<h1>fleet tree — <a href="/">board</a></h1>
+<h1>fleet tree — <a href="/">board</a><span id="stamp"></span></h1>
+<div style="margin:0 0 12px"><button id="refresh" type="button">refresh</button></div>
 <div id="tree">loading…</div>
 <script type="module">
 const tree = document.getElementById("tree");
@@ -184,26 +323,54 @@ const el = (tag, cls, text) => {
 	if (text !== undefined) n.textContent = text;
 	return n;
 };
-const data = await (await fetch("/api/fleet-tree")).json();
-tree.replaceChildren();
-for (const root of data.tree) {
-	const row = el("div", "root");
-	const head = el("div");
-	head.append(el("span", root.demo ? "demo" : "rootlabel", root.label));
-	if (root.note) head.append(el("span", "tier", "  — " + root.note));
-	if (root.down) head.append(el("span", "down", "  (down)"));
-	row.append(head);
-	const kids = root.models;
-	kids.forEach((m, i) => {
-		const line = el("div", "leaf");
-		line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
-		line.append(el("span", m.up === false ? "downleaf" : "up", m.label));
-		if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
-		if (m.note) line.append(el("span", "tier", "  " + m.note));
-		row.append(line);
-	});
-	tree.append(row);
-}
+const stamp = document.getElementById("stamp");
+const btn = document.getElementById("refresh");
+const load = async (force) => {
+	btn.disabled = true;
+	btn.textContent = "refreshing…";
+	try {
+		const u = force ? "/api/fleet-tree?refresh=1" : "/api/fleet-tree";
+		const data = await (await fetch(u)).json();
+		tree.replaceChildren();
+		stamp.replaceChildren();
+		stamp.append(el("span", "tier", new Date(data.generated_at).toLocaleTimeString()));
+		if (data.stale) stamp.append(el("span", "down", "  stale — last good"));
+		for (const root of data.tree) {
+			const row = el("div", "root");
+			const head = el("div");
+			head.append(el("span", root.demo ? "demo" : "rootlabel", root.label));
+			if (root.note) head.append(el("span", "tier", "  — " + root.note));
+			if (root.down) head.append(el("span", "down", "  (down)"));
+			row.append(head);
+			const kids = root.models;
+			kids.forEach((m, i) => {
+				const line = el("div", "leaf");
+				line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
+				line.append(el("span", m.up === false ? "downleaf" : "up", m.label));
+				if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
+				if (m.note) line.append(el("span", "tier", "  " + m.note));
+				row.append(line);
+			});
+			tree.append(row);
+		}
+	} catch {
+		stamp.replaceChildren();
+		stamp.append(el("span", "downleaf", "fetch failed — retrying on cadence"));
+	}
+	finally {
+		btn.disabled = false;
+		btn.textContent = "refresh";
+	}
+};
+btn.addEventListener("click", () => void load(true));
+// bounded auto refresh: server TTL cadence, visible tab only
+setInterval(() => {
+	if (!document.hidden) void load(false);
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+	if (!document.hidden) void load(false);
+});
+void load(false);
 </script></body></html>`,
 		{
 			headers: { "content-type": "text/html; charset=utf-8" },
@@ -213,9 +380,13 @@ for (const root of data.tree) {
 export async function handleFleetTree(
 	_req: Request,
 	url: URL,
+	src: TreeSource = source,
 ): Promise<Response | null> {
-	if (url.pathname === "/api/fleet-tree")
-		return json({ tree: await fleetTree() });
+	if (url.pathname === "/api/fleet-tree") {
+		// ?refresh=1 = manual refresh — bypasses the TTL, coalesces in-flight
+		const snap = await src.tree(url.searchParams.get("refresh") === "1");
+		return json(snap);
+	}
 	if (url.pathname === "/fleet-tree") return page();
 	return null;
 }
