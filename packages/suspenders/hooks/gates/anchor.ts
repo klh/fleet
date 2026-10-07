@@ -8,6 +8,10 @@
 // carries the corrected anchor. Ordered by fix strength:
 //   exact → ambiguous → whitespace-normalized → regex-literal confusion →
 //   fuzzy bigram window → generic (no close match).
+// W251: every miss renders a numbered 3-line context around the nearest
+// match and a paste-ready auto-rg probe (`rg -n -F '<key>' <path>`) — for
+// the no-close-match class the probe doubles as an absence check (empty
+// output = the anchor line is wholly gone; hard stale-read signal).
 // Fail-open: unreadable targets, huge files (>ANCHOR_MAX_BYTES), and empty
 // anchors never block — the harness's own error is precise and cheap there.
 import { deny, type HookInput } from "../lib/hookio.ts";
@@ -17,7 +21,7 @@ const ANCHOR_MAX_BYTES = 8 * 1024 * 1024; // above: fail open, harness owns it
 const FUZZY_OPS_CAP = 8_000_000; // text.length × anchorLines char-op budget
 const MAX_WINDOW_LINES = 512; // anchor windows beyond this skip the scan
 
-export type AnchorHit = { line: number; text: string };
+export type AnchorHit = { line: number; text: string; key?: string };
 
 export type AnchorHint =
 	| { kind: "ok"; count: number }
@@ -37,10 +41,41 @@ function lineAt(text: string, idx: number): AnchorHit {
 	return { line, text: text1.slice(0, 300) };
 }
 
-/** The file lines [i, i+L) as display text, capped at ~400 chars. */
-function displayWindow(fLines: string[], i: number, L: number): string {
-	const w = fLines.slice(i, i + L).join("\n");
-	return w.length > 400 ? `${w.slice(0, 400)}…` : w;
+/** Numbered 3-line context around a 0-based match index (clamped to file),
+ * each line capped at ~200 chars — W251's denial-window contract. */
+function context3(fLines: string[], i: number): string {
+	const out: string[] = [];
+	for (let n = i - 1; n <= i + 1; n++) {
+		if (n < 0 || n >= fLines.length) continue;
+		const l = fLines[n];
+		out.push(`${n + 1}: ${l.length > 200 ? `${l.slice(0, 200)}…` : l}`);
+	}
+	return out.join("\n");
+}
+
+/** Paste-ready fixed-string probe key from the matched region: the matched
+ * line trimmed (neighbors only if it is blank) — guaranteed to hit rg -n -F. */
+function keyOf(fLines: string[], i: number): string {
+	for (let n = i; n <= Math.min(fLines.length - 1, i + 1); n++) {
+		const t = fLines[n].trim();
+		if (t !== "") return t.slice(0, 80);
+	}
+	for (let n = Math.max(0, i - 1); n < i; n++) {
+		const t = fLines[n].trim();
+		if (t !== "") return t.slice(0, 80);
+	}
+	return "";
+}
+
+/** POSIX single-quoted shell literal. */
+function shq(s: string): string {
+	return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The W251 auto-rg denial line: paste to locate the true anchor text. */
+export function rgProbe(path: string, key: string): string | null {
+	if (key.trim() === "") return null;
+	return `rg -n -F ${shq(key)} ${shq(path)}`;
 }
 
 /** Literal miss that exists once whitespace/indentation is normalized —
@@ -60,7 +95,8 @@ function whitespaceHit(text: string, anchor: string): AnchorHit | null {
 				break;
 			}
 		}
-		if (hit) return { line: i + 1, text: displayWindow(fLines, i, L) };
+		if (hit)
+			return { line: i + 1, text: context3(fLines, i), key: keyOf(fLines, i) };
 	}
 	return null;
 }
@@ -80,7 +116,13 @@ function regexHit(text: string, anchor: string): AnchorHit | null {
 	}
 	const m = re.exec(text.slice(0, 1_000_000));
 	if (!m) return null;
-	return lineAt(text, m.index);
+	const fLines = text.split("\n");
+	const line = text.slice(0, m.index).split("\n").length;
+	return {
+		line,
+		text: context3(fLines, line - 1),
+		key: keyOf(fLines, line - 1),
+	};
 }
 
 /** Sørensen–Dice on whitespace-normalized line bigrams, mean over the
@@ -117,7 +159,8 @@ function fuzzyHit(
 	return {
 		score: bestScore,
 		line: bestI + 1,
-		text: displayWindow(fLines, bestI, L),
+		text: context3(fLines, bestI),
+		key: keyOf(fLines, bestI),
 	};
 }
 
@@ -162,37 +205,59 @@ export function anchorHint(
 	const count = countOccurrences(text, anchor);
 	if (count > 0) {
 		if (count === 1 || replaceAll) return { kind: "ok", count };
-		return { kind: "ambiguous", count, ...lineAt(text, text.indexOf(anchor)) };
+		return {
+			kind: "ambiguous",
+			count,
+			...lineAt(text, text.indexOf(anchor)),
+			key: anchor.split("\n")[0].trim().slice(0, 80),
+		};
 	}
 	const ws = whitespaceHit(text, anchor);
 	if (ws) return { kind: "whitespace", ...ws };
 	const rx = regexHit(text, anchor);
 	if (rx) return { kind: "regex", ...rx };
 	const fz = fuzzyHit(text, anchor);
-	if (fz)
-		return { kind: "fuzzy", score: fz.score, line: fz.line, text: fz.text };
+	if (fz) return { kind: "fuzzy", ...fz };
 	return { kind: "none" };
 }
 
-/** The deny message — null when the edit may proceed. */
+/** The deny message — null when the edit may proceed. `anchor` (when the
+ * caller has it) powers the no-close-match absence probe (W251). */
 export function anchorDenyReason(
 	hint: AnchorHint,
 	path: string,
+	anchor = "",
 ): string | null {
 	if (hint.kind === "ok") return null;
 	if (hint.kind === "ambiguous") {
-		return `anchor-gate: old_string matches ${hint.count} places in ${path}; without replace_all the Edit dies with "Found ${hint.count} matches". First match at line ${hint.line}: ${hint.text}. Extend old_string to be unique or set replace_all: true.`;
+		const p = rgProbe(path, hint.key ?? "");
+		return `anchor-gate: old_string matches ${hint.count} places in ${path}; without replace_all the Edit dies with "Found ${hint.count} matches". First match at line ${hint.line}: ${hint.text}. Extend old_string to be unique or set replace_all: true.${p ? ` Locate all sites: ${p}` : ""}`;
 	}
 	if (hint.kind === "whitespace") {
-		return `anchor-gate: old_string not found VERBATIM in ${path}, but it exists with different whitespace/indentation at line ${hint.line}:\n${hint.text}\nCopy the exact text from a fresh read of that region and retry.`;
+		const p = rgProbe(path, hint.key ?? "");
+		return `anchor-gate: old_string not found VERBATIM in ${path}, but it exists with different whitespace/indentation near line ${hint.line}:\n${hint.text}${p ? `\nAuto-locate: ${p}` : ""}\nCopy the exact text from that region and retry.`;
 	}
 	if (hint.kind === "regex") {
-		return `anchor-gate: old_string not found literally in ${path}. It contains regex syntax and WOULD match at line ${hint.line}:\n${hint.text}\nEdit matches literal characters, not patterns — emit the exact file text as old_string.`;
+		const p = rgProbe(path, hint.key ?? "");
+		return `anchor-gate: old_string not found literally in ${path}. It contains regex syntax and WOULD match at line ${hint.line}:\n${hint.text}${p ? `\nAuto-locate: ${p}` : ""}\nEdit matches literal characters, not patterns — emit the exact file text as old_string.`;
 	}
 	if (hint.kind === "fuzzy") {
-		return `anchor-gate: old_string not found in ${path}. Closest match (${Math.round(hint.score * 100)}% similar) at line ${hint.line}:\n${hint.text}\nRe-read that region and retry with the exact text.`;
+		const p = rgProbe(path, hint.key ?? "");
+		return `anchor-gate: old_string not found in ${path}. Closest match (${Math.round(hint.score * 100)}% similar) at line ${hint.line}:\n${hint.text}${p ? `\nAuto-locate: ${p}` : ""}\nRe-read that region and retry with the exact text.`;
 	}
-	return `anchor-gate: old_string not found in ${path} and no close match (file likely changed since your last read). Re-read the target region, then retry with the exact text.`;
+	const probe = rgProbe(path, longestLine(anchor));
+	const probeLine = probe
+		? ` Absence probe: ${probe} — no output means the line is wholly gone.`
+		: "";
+	return `anchor-gate: no close match in ${path} (file likely changed since your last read).${probeLine} Re-read the target region, then retry with the exact text.`;
+}
+
+/** Longest trimmed line of the anchor — the absence-probe key (W251). */
+function longestLine(anchor: string): string {
+	return anchor
+		.split("\n")
+		.map((l) => l.trim())
+		.reduce((a, b) => (b.length > a.length ? b : a), "");
 }
 
 const bigramMap = new Map<string, number>();
@@ -223,5 +288,5 @@ export function anchorGate(hook: HookInput): void {
 	}
 	const hint = anchorHint(text, old, ti.replace_all === true);
 	if (hint.kind === "ok") return;
-	deny(anchorDenyReason(hint, F) ?? "anchor-gate: anchor rejected");
+	deny(anchorDenyReason(hint, F, old) ?? "anchor-gate: anchor rejected");
 }
