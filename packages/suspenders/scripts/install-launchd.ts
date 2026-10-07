@@ -12,6 +12,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -33,12 +34,35 @@ export const LEGACY_LABELS = [
 	"com.klh.local-llm",
 ] as const;
 
+// W427: a unit rendered from a linked git worktree pins the agent to a
+// reapable tree (the spoke served from a codex demo worktree until its plist
+// was re-rendered from the pinned checkout). .git as a FILE is the
+// linked-worktree marker; a main checkout has the .git DIR and the installed
+// harness copy has no .git at all.
+export function pinnedCheckoutRefusal(repo: string): string | null {
+	const gitPath = join(repo, ".git");
+	let stat;
+	try {
+		stat = statSync(gitPath);
+	} catch {
+		return null; // no .git — installed harness copy, not a worktree
+	}
+	if (!stat.isDirectory()) {
+		return `${gitPath} is a file — ${repo} is a linked git worktree, not a pinned stack checkout; launchd units must not point into a reapable tree (run install.sh from the pinned checkout)`;
+	}
+	return null;
+}
+
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	if (process.platform !== "darwin") {
 		return {
 			status: "skipped",
 			note: "not macOS — launchd agents not registered (matches install.sh)",
 		};
+	}
+	const refusal = pinnedCheckoutRefusal(ctx.repo);
+	if (refusal !== null) {
+		return { status: "failed", note: refusal };
 	}
 	const home = process.env.HOME ?? "";
 	const agentsDir = join(home, "Library", "LaunchAgents");
