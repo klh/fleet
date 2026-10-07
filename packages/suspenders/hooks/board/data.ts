@@ -392,6 +392,7 @@ export function board(): Record<string, unknown>[] {
 				.filter(
 					(w) =>
 						w.state === "FAILED" ||
+						w.state === "CANCELLED" ||
 						w.state === "SUPERSEDED" ||
 						w.state === "ORPHANED" ||
 						w.state === "SHATTERED",

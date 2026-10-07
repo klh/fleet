@@ -17,6 +17,7 @@
 //   work start <id> [--as sid]           (CLAIMED → RUNNING; owner-verified when --as given)
 //   work done <id> [--as sid] --sha <sha> (→ DONE; owner-verified when --as given; rolls SHATTERED parents up)
 //   work fail <id> --note "why"
+//   work cancel <id> --note "reason"     (close unfinished work — W182)
 //   work split <id> "t1" "t2" ... --reason independent-scopes [--keep N] [--plan <itemId>]
 //   work migrate-ledger <path>            (ingest a Markdown ledger's unresolved items)
 //   work block <id> --on <id2>           / work unblock <id> --on <id2>   (cycle-checked)
@@ -34,11 +35,11 @@ import {
 	writeFileSync,
 } from "node:fs";
 import {
+	CAPABILITIES,
+	type GovernorStore,
 	openStore,
 	openMemoryStore,
 	projectIdentity,
-	CAPABILITIES,
-	type GovernorStore,
 } from "../lib/govdb.ts";
 import { basename } from "node:path";
 import {
@@ -53,6 +54,7 @@ import {
 } from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -66,7 +68,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (!cmd || cmd === "--help" || cmd === "-h") {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -165,6 +167,12 @@ const SCHEMA: Record<string, Spec> = {
 		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
 	},
 	fail: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
+	cancel: {
+		flags: ITEM_FLAGS,
+		minPos: 1,
+		reqFlags: ["--note"],
+		usage: `usage: cancel <id> --note "reason"`,
+	},
 	supersede: {
 		flags: ITEM_FLAGS,
 		minPos: 1,
@@ -216,7 +224,7 @@ const SCHEMA: Record<string, Spec> = {
 const spec = SCHEMA[cmd];
 if (!spec)
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 
 // per-verb help: semantics live on the surface, not in source-diving —
@@ -348,6 +356,7 @@ const MUTATING_CMDS = new Set([
 	"start",
 	"done",
 	"fail",
+	"cancel",
 	"supersede",
 	"block",
 	"unblock",
@@ -364,6 +373,7 @@ const GLYPH: Record<string, [string, (s: string) => string]> = {
 	PAUSED: ["⏸", amber],
 	DONE: ["✓", green],
 	FAILED: ["✗", red],
+	CANCELLED: ["⊘", dim],
 	SUPERSEDED: ["■", dim],
 	SHATTERED: ["⊞", cyan],
 	ORPHANED: ["◌", amber],
@@ -538,62 +548,14 @@ function deps(
 	}[];
 }
 
-// ---- W60 dep-merge ancestor gate ------------------------------------------
-// A dependency's DONE only unblocks when its result_sha is actually an
-// ANCESTOR of the integration branch (main) — the 2026-09-26 gaps incident
-// had W263 marked DONE with a sha living only on its lane branch, and the
-// dependent built against that ghost. done ≠ merged.
-//
-// Fail-open doctrine (lookup failure is never death): no project worktree,
-// missing git, or a git error (unknown sha/ref) all read as "cannot know" —
-// the dep counts. Only a VERIFIED negative (`git merge-base --is-ancestor`
-// exit 1) gates. Spawned with an argument array; exit 1 is expected control
-// flow, never an error.
-const _ancestry = new Map<string, boolean | null>(); // per-run memo: one git probe per sha
-
-function projectWorktree(): string | null {
-	// PROJECT is the git COMMON dir (<repo>/.git for a normal checkout) — the
-	// integration worktree lives beside it. Bare/odd layouts have none → null
-	// → fail-open (same suffix logic as mirrorPath()).
-	if (PROJECT.endsWith("/.git")) return PROJECT.slice(0, -"/.git".length);
-	return null;
-}
-
-function shaOnMain(sha: string): boolean | null {
-	const wt = projectWorktree();
-	if (!wt || !existsSync(wt)) return null; // no worktree to ask — fail-open
-	const hit = _ancestry.get(sha);
-	if (hit !== undefined) return hit;
-	const r = Bun.spawnSync(
-		["git", "-C", wt, "merge-base", "--is-ancestor", sha, "main"],
-		{ stdout: "ignore", stderr: "ignore" },
-	);
-	const v = r.exitCode === 0 ? true : r.exitCode === 1 ? false : null; // >1 = git trouble — never a verdict
-	_ancestry.set(sha, v);
-	return v;
-}
-
-function unmergedDeps(id: string): { dep: string; sha: string }[] {
-	const out: { dep: string; sha: string }[] = [];
-	for (const d of deps(id)) {
-		if (d.state !== "DONE" || !d.result_sha) continue; // no sha recorded — nothing to verify, DONE counts
-		if (shaOnMain(d.result_sha) === false)
-			out.push({ dep: d.depends_on, sha: d.result_sha });
-	}
-	return out;
-}
-
-function unmergedNote(id: string): string | null {
-	const u = unmergedDeps(id);
-	return u.length
-		? u
-				.map((x) => `dep ${x.dep} done but unmerged (sha not on main)`)
-				.join("; ")
-		: null;
-}
+// W60 dep-merge gate (done ≠ merged) lives in lib/dep-merge-gate.ts —
+// work.ts feeds it this project's dep rows.
 
 function depsMet(id: string): boolean {
-	return deps(id).every((d) => d.state === "DONE") && !unmergedDeps(id).length;
+	return (
+		deps(id).every((d) => d.state === "DONE") &&
+		!unmergedDeps(deps(id), PROJECT).length
+	);
 }
 
 // reaches(id, target): would a dependency edge id→target create/extend a cycle?
@@ -651,7 +613,7 @@ function freeDependents(id: string): {
 	for (const { work_id: wid } of waiting) {
 		const ds = deps(wid);
 		if (!ds.every((d) => d.state === "DONE")) continue; // not ready anyway — unchanged behavior
-		const note = unmergedNote(wid);
+		const note = unmergedNote(deps(wid), PROJECT);
 		if (note)
 			gated.push({ id: wid, note }); // W60: deps done but sha unmerged — stays gated
 		else freed.push(wid);
@@ -746,6 +708,27 @@ function releaseClaim(
 		)
 		.run(sid, scope, itemId ?? null, itemId ?? "");
 }
+// W52/W182 — retire the item's per-item worktree when its work closes (shared
+// by done and cancel): clean → removed, dirty → kept with a note (work is
+// never silently discarded); branch suspenders/<id> always survives
+function retireItemWorktree(id: string): void {
+	const wtDir = `${PROJECT.slice(0, -4)}.worktrees/${id}`;
+	if (!existsSync(wtDir)) return;
+	const w = Bun.spawnSync(
+		[
+			process.execPath,
+			new URL("./worktree.ts", import.meta.url).pathname,
+			"retire",
+			id,
+		],
+		{ stdout: "inherit", stderr: "inherit" },
+	);
+	if (w.exitCode === 3)
+		console.log(`${amber("●")} worktree kept (dirty) — ${wtDir}`);
+	else if (w.exitCode === 4)
+		console.log(`${amber("●")} worktree kept (live lane inside) — ${wtDir}`);
+}
+
 function releaseObserved(
 	it: Item,
 	by: string,
@@ -897,7 +880,7 @@ if (cmd === "add") {
 		rows = all.filter((r) => depsMet(r.id as string));
 		for (const r of all) {
 			if (rows.includes(r)) continue;
-			const note = unmergedNote(r.id as string);
+			const note = unmergedNote(deps(r.id as string), PROJECT);
 			if (note) unmergedNotes.push(`${note} — ${r.id} stays gated`);
 		}
 	} else if (mode === "all") {
@@ -907,7 +890,7 @@ if (cmd === "add") {
 	} else {
 		rows = db()
 			.query(
-				"SELECT * FROM work_items WHERE project = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+				"SELECT * FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 			)
 			.all(PROJECT) as Item[];
 	}
@@ -918,7 +901,7 @@ if (cmd === "add") {
 	if (!as) die("usage: mine --as <sid>");
 	const rows = db()
 		.query(
-			"SELECT * FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+			"SELECT * FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 		)
 		.all(PROJECT, as) as Item[];
 	console.log(
@@ -927,7 +910,7 @@ if (cmd === "add") {
 } else if (cmd === "owned") {
 	const rows = db()
 		.query(
-			"SELECT * FROM work_items WHERE project = ? AND owner_sid IS NOT NULL AND state NOT IN ('DONE','SUPERSEDED') ORDER BY owner_sid, id",
+			"SELECT * FROM work_items WHERE project = ? AND owner_sid IS NOT NULL AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY owner_sid, id",
 		)
 		.all(PROJECT) as Item[];
 	console.log(rows.map(renderRow).join("\n") || dim("(nothing owned)"));
@@ -1021,7 +1004,7 @@ if (cmd === "add") {
 		const unmet = deps(id)
 			.filter((d) => d.state !== "DONE")
 			.map((d) => d.depends_on);
-		const unmerged = unmergedDeps(id).map(
+		const unmerged = unmergedDeps(deps(id), PROJECT).map(
 			(x) => `dep ${x.dep} done but unmerged (sha not on main)`,
 		);
 		die(`${id} has unmet dependencies: ${[...unmet, ...unmerged].join(", ")}`);
@@ -1139,22 +1122,7 @@ if (cmd === "add") {
 		);
 	// W52: retire the item's per-item worktree if it has one (clean → removed,
 	// dirty → kept with a note; branch suspenders/<id> always survives)
-	const wtDir = `${PROJECT.slice(0, -4)}.worktrees/${id}`;
-	if (existsSync(wtDir)) {
-		const w = Bun.spawnSync(
-			[
-				process.execPath,
-				new URL("./worktree.ts", import.meta.url).pathname,
-				"retire",
-				id,
-			],
-			{ stdout: "inherit", stderr: "inherit" },
-		);
-		if (w.exitCode === 3)
-			console.log(`${amber("●")} worktree kept (dirty) — ${wtDir}`);
-		else if (w.exitCode === 4)
-			console.log(`${amber("●")} worktree kept (live lane inside) — ${wtDir}`);
-	}
+	retireItemWorktree(id);
 } else if (cmd === "fail") {
 	const id = pos[0];
 	const note = flag("--note") ?? "";
@@ -1171,6 +1139,31 @@ if (cmd === "add") {
 		emit("work.failed", id, { note });
 	})();
 	console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
+} else if (cmd === "cancel") {
+	// W182 — CANCELLED terminal state: close completely with a required
+	// reason; claim + worktree released safely. Deliberately NOT in rollUp's
+	// satisfied set — a cancelled child keeps its SHATTERED parent open until
+	// reclaimed or superseded (same doctrine as FAILED).
+	const id = pos[0];
+	const note = flag("--note") ?? "";
+	db().transaction(() => {
+		const it = get(id ?? "");
+		if (
+			["DONE", "FAILED", "SUPERSEDED", "CANCELLED", "SHATTERED"].includes(
+				it.state as string,
+			)
+		)
+			die(`${id} is ${it.state} — already closed`);
+		setState(id, "CANCELLED", null);
+		releaseClaim(
+			(it.owner_sid as string) ?? "",
+			it.scope as string | null,
+			it.id as string,
+		);
+		emit("work.cancelled", id, { note });
+	})();
+	console.log(`${dim("⊘")} ${id} CANCELLED${note ? dim(` — ${note}`) : ""}`);
+	retireItemWorktree(id);
 } else if (cmd === "supersede") {
 	const id = pos[0];
 	const byId = flag("--by");
@@ -1483,7 +1476,7 @@ if (cmd === "add") {
 	}
 } else {
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 }
 

@@ -162,7 +162,7 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 		);
 	const mine = db
 		.query(
-			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 		)
 		.all(project, as) as { id: string; title: string; state: string }[];
 	const readyN = (
@@ -472,7 +472,7 @@ export async function cmdDoctorSession(rest: string[]): Promise<void> {
 		const w = (
 			db
 				.query(
-					"SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED','FAILED')",
+					"SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED')",
 				)
 				.get(s.project, old) as { n: number }
 		).n;

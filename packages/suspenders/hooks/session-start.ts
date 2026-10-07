@@ -129,12 +129,12 @@ const UPSERT =
 const DEAD_SQL =
 	"SELECT s.sid FROM sessions s WHERE s.project = ? AND s.state = 'CLOSED' " +
 	"AND EXISTS(SELECT 1 FROM work_items w WHERE w.owner_sid = s.sid " +
-	"AND w.project = s.project AND w.state NOT IN ('DONE','SUPERSEDED','FAILED'))";
+	"AND w.project = s.project AND w.state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED'))";
 
 const OWNED_SQL =
 	"SELECT id, title, state FROM work_items " +
 	"WHERE project = ? AND owner_sid = ? " +
-	"AND state NOT IN ('DONE','SUPERSEDED','FAILED') ORDER BY id";
+	"AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED') ORDER BY id";
 
 const db = openStore();
 // The executor may mint a different SDK session ID. Only a registered lane

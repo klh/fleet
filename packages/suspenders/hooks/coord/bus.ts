@@ -607,7 +607,7 @@ export async function cmdResumeSession(_rest: string[]): Promise<void> {
 	db.transaction(() => {
 		wMoved = db
 			.query(
-				"UPDATE work_items SET owner_sid = ?, updated_at = ? WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED','FAILED')",
+				"UPDATE work_items SET owner_sid = ?, updated_at = ? WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED')",
 			)
 			.run(as, now, proj, from).changes;
 		cMoved = db

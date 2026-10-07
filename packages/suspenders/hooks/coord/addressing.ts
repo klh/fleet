@@ -134,7 +134,7 @@ function readTranscriptModel(path: string | null | undefined): string | null {
 function latestWorkItemName(sid: string): string | null {
 	const row = db
 		.query(
-			"SELECT id, title FROM work_items WHERE owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED','FAILED') ORDER BY updated_at DESC LIMIT 1",
+			"SELECT id, title FROM work_items WHERE owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED') ORDER BY updated_at DESC LIMIT 1",
 		)
 		.get(sid) as { id: string; title: string | null } | null;
 	if (!row) return null;
