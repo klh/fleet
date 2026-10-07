@@ -73,6 +73,16 @@ aids:
   condense-in:
     default: on
     max_bytes: 262144
+  # W207 trajectory pruning (diet.ts): the gateway tombstones stale tool
+  # results past the keep-window pre-routing; elided raw stays one GET away
+  # at GET /diet/<rid>. DEFAULT-OFF (W137 economics): a prefix rewrite costs
+  # provider KV-cache re-reads — it must prove ROI on cache-miss traffic
+  # before an operator flips it.
+  prune:
+    default: off
+    keep_turns: 3
+    min_bytes: 2048
+    max_store_bytes: 65536
   # W171 federation phase 3: per-team opt-in for the aggregate self-report
   # (tokens by model-class + aid sums, hourly). DEFAULT OFF — ABSENT (or
   # empty) means no team may report; spokes without a team here never POST

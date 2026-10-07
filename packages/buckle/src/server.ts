@@ -12,6 +12,7 @@ import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
+import { DietStore } from "./diet.ts";
 import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
@@ -20,10 +21,10 @@ import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
 import { ObservationOutbox } from "./observe.ts";
-import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
+import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
@@ -200,6 +201,9 @@ export function buildDeps(
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
+	// W207 trajectory pruning: the diet sidestore rides the shared buckle db
+	// (the AidsLedger wiring precedent); policy still gates the pass OFF.
+	const diet = new DietStore(dbPath);
 	const affinity = new PrefixAffinity();
 	// W461 stage 2: the lane-observation outbox. BUCKLE_OBSERVATIONS_PATH
 	// (config-over-code) enables it; unset = observations inert.
@@ -238,6 +242,7 @@ export function buildDeps(
 		table,
 		federation,
 		affinity,
+		diet,
 		observations,
 	};
 }

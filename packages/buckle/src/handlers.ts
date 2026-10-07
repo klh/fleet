@@ -8,6 +8,7 @@
 // estimated.
 
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import type { RpcAdmission } from "./admission.ts";
 import {
 	affinityOn,
 	affKeyOf,
@@ -32,18 +33,19 @@ import {
 	latencyClass,
 	type RouteSelection,
 } from "./decide.ts";
+import { type DietStore, dietRoutes } from "./diet.ts";
 import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
+import type {
+	ObservationData,
+	ObservationOutbox,
+	ObservationType,
+} from "./observe.ts";
 import { type CondenseStore, pipelineRoutes } from "./pipeline.ts";
 import { condenseInbound } from "./pipeline-wire.ts";
 import type { AidsPolicy } from "./policy.ts";
-import {
-	type ObservationData,
-	type ObservationOutbox,
-	type ObservationType,
-} from "./observe.ts";
 import type { Preseeder } from "./preseed.ts";
 import type { RepoPolicyRow } from "./repo-policy.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
@@ -52,11 +54,10 @@ import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
 import {
 	allowlistedBaggage,
-	type TraceContext,
-	parseTraceparent,
 	newTraceparent,
+	parseTraceparent,
+	type TraceContext,
 } from "./trace.ts";
-import type { RpcAdmission } from "./admission.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
 
@@ -86,6 +87,9 @@ export interface AppDeps {
 	// W5 prompt pipeline IN: the condense sidestore (pipeline.ts). Optional —
 	// bare deps (testDeps, dev) skip honestly and the routes 404 (AppDeps law).
 	pipeline?: CondenseStore;
+	// W207 trajectory pruning: the diet sidestore (diet.ts). Optional — bare
+	// deps (testDeps, dev) skip honestly and the routes 404 (AppDeps law).
+	diet?: DietStore;
 	// W154 federation surface — present on hub-shaped deps (buildDeps);
 	// optional so bare deps (testDeps, dev) 404 honestly.
 	federation?: Federation;
@@ -337,6 +341,7 @@ async function proxy(
 		req.headers.get("x-belt-aids"),
 		body,
 		dialect,
+		ctx.rid,
 	);
 	body = wire.body;
 	ctx.condenseIn = wire.condenseIn;
@@ -800,6 +805,8 @@ export function createApp(deps: AppDeps): App {
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
 		if (pipeRouted) return pipeRouted;
+		const dietRouted = await dietRoutes(deps, req, path);
+		if (dietRouted) return dietRouted;
 		const rpRouted = await repoPolicyRoutes(
 			{ rows: deps.repoPolicy ?? [], sm: deps.sm },
 			req,
