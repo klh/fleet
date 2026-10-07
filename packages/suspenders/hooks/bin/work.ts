@@ -58,6 +58,14 @@ import { releaseWorkClaim } from "../lib/work-release.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import {
+	CliError,
+	type CommandDef,
+	type FlagDef,
+	helpOf,
+	parseCommand,
+	type Parsed,
+} from "../lib/cli.ts";
 
 const die = (m: string): never => {
 	console.error(`work: ${m}`);
@@ -86,141 +94,131 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 // commands (list, mine, owned, orphaned) take no positionals and ignore
 // unknown options — they predate strict parsing and nothing they read is
 // flag-shaped.
-type Spec = {
-	flags: string[];
-	switches?: string[];
-	minPos: number;
-	reqFlags: string[];
-	usage: string;
-	lax?: boolean;
-};
-
 // vocabulary shared by the item commands: option-looking tokens are never
 // content — a known flag consumes its value, unknown ones die
-const ITEM_FLAGS = [
-	"--scope",
-	"--parent",
-	"--priority",
-	"--desc",
-	"--by",
-	"--reason",
-	"--keep",
-	"--sha",
-	"--origin",
-	"--note",
-	"--on",
-	"--as",
-	"--requires",
-];
+const ITEM_FLAGS: Record<string, FlagDef> = {
+	"--scope": {},
+	"--parent": {},
+	"--priority": {},
+	"--desc": {},
+	"--by": {},
+	"--reason": {},
+	"--keep": {},
+	"--sha": {},
+	"--origin": {},
+	"--note": {},
+	"--on": {},
+	"--as": {},
+	"--requires": {},
+};
 const CAPS = new Set(CAPABILITIES);
-const SCHEMA: Record<string, Spec> = {
+const SCHEMA: Record<string, CommandDef> = {
 	add: {
+		name: "add",
+		usage: `usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]`,
 		flags: ITEM_FLAGS,
 		minPos: 1,
-		reqFlags: [],
-		usage: `usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]`,
 	},
-	list: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	ready: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
+	list: { name: "list", lax: true },
+	ready: { name: "ready", lax: true },
 	mine: {
-		flags: ["--as"],
-		minPos: 0,
-		reqFlags: ["--as"],
+		name: "mine",
 		usage: "usage: mine --as <sid>",
+		flags: { "--as": { required: true } },
 		lax: true,
 	},
-	owned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
+	owned: { name: "owned", lax: true },
 	show: {
-		flags: [...ITEM_FLAGS, "--json"],
-		switches: ["--json"],
-		minPos: 1,
-		reqFlags: [],
+		name: "show",
 		usage: "usage: show <id> [--json]",
+		flags: { ...ITEM_FLAGS, "--json": { type: "switch" } },
+		minPos: 1,
 	},
 	stats: {
-		flags: [],
-		minPos: 0,
-		reqFlags: [],
+		name: "stats",
 		usage: "usage: stats (project-scoped JSON progress snapshot)",
 	},
 	take: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--as"],
+		name: "take",
 		usage: "usage: take <id> --as <sid> [--origin <host:agent>]",
+		flags: { ...ITEM_FLAGS, "--as": { required: true } },
+		minPos: 1,
 	},
 	release: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--as"],
+		name: "release",
 		usage: "usage: release <id> --as <sid>",
-	},
-	start: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	summary: {
-		flags: ["--json"],
-		switches: ["--json"],
+		flags: { ...ITEM_FLAGS, "--as": { required: true } },
 		minPos: 1,
-		reqFlags: [],
+	},
+	start: { name: "start", flags: ITEM_FLAGS },
+	summary: {
+		name: "summary",
 		usage: "usage: summary <id> [--json]",
+		flags: { "--json": { type: "switch" } },
+		minPos: 1,
 	},
 	done: {
-		flags: [...ITEM_FLAGS, "--summary"],
-		minPos: 1,
-		reqFlags: [],
+		name: "done",
 		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
-	},
-	fail: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	cancel: {
-		flags: ITEM_FLAGS,
+		flags: { ...ITEM_FLAGS, "--summary": {} },
 		minPos: 1,
-		reqFlags: ["--note"],
+	},
+	fail: { name: "fail", flags: ITEM_FLAGS },
+	cancel: {
+		name: "cancel",
 		usage: `usage: cancel <id> --note "reason"`,
+		flags: { ...ITEM_FLAGS, "--note": { required: true } },
+		minPos: 1,
 	},
 	supersede: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--by"],
+		name: "supersede",
 		usage: "usage: supersede <id> --by <new-id>",
+		flags: { ...ITEM_FLAGS, "--by": { required: true } },
+		minPos: 1,
 	},
 	block: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--on"],
+		name: "block",
 		usage: "usage: block <id> --on <other-id>",
+		flags: { ...ITEM_FLAGS, "--on": { required: true } },
+		minPos: 1,
 	},
 	unblock: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--on"],
+		name: "unblock",
 		usage: "usage: unblock <id> --on <id2>",
+		flags: { ...ITEM_FLAGS, "--on": { required: true } },
+		minPos: 1,
 	},
 	split: {
-		flags: ["--reason", "--keep", "--plan"],
-		minPos: 3,
-		reqFlags: ["--reason"],
+		name: "split",
 		usage: `usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]`,
+		flags: { "--reason": { required: true }, "--keep": {}, "--plan": {} },
+		minPos: 3,
 	},
 	orphaned: {
-		flags: ["--item", "--json"],
-		switches: ["--json"],
-		minPos: 0,
-		reqFlags: [],
+		name: "orphaned",
 		usage: "usage: orphaned [--item <id>] [--json]",
+		flags: { "--item": {}, "--json": { type: "switch" } },
 	},
-	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
+	lanes: {
+		name: "lanes",
+		flags: { "--json": { type: "switch" }, "--fleet": {} },
+	},
 	reclaim: {
-		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
-		switches: ["--json"],
-		minPos: 1,
-		reqFlags: [],
+		name: "reclaim",
 		usage:
 			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
+		flags: {
+			...ITEM_FLAGS,
+			"--expect-owner": {},
+			"--expect-updated-at": {},
+			"--json": { type: "switch" },
+		},
+		minPos: 1,
 	},
 	"migrate-ledger": {
-		flags: [],
-		minPos: 1,
-		reqFlags: [],
+		name: "migrate-ledger",
 		usage: "usage: migrate-ledger <path>",
+		minPos: 1,
 	},
 };
 
@@ -230,48 +228,27 @@ if (!spec)
 		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 
-// per-verb help: semantics live on the surface, not in source-diving —
-// `work <verb> --help` prints the verb's usage + flags from its SCHEMA spec
-if (rest.includes("--help") || rest.includes("-h")) {
-	if (spec.usage) console.log(spec.usage);
-	if (spec.flags.length) console.log(`  flags: ${spec.flags.join(" ")}`);
+// per-verb help + parse via the shared toolkit (hooks/lib/cli.ts): --help
+// short-circuits before validation — help never dies on unknown option or
+// missing flags
+const parsed = (() => {
+	try {
+		return parseCommand(spec, rest);
+	} catch (e) {
+		die(e instanceof CliError ? e.message : String(e));
+	}
+})();
+if (parsed.help) {
+	console.log(helpOf(spec));
 	process.exit(0);
 }
 
-// generic parse + validate: known flags consume their value (first occurrence
-// wins, a trailing flag yields null), everything non-flag is a positional.
-// Violations die with the command's usage line — before any state is touched.
-function parseArgs(spec: Spec): {
-	pos: string[];
-	flag: (name: string) => string | null;
-} {
-	const pos: string[] = [];
-	const vals = new Map<string, string | null>();
-	for (let i = 0; i < rest.length; i++) {
-		if (spec.switches?.includes(rest[i])) {
-			vals.set(rest[i], "true");
-			continue;
-		}
-		if (spec.flags.includes(rest[i])) {
-			if (!vals.has(rest[i])) vals.set(rest[i], rest[i + 1] ?? null);
-			i++;
-			continue;
-		}
-		if (rest[i].startsWith("--")) {
-			if (spec.lax) continue;
-			die(`unknown option: ${rest[i]}`);
-		}
-		pos.push(rest[i]);
-	}
-	if (
-		pos.length < spec.minPos ||
-		spec.reqFlags.some((f) => !vals.has(f) || vals.get(f) === null)
-	)
-		die(spec.usage);
-	return { pos, flag: (name: string): string | null => vals.get(name) ?? null };
-}
+// generic parse + validate live in the shared toolkit — parseCommand() keeps
+// the old semantics: known flags consume their value (first occurrence wins,
+// a trailing flag yields null), everything non-flag is a positional, and
+// violations die with the command's usage line before any state is touched.
 
-const { pos, flag } = parseArgs(spec);
+const { pos, flag } = parsed;
 
 // LAZY DB open with per-command routing (was a module-top openGovernorDb()):
 // mutators need the real DB — die with a hint when it is unreachable; readers

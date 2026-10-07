@@ -92,35 +92,89 @@ import {
 } from "../../scripts/lib/work-inspection.ts";
 import { isResumableClaim } from "../../scripts/lib/resumable-claim.ts";
 import { guardedMerge } from "../lib/merge-guard.ts";
+import {
+	CliError,
+	type CommandDef,
+	helpOf,
+	parseCommand,
+} from "../lib/cli.ts";
 
 const argv = process.argv.slice(2);
-const MODE = argv[0];
-if (
-	!MODE ||
-	!["once", "watch", "lanes", "dispatch", "ship"].includes(MODE) ||
-	!argv.includes("--repo")
-) {
-	console.error(
+// declarative spec via the shared arg/cmd toolkit (hooks/lib/cli.ts) —
+// unknown flags now die with the usage (they were silently ignored before
+// W421); numeric flags validate at access time
+const MODES = ["once", "watch", "lanes", "dispatch", "ship"];
+const SPEC: CommandDef = {
+	name: "fleet-loop",
+	usage:
 		`usage: fleet-loop once|watch|lanes|dispatch|ship --repo <dir> [--glob lane/autow*] [--main main]\n` +
-			`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
-			`          [--ladder-timeout 10]                    minutes; watchdog-kills a hung ladder\n` +
-			`          [--dispatch-cmd <template>]              optional policy script\n` +
-			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
-			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
-			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
-	);
-	process.exit(MODE ? 1 : 0);
-}
-const val = (flag: string, dflt?: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : dflt;
+		`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
+		`          [--ladder-timeout 10]                    minutes; watchdog-kills a hung ladder\n` +
+		`          [--dispatch-cmd <template>]              optional policy script\n` +
+		`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
+		`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
+		`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)`,
+	flags: {
+		"--repo": { required: true },
+		"--glob": {},
+		"--main": {},
+		"--ladder": {},
+		"--agent": {},
+		"--effort": {},
+		"--dispatch-cmd": {},
+		"--log": {},
+		"--item": {},
+		"--branch": {},
+		"--target": {},
+		"--stall-warn-min": {},
+		"--ladder-timeout": {},
+		"--every": {},
+		"--cycle-timeout": {},
+	},
+	minPos: 1,
 };
-const num = (flag: string, dflt: number): number =>
-	Number(val(flag, String(dflt)));
+const parsed = (() => {
+	try {
+		return parseCommand(SPEC, argv);
+	} catch (e) {
+		if (e instanceof CliError) {
+			console.error(e.message);
+			process.exit(2);
+		}
+		throw e;
+	}
+})();
+if (parsed.help) {
+	console.log(helpOf(SPEC));
+	process.exit(0);
+}
+const MODE = parsed.pos[0];
+if (!MODE) {
+	console.error(SPEC.usage);
+	process.exit(0); // bare fleet-loop: usage text, exit 0 (as before W421)
+}
+if (!MODES.includes(MODE)) {
+	console.error(SPEC.usage);
+	process.exit(1);
+}
+// thin wrappers over the toolkit parse result — downstream call sites
+// (config consts below, ship/cycle reads) keep their old shape
+const val = (flag: string, dflt?: string): string | undefined =>
+	parsed.flag(flag) ?? dflt;
+const num = (flag: string, dflt: number): number => {
+	try {
+		return parsed.num(flag, dflt);
+	} catch (e) {
+		if (e instanceof CliError) {
+			console.error(e.message);
+			process.exit(2);
+		}
+		throw e;
+	}
+};
 
 const requestedRepo = val("--repo");
-if (!requestedRepo) process.exit(1); // usage block above already explained
-const CALLER_REPO = resolve(requestedRepo);
+const CALLER_REPO = resolve(requestedRepo ?? "");
 const REPO = canonicalProjectRoot(CALLER_REPO);
 const MAIN = val("--main", "main");
 const GLOB = val("--glob", "lane/autow*");
