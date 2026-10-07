@@ -12,7 +12,32 @@
 // visible tab only). Env knobs (test/CI): SUSPENDERS_LLM_HOME swaps the
 // hubs/hubs-demo dir, SUSPENDERS_LOCAL_REGISTRY swaps the local belt URL.
 import { readFileSync } from "node:fs";
-import { json } from "./helpers.ts";
+import { z } from "zod";
+
+export const simulationAuthorizationSchema = z.object({
+	principal: z.string().trim().min(1).max(100),
+	scopes: z.array(z.string().min(1).max(128)).max(32),
+	status: z.enum(["granted", "denied"]),
+});
+const demoProfileSchema = z.object({
+	note: z.string().optional(),
+	models: z
+		.array(
+			z.union([
+				z.string(),
+				z.object({
+					label: z.string(),
+					port: z.number().int().positive().optional(),
+					tier: z.string().optional(),
+					note: z.string().optional(),
+				}),
+			]),
+		)
+		.default([]),
+	simulation: z
+		.object({ authorization: simulationAuthorizationSchema })
+		.optional(),
+});
 
 type Leaf = {
 	label: string;
@@ -21,8 +46,22 @@ type Leaf = {
 	note?: string;
 	up: boolean | null; // null = not probeable (cloud/demo)
 };
-type Root = {
+export type Root = {
 	label: string;
+	identity?: string;
+	provenance?: "live-discovery" | "simulation";
+	simulationOf?: string;
+	connectivity?: "responding" | "unreachable";
+	discovery?: {
+		state: "available" | "protected" | "unavailable" | "simulated";
+		httpStatus?: number;
+	};
+	authorization?: {
+		mode: "required" | "simulated";
+		status: "unknown" | "granted" | "denied";
+		principal?: string;
+		scopes?: string[];
+	};
 	demo?: boolean;
 	down?: boolean;
 	note?: string;
@@ -176,23 +215,67 @@ const hubRoot = async (
 	label: string,
 	cands: string[],
 ): Promise<Root> => {
+	let observed: Root | null = null;
 	for (const c of cands) {
 		try {
 			const r = await deps.fetchImpl(`${c.replace(/\/$/, "")}/registry.json`, {
 				signal: AbortSignal.timeout(deps.registryTimeoutMs),
 			});
-			if (!r.ok) continue;
+			observed ??= {
+				label,
+				down: true,
+				provenance: "live-discovery",
+				connectivity: "responding",
+				discovery: { state: "unavailable", httpStatus: r.status },
+				models: [],
+			};
+			if (!r.ok) {
+				await r.body?.cancel();
+				const protectedDiscovery = r.status === 401 || r.status === 403;
+				const failed: Root = {
+					label,
+					provenance: "live-discovery",
+					connectivity: "responding",
+					discovery: {
+						state: protectedDiscovery ? "protected" : "unavailable",
+						httpStatus: r.status,
+					},
+					...(protectedDiscovery
+						? {
+								authorization: {
+									mode: "required" as const,
+									status: "unknown" as const,
+								},
+							}
+						: { down: true }),
+					models: [],
+				};
+				if (!observed || protectedDiscovery) observed = failed;
+				continue;
+			}
 			const doc = (await r.json()) as RegistryDoc;
 			// leaf ports ride the candidate HOST, never the candidate's own port
 			// (W530.2: origin double-port made every hub leaf probe miss)
 			const u = new URL(c);
 			return {
 				label,
+				provenance: "live-discovery",
+				connectivity: "responding",
+				discovery: { state: "available" },
 				models: await leafModels(deps, doc, `${u.protocol}//${u.hostname}`),
 			};
 		} catch {}
 	}
-	return { label, down: true, models: [] };
+	return (
+		observed ?? {
+			label,
+			down: true,
+			connectivity: "unreachable",
+			provenance: "live-discovery",
+			discovery: { state: "unavailable" },
+			models: [],
+		}
+	);
 };
 
 const demoRoots = (deps: TreeDeps): Root[] => {
@@ -201,11 +284,32 @@ const demoRoots = (deps: TreeDeps): Root[] => {
 	const out: Root[] = [];
 	for (const [label, v] of Object.entries(raw as Record<string, unknown>)) {
 		if (label.startsWith("_")) continue;
-		const v2 = v as { demo?: boolean; note?: string; models?: unknown };
-		const models: Leaf[] = (Array.isArray(v2.models) ? v2.models : []).map(
-			(m) => (typeof m === "string" ? { label: m, up: null } : (m as Leaf)),
+		const parsed = demoProfileSchema.safeParse(v);
+		if (!parsed.success) continue; // malformed profiles cannot shadow live discovery
+		const v2 = parsed.data;
+		const auth = v2.simulation?.authorization;
+		const explicit = auth !== undefined;
+		const models: Leaf[] = v2.models.map((m) =>
+			typeof m === "string" ? { label: m, up: null } : { ...m, up: null },
 		);
-		out.push({ label, demo: true, note: v2.note, models });
+		out.push({
+			label: explicit ? `${label} (simulation)` : label,
+			identity: `simulation:${label}`,
+			...(explicit ? { simulationOf: label } : {}),
+			provenance: "simulation",
+			discovery: { state: "simulated" },
+			...(explicit
+				? {
+						authorization: {
+							mode: "simulated" as const,
+							...auth,
+						},
+					}
+				: {}),
+			demo: true,
+			note: v2.note,
+			models,
+		});
 	}
 	return out;
 };
@@ -229,21 +333,32 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 	const TTL = 30_000;
 	let cache: { at: number; snap: TreeSnapshot } | null = null;
 	let lastGood: TreeSnapshot | null = null;
+	let configuration: string | null = null;
 	let inFlight: Promise<TreeSnapshot> | null = null;
 
 	const sweep = async (): Promise<TreeSnapshot> => {
+		const demos = demoRoots(deps);
+		const simulatedLabels = new Set(
+			demos.map((root) => root.simulationOf).filter(Boolean),
+		);
 		const hubs = readJson(`${deps.llmHome()}/hubs.json`) as Record<
 			string,
 			{ candidates?: string[] }
 		> | null;
+		const currentConfiguration = JSON.stringify({ hubs, demos });
+		if (configuration !== currentConfiguration) {
+			lastGood = null; // a previous live profile cannot replace a selected simulation
+			configuration = currentConfiguration;
+		}
 		const jobs: Promise<Root>[] = Object.entries(hubs ?? {})
-			.filter(([label]) => label !== "local" && !label.startsWith("_"))
+			.filter(
+				([label]) =>
+					label !== "local" &&
+					!label.startsWith("_") &&
+					!simulatedLabels.has(label),
+			)
 			.map(([label, v]) => hubRoot(deps, label, v?.candidates ?? []));
-		const tree = await Promise.all([
-			localRoot(deps),
-			...jobs,
-			...demoRoots(deps),
-		]);
+		const tree = await Promise.all([localRoot(deps), ...jobs, ...demos]);
 		const snap: TreeSnapshot = {
 			tree,
 			generated_at: new Date(deps.now()).toISOString(),
@@ -340,13 +455,20 @@ const load = async (force) => {
 			const head = el("div");
 			head.append(el("span", root.demo ? "demo" : "rootlabel", root.label));
 			if (root.note) head.append(el("span", "tier", "  — " + root.note));
+			if (root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
+			if (root.authorization) {
+				const auth = root.authorization;
+				const text = auth.mode === "simulated" ? "  simulated authorization: " + auth.status + " · " + auth.principal + " · " + auth.scopes.join(", ") : "  authorization required · capacity unknown";
+				head.append(el("span", "tier", text));
+			}
+			if (root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
 			if (root.down) head.append(el("span", "down", "  (down)"));
 			row.append(head);
 			const kids = root.models;
 			kids.forEach((m, i) => {
 				const line = el("div", "leaf");
 				line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
-				line.append(el("span", m.up === false ? "downleaf" : "up", m.label));
+				line.append(el("span", m.up === true ? "up" : m.up === false ? "downleaf" : "tier", m.label));
 				if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
 				if (m.note) line.append(el("span", "tier", "  " + m.note));
 				row.append(line);
@@ -385,7 +507,7 @@ export async function handleFleetTree(
 	if (url.pathname === "/api/fleet-tree") {
 		// ?refresh=1 = manual refresh — bypasses the TTL, coalesces in-flight
 		const snap = await src.tree(url.searchParams.get("refresh") === "1");
-		return json(snap);
+		return Response.json(snap);
 	}
 	if (url.pathname === "/fleet-tree") return page();
 	return null;
@@ -394,3 +516,14 @@ export async function handleFleetTree(
 // esc() kept for future server-side leaf interpolation — eslint/biome keep
 export const _esc = esc;
 void esc;
+
+// The CLI emits the exact snapshot consumed by the existing GUI; it neither
+// starts a board nor requests credentials. Machine demo profiles stay local.
+if (import.meta.main)
+	console.log(
+		JSON.stringify(
+			await source.tree(process.argv.includes("--refresh")),
+			null,
+			2,
+		),
+	);

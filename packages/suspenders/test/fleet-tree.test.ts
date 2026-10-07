@@ -96,6 +96,211 @@ const DEMO = {
 };
 
 describe("W530.2 fleet tree refresh", () => {
+	test.each([401, 403])(
+		"protected discovery HTTP %s is responding with unknown capacity, never a down hub",
+		async (status) => {
+			writeHome({ NAS: { candidates: ["http://protected:4101"] } }, {});
+			const s: Scenario = {
+				registryOk: false,
+				upLeaves: new Set(),
+				seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+			};
+			const deps = stubDeps(home, "http://127.0.0.1:4000", s);
+			const src = createTreeSource({
+				...deps,
+				fetchImpl: (async (url: string | URL | Request, init?: RequestInit) =>
+					String(url).startsWith("http://protected:")
+						? new Response("protected", { status })
+						: deps.fetchImpl(url, init)) as typeof fetch,
+			});
+			const hub = (await src.tree()).tree.find((root) => root.label === "NAS");
+			expect(hub).toMatchObject({
+				connectivity: "responding",
+				discovery: { state: "protected", httpStatus: status },
+				authorization: { mode: "required", status: "unknown" },
+				models: [],
+			});
+			expect(hub?.down).toBeUndefined();
+		},
+	);
+
+	test.each([500, 0, 200])(
+		"unavailable discovery HTTP %s preserves connectivity without claiming capacity",
+		async (status) => {
+			writeHome({ NAS: { candidates: ["http://failed:4101"] } }, {});
+			const s: Scenario = {
+				registryOk: false,
+				upLeaves: new Set(),
+				seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+			};
+			const deps = stubDeps(home, "http://127.0.0.1:4000", s);
+			const src = createTreeSource({
+				...deps,
+				fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+					if (String(url).startsWith("http://failed:")) {
+						if (status === 0) throw new Error("timeout");
+						return new Response("failed", { status });
+					}
+					return deps.fetchImpl(url, init);
+				}) as typeof fetch,
+			});
+			expect(
+				(await src.tree()).tree.find((root) => root.label === "NAS"),
+			).toMatchObject({
+				down: true,
+				connectivity: status === 0 ? "unreachable" : "responding",
+				discovery: { state: "unavailable" },
+				models: [],
+			});
+		},
+	);
+
+	test("explicit same-label simulation replaces display discovery without live authorization or probes", async () => {
+		writeHome(
+			{ NAS: { candidates: ["http://protected:4101"] } },
+			{
+				NAS: {
+					models: [
+						{
+							label: "simulated model",
+							up: true,
+							token: "model-secret-must-not-export",
+						},
+					],
+					simulation: {
+						authorization: {
+							principal: "demo-owner",
+							scopes: ["registry:read"],
+							status: "granted",
+							token: "auth-secret-must-not-export",
+						},
+					},
+				},
+			},
+		);
+		const s: Scenario = {
+			registryOk: false,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const simulated = (await src.tree()).tree.find(
+			(root) => root.identity === "simulation:NAS",
+		);
+		expect(simulated).toMatchObject({
+			label: "NAS (simulation)",
+			demo: true,
+			provenance: "simulation",
+			discovery: { state: "simulated" },
+			authorization: {
+				mode: "simulated",
+				principal: "demo-owner",
+				scopes: ["registry:read"],
+				status: "granted",
+			},
+			models: [{ label: "simulated model", up: null }],
+		});
+		expect(JSON.stringify(simulated)).not.toContain("secret-must-not-export");
+		expect(s.seen.urls.some((url) => url.startsWith("http://protected:"))).toBe(
+			false,
+		);
+		const response = await handleFleetTree(
+			new Request("http://b/fleet-tree"),
+			new URL("http://b/fleet-tree"),
+			src,
+		);
+		expect(await response?.text()).toContain("simulated authorization");
+		const cli = Bun.spawnSync(
+			[
+				process.execPath,
+				join(import.meta.dir, "../hooks/board/routes-fleet-tree.ts"),
+				"--json",
+			],
+			{
+				env: {
+					...process.env,
+					HOME: home,
+					SUSPENDERS_LLM_HOME: home,
+					SUSPENDERS_LOCAL_REGISTRY: "http://127.0.0.1:9",
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		expect(cli.exitCode, cli.stderr.toString()).toBe(0);
+		expect(
+			JSON.parse(cli.stdout.toString()).tree.find(
+				(root: Row) => root.identity === "simulation:NAS",
+			),
+		).toEqual(simulated);
+	});
+
+	test("switching into a simulation cannot fall back to a previous live profile", async () => {
+		writeHome({ NAS: { candidates: ["http://live:4101"] } }, {});
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		expect((await src.tree()).tree.some((root) => root.label === "NAS")).toBe(
+			true,
+		);
+		writeHome(
+			{ NAS: { candidates: ["http://live:4101"] } },
+			{
+				NAS: {
+					models: ["simulation"],
+					simulation: {
+						authorization: {
+							principal: "demo",
+							scopes: ["registry:read"],
+							status: "denied",
+						},
+					},
+				},
+			},
+		);
+		s.registryOk = false;
+		const selected = await src.tree(true);
+		expect(selected.stale).toBeUndefined();
+		expect(selected.tree.some((root) => root.label === "NAS")).toBe(false);
+		expect(
+			selected.tree.find((root) => root.identity === "simulation:NAS")
+				?.authorization?.status,
+		).toBe("denied");
+		expect(await src.tree()).toBe(selected);
+	});
+
+	test("malformed authorization cannot shadow live discovery and configuration secrets are omitted", async () => {
+		writeHome(
+			{ NAS: { candidates: ["http://protected:4101"] } },
+			{
+				NAS: {
+					simulation: {
+						authorization: {
+							principal: "demo",
+							scopes: "invalid",
+							status: "granted",
+							token: "never-export-this",
+						},
+					},
+				},
+			},
+		);
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const snapshot = await src.tree();
+		expect(snapshot.tree.some((root) => root.simulationOf === "NAS")).toBe(
+			false,
+		);
+		expect(s.seen.urls).toContain("http://protected:4101/registry.json");
+		expect(JSON.stringify(snapshot)).not.toContain("never-export-this");
+	});
 	test("concurrent misses coalesce into ONE sweep (no stampede)", async () => {
 		writeHome({}, DEMO);
 		const s: Scenario = {
