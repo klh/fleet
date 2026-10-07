@@ -272,9 +272,10 @@ flowchart TB
 ```
 
 This is a responsibility map. Runtime policy chooses the actual route: the
-local router and LiteLLM remain part of existing installations, and dispatch
-can fall back to belt directly when the buckle front or admin credential is
-unavailable.
+local router and LiteLLM remain part of existing installations. Strict dispatch
+refuses an unavailable buckle front or failed lane-key mint. Direct belt access
+requires the configured solo mode or an explicit, surfaced override; solo mode
+does not waive a failed lane-key mint.
 
 ### From a goal to a commit
 
@@ -370,18 +371,19 @@ Once installed and wired, PATH shims expose the command surfaces.
 Work and coordination verbs expose per-verb `--help`. Preview dispatch with
 `--dry-run` before activating it.
 
-| Need                               | Command                                                                  |
-| :--------------------------------- | :----------------------------------------------------------------------- |
-| See claimable work                 | `work ready`                                                             |
-| Inspect an item                    | `work show <id>`                                                         |
-| Claim and close with evidence      | `work take <id> --as <sid>` / `work done <id> --as <sid> --sha <commit>` |
-| Recover dead claims                | `work reclaim all`                                                       |
-| See fleet activity                 | `coord fleet`                                                            |
-| Subscribe to coordination events   | `coord subscribe --as <sid>`                                             |
-| Retrieve a durable lesson          | `coord fact get lesson.<topic>`                                          |
-| Preview dispatch                   | `dispatch --dry-run --target 1`                                          |
-| Render a hub profile's environment | `bun packages/suspenders/deploy/hubctl.ts render <hub>`                  |
-| Inspect hub health                 | `bun packages/suspenders/deploy/hubctl.ts status <hub>`                  |
+| Need                                 | Command                                                                  |
+| :----------------------------------- | :----------------------------------------------------------------------- |
+| See claimable work                   | `work ready`                                                             |
+| Inspect an item                      | `work show <id>`                                                         |
+| Claim and close with evidence        | `work take <id> --as <sid>` / `work done <id> --as <sid> --sha <commit>` |
+| Inspect process-backed lane liveness | `work lanes`                                                             |
+| Review and recover a dead claim      | `work orphaned` / `work reclaim <id>`                                    |
+| See fleet activity                   | `coord fleet`                                                            |
+| Subscribe to coordination events     | `coord subscribe --as <sid>`                                             |
+| Retrieve a durable lesson            | `coord fact get lesson.<topic>`                                          |
+| Preview dispatch                     | `dispatch --dry-run --target 1`                                          |
+| Render a hub profile's environment   | `bun packages/suspenders/deploy/hubctl.ts render <hub>`                  |
+| Inspect hub health                   | `bun packages/suspenders/deploy/hubctl.ts status <hub>`                  |
 
 ### Runtime configuration
 
