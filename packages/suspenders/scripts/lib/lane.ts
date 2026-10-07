@@ -2,7 +2,7 @@
 // (W146). supervise.ts and dispatch-next.ts must drive IDENTICAL spawn
 // recipes (env scrub, sh -c exec + stdin detach, lanes.json registry), so
 // the recipes live here. dispatch-next's inline copies of the small read
-// helpers (sh/run/alive/worktreeLive/loadLanes) stay until a lane can afford
+// helpers (sh/run/worktreeLive/loadLanes) stay until a lane can afford
 // the churn — the mutation gate caps edits at 40 lines; the spawn/env core
 // (the part a divergence would corrupt lanes with) is shared for real.
 import {
@@ -39,14 +39,7 @@ export const run = (
 	};
 };
 
-export const alive = (pid: number): boolean => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-};
+export { laneProcessIdentity as alive } from "../../hooks/lib/lane-liveness.ts";
 
 /** live claude/codex process with cwd inside the worktree — pid-independent
  *  liveness, same contract-free probe fleet-loop uses for its retire guard.

@@ -1,6 +1,6 @@
 // scripts/lanes.ts — print a repo's .fleet/lanes.json as a table (W301).
-// Read-only lane view: pid liveness via the shared lib's alive(), agent
-// names trimmed to 24 chars, dead-pid rows dagger-prefixed.
+// Read-only lane view: verified harness identity via the shared lib's alive(),
+// agent names trimmed to 24 chars, dead/unknown rows explicitly marked.
 import { existsSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
@@ -29,9 +29,9 @@ if (!existsSync(file)) {
 
 const lanes = loadLanes(fleet);
 const rows = lanes.map((l) => {
-	const live = alive(l.pid);
+	const live = alive(l);
 	return {
-		mark: live ? "" : "†",
+		mark: live === true ? "" : live === null ? "?" : "†",
 		agent: (l.agent ?? "").slice(0, 24),
 		sid: l.sid,
 		item: l.item,
@@ -39,7 +39,8 @@ const rows = lanes.map((l) => {
 		wt: basename(l.worktree),
 	};
 });
-const dead = rows.filter((r) => r.mark !== "").length;
+const dead = rows.filter((r) => r.mark === "†").length;
+const unknown = rows.filter((r) => r.mark === "?").length;
 
 // W223.2: copilot credit totals ride the lane status table — one
 // `coord fact get` per row through the meter lib's shared parser.
@@ -67,4 +68,4 @@ for (const r of rows) {
 		`${r.mark.padEnd(1)} ${r.agent.padEnd(wAgent)}  ${r.sid.padEnd(wSid)}  ${r.item.padEnd(wItem)}  ${r.branch.padEnd(wBranch)}  ${credits(r.sid).padEnd(wCred)}  ${r.wt}`,
 	);
 }
-console.log(`${lanes.length} lanes, ${dead} dead`);
+console.log(`${lanes.length} lanes, ${dead} dead, ${unknown} unknown`);

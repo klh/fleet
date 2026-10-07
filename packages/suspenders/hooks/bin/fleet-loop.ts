@@ -44,7 +44,7 @@ import {
 import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { resolve } from "node:path";
 import { laneSid } from "../lib/laneslug.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
+import { laneAlive, laneProcessIdentity } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
@@ -219,6 +219,7 @@ function laneIsAlive(b: string): boolean | null {
 	// dispatch-next); untracked branches keep the worktree evidence probe
 	const tracked = lanes().find((l) => l.branch === b);
 	if (tracked && laneAlive(tracked)) return true;
+	if (tracked && laneProcessIdentity(tracked) === null) return null;
 	const wt = wtPathFromGit(b) ?? `${REPO}/.worktrees/${b.replace(/^.*\//, "")}`;
 	return retirementProcessLive(wt);
 }
@@ -752,13 +753,13 @@ if (MODE === "dispatch") {
 	// existing worktree with NO live lane is reused (resume path).
 	const live = lanes().find((l) => l.sid === sid);
 	if (live?.pid) {
-		let alive = false;
-		try {
-			process.kill(live.pid, 0);
-			alive = true;
-		} catch {}
-		if (alive) {
-			console.error(`lane ${sid} already running (pid ${live.pid})`);
+		const identity = laneProcessIdentity(live);
+		if (identity !== false) {
+			console.error(
+				identity === true
+					? `lane ${sid} already running (pid ${live.pid})`
+					: `lane ${sid} process identity unknown; refusing duplicate dispatch`,
+			);
 			process.exit(1);
 		}
 	}
@@ -1091,13 +1092,9 @@ if (MODE === "lanes") {
 		process.exit(0);
 	}
 	for (const l of rows) {
-		let alive = false;
-		try {
-			process.kill(l.pid, 0);
-			alive = true;
-		} catch {}
+		const identity = laneProcessIdentity(l);
 		console.log(
-			`${alive ? "ALIVE" : "dead "}  ${l.item.padEnd(10)} ${l.sid.padEnd(16)} pid ${String(l.pid).padEnd(8)} ${(l.agent ?? "claude").padEnd(7)} ${l.branch}`,
+			`${identity === true ? "ALIVE" : identity === null ? "unknown" : "dead "}  ${l.item.padEnd(10)} ${l.sid.padEnd(16)} pid ${String(l.pid).padEnd(8)} ${(l.agent ?? "claude").padEnd(7)} ${l.branch}`,
 		);
 	}
 	process.exit(0);

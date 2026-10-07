@@ -123,6 +123,20 @@ describe("codex dispatch workspace parity", () => {
 		expect(readlinkSync(link)).toBe(join(REPO, "node_modules"));
 
 		// resume (claim already ours, workspace exists): no duplicate, no clobber
+		// W562: the recorded PID has been reused by this unrelated test harness.
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		writeFileSync(
+			join(REPO, ".fleet", "lanes.json"),
+			JSON.stringify([
+				{
+					sid: `autow${id.slice(1)}`,
+					item: id,
+					pid: process.pid,
+					branch: `lane/${id}`,
+					worktree: wt,
+				},
+			]),
+		);
 		const d2 = dispatch();
 		expect(d2.err).toContain("codex binary not found");
 		expect(lstatSync(link).isSymbolicLink()).toBe(true);

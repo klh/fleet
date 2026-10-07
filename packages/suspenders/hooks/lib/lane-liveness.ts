@@ -58,15 +58,44 @@ const psArgs = (): string[] =>
 // a lane is live when its process still references its own brief/sid —
 // a recycled pid runs an unrelated command and reads dead (args=, not
 // comm=: macOS truncates comm= at 15 chars, which hid copilot lanes — W309)
-const processReferencesSid = (pid: number, sid: string): boolean => {
-	if (!pid) return false;
-	return psArgs().some(
-		(l) =>
-			l.trim().startsWith(`${pid} `) &&
-			HARNESS_ARG_RE.test(l) &&
-			l.includes(sid),
-	);
+export type ProcessInspection = { exitCode: number | null; stdout: string };
+export type ProcessInspector = () => ProcessInspection;
+const inspectProcesses: ProcessInspector = () => {
+	const result = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return { exitCode: result.exitCode, stdout: result.stdout.toString() };
 };
+
+/** True = this lane's harness; false = observed absent/reused PID; null = unknown.
+ * Unknown never authorizes another spawn or filesystem retirement. */
+export function laneProcessIdentity(
+	lane: LaneRef,
+	inspect: ProcessInspector = inspectProcesses,
+): boolean | null {
+	if (lane.host !== undefined && lane.host !== THIS_HOST) return null;
+	if (!lane.pid) return false;
+	if (!Number.isSafeInteger(lane.pid) || lane.pid < 0 || !lane.sid) return null;
+	try {
+		const result = inspect();
+		if (result.exitCode !== 0 || !result.stdout.trim()) return null;
+		const rows = result.stdout.trim().split("\n");
+		if (rows.some((row) => !/^\s*\d+\s+\S/.test(row))) return null;
+		const row = rows.find(
+			(row) => Number.parseInt(row.trim(), 10) === lane.pid,
+		);
+		if (!row) return false;
+		const args = row.replace(/^\s*\d+\s+/, "");
+		const sid = lane.sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const referencesSid = new RegExp(
+			`(^|[^A-Za-z0-9_-])${sid}([^A-Za-z0-9_-]|$)`,
+		);
+		return HARNESS_ARG_RE.test(args) && referencesSid.test(args);
+	} catch {
+		return null;
+	}
+}
 
 /** Evidence probe for the sweep surfaces (dispatch-next prune, fleet-loop
  *  retire guard): a live harness process with cwd inside the worktree.
@@ -105,4 +134,4 @@ const THIS_HOST = hostname();
 export const laneAlive = (l: LaneRef): boolean =>
 	l.host !== undefined && l.host !== THIS_HOST
 		? transcriptAlive(l.sid)
-		: processReferencesSid(l.pid ?? 0, l.sid) || transcriptAlive(l.sid);
+		: laneProcessIdentity(l) === true || transcriptAlive(l.sid);

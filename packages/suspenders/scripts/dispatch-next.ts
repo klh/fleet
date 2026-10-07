@@ -59,7 +59,10 @@ import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
-import { worktreeLive } from "../hooks/lib/lane-liveness.ts";
+import {
+	laneProcessIdentity,
+	worktreeLive,
+} from "../hooks/lib/lane-liveness.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -301,19 +304,11 @@ const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 	};
 };
-const alive = (pid: number): boolean => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-};
 // lane liveness is THE plane's verdict (2026-10-05): work lanes --json
 // (hooks/lib/lane-liveness.ts) is the one source dispatch-next, fleet-loop
 // and humans share — recycled pids and permanently-trusted host lanes both
-// read dead now. Fail-open: audit errors read all lanes dead, so dispatch
-// still spawns (ghost-clog is the cured disease; over-dispatch is lesser).
+// read dead now. Missing audit observations fall back to process identity;
+// a failed identity probe conservatively retains the occupied slot.
 const laneAudit = (): Map<string, boolean> => {
 	try {
 		const raw = sh([
@@ -335,7 +330,7 @@ const laneAudit = (): Map<string, boolean> => {
 	}
 };
 const laneAlive = (l: Lane, audit: Map<string, boolean>): boolean =>
-	audit.get(l.sid) === true;
+	audit.get(l.sid) === true || laneProcessIdentity(l) !== false;
 const log = (msg: string): void => {
 	mkdirSync(FLEET, { recursive: true });
 	appendFileSync(LOOP_LOG, `${new Date().toISOString()} ${msg}\n`);
@@ -1138,7 +1133,7 @@ const main = async (): Promise<void> => {
 		}
 		for (const l of live) {
 			const resolved = byCwd.get(l.worktree);
-			if (resolved && (l.pid === 0 || !alive(l.pid))) {
+			if (resolved && laneProcessIdentity(l) === false) {
 				l.pid = resolved;
 				dispatched.push(`${l.item}→${l.sid}(daemonized pid ${resolved})`);
 			}
