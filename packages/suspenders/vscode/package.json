@@ -1,0 +1,97 @@
+{
+	"name": "fleet-board",
+	"displayName": "Fleet Board (suspenders)",
+	"description": "The suspenders agent fleet inside VS Code — working lanes, ready work, and the decisions that need you.",
+	"version": "0.1.0",
+	"publisher": "klh",
+	"license": "SEE LICENSE IN ../LICENSE",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"main": "./out/extension.js",
+	"activationEvents": [],
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"icon": "icon.svg",
+					"id": "fleet-board",
+					"title": "Fleet"
+				}
+			]
+		},
+		"views": {
+			"fleet-board": [
+				{
+					"id": "fleetBoard.tasks",
+					"name": "Tasks"
+				},
+				{
+					"id": "fleetBoard.decisions",
+					"name": "Decisions"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "fleetBoard.refresh",
+				"title": "Fleet: Refresh Now",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "fleetBoard.openBoard",
+				"title": "Fleet: Open Web Board",
+				"icon": "$(globe)"
+			},
+			{
+				"command": "fleetBoard.openItem",
+				"title": "Fleet: Open Item on Web Board",
+				"icon": "$(link-external)"
+			},
+			{
+				"command": "fleetBoard.setServer",
+				"title": "Fleet: Set Board Server URL"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "fleetBoard.refresh",
+					"when": "view == fleetBoard.tasks || view == fleetBoard.decisions",
+					"group": "navigation"
+				},
+				{
+					"command": "fleetBoard.openBoard",
+					"when": "view == fleetBoard.tasks || view == fleetBoard.decisions",
+					"group": "navigation"
+				}
+			]
+		},
+		"configuration": {
+			"properties": {
+				"suspendersFleet.serverUrl": {
+					"type": "string",
+					"default": "http://localhost:7799",
+					"markdownDescription": "Fleet board base URL — the `fleet-board` service (suspenders)."
+				},
+				"suspendersFleet.refreshSeconds": {
+					"type": "number",
+					"minimum": 5,
+					"default": 15,
+					"markdownDescription": "Seconds between board refreshes."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "bun build src/extension.ts --target=node --external=vscode --format=cjs --outfile=out/extension.js",
+		"vspackage": "bun scripts/pack.ts"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.85.0",
+		"typescript": "^5.6.0"
+	}
+}
