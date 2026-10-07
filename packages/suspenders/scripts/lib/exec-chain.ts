@@ -12,6 +12,9 @@ import { readBoardSettings } from "../../hooks/lib/board-config.ts";
 import { feedModelOf } from "../../hooks/board/executor-catalog.ts";
 import { specialistByPort } from "../../hooks/board/local-swarm.ts";
 import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
+// W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
+// data (registry.ts) — the if copilot/else-claude ternaries retired here.
+import { adapterFor, isSpawnableExecutor } from "../../hooks/lib/executors/registry.ts";
 
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
  * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
@@ -71,9 +74,12 @@ export const preferOf = (
 	}
 };
 
-const binOf = (e: string): string => (e === "copilot" ? "copilot" : "claude");
+// W422: a chain token that names a registered agent rides its own binary;
+// a MISS is a belt model pin — belt routes by model id, so a model name IS
+// an executor riding the claude CLI (W183.2 semantics, now registry data).
+const binOf = (e: string): string => adapterFor(e).bin;
 const modelOf = (e: string): string | null =>
-	e === "claude" || e === "copilot" ? null : e;
+	isSpawnableExecutor(e) ? null : e;
 
 // W183.2 — one wiring of the catalog's feed-value grammar to its sources:
 // llm:local:<port> → swarm inventory, llm:user:<name> → local-models.json,
@@ -83,8 +89,10 @@ const feedModel = (e: string): string | null =>
 		readUserPlane().entries.find((u) => u.name === n),
 	);
 const slotOf = (e: string): { model: string | null; bin: string } | null => {
-	if (e === "claude" || e === "copilot")
-		return { model: modelOf(e), bin: binOf(e) };
+	// W422: registered agents ride their own CLI with NO model pin (belt
+	// routes the model for model-named tokens only); unregistered tokens
+	// translate via the feed/model catalog or drop out.
+	if (isSpawnableExecutor(e)) return { model: null, bin: binOf(e) };
 	const model = feedModel(e);
 	return model ? { model, bin: binOf(e) } : null;
 };

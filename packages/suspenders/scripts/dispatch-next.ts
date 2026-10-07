@@ -46,11 +46,14 @@ import {
 } from "./lib/prefer-routing.ts";
 import {
 	applyLaneAttribution,
-	DEFAULT_ALLOWED_TOOLS,
 	laneEnv,
 	probeBuckleFront,
 	spawnClaude,
 } from "./lib/lane.ts";
+// W422: executor specifics ride the adapter registry (hooks/lib/executors/)
+// — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
+// branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
+import { adapterFor } from "../hooks/lib/executors/registry.ts";
 import {
 	adminKey,
 	ensureLaneKey,
@@ -510,6 +513,9 @@ const dispatchItem = async (
 				`suspenders/${item}`
 			: `suspenders/${item}`;
 		const pick = execPick(attempt, CALLER_REPO);
+		// W422: the brief-verify harness + enforcement ride the executor
+		// adapter — the if copilot/else-claude ternary is registry data now.
+		const adapter = adapterFor(pick.bin);
 		console.log(`DRY dispatch ${item} → ${sid}${capsule ? " (RESUME)" : ""}`);
 		if (pick.chainLen > 1)
 			console.log(
@@ -528,11 +534,9 @@ const dispatchItem = async (
 		});
 		console.log(brief);
 		// W223.2: dry-run shows the verdict the spawn path would enforce
-		const dryHarness: "claude" | "copilot" =
-			pick.bin === "copilot" ? "copilot" : "claude";
 		console.log(
 			briefVerdictLine(
-				verifyBrief(brief, { harness: dryHarness }),
+				verifyBrief(brief, { harness: adapter.briefHarness }),
 				Buffer.byteLength(brief),
 			),
 		);
@@ -723,26 +727,24 @@ const dispatchItem = async (
 			agent: pick.agent,
 			extra: routingExtra(),
 		});
-		// W223.2 dual-harness brief verification: copilot's prompt handling can
-		// mangle a brief claude renders fine, so the copilot harness gets a hard
-		// gate — a failing brief refuses the spawn AND reclaims the claim (a
-		// stranded claim on a never-spawned lane is the exact disease quota-sweep
-		// cures). claude runs the same checks warn-only (no observed claude
-		// mangling; hard-gating claude is a separate behavior change).
-		const harness: "claude" | "copilot" =
-			pick.bin === "copilot" ? "copilot" : "claude";
-		const verdict = verifyBrief(brief, { harness });
-		if (!verdict.ok && harness === "copilot") {
+		// W223.2 dual-harness brief verification, W422-shaped: the harness id
+		// and enforcement mode are ADAPTER data (registry). A failing brief on
+		// a hard-gate adapter refuses the spawn AND reclaims the claim (a
+		// stranded claim on a never-spawned lane is the exact disease quota-
+		// sweep cures); warn-only adapters dispatch with a NOTE.
+		const adapter = adapterFor(pick.bin);
+		const verdict = verifyBrief(brief, { harness: adapter.briefHarness });
+		if (!verdict.ok && adapter.briefHardGate) {
 			const why = briefVerdictLine(verdict, Buffer.byteLength(brief));
 
 			console.log(
-				`SKIP ${item} — brief refused by ${harness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
+				`SKIP ${item} — brief refused by ${adapter.briefHarness} verification: ${why} — launch refused; claim cleanup follows, nothing spawned`,
 			);
 			return null;
 		}
 		if (!verdict.ok)
 			console.log(
-				`NOTE — ${briefVerdictLine(verdict, Buffer.byteLength(brief))} (claude warn-only, dispatched anyway)`,
+				`NOTE — ${briefVerdictLine(verdict, Buffer.byteLength(brief))} (warn-only, dispatched anyway)`,
 			);
 		const briefFile = `${FLEET}/brief-${sid}.md`;
 		mkdirSync(FLEET, { recursive: true });
@@ -941,28 +943,14 @@ const dispatchItem = async (
 			cwd: wt,
 			logFile: laneLog,
 			env,
-			cliArgs:
-				pick.bin === "copilot"
-					? ["--allow-all-tools"]
-					: pick.fallbackModels.length > 0
-						? [
-								"--allowedTools",
-								DEFAULT_ALLOWED_TOOLS,
-								"--permission-mode",
-								"acceptEdits",
-								"--fallback-model",
-								pick.fallbackModels.join(","),
-								...settingsArgs,
-								...starterFork,
-							]
-						: [
-								"--allowedTools",
-								DEFAULT_ALLOWED_TOOLS,
-								"--permission-mode",
-								"acceptEdits",
-								...settingsArgs,
-								...starterFork,
-							],
+			// W422: the spawn tail is the executor adapter's recipe (registry) —
+			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
+			// settings/fork composition; dispatch carries no executor branches.
+			cliArgs: adapter.spawnArgs({
+				fallbackModels: pick.fallbackModels,
+				settingsArgs,
+				forkArgs: starterFork,
+			}),
 			fleetDir: FLEET,
 			sid,
 		});

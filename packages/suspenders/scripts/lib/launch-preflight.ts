@@ -2,6 +2,9 @@ import { accessSync, constants, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { releaseWorkClaim } from "../../hooks/lib/work-release.ts";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
+// W422: which executor tokens may resolve to a binary is registry data —
+// spawnable rows in hooks/lib/executors/ (a new agent flips its own row).
+import { isSpawnableExecutor } from "../../hooks/lib/executors/registry.ts";
 
 /** Daemon PATHs differ from interactive shells. Explicit operator paths are
  * authoritative; canonical user install plus PATH are a bounded fallback. */
@@ -9,7 +12,7 @@ export function resolveLaneExecutor(
 	name: string,
 	env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-	if (!["claude", "copilot", "codex"].includes(name)) return null;
+	if (!isSpawnableExecutor(name)) return null;
 	const configured = env[`SUSPENDERS_${name.toUpperCase()}_BIN`];
 	const candidates = configured
 		? [configured]
