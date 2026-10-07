@@ -149,7 +149,7 @@ describe("W166 knowledge.db split", () => {
 
 	test("v9→v10 postconditions: uv, schema moved, counts equal, FTS round-trip, pragmas", () => {
 		// fixture state left by the byte-identity test's migration
-		expect(uvOf(GOV)).toBe(10);
+		expect(uvOf(GOV)).toBeGreaterThanOrEqual(11);
 		expect(
 			countK(
 				GOV,
@@ -183,19 +183,19 @@ describe("W166 knowledge.db split", () => {
 });
 
 describe("W166 migration resilience", () => {
-	test("idempotent re-open: uv stays 10, no re-copy", () => {
+	test("idempotent re-open: uv stays >= 11, no re-copy", () => {
 		const before = countK(KBP, "SELECT COUNT(*) n FROM knowledge");
 		openGovernorDb().close();
 		openGovernorDb().close();
-		expect(uvOf(GOV)).toBe(10);
+		expect(uvOf(GOV)).toBeGreaterThanOrEqual(11);
 		expect(countK(KBP, "SELECT COUNT(*) n FROM knowledge")).toBe(before);
 	});
 
 	test("reset-meets-kb: fresh governor + populated kb → kb wins, migration completes", () => {
 		const before = countK(KBP, "SELECT COUNT(*) n FROM knowledge");
 		rmSync(GOV); // the govdb-migration.test.ts isolation pattern
-		openGovernorDb().close(); // fresh ladder → v10 with kbN > 0 → kb wins
-		expect(uvOf(GOV)).toBe(10);
+		openGovernorDb().close(); // fresh ladder → v11 with kbN > 0 → kb wins
+		expect(uvOf(GOV)).toBeGreaterThanOrEqual(11);
 		expect(countK(KBP, "SELECT COUNT(*) n FROM knowledge")).toBe(before);
 	});
 
@@ -208,9 +208,9 @@ describe("W166 migration resilience", () => {
 		expect(uvOf(GOV)).toBe(9);
 		expect(countK(GOV, "SELECT COUNT(*) n FROM knowledge")).toBe(40);
 		expect(countK(GOV, "SELECT COUNT(*) n FROM knowledge_queue")).toBe(4);
-		rmSync(KBP); // obstacle gone → the next open retries and lands v10
+		rmSync(KBP); // obstacle gone → the next open retries and lands v11
 		openGovernorDb().close();
-		expect(uvOf(GOV)).toBe(10);
+		expect(uvOf(GOV)).toBeGreaterThanOrEqual(11);
 		expect(countK(KBP, "SELECT COUNT(*) n FROM knowledge")).toBe(40);
 	});
 });
