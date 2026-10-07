@@ -72,6 +72,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/work.ts",
 		"bin/fleet-loop.ts",
 		"bin/fleet-tracker.ts",
+		"bin/fleet-watch.ts",
 		"bin/morph.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
