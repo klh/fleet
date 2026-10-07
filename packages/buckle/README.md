@@ -39,10 +39,10 @@ flowchart LR
   and Anthropic `/v1/messages` are the client-facing dialects; behind
   them the LiteLLM-internal engine routes to 100+ providers as data rows
   (`upstreams.yaml` + the W150 catalog), not two hardwired backends.
-  `BUCKLE_CROSS_DIALECT=on` (default off) lets a ladder rung fail over
-  between wire dialects through the tool/stream transforms
-  (`src/bridge.ts`): anthropic client → openai upstream (JSON +
-  streaming), openai client → anthropic upstream (JSON only).
+  The native dialect-translation tier (W426) lets any request reach any
+  deployment through the tool/stream transforms (`src/bridge.ts`):
+  anthropic client ↔ openai upstream, both directions, JSON + streaming.
+  Pass-through-first: same-dialect hops rank first, cross hops follow.
 - **Upstreams are data, not code** — `upstreams.yaml` group rows
   (`url`, `dialect`, `adapter`, `api_key_env`), the same move LiteLLM's
   own long tail made (`openai_like/providers.json`). The provider catalog

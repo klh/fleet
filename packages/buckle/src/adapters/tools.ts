@@ -6,9 +6,10 @@
 // input_json_delta). Edge rules are fixture-pinned: parallel-call blocks
 // ordered by first-seen index, JSON parse-fail → reject-verbose (requests
 // 400 naming the field; in-flight responses degrade to a raw-string text
-// block + warning — never a silent mangle). The anthropic→openai streaming
-// mirror ("mirrors the table", W134 §5) stays unbuilt until a bridge
-// consumer exists — added with its fixtures, not before.
+// block + warning — never a silent mangle). W426 native translation tier:
+// the anthropic→openai streaming mirror (AnthropicToOpenAIStream) walks the
+// same table the other way — openai chunk frames + a terminal include_usage
+// chunk, [DONE] emitted by the bridge.
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "../usage.ts";
 
 export interface TransformWarning {
@@ -32,6 +33,9 @@ export interface ResponseTransform {
 type AnyRec = Record<string, unknown>;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+// finite-number coercion for wire indexes (W426 mirror block indexes)
+const num = (v: unknown): number =>
+	typeof v === "number" && Number.isFinite(v) ? v : 0;
 
 // ---- stop-reason / finish-reason maps (W134 §5 table) ----
 
@@ -734,4 +738,194 @@ export class OpenAIToAnthropicStream {
 		this.activeKind = null;
 		this.activeIndex = -1;
 	}
+}
+
+// ---- streaming mirror: anthropic events → openai chunks (W426) ----
+
+/** Stateful anthropic-event → openai-chunk transform (the mirror of
+ *  OpenAIToAnthropicStream — the W134 §5 table walked both ways). push
+ *  takes one parsed SSE event ({event, data}); returns chat.completion.chunk
+ *  objects. message_start opens the stream (role chunk); text_delta →
+ *  delta.content; tool_use blocks map to sequential openai tool indexes;
+ *  message_delta carries finish_reason; flush emits the finish chunk and
+ *  ONE terminal usage chunk (include_usage semantics — prompt tokens from
+ *  message_start, completion from the cumulative message_delta). A stream
+ *  that never started flushes empty (no fabricated envelope). */
+export class AnthropicToOpenAIStream {
+	private id = "";
+	private model = "";
+	private started = false;
+	private stopped = false;
+	private inTok: unknown = null;
+	private outTok: unknown = null;
+	private finish: string | null = null;
+	/** anthropic block index → sequential openai tool index */
+	private toolIndex = new Map<number, number>();
+	private nextTool = 0;
+	private warned = new Set<string>();
+	readonly warnings: TransformWarning[] = [];
+
+	private warnOnce(field: string, message: string): void {
+		if (this.warned.has(field)) return;
+		this.warned.add(field);
+		this.warnings.push({ field, message });
+	}
+
+	/** Composed usage (message_start input + message_delta output), or null
+	 *  while either side is unseen — the bridge becomes honest-unknown when
+	 *  either side never arrived. */
+	seenUsage(): Usage | null {
+		if (this.inTok === null && this.outTok === null) return null;
+		return usageFromAnthropic({
+			input_tokens: this.inTok,
+			output_tokens: this.outTok,
+		});
+	}
+
+	/** Consume one parsed anthropic SSE event ({event, data}). */
+	push(evt: unknown): AnyRec[] {
+		const out: AnyRec[] = [];
+		if (!evt || typeof evt !== "object") return out;
+		const data = (evt as AnyRec).data;
+		if (!data || typeof data !== "object") return out;
+		const d = data as AnyRec;
+		if (d.type === "ping") return out;
+		if (d.type === "error") {
+			const err = (d.error ?? {}) as AnyRec;
+			out.push(
+				this.frame({
+					error: {
+						message: str(err.message) || "upstream stream error",
+						type: str(err.type) || "api_error",
+					},
+				}),
+			);
+			return out;
+		}
+		if (d.type === "message_start") {
+			const msg = (d.message ?? {}) as AnyRec;
+			this.id = str(msg.id);
+			this.model = str(msg.model);
+			this.inTok = (msg.usage as AnyRec | undefined)?.input_tokens ?? null;
+			this.started = true;
+			out.push(this.frame({ choices: [choice({ role: "assistant" })] }));
+			return out;
+		}
+		if (!this.started) return out; // pre-envelope events: never fabricate
+		if (d.type === "content_block_start") this.blockStart(d, out);
+		if (d.type === "content_block_delta") this.blockDelta(d, out);
+		if (d.type === "message_delta") this.messageDelta(d);
+		if (d.type === "message_stop") this.emitFinish(out);
+		return out;
+	}
+
+	/** finish_reason + cumulative output tokens (anthropic repeats them). */
+	private messageDelta(d: AnyRec): void {
+		const delta = (d.delta ?? {}) as AnyRec;
+		if (delta.stop_reason !== undefined && delta.stop_reason !== null)
+			this.finish = finishReasonFromAnthropic(delta.stop_reason);
+		if ((d.usage as AnyRec | undefined)?.output_tokens !== undefined)
+			this.outTok = (d.usage as AnyRec).output_tokens;
+	}
+
+	/** End of stream: the finish chunk, then the terminal usage chunk —
+	 *  emitted at message_stop (upstreams always send it), retried once at
+	 *  flush for a stream the upstream never terminated. */
+	flush(): AnyRec[] {
+		const out: AnyRec[] = [];
+		if (!this.started) return out;
+		this.emitFinish(out);
+		return out;
+	}
+
+	private emitFinish(out: AnyRec[]): void {
+		if (this.stopped) return;
+		this.stopped = true;
+		out.push(this.frame({ choices: [choice({}, this.finish ?? "stop")] }));
+		const u = this.seenUsage();
+		if (u) {
+			const usage: AnyRec = {
+				prompt_tokens: u.in_tok,
+				completion_tokens: u.out_tok,
+			};
+			if (u.cache_r > 0)
+				usage.prompt_tokens_details = { cached_tokens: u.cache_r };
+			out.push(this.frame({ choices: [], usage }));
+		}
+	}
+
+	private blockStart(d: AnyRec, out: AnyRec[]): void {
+		const block = (d.content_block ?? {}) as AnyRec;
+		if (block.type === "tool_use") {
+			const index = this.nextTool++;
+			this.toolIndex.set(num(d.index), index);
+			out.push(
+				this.frame({
+					choices: [
+						choice({
+							tool_calls: [
+								{
+									index,
+									id: str(block.id),
+									type: "function",
+									function: { name: str(block.name), arguments: "" },
+								},
+							],
+						}),
+					],
+				}),
+			);
+		} else if (block.type !== "text") {
+			this.warnOnce(
+				`content_block.${str(block.type)}`,
+				"dropped — no openai chunk field",
+			);
+		}
+	}
+
+	private blockDelta(d: AnyRec, out: AnyRec[]): void {
+		const delta = (d.delta ?? {}) as AnyRec;
+		if (delta.type === "text_delta") {
+			out.push(this.frame({ choices: [choice({ content: str(delta.text) })] }));
+		} else if (delta.type === "input_json_delta") {
+			const mapped = this.toolIndex.get(num(d.index));
+			if (mapped === undefined) {
+				this.warnOnce(
+					`block ${str(d.index)}`,
+					"json delta for unknown block — dropped",
+				);
+				return;
+			}
+			out.push(
+				this.frame({
+					choices: [
+						choice({
+							tool_calls: [
+								{
+									index: mapped,
+									function: { arguments: str(delta.partial_json) },
+								},
+							],
+						}),
+					],
+				}),
+			);
+		} else if (delta.type === "thinking_delta") {
+			this.warnOnce("delta.thinking_delta", "dropped — no openai chunk field");
+		}
+	}
+
+	private frame(extra: AnyRec): AnyRec {
+		return {
+			id: this.id,
+			object: "chat.completion.chunk",
+			model: this.model,
+			...extra,
+		};
+	}
+}
+
+/** One openai chunk choice: delta + null finish unless given. */
+function choice(delta: AnyRec, finish: string | null = null): AnyRec {
+	return { index: 0, delta, finish_reason: finish };
 }

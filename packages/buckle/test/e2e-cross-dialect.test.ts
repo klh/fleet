@@ -1,17 +1,14 @@
-// test/e2e-cross-dialect.test.ts — review #14 §1.3: cross-dialect failover
-// is OPT-IN (BUCKLE_CROSS_DIALECT=on). Off: the walk never leaves the
-// client's dialect. On: an anthropic client fails over to an openai
-// upstream, streaming end-to-end through the W134 §5 transforms; an openai
-// client fails over to an anthropic upstream (JSON).
-import { afterEach, describe, expect, test } from "bun:test";
+// test/e2e-cross-dialect.test.ts — W426 native dialect-translation tier:
+// a request reaches a deployment of the OTHER dialect without any opt-in
+// (pass-through-first: same-dialect hops still rank first). An anthropic
+// client reaches an openai upstream — JSON + streaming through
+// OpenAIToAnthropicStream; an openai client reaches an anthropic upstream —
+// JSON + streaming through the AnthropicToOpenAIStream mirror.
+import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/handlers.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { type MockUpstream, startMockUpstream } from "./mock.ts";
-
-afterEach(() => {
-	delete process.env.BUCKLE_CROSS_DIALECT;
-});
 
 const GROUP = "duo";
 
@@ -33,6 +30,55 @@ const overloaded = (): Promise<MockUpstream> =>
 
 const sse = (frames: unknown[]): string =>
 	`${frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join("")}data: [DONE]\n\n`;
+
+// anthropic upstream SSE: a text block, finish + usage on message_delta.
+const anthropicFrame = (event: string, data: unknown): string =>
+	`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+const ANTHROPIC_STREAM_HEAD = [
+	anthropicFrame("message_start", {
+		type: "message_start",
+		message: {
+			id: "msg_1",
+			type: "message",
+			role: "assistant",
+			model: "claude-x",
+			content: [],
+			usage: { input_tokens: 7, output_tokens: 0 },
+		},
+	}),
+	anthropicFrame("content_block_start", {
+		type: "content_block_start",
+		index: 0,
+		content_block: { type: "text", text: "" },
+	}),
+	anthropicFrame("content_block_delta", {
+		type: "content_block_delta",
+		index: 0,
+		delta: { type: "text_delta", text: "he" },
+	}),
+	anthropicFrame("content_block_delta", {
+		type: "content_block_delta",
+		index: 0,
+		delta: { type: "text_delta", text: "y" },
+	}),
+	anthropicFrame("content_block_stop", {
+		type: "content_block_stop",
+		index: 0,
+	}),
+];
+
+const ANTHROPIC_STREAM_TAIL = [
+	anthropicFrame("message_delta", {
+		type: "message_delta",
+		delta: { stop_reason: "end_turn", stop_sequence: null },
+		usage: { output_tokens: 3 },
+	}),
+	anthropicFrame("message_stop", { type: "message_stop" }),
+];
+const ANTHROPIC_STREAM = [
+	...ANTHROPIC_STREAM_HEAD,
+	...ANTHROPIC_STREAM_TAIL,
+].join("");
 
 const OPENAI_STREAM = sse([
 	{
@@ -104,26 +150,42 @@ const anthropicReq = (url: string, stream: boolean): Request =>
 		}),
 	});
 
-describe("cross-dialect failover (BUCKLE_CROSS_DIALECT)", () => {
-	test("default off: an anthropic client never hops to an openai upstream", async () => {
-		const ant = await overloaded();
-		const oai = await startMockUpstream(() => Response.json({ id: "x" }));
-		const d = testDeps(
-			poolOf([
-				{ url: ant.url, dialect: "anthropic" },
-				{ url: oai.url, dialect: "openai" },
-			]),
-			{ sleepMs: async () => {} },
+describe("native dialect translation (W426)", () => {
+	test("default: anthropic client reaches a SOLO openai upstream (the W1 502 wall falls)", async () => {
+		const oai = await startMockUpstream(() =>
+			Response.json({
+				id: "c2",
+				model: "gpt-x",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "yo" },
+						finish_reason: "stop",
+					},
+				],
+				usage: { prompt_tokens: 4, completion_tokens: 2 },
+			}),
 		);
-		const res = await createApp(d).fetch(anthropicReq(ant.url, false));
-		expect(res.status).toBe(502);
-		expect(oai.calls.length).toBe(0);
-		ant.close();
+		const d = testDeps(poolOf([{ url: oai.url, dialect: "openai" }]), {
+			sleepMs: async () => {},
+		});
+		const res = await createApp(d).fetch(anthropicReq(oai.url, false));
+		expect(res.status).toBe(200);
+		expect(JSON.parse(res.headers.get("x-belt-route") ?? "{}").decision).toBe(
+			"policy",
+		);
+		const msg = (await res.json()) as Record<string, unknown>;
+		expect(msg).toMatchObject({
+			type: "message",
+			content: [{ type: "text", text: "yo" }],
+			stop_reason: "end_turn",
+		});
+		await Bun.sleep(10);
+		expect(d.ledger.rows()[0]?.in_tok).toBe(4);
 		oai.close();
 	});
 
-	test("on: anthropic streaming client fails over to openai, e2e SSE translated", async () => {
-		process.env.BUCKLE_CROSS_DIALECT = "on";
+	test("anthropic streaming client fails over to openai, e2e SSE translated", async () => {
 		const ant = await overloaded();
 		const oai = await startMockUpstream(
 			() =>
@@ -196,8 +258,7 @@ describe("cross-dialect failover (BUCKLE_CROSS_DIALECT)", () => {
 		oai.close();
 	});
 
-	test("on: anthropic JSON client gets an anthropic message from an openai upstream", async () => {
-		process.env.BUCKLE_CROSS_DIALECT = "on";
+	test("anthropic JSON client gets an anthropic message from an openai upstream", async () => {
 		const ant = await overloaded();
 		const oai = await startMockUpstream(() =>
 			Response.json({
@@ -234,8 +295,7 @@ describe("cross-dialect failover (BUCKLE_CROSS_DIALECT)", () => {
 		oai.close();
 	});
 
-	test("on: openai JSON client fails over to an anthropic upstream", async () => {
-		process.env.BUCKLE_CROSS_DIALECT = "on";
+	test("openai JSON client fails over to an anthropic upstream", async () => {
 		const oaiDown = await startMockUpstream(() =>
 			Response.json({ error: { message: "down" } }, { status: 503 }),
 		);
@@ -284,12 +344,16 @@ describe("cross-dialect failover (BUCKLE_CROSS_DIALECT)", () => {
 		ant.close();
 	});
 
-	test("on: openai STREAMING client never hops to anthropic (no stream mirror)", async () => {
-		process.env.BUCKLE_CROSS_DIALECT = "on";
+	test("openai STREAMING client hops to anthropic, e2e SSE mirrored", async () => {
 		const oaiDown = await startMockUpstream(() =>
 			Response.json({ error: { message: "down" } }, { status: 503 }),
 		);
-		const ant = await startMockUpstream(() => Response.json({ id: "x" }));
+		const ant = await startMockUpstream(
+			() =>
+				new Response(ANTHROPIC_STREAM, {
+					headers: { "content-type": "text/event-stream" },
+				}),
+		);
 		const d = testDeps(
 			poolOf([
 				{ url: oaiDown.url, dialect: "openai" },
@@ -307,8 +371,22 @@ describe("cross-dialect failover (BUCKLE_CROSS_DIALECT)", () => {
 				}),
 			}),
 		);
-		expect(res.status).toBe(502);
-		expect(ant.calls.length).toBe(0);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("text/event-stream");
+		const frames = (await res.text())
+			.split("\n\n")
+			.filter((b) => b.startsWith("data: ") && b !== "data: [DONE]")
+			.map((b) => JSON.parse(b.slice(6)) as Record<string, unknown>);
+		const bodyText = JSON.stringify(frames);
+		expect(bodyText).toContain('"role":"assistant"');
+		expect(bodyText).toContain('"content":"he"');
+		expect(bodyText).toContain('"content":"y"');
+		expect(bodyText).toContain('"finish_reason":"stop"');
+		expect(bodyText).toContain('"prompt_tokens":7');
+		expect(bodyText).toContain('"completion_tokens":3');
+		await Bun.sleep(10);
+		expect(d.ledger.rows()[0]?.in_tok).toBe(7);
+		expect(d.ledger.rows()[0]?.out_tok).toBe(3);
 		oaiDown.close();
 		ant.close();
 	});

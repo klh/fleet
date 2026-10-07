@@ -7,6 +7,7 @@
 // streams record requests without token columns — honest omission, never
 // estimated.
 
+import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import {
 	affinityOn,
 	affKeyOf,
@@ -45,7 +46,6 @@ import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
 import { SseSniffer } from "./sse.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
-import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
 
 export interface AppDeps {
@@ -60,6 +60,7 @@ export interface AppDeps {
 		dialect: Dialect;
 		hint: RouteHint | null;
 		hintRaw: string;
+		allowCross: boolean;
 	}) => DecideResult;
 	table: CandidateTable;
 	// W142 knowledge aids: the metering ledger, the preseed builder, and the
@@ -292,6 +293,8 @@ async function proxy(
 		dialect,
 		hint: ctx.hint,
 		hintRaw: ctx.hintRaw,
+		// count_tokens never bridges (openai wire has no count endpoint)
+		allowCross: path !== "/v1/messages/count_tokens",
 	});
 	if (!sel.ok) {
 		deps.sm

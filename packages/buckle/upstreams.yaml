@@ -56,6 +56,19 @@ groups:
       adapter: anthropic
       api_key_env: ANTHROPIC_API_KEY
 
+# W426 native dialect-translation tier: dialect no longer walls a group off.
+# A request on either ingress may reach ANY deployment — same-dialect rows
+# rank first (byte-identical pass-through), other-dialect rows follow and
+# their bodies/SSE are translated natively (W134 §5 transforms, both
+# directions, streaming included). count_tokens never translates. Example
+# mixed-dialect group (comments only — activation is a BUCKLE_UPSTREAMS
+# override; keys stay in env vars):
+#
+#  glm-5.3-flash:
+#    - url: http://127.0.0.1:8902
+#      dialect: openai          # serves /v1/messages clients via translation
+#      adapter: openai-compat
+
 # W150 catalog examples (comments only — activation is a BUCKLE_UPSTREAMS
 # override; keys stay in env vars named in api_key_env, values never here).
 # The adapter: field may name a family, a catalog provider, or — with an
