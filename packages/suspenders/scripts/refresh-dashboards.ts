@@ -16,7 +16,7 @@ import { dirname, join, relative, isAbsolute } from "node:path";
 import { hostname } from "node:os";
 import { syncHarness } from "./sync-harness.ts";
 
-const groups = [
+export const dashboardCodeGroups = [
 	{
 		package: "belt/bin",
 		destination: "belt",
@@ -40,6 +40,7 @@ const groups = [
 			"health.ts",
 			"klh-local.ts",
 			"dns-reconcile.ts",
+			"dns-maintenance.ts",
 			"dashboard-page.html",
 			"klh-theme.ts",
 			"vendor/lit-shared.js",
@@ -105,7 +106,7 @@ export async function refreshDashboards(
 	const belt = join(options.home, ".claude/local-llm");
 	const local = join(options.home, ".local/klh-local/bin");
 	const destinations = { belt, local };
-	const files = groups.flatMap((group) =>
+	const files = dashboardCodeGroups.flatMap((group) =>
 		group.files.map((file) => ({
 			source: join(root, group.package, file),
 			target: join(destinations[group.destination], file),
