@@ -47,6 +47,7 @@ const ENTRYPOINTS = [
 	"hooks/bin/coord.ts",
 	"hooks/bin/work.ts",
 	"hooks/bin/fleet-loop.ts",
+	"hooks/bin/fleet-tracker.ts",
 	"hooks/bin/morph.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
@@ -325,7 +326,7 @@ export async function syncHarness(
 			{ mode: 0o600 },
 		);
 		mkdirSync(ctx.shimBin, { recursive: true });
-		for (const name of ["coord", "work", "dispatch"]) {
+		for (const name of ["coord", "work", "dispatch", "fleet-tracker"]) {
 			const path = join(ctx.shimBin, name);
 			if (existsSync(path) && lstatSync(path).isSymbolicLink())
 				throw new Error(`Refusing symlink shim: ${name}`);
