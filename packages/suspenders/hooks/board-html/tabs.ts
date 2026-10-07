@@ -6,7 +6,8 @@ function pollActiveTab(){
   if (curTab === 'tasks' || curTab === 'lanes') pollTasks();
   else if (curTab === 'activity') pollAct();
   else if (curTab === 'decisions') pollHist(); // no-op while history is collapsed
-  // governor rides /api/data; setup fetches on activation
+  else if (curTab === 'setup') pollSetup();
+  // governor rides /api/data
 }
 function renderTab(){
   if (curTab === 'decisions') renderHist();
