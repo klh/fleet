@@ -22,31 +22,42 @@
 name: klh-hub-${HUB_NAME:-desktop}
 
 services:
-  # Repo sidecars: the hub pulls its code from the git origins at a pinned
-  # ref into named volumes — NO host-path bind mounts of dev checkouts.
-  # Idempotent: clone when absent, fetch+reset to the ref when present, so a
-  # re-`up` redeploys. Override via HUB_*_REPO_URL / HUB_*_REF in the .env.
-  buckle-repo:
+  # One pinned Fleet checkout shared by every package. Existing state and
+  # secret volumes retain their names; only the code volume is replaced.
+  fleet-repo:
     image: alpine/git
-    container_name: ${HUB_NAME:-desktop}-buckle-repo
+    container_name: ${HUB_NAME:-desktop}-fleet-repo
     entrypoint: ["sh", "-c"]
     command:
-      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_BUCKLE_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_BUCKLE_REF" "$$HUB_BUCKLE_REPO_URL" /srv/repo; fi
+      - if [ ! -d /srv/repo/.git ]; then git init /srv/repo && git -C /srv/repo remote add origin "$HUB_FLEET_REPO_URL"; fi; git -C /srv/repo remote set-url origin "$HUB_FLEET_REPO_URL" && git -C /srv/repo fetch --depth 1 origin "$HUB_FLEET_REF" && git -C /srv/repo reset --hard FETCH_HEAD
     environment:
-      HUB_BUCKLE_REF: ${HUB_BUCKLE_REF:-main}
-      HUB_BUCKLE_REPO_URL: ${HUB_BUCKLE_REPO_URL:-https://github.com/klh/buckle.git}
+      HUB_FLEET_REF: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_FLEET_REPO_URL: ${HUB_FLEET_REPO_URL:-https://github.com/klh/fleet.git}
     volumes:
-      - buckle-repo:/srv/repo
+      - fleet-repo:/srv/repo
+
+  fleet-deps:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-fleet-deps
+    working_dir: /src/fleet
+    command: bun install --frozen-lockfile --ignore-scripts
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+    depends_on:
+      fleet-repo:
+        condition: service_completed_successfully
+    volumes:
+      - fleet-repo:/src/fleet
 
   buckle-hub:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-buckle-hub
     network_mode: host
     restart: unless-stopped
-    working_dir: /src/buckle
+    working_dir: /src/fleet/packages/buckle
     command: bun run src/server.ts
     depends_on:
-      buckle-repo:
+      fleet-deps:
         condition: service_completed_successfully
     env_file:
       # break-glass root credential (drift-never + secrets law): generated
@@ -57,16 +68,17 @@ services:
       # fails `up` (compose stats it before creating the service).
       - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
       BUCKLE_BIND: ${HUB_BUCKLE_BIND:-127.0.0.1}
       BUCKLE_DB: /state/buckle/buckle.db
-      BUCKLE_POLICY: /src/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: /src/buckle/upstreams.yaml
+      BUCKLE_POLICY: /src/fleet/packages/buckle/routing-policy.yaml
+      BUCKLE_UPSTREAMS: /src/fleet/packages/buckle/upstreams.yaml
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
     volumes:
-      - buckle-repo:/src/buckle:ro
+      - fleet-repo:/src/fleet:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
 
@@ -82,11 +94,12 @@ services:
     depends_on:
       buckle-hub:
         condition: service_started
-    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
+    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BUCKLE_HEALTH_PORT: ${HUB_BUCKLE_HEALTH_PORT:-4112}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -96,25 +109,14 @@ services:
       retries: 3
       start_period: 15s
 
-  suspenders-repo:
-    image: alpine/git
-    container_name: ${HUB_NAME:-desktop}-suspenders-repo
-    entrypoint: ["sh", "-c"]
-    command:
-      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_SUSPENDERS_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_SUSPENDERS_REF" "$$HUB_SUSPENDERS_REPO_URL" /srv/repo; fi
-    environment:
-      HUB_SUSPENDERS_REF: ${HUB_SUSPENDERS_REF:-main}
-      HUB_SUSPENDERS_REPO_URL: ${HUB_SUSPENDERS_REPO_URL:-https://github.com/klh/suspenders.git}
-    volumes:
-      - suspenders-repo:/srv/repo
-
   board-hub:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-board-hub
     network_mode: host
     restart: unless-stopped
-    command: bun /src/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
+    command: bun /src/fleet/packages/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
       # the healthcheck reads the port from the container env — export what
       # the command flag resolved to, or the probe hits the default and
@@ -125,10 +127,10 @@ services:
       # LAN service-discovery feed (recovery map); unset/empty = none
       SUSPENDERS_SERVICES_JSON: ${HUB_SERVICES_JSON:-}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
       - hub-state:/state/hub-home
     depends_on:
-      suspenders-repo:
+      fleet-deps:
         condition: service_completed_successfully
       store-health:
         condition: service_healthy
@@ -141,11 +143,12 @@ services:
     depends_on:
       board-hub:
         condition: service_started
-    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
+    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BOARD_HEALTH_PORT: ${HUB_BOARD_HEALTH_PORT:-7800}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -160,16 +163,17 @@ services:
     container_name: ${HUB_NAME}-store-hub
     network_mode: host
     restart: unless-stopped
-    command: bun /src/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
+    command: bun /src/fleet/packages/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
     depends_on:
-      suspenders-repo:
+      fleet-deps:
         condition: service_completed_successfully
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
       # same healthcheck-port law as board-hub: export the resolved port
       HUB_STORE_PORT: ${HUB_STORE_PORT:-7796}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
       - hub-state:/state/hub-home
 
   store-health:
@@ -180,11 +184,12 @@ services:
     depends_on:
       store-hub:
         condition: service_started
-    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
+    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_STORE_HEALTH_PORT: ${HUB_STORE_HEALTH_PORT:-7794}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -194,33 +199,22 @@ services:
       retries: 3
       start_period: 15s
 
-  belt-repo:
-    image: alpine/git
-    container_name: ${HUB_NAME:-desktop}-belt-repo
-    entrypoint: ["sh", "-c"]
-    command:
-      - if [ -d /srv/repo/.git ]; then git -C /srv/repo fetch --depth 1 origin "$$HUB_BELT_REF" && git -C /srv/repo reset --hard FETCH_HEAD; else git clone --depth 1 --branch "$$HUB_BELT_REF" "$$HUB_BELT_REPO_URL" /srv/repo; fi
-    environment:
-      HUB_BELT_REF: ${HUB_BELT_REF:-main}
-      HUB_BELT_REPO_URL: ${HUB_BELT_REPO_URL:-https://github.com/klh/belt.git}
-    volumes:
-      - belt-repo:/srv/repo
-
   belt-hub:
     image: oven/bun:1
     container_name: ${HUB_NAME:-desktop}-belt-hub
     ports:
       - "${HUB_BELT_BIND:-127.0.0.1}:${HUB_BELT_PORT:-7792}:7791"
     restart: unless-stopped
-    command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun /src/belt/bin/dashboard.ts'
+    command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun /src/fleet/packages/belt/bin/dashboard.ts'
     depends_on:
-      belt-repo:
+      fleet-deps:
         condition: service_completed_successfully
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/belt-home
       BELT_PORT: "7791"
     volumes:
-      - belt-repo:/src/belt:ro
+      - fleet-repo:/src/fleet:ro
       - belt-state:/state/belt-home
 
   belt-health:
@@ -231,11 +225,12 @@ services:
     depends_on:
       belt-hub:
         condition: service_started
-    command: bun /src/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
+    command: bun /src/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BELT_HEALTH_PORT: ${HUB_BELT_HEALTH_PORT:-7790}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -256,23 +251,22 @@ services:
     container_name: ${HUB_NAME:-desktop}-peer-pull
     network_mode: host
     restart: unless-stopped
-    command: bun /src/suspenders/hooks/bin/federation-peers.ts
+    command: bun /src/fleet/packages/suspenders/hooks/bin/federation-peers.ts
     depends_on:
-      suspenders-repo:
+      fleet-deps:
         condition: service_completed_successfully
     environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
       KLH_HUB_NAME: ${HUB_NAME:-desktop}
       HUB_PEERS: ${HUB_PEERS:-}
       FEDERATION_PEERS_INTERVAL_S: ${FEDERATION_PEERS_INTERVAL_S:-300}
     volumes:
-      - suspenders-repo:/src/suspenders:ro
+      - fleet-repo:/src/fleet:ro
       - hub-state:/state/hub-home
 
 volumes:
-  buckle-repo:
-  suspenders-repo:
-  belt-repo:
+  fleet-repo:
   buckle-state:
   hub-state:
   hub-secrets:

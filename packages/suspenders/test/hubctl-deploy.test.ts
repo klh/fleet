@@ -125,7 +125,7 @@ test("deploy runs the full chain: mint → push → up → probes gate exit", ()
 	const env = readFileSync(join(deployDir, ".env"), "utf8");
 	expect(env).toContain("HUB_NAME=w363");
 	expect(env).toContain("HUB_BUCKLE_PORT=14301");
-	expect(env).toContain("HUB_BUCKLE_REF=v1.2.3-w363");
+	expect(env).toContain("HUB_FLEET_REF=v1.2.3-w363");
 	expect(env).toContain("HUB_BUCKLE_AUTH=off");
 	expect(env).toContain(`HUB_BUCKLE_ENV_FILE=${rootKeyPath}`);
 	expect(env).toContain("HUB_ALLOWED_HOSTS=w363.local");
@@ -162,6 +162,18 @@ test("unknown hub names fail the deploy before anything runs", () => {
 	resetCalls();
 	const r = hubctl(["deploy", "hub-missing"]);
 	expect(r.code).toBe(1);
+	expect(readFileSync(calls, "utf8")).toBe("");
+});
+
+test("an unpinned deployment is refused before mint, push or up", () => {
+	resetCalls();
+	const unpinned = join(dir, "unpinned-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	delete config.version;
+	writeFileSync(unpinned, JSON.stringify(config));
+	const result = hubctl(["deploy", "w363"], { KLH_STACK: unpinned });
+	expect(result.code).toBe(1);
+	expect(result.out).toContain("requires a pinned stack version");
 	expect(readFileSync(calls, "utf8")).toBe("");
 });
 
