@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 const files = [
 	"swarm.ts",
+	"kill-listeners.ts",
 	"serve-observation.ts",
 	"observation.ts",
 	"health.ts",
