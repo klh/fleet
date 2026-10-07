@@ -174,6 +174,11 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 		// native since W490.2 — renders deploy/services.yaml via install-services.ts
 		return `bun ${join(ctx.repo, "scripts/install.ts")} --step registerLaunchd --yes`;
 	}
+	if (step.name === "deployHub") {
+		// v1 stub: hub deploys ride the bash flag (deploy/hubctl.ts); the hub
+		// name is operator data from stack.yaml, filled in before running
+		return `bash ${join(ctx.repo, "install.sh")} --hub <hub>`;
+	}
 	// the wrapper front is consented-by-design (bash surface semantics), and
 	// --yes makes the resume self-sufficient through the TS plan runner
 	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;

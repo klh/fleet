@@ -5,7 +5,7 @@
 # step yet (each marked TODO(install.ts) inline). Flags unchanged:
 #   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models]
 #                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
-#                [--yes] [--json] [--verbose] [--step <name>]
+#                [--hub <name>] [--yes] [--json] [--verbose] [--step <name>]
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
@@ -244,9 +244,14 @@ LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
 LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0
 NATIVE=()
 prev_step=0
+LEG_HUB=""
+hub_seen=0
+hub_pending=0
 for arg in "$@"; do
   if [[ $prev_step -eq 1 ]]; then NATIVE+=("$arg"); prev_step=0; continue; fi
+  if [[ $hub_pending -eq 1 ]]; then LEG_HUB="$arg"; hub_pending=0; continue; fi
   case "$arg" in
+    --hub) hub_seen=1; hub_pending=1 ;;
     --wire) LEG_WIRE=1 ;;
     --with-launchd) LEG_WITH_LAUNCHD=1 ;;
     --skip-models) LEG_SKIP_MODELS=1 ;;
@@ -260,6 +265,22 @@ for arg in "$@"; do
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
+
+if [[ $hub_seen -eq 1 && -z "$LEG_HUB" ]]; then
+  echo "--hub needs a hub name from ~/.config/klh/stack.yaml" >&2
+  exit 2
+fi
+
+# --hub <name>: install-grade hub deploy — materialize the hub from the
+# machine-level stack.yaml (mint → push → up → status via deploy/hubctl.ts).
+# Replaces the W310-era one-off docker-run/compose invocations. --dry-run
+# renders the hub .env only (zero side effects).
+if [[ $hub_seen -eq 1 ]]; then
+  if [[ $LEG_DRY_RUN -eq 1 ]]; then
+    exec bun "$SCRIPT_DIR/deploy/hubctl.ts" render "$LEG_HUB"
+  fi
+  exec bun "$SCRIPT_DIR/deploy/hubctl.ts" deploy "$LEG_HUB"
+fi
 
 if [[ $LEG_GATEWAY -eq 1 ]]; then
   exec bun "$SCRIPT_DIR/scripts/refresh-gateway.ts" ${NATIVE[@]+"${NATIVE[@]}"}

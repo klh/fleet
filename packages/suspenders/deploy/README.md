@@ -7,14 +7,18 @@ everything is data in runtime config.
 
 ## Deploy a hub
 
-Docker Desktop (this Mac):
+One command, any hub (W363) — the hub's section in the machine stack.yaml is
+the whole brief; the installer materializes it (mint → push → up, probe-gated
+status):
 
-    HUB_NAME=desktop HUB_BUCKLE_PORT=4111 HUB_BOARD_PORT=7809 \
-    HUB_STORE_PORT=7796 HUB_BELT_PORT=7792 \
-    docker compose -f deploy/hub-compose.yaml -p klh-hub-desktop up -d
+    bash install.sh --hub <name>          # from packages/suspenders
+    bun deploy/hubctl.ts deploy <name>    # the same chain, hubctl-direct
+    bash install.sh --hub <name> --dry-run  # renders the hub .env only
 
-NAS ($NAS_HOST — same template, compose-managed via hubctl; replaces the
-W318-era docker-run one-offs):
+Docker Desktop (this Mac): the desktop hub's deploy.dir is a local path and
+no ssh target is declared, so mint/push/up run locally. NAS ($NAS_HOST —
+same template, compose-managed via `--hub`; retires the W310 Docker Desktop
+one-off and the W318-era docker-run rows):
 
     # the machine config (~/.config/klh/stack.yaml) declares the hub: ports,
     # binds, repo trees, deploy transport (ssh/dir/docker), secret PATHS.
