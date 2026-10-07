@@ -2,7 +2,14 @@
 // resolution with ip_fallback, protocol probes, and openai chat routing —
 // proven against a real local stub server (Bun.serve), not mocks.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import {
 	authHeaders,
 	chatRemote,
@@ -40,8 +47,7 @@ const stub = Bun.serve({
 // 421s any request arriving by raw IP with no SNI/Host match. The
 // self-signed cert needs NODE_TLS_REJECT_UNAUTHORIZED=0, scoped to this
 // file's tests only (restored in afterAll).
-const certDir = `${import.meta.dir}/.tmp-remotes-tls`;
-mkdirSync(certDir, { recursive: true });
+const certDir = mkdtempSync(`${tmpdir()}/suspenders-remotes-tls-`);
 Bun.spawnSync([
 	"openssl",
 	"req",
@@ -81,7 +87,7 @@ const tlsStub = Bun.serve({
 });
 
 // ─── fixture config: HOME pointed at a temp dir ───────────────────────────
-const TMP = `${import.meta.dir}/.tmp-remotes-home`;
+const TMP = mkdtempSync(`${tmpdir()}/suspenders-remotes-home-`);
 const EP: RemoteEndpoint = {
 	port: stub.port,
 	protocol: "openai",
