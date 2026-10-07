@@ -10,6 +10,7 @@ import {
 	mkdtempSync,
 	rmSync,
 	symlinkSync,
+	chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -229,6 +230,97 @@ describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnosti
 		expect(first.out).not.toContain("fallback-model");
 		rmSync(join(REPO, ".prefer"));
 	});
+});
+
+describe("crash resume budget", () => {
+	test("automatic failure cannot alter another owner's claim", () => {
+		const id =
+			(tool("work.ts", "add", "ownership-safe failure fixture").out.match(
+				/W\d+/,
+			) ?? [])[0] ?? "";
+		expect(tool("work.ts", "take", id, "--as", "current-owner").code).toBe(0);
+		expect(tool("work.ts", "fail", id, "--as", "stale-owner").code).not.toBe(0);
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"CLAIMED"',
+		);
+	});
+	test("single-executor crashes persist increasing attempts and stop at the configured cap", async () => {
+		const fakeBin = join(HOME, "fake-bin");
+		mkdirSync(fakeBin, { recursive: true });
+		writeFileSync(join(fakeBin, "claude"), "#!/bin/sh\nexit 0\n");
+		chmodSync(join(fakeBin, "claude"), 0o700);
+		const id =
+			(tool("work.ts", "add", "bounded single-executor fixture").out.match(
+				/W\d+/,
+			) ?? [])[0] ?? "";
+		const extra = {
+			PATH: `${fakeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+			SUSPENDERS_LANE_MAX_ATTEMPTS: "2",
+		};
+		const registry = join(REPO, ".fleet", "lanes.json");
+		for (const attempt of [0, 1]) {
+			const result = dispatchWith(
+				extra,
+				"--item",
+				id,
+				"--no-belt",
+				"--allow-ungoverned",
+			);
+			expect(result).toMatchObject({ code: 0 });
+			const lanes = JSON.parse(readFileSync(registry, "utf8"));
+			const lane = lanes.find((l: { item: string }) => l.item === id);
+			expect(lane?.attempt).toBe(attempt);
+			await Bun.sleep(25);
+			lane.pid = 99999999;
+			lane.launchedAt = 1;
+			writeFileSync(registry, JSON.stringify(lanes));
+		}
+		expect(dispatchWith(extra, "--item", id).out).toContain(
+			"resume budget exhausted",
+		);
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"FAILED"',
+		);
+		// An explicit item request cannot bypass terminal state via owner text.
+		expect(dispatchWith(extra, "--item", id).out).not.toContain("(pid");
+		rmSync(registry);
+	}, 60_000);
+
+	test("exhausted dead claim is preserved on preview and failed before another launch", () => {
+		const added = tool("work.ts", "add", "exhausted resume fixture");
+		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
+		const sid = `autow${id.slice(1)}`;
+		expect(tool("work.ts", "take", id, "--as", sid).code).toBe(0);
+		const fleet = join(REPO, ".fleet");
+		mkdirSync(fleet, { recursive: true });
+		writeFileSync(
+			join(fleet, "lanes.json"),
+			JSON.stringify([
+				{
+					sid,
+					item: id,
+					pid: 99999999,
+					branch: `suspenders/${id}`,
+					worktree: join(REPO, ".worktrees", id),
+					launchedAt: 1,
+					attempt: 2,
+				},
+			]),
+		);
+		const preview = dispatch("--dry-run", "--item", id);
+		expect(preview.out).toContain("resume budget exhausted");
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"CLAIMED"',
+		);
+		const result = dispatch("--item", id);
+		expect(result.out).toContain("resume budget exhausted");
+		expect(result.out).not.toContain("REFUSED");
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"FAILED"',
+		);
+		expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
+		rmSync(join(fleet, "lanes.json"));
+	}, 60_000);
 });
 // ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
 // NOTE: e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not

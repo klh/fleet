@@ -1081,9 +1081,18 @@ if (cmd === "add") {
 } else if (cmd === "fail") {
 	const id = pos[0];
 	const note = flag("--note") ?? "";
-	get(id ?? "");
-	setState(id, "FAILED");
-	emit("work.failed", id, { note });
+	const as = flag("--as");
+	db().transaction(() => {
+		const it = get(id ?? "");
+		if (
+			as &&
+			(it.owner_sid !== resolveSid(String(as)) ||
+				!["CLAIMED", "RUNNING"].includes(it.state as string))
+		)
+			die(`${id} is not an unfinished claim owned by ${as} — failure refused`);
+		setState(id, "FAILED");
+		emit("work.failed", id, { note });
+	})();
 	console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
 } else if (cmd === "supersede") {
 	const id = pos[0];

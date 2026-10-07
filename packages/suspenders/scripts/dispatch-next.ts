@@ -48,6 +48,7 @@ import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { readBoardSettings } from "../hooks/lib/board-config.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
+import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 
 const argv = process.argv.slice(2);
 const val = (flag: string): string | undefined => {
@@ -625,6 +626,39 @@ const dispatchItem = async (
 	resume?: Lane,
 ): Promise<string | null> => {
 	const sid = resume?.sid ?? sidOf(item);
+	const attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
+	const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
+	if (resume && attempt >= limit) {
+		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
+		console.log(`${DRY ? "DRY" : "STOP"} ${note}`);
+		if (!DRY) {
+			const failed = run([
+				process.execPath,
+				`${BIN}/work.ts`,
+				"fail",
+				item,
+				"--as",
+				sid,
+				"--note",
+				note,
+			]);
+			if (failed.code !== 0) throw new Error(failed.out);
+			log(`lane.retry-exhausted ${item} ${sid}`);
+			run([
+				process.execPath,
+				`${BIN}/coord.ts`,
+				"emit",
+				"NEED_DECISION",
+				"--as",
+				sid,
+				"--scope",
+				"suspenders",
+				"--note",
+				note,
+			]);
+		}
+		return null;
+	}
 	const wt = `${REPO}/.worktrees/${item}`;
 	if (DRY) {
 		// read-only end to end: no claim, no worktree, no brief file, no spawn
@@ -634,7 +668,6 @@ const dispatchItem = async (
 			? sh(["git", "-C", wt, "branch", "--show-current"]) ||
 				`suspenders/${item}`
 			: `suspenders/${item}`;
-		const attempt = resume?.attempt !== undefined ? resume.attempt + 1 : 0;
 		const pick = execPick(attempt);
 		console.log(`DRY dispatch ${item} → ${sid}${capsule ? " (RESUME)" : ""}`);
 		if (pick.chainLen > 1)
@@ -674,8 +707,14 @@ const dispatchItem = async (
 		`${hostname()}:claude`,
 	]);
 	if (take.code !== 0) {
-		const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
-		if (!show.out.includes(sid)) {
+		const show = run([
+			process.execPath,
+			`${BIN}/work.ts`,
+			"show",
+			item,
+			"--json",
+		]);
+		if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 			console.log(
 				`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
 			);
@@ -704,7 +743,6 @@ const dispatchItem = async (
 	// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
 	// attempt N having died is exactly the signal to try chain[N+1] next
 	// (owner directive 2026-10-03: sequential must/prefer, CLI-agnostic).
-	const attempt = resume?.attempt !== undefined ? resume.attempt + 1 : 0;
 	const pick = execPick(attempt);
 	if (pick.chainLen > 1)
 		console.log(
@@ -953,7 +991,7 @@ const dispatchItem = async (
 		host: hostname(),
 		hub: resolvedHub,
 		launchedAt: Date.now(),
-		attempt: pick.chainIdx,
+		attempt,
 	};
 	lanes.push(entry);
 	log(`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch})${hubNote}`);
