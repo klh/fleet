@@ -34,7 +34,10 @@ function renderSetup(){
   var html = '';
   for (var i = 0; i < cs.length; i++) {
     var c = cs[i] || {};
-    html += '<div class="card scard"><div class="shead"><span class="sok ' + (c.ok ? 'ok' : 'fail') + '">' + (c.ok ? 'ok' : 'fail') + '</span> <b>' + esc(c.label || c.id || '?') + '</b></div>' +
+    var idle = c.state === 'idle' && c.observation && Date.now() < c.observation.expiresAt;
+    var badge = idle ? 'idle' : (c.ok ? 'ok' : 'fail');
+    var tone = idle ? 'dim' : badge;
+    html += '<div class="card scard"><div class="shead"><span class="sok ' + tone + '">' + badge + '</span> <b>' + esc(c.label || c.id || '?') + '</b></div>' +
       '<div class="sdetail dim">' + esc(String(c.detail || '')) + '</div>' +
       (c.fix ? '<div class="sfix"><code>' + esc(String(c.fix)) + '</code> <button type="button" class="copyfix" data-fix="' + esc(String(c.fix)) + '">copy</button></div>' : '') +
       '</div>';

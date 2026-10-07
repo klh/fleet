@@ -1,3 +1,4 @@
+import { adviceReadiness } from "./advice-readiness.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
@@ -189,21 +190,7 @@ export function settingsCommands(kind: string): string[] {
 	}
 }
 
-export async function llmCheck(): Promise<{ ok: boolean; detail: string }> {
-	try {
-		const r = await fetch(`${LLM_ORIGIN}/v1/models`, {
-			signal: AbortSignal.timeout(1500),
-		});
-		return {
-			ok: r.ok,
-			detail: r.ok
-				? `${LLM_ORIGIN} answers`
-				: `HTTP ${r.status} from ${LLM_ORIGIN}`,
-		};
-	} catch {
-		return { ok: false, detail: `no answer from ${LLM_ORIGIN} within 1.5s` };
-	}
-}
+export const llmCheck = () => adviceReadiness(LLM_ORIGIN);
 
 export async function setupChecks(): Promise<unknown[]> {
 	const launchdPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.fleet-monitor.plist`;
@@ -264,8 +251,10 @@ export async function setupChecks(): Promise<unknown[]> {
 			id: "llm",
 			label: "Advice LLM endpoint",
 			ok: llm.ok,
+			state: llm.state,
+			observation: llm.observation,
 			detail: llm.detail,
-			fix: llm.ok ? null : "local LLM stack docs",
+			fix: llm.ok || llm.state === "idle" ? null : "local LLM stack docs",
 		},
 		{ id: "bind", label: "LAN binding", ok: true, detail: BIND, fix: null },
 	];
