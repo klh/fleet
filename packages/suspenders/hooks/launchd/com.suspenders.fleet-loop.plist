@@ -17,6 +17,8 @@
 		<string>watch</string>
 		<string>--repo</string>
 		<string>__REPO__</string>
+		<string>--target</string>
+		<string>6</string>
 		<string>--glob</string>
 		<string>suspenders/*</string>
 		<string>--ladder</string>

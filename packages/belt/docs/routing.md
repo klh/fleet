@@ -57,6 +57,7 @@ bun bin/registry-emit.ts litellm   # LiteLLM model_list (:4100 engine)
 bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers
 bun bin/registry-emit.ts buckle    # buckle upstreams.yaml groups (merge via BUCKLE_UPSTREAMS)
 bun bin/registry-emit.ts json      # registry document
+bun bin/registry-emit.ts tier      # tier manifest (tier + warm_ports — swarm + keepwarm read it; W507)
 bun bin/registry-emit.ts all --out DIR
 ```
 `bin/gateway-config.ts` builds its local tiers from the registry (live

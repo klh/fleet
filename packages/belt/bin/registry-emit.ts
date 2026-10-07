@@ -6,7 +6,8 @@
 //   bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers
 //   bun bin/registry-emit.ts buckle    # buckle upstreams.yaml model section
 //   bun bin/registry-emit.ts json      # the registry document (= /registry.json)
-//   bun bin/registry-emit.ts all --out DIR   # all four into DIR
+//   bun bin/registry-emit.ts tier      # tier manifest (tier + warm_ports → tier.json)
+//   bun bin/registry-emit.ts all --out DIR   # all five into DIR
 //   … <kind> --out FILE                # one kind into FILE (default stdout)
 //
 // Hash-stable: no timestamps, port-sorted rows — the same registry emits
@@ -21,6 +22,8 @@ import {
 	type RegistryEntry,
 	registryDoc,
 	registryEntries,
+	resolveTier,
+	residentSet,
 } from "./registry.ts";
 
 const HEADER =
@@ -105,6 +108,18 @@ export function emitBuckleUpstreams(
 export const registryJson = (doc: RegistryDoc = registryDoc()): string =>
 	`${JSON.stringify(doc, null, "\t")}\n`;
 
+/** Tier manifest — the machine's resident-fleet config (tier + warm ports)
+ *  as ONE emission both runtime consumers read (W507): the swarm supervisor
+ *  takes `tier` via residentSet(), llm-keepwarm takes `warm_ports` directly.
+ *  Service units carry no tier env; a missing manifest fails safe to the
+ *  ≤4GB set in llm-keepwarm. Emission-time tier = BELT_TIER env override →
+ *  an existing manifest → "full" (resolveTier's precedence). Hash-stable. */
+export function emitTierManifest(): string {
+	const tier = resolveTier();
+	const warm = residentSet().map((s) => s.port);
+	return `${JSON.stringify({ version: 1, tier, warm_ports: warm }, null, "\t")}\n`;
+}
+
 /** Strong ETag over the exact body bytes. */
 export function registryEtag(body: string): string {
 	const h = new Bun.CryptoHasher("sha256").update(body).digest("hex");
@@ -139,6 +154,7 @@ export const EMITTERS = {
 	direct: (): string => `${HEADER}\n${emitDirectTiers()}`,
 	buckle: (): string => `${HEADER}\n${emitBuckleUpstreams()}`,
 	json: (): string => registryJson(),
+	tier: (): string => emitTierManifest(),
 } as const;
 type Kind = keyof typeof EMITTERS;
 
@@ -147,6 +163,7 @@ const FILES: Record<Kind, string> = {
 	direct: "routing-direct.yaml",
 	buckle: "upstreams.models.yaml",
 	json: "registry.json",
+	tier: "tier.json",
 };
 
 async function main(argv: string[]): Promise<number> {
@@ -168,7 +185,7 @@ async function main(argv: string[]): Promise<number> {
 	}
 	if (!(kind in EMITTERS)) {
 		console.error(
-			"usage: bun bin/registry-emit.ts <litellm|direct|buckle|json|all> [--out PATH]",
+			"usage: bun bin/registry-emit.ts <litellm|direct|buckle|json|tier|all> [--out PATH]",
 		);
 		return 2;
 	}

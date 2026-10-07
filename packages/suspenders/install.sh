@@ -83,6 +83,14 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   if [ ! -f "$LLM_HOME/health.ts" ]; then
     cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
   fi
+  # W507: the tier choice is machine config, not launchd env — every install
+  # re-emits the tier manifest the swarm supervisor and llm-keepwarm both
+  # read (smallest-fit law = minimal). A stale kit copy (no `tier` kind)
+  # degrades to a note, never a failed install.
+  if [ -f "$LLM_HOME/registry-emit.ts" ]; then
+    BELT_TIER=minimal bun "$LLM_HOME/registry-emit.ts" tier --out "$LLM_HOME/tier.json" \
+      || echo "→ tier manifest emission skipped (stale kit registry-emit.ts)"
+  fi
   # swarm.ts is the one kit file that MAY refresh a present copy: an older
   # installed swarm.ts lacks the serve supervisor, and a serve-less swarm.ts
   # under launchd KeepAlive is exactly the busy-loop flaw this fixes.

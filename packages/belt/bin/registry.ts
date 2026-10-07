@@ -1,6 +1,9 @@
 // registry.ts — SINGLE SOURCE OF TRUTH for the local-llm swarm.
 // swarm.ts (lifecycle) and router-shim.ts (routing) both import this.
 // Port↔model pairs exist ONLY here. Change a model here; both tools follow.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface Specialist {
 	port: SPECIALIST_PORTS;
@@ -256,18 +259,48 @@ export const byPort = (port: number): Specialist | undefined =>
 	SPECIALISTS.find((s) => s.port === port);
 
 // ─── install tier ───
-// BELT_TIER scopes the resident fleet: "full" (default) keeps every resident
-// specialist; "minimal" keeps only ram_gb ≤ 4 (extract :8902 2GB, rerank
-// :8913 1GB) — the fleet a 16GB machine holds. A filter over this registry,
-// not new infrastructure: on-demand models, the router and the dashboard are
-// unchanged. Read once at import; consumers import `residentSet()`.
-export const BELT_TIER: "full" | "minimal" =
-	process.env.BELT_TIER === "minimal" ? "minimal" : "full";
+// The resident-fleet tier scopes SPECIALISTS: "full" keeps every resident;
+// "minimal" keeps only ram_gb ≤ 4 (extract :8902, rerank :8913) — the fleet
+// a 16GB machine holds. A filter over this registry, not new infrastructure:
+// on-demand models, the router and the dashboard are unchanged. Consumers
+// import `residentSet()`.
+//
+// W507: the tier CHOICE is machine config — the emitted tier manifest
+// (registry-emit `tier` → ~/.claude/local-llm/tier.json), written by the
+// installers at deploy time. Service units carry no tier env: every consumer
+// (swarm supervisor, llm-keepwarm) reads the manifest, so both sides of the
+// keepwarm lockstep come from ONE emission (the drift class behind the W500
+// crash trigger). Precedence: explicit BELT_TIER env override → manifest →
+// "full" (today's unconfigured default).
+export type Tier = "full" | "minimal";
 export const TIER_MAX_RAM_GB = 4;
+
+export function tierManifestPath(): string {
+	return (
+		process.env.BELT_TIER_MANIFEST ??
+		join(homedir(), ".claude", "local-llm", "tier.json")
+	);
+}
+
+export function resolveTier(): Tier {
+	if (process.env.BELT_TIER === "minimal" || process.env.BELT_TIER === "full")
+		return process.env.BELT_TIER;
+	try {
+		const doc = JSON.parse(readFileSync(tierManifestPath(), "utf8")) as {
+			tier?: string;
+		};
+		if (doc.tier === "minimal" || doc.tier === "full") return doc.tier;
+	} catch {
+		// no manifest / unreadable / bad tier → unconfigured
+	}
+	return "full";
+}
+
+export const BELT_TIER: Tier = resolveTier();
 
 export function residentSet(): Specialist[] {
 	const resident = SPECIALISTS.filter((s) => s.tier === "resident");
-	return BELT_TIER === "minimal"
+	return resolveTier() === "minimal"
 		? resident.filter((s) => s.ram_gb <= TIER_MAX_RAM_GB)
 		: resident;
 }

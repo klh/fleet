@@ -53,6 +53,13 @@ done
 cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
 echo "→ fleet scripts in place"
 
+# W507: the tier choice is machine config, not launchd env — emit the tier
+# manifest the swarm supervisor and llm-keepwarm both read. BELT_TIER (the
+# --tier flag) scopes the emission; re-running with another --tier re-points
+# the fleet on the next service restart.
+echo "→ tier manifest: $TIER → $PREFIX/tier.json"
+bun "$REPO_DIR/bin/registry-emit.ts" tier --out "$PREFIX/tier.json"
+
 # --with-models / --with-launchd: setup/llm-stack.ts handles homebrew deps
 # (bun/uv), the python tooling (mlx-lm, rapid-mlx), model downloads, the Metal
 # smoke check, per-port rapid plists and the coordination-plane verification.
@@ -77,7 +84,7 @@ if $WITH_LAUNCHD; then
     for f in "$REPO_DIR"/launchd/*.plist; do
       name="$(basename "$f")"
       out="$HOME/Library/LaunchAgents/$name"
-      sed -e "s|__HOME__|$HOME|g" -e "s|__TIER__|$TIER|g" "$f" >"$out"
+      sed -e "s|__HOME__|$HOME|g" "$f" >"$out"
       launchctl bootout "gui/$bUid/${name%.plist}" 2>/dev/null || true
       launchctl bootstrap "gui/$bUid" "$out"
       echo "→ loaded $name"
