@@ -146,8 +146,10 @@ Full doctrine with the measured table: [`docs/routing.md`](docs/routing.md).
 `gateway.litellm_num_retries` independently controls the LiteLLM router
 (integer 0–3, default 1). Set the latter to 0 only where Buckle is verified
 to own retries for all clients. Direct LiteLLM clients retain one retry by
-default. Provider SDK retries stay at 0; configured fallback ladders remain
-in place. Change machine-level `routing-policy.yaml` and regenerate the
+default. Provider SDK retries stay at 0. `gateway.litellm_fallbacks` defaults
+to true; set it to false only after verifying equivalent front-owned fallback
+routes. This omits inner engine ladders while retaining the outer policy.
+Change machine-level `routing-policy.yaml` and regenerate the
 gateway config during an approved maintenance window.
 
 - short tasks → `:8902`, code → `:8901`, deep reasoning → `:8903`,

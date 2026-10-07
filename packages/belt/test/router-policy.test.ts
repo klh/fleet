@@ -128,6 +128,25 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		);
 	});
 
+	test("explicit inner fallback opt-out preserves the front's policy ladder", () => {
+		const policy = parsePolicy(
+			"gateway:\n  litellm_fallbacks: false\n  fallbacks:\n    primary: [secondary]\n",
+		);
+		expect(emitFallbackSettings(policy)).toBe("");
+		expect(policy.fallbacks).toEqual({ primary: ["secondary"] });
+		expect(
+			emitFallbackSettings({ ...policy, litellm_fallbacks: true }),
+		).toContain("primary: [secondary]");
+	});
+
+	test("inner fallbacks default on and reject non-boolean config", () => {
+		expect(parsePolicy("version: 1\n").litellm_fallbacks).toBe(true);
+		for (const invalid of ["null", "0", "1", '"false"', "[]", "{}"])
+			expect(() =>
+				parsePolicy(`gateway:\n  litellm_fallbacks: ${invalid}\n`),
+			).toThrow("must be a boolean");
+	});
+
 	test("runtime copy overrides the committed default", () => {
 		const dir = mkdtempSync(join(tmpdir(), "w124-policy-"));
 		const path = join(dir, "routing-policy.yaml");
