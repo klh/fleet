@@ -38,7 +38,7 @@ const PINS = new Map(pinsPayload.pins.map((p) => [p.name, p]));
 // additive, W367.4, and carries its own targeted tests below)
 const TIERS_ALL = ["politeness", "caveman", "aggressive"] as const;
 // every live tier — the law loops (L3/L4/L5 shape/L6) run the full set
-const TIERS_LIVE = [...TIERS_ALL, "machine"] as const;
+const TIERS_LIVE = [...TIERS_ALL, "machine", "packet"] as const;
 
 // ─── parity pins (the migration safety net) ──────────────────────────────
 describe("W367.1 parity pins", () => {
@@ -333,5 +333,70 @@ describe("L6 byte-stability", () => {
 		const r = condenseTier("aggressive", `Please note that ${tricky} stays.`);
 		expect(r.text).toBe(`Please note that ${tricky} stays.`);
 		expect(r.rules).toEqual([]);
+	});
+});
+
+// ─── W238 packet tier: offline doc-prose compression ─────────────────────
+describe("W238 packet tier", () => {
+	const HEDGES =
+		"just maybe only very quite perhaps really simply basically actually literally certainly definitely".split(
+			" ",
+		);
+
+	test("L2 hedge law holds: hedges survive, filler:word never fires", () => {
+		const input = `Keep ${HEDGES.join(" ")} in the packet.`;
+		const r = condenseTier("packet", input);
+		for (const h of HEDGES) expect(r.text).toContain(` ${h} `);
+		expect(r.rules).not.toContain("filler:word");
+	});
+
+	test("packet phrase table fires; machine stays phrase-clean on the same input", () => {
+		const input =
+			"Prior to the merge, it is possible that the build is red.";
+		const r = condenseTier("packet", input);
+		expect(r.rules).toContain("phrase:prior-to");
+		expect(r.rules).toContain("phrase:it-is-possible-that");
+		expect(r.text).toContain("Before");
+		expect(r.text).toContain("may");
+		expect(condenseTier("machine", input).rules).not.toContain(
+			"phrase:prior-to",
+		);
+	});
+
+	test("exact line dedupe fires: repeated boilerplate lines drop to one", () => {
+		const input = [
+			"- See AGENTS.md before any edit.",
+			"middle line stays",
+			"- See AGENTS.md before any edit.",
+		].join("\n");
+		const r = condenseTier("packet", input);
+		expect(r.rules).toContain("dedupe:line");
+		expect(r.text.split("See AGENTS.md").length - 1).toBe(1);
+		expect(r.text).toContain("middle line stays");
+	});
+
+	test("union protect surface survives: file pointers stay verbatim (W112)", () => {
+		const spans = [
+			"packages/suspenders/hooks/lib/packet-prep.ts",
+			"docs/packet.md",
+			"--dry-run",
+			"https://example.com/x.md",
+		];
+		const input = spans.map((s) => `As noted above, ${s} stays.`).join("\n");
+		const out = condenseTier("packet", input).text;
+		for (const s of spans) expect(out).toContain(s);
+		expect(out).not.toContain("As noted above");
+	});
+
+	test("packet output is never longer than machine output", () => {
+		const sample = [
+			"In order to ship, prior to the merge it is required to run the suite.",
+			"- Read the AGENTS.md file.",
+			"- Read the AGENTS.md file.",
+			"At the present time the fleet runs on one version.",
+		].join("\n");
+		expect(
+			condenseTier("packet", sample).text.length,
+		).toBeLessThanOrEqual(condenseTier("machine", sample).text.length);
 	});
 });
