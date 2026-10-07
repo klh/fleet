@@ -59,6 +59,9 @@ function renderEnv(
 	kv("HUB_BOARD_PORT", hub.board_port);
 	kv("HUB_BOARD_BIND", hub.board_bind);
 	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
+	// W362: peer edge labels — the start-topology as data; hosts/ports/keys
+	// resolve at runtime behind the labels (resolveHub chain / stack.yaml).
+	kv("HUB_PEERS", hub.peers?.join(","));
 	kv("HUB_SERVICES_JSON", hub.services_json);
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);

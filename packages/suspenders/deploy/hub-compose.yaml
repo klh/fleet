@@ -245,6 +245,30 @@ services:
       retries: 3
       start_period: 15s
 
+  # W362 peer policy propagation — the hub pulls each declared peer's
+  # /federation/policy-manifest (labels from HUB_PEERS, hosts/ports/keys
+  # resolved over the network at runtime). The content-addressed manifest
+  # version is the change detector; a peer that is down degrades one cycle
+  # (last-known kept), never the hub. Peer auth = a spoke-scoped key minted
+  # on the peer, carried per label in the hub-home registry (hubs.json).
+  peer-pull:
+    image: oven/bun:1
+    container_name: ${HUB_NAME:-desktop}-peer-pull
+    network_mode: host
+    restart: unless-stopped
+    command: bun /src/suspenders/hooks/bin/federation-peers.ts
+    depends_on:
+      suspenders-repo:
+        condition: service_completed_successfully
+    environment:
+      HOME: /state/hub-home
+      KLH_HUB_NAME: ${HUB_NAME:-desktop}
+      HUB_PEERS: ${HUB_PEERS:-}
+      FEDERATION_PEERS_INTERVAL_S: ${FEDERATION_PEERS_INTERVAL_S:-300}
+    volumes:
+      - suspenders-repo:/src/suspenders:ro
+      - hub-state:/state/hub-home
+
 volumes:
   buckle-repo:
   suspenders-repo:

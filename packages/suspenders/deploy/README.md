@@ -51,6 +51,17 @@ First edge (W322): the nas hub declares `desktop`. The belt-remote hub
 profile mirrors its hub's edges as `federation.peers` — labels only, the
 host/port/key values stay behind the labels in stack.yaml.
 
+Propagation (W362): a hub pulls each declared peer's
+`/federation/policy-manifest` on an interval (`hooks/bin/federation-peers.ts`;
+the compose `peer-pull` sidecar runs it on hubs, labels via the
+hubctl-rendered `HUB_PEERS`). The content-addressed manifest version is the
+change detector — a version flip on the next cycle means the peer's policy
+changed; per-peer last-known state lives under the federation home
+(`federation-peer-<label>.json`). A peer that is down degrades one cycle
+(last-known kept), never blocks the hub. Peer auth = a spoke-scoped key
+minted on the PEER hub (`buckle:spoke:READ_`), resolved per label by the
+same chain as the URL (env override / hubs.json registry).
+
 ## Browsing a remote hub board
 
 Boards enforce the W264 host guard: only `*.local` names + loopback pass.
