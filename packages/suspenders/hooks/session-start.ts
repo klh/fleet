@@ -12,8 +12,14 @@ import {
 	CAPABILITIES,
 	sweepStaleSessions,
 } from "./lib/govdb.ts";
+import { enrollTopLevel } from "./lib/hook-scripts.ts";
 
-type In = { session_id?: string; source?: string; transcript_path?: string };
+type In = {
+	session_id?: string;
+	source?: string;
+	transcript_path?: string;
+	cwd?: string;
+};
 
 if (process.env.CLAUDE_FLEET_BOOTSTRAP === "0") process.exit(0);
 
@@ -211,6 +217,17 @@ if (dead.length === 1 && dead[0].sid !== sid) {
 	out.push(`LINEAGE AMBIGUOUS: ${ids} — resolve with coord resume-session`);
 }
 
+// governance mode: read once — feeds the rules line AND the W422.17.1
+// session enrollment decision.
+const govMode =
+	(
+		db
+			.query("SELECT value FROM facts WHERE key = 'fleet.governance'")
+			.get() as { value: string } | null
+	)?.value === "solo"
+		? "solo"
+		: "strict";
+
 const mine = db.query(OWNED_SQL).all(project, lane) as {
 	id: string;
 	title: string;
@@ -247,16 +264,31 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	out.push(RULES);
 	// W422.17 (owner ruling 2026-10-06): the governance mode renders as one
 	// rules line — lanes know the probe-false contract before dispatching.
-	const govMode = (
-		db
-			.query("SELECT value FROM facts WHERE key = 'fleet.governance'")
-			.get() as { value: string } | null
-	)?.value;
 	out.push(
 		govMode === "solo"
 			? "GOVERNANCE: solo — dispatch may ride belt-direct when the buckle front is unreachable (restore strict: coord governance strict)"
 			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
 	);
+}
+
+// W422.17.1 interactive-session enrollment — top-level sessions mint (or
+// reuse) a per-session bksk_ key and take the 0600 settings env file (the
+// lane pattern generalized, 5efcf83). Subagents inherit the parent's
+// enrollment. Sessions cannot be refused: every buckle miss folds
+// belt-direct with the loud, mode-rendered note. Degrades silently —
+// bootstrap must never break on enrollment.
+if (!isSubagent && input.cwd) {
+	try {
+		const note = await enrollTopLevel({
+			hookDir: import.meta.dir,
+			sid: lane,
+			cwd: input.cwd,
+			govMode,
+		});
+		if (note) out.push(note);
+	} catch {
+		// degrade: the session rides belt-direct like an unreachable front
+	}
 }
 
 // fleet notices: inject unseen `coord broadcast` notes — each session sees
