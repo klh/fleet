@@ -244,11 +244,16 @@ LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
 LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0
 NATIVE=()
 prev_step=0
+prev_review=0
 LEG_HUB=""
 hub_seen=0
 hub_pending=0
 for arg in "$@"; do
   if [[ $prev_step -eq 1 ]]; then NATIVE+=("$arg"); prev_step=0; continue; fi
+  if [[ $prev_review -eq 1 ]]; then
+    if [[ "$arg" == --* ]]; then echo "--gateway-review needs a review SHA256" >&2; exit 2; fi
+    NATIVE+=("$arg"); prev_review=0; continue
+  fi
   if [[ $hub_pending -eq 1 ]]; then LEG_HUB="$arg"; hub_pending=0; continue; fi
   case "$arg" in
     --hub) hub_seen=1; hub_pending=1 ;;
@@ -262,9 +267,16 @@ for arg in "$@"; do
     --dry-run) LEG_DRY_RUN=1; NATIVE+=("$arg") ;;
     --yes|--json|--verbose) NATIVE+=("$arg") ;;
     --step) NATIVE+=("$arg"); prev_step=1 ;;
+    --gateway-review) NATIVE+=("$arg"); prev_review=1 ;;
+    --gateway-review=*) NATIVE+=("$arg") ;;
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
+
+if [[ $prev_review -eq 1 ]]; then
+  echo "--gateway-review needs a review SHA256" >&2
+  exit 2
+fi
 
 if [[ $hub_seen -eq 1 && -z "$LEG_HUB" ]]; then
   echo "--hub needs a hub name from ~/.config/klh/stack.yaml" >&2
