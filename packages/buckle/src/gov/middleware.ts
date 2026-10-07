@@ -15,7 +15,7 @@ import {
 	type RateLimitView,
 	stampRateLimit,
 } from "../citizenship.ts";
-import type { Ledger } from "../ledger.ts";
+import { tokenFromHeaders, type Ledger } from "../ledger.ts";
 import type { Servicemon } from "../servicemon.ts";
 import { Budgets, type BudgetView, effectiveLimit } from "./budgets.ts";
 import { type Federation, stashPrincipal } from "./federation.ts";
@@ -126,19 +126,19 @@ export class Governance {
 			.inc({ decision: p.code, route: p.route });
 	}
 
-	/** Bearer token → Principal, or a stable machine-readable rejection.
+	/** Presented credential (Bearer or Anthropic-wire x-api-key) → Principal,
+	 *  or a stable machine-readable rejection.
 	 *  Dispatch: root break-glass → api key (hash lookup) → JWT seam. */
 	async authenticate(req: Request): Promise<AuthResult> {
-		const header = req.headers.get("authorization") ?? "";
-		const m = /^Bearer\s+(.+)$/i.exec(header);
-		if (m === null)
+		const token = tokenFromHeaders(req.headers);
+		if (token === null)
 			return {
 				ok: false,
 				status: 401,
 				code: "buckle.auth_missing",
-				why: "missing bearer token",
+				why: "missing credential (send Authorization Bearer or x-api-key)",
 			};
-		return this.authDispatch(m[1]?.trim() ?? "");
+		return this.authDispatch(token);
 	}
 
 	private async authDispatch(token: string): Promise<AuthResult> {
@@ -269,8 +269,8 @@ export class Governance {
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
 		if (this.federation === null) return inner(req);
-		const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
-		if (m === null)
+		const token = tokenFromHeaders(req.headers);
+		if (token === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token", {
 				instance: path,
 			});
@@ -541,9 +541,9 @@ function dialectOf(path: string): string {
 }
 
 function actorOf(req: Request): string {
-	const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
-	if (m === null) return "anonymous";
-	return hashKey(m[1]?.trim() ?? "").slice(0, 12);
+	const token = tokenFromHeaders(req.headers);
+	if (token === null) return "anonymous";
+	return hashKey(token).slice(0, 12);
 }
 
 /** Build the gate over the app deps (ledger + servicemon) + opts. */

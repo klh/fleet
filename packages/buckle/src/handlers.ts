@@ -30,7 +30,7 @@ import {
 } from "./decide.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
-import { keyIdFromAuth, type Ledger } from "./ledger.ts";
+import { keyIdFromToken, tokenFromHeaders, type Ledger } from "./ledger.ts";
 import type { AidsPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
 import { pipelineRoutes, type CondenseStore } from "./pipeline.ts";
@@ -236,7 +236,7 @@ async function proxy(
 	lane = "",
 ): Promise<Response> {
 	const ctx: Ctx = {
-		key: keyIdFromAuth(req.headers.get("authorization")),
+		key: keyIdFromToken(tokenFromHeaders(req.headers)),
 		group: "",
 		model: "",
 		dialect,

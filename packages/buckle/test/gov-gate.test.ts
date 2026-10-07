@@ -19,9 +19,12 @@ async function startGate(
 		issuers: Array<{ issuer: string; jwksUri: string }>;
 		audience: string;
 	},
+	cfgOverride?: string,
 ): Promise<GateServer> {
 	const dir = `/tmp/buckle-gate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-	const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
+	const cfg =
+		cfgOverride ??
+		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
 	await Bun.write(`${dir}.yaml`, cfg);
 	const server = startServer({
 		port: 0,
@@ -79,6 +82,48 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		);
 		gate.stop();
 		upstream.close();
+	});
+
+	test("x-api-key auth: Anthropic-wire header accepted on both dialects (W422.17.2)", async () => {
+		const chatUp = await startMockUpstream(() =>
+			Response.json({ id: "ok-xk", choices: [], usage: {} }),
+		);
+		const gate = await startGate(chatUp.url);
+		// copilot's anthropic dialect rides the official SDK: x-api-key, no
+		// Authorization header — the gate must authenticate it (W422.17.2)
+		const xkChat = await fetch(`${gate.base}/v1/chat/completions`, {
+			method: "POST",
+			headers: { "x-api-key": ROOT, "content-type": "application/json" },
+			body: CHAT_BODY,
+		});
+		expect(xkChat.status).toBe(200);
+		const msgUp = await startMockUpstream(() =>
+			Response.json({ id: "msg_xk", usage: { input_tokens: 1, output_tokens: 1 } }),
+		);
+		const msgGate = await startGate(
+			msgUp.url,
+			undefined,
+			`groups:\n  glm-5.3-flash:\n    - url: ${msgUp.url}\n      dialect: anthropic\n`,
+		);
+		// a minted bksk_ key rides x-api-key too (per-lane keys, not just root)
+		const { key } = await issueViaAdmin(msgGate.base, {
+			name: "lane-xk",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const xkMsg = await fetch(`${msgGate.base}/v1/messages`, {
+			method: "POST",
+			headers: { "x-api-key": key, "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "glm-5.3-flash",
+				max_tokens: 8,
+				messages: [{ role: "user", content: "Reply with the word OK" }],
+			}),
+		});
+		expect(xkMsg.status).toBe(200);
+		gate.stop();
+		chatUp.close();
+		msgGate.stop();
+		msgUp.close();
 	});
 
 	test("valid key → 200; revoked key → 401 buckle.key_revoked", async () => {
