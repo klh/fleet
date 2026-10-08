@@ -30,7 +30,7 @@ Fit bench: `bun bin/bench-fit.ts`.
 
 ## Stack vs pure API — bench-arena findings (W274, all setups AS-IS)
 
-Question: does the klh stack beat pure z.ai API access? Sealed harness
+Question: does the fleet stack beat pure llm API access? Sealed harness
 (manifest `6253f5092545542e`, methodology + labels in
 [bench-plan.md](packages/belt/bench-plan.md)), single-stream, nonce-cold,
 AC power. Runs: `2026-10-02T21-31-09` (n=12,
