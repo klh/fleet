@@ -1,4 +1,4 @@
-# fleet benchmarks — the ONE table (owner law, 2026-10-05)
+# fleet benchmarks
 
 ALL benchmarks live in this single file at the fleet root. Package-level
 benchmarks.md files are pointers; do not start new ones. One curated row
