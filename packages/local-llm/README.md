@@ -61,8 +61,7 @@ bun ~/.claude/local-llm/swarm.ts status   # swarm health (read-only)
 bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
 ```
 
-launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
-`launchctl kickstart gui/$(id -u)/com.suspenders.local-llm` revives.
+launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive).
 
 The serving kit writes outside-process HTTP observations to
 `~/.claude-insights/belt-supervisor.json` every supervision cycle
@@ -78,7 +77,7 @@ routing, tier, credentials and gateway configuration:
 ```sh
 bash packages/suspenders/install.sh --refresh-supervisor --dry-run
 bash packages/suspenders/install.sh --refresh-supervisor
-launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm
+bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
 ```
 
 The installer validates staged code imports and saves changed code backups.
@@ -87,12 +86,28 @@ advanced Belt supervisor. Existing operator code customizations in the four
 refreshed kit modules are replaced explicitly and retained in `.serve-backup`
 files; ordinary installation continues to preserve existing runtime copies.
 
+Code refresh does **not** activate code or restart the supervisor. Active
+established connections on the router, LiteLLM or Buckle ports defer activation;
+an unavailable, incomplete or malformed connection inspection also defers it.
+The read-only activation check exits 75 when deferred. Established idle
+connections also count, so this deliberately errs toward preserving sessions.
+
+Activation requires owner-approved maintenance, paused downstream admission,
+and drained connections before restarting the existing service. An empty
+connection snapshot alone cannot prevent a new request from starting. A
+supervisor SIGTERM handler does not prove its children survive: launchd can
+terminate the job's process group, replacing the gateway and cutting streams.
+Admission pause and enforced drain integration remain open W560 acceptance;
+the current check never authorizes or performs an automatic restart. Dashboard
+adapter activation is similarly deferred while the owner is using the fleet;
+until then its displayed producer label can reflect the older running code.
+
 ### Recover a legacy swarm missing gateway ownership
 
 ```sh
 bash packages/suspenders/install.sh --refresh-gateway --dry-run
 bash packages/suspenders/install.sh --refresh-gateway
-launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm
+bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
 ```
 
 This code-only upgrade preserves runtime customizations, makes backups of

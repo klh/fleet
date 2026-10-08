@@ -10,6 +10,79 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+
+export interface ActivationReadiness {
+	state: "active" | "drained" | "unknown";
+	connections: number | null;
+	reason: string;
+}
+interface ConnectionInspection {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+	error?: unknown;
+}
+
+/** Conservative transport activity, not proof that inference is in flight. */
+export function inspectGatewayConnections(
+	inspect: () => ConnectionInspection = () =>
+		spawnSync(
+			"/usr/sbin/lsof",
+			["-nP", "-a", "-iTCP:4000,4100,4101", "-sTCP:ESTABLISHED", "-Ff"],
+			{ encoding: "utf8", timeout: 2000, maxBuffer: 128 * 1024 },
+		),
+): ActivationReadiness {
+	let result: ConnectionInspection;
+	try {
+		result = inspect();
+	} catch {
+		return {
+			state: "unknown",
+			connections: null,
+			reason: "connection inspection unavailable",
+		};
+	}
+	if (
+		result.error ||
+		result.stderr.trim() ||
+		![0, 1].includes(result.status ?? -1)
+	)
+		return {
+			state: "unknown",
+			connections: null,
+			reason: "connection inspection failed or incomplete",
+		};
+	if (result.status === 1 && !result.stdout.trim())
+		return {
+			state: "drained",
+			connections: 0,
+			reason: "no established gateway connections observed",
+		};
+	const rows = result.stdout.trim().split("\n");
+	if (
+		result.status !== 0 ||
+		rows.some((row) => !/^[pf]\d+$/.test(row)) ||
+		!rows.some((row) => row.startsWith("f"))
+	)
+		return {
+			state: "unknown",
+			connections: null,
+			reason: "unrecognized connection evidence",
+		};
+	const connections = rows.filter((row) => row.startsWith("f")).length;
+	return {
+		state: "active",
+		connections,
+		reason: "established downstream gateway connections observed",
+	};
+}
+
+export function activationGuidance(readiness: ActivationReadiness): string {
+	if (readiness.state !== "drained")
+		return `Activation deferred (${readiness.reason}); keep the current supervisor running. No restart performed.`;
+	return "No established gateway connections observed. Activation still requires owner-approved maintenance with admission paused; this point-in-time check does not prevent new connections. No restart performed.";
+}
 
 const files = [
 	"swarm.ts",
@@ -37,6 +110,7 @@ export async function refreshSwarm(
 			clearTimeout(timeout);
 		}
 	},
+	inspectActivation: () => ActivationReadiness = inspectGatewayConnections,
 ): Promise<void> {
 	const originalSwarm = await readFile(join(runtime, "swarm.ts"), "utf8");
 	if (originalSwarm.includes('from "./supervisor.ts"'))
@@ -112,13 +186,20 @@ export async function refreshSwarm(
 		await rm(lock, { recursive: true, force: true });
 	}
 	console.log(
-		"Refreshed kit serve code; restart existing com.suspenders.local-llm to activate",
+		"Refreshed kit serve code; activation is a separate maintenance action.",
 	);
+	console.log(activationGuidance(inspectActivation()));
 }
 
-if (import.meta.main)
-	await refreshSwarm(
-		`${process.env.HOME}/.claude/local-llm`,
-		undefined,
-		process.argv.includes("--dry-run"),
-	);
+if (import.meta.main) {
+	if (process.argv.includes("--check-activation")) {
+		const readiness = inspectGatewayConnections();
+		console.log(activationGuidance(readiness));
+		if (readiness.state !== "drained") process.exitCode = 75;
+	} else
+		await refreshSwarm(
+			`${process.env.HOME}/.claude/local-llm`,
+			undefined,
+			process.argv.includes("--dry-run"),
+		);
+}
