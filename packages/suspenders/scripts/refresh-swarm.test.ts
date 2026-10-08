@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
 	mkdir,
 	mkdtemp,
@@ -10,7 +10,98 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { refreshSwarm } from "./refresh-swarm.ts";
+import {
+	activationGuidance,
+	inspectGatewayConnections,
+	refreshSwarm,
+} from "./refresh-swarm.ts";
+
+test("active or uninspectable downstream connections defer activation", () => {
+	const active = inspectGatewayConnections(() => ({
+		status: 0,
+		stdout: "p123\nf14\np456\nf20\n",
+		stderr: "",
+	}));
+	const unknown = inspectGatewayConnections(() => ({
+		status: 1,
+		stdout: "",
+		stderr: "permission denied",
+	}));
+	expect(active.state).toBe("active");
+	expect(active.connections).toBe(2);
+	expect(activationGuidance(active)).toContain("Activation deferred");
+	expect(unknown.state).toBe("unknown");
+	expect(activationGuidance(unknown)).toContain(
+		"keep the current supervisor running",
+	);
+	expect(
+		inspectGatewayConnections(() => {
+			throw new Error("missing lsof");
+		}).state,
+	).toBe("unknown");
+	expect(
+		inspectGatewayConnections(() => ({
+			status: 0,
+			stdout: "malformed",
+			stderr: "",
+		})).state,
+	).toBe("unknown");
+	expect(
+		inspectGatewayConnections(() => ({
+			status: null,
+			stdout: "p123\nf14",
+			stderr: "",
+			error: new Error("timeout"),
+		})).state,
+	).toBe("unknown");
+});
+
+test("a drained snapshot never grants automatic restart or claims admission is paused", () => {
+	const drained = inspectGatewayConnections(() => ({
+		status: 1,
+		stdout: "",
+		stderr: "",
+	}));
+	expect(drained.state).toBe("drained");
+	expect(drained.connections).toBe(0);
+	expect(activationGuidance(drained)).toContain(
+		"owner-approved maintenance with admission paused",
+	);
+	expect(activationGuidance(drained)).toContain(
+		"does not prevent new connections",
+	);
+	expect(activationGuidance(drained)).toContain("No restart performed");
+});
+
+test("code-only refresh under active traffic gives deferred advice and performs no activation", async () => {
+	const { runtime } = await fixture();
+	const output: string[] = [];
+	const log = spyOn(console, "log").mockImplementation((message) =>
+		output.push(String(message)),
+	);
+	try {
+		await refreshSwarm(
+			runtime,
+			undefined,
+			false,
+			async () => {},
+			() => ({
+				state: "active",
+				connections: 1,
+				reason: "established downstream gateway connections observed",
+			}),
+		);
+		expect(output.join("\n")).toContain("Activation deferred");
+		expect(output.join("\n")).toContain("No restart performed");
+		expect(output.join("\n")).not.toContain("restart existing");
+		expect(await readFile(join(runtime, "swarm.ts"), "utf8")).toContain(
+			"import.meta.main",
+		);
+	} finally {
+		log.mockRestore();
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
 
 test("staged validation retains operator registry re-exports to sibling Belt code", async () => {
 	const fixtureValue = await fixture();
