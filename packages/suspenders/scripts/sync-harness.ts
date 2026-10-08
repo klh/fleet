@@ -282,7 +282,9 @@ export async function syncHarness(
 		// scoped path or every `@klh/blam/...` import in the staged harness
 		// fails to resolve and validate (2026-10-08 install blocker).
 		mkdirSync(join(stage, "node_modules/@klh"), { recursive: true });
-		link("../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
+		// link content is relative to the link's own dir (node_modules/@klh):
+		// up two to stage/, then into .harness/packages/blam
+		link("../../.harness/packages/blam", join(stage, "node_modules/@klh/blam"));
 		for (const item of HOOK_ITEMS) {
 			if (!existsSync(join(suspenders, "hooks", item)))
 				throw new Error(`Missing harness payload: ${item}`);
