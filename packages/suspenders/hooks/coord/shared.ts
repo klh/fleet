@@ -6,9 +6,9 @@ import {
 	projectIdentity,
 	type GovernorStore,
 } from "../lib/govdb.ts";
-import type { KnowledgeHit } from "../lib/knowledge-ports.ts";
+import { makeStore, type KnowledgeHit } from "../lib/knowledge-ports.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
-import { trustOf } from "../lib/knowledge.ts";
+import { trustOf, withTrust } from "../lib/knowledge.ts";
 
 export {
 	projectIdentity,
@@ -180,6 +180,34 @@ export function lessonLookup(
 			(terms.some((t) => keyTokens.includes(t)) ? 1 : 0);
 		if (score >= 2 && (!best || score > best.score))
 			best = { key: r.key, value: r.value, score };
+	}
+	return best;
+}
+
+// factLookup — the knowledge store as an auto-answer source (W604): a
+// question overlapping a knowledge row whose provenance hash-checks clean
+// (trustOf via withTrust) is answered BY THE PLANE, trust attached — no
+// expert round-trip. Same deterministic overlap bar as kbLookup; 1-hop
+// pointer neighbors never answer (they matched the graph, not the question).
+export async function factLookup(question: string): Promise<KnowledgeHit | null> {
+	const terms = [...new Set(kbTerms(question))];
+	if (!terms.length) return null;
+	const hits = withTrust(
+		await makeStore().search({ query: question, limit: 10 }),
+	);
+	let best: KnowledgeHit | null = null;
+	let bestOverlap = 0;
+	for (const h of hits) {
+		if (h.kind !== "knowledge" || h.hop || h.trust !== "verified") continue;
+		const hay = `${h.topic ?? ""} ${h.fact ?? ""}`
+			.toLowerCase()
+			.split(/[^a-z0-9_.-]+/);
+		const shared = terms.filter((t) => hay.includes(t));
+		const overlap = shared.length / terms.length;
+		if (shared.length >= 2 && overlap >= 0.6 && overlap > bestOverlap) {
+			best = h;
+			bestOverlap = overlap;
+		}
 	}
 	return best;
 }

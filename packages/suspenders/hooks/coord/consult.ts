@@ -11,6 +11,7 @@ import {
 	red,
 	kbLookup,
 	kbNorm,
+	factLookup,
 	lessonLookup,
 	rankExperts,
 	projectIdentity,
@@ -59,7 +60,13 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	const kbHit = rest.includes("--no-kb")
 		? null
 		: kbLookup(question, projectIdentity(), scope, version, true);
-	if (!kbHit) {
+	// W604: consult_kb first (asker-verified solutions), then the knowledge
+	// store — a hash-verified fact answers with its trust attached; lanes only
+	// pinged on miss. --no-kb escapes both.
+	const factHit = (kbHit || rest.includes("--no-kb"))
+		? null
+		: await factLookup(question);
+	if (!kbHit && !factHit) {
 		if (rest.includes("--best"))
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
@@ -125,6 +132,36 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		);
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from the knowledge base ${dim(`(learned from ${kbHit.answered_by.slice(0, 8)}${expertLive ? ", still live" : ""}, ${kbHit.hits} prior hits) — --no-kb routes to a human`)}`,
+		);
+	} else if (factHit) {
+		// W604: a hash-verified knowledge row answers BY THE PLANE with its
+		// trust attached — the consult is never routed to a live lane.
+		const r = db
+			.query(
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?)",
+			)
+			.run(
+				projectIdentity(),
+				as,
+				factHit.origin_sid ?? "",
+				question,
+				scope,
+				factHit.fact ?? "",
+				Date.now(),
+				Date.now(),
+			);
+		const cid = `C${r.lastInsertRowid}`;
+		const payload = JSON.stringify({
+			consult: cid,
+			state: "FACT",
+			answer: factHit.fact ?? "",
+			fact: { id: factHit.id, topic: factHit.topic, trust: factHit.trust, source: factHit.source_ref },
+		});
+		db.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
+		).run(Date.now(), as, scope, payload, as);
+		console.log(
+			`${green("✓")} ${cyan(cid)} answered from a verified fleet fact ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}`,
 		);
 	} else {
 		const pending = (
