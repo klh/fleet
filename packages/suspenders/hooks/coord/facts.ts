@@ -20,6 +20,58 @@ import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 
+// W606 — compare-and-set guard for fact/capsule upserts: the blind upsert
+// (facts.version incremented but never checked) races successive writers to
+// one key — per-lane capsules and lesson.* updates lose history silently.
+// expected == null = legacy unconditional write; otherwise the read-then-write
+// rides ONE store transaction, serialized with every writer on both bindings
+// (local SQLite + HTTP store) — mirrors work take's CAS on work_items.state.
+// Refusal carries the current version so writers can read-then-CAS.
+function parseIfVersion(raw: string | null): number | null {
+	if (raw == null) return null;
+	const n = Number(raw);
+	if (!Number.isInteger(n) || n < 0)
+		die(`--if-version must be a non-negative integer, got "${raw}"`);
+	return n;
+}
+
+function casWrite(
+	key: string,
+	expected: number | null,
+	write: () => void,
+): { ok: boolean; cur: number | null } {
+	if (expected == null) {
+		write();
+		return { ok: true, cur: null };
+	}
+	let cur: number | null = null;
+	for (let attempt = 0; ; attempt++) {
+		try {
+			const ok = db.transaction(() => {
+				const r = db
+					.query("SELECT version FROM facts WHERE key = ?")
+					.get(key) as { version: number } | undefined;
+				cur = r ? r.version : null;
+				// absent normalizes to 0: --if-version 0 is the create-only
+				// expectation
+				if ((r ? r.version : 0) !== expected) return false;
+				write();
+				return true;
+			})();
+			return { ok, cur };
+		} catch (e) {
+			// deferred BEGIN upgrades at the first write — under true concurrent
+			// CAS the upgrade race loser throws SQLITE_BUSY (busy_timeout does
+			// not govern the upgrade path). A retry re-reads the version, so it
+			// either matches (writes) or mismatches (clean refusal): no lost
+			// update ever lands.
+			if (attempt >= 3 || (e as { code?: string }).code !== "SQLITE_BUSY")
+				throw e;
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+		}
+	}
+}
+
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
 	if (sub === "set") {
@@ -35,13 +87,22 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		// text vanished into an ignored positional — three A/B findings lost
 		if (!key || value === undefined || value.startsWith("--"))
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
 			);
 		const src = arg("--source") ?? "coord";
-		db.query(
-			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
-				"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
-		).run(key, value, src, Date.now());
+		const expected = parseIfVersion(arg("--if-version"));
+		const r = casWrite(key, expected, () =>
+			db
+				.query(
+					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
+						"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
+				)
+				.run(key, value, src, Date.now()),
+		);
+		if (!r.ok)
+			die(
+				`fact ${key}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
+			);
 		console.log(`fact ${key} = ${value}`);
 	} else if (sub === "get") {
 		const r = db
@@ -71,7 +132,9 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		const orderLimit =
 			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
 		const rows = db
-			.query(`SELECT key, value, version, ts FROM facts WHERE ${where}${orderLimit}`)
+			.query(
+				`SELECT key, value, version, ts FROM facts WHERE ${where}${orderLimit}`,
+			)
 			.all(...params) as {
 			key: string;
 			value: string;
@@ -85,7 +148,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		);
 	} else
 		die(
-			"usage: fact set <key> <value> | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
 		);
 }
 
@@ -99,18 +162,32 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 		console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
 		const extra: Record<string, string> = {};
+		let iv: string | null = null;
 		for (const t of process.argv.slice(2)) {
 			const m = /^--([\w-]+)=(.+)$/.exec(t);
-			if (m && !["as"].includes(m[1])) extra[m[1]] = m[2];
+			if (!m) continue;
+			// W606: --if-version=N is the CAS expectation, not capsule payload
+			if (m[1] === "if-version") iv = m[2];
+			else if (m[1] !== "as") extra[m[1]] = m[2];
 		}
-		db.query(
-			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
-		).run(
-			`lane.${as}.capsule`,
-			JSON.stringify({ ...extra, ts: Date.now() }),
-			arg("--as") ?? as,
-			Date.now(),
+		// arg() fallback covers the two-token form --if-version N
+		const expected = parseIfVersion(iv ?? arg("--if-version"));
+		const r = casWrite(`lane.${as}.capsule`, expected, () =>
+			db
+				.query(
+					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
+				)
+				.run(
+					`lane.${as}.capsule`,
+					JSON.stringify({ ...extra, ts: Date.now() }),
+					arg("--as") ?? as,
+					Date.now(),
+				),
 		);
+		if (!r.ok)
+			die(
+				`capsule lane.${as}.capsule: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
+			);
 		console.log(
 			`${green("✓")} ${dim(`capsule stored for @${as.slice(0, 8)}`)}`,
 		);

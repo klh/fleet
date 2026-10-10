@@ -14,10 +14,11 @@
 //   bun ~/.claude/bin/coord.ts metrics [project] [--days N]
 //   bun ~/.claude/bin/coord.ts bootstrap --as sid [--name label]
 //        (--name stamps a user-facing lane name — coord fleet + the board show it)
-//   bun ~/.claude/bin/coord.ts fact set <key> <value> [--source s]
+//   bun ~/.claude/bin/coord.ts fact set <key> <value> [--source s] [--if-version n]
 //   bun ~/.claude/bin/coord.ts fact get <key> / fact list
 //        (W466: machine cursor namespaces hidden; --prefix p / --limit n /
-//         --all bound or lift the listing)
+//         --all bound or lift the listing; fact get/list print "(vN)" for
+//         read-then-CAS via --if-version)
 //   bun ~/.claude/bin/coord.ts diff [--since <seq|event-id>] [--last N] [--table t] [--json]
 //        (row-image delta log: what changed in sessions/claims/locks/facts/
 //         work_items between two points — events/cursors are the bus's own trail)
