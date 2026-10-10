@@ -111,6 +111,12 @@ import {
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { execPick } from "./lib/exec-chain.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
+import {
+	cvMap,
+	executorCv,
+	recordLaneExecutor,
+	writeExecutorCvFacts,
+} from "../hooks/lib/executor-cv.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -501,6 +507,17 @@ const fetchArchiveFlag = async (
 	return note(archived);
 };
 
+// W620: dry-run cv snapshot — facts read only, no write; the dry brief shows
+// the same trust-reordered default ladder the spawn path would pick.
+const cvSnapshot = (): Map<string, number> => {
+	const s = openStore();
+	try {
+		return cvMap(s, hostname());
+	} finally {
+		s.close();
+	}
+};
+
 const dispatchItem = async (
 	item: string,
 	lanes: Lane[],
@@ -561,7 +578,7 @@ const dispatchItem = async (
 			? sh(["git", "-C", wt, "branch", "--show-current"]) ||
 				`suspenders/${item}`
 			: `suspenders/${item}`;
-		const pick = execPick(attempt, CALLER_REPO);
+		const pick = execPick(attempt, CALLER_REPO, cvSnapshot());
 		// W422: the brief-verify harness + enforcement ride the executor
 		// adapter — the if copilot/else-claude ternary is registry data now.
 		const adapter = adapterFor(pick.bin);
@@ -592,6 +609,10 @@ const dispatchItem = async (
 		return `${item}→${sid}(dry)`;
 	}
 	const store = openStore();
+	// W620 measure beat: fold the events into facts BEFORE the ladder reads
+	// them — the measure-gate that lets execPick act on real skew only.
+	writeExecutorCvFacts(store, executorCv(store));
+	const cv = cvMap(store, hostname());
 	const project = projectIdentity(REPO);
 	const attemptKey = `lane.${sid}.launch-attempt`;
 	const prior = store
@@ -619,7 +640,7 @@ const dispatchItem = async (
 		store.close();
 		return null;
 	}
-	let pick = execPick(attempt, CALLER_REPO);
+	let pick = execPick(attempt, CALLER_REPO, cv);
 	let bin = resolveLaneExecutor(pick.bin);
 	if (!bin) {
 		governanceRefusals.push(item);
@@ -669,7 +690,7 @@ const dispatchItem = async (
 			);
 			return null;
 		}
-		pick = execPick(attempt, CALLER_REPO);
+		pick = execPick(attempt, CALLER_REPO, cv);
 		bin = resolveLaneExecutor(pick.bin);
 		if (!bin) {
 			governanceRefusals.push(item);
@@ -718,6 +739,9 @@ const dispatchItem = async (
 			attempt - 1,
 		);
 		attempt = intent.attempt;
+		// W620: stamp the join keys future trust folds attribute by (W105
+		// parity with the board path) — model fact only when a pin exists
+		recordLaneExecutor(store, sid, pick.name, pick.model);
 
 		if (!existsSync(wt)) {
 			const created = run([
