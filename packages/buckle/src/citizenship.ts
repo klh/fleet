@@ -91,6 +91,7 @@ export function allowOf(path: string): string | null {
 		path === "/aids/rollup" ||
 		path === "/aids/events" ||
 		path === "/pipeline/in" ||
+		path === "/v1/fleet/whoami" ||
 		/^\/pipeline\/in\/\S+$/.test(path)
 	)
 		return "GET, HEAD, OPTIONS";

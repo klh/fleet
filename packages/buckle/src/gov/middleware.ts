@@ -360,9 +360,14 @@ export class Governance {
 			});
 		}
 		if (routeClass === "admin") {
+			stashPrincipal(req, p);
 			const admin = await import("./admin.ts");
 			return admin.handleAdmin(req, p, this);
 		}
+		// W607: proxy-class handlers read the authenticated identity via
+		// principalOf(req) (e.g. GET /v1/fleet/whoami) — stash it here the
+		// same way federationGate does, keyed on the request object.
+		stashPrincipal(req, p);
 		return this.budget(req, path, rid, p, t0, inner);
 	}
 
@@ -408,8 +413,7 @@ export class Governance {
 		if (p.kind !== "root" && !this.slots.acquire(p.team))
 			return this.slotLimited(path, rid, p);
 		try {
-			if (limits.rpm === null && limits.tpm === null)
-				return await inner(req);
+			if (limits.rpm === null && limits.tpm === null) return await inner(req);
 			const chk = this.budgets.check(
 				p.keyId,
 				limits,
@@ -417,8 +421,7 @@ export class Governance {
 				team,
 			);
 			const view = this.rateView(limits, chk.view);
-			if (!chk.ok)
-				return this.rateLimited(path, rid, p, view, chk.retryAfterS);
+			if (!chk.ok) return this.rateLimited(path, rid, p, view, chk.retryAfterS);
 			const resp = await inner(req);
 			// http-citizenship: the trio rides every budgeted response.
 			if (view !== null) stampRateLimit(resp.headers, view);

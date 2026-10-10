@@ -801,6 +801,26 @@ export function createApp(deps: AppDeps): App {
 				});
 			return deps.federation.handle(req, principalOf(req));
 		}
+		if (method === "GET" && path === "/v1/fleet/whoami") {
+			// W607: self-verify echo for GUI fleet readers — the presented
+			// bearer IS the credential (no admin needed). The gate already
+			// authenticated + scope-checked (proxy GET → buckle:proxy:READ_);
+			// 200 means the key is live, and the echo carries the identity
+			// (key_id, scopes) the fleet-mcp server audits + enforces.
+			const p = principalOf(req);
+			return Response.json(
+				p === null
+					? { authenticated: false, reason: "gate off or anonymous" }
+					: {
+							authenticated: true,
+							kind: p.kind,
+							key_id: p.keyId,
+							team: p.team,
+							actor: p.actor,
+							scopes: p.scopes,
+						},
+			);
+		}
 		const aidsRouted = await aidsRoutes(deps, req, path);
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
