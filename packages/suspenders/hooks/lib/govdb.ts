@@ -530,6 +530,14 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS consults (id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL, asker_sid TEXT NOT NULL, expert_sid TEXT NOT NULL, question TEXT NOT NULL, scope TEXT, state TEXT NOT NULL DEFAULT 'OPEN', answer TEXT, created_at INTEGER NOT NULL, answered_at INTEGER)",
 	);
+	// W611: consults carry an explicit deadline — an OPEN consult undelivered
+	// past it expires (consult-expiry.ts) and emits consult.expired at its
+	// asker. NULL = pre-W611 row: expiry falls back to created_at + TTL.
+	const consultCols = (
+		db.query("PRAGMA table_info(consults)").all() as { name: string }[]
+	).map((c) => c.name);
+	if (!consultCols.includes("deadline_at"))
+		db.run("ALTER TABLE consults ADD COLUMN deadline_at INTEGER");
 	// session registry (coord bootstrap): who exists, where, doing what role
 	db.run(
 		"CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, project TEXT, role TEXT, parent_sid TEXT, worktree TEXT, started_at INTEGER NOT NULL, hb INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'RUNNING')",

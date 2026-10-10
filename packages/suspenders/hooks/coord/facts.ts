@@ -19,6 +19,7 @@ import { ensureConsultTrust } from "./consult-trust.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
+import { expireConsults } from "../lib/consult-expiry.ts";
 
 // W606 — compare-and-set guard for fact/capsule upserts: the blind upsert
 // (facts.version incremented but never checked) races successive writers to
@@ -438,12 +439,9 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		);
 		db.run("DELETE FROM facts WHERE key LIKE ?", p);
 	}
-	// consults: open questions expire after 1h; closed threads age out
-	const x = db
-		.query(
-			"UPDATE consults SET state = 'EXPIRED', answered_at = ? WHERE state = 'OPEN' AND created_at < ?",
-		)
-		.run(Date.now(), Date.now() - 3_600_000).changes;
+	// consults: open questions expire past their deadline (W611: the flip also
+	// emits consult.expired at the asker); closed threads age out
+	const x = expireConsults(db, Date.now());
 	const cd = db
 		.query(
 			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED') AND answered_at < ? AND answered_at IS NOT NULL",

@@ -15,6 +15,7 @@ import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
+import { drainLaneInbox } from "../lib/lane-inbox.ts";
 import { basename, dirname } from "node:path";
 import {
 	existsSync,
@@ -166,6 +167,12 @@ export function filesCheck(hook: HookInput): FilesExit {
 	const streak = editStreak(hook, F);
 	if (streak?.kind === "block") return streak;
 	if (streak?.kind === "context") notes.push(streak.msg);
+	// W611 steer delivery: undelivered directed events (target = this lane's
+	// sid, past the cursor) ride out as additionalContext on EVERY save — the
+	// one moment a busy lane's PostToolUse is guaranteed to reach the model.
+	// Fail-open inside; the cursor advances past SHOWN, never blocks.
+	const steer = drainLaneInbox(hook);
+	if (steer) notes.push(steer);
 	if (notes.length) return { kind: "context", msg: notes.join("\n") };
 	return { kind: "ok" };
 }

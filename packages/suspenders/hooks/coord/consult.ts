@@ -16,6 +16,7 @@ import {
 } from "./shared.ts";
 
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+import { consultDeadline } from "../lib/consult-expiry.ts";
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -138,9 +139,17 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			);
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)",
 			)
-			.run(projectIdentity(), as, expert, question, scope, Date.now());
+			.run(
+				projectIdentity(),
+				as,
+				expert,
+				question,
+				scope,
+				Date.now(),
+				consultDeadline(Date.now()),
+			);
 		const cid = `C${r.lastInsertRowid}`;
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
