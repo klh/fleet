@@ -147,6 +147,31 @@ test("process truth checks birth plus actual executable, never prompt words", ()
 	).toBe("unknown");
 	expect(inspectLaunchIntent(intent, () => false)).toBe("dead");
 });
+test("hostname flip (.localdomain -> .local) stays same machine, fencing intact", () => {
+	const base = hostname().replace(/\.local(?:domain)?$/i, "");
+	const preFlip: LaunchIntent = {
+		...fixture().input,
+		attempt: 0,
+		state: "REGISTERED",
+		host: `${base}.localdomain`,
+		pid: 42,
+		birth: "boot:123",
+	};
+	const fake =
+		(command: string, birth = "boot:123") =>
+		() => ({ birth, command });
+	// same machine through the flip: birth fencing decides, not the suffix
+	expect(
+		inspectLaunchIntent(preFlip, fake(`${preFlip.executor} script.ts`)),
+	).toBe("alive");
+	expect(inspectLaunchIntent(preFlip, fake(preFlip.executor, "boot:456"))).toBe(
+		"dead",
+	);
+	// a genuinely foreign host is still uninspectable — fail-closed preserved
+	expect(
+		inspectLaunchIntent({ ...preFlip, host: "other-mac.local" }, () => false),
+	).toBe("unknown");
+});
 function privateRuntime() {
 	const home = mkdtempSync(join(tmpdir(), "fleet-launch-fence-"));
 	dirs.push(home);

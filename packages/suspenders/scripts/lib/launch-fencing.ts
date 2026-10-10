@@ -192,12 +192,20 @@ export function processBirth(pid: number): ProcessBirth | false | null {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" ? false : null;
 	}
 }
+/** macOS flips a host between `.local` and `.localdomain` (mDNS/DHCP); the
+ * same machine must stay inspectable across the flip or its pre-flip launch
+ * intents are uncertain forever and the launch pool leaks its capacity. Only
+ * that exact suffix pair normalizes — pid+birth+argv fencing stays the gate. */
+const normalizeHost = (host: string): string =>
+	host.replace(/(?:\.(?:local|localdomain))+$/i, "");
+const sameMachine = (a: string, b: string): boolean =>
+	normalizeHost(a) === normalizeHost(b);
 export function inspectLaunchIntent(
 	intent: LaunchIntent,
 	inspect = processBirth,
 ): "alive" | "dead" | "unknown" {
 	if (intent.state === "FAILED") return "dead";
-	if (intent.host !== hostname() || !intent.pid || !intent.birth)
+	if (!sameMachine(intent.host, hostname()) || !intent.pid || !intent.birth)
 		return "unknown";
 	const current = inspect(intent.pid);
 	if (current === false) return "dead";
