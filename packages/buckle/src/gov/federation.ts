@@ -275,14 +275,10 @@ export class Federation {
 		> | null;
 		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
 		const code = str(body.code);
-		if (code === null)
-			return bad(400, "buckle.bad_body", "missing code");
+		if (code === null) return bad(400, "buckle.bad_body", "missing code");
 		const out: RedeemResult = redeemEnrollmentCode(this.db, { code });
 		if (!out.ok) {
-			const status =
-				out.code === "buckle.enroll_used"
-					? 409
-					: 401;
+			const status = out.code === "buckle.enroll_used" ? 409 : 401;
 			return bad(status, out.code, out.why);
 		}
 		return Response.json(

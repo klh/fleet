@@ -8,7 +8,13 @@
 // exits (pipes, cron, smoke tests).
 // Usage: bun fleet-watch.ts [--interval ms] [--width n] [--height n]
 //                          [--top n] [--board url] [--once]
-import { collectBoardTasks, collectCoordFleet, collectWorkLanes, fleetRootLabel, mergeLanes } from "../lib/watch/sources.ts";
+import {
+	collectBoardTasks,
+	collectCoordFleet,
+	collectWorkLanes,
+	fleetRootLabel,
+	mergeLanes,
+} from "../lib/watch/sources.ts";
 import { buildFrame, emitFrame } from "../lib/watch/frame.ts";
 import type { BoardTaskRow } from "../lib/watch/frame.ts";
 

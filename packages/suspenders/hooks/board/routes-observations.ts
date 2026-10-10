@@ -20,7 +20,10 @@ function handleLaneRoutes(req: Request, url: URL): Response | null {
 	const path = process.env.KLH_LANE_ROUTES_DB;
 	if (!path)
 		return json(
-			{ ok: false, error: "lane routes db not configured (KLH_LANE_ROUTES_DB)" },
+			{
+				ok: false,
+				error: "lane routes db not configured (KLH_LANE_ROUTES_DB)",
+			},
 			404,
 		);
 	let projection: LaneProjection | null = null;

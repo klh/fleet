@@ -49,14 +49,15 @@ describe("W238 packet-prep: W112 pointer teeth", () => {
 				"Read docs/keep.md before starting.",
 			),
 		).toEqual(["docs/lost.md"]);
-		expect(pointerLoss("Read docs/keep.md.", "Read docs/keep.md.")).toEqual(
-			[],
-		);
+		expect(pointerLoss("Read docs/keep.md.", "Read docs/keep.md.")).toEqual([]);
 	});
 
 	test("degradation: a result that loses a pointer is refused — input served verbatim", () => {
 		const input = "Read docs/keep.md and docs/lost.md before starting.";
-		const synthetic = { text: "Read docs/keep.md before starting.", rules: ["dedupe:line"] };
+		const synthetic = {
+			text: "Read docs/keep.md before starting.",
+			rules: ["dedupe:line"],
+		};
 		const r: PacketPrepResult = finalizePacket(input, synthetic);
 		expect(r.degraded).toBe(true);
 		expect(r.text).toBe(input);

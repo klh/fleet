@@ -21,9 +21,7 @@ const { openGovernorDb, openKnowledgeDb } = await import(
 const { SqliteKnowledgeStore } = await import(
 	`../hooks/lib/knowledge-ports.ts?w159=${encodeURIComponent(HOME)}`
 );
-const settleStore = (
-	db: Database,
-): InstanceType<typeof SqliteKnowledgeStore> =>
+const settleStore = (db: Database): InstanceType<typeof SqliteKnowledgeStore> =>
 	new SqliteKnowledgeStore(openKnowledgeDb(), db);
 const { settleSessionWith, sessionDomain, recordSessionDomain } = await import(
 	"../hooks/lib/settle.ts"

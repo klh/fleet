@@ -187,8 +187,9 @@ export class KlhTree extends LitElement {
 		const st = n.state ? ` ${n.state}` : "";
 		const open = kids.length ? this.openKey(n) : false;
 		return html`<div class="row">
-			${kids.length
-				? html`<button
+			${
+				kids.length
+					? html`<button
 						type="button"
 						class="tw"
 						aria-expanded=${open ? "true" : "false"}
@@ -197,7 +198,8 @@ export class KlhTree extends LitElement {
 					>
 						${unsafeSVG(icon("chevron", 12))}
 					</button>`
-				: html`<span class="leafmark" aria-hidden="true">·</span>`}
+					: html`<span class="leafmark" aria-hidden="true">·</span>`
+			}
 			<button
 				type="button"
 				class="rowbtn${st}"
@@ -211,9 +213,11 @@ export class KlhTree extends LitElement {
 					)}
 			>
 				${n.state ? html`<span class="led" aria-hidden="true"></span>` : nothing}
-				${n.icon
-					? html`<span class="ic">${unsafeSVG(icon(n.icon, 14))}</span>`
-					: nothing}
+				${
+					n.icon
+						? html`<span class="ic">${unsafeSVG(icon(n.icon, 14))}</span>`
+						: nothing
+				}
 				<span class="lbl">${n.label}</span>
 				${n.detail ? html`<span class="det">${n.detail}</span>` : nothing}
 			</button>
@@ -224,17 +228,18 @@ export class KlhTree extends LitElement {
 		const kids = n.children ?? [];
 		return html`<li>
 			${this.row(n, kids)}
-			${kids.length && this.openKey(n)
-				? html`<ul>
+			${
+				kids.length && this.openKey(n)
+					? html`<ul>
 						${kids.map((k) => this.item(k))}
 					</ul>`
-				: nothing}
+					: nothing
+			}
 		</li>`;
 	}
 
 	protected render(): TemplateResult {
-		if (!this.nodes.length)
-			return html`<p class="off">nothing in scope</p>`;
+		if (!this.nodes.length) return html`<p class="off">nothing in scope</p>`;
 		return html`<ul class="roots">
 			${this.nodes.map((n) => this.item(n))}
 		</ul>`;

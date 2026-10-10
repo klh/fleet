@@ -89,7 +89,3 @@ describe("W422 executor-adapter registry", () => {
 		]);
 	});
 });
-
-
-
-

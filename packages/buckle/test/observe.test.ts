@@ -61,7 +61,11 @@ describe("ObservationOutbox", () => {
 
 describe("observation emissions through the proxy", () => {
 	async function rig(
-		handler: (req: Request, body: Record<string, unknown> | null, n: number) => Response,
+		handler: (
+			req: Request,
+			body: Record<string, unknown> | null,
+			n: number,
+		) => Response,
 	): Promise<{ outbox: ObservationOutbox; path: string }> {
 		const upstream = await startMockUpstream(handler);
 		const path = `/tmp/buckle-obs-emit-${Date.now()}/obs.jsonl`;
@@ -69,7 +73,9 @@ describe("observation emissions through the proxy", () => {
 		const deps: AppDeps = {
 			...testDeps({
 				groups: () => ["glm-5.3-flash"],
-				deployments: (g) => [{ group: g, url: upstream.url, dialect: "openai" as const }],
+				deployments: (g) => [
+					{ group: g, url: upstream.url, dialect: "openai" as const },
+				],
 			} satisfies UpstreamPool),
 			observations: outbox,
 		};
@@ -77,7 +83,10 @@ describe("observation emissions through the proxy", () => {
 		const res = await app.fetch(
 			new Request(`${upstream.url}/v1/chat/completions`, {
 				method: "POST",
-				headers: { traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" },
+				headers: {
+					traceparent:
+						"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+				},
 				body: JSON.stringify({ model: "glm-5.3-flash", stream: false }),
 			}),
 		);

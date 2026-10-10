@@ -34,7 +34,9 @@ const emitNote = (note: string): void => {
 	if (r.code !== 0) throw new Error(`emit failed: ${r.err}`);
 };
 
-const events = async (params: string): Promise<{ ok: boolean; events: Ev[]; cursor: number }> => {
+const events = async (
+	params: string,
+): Promise<{ ok: boolean; events: Ev[]; cursor: number }> => {
 	const r = await fetch(`${BASE}/api/events?${params}`);
 	if (!r.ok) {
 		const t = await r.text();

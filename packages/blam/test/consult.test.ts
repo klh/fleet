@@ -2,7 +2,11 @@
 // (W447): plane behaviors, policy matrix, determinism, bench properties.
 import { describe, expect, test } from "bun:test";
 import { ConsultPlane } from "../bench/consult/plane.ts";
-import { DEFAULT_POLICY_COSTS, POLICIES, runTask } from "../bench/consult/policies.ts";
+import {
+	DEFAULT_POLICY_COSTS,
+	POLICIES,
+	runTask,
+} from "../bench/consult/policies.ts";
 import {
 	checkProperties,
 	FRESH,
@@ -17,15 +21,26 @@ import {
 } from "../bench/consult/types.ts";
 
 function task(profile: string): TaskInstance {
-	return { id: "t", profile: profile as TaskInstance["profile"], codeVersion: "v2" };
+	return {
+		id: "t",
+		profile: profile as TaskInstance["profile"],
+		codeVersion: "v2",
+	};
 }
-
 
 describe("consult plane", () => {
 	test("kbLookup reports staleness, never hides it", () => {
 		const p = new ConsultPlane({
 			experts: [{ scope: "s1", live: true }],
-			kb: [{ id: "k1", scope: "s1", codeVersion: "v1", answer: "a", verified: true }],
+			kb: [
+				{
+					id: "k1",
+					scope: "s1",
+					codeVersion: "v1",
+					answer: "a",
+					verified: true,
+				},
+			],
 			currentVersion: "v2",
 			delivery: "ok",
 			latencyMin: 6,
@@ -45,7 +60,6 @@ describe("consult plane", () => {
 		expect(p.ask("t", "s1").kind).toBe("no-expert");
 	});
 });
-
 
 describe("consult policies", () => {
 	test("arm A burns duplicate investigation and fails conflicting-assumptions", () => {
@@ -78,7 +92,6 @@ describe("consult policies", () => {
 	});
 });
 
-
 describe("harness properties and metrics", () => {
 	test("all six bench properties hold", () => {
 		expect(checkProperties()).toEqual([]);
@@ -101,13 +114,17 @@ describe("harness properties and metrics", () => {
 	test("control group is never consulted by any arm", () => {
 		for (const arm of Object.keys(POLICIES) as Array<keyof typeof POLICIES>) {
 			const r = runTask(
-				{ plane: new ConsultPlane({
-					experts: [],
-					kb: [],
-					currentVersion: "v2",
-					delivery: "ok",
-					latencyMin: 6,
-				}), task: task("no-consult-control"), costs: DEFAULT_POLICY_COSTS },
+				{
+					plane: new ConsultPlane({
+						experts: [],
+						kb: [],
+						currentVersion: "v2",
+						delivery: "ok",
+						latencyMin: 6,
+					}),
+					task: task("no-consult-control"),
+					costs: DEFAULT_POLICY_COSTS,
+				},
 				POLICIES[arm],
 			);
 			expect(r.metrics.attemptedCalls).toBe(0);

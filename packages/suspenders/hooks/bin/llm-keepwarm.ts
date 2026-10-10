@@ -110,5 +110,7 @@ const drill = await drillFallback();
 			? `${drill.dark ? "z.ai dark, local answered" : "z.ai up"}${drill.model ? ` via ${drill.model}` : ""}`
 			: drill.why;
 	const ms = drill.verdict === "skipped" ? "" : ` ${fmtMs(drill.ms)}`;
-	console.log(`  ${dim("fallback")}  ${mark} glm-5.3-flash ${dim(detail + ms)}`);
+	console.log(
+		`  ${dim("fallback")}  ${mark} glm-5.3-flash ${dim(detail + ms)}`,
+	);
 }

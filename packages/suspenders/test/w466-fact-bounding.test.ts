@@ -63,7 +63,9 @@ describe("W466 fact list bounding", () => {
 		const prefixed = coord(["fact", "list", "--prefix", "usage.tp."]).out;
 		expect(prefixed).toContain("usage.tp.bbbb");
 		expect(prefixed).not.toContain("lesson.w466");
-		expect(coord(["fact", "list", "--limit", "1"]).out.split("\n")).toHaveLength(
+		expect(
+			coord(["fact", "list", "--limit", "1"]).out.split("\n"),
+		).toHaveLength(
 			2, // one fact + trailing newline
 		);
 	});
@@ -92,9 +94,15 @@ describe("W466 govdb v12 migration", () => {
 			const reg = join(pre, ".cache/claude-governor");
 			mkdirSync(reg, { recursive: true });
 			const db = new Database(join(reg, "governor.db"), { create: true });
-			db.run("CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)");
-			db.run("INSERT INTO facts VALUES ('activity.tp.cccc', '{\"o\":9,\"m\":8}', 'old-harvest', 1, 1)");
-			db.run("INSERT INTO facts VALUES ('lesson.keep', 'real knowledge', 'old', 1, 1)");
+			db.run(
+				"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)",
+			);
+			db.run(
+				"INSERT INTO facts VALUES ('activity.tp.cccc', '{\"o\":9,\"m\":8}', 'old-harvest', 1, 1)",
+			);
+			db.run(
+				"INSERT INTO facts VALUES ('lesson.keep', 'real knowledge', 'old', 1, 1)",
+			);
 			db.run("PRAGMA user_version = 11");
 			db.close();
 			// fresh module import under the pre-v12 HOME → openGovernorDb runs v12
@@ -125,7 +133,9 @@ describe("W466 govdb v12 migration", () => {
 			// non-cursor knowledge rows are untouched
 			const kept = new Database(join(reg, "governor.db"), {
 				readonly: true,
-			}).query("SELECT value FROM facts WHERE key = 'lesson.keep'").get() as {
+			})
+				.query("SELECT value FROM facts WHERE key = 'lesson.keep'")
+				.get() as {
 				value: string;
 			};
 			expect(kept.value).toBe("real knowledge");

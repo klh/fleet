@@ -17,7 +17,9 @@ import {
 } from "../hooks/dialects/cline/lib.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-cline-home-"));
-const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-cline-repo-")));
+const REPO = realpathSync(
+	mkdtempSync(join(tmpdir(), "suspenders-w296-cline-repo-")),
+);
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
 mkdirSync(HOME, { recursive: true });
 

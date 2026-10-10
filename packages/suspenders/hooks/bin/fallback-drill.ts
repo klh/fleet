@@ -110,22 +110,19 @@ async function runRequest(
 	const t0 = Date.now();
 	let r: Response;
 	try {
-		r = await fetchImpl(
-			`${deps.gateway ?? GATEWAY_URL}/v1/chat/completions`,
-			{
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					authorization: `Bearer ${key}`,
-				},
-				body: JSON.stringify({
-					model: PROBE_MODEL,
-					messages: [{ role: "user", content: `drill ${Date.now()}` }],
-					max_tokens: 1,
-				}),
-				signal: AbortSignal.timeout(deps.timeoutMs ?? 60_000),
+		r = await fetchImpl(`${deps.gateway ?? GATEWAY_URL}/v1/chat/completions`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${key}`,
 			},
-		);
+			body: JSON.stringify({
+				model: PROBE_MODEL,
+				messages: [{ role: "user", content: `drill ${Date.now()}` }],
+				max_tokens: 1,
+			}),
+			signal: AbortSignal.timeout(deps.timeoutMs ?? 60_000),
+		});
 	} catch (e) {
 		return {
 			dark,

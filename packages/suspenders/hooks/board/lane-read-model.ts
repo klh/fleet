@@ -11,7 +11,10 @@
 // A visibility edge proves only that a hub observed a lane through a peer
 // during an interval — never work authority or lifecycle end.
 import type { GovernorStore } from "../lib/govdb.ts";
-import { laneObservationSnapshot, type LaneObservation } from "./lane-observations.ts";
+import {
+	laneObservationSnapshot,
+	type LaneObservation,
+} from "./lane-observations.ts";
 
 export const EDGE_ROW_CAP = 10_000;
 export const DESCRIPTOR_ROW_CAP = 5_000;
@@ -68,11 +71,17 @@ function identity(value: unknown, max = 128): value is string {
 }
 
 function optionalIdentity(value: unknown): value is string | undefined {
-	return value === undefined || (identity(value) && !["all", "unknown"].includes(value));
+	return (
+		value === undefined ||
+		(identity(value) && !["all", "unknown"].includes(value))
+	);
 }
 
 /** Validates one edge event; returns the error string or null when valid. */
-function edgeEventError(e: Record<string, unknown>, now: number): string | null {
+function edgeEventError(
+	e: Record<string, unknown>,
+	now: number,
+): string | null {
 	for (const [key, value, max] of [
 		["source", e.source, 128],
 		["eventId", e.eventId, 256],
@@ -83,7 +92,8 @@ function edgeEventError(e: Record<string, unknown>, now: number): string | null 
 		["project", e.project, 1024],
 		["requestId", e.requestId, 256],
 	] as const) {
-		const reserved = key.endsWith("Hub") && ["all", "unknown"].includes(String(value));
+		const reserved =
+			key.endsWith("Hub") && ["all", "unknown"].includes(String(value));
 		if (!identity(value, max) || reserved) return `Invalid ${key}`;
 	}
 	if (e.outcome !== "ok" && e.outcome !== "error") return "Invalid outcome";
@@ -106,11 +116,21 @@ export function ingestRequestEdges(
 	now = Date.now(),
 ): { ok: boolean; error?: string; accepted: number; duplicates: number } {
 	if (!Array.isArray(events) || events.length > INGEST_BATCH_CAP)
-		return { ok: false, error: `Expected an array of at most ${INGEST_BATCH_CAP} events`, accepted: 0, duplicates: 0 };
+		return {
+			ok: false,
+			error: `Expected an array of at most ${INGEST_BATCH_CAP} events`,
+			accepted: 0,
+			duplicates: 0,
+		};
 	const valid: RequestEdgeEvent[] = [];
 	for (const raw of events) {
 		if (!raw || typeof raw !== "object" || Array.isArray(raw))
-			return { ok: false, error: "Expected an event object", accepted: 0, duplicates: 0 };
+			return {
+				ok: false,
+				error: "Expected an event object",
+				accepted: 0,
+				duplicates: 0,
+			};
 		const e = raw as Record<string, unknown>;
 		const error = edgeEventError(e, now);
 		if (error) return { ok: false, error, accepted: 0, duplicates: 0 };
@@ -139,8 +159,17 @@ export function ingestRequestEdges(
 				`INSERT OR IGNORE INTO board_request_edges
 				(source, event_id, observer_hub, origin_hub, peer_hub, lane_id, project, request_id, outcome, ts, trace_id)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				e.source, e.eventId, e.observerHub, e.originHub, e.peerHub,
-				e.laneId, e.project, e.requestId, e.outcome, e.ts, e.traceId ?? null,
+				e.source,
+				e.eventId,
+				e.observerHub,
+				e.originHub,
+				e.peerHub,
+				e.laneId,
+				e.project,
+				e.requestId,
+				e.outcome,
+				e.ts,
+				e.traceId ?? null,
 			);
 			if (insert.changes > 0) {
 				accepted++;
@@ -152,7 +181,12 @@ export function ingestRequestEdges(
 					first_seen_at = MIN(board_lane_descriptors.first_seen_at, excluded.first_seen_at),
 					last_seen_at = MAX(board_lane_descriptors.last_seen_at, excluded.last_seen_at),
 					dispatch_attempt = excluded.dispatch_attempt`,
-					e.laneId, e.project, e.originHub, e.ts, e.ts, e.dispatchAttempt ?? null,
+					e.laneId,
+					e.project,
+					e.originHub,
+					e.ts,
+					e.ts,
+					e.dispatchAttempt ?? null,
 				);
 			} else duplicates++;
 		}
@@ -183,10 +217,7 @@ export function projectPresence(
 		);
 	let upserted = 0;
 	db.transaction(() => {
-		db.run(
-			"DELETE FROM board_observer_presence WHERE expires_at <= ?",
-			now,
-		);
+		db.run("DELETE FROM board_observer_presence WHERE expires_at <= ?", now);
 		// presence is a projection of CURRENT evidence: a row whose source
 		// observation vanished (expired, replaced) must not survive here —
 		// stale evidence is unknown, never a live lane
@@ -204,12 +235,21 @@ export function projectPresence(
 				first_seen_at = MIN(board_observer_presence.first_seen_at, excluded.first_seen_at),
 				last_seen_at = MAX(board_observer_presence.last_seen_at, excluded.last_seen_at),
 				expires_at = excluded.expires_at`,
-				lane.peerHub, lane.laneId, lane.project, lane.peerHub,
-				lane.originHub, lane.observedAt, lane.observedAt, lane.expiresAt,
+				lane.peerHub,
+				lane.laneId,
+				lane.project,
+				lane.peerHub,
+				lane.originHub,
+				lane.observedAt,
+				lane.observedAt,
+				lane.expiresAt,
 			);
 			db.run(
 				"INSERT INTO presence_keys (observer_hub, lane_id, project, peer_hub) VALUES (?, ?, ?, ?)",
-				lane.peerHub, lane.laneId, lane.project, lane.peerHub,
+				lane.peerHub,
+				lane.laneId,
+				lane.project,
+				lane.peerHub,
 			);
 			upserted++;
 			db.run(
@@ -219,7 +259,11 @@ export function projectPresence(
 				ON CONFLICT(lane_id, project, origin_hub) DO UPDATE SET
 				first_seen_at = MIN(board_lane_descriptors.first_seen_at, excluded.first_seen_at),
 				last_seen_at = MAX(board_lane_descriptors.last_seen_at, excluded.last_seen_at)`,
-				lane.laneId, lane.project, lane.originHub, lane.observedAt, lane.observedAt,
+				lane.laneId,
+				lane.project,
+				lane.originHub,
+				lane.observedAt,
+				lane.observedAt,
 			);
 		}
 		db.run(
@@ -245,7 +289,10 @@ export interface LaneModelFilters {
 	group: "peer" | "origin";
 }
 
-export function parseLaneModelFilters(url: URL, now = Date.now()): LaneModelFilters | string {
+export function parseLaneModelFilters(
+	url: URL,
+	now = Date.now(),
+): LaneModelFilters | string {
 	const get = (key: string) => {
 		const value = url.searchParams.get(key);
 		return value && value !== "all" ? value : null;
@@ -270,7 +317,10 @@ export function parseLaneModelFilters(url: URL, now = Date.now()): LaneModelFilt
 	};
 }
 
-function edgeWhere(filters: LaneModelFilters): { sql: string; params: unknown[] } {
+function edgeWhere(filters: LaneModelFilters): {
+	sql: string;
+	params: unknown[];
+} {
 	const clauses = ["ts >= ?", "ts <= ?"];
 	const params: unknown[] = [filters.since, filters.until];
 	if (filters.project) {

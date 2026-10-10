@@ -34,10 +34,7 @@ export type TailResult = { text: string; newOffset: number };
 // new log lines since a byte offset, complete lines only, rendered as one
 // context block ("" when nothing new). Exported for the unit leg; the gate
 // wraps it with per-lane offset state.
-export function tailSubscribeLog(
-	logPath: string,
-	offset: number,
-): TailResult {
+export function tailSubscribeLog(logPath: string, offset: number): TailResult {
 	let fh: number;
 	try {
 		fh = openSync(logPath, "r");
@@ -100,8 +97,7 @@ export function pushGate(hook: HookInput): never {
 	const stateFile = sessionStatePath("subtail", laneId);
 	const prev = readSessionState<{ off: number }>(stateFile)?.off ?? 0;
 	const r = tailSubscribeLog(log, prev);
-	if (r.newOffset !== prev)
-		writeSessionState(stateFile, { off: r.newOffset });
+	if (r.newOffset !== prev) writeSessionState(stateFile, { off: r.newOffset });
 	if (r.text) context(r.text, "PostToolUse");
 	allow();
 }

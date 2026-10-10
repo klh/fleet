@@ -205,9 +205,7 @@ describe("buildFrame", () => {
 			expect(visibleLen(l)).toBeLessThanOrEqual(fix.width - 1);
 	});
 	test("prefer tag color drives the truecolor dot", () => {
-		expect(
-			buildFrame(fix).some((l) => l.includes("38;2;0;88;163")),
-		).toBe(true);
+		expect(buildFrame(fix).some((l) => l.includes("38;2;0;88;163"))).toBe(true);
 	});
 	test("board down degrades the footer, frame still builds", () => {
 		const lines = buildFrame({ ...fix, boardOk: false });

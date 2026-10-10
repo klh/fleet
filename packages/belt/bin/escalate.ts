@@ -43,7 +43,9 @@ export const defaultSettingsLoader: SettingsLoader = async () => {
 	try {
 		const s = JSON.parse(
 			await Bun.file(`${home}/.claude/settings.json`).text(),
-		) as { env?: { ANTHROPIC_AUTH_TOKEN?: string; ANTHROPIC_BASE_URL?: string } };
+		) as {
+			env?: { ANTHROPIC_AUTH_TOKEN?: string; ANTHROPIC_BASE_URL?: string };
+		};
 		return {
 			tok: s.env?.ANTHROPIC_AUTH_TOKEN,
 			base: s.env?.ANTHROPIC_BASE_URL,
@@ -92,7 +94,10 @@ export async function escalate(
 	},
 ): Promise<EscalateResult> {
 	const wantFastModel = opts.wantFast ? "glm-5.3-flash" : "glm-5.3";
-	const leg = await resolveEscalationLeg(opts.env ?? process.env, opts.settings);
+	const leg = await resolveEscalationLeg(
+		opts.env ?? process.env,
+		opts.settings,
+	);
 	if (!leg) return { text: "", model: wantFastModel };
 	const model = leg.modelOverride ?? wantFastModel;
 	const budget = applyBudget(model, opts.maxTokens);

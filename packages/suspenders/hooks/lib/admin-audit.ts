@@ -46,5 +46,7 @@ export function recentAdminAudit(
 			${typeof before === "number" ? "WHERE id < ?" : ""}
 			ORDER BY id DESC LIMIT ?`,
 		)
-		.all(...(typeof before === "number" ? [before, limit] : [limit])) as AdminAuditRow[];
+		.all(
+			...(typeof before === "number" ? [before, limit] : [limit]),
+		) as AdminAuditRow[];
 }

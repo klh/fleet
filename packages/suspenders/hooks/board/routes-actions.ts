@@ -81,17 +81,14 @@ function normalizeAgent(raw: string): string {
 // ▶ dispatch uses, folded to review-lane args. Local swarm ports resolve
 // registry-side; other machines ride belt targeting. Throws LlmLegError —
 // the route turns it into a JSON error response.
-async function resolveLlmLeg(
-	executor: string,
-): Promise<string[]> {
+async function resolveLlmLeg(executor: string): Promise<string[]> {
 	const rest = executor.slice(4);
 	const c1 = rest.indexOf(":");
 	const machine = c1 > 0 ? rest.slice(0, c1) : rest;
 	const tail = c1 > 0 ? rest.slice(c1 + 1) : "";
 	if (machine === "local") {
 		const spec = await specialistByPort(Number(tail));
-		if (!spec)
-			throw new LlmLegError(`unknown local swarm port ${tail}`, 409);
+		if (!spec) throw new LlmLegError(`unknown local swarm port ${tail}`, 409);
 		return [
 			"--llm-url",
 			`http://127.0.0.1:${spec.port}/v1/chat/completions`,
@@ -132,7 +129,10 @@ async function releaseClaimCas(
 ): Promise<Response> {
 	const repo = projectRootOf(project);
 	if (!existsSync(repo))
-		return json({ ok: false, error: `project directory missing: ${repo}` }, 409);
+		return json(
+			{ ok: false, error: `project directory missing: ${repo}` },
+			409,
+		);
 	const w = db
 		.query(
 			"SELECT state, owner_sid, updated_at FROM work_items WHERE project = ? AND id = ?",
@@ -184,7 +184,11 @@ async function releaseClaimCas(
 		if (sig.exitCode !== 0) {
 			const out = `${sig.stdout.toString()} ${sig.stderr.toString()}`.trim();
 			return json(
-				{ ok: false, live: true, error: `lane signal failed: ${out.slice(0, 200)}` },
+				{
+					ok: false,
+					live: true,
+					error: `lane signal failed: ${out.slice(0, 200)}`,
+				},
 				500,
 			);
 		}
@@ -255,10 +259,7 @@ async function dispatchStart(
 		description: string | null;
 	} | null;
 	if (!w)
-		return json(
-			{ ok: false, error: `no work item ${id} in ${project}` },
-			404,
-		);
+		return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
 	if (w.owner_sid)
 		return json(
 			{ ok: false, error: `${id} already claimed by ${w.owner_sid}` },
@@ -945,7 +946,10 @@ export async function handleActions(
 			updated_at: number;
 		} | null;
 		if (!w)
-			return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
 		if (!w.owner_sid || !["CLAIMED", "RUNNING"].includes(w.state))
 			return json(
 				{
@@ -967,8 +971,7 @@ export async function handleActions(
 				{ ok: false, error: `release leg failed: ${String(relBody.error)}` },
 				409,
 			);
-		if (relBody.dispatched === false)
-			return json(relBody); // old lane still live — signalled, dispatch later
+		if (relBody.dispatched === false) return json(relBody); // old lane still live — signalled, dispatch later
 		return dispatchStart(project, id, agent, effort);
 	}
 	if (req.method === "POST" && url.pathname === "/api/cancel") {
@@ -993,19 +996,31 @@ export async function handleActions(
 			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
 			.get(project, id) as { state: string } | null;
 		if (!w)
-			return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
 		if (
 			["DONE", "FAILED", "SUPERSEDED", "CANCELLED", "SHATTERED"].includes(
 				w.state,
 			)
 		)
-			return json({ ok: false, error: `${id} is ${w.state} — already closed` }, 409);
+			return json(
+				{ ok: false, error: `${id} is ${w.state} — already closed` },
+				409,
+			);
 		const repo = projectRootOf(project);
 		if (!existsSync(repo))
-			return json({ ok: false, error: `project directory missing: ${repo}` }, 409);
+			return json(
+				{ ok: false, error: `project directory missing: ${repo}` },
+				409,
+			);
 		const c = runCli([WORK_CLI, "cancel", id, "--note", reason], repo);
 		if (c.code !== 0)
-			return json({ ok: false, error: `cancel failed: ${c.out.slice(0, 300)}` }, 500);
+			return json(
+				{ ok: false, error: `cancel failed: ${c.out.slice(0, 300)}` },
+				500,
+			);
 		return json({ ok: true, item: id, state: "CANCELLED" });
 	}
 	if (req.method === "POST" && url.pathname === "/api/second-opinion") {
@@ -1029,10 +1044,16 @@ export async function handleActions(
 			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
 			.get(project, id) as { state: string } | null;
 		if (!w)
-			return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
 		const repo = projectRootOf(project);
 		if (!existsSync(repo))
-			return json({ ok: false, error: `project directory missing: ${repo}` }, 409);
+			return json(
+				{ ok: false, error: `project directory missing: ${repo}` },
+				409,
+			);
 		// W105 executor routing: agent binaries ride --bin; llm:* resolves
 		// through the same catalog the ▶ dispatch uses.
 		let legArgs: string[] = [];
@@ -1045,7 +1066,10 @@ export async function handleActions(
 					: `${process.env.HOME}/.local/bin/claude`);
 			if (!existsSync(bin))
 				return json(
-					{ ok: false, error: `${executor} binary not found on the board's PATH` },
+					{
+						ok: false,
+						error: `${executor} binary not found on the board's PATH`,
+					},
 					409,
 				);
 			legArgs = ["--bin", bin];
@@ -1054,8 +1078,7 @@ export async function handleActions(
 			try {
 				legArgs = await resolveLlmLeg(executor);
 			} catch (e) {
-				const st =
-					e instanceof LlmLegError ? e.status : 500;
+				const st = e instanceof LlmLegError ? e.status : 500;
 				return json(
 					{ ok: false, error: String(e instanceof Error ? e.message : e) },
 					st,

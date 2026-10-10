@@ -59,7 +59,8 @@ const TIMEOUT = Number(arg("timeout") ?? 240_000);
 
 // Deterministic first productive action — identical across modes so the
 // only variable is cold vs forked orientation.
-const TASK = 'Run the command "git rev-parse HEAD" and reply with ONLY its output.';
+const TASK =
+	'Run the command "git rev-parse HEAD" and reply with ONLY its output.';
 
 const reading = (ok: boolean): ProbeReading => ({
 	ok,
@@ -166,14 +167,18 @@ const runOne = (
 	run: number,
 	mode: "cold" | "fork",
 	bin: string,
-	recipe: { probeArgs: (f: ForkLike | null) => string[]; parse: (o: string) => ProbeReading },
+	recipe: {
+		probeArgs: (f: ForkLike | null) => string[];
+		parse: (o: string) => ProbeReading;
+	},
 	fork: ForkLike | null,
 	cwd: string,
 	env: Record<string, string>,
 ): BenchRecord => {
 	const spawned = spawnProbe(bin, recipe.probeArgs(fork), cwd, env);
 	const parsed = recipe.parse(spawned.out);
-	const wall = parsed.wall_ms ?? (spawned.code === 0 ? Date.now() - spawned.t0 : null);
+	const wall =
+		parsed.wall_ms ?? (spawned.code === 0 ? Date.now() - spawned.t0 : null);
 	const base = {
 		ts: Date.now(),
 		phase: PHASE,
@@ -214,9 +219,7 @@ const summarize = (records: BenchRecord[]): string => {
 			.filter(([i, c]) => i !== null && c !== null) as [number, number][];
 		const totIn = pairs.reduce((a, [i]) => a + i, 0);
 		const totC = pairs.reduce((a, [, c]) => a + c, 0);
-		return totIn + totC === 0
-			? NaN
-			: Math.round((totC / (totIn + totC)) * 100);
+		return totIn + totC === 0 ? NaN : Math.round((totC / (totIn + totC)) * 100);
 	};
 	return [
 		`runs=${good.length}/${records.length}`,
@@ -257,12 +260,3 @@ if (import.meta.main) {
 	console.log(summarize(records));
 	if (records.length > 0 && records.every((r) => r.error)) process.exit(4);
 }
-
-
-
-
-
-
-
-
-

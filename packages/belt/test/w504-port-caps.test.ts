@@ -8,7 +8,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAdmission, overloaded, parsePortCaps } from "../bin/admission.ts";
+import {
+	createAdmission,
+	overloaded,
+	parsePortCaps,
+} from "../bin/admission.ts";
 import { SPECIALISTS } from "../bin/registry.ts";
 
 const SHIM = new URL("../bin/router-shim.ts", import.meta.url).pathname;

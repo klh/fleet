@@ -73,7 +73,8 @@ function main(): void {
 	const check = args.includes("--check");
 	const json = args.includes("--json");
 	const minFlag = args.indexOf("--min");
-	const min = minFlag >= 0 ? (args[minFlag + 1] ?? WAL_RESET_FIX) : WAL_RESET_FIX;
+	const min =
+		minFlag >= 0 ? (args[minFlag + 1] ?? WAL_RESET_FIX) : WAL_RESET_FIX;
 	const facts = runtimeFacts();
 	const v = sqliteVerdict(facts.sqlite, min, process.env.SQLITE_PATCH_EVIDENCE);
 	if (json) {

@@ -35,7 +35,11 @@ nudge(process.argv[2] ?? "");`,
 );
 
 let n = 0;
-function drive(sid: string | null, message: string, envExtra?: Record<string, string>): {
+function drive(
+	sid: string | null,
+	message: string,
+	envExtra?: Record<string, string>,
+): {
 	out: string;
 	code: number | null;
 } {
@@ -44,16 +48,13 @@ function drive(sid: string | null, message: string, envExtra?: Record<string, st
 		pf,
 		JSON.stringify({ tool_name: "Bash", ...(sid ? { session_id: sid } : {}) }),
 	);
-	const p = Bun.spawnSync(
-		["bun", DRIVER, message],
-		{
-			cwd: TMP,
-			env: { ...process.env, TMPDIR: TMP, ...(envExtra ?? {}) },
-			stdin: Bun.file(pf),
-			stdout: "pipe",
-			stderr: "pipe",
-		},
-	);
+	const p = Bun.spawnSync(["bun", DRIVER, message], {
+		cwd: TMP,
+		env: { ...process.env, TMPDIR: TMP, ...(envExtra ?? {}) },
+		stdin: Bun.file(pf),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return { out: p.stdout.toString(), code: p.exitCode };
 }
 
@@ -95,8 +96,12 @@ describe("nudge cooldown", () => {
 
 	test("SUSPENDERS_NUDGE_COOLDOWN_MS=0 disables the throttle", () => {
 		const sid = `cool-${Math.random().toString(36).slice(2)}`;
-		expect(emitted(drive(sid, "kill switch", { SUSPENDERS_NUDGE_COOLDOWN_MS: "0" }))).toBe(true);
-		expect(emitted(drive(sid, "kill switch", { SUSPENDERS_NUDGE_COOLDOWN_MS: "0" }))).toBe(true);
+		expect(
+			emitted(drive(sid, "kill switch", { SUSPENDERS_NUDGE_COOLDOWN_MS: "0" })),
+		).toBe(true);
+		expect(
+			emitted(drive(sid, "kill switch", { SUSPENDERS_NUDGE_COOLDOWN_MS: "0" })),
+		).toBe(true);
 	});
 
 	test("no session_id fails open (always emits)", () => {

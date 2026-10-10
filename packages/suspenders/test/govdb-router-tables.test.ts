@@ -420,7 +420,9 @@ describe("deltas coverage — the audit win is the existing loop", () => {
 			tok_ceiling: 5000000,
 		});
 		db2
-			.query("UPDATE teams SET tok_ceiling = 6000000 WHERE team_id = 'platform'")
+			.query(
+				"UPDATE teams SET tok_ceiling = 6000000 WHERE team_id = 'platform'",
+			)
 			.run();
 		const upd = db2
 			.query(

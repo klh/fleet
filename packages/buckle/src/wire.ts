@@ -93,7 +93,9 @@ function guardedBody(
 	const deadline = (what: string) => {
 		if (done) return;
 		clear();
-		fail?.(new RouterError("timeout", 504, `upstream ${what} deadline exceeded`));
+		fail?.(
+			new RouterError("timeout", 504, `upstream ${what} deadline exceeded`),
+		);
 	};
 	const armIdle = () => {
 		if (done || g.idleMs === undefined) return;

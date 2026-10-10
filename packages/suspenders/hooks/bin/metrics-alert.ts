@@ -92,8 +92,7 @@ export function parseProm(text: string): Series[] {
 		if (!Number.isFinite(value)) continue;
 		const head = t.slice(0, sp);
 		const open = head.indexOf("{");
-		if (open < 0)
-			out.push({ name: head, labels: {}, value });
+		if (open < 0) out.push({ name: head, labels: {}, value });
 		else
 			out.push({
 				name: head.slice(0, open),
@@ -346,8 +345,8 @@ export const formatAlert = (a: Alert): string =>
 export function emitAlerts(alerts: Alert[]): void {
 	if (!alerts.length) return;
 	mkdirSync(INSIGHTS, { recursive: true, mode: 0o700 });
-	const rows = alerts.map(
-		(a) => JSON.stringify({ ts: new Date().toISOString(), ...a }),
+	const rows = alerts.map((a) =>
+		JSON.stringify({ ts: new Date().toISOString(), ...a }),
 	);
 	appendFileSync(NDJSON_PATH, `${rows.join("\n")}\n`, { mode: 0o600 });
 }

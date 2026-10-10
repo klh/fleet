@@ -26,13 +26,21 @@ export const REMEDIATION_STATES = [
 ] as const;
 export type RemediationState = (typeof REMEDIATION_STATES)[number];
 
-export const ATTESTATION_STATES = ["pending", "verified", "failed", "expired"] as const;
+export const ATTESTATION_STATES = [
+	"pending",
+	"verified",
+	"failed",
+	"expired",
+] as const;
 export type AttestationState = (typeof ATTESTATION_STATES)[number];
 
 export type RecordKind = "assessment" | "remediation" | "attestation";
 
 /** Allowed transitions, per record kind. Anything absent is refused. */
-export const TRANSITIONS: Record<RecordKind, Readonly<Record<string, readonly string[]>>> = {
+export const TRANSITIONS: Record<
+	RecordKind,
+	Readonly<Record<string, readonly string[]>>
+> = {
 	assessment: {
 		pending: ["assessing"],
 		assessing: ["conforming", "gap", "unknown"],
@@ -59,7 +67,11 @@ export const TRANSITIONS: Record<RecordKind, Readonly<Record<string, readonly st
 	},
 };
 
-export function canTransition(kind: RecordKind, from: string, to: string): boolean {
+export function canTransition(
+	kind: RecordKind,
+	from: string,
+	to: string,
+): boolean {
 	return TRANSITIONS[kind][from]?.includes(to) ?? false;
 }
 

@@ -36,18 +36,17 @@ export function readHubs(file = HUBS_PATH()): HubRow[] {
 		return rows;
 	}
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return rows;
-	for (const [label, entry] of Object.entries(
-		raw as Record<string, unknown>,
-	)) {
+	for (const [label, entry] of Object.entries(raw as Record<string, unknown>)) {
 		const candidates =
 			entry && typeof entry === "object" && !Array.isArray(entry)
 				? (entry as { candidates?: unknown }).candidates
 				: null;
 		const base =
-			typeof candidates === "string" ? candidates
-			: Array.isArray(candidates) && typeof candidates[0] === "string"
-				? candidates[0]
-				: "";
+			typeof candidates === "string"
+				? candidates
+				: Array.isArray(candidates) && typeof candidates[0] === "string"
+					? candidates[0]
+					: "";
 		if (!base) continue;
 		let url: URL;
 		try {

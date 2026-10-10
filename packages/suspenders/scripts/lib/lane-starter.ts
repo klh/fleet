@@ -16,11 +16,7 @@
 // starter session is bounded by construction: one seed turn, forks append
 // to their OWN session (--fork-session leaves the original untouched).
 import { createHash } from "node:crypto";
-import {
-	applyLaneAttribution,
-	laneEnv,
-	probeBuckleFront,
-} from "./lane.ts";
+import { applyLaneAttribution, laneEnv, probeBuckleFront } from "./lane.ts";
 import {
 	existsSync,
 	mkdirSync,
@@ -53,8 +49,9 @@ export type StarterRecord = StarterFork & {
 	seedPromptSha: string;
 };
 
-export const starterEnabled = (env: Record<string, string | undefined>): boolean =>
-	env[STARTER_FLAG] === "on" || env[STARTER_FLAG] === "1";
+export const starterEnabled = (
+	env: Record<string, string | undefined>,
+): boolean => env[STARTER_FLAG] === "on" || env[STARTER_FLAG] === "1";
 
 // The STABLE shared prefix. Repo-local protocol only — no sid, no item, no
 // branch, no worktree path, no credentials (the credential guard below
@@ -82,7 +79,10 @@ export const assertNoSecrets = (text: string): void => {
 	const hits = text.match(
 		/sk-[A-Za-z0-9_-]{8,}|bksk_[A-Za-z0-9_-]{8,}|gho_[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{8,}|xoxb-|BEGIN (RSA|OPENSSH) PRIVATE KEY/,
 	);
-	if (hits) throw new Error(`starter seed refused — credential material detected: ${hits[0].slice(0, 8)}…`);
+	if (hits)
+		throw new Error(
+			`starter seed refused — credential material detected: ${hits[0].slice(0, 8)}…`,
+		);
 };
 
 export const starterVersion = (seedPrompt: string): string =>
@@ -114,8 +114,7 @@ export const readStarter = (
 export const forkArgsFor = (
 	harness: string,
 	sessionId: string,
-): string[] | null =>
-	adapterForExact(harness)?.forkArgs(sessionId) ?? null;
+): string[] | null => adapterForExact(harness)?.forkArgs(sessionId) ?? null;
 
 // Bounded registry: keep the newest STARTER_REGISTRY_CAP records per fleet
 // dir, delete the rest (retired versions are never resurrected).
@@ -126,8 +125,9 @@ const pruneRegistry = (fleet: string): void => {
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => ({
 			f,
-			createdAt: (JSON.parse(readFileSync(join(dir, f), "utf8")) as StarterRecord)
-				.createdAt ?? 0,
+			createdAt:
+				(JSON.parse(readFileSync(join(dir, f), "utf8")) as StarterRecord)
+					.createdAt ?? 0,
 		}))
 		.sort((a, b) => b.createdAt - a.createdAt);
 	for (const old of entries.slice(STARTER_REGISTRY_CAP)) {
@@ -148,7 +148,11 @@ export const ensureStarter = (
 	options: {
 		log?: (line: string) => void;
 		timeoutMs?: number;
-		run?: (bin: string, args: string[], env: Record<string, string>) => {
+		run?: (
+			bin: string,
+			args: string[],
+			env: Record<string, string>,
+		) => {
 			code: number;
 			out: string;
 		};
@@ -168,19 +172,21 @@ export const ensureStarter = (
 			forkArgs: forkArgsFor(harness, cached.sessionId) ?? [],
 		};
 	}
-	const run = options.run ?? ((bin, args, e) => {
-		const p = Bun.spawnSync([bin, ...args], {
-			cwd: fleet,
-			env: e,
-			stdout: "pipe",
-			stderr: "pipe",
-			timeoutMs: options.timeoutMs ?? 180_000,
+	const run =
+		options.run ??
+		((bin, args, e) => {
+			const p = Bun.spawnSync([bin, ...args], {
+				cwd: fleet,
+				env: e,
+				stdout: "pipe",
+				stderr: "pipe",
+				timeoutMs: options.timeoutMs ?? 180_000,
+			});
+			return {
+				code: p.exitCode ?? 1,
+				out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""} ${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`,
+			};
 		});
-		return {
-			code: p.exitCode ?? 1,
-			out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""} ${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`,
-		};
-	});
 	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
 	const res = run(executorBin, seedArgs, env);
 	// Session-id presence is the success criterion, NOT the exit code: the CLI
@@ -228,7 +234,10 @@ export const parseSessionId = (out: string): string | null => {
 				const parsed = JSON.parse(out.slice(start, end + 1)) as {
 					session_id?: unknown;
 				};
-				if (typeof parsed.session_id === "string" && parsed.session_id.length > 0)
+				if (
+					typeof parsed.session_id === "string" &&
+					parsed.session_id.length > 0
+				)
 					return parsed.session_id;
 			} catch {
 				// try the next (shorter) window
@@ -267,11 +276,20 @@ export const dispatchStarterFork = async (o: {
 		delete seedEnv[k];
 	if (!o.noBelt && (await probeBuckleFront()))
 		applyLaneAttribution(seedEnv, "fleet-starter");
-	const starter = ensureStarter(o.fleet, o.harness, o.bin, seedEnv, o.ensureOpts);
+	const starter = ensureStarter(
+		o.fleet,
+		o.harness,
+		o.bin,
+		seedEnv,
+		o.ensureOpts,
+	);
 	if (!starter) {
 		o.log(`STARTER ${o.item} — seed failed, cold start`);
 		return { forkArgs: [], prompt: o.coldPrompt };
 	}
 	o.log(`STARTER ${o.item} — forked ${starter.version} (${starter.sessionId})`);
-	return { forkArgs: starter.forkArgs, prompt: laneIdentityPrompt(o.sid, o.wt) };
+	return {
+		forkArgs: starter.forkArgs,
+		prompt: laneIdentityPrompt(o.sid, o.wt),
+	};
 };

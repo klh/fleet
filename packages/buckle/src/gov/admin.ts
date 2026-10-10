@@ -8,10 +8,7 @@ import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import type { Database } from "bun:sqlite";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
-import {
-	listSpokes,
-	mintEnrollmentCode,
-} from "./federation-spokes.ts";
+import { listSpokes, mintEnrollmentCode } from "./federation-spokes.ts";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -213,14 +210,16 @@ async function mintEnrollCode(
 	> | null;
 	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
 	const spokeId = str(body.spoke_id);
-	if (spokeId === null)
-		return bad(400, "buckle.bad_body", "missing spoke_id");
+	if (spokeId === null) return bad(400, "buckle.bad_body", "missing spoke_id");
 	const out = mintEnrollmentCode(db, {
 		spokeId,
 		ttlS: num(body.ttl_s),
 		actor: p.actor ?? p.keyId,
 	});
-	return ok({ spoke_id: spokeId, code: out.code, expires_at: out.expiresAt }, 201);
+	return ok(
+		{ spoke_id: spokeId, code: out.code, expires_at: out.expiresAt },
+		201,
+	);
 }
 
 /** W173 fleet inventory: the registry the hub can finally read. */

@@ -374,9 +374,7 @@ try {
 	if (receipt.payloadSha256 && existsSync(join(installed, ".harness"))) {
 		// in-place edits: the payload no longer matches the checksum its own
 		// receipt pinned at install time (same scheme, shared helper)
-		if (
-			payloadChecksum(join(installed, ".harness")) !== receipt.payloadSha256
-		)
+		if (payloadChecksum(join(installed, ".harness")) !== receipt.payloadSha256)
 			issues.push(
 				`harness drift: installed payload checksum ≠ harness-receipt.json (${receipt.revision?.slice(0, 10) ?? "unknown revision"}) — in-place edits; re-run install.sh`,
 			);
@@ -388,9 +386,7 @@ try {
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 		if (head.exitCode !== 0)
-			issues.push(
-				`harness drift: source repo unreadable at ${receipt.source}`,
-			);
+			issues.push(`harness drift: source repo unreadable at ${receipt.source}`);
 		else if (head.stdout.toString().trim() !== receipt.revision)
 			issues.push(
 				`harness drift: prefix pinned at ${receipt.revision.slice(0, 10)} but ${receipt.source} HEAD is ${head.stdout.toString().trim().slice(0, 10)} — re-run install.sh to sync`,
@@ -399,8 +395,7 @@ try {
 	const extras = readdirSync(installed, { withFileTypes: true })
 		.map((entry) => entry.name)
 		.filter(
-			(name) =>
-				!MANAGED_PREFIX_ENTRIES.has(name) && !PRUNE_ALLOWLIST.has(name),
+			(name) => !MANAGED_PREFIX_ENTRIES.has(name) && !PRUNE_ALLOWLIST.has(name),
 		);
 	if (extras.length)
 		issues.push(

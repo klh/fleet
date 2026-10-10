@@ -37,9 +37,9 @@ describe("zaiDark (W219.2)", () => {
 	});
 
 	test("a throw (TLS interception, timeout) = dark", async () => {
-		expect(
-			await zaiDark(stubFetch({ zai: { throw: new Error("tls") } })),
-		).toBe(true);
+		expect(await zaiDark(stubFetch({ zai: { throw: new Error("tls") } }))).toBe(
+			true,
+		);
 	});
 });
 
@@ -93,7 +93,10 @@ describe("drillFallback (W219.2)", () => {
 	});
 
 	test("no key anywhere = skipped, never a fake pass/fail", async () => {
-		const r = await drillFallback({ key: null, fetchImpl: stubFetch({ gw: { status: 200 } }) });
+		const r = await drillFallback({
+			key: null,
+			fetchImpl: stubFetch({ gw: { status: 200 } }),
+		});
 		expect(r.verdict).toBe("skipped");
 	});
 });
@@ -103,9 +106,9 @@ describe("resolveMasterKey (W219.2)", () => {
 		const readThrows = () => {
 			throw new Error("nope");
 		};
-		expect(
-			resolveMasterKey({ LITELLM_KEY: "  env-key " }, readThrows),
-		).toBe("env-key");
+		expect(resolveMasterKey({ LITELLM_KEY: "  env-key " }, readThrows)).toBe(
+			"env-key",
+		);
 		expect(resolveMasterKey({}, readThrows)).toBeNull();
 		expect(resolveMasterKey({}, () => "file-key\n")).toBe("file-key");
 	});

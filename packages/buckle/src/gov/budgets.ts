@@ -122,17 +122,13 @@ export class Budgets {
 		const estTks = Math.ceil(bodyBytes / 4);
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
-			this.db
-				.query(UPSERT_KEY_REQ)
-				.run(keyId, win, 1, estTks, t);
+			this.db.query(UPSERT_KEY_REQ).run(keyId, win, 1, estTks, t);
 			if (team !== null)
 				this.db.query(UPSERT_TEAM).run(team.id, win, 1, estTks, t);
 			const kr = this.db.query(READ_KEY).get(keyId, win) as Counts;
 			let denied = over(limits, kr);
 			if (!denied && team !== null) {
-				const tr = this.db.query(READ_TEAM).get(team.id, win) as
-					| Counts
-					| null;
+				const tr = this.db.query(READ_TEAM).get(team.id, win) as Counts | null;
 				denied = tr !== null && over(team.limits, tr);
 			}
 			if (denied) {

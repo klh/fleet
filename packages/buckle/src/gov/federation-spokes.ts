@@ -75,9 +75,7 @@ export function redeemEnrollmentCode(
 	o: { code: string; actor?: string },
 ): RedeemResult {
 	const row = db
-		.query(
-			"SELECT * FROM federation_enrollment_codes WHERE code_hash = ?",
-		)
+		.query("SELECT * FROM federation_enrollment_codes WHERE code_hash = ?")
 		.get(hashKey(o.code)) as EnrollCodeRow | null;
 	if (row === null)
 		return {
@@ -107,7 +105,12 @@ export function redeemEnrollmentCode(
 		expiresInS: null,
 		actor: o.actor ?? "enrollment",
 	});
-	keys.recordAuthEvent(`spoke:${row.spoke_id}`, "issued", issued.row.jti, "api_key");
+	keys.recordAuthEvent(
+		`spoke:${row.spoke_id}`,
+		"issued",
+		issued.row.jti,
+		"api_key",
+	);
 	const now = Date.now();
 	db.query(
 		"UPDATE federation_enrollment_codes SET redeemed_at = ?, redeemed_key = ? WHERE code_hash = ?",

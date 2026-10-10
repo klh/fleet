@@ -51,9 +51,7 @@ const main = (): number => {
 			console.log(JSON.stringify({ source, ...r }));
 			continue;
 		}
-		process.stdout.write(
-			inputs.length > 1 ? `${r.text}\n\n` : `${r.text}\n`,
-		);
+		process.stdout.write(inputs.length > 1 ? `${r.text}\n\n` : `${r.text}\n`);
 		console.error(
 			`[packet-prep] ${source}: ${r.inBytes}->${r.outBytes} bytes (ratio ${r.ratio.toFixed(2)}, rules ${r.rules.length}, pointers ${r.pointers.length}${r.degraded ? ", DEGRADED — pointer loss refused" : ""})`,
 		);

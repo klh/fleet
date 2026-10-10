@@ -46,7 +46,8 @@ for (let i = 0; i < rest.length; i++) {
 	else if (a === "--as") as = rest[++i] ?? null;
 	else if (a === "--state") state = rest[++i] ?? null;
 	else if (a === "--note") note = rest[++i] ?? null;
-	else if (a === "--timeout-ms") timeoutMs = Number(rest[++i] ?? "5000") || 5000;
+	else if (a === "--timeout-ms")
+		timeoutMs = Number(rest[++i] ?? "5000") || 5000;
 	else if (a.startsWith("--")) die(`unknown flag: ${a}`);
 	else positional.push(a);
 }
@@ -69,7 +70,8 @@ if (cmd === "declare") {
 	if (item === null || item === undefined)
 		die(`no such work item in this project: ${itemArg}`);
 	const title = typeof item.title === "string" ? item.title : "";
-	if (title.length === 0) die(`item ${itemArg} has no title (never declare an unfilled item)`);
+	if (title.length === 0)
+		die(`item ${itemArg} has no title (never declare an unfilled item)`);
 	const desc = typeof item.description === "string" ? item.description : null;
 	const out = await declareWorkCr({
 		hubUrl,
@@ -102,7 +104,8 @@ if (cmd === "declare") {
 	if (itemArg === undefined) die("report needs a CR id");
 	if (hubUrl.length === 0) die("no hub URL (BUCKLE_HUB_URL --hub)");
 	if (spokeKey === null) die("no spoke key (BUCKLE_SPOKE_TOKEN)");
-	if (state === null) die("report needs --state <declared|delivered|applied|failed>");
+	if (state === null)
+		die("report needs --state <declared|delivered|applied|failed>");
 	const r = await reportCrStatus({
 		hubUrl,
 		spokeKey,
@@ -111,7 +114,8 @@ if (cmd === "declare") {
 		note,
 		timeoutMs,
 	});
-	if (!r.ok && !r.converged) die(`report failed: ${r.reason ?? String(r.status)}`);
+	if (!r.ok && !r.converged)
+		die(`report failed: ${r.reason ?? String(r.status)}`);
 	console.log(
 		`[work-cr] ${itemArg} → ${state}${r.ok ? "" : " (already converged)"}${note !== null ? ` note=${note}` : ""}`,
 	);

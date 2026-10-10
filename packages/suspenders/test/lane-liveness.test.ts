@@ -114,7 +114,9 @@ describe("lane-liveness surface", () => {
 		// the binary name is the harness contract: a sleep copy named `claude`
 		// gives ps args "…/W123/sub/claude 30"
 		Bun.spawnSync(["/bin/ln", "-sf", "/bin/sleep", `${long}/sub/claude`]);
-		const proc = Bun.spawn([`${long}/sub/claude`, "30"], { cwd: `${long}/sub` });
+		const proc = Bun.spawn([`${long}/sub/claude`, "30"], {
+			cwd: `${long}/sub`,
+		});
 		try {
 			// poll: ps/lsof visibility lags the spawn by a few hundred ms
 			let pinned = false;

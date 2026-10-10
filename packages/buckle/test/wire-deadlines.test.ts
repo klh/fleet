@@ -19,11 +19,7 @@ const req = (stream: boolean): UpstreamRequest =>
 
 /** Mock SSE body: silent delay, then chunks with gaps. Server-side writes
  *  race the client teardown at a deadline — swallow the dead-writer noise. */
-const sseResp = (
-	firstMs: number,
-	chunks: number,
-	gapMs: number,
-): Response => {
+const sseResp = (firstMs: number, chunks: number, gapMs: number): Response => {
 	const body = new ReadableStream({
 		start: async (c) => {
 			await Bun.sleep(firstMs);

@@ -132,10 +132,17 @@ const tryGit = (cwd: string, ...args: string[]): boolean => {
 /** W601: cross-repo closure evidence — the scope repo's own lane-branch diff
  * (suspenders/<item> vs merge-base with the default head), degrading to the
  * single closure commit when no branch resolves. */
-const crossRepoEvidence = (shaRepo: string, item: string, sha: string): { paths: string[]; diffText: string; diffBase: string | null } => {
+const crossRepoEvidence = (
+	shaRepo: string,
+	item: string,
+	sha: string,
+): { paths: string[]; diffText: string; diffBase: string | null } => {
 	const branch = `suspenders/${item}`;
 	let diffBase: string | null = null;
-	if (hasCommit(shaRepo, `refs/heads/${branch}`) && tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)) {
+	if (
+		hasCommit(shaRepo, `refs/heads/${branch}`) &&
+		tryGit(shaRepo, "merge-base", "--is-ancestor", sha, branch)
+	) {
 		const head = ["main", "master"].find((ref) => hasCommit(shaRepo, ref));
 		if (head) {
 			diffBase = git(shaRepo, "merge-base", sha, head);
@@ -146,12 +153,30 @@ const crossRepoEvidence = (shaRepo: string, item: string, sha: string): { paths:
 		diffBase,
 		paths: (diffBase
 			? git(shaRepo, "diff", "--name-only", diffBase, sha)
-			: git(shaRepo, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", sha))
+			: git(
+					shaRepo,
+					"diff-tree",
+					"--root",
+					"--no-commit-id",
+					"--name-only",
+					"-r",
+					sha,
+				)
+		)
 			.split("\n")
 			.filter(Boolean),
 		diffText: diffBase
 			? git(shaRepo, "diff", "-U0", diffBase, sha)
-			: git(shaRepo, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha),
+			: git(
+					shaRepo,
+					"diff-tree",
+					"--root",
+					"--no-commit-id",
+					"-p",
+					"-r",
+					"-U0",
+					sha,
+				),
 	};
 };
 export function prepareCompletion(
@@ -171,10 +196,18 @@ export function prepareCompletion(
 		top = git(o.cwd, "rev-parse", "--show-toplevel");
 	} catch {}
 	let contextRepo = top;
-	context = laneContextAt(join(top, ".fleet", "lane-context.json"), o.item, o.sid);
+	context = laneContextAt(
+		join(top, ".fleet", "lane-context.json"),
+		o.item,
+		o.sid,
+	);
 	if (!context && /^autow/.test(o.sid)) {
 		const wt = join(projectRootOf(o.project), ".worktrees", o.item);
-		const fallback = laneContextAt(join(wt, ".fleet", "lane-context.json"), o.item, o.sid);
+		const fallback = laneContextAt(
+			join(wt, ".fleet", "lane-context.json"),
+			o.item,
+			o.sid,
+		);
 		if (fallback) {
 			context = fallback;
 			contextRepo = wt;
@@ -214,10 +247,9 @@ export function prepareCompletion(
 			"Completion requires a real --sha commit, not a no-op or placeholder",
 		);
 	const scope = (
-		db.query("SELECT scope FROM work_items WHERE project = ? AND id = ?").get(
-			o.project,
-			o.item,
-		) as { scope?: string | null } | undefined
+		db
+			.query("SELECT scope FROM work_items WHERE project = ? AND id = ?")
+			.get(o.project, o.item) as { scope?: string | null } | undefined
 	)?.scope?.trim();
 	let sha: string;
 	let shaRepo = top;
@@ -246,8 +278,12 @@ export function prepareCompletion(
 			);
 		if (
 			typeof capsule.checkpoint !== "string" ||
-			git(shaRepo, "rev-parse", "--verify", `${capsule.checkpoint}^{commit}`) !==
-				sha
+			git(
+				shaRepo,
+				"rev-parse",
+				"--verify",
+				`${capsule.checkpoint}^{commit}`,
+			) !== sha
 		)
 			throw new Error(
 				"Final capsule checkpoint must match the completion commit",
@@ -274,10 +310,27 @@ export function prepareCompletion(
 			.filter(Boolean);
 		diffText = git(top, "diff", "-U0", baseline, sha);
 	} else {
-		paths = git(top, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", sha)
+		paths = git(
+			top,
+			"diff-tree",
+			"--root",
+			"--no-commit-id",
+			"--name-only",
+			"-r",
+			sha,
+		)
 			.split("\n")
 			.filter(Boolean);
-		diffText = git(top, "diff-tree", "--root", "--no-commit-id", "-p", "-r", "-U0", sha);
+		diffText = git(
+			top,
+			"diff-tree",
+			"--root",
+			"--no-commit-id",
+			"-p",
+			"-r",
+			"-U0",
+			sha,
+		);
 	}
 	if (!paths.some(productPath))
 		throw new Error(
@@ -294,7 +347,9 @@ export function prepareCompletion(
 			`Completion diff carries fake-completion markers (${hits.length}) — remove or finish them, then land a new sha:\n${hits
 				.slice(0, 10)
 				.map((hit) => `  ${hit.path}:${hit.line} [${hit.marker}] ${hit.text}`)
-				.join("\n")}${hits.length > 10 ? `\n  … ${hits.length - 10} more` : ""}`,
+				.join(
+					"\n",
+				)}${hits.length > 10 ? `\n  … ${hits.length - 10} more` : ""}`,
 		);
 	const completedAt = Date.now();
 	const finalCapsule = {
@@ -319,7 +374,9 @@ export function prepareCompletion(
 			origin_project: o.project,
 			paths: paths.filter(productPath),
 			verified_at: completedAt,
-			...(crossRepo ? { scope, verify_repo: shaRepo, diff_base: diffBase } : {}),
+			...(crossRepo
+				? { scope, verify_repo: shaRepo, diff_base: diffBase }
+				: {}),
 		}),
 	};
 }

@@ -84,7 +84,11 @@ describe("W182 release", () => {
 		liveSession("s-w182-live");
 		const blocked = await post("/api/release", { project: MY_PROJ, id });
 		expect(blocked.status).toBe(409);
-		expect(blocked.json).toEqual({ ok: false, live: true, error: expect.any(String) });
+		expect(blocked.json).toEqual({
+			ok: false,
+			live: true,
+			error: expect.any(String),
+		});
 		const forced = await post("/api/release", {
 			project: MY_PROJ,
 			id,
@@ -112,11 +116,20 @@ describe("W182 release", () => {
 describe("W182 reassign", () => {
 	test("validation: unknown item 404, READY item 409", async () => {
 		expect(
-			(await post("/api/reassign", { project: MY_PROJ, id: "W99999", agent: "codex" }))
-				.status,
+			(
+				await post("/api/reassign", {
+					project: MY_PROJ,
+					id: "W99999",
+					agent: "codex",
+				})
+			).status,
 		).toBe(404);
 		const id = addWork("w182 reassign validation item");
-		const r = await post("/api/reassign", { project: MY_PROJ, id, agent: "codex" });
+		const r = await post("/api/reassign", {
+			project: MY_PROJ,
+			id,
+			agent: "codex",
+		});
 		expect(r.status).toBe(409);
 		expect(String(r.json.error)).toContain("reassign moves a live claim");
 	});
@@ -149,17 +162,25 @@ describe("W182 cancel", () => {
 			(await post("/api/cancel", { project: MY_PROJ, id: "W1" })).status,
 		).toBe(400);
 		expect(
-			(await post("/api/cancel", { project: MY_PROJ, id: "W99999", reason: "x" }))
-				.status,
+			(
+				await post("/api/cancel", {
+					project: MY_PROJ,
+					id: "W99999",
+					reason: "x",
+				})
+			).status,
 		).toBe(404);
 		const id = addWork("w182 cancel terminal item");
 		const db = new Database(DB);
-		db.query("UPDATE work_items SET state = 'DONE' WHERE project = ? AND id = ?").run(
-			MY_PROJ,
-			id,
-		);
+		db.query(
+			"UPDATE work_items SET state = 'DONE' WHERE project = ? AND id = ?",
+		).run(MY_PROJ, id);
 		db.close();
-		const r = await post("/api/cancel", { project: MY_PROJ, id, reason: "dup" });
+		const r = await post("/api/cancel", {
+			project: MY_PROJ,
+			id,
+			reason: "dup",
+		});
 		expect(r.status).toBe(409);
 		expect(String(r.json.error)).toContain("already closed");
 	});
@@ -183,7 +204,8 @@ describe("W182 cancel", () => {
 describe("W182 second-opinion", () => {
 	test("validation: missing executor 400, unknown executor 400, bad llm legs 409", async () => {
 		expect(
-			(await post("/api/second-opinion", { project: MY_PROJ, id: "W1" })).status,
+			(await post("/api/second-opinion", { project: MY_PROJ, id: "W1" }))
+				.status,
 		).toBe(400);
 		expect(
 			(
@@ -225,7 +247,12 @@ describe("W182 second-opinion", () => {
 			executor: "llm:local:8906",
 		});
 		expect(r.status).toBe(200);
-		expect(r.json).toEqual({ ok: true, item: id, executor: "llm:local:8906", started: true });
+		expect(r.json).toEqual({
+			ok: true,
+			item: id,
+			executor: "llm:local:8906",
+			started: true,
+		});
 		// give the detached runner a beat to write the error verdict
 		for (let i = 0; i < 50; i++) {
 			const db = new Database(DB, { readonly: true });
@@ -251,7 +278,11 @@ describe("W182 review-lane e2e (stub leg)", () => {
 				captured = await req.text();
 				return Response.json({
 					choices: [
-						{ message: { content: "looked at the claims: fine\nVERDICT: PASS - clean" } },
+						{
+							message: {
+								content: "looked at the claims: fine\nVERDICT: PASS - clean",
+							},
+						},
 					],
 				});
 			},

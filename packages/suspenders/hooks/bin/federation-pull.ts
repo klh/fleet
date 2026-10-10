@@ -34,9 +34,12 @@ async function cycle(): Promise<boolean> {
 					console.log(
 						`[federation-pull] work-cr: scanned=${String(r.scanned)} delivered=${String(r.delivered)} applied=${String(r.applied)} failed=${String(r.failed)}`,
 					);
-				for (const e of r.errors) console.error(`[federation-pull] work-cr: ${e}`);
+				for (const e of r.errors)
+					console.error(`[federation-pull] work-cr: ${e}`);
 			} catch (e) {
-				console.error(`[federation-pull] work-cr: reconcile error: ${String(e)}`);
+				console.error(
+					`[federation-pull] work-cr: reconcile error: ${String(e)}`,
+				);
 			}
 		}
 		return true;

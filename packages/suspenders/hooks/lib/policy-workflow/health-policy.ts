@@ -36,7 +36,9 @@ export interface HealthAssessment {
 
 /** Assess a deployment against the health policy. Missing deployment
  *  information produces unknown, never conformance. */
-export function assessHealthPolicy(input: HealthDeploymentInput): HealthAssessment {
+export function assessHealthPolicy(
+	input: HealthDeploymentInput,
+): HealthAssessment {
 	if (!input.manifestKnown || input.roles.length === 0)
 		return {
 			verdict: "unknown",
@@ -61,7 +63,9 @@ export function assessHealthPolicy(input: HealthDeploymentInput): HealthAssessme
 				"no independent health reporter in the deployment manifest — an in-process /health route is insufficient evidence of independent reporting",
 			],
 		};
-	const ev: string[] = ["independent health reporter present in the deployment"];
+	const ev: string[] = [
+		"independent health reporter present in the deployment",
+	];
 	if (input.reporterSupervision !== "independent")
 		return {
 			verdict: "partial",
@@ -83,7 +87,10 @@ export function assessHealthPolicy(input: HealthDeploymentInput): HealthAssessme
 	return {
 		verdict: "conforming",
 		state: "conforming",
-		evidence: [...ev, 'central monitoring wired to the reporter verdict ("reporter-verdict")'],
+		evidence: [
+			...ev,
+			'central monitoring wired to the reporter verdict ("reporter-verdict")',
+		],
 	};
 }
 

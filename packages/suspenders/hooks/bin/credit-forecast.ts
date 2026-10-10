@@ -44,18 +44,24 @@ const runSample = (): void => {
 	const used = val("--used");
 	const limit = val("--limit");
 	if (used === undefined || limit === undefined)
-		fail("usage: sample --used N --limit M --plan <plan> [--multipliers k=v,...] [--source s] [--note ...] [--db path]");
+		fail(
+			"usage: sample --used N --limit M --plan <plan> [--multipliers k=v,...] [--source s] [--note ...] [--db path]",
+		);
 	const u = Number(used);
 	const l = Number(limit);
 	if (!Number.isFinite(u) || !Number.isFinite(l))
-		fail("sample needs finite --used and --limit (credits, never inferred from tokens)");
+		fail(
+			"sample needs finite --used and --limit (credits, never inferred from tokens)",
+		);
 	const db = val("--db") ?? samplesPathDefault();
 	const sample = {
 		at: Date.now(),
 		used: u,
 		limit: l,
 		plan: val("--plan") ?? "unknown",
-		multipliers: val("--multipliers") ? parseMultipliers(val("--multipliers") ?? "") : {},
+		multipliers: val("--multipliers")
+			? parseMultipliers(val("--multipliers") ?? "")
+			: {},
 		source: val("--source") ?? "manual",
 		...(val("--note") !== undefined ? { note: val("--note") } : {}),
 	};
@@ -73,7 +79,11 @@ const runForecast = (): void => {
 	const json = argv.includes("--json");
 	if (json)
 		console.log(
-			JSON.stringify({ verdict: a.verdict, forecast: f, lines: a.lines }, null, 2),
+			JSON.stringify(
+				{ verdict: a.verdict, forecast: f, lines: a.lines },
+				null,
+				2,
+			),
 		);
 	else for (const l of a.lines) console.log(l);
 	if (argv.includes("--act")) {

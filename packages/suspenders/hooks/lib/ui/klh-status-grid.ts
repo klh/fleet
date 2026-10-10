@@ -115,9 +115,11 @@ export class KlhStatusGrid extends LitElement {
 				>
 					<span class="led" aria-hidden="true"></span>
 					<span class="lbl">${cell.label}</span>
-					${cell.detail
-						? html`<span class="det">${cell.detail}</span>`
-						: nothing}
+					${
+						cell.detail
+							? html`<span class="det">${cell.detail}</span>`
+							: nothing
+					}
 				</button>`,
 			)}
 		</div>`;

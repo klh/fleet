@@ -260,7 +260,12 @@ const packetSteps: Step[] = [
 	{ kind: "line-dedupe", minWords: 2 },
 ];
 
-export type TierName = "politeness" | "caveman" | "aggressive" | "machine" | "packet";
+export type TierName =
+	| "politeness"
+	| "caveman"
+	| "aggressive"
+	| "machine"
+	| "packet";
 
 export const TIERS: Record<TierName, TierSpec> = {
 	politeness: {

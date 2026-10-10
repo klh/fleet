@@ -11,16 +11,18 @@ import { HTML } from "../hooks/bin/fleet-board-html.ts";
 // mirrors of the shared chunk helpers (core.ts) — passed INTO the sandbox so
 // no helper source is quoted inside this file
 const esc = (s: unknown): string =>
-	String(s ?? "").replace(/[&<>"']/g, (c) =>
-		(
-			{
-				"&": "&amp;",
-				"<": "&lt;",
-				">": "&gt;",
-				'"': "&quot;",
-				"'": "&#39;",
-			} as Record<string, string>
-		)[c],
+	String(s ?? "").replace(
+		/[&<>"']/g,
+		(c) =>
+			(
+				({
+					"&": "&amp;",
+					"<": "&lt;",
+					">": "&gt;",
+					'"': "&quot;",
+					"'": "&#39;",
+				}) as Record<string, string>
+			)[c],
 	);
 
 const taskPill = (state: unknown): string =>

@@ -14,7 +14,10 @@ import { specialistByPort } from "../../hooks/board/local-swarm.ts";
 import { readUserPlane } from "../../hooks/lib/repo-laws.ts";
 // W422: which chain tokens are their own CLI vs belt model pins is ADAPTER
 // data (registry.ts) — the if copilot/else-claude ternaries retired here.
-import { adapterFor, isSpawnableExecutor } from "../../hooks/lib/executors/registry.ts";
+import {
+	adapterFor,
+	isSpawnableExecutor,
+} from "../../hooks/lib/executors/registry.ts";
 
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
  * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and

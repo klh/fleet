@@ -6,7 +6,13 @@
 // transcript-staleness watch, and cleanup pkills the wtest- sids only
 // (real lane sids never carry that prefix).
 import { afterAll, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,11 +30,11 @@ writeFileSync(stub, "setInterval(() => {}, 1e6);\n");
 chmodSync(stub, 0o700);
 
 const liveCount = (sid: string): number =>
-	Bun.spawnSync([
-		"/usr/bin/pgrep",
-		"-f",
-		`coord[.]ts subscribe --as ${sid}$`,
-	]).stdout.toString().trim().split("\n").filter(Boolean).length;
+	Bun.spawnSync(["/usr/bin/pgrep", "-f", `coord[.]ts subscribe --as ${sid}$`])
+		.stdout.toString()
+		.trim()
+		.split("\n")
+		.filter(Boolean).length;
 
 afterAll(() => {
 	Bun.spawnSync(["/usr/bin/pkill", "-f", `coord[.]ts subscribe --as wtest-`]);
@@ -49,8 +55,9 @@ test("attach spawns exactly one live subscribe per sid; re-attach is a no-op", a
 
 test("no spawn when no coord CLI resolves at the given path", () => {
 	const sid = `wtest-absent-${Date.now()}`;
-	expect(attachSubscribe(sid, { coord: join(dir, "absent", "coord.ts") }))
-		.toBe(false);
+	expect(attachSubscribe(sid, { coord: join(dir, "absent", "coord.ts") })).toBe(
+		false,
+	);
 	expect(subscribeLive(sid)).toBe(false);
 });
 

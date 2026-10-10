@@ -2,12 +2,7 @@
 // comparison: three arms × matched task sets under two KB-freshness
 // planes and injected delivery failures. Spec: scenario.md (W447).
 // Run: bun packages/blam/bench/consult/harness.ts
-import {
-	COSTS,
-	DEFAULT_POLICY_COSTS,
-	POLICIES,
-	runTask,
-} from "./policies.ts";
+import { COSTS, DEFAULT_POLICY_COSTS, POLICIES, runTask } from "./policies.ts";
 import { ConsultPlane } from "./plane.ts";
 import {
 	addMetrics,
@@ -20,7 +15,6 @@ import {
 	type TaskOutcome,
 } from "./types.ts";
 
-
 /** The matched task set every arm runs on every plane. */
 export function matchedSet(codeVersion: string): TaskInstance[] {
 	return [
@@ -30,7 +24,6 @@ export function matchedSet(codeVersion: string): TaskInstance[] {
 		{ id: "t4", profile: "no-consult-control", codeVersion },
 	];
 }
-
 
 /** Scenario config + builders. kbVersion: the KB row's version (empty
  * string = no row). delivery: injected consult-channel health. */
@@ -54,7 +47,6 @@ export function kbFor(cfg: ScenarioConfig): KbRow[] {
 	];
 }
 
-
 /** Expert roster: one live expert per consult-worthy scope; the control
  * scope has none. */
 export function expertsFor(): Array<{ scope: string; live: boolean }> {
@@ -75,7 +67,6 @@ export function planeFor(cfg: ScenarioConfig): ConsultPlane {
 	});
 }
 
-
 /** Run one arm over the matched set under one scenario config. */
 export function runPolicy(
 	name: PolicyName,
@@ -93,7 +84,6 @@ export function runPolicy(
 	return { total, perTask: perTask };
 }
 
-
 /** The scenario matrix the harness scores. */
 export const SCENARIOS: ScenarioConfig[] = [
 	{ codeVersion: "v2", kbVersion: "v2", delivery: "ok" },
@@ -102,17 +92,17 @@ export const SCENARIOS: ScenarioConfig[] = [
 	{ codeVersion: "v2", kbVersion: "v1", delivery: "drop-all" },
 ];
 
-
 export const FRESH: ScenarioConfig = SCENARIOS[0];
 export const STALE: ScenarioConfig = SCENARIOS[1];
 export const DROP_FIRST: ScenarioConfig = SCENARIOS[2];
 export const DROP_ALL: ScenarioConfig = SCENARIOS[3];
 
 /** Run one arm over the full matrix. */
-export function runArm(name: PolicyName): Array<{ cfg: ScenarioConfig; total: ConsultMetrics }> {
+export function runArm(
+	name: PolicyName,
+): Array<{ cfg: ScenarioConfig; total: ConsultMetrics }> {
 	return SCENARIOS.map((cfg) => ({ cfg, total: runPolicy(name, cfg).total }));
 }
-
 
 /** Bench properties — violations empty means the deterministic contract
  * holds (≥9/10 runs ≡ 100%: no RNG anywhere in the harness). */
@@ -121,27 +111,43 @@ export function checkProperties(): string[] {
 	const a = runPolicy("current-instructions", FRESH).total;
 	const b = runPolicy("trigger", FRESH).total;
 	const c = runPolicy("trigger+verified-reuse", FRESH).total;
-	if (!(a.duplicateInvestigationUnits > 0 && b.duplicateInvestigationUnits === 0 && c.duplicateInvestigationUnits === 0))
+	if (
+		!(
+			a.duplicateInvestigationUnits > 0 &&
+			b.duplicateInvestigationUnits === 0 &&
+			c.duplicateInvestigationUnits === 0
+		)
+	)
 		v.push("P1 dup-investigation");
 	const s = runPolicy("trigger", STALE).total;
 	const cS = runPolicy("trigger+verified-reuse", STALE).total;
 	if (!(s.staleAnswers >= 1 && cS.staleAnswers === 0)) v.push("P2 stale");
 	const nc = matchedSet("v2").find((t) => t.profile === "no-consult-control");
 	if (nc === undefined) return ["P3 control: task missing"];
-	for (const arm of ["current-instructions", "trigger", "trigger+verified-reuse"] as const) {
-		const r = runTask({ plane: planeFor(FRESH), task: nc, costs: DEFAULT_POLICY_COSTS }, POLICIES[arm]);
+	for (const arm of [
+		"current-instructions",
+		"trigger",
+		"trigger+verified-reuse",
+	] as const) {
+		const r = runTask(
+			{ plane: planeFor(FRESH), task: nc, costs: DEFAULT_POLICY_COSTS },
+			POLICIES[arm],
+		);
 		if (r.metrics.attemptedCalls !== 0) v.push(`P3 control: ${arm} consulted`);
 	}
 	const cAll = runPolicy("trigger+verified-reuse", FRESH).total;
 	const cStale = runPolicy("trigger+verified-reuse", STALE).total;
-	if (!(cAll.correctTasks === 4 && cStale.correctTasks === 4)) v.push("P4 arm C correctness");
+	if (!(cAll.correctTasks === 4 && cStale.correctTasks === 4))
+		v.push("P4 arm C correctness");
 	const df = runPolicy("trigger+verified-reuse", DROP_FIRST).total;
 	if (df.deliveryFailures < 1) v.push("P5 delivery accounting");
 	const again = runPolicy("trigger", FRESH).total;
-	if (JSON.stringify(again) !== JSON.stringify(runPolicy("trigger", FRESH).total)) v.push("P6 determinism");
+	if (
+		JSON.stringify(again) !== JSON.stringify(runPolicy("trigger", FRESH).total)
+	)
+		v.push("P6 determinism");
 	return v;
 }
-
 
 function pad(s: string, n: number): string {
 	return s.length >= n ? s : s + " ".repeat(n - s.length);
@@ -149,13 +155,20 @@ function pad(s: string, n: number): string {
 
 /** Comparison table over the scenario matrix. */
 export function formatComparison(): string {
-	const arms: PolicyName[] = ["current-instructions", "trigger", "trigger+verified-reuse"];
+	const arms: PolicyName[] = [
+		"current-instructions",
+		"trigger",
+		"trigger+verified-reuse",
+	];
 	const rows: string[] = [];
 	for (const arm of arms) {
 		for (const { cfg, total } of runArm(arm)) {
 			rows.push(
 				pad(arm, 24) +
-					pad(`${cfg.kbVersion === cfg.codeVersion ? "fresh" : "stale"}-kb`, 9) +
+					pad(
+						`${cfg.kbVersion === cfg.codeVersion ? "fresh" : "stale"}-kb`,
+						9,
+					) +
 					pad(cfg.delivery, 12) +
 					`ok=${total.correctTasks}/${total.totalTasks} calls=${total.attemptedCalls} ` +
 					`dfail=${total.deliveryFailures} useful=${total.usefulAnswers} ` +
@@ -166,7 +179,6 @@ export function formatComparison(): string {
 	}
 	return rows.join("\n");
 }
-
 
 if (import.meta.main) {
 	const violations = checkProperties();

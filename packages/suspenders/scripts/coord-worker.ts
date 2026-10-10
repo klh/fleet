@@ -84,9 +84,7 @@ const TIMEOUT_S = Math.min(
 	),
 );
 
-const run = (
-	cmd: string[],
-): { code: number; out: string } => {
+const run = (cmd: string[]): { code: number; out: string } => {
 	const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
 	return {
 		code: p.exitCode ?? 1,
@@ -103,7 +101,9 @@ const factGet = (key: string): string | null => {
 	const out = run([process.execPath, `${BIN}/coord.ts`, "fact", "get", key]);
 	if (out.code !== 0) return null;
 	const first = (out.out.split("\n")[0] ?? "").trim();
-	return !first || first === "(unset)" ? null : first.replace(/\s*\(v\d+\)$/, "");
+	return !first || first === "(unset)"
+		? null
+		: first.replace(/\s*\(v\d+\)$/, "");
 };
 
 const main = async (): Promise<void> => {
@@ -132,7 +132,12 @@ const main = async (): Promise<void> => {
 		return;
 	}
 	if (!minted) return; // unreachable — decision gates it; satisfies the type check
-	const bootstrap = coordBootstrap({ sid: SID, repo: REPO, bin: BIN, model: MODEL });
+	const bootstrap = coordBootstrap({
+		sid: SID,
+		repo: REPO,
+		bin: BIN,
+		model: MODEL,
+	});
 	if (DRY) {
 		console.log(bootstrap);
 		log(`DRY RUN — decision: run (front up, mint skipped); bootstrap above`);

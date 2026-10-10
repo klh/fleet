@@ -59,7 +59,8 @@ export function mergeLanes(
 	tasks: BoardTask[],
 ): LaneRow[] {
 	const taskById = new Map<string, BoardTask>();
-	for (const t of tasks) if (t && typeof t.id === "string") taskById.set(t.id, t);
+	for (const t of tasks)
+		if (t && typeof t.id === "string") taskById.set(t.id, t);
 	const laneOf = new Map<string, WorkLane>();
 	for (const l of workLanes ?? []) laneOf.set(l.sid, l);
 	// registry sids run longer than coord's (`autow522` vs
@@ -68,8 +69,7 @@ export function mergeLanes(
 		const exact = laneOf.get(sid);
 		if (exact) return exact;
 		for (const [rsid, wl] of laneOf)
-			if (rsid.startsWith(`${sid}-`) || sid.startsWith(`${rsid}-`))
-				return wl;
+			if (rsid.startsWith(`${sid}-`) || sid.startsWith(`${rsid}-`)) return wl;
 		return undefined;
 	};
 	const out = new Map<string, LaneRow>();
@@ -88,7 +88,7 @@ export function mergeLanes(
 			ageS: t?.age_s ?? null,
 			tagColor: t?.tag_color ?? null,
 			title: t?.title ?? null,
-		 };
+		};
 		out.set(sid, row);
 		return row;
 	};
@@ -127,8 +127,7 @@ export function collectCli(
 	args: string[],
 	envName: string,
 ): unknown | null {
-	const path =
-		process.env[envName] ?? join(PKG, "hooks", "bin", bin);
+	const path = process.env[envName] ?? join(PKG, "hooks", "bin", bin);
 	return asJson(
 		Bun.spawnSync([process.execPath, path, ...args], {
 			stdout: "pipe",
@@ -140,9 +139,11 @@ export function collectCli(
 }
 
 export const collectCoordFleet = (): CoordFleet | null =>
-	collectCli("coord.ts", ["fleet", "--json"], "FLEET_WATCH_COORD_BIN") as
-		| CoordFleet
-		| null;
+	collectCli(
+		"coord.ts",
+		["fleet", "--json"],
+		"FLEET_WATCH_COORD_BIN",
+	) as CoordFleet | null;
 
 // work lanes: the registry audit is a ~9s spawn (per-lane transcript
 // liveness probes) — the SLOW source. Resident single-flight cache, 30s
@@ -156,8 +157,7 @@ const refreshWorkLanes = async (): Promise<WorkLane[] | null> => {
 	const proc = Bun.spawn({
 		cmd: [
 			process.execPath,
-			process.env.FLEET_WATCH_WORK_BIN ??
-				join(PKG, "hooks", "bin", "work.ts"),
+			process.env.FLEET_WATCH_WORK_BIN ?? join(PKG, "hooks", "bin", "work.ts"),
 			"lanes",
 			"--json",
 		],
@@ -213,9 +213,7 @@ export async function collectBoardTasks(
 		});
 		if (!r.ok) return null;
 		const j = (await r.json()) as { tasks?: BoardTask[] };
-		return j.tasks
-			? { tasks: j.tasks, ms: Date.now() - t0 }
-			: null;
+		return j.tasks ? { tasks: j.tasks, ms: Date.now() - t0 } : null;
 	} catch (e) {
 		console.error(`fleet-watch: board feed failed: ${String(e).slice(0, 120)}`);
 		return null;

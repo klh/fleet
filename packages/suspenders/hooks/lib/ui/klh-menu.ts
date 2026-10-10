@@ -99,24 +99,21 @@ export class KlhMenu extends LitElement {
 	private rove(e: KeyboardEvent): void {
 		if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
 		const els = [
-			...this.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+			...(this.shadowRoot?.querySelectorAll<HTMLButtonElement>("button") ?? []),
 		];
-		const at = els.indexOf(
-			this.shadowRoot?.activeElement as HTMLButtonElement,
-		);
+		const at = els.indexOf(this.shadowRoot?.activeElement as HTMLButtonElement);
 		if (at < 0) return;
 		e.preventDefault();
-		const next = (at + (e.key === "ArrowRight" ? 1 : els.length - 1)) %
-			els.length;
+		const next =
+			(at + (e.key === "ArrowRight" ? 1 : els.length - 1)) % els.length;
 		els[next].focus();
 	}
 
 	protected render(): TemplateResult {
 		return html`<nav role="menubar" @keydown=${this.rove}>
-			${this.items.map(
-				(it) =>
-					it.href
-						? html`<a
+			${this.items.map((it) =>
+				it.href
+					? html`<a
 								href=${it.href}
 								aria-current=${it.id === this.active ? "page" : nothing}
 								title=${it.label}
@@ -124,20 +121,22 @@ export class KlhMenu extends LitElement {
 								<span class="ic">${unsafeSVG(icon(it.icon ?? "", 15))}</span>
 								${it.label}
 							</a>`
-						: html`<button
+					: html`<button
 								type="button"
 								role="menuitem"
 								aria-current=${it.id === this.active ? "true" : nothing}
-								title=${iconLabel(it.icon ?? "") === it.label
-									? nothing
-									: it.label}
+								title=${
+									iconLabel(it.icon ?? "") === it.label ? nothing : it.label
+								}
 								@click=${() => this.select(it.id)}
 							>
 								<span class="ic">${unsafeSVG(icon(it.icon ?? "", 15))}</span>
 								${it.label}
-								${it.badge
-									? html`<span class="badge">${String(it.badge)}</span>`
-									: nothing}
+								${
+									it.badge
+										? html`<span class="badge">${String(it.badge)}</span>`
+										: nothing
+								}
 							</button>`,
 			)}
 		</nav>`;

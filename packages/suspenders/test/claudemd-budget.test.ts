@@ -46,7 +46,9 @@ describe("claudemd instruction budget", () => {
 		const ok = auditText("nested/CLAUDE.md", "prose\n", false);
 		expect(ok.verdict).toBe("ok");
 		const fat = Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n");
-		expect(auditText("nested/CLAUDE.md", fat, false).verdict).toBe("over-lines");
+		expect(auditText("nested/CLAUDE.md", fat, false).verdict).toBe(
+			"over-lines",
+		);
 		expect(auditText("CLAUDE.md", fat, true).verdict).toBe("ok"); // root allows 150
 		// instruction budget (120) binds below the line ceiling (150)
 		const bullets = Array.from({ length: 130 }, () => "- x").join("\n");

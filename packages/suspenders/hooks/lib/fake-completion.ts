@@ -21,7 +21,13 @@ const MARKERS: ReadonlyArray<{ marker: string; re: RegExp }> = [
 	{
 		marker: "skip-gate",
 		re: new RegExp(
-			assemble("\\b(", "describe|it|test", ")\\.", "(skip|only|todo", ")\\s*\\("),
+			assemble(
+				"\\b(",
+				"describe|it|test",
+				")\\.",
+				"(skip|only|todo",
+				")\\s*\\(",
+			),
 		),
 	},
 	{

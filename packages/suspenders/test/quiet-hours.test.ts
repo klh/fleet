@@ -12,7 +12,10 @@ import {
 	parseQuietHours,
 	urlInQuietHours,
 } from "../hooks/lib/stack-config.ts";
-import { skipQuietTarget, type AlertState } from "../hooks/bin/metrics-alert.ts";
+import {
+	skipQuietTarget,
+	type AlertState,
+} from "../hooks/bin/metrics-alert.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 
 const home = mkdtempSync(join(tmpdir(), "suspenders-quiet-hours-test-"));

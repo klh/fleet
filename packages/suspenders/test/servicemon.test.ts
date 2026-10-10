@@ -28,7 +28,9 @@ const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
 // temp HOMEs under the repo (never /tmp) — the spawned services open their own
 // governor.db/knowledge stores under HOME, never the live one
 const home = mkdtempSync(join(tmpdir(), "suspenders-servicemon-home-"));
-const boardHome = mkdtempSync(join(tmpdir(), "suspenders-servicemon-boardhome-"));
+const boardHome = mkdtempSync(
+	join(tmpdir(), "suspenders-servicemon-boardhome-"),
+);
 const repo = mkdtempSync(join(tmpdir(), "suspenders-servicemon-repo-"));
 const procs: Bun.Subprocess[] = [];
 
