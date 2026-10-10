@@ -22,6 +22,7 @@ import { projectIdentity } from "../hooks/lib/govdb.ts";
 import {
 	capabilityGate,
 	composeBrief,
+	hubAttributionDecision,
 	isOwnerGated,
 	laneKeyDecision,
 	parseCapsuleGet,
@@ -1170,6 +1171,56 @@ describe("governance mode decisions (W422.17)", () => {
 
 	test("laneKeyDecision: solo does NOT relent at mint failures (W463 stands)", () => {
 		expect(laneKeyDecision(null, false, "solo").mode).toBe("refuse");
+	});
+});
+
+// ─── hub-won attribution decisions (W615) ─────────────────────────────────
+describe("hubAttributionDecision (W615)", () => {
+	test("minted → governed: the hub's own scoped key attributes the lane", () => {
+		const d = hubAttributionDecision({
+			hasToken: true,
+			minted: { key: "bksk_hub", keyId: "hubkey123456" },
+			allowUngoverned: false,
+		});
+		expect(d).toEqual({
+			mode: "governed",
+			key: "bksk_hub",
+			keyId: "hubkey123456",
+		});
+	});
+
+	test("no hub credential → refuse, naming both credential surfaces", () => {
+		const d = hubAttributionDecision({
+			hasToken: false,
+			minted: null,
+			allowUngoverned: false,
+		});
+		expect(d.mode).toBe("refuse");
+		if (d.mode === "refuse") {
+			expect(d.why).toContain("SUSPENDERS_HUB_<LABEL>_TOKEN");
+			expect(d.why).toContain("hubs.json token");
+		}
+	});
+
+	test("mint failure (credential present) → refuse (W463 stands at hubs too)", () => {
+		const d = hubAttributionDecision({
+			hasToken: true,
+			minted: null,
+			allowUngoverned: false,
+		});
+		expect(d.mode).toBe("refuse");
+		if (d.mode === "refuse") expect(d.why).toContain("mint failed");
+	});
+
+	test("--allow-ungoverned keeps the hub pin: rides the hub UNATTRIBUTED", () => {
+		const d = hubAttributionDecision({
+			hasToken: false,
+			minted: null,
+			allowUngoverned: true,
+		});
+		expect(d.mode).toBe("ungoverned-override");
+		if (d.mode === "ungoverned-override")
+			expect(d.note).toContain("rides the hub unattributed");
 	});
 });
 

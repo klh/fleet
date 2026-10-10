@@ -38,19 +38,23 @@ const REPO = realpathSync(
 );
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 
-// the two live hub stands-ins — DESKTOP and NAS, real HTTP on 127.0.0.1
-const desktopHub = Bun.serve({
-	port: 0,
-	fetch: () => new Response("desktop hub ok"),
-});
-const nasHub = Bun.serve({
-	port: 0,
-	fetch: () => new Response("nas hub ok"),
-});
-const oneOffHub = Bun.serve({
-	port: 0,
-	fetch: () => new Response("repo one-off hub ok"),
-});
+// the two live hub stands-ins — DESKTOP and NAS, real HTTP on 127.0.0.1.
+// W615: hub-won lanes mint their lane key AT the hub, so the stand-ins
+// speak the admin mint (a per-stand-in bksk_ key) — attribution is asserted
+// end-to-end on the surfaces the lane actually sees.
+const hubFetch =
+	(name: string) =>
+	(req: Request): Response => {
+		if (req.method === "POST" && new URL(req.url).pathname === "/v1/admin/keys")
+			return Response.json(
+				{ key: `bksk_${name}_minted`, key_id: `${name}key12345` },
+				{ status: 201 },
+			);
+		return new Response(`${name} hub ok`);
+	};
+const desktopHub = Bun.serve({ port: 0, fetch: hubFetch("desktop") });
+const nasHub = Bun.serve({ port: 0, fetch: hubFetch("nas") });
+const oneOffHub = Bun.serve({ port: 0, fetch: hubFetch("oneoff") });
 const DESKTOP_URL = `http://127.0.0.1:${desktopHub.port}`;
 const NAS_URL = `http://127.0.0.1:${nasHub.port}`;
 const ONEOFF_URL = `http://127.0.0.1:${oneOffHub.port}`;
@@ -150,7 +154,7 @@ const reapLanes = (): void => {
 // reaper deletes the dump file, and the assertions need its content.
 const dispatchHubCase = async (
 	preferLines: string[],
-	registryEntries: Record<string, { candidates: string[] }>,
+	registryEntries: Record<string, { candidates: string[]; token?: string }>,
 	opts: { allowUngoverned?: boolean } = {},
 ): Promise<{
 	id: string;
@@ -206,13 +210,22 @@ afterAll(() => {
 describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 	test("prefer DESKTOP: first ALIVE candidate wins over NAS (preference = candidate order)", async () => {
 		const { id, sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
-			DESKTOP: { candidates: [DESKTOP_URL, NAS_URL] },
+			DESKTOP: {
+				candidates: [DESKTOP_URL, NAS_URL],
+				token: "bksk_desktop_admin",
+			},
 		});
 		expect(out).toContain("dispatched ");
-		// the note names DESKTOP and the DESKTOP url, via the registry
 		expect(out).toContain(`hub DESKTOP -> ${DESKTOP_URL} (registry hubs.json)`);
-		// the 0600 lane settings pin the DESKTOP base (what claude merges)
-		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(DESKTOP_URL);
+		// W615: hub-won attribution — the 0600 lane settings pin the hub's
+		// /w/<sid> front and the hub-minted scoped key (what claude merges)
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${DESKTOP_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_desktop_minted",
+		);
+		expect(out).toContain(`lane attribution: hub DESKTOP /w/${sid}`);
 		// the lane process env carries the label + how the hub was found
 		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
 		expect(envDump).toContain("SUSPENDERS_HUB_VIA=registry hubs.json");
@@ -226,11 +239,18 @@ describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 
 	test("failover: dead DESKTOP candidate falls through to the live NAS candidate", async () => {
 		const { sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
-			DESKTOP: { candidates: ["http://127.0.0.1:1", NAS_URL] },
+			DESKTOP: {
+				candidates: ["http://127.0.0.1:1", NAS_URL],
+				token: "bksk_desktop_admin",
+			},
 		});
 		expect(out).toContain("dispatched ");
 		expect(out).toContain(`hub DESKTOP -> ${NAS_URL} (registry hubs.json)`);
-		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(NAS_URL);
+		// W615: the failover hub gets the /w/<sid> attribution too
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${NAS_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe("bksk_nas_minted");
 		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
 		expect(laneRow(sid).hub).toBe("DESKTOP");
 	}, 90_000);
@@ -238,11 +258,17 @@ describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 	test("repo one-off hub-url outranks the global registry (most specific intent wins)", async () => {
 		const { sid, out, envDump } = await dispatchHubCase(
 			["hub=DESKTOP", `hub-url=${ONEOFF_URL}`],
-			{ DESKTOP: { candidates: [NAS_URL] } },
+			{ DESKTOP: { candidates: [NAS_URL], token: "bksk_desktop_admin" } },
 		);
 		expect(out).toContain("dispatched ");
 		expect(out).toContain(`hub DESKTOP -> ${ONEOFF_URL} (prefer hub-url)`);
-		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(ONEOFF_URL);
+		// W615: the one-off hub front gets the /w/<sid> attribution too
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${ONEOFF_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_oneoff_minted",
+		);
 		expect(envDump).toContain("SUSPENDERS_HUB_VIA=prefer hub-url");
 	}, 90_000);
 

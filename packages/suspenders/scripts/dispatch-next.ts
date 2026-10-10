@@ -37,6 +37,7 @@ import {
 	parseGovernanceMode,
 	probeFrontDecision,
 } from "./lib/governance-decide.ts";
+import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
@@ -57,12 +58,16 @@ import { adapterFor } from "../hooks/lib/executors/registry.ts";
 import {
 	adminKey,
 	ensureLaneKey,
+	hubCredential,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
 	revokeLaneKey,
 } from "./lib/lane-auth.ts";
 
 export type { GovernanceDecision } from "./lib/governance-decide.ts";
+// W615: hubAttributionDecision rides the re-export so existing importers
+// (tests, scripts) keep the dispatch-next path.
+export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { condensePrompt } from "../hooks/board/prompt-transform.ts";
@@ -687,6 +692,9 @@ const dispatchItem = async (
 	let committedLaunch = false;
 	let launchedProc: ReturnType<typeof spawnClaude> | undefined;
 	let ownedKeyId: string | undefined;
+	/** W615: set when the lane key was minted AT a hub — launch-cleanup
+	 *  revokes there with the hub credential, not against the local front. */
+	let ownedKeyFront: string | undefined;
 	let intent: LaunchIntent | undefined;
 	const writtenFiles = new Map<string, string>();
 	try {
@@ -879,6 +887,8 @@ const dispatchItem = async (
 			);
 		}
 		let resolvedHub: string | undefined;
+		// W615: the hub URL rides alongside the label — attribution mints at it.
+		let resolvedHubUrl: string | undefined;
 		if (!NO_BELT) {
 			// always pin a model — an unpinned lane inherits the owner's global
 			// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
@@ -893,6 +903,7 @@ const dispatchItem = async (
 					env.SUSPENDERS_HUB_VIA = hub.via;
 					hubNote = ` — hub ${hub.label} -> ${hub.url} (${hub.via})`;
 					resolvedHub = hub.label;
+					resolvedHubUrl = hub.url;
 				} else {
 					hubNote = ` — NOTE hub=${pick.hub} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
 					console.log(
@@ -905,15 +916,52 @@ const dispatchItem = async (
 			// front with /w/<sid> so usage attributes per lane (route_audit.lane).
 			// W463 fail-closed: the gate demands bksk_ keys, so a mint failure
 			// REFUSES the lane — governance must not silently vanish — and only
-			// the explicit --allow-ungoverned override rides belt direct. Skipped
-			// entirely when a hub redirect won (the hub owns the base URL).
+			// the explicit --allow-ungoverned override rides belt direct.
 			// W422.17: probe once — front up rides the W463 governed mint path,
 			// front down branches on the governance mode (strict refuses, solo
-			// keeps the belt-direct fallback). undefined = hub won, skip entirely.
+			// keeps the belt-direct fallback). undefined = hub won, hub branch.
+			// W615: a winning hub redirect NO LONGER skips attribution (the
+			// identity-doc gap): the lane mints its key AT the hub and rides
+			// <hub-url>/w/<sid>, so hub-routed usage lands in the hub's own
+			// route_audit.lane. Credential + posture = hubAttributionDecision.
 			const frontUp: string | null | undefined = resolvedHub
 				? undefined
 				: await probeBuckleFront();
-			if (frontUp) {
+			if (resolvedHub) {
+				// W615 (lib/hub-lane.ts): mint AT the hub, ride <hub>/w/<sid> —
+				// governed → env attribution + 0600 meta; override/refuse → the
+				// W463 disclosure machinery, hub-worded.
+				const hub = await attributeHubLane({
+					sid,
+					hubLabel: pick.hub ?? resolvedHub,
+					hubUrl: resolvedHubUrl ?? resolvedHub,
+					allowUngoverned: ALLOW_UNGOVERNED,
+					env,
+				});
+				if (hub.decision.mode === "governed") {
+					ownedKeyId = hub.ownedKeyId;
+					ownedKeyFront = resolvedHubUrl ?? resolvedHub;
+					const meta = hub.meta as string;
+					writtenFiles.set(laneKeyMetaPath(FLEET, sid), meta);
+					writeFileSync(laneKeyMetaPath(FLEET, sid), meta);
+					chmodSync(laneKeyMetaPath(FLEET, sid), 0o600);
+					hubNote += ` — lane attribution: hub ${resolvedHub} /w/${sid} (scoped key, ttl ${LANE_KEY_TTL_S}s)`;
+				} else if (hub.decision.mode === "ungoverned-override") {
+					console.log(`*** ${hub.decision.note} ***`);
+					hubNote += ` — ${hub.decision.note}`;
+					// W463: the override is disclosed IN the brief the lane reads.
+					const disclosed = `${brief}\n\nGOVERNANCE: ${hub.decision.note}.\n`;
+					writeFileSync(briefFile, disclosed);
+					writeFileSync(`${wt}/.klh-brief.md`, disclosed);
+				} else {
+					governanceRefusals.push(item);
+					console.log(
+						`REFUSED ${item} — ${hub.decision.why}; launch refused; claim cleanup follows, nothing spawned`,
+					);
+					log(`REFUSED ${item} → ${sid} — ${hub.decision.why}`);
+					return null;
+				}
+			} else if (frontUp) {
 				const decision = laneKeyDecision(
 					await ensureLaneKey(sid),
 					ALLOW_UNGOVERNED,
@@ -1151,9 +1199,14 @@ const dispatchItem = async (
 			}
 			if (childStopped && ownedKeyId) {
 				try {
-					const admin = adminKey();
-					const revoked = admin
-						? await revokeLaneKey(ownedKeyId, admin)
+					// W615: hub-minted keys revoke AT the minting hub with the hub
+					// credential — the local admin cannot revoke them.
+					const cred =
+						ownedKeyFront !== undefined
+							? hubCredential(pick.hub ?? ownedKeyFront)
+							: adminKey();
+					const revoked = cred
+						? await revokeLaneKey(ownedKeyId, cred, fetch, ownedKeyFront)
 						: false;
 					log(
 						`LAUNCH-CLEANUP ${item} — own key ${ownedKeyId} ${revoked ? "revoked" : "revoke failed; TTL bounds it"}`,
