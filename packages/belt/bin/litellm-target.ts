@@ -28,6 +28,10 @@ export interface LitellmPaths {
 	config: string;
 	zaiConfig: string;
 	masterKeyFile: string;
+	/** Anthropic upstream key for litellm.yaml rows pointing at
+	 *  api.anthropic.com (claude-sonnet-5 / claude-haiku-4-5). Optional:
+	 *  without it only the claude upstreams fail, the gateway still serves. */
+	anthropicKeyFile: string;
 	log: string;
 }
 
@@ -37,12 +41,14 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	config: `${HOME}/.claude/local-llm/litellm.yaml`,
 	zaiConfig: `${HOME}/.config/zai/config.json`,
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
+	anthropicKeyFile: `${HOME}/.claude/local-llm/anthropic.key`,
 	log: `${HOME}/.claude/local-llm/litellm-gateway.log`,
 };
 
 export interface LitellmKeys {
 	Z_AI_API_KEY: string;
 	LITELLM_KEY: string;
+	ANTHROPIC_API_KEY?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -78,11 +84,19 @@ export function loadKeys(
 	const zai = env.Z_AI_API_KEY || zaiKeyFromFile(read, paths.zaiConfig);
 	const master =
 		env.LITELLM_KEY || tryRead(read, paths.masterKeyFile)?.trim() || null;
+	const anthropic =
+		env.ANTHROPIC_API_KEY ||
+		tryRead(read, paths.anthropicKeyFile)?.trim() ||
+		null;
 	const missing: string[] = [];
 	if (!zai) missing.push(`Z_AI_API_KEY (env or ${paths.zaiConfig} apiKey)`);
 	if (!master) missing.push(`LITELLM_KEY (env or ${paths.masterKeyFile})`);
 	if (!zai || !master) throw new Error(`missing ${missing.join(", ")}`);
-	return { Z_AI_API_KEY: zai, LITELLM_KEY: master };
+	return {
+		Z_AI_API_KEY: zai,
+		LITELLM_KEY: master,
+		...(anthropic ? { ANTHROPIC_API_KEY: anthropic } : {}),
+	};
 }
 
 export const litellmArgv = (
