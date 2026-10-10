@@ -152,6 +152,70 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 	});
 });
 
+// W617: --item banks the capsule on the ITEM (work.<id>.capsule) alongside
+// the lane key — a fresh claimer on a reclaimed item resumes informed.
+describe("capsule set --item <W-id> — the item-scoped capsule", () => {
+	test("set --item writes work.<id>.capsule AND the lane key; get --item reads it back", () => {
+		const s = runCli([
+			"capsule",
+			"set",
+			"--as",
+			"w617lane",
+			"--item",
+			"W617",
+			"--checkpoint=cafef00d",
+			"--done=half",
+		]);
+		expect(s.code).toBe(0);
+		expect(s.out).toContain("item W617");
+		const gi = runCli(["capsule", "get", "--item", "W617"]);
+		const cap = JSON.parse(gi.out.trim()) as Record<string, string>;
+		expect(cap.checkpoint).toBe("cafef00d");
+		expect(cap.item).toBeUndefined(); // the flag is a destination, not payload
+		// lane key got the same payload
+		const gl = runCli(["capsule", "get", "--as", "w617lane"]);
+		expect(JSON.parse(gl.out.trim()).checkpoint).toBe("cafef00d");
+	});
+
+	test("--if-version guards the ITEM key (successive lane writers)", () => {
+		const stale = runCli([
+			"capsule",
+			"set",
+			"--as",
+			"w617other",
+			"--item",
+			"W617",
+			"--if-version=0",
+			"--checkpoint=stale",
+		]); // item key is at v1 already
+		expect(stale.code).toBe(2);
+		expect(stale.err).toContain("work.W617.capsule");
+		expect(stale.err).toContain("current version 1");
+		// refusal left the item key untouched
+		const kept = runCli(["capsule", "get", "--item", "W617"]);
+		expect(JSON.parse(kept.out.trim()).checkpoint).toBe("cafef00d");
+		const next = runCli([
+			"capsule",
+			"set",
+			"--as",
+			"w617other",
+			"--item",
+			"W617",
+			"--if-version=1",
+			"--checkpoint=ffeedd",
+		]);
+		expect(next.code).toBe(0);
+		const won = runCli(["capsule", "get", "--item", "W617"]);
+		expect(JSON.parse(won.out.trim()).checkpoint).toBe("ffeedd");
+	});
+
+	test("get --item on a missing capsule prints the no-capsule placeholder", () => {
+		expect(runCli(["capsule", "get", "--item", "W404"]).out).toContain(
+			"(no capsule)",
+		);
+	});
+});
+
 describe("concurrent CAS — exactly one writer wins", () => {
 	test("two racing --if-version writers: one exit 0, one refusal", async () => {
 		const seed = runCli([

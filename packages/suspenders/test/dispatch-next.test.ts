@@ -430,6 +430,33 @@ describe("resume-rebrief composition", () => {
 		expect(resumed).toContain("RESUME CONTEXT —");
 		expect(resumed).toContain("abc123");
 	});
+	// W617: the item-scoped capsule rides for ANY claimer — a fresh lane on
+	// a reclaimed item resumes informed, not just the reused sid.
+	test("item capsule injects as RESUME CONTEXT for any claimer", () => {
+		const showOut = "◐ W617 CLAIMED  sample item\n  owner_sid: autow617";
+		const base = {
+			item: "W617",
+			showOut,
+			sid: "freshlane",
+			branch: "suspenders/W617",
+			worktree: "/tmp/nowhere/.worktrees/W617",
+			capsule: null,
+		};
+		const fresh = composeBrief({
+			...base,
+			itemCapsule: { checkpoint: "deadbeef", done: "half", next: "rest" },
+		});
+		expect(fresh).toContain(
+			"RESUME CONTEXT — item capsule from a previous lane on this item",
+		);
+		expect(fresh).toContain("deadbeef");
+		// no item capsule → no block
+		expect(composeBrief(base)).not.toContain("item capsule");
+		// same-sid resume where lane capsule == item capsule → printed once
+		const cap = { checkpoint: "abc123", done: "half", next: "rest" };
+		const deduped = composeBrief({ ...base, capsule: cap, itemCapsule: cap });
+		expect(deduped.match(/RESUME CONTEXT —/g)).toHaveLength(1);
+	});
 	// W417.2: the inbox contract is executor-agnostic — one line on every
 	// brief, regardless of the agent the lane rides (claude, codex, copilot,
 	// cline, grok). Asserted across executor classes.

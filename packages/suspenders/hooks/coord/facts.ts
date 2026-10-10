@@ -155,11 +155,16 @@ export async function cmdFact(rest: string[]): Promise<void> {
 
 export async function cmdCapsule(rest: string[]): Promise<void> {
 	// continuation capsule: the minimum restart packet (checkpoint/step/next/assumptions)
+	// W617: --item <W-id> banks the capsule on the ITEM too (work.<id>.capsule,
+	// alongside the lane-scoped lane.<sid>.capsule) — an item reclaimed and
+	// re-taken by a fresh lane resumes from it instead of starting blind.
+	const item = arg("--item");
 	const as = arg("--as") ?? rest[0];
 	if (!as || rest[0] === "get") {
-		const cap = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`lane.${as ?? ""}.capsule`) as { value: string } | null;
+		const key = item ? `work.${item}.capsule` : `lane.${as ?? ""}.capsule`;
+		const cap = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
+			value: string;
+		} | null;
 		console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
 		const extra: Record<string, string> = {};
@@ -169,28 +174,33 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			if (!m) continue;
 			// W606: --if-version=N is the CAS expectation, not capsule payload
 			if (m[1] === "if-version") iv = m[2];
-			else if (m[1] !== "as") extra[m[1]] = m[2];
+			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
 		}
 		// arg() fallback covers the two-token form --if-version N
 		const expected = parseIfVersion(iv ?? arg("--if-version"));
-		const r = casWrite(`lane.${as}.capsule`, expected, () =>
+		const upsert = (key: string) =>
 			db
 				.query(
 					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
 				)
 				.run(
-					`lane.${as}.capsule`,
+					key,
 					JSON.stringify({ ...extra, ts: Date.now() }),
 					arg("--as") ?? as,
 					Date.now(),
-				),
-		);
+				);
+		// with --item the CAS expectation guards the item key — that is the
+		// key successive lane writers race over the item's life; the lane key
+		// stays single-writer and rides along unconditionally
+		const primary = item ? `work.${item}.capsule` : `lane.${as}.capsule`;
+		const r = casWrite(primary, expected, () => upsert(primary));
 		if (!r.ok)
 			die(
-				`capsule lane.${as}.capsule: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
+				`capsule ${primary}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
 			);
+		if (item) upsert(`lane.${as}.capsule`);
 		console.log(
-			`${green("✓")} ${dim(`capsule stored for @${as.slice(0, 8)}`)}`,
+			`${green("✓")} ${dim(item ? `capsule stored for item ${item} + @${as.slice(0, 8)}` : `capsule stored for @${as.slice(0, 8)}`)}`,
 		);
 	}
 }
