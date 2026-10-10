@@ -119,7 +119,9 @@ const slotOf = (e: string): { model: string | null; bin: string } | null => {
 export const execPick = (
 	attempt = 0,
 	repo: string,
+	cvOf?: Map<string, number>,
 ): {
+	name: string;
 	agent: string;
 	model: string | null;
 	bin: string;
@@ -164,6 +166,7 @@ export const execPick = (
 			fallbackModels,
 			chainLen: prefer.chain.length,
 			chainIdx: idx,
+			name: e,
 		};
 	}
 	// W183.2 - the ordered default_executors list IS the fallback chain: the
@@ -180,6 +183,16 @@ export const execPick = (
 		const slot = slotOf(name);
 		if (slot) chain.push({ name, ...slot });
 	}
+	// W620: the trust tally reorders the DEFAULT ladder only — stable sort by
+	// consecutive-valid desc (missing = 0; no cvOf or all-missing = order
+	// preserved, claude stays the appended last resort). A .prefer MUST chain
+	// is NEVER reordered (W228 owner law).
+	if (cvOf)
+		chain.sort(
+			(a, b) =>
+				(cvOf.get(b.model ?? b.name) ?? 0) -
+				(cvOf.get(a.model ?? a.name) ?? 0),
+		);
 	if (chain.length > 0) {
 		const idx = Math.min(attempt, chain.length - 1);
 		const { name, model, bin } = chain[idx];
@@ -197,9 +210,11 @@ export const execPick = (
 			fallbackModels,
 			chainLen: chain.length,
 			chainIdx: idx,
+			name,
 		};
 	}
 	return {
+		name: "claude",
 		agent: "claude",
 		model: null,
 		bin: "claude",

@@ -50,6 +50,7 @@ import {
 	cmdResumeSession,
 } from "../coord/bus.ts";
 import { cmdTargets, cmdMessage } from "../coord/addressing.ts";
+import { cmdExecutorCv } from "../coord/executor-cv.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import {
 	cmdFact,
@@ -94,8 +95,9 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message\n" +
+		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message | executor-cv\n" +
 			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
+			"  executor-cv [--apply] — the executor trust tally folded from work events (W620)\n" +
 			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
 	);
 	process.exit(0);
@@ -147,6 +149,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	targets: cmdTargets,
 	message: cmdMessage,
 	wisdom: cmdWisdom,
+	"executor-cv": cmdExecutorCv,
 };
 
 const fn = cmds[cmd ?? ""];

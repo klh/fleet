@@ -34,6 +34,14 @@ const pick = (attempt: number, de: string[], enabled?: string[]) => {
 	);
 	return execPick(attempt, REPO);
 };
+// W620: same settings write, pick reads the trust tally
+const pickCv = (attempt: number, de: string[], cv: Map<string, number>) => {
+	writeFileSync(
+		settingsFile,
+		JSON.stringify({ default_executors: de }),
+	);
+	return execPick(attempt, REPO, cv);
+};
 
 afterAll(() => {
 	process.env.HOME = REAL_HOME;
@@ -96,6 +104,30 @@ describe("W183.2 default-executor fallback chain (execPick default branch)", () 
 		expect(p.agent).toBe("glm-5.3-flash");
 		expect(p.chainLen).toBe(1);
 		expect(p.chainIdx).toBe(0);
+		rmSync(join(REPO, ".prefer"));
+	});
+});
+
+describe("W620 trust tally reorders the DEFAULT ladder only", () => {
+	test("cv desc reorders; claude stays last with no data (stable, missing = 0)", () => {
+		// [glm-x, glm-flash2, claude], only glm-flash2 trusted: it jumps first,
+		// ties keep original relative order (glm-x before claude)
+		const p = pickCv(0, ["llm:desktop:glm-x", "glm-flash2", "claude"], new Map([["glm-flash2", 7]]));
+		expect(p.agent).toBe("glm-flash2");
+		expect(p.chainIdx).toBe(0);
+		expect(p.chainLen).toBe(3);
+		expect(p.fallbackModels).toEqual(["glm-x"]);
+		// empty tally = no reorder: claude stays the appended last resort
+		const q = pickCv(0, ["llm:desktop:glm-x", "claude"], new Map());
+		expect(q.agent).toBe("llm:desktop:glm-x");
+		expect(q.chainIdx).toBe(0);
+	});
+
+	test(".prefer MUST chain is never reordered (W228), cv or not", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\n");
+		const p = pickCv(0, ["llm:desktop:glm-x"], new Map([["glm-flash2", 9]]));
+		expect(p.agent).toBe("glm-5.3-flash");
+		expect(p.name).toBe("glm-5.3-flash");
 		rmSync(join(REPO, ".prefer"));
 	});
 });
