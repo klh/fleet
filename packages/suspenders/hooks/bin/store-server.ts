@@ -24,6 +24,7 @@ import { handleAuthRoutes } from "../lib/auth-server.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { readFileSync, statSync } from "node:fs";
 import { consultStoreId } from "../lib/consult-outbox.ts";
+import { expireConsults } from "../lib/consult-expiry.ts";
 import {
 	ensureConsultRelayReceipts,
 	handleConsultRelay,
@@ -107,6 +108,15 @@ setInterval(() => {
 		} catch {}
 	}
 }, PING_INTERVAL_MS).unref();
+
+// W611: consult deadlines need a clock — the hub sweeps OPEN consults past
+// their deadline every 5 min; each flip emits consult.expired at the asker,
+// which the W611 gate drain (lib/lane-inbox.ts) delivers into the lane's
+// model context. .unref(): the sweep never holds the process open.
+const CONSULT_SWEEP_MS = 5 * 60_000;
+setInterval(() => {
+	expireConsults(db);
+}, CONSULT_SWEEP_MS).unref();
 
 function scopeCoversLocal(a: string, b: string): boolean {
 	return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
