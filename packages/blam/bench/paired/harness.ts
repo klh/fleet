@@ -6,6 +6,8 @@
 import {
 	condenseIntegrityViolations,
 	CASE_NAMES,
+	resumeIntegrityViolations,
+	resumePolicyVerdict,
 	runPair,
 	steerIntegrityViolations,
 	type CaseName,
@@ -81,6 +83,8 @@ export function checkProperties(): string[] {
 	// P5 injected delivery drops are counted on the drop plane
 	const df = runPolicy("trigger", DROP_FIRST).total.deliveryFailures;
 	if (df < 1) v.push("P5 delivery drops not counted");
+	// P6 resume freshness gate is structural (probe in cases.ts)
+	v.push(...resumeIntegrityViolations().map((s) => `P6 ${s}`));
 	return v;
 }
 
@@ -117,6 +121,14 @@ export function formatReport(): string {
 				` · min saved ${l.minutesSaved.toFixed(1)}/rep (${l.minutesSavedReps}/${l.reps} reps)`,
 		);
 	}
+	// W622: the retake knob verdict falls out of the measured lift —
+	// pre-registered rule, not prose.
+	const verdict = resumePolicyVerdict();
+	for (const [id, v] of Object.entries(verdict)) {
+		lines.push(
+			`  knob ${id}: ${v.knob ? "RESUME" : "FRESH"} (lift ${v.lift.correctDelta >= 0 ? "+" : ""}${v.lift.correctDelta.toFixed(2)} ok, ${Math.round(v.lift.tokensSaved)} tok, ${v.lift.minutesSaved.toFixed(1)} min per rep)`,
+		);
+	}
 	return lines.join("\n");
 }
 
@@ -127,5 +139,5 @@ if (import.meta.main) {
 		process.exit(1);
 	}
 	console.log(formatReport());
-	console.log(`\n5/5 properties hold (bench/paired/scenario.md)`);
+	console.log(`\n6/6 properties hold (bench/paired/scenario.md)`);
 }
