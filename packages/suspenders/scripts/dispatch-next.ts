@@ -86,6 +86,7 @@ import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import { dispatchStarterFork } from "./lib/lane-starter.ts";
+import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -132,6 +133,10 @@ Refill agent lanes from READY work and resume unfinished claims.
   --no-belt                Skip belt executor selection
   --allow-ungoverned       Explicitly allow a surfaced governance bypass
   --show-capsule <sid>      Print a lane's saved continuation capsule
+  --resume-from <sid>       With --item: resume the prior lane's transcript
+                            (claude --resume --fork-session). Policy-gated:
+                            SUSPENDERS_RESUME_RETAKE=on + cache-warm
+                            transcript fence; any miss = fresh + capsule.
   -h, --help               Print this help without dispatching
 
 Crash recovery defaults to three total launches per lane.
@@ -178,6 +183,11 @@ const NO_BELT = argv.includes("--no-belt");
 // unless the operator passed this flag (loud, logged, disclosed in the brief).
 const ALLOW_UNGOVERNED = argv.includes("--allow-ungoverned");
 const SHOW_CAPSULE = val("--show-capsule");
+// W622 retake knob (scripts/lib/resume-from.ts): explicit transcript
+// resume for a retake — requires --item <id>; policy-gated by
+// SUSPENDERS_RESUME_RETAKE=on + the freshness fence. Default OFF —
+// doctrine stays fresh lane + capsule.
+const RESUME_FROM = val("--resume-from");
 const BIN = `${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin`;
 const FLEET = `${REPO}/.fleet`;
 const LOOP_LOG = `${FLEET}/loop.log`;
@@ -193,6 +203,10 @@ const routingExtra = (): string[] => {
 	for (const e of r.errors) console.log(`NOTE — .prefer ${e}`);
 	return preferRoutingBriefLines(r);
 };
+
+// W622 retake knob helpers live in scripts/lib/resume-from.ts (1500-line
+// law): decisionFor resolves the operator's --resume-from against the
+// lane-registry resume candidate; resumeBriefLine renders the disclosure.
 
 type Lane = {
 	sid: string;
@@ -596,7 +610,12 @@ const dispatchItem = async (
 			capsule,
 			agent: pick.agent,
 			landing: await landingRedirect(REPO, branch),
-			extra: routingExtra(),
+			extra: [
+				...routingExtra(),
+				...resumeBriefLine(
+					decisionFor(RESUME_FROM, resume?.sid, pick.bin ?? "claude"),
+				),
+			],
 		});
 		console.log(brief);
 		// W223.2: dry-run shows the verdict the spawn path would enforce
@@ -790,6 +809,11 @@ const dispatchItem = async (
 			throw new Error("lane session metadata registration failed");
 		// W519: .prefer routing constraints ride the brief — prefer= soft,
 		// must= reserved (lib/prefer-routing.ts); errors loud, never fatal.
+		const resumeDecision = decisionFor(
+			RESUME_FROM,
+			resume?.sid,
+			pick.bin ?? "claude",
+		);
 		const brief = composeBrief({
 			item,
 			showOut: show.out,
@@ -798,7 +822,7 @@ const dispatchItem = async (
 			worktree: wt,
 			capsule,
 			agent: pick.agent,
-			extra: routingExtra(),
+			extra: [...routingExtra(), ...resumeBriefLine(resumeDecision)],
 		});
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
 		// and enforcement mode are ADAPTER data (registry). A failing brief on
@@ -961,6 +985,20 @@ const dispatchItem = async (
 				coldPrompt: prompt,
 				log,
 			});
+		// W622 retake knob: an honored --resume-from outranks the starter
+		// fork — the lane continues the prior transcript as a NEW session
+		// (--fork-session leaves pass 1's transcript immutable). Any missed
+		// fence stays on the fresh path, disclosed.
+		const laneForkArgs =
+			resumeDecision.mode === "resume" ? resumeDecision.forkArgs : starterFork;
+		if (resumeDecision.mode === "resume")
+			console.log(
+				`NOTE — transcript resume ${resumeDecision.sid} (claude --resume --fork-session; fences held)`,
+			);
+		else if (RESUME_FROM)
+			console.log(
+				`NOTE — --resume-from refused: ${resumeDecision.why}; fresh lane + capsule`,
+			);
 		const laneLog = `${FLEET}/lane-${sid}.log`;
 		// settings.json env CLOBBERS the process env at CLI startup (probed live
 		// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
@@ -1022,7 +1060,7 @@ const dispatchItem = async (
 			cliArgs: adapter.spawnArgs({
 				fallbackModels: pick.fallbackModels,
 				settingsArgs,
-				forkArgs: starterFork,
+				forkArgs: laneForkArgs,
 			}),
 			fleetDir: FLEET,
 			sid,
@@ -1172,6 +1210,11 @@ const main = async (): Promise<void> => {
 		);
 		return;
 	}
+	if (RESUME_FROM && !ITEM) {
+		console.log("REFUSED --resume-from <sid> requires --item <id>");
+		process.exitCode = 2;
+		return;
+	}
 	// prune: dead entries leave lanes.json (history keeps the audit); a worktree
 	// with a live claude/codex cwd is alive no matter what the pid says —
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
@@ -1281,7 +1324,16 @@ const main = async (): Promise<void> => {
 			);
 			governanceRefusals.push(ITEM);
 		} else {
-			const out = await dispatchItem(ITEM, live);
+			// W622: an explicit --resume-from pins the retake to a dead lane's
+			// transcript; no registry row = cold dispatch, disclosed.
+			const explicitResume = RESUME_FROM
+				? loadLanes().find((l) => l.sid === RESUME_FROM && l.item === ITEM)
+				: undefined;
+			if (RESUME_FROM && !explicitResume)
+				console.log(
+					`NOTE — --resume-from ${RESUME_FROM}: no dead lane registered for ${ITEM}; cold dispatch`,
+				);
+			const out = await dispatchItem(ITEM, live, explicitResume);
 			if (out) dispatched.push(out);
 		}
 	}
