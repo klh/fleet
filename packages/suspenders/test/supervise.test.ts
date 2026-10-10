@@ -145,6 +145,8 @@ const factValue = (key: string): string | null => {
 };
 const sidOf = (item: string): string =>
 	`autow${item.replace(/^W/, "").replace(/\./g, "-")}`;
+const supSid = (item: string): string =>
+	`sup${item.replace(/^W/, "").replace(/\./g, "-")}`;
 const commitIn = (wt: string, msg: string): string => {
 	writeFileSync(join(wt, "feature.txt"), msg);
 	g(["-C", wt, "add", "-A"]);
@@ -297,7 +299,7 @@ describe("W146 micro-supervisor", () => {
 		expect(r6.out).toContain("CLOSED");
 		expect(state(p).state).toBe("DONE");
 		expect(factValue(`supervise.${p.toLowerCase()}.closed`)).toContain(p);
-		const cap = tool("coord.ts", "capsule", "get", "--as", `sup${p.slice(1)}`);
+		const cap = tool("coord.ts", "capsule", "get", "--as", supSid(p));
 		expect(cap.out).toContain("subtree closed");
 		// interfaces down: the child brief carried the aids + supervision stanzas
 		const brief = readFileSync(
