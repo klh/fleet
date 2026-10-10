@@ -1,5 +1,21 @@
 export type DnsClaim = { claimed: boolean; pid?: number };
 
+/** The running instance's active config; null when Caddy's admin API is
+ * unreachable (not running, wrong port) — callers treat null as "unknown",
+ * never as "not served". */
+export const fetchActiveConfig = async (
+	admin = "http://127.0.0.1:2019",
+): Promise<unknown | null> => {
+	try {
+		const response = await fetch(`${admin}/config/`, {
+			signal: AbortSignal.timeout(3000),
+		});
+		return response.ok ? await response.json() : null;
+	} catch {
+		return null;
+	}
+};
+
 export function activeRouteMatches(
 	config: unknown,
 	host: string,
