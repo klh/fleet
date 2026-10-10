@@ -53,8 +53,6 @@ function renderEnv(
 		throw new Error(
 			"hub deploy requires a pinned stack version (reviewed SHA or release tag)",
 		);
-	if (version && hub.repos?.ref && hub.repos.ref !== version)
-		throw new Error("hub repo ref must match the shared stack version");
 	const origins = [
 		...new Set(
 			[hub.repos?.buckle, hub.repos?.suspenders, hub.repos?.belt].filter(
@@ -69,13 +67,24 @@ function renderEnv(
 		throw new Error(
 			"archived package origin cannot deploy Fleet; configure the monorepo origin",
 		);
+	// Overlay origin (the private tier): the hub pulls its OWN deployable ref —
+	// the 40-hex stack version cannot exist as a ref in a private origin
+	// (GitHub GH002 bans sha-named refs); the public base rides the version
+	// via the overlay's git-dep pins instead (bun install on the hub).
+	const overlay = origin !== "https://github.com/klh/fleet.git";
+	if (overlay && !hub.repos?.ref)
+		throw new Error(
+			"overlay origin needs repos.ref — the hub's own deployable ref (the stack version cannot be a ref in a private origin: GH002)",
+		);
+	if (!overlay && hub.repos?.ref && hub.repos.ref !== version)
+		throw new Error("hub repo ref must match the shared stack version");
 	const lines = [`HUB_NAME=${name}`];
 	const kv = (key: string, v: unknown): void => {
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);
 	};
 	kv("HUB_BUCKLE_PORT", hub.buckle_port);
 	kv("HUB_BUCKLE_BIND", hub.bind);
-	kv("HUB_FLEET_REF", ref);
+	kv("HUB_FLEET_REF", overlay ? hub.repos?.ref : ref);
 	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
