@@ -114,3 +114,31 @@ const drill = await drillFallback();
 		`  ${dim("fallback")}  ${mark} glm-5.3-flash ${dim(detail + ms)}`,
 	);
 }
+
+// W623 dispatch prefix-cache keepwarm — replays the captured stable lane
+// prefix (tools+system from a real lane request) through the buckle front
+// every pass, so idle gaps stop evicting it and dispatch briefs pay
+// cache-read rates. Skips (never throws) when the front is down, the admin
+// key is absent, or no prefix is captured yet — bin/prefix-keepwarm.ts
+// --capture seeds it. cached <n> in the line = residency held.
+import {
+	ensureKeepwarmAuth,
+	loadPrefix,
+	prefixCachePath,
+	warmOnce,
+} from "./prefix-keepwarm.ts";
+{
+	const auth = await ensureKeepwarmAuth();
+	const w =
+		auth.mode === "enrolled"
+			? await warmOnce({
+					front: auth.front,
+					key: auth.key,
+					prefix: loadPrefix(prefixCachePath()),
+				})
+			: { verdict: "skipped" as const, why: auth.why, ms: 0, usage: null };
+	const mark = w.verdict === "pass" ? green("✓") : red("✗");
+	const u = w.usage;
+	const tok = u ? ` in ${u.in_tok} cached ${u.cache_r}` : "";
+	console.log(`  ${dim("prefix")}  ${mark} ${dim(`${w.why} ${w.ms}ms${tok}`)}`);
+}
