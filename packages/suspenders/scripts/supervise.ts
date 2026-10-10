@@ -40,6 +40,7 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
 import { openStore } from "../hooks/lib/govdb.ts";
+import { supSid } from "../hooks/lib/laneslug.ts";
 import {
 	composeBrief,
 	isOwnerGated,
@@ -132,7 +133,9 @@ const main = async (): Promise<void> => {
 	const FLEET = `${REPO}/.fleet`;
 	const BIN = `${process.env.HOME}/.claude/hooks/suspenders/bin`;
 	const JOURNAL_PATH = `${FLEET}/supervise-${PARENT}.json`;
-	const SUP = `sup${PARENT.replace(/^W/, "").replace(/\./g, "")}`;
+	// W614: via the canonical slug lib — the inline dot-strip collapsed
+	// W1.23 and W12.3 to the same supervisor sid, the exact lane-sid bug class.
+	const SUP = supSid(PARENT);
 	const pl = PARENT.toLowerCase();
 
 	const gitOut = (args: string[]): string => {
