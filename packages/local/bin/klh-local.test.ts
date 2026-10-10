@@ -165,12 +165,10 @@ describe("applyFragment rollback", () => {
 			name: "svc",
 			content: "new",
 			validate: () => ok,
-			reload: (cf, force) => {
+			reload: (_cf, force) => {
 				calls++;
 				forces.push(force);
-				return calls === 1
-					? { code: 1, out: "bind: permission denied" }
-					: ok;
+				return calls === 1 ? { code: 1, out: "bind: permission denied" } : ok;
 			},
 		});
 		expect(res).toEqual({ ok: true });

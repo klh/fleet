@@ -4,10 +4,7 @@
 // not enrolled, and disables honestly when neither exists. Stub fetchers
 // only — never the live :890x fleet, never real creds.
 import { describe, expect, test } from "bun:test";
-import {
-	escalate,
-	resolveEscalationLeg,
-} from "../bin/escalate.ts";
+import { escalate, resolveEscalationLeg } from "../bin/escalate.ts";
 
 const GATE = "http://127.0.0.1:4101";
 const BODY = {
@@ -73,13 +70,13 @@ describe("escalate() on the wire", () => {
 	});
 	test("BELT_ESCALATE_MODEL overrides the wire model; legacy leg keeps pins", async () => {
 		let seenUrl = "";
-		let seenBody: Record<string, unknown> = {};
+		let _seenBody: Record<string, unknown> = {};
 		const fetcher = (async (
 			url: string | URL | Request,
 			init?: RequestInit,
 		) => {
 			seenUrl = String(url);
-			seenBody = JSON.parse(String(init?.body));
+			_seenBody = JSON.parse(String(init?.body));
 			return Response.json({
 				content: [{ type: "text", text: "OK" }],
 			});

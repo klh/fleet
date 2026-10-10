@@ -43,7 +43,6 @@ function runAsk(
 	return { answered, useful };
 }
 
-
 /** KB path: apply a hit, charging kb-read + redo costs. Returns whether
  * the hit handled the task (and whether the task stayed correct). */
 function applyKbHit(
@@ -62,7 +61,6 @@ function applyKbHit(
 	return { handled: true, correct: !hit.stale };
 }
 
-
 /** kbFirst path: retrieve, apply-if-usable, else live ask. */
 function runTaskKb(
 	ctx: PolicyContext,
@@ -79,7 +77,6 @@ function runTaskKb(
 	return { correct: useful, staleApplied: false };
 }
 
-
 /** Dup path (arm A): burn duplicate-investigation units, then ask. On
  * conflicting-assumptions the wrong assumption ships before the answer
  * lands, so the late consult documents the miss instead of preventing it. */
@@ -88,7 +85,7 @@ function runTaskDup(
 	spec: PolicySpec,
 	m: ConsultMetrics,
 ): { correct: boolean; staleApplied: boolean } {
-	const { task, costs } = ctx;
+	const { task } = ctx;
 	const dup = spec.dupUnitsBeforeConsult;
 	m.duplicateInvestigationUnits += dup;
 	m.tokenCost += dup * COSTS.investigateTokens;
@@ -99,7 +96,6 @@ function runTaskDup(
 	return { correct: useful && !tooLate, staleApplied: false };
 }
 
-
 /** The engine: run one task under a policy spec. */
 export function runTask(ctx: PolicyContext, spec: PolicySpec): PolicyResult {
 	const m = emptyMetrics();
@@ -109,9 +105,7 @@ export function runTask(ctx: PolicyContext, spec: PolicySpec): PolicyResult {
 	let correct = true;
 	let staleApplied = false;
 	if (consultWorthy) {
-		const r = spec.kbFirst
-			? runTaskKb(ctx, spec, m)
-			: runTaskDup(ctx, spec, m);
+		const r = spec.kbFirst ? runTaskKb(ctx, spec, m) : runTaskDup(ctx, spec, m);
 		correct = r.correct;
 		staleApplied = r.staleApplied;
 	}
@@ -131,7 +125,7 @@ export const POLICIES: Record<PolicyName, PolicySpec> = {
 		kbFirst: false,
 		verifyVersion: false,
 	},
-	"trigger": {
+	trigger: {
 		name: "trigger",
 		skipControlGroup: true,
 		dupUnitsBeforeConsult: 0,
