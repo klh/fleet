@@ -242,6 +242,32 @@ token report. Missing final stream usage is unknown until reconciled, not zero.
 Budget/admission enforcement is synchronous policy logic where required; a
 sampled, delayed dashboard cannot enforce a global budget correctly.
 
+## Implementation record: W621.1 — the core plane contract
+
+Landed 2026-10-11 (W621.1, split from W621): `hooks/lib/observation-plane.ts`
+in `packages/suspenders/` implements §2 and §3's core as one module, no broker:
+
+- **Event contract**: minimal unsampled observations (`lane.admitted`,
+  `lane.presence`, `request.started/ended`, `observer.disconnected`) with
+  CloudEvents-style dedup on `(source, id)`, and a per-`(source, bootId)`
+  generation (`observation_generations`) — a restart mints a new boot, never
+  a new lane.
+- **Durable outbox, idempotent ingest**: `appendObservation` is bounded
+  (capacity is an explicit overflow error, §5's no-silent-loss rule);
+  `ingestObservations` dedups transactionally before any projection update,
+  rejects events from a disconnected boot (stale generation, Sparkplug §
+  above) and reports sequence gaps as detected evidence, never zero.
+- **Visibility split**: `projectLanes(db, viewer)` serves OWNS/AUTHORIZED
+  viewers per-lane detail with authority-derived, freshness-windowed status;
+  OBSERVES viewers get distinct-lane counts, request/error totals and
+  latency only. "dead" is not a status this plane can assert — stale or
+  disconnected evidence is `unknown`; termination stays with the work
+  plane's single authority.
+
+The read model keys on `ResolvedProject.id` (the stage-1 identity contract),
+so the stage-3 opaque-ID swap does not move its call sites. Serving surfaces
+(scoped board queries, filtered push) are the sibling scope W621.2.
+
 ## Fleet integration points verified in source
 
 - `buckle/src/citizenship.ts` and `handlers.ts`: local `/w/<slug>` attribution
