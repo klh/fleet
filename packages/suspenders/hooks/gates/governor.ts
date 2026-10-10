@@ -16,7 +16,7 @@
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { openGovernorDb, openStore, projectIdentity } from "../lib/govdb.ts";
 import { expireObservedLease } from "../lib/lease-expiry.ts";
 import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
 import type { Database } from "bun:sqlite";
@@ -26,6 +26,7 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
@@ -118,7 +119,7 @@ export function governorGate(hook: HookInput): void {
 	// the row exists only after SessionStart registers it (lesson
 	// silent-noop-mutations: noted, not hidden).
 	if (db) {
-		db.query("UPDATE sessions SET hb = ? WHERE sid = ?").run(now, lane);
+		laneHeartbeat(lane, now);
 
 		// Generation-predicated: transfer OR same-owner renewal between SELECT
 		// and DELETE is never touched. No renewal here: ts advances only through
@@ -388,4 +389,28 @@ function scopeCovers(scope: string, P: string): boolean {
 	// relative scope: match by path-segment suffix — worktree-portable (each
 	// lane's absolute root differs; "src/facets/mcp" must hit all of them)
 	return P === s || P.endsWith(`/${s}`) || P.includes(`/${s}/`);
+}
+
+// W613: the heartbeat must reach the store that HOLDS the claims. The old
+// write hit openGovernorDb() — in GOVERNOR_STORE_URL mode the LOCAL file —
+// so the claim-holding store never saw heartbeats and other machines' liveness
+// reads read every lane dead. openStore() binds the claim store (the same file
+// locally). Rate-limited to one write per 60 s (Hermes bridges agent activity
+// to last_heartbeat_at at 1/60 s — each remote write is a curl spawn); the
+// clock lives in the governor cache. Fail-open: a dead store never blocks.
+const HB_INTERVAL_MS = 60_000;
+const HB_CLOCK = `${REG}/hb-clock.json`;
+export function laneHeartbeat(lane: string, now: number): void {
+	try {
+		const clocks = loadJSON<Record<string, number>>(HB_CLOCK, {});
+		if (now - (clocks[lane] ?? 0) < HB_INTERVAL_MS) return;
+		openStore().run("UPDATE sessions SET hb = ? WHERE sid = ?", now, lane);
+		clocks[lane] = now;
+		const entries = Object.entries(clocks);
+		if (entries.length > 256) {
+			for (const [k, t] of entries)
+				if (now - t > 24 * 3_600_000) delete clocks[k];
+		}
+		writeFileSync(HB_CLOCK, JSON.stringify(clocks));
+	} catch {} // fail open — heartbeat loss never blocks an edit
 }

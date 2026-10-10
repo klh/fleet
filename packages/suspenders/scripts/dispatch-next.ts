@@ -27,7 +27,6 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 // W157 decomposition: the pure governance decisions live in their module;
@@ -71,7 +70,9 @@ import { resolveHub } from "../hooks/lib/hub-locate.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
+	executorId,
 	laneProcessIdentity,
+	originIsLocal,
 	worktreeLive,
 } from "../hooks/lib/lane-liveness.ts";
 import {
@@ -637,7 +638,9 @@ const dispatchItem = async (
 			"--as",
 			sid,
 			"--origin",
-			`${hostname()}:claude`,
+			// W613: the executor id (stable, minted per machine) — not hostname(),
+			// which follows the network and flips .local/.localdomain
+			`${executorId()}:claude`,
 		]);
 		if (take.code !== 0) {
 			const show = run([
@@ -980,7 +983,7 @@ const dispatchItem = async (
 			branch,
 			worktree: wt,
 			agent: pick.agent,
-			host: hostname(),
+			host: executorId(), // W613: stable executor id, not network-following hostname()
 			hub: resolvedHub,
 			slab,
 			launchedAt: Date.now(),
@@ -1136,7 +1139,9 @@ const main = async (): Promise<void> => {
 			new Set(lanes.map((l) => l.sid)),
 			Date.now(),
 			isOwnerGated,
-			hostname(),
+			// W613: origins are executor-id stamped; legacy hostname stamps still
+			// match this machine through the .local normalizer (originIsLocal)
+			(origin: string) => originIsLocal(origin),
 		);
 		const slots = Math.max(
 			0,
@@ -1151,7 +1156,7 @@ const main = async (): Promise<void> => {
 				pid: 0,
 				branch: `suspenders/${row.id}`,
 				worktree: `${REPO}/.worktrees/${row.id}`,
-				host: hostname(),
+				host: executorId(),
 				launchedAt: row.updated_at,
 				attempt: 0,
 			});

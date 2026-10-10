@@ -266,6 +266,17 @@ test("CLI scoped orphan listing and expected-owner reclaim preserve other claims
 	expect(
 		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
 	).toBe("CLAIMED");
+	// W613: the bulk sweep is confirmatory — dead ×3 consecutive passes before
+	// the release fires (one-shot reclaims stay the per-item path above). The
+	// streak persists in the store, so separate CLI invocations accumulate.
+	expect(call("reclaim", "all").exitCode).toBe(0);
+	expect(
+		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
+	).toBe("CLAIMED");
+	expect(call("reclaim", "all").exitCode).toBe(0);
+	expect(
+		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
+	).toBe("CLAIMED");
 	expect(call("reclaim", "all").exitCode).toBe(0);
 	expect(
 		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,

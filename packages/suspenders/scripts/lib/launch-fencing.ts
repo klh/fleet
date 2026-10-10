@@ -9,6 +9,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { openStore, type GovernorStore } from "../../hooks/lib/govdb.ts";
+import { sameExecutor } from "../../hooks/lib/lane-liveness.ts";
 
 export type LaunchIntent = {
 	project: string;
@@ -192,14 +193,10 @@ export function processBirth(pid: number): ProcessBirth | false | null {
 		return (error as NodeJS.ErrnoException).code === "ENOENT" ? false : null;
 	}
 }
-/** macOS flips a host between `.local` and `.localdomain` (mDNS/DHCP); the
- * same machine must stay inspectable across the flip or its pre-flip launch
- * intents are uncertain forever and the launch pool leaks its capacity. Only
- * that exact suffix pair normalizes — pid+birth+argv fencing stays the gate. */
-const normalizeHost = (host: string): string =>
-	host.replace(/(?:\.(?:local|localdomain))+$/i, "");
-const sameMachine = (a: string, b: string): boolean =>
-	normalizeHost(a) === normalizeHost(b);
+/** W605 (moved to hooks/lib/lane-liveness.ts — W613 shares it): macOS flips a
+ * host between `.local` and `.localdomain`; only that suffix pair normalizes.
+ * pid+birth+argv fencing stays the gate. */
+const sameMachine = (a: string, b: string): boolean => sameExecutor(a, b);
 export function inspectLaunchIntent(
 	intent: LaunchIntent,
 	inspect = processBirth,

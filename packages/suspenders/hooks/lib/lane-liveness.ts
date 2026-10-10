@@ -8,7 +8,16 @@
 // liveness term. Verdict: live = recorded pid alive AND anchored harness
 // args referencing the sid, or — pid gone — the claimant transcript fresh
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	type Dirent,
+	readFileSync,
+	readdirSync,
+	realpathSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 // W422: harness names come from the executor-adapter registry (shared
 // surface for hooks + scripts trees; adapters are runtime-independent data).
@@ -51,7 +60,7 @@ export const transcriptPath = (sid: string): string | null => {
 		stack.push([root, 0]);
 		while (stack.length > 0 && !found && budget > 0) {
 			const [dir, depth] = stack.pop() as [string, number];
-			let entries;
+			let entries: Dirent[];
 			try {
 				entries = readdirSync(dir, { withFileTypes: true });
 			} catch {
@@ -222,7 +231,7 @@ export function laneProcessIdentity(
 	lane: LaneRef,
 	inspect: ProcessInspector = inspectProcesses,
 ): boolean | null {
-	if (lane.host !== undefined && lane.host !== THIS_HOST) return null;
+	if (lane.host !== undefined && !hostIsLocal(lane.host)) return null;
 	if (!lane.pid) return false;
 	if (!Number.isSafeInteger(lane.pid) || lane.pid < 0 || !lane.sid) return null;
 	try {
@@ -283,13 +292,89 @@ export const worktreeLive = (wt?: string): boolean => {
 // live = recorded pid alive AND anchored harness args referencing the sid,
 // or — pid gone — the claimant transcript fresh inside the 15-min reclaim
 // lease (the same heartbeat `work reclaim` trusts). pid gone + heartbeat
-// stale = stale; the worktree cwd never rescues a dead lease. `host` is
-// stamped on EVERY dispatch entry (hostname()), so it means nothing by
-// itself — only a FOREIGN host carries no process-table trust; those lanes
-// live on claimant-transcript freshness alone
+// stale = stale; the worktree cwd never rescues a dead lease.
+// W613 tri-state: "unknown" never authorizes a release — a foreign host
+// carries no process-table trust, and with no heartbeat evidence there is
+// nothing honest to say. Foreign lanes judge by STORE heartbeat age only
+// (their transcripts are not local; the governor hb now reaches the
+// claim-holding store, rate-limited 1/60 s), grace ≥ 2× the hb interval
+// (beads reclaim grace): a lane in a known-long op pre-extends via
+// `work extend` instead of being read dead by a tight grace.
+// ─── executor identity (W613) ────────────────────────────────────────────────
 import { hostname } from "node:os";
-const THIS_HOST = hostname();
-export const laneAlive = (l: LaneRef): boolean =>
-	l.host !== undefined && l.host !== THIS_HOST
-		? transcriptAlive(l.sid)
-		: laneProcessIdentity(l) === true || transcriptAlive(l.sid);
+// os.hostname() follows the network (beads' finding): this Mac flips
+// .local/.localdomain (W605 launch-fencing normalizes it for launch intents).
+// Claims and lane entries need a STABLE executor id instead — minted once per
+// machine into the governor cache, deliberately no hostname fallback (beads
+// federation: replica identity names the store, not the host). Legacy
+// hostname stamps still compare equal through normalizeHost's exact suffix
+// rule, so pre-W613 lane registries and take --origin values stay inspectable.
+export const executorIdPath = (): string =>
+	`${process.env.HOME ?? ""}/.cache/claude-governor/executor.id`;
+const executorMemo = new Map<string, string>();
+export function executorId(): string {
+	const file = executorIdPath();
+	const hit = executorMemo.get(file);
+	if (hit) return hit;
+	let id: string | null = null;
+	try {
+		id = readFileSync(file, "utf8").trim() || null;
+	} catch {}
+	if (!id) {
+		id = crypto.randomUUID();
+		try {
+			mkdirSync(dirname(file), { recursive: true });
+			writeFileSync(file, id, { mode: 0o600 });
+		} catch {
+			// unwritable cache — comparisons read as foreign rather than
+			// wrongly local; the verdict degrades, never mis-trusts
+		}
+	}
+	if (executorMemo.size >= 8) executorMemo.clear();
+	executorMemo.set(file, id);
+	return id;
+}
+/** macOS flips a host between `.local` and `.localdomain` (mDNS/DHCP); only
+ * that exact suffix pair normalizes — everything else is identity-bearing. */
+export const normalizeHost = (host: string): string =>
+	host.replace(/(?:\.(?:local|localdomain))+$/i, "");
+export const sameExecutor = (a: string, b: string): boolean =>
+	a === b || normalizeHost(a) === normalizeHost(b);
+/** Is this claim's `take --origin` stamp ("<executor>:<agent>") ours? Matches
+ * this machine's stable executor id AND legacy hostname stamps (normalized). */
+export const originIsLocal = (origin: string | null): boolean => {
+	if (!origin) return false;
+	const exec = origin.slice(0, origin.indexOf(":"));
+	return sameExecutor(exec, executorId()) || sameExecutor(exec, hostname());
+};
+/** Is this lane's `host` stamp THIS executor's? Matches the stable executor id
+ * AND legacy hostname stamps (normalized) — pre-W613 registries stamped
+ * hostname(), and those lanes keep their local pid-probe trust. */
+export const hostIsLocal = (host: string | undefined): boolean =>
+	host !== undefined &&
+	(sameExecutor(host, executorId()) || sameExecutor(host, hostname()));
+export const HB_INTERVAL_MS = 60_000;
+export const HB_GRACE_MS = 2 * HB_INTERVAL_MS;
+export type HeartbeatEvidence = { hbAgeMs: number | null; graceMs?: number };
+export type LaneVerdict = "live" | "dead" | "unknown";
+export function laneVerdict(l: LaneRef, ev?: HeartbeatEvidence): LaneVerdict {
+	const foreign = l.host !== undefined && !hostIsLocal(l.host);
+	if (foreign) {
+		if (!ev || ev.hbAgeMs === null || !Number.isFinite(ev.hbAgeMs))
+			return "unknown"; // no heartbeat row — never reads as dead
+		return ev.hbAgeMs <= (ev.graceMs ?? HB_GRACE_MS) ? "live" : "dead";
+	}
+	const identity = laneProcessIdentity(l);
+	if (identity === true) return "live";
+	if (identity === null) return "unknown";
+	return transcriptAlive(l.sid) ? "live" : "dead";
+}
+export const laneAlive = (l: LaneRef, ev?: HeartbeatEvidence): boolean => {
+	const v = laneVerdict(l, ev);
+	if (v !== "unknown") return v === "live";
+	// pre-W613 semantics for the unknowable cases (callers passing no
+	// heartbeat evidence): foreign → no trust; local → transcript freshness
+	return l.host !== undefined && !hostIsLocal(l.host)
+		? false
+		: transcriptAlive(l.sid);
+};

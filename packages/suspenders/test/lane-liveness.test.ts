@@ -4,9 +4,13 @@
 // need process-identity or a fresh heartbeat inside the 15-min reclaim lease.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import {
 	transcriptAlive,
 	laneAlive,
+	laneVerdict,
+	hostIsLocal,
+	laneProcessIdentity,
 	worktreeLive,
 	HARNESS_ARG_RE,
 } from "../hooks/lib/lane-liveness.ts";
@@ -43,6 +47,27 @@ describe("lane-liveness surface", () => {
 			}),
 		).toBe(false);
 		expect(laneAlive({ sid: "autowz", item: "W9" })).toBe(false);
+	});
+
+	test("W613: legacy hostname stamps stay local (pid-probed); foreign executor ids judge by hb age", () => {
+		// pre-W613 registries stamped hostname() — those lanes keep local
+		// process-table trust; a foreign executor's id never probes here
+		expect(hostIsLocal(hostname())).toBe(true);
+		expect(hostIsLocal("nas.threads.dk")).toBe(false);
+		expect(
+			laneProcessIdentity({
+				sid: "autowl",
+				item: "W9",
+				pid: 999999999,
+				host: hostname(),
+			}),
+		).toBe(false); // probed (dead pid) — NOT null (foreign)
+		expect(
+			laneVerdict(
+				{ sid: "autowl", item: "W9", host: "other-exec" },
+				{ hbAgeMs: 10_000 },
+			),
+		).toBe("live"); // foreign lanes judge by store-hb age alone
 	});
 
 	test("local lane: pid gone, heartbeat fresh inside the lease → live (W494.1)", () => {
@@ -114,7 +139,9 @@ describe("lane-liveness surface", () => {
 		// the binary name is the harness contract: a sleep copy named `claude`
 		// gives ps args "…/W123/sub/claude 30"
 		Bun.spawnSync(["/bin/ln", "-sf", "/bin/sleep", `${long}/sub/claude`]);
-		const proc = Bun.spawn([`${long}/sub/claude`, "30"], { cwd: `${long}/sub` });
+		const proc = Bun.spawn([`${long}/sub/claude`, "30"], {
+			cwd: `${long}/sub`,
+		});
 		try {
 			// poll: ps/lsof visibility lags the spawn by a few hundred ms
 			let pinned = false;

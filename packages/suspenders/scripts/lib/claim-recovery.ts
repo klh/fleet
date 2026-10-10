@@ -6,13 +6,15 @@ export type RecoverableClaim = {
 	updated_at: number;
 };
 
-/** Registered lanes keep their original retry history; manual owners stay put. */
+/** Registered lanes keep their original retry history; manual owners stay put.
+ * A claim is "ours" when its `take --origin` stamp is this executor's (W613:
+ * executor-id stamps; legacy hostname stamps match via the .local normalizer). */
 export function recoverableClaims(
 	rows: unknown,
 	registered: Set<string>,
 	now: number,
 	ownerGated: (title: string) => boolean,
-	thisHost: string,
+	originIsOurs: (origin: string) => boolean,
 ): RecoverableClaim[] {
 	if (!Array.isArray(rows)) return [];
 	return rows.filter(
@@ -28,7 +30,7 @@ export function recoverableClaims(
 			typeof r.title === "string" &&
 			!ownerGated(r.title) &&
 			typeof r.origin === "string" &&
-			r.origin.startsWith(`${thisHost}:`) &&
+			originIsOurs(r.origin) &&
 			typeof r.updated_at === "number" &&
 			Number.isFinite(r.updated_at) &&
 			now - r.updated_at >= 15 * 60_000,

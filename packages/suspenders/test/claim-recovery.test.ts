@@ -27,10 +27,16 @@ test("only old, unregistered automatic claims are recovery candidates", () => {
 			new Set(["autow2"]),
 			now,
 			(t) => t === "owner decision",
-			"this-host",
+			(o) => o.startsWith("this-host:"),
 		),
 	).toEqual([row]);
 	expect(
-		recoverableClaims({}, new Set(), now, () => false, "this-host"),
+		recoverableClaims(
+			{},
+			new Set(),
+			now,
+			() => false,
+			() => false,
+		),
 	).toEqual([]);
 });

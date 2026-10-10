@@ -60,6 +60,8 @@ import {
 	type DeadEpisode,
 } from "../lib/dead-claim-recovery.ts";
 import {
+	executorId,
+	hostIsLocal,
 	laneAlive,
 	laneProcessIdentity,
 	transcriptAlive,
@@ -666,7 +668,7 @@ function stallWatch(): void {
 						openStore(),
 						{ project, id: l.item, owner: l.sid, revision: claim.updated_at },
 						() =>
-							l.host === hostname() &&
+							hostIsLocal(l.host) &&
 							laneProcessIdentity(l) === false &&
 							!transcriptAlive(l.sid),
 						() =>
@@ -926,7 +928,7 @@ if (MODE === "dispatch") {
 			"--as",
 			sid,
 			"--origin",
-			`${hostname()}:${AGENT}`,
+			`${executorId()}:${AGENT}`,
 		]);
 		if (take.code !== 0) {
 			const mine = runTool([
@@ -1233,7 +1235,7 @@ if (MODE === "dispatch") {
 			branch,
 			worktree: wt,
 			agent: AGENT,
-			host: hostname(),
+			host: executorId(), // W613: stable executor id, not network-following hostname()
 			slab,
 			launchedAt: Date.now(),
 			attempt: intent.attempt,

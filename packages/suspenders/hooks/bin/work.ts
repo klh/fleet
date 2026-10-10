@@ -53,7 +53,8 @@ import {
 	persistCompletion,
 	type CompletionRecord,
 } from "../lib/work-completion-record.ts";
-import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
+import { laneAlive, transcriptPath, executorId } from "../lib/lane-liveness.ts";
+import { runExtendVerb, runReclaimVerb, type VerbCtx } from "./work-verbs.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
@@ -73,7 +74,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (!cmd || cmd === "--help" || cmd === "-h") {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | extend | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -157,6 +158,12 @@ const SCHEMA: Record<string, Spec> = {
 		reqFlags: ["--as"],
 		usage: "usage: release <id> --as <sid>",
 	},
+	extend: {
+		flags: ["--for", "--note", "--as"],
+		minPos: 1,
+		reqFlags: [],
+		usage: `usage: extend <id> --for 45m --as <sid> [--note "why"]`,
+	},
 	start: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
 	summary: {
 		flags: ["--json"],
@@ -229,7 +236,7 @@ const SCHEMA: Record<string, Spec> = {
 const spec = SCHEMA[cmd];
 if (!spec)
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | extend | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 
 // per-verb help: semantics live on the surface, not in source-diving —
@@ -370,13 +377,11 @@ const MUTATING_CMDS = new Set([
 	"migrate-ledger",
 ]);
 
-
 type Item = Record<string, string | number | null>;
 
 // PROJECT is the git COMMON dir (<repo>/.git for a normal checkout — shared by
 // every worktree), so the mirror belongs beside it in the repo working tree.
-const mirrorPath = (): string =>
-	`${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
+const mirrorPath = (): string => `${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
 
 // tolerant parse: an absent, truncated, or hand-mangled mirror is never a hard
 // failure — reads then just have nothing to fall back to
@@ -742,6 +747,23 @@ function releaseObserved(
 	);
 }
 
+// W613: CLI context for the work-verbs.ts verb bodies (1500-line law)
+function verbCtx(): VerbCtx {
+	return {
+		store: db(),
+		project: PROJECT,
+		pos,
+		rest,
+		flag,
+		resolveSid,
+		getItem: get,
+		releaseObserved,
+		die,
+		cyan,
+		dim,
+	};
+}
+
 // claimant transcript path — moved to hooks/lib/lane-liveness.ts so the
 // lanes verb, dispatch-next and fleet-loop share ONE liveness (2026-10-05)
 function liveTranscript(sid: string): string | null {
@@ -964,7 +986,10 @@ if (cmd === "add") {
 } else if (cmd === "take") {
 	const id = pos[0];
 	let as = flag("--as");
-	const origin = flag("--origin");
+	// W613: an unstamped take carries no executor evidence — the claim would
+	// strand as "unknown" in every reclaim sweep. The take runs HERE, so the
+	// take itself is the evidence: default-stamp the executor id.
+	const origin = flag("--origin") ?? `${executorId()}:manual`;
 	if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
 	// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
 	// the owner of record — expand a unique session-sid prefix to the full sid
@@ -1288,10 +1313,19 @@ if (cmd === "add") {
 		launchedAt?: number;
 	}>(flag("--fleet") ?? process.cwd());
 
+	// W613: foreign lanes judge by store-hb age — their transcripts are not local
+	const hb = new Map(
+		(
+			db().query("SELECT sid, hb FROM sessions").all() as {
+				sid: string;
+				hb: number;
+			}[]
+		).map((s) => [s.sid, Date.now() - s.hb]),
+	);
 	const audit = entries.map((l) => ({
 		sid: l.sid,
 		item: l.item,
-		live: laneAlive(l),
+		live: laneAlive(l, { hbAgeMs: hb.get(l.sid) ?? null }),
 		host: l.host ?? null,
 	}));
 	if (flag("--json") !== undefined) {
@@ -1302,72 +1336,11 @@ if (cmd === "add") {
 				`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
 			);
 	}
+} else if (cmd === "extend") {
+	// W613: verb bodies live in work-verbs.ts (1500-line law)
+	runExtendVerb(verbCtx());
 } else if (cmd === "reclaim") {
-	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
-	// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
-	// listing). Capsule law preserved: this CAN strand uncommitted lane state;
-	// each reclaim is listed for audit and `work reclaim <id>` stays the
-	// careful per-item path.
-	if (pos[0] === "all") {
-		if (
-			flag("--expect-owner") ||
-			flag("--expect-updated-at") ||
-			rest.includes("--json")
-		)
-			die("expected claim/JSON requires a single item");
-		const rows = db()
-			.query(
-				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
-			)
-			.all(PROJECT) as Item[];
-		let n = 0;
-		for (const r of rows) {
-			if (liveTranscript(String(r.owner_sid))) continue;
-			if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
-				console.log(`${dim(String(r.id))} claim changed — skipped`);
-				continue;
-			}
-			console.log(
-				`${cyan("·")} ${r.id} reclaimed → READY (was ${String(r.owner_sid).slice(0, 8)})`,
-			);
-			n++;
-		}
-		console.log(
-			n === 0
-				? dim("(no orphans to reclaim)")
-				: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
-		);
-	} else {
-		const id = pos[0];
-		const it = get(id ?? "");
-		if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
-			die(
-				`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
-			);
-		const expectedOwner = flag("--expect-owner");
-		if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
-			die(`${id} owner changed — reclaim refused`);
-		const revision = flag("--expect-updated-at");
-		if (
-			revision &&
-			(!Number.isSafeInteger(Number(revision)) ||
-				Number(revision) !== it.updated_at)
-		)
-			die(`${id} revision changed — reclaim refused`);
-		if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
-			die(`${id} claim changed — reclaim refused; inspect before retrying`);
-		console.log(
-			rest.includes("--json")
-				? JSON.stringify({
-						project: PROJECT,
-						id,
-						previousOwner: it.owner_sid,
-						previousUpdatedAt: it.updated_at,
-						released: true,
-					})
-				: `${cyan("·")} ${id} reclaimed → READY`,
-		);
-	}
+	runReclaimVerb(verbCtx());
 } else if (cmd === "migrate-ledger") {
 	// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
 	// / PAUSED / OWNER-GATED markers or unchecked tasks) become graph items.
@@ -1471,7 +1444,7 @@ if (cmd === "add") {
 	}
 } else {
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | extend | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
 	);
 }
 
