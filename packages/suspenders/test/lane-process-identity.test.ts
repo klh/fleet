@@ -162,6 +162,34 @@ test("canonical symlink resolution recognizes native upgrades and actual Node en
 	).toBeNull();
 });
 
+test("bare launchd PATH still resolves the native install via declared locations (W626)", () => {
+	const root = mkdtempSync(join(tmpdir(), "fleet-w626-launchd-"));
+	roots.push(root);
+	const versions = join(root, "claude/versions");
+	mkdirSync(versions, { recursive: true });
+	const native = join(versions, "2.1.283");
+	writeFileSync(native, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+	mkdirSync(join(root, ".local/bin"), { recursive: true });
+	symlinkSync(native, join(root, ".local/bin/claude"));
+	const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+	process.env.HOME = root;
+	process.env.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+	try {
+		expect(laneProcessIdentity(lane, roster(`562 ${native} -p autow562`))).toBe(
+			true,
+		);
+		expect(
+			laneProcessIdentity(
+				lane,
+				roster(`562 ${native} -p Read /project/.fleet/brief-autow562.md`),
+			),
+		).toBeNull();
+	} finally {
+		process.env.HOME = env.HOME;
+		process.env.PATH = env.PATH;
+	}
+});
+
 test("retirement retains an unresolved native executable and ignores prompt-only harness paths", () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-retirement-identity-"));
 	roots.push(root);

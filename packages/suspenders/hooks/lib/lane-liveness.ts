@@ -18,7 +18,10 @@ import {
 import { basename, dirname, resolve } from "node:path";
 // W422: harness names come from the executor-adapter registry (shared
 // surface for hooks + scripts trees; adapters are runtime-independent data).
-import { HARNESS_PROCESS_NAMES } from "./executors/registry.ts";
+import {
+	HARNESS_INSTALL_PATHS,
+	HARNESS_PROCESS_NAMES,
+} from "./executors/registry.ts";
 
 export type LaneRef = {
 	sid: string;
@@ -126,18 +129,28 @@ function canonicalExecutable(
 	return resolved !== null && canonical.has(resolved);
 }
 
-/** At most five resolved install paths; refresh upgrades without per-row filesystem probes. */
+/** Resolved install paths; refresh upgrades without per-row filesystem probes. */
 function harnessExecutables(): Set<string> {
-	const key = `${process.env.PATH ?? ""}\0${process.env.HOME ?? ""}`;
+	const home = process.env.HOME ?? "";
+	const key = `${process.env.PATH ?? ""}\0${home}`;
 	if (executableCache?.key === key && executableCache.until > Date.now())
 		return executableCache.paths;
 	const paths = new Set<string>();
+	const addReal = (p: string): void => {
+		try {
+			paths.add(realpathSync(p));
+		} catch {}
+	};
 	for (const name of HARNESS_NAMES) {
 		try {
 			const executable = Bun.which(name, { PATH: process.env.PATH });
-			if (executable) paths.add(realpathSync(executable));
+			if (executable) addReal(executable);
 		} catch {}
 	}
+	// W626: launchd agents run a bare /usr/bin:/bin PATH, so which() misses
+	// the native installs — probe adapter-declared candidates too.
+	for (const candidate of HARNESS_INSTALL_PATHS)
+		addReal(candidate.replace(/^~(?=\/|$)/, home));
 	executableCache = { key, until: Date.now() + 10_000, paths };
 	return paths;
 }

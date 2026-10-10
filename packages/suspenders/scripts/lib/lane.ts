@@ -54,6 +54,11 @@ export interface ExecutorAdapter {
 	forkArgs(sessionId: string): string[] | null;
 	/** Process-table names this executor answers to (liveness matcher). */
 	processNames: string[];
+	/** PATH-independent install locations probed when `which` misses —
+	 *  launchd agents run a bare /usr/bin:/bin PATH, so a versioned native
+	 *  install must be discoverable without the shell's PATH (W626: the
+	 *  launchd-context liveness read every lane unknown). */
+	installPaths?: string[];
 }
 
 export const sh = (cmd: string[], cwd = process.cwd()): string => {

@@ -40,4 +40,7 @@ export const claudeAdapter: ExecutorAdapter = {
 	// W454 starter-session fork — binary-verified on the installed executor.
 	forkArgs: (sessionId) => ["--resume", sessionId, "--fork-session"],
 	processNames: ["claude"],
+	// W626: launchd's bare PATH hides the native install — which() misses and
+	// every versioned claude row degraded to the unknown compatibility branch.
+	installPaths: ["~/.local/bin/claude"],
 };

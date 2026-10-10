@@ -46,3 +46,9 @@ export const isSpawnableExecutor = (name: string): boolean =>
 export const HARNESS_PROCESS_NAMES: string[] = [
 	...new Set(EXECUTOR_ADAPTERS.flatMap((a) => a.processNames)),
 ];
+
+/** PATH-independent install locations (adapters declare their native
+ *  installs; lane-liveness probes these when `which` misses). */
+export const HARNESS_INSTALL_PATHS: string[] = [
+	...new Set(EXECUTOR_ADAPTERS.flatMap((a) => a.installPaths ?? [])),
+];
