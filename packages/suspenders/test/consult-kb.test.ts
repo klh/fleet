@@ -478,3 +478,138 @@ describe("candidate trust and bounded routing", () => {
 		expect(blocked.err).toContain("queue is full");
 	});
 });
+
+// W618: the reply harvest used to insert every answer unconditionally; it now
+// fingerprints problem+answer (normalized tokens) and merges repeat rows.
+describe("harvest dedup (W618)", () => {
+	test("identical repeat answer merges: one row, hits bumped, last_hit_at set", () => {
+		const q = "dedup alpha protocol retry question";
+		let r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c1 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run([
+				"consult-reply",
+				c1,
+				"Reset the alpha protocol flag first",
+				"--as",
+				EXPERT,
+			]).code,
+		).toBe(0);
+		r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c2 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(r.out).toContain("CONSULT"); // unverified candidate: no auto-resolve
+		expect(
+			run([
+				"consult-reply",
+				c2,
+				"Reset the alpha protocol flag first",
+				"--as",
+				EXPERT,
+			]).code,
+		).toBe(0);
+		const d = new Database(DB, { readonly: true });
+		const rows = d
+			.query("SELECT hits, last_hit_at FROM consult_kb WHERE problem = ?")
+			.all(q) as { hits: number; last_hit_at: number | null }[];
+		d.close();
+		expect(rows.length).toBe(1);
+		expect(rows[0].hits).toBe(1);
+		expect(rows[0].last_hit_at).not.toBeNull();
+	});
+
+	test("a differing answer to the same question appends as a refinement", () => {
+		const q = "dedup beta cache flush question";
+		let r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c1 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", c1, "Run the beta flush script", "--as", EXPERT])
+				.code,
+		).toBe(0);
+		r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c2 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run([
+				"consult-reply",
+				c2,
+				"Also clear the beta cache before flushing",
+				"--as",
+				EXPERT,
+			]).code,
+		).toBe(0);
+		const d = new Database(DB, { readonly: true });
+		const row = d
+			.query("SELECT solution, hits FROM consult_kb WHERE problem = ?")
+			.get(q) as { solution: string; hits: number };
+		d.close();
+		expect(row.solution).toContain("Run the beta flush script");
+		expect(row.solution).toContain("Also clear the beta cache");
+		expect(row.hits).toBe(1);
+	});
+
+	test("merged consults stay feedback-eligible via consult_reuse", () => {
+		const q = "dedup gamma lease question";
+		let r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c1 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", c1, "Release the gamma lease first", "--as", EXPERT])
+				.code,
+		).toBe(0);
+		r = run(["consult", EXPERT, q, "--as", ASKER]);
+		const c2 = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", c2, "Release the gamma lease first", "--as", EXPERT])
+				.code,
+		).toBe(0);
+		// feedback on the MERGED consult resolves the shared candidate
+		expect(
+			run([
+				"consult-reply",
+				c2,
+				"--feedback",
+				"resolved",
+				"--evidence",
+				"gamma lease released and take succeeded",
+				"--as",
+				ASKER,
+			]).code,
+		).toBe(0);
+		const d = new Database(DB, { readonly: true });
+		const reuse = (
+			d
+				.query("SELECT COUNT(*) AS n FROM consult_reuse WHERE consult_id = ?")
+				.get(Number(c2.slice(1))) as { n: number }
+		).n;
+		const trust = d
+			.query(
+				"SELECT resolved FROM consult_trust WHERE kb_id = (SELECT id FROM consult_kb WHERE problem = ?)",
+			)
+			.get(q) as { resolved: number };
+		d.close();
+		expect(reuse).toBe(1);
+		expect(trust.resolved).toBe(1);
+	});
+
+	test("a different question still forks a fresh row", () => {
+		const qa = "dedup delta unique question one";
+		let r = run(["consult", EXPERT, qa, "--as", ASKER]);
+		const ca = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", ca, "Reset the delta flag", "--as", EXPERT]).code,
+		).toBe(0);
+		const qb = "dedup epsilon unrelated question two";
+		r = run(["consult", EXPERT, qb, "--as", ASKER]);
+		const cb = r.out.match(/C\d+/)?.[0] ?? "";
+		expect(
+			run(["consult-reply", cb, "Reset the delta flag", "--as", EXPERT]).code,
+		).toBe(0);
+		const d = new Database(DB, { readonly: true });
+		const counts = d
+			.query(
+				"SELECT problem, COUNT(*) AS n FROM consult_kb WHERE problem IN (?, ?) GROUP BY problem",
+			)
+			.all(qa, qb) as { problem: string; n: number }[];
+		d.close();
+		expect(counts.find((c) => c.problem === qa)?.n).toBe(1);
+		expect(counts.find((c) => c.problem === qb)?.n).toBe(1);
+	});
+});

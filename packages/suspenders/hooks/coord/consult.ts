@@ -10,6 +10,7 @@ import {
 	cyan,
 	red,
 	kbLookup,
+	kbNorm,
 	lessonLookup,
 	rankExperts,
 	projectIdentity,
@@ -273,32 +274,66 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
 	).run(st, decline ? null : text, Date.now(), c.id);
 	// Store candidates, but only asker-verified outcomes permit automatic reuse.
+	// W618 dedup: a same-project row with the same normalized problem+answer
+	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer
+	// appends as a refinement — instead of forking a near-duplicate row.
 	if (!decline) {
-		const kr = db
-			.query(
-				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			)
-			.run(
-				c.question,
-				text,
-				projectIdentity(),
-				c.asker_sid,
-				as,
-				c.id,
-				Date.now(),
+		const nq = kbNorm(c.question);
+		const na = kbNorm(text);
+		const dup = (
+			db
+				.query(
+					"SELECT id, problem, solution FROM consult_kb WHERE project = ? ORDER BY id",
+				)
+				.all(projectIdentity()) as {
+				id: number;
+				problem: string;
+				solution: string;
+			}[]
+		).find((k) => kbNorm(k.problem) === nq);
+		if (dup) {
+			const refined =
+				kbNorm(dup.solution) === na
+					? dup.solution
+					: `${dup.solution}\n— ${text.trim()}`;
+			db.transaction(() => {
+				db.query(
+					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ? WHERE id = ?",
+				).run(refined, Date.now(), dup.id);
+				ensureConsultTrust(db);
+				// link this consult to the row it replenished, so asker feedback
+				// resolves the candidate (the row keeps its original consult_id)
+				db.query(
+					"INSERT OR IGNORE INTO consult_reuse (consult_id, kb_id) VALUES (?, ?)",
+				).run(c.id, dup.id);
+			})();
+		} else {
+			const kr = db
+				.query(
+					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					c.question,
+					text,
+					projectIdentity(),
+					c.asker_sid,
+					as,
+					c.id,
+					Date.now(),
+				);
+			ensureConsultTrust(db);
+			db.query(
+				"INSERT INTO consult_trust (kb_id, scope, version) VALUES (?, ?, ?)",
+			).run(
+				kr.lastInsertRowid,
+				c.scope ?? "",
+				arg("--version") ?? consultVersion() ?? "",
 			);
-		ensureConsultTrust(db);
-		db.query(
-			"INSERT INTO consult_trust (kb_id, scope, version) VALUES (?, ?, ?)",
-		).run(
-			kr.lastInsertRowid,
-			c.scope ?? "",
-			arg("--version") ?? consultVersion() ?? "",
-		);
-		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
-			kr.lastInsertRowid,
-			c.question,
-		);
+			db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
+				kr.lastInsertRowid,
+				c.question,
+			);
+		}
 	}
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', NULL, ?, ?)",

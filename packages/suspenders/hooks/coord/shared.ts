@@ -75,6 +75,17 @@ export const green = paint("32");
 export const amber = paint("33");
 export const red = paint("31");
 
+// W618 — the kb tokenizer, one source: kbLookup scores term overlap over it,
+// the consult-reply harvest fingerprints problem+answer through it (dedup).
+export function kbTerms(text: string, minLen = 3): string[] {
+	return text
+		.toLowerCase()
+		.split(/[^a-z0-9_.-]+/)
+		.filter((t) => t.length >= minLen);
+}
+// normalized token stream — the dedup fingerprint's atomic unit
+export const kbNorm = (s: string): string => kbTerms(s, 1).join(" ");
+
 export function kbLookup(
 	question: string,
 	project: string = projectIdentity(),
@@ -90,14 +101,7 @@ export function kbLookup(
 } | null {
 	if (verifiedOnly && (!scope || !version)) return null;
 	ensureConsultTrust(db);
-	const terms = [
-		...new Set(
-			question
-				.toLowerCase()
-				.split(/[^a-z0-9_.-]+/)
-				.filter((t) => t.length > 2),
-		),
-	];
+	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
 	try {
 		const cands = db
