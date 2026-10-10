@@ -35,6 +35,35 @@ export const laneKeyDecision = (
 	};
 };
 
+/** W615 hub-won attribution decision (pure — unit-testable). The identity
+ *  doc fix: a winning hub redirect no longer skips attribution — the lane
+ *  mints its key AT the hub (the hub's KeyStore verifies only what it
+ *  issued; the local belt.env admin means nothing there). Credential
+ *  absence and mint failure are the W463 fail-closed matrix — solo relents
+ *  ONLY where it relents locally (an unreachable HUB degrades to local belt
+ *  upstream in resolveHub, before this decision), never at a credential
+ *  failure. The ungoverned override keeps the operator's hub pin: the lane
+ *  rides the hub base UNATTRIBUTED, loudly disclosed. */
+export const hubAttributionDecision = (o: {
+	hasToken: boolean;
+	minted: MintedLaneKey | null;
+	allowUngoverned: boolean;
+}): GovernanceDecision => {
+	if (o.minted)
+		return { mode: "governed", key: o.minted.key, keyId: o.minted.keyId };
+	if (o.allowUngoverned)
+		return {
+			mode: "ungoverned-override",
+			note: "UNGOVERNED DISPATCH — operator override (--allow-ungoverned): hub lane-key mint failed; lane rides the hub unattributed — no buckle scopes, attribution or budgets",
+		};
+	return {
+		mode: "refuse",
+		why: o.hasToken
+			? "hub lane-key mint failed — the hub's buckle admin did not issue a key (fail-closed W463; --allow-ungoverned overrides)"
+			: "no hub credential — set SUSPENDERS_HUB_<LABEL>_TOKEN or the hubs.json token for the label (fail-closed W463; --allow-ungoverned overrides)",
+	};
+};
+
 /** W422.17 (owner ruling 2026-10-06): `coord fact get fleet.governance`
  *  output → "strict" | "solo". Absent/unknown → strict (fail-closed
  *  default). Pure — unit-testable. */

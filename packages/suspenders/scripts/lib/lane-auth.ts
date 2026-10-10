@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readRegistry } from "../../hooks/lib/hub-locate.ts";
 
 export const BELT_ENV_PATH =
 	process.env.SUSPENDERS_BELT_ENV ??
@@ -52,6 +53,25 @@ export function adminKey(
 		? (parseEnvFile(readFileSync(path, "utf8")).BUCKLE_ADMIN_KEY ?? null)
 		: null;
 	return env.BUCKLE_ADMIN_KEY ?? fromFile;
+}
+
+/** W615: the credential dispatch presents to a HUB's buckle admin API —
+ *  per-hub, operator-configured (never the local belt.env admin: the hub's
+ *  KeyStore verifies only keys it issued). Same channel federation-peers
+ *  pulls manifests with: `SUSPENDERS_HUB_<LABEL>_TOKEN` env first, then the
+ *  hubs.json registry token for the label. Null = no hub credential — the
+ *  caller fails closed (W463 matrix). */
+export function hubCredential(
+	label: string,
+	env: NodeJS.ProcessEnv = process.env,
+): string | null {
+	const envKey = `SUSPENDERS_HUB_${label
+		.toUpperCase()
+		.replace(/[^A-Z0-9]/g, "_")}_TOKEN`;
+	const fromEnv = env[envKey];
+	if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
+	const reg = readRegistry()[label] ?? readRegistry()[label.toUpperCase()];
+	return reg?.token ?? null;
 }
 
 /** Mint a per-lane proxy key (name=sid, scope buckle:proxy:WRITE_, TTL'd).
@@ -113,6 +133,10 @@ export type LaneKeyRetirement = {
 	 *  minted (or predates W463). Kept in the outcome so the retire log/event
 	 *  can carry it for audit after the local files are gone. */
 	keyId: string | null;
+	/** W615: hub-minted keys record their front + hub label in the meta —
+	 *  undefined for the local-front mints (the W463 default). */
+	front?: string;
+	hub?: string;
 	revoked: boolean;
 	removed: string[];
 };
@@ -140,19 +164,34 @@ export async function retireLaneKey(o: {
 	try {
 		const meta = JSON.parse(
 			readFileSync(laneKeyMetaPath(o.fleet, o.sid), "utf8"),
-		) as { key_id?: string };
+		) as { key_id?: string; front?: string; hub?: string };
 		if (typeof meta?.key_id === "string") out.keyId = meta.key_id;
+		if (typeof meta?.front === "string") out.front = meta.front;
+		if (typeof meta?.hub === "string") out.hub = meta.hub;
 	} catch {
 		// no meta — the lane never minted (or predates W463); still cleans files
 	}
-	const admin = o.admin !== undefined ? o.admin : adminKey();
-	if (out.keyId !== null && admin) {
+	// W615: hub-minted keys (meta.front ≠ the local front) revoke AT the
+	// minting hub with the hub credential — the local admin cannot revoke a
+	// key the hub's KeyStore issued. No hub credential = revoke fails honestly
+	// (TTL bounds the key; the returned keyId keeps the audit trail).
+	const hubMinted =
+		out.front !== undefined && out.front !== (o.front ?? BUCKLE_FRONT);
+	const cred: string | null = hubMinted
+		? hubCredential(out.hub ?? out.front)
+		: o.admin !== undefined
+			? o.admin
+			: adminKey();
+	const revokeFront = hubMinted
+		? (o.front ?? out.front)
+		: (o.front ?? BUCKLE_FRONT);
+	if (out.keyId !== null && cred !== null) {
 		try {
 			out.revoked = await revokeLaneKey(
 				out.keyId,
-				admin,
+				cred,
 				o.fetchFn ?? fetch,
-				o.front ?? BUCKLE_FRONT,
+				revokeFront,
 			);
 		} catch {
 			out.revoked = false;
