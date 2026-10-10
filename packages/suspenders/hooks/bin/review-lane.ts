@@ -65,7 +65,7 @@ function gitDiff(): string {
 const thread: string[] = (
 	db
 		.query(
-			"SELECT ts, source, kind, payload FROM events WHERE json_extract(payload, '$.work') = ? AND json_extract(payload, '$.project') = ? ORDER BY id DESC LIMIT 20",
+			"SELECT ts, source, kind, payload FROM events WHERE work = ? AND project = ? ORDER BY id DESC LIMIT 20",
 		)
 		.all(item, project) as Row[]
 ).map(
@@ -182,7 +182,11 @@ async function runLeg(): Promise<string> {
 // ---- verdict parse + emit ----------------------------------------------------
 const emitCli = (args: string[]): void => {
 	const p = Bun.spawnSync(
-		[process.execPath, new URL("./coord.ts", import.meta.url).pathname, ...args],
+		[
+			process.execPath,
+			new URL("./coord.ts", import.meta.url).pathname,
+			...args,
+		],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
 	if (p.exitCode !== 0)
@@ -202,17 +206,26 @@ const findings = await runLeg().catch((e: unknown) => {
 });
 
 // verdict line: the LAST VERDICT: match wins (models restate headers)
-const verdictLine = [...(findings ?? "").matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g)].at(-1)?.[1];
-const verdict = findings && verdictLine
-	? verdictLine.startsWith("PASS")
-		? "PASS"
-		: "FAIL"
-	: "ERROR";
-const headline = (verdictLine ?? (findings ? "no verdict line in reply" : "leg failed")).slice(0, 300);
+const verdictLine = [
+	...(findings ?? "").matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g),
+].at(-1)?.[1];
+const verdict =
+	findings && verdictLine
+		? verdictLine.startsWith("PASS")
+			? "PASS"
+			: "FAIL"
+		: "ERROR";
+const headline = (
+	verdictLine ?? (findings ? "no verdict line in reply" : "leg failed")
+).slice(0, 300);
 const factKey = `review.${item}.${executor}`;
 db.query(
 	"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'review-lane', 1, ?)",
-).run(factKey, JSON.stringify({ verdict, headline, ts: Date.now() }), Date.now());
+).run(
+	factKey,
+	JSON.stringify({ verdict, headline, ts: Date.now() }),
+	Date.now(),
+);
 
 // NOTE targeted at the owner (inbox push) + thread stamp (--work/--project
 // land it on the drawer timeline); absent owner → coordinator or fleet-board
@@ -256,12 +269,3 @@ console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${verdict}: ${headline.slice(0, 120)}`,
 );
 process.exit(verdict === "ERROR" ? 2 : 0);
-
-
-
-
-
-
-
-
-

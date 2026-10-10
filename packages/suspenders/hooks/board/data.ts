@@ -112,8 +112,8 @@ export function workEvents(p: string, id: string): unknown[] {
 		db
 			.query(
 				`SELECT id, ts, source, kind, payload FROM events
-				WHERE (json_extract(payload, '$.work') = ? AND json_extract(payload, '$.project') = ?)
-					OR (scope = ? AND (json_extract(payload, '$.project') = ? OR json_extract(payload, '$.project') IS NULL))
+				WHERE (work = ? AND project = ?)
+					OR (scope = ? AND (project = ? OR project IS NULL))
 				ORDER BY id DESC LIMIT 50`,
 			)
 			.all(id, p, id, p) as EventRow[]
@@ -167,8 +167,8 @@ export function activity(
 			? db
 					.query(
 						`SELECT id, ts, source, kind, payload, target FROM events
-					WHERE (json_extract(payload, '$.project') = ?
-						OR (json_extract(payload, '$.project') IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?)))${cursorSql}
+					WHERE (project = ?
+						OR (project IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?)))${cursorSql}
 					ORDER BY id DESC LIMIT ?`,
 					)
 					.all(...(hasCursor ? [p, p, before, limit] : [p, p, limit]))

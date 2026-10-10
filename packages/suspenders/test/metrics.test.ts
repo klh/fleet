@@ -41,6 +41,14 @@ const gitDir = new TextDecoder()
 	)
 	.trim();
 const PROJECT = realpathSync(resolve(process.cwd(), gitDir || "."));
+// the header name, derived exactly as fleet.ts cmdMetrics does (pop → strip
+// .git → fall back to the parent dir) — "fleet" on every monorepo checkout
+const NAME =
+	PROJECT.split("/")
+		.pop()
+		?.replace(/\.git$/, "") ||
+	PROJECT.split("/").slice(-2, -1).pop() ||
+	PROJECT;
 
 // seed one week of realistic bus traffic, then read W15 timings back — all in
 // one subprocess so nowMs is deterministic across the seeded events
@@ -137,7 +145,10 @@ describe("W3 — coord metrics", () => {
 
 	test("exits 0 and prints the terse table", () => {
 		expect(p.exitCode).toBe(0);
-		expect(out).toContain("METRICS suspenders (last 7d)");
+		// the header name is the project-identity basename (fleet.ts): the
+		// hardcoded pre-monorepo "suspenders" broke on every worktree of the
+		// fleet monorepo — derive it like the CLI does
+		expect(out).toContain(`METRICS ${NAME} (last 7d)`);
 		expect(out).toContain("runs: 3 (2 worker, 1 coordinator)");
 		expect(out).toContain(
 			"items: 2 done, 1 open — median done item: wall 40m, agent 40m",

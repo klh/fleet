@@ -36,17 +36,32 @@ export function archiveAndPrune(
 		// pin the archive target (HOME races between bun test files would
 		// otherwise move it mid-run)
 		dir?: string;
+		// W603 cursor-aware events retention: an optional second predicate —
+		// a row is prunable only when stale AND every live reader has passed
+		// it. floor = MIN(cursors.event_id); NULL floor (no cursor rows)
+		// leaves the age-only cut. Module-local callers only: floorCol is
+		// interpolated into SQL, never user input.
+		floorCol?: string;
+		floorVal?: number;
 	},
 ): number {
 	const dir = spec.dir ?? archiveDir();
+	const floorSql =
+		spec.floorCol && spec.floorVal != null ? ` AND ${spec.floorCol} <= ?` : "";
 	const sel = store.query(
-		`SELECT ${spec.cols.join(", ")} FROM ${spec.table} WHERE ${spec.tsCol} < ? LIMIT ${BATCH}`,
+		`SELECT ${spec.cols.join(", ")} FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql} LIMIT ${BATCH}`,
 	);
-	const del = store.query(`DELETE FROM ${spec.table} WHERE ${spec.tsCol} < ?`);
+	const del = store.query(
+		`DELETE FROM ${spec.table} WHERE ${spec.tsCol} < ?${floorSql}`,
+	);
+	const params =
+		spec.floorCol && spec.floorVal != null
+			? [spec.cut, spec.floorVal]
+			: [spec.cut];
 	let total = 0;
 	let wrote = false;
 	for (;;) {
-		const rows = sel.all(spec.cut) as Record<string, unknown>[];
+		const rows = sel.all(...params) as Record<string, unknown>[];
 		if (!rows.length) break;
 		if (!wrote) mkdirSync(dir, { recursive: true });
 		const file = join(
@@ -59,7 +74,7 @@ export function archiveAndPrune(
 		total += rows.length;
 		if (rows.length < BATCH) break;
 	}
-	if (total) del.run(spec.cut);
+	if (total) del.run(...params);
 	return total;
 }
 

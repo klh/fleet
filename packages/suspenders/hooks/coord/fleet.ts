@@ -424,12 +424,12 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	const conflicts = (
 		db
 			.query(
-				"SELECT COUNT(*) AS n FROM events WHERE kind = 'conflict' AND ts >= ? AND json_extract(payload, '$.project') = ?",
+				"SELECT COUNT(*) AS n FROM events WHERE kind = 'conflict' AND ts >= ? AND project = ?",
 			)
 			.get(cut, project) as { n: number }
 	).n;
 	const failedQ =
-		"SELECT COUNT(*) AS n FROM events WHERE kind = 'work.failed' AND ts >= ? AND json_extract(payload, '$.project') = ?";
+		"SELECT COUNT(*) AS n FROM events WHERE kind = 'work.failed' AND ts >= ? AND project = ?";
 	const failed = (db.query(failedQ).get(cut, project) as { n: number }).n;
 	const rework = timing.filter((t) => t.claims > 1).length;
 	console.log(
@@ -867,9 +867,7 @@ export async function cmdProject(rest: string[]): Promise<void> {
 
 	const eventsN = (
 		db
-			.query(
-				"SELECT COUNT(*) AS n FROM events WHERE json_extract(payload, '$.project') = ?",
-			)
+			.query("SELECT COUNT(*) AS n FROM events WHERE project = ?")
 			.get(from) as { n: number }
 	).n;
 	db.transaction(() => {
@@ -918,7 +916,10 @@ export async function cmdProject(rest: string[]): Promise<void> {
 				from,
 			);
 		db.run(
-			"UPDATE events SET payload = json_set(payload, '$.project', ?) WHERE json_extract(payload, '$.project') = ?",
+			// column + payload ride together — the trigger stamps INSERTs only, so
+			// the rekey's in-place payload mutation must move the column itself
+			"UPDATE events SET payload = json_set(payload, '$.project', ?), project = ? WHERE project = ?",
+			to,
 			to,
 			from,
 		);
