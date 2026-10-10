@@ -154,8 +154,7 @@ export class LaneProjection {
 				)
 					continue;
 				const last = this.lastSeqOf(o.source);
-				if (last !== null && Number(o.id) > last + 1)
-					gapSources.add(o.source);
+				if (last !== null && Number(o.id) > last + 1) gapSources.add(o.source);
 			}
 			for (const source of gapSources)
 				this.closeSourceStale.run(now, source, now);

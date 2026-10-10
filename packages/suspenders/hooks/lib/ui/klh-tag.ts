@@ -9,9 +9,7 @@ export type TagTone = (typeof TONES)[number];
 
 export const tagTone = (v: unknown): TagTone => {
 	const s = String(v ?? "").toLowerCase();
-	return (TONES as readonly string[]).includes(s)
-		? (s as TagTone)
-		: "dim";
+	return (TONES as readonly string[]).includes(s) ? (s as TagTone) : "dim";
 };
 
 export class KlhTag extends LitElement {

@@ -29,7 +29,8 @@ function bankedCheckpoint(sid: string): string | null {
 			.query("SELECT value FROM facts WHERE key = ?")
 			.get(`lane.${sid}.capsule`) as { value: string } | undefined;
 		const cap = JSON.parse(row?.value ?? "{}") as { checkpoint?: unknown };
-		return typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)
+		return typeof cap.checkpoint === "string" &&
+			CAPSULE_SHA.test(cap.checkpoint)
 			? cap.checkpoint
 			: null;
 	} catch {
@@ -43,7 +44,8 @@ function checkpointParked(wt: string, sid: string): string | null {
 	if (!sha) return null;
 	if (!run("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: wt }).ok)
 		return null;
-	return run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], { cwd: wt }).ok
+	return run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], { cwd: wt })
+		.ok
 		? sha
 		: null;
 }

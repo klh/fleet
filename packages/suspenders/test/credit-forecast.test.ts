@@ -98,22 +98,47 @@ describe("forecastHeadroom", () => {
 		expect(f.pctUsed).toBeCloseTo(59.972, 2);
 	});
 	test("negative burn never extrapolates; stale sample noted", () => {
-		const f = forecastHeadroom(
-			[sample(0, 29986), sample(10 * H, 29000)],
-			{ now: 10 * H },
-		);
+		const f = forecastHeadroom([sample(0, 29986), sample(10 * H, 29000)], {
+			now: 10 * H,
+		});
 		expect(f.runwayHours).toBeNull();
 		expect(f.notes.some((n) => /top-up or correction/.test(n))).toBe(true);
 		const g = forecastHeadroom([sample(0, 29986)], { now: 100 * H });
 		expect(g.notes.some((n) => /h old/.test(n))).toBe(true);
 	});
 });
-const fc = (over: any = {}): any => ({ ok: true, at: 0, used: 29986, limit: 50000, remaining: 20014, pctUsed: 60, plan: "business", multipliers: {}, source: "dashboard", windows: [], burnPerHour: 40, runwayHours: null, uncertainty: { low: null, high: null }, notes: [], ...over });
-const pol = (over: any = {}): any => ({ queued: null, costPerItem: null, horizonHours: 48, overagePermitted: true, overageUnitCost: null, ...over });
+const fc = (over: any = {}): any => ({
+	ok: true,
+	at: 0,
+	used: 29986,
+	limit: 50000,
+	remaining: 20014,
+	pctUsed: 60,
+	plan: "business",
+	multipliers: {},
+	source: "dashboard",
+	windows: [],
+	burnPerHour: 40,
+	runwayHours: null,
+	uncertainty: { low: null, high: null },
+	notes: [],
+	...over,
+});
+const pol = (over: any = {}): any => ({
+	queued: null,
+	costPerItem: null,
+	horizonHours: 48,
+	overagePermitted: true,
+	overageUnitCost: null,
+	...over,
+});
 
 describe("assess", () => {
 	test("need arm: over pool → WARN with overage math", () => {
-		const a = assess(fc(), pol({ queued: 700, costPerItem: 40, overageUnitCost: 0.04 }));
+		const a = assess(
+			fc(),
+			pol({ queued: 700, costPerItem: 40, overageUnitCost: 0.04 }),
+		);
 		expect(a.verdict).toBe("WARN");
 		expect(a.arms).toContain("need");
 		expect(a.overageUnits).toBe(7986);
@@ -121,7 +146,10 @@ describe("assess", () => {
 		expect(a.lines.some((l) => /ALERT need/.test(l))).toBe(true);
 	});
 	test("overage not permitted → defer line, cost null", () => {
-		const a = assess(fc(), pol({ queued: 700, costPerItem: 40, overagePermitted: false }));
+		const a = assess(
+			fc(),
+			pol({ queued: 700, costPerItem: 40, overagePermitted: false }),
+		);
 		expect(a.overageCost).toBeNull();
 		expect(a.lines.some((l) => /overage NOT permitted/.test(l))).toBe(true);
 	});
@@ -131,7 +159,10 @@ describe("assess", () => {
 		expect(a.lines.some((l) => /ALERT runway/.test(l))).toBe(true);
 	});
 	test("OK when need fits and runway is long", () => {
-		const a = assess(fc({ uncertainty: { low: 40, high: 50 } }), pol({ queued: 12, costPerItem: 40 }));
+		const a = assess(
+			fc({ uncertainty: { low: 40, high: 50 } }),
+			pol({ queued: 12, costPerItem: 40 }),
+		);
 		expect(a.verdict).toBe("OK");
 		expect(a.arms).toEqual([]);
 	});
@@ -148,22 +179,41 @@ describe("dedupe", () => {
 		expect(shouldAlert(null, "UNKNOWN", now, H)).toBe(false);
 	});
 	test("key change re-alerts (escalation + recovery)", () => {
-		expect(shouldAlert({ key: "warn:need", at: now }, "warn:need+runway", now, H)).toBe(true);
+		expect(
+			shouldAlert({ key: "warn:need", at: now }, "warn:need+runway", now, H),
+		).toBe(true);
 		expect(shouldAlert({ key: "warn:need", at: now }, "OK", now, H)).toBe(true);
 	});
 	test("same key re-alerts only after the window", () => {
-		expect(shouldAlert({ key: "warn:need", at: now }, "warn:need", now + 1, H)).toBe(false);
-		expect(shouldAlert({ key: "warn:need", at: now }, "warn:need", now + H + 1, H)).toBe(true);
+		expect(
+			shouldAlert({ key: "warn:need", at: now }, "warn:need", now + 1, H),
+		).toBe(false);
+		expect(
+			shouldAlert({ key: "warn:need", at: now }, "warn:need", now + H + 1, H),
+		).toBe(true);
 	});
 	test("alert key carries the fired arms", () => {
-		expect(alertKeyOf({ verdict: "WARN", arms: ["runway", "need"] } as any)).toBe("warn:need+runway");
+		expect(
+			alertKeyOf({ verdict: "WARN", arms: ["runway", "need"] } as any),
+		).toBe("warn:need+runway");
 		expect(alertKeyOf({ verdict: "OK", arms: [] } as any)).toBe("OK");
 	});
 });
 
 describe("policyFromArgv", () => {
 	test("flags parse; absent flags leave the field unset", () => {
-		const p = policyFromArgv(["forecast", "--queued", "12", "--cost-per-item", "40", "--horizon-hours", "24", "--overage-permitted", "--overage-cost", "0.04"]);
+		const p = policyFromArgv([
+			"forecast",
+			"--queued",
+			"12",
+			"--cost-per-item",
+			"40",
+			"--horizon-hours",
+			"24",
+			"--overage-permitted",
+			"--overage-cost",
+			"0.04",
+		]);
 		expect(p.queued).toBe(12);
 		expect(p.costPerItem).toBe(40);
 		expect(p.horizonHours).toBe(24);
@@ -189,7 +239,12 @@ describe("forecastPush", () => {
 			statePath: join(root, "state.json"),
 			now: 6 * H,
 			dedupeMs: 24 * H,
-			policy: { queued: 12, costPerItem: 40, horizonHours: 48, overagePermitted: true } as any,
+			policy: {
+				queued: 12,
+				costPerItem: 40,
+				horizonHours: 48,
+				overagePermitted: true,
+			} as any,
 			emit: (kind: string) => seen.push(kind),
 			broadcast: (n: string) => seen.push(`bc:${n}`),
 			factSet: (k: string) => seen.push(`fact:${k}`),
@@ -200,7 +255,9 @@ describe("forecastPush", () => {
 		expect(first).toContain("WARN");
 		expect(seen.filter((k) => k === "credit.headroom.warn")).toHaveLength(1);
 		expect(seen.some((k) => k.startsWith("bc:"))).toBe(true);
-		expect(seen.some((k) => k.startsWith("fact:copilot.credits.headroom"))).toBe(true);
+		expect(
+			seen.some((k) => k.startsWith("fact:copilot.credits.headroom")),
+		).toBe(true);
 		// same key inside the window → quiet, no extra emit
 		expect(forecastPush({ ...deps, now: 6 * H + H })).toBeNull();
 		expect(seen.filter((k) => k === "credit.headroom.warn")).toHaveLength(1);
@@ -217,7 +274,12 @@ describe("forecastPush", () => {
 			act: false,
 			samplesPath: db,
 			now: 6 * H,
-			policy: { queued: 12, costPerItem: 40, horizonHours: 48, overagePermitted: true } as any,
+			policy: {
+				queued: 12,
+				costPerItem: 40,
+				horizonHours: 48,
+				overagePermitted: true,
+			} as any,
 			emit: (kind: string) => seen.push(kind),
 			stateRead: () => null,
 			stateWrite: () => {},
@@ -239,7 +301,9 @@ describe("forecastPush", () => {
 });
 describe("guarantees", () => {
 	test("no reset ETA anywhere in the surfaces", () => {
-		const f = forecastHeadroom([sample(0, 29986), sample(6 * H, 32386)], { now: 6 * H });
+		const f = forecastHeadroom([sample(0, 29986), sample(6 * H, 32386)], {
+			now: 6 * H,
+		});
 		const a = assess(f, pol({ queued: 12, costPerItem: 40 }));
 		expect(/reset/i.test(JSON.stringify(f))).toBe(false);
 		expect(/reset/i.test(JSON.stringify(a))).toBe(false);
@@ -254,7 +318,12 @@ describe("guarantees", () => {
 			act: true,
 			samplesPath: db,
 			now: 6 * H,
-			policy: { queued: 12, costPerItem: 40, horizonHours: 48, overagePermitted: true } as any,
+			policy: {
+				queued: 12,
+				costPerItem: 40,
+				horizonHours: 48,
+				overagePermitted: true,
+			} as any,
 			emit: (_k: string, note: string) => seen.push(note),
 			broadcast: (n: string) => seen.push(n),
 			factSet: () => {},

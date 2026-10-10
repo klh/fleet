@@ -76,7 +76,8 @@ function sourceRevision(): string {
 		stderr: "ignore",
 	});
 	const edited =
-		dirty.exitCode === 0 && new TextDecoder().decode(dirty.stdout).trim().length > 0;
+		dirty.exitCode === 0 &&
+		new TextDecoder().decode(dirty.stdout).trim().length > 0;
 	return edited ? `${id}:dirty` : `${id}:clean`;
 }
 
@@ -184,13 +185,17 @@ function main(): void {
 				action: action as "approve" | "defer" | "exception",
 				actor,
 				proposalHash: hash,
-				exceptionExpiresAt: flag("expires") ? Number(flag("expires")) : undefined,
+				exceptionExpiresAt: flag("expires")
+					? Number(flag("expires"))
+					: undefined,
 			});
 			if (!result.ok) {
 				console.error(`policy-workflow: ${result.reason}`);
 				process.exit(1);
 			}
-			console.log(`decision ${result.decisionId} recorded (${action} by ${actor})`);
+			console.log(
+				`decision ${result.decisionId} recorded (${action} by ${actor})`,
+			);
 			return;
 		}
 		if (verb === "authorize" && subject) {
@@ -213,9 +218,12 @@ function main(): void {
 			return;
 		}
 		if (verb === "remediation" && subject && action) {
-			const to = { claim: "claimed", review: "in-review", merge: "merged", cancel: "cancelled" }[
-				action
-			];
+			const to = {
+				claim: "claimed",
+				review: "in-review",
+				merge: "merged",
+				cancel: "cancelled",
+			}[action];
 			if (!to) usage();
 			const result = transitionRemediation(db, {
 				project,
@@ -241,7 +249,12 @@ function main(): void {
 				instance,
 			});
 			console.log(`attestation ${id} pending for ${subject}@${instance}`);
-			const verdict = flag("verify") !== undefined ? "verified" : flag("fail") !== undefined ? "failed" : undefined;
+			const verdict =
+				flag("verify") !== undefined
+					? "verified"
+					: flag("fail") !== undefined
+						? "failed"
+						: undefined;
 			if (verdict) {
 				const evidence = flag("evidence")
 					? (readJson(flag("evidence") ?? "") as unknown as string[])
@@ -272,7 +285,9 @@ function main(): void {
 							: null;
 			if (!table) usage();
 			const rows = db
-				.query(`SELECT * FROM ${table} WHERE project = ? ORDER BY updated_at DESC LIMIT 50`)
+				.query(
+					`SELECT * FROM ${table} WHERE project = ? ORDER BY updated_at DESC LIMIT 50`,
+				)
 				.all(project) as Record<string, unknown>[];
 			if (rows.length === 0) console.log("no rows");
 			for (const r of rows)

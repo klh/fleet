@@ -147,9 +147,10 @@ describe("enhance (belt router, Anthropic wire)", () => {
 			model: "m",
 			url: ENHANCE_URL,
 			key: "bksk_revoked",
-			fetcher: async () => new Response('{"error":"missing credential"}', {
-				status: 401,
-			}),
+			fetcher: async () =>
+				new Response('{"error":"missing credential"}', {
+					status: 401,
+				}),
 		});
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");

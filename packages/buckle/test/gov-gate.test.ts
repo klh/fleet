@@ -99,7 +99,10 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		});
 		expect(xkChat.status).toBe(200);
 		const msgUp = await startMockUpstream(() =>
-			Response.json({ id: "msg_xk", usage: { input_tokens: 1, output_tokens: 1 } }),
+			Response.json({
+				id: "msg_xk",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
 		);
 		const msgGate = await startGate(
 			msgUp.url,
@@ -433,9 +436,9 @@ describe("gate: W468 admission-control slots", () => {
 		while (upstream.calls.length === 0) await Bun.sleep(5);
 		const second = await chat(gate.base, key);
 		expect(second.status).toBe(429);
-		expect(
-			((await second.json()) as { code: string }).code,
-		).toBe("buckle.slot_exhausted");
+		expect(((await second.json()) as { code: string }).code).toBe(
+			"buckle.slot_exhausted",
+		);
 		expect(second.headers.get("retry-after")).toBe("2");
 		release();
 		expect((await first).status).toBe(200);

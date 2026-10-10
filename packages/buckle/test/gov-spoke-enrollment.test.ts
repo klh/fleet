@@ -54,7 +54,12 @@ const ADMIN = { authorization: `Bearer ${ROOT}` };
 async function mintCode(
 	base: string,
 	body: Record<string, unknown>,
-): Promise<{ status: number; spoke_id?: string; code?: string; error?: { code: string } }> {
+): Promise<{
+	status: number;
+	spoke_id?: string;
+	code?: string;
+	error?: { code: string };
+}> {
 	const res = await fetch(`${base}/v1/admin/spokes/enroll`, {
 		method: "POST",
 		headers: ADMIN,
@@ -184,9 +189,7 @@ describe("W173 registry: heartbeat on the pull", () => {
 				name: "legacy-spoke",
 				scopes: ["buckle:spoke:READ_"],
 			}),
-		}).then(
-			(r) => r.json() as Promise<{ key: string; key_id: string }>,
-		);
+		}).then((r) => r.json() as Promise<{ key: string; key_id: string }>);
 		const pull = await fetch(`${fed.base}/federation/policy-manifest`, {
 			headers: { authorization: `Bearer ${key.key}` },
 		});

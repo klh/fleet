@@ -3,7 +3,9 @@
 import { describe, expect, test } from "bun:test";
 import { selectLaneRouteGroups } from "./fleet-lane-routes.ts";
 
-const edge = (over: Partial<Parameters<typeof selectLaneRouteGroups>[0][number]>) => ({
+const edge = (
+	over: Partial<Parameters<typeof selectLaneRouteGroups>[0][number]>,
+) => ({
 	source: "nas",
 	rid: "r",
 	lane: "autow461",

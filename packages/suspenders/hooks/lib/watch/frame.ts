@@ -31,8 +31,7 @@ export interface WatchModel {
 
 // ─── ANSI primitives (zero-dep) ─────────────────────────────────────────────
 export const RESET = "\x1b[0m";
-const paint = (code: string, s: string): string =>
-	`\x1b[${code}m${s}${RESET}`;
+const paint = (code: string, s: string): string => `\x1b[${code}m${s}${RESET}`;
 export const dim = (s: string): string => paint("2", s);
 const bold = (s: string): string => paint("1", s);
 const cyan = (s: string): string => paint("36", s);
@@ -92,9 +91,7 @@ export function selectTasks(rows: BoardTaskRow[], cap: number): BoardTaskRow[] {
 					? 2
 					: 3;
 	const keep = rows.filter((r) => weight(r.state) < 3);
-	keep.sort(
-		(a, b) => weight(a.state) - weight(b.state) || b.age_s - a.age_s,
-	);
+	keep.sort((a, b) => weight(a.state) - weight(b.state) || b.age_s - a.age_s);
 	return keep.slice(0, cap);
 }
 
@@ -152,7 +149,8 @@ export function buildFrame(m: WatchModel): string[] {
 		)
 		.slice(0, lanesCap)) {
 		const [g, col] = laneGlyph(l.state);
-		const liveMark = l.live === null ? dim(" ") : l.live ? green("●") : red("×");
+		const liveMark =
+			l.live === null ? dim(" ") : l.live ? green("●") : red("×");
 		const item = l.item ? cyan(l.item) : dim("—");
 		const st = l.itemState ? col(l.itemState) : dim(l.state);
 		const age = l.ageS !== null ? dim(fmtAge(l.ageS)) : "";

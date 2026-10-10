@@ -75,9 +75,11 @@ test("transition tables encode the three separate machines", () => {
 
 test("assessment lease fences concurrent assessors and completion requires it", () => {
 	const db = database();
-	expect(startAssessment(db, key, HEALTH_POLICY_VERSION, "alice", 100)).toEqual({
-		ok: true,
-	});
+	expect(startAssessment(db, key, HEALTH_POLICY_VERSION, "alice", 100)).toEqual(
+		{
+			ok: true,
+		},
+	);
 	// bob cannot steal a live lease
 	expect(startAssessment(db, key, HEALTH_POLICY_VERSION, "bob", 110).ok).toBe(
 		false,
@@ -96,13 +98,17 @@ test("assessment lease fences concurrent assessors and completion requires it", 
 		}).ok,
 	).toBe(false);
 	expect(
-		completeAssessment(db, key, {
-			sid: "alice",
-			verdict: "conforming",
-			evidence: ["independent reporter present"],
-			inputsHash: healthInputsHash(goodDeployment),
-		},
-		150).ok,
+		completeAssessment(
+			db,
+			key,
+			{
+				sid: "alice",
+				verdict: "conforming",
+				evidence: ["independent reporter present"],
+				inputsHash: healthInputsHash(goodDeployment),
+			},
+			150,
+		).ok,
 	).toBe(true);
 	const rec = getAssessment(db, key);
 	expect(rec?.state).toBe("conforming");
@@ -207,7 +213,9 @@ test("proposals are idempotent and decisions bind to the proposal digest once", 
 	).toBe(false);
 	expect(getRemediationById(db, "proj", first.id)?.state).toBe("approved");
 	// decision event carries actor + digest, not agent-concluded verdicts
-	const events = db.query("SELECT kind, payload FROM events ORDER BY rowid").all() as {
+	const events = db
+		.query("SELECT kind, payload FROM events ORDER BY rowid")
+		.all() as {
 		kind: string;
 		payload: string;
 	}[];
@@ -235,7 +243,12 @@ test("remediation lifecycle is guarded; exception never overwrites the gap", () 
 		}).ok,
 	).toBe(false);
 	expect(
-		transitionRemediation(db, { project: "proj", remediationId: id, to: "claimed", actor: "lane1" }).ok,
+		transitionRemediation(db, {
+			project: "proj",
+			remediationId: id,
+			to: "claimed",
+			actor: "lane1",
+		}).ok,
 	).toBe(false); // still proposed — claim needs approval first
 	decideRemediation(db, {
 		project: "proj",
@@ -245,14 +258,29 @@ test("remediation lifecycle is guarded; exception never overwrites the gap", () 
 		proposalHash: getRemediationById(db, "proj", id)?.proposalHash ?? "",
 	});
 	expect(
-		transitionRemediation(db, { project: "proj", remediationId: id, to: "claimed", actor: "lane1" }).ok,
+		transitionRemediation(db, {
+			project: "proj",
+			remediationId: id,
+			to: "claimed",
+			actor: "lane1",
+		}).ok,
 	).toBe(true);
 	expect(getRemediationById(db, "proj", id)?.claimedBy).toBe("lane1");
 	expect(
-		transitionRemediation(db, { project: "proj", remediationId: id, to: "in-review", actor: "lane1" }).ok,
+		transitionRemediation(db, {
+			project: "proj",
+			remediationId: id,
+			to: "in-review",
+			actor: "lane1",
+		}).ok,
 	).toBe(true);
 	expect(
-		transitionRemediation(db, { project: "proj", remediationId: id, to: "merged", actor: "lane1" }).ok,
+		transitionRemediation(db, {
+			project: "proj",
+			remediationId: id,
+			to: "merged",
+			actor: "lane1",
+		}).ok,
 	).toBe(true);
 	expect(getRemediationById(db, "proj", id)?.state).toBe("merged");
 
@@ -321,9 +349,9 @@ test("attestations verify with expiry, fail honestly, and re-open", () => {
 });
 
 test("health policy classifies deployments, never conformance from missing info", () => {
-	expect(assessHealthPolicy({ ...goodDeployment, manifestKnown: false })).toEqual(
-		expect.objectContaining({ verdict: "unknown", state: "unknown" }),
-	);
+	expect(
+		assessHealthPolicy({ ...goodDeployment, manifestKnown: false }),
+	).toEqual(expect.objectContaining({ verdict: "unknown", state: "unknown" }));
 	expect(assessHealthPolicy({ ...goodDeployment, roles: ["api"] })).toEqual(
 		expect.objectContaining({ verdict: "gap", state: "gap" }),
 	);
@@ -343,20 +371,31 @@ test("health policy classifies deployments, never conformance from missing info"
 	expect(assessHealthPolicy(goodDeployment).verdict).toBe("conforming");
 	// hash changes when any policy-relevant input changes
 	const base = healthInputsHash(goodDeployment);
-	expect(healthInputsHash({ ...goodDeployment, roles: ["api", "health-reporter", "worker"] })).not.toBe(
-		base,
-	);
+	expect(
+		healthInputsHash({
+			...goodDeployment,
+			roles: ["api", "health-reporter", "worker"],
+		}),
+	).not.toBe(base);
 	expect(healthInputsHash(goodDeployment)).toBe(base);
 });
 
 test("the evidence revision token participates in the inputs hash", () => {
 	const base = healthInputsHash(goodDeployment);
-	const clean = healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:clean" });
-	const dirty = healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:dirty" });
+	const clean = healthInputsHash({
+		...goodDeployment,
+		sourceRevision: "abc123:clean",
+	});
+	const dirty = healthInputsHash({
+		...goodDeployment,
+		sourceRevision: "abc123:dirty",
+	});
 	expect(clean).not.toBe(base);
 	expect(dirty).not.toBe(clean);
 	// unchanged source revision reuses evidence; changed source invalidates
-	expect(healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:clean" })).toBe(clean);
+	expect(
+		healthInputsHash({ ...goodDeployment, sourceRevision: "abc123:clean" }),
+	).toBe(clean);
 });
 
 test("authorize mints exactly ONE remediation work item under concurrent approvals", () => {

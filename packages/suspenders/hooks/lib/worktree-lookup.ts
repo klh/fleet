@@ -38,10 +38,7 @@ export function registryWorktrees(root: string): WorktreeEntry[] {
 // the item's worktree: the tree checked out on suspenders/<id>, else the
 // conventional .worktrees/<id> when it still stands (registry pruned), else
 // null — "no tree" (the majority case stays quiet, as before)
-export function resolveItemWorktree(
-	root: string,
-	id: string,
-): string | null {
+export function resolveItemWorktree(root: string, id: string): string | null {
 	const branch = `suspenders/${id}`;
 	const hit = registryWorktrees(root).find((e) => e.branch === branch);
 	if (hit) return hit.path;

@@ -85,8 +85,11 @@ export function auditRepo(root: string): FileAudit[] {
 const argv = process.argv.slice(2);
 const root = argv.find((a) => !a.startsWith("--")) ?? ".";
 const rows = auditRepo(root);
-const pad = (s: string, n: number) => (s.length >= n ? s : s + " ".repeat(n - s.length));
-console.log(`${pad("FILE", 44)}${pad("LINES", 7)}${pad("INSTR", 7)}PATHS  VERDICT`);
+const pad = (s: string, n: number) =>
+	s.length >= n ? s : s + " ".repeat(n - s.length);
+console.log(
+	`${pad("FILE", 44)}${pad("LINES", 7)}${pad("INSTR", 7)}PATHS  VERDICT`,
+);
 for (const r of rows) {
 	console.log(
 		`${pad(r.file, 44)}${pad(String(r.lines), 7)}${pad(String(r.instructions), 7)}${pad(String(r.stalePaths), 6)}  ${r.verdict}`,

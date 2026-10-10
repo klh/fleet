@@ -18,7 +18,9 @@ import { join } from "node:path";
 import { auditDeny, auditPath } from "../hooks/lib/hookio.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-denyaudit-"));
-const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-denyaudit-repo-")));
+const REPO = realpathSync(
+	mkdtempSync(join(tmpdir(), "suspenders-denyaudit-repo-")),
+);
 const env = { ...process.env, HOME };
 const HOOKS = join(import.meta.dir, "..", "hooks");
 const AUDIT = join(HOME, ".cache/claude-governor/denied-calls.jsonl");

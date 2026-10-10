@@ -12,15 +12,16 @@
 // leaves the machine).
 
 import { appendFileSync } from "node:fs";
-import {
-	createAdmission,
-	overloaded,
-	parsePortCaps,
-} from "./admission.ts";
+import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
 import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { livenessResponse } from "./health.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
-import { byPort, fallbackFor, SPECIALISTS, type Specialist } from "./registry.ts";
+import {
+	byPort,
+	fallbackFor,
+	SPECIALISTS,
+	type Specialist,
+} from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
 import {
 	applyInboundCondense,

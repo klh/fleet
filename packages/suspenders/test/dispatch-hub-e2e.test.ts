@@ -204,94 +204,74 @@ afterAll(() => {
 });
 
 describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
-	test(
-		"prefer DESKTOP: first ALIVE candidate wins over NAS (preference = candidate order)",
-		async () => {
-			const { id, sid, out, envDump } = await dispatchHubCase(
-				["hub=DESKTOP"],
-				{ DESKTOP: { candidates: [DESKTOP_URL, NAS_URL] } },
-			);
-			expect(out).toContain("dispatched ");
-			// the note names DESKTOP and the DESKTOP url, via the registry
-			expect(out).toContain(
-				`hub DESKTOP -> ${DESKTOP_URL} (registry hubs.json)`,
-			);
-			// the 0600 lane settings pin the DESKTOP base (what claude merges)
-			expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(DESKTOP_URL);
-			// the lane process env carries the label + how the hub was found
-			expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
-			expect(envDump).toContain("SUSPENDERS_HUB_VIA=registry hubs.json");
-			// the lane registry row carries hub + the [DESKTOP] agent label
-			const row = laneRow(sid);
-			expect(row.hub).toBe("DESKTOP");
-			expect(row.agent?.startsWith("[DESKTOP]")).toBe(true);
-			// fixture hygiene: the item really was dispatched (claim left on it)
-			expect(out).toContain(id);
-		},
-		90_000,
-	);
+	test("prefer DESKTOP: first ALIVE candidate wins over NAS (preference = candidate order)", async () => {
+		const { id, sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
+			DESKTOP: { candidates: [DESKTOP_URL, NAS_URL] },
+		});
+		expect(out).toContain("dispatched ");
+		// the note names DESKTOP and the DESKTOP url, via the registry
+		expect(out).toContain(`hub DESKTOP -> ${DESKTOP_URL} (registry hubs.json)`);
+		// the 0600 lane settings pin the DESKTOP base (what claude merges)
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(DESKTOP_URL);
+		// the lane process env carries the label + how the hub was found
+		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
+		expect(envDump).toContain("SUSPENDERS_HUB_VIA=registry hubs.json");
+		// the lane registry row carries hub + the [DESKTOP] agent label
+		const row = laneRow(sid);
+		expect(row.hub).toBe("DESKTOP");
+		expect(row.agent?.startsWith("[DESKTOP]")).toBe(true);
+		// fixture hygiene: the item really was dispatched (claim left on it)
+		expect(out).toContain(id);
+	}, 90_000);
 
-	test(
-		"failover: dead DESKTOP candidate falls through to the live NAS candidate",
-		async () => {
-			const { sid, out, envDump } = await dispatchHubCase(
-				["hub=DESKTOP"],
-				{ DESKTOP: { candidates: ["http://127.0.0.1:1", NAS_URL] } },
-			);
-			expect(out).toContain("dispatched ");
-			expect(out).toContain(`hub DESKTOP -> ${NAS_URL} (registry hubs.json)`);
-			expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(NAS_URL);
-			expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
-			expect(laneRow(sid).hub).toBe("DESKTOP");
-		},
-		90_000,
-	);
+	test("failover: dead DESKTOP candidate falls through to the live NAS candidate", async () => {
+		const { sid, out, envDump } = await dispatchHubCase(["hub=DESKTOP"], {
+			DESKTOP: { candidates: ["http://127.0.0.1:1", NAS_URL] },
+		});
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub DESKTOP -> ${NAS_URL} (registry hubs.json)`);
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(NAS_URL);
+		expect(envDump).toContain("SUSPENDERS_HUB=DESKTOP");
+		expect(laneRow(sid).hub).toBe("DESKTOP");
+	}, 90_000);
 
-	test(
-		"repo one-off hub-url outranks the global registry (most specific intent wins)",
-		async () => {
-			const { sid, out, envDump } = await dispatchHubCase(
-				["hub=DESKTOP", `hub-url=${ONEOFF_URL}`],
-				{ DESKTOP: { candidates: [NAS_URL] } },
-			);
-			expect(out).toContain("dispatched ");
-			expect(out).toContain(`hub DESKTOP -> ${ONEOFF_URL} (prefer hub-url)`);
-			expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(ONEOFF_URL);
-			expect(envDump).toContain("SUSPENDERS_HUB_VIA=prefer hub-url");
-		},
-		90_000,
-	);
+	test("repo one-off hub-url outranks the global registry (most specific intent wins)", async () => {
+		const { sid, out, envDump } = await dispatchHubCase(
+			["hub=DESKTOP", `hub-url=${ONEOFF_URL}`],
+			{ DESKTOP: { candidates: [NAS_URL] } },
+		);
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub DESKTOP -> ${ONEOFF_URL} (prefer hub-url)`);
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(ONEOFF_URL);
+		expect(envDump).toContain("SUSPENDERS_HUB_VIA=prefer hub-url");
+	}, 90_000);
 
-	test(
-		"unreachable fallback: all candidates dead -> loud local-belt note, hub env absent, belt base pinned",
-		async () => {
-			// GHOST label (hub-locate.test.ts convention): the resolver's
-			// mdns-guess step would otherwise hit the real desktop.local spoke
-			// on a live dev machine — the null-proof must not depend on LAN state
-			const { id, sid, out, envDump } = await dispatchHubCase(
-				["hub=GHOST"],
-				{ GHOST: { candidates: ["http://127.0.0.1:1"] } },
-				{ allowUngoverned: true },
-			);
-			expect(out).toContain("dispatched ");
-			// surfaced, never silent — the NOTE names the label and the fallback
-			expect(out).toContain(
-				"NOTE — .prefer hub=GHOST unreachable; using local belt",
-			);
-			// the dead-front probe ride is disclosed (--allow-ungoverned path)
-			expect(out).toContain("UNGOVERNED DISPATCH — operator override");
-			// no hub env reaches the lane; the belt default base stands
-			expect(envDump).not.toContain("SUSPENDERS_HUB=");
-			expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
-				"http://127.0.0.1:4000",
-			);
-			// the worktree brief carries the governance disclosure
-			const wtBrief = readFileSync(
-				join(REPO, ".worktrees", id, ".klh-brief.md"),
-				"utf8",
-			);
-			expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
-		},
-		120_000,
-	);
+	test("unreachable fallback: all candidates dead -> loud local-belt note, hub env absent, belt base pinned", async () => {
+		// GHOST label (hub-locate.test.ts convention): the resolver's
+		// mdns-guess step would otherwise hit the real desktop.local spoke
+		// on a live dev machine — the null-proof must not depend on LAN state
+		const { id, sid, out, envDump } = await dispatchHubCase(
+			["hub=GHOST"],
+			{ GHOST: { candidates: ["http://127.0.0.1:1"] } },
+			{ allowUngoverned: true },
+		);
+		expect(out).toContain("dispatched ");
+		// surfaced, never silent — the NOTE names the label and the fallback
+		expect(out).toContain(
+			"NOTE — .prefer hub=GHOST unreachable; using local belt",
+		);
+		// the dead-front probe ride is disclosed (--allow-ungoverned path)
+		expect(out).toContain("UNGOVERNED DISPATCH — operator override");
+		// no hub env reaches the lane; the belt default base stands
+		expect(envDump).not.toContain("SUSPENDERS_HUB=");
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			"http://127.0.0.1:4000",
+		);
+		// the worktree brief carries the governance disclosure
+		const wtBrief = readFileSync(
+			join(REPO, ".worktrees", id, ".klh-brief.md"),
+			"utf8",
+		);
+		expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
+	}, 120_000);
 });

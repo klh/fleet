@@ -81,9 +81,9 @@ describe("tool-failure lib", () => {
 		expect(third.count).toBe(3);
 		expect(third.guidance).toContain("tool-failures: Bash failed 3x");
 		for (let i = 4; i < ANTI_THRASH_AT; i++)
-			expect(
-				recordToolFailure(sid, "Bash", input, "boom").guidance,
-			).toContain("analyze the error");
+			expect(recordToolFailure(sid, "Bash", input, "boom").guidance).toContain(
+				"analyze the error",
+			);
 		const at = recordToolFailure(sid, "Bash", input, "boom");
 		expect(at.count).toBe(ANTI_THRASH_AT);
 		expect(at.guidance).toContain("Anti-thrash (Bash)");

@@ -75,7 +75,10 @@ function schema(db: Database): void {
 }
 
 export function canonicalHash(value: unknown): string {
-	return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
+	return createHash("sha256")
+		.update(JSON.stringify(value))
+		.digest("hex")
+		.slice(0, 32);
 }
 
 function emit(
@@ -163,11 +166,17 @@ export function startAssessment(
 		const held = row.lease_sid as string | null;
 		const expires = (row.lease_expires as number | null) ?? 0;
 		if (held && held !== sid && expires > now)
-			return { ok: false, reason: `assessment leased by ${held} until ${expires}` };
+			return {
+				ok: false,
+				reason: `assessment leased by ${held} until ${expires}`,
+			};
 		// lease refresh (own live lease) or takeover of an expired one is not a
 		// state-machine transition — only a fresh assess run is
 		const assessing = row.state === "assessing";
-		if (!assessing && !canTransition("assessment", row.state as string, "assessing"))
+		if (
+			!assessing &&
+			!canTransition("assessment", row.state as string, "assessing")
+		)
 			return {
 				ok: false,
 				reason: `state ${String(row.state)} does not admit assessing`,
@@ -261,7 +270,10 @@ export function invalidateAssessments(
 		let n = 0;
 		for (const row of rows) {
 			if (filter.policyId && row.policy_id !== filter.policyId) continue;
-			if (filter.exceptInputsHash && row.inputs_hash === filter.exceptInputsHash)
+			if (
+				filter.exceptInputsHash &&
+				row.inputs_hash === filter.exceptInputsHash
+			)
 				continue;
 			db.query(
 				"UPDATE policy_assessments SET state = 'stale', lease_sid = NULL, lease_expires = NULL, updated_at = ? WHERE project = ? AND org_id = ? AND service_id = ? AND policy_id = ?",
@@ -410,7 +422,11 @@ export function decideRemediation(
 				reason: `action ${input.action} already decided (${replay.id})`,
 			};
 		const target: RemediationState | null =
-			input.action === "approve" ? "approved" : input.action === "defer" ? "cancelled" : null;
+			input.action === "approve"
+				? "approved"
+				: input.action === "defer"
+					? "cancelled"
+					: null;
 		if (target && !canTransition("remediation", rem.state, target))
 			return {
 				ok: false,
@@ -461,7 +477,10 @@ export function transitionRemediation(
 		const rem = getRemediation(db, input.project, input.remediationId);
 		if (!rem) return { ok: false, reason: "unknown remediation" };
 		if (!canTransition("remediation", rem.state, input.to))
-			return { ok: false, reason: `state ${rem.state} does not admit ${input.to}` };
+			return {
+				ok: false,
+				reason: `state ${rem.state} does not admit ${input.to}`,
+			};
 		if (input.to === "claimed") {
 			db.query(
 				"UPDATE policy_remediations SET state = ?, claimed_by = ?, updated_at = ? WHERE project = ? AND id = ?",
@@ -565,14 +584,19 @@ export function completeAttestation(
 		const att = getAttestation(db, input.project, input.attestationId);
 		if (!att) return { ok: false, reason: "unknown attestation" };
 		if (!canTransition("attestation", att.state, input.result))
-			return { ok: false, reason: `state ${att.state} does not admit ${input.result}` };
+			return {
+				ok: false,
+				reason: `state ${att.state} does not admit ${input.result}`,
+			};
 		db.query(
 			"UPDATE policy_attestations SET state = ?, evidence = ?, verified_at = ?, expires_at = ?, updated_at = ? WHERE project = ? AND id = ?",
 		).run(
 			input.result,
 			JSON.stringify(input.evidence),
 			input.result === "verified" ? now : null,
-			input.result === "verified" ? now + (input.verifyTtlMs ?? 24 * 3_600_000) : null,
+			input.result === "verified"
+				? now + (input.verifyTtlMs ?? 24 * 3_600_000)
+				: null,
 			now,
 			input.project,
 			input.attestationId,
@@ -657,9 +681,9 @@ function mintRemediationWorkItem(
 			" ON CONFLICT(project) DO UPDATE SET next_id = next_id + 1",
 	).run(rem.project, rem.project);
 	const nextId = (
-		db.query("SELECT next_id FROM work_sequences WHERE project = ?").get(
-			rem.project,
-		) as { next_id: number }
+		db
+			.query("SELECT next_id FROM work_sequences WHERE project = ?")
+			.get(rem.project) as { next_id: number }
 	).next_id;
 	const workId = `W${nextId}`;
 	db.query(

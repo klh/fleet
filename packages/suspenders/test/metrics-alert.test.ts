@@ -37,7 +37,7 @@ describe("parseProm", () => {
 
 describe("familyDrops", () => {
 	test("detects a vanished family", () => {
-		const prev = parseProm("buckle_ledger_dropped_total{kind=\"usage\"} 1");
+		const prev = parseProm('buckle_ledger_dropped_total{kind="usage"} 1');
 		const cur = parseProm("http_requests_total 1");
 		expect(familyDrops(prev, cur)).toEqual([
 			{ name: "buckle_ledger_dropped_total", labels: "kind=usage" },
@@ -49,15 +49,15 @@ describe("counterSpikes", () => {
 	test("alerts on increase, ignores resets and other families", () => {
 		const prev = parseProm(
 			[
-				"buckle_ledger_dropped_total{kind=\"usage\"} 1",
-				"buckle_cooldown_ejections_total{dep=\"d1\"} 7",
+				'buckle_ledger_dropped_total{kind="usage"} 1',
+				'buckle_cooldown_ejections_total{dep="d1"} 7',
 				"http_requests_total 100",
 			].join("\n"),
 		);
 		const cur = parseProm(
 			[
-				"buckle_ledger_dropped_total{kind=\"usage\"} 4",
-				"buckle_cooldown_ejections_total{dep=\"d1\"} 2",
+				'buckle_ledger_dropped_total{kind="usage"} 4',
+				'buckle_cooldown_ejections_total{dep="d1"} 2',
 				"http_requests_total 110",
 			].join("\n"),
 		);
@@ -70,9 +70,9 @@ describe("counterSpikes", () => {
 describe("statusAlerts", () => {
 	const now = Date.parse("2026-10-07T12:00:00Z");
 	test("healthy=false alerts", () => {
-		expect(
-			statusAlerts({ healthy: false }, now),
-		).toEqual([{ kind: "HEALTH", detail: "/status reports healthy=false" }]);
+		expect(statusAlerts({ healthy: false }, now)).toEqual([
+			{ kind: "HEALTH", detail: "/status reports healthy=false" },
+		]);
 	});
 	test("fresh last_error alerts, stale does not", () => {
 		const fresh = statusAlerts(

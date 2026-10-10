@@ -177,7 +177,10 @@ export function emptyMetrics(): ConsultMetrics {
 	};
 }
 
-export function addMetrics(a: ConsultMetrics, b: ConsultMetrics): ConsultMetrics {
+export function addMetrics(
+	a: ConsultMetrics,
+	b: ConsultMetrics,
+): ConsultMetrics {
 	const out = { ...a };
 	for (const k of Object.keys(a) as Array<keyof ConsultMetrics>) {
 		out[k] = a[k] + b[k];

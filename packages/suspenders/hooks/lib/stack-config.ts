@@ -115,7 +115,9 @@ export function inQuietHours(
 	const w = parseQuietHours(hub.quiet_hours);
 	if (!w) return false;
 	const m = minutesOf(now);
-	return w.start < w.end ? m >= w.start && m < w.end : m >= w.start || m < w.end;
+	return w.start < w.end
+		? m >= w.start && m < w.end
+		: m >= w.start || m < w.end;
 }
 
 const profileHost = (hub: HubProfile): string =>

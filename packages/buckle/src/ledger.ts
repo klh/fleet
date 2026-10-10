@@ -403,25 +403,25 @@ export class Ledger {
 	/** The flush-time INSERT (extracted from the old inline body). */
 	private insertAudit(row: RouteAuditDecision): void {
 		this.insAudit.run(
-				row.rid,
-				row.ts,
-				row.actor,
-				row.lane,
-				row.dialect,
-				row.hint,
-				row.candidates_seen,
-				row.candidates_top,
-				row.target_kind,
-				row.target_host,
-				row.target_port,
-				row.target_model,
-				row.decision,
-				row.latency_class,
-				row.tier,
-				row.allow_cloud ? 1 : 0,
-				row.error_code,
-				row.why,
-			);
+			row.rid,
+			row.ts,
+			row.actor,
+			row.lane,
+			row.dialect,
+			row.hint,
+			row.candidates_seen,
+			row.candidates_top,
+			row.target_kind,
+			row.target_host,
+			row.target_port,
+			row.target_model,
+			row.decision,
+			row.latency_class,
+			row.tier,
+			row.allow_cloud ? 1 : 0,
+			row.error_code,
+			row.why,
+		);
 	}
 
 	/** Update the decision row with the outcome (joined by rid): enqueued. */
@@ -432,14 +432,14 @@ export class Ledger {
 	/** The flush-time UPDATE (extracted from the old inline body). */
 	private updateAudit(rid: string, out: RouteAuditOutcome): void {
 		this.updAudit.run(
-				out.status,
-				out.duration_ms,
-				out.ok ? 1 : 0,
-				out.err,
-				out.decision ?? null,
-				out.error_code ?? null,
-				rid,
-			);
+			out.status,
+			out.duration_ms,
+			out.ok ? 1 : 0,
+			out.err,
+			out.decision ?? null,
+			out.error_code ?? null,
+			rid,
+		);
 	}
 
 	/** W457: provider-reported cache usage onto the per-request audit row

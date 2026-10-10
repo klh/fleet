@@ -182,10 +182,9 @@ async function hierarchyLegs(): Promise<void> {
 		["desktop", "http://127.0.0.1:4111"],
 	] as const) {
 		try {
-			const res = await fetch(
-				`${base}/repo-policy/manifest`,
-				{ signal: AbortSignal.timeout(3000) },
-			);
+			const res = await fetch(`${base}/repo-policy/manifest`, {
+				signal: AbortSignal.timeout(3000),
+			});
 			const man = (await res.json()) as { sha256?: string };
 			// 200 = policy face served; 401 = face alive but gated (the hub
 			// refuses unauthenticated manifest reads). Both are honest
@@ -229,7 +228,8 @@ async function sessionLegs(): Promise<void> {
 	for (const dev of ["alice", "bob"] as const) {
 		const sid = `pilot539-${dev}`;
 		const out = (await oneSession(sid, join(ROOT, `orders-api-${dev}`))).out;
-		const asked = out.includes("POLICY DECISION") && out.includes(EXACT_QUESTION);
+		const asked =
+			out.includes("POLICY DECISION") && out.includes(EXACT_QUESTION);
 		record(
 			`session/${dev}`,
 			asked,
@@ -245,7 +245,10 @@ async function sessionLegs(): Promise<void> {
 	const lane = await oneSession(
 		"pilot539-alice",
 		join(ROOT, "orders-api-alice"),
-		{ transcript: "/tmp/fake/subagents/x.jsonl", home: join(ROOT, "home-pilot539-alice") },
+		{
+			transcript: "/tmp/fake/subagents/x.jsonl",
+			home: join(ROOT, "home-pilot539-alice"),
+		},
 	);
 	// subagent lanes are NOT asked: the parent session owns the decision
 	// (session-start runs the policy check only for top-level sessions) —
@@ -285,7 +288,8 @@ async function oneSession(
 	const env: Record<string, string> = {
 		HOME: home,
 		PATH: process.env.PATH ?? "/usr/bin:/bin",
-		SUSPENDERS_REPO_POLICY_CONFIG: opts.config ?? join(ROOT, "repo-policy.json"),
+		SUSPENDERS_REPO_POLICY_CONFIG:
+			opts.config ?? join(ROOT, "repo-policy.json"),
 		// containment: the enrollment probe never reaches the live gate
 		SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:17899",
 	};
@@ -473,7 +477,16 @@ async function reporterLegs(): Promise<void> {
 		{ name: "dead", url: "http://127.0.0.1:17998", port: 17812 },
 	].map((t) =>
 		Bun.spawn(
-			["bun", probe, "--target", t.url, "--listen", String(t.port), "--every", "300"],
+			[
+				"bun",
+				probe,
+				"--target",
+				t.url,
+				"--listen",
+				String(t.port),
+				"--every",
+				"300",
+			],
 			{ stdout: "ignore", stderr: "ignore" },
 		),
 	);
@@ -521,11 +534,9 @@ async function negativeLegs(): Promise<void> {
 		}),
 	);
 	const out = (
-		await oneSession(
-			"pilot539-neg-sha",
-			join(ROOT, "orders-api-alice"),
-			{ config: badSha },
-		)
+		await oneSession("pilot539-neg-sha", join(ROOT, "orders-api-alice"), {
+			config: badSha,
+		})
 	).out;
 	record(
 		"negative/wrong-sha",
@@ -570,8 +581,11 @@ async function assessLeg(): Promise<void> {
 	const second = run(args, env, repo);
 	const reused = second.out.includes("reusing assessment");
 	const src = join(repo, "server.ts");
-	writeFileSync(src, `process.title ??= "orders";
-`);
+	writeFileSync(
+		src,
+		`process.title ??= "orders";
+`,
+	);
 	const third = run(args, env, repo);
 	const invalidated = !third.out.includes("reusing assessment");
 	record(

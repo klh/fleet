@@ -23,7 +23,10 @@ mkdirSync(LOGDIR, { recursive: true });
 
 afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
-function gate(payload: Record<string, unknown>, env: Record<string, string> = {}) {
+function gate(
+	payload: Record<string, unknown>,
+	env: Record<string, string> = {},
+) {
 	const pf = join(TMP, `payload-${Math.random().toString(36).slice(2)}.json`);
 	writeFileSync(pf, JSON.stringify(payload));
 	const p = Bun.spawnSync(
@@ -57,10 +60,7 @@ describe("subscribe tail lib", () => {
 
 	test("lines since offset; re-tail is silent; appends are the only new", () => {
 		const log = join(LOGDIR, "t1.log");
-		appendFileSync(
-			log,
-			"#1 first\n#2 second\n#3 third\n#4 fourth\n#5 fifth\n",
-		);
+		appendFileSync(log, "#1 first\n#2 second\n#3 third\n#4 fourth\n#5 fifth\n");
 		const first = tailSubscribeLog(log, 0);
 		expect(first.text).toContain("#1 first");
 		expect(first.text).toContain("#5 fifth");
@@ -126,10 +126,7 @@ describe("push gate", () => {
 		const sid = `wtest-${Math.random().toString(36).slice(2)}`;
 		const log = join(LOGDIR, `coord-subscribe-${sid}.log`);
 		appendFileSync(log, "#1 alpha consult: C7 pending\n#2 beta BROADCAST\n");
-		const r = gate(
-			{ session_id: sid },
-			{ SUSPENDERS_PUSH_TAIL: "" },
-		);
+		const r = gate({ session_id: sid }, { SUSPENDERS_PUSH_TAIL: "" });
 		expect(r.code).toBe(0);
 		expect(r.out).toContain('"hookEventName":"PostToolUse"');
 		expect(r.out).toContain("WS INBOX +2:");
@@ -160,10 +157,7 @@ describe("push gate", () => {
 		const sid = `wtest-off-${Math.random().toString(36).slice(2)}`;
 		const log = join(LOGDIR, `coord-subscribe-${sid}.log`);
 		appendFileSync(log, "#z1 muted line\n");
-		const r = gate(
-			{ session_id: sid },
-			{ SUSPENDERS_PUSH_TAIL: "0" },
-		);
+		const r = gate({ session_id: sid }, { SUSPENDERS_PUSH_TAIL: "0" });
 		expect(r.out).toBe("{}");
 	});
 

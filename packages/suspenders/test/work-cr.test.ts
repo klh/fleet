@@ -61,26 +61,35 @@ async function issueKey(
 	const res = await fetch(`${base}/v1/admin/keys`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${ROOT}` },
-		body: JSON.stringify({ name: `w352-${Math.random().toString(36).slice(2, 6)}`, scopes }),
+		body: JSON.stringify({
+			name: `w352-${Math.random().toString(36).slice(2, 6)}`,
+			scopes,
+		}),
 	});
 	const out = (await res.json()) as { key: string };
-	const keyId = new Bun.CryptoHasher("sha256").update(out.key).digest("hex").slice(0, 12);
+	const keyId = new Bun.CryptoHasher("sha256")
+		.update(out.key)
+		.digest("hex")
+		.slice(0, 12);
 	return { key: out.key, keyId };
 }
 
-function declareWork(
-	base: string,
-	key: string,
-	id: string,
-): Promise<Response> {
+function declareWork(base: string, key: string, id: string): Promise<Response> {
 	return fetch(`${base}/federation/cr`, {
 		method: "POST",
-		headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+		headers: {
+			authorization: `Bearer ${key}`,
+			"content-type": "application/json",
+		},
 		body: JSON.stringify({
 			id,
 			action: WORK_CR_ACTION,
 			target: `${WORK_CR_TARGET_PREFIX}W999`,
-			payload: { title: "delegated item", description: "from the origin graph", priority: 3 },
+			payload: {
+				title: "delegated item",
+				description: "from the origin graph",
+				priority: 3,
+			},
 			origin: { system: "suspenders", actor: "w352-lane" },
 		}),
 	});
@@ -95,7 +104,10 @@ interface ManifestView {
 	}>;
 }
 
-async function manifestCRs(base: string, key: string): Promise<ManifestView["cr_queue"]> {
+async function manifestCRs(
+	base: string,
+	key: string,
+): Promise<ManifestView["cr_queue"]> {
 	const res = await fetch(`${base}/federation/policy-manifest`, {
 		headers: { authorization: `Bearer ${key}` },
 	});
@@ -114,16 +126,28 @@ describe("w352: declare half (origin)", () => {
 			payload: { title: "write the sim harness", priority: 2 },
 			origin: { system: "suspenders", actor: "w352-lane" },
 		};
-		const first = await declareWorkCr({ hubUrl: fed.base, adminKey: admin.key, spec });
+		const first = await declareWorkCr({
+			hubUrl: fed.base,
+			adminKey: admin.key,
+			spec,
+		});
 		expect(first.ok).toBe(true);
 		expect(first.status).toBe(201);
 		expect(first.cr?.state).toBe("declared");
-		const again = await declareWorkCr({ hubUrl: fed.base, adminKey: admin.key, spec });
+		const again = await declareWorkCr({
+			hubUrl: fed.base,
+			adminKey: admin.key,
+			spec,
+		});
 		expect(again.ok).toBe(true);
 		expect(again.cr?.state).toBe("declared");
 		// a spoke key may NOT declare (the structural 403, W160)
 		const spoke = await issueKey(fed.base, ["buckle:spoke:WRITE_"]);
-		const denied = await declareWorkCr({ hubUrl: fed.base, adminKey: spoke.key, spec });
+		const denied = await declareWorkCr({
+			hubUrl: fed.base,
+			adminKey: spoke.key,
+			spec,
+		});
 		expect(denied.ok).toBe(false);
 		expect(denied.status).toBe(403);
 		// admin list sees exactly one row
@@ -157,7 +181,9 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 		expect(r.failed).toBe(0);
 		expect(r.errors).toEqual([]);
 		// hub state reports back: applied, claimed by THIS spoke's key
-		const row = (await manifestCRs(fed.base, spoke.key)).find((c) => c.id === "wcr-W910");
+		const row = (await manifestCRs(fed.base, spoke.key)).find(
+			(c) => c.id === "wcr-W910",
+		);
 		expect(row?.state).toBe("applied");
 		expect(row?.claimed_by).toBe(spoke.keyId);
 		// spoke graph: the item exists, claimable, with provenance
@@ -168,7 +194,9 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 		expect(item.created_by).toBe("federation-cr");
 		expect(String(item.title)).toBe("delegated item");
 		expect(String(item.description)).toContain("from the origin graph");
-		expect(String(item.description)).toContain("CR wcr-W910 from suspenders/w352-lane");
+		expect(String(item.description)).toContain(
+			"CR wcr-W910 from suspenders/w352-lane",
+		);
 		expect(item.priority).toBe(3);
 		const ev = graph
 			.query("SELECT kind, source FROM events WHERE payload LIKE ?")
@@ -186,17 +214,26 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 		const manifest = { cr_queue: await manifestCRs(fed.base, spoke.key) };
 		const graph = openMemoryWorkGraph();
 		const first = await reconcileWorkCrs({
-			manifest, db: graph, project: "p", hubUrl: fed.base, spokeKey: spoke.key,
+			manifest,
+			db: graph,
+			project: "p",
+			hubUrl: fed.base,
+			spokeKey: spoke.key,
 		});
 		expect(first.applied).toBe(1);
 		const second = await reconcileWorkCrs({
 			manifest: { cr_queue: await manifestCRs(fed.base, spoke.key) },
-			db: graph, project: "p", hubUrl: fed.base, spokeKey: spoke.key,
+			db: graph,
+			project: "p",
+			hubUrl: fed.base,
+			spokeKey: spoke.key,
 		});
 		expect(second.errors).toEqual([]);
 		expect(second.applied).toBe(1); // re-ensured, no state churn
 		const count = graph
-			.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND id = ?")
+			.query(
+				"SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND id = ?",
+			)
 			.get("p", "wcr-W911") as { n: number };
 		expect(count.n).toBe(1);
 		fed.stop();
@@ -210,17 +247,26 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 		// a prior cycle already delivered this CR
 		await fetch(`${fed.base}/federation/cr/wcr-W912/status`, {
 			method: "POST",
-			headers: { authorization: `Bearer ${spoke.key}`, "content-type": "application/json" },
+			headers: {
+				authorization: `Bearer ${spoke.key}`,
+				"content-type": "application/json",
+			},
 			body: JSON.stringify({ state: "delivered" }),
 		});
 		const stale = { cr_queue: await manifestCRs(fed.base, spoke.key) };
 		const graph = openMemoryWorkGraph();
 		const r = await reconcileWorkCrs({
-			manifest: stale, db: graph, project: "p", hubUrl: fed.base, spokeKey: spoke.key,
+			manifest: stale,
+			db: graph,
+			project: "p",
+			hubUrl: fed.base,
+			spokeKey: spoke.key,
 		});
 		expect(r.errors).toEqual([]);
 		expect(r.applied).toBe(1);
-		const row = (await manifestCRs(fed.base, spoke.key)).find((c) => c.id === "wcr-W912");
+		const row = (await manifestCRs(fed.base, spoke.key)).find(
+			(c) => c.id === "wcr-W912",
+		);
 		expect(row?.state).toBe("applied");
 		fed.stop();
 	});
@@ -240,11 +286,17 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 			},
 		};
 		const r = await reconcileWorkCrs({
-			manifest, db: broken, project: "p", hubUrl: fed.base, spokeKey: spoke.key,
+			manifest,
+			db: broken,
+			project: "p",
+			hubUrl: fed.base,
+			spokeKey: spoke.key,
 		});
 		expect(r.failed).toBe(1);
 		expect(r.errors.some((e) => e.includes("graph locked"))).toBe(true);
-		const row = (await manifestCRs(fed.base, spoke.key)).find((c) => c.id === "wcr-W913");
+		const row = (await manifestCRs(fed.base, spoke.key)).find(
+			(c) => c.id === "wcr-W913",
+		);
 		expect(row?.state).toBe("failed");
 		expect(row?.note).toContain("graph locked");
 		fed.stop();
@@ -258,12 +310,18 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 		const manifest = { cr_queue: await manifestCRs(fed.base, spoke.key) };
 		const graph = openMemoryWorkGraph();
 		const r = await reconcileWorkCrs({
-			manifest, db: graph, project: "p", hubUrl: fed.base, spokeKey: null,
+			manifest,
+			db: graph,
+			project: "p",
+			hubUrl: fed.base,
+			spokeKey: null,
 		});
 		expect(r.scanned).toBe(1);
 		expect(r.skipped).toBe(1);
 		expect(r.errors[0]).toContain("no spoke token");
-		const row = (await manifestCRs(fed.base, spoke.key)).find((c) => c.id === "wcr-W914");
+		const row = (await manifestCRs(fed.base, spoke.key)).find(
+			(c) => c.id === "wcr-W914",
+		);
 		expect(row?.state).toBe("declared");
 		fed.stop();
 	});
@@ -283,7 +341,9 @@ describe("w352: reconcile half (spoke) — the e2e chain", () => {
 			1,
 		);
 		expect(made).toBe(true);
-		const item = graph.query("SELECT * FROM work_items WHERE id = ?").get("wcr-W915") as Record<string, unknown>;
+		const item = graph
+			.query("SELECT * FROM work_items WHERE id = ?")
+			.get("wcr-W915") as Record<string, unknown>;
 		expect(item.state).toBe("READY");
 		expect(item.title).toBe("work@W915"); // target fallback when payload lacks a title
 	});

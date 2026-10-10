@@ -6,7 +6,13 @@ import {
 } from "../hooks/lib/work-completion-record.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -68,9 +74,16 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 	const scopeRepoPath = join(parent, "gaps");
 	mkdirSync(repo);
 	mkdirSync(scopeRepoPath);
-	const env = { ...process.env, HOME: join(repo, ".test-home"), GOVERNOR_STORE_URL: "" };
+	const env = {
+		...process.env,
+		HOME: join(repo, ".test-home"),
+		GOVERNOR_STORE_URL: "",
+	};
 	const gitIn = (dir: string, ...args: string[]) => {
-		const p = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+		const p = Bun.spawnSync(["git", "-C", dir, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		expect(p.exitCode).toBe(0);
 		return p.stdout.toString().trim();
 	};
@@ -87,10 +100,18 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+		return {
+			code: p.exitCode,
+			out: p.stdout.toString(),
+			err: p.stderr.toString(),
+		};
 	};
 	const id =
-		work("add", "cross-repo completion evidence", ...(opts.scope === false ? [] : ["--scope", "gaps"])).out.match(/W\d+/)?.[0] ?? "";
+		work(
+			"add",
+			"cross-repo completion evidence",
+			...(opts.scope === false ? [] : ["--scope", "gaps"]),
+		).out.match(/W\d+/)?.[0] ?? "";
 	expect(id).toMatch(/^W\d+$/);
 	expect(work("take", id, "--as", "cross-lane").code).toBe(0);
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
@@ -106,11 +127,20 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 	gitIn(scopeRepoPath, "checkout", "-b", `suspenders/${id}`);
 	writeFileSync(
 		join(scopeRepoPath, "driver.ts"),
-		opts.marker ? ["describe", ".only(", '"x", () => {});\n'].join("") : "export const settleWait = true;\n",
+		opts.marker
+			? ["describe", ".only(", '"x", () => {});\n'].join("")
+			: "export const settleWait = true;\n",
 	);
 	gitIn(scopeRepoPath, "add", "-A");
 	gitIn(scopeRepoPath, "commit", "-m", `${id}: qa driver settle wait`);
-	return { repo, scopeRepoPath, env, id, scopeSha: gitIn(scopeRepoPath, "rev-parse", "HEAD"), work };
+	return {
+		repo,
+		scopeRepoPath,
+		env,
+		id,
+		scopeSha: gitIn(scopeRepoPath, "rev-parse", "HEAD"),
+		work,
+	};
 }
 afterEach(() => {
 	for (const dir of cleanup.splice(0))
@@ -389,21 +419,43 @@ test("project rekey upgrades old immutable triggers and preserves completion evi
 
 test("cross-repo completion verifies the sha in the item's scope repo (W601)", () => {
 	const f = crossFixture();
-	const done = f.work("done", f.id, "--as", "cross-lane", "--sha", f.scopeSha, "--summary", summary);
+	const done = f.work(
+		"done",
+		f.id,
+		"--as",
+		"cross-lane",
+		"--sha",
+		f.scopeSha,
+		"--summary",
+		summary,
+	);
 	expect(done.code).toBe(0);
-	const record = JSON.parse(f.work("summary", f.id, "--json").out) as CompletionRecord;
+	const record = JSON.parse(
+		f.work("summary", f.id, "--json").out,
+	) as CompletionRecord;
 	expect(record.commit_sha).toBe(f.scopeSha);
 	expect(record.baseline_sha).toBeNull();
 	const evidence = JSON.parse(record.evidence_json);
 	expect(evidence.scope).toBe("gaps");
-	expect(realpathSync(evidence.verify_repo)).toBe(realpathSync(f.scopeRepoPath));
+	expect(realpathSync(evidence.verify_repo)).toBe(
+		realpathSync(f.scopeRepoPath),
+	);
 	expect(evidence.paths).toContain("driver.ts");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
 });
 
 test("cross-repo completion refuses fake-completion markers in the scope diff (W601)", () => {
 	const f = crossFixture({ marker: true });
-	const done = f.work("done", f.id, "--as", "cross-lane", "--sha", f.scopeSha, "--summary", summary);
+	const done = f.work(
+		"done",
+		f.id,
+		"--as",
+		"cross-lane",
+		"--sha",
+		f.scopeSha,
+		"--summary",
+		summary,
+	);
 	expect(done.code).toBe(2);
 	expect(done.err).toContain("fake-completion markers");
 	expect(done.err).toContain("driver.ts");
@@ -412,12 +464,30 @@ test("cross-repo completion refuses fake-completion markers in the scope diff (W
 
 test("cross-repo completion fails closed without a scope repo or with an unknown sha", () => {
 	const f = crossFixture({ scope: false });
-	const done = f.work("done", f.id, "--as", "cross-lane", "--sha", f.scopeSha, "--summary", summary);
+	const done = f.work(
+		"done",
+		f.id,
+		"--as",
+		"cross-lane",
+		"--sha",
+		f.scopeSha,
+		"--summary",
+		summary,
+	);
 	expect(done.code).toBe(2);
 	expect(done.err).toContain("declares no scope repo");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
 	const g = crossFixture();
-	const bad = g.work("done", g.id, "--as", "cross-lane", "--sha", "deadbeefdeadbeef", "--summary", summary);
+	const bad = g.work(
+		"done",
+		g.id,
+		"--as",
+		"cross-lane",
+		"--sha",
+		"deadbeefdeadbeef",
+		"--summary",
+		summary,
+	);
 	expect(bad.code).toBe(2);
 	expect(bad.err).toContain("graph repo or its scope repo");
 });

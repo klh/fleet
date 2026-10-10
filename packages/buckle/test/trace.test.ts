@@ -32,13 +32,19 @@ describe("parseTraceparent", () => {
 			),
 		).toBe(null);
 		expect(
-			parseTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01"),
+			parseTraceparent(
+				"00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01",
+			),
 		).toBe(null);
 		expect(
-			parseTraceparent("ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
+			parseTraceparent(
+				"ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+			),
 		).toBe(null);
 		expect(
-			parseTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-zz"),
+			parseTraceparent(
+				"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-zz",
+			),
 		).toBe(null);
 	});
 });

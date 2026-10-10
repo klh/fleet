@@ -34,7 +34,9 @@ if (input.session_id) {
 	try {
 		reapSubscribe(input.session_id);
 	} catch (e) {
-		console.error(`[subscribe] reap degraded (session end proceeds): ${String(e)}`);
+		console.error(
+			`[subscribe] reap degraded (session end proceeds): ${String(e)}`,
+		);
 	}
 	try {
 		const r = await settleSession(input.session_id);

@@ -28,9 +28,8 @@ function task(id: string): Promise<Record<string, unknown> | undefined> {
 	// no project filter — fixture work rows use GREPO, not REPO/MY_PROJ
 	return fetch(`${BASE}/api/tasks`)
 		.then((r) => r.json())
-		.then(
-			(d: { tasks: Record<string, unknown>[] }) =>
-				d.tasks.find((t) => t.id === id),
+		.then((d: { tasks: Record<string, unknown>[] }) =>
+			d.tasks.find((t) => t.id === id),
 		);
 }
 

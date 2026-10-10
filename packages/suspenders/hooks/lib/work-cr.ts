@@ -54,9 +54,7 @@ export interface DeclareResult {
 /** Origin half: one authenticated declare POST. 201 = declared (idempotent
  *  hub-side on id — a re-declare returns the existing row); anything else is
  *  surfaced with the hub's error envelope, never thrown. */
-export async function declareWorkCr(
-	opts: DeclareOpts,
-): Promise<DeclareResult> {
+export async function declareWorkCr(opts: DeclareOpts): Promise<DeclareResult> {
 	const res = await fetch(`${opts.hubUrl}/federation/cr`, {
 		method: "POST",
 		headers: {
@@ -75,9 +73,7 @@ export async function declareWorkCr(
 			typeof body.error === "object" &&
 			body.error !== null &&
 			"message" in body.error
-				? String(
-						(body.error as { message: unknown }).message,
-					)
+				? String((body.error as { message: unknown }).message)
 				: `HTTP ${String(res.status)}`;
 		return { ok: false, status: res.status, cr: null, reason: why };
 	}
@@ -122,9 +118,7 @@ export interface ReportResult {
 /** Spoke half: one status report. The hub enforces lifecycle + claim; a 409
  *  (state already moved) or 403 (claimed elsewhere) means this spoke's view
  *  was stale — that is convergence, not failure. */
-export async function reportCrStatus(
-	opts: ReportOpts,
-): Promise<ReportResult> {
+export async function reportCrStatus(opts: ReportOpts): Promise<ReportResult> {
 	const headers: Record<string, string> = {
 		authorization: `Bearer ${opts.spokeKey}`,
 		"content-type": "application/json",
@@ -139,7 +133,14 @@ export async function reportCrStatus(
 		},
 	);
 	const body = await readCapped(res).catch(() => null);
-	if (res.ok) return { ok: true, converged: false, status: res.status, code: null, reason: null };
+	if (res.ok)
+		return {
+			ok: true,
+			converged: false,
+			status: res.status,
+			code: null,
+			reason: null,
+		};
 	const code =
 		body !== null &&
 		typeof body === "object" &&
@@ -147,17 +148,17 @@ export async function reportCrStatus(
 		typeof body.error === "object" &&
 		body.error !== null &&
 		"code" in body.error
-				? String((body.error as { code: unknown }).code)
-				: null;
+			? String((body.error as { code: unknown }).code)
+			: null;
 	const converged =
-		res.status === 409 ||
-		(res.status === 403 && code === "buckle.cr_claimed");
+		res.status === 409 || (res.status === 403 && code === "buckle.cr_claimed");
 	return {
 		ok: false,
 		converged,
 		status: res.status,
 		code,
-		reason: res.status === 409 ? "already advanced" : `HTTP ${String(res.status)}`,
+		reason:
+			res.status === 409 ? "already advanced" : `HTTP ${String(res.status)}`,
 	};
 }
 
@@ -169,7 +170,10 @@ export interface ReconcileOpts {
 	 *  in-memory store shaped like it). */
 	db: {
 		run(sql: string, ...params: unknown[]): unknown;
-		query(sql: string): { get(...p: unknown[]): unknown; all(...p: unknown[]): unknown[] };
+		query(sql: string): {
+			get(...p: unknown[]): unknown;
+			all(...p: unknown[]): unknown[];
+		};
 	};
 	project?: string;
 	hubUrl: string;
@@ -229,9 +233,7 @@ export function ensureDelegatedItem(
 	db.run(WORK_ITEMS_DDL);
 	db.run(EVENTS_DDL);
 	const existing = db
-		.query(
-			"SELECT id FROM work_items WHERE project = ? AND id = ?",
-		)
+		.query("SELECT id FROM work_items WHERE project = ? AND id = ?")
 		.get(project, row.id);
 	if (existing !== null && existing !== undefined) return false;
 	const payload = payloadOf(row);
@@ -239,10 +241,13 @@ export function ensureDelegatedItem(
 		typeof payload.title === "string" && payload.title.length > 0
 			? payload.title
 			: row.target;
-	const desc = typeof payload.description === "string" ? payload.description : "";
+	const desc =
+		typeof payload.description === "string" ? payload.description : "";
 	const origin = jsonFieldOf(row.origin);
-	const originSystem = typeof origin.system === "string" ? origin.system : "unknown";
-	const originActor = typeof origin.actor === "string" ? origin.actor : "unknown";
+	const originSystem =
+		typeof origin.system === "string" ? origin.system : "unknown";
+	const originActor =
+		typeof origin.actor === "string" ? origin.actor : "unknown";
 	const priority =
 		typeof payload.priority === "number" && Number.isFinite(payload.priority)
 			? Math.trunc(payload.priority)
@@ -317,7 +322,9 @@ export async function reconcileWorkCrs(
 				timeoutMs: opts.timeoutMs,
 			});
 			if (!d.ok && !d.converged) {
-				out.errors.push(`${row.id}: delivered report failed — ${d.reason ?? d.code}`);
+				out.errors.push(
+					`${row.id}: delivered report failed — ${d.reason ?? d.code}`,
+				);
 				continue;
 			}
 			out.delivered++;
@@ -353,7 +360,9 @@ export async function reconcileWorkCrs(
 				timeoutMs: opts.timeoutMs,
 			});
 			if (!a.ok && !a.converged) {
-				out.errors.push(`${row.id}: applied report failed — ${a.reason ?? a.code}`);
+				out.errors.push(
+					`${row.id}: applied report failed — ${a.reason ?? a.code}`,
+				);
 				continue;
 			}
 		}

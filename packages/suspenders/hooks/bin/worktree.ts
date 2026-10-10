@@ -25,7 +25,10 @@ import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
-import { registryWorktrees, resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import {
+	registryWorktrees,
+	resolveItemWorktree,
+} from "../lib/worktree-lookup.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
 
 const [cmd, id, ...flags] = process.argv.slice(2);

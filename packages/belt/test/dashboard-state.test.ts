@@ -112,8 +112,8 @@ describe("dashboard observability", () => {
 				now,
 			),
 		).toBe("unknown");
-		expect(
-			targetStateLabel({ ...target, lastProbe: null }, doc, now),
-		).toBe("unknown");
+		expect(targetStateLabel({ ...target, lastProbe: null }, doc, now)).toBe(
+			"unknown",
+		);
 	});
 });

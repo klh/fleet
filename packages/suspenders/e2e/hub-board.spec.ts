@@ -74,7 +74,14 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	// GUI sees the hub graph, so declare = a hub-side work item)
 	const id = H.mintedId(
 		H.workOk(
-			["add", TITLE, "--priority", "2", "--desc", "delegated via buckle CR channel"],
+			[
+				"add",
+				TITLE,
+				"--priority",
+				"2",
+				"--desc",
+				"delegated via buckle CR channel",
+			],
 			"declare the delegated item",
 		),
 	);
@@ -98,7 +105,9 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	await page.getByRole("button", { name: "Lanes" }).click();
 	const card = page.locator(`#kanban .kcard[data-kid="${id}"]`);
 	await expect(card).toBeVisible();
-	const working = page.locator('#kanban .kcol', { has: page.locator('h3', { hasText: 'working' }) });
+	const working = page.locator("#kanban .kcol", {
+		has: page.locator("h3", { hasText: "working" }),
+	});
 	await expect(working.locator(`.kcard[data-kid="${id}"]`)).toBeVisible();
 	await expect(card).toContainText(ORIGIN); // delegation provenance, on the card
 	await page.screenshot({ path: `${SHOTS}/2-reconciled.png`, fullPage: true });
@@ -117,7 +126,9 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(
 		page
-			.locator("#kanban .kcol", { has: page.locator("h3", { hasText: "done" }) })
+			.locator("#kanban .kcol", {
+				has: page.locator("h3", { hasText: "done" }),
+			})
 			.locator(`.kcard[data-kid="${id}"]`),
 	).toBeVisible();
 
@@ -158,9 +169,9 @@ test("scope isolation: local work never leaks to the hub board", async ({
 	await page.goto(`${H.BASE}/`);
 	await openTasks(page);
 	await expect(page.locator(`#tasksBody`)).not.toContainText(LOCAL_TITLE);
-	await expect(page.locator(`#tasksBody tr[data-tid="${localId}"]`)).toHaveCount(
-		0,
-	);
+	await expect(
+		page.locator(`#tasksBody tr[data-tid="${localId}"]`),
+	).toHaveCount(0);
 	await expect(page.locator("#taskProj")).not.toContainText(L.projShort);
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(page.locator("#kanban")).not.toContainText(LOCAL_TITLE);
@@ -169,12 +180,15 @@ test("scope isolation: local work never leaks to the hub board", async ({
 	await expect(page.locator(`#tasksBody`)).not.toContainText(LOCAL_TITLE);
 
 	// API-level cross-check: the hub board server itself never serves it
-	const feed = (await (
-		await fetch(`${H.BASE}/api/tasks`)
-	).json()) as { tasks: Array<{ title: string }> };
+	const feed = (await (await fetch(`${H.BASE}/api/tasks`)).json()) as {
+		tasks: Array<{ title: string }>;
+	};
 	const titles = feed.tasks.map((t) => t.title);
 	expect(titles).not.toContain(LOCAL_TITLE);
-	await page.screenshot({ path: `${SHOTS}/4-scope-isolation.png`, fullPage: true });
+	await page.screenshot({
+		path: `${SHOTS}/4-scope-isolation.png`,
+		fullPage: true,
+	});
 
 	look.clean();
 });

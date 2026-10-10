@@ -90,5 +90,4 @@ export const icon = (name: string, size = 16): string => {
 	return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${def.svg}</svg>`;
 };
 
-export const iconLabel = (name: string): string =>
-	(ICONS[name] ?? DOT).label;
+export const iconLabel = (name: string): string => (ICONS[name] ?? DOT).label;

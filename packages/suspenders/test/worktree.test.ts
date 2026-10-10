@@ -197,16 +197,23 @@ describe("worktree registry resolution (W211)", () => {
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		expect(id).toBeTruthy();
 		expect(
-			run(REPO, "coord.ts", "bootstrap", "--as", "wt-parked", "--role", "worker")
-				.code,
+			run(
+				REPO,
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				"wt-parked",
+				"--role",
+				"worker",
+			).code,
 		).toBe(0);
 		expect(work("take", id, "--as", "wt-parked").code).toBe(0);
 		// park the tree outside the convention, as registry lanes do
 		const parked = join(REPO, "..", "w211-parked", id);
 		mkdirSync(join(REPO, "..", "w211-parked"), { recursive: true });
-		expect(
-			gc(["worktree", "add", "-b", `suspenders/${id}`, parked]).code,
-		).toBe(0);
+		expect(gc(["worktree", "add", "-b", `suspenders/${id}`, parked]).code).toBe(
+			0,
+		);
 		writeFileSync(join(parked, "feat.ts"), "export const x = 1;\n");
 		expect(gc(["-C", parked, "add", "feat.ts"]).code).toBe(0);
 		expect(gc(["-C", parked, "commit", "-m", "feat"]).code).toBe(0);
@@ -216,7 +223,14 @@ describe("worktree registry resolution (W211)", () => {
 		expect(wt("create", id).code).not.toBe(0);
 		// done retires the PARKED tree — the W211 silent no-op is dead
 		expect(
-			work("done", id, "--sha", tip, "--summary", "W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees").code,
+			work(
+				"done",
+				id,
+				"--sha",
+				tip,
+				"--summary",
+				"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
+			).code,
 		).toBe(0);
 		expect(existsSync(parked)).toBe(false);
 		expect(gc(["rev-parse", "--verify", `suspenders/${id}`]).code).toBe(0);
@@ -377,7 +391,9 @@ describe("worktree sweep (W494.2.2)", () => {
 		const parkedLine = s.out
 			.split("\n")
 			.find((l) => l.startsWith(`KEPT ${realpathSync(parked)}`));
-		expect(parkedLine).toContain("not a fleet item tree (branch codex/task-abc123)");
+		expect(parkedLine).toContain(
+			"not a fleet item tree (branch codex/task-abc123)",
+		);
 		expect(s.out).not.toContain(`KEPT fleet `);
 		expect(s.out).not.toContain(`SWEPT ${parked}`);
 		// tree, branch, and unmerged commit all survive the sweep

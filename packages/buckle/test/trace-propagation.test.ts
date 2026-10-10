@@ -8,19 +8,17 @@ import { testDeps } from "./deps.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-const INBOUND =
-	"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+const INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
-function deps(
-	url: string,
-	numRetries = 0,
-): AppDeps {
+function deps(url: string, numRetries = 0): AppDeps {
 	return testDeps(
 		{
 			groups: () => ["glm-5.3-flash"],
 			deployments: (g) => [{ group: g, url, dialect: "openai" as const }],
 		} satisfies UpstreamPool,
-		{ policy: { num_retries: numRetries, allowed_fails: 99, cooldown_time: 30 } },
+		{
+			policy: { num_retries: numRetries, allowed_fails: 99, cooldown_time: 30 },
+		},
 	);
 }
 
@@ -38,7 +36,10 @@ describe("traceparent propagation (W461 stage 1)", () => {
 		);
 		const app = createApp(deps(upstream.url));
 		const res = await app.fetch(
-			POST(upstream.url, { traceparent: INBOUND, baggage: "fleet.lane.id=autow461,secret=x" }),
+			POST(upstream.url, {
+				traceparent: INBOUND,
+				baggage: "fleet.lane.id=autow461,secret=x",
+			}),
 		);
 		expect(res.status).toBe(200);
 		const seen = upstream.calls[0]?.headers.get("traceparent") ?? "";
@@ -85,9 +86,7 @@ describe("traceparent propagation (W461 stage 1)", () => {
 				: Response.json({ id: "1", choices: [] }),
 		);
 		const app = createApp(deps(upstream.url, 1));
-		const res = await app.fetch(
-			POST(upstream.url, { traceparent: INBOUND }),
-		);
+		const res = await app.fetch(POST(upstream.url, { traceparent: INBOUND }));
 		expect(res.status).toBe(200);
 		expect(upstream.calls).toHaveLength(2);
 		const [a, b] = upstream.calls.map((c) =>
@@ -112,18 +111,14 @@ describe("traceparent propagation (W461 stage 1)", () => {
 			}),
 		);
 		const app = createApp(
-			testDeps(
-				{
-					groups: () => ["glm-5.3-flash"],
-					deployments: (g) => [
-						{ group: g, url: upstream.url, dialect: "anthropic" as const },
-					],
-				} satisfies UpstreamPool,
-			),
+			testDeps({
+				groups: () => ["glm-5.3-flash"],
+				deployments: (g) => [
+					{ group: g, url: upstream.url, dialect: "anthropic" as const },
+				],
+			} satisfies UpstreamPool),
 		);
-		const res = await app.fetch(
-			POST(upstream.url, { traceparent: INBOUND }),
-		);
+		const res = await app.fetch(POST(upstream.url, { traceparent: INBOUND }));
 		expect(res.status).toBe(200);
 		const seen = upstream.calls[0]?.headers.get("traceparent") ?? "";
 		expect(seen.split("-")[1]).toBe("4bf92f3577b34da6a3ce929d0e0e4736");

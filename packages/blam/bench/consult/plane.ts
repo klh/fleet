@@ -42,9 +42,7 @@ export class ConsultPlane {
 
 	/** KB retrieval: verified rows only, staleness reported, never hidden. */
 	kbLookup(scope: string): KbHit | null {
-		const row = this.cfg.kb.find(
-			(r) => r.scope === scope && r.verified,
-		);
+		const row = this.cfg.kb.find((r) => r.scope === scope && r.verified);
 		if (!row) return null;
 		return {
 			row,

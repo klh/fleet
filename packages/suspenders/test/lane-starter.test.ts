@@ -60,11 +60,23 @@ describe("lane-starter", () => {
 				out: `${JSON.stringify({ session_id: "seed-1", type: "result" })}\n`,
 			};
 		};
-		const first = ensureStarter(fleet, "claude", "/bin/true", {}, { run: runStub });
+		const first = ensureStarter(
+			fleet,
+			"claude",
+			"/bin/true",
+			{},
+			{ run: runStub },
+		);
 		expect(first).not.toBeNull();
 		expect(first?.sessionId).toBe("seed-1");
 		expect(first?.forkArgs).toEqual(["--resume", "seed-1", "--fork-session"]);
-		const again = ensureStarter(fleet, "claude", "/bin/real-claude", {}, { run: runStub });
+		const again = ensureStarter(
+			fleet,
+			"claude",
+			"/bin/real-claude",
+			{},
+			{ run: runStub },
+		);
 		expect(runs).toBe(1);
 		expect(again?.sessionId).toBe("seed-1");
 		expect(again?.version).toBe(first?.version);
@@ -81,16 +93,20 @@ describe("lane-starter", () => {
 	});
 
 	test("forkArgsFor: claude only, others catalog-only", () => {
-		expect(forkArgsFor("claude", "s1")).toEqual(["--resume", "s1", "--fork-session"]);
+		expect(forkArgsFor("claude", "s1")).toEqual([
+			"--resume",
+			"s1",
+			"--fork-session",
+		]);
 		for (const h of ["copilot", "codex", "gemini", "grok"]) {
 			expect(forkArgsFor(h, "s1")).toBeNull();
 		}
 	});
 
 	test("parseSessionId tolerates leading log lines and rejects junk", () => {
-		expect(parseSessionId("noise\n{\"session_id\":\"abc\"}")).toBe("abc");
+		expect(parseSessionId('noise\n{"session_id":"abc"}')).toBe("abc");
 		expect(parseSessionId("no json here")).toBeNull();
-		expect(parseSessionId("{\"session_id\":42}")).toBeNull();
+		expect(parseSessionId('{"session_id":42}')).toBeNull();
 	});
 
 	test("laneIdentityPrompt carries sid + worktree, never the seed", () => {

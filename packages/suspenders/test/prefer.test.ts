@@ -3,12 +3,7 @@
 // TTL cache, and the work-graph stamp end-to-end (`work add` inside a
 // .prefer-covered tree tags the item; show/list carry it).
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -55,7 +50,7 @@ describe("parsePreferFile", () => {
 	});
 
 	test("unquoted values tolerated", () => {
-		const r = parsePreferFile("/t/.prefer", 'tag = ikea\n');
+		const r = parsePreferFile("/t/.prefer", "tag = ikea\n");
 		expect(r.errors).toEqual([]);
 		expect(r.values.tag).toBe("ikea");
 	});
@@ -96,10 +91,7 @@ describe("resolvePrefer — per-key nearest-wins walk", () => {
 	mkdirSync(DEEP, { recursive: true });
 
 	test("tree tag inherited; repo color override wins per key", () => {
-		writeFileSync(
-			join(TREE, ".prefer"),
-			'tag = "ikea"\ncolor = "#0058A3"\n',
-		);
+		writeFileSync(join(TREE, ".prefer"), 'tag = "ikea"\ncolor = "#0058A3"\n');
 		writeFileSync(join(TREE, "nested", ".prefer"), 'color = "#BA0D2D"\n');
 		const r = resolvePrefer(DEEP);
 		expect(r.tag).toBe("ikea");

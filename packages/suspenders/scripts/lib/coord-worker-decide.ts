@@ -69,19 +69,18 @@ export const parseCoordReady = (
 ): { id: string; title: string; tags: string | null }[] =>
 	stdout
 		.split("\n")
-		.map((l) => /^[·*\s]*(W[\d.]+)\s+(.+?)(?:\s+#(\S+))?\s*$/.exec(stripAnsi(l)))
-		.map((m) =>
-			m
-				? { id: m[1], title: m[2].trim(), tags: m[3] ?? null }
-				: null,
+		.map((l) =>
+			/^[·*\s]*(W[\d.]+)\s+(.+?)(?:\s+#(\S+))?\s*$/.exec(stripAnsi(l)),
 		)
-		.filter((x): x is { id: string; title: string; tags: string | null } => !!x);
+		.map((m) =>
+			m ? { id: m[1], title: m[2].trim(), tags: m[3] ?? null } : null,
+		)
+		.filter(
+			(x): x is { id: string; title: string; tags: string | null } => !!x,
+		);
 
 const stripAnsi = (s: string): string =>
-	s.replace(
-		new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"),
-		"",
-	);
+	s.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
 
 /** The coordinator bootstrap — the headless session's entire mission: drain,
  *  sweep, at most one item, capsule, exit. The bounds section is the load-

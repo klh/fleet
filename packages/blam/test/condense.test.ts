@@ -351,8 +351,7 @@ describe("W238 packet tier", () => {
 	});
 
 	test("packet phrase table fires; machine stays phrase-clean on the same input", () => {
-		const input =
-			"Prior to the merge, it is possible that the build is red.";
+		const input = "Prior to the merge, it is possible that the build is red.";
 		const r = condenseTier("packet", input);
 		expect(r.rules).toContain("phrase:prior-to");
 		expect(r.rules).toContain("phrase:it-is-possible-that");
@@ -395,8 +394,8 @@ describe("W238 packet tier", () => {
 			"- Read the AGENTS.md file.",
 			"At the present time the fleet runs on one version.",
 		].join("\n");
-		expect(
-			condenseTier("packet", sample).text.length,
-		).toBeLessThanOrEqual(condenseTier("machine", sample).text.length);
+		expect(condenseTier("packet", sample).text.length).toBeLessThanOrEqual(
+			condenseTier("machine", sample).text.length,
+		);
 	});
 });

@@ -20,7 +20,14 @@ const obs = (
 	data: data as Observation["data"],
 });
 
-const ADMIT = { rid: "r1", lane: "autow461", actor: "k", dialect: "openai", model: "m", traceparent: "00-a-b-01" };
+const ADMIT = {
+	rid: "r1",
+	lane: "autow461",
+	actor: "k",
+	dialect: "openai",
+	model: "m",
+	traceparent: "00-a-b-01",
+};
 
 describe("LaneProjection", () => {
 	test("ingest is idempotent by source+id; edges project admitted→ended", () => {
@@ -29,7 +36,12 @@ describe("LaneProjection", () => {
 		const batch = [
 			obs("lane.request.admitted", ADMIT),
 			obs("lane.request.started", ADMIT),
-			obs("lane.request.ended", { ...ADMIT, outcome: "policy", status: 200, attempts: 1 }),
+			obs("lane.request.ended", {
+				...ADMIT,
+				outcome: "policy",
+				status: 200,
+				attempts: 1,
+			}),
 		];
 		expect(p.ingest(batch)).toBe(3);
 		expect(p.ingest(batch)).toBe(0); // same ids — deduped at the door
@@ -64,12 +76,21 @@ describe("LaneProjection", () => {
 		const rows: Observation[] = [];
 		for (let i = 0; i < 25; i++) {
 			rows.push(
-				obs("lane.request.admitted", { ...ADMIT, rid: `r${i}` }, i < 10 ? SRC : "buckle://desktop/boot2"),
+				obs(
+					"lane.request.admitted",
+					{ ...ADMIT, rid: `r${i}` },
+					i < 10 ? SRC : "buckle://desktop/boot2",
+				),
 			);
 			rows.push(
 				obs(
 					"lane.request.ended",
-					{ ...ADMIT, rid: `r${i}`, outcome: i % 5 === 0 ? "errored" : "policy", status: i % 5 === 0 ? 502 : 200 },
+					{
+						...ADMIT,
+						rid: `r${i}`,
+						outcome: i % 5 === 0 ? "errored" : "policy",
+						status: i % 5 === 0 ? 502 : 200,
+					},
 					i < 10 ? SRC : "buckle://desktop/boot2",
 				),
 			);
@@ -108,7 +129,10 @@ describe("OutboxTailer", () => {
 		const line1 = `${JSON.stringify(obs("lane.request.admitted", ADMIT))}\n`;
 		await Bun.write(path, `${line1}{"torn":`);
 		expect(await t.poll()).toBe(1); // torn tail waits
-		await Bun.write(path, `${line1}{"torn":}\n${JSON.stringify(obs("lane.request.started", ADMIT))}\n`);
+		await Bun.write(
+			path,
+			`${line1}{"torn":}\n${JSON.stringify(obs("lane.request.started", ADMIT))}\n`,
+		);
 		expect(await t.poll()).toBe(1);
 		const snap = p.snapshot();
 		expect(snap.requests).toBe(1);

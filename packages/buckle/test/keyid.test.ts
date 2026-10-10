@@ -30,13 +30,17 @@ test("tokenFromHeaders: x-api-key alone (Anthropic wire) → the api key", () =>
 
 test("tokenFromHeaders: neither header → null", () => {
 	expect(tokenFromHeaders(new Headers())).toBeNull();
-	expect(tokenFromHeaders(new Headers({ authorization: "Basic abc" }))).toBeNull();
+	expect(
+		tokenFromHeaders(new Headers({ authorization: "Basic abc" })),
+	).toBeNull();
 });
 
 test("tokenFromHeaders: empty credentials — Bearer-only → null, x-api-key → malformed-empty", () => {
 	// "Bearer " with no token never matched the Bearer regex (pre-existing
 	// semantics): auth_missing, not auth_malformed
-	expect(tokenFromHeaders(new Headers({ authorization: "Bearer " }))).toBeNull();
+	expect(
+		tokenFromHeaders(new Headers({ authorization: "Bearer " })),
+	).toBeNull();
 	// x-api-key present but empty → "" → authDispatch's malformed branch
 	expect(tokenFromHeaders(new Headers({ "x-api-key": "" }))).toBe("");
 });

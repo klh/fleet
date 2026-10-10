@@ -79,7 +79,7 @@ describe("coord hubs — the hub topology read verb", () => {
 		expect(p.out).not.toContain("TESTHUB —");
 		expect(p.out).toContain(`✓ ${liveUrl} — stack.yaml board`);
 		expect(p.out).toContain(`✗ http://127.0.0.1:${closedPort} — hubs.json`);
-		
+
 		expect(p.out).not.toContain("— down");
 	});
 
@@ -141,7 +141,8 @@ describe("coord hubs — the hub topology read verb", () => {
 		expect(p.code).toBe(0);
 		expect(p.out).toContain("no hubs declared");
 		const j = await runCli(["hubs", "--json"], {
-			SUSPENDERS_HUBS_FILE: join(home, "nope.json"), KLH_STACK: join(home, "nope.yaml"),
+			SUSPENDERS_HUBS_FILE: join(home, "nope.json"),
+			KLH_STACK: join(home, "nope.yaml"),
 		});
 		const parsed = JSON.parse(j.out) as {
 			hubs: unknown[];

@@ -61,14 +61,19 @@ export const parseMultipliers = (spec: string): Record<string, number> => {
 	}
 	return out;
 };
-const requireFinite = (used: unknown, limit: unknown): {
+const requireFinite = (
+	used: unknown,
+	limit: unknown,
+): {
 	used: number;
 	limit: number;
 } => {
 	const u = typeof used === "number" ? used : Number(used);
 	const l = typeof limit === "number" ? limit : Number(limit);
 	if (!Number.isFinite(u) || !Number.isFinite(l))
-		throw new Error("sample needs finite used+limit (never inferred from tokens)");
+		throw new Error(
+			"sample needs finite used+limit (never inferred from tokens)",
+		);
 	return { used: u, limit: l };
 };
 
@@ -143,7 +148,14 @@ export const windowedDeltas = (
 			if (s.at <= now - w.ms) anchor = s;
 			else break;
 		const a = anchor ?? samples[0];
-		if (!a) return { label: w.label, ms: w.ms, delta: null, spanMs: null, perHour: null };
+		if (!a)
+			return {
+				label: w.label,
+				ms: w.ms,
+				delta: null,
+				spanMs: null,
+				perHour: null,
+			};
 		const spanMs = latest.at - a.at;
 		const delta = latest.used - a.used;
 		return {
@@ -207,7 +219,8 @@ export const forecastHeadroom = (
 	// longest usable window wins (windows are ordered shortest→longest);
 	// a negative rate (top-up/correction) is never extrapolated — runway
 	// stays null and a note says so
-	const burnPerHour = rates.length > 0 ? (rates[rates.length - 1] ?? null) : null;
+	const burnPerHour =
+		rates.length > 0 ? (rates[rates.length - 1] ?? null) : null;
 	const uncertainty = {
 		low: rates.length > 0 ? Math.min(...rates) : null,
 		high: rates.length > 0 ? Math.max(...rates) : null,
@@ -217,9 +230,13 @@ export const forecastHeadroom = (
 		burnPerHour !== null && burnPerHour > 0 ? remaining / burnPerHour : null;
 	const notes: string[] = [];
 	if (burnPerHour !== null && burnPerHour < 0)
-		notes.push("counter decreased — top-up or correction; burn not extrapolated");
+		notes.push(
+			"counter decreased — top-up or correction; burn not extrapolated",
+		);
 	if (latest.at < now - 48 * 3_600_000)
-		notes.push(`newest sample is ${Math.round((now - latest.at) / 3_600_000)}h old`);
+		notes.push(
+			`newest sample is ${Math.round((now - latest.at) / 3_600_000)}h old`,
+		);
 	return {
 		ok: true,
 		at: latest.at,
@@ -284,7 +301,11 @@ const assessOk = (f: Forecast, policy: PushPolicy): Assessment => {
 	let projectedNeed: number | null = null;
 	let overageUnits: number | null = null;
 	let overageCost: number | null = null;
-	if (policy.queued !== null && policy.costPerItem !== null && f.remaining !== null) {
+	if (
+		policy.queued !== null &&
+		policy.costPerItem !== null &&
+		f.remaining !== null
+	) {
 		projectedNeed = policy.queued * policy.costPerItem;
 		lines.push(
 			`push budget: ${policy.queued} queued × ${fmt(policy.costPerItem)} credits/item ≈ ${fmt(projectedNeed, 0)} need vs ${f.remaining} remaining`,

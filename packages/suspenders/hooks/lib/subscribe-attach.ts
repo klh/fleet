@@ -38,11 +38,8 @@ export const subagentLaneSuffix = (transcriptPath: string): string => {
 // sid; the W494 staleness exit keeps dead sessions' subscribes from
 // haunting the process table, after which a re-attach is allowed again.
 export const subscribeLive = (sid: string): boolean =>
-	Bun.spawnSync([
-		"/usr/bin/pgrep",
-		"-f",
-		`coord[.]ts subscribe --as ${sid}$`,
-	]).exitCode === 0;
+	Bun.spawnSync(["/usr/bin/pgrep", "-f", `coord[.]ts subscribe --as ${sid}$`])
+		.exitCode === 0;
 
 // Returns true when a NEW subscribe was spawned; false when one was
 // already live (or no coord CLI resolves — the caller surfaces that).
@@ -108,9 +105,11 @@ type Storeish = {
 };
 export const reapIfIdle = (store: Storeish, sid: string): boolean => {
 	if (!sid) return false;
-	const busy = store.query(
-		"SELECT 1 FROM work_items WHERE owner_sid = ? AND state IN ('CLAIMED','RUNNING','ORPHANED') LIMIT 1",
-	).get(sid);
+	const busy = store
+		.query(
+			"SELECT 1 FROM work_items WHERE owner_sid = ? AND state IN ('CLAIMED','RUNNING','ORPHANED') LIMIT 1",
+		)
+		.get(sid);
 	if (busy) return false;
 	return reapSubscribe(sid);
 };

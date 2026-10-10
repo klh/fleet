@@ -3,6 +3,10 @@
 	"version": "2.0.0",
 	"private": true,
 	"description": "the klh agent stack — one monorepo, one version, every service",
-	"workspaces": ["packages/*"],
-	"engines": { "bun": ">=1.2" }
+	"workspaces": [
+		"packages/*"
+	],
+	"engines": {
+		"bun": ">=1.2"
+	}
 }

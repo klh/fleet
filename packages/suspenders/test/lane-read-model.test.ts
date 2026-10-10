@@ -86,10 +86,16 @@ test("ingest validates provenance and bounds the batch", () => {
 	expect(oversized.ok).toBe(false);
 	expect(oversized.error).toContain("at most");
 	// an over-cap batch is refused whole — nothing partially lands
-	const refused = ingestRequestEdges(db, Array.from({ length: 201 }, () => edge()));
+	const refused = ingestRequestEdges(
+		db,
+		Array.from({ length: 201 }, () => edge()),
+	);
 	expect(refused.ok).toBe(false);
 	expect(refused.accepted).toBe(0);
-	const capped = ingestRequestEdges(db, Array.from({ length: 200 }, () => edge()));
+	const capped = ingestRequestEdges(
+		db,
+		Array.from({ length: 200 }, () => edge()),
+	);
 	expect(capped.ok).toBe(true);
 	expect(capped.accepted).toBe(200);
 });
@@ -117,12 +123,29 @@ test("origin grouping, origin/peer/project/time/outcome filters apply", () => {
 	const db = store();
 	ingestRequestEdges(db, [
 		edge({ eventId: "a", peerHub: "hub-a", originHub: "hub-o1", laneId: "l1" }),
-		edge({ eventId: "b", peerHub: "hub-a", originHub: "hub-o2", laneId: "l2", outcome: "error" }),
-		edge({ eventId: "c", peerHub: "hub-b", originHub: "hub-o1", laneId: "l3", project: "/p/other/.git" }, 500),
+		edge({
+			eventId: "b",
+			peerHub: "hub-a",
+			originHub: "hub-o2",
+			laneId: "l2",
+			outcome: "error",
+		}),
+		edge(
+			{
+				eventId: "c",
+				peerHub: "hub-b",
+				originHub: "hub-o1",
+				laneId: "l3",
+				project: "/p/other/.git",
+			},
+			500,
+		),
 	]);
 	const byOrigin = laneModelGroups(db, filters({ group: "origin" }));
 	expect(byOrigin.groupBy).toBe("origin");
-	expect(byOrigin.groups.find((g) => g.hub === "hub-o1")?.distinctLanes).toBe(2);
+	expect(byOrigin.groups.find((g) => g.hub === "hub-o1")?.distinctLanes).toBe(
+		2,
+	);
 	expect(
 		laneModelGroups(db, filters({ peer: "hub-b" })).groups.map((g) => g.hub),
 	).toEqual(["hub-b"]);
@@ -130,7 +153,11 @@ test("origin grouping, origin/peer/project/time/outcome filters apply", () => {
 		laneModelGroups(db, filters({ project: "/p/other/.git" })).groups,
 	).toHaveLength(1);
 	// time filter: only the recent edge survives a since = NOW - 1s window
-	expect(laneModelGroups(db, filters({ since: NOW - 1_000 })).groups.map((g) => g.hub)).toEqual(["hub-b"]);
+	expect(
+		laneModelGroups(db, filters({ since: NOW - 1_000 })).groups.map(
+			(g) => g.hub,
+		),
+	).toEqual(["hub-b"]);
 	const errors = laneModelGroups(db, filters({ outcome: "error" }));
 	expect(errors.groups.map((g) => g.hub)).toEqual(["hub-a"]);
 	expect(errors.totals.errors).toBe(1);
@@ -141,7 +168,8 @@ test("presence contributes live lanes to groups and totals without double counti
 	db.run(
 		`INSERT INTO board_lane_observations (lane_id, project, origin_hub, peer_hub, observed_at, expires_at, visited_hubs)
 		VALUES ('lane-live', '/p/repo/.git', 'hub-o', 'hub-peer', ?, ?, '["hub-o","hub-peer"]')`,
-		NOW - 1_000, NOW + 300_000,
+		NOW - 1_000,
+		NOW + 300_000,
 	);
 	const result = laneModelGroups(db, filters());
 	expect(result.groups.map((g) => g.hub)).toEqual(["hub-peer"]);
@@ -157,17 +185,14 @@ test("detail paginates by keyset and never drifts rows across pages", () => {
 	ingestRequestEdges(
 		db,
 		// ages 9..5s → ts strictly descending, so id order == recency order
-		Array.from({ length: 5 }, (_, i) => edge({ eventId: `p${i}`, requestId: `r${i}` }, 9_000 - i)),
+		Array.from({ length: 5 }, (_, i) =>
+			edge({ eventId: `p${i}`, requestId: `r${i}` }, 9_000 - i),
+		),
 	);
 	const page1 = laneModelDetail(db, filters(), null, 2);
 	expect(page1.rows.map((r) => r.requestId)).toEqual(["r4", "r3"]);
 	expect(page1.nextCursor).toBe(page1.rows.at(-1)?.id);
-	const page2 = laneModelDetail(
-		db,
-		filters(),
-		page1.nextCursor as number,
-		2,
-	);
+	const page2 = laneModelDetail(db, filters(), page1.nextCursor as number, 2);
 	expect(page2.rows.map((r) => r.requestId)).toEqual(["r2", "r1"]);
 	const page3 = laneModelDetail(db, filters(), page2.nextCursor as number, 2);
 	expect(page3.rows.map((r) => r.requestId)).toEqual(["r0"]);
@@ -194,7 +219,9 @@ test("delta streams bounded rows and flags overflow for resync", () => {
 	expect(empty.rows).toEqual([]);
 	ingestRequestEdges(
 		db,
-		Array.from({ length: 70 }, (_, i) => edge({ eventId: `d${i}`, requestId: `r${i}` }, 500)),
+		Array.from({ length: 70 }, (_, i) =>
+			edge({ eventId: `d${i}`, requestId: `r${i}` }, 500),
+		),
 	);
 	const overflow = laneModelDelta(db, filters(), 0);
 	expect(overflow.overflow).toBe(true);
@@ -217,9 +244,15 @@ test("edge and descriptor tables stay bounded", () => {
 		if (result.ok) accepted += result.accepted;
 	}
 	expect(accepted).toBe(EDGE_ROW_CAP + 150);
-	const edges = (db.query("SELECT COUNT(*) AS n FROM board_request_edges").get() as { n: number }).n;
+	const edges = (
+		db.query("SELECT COUNT(*) AS n FROM board_request_edges").get() as {
+			n: number;
+		}
+	).n;
 	const descriptors = (
-		db.query("SELECT COUNT(*) AS n FROM board_lane_descriptors").get() as { n: number }
+		db.query("SELECT COUNT(*) AS n FROM board_lane_descriptors").get() as {
+			n: number;
+		}
 	).n;
 	expect(edges).toBeLessThanOrEqual(EDGE_ROW_CAP);
 	expect(descriptors).toBeLessThanOrEqual(5_000);
@@ -230,7 +263,8 @@ test("presence projection folds observations into per-observer rows exactly once
 	db.run(
 		`INSERT INTO board_lane_observations (lane_id, project, origin_hub, peer_hub, observed_at, expires_at, visited_hubs)
 		VALUES ('lane-p', '/p/repo/.git', 'hub-o', 'hub-peer', ?, ?, '["hub-o"]')`,
-		NOW - 1_000, NOW + 300_000,
+		NOW - 1_000,
+		NOW + 300_000,
 	);
 	expect(projectPresence(db, NOW)).toBe(1);
 	expect(projectPresence(db, NOW)).toBe(1);

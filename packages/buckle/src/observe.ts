@@ -126,9 +126,7 @@ export class ObservationOutbox {
 
 	/** Read observations for the ingest, oldest generation first. Used by
 	 *  the stage-3 projection; dedup keys on source+id at the ingest. */
-	static async read(
-		path: string,
-	): Promise<Observation[]> {
+	static async read(path: string): Promise<Observation[]> {
 		const parse = (text: string): Observation[] =>
 			text
 				.split("\n")
@@ -144,7 +142,9 @@ export class ObservationOutbox {
 		const prior = await Bun.file(`${path}.1`)
 			.text()
 			.catch(() => "");
-		const current = await Bun.file(path).text().catch(() => "");
+		const current = await Bun.file(path)
+			.text()
+			.catch(() => "");
 		return [...parse(prior), ...parse(current)];
 	}
 }
