@@ -20,6 +20,7 @@ import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
 import {
+	capabilityGate,
 	composeBrief,
 	isOwnerGated,
 	laneKeyDecision,
@@ -389,7 +390,10 @@ describe("dry-run dispatch", () => {
 	// W519: a repo .prefer prefer= rides the brief as a SOFT routing note
 	// (must= reserved); cleanup keeps the constraint out of sibling cases.
 	test("repo .prefer prefer= notes SOFT routing in the dry-run brief", () => {
-		writeFileSync(join(REPO, ".prefer"), 'prefer = "ikea llms"\nmust = "cloud"\n');
+		writeFileSync(
+			join(REPO, ".prefer"),
+			'prefer = "ikea llms"\nmust = "cloud"\n',
+		);
 		try {
 			const out = dispatch("--dry-run", "--target", "1");
 			expect(out.out).toContain('ROUTING: .prefer prefer="ikea llms"');
@@ -474,6 +478,38 @@ describe("pool parsing", () => {
 		expect(parsed[0].title).toBe("synthetic title glued to the pad edge");
 		expect(parsed[1].title).toBe("short id keeps its padded gap");
 		expect(parsed[2].title).toBe("");
+	});
+
+	test("parseReady W619: the ⟨needs …⟩ suffix parses to requires", () => {
+		const rows = [
+			"  · W140   build the thing ⟨needs shell,fs⟩",
+			"  · W141   plain item",
+			"  · W142   spaced needs ⟨needs vision, browser⟩",
+		].join("\n");
+		const parsed = parseReady(rows);
+		expect(parsed[0].requires).toEqual(["shell", "fs"]);
+		expect(parsed[1].requires).toEqual([]);
+		expect(parsed[2].requires).toEqual(["vision", "browser"]);
+	});
+});
+
+describe("W619 capability gate", () => {
+	test("mismatched rows skip with the missing caps named; starved aggregates", () => {
+		const rows = [
+			{ id: "W1", requires: ["shell"] },
+			{ id: "W2", requires: [] },
+			{ id: "W3", requires: ["vision"] },
+		];
+		const gate = capabilityGate(
+			rows,
+			(sid) => (sid === "W1" ? [] : ["shell", "vision"]),
+			(id) => id,
+		);
+		expect(gate.dispatchable.map((r) => r.id)).toEqual(["W2", "W3"]);
+		expect(gate.skips).toHaveLength(1);
+		expect(gate.skips[0]).toContain("W1");
+		expect(gate.skips[0]).toContain("missing [shell]");
+		expect(gate.starved.get("shell")).toEqual(["W1"]);
 	});
 });
 

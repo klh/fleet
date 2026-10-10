@@ -250,24 +250,73 @@ const saveLanes = (lanes: Lane[]): void => mergeLaneRegistry(FLEET, lanes);
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /** parse `work ready` rows (renderRow format, ANSI-stripped): glyph, id,
- *  truncated title. The title is for gating/log lines only — the brief must
- *  carry the FULL spec from `work show` (gaps W279 phantom-lane lesson).
- *  W494: the renderer pads the id field (width 7) — ids ≥7 chars emit NO
- *  separator space, so the id/title gap is zero-or-more and the title may
- *  be empty. The [\d.]+ class stops the id at the first non-id char. */
-export const parseReady = (stdout: string): { id: string; title: string }[] =>
+ *  truncated title, and the `⟨needs …⟩` capability suffix (W619 — the
+ *  dispatch-side capability pre-filter reads it). The title is for gating/log
+ *  lines only — the brief must carry the FULL spec from `work show` (gaps W279
+ *  phantom-lane lesson). W494: the renderer pads the id field (width 7) — ids
+ *  ≥7 chars emit NO separator space, so the id/title gap is zero-or-more and
+ *  the title may be empty. The [\d.]+ class stops the id at the first non-id
+ *  char. */
+export const parseReady = (
+	stdout: string,
+): { id: string; title: string; requires: string[] }[] =>
 	stdout
 		.replace(ANSI, "")
 		.split("\n")
 		.map((l) => /^\s*·\s+(W[\d.]+)\s*(.*)$/.exec(l.trimEnd()))
-		.map((m) => (m ? { id: m[1], title: m[2].trim() } : null))
-		.filter((x): x is { id: string; title: string } => !!x);
+		.map((m) => {
+			if (!m) return null;
+			const needs = /⟨needs ([^⟩]*)⟩/.exec(m[2]);
+			return {
+				id: m[1],
+				title: m[2].trim(),
+				requires: needs
+					? needs[1]
+							.split(",")
+							.map((c) => c.trim())
+							.filter(Boolean)
+					: [],
+			};
+		})
+		.filter((x): x is { id: string; title: string; requires: string[] } => !!x);
 
 /** decision-gated items never ride the automagic — they surface to the owner. */
 export const isOwnerGated = (title: string): boolean =>
 	/OWNER-GATED|OWNER GATE|\bGATED\b|\bHELD\b|NEED_DECISION|\bDECISION\b|PAUSED/i.test(
 		title,
 	);
+
+/** W619 capability gate: split the fresh READY pool into dispatchable rows
+ *  and capability-mismatched skips. Pure — capsOf injects the sessions read
+ *  (the take check's exact mirror: a never-dispatched sid has no row, so its
+ *  caps are empty and any requires-work starves). skips are the SKIP notes
+ *  main() prints; starved aggregates capability → wanting items. */
+export const capabilityGate = (
+	rows: { id: string; requires: string[] }[],
+	capsOf: (sid: string) => string[],
+	laneSidOf: (id: string) => string,
+): {
+	dispatchable: { id: string; requires: string[] }[];
+	starved: Map<string, string[]>;
+	skips: string[];
+} => {
+	const starved = new Map<string, string[]>();
+	const dispatchable: { id: string; requires: string[] }[] = [];
+	const skips: string[] = [];
+	for (const r of rows) {
+		const sid = laneSidOf(r.id);
+		const missing = r.requires.filter((c) => !capsOf(sid).includes(c));
+		if (!missing.length) {
+			dispatchable.push(r);
+			continue;
+		}
+		skips.push(
+			`SKIP ${r.id} — capability-mismatched: requires [${r.requires.join(",")}] missing [${missing.join(",")}] on lane ${sid.slice(0, 8)} — dispatch to a capable agent`,
+		);
+		for (const c of missing) starved.set(c, [...(starved.get(c) ?? []), r.id]);
+	}
+	return { dispatchable, starved, skips };
+};
 
 // governance mode: read ONCE per dispatch run, through the coord CLI the
 // script already uses for facts (copilot-meter pattern) — no second store,
@@ -1225,7 +1274,31 @@ const main = async (): Promise<void> => {
 					!resumeOf.has(r.id) &&
 					!isOwnerGated(r.title),
 			);
-	for (const r of ready) {
+	// W619 capability pre-filter: `work take` refuses requires ⊆ session caps
+	// at claim time, and a never-dispatched sid has NO sessions row yet — so
+	// attempting the take burns a cycle and dies "dispatch to a capable agent".
+	// Skip pre-take with the missing caps named; aggregate the demanded-but-
+	// unoffered capabilities as the starved set (swarm-comms-research item 5).
+	const capStore = ready.length ? openStore() : null;
+	const sidCaps = (sid: string): string[] =>
+		(
+			(capStore
+				?.query("SELECT capabilities FROM sessions WHERE sid = ?")
+				.get(sid) as { capabilities: string | null } | null) ?? {
+				capabilities: null,
+			}
+		).capabilities
+			?.split(",")
+			.map((c) => c.trim())
+			.filter(Boolean) ?? [];
+	const { dispatchable, starved, skips } = capabilityGate(
+		ready,
+		sidCaps,
+		(id) => sidOf(id, projectIdentity(REPO)),
+	);
+	for (const s of skips) console.log(s);
+	capStore?.close();
+	for (const r of dispatchable) {
 		if (live.length + heldSlots + dispatched.length >= TARGET) break;
 		const out = await dispatchItem(r.id, live);
 		if (out) dispatched.push(out);
@@ -1319,6 +1392,17 @@ const main = async (): Promise<void> => {
 	if (!ITEM && ready.length === 0 && resumeOf.size === 0)
 		console.log(
 			"READY pool empty — register work or pull the next epic forward",
+		);
+	// W619 starved-capability surfacing: capabilities demanded by READY work
+	// that no dispatchable lane sid advertises. The owner reads this in the
+	// dispatch log and responds: spawn/register a capable lane or clear the
+	// requires (work add --requires validated vocabulary: shell fs git build
+	// mcp vision browser network).
+	if (starved.size)
+		console.log(
+			`capability starved: ${[...starved.entries()]
+				.map(([c, items]) => `${c} (wanted by ${items.join(", ")})`)
+				.join(", ")} — no dispatchable lane advertises it`,
 		);
 	if (governanceRefusals.length > 0) process.exitCode = 1;
 };

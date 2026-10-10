@@ -25,7 +25,7 @@
 //   bun ~/.claude/bin/coord.ts events [--kinds a,b] [--last N] [--json]
 //        (W430: the bus's own trail gets a CLI read — newest-first, --kinds
 //         exact-match csv, --last N default 50)
-//   bun ~/.claude/bin/coord.ts targets [--filter text] [--json]
+//   bun ~/.claude/bin/coord.ts targets [--filter text] [--cap <c>] [--json]
 //   bun ~/.claude/bin/coord.ts message <target-label-or-sid-or-substring> "text" [--as sid]
 //   bun ~/.claude/bin/coord.ts message --all "text" [--as sid]
 //   bun ~/.claude/bin/coord.ts hubs [--label name] [--json]

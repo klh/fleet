@@ -1,5 +1,5 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
-import { die, arg, db, dim, cyan, green } from "./shared.ts";
+import { CAPABILITIES, die, arg, db, dim, cyan, green } from "./shared.ts";
 import {
 	formatSessionLabel,
 	normalizeTool,
@@ -318,7 +318,15 @@ function resolveTarget(needle: string): SessionTarget {
 export async function cmdTargets(rest: string[]): Promise<void> {
 	const filter = arg("--filter")?.toLowerCase() ?? null;
 	const wantJson = rest.includes("--json");
+	// W619 capability-filtered discovery (swarm-comms-research item 5):
+	// --cap <c> keeps only live targets advertising c on sessions.capabilities —
+	// the A2A Agent-Card skill read, in-process.
+	const cap = arg("--cap");
+	if (cap && !CAPABILITIES.includes(cap))
+		die(`unknown capability: ${cap} — vocabulary: ${CAPABILITIES.join(",")}`);
 	let targets = listLiveTargets();
+	if (cap)
+		targets = targets.filter((target) => target.capabilities.includes(cap));
 	if (filter)
 		targets = targets.filter(
 			(target) =>
