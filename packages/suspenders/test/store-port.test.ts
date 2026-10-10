@@ -105,7 +105,7 @@ describe("fact set — arg() null sentinel (lesson.coord-arg-null-sentinel)", ()
 		const r = coord(["fact", "set", "w921.bad", "--text"]);
 		expect(r.code).toBe(2);
 		expect(r.err).toBe(
-			"coord: usage: fact set <key> <value> | fact set <key> --text <text> [--source s]\n",
+			"coord: usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]\n",
 		);
 	});
 	test("get round-trips both shapes", () => {
