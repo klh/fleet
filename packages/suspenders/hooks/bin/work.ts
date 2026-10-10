@@ -55,7 +55,14 @@ import {
 	persistCompletion,
 	type CompletionRecord,
 } from "../lib/work-completion-record.ts";
-import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
+import { laneAlive, type LaneRef } from "../lib/lane-liveness.ts";
+import {
+	clearReclaimStrikes,
+	observeReclaim,
+	parseDuration,
+	probeClaim,
+	setReclaimHold,
+} from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
@@ -75,7 +82,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (!cmd || cmd === "--help" || cmd === "-h") {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim <id>|all | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim <id>|all | extend <id> --for <dur> | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -220,6 +227,13 @@ const SCHEMA: Record<string, Spec> = {
 		usage:
 			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 	},
+	extend: {
+		flags: [...ITEM_FLAGS, "--for"],
+		minPos: 1,
+		reqFlags: ["--for"],
+		usage:
+			"usage: extend <id> [--as sid] --for <duration> (45m | 2h | 90s; max 24h) — hold `reclaim all` off a CLAIMED/RUNNING item for a known-long op",
+	},
 	allocate: {
 		flags: ["--apply", "--json", "--capacity", "--fleet"],
 		switches: ["--apply", "--json"],
@@ -233,7 +247,7 @@ const SCHEMA: Record<string, Spec> = {
 const spec = SCHEMA[cmd];
 if (!spec)
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | extend | migrate-ledger",
 	);
 
 // per-verb help: semantics live on the surface, not in source-diving —
@@ -634,10 +648,31 @@ function releaseObserved(
 	);
 }
 
-// claimant transcript path — moved to hooks/lib/lane-liveness.ts so the
-// lanes verb, dispatch-next and fleet-loop share ONE liveness (2026-10-05)
-function liveTranscript(sid: string): string | null {
-	return transcriptPath(sid);
+// W610: claimant LaneRefs by sid — registry rows feed laneProcessIdentity;
+// a claimant with no registry entry (manual takes, reaped rows) probes from
+// heartbeat + transcript alone and reads unknown, never dead.
+type RegistryLaneRow = {
+	sid: string;
+	item: string;
+	pid?: number;
+	worktree?: string;
+	host?: string;
+	launchedAt?: number;
+};
+function claimantLanes(): Map<string, LaneRef> {
+	return new Map(
+		loadLaneRegistry(process.cwd()).map((l: RegistryLaneRow) => [
+			l.sid,
+			{
+				sid: l.sid,
+				item: l.item,
+				pid: l.pid,
+				worktree: l.worktree,
+				host: l.host,
+				launchedAt: l.launchedAt,
+			},
+		]),
+	);
 }
 
 // truncated-sid guard (shared by take/start/done/release): a display slice
@@ -1117,15 +1152,27 @@ if (cmd === "add") {
 			);
 	}
 } else if (cmd === "orphaned") {
-	// CLAIMED/RUNNING items whose owner transcript is dead — inspect capsules
-	// before reclaiming (do NOT silently return work with uncommitted state)
+	// CLAIMED/RUNNING claims with no live evidence — the SAME tri-state the
+	// bulk reaper uses (W610: verdict !== alive lists dead AND unknown so the
+	// operator inspects before per-item reclaim; alive lanes stay out)
 	const item = flag("--item");
+	const lanesBySid = claimantLanes();
 	const rows = db()
 		.query(
 			`SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING')${item ? " AND id = ?" : ""} ORDER BY id`,
 		)
 		.all(...(item ? [PROJECT, item] : [PROJECT])) as Item[];
-	const out = rows.filter((r) => !liveTranscript(String(r.owner_sid)));
+	const out = rows.filter((r) => {
+		const owner = String(r.owner_sid ?? "");
+		return (
+			probeClaim(db(), PROJECT, {
+				id: String(r.id),
+				owner,
+				revision: Number(r.updated_at),
+				lane: lanesBySid.get(owner),
+			}).verdict !== "alive"
+		);
+	});
 	console.log(
 		rest.includes("--json")
 			? JSON.stringify(out)
@@ -1201,6 +1248,31 @@ if (cmd === "add") {
 		console.log(`${green("✓")} ${applied.length} item(s) allocated`);
 		exportMirror(db(), PROJECT);
 	}
+} else if (cmd === "extend") {
+	// W610 claim-extend (Hermes lift): a claimant facing a known-long op holds
+	// `reclaim all` off its item. The lease lives in facts
+	// (reclaim.extend.<project>.<id>), re-armable, capped at 24h; reclaim-all
+	// honors it via probeClaim, the strike counter stays cleared while held.
+	const id = pos[0];
+	const ms = parseDuration(String(flag("--for") ?? ""));
+	if (ms === null)
+		die("extend: --for must be <n>s|m|h (e.g. 45m), 1s..24h");
+	const it = get(id ?? "");
+	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
+		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be extended`);
+	const as = flag("--as");
+	if (as && it.owner_sid !== resolveSid(String(as)))
+		die(
+			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot extend it`,
+	);
+	const by = as
+		? resolveSid(String(as))
+		: resolveSid(String(it.owner_sid ?? ""));
+	setReclaimHold(db(), PROJECT, String(id), Date.now() + ms, by);
+	emit("work.lease-extended", String(id), { forMs: String(ms), by });
+	console.log(
+		`${green("⏸")} ${cyan(id)} reclaim held ${flag("--for")} — until ${new Date(Date.now() + ms).toISOString()}`,
+	);
 } else if (cmd === "reclaim") {
 	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
 	// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
@@ -1214,6 +1286,11 @@ if (cmd === "add") {
 			rest.includes("--json")
 		)
 			die("expected claim/JSON requires a single item");
+		// W610 liveness parity: the SAME tri-state the lanes verb trusts —
+		// registry process identity + claimant transcript + governor heartbeat
+		// (sessions.hb) — with unknown never releasing, an extend lease as a
+		// pause, and death needing 3 consecutive dead passes (fact-counted).
+		const lanesBySid = claimantLanes();
 		const rows = db()
 			.query(
 				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
@@ -1221,19 +1298,30 @@ if (cmd === "add") {
 			.all(PROJECT) as Item[];
 		let n = 0;
 		for (const r of rows) {
-			if (liveTranscript(String(r.owner_sid))) continue;
+			const owner = String(r.owner_sid ?? "");
+			const d = observeReclaim(db(), PROJECT, {
+				id: String(r.id),
+				owner,
+				revision: Number(r.updated_at),
+				lane: lanesBySid.get(owner),
+			});
+			if (d.action !== "release") {
+				console.log(`${dim(String(r.id))} held — ${d.why}`);
+				continue;
+			}
 			if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
 				console.log(`${dim(String(r.id))} claim changed — skipped`);
 				continue;
 			}
+			clearReclaimStrikes(db(), PROJECT, String(r.id));
 			console.log(
-				`${cyan("·")} ${r.id} reclaimed → READY (was ${String(r.owner_sid).slice(0, 8)})`,
+				`${cyan("·")} ${r.id} reclaimed → READY (was ${owner.slice(0, 8)}) — ${d.why}`,
 			);
 			n++;
 		}
 		console.log(
 			n === 0
-				? dim("(no orphans to reclaim)")
+				? dim("(nothing reclaimable — claims are alive, unknown or leased)")
 				: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
 		);
 	} else {

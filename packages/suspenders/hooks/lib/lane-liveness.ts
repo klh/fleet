@@ -8,7 +8,13 @@
 // liveness term. Verdict: live = recorded pid alive AND anchored harness
 // args referencing the sid, or — pid gone — the claimant transcript fresh
 // inside the 15-min reclaim lease; stale = pid gone + heartbeat stale.
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+	type Dirent,
+	existsSync,
+	readdirSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 // W422: harness names come from the executor-adapter registry (shared
 // surface for hooks + scripts trees; adapters are runtime-independent data).
@@ -51,7 +57,7 @@ export const transcriptPath = (sid: string): string | null => {
 		stack.push([root, 0]);
 		while (stack.length > 0 && !found && budget > 0) {
 			const [dir, depth] = stack.pop() as [string, number];
-			let entries;
+			let entries: Dirent[];
 			try {
 				entries = readdirSync(dir, { withFileTypes: true });
 			} catch {
@@ -293,3 +299,19 @@ export const laneAlive = (l: LaneRef): boolean =>
 	l.host !== undefined && l.host !== THIS_HOST
 		? transcriptAlive(l.sid)
 		: laneProcessIdentity(l) === true || transcriptAlive(l.sid);
+
+// W610 reclaim parity — the tri-state verdict. laneAlive collapses unknown
+// into dead; a bulk reaper may only release on POSITIVE death evidence
+// (monitor doctrine W51: lookup failure is never death), so reclaim-all
+// needs the honest third answer. Foreign-host lanes carry no process-table
+// trust — transcript is their only liveness term, and without it they read
+// unknown, never dead.
+export type LaneVerdict = "alive" | "dead" | "unknown";
+export const laneVerdict = (l: LaneRef): LaneVerdict => {
+	if (l.host !== undefined && l.host !== THIS_HOST)
+		return transcriptAlive(l.sid) ? "alive" : "unknown";
+	const identity = laneProcessIdentity(l);
+	if (identity === true || transcriptAlive(l.sid)) return "alive";
+	if (identity === false) return "dead";
+	return "unknown";
+};
