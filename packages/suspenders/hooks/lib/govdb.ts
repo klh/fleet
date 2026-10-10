@@ -561,6 +561,13 @@ export function openGovernorDb(): Database {
 	// coverage, so the tag rides regardless of origin.
 	if (!wiCols.includes("tags"))
 		db.run("ALTER TABLE work_items ADD COLUMN tags TEXT");
+	// W609 — claim-epoch fencing (lib/work-fence.ts): minted by take (+1 on
+	// the READY→CLAIMED CAS), CAS'd by done/fail/start so a zombie writer
+	// (guard read raced a reclaim + re-take) writes nothing. 0 = pre-fence rows.
+	if (!wiCols.includes("claim_epoch"))
+		db.run(
+			"ALTER TABLE work_items ADD COLUMN claim_epoch INTEGER NOT NULL DEFAULT 0",
+		);
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a
@@ -1059,7 +1066,10 @@ export function openGovernorDb(): Database {
 			`INSERT OR IGNORE INTO machine_cursors (key, value, source, ts) SELECT key, value, source, ts FROM facts WHERE ${where}`,
 			cursorPrefixes.map((p) => `${p}%`),
 		);
-		db.run(`DELETE FROM facts WHERE ${where}`, cursorPrefixes.map((p) => `${p}%`));
+		db.run(
+			`DELETE FROM facts WHERE ${where}`,
+			cursorPrefixes.map((p) => `${p}%`),
+		);
 		db.run("PRAGMA user_version = 12");
 	}
 	// v13 (W210) — team entitlement ceilings (the v9→v11-era promise): the

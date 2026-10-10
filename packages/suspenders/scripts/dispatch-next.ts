@@ -80,6 +80,7 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
+import { CLAIM_EPOCH_ENV, fenceBriefLine } from "../hooks/lib/work-fence.ts";
 import { darkHubNow } from "../hooks/lib/stack-config.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
@@ -657,11 +658,15 @@ const dispatchItem = async (
 		}
 		const claimedRow = store
 			.query(
-				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
+				"SELECT updated_at, claim_epoch FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
 			)
-			.get(project, item, sid) as { updated_at: number } | null;
+			.get(project, item, sid) as {
+			updated_at: number;
+			claim_epoch: number;
+		} | null;
 		if (!claimedRow) throw new Error("claim changed before launch preparation");
 		claimRevision = claimedRow.updated_at;
+		const claimEpoch = claimedRow.claim_epoch;
 		intent = reserveLaunchIntent(
 			store,
 			{ project, item, sid, nonce, revision: claimRevision, executor: bin },
@@ -725,7 +730,7 @@ const dispatchItem = async (
 			worktree: wt,
 			capsule,
 			agent: pick.agent,
-			extra: routingExtra(),
+			extra: [...routingExtra(), fenceBriefLine(item, claimEpoch)],
 		});
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
 		// and enforcement mode are ADAPTER data (registry). A failing brief on
@@ -760,6 +765,8 @@ const dispatchItem = async (
 		const env = laneEnv({ ...process.env }, NO_BELT);
 		env.SUSPENDERS_SID = sid;
 		env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
+		// W609: the lane's claim epoch — done/fail/start CAS on it (work-fence)
+		env[CLAIM_EPOCH_ENV] = String(claimEpoch);
 		// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)
 		// — executor knowledge lives in the table, dispatch has no per-executor
 		// branches. NO_BELT lanes speak their own API; nothing is inserted.

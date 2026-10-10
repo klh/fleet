@@ -40,6 +40,7 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
 import { openStore } from "../hooks/lib/govdb.ts";
+import { CLAIM_EPOCH_ENV, fenceBriefLine } from "../hooks/lib/work-fence.ts";
 import {
 	composeBrief,
 	isOwnerGated,
@@ -314,6 +315,13 @@ const main = async (): Promise<void> => {
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
+		// W609: the lane's claim epoch — done/fail/start CAS on it (work-fence)
+		const claimedEpochRow = db
+			.query(
+				"SELECT claim_epoch FROM work_items WHERE project=? AND id=? AND owner_sid=?",
+			)
+			.get(PROJECT, item, sid) as { claim_epoch: number } | null;
+		const claimEpoch = claimedEpochRow?.claim_epoch;
 		if (!existsSync(wt)) {
 			const created = cli("worktree.ts", "create", item);
 			if (created.code !== 0) {
@@ -340,6 +348,7 @@ const main = async (): Promise<void> => {
 			aids: AIDS,
 			extra: [
 				...preferRoutingBriefLines(resolveRoutingPrefer(REPO)),
+				...(claimEpoch != null ? [fenceBriefLine(item, claimEpoch)] : []),
 				`SUPERVISION: this lane runs under micro-supervisor ${SUP} (subtree of ${PARENT}). It reads the graph + your capsule every cycle; you are reachable via coord inbox --as ${sid}.`,
 				`On a conflict or ambiguity you cannot resolve: bun ${BIN}/coord.ts emit NEED_DECISION --to ${SUP} --note "..." --as ${sid} — never silently wait.`,
 			],
@@ -349,6 +358,7 @@ const main = async (): Promise<void> => {
 		writeFileSync(briefFile, brief);
 		const env = laneEnv({ ...process.env }, false);
 		env.SUSPENDERS_SID = sid;
+		if (claimEpoch != null) env[CLAIM_EPOCH_ENV] = String(claimEpoch);
 		const bin = Bun.which("claude");
 		if (!bin) {
 			console.log("SKIP — claude binary not found on PATH");

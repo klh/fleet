@@ -35,7 +35,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import {
-	CAPABILITIES,
 	type GovernorStore,
 	openStore,
 	openMemoryStore,
@@ -55,6 +54,13 @@ import {
 } from "../lib/work-completion-record.ts";
 import { laneAlive, transcriptPath } from "../lib/lane-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import {
+	fenceEpoch,
+	fenceOf,
+	transitionOrDie,
+	CLAIM_EPOCH_ENV,
+} from "../lib/work-fence.ts";
+import { CAPS, parseArgs, SCHEMA } from "../lib/work-schema.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
@@ -88,143 +94,6 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 // commands (list, mine, owned, orphaned) take no positionals and ignore
 // unknown options — they predate strict parsing and nothing they read is
 // flag-shaped.
-type Spec = {
-	flags: string[];
-	switches?: string[];
-	minPos: number;
-	reqFlags: string[];
-	usage: string;
-	lax?: boolean;
-};
-
-// vocabulary shared by the item commands: option-looking tokens are never
-// content — a known flag consumes its value, unknown ones die
-const ITEM_FLAGS = [
-	"--scope",
-	"--parent",
-	"--priority",
-	"--desc",
-	"--by",
-	"--reason",
-	"--keep",
-	"--sha",
-	"--origin",
-	"--note",
-	"--on",
-	"--as",
-	"--requires",
-];
-const CAPS = new Set(CAPABILITIES);
-const SCHEMA: Record<string, Spec> = {
-	add: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: [],
-		usage: `usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]`,
-	},
-	list: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	ready: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	mine: {
-		flags: ["--as"],
-		minPos: 0,
-		reqFlags: ["--as"],
-		usage: "usage: mine --as <sid>",
-		lax: true,
-	},
-	owned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	show: {
-		flags: [...ITEM_FLAGS, "--json"],
-		switches: ["--json"],
-		minPos: 1,
-		reqFlags: [],
-		usage: "usage: show <id> [--json]",
-	},
-	stats: {
-		flags: [],
-		minPos: 0,
-		reqFlags: [],
-		usage: "usage: stats (project-scoped JSON progress snapshot)",
-	},
-	take: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--as"],
-		usage: "usage: take <id> --as <sid> [--origin <host:agent>]",
-	},
-	release: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--as"],
-		usage: "usage: release <id> --as <sid>",
-	},
-	start: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	summary: {
-		flags: ["--json"],
-		switches: ["--json"],
-		minPos: 1,
-		reqFlags: [],
-		usage: "usage: summary <id> [--json]",
-	},
-	done: {
-		flags: [...ITEM_FLAGS, "--summary"],
-		minPos: 1,
-		reqFlags: [],
-		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
-	},
-	fail: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	cancel: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--note"],
-		usage: `usage: cancel <id> --note "reason"`,
-	},
-	supersede: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--by"],
-		usage: "usage: supersede <id> --by <new-id>",
-	},
-	block: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--on"],
-		usage: "usage: block <id> --on <other-id>",
-	},
-	unblock: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--on"],
-		usage: "usage: unblock <id> --on <id2>",
-	},
-	split: {
-		flags: ["--reason", "--keep", "--plan"],
-		minPos: 3,
-		reqFlags: ["--reason"],
-		usage: `usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]`,
-	},
-	orphaned: {
-		flags: ["--item", "--json"],
-		switches: ["--json"],
-		minPos: 0,
-		reqFlags: [],
-		usage: "usage: orphaned [--item <id>] [--json]",
-	},
-	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
-	reclaim: {
-		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
-		switches: ["--json"],
-		minPos: 1,
-		reqFlags: [],
-		usage:
-			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
-	},
-	"migrate-ledger": {
-		flags: [],
-		minPos: 1,
-		reqFlags: [],
-		usage: "usage: migrate-ledger <path>",
-	},
-};
 
 const spec = SCHEMA[cmd];
 if (!spec)
@@ -240,40 +109,7 @@ if (rest.includes("--help") || rest.includes("-h")) {
 	process.exit(0);
 }
 
-// generic parse + validate: known flags consume their value (first occurrence
-// wins, a trailing flag yields null), everything non-flag is a positional.
-// Violations die with the command's usage line — before any state is touched.
-function parseArgs(spec: Spec): {
-	pos: string[];
-	flag: (name: string) => string | null;
-} {
-	const pos: string[] = [];
-	const vals = new Map<string, string | null>();
-	for (let i = 0; i < rest.length; i++) {
-		if (spec.switches?.includes(rest[i])) {
-			vals.set(rest[i], "true");
-			continue;
-		}
-		if (spec.flags.includes(rest[i])) {
-			if (!vals.has(rest[i])) vals.set(rest[i], rest[i + 1] ?? null);
-			i++;
-			continue;
-		}
-		if (rest[i].startsWith("--")) {
-			if (spec.lax) continue;
-			die(`unknown option: ${rest[i]}`);
-		}
-		pos.push(rest[i]);
-	}
-	if (
-		pos.length < spec.minPos ||
-		spec.reqFlags.some((f) => !vals.has(f) || vals.get(f) === null)
-	)
-		die(spec.usage);
-	return { pos, flag: (name: string): string | null => vals.get(name) ?? null };
-}
-
-const { pos, flag } = parseArgs(spec);
+const { pos, flag } = parseArgs(rest, spec, die);
 
 // LAZY DB open with per-command routing (was a module-top openGovernorDb()):
 // mutators need the real DB — die with a hint when it is unreachable; readers
@@ -321,6 +157,11 @@ function db(): GovernorStore {
 // project partitioning: shared identity from govdb (repo's common git dir) —
 // sessions in different projects never see or steal each other's work
 const PROJECT = projectIdentity();
+
+// W609: the caller's fence epoch — --claim-epoch over the KLH_CLAIM_EPOCH
+// lane env; absent = unfenced manual path (fenceEpoch dies on garbage)
+const claimedEpoch = (): number | null =>
+	fenceEpoch(flag("--claim-epoch"), process.env[CLAIM_EPOCH_ENV], die);
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint =
@@ -370,13 +211,11 @@ const MUTATING_CMDS = new Set([
 	"migrate-ledger",
 ]);
 
-
 type Item = Record<string, string | number | null>;
 
 // PROJECT is the git COMMON dir (<repo>/.git for a normal checkout — shared by
 // every worktree), so the mirror belongs beside it in the repo working tree.
-const mirrorPath = (): string =>
-	`${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
+const mirrorPath = (): string => `${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
 
 // tolerant parse: an absent, truncated, or hand-mangled mirror is never a hard
 // failure — reads then just have nothing to fall back to
@@ -937,6 +776,7 @@ if (cmd === "add") {
 	for (const k of [
 		"scope",
 		"owner_sid",
+		"claim_epoch",
 		"result_sha",
 		"why_parallel",
 		"requires",
@@ -1001,7 +841,7 @@ if (cmd === "add") {
 	// compare-and-set: two lanes racing for the last READY item → exactly one wins
 	const r = db()
 		.query(
-			"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY'",
+			"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, origin = COALESCE(?, origin), updated_at = ?, claim_epoch = claim_epoch + 1 WHERE project = ? AND id = ? AND state = 'READY'",
 		)
 		.run(as, origin ?? null, Date.now(), PROJECT, id);
 	if (r.changes === 0)
@@ -1010,7 +850,12 @@ if (cmd === "add") {
 		);
 	autoClaim(as, it.scope as string | null);
 	emit("work.claimed", id, { by: as });
-	console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
+	const minted = db()
+		.query("SELECT claim_epoch FROM work_items WHERE project = ? AND id = ?")
+		.get(PROJECT, id) as { claim_epoch: number };
+	console.log(
+		`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))} · epoch ${minted.claim_epoch}`,
+	);
 } else if (cmd === "release") {
 	const id = pos[0];
 	const as = flag("--as");
@@ -1044,7 +889,13 @@ if (cmd === "add") {
 		die(
 			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot start it`,
 		);
-	if (it.state !== "RUNNING") setState(id, "RUNNING");
+	if (it.state !== "RUNNING")
+		transitionOrDie(
+			db(),
+			fenceOf(PROJECT, it, claimedEpoch()),
+			{ state: "RUNNING" },
+			die,
+		);
 	console.log(`${green("▶")} ${id}`);
 } else if (cmd === "summary") {
 	const id = pos[0];
@@ -1082,7 +933,12 @@ if (cmd === "add") {
 	}
 	const tx = db().transaction(() => {
 		if (record) persistCompletion(db(), record);
-		setState(id, "DONE", null, record?.commit_sha ?? sha);
+		transitionOrDie(
+			db(),
+			fenceOf(PROJECT, it, claimedEpoch()),
+			{ state: "DONE", owner: null, sha: record?.commit_sha ?? sha },
+			die,
+		);
 		emit("work.done", id, {
 			sha: record?.commit_sha ?? sha ?? "",
 			verified: !!record,
@@ -1130,7 +986,12 @@ if (cmd === "add") {
 				!["CLAIMED", "RUNNING"].includes(it.state as string))
 		)
 			die(`${id} is not an unfinished claim owned by ${as} — failure refused`);
-		setState(id, "FAILED");
+		transitionOrDie(
+			db(),
+			fenceOf(PROJECT, it, claimedEpoch()),
+			{ state: "FAILED" },
+			die,
+		);
 		emit("work.failed", id, { note });
 	})();
 	console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
