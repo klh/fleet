@@ -363,6 +363,13 @@ const capsuleGet = (sid: string): Record<string, string> | null =>
 		sh([process.execPath, `${BIN}/coord.ts`, "capsule", "get", "--as", sid]),
 	);
 
+/** W617: the item-scoped capsule (work.<id>.capsule) — travels with the
+ *  item across reclaim/re-take, so any fresh claimer resumes informed. */
+export const itemCapsuleGet = (item: string): Record<string, string> | null =>
+	parseCapsuleGet(
+		sh([process.execPath, `${BIN}/coord.ts`, "capsule", "get", "--item", item]),
+	);
+
 /** the mission brief. Everything a headless lane needs: full item spec,
  *  capsule protocol, landing chain, sid + how it gets resumed. Resume runs
  *  embed the dead lane's last capsule as RESUME CONTEXT. */
@@ -373,6 +380,9 @@ export const composeBrief = (o: {
 	branch: string;
 	worktree: string;
 	capsule: Record<string, string> | null;
+	/** W617: item-scoped capsule — injected for ANY claimer, not just the
+	 *  reused sid. */
+	itemCapsule?: Record<string, string> | null;
 	repo?: string;
 	aids?: string[];
 	extra?: string[];
@@ -436,6 +446,19 @@ export const composeBrief = (o: {
 			``,
 			`RESUME CONTEXT — latest capsule from a previous run of this lane (reconcile with the worktree + item state before continuing):`,
 			JSON.stringify(o.capsule),
+		);
+	}
+	// W617: the item capsule rides for any claimer — skipped when identical
+	// to the lane capsule (a same-sid resume would otherwise print it twice
+	// and the brief-size gate notices).
+	if (
+		o.itemCapsule &&
+		JSON.stringify(o.itemCapsule) !== JSON.stringify(o.capsule)
+	) {
+		parts.push(
+			``,
+			`RESUME CONTEXT — item capsule from a previous lane on this item (any claimer; reconcile with the worktree + item state before continuing):`,
+			JSON.stringify(o.itemCapsule),
 		);
 	}
 	return parts.join("\n");
@@ -594,6 +617,7 @@ const dispatchItem = async (
 			branch,
 			worktree: wt,
 			capsule,
+			itemCapsule: itemCapsuleGet(item),
 			agent: pick.agent,
 			landing: await landingRedirect(REPO, branch),
 			extra: routingExtra(),
@@ -797,6 +821,7 @@ const dispatchItem = async (
 			branch,
 			worktree: wt,
 			capsule,
+			itemCapsule: itemCapsuleGet(item),
 			agent: pick.agent,
 			extra: routingExtra(),
 		});

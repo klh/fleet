@@ -801,10 +801,14 @@ if (cmd === "add") {
 	const id = pos[0];
 	const it = get(id ?? "");
 	if (flag("--json")) {
+		const capRow = db()
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`work.${id}.capsule`) as { value: string } | null;
 		console.log(
 			JSON.stringify({
 				...it,
 				completion: completionRecord(db(), PROJECT, String(it.id)),
+				capsule: capRow ? JSON.parse(capRow.value) : null,
 			}),
 		);
 		process.exit(0);
@@ -823,6 +827,12 @@ if (cmd === "add") {
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
 	}
+	// W617: the item capsule travels with the item, not the lane — printed
+	// here (and injected by composeBrief) so any claimer resumes informed.
+	const cap = db()
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(`work.${id}.capsule`) as { value: string } | null;
+	if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
 	const kids = db()
 		.query(
 			"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
@@ -1255,8 +1265,7 @@ if (cmd === "add") {
 	// honors it via probeClaim, the strike counter stays cleared while held.
 	const id = pos[0];
 	const ms = parseDuration(String(flag("--for") ?? ""));
-	if (ms === null)
-		die("extend: --for must be <n>s|m|h (e.g. 45m), 1s..24h");
+	if (ms === null) die("extend: --for must be <n>s|m|h (e.g. 45m), 1s..24h");
 	const it = get(id ?? "");
 	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
 		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be extended`);
@@ -1264,7 +1273,7 @@ if (cmd === "add") {
 	if (as && it.owner_sid !== resolveSid(String(as)))
 		die(
 			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot extend it`,
-	);
+		);
 	const by = as
 		? resolveSid(String(as))
 		: resolveSid(String(it.owner_sid ?? ""));

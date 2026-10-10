@@ -44,6 +44,7 @@ import { supSid } from "../hooks/lib/laneslug.ts";
 import {
 	composeBrief,
 	isOwnerGated,
+	itemCapsuleGet,
 	parseCapsuleGet,
 	parseReady,
 	sidOf,
@@ -339,6 +340,7 @@ const main = async (): Promise<void> => {
 			branch,
 			worktree: wt,
 			capsule,
+			itemCapsule: itemCapsuleGet(item),
 			repo: REPO,
 			aids: AIDS,
 			extra: [
