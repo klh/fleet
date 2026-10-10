@@ -3,11 +3,11 @@
 // (flash 4B) vs SystemOne typed on :8912 (Kev-4B 1.0) — same candidates,
 // unique signature per task (no cache hits), records wall latency, usage
 // tokens and verdict agreement.
-import { classifyAndCache } from "./fit-classifier.ts";
+export {};
 
 const KEV_PORT = process.env.KEV_PORT ?? 8912;
 const LLM_PORT = 8902;
-const N = Number(process.env.BENCH_N ?? 12);
+const _N = Number(process.env.BENCH_N ?? 12);
 
 type Row = {
 	task: string;
@@ -35,13 +35,38 @@ const tasks = [
 ];
 
 const candidates = [
-	{ machine: "muramasa", port: 8901, model: "qwen3-coder-30b", kind: "code", tags: "mlx 28GB code" },
-	{ machine: "muramasa", port: 8902, model: "mlx-community/Qwen3-4B-Instruct-2507-4bit", kind: "extract", tags: "mlx 4GB fast" },
-	{ machine: "mur shaped", port: 8903, model: "qwen3.5-35b", kind: "reason", tags: "mlx 35B deep" },
-	{ machine: "muramasa", port: 8906, model: "qwen3.5-8b-dk", kind: "danish", tags: "mlx danish" },
+	{
+		machine: "muramasa",
+		port: 8901,
+		model: "qwen3-coder-30b",
+		kind: "code",
+		tags: "mlx 28GB code",
+	},
+	{
+		machine: "muramasa",
+		port: 8902,
+		model: "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+		kind: "extract",
+		tags: "mlx 4GB fast",
+	},
+	{
+		machine: "mur shaped",
+		port: 8903,
+		model: "qwen3.5-35b",
+		kind: "reason",
+		tags: "mlx 35B deep",
+	},
+	{
+		machine: "muramasa",
+		port: 8906,
+		model: "qwen3.5-8b-dk",
+		kind: "danish",
+		tags: "mlx danish",
+	},
 ];
 
-const sigOf = (task: string, b: string): string => `bench-${b}-${task.slice(0, 24)}`;
+const _sigOf = (task: string, b: string): string =>
+	`bench-${b}-${task.slice(0, 24)}`;
 const llmCaller = async (prompt: string): Promise<string> => {
 	const r = await fetch(`http://127.0.0.1:${LLM_PORT}/v1/chat/completions`, {
 		method: "POST",
@@ -51,7 +76,8 @@ const llmCaller = async (prompt: string): Promise<string> => {
 			messages: [
 				{
 					role: "system",
-					content: "You output ONLY compact JSON. No prose, no markdown fences.",
+					content:
+						"You output ONLY compact JSON. No prose, no markdown fences.",
 				},
 				{ role: "user", content: prompt },
 			],
@@ -108,7 +134,10 @@ const kevCaller = async (prompt: string): Promise<string> => {
 	});
 	if (!r.ok) throw new Error(`HTTP ${r.status} from :${KEV_PORT}`);
 	const w = (await r.json()) as {
-		answers?: Record<string, { choice?: string; noul?: number; score?: number }>;
+		answers?: Record<
+			string,
+			{ choice?: string; noul?: number; score?: number }
+		>;
 		usage?: { input_tokens?: number; output_tokens?: number };
 	};
 	kevUsage = {
@@ -120,13 +149,17 @@ const kevCaller = async (prompt: string): Promise<string> => {
 		placement: a.placement?.choice ?? "local",
 		model_glob: null,
 		longrun: (a.longrun?.noul ?? 0) >= 0.5,
-		confidence: Math.round(Math.min(1, Math.max(0, (a.confidence?.score ?? 0) / 4)) * 100) / 100,
+		confidence:
+			Math.round(
+				Math.min(1, Math.max(0, (a.confidence?.score ?? 0) / 4)) * 100,
+			) / 100,
 	});
 };
 
-function parsePromptLocal(
-	prompt: string,
-): { hint: string; candidates: string[] } {
+function parsePromptLocal(prompt: string): {
+	hint: string;
+	candidates: string[];
+} {
 	const hint = /^Task hint: "(.+)"$/m.exec(prompt)?.[1] ?? "";
 	const candidates = prompt
 		.split("\n")
@@ -169,7 +202,7 @@ for (const task of tasks) {
 				out_tok: u.out,
 				ok: verdict !== null,
 			});
-		} catch (e) {
+		} catch (_e) {
 			rows.push({
 				task,
 				backend,
@@ -213,8 +246,20 @@ const agree = (() => {
 	}
 	return `${same}/${n}`;
 })();
-const out = { rows, summary: [sum("llm"), sum("kev")], placementAgreement: agree };
+const out = {
+	rows,
+	summary: [sum("llm"), sum("kev")],
+	placementAgreement: agree,
+};
 console.log(JSON.stringify(out.summary));
 console.log("placement agreement llm↔kev:", agree);
-console.log("total tokens llm:", sum("llm").tokens, "| kev:", sum("kev").tokens);
-await Bun.write("/tmp/bench-fit.jsonl", rows.map((r) => JSON.stringify(r)).join("\n"));
+console.log(
+	"total tokens llm:",
+	sum("llm").tokens,
+	"| kev:",
+	sum("kev").tokens,
+);
+await Bun.write(
+	"/tmp/bench-fit.jsonl",
+	rows.map((r) => JSON.stringify(r)).join("\n"),
+);
