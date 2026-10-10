@@ -165,6 +165,41 @@ describe("coord targets", () => {
 		]);
 	});
 
+	// W619 capability-filtered discovery: --cap keeps only live targets whose
+	// sessions.capabilities advertise the capability; the vocabulary guard
+	// dies exactly like coord bootstrap --caps.
+	test("targets --cap filters on sessions.capabilities", () => {
+		seedSessions();
+		const db = new Database(DB);
+		db.query("UPDATE sessions SET capabilities = ? WHERE sid = ?").run(
+			"shell,vision",
+			"lane-copilot-22222222",
+		);
+		db.close();
+		const vision = run(["targets", "--cap", "vision"]);
+		expect(vision.code).toBe(0);
+		expect(vision.out).toContain("lane-copilot-22222222");
+		expect(vision.out).not.toContain("lane-claude-11111111");
+		const fsOnly = run(["targets", "--cap", "fs"]);
+		expect(fsOnly.code).toBe(0);
+		expect(fsOnly.out).toContain("lane-claude-11111111");
+		expect(fsOnly.out).not.toContain("lane-copilot-22222222");
+		const json = run(["targets", "--cap", "shell", "--json"]);
+		const parsed = JSON.parse(json.out) as Array<{ sid: string }>;
+		expect(parsed.map((row) => row.sid)).toEqual([
+			"lane-claude-11111111",
+			"lane-copilot-22222222",
+		]);
+	});
+
+	test("targets --cap dies on an unknown capability with the vocabulary", () => {
+		seedSessions();
+		const bad = run(["targets", "--cap", "telepathy"]);
+		expect(bad.code).toBe(2);
+		expect(bad.err).toContain("unknown capability: telepathy");
+		expect(bad.err).toContain("vocabulary:");
+	});
+
 	// W299: top-level sessions only get hb bumped at bootstrap
 	// (lesson.zombie-session-hygiene), so a long-running coordinator's hb
 	// goes stale while it's genuinely still alive — sweepStaleSessions
