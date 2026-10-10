@@ -350,10 +350,25 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	// .ts) — the NDJSON lines under ~/.cache/claude-governor/archive/ keep
 	// everything gc deletes; route_audit/auth_events/usage_rollup/admin_audit
 	// were previously unbounded (governor bloat).
+	// W603 cursor-aware events retention: orphan cursors go FIRST (a dead
+	// session's stuck cursor must not hold the prune floor), then the events
+	// prune cuts only past EVERY live cursor — unread inbox traffic is never
+	// pruned out from under a reader (min over remaining cursors; no cursor
+	// rows = age-only cut).
+	const c = db
+		.query("DELETE FROM cursors WHERE sid NOT IN (SELECT sid FROM sessions)")
+		.run().changes;
+	const floor = (
+		db.query("SELECT MIN(event_id) AS f FROM cursors").get() as {
+			f: number | null;
+		}
+	).f;
 	const e = pruneSafe({
 		table: "events",
 		tsCol: "ts",
 		cut,
+		floorCol: "id",
+		floorVal: floor ?? undefined,
 		cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],
 	});
 	const auditDays = Number(arg("--audit-days") ?? 90);
@@ -420,9 +435,6 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const s = db
 		.query("DELETE FROM sessions WHERE state = 'CLOSED' AND hb < ?")
 		.run(cut).changes;
-	const c = db
-		.query("DELETE FROM cursors WHERE sid NOT IN (SELECT sid FROM sessions)")
-		.run().changes;
 	const f = db
 		.query("DELETE FROM facts WHERE key LIKE 'lane.%' AND ts < ?")
 		.run(cut).changes;

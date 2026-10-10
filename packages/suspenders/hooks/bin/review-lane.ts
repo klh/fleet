@@ -65,7 +65,7 @@ function gitDiff(): string {
 const thread: string[] = (
 	db
 		.query(
-			"SELECT ts, source, kind, payload FROM events WHERE json_extract(payload, '$.work') = ? AND json_extract(payload, '$.project') = ? ORDER BY id DESC LIMIT 20",
+			"SELECT ts, source, kind, payload FROM events WHERE work = ? AND project = ? ORDER BY id DESC LIMIT 20",
 		)
 		.all(item, project) as Row[]
 ).map(

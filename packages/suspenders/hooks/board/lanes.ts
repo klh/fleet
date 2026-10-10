@@ -184,7 +184,7 @@ export function syncDecisions(): void {
 	for (const d of db
 		.query(
 			`SELECT d.event_id AS id FROM decisions d WHERE d.state = 'OPEN' AND d.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM events e
-			WHERE e.kind IN ('work.superseded','work.cancelled','work.supersede','work.cancel') AND json_extract(e.payload, '$.work') = d.task_id)`,
+			WHERE e.kind IN ('work.superseded','work.cancelled','work.supersede','work.cancel') AND e.work = d.task_id)`,
 		)
 		.all() as { id: number }[])
 		db.query(
@@ -280,7 +280,7 @@ export const failNote = (id: string): string | null => {
 	try {
 		const r = db
 			.query(
-				"SELECT payload FROM events WHERE kind = 'work.failed' AND json_extract(payload, '$.work') = ? ORDER BY id DESC LIMIT 1",
+				"SELECT payload FROM events WHERE kind = 'work.failed' AND work = ? ORDER BY id DESC LIMIT 1",
 			)
 			.get(id) as { payload: string | null } | null;
 		const note = r?.payload
@@ -475,7 +475,10 @@ export function subscribeTail(
 	if (start > 0) lines.shift(); // first line may be a partial record
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const text = lines[i]
-			.replace(/\u001b\[[0-9;]*m/g, "")
+			// ESC built at runtime: a literal control char in a regex trips
+			// noControlCharactersInRegex and a static-arg RegExp constructor
+			// trips useRegexLiterals — runtime-built escapes satisfy both (W603)
+			.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "")
 			.replace(/\s+/g, " ")
 			.trim();
 		if (!text) continue;

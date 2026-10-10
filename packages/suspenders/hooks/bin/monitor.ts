@@ -146,7 +146,7 @@ try {
 			`SELECT project, id, title, owner_sid, scope FROM work_items
 			 WHERE state IN ('READY','CLAIMED','RUNNING') AND title LIKE '%DECISION%'
 			 AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.task_id = work_items.id AND d.state = 'OPEN')
-			 AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'NEED_DECISION' AND json_extract(e.payload, '$.work') = work_items.id)`,
+			 AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'NEED_DECISION' AND e.work = work_items.id)`,
 		)
 		.all() as typeof decisionGated;
 } catch {} // no decisions table yet — board never ran, nothing to surface
