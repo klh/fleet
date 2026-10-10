@@ -267,9 +267,11 @@ test("CLI scoped orphan listing and expected-owner reclaim preserve other claims
 		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
 	).toBe("CLAIMED");
 	expect(call("reclaim", "all").exitCode).toBe(0);
+	// W610: unknown is not dead — reclaim all never releases an evidence-less
+	// claim; `work reclaim <id>` stays the explicit operator path
 	expect(
 		JSON.parse(call("show", ids[1], "--json").stdout.toString()).state,
-	).toBe("READY");
+	).toBe("CLAIMED");
 });
 
 test("authoritative remote guarded release is one transaction and refused guard changes nothing", async () => {
