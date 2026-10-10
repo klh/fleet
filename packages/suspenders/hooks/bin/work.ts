@@ -23,25 +23,27 @@
 //   work block <id> --on <id2>           / work unblock <id> --on <id2>   (cycle-checked)
 //   work supersede <id> --by <new-id>
 //   work orphaned                        / work reclaim <id>|all
+//   work allocate [--apply] [--json] [--capacity N]   (W515 allocation scorer + rebalance)
 //
 // workgraph mirror (beads-inspired): mutations re-export <repo>/.workgraph.jsonl
 // (atomic, best-effort); reads fall back to the committed mirror when
 // governor.db cannot serve the project — fresh clone / DB unreachable.
-import {
-	appendFileSync,
-	existsSync,
-	readFileSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import {
 	CAPABILITIES,
 	type GovernorStore,
 	openStore,
-	openMemoryStore,
 	projectIdentity,
 	projectRootOf,
 } from "../lib/govdb.ts";
+import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
+import {
+	applyAllocations,
+	assignTask,
+	candidateLanes,
+	planAllocation,
+	renderAllocPlan,
+} from "../lib/work-alloc.ts";
 import { basename } from "node:path";
 import {
 	loadLaneRegistry,
@@ -73,7 +75,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (!cmd || cmd === "--help" || cmd === "-h") {
 	if (cmd) {
 		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim <id>|all | migrate-ledger",
+			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim <id>|all | migrate-ledger",
 		);
 		process.exit(0);
 	}
@@ -218,18 +220,20 @@ const SCHEMA: Record<string, Spec> = {
 		usage:
 			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 	},
-	"migrate-ledger": {
-		flags: [],
-		minPos: 1,
+	allocate: {
+		flags: ["--apply", "--json", "--capacity", "--fleet"],
+		switches: ["--apply", "--json"],
+		minPos: 0,
 		reqFlags: [],
-		usage: "usage: migrate-ledger <path>",
+		usage:
+			"usage: allocate [--apply] [--json] [--capacity N] [--fleet <path>] — score READY work × lanes; decisions {assign|recommend}; --apply claims only the assign kind",
 	},
 };
 
 const spec = SCHEMA[cmd];
 if (!spec)
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | migrate-ledger",
 	);
 
 // per-verb help: semantics live on the surface, not in source-diving —
@@ -290,7 +294,7 @@ function db(): GovernorStore {
 		d = openStore();
 	} catch (e) {
 		if (isRead) {
-			const m = mirrorOrNull();
+			const m = mirrorOrNull(PROJECT);
 			if (m) {
 				handle = m;
 				return m;
@@ -307,7 +311,7 @@ function db(): GovernorStore {
 				.get(PROJECT) as { n: number }
 		).n;
 		if (n === 0) {
-			const m = mirrorOrNull();
+			const m = mirrorOrNull(PROJECT);
 			if (m) {
 				handle = m;
 				return m;
@@ -342,8 +346,6 @@ const red = paint("31");
 // unreachable, or a fresh machine whose empty partition has never seen this
 // graph (items are never deleted, so an empty partition means "never seen").
 // The DB always wins when it holds the project's rows; reads never write.
-const MIRROR_NAME = ".workgraph.jsonl";
-const MIRROR_MAX_AGE = 15 * 60_000;
 const READ_CMDS = new Set([
 	"stats",
 	"list",
@@ -370,109 +372,7 @@ const MUTATING_CMDS = new Set([
 	"migrate-ledger",
 ]);
 
-
 type Item = Record<string, string | number | null>;
-
-// PROJECT is the git COMMON dir (<repo>/.git for a normal checkout — shared by
-// every worktree), so the mirror belongs beside it in the repo working tree.
-const mirrorPath = (): string =>
-	`${projectRootOf(PROJECT)}/${MIRROR_NAME}`;
-
-// tolerant parse: an absent, truncated, or hand-mangled mirror is never a hard
-// failure — reads then just have nothing to fall back to
-function readMirror(): { items: Item[]; meta: Record<string, unknown> } | null {
-	try {
-		const lines = readFileSync(mirrorPath(), "utf8")
-			.split("\n")
-			.filter((l) => l.trim());
-		const meta = JSON.parse(lines[lines.length - 1] ?? "null");
-		if (meta?.type !== "meta") return null;
-		if (meta.project && meta.project !== PROJECT) return null; // someone else's mirror
-		return {
-			meta,
-			items: lines.slice(0, -1).map((l) => JSON.parse(l) as Item),
-		};
-	} catch {
-		return null;
-	}
-}
-
-// rebuild the project graph in an in-memory SQLite shaped like the real one, so
-// read handlers run their normal SQL UNCHANGED against the mirror copy
-function mirrorDb(): GovernorStore | null {
-	const m = readMirror();
-	if (!m) return null;
-	const d = openMemoryStore();
-	d.run(
-		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, requires TEXT, tags TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
-	);
-	d.run(
-		"CREATE TABLE work_deps (project TEXT NOT NULL, work_id TEXT NOT NULL, depends_on TEXT NOT NULL, PRIMARY KEY (project, work_id, depends_on))",
-	);
-	const defaults: Partial<Record<string, string | number>> = {
-		state: "READY",
-		priority: 0,
-		required: 1,
-		created_at: 0,
-		updated_at: 0,
-	};
-	const cols = [
-		"id",
-		"parent_id",
-		"title",
-		"description",
-		"state",
-		"priority",
-		"owner_sid",
-		"created_by",
-		"scope",
-		"why_parallel",
-		"result_sha",
-		"required",
-		"requires",
-		"tags",
-		"created_at",
-		"updated_at",
-	];
-	const ins = d.query(
-		`INSERT INTO work_items (project, ${cols.join(", ")}) VALUES (?, ${cols.map(() => "?").join(", ")})`,
-	);
-	for (const it of m.items) {
-		try {
-			ins.run(PROJECT, ...cols.map((c) => it[c] ?? defaults[c] ?? null));
-		} catch {}
-	}
-	const insDep = d.query(
-		"INSERT INTO work_deps (project, work_id, depends_on) VALUES (?, ?, ?)",
-	);
-	for (const it of m.items)
-		for (const dep of (it.deps as string[] | undefined) ?? []) {
-			try {
-				insDep.run(PROJECT, it.id, dep);
-			} catch {}
-		}
-	console.error(
-		dim(
-			`serving from ${MIRROR_NAME} mirror (governor.db unreachable) — read-only`,
-		),
-	);
-	const age = Date.now() - Number(m.meta.exported_at ?? 0);
-	if (age > MIRROR_MAX_AGE)
-		console.error(
-			dim(`mirror may be stale, exported ${Math.floor(age / 60_000)}m ago`),
-		);
-	return d;
-}
-
-// a broken mirror degrades to "no fallback" — never a crash on the read path
-function mirrorOrNull(): Database | null {
-	try {
-		return mirrorDb();
-	} catch {
-		return null;
-	}
-}
-
 function get(id: string): Item {
 	const r = db()
 		.query("SELECT * FROM work_items WHERE project = ? AND id = ?")
@@ -677,16 +577,8 @@ function insertItem(
 		);
 }
 
-// claim coupling: taking work auto-claims its scope; finishing releases it —
-// one ownership system, not two that drift
-function autoClaim(sid: string, scope: string | null): void {
-	if (!scope) return;
-	db()
-		.query(
-			"INSERT OR REPLACE INTO claims (sid, scope, intent, hot, ts, tp) VALUES (?, ?, 'work-graph', 0, ?, ?)",
-		)
-		.run(sid, scope, Date.now(), liveTranscript(sid) ?? "");
-}
+// claim coupling on release; the claim-side coupling (take) lives in
+// lib/work-alloc.ts assignTask() — one ownership system, not two that drift
 function releaseClaim(
 	sid: string,
 	scope: string | null,
@@ -765,56 +657,6 @@ function resolveSid(as: string): string {
 	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
 	return as;
 }
-
-// mirror export: FULL truth — every item of this project, one JSON object per
-// line (plus a deps array per item so `ready` filtering survives the round
-// trip), closed by a meta line {type, project, exported_at, count,
-// max_updated_at}. Atomic (temp file + rename) and best-effort: a failed
-// export warns dim on stderr and leaves the command's exit unchanged — the
-// mirror is never allowed to break the command that fed it.
-function exportMirror(): void {
-	try {
-		const d = db();
-		const items = d
-			.query("SELECT * FROM work_items WHERE project = ? ORDER BY id")
-			.all(PROJECT) as Item[];
-		const edges = new Map<string, string[]>();
-		for (const e of d
-			.query("SELECT work_id, depends_on FROM work_deps WHERE project = ?")
-			.all(PROJECT) as { work_id: string; depends_on: string }[]) {
-			edges.set(e.work_id, [...(edges.get(e.work_id) ?? []), e.depends_on]);
-		}
-		const lines = items.map((r) =>
-			JSON.stringify({
-				...r,
-				project: undefined,
-				deps: edges.get(r.id as string) ?? [],
-			}),
-		);
-		let maxUpdated = 0;
-		for (const r of items)
-			maxUpdated = Math.max(maxUpdated, Number(r.updated_at) || 0);
-		lines.push(
-			JSON.stringify({
-				type: "meta",
-				project: PROJECT,
-				exported_at: Date.now(),
-				count: items.length,
-				max_updated_at: maxUpdated,
-			}),
-		);
-		const tmp = `${mirrorPath()}.tmp-${process.pid}`;
-		writeFileSync(tmp, `${lines.join("\n")}\n`);
-		renameSync(tmp, mirrorPath()); // atomic — a concurrent reader sees old or new, never half
-	} catch (e) {
-		console.error(
-			dim(
-				`work: mirror export skipped (${e instanceof Error ? e.message : String(e)})`,
-			),
-		);
-	}
-}
-
 if (cmd === "add") {
 	const title = pos[0];
 	if (!title)
@@ -941,6 +783,7 @@ if (cmd === "add") {
 		"why_parallel",
 		"requires",
 		"tags",
+		"alloc_reason",
 		"description",
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
@@ -998,18 +841,21 @@ if (cmd === "add") {
 		);
 		die(`${id} has unmet dependencies: ${[...unmet, ...unmerged].join(", ")}`);
 	}
-	// compare-and-set: two lanes racing for the last READY item → exactly one wins
-	const r = db()
-		.query(
-			"UPDATE work_items SET state = 'CLAIMED', owner_sid = ?, origin = COALESCE(?, origin), updated_at = ? WHERE project = ? AND id = ? AND state = 'READY'",
-		)
-		.run(as, origin ?? null, Date.now(), PROJECT, id);
-	if (r.changes === 0)
+	// compare-and-set through the ONE assignment gateway (W515): the CAS +
+	// claim coupling + post-lock readiness recheck + alloc_reason audit stamp
+	// happen in a single transaction inside assignTask
+	const claimed = assignTask(db(), PROJECT, {
+		id,
+		sid: as,
+		reason: "manual take",
+		origin: origin ?? null,
+	});
+	if (!claimed.ok)
 		die(
-			`${id} was taken (or is not READY) — race lost, pick another from \`work ready\``,
+			claimed.why === "race lost"
+				? `${id} was taken (or is not READY) — race lost, pick another from \`work ready\``
+				: `${id} claim refused: ${claimed.why}`,
 		);
-	autoClaim(as, it.scope as string | null);
-	emit("work.claimed", id, { by: as });
 	console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
 } else if (cmd === "release") {
 	const id = pos[0];
@@ -1253,6 +1099,23 @@ if (cmd === "add") {
 		`${cyan("⊞")} ${cyan(id)} SHATTERED → ${titles.length} children${keep ? `, child ${keep} kept by ${dim(String(it.owner_sid ?? "").slice(0, 8))}` : ""}`,
 	);
 	console.log(kids.map(renderRow).join("\n"));
+	// W515: decision objects for the minted children (recommend-only — split
+	// never claims; the scorer suggests a lane per unkept child)
+	const unkept = kids
+		.filter((k) => k.state === "READY")
+		.map((k) => String(k.id));
+	if (unkept.length) {
+		const sugg = planAllocation(
+			db(),
+			PROJECT,
+			candidateLanes(db(), loadLaneRegistry(process.cwd())),
+			{ items: unkept },
+		);
+		if (sugg.length)
+			console.log(
+				`${dim("⇢ suggested allocation:")}\n${renderAllocPlan(sugg)}`,
+			);
+	}
 } else if (cmd === "orphaned") {
 	// CLAIMED/RUNNING items whose owner transcript is dead — inspect capsules
 	// before reclaiming (do NOT silently return work with uncommitted state)
@@ -1301,6 +1164,42 @@ if (cmd === "add") {
 			console.log(
 				`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
 			);
+	}
+} else if (cmd === "allocate") {
+	// W515: allocation scorer + decision-object rebalance (oh-my-codex lift);
+	// scorer/planner details in lib/work-alloc.ts. PURE unless --apply, which
+	// claims ONLY the assign kind through assignTask(). In NEITHER cmd set:
+	// the plan needs sessions/events (no mirror fallback), and a pure plan
+	// must not re-export the mirror ("reads never write").
+	const readRegistry =
+		flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
+			? loadLaneRegistryFile
+			: loadLaneRegistry;
+	const entries = readRegistry<{
+		sid: string;
+		item: string;
+		pid?: number;
+		worktree?: string;
+		host?: string;
+		launchedAt?: number;
+	}>(flag("--fleet") ?? process.cwd());
+	const decisions = planAllocation(
+		db(),
+		PROJECT,
+		candidateLanes(db(), entries),
+		{ capacity: Number(flag("--capacity") ?? 1) },
+	);
+	if (flag("--json")) console.log(JSON.stringify(decisions));
+	else
+		console.log(
+			renderAllocPlan(decisions) || dim("(nothing READY to allocate)"),
+		);
+	if (flag("--apply")) {
+		const { applied, skipped } = applyAllocations(db(), PROJECT, decisions);
+		for (const s of skipped)
+			console.log(`${amber("●")} ${s.item} skipped: ${s.why}`);
+		console.log(`${green("✓")} ${applied.length} item(s) allocated`);
+		exportMirror(db(), PROJECT);
 	}
 } else if (cmd === "reclaim") {
 	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
@@ -1471,10 +1370,10 @@ if (cmd === "add") {
 	}
 } else {
 	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | reclaim | migrate-ledger",
+		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | migrate-ledger",
 	);
 }
 
 // reached ONLY after a successful mutating command — every failure path die()s
 // before this line, so a mirror refresh here is exactly "the graph changed".
-if (MUTATING_CMDS.has(cmd)) exportMirror();
+if (MUTATING_CMDS.has(cmd)) exportMirror(db(), PROJECT);

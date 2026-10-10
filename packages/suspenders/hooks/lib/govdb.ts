@@ -561,6 +561,11 @@ export function openGovernorDb(): Database {
 	// coverage, so the tag rides regardless of origin.
 	if (!wiCols.includes("tags"))
 		db.run("ALTER TABLE work_items ADD COLUMN tags TEXT");
+	// W515 — allocation_reason: the why behind every assignment, stamped by
+	// assignTask() (the sole assignment gateway): "manual take" for explicit
+	// takes, the scored reason ("allocate: score=…") for allocate --apply.
+	if (!wiCols.includes("alloc_reason"))
+		db.run("ALTER TABLE work_items ADD COLUMN alloc_reason TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a
@@ -1059,7 +1064,10 @@ export function openGovernorDb(): Database {
 			`INSERT OR IGNORE INTO machine_cursors (key, value, source, ts) SELECT key, value, source, ts FROM facts WHERE ${where}`,
 			cursorPrefixes.map((p) => `${p}%`),
 		);
-		db.run(`DELETE FROM facts WHERE ${where}`, cursorPrefixes.map((p) => `${p}%`));
+		db.run(
+			`DELETE FROM facts WHERE ${where}`,
+			cursorPrefixes.map((p) => `${p}%`),
+		);
 		db.run("PRAGMA user_version = 12");
 	}
 	// v13 (W210) — team entitlement ceilings (the v9→v11-era promise): the

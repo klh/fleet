@@ -61,6 +61,9 @@ Work graph (`work` — the ONE ledger; never Markdown todos):
 
 - `work ready` — claimable items · `work list` — all (◐ claimed, ⊞ split)
 - `work show <id>` — the item · `work take <id> --as <sid>`
+- `work allocate [--apply] [--capacity N]` — scorer-ranked plan of READY ×
+  lanes (reclaimed-first FIFO, decisions {assign|recommend} with
+  alloc_reason audit trail; `--apply` claims only the assign kind)
 - `work done <id> --sha <sha>` — close with evidence
 - `work add <title> [--parent <id>] [--priority n] [--desc ...]` — mint
   (never invent work; empty title = unfilled item)
