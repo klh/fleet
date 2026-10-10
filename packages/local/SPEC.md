@@ -59,16 +59,18 @@ http://:80, https://:443 {
 
 ```caddyfile
 belt.local {
-	bind 127.0.0.1 ::1
+	@external not remote_ip 127.0.0.1 ::1
+	abort @external
 	reverse_proxy 127.0.0.1:7791
 }
 ```
 
-With `--route /status=4100` (repeatable), path routes become `handle` blocks — mutually exclusive, matcher-ordered, path-preserving:
+With `--route /status=4100` (repeatable), path routes become `handle` blocks — mutually exclusive, matcher + abort first, path-preserving:
 
 ```caddyfile
 belt.local {
-	bind 127.0.0.1 ::1
+	@external not remote_ip 127.0.0.1 ::1
+	abort @external
 	handle /status* {
 		reverse_proxy 127.0.0.1:4100
 	}
@@ -79,7 +81,8 @@ belt.local {
 ```
 
 - **Default-deny is the catch-all block.** `abort` closes the connection with no response (nginx 444 semantics). Site blocks sort by specificity: named hosts always win over the hostless catch-all, so a registered `name.local` is served and every unregistered Host is aborted — DNS-rebind attempts and stray `curl` Host headers die at the proxy. On :443 an unknown SNI has no certificate (on-demand TLS is not enabled), so the TLS handshake itself fails — deny before HTTP even starts.
-With `--lan --forward-auth <url>` the `bind` line is replaced by an authentication gate (see Trust model):
+- **Loopback-only is request-level.** `@external not remote_ip 127.0.0.1 ::1` + `abort @external` enforces the loopback trust model without `bind` — macOS denies unprivileged specific-address binds on ports <1024 (EACCES), so a `bind 127.0.0.1 ::1` site on :443 can never load: the reload fails and a landed fragment would crash-loop the LaunchAgent at boot. Listeners stay wildcard and loadable; external remotes are aborted before any handler runs (a LAN client completes the TLS handshake, sees the internal-CA cert, and is dropped at the HTTP layer).
+With `--lan --forward-auth <url>` the deny lines are replaced by an authentication gate (see Trust model):
 
 ```caddyfile
 belt.local {
@@ -113,8 +116,8 @@ belt.local {
 1. Validates the name against `^[a-z][a-z0-9-]{1,30}$`, the port as an integer 1–65535, the health path as rooted.
 2. Idempotent on re-register: same name + port + health path converges (fragment rewritten, validate + reload, dns claim reused when alive — concurrent claims conflict-rename each other — re-claimed only when dead). Same name with a different port or health path exits 1 (`deregister` first). A port collision with a _different_ name is refused: one port, one service — a second site proxying the same port is a config bug, not a feature. Routes are not part of the converge gate: a re-register rewrites the route set every time.
 3. Refuses to run without Caddy installed and the Caddyfile present (`run: klh-local install`).
-4. Writes `sites/<name>.caddy`: `<name>.local { bind 127.0.0.1 ::1; reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit. `--lan` drops the `bind` and requires `--forward-auth <http(s) url>` (no credentials, no fragment; `--lan` without it, or `--forward-auth` without `--lan`, exits 1). Exposure, like routes, is rewritten on every re-register. Each `--route /path=port` adds a `handle /path*` block ahead of the default `handle` (see the fragment shapes above); a route path without a trailing `*` gets one (subtree match), and the path is validated against `^[A-Za-z0-9/_.-]+$` — the only characters allowed into the config file.
-5. Staged `caddy validate` → move into `sites/` → `caddy reload`; on reload failure the prior fragment is restored (see The engine). The whole verb runs under the registry lock.
+4. Writes `sites/<name>.caddy`: `<name>.local { @external not remote_ip 127.0.0.1 ::1; abort @external; reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit. `--lan` drops the deny and requires `--forward-auth <http(s) url>` (no credentials, no fragment; `--lan` without it, or `--forward-auth` without `--lan`, exits 1). Exposure, like routes, is rewritten on each re-register. Each `--route /path=port` adds a `handle /path*` block ahead of the default `handle` (see the fragment shapes above); a route path without a trailing `*` gets one (subtree match), and the path is validated against `^[A-Za-z0-9/_.-]+$` — the only characters allowed into the config file.
+5. Staged `caddy validate` → move into `sites/` → `caddy reload`; on reload failure the prior fragment is restored (see The engine). When the running instance already serves the claim (host → target, checked via the admin API before the registry lock), the reload is skipped: the instance is authoritative and converged without rebinding (the W602 macOS privileged-port bind constraint). The whole verb runs under the registry lock.
 6. Claims DNS (see DNS claims): `dns-sd -P` advertising `127.0.0.1` for loopback services, the LAN address for `--lan` services; pid stored in the registry. `--no-dns` skips the claim. A live claim is reused unless the exposure changed (the advertised address differs → old claim released, new one made).
 7. Writes the registry entry and prints a summary: `https://<name>.local/`, `http://<name>.local/`, `http://<name>.local:<port>/`, the dns claim, the fragment path.
 

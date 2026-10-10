@@ -20,7 +20,11 @@ import {
 } from "node:fs";
 import { basename, dirname } from "node:path";
 import { probeService, serviceTarget } from "./dashboard-health.ts";
-import { activeRouteMatches, reconcileDnsClaim } from "./dns-reconcile.ts";
+import {
+	activeRouteMatches,
+	fetchActiveConfig,
+	reconcileDnsClaim,
+} from "./dns-reconcile.ts";
 import { maintainDnsClaims, releaseOwnedClaims } from "./dns-maintenance.ts";
 
 const die = (msg: string): never => {
@@ -241,7 +245,14 @@ export const parseForwardAuth = (
 };
 
 const exposureLines = (exposure: Exposure): string => {
-	if (!exposure.lan) return "\tbind 127.0.0.1 ::1\n";
+	// Listener-level `bind 127.0.0.1 ::1` is unloadable on macOS: unprivileged
+	// processes cannot bind a specific address on ports <1024 (EACCES — kernel
+	// verified; wildcard binds are allowed), so a loopback-bound :443 site can
+	// neither reload under the wildcard catch-all nor boot. The deny therefore
+	// lives at the request level: listeners stay wildcard, external remotes are
+	// aborted before any handler runs.
+	if (!exposure.lan)
+		return "\t@external not remote_ip 127.0.0.1 ::1\n\tabort @external\n";
 	const fa = parseForwardAuth(exposure.forwardAuth ?? "");
 	if (!fa) throw new Error("--lan requires a valid --forward-auth URL");
 	return `\tforward_auth ${fa.upstream} {
@@ -329,6 +340,9 @@ const plistConf = (): string => `<?xml version="1.0" encoding="UTF-8"?>
 // validate that staged config, and only then move it into sites/ — a fragment
 // Caddy cannot load never lands where it would poison every later reload. A
 // failed reload restores the prior fragment content (or removes a new one).
+// `served` (ccc951b pattern): when the running instance already serves the
+// claim, converge the fragment WITHOUT reloading — the instance is
+// authoritative and a reload would only re-bind its listeners.
 export type FragmentResult =
 	| { ok: true }
 	| { ok: false; stage: "reload" | "validate"; out: string };
@@ -357,6 +371,7 @@ export const applyFragment = (opts: {
 	content: string;
 	validate: (caddyfile: string) => { code: number; out: string };
 	reload: (caddyfile: string, force: boolean) => { code: number; out: string };
+	served?: () => boolean;
 }): FragmentResult => {
 	const { sites, caddyfile, name, content } = opts;
 	const frag = `${sites}/${name}.caddy`;
@@ -385,6 +400,7 @@ export const applyFragment = (opts: {
 	}
 	const prior = existsSync(frag) ? readFileSync(frag, "utf8") : null;
 	writeAtomic(frag, content);
+	if (opts.served?.() === true) return { ok: true };
 	const r = reloadWithRetry(caddyfile, opts.reload);
 	if (r.code === 0) return { ok: true };
 	if (prior === null) rmSync(frag, { force: true });
@@ -510,7 +526,7 @@ const cmdInstall = (): void => {
 `);
 };
 
-const cmdRegister = (argv: string[]): void => {
+const cmdRegister = async (argv: string[]): Promise<void> => {
 	let name = "";
 	let portRaw = "";
 	let healthPath = "/";
@@ -564,7 +580,7 @@ const cmdRegister = (argv: string[]): void => {
 		);
 	if (forwardAuth && !lan)
 		die(
-			`--forward-auth only applies with --lan (loopback sites bind 127.0.0.1)`,
+			`--forward-auth only applies with --lan (loopback sites abort external remotes)`,
 		);
 	if (forwardAuth && !parseForwardAuth(forwardAuth))
 		die(
@@ -579,8 +595,24 @@ const cmdRegister = (argv: string[]): void => {
 		: lan
 			? { lan, forwardAuth }
 			: { lan: false };
+	// Probe before the registry lock (read-only): when the running instance
+	// already serves name → target, the register converges without reloading —
+	// a reload re-binds listeners, and on macOS a specific-address bind on a
+	// privileged port is EACCES while a wildcard holder lives (W602).
+	const target = exposure.upstream ?? `127.0.0.1:${port}`;
+	const active = await fetchActiveConfig();
+	const alreadyServed =
+		active !== null && activeRouteMatches(active, `${name}.local`, target);
 	withRegistryLock(() =>
-		registerLocked(name, port, healthPath, noDns, routes, exposure),
+		registerLocked(
+			name,
+			port,
+			healthPath,
+			noDns,
+			routes,
+			exposure,
+			alreadyServed,
+		),
 	);
 };
 
@@ -591,6 +623,7 @@ const registerLocked = (
 	noDns: boolean,
 	routes: Route[],
 	exposure: Exposure,
+	alreadyServed: boolean,
 ): void => {
 	const reg = readRegistry();
 	const existing = reg.find((s) => s.name === name);
@@ -615,7 +648,9 @@ const registerLocked = (
 	const frag = fragmentPath(name);
 
 	console.log(
-		`→ caddy validate (staged) → caddy reload (user-level, zero downtime)`,
+		alreadyServed
+			? `→ caddy validate (staged) → reload skipped (the running instance already serves this route)`
+			: `→ caddy validate (staged) → caddy reload (user-level, zero downtime)`,
 	);
 	const res = applyFragment({
 		sites: SITES,
@@ -625,6 +660,7 @@ const registerLocked = (
 		validate: (cf) => run([CADDY, "validate", "--config", cf]),
 		reload: (cf, force) =>
 			run([CADDY, "reload", ...(force ? ["--force"] : []), "--config", cf]),
+		served: () => alreadyServed,
 	});
 	if (!res.ok) {
 		if (res.stage === "validate")
@@ -668,7 +704,7 @@ const registerLocked = (
   https://${name}.local/           caddy → 127.0.0.1:${port} (auto-HTTPS)
   http://${name}.local/            caddy → 127.0.0.1:${port}
   http://${name}.local:${port}/    direct
-  exposure ${exposure.lan ? `LAN, behind forward_auth ${exposure.forwardAuth}` : "loopback only (bind 127.0.0.1 ::1)"}
+  exposure ${exposure.lan ? `LAN, behind forward_auth ${exposure.forwardAuth}` : "loopback only (external remotes aborted)"}
 ${
 	routes.length
 		? routes
@@ -874,13 +910,8 @@ const cmdDnsReconcile = async (
 	if (!existing) throw new Error(`not registered: ${name}`);
 	if (options && !existing.dns.claimed) return;
 	const target = serviceTarget(existing);
-	const response = await fetch("http://127.0.0.1:2019/config/", {
-		signal: AbortSignal.timeout(3000),
-	});
-	if (
-		!response.ok ||
-		!activeRouteMatches(await response.json(), `${name}.local`, target)
-	)
+	const active = await fetchActiveConfig();
+	if (active === null || !activeRouteMatches(active, `${name}.local`, target))
 		throw new Error(
 			"active Caddy route does not match registry; DNS unchanged",
 		);
@@ -973,7 +1004,7 @@ const usage = `klh-local — one command per local service
 if (import.meta.main) {
 	const [cmd, ...rest] = process.argv.slice(2);
 	if (cmd === "install") cmdInstall();
-	else if (cmd === "register") cmdRegister(rest);
+	else if (cmd === "register") await cmdRegister(rest);
 	else if (cmd === "list") cmdList();
 	else if (cmd === "status") await cmdStatus();
 	else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
