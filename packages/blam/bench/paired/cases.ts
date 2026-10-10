@@ -7,7 +7,12 @@
 import { condenseTier } from "../../src/condense/tiers.ts";
 import { runPolicy, SCENARIOS } from "../consult/harness.ts";
 import { COSTS } from "../consult/types.ts";
-import type { PairedRep, RepOutcome } from "./types.ts";
+import {
+	type Lift,
+	type PairedRep,
+	pairedLift,
+	type RepOutcome,
+} from "./types.ts";
 
 // ─── case 1: condense on/off — the real engine, plane-free ──────────────
 // Arms: on = the lane reads the production caveman-condensed brief;
@@ -168,13 +173,82 @@ function runSteerArm(
 	};
 }
 
+// ─── case 4/5: resume-retake — transcript resume vs fresh+capsule ───────
+// W622: a two-pass item whose pass 1 died mid-item; the retake either
+// resumes pass 1's transcript (`claude --resume <id> --fork-session`,
+// binary-verified W454) or spawns a fresh lane re-injected with brief +
+// AGENTS.md + capsule (the doctrine default). The dispatch knob is gated
+// by the freshness fence — retakes ride --resume-from only while the
+// prior transcript is cache-warm — so every rep here is a GATED cell:
+// beyond-TTL retakes never reach the resume arm (both arms are the same
+// fresh lane; nothing to measure). Spec: bench/paired/scenario.md.
+
+/** Anthropic prompt-cache TTL (min) — THE freshness gate. Within it a
+ * resumed lane re-reads the transcript at the cache-read rate; past it
+ * the re-read is full-price and the knob refuses the retake. */
+export const CACHE_TTL_MIN = 5;
+/** Cache-read price as a fraction of base input (Anthropic cache reads). */
+export const CACHE_READ_RATE = 0.1;
+
+/** Fresh-lane re-injection: brief + AGENTS.md + capsule + orientation
+ * re-reads. O(1) in pass-1 length — that constancy is the fresh arm's
+ * whole contest against a transcript that grows with the pass. */
+export const FRESH_INJECT_TOKENS = 2_000 + 4_000 + 150 + 10_000;
+export const FRESH_ORIENT_MIN = 6;
+/** Resumed lane reload: no re-orientation — the transcript IS the context. */
+export const RESUME_RELOAD_MIN = 1;
+
+export interface RetakeClass {
+	id: "bounded" | "long";
+	/** pass-1 transcript size at retake time (input tokens) */
+	pass1Tokens: number;
+	/** quality the resumed lane lands: full context, but pass 1's dead
+	 * ends ride along (rot scales with transcript length) */
+	resumeCorrect: number;
+	/** quality a fresh lane lands: no rot, but a ≤10-line capsule cannot
+	 * carry a long pass's nuance */
+	freshCorrect: number;
+}
+
+export const RETAKE_CLASSES: RetakeClass[] = [
+	{ id: "bounded", pass1Tokens: 60_000, resumeCorrect: 1, freshCorrect: 0.95 },
+	{ id: "long", pass1Tokens: 220_000, resumeCorrect: 0.75, freshCorrect: 0.85 },
+];
+
+/** Fixed retake schedule — every delay within the freshness gate (each
+ * rep is one gated, cache-priced cell; the delay is the cell identity,
+ * cost is delay-independent while the cache is warm). */
+const RETAKE_DELAYS_MIN = [1, 2, 4, 5];
+
+function runRetakeArm(resume: boolean, klass: RetakeClass): RepOutcome {
+	if (resume) {
+		return {
+			correct: klass.resumeCorrect,
+			tokens: klass.pass1Tokens * CACHE_READ_RATE,
+			minutes: RESUME_RELOAD_MIN,
+		};
+	}
+	return {
+		correct: klass.freshCorrect,
+		tokens: FRESH_INJECT_TOKENS,
+		minutes: FRESH_ORIENT_MIN,
+	};
+}
+
 // ─── the case table ─────────────────────────────────────────────────────
-export type CaseName = "condense" | "consult-contract" | "steer-delivery";
+export type CaseName =
+	| "condense"
+	| "consult-contract"
+	| "steer-delivery"
+	| "resume-bounded"
+	| "resume-long";
 
 export const CASE_NAMES: CaseName[] = [
 	"condense",
 	"consult-contract",
 	"steer-delivery",
+	"resume-bounded",
+	"resume-long",
 ];
 
 /** Run both arms for one (case, rep) and return the matched pair. */
@@ -191,6 +265,17 @@ export function runPair(caseName: CaseName, rep: number): PairedRep {
 		const on = consultRepOutcome("trigger", rep);
 		const off = consultRepOutcome("current-instructions", rep);
 		return { rep, setup: on.setup, on: on.out, off: off.out };
+	}
+	if (caseName === "resume-bounded" || caseName === "resume-long") {
+		const klass = RETAKE_CLASSES.find((k) => `resume-${k.id}` === caseName);
+		if (!klass) throw new Error(`no retake class for ${caseName}`);
+		const delay = RETAKE_DELAYS_MIN[rep % RETAKE_DELAYS_MIN.length];
+		return {
+			rep,
+			setup: `${klass.id}@d${delay}m`,
+			on: runRetakeArm(true, klass),
+			off: runRetakeArm(false, klass),
+		};
 	}
 	const on = runSteerArm(true, rep);
 	const off = runSteerArm(false, rep);
@@ -232,5 +317,54 @@ export function steerIntegrityViolations(): string[] {
 		if (on.out.correct < off.out.correct)
 			v.push(`steer:rep${rep} drain lost correctness`);
 	}
+	return v;
+}
+
+/** Pre-registered decision rule (scenario.md § decision rule): the
+ * resume knob covers a retake class iff the resumed lane never loses
+ * correctness (REPS/REPS non-neg) and saves tokens + minutes with at
+ * least 3/4 sign agreement. Exported so the harness report and the
+ * dispatch policy land from the SAME measured verdict. */
+export const RESUME_KNOB_RULE =
+	"resume iff correct non-neg 4/4, tokens+minutes saved with ≥3/4 agreement";
+
+export function resumePolicyVerdict(): Record<
+	RetakeClass["id"],
+	{ knob: boolean; lift: Lift }
+> {
+	const out = {} as Record<RetakeClass["id"], { knob: boolean; lift: Lift }>;
+	for (const k of RETAKE_CLASSES) {
+		const pairs = Array.from({ length: RETAKE_DELAYS_MIN.length }, (_, rep) =>
+			runPair(`resume-${k.id}`, rep),
+		);
+		const lift = pairedLift(pairs);
+		out[k.id] = {
+			knob:
+				lift.correctNonNegReps === lift.reps &&
+				lift.tokensSaved > 0 &&
+				lift.tokensSavedReps >= lift.reps - 1 &&
+				lift.minutesSaved > 0 &&
+				lift.minutesSavedReps >= lift.reps - 1,
+			lift,
+		};
+	}
+	return out;
+}
+
+/** P6 probe: the freshness gate is structural and the arms are not
+ * vacuously identical — every scheduled delay sits inside the TTL gate
+ * (a past-gate retake is refused, never measured), the bounded class is
+ * cache-cheap, and the long class genuinely contests the injection cost. */
+export function resumeIntegrityViolations(): string[] {
+	const v: string[] = [];
+	if (RETAKE_DELAYS_MIN.some((d) => d > CACHE_TTL_MIN))
+		v.push("resume:schedule exceeds the freshness gate");
+	const bounded = runPair("resume-bounded", 0);
+	const long = runPair("resume-long", 0);
+	if (!bounded || !long) return [...v, "resume:case rows missing"];
+	if (bounded.on.tokens >= bounded.off.tokens)
+		v.push("resume:bounded not cache-cheap");
+	if (long.on.tokens === long.off.tokens)
+		v.push("resume:long arms vacuously identical");
 	return v;
 }

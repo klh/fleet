@@ -8,7 +8,7 @@ import {
 	runAll,
 	runCase,
 } from "../bench/paired/harness.ts";
-import { CASE_NAMES } from "../bench/paired/cases.ts";
+import { CASE_NAMES, resumePolicyVerdict } from "../bench/paired/cases.ts";
 import { pairedLift, type PairedRep } from "../bench/paired/types.ts";
 
 function pair(
@@ -76,6 +76,26 @@ describe("paired cases", () => {
 		const cancel = pairs.find((p) => p.setup === "cancel@u3");
 		expect(cancel?.on.correct).toBe(1);
 		expect(cancel?.off.correct).toBe(0);
+	});
+
+	test("resume: bounded class wins the knob (cache-cheap, no rot)", () => {
+		const v = resumePolicyVerdict();
+		expect(v.bounded?.knob).toBe(true);
+		for (const p of runCase("resume-bounded")) {
+			expect(p.on.correct).toBeGreaterThanOrEqual(p.off.correct);
+			expect(p.on.tokens).toBeLessThan(p.off.tokens);
+			expect(p.on.minutes).toBeLessThan(p.off.minutes);
+			expect(p.setup).toMatch(/^bounded@d\dm$/);
+		}
+	});
+
+	test("resume: long class stays fresh (full-price read beats injection, rot)", () => {
+		const v = resumePolicyVerdict();
+		expect(v.long?.knob).toBe(false);
+		for (const p of runCase("resume-long")) {
+			expect(p.on.tokens).toBeGreaterThan(p.off.tokens);
+			expect(p.on.correct).toBeLessThan(p.off.correct);
+		}
 	});
 
 	test("every case runs the full REPS schedule", () => {
