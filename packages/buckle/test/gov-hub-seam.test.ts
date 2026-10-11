@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import type {
 	RedeemResult,
 	SpokeEnrollmentProvider,
+	UsageIngestProvider,
 } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
@@ -19,6 +20,10 @@ async function startFed(opts: {
 	spokeEnrollment?: (
 		db: import("bun:sqlite").Database,
 	) => SpokeEnrollmentProvider;
+	usageIngest?: (
+		db: import("bun:sqlite").Database,
+		policy: unknown,
+	) => UsageIngestProvider;
 }): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w233-seam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
@@ -175,5 +180,89 @@ describe("spoke-enrollment seam — injected provider", () => {
 		} finally {
 			stop();
 		}
+	});
+});
+
+describe("usage-ingest seam — solo posture (no provider)", () => {
+	test("POST/GET /federation/usage answer honest 501s", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const post = await fetch(`${base}/federation/usage`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${ROOT}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ team: "t", windows: [{ bucket: 1 }] }),
+			});
+			expect(post.status).toBe(501);
+			expect((await post.json()).error.code).toBe("buckle.no_federation");
+			const get = await fetch(`${base}/federation/usage`, { headers: ADMIN });
+			expect(get.status).toBe(501);
+			expect((await get.json()).error.code).toBe("buckle.no_federation");
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("usage-ingest seam — injected provider", () => {
+	test("ingest rides the provider, spoke = the presenting key's name", async () => {
+		const stored: string[] = [];
+		const stub: UsageIngestProvider = {
+			ingest(o) {
+				stored.push(o.spoke);
+				return { ok: true, windows: 1, rows: 2 };
+			},
+			read() {
+				return { days: 7, spokes: 1, windows: [], aids: [] };
+			},
+		};
+		const { base, stop } = await startFed({ usageIngest: () => stub });
+		const post = await fetch(`${base}/federation/usage`, {
+			method: "POST",
+			headers: { ...ADMIN, "content-type": "application/json" },
+			body: JSON.stringify({ team: "t", windows: [] }),
+		});
+		expect(post.status).toBe(200);
+		const posted = (await post.json()) as {
+			ok: boolean;
+			rows: number;
+			spoke: string;
+		};
+		// root has no api_keys row — the opaque keyId is the fallback label
+		expect(posted).toMatchObject({ ok: true, rows: 2, spoke: "root" });
+		expect(stored).toEqual(["root"]);
+		stop();
+	});
+
+	test("read rides the provider; error envelope maps verbatim", async () => {
+		const stub: UsageIngestProvider = {
+			ingest: () => ({ ok: true, windows: 0, rows: 0 }),
+			read: () => ({ days: 7, spokes: 1, windows: [], aids: [] }),
+		};
+		const { base, stop } = await startFed({ usageIngest: () => stub });
+		const got = await fetch(`${base}/federation/usage?days=7`, {
+			headers: ADMIN,
+		});
+		expect(got.status).toBe(200);
+		expect(await got.json()).toMatchObject({ ok: true, days: 7, spokes: 1 });
+		// the route maps a !ok verdict straight onto the response
+		stub.ingest = () => ({
+			ok: false,
+			status: 403,
+			code: "buckle.self_report_disabled",
+			why: "not opted in",
+		});
+		const denied = await fetch(`${base}/federation/usage`, {
+			method: "POST",
+			headers: { ...ADMIN, "content-type": "application/json" },
+			body: JSON.stringify({ team: "t", windows: [] }),
+		});
+		expect(denied.status).toBe(403);
+		expect((await denied.json()).error.code).toBe(
+			"buckle.self_report_disabled",
+		);
+		stop();
 	});
 });

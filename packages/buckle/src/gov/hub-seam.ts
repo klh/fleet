@@ -6,6 +6,7 @@
 // One-directional: the overlay imports this contract; fleet never
 // references the overlay.
 import type { Database } from "bun:sqlite";
+import type { GatewayPolicy } from "../policy.ts";
 
 export const ENROLLMENT_DEFAULT_TTL_S = 900;
 
@@ -56,4 +57,61 @@ export interface SpokeEnrollmentProvider {
 		policyVersion: string | null;
 	}): void;
 	list(): SpokeRow[];
+}
+
+/** Wire shape the spoke POSTs; the hub stamps spoke = principal key name
+ *  (opaque keyId fallback), so the body carries NO identities — team
+ *  membership is the only attribution. */
+export interface ClassRow {
+	in_tok: number;
+	out_tok: number;
+	cache_r: number;
+	cache_c: number;
+	requests: number;
+}
+
+/** The hub-side aggregate report the dashboards read (GET /federation/usage
+ *  wraps it in {ok: true}). Typed here so the public route keeps its wire
+ *  contract; the rollup storage lives in the overlay hub schema. */
+export interface FedUsageReport {
+	days: number;
+	spokes: number;
+	windows: Array<{
+		bucket: number;
+		team: string;
+		spoke: string;
+		classes: Record<string, ClassRow>;
+	}>;
+	aids: Array<{
+		bucket: number;
+		team: string;
+		spoke: string;
+		aid: string;
+		domain: string;
+		injected: number;
+		skipped: number;
+		tok_injected: number;
+	}>;
+}
+
+/** One ingest verdict: ok carries the store counts; !ok is the route's
+ *  error envelope (400 bad body · 403 not opted in · 422 private domain). */
+export type UsageIngestResult =
+	| { ok: true; windows: number; rows: number }
+	| { ok: false; status: number; code: string; why: string };
+
+/** Factory over the federation db + the hub's routing policy (the opt-in
+ *  block is public config; the ingest pipeline is not) — the overlay owns
+ *  validation, the private-domain guard, and the rollup DDL/storage. */
+export type UsageIngestFactory = (
+	db: Database,
+	policy: GatewayPolicy,
+) => UsageIngestProvider;
+
+/** The hub-side aggregate self-report provider: POST /federation/usage
+ *  ingest (strict allowlist, per-team opt-in, structural private-domain
+ *  guard, idempotent rollup upsert) + the hub-admin rollup read. */
+export interface UsageIngestProvider {
+	ingest(o: { body: unknown; spoke: string }): UsageIngestResult;
+	read(days: number, nowMs?: number): FedUsageReport;
 }

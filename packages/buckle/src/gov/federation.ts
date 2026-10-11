@@ -21,22 +21,17 @@ import {
 	type CrProbe,
 	type FedManifest,
 	manifestVersion,
-	selfReportTeams,
 	transitionCR,
 } from "./federation-manifest.ts";
 import { applyGovernanceSchema } from "./schema.ts";
-import {
-	privateDomainPath,
-	readSelfReport,
-	storeSelfReport,
-	validateSelfReport,
-} from "./federation-usage.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
 import type {
 	RedeemResult,
 	SpokeEnrollmentFactory,
 	SpokeEnrollmentProvider,
+	UsageIngestFactory,
+	UsageIngestProvider,
 } from "./hub-seam.ts";
 import type { ManifestSigner } from "./federation-signing.ts";
 
@@ -55,6 +50,9 @@ export interface FederationOpts {
 	 *  klh-remote buckle-remote). Unset in solo posture — the enrollment
 	 *  routes answer honest 501s and the pull heartbeat is a no-op. */
 	spokeEnrollment?: SpokeEnrollmentFactory;
+	/** W233.2: the usage-ingest seam — same posture law. Unset in solo
+	 *  posture: /federation/usage answers honest 501s (no rollup store). */
+	usageIngest?: UsageIngestFactory;
 }
 
 export interface CrRow {
@@ -140,6 +138,9 @@ export class Federation {
 	/** W233 seam: spoke enrollment + fleet registry — provider-less in solo
 	 *  posture (honest 501s; the pull heartbeat is a no-op). */
 	readonly spokes: SpokeEnrollmentProvider | null;
+	/** W233.2 seam: the aggregate self-report hub ingest + rollup read —
+	 *  provider-less in solo posture (honest 501s, no rollup store). */
+	readonly usage: UsageIngestProvider | null;
 	/** W160 verification probes, by target prefix (longest match wins). */
 	private readonly probes = new Map<string, CrProbe>();
 
@@ -151,6 +152,7 @@ export class Federation {
 		this.pool = opts.pool;
 		this.signer = opts.signer ?? null;
 		this.spokes = opts.spokeEnrollment?.(this.db) ?? null;
+		this.usage = opts.usageIngest?.(this.db, this.policy) ?? null;
 		const rev = policyRevisionProbe(opts.policyPath);
 		this.registerProbe("policy@", rev);
 		this.registerProbe("routing-policy@", rev);
@@ -452,8 +454,9 @@ export class Federation {
 		};
 	}
 
-	/** W171: spoke aggregate self-report ingest. Validate (400) → per-team
-	 *  opt-in (403 when policy has not opted the team in — default OFF is
+	/** W171 spoke aggregate self-report ingest, riding the W233.2
+	 *  usage-ingest seam: 401 → 501 provider-less (solo posture) → the
+	 *  provider owns validate (400) → per-team opt-in (403, default OFF is
 	 *  structural) → private-domain guard (422) → store. spoke identity =
 	 *  the presenting key, never a body field. */
 	private async usageIngest(
@@ -462,36 +465,28 @@ export class Federation {
 	): Promise<Response> {
 		if (p === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token");
-		const body = (await req.json().catch(() => null)) as unknown;
-		// the structural domain guard runs on the RAW body BEFORE validation —
-		// a private marker riding an unknown key is still a domain violation
-		const priv = privateDomainPath(body);
-		if (priv !== null)
+		if (this.usage === null)
 			return bad(
-				422,
-				"buckle.self_report_private_domain",
-				`content at ${priv} is marked data_domain=private — private-domain aggregates never leave the spoke`,
+				501,
+				"buckle.no_federation",
+				"no usage ingest surface on this gate (solo posture)",
 			);
-		const v = validateSelfReport(body);
-		if (!v.ok) return bad(400, "buckle.bad_body", v.why);
-		const enabled = selfReportTeams(this.policy);
-		if (!enabled.includes(v.payload.team))
-			return authError(
-				403,
-				"buckle.self_report_disabled",
-				`self-report is not enabled for team '${v.payload.team}' (per-team opt-in, default OFF)`,
-			);
+		const body = (await req.json().catch(() => null)) as unknown;
 		// spoke label = the minted key's name (operator infrastructure
 		// naming, readable on the dashboard); opaque keyId fallback.
 		const keyRow = this.db
 			.query("SELECT name FROM api_keys WHERE key_id = ?")
 			.get(p.keyId) as { name: string | null } | null;
-		const out = storeSelfReport(this.db, keyRow?.name ?? p.keyId, v.payload);
+		const out = this.usage.ingest({
+			body,
+			spoke: keyRow?.name ?? p.keyId,
+		});
+		if (!out.ok) return bad(out.status, out.code, out.why);
 		return Response.json({ ok: true, spoke: keyRow?.name ?? p.keyId, ...out });
 	}
 
-	/** W171: hub-admin read over the stored rollups — the dashboards' data
-	 *  path. ?days=N clamps 1..90. */
+	/** W171 hub-admin read over the stored rollups, riding the W233.2 seam:
+	 *  401 → 403 scope → 501 provider-less. ?days=N clamps 1..90. */
 	private usageRead(url: URL, p: Principal | null): Response {
 		if (p === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token");
@@ -501,10 +496,16 @@ export class Federation {
 				"buckle.insufficient_scope",
 				"requires buckle:admin:READ_",
 			);
+		if (this.usage === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no usage read surface on this gate (solo posture)",
+			);
 		const d = Number(url.searchParams.get("days") ?? 28) || 28;
 		return Response.json({
 			ok: true,
-			...readSelfReport(this.db, Math.min(90, Math.max(1, d))),
+			...this.usage.read(Math.min(90, Math.max(1, d))),
 		});
 	}
 
