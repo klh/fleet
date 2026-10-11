@@ -106,7 +106,11 @@ work migrate-ledger                                 # import a - [ ] list
 ```sh
 coord fleet                      # who is working (sessions + claims)
 coord state --as <sid>           # your session view
-coord inbox --as <sid>           # unread messages/consults
+# event reads (W652.2 relationship):
+coord subscribe --as <sid>       # THE face — live WebSocket push (W303)
+coord wait --as <sid>            # fallback — adaptive long-poll (--forever = persistent)
+coord poll --as <sid>            # one-shot manual read; advances past SHOWN
+coord inbox --as <sid>           # directed catch-up read (--ack to advance cursor)
 coord message --to <sid> --note "…" --as <sid>   # interrupts only
 coord broadcast --note "…" --as <sid>            # fleet-wide
 coord consult --to <ikea-opus> --note "question" --as <sid>
@@ -114,7 +118,6 @@ coord consult-reply --reply-id <id> --note "…" --as <sid>
 coord fact get lesson.<topic>    # painful knowledge, fleet-shared
 coord fact set lesson.<topic> --note "…"         # write back a lesson
 coord emit NEED_DECISION --to <coordinator> --note "q + options" --as <sid>
-coord subscribe --as <sid>       # live WebSocket push (W303)
 coord gc                         # settle dead sessions
 coord doctor-session <sid>       # rebind a resumed session
 ```

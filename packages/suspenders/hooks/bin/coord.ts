@@ -4,13 +4,18 @@
 //
 // usage:
 //   bun ~/.claude/bin/coord.ts emit <kind> [--scope s] [--sha x] [--note "..."] [--as sid]
-//   bun ~/.claude/bin/coord.ts poll [--as sid] [--scope s] [--kinds a,b] [--limit n]
-//   bun ~/.claude/bin/coord.ts wait --as sid [--scope s] [--kinds a,b] [--max-seconds 30]
-//        (adaptive long-poll: 250ms fast path, backs off to 2s when idle)
 //   bun ~/.claude/bin/coord.ts subscribe --as sid [--scope s] [--kinds a,b]
-//        (W303: live WebSocket push on the store server — the real "always
-//         on" subscribe, no polling, no relaunching, ever. Falls back to
-//         wait --forever when no HTTP store is bound.)
+//        (W303, THE event-read face: live WebSocket push on the store
+//         server — one process for the whole session, no polling, no
+//         relaunching, ever. Falls back to wait --forever when no HTTP
+//         store is bound.)
+//   bun ~/.claude/bin/coord.ts wait --as sid [--scope s] [--kinds a,b] [--max-seconds 30] [--forever]
+//        (the fallback face: adaptive long-poll, 250ms fast path, backs off
+//         to 2s when idle; --forever = the persistent fallback)
+//   bun ~/.claude/bin/coord.ts poll [--as sid] [--scope s] [--kinds a,b] [--limit n]
+//        (one-shot manual read past the cursor; advances past SHOWN)
+//   bun ~/.claude/bin/coord.ts inbox --as sid [--ack]
+//        (directed catch-up read; the cursor moves only with --ack)
 //   bun ~/.claude/bin/coord.ts metrics [project] [--days N]
 //   bun ~/.claude/bin/coord.ts bootstrap --as sid [--name label]
 //        (--name stamps a user-facing lane name — coord fleet + the board show it)
@@ -98,7 +103,14 @@ if (
 		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message | executor-cv\n" +
 			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
 			"  executor-cv [--apply] — the executor trust tally folded from work events (W620)\n" +
-			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
+			"  project identity | project rekey <old> <new> — graph identity migration (W428)\n" +
+			"\n" +
+			"event reads — the relationship:\n" +
+			"  subscribe  THE face — live WS push (W303); one process per lane, never exits;\n" +
+			"             with no HTTP store bound it falls back to wait --forever\n" +
+			"  wait       the fallback — adaptive long-poll (250ms→2s); --forever = persistent\n" +
+			"  poll       one-shot manual read past the cursor; advances past SHOWN\n" +
+			"  inbox      directed catch-up read; the cursor moves only with --ack",
 	);
 	process.exit(0);
 }
