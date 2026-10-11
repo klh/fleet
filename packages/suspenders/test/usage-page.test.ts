@@ -2,6 +2,8 @@
 // team/dept filtering in buildUsageReport (facets stay unfiltered) + the
 // page builder's render contract (uPlot vendored inline, payload columnar,
 // chips compose, aids panel degrades honestly, LOCAL-ONLY hygiene).
+// W652.3.1: panels live in the payload's `panels` slices — Lit renders them
+// client-side, so tests assert payload shape + static hosts, not panel HTML.
 import { describe, test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -38,6 +40,42 @@ const H = 3_600_000;
 const NOW = Date.parse("2026-10-01T12:20:00Z");
 const TO = Math.floor(NOW / H) * H;
 const b = (hoursAgo: number): number => TO - hoursAgo * H;
+
+// W652.3.1: display-shaped panels slice the Lit components render.
+type PanelSlice = {
+	tiles?: { k: string; v: string }[];
+	actors?: {
+		rows: {
+			actor: string;
+			demo: boolean;
+			chips: string[];
+			segs: { g: string; tok: number }[];
+			total: number;
+			rq: number;
+		}[];
+	};
+	aids?: {
+		title?: string;
+		empty?: string;
+		rows?: {
+			aid: string;
+			domain: string;
+			inj: number;
+			skip: number;
+			tok: number;
+		}[];
+	};
+	activity?: { empty?: string };
+};
+
+/** Parse the embedded #usage-data payload's panels slice. */
+const panelsOf = (html: string): PanelSlice => {
+	const m = html.match(
+		/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
+	);
+	return ((JSON.parse(m?.[1] ?? "{}") as { panels?: unknown }).panels ??
+		{}) as PanelSlice;
+};
 
 function seed(db: Database): void {
 	const ins = db.query(
@@ -122,6 +160,10 @@ describe("usagePage render contract (W152)", () => {
 		expect(html).toContain('id="u-hours"');
 		expect(html).toContain('id="klh-theme-tokens"');
 		expect(html).toContain('id="klh-settings"');
+		expect(html).toContain("/vendor/usage-panels.js");
+		expect(html).toContain("<klh-usage-tiles></klh-usage-tiles>");
+		expect(html).toContain("<klh-usage-actors></klh-usage-actors>");
+		expect(html).toContain("<klh-usage-aids></klh-usage-aids>");
 		const m = html.match(
 			/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
 		);
@@ -131,12 +173,30 @@ describe("usagePage render contract (W152)", () => {
 			timeline: number[][];
 			byHour: number[][];
 			slot: Record<string, string>;
+			panels: PanelSlice;
 		};
 		expect(p.groups).toEqual(["flash", "full", "luna", "local", "other"]);
 		expect(p.timeline.length).toBe(6);
 		expect(p.timeline[0].length).toBe(r.timeline.length);
 		expect(p.byHour.length).toBe(2);
 		expect(p.slot.flash).toBe("#3987e5");
+		// W652.3.1: panels ride the payload; Lit renders them client-side
+		expect(p.panels.tiles?.map((t) => t.k)).toEqual([
+			"ACTIVE ACTORS",
+			"TOTAL TOKENS",
+			"REQUESTS",
+			"MOST-USED MODEL",
+			"OUTPUT TOK/S (RECENT)",
+		]);
+		expect(p.panels.tiles?.[1]?.v).toBe("3.9K");
+		expect(p.panels.actors?.rows.map((row) => row.actor)).toEqual(["alice"]);
+		expect(p.panels.actors?.rows[0]?.chips).toEqual(["platform", "infra"]);
+		expect(p.panels.actors?.rows[0]?.segs).toEqual([
+			{ g: "flash", tok: 3600 },
+			{ g: "full", tok: 300 },
+		]);
+		expect(p.panels.aids?.empty).toContain("no aid events yet");
+		expect(p.panels.activity?.empty).toContain("meter not wired");
 		db.close();
 	});
 });
@@ -161,10 +221,12 @@ describe("usagePage aids seam (W152)", () => {
 	test("degrades honestly when empty, lights up when aids exist", () => {
 		const db = freshDb();
 		seed(db);
-		const empty = usagePage(buildUsageReport(db, { days: 7, nowMs: NOW }), {
-			days: 7,
-		});
-		expect(empty).toContain("no aid events yet");
+		const empty = panelsOf(
+			usagePage(buildUsageReport(db, { days: 7, nowMs: NOW }), {
+				days: 7,
+			}),
+		);
+		expect(empty.aids?.empty).toContain("no aid events yet");
 		const r = buildUsageReport(db, { days: 7, nowMs: NOW });
 		r.aids = {
 			rollup: [
@@ -189,11 +251,18 @@ describe("usagePage aids seam (W152)", () => {
 				},
 			],
 		};
-		const lit = usagePage(r, { days: 7 });
-		expect(lit).toContain("AID ROI · INJECTED VS SKIPPED");
-		expect(lit).toContain("fleet-lessons");
-		expect(lit).toContain("4.8K");
-		expect(lit).not.toContain("no aid events yet");
+		const lit = panelsOf(usagePage(r, { days: 7 }));
+		expect(lit.aids?.title).toBe("AID ROI · INJECTED VS SKIPPED");
+		expect(lit.aids?.rows).toEqual([
+			{
+				aid: "fleet-lessons",
+				domain: "suspenders",
+				inj: 12,
+				skip: 3,
+				tok: 4800,
+			},
+		]);
+		expect(lit.aids?.empty).toBeUndefined();
 		db.close();
 	});
 });
