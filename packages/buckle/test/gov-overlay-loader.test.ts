@@ -53,6 +53,23 @@ describe("overlay loader — refusal laws", () => {
 		expect(r.ok).toBe(false);
 		if (!r.ok) expect(r.why).toBe("unset");
 	});
+	test("overlay endpoint outside BUCKLE_EGRESS_ALLOW refuses", async () => {
+		const root = await allowRoot();
+		const dir = await materializeFixture(root, {
+			name: "fx",
+			entry: "entry.ts",
+			endpoints: ["https://api.example.com"],
+		});
+		process.env["BUCKLE_EGRESS_ALLOW"] = "";
+		const r = await loadOverlay({ dir, allowRoots: [root] });
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.why).toContain("BUCKLE_EGRESS_ALLOW");
+		// allowlisted host loads (loopback never needs the allowlist)
+		process.env["BUCKLE_EGRESS_ALLOW"] = "api.example.com";
+		const ok = await loadOverlay({ dir, allowRoots: [root] });
+		expect(ok.ok).toBe(true);
+		process.env["BUCKLE_EGRESS_ALLOW"] = "";
+	});
 	test("path outside the allowlist refuses", async () => {
 		const root = await allowRoot();
 		const dir = await materializeFixture(root, { name: "fx", entry: "entry.ts" });

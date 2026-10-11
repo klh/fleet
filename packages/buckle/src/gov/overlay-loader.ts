@@ -11,6 +11,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { OVERLAY_PROTOCOL_VERSION, validateAdaptation } from "./adaptation.ts";
 import type { AdaptationConfig } from "./adaptation.ts";
+import { validatePeerEndpoint } from "../adapters/egress.ts";
 
 /** Validated overlay manifest (manifest.json in the overlay dir). */
 export interface OverlayManifest {
@@ -152,6 +153,19 @@ export async function loadOverlay(opts: {
 				ok: false,
 				why: `protocol handshake failed: overlay ${String(manifest.protocol)} vs core ${String(OVERLAY_PROTOCOL_VERSION)}`,
 			};
+		// W235 §5 egress law: overlay-declared endpoints pass the peer
+		// allowlist BEFORE anything loads — a dropped peer file never
+		// gains egress by default.
+		for (const ep of manifest.endpoints ?? []) {
+			try {
+				validatePeerEndpoint(ep);
+			} catch (e) {
+				return {
+					ok: false,
+					why: `peer endpoint refused: ${e instanceof Error ? e.message : String(e)}`,
+				};
+			}
+		}
 		const entryPath = join(dir, manifest.entry);
 		const st = await stat(entryPath);
 		if (!st.isFile()) return { ok: false, why: "entry is not a file" };
