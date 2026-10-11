@@ -63,3 +63,23 @@ An approved pinned worktree remains writable. Immutable gateway publication
 remains separate work. Races among supported writers are now fenced (see the
 approval fence section above); races with arbitrary filesystem writers remain
 outside this boundary, so this boundary does not claim either guarantee.
+
+## Re-bless after a manifest change (W639)
+
+The receipt freezes approved argv per service plus the manifest digest, so any
+`deploy/services.yaml` change (W631 stable-path renders, W638 auto-install
+entry) refuses every launchd registration until the owner re-blesses:
+rendering is not approval. The re-bless surface is
+`scripts/record-service-activation.ts`:
+
+    bun packages/suspenders/scripts/record-service-activation.ts --approve-stable \
+      --repo <pinned checkout>/packages/suspenders
+
+It refuses unless the pinned checkout's manifest is byte-identical to the
+activated generation's (sync the harness first), refuses generation-pinned
+entries (the `upgradeGateway` review flow above owns those), renders the exact
+units `registerLaunchd` will render (same substitution values, machine port
+overrides included), and publishes the receipt only — no launchd state is
+touched. `install.sh --with-launchd` from the pinned checkout then applies the
+blessed definitions, load-verifies them, and republishes what launchd actually
+loaded.
