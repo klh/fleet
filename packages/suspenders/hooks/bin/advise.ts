@@ -10,7 +10,7 @@
 //        SUSPENDERS_LLM_KEY   (optional bearer token)
 import { isDecisionKind, openStore } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
+import { beltChat } from "../lib/belt-chat.ts";
 import {
 	chatRemote,
 	endpointsWithRole,
@@ -233,6 +233,10 @@ async function tryRemoteAdvise(
 		],
 		{ maxTokens: 500, timeoutMs: 300_000 },
 	);
+	// W552.6.1: a placeholder/empty remote reply is NOT an answer — skip to
+	// the next candidate instead of storing it
+	const text = out.text.trim();
+	if (!text || text === "(empty response)") return;
 	const host = `${machine.name}:${endpoint.port}`;
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
@@ -248,62 +252,28 @@ async function tryRemoteAdvise(
 			ms: out.ms,
 		}),
 	);
-	storeAdvice(out.text, { model: out.model, host });
+	storeAdvice(text, { model: out.model, host });
 	console.error(`advise #${id}: local LLM down — answered by remote ${host}`);
 	process.exit(0);
 }
 
-/** W89.2 — belt as FIRST candidate: POST /api/route {role:"advise",
- *  execute:true} lets belt pick the best healthy target from its own
- *  metrics (local swarm, NAS, cloud). Null when belt is unreachable —
- *  the local and remote paths below stay as fallbacks. */
+/** W89.2 — belt as FIRST candidate: POST /api/route {execute:true} lets belt
+ *  pick the best healthy target from its own metrics (local swarm, NAS,
+ *  cloud). W552.6.1: the shared belt-chat leg validates the reply — a belt
+ *  placeholder ("(empty response)") and empty text are NOT answers; they
+ *  validate to null and the local + remote fallbacks below stay in charge.
+ *  Null when belt is unreachable — same degrade contract as before. */
 async function tryBeltRoute(
 	sys: string,
 	question: string,
 ): Promise<{ text: string; model: string; host: string; ms: number } | null> {
-	// W91 #9a: belt location resolves through the shared chain (env → config →
-	// belt.local → dev default) — never a hardcoded address
-	const loc = await resolveBelt();
-	if (!loc) return null;
-	const { url: base, token } = loc;
-	try {
-		const r = await fetch(`${base}/api/route`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(token ? { authorization: `Bearer ${token}` } : {}),
-			},
-			body: JSON.stringify({
-				role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
-				execute: true,
-				max_tokens: 500,
-				temperature: 0.2,
-				messages: [
-					{ role: "system", content: sys },
-					{
-						role: "user",
-						content: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
-					},
-				],
-			}),
-			signal: AbortSignal.timeout(300_000),
-		});
-		if (!r.ok) return null;
-		const j = (await r.json()) as {
-			reply?: string;
-			target?: { model?: string; machine?: string; port?: number };
-			ms?: number;
-		};
-		if (!j.reply) return null;
-		return {
-			text: j.reply,
-			model: j.target?.model ?? "belt",
-			host: `belt(${j.target?.machine ?? "?"})`,
-			ms: j.ms ?? 0,
-		};
-	} catch {
-		return null;
-	}
+	return beltChat({
+		role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
+		system: sys,
+		user: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
+		maxTokens: 500,
+		timeoutMs: 300_000,
+	});
 }
 
 // W225 kev-class typed pass FIRST: a fork with structured options is a
@@ -382,6 +352,11 @@ try {
 		usage?: LlmUsage;
 	};
 	text = j.choices?.[0]?.message?.content ?? "";
+	// W552.6.1: empty content is a provider failure, not an empty success —
+	// throw into the failure-telemetry + error-fact path. The message keeps
+	// the "LLM " prefix so the catch treats it as a provider failure (not
+	// "unavailable") — no remote-fallback spin, honest exit 2.
+	if (!text.trim()) throw new Error("LLM answered with no content");
 	// W28 routing telemetry: every advise round-trip becomes an llm.call
 	// event — the board's LLM telemetry block sums today's tokens per model
 	// against optional llm.budget.<model> facts. Usage may be absent (some
