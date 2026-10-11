@@ -76,9 +76,26 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/morph.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
+		"bin/consult-relay.ts",
+		"bin/db-backup.ts",
+		"bin/federation-pull.ts",
+		"bin/fleet-board.ts",
+		"bin/harvest.ts",
+		"bin/knowledge-api.ts",
+		"bin/knowledge-worker.ts",
+		"bin/llm-keepwarm.ts",
+		"bin/monitor.ts",
+		"bin/quota-sweep.ts",
+		"bin/soak.ts",
+		"bin/store-server.ts",
 	])
 		put(`packages/suspenders/hooks/${file}`, "export const value = 1;");
-	for (const file of ["dispatch-next.ts", "supervise.ts"])
+	for (const file of [
+		"dispatch-next.ts",
+		"supervise.ts",
+		"coord-worker.ts",
+		"dispatch-watchdog.ts",
+	])
 		put(`packages/suspenders/scripts/${file}`, "export const value = 1;");
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
 	put("packages/suspenders/deploy/services.yaml", "services: []");
@@ -102,6 +119,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"packages/buckle/upstreams.yaml",
 		"groups:\n  fixture:\n    - name: reviewed-default\n      tier: 4\n",
 	);
+	put("packages/buckle/src/fixture.ts", "export const value = 1;");
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
 	put(
@@ -407,4 +425,48 @@ test("prune mirrors the prefix: unmanaged entries ride along only when allowlist
 		readFileSync(join(f.ctx.prefix, "harness-receipt.json"), "utf8"),
 	);
 	expect(receipt.pruned).toEqual(["old-code.ts", "operator.env"]);
+});
+
+test("W626: cross-package buckle/src imports resolve from the staged payload", async () => {
+	const f = fixture();
+	f.put(
+		"packages/buckle/src/usage.ts",
+		"export const usageFromAnthropic = (): { input_tokens: number } => ({ input_tokens: 0 });",
+	);
+	f.put("packages/buckle/src/projection.ts", "export class LaneProjection {}");
+	f.put(
+		"packages/suspenders/hooks/board/routes-observations.ts",
+		'import { LaneProjection } from "../../../buckle/src/projection.ts";\nexport const value = LaneProjection;',
+	);
+	f.put(
+		"packages/suspenders/hooks/bin/prefix-keepwarm.ts",
+		'import { usageFromAnthropic } from "../../../buckle/src/usage.ts";\nexport const value = usageFromAnthropic;',
+	);
+	f.git("add", ".");
+	const author = [
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+	];
+	f.git(...author, "commit", "-m", "reviewed cross-package imports");
+	await syncHarness(f.ctx);
+	// both served modules import cleanly from the INSTALLED prefix, source gone
+	rmSync(f.source, { recursive: true, force: true });
+	for (const module of [
+		"board/routes-observations.ts",
+		"bin/prefix-keepwarm.ts",
+	]) {
+		const imported = Bun.spawnSync(
+			[
+				process.execPath,
+				"-e",
+				"await import(process.argv[1]); console.log('ok')",
+				join(f.ctx.prefix, module),
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		expect(imported.exitCode).toBe(0);
+		expect(imported.stdout.toString().trim()).toBe("ok");
+	}
 });

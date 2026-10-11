@@ -29,6 +29,7 @@ const SOURCE_PATHS = [
 	"packages/belt/bin",
 	"packages/belt/package.json",
 	"packages/buckle/upstreams.yaml",
+	"packages/buckle/src",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
@@ -45,6 +46,25 @@ const ENTRYPOINTS = [
 	"hooks/bin/morph.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
+	// W626: every launchd-run entry (deploy/services.yaml minus the
+	// runtime-home swarm). A payload-missing cross-package import
+	// crash-looped the board and llm-keepwarm while staging stayed green —
+	// Bun.build refuses unresolvable imports, so building the served
+	// entrypoints fails the stage instead of the fleet's services.
+	"hooks/bin/consult-relay.ts",
+	"hooks/bin/db-backup.ts",
+	"hooks/bin/federation-pull.ts",
+	"hooks/bin/fleet-board.ts",
+	"hooks/bin/harvest.ts",
+	"hooks/bin/knowledge-api.ts",
+	"hooks/bin/knowledge-worker.ts",
+	"hooks/bin/llm-keepwarm.ts",
+	"hooks/bin/monitor.ts",
+	"hooks/bin/quota-sweep.ts",
+	"hooks/bin/soak.ts",
+	"hooks/bin/store-server.ts",
+	"scripts/coord-worker.ts",
+	"scripts/dispatch-watchdog.ts",
 ];
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
