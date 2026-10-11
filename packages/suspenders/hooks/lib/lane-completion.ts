@@ -17,32 +17,67 @@ type Context = {
 // omc's persistent-mode.mjs never lets a stop end a session with work in
 // flight. Ours is ONE offer per episode, bounded by the loop guard
 // stop_hook_active (true on every stop after the first of an episode), after
-// which the existing 2-re-ask → FAILED bound runs unchanged. A banked capsule
-// checkpoint that git proves reachable from HEAD parks the item
-// CLAIMED/resumable — checkpoint instead of a hard FAILED. Any capsule/git
-// probe failure degrades to the ordinary re-ask path (omc's allow-on-error).
+// which the existing 2-re-ask → FAILED bound runs unchanged. W577: parking is
+// EVIDENCE, not declaration — the ONLY capsule that may park a stop is the
+// item-authoritative one (work.<item>.capsule, source column = the owner sid)
+// whose checkpoint is a real commit strictly ahead of the lane's dispatch
+// baseline and reachable from HEAD, banked fresh (row ts). A legacy
+// lane-scoped, other-item, other-owner, baseline-equal or stale capsule must
+// not bypass the bounded continuation. Any probe failure degrades to the
+// ordinary re-ask path (omc's allow-on-error).
 const CAPSULE_SHA = /^[a-f0-9]{40}$/i;
+const CAPSULE_MAX_AGE_MS = 24 * 86_400_000;
+const CAPSULE_FUTURE_SKEW_MS = 5 * 60_000;
 
-function bankedCheckpoint(sid: string): string | null {
+/** The item-authoritative capsule value: work.<item>.capsule, written by the
+ * owner sid (facts source column), with a row ts proving the evidence is
+ * fresh. Anything else — legacy lane-scoped, other-owner, stale — is null. */
+function freshOwnerCapsule(item: string, sid: string): string | null {
+	let row: { value?: unknown; source?: unknown; ts?: unknown } | undefined;
 	try {
-		const row = openGovernorDb()
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`lane.${sid}.capsule`) as { value: string } | undefined;
-		const cap = JSON.parse(row?.value ?? "{}") as { checkpoint?: unknown };
-		return typeof cap.checkpoint === "string" &&
-			CAPSULE_SHA.test(cap.checkpoint)
-			? cap.checkpoint
-			: null;
+		row = openGovernorDb()
+			.query("SELECT value, source, ts FROM facts WHERE key = ?")
+			.get(`work.${item}.capsule`);
 	} catch {
 		return null;
 	}
+	const fresh =
+		typeof row?.ts === "number" &&
+		row.ts <= Date.now() + CAPSULE_FUTURE_SKEW_MS &&
+		Date.now() - row.ts <= CAPSULE_MAX_AGE_MS;
+	// owner association rides the facts row's source column, never payload text
+	return row && fresh && row.source === sid && typeof row.value === "string"
+		? row.value
+		: null;
 }
 
-/** A capsule checkpoint the worktree's HEAD can actually reach. */
-function checkpointParked(wt: string, sid: string): string | null {
-	const sha = bankedCheckpoint(sid);
-	if (!sha) return null;
-	if (!run("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: wt }).ok)
+/** The one capsule checkpoint allowed to park: fresh, owner-banked on the
+ * item key, and git-proven strictly-new progress over the dispatch baseline. */
+function parkedCheckpoint(wt: string, context: Context): string | null {
+	const value = freshOwnerCapsule(context.item, context.sid);
+	if (!value) return null;
+	let cap: { checkpoint?: unknown };
+	try {
+		cap = JSON.parse(value) as { checkpoint?: unknown };
+	} catch {
+		return null;
+	}
+	const sha =
+		typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)
+			? cap.checkpoint
+			: null;
+	if (
+		!sha ||
+		!run("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: wt }).ok
+	)
+		return null;
+	// baseline proof: the checkpoint must strictly advance the dispatch
+	// baseline — a park at the baseline is a no-op wearing a checkpoint
+	const base = context.baseline;
+	if (!base || !CAPSULE_SHA.test(base) || base === sha) return null;
+	if (!run("git", ["cat-file", "-e", `${base}^{commit}`], { cwd: wt }).ok)
+		return null;
+	if (!run("git", ["merge-base", "--is-ancestor", base, sha], { cwd: wt }).ok)
 		return null;
 	return run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], { cwd: wt })
 		.ok
@@ -201,7 +236,7 @@ export function laneCompletion(
 	// Re-ask 2/2 → FAILED). A declared BLOCKED/NO_OP skips both — explicit
 	// failure intent beats an implicit park.
 	if (!declared) {
-		const parked = checkpointParked(wt, context.sid);
+		const parked = parkedCheckpoint(wt, context);
 		if (parked) {
 			writeFileSync(
 				marker,
@@ -216,7 +251,7 @@ export function laneCompletion(
 		}
 		if (tries < 2 && hook.stop_hook_active !== true) {
 			writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
-			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume: (a) FINISH — complete and run work done ${context.item} --sha <commit> --summary <completion paragraph>; or (b) CHECKPOINT — commit progress and bank a capsule: coord capsule set --as ${context.sid} --checkpoint=<head> --done=<progress> --next=<step>; a git-reachable checkpoint parks the item CLAIMED/resumable and the stop is allowed. Edits and commits are progress, not completion.`;
+			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume: (a) FINISH — complete and run work done ${context.item} --sha <commit> --summary <completion paragraph>; or (b) CHECKPOINT — commit progress and bank a capsule: coord capsule set --as ${context.sid} --item ${context.item} --checkpoint=<head> --done=<progress> --next=<step>; an item-keyed capsule with a git-reachable checkpoint that advances the dispatch baseline parks the item CLAIMED/resumable and the stop is allowed. Edits and commits are progress, not completion.`;
 		}
 	}
 	if (tries < 2 && !declared) {
