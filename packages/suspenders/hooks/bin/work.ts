@@ -53,6 +53,7 @@ import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
+import { EFFORTS } from "../lib/work-effort.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import {
 	defineVerb,
@@ -80,6 +81,7 @@ const ITEM_FLAGS = [
 	"--on",
 	"--as",
 	"--requires",
+	"--effort",
 ];
 const CAPS = new Set(CAPABILITIES);
 
@@ -514,10 +516,11 @@ function insertItem(
 	why: string | null,
 	requires: string | null = null,
 	description: string | null = null,
+	effort: string | null = null,
 ): void {
 	db()
 		.query(
-			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, effort, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
 		)
 		.run(
 			id,
@@ -530,6 +533,7 @@ function insertItem(
 			PROJECT,
 			requires,
 			preferTagFor(projectRootOf(PROJECT)),
+			effort,
 			Date.now(),
 			Date.now(),
 			description,
@@ -656,6 +660,9 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					`unknown capability: ${bad.join(",")} — vocabulary: ${[...CAPS].join(",")}`,
 				);
 		}
+		const effort = flag("--effort");
+		if (effort && !(EFFORTS as readonly string[]).includes(effort))
+			die(`unknown effort: ${effort} — vocabulary: ${EFFORTS.join(" | ")}`);
 		const id = parent ? nextChildId(parent) : nextRootId();
 		if (parent) get(parent);
 		insertItem(
@@ -673,6 +680,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 						.join(",")
 				: null,
 			flag("--desc"),
+			effort,
 		);
 		emit("work.added", id, { scope: scope ?? "" });
 		console.log(
@@ -768,6 +776,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			"why_parallel",
 			"requires",
 			"tags",
+			"effort",
 			"alloc_reason",
 			"description",
 		] as const) {
@@ -1089,6 +1098,8 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					it.owner_sid as string,
 					reason,
 					(it.requires as string | null) ?? null,
+					null,
+					it.effort as string | null,
 				);
 				if (++n === keep) setState(cid, "CLAIMED", it.owner_sid as string);
 			}

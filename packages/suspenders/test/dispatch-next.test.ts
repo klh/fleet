@@ -477,6 +477,27 @@ describe("resume-rebrief composition", () => {
 			expect(brief).toContain(`inbox --as ${opts.sid}`);
 		}
 	});
+
+	// W248: the per-item effort budget rides the brief — simple = work solo,
+	// 3-10 tool calls; complex = fan out; unset = no budget line at all.
+	test("effort budget line composes from the item's effort field", () => {
+		const opts = {
+			item: "W248",
+			showOut: "◐ W248 READY  sample item\n  effort: complex",
+			sid: "autow248",
+			branch: "suspenders/W248",
+			worktree: "/tmp/nowhere/.worktrees/W248",
+			capsule: null,
+		};
+		// call sites pass effort: effortFromShow(show.out) — same contract here
+		expect(composeBrief({ ...opts, effort: "complex" })).toContain(
+			"EFFORT BUDGET: complex — fan out",
+		);
+		expect(composeBrief({ ...opts, effort: "simple" })).toContain(
+			"EFFORT BUDGET: simple",
+		);
+		expect(composeBrief({ ...opts })).not.toContain("EFFORT BUDGET");
+	});
 });
 
 describe("pool parsing", () => {

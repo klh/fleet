@@ -31,6 +31,7 @@ export const renderRow = (r: Item): string => {
 	const [g, col] = GLYPH[r.state as string] ?? ["?", dim];
 	const owner = r.owner_sid ? dim(String(r.owner_sid).slice(0, 6)) : "";
 	const req = r.requires ? dim(` ⟨needs ${r.requires}⟩`) : "";
+	const eff = r.effort ? dim(` ⟨${String(r.effort)}⟩`) : "";
 	const tg = r.tags ? dim(` #${String(r.tags)}`) : "";
-	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}${tg}`;
+	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}${eff}${tg}`;
 };

@@ -119,13 +119,10 @@ import {
 // W636 decomposition: the READY-pool helpers + the archived-origin landing
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
-import {
-	capabilityGate,
-	isOwnerGated,
-	parseReady,
-} from "./lib/ready-pool.ts";
+import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 export { capabilityGate, isOwnerGated, parseReady };
 import { landingRedirect } from "./lib/landing-redirect.ts";
+import { effortFromShow } from "../hooks/lib/work-effort.ts";
 import { cvSnapshot, parseCapsuleGet } from "./lib/dispatch-admission.ts";
 // parseCapsuleGet is re-exported so supervise.ts and the test suites keep
 // their dispatch-next import path (W576.1.1 decomposition).
@@ -317,7 +314,6 @@ const governanceMode = (): "strict" | "solo" => {
 	return governanceModeCache;
 };
 
-
 const capsuleGet = (sid: string): Record<string, string> | null =>
 	parseCapsuleGet(
 		sh([process.execPath, `${BIN}/coord.ts`, "capsule", "get", "--as", sid]),
@@ -418,6 +414,7 @@ const dispatchItem = async (
 			capsule,
 			itemCapsule: itemCapsuleGet(item),
 			agent: pick.agent,
+			effort: effortFromShow(show.out),
 			landing: await landingRedirect(REPO, branch),
 			extra: [
 				...routingExtra(),
@@ -635,6 +632,7 @@ const dispatchItem = async (
 			capsule,
 			itemCapsule: itemCapsuleGet(item),
 			agent: pick.agent,
+			effort: effortFromShow(show.out),
 			extra: [...routingExtra(), ...resumeBriefLine(resumeDecision)],
 		});
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
