@@ -16,6 +16,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -266,17 +267,17 @@ export type StarterListRow = {
 	corrupt?: string;
 };
 
-/** Inventory — tolerant by design: a corrupt row is reported as a row, it
- *  never crashes the listing (a hub must be able to SEE a broken artifact
- *  to refuse it honestly). */
-export const listStarters = (repo: string, id?: string): StarterListRow[] => {
-	const dir = starterRegistryDir(repo);
+/** Inventory against a REGISTRY ROOT (a bundle/mirror dir with the same
+ *  layout, no repo wrapper needed). */
+export const listStartersIn = (dir: string, id?: string): StarterListRow[] => {
 	if (!existsSync(dir)) return [];
 	const ids = id ? [id] : readdirSync(dir).sort();
 	const rows: StarterListRow[] = [];
 	for (const one of ids) {
 		const idDir = join(dir, one);
-		if (!existsSync(idDir)) continue;
+		// only id directories — the registry dir also carries authz.json and
+		// revocations.jsonl (W458.2), which are not starter ids
+		if (!existsSync(idDir) || !statSync(idDir).isDirectory()) continue;
 		for (const v of versionFiles(idDir)) {
 			try {
 				const parsed = JSON.parse(
@@ -295,3 +296,7 @@ export const listStarters = (repo: string, id?: string): StarterListRow[] => {
 	}
 	return rows;
 };
+
+/** Inventory against a repo (the worktree-shared project registry). */
+export const listStarters = (repo: string, id?: string): StarterListRow[] =>
+	listStartersIn(starterRegistryDir(repo), id);
