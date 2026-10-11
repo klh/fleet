@@ -257,7 +257,11 @@ through the same catalog `/api/start` uses. The runner
 (`hooks/bin/review-lane.ts`, detached) assembles mission + thread + branch
 diff, asks the executor, and lands the verdict: coord NOTE(s) on the item
 thread, a `work.review` event, and fact `review.<id>.<executor>`
-(`{verdict, headline, ts}`).
+(`{verdict, headline, ts}`). W634: on PASS a mechanical coverage proof
+(Sinai rule) reverts the diff in a scratch worktree, restores the branch's
+new tests, and requires them to FAIL there — a PASS with no failing new
+test is downgraded to FAIL, and the evidence annotates the headline, note
+and fact (`coverage` field: proved / no-coverage / skipped / error).
 
 | condition                          | status |
 | ---------------------------------- | ------ |
