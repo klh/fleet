@@ -188,7 +188,38 @@ describe("HTTP transport (store-server.ts)", () => {
 			GOVERNOR_STORE_URL: turl,
 		});
 		expect(refused.code).not.toBe(0);
-		expect(refused.err).toContain("unreachable");
+		// W662 — a real HTTP status surfaces, not the old "unreachable" mask
+		expect(refused.err).toContain("HTTP 403");
+	});
+
+	// W662 — server-side 500s used to masquerade as "unreachable" (curl -f
+	// flattens any >= 400 to exit 22). Async spawn: an in-process stub server
+	// cannot answer a spawnSync child (W362).
+	test("server errors surface their HTTP status, not 'unreachable'", async () => {
+		const s = Bun.serve({
+			port: 0,
+			fetch: () => new Response("boom", { status: 500 }),
+		});
+		const p = Bun.spawn(
+			["bun", join(BIN, "coord.ts"), "fact", "get", "k.h"],
+			{
+				cwd: repo,
+				env: {
+					...process.env,
+					HOME: home,
+					NO_COLOR: "1",
+					GOVERNOR_STORE_URL: `http://127.0.0.1:${s.port}`,
+				},
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		await p.exited;
+		const err = await new Response(p.stderr).text();
+		s.stop(true);
+		expect(p.exitCode).not.toBe(0);
+		expect(err).toContain("HTTP 500");
+		expect(err).not.toContain("unreachable");
 	});
 });
 

@@ -1010,6 +1010,10 @@ export class HttpGovernorStore implements GovernorStore {
 			"-sSf",
 			"--max-time",
 			"10",
+			"-w",
+			// W662 — trailing status line: curl -f flattens every HTTP >= 400
+			// to exit 22, which the old error mislabeled as "unreachable"
+			"\n%{http_code}",
 			"-X",
 			"POST",
 			`${this.base}/rpc`,
@@ -1022,11 +1026,22 @@ export class HttpGovernorStore implements GovernorStore {
 			JSON.stringify({ mode, sql, params, txid: this.txid }),
 		);
 		const r = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
-		if (r.exitCode !== 0)
+		const raw = new TextDecoder().decode(r.stdout);
+		const nl = raw.lastIndexOf("\n");
+		const status = nl >= 0 ? Number(raw.slice(nl + 1).trim()) : NaN;
+		const bodyText = nl >= 0 ? raw.slice(0, nl) : raw;
+		if (r.exitCode !== 0) {
+			if (status > 0) {
+				const detail = bodyText.trim().slice(0, 200);
+				throw new Error(
+					`governor store ${this.base} HTTP ${status}${detail ? `: ${detail}` : ""}`,
+				);
+			}
 			throw new Error(
 				`governor store ${this.base} unreachable (curl exit ${r.exitCode})`,
 			);
-		const out = JSON.parse(new TextDecoder().decode(r.stdout));
+		}
+		const out = JSON.parse(bodyText);
 		// server-side refusals ride a 200 body ({err}) — curl -f cannot see them
 		if (out.err) throw new Error(`governor store: ${out.err}`);
 		return out;

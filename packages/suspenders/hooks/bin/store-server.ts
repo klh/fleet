@@ -20,6 +20,7 @@ import {
 	knowledgeSqlViolation,
 	type GovernorStore,
 } from "../lib/govdb.ts";
+import { beginWithHeal } from "../lib/store-tx.ts";
 import { handleAuthRoutes } from "../lib/auth-server.ts";
 import { servicemon } from "../lib/servicemon.ts";
 import { readFileSync, statSync } from "node:fs";
@@ -214,7 +215,14 @@ async function handleRpc(body: RpcBody): Promise<Record<string, unknown>> {
 			}
 			if (op === "begin") {
 				if (tx) return { err: "transaction already open" };
-				txDb.run("BEGIN IMMEDIATE");
+				// W662 — a null marker with the connection actually inside a
+				// transaction (swallowed rollback-failure desync) made BEGIN
+				// throw "within a transaction" → unhandled → HTTP 500 → every
+				// tx-mode write dead until restart. beginWithHeal kills the
+				// orphan and re-begins; any other begin failure surfaces as
+				// {err}, never a 500.
+				const began = beginWithHeal(txDb);
+				if ("err" in began) return began;
 				tx = { id: body.txid ?? "?", last: Date.now() };
 				return { ok: true };
 			}
