@@ -12,6 +12,7 @@
 // W14: the gate body lives in filesCheck() — exit-free — so stop.ts re-verifies
 // changed files IN-PROCESS instead of spawning `bun gate.ts post-files` per file.
 import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
+import { oncePerSession } from "../lib/advisory-cooldown.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
 import { openGovernorDb } from "../lib/govdb.ts";
@@ -55,6 +56,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 	const isMd = /\.(md|markdown)$/i.test(F);
 	const isCode = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc)$/i.test(F);
 	const notes: string[] = [];
+	const sid = hook.session_id;
 
 	// ---- UI law (owner 2026-10-01, CLAUDE.md): NEVER innerHTML/document.write
 	// anywhere; document.createElement only inside web components (lit) ----
@@ -103,9 +105,14 @@ export function filesCheck(hook: HookInput): FilesExit {
 		if (Bun.hash(readFileSync(F)) !== before) {
 			recordGateWrite(F); // W58: the gate's own rewrite, self-declared
 			refreshLeaseHash(F);
-			notes.push(
+			// W645 advisory cooldown: identical notes (same file, same rewrite)
+			// repeat on every save — content-keyed 5-min per-session TTL,
+			// fail-open; steer delivery below is directed content, never cooled.
+			const mdNote = oncePerSession(
+				sid,
 				`md-format: normalized ${F}. Read the updated file only if editing it again.`,
 			);
+			if (mdNote) notes.push(mdNote);
 		}
 	}
 
@@ -127,7 +134,11 @@ export function filesCheck(hook: HookInput): FilesExit {
 		}
 		if (fmtNote) {
 			refreshLeaseHash(F);
-			notes.push(`${fmtNote} Read the updated file only if editing it again.`);
+			const fmtNoteMsg = oncePerSession(
+				sid,
+				`${fmtNote} Read the updated file only if editing it again.`,
+			);
+			if (fmtNoteMsg) notes.push(fmtNoteMsg);
 		}
 	}
 
@@ -166,7 +177,10 @@ export function filesCheck(hook: HookInput): FilesExit {
 
 	const streak = editStreak(hook, F);
 	if (streak?.kind === "block") return streak;
-	if (streak?.kind === "context") notes.push(streak.msg);
+	if (streak?.kind === "context") {
+		const streakMsg = oncePerSession(sid, streak.msg);
+		if (streakMsg) notes.push(streakMsg);
+	}
 	// W611 steer delivery: undelivered directed events (target = this lane's
 	// sid, past the cursor) ride out as additionalContext on EVERY save — the
 	// one moment a busy lane's PostToolUse is guaranteed to reach the model.
