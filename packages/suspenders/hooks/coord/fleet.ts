@@ -12,6 +12,7 @@ import {
 	amber,
 	red,
 	projectIdentity,
+	resolveProject,
 	CAPABILITIES,
 	workTiming,
 	tokenUsage,
@@ -299,18 +300,10 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	const now = Date.now();
 	const days = Number(arg("--days") ?? 7);
 	const cut = now - days * 86_400_000;
+	// W459.1: identity via the one resolver — an explicit dir arg resolves
+	// exactly like cwd does (no private re-derivation here)
 	let project = projectIdentity();
-	if (projArgs[0]) {
-		const g = Bun.spawnSync(
-			["git", "-C", projArgs[0], "rev-parse", "--git-common-dir"],
-			{ stdout: "pipe", stderr: "pipe" },
-		);
-		const dir =
-			g.exitCode === 0 ? new TextDecoder().decode(g.stdout).trim() : "";
-		project = dir
-			? realpathSync(resolve(projArgs[0], dir))
-			: realpathSync(projArgs[0]);
-	}
+	if (projArgs[0]) project = resolveProject(projArgs[0]).id;
 	const name =
 		project
 			.split("/")

@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { run } from "./run.ts";
-import { openGovernorDb } from "./govdb.ts";
+import { openGovernorDb, resolveProject } from "./govdb.ts";
 import type { HookInput } from "./hookio.ts";
 
 type Context = {
@@ -64,12 +64,9 @@ export function laneCompletion(
 		const local = join(wt, ".fleet/lane-context.json");
 		if (existsSync(local)) context = JSON.parse(readFileSync(local, "utf8"));
 		else {
-			const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
-			if (!common.ok) return null;
-			const index = join(
-				dirname(resolve(wt, common.out.trim())),
-				".fleet/lanes.json",
-			);
+			// W459.1: the lanes index lives at the checkout ROOT (dirname of the
+			// common dir) — resolved by the one resolver, no private spawn
+			const index = join(resolveProject(wt).root, ".fleet/lanes.json");
 			const rows = JSON.parse(readFileSync(index, "utf8")) as Context[];
 			const matches = rows.filter(
 				(row) => row.worktree && resolve(row.worktree) === wt,

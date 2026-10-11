@@ -12,6 +12,7 @@ import { trustOf, withTrust } from "../lib/knowledge.ts";
 
 export {
 	projectIdentity,
+	resolveProject,
 	CAPABILITIES,
 	workTiming,
 	pruneDeltas,
@@ -189,7 +190,9 @@ export function lessonLookup(
 // (trustOf via withTrust) is answered BY THE PLANE, trust attached — no
 // expert round-trip. Same deterministic overlap bar as kbLookup; 1-hop
 // pointer neighbors never answer (they matched the graph, not the question).
-export async function factLookup(question: string): Promise<KnowledgeHit | null> {
+export async function factLookup(
+	question: string,
+): Promise<KnowledgeHit | null> {
 	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
 	const hits = withTrust(

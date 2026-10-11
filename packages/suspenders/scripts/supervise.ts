@@ -29,17 +29,10 @@
 //   titles...  — when the parent has no children yet, shatter it first
 //                (1-2 children free; >2 needs --plan per the W16 split gate)
 import type { Database } from "bun:sqlite";
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	realpathSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { resolve } from "node:path";
 import { flagIntegratedCode } from "../hooks/lib/decomposition.ts";
-import { openStore } from "../hooks/lib/govdb.ts";
+import { openStore, resolveProject } from "../hooks/lib/govdb.ts";
 import { supSid } from "../hooks/lib/laneslug.ts";
 import {
 	composeBrief,
@@ -148,7 +141,8 @@ const main = async (): Promise<void> => {
 	};
 	const commonDir = gitOut(["rev-parse", "--git-common-dir"]);
 	if (!commonDir) die(`not a git repo: ${REPO}`);
-	const PROJECT = realpathSync(resolve(REPO, commonDir));
+	// W459.1: identity rides the one canonical resolver — no private re-derivation
+	const PROJECT = resolveProject(REPO).id;
 	const DB_PATH = `${process.env.HOME}/.cache/claude-governor/governor.db`;
 	if (!existsSync(DB_PATH))
 		die(`no governor db at ${DB_PATH} — bootstrap the control plane first`);
