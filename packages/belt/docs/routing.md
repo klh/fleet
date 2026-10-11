@@ -48,6 +48,20 @@ reasons per row there.
   with the longest Retry-After.
 - **Direct tiers**: `routing-policy.yaml` `direct:` lists hot local aliases that
   skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS clients).
+
+## Role classes + reasoning effort (W648)
+`routing-policy.yaml` gains declarative class rows (oh-my-codex §1 lift):
+`classes:` maps frontier/standard/spark to ordered group ladders — groups are
+the existing belt alias namespace (litellm model_name / buckle group /
+direct-tier key), so buckle/litellm keep resolving group → provider. `roles:`
+overrides a role's class; any role/lane named `*-low` drops to spark with NO
+registry edit. `reasoning:` is a model-independent axis (role row > class row
+> default, low..xhigh) — z.ai honors `reasoning_effort`
+(`allowed_openai_params` on z.ai rows), MLX effort is the router budget
+policy. gateway-config emits the resolved map to
+`~/.claude/local-llm/class-tiers.json` for non-TS consumers (dispatch briefs
++ the W512 Task pin: pin the class, the ladder resolves the model).
+
 ## Model registration (W271)
 Every servable LLM is registered in ONE place: `bin/registry.ts`
 (`SPECIALISTS` + `EXTERNAL`, each with an `alias`). Everything downstream is

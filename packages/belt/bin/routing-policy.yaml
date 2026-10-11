@@ -53,3 +53,24 @@ direct:
   local-coder: http://127.0.0.1:8901/v1
   local-extract: http://127.0.0.1:8902/v1
   local-reason: http://127.0.0.1:8903/v1
+
+# ─── role-class routing (W648, oh-my-codex §1 lift) ───
+# Declarative class rows: dispatch/Task pins name a CLASS, the ladder inside
+# it resolves the concrete group — buckle/litellm keep resolving group →
+# provider natively (groups are the existing belt-facing alias namespace:
+# litellm model_name / buckle group / direct-tier key). The `-low` suffix on
+# any role or lane name drops to the cheap lane with NO registry edit; the
+# explicit `roles:` map wins over the suffix. Reasoning effort is a
+# SEPARATE, model-independent axis: role row > class row > default (low..
+# xhigh), passed through buckle as reasoning_effort (z.ai honors it via
+# allowed_openai_params; MLX effort = the router budget policy).
+classes:
+  frontier: [glm-5.3]
+  standard: [glm-5.3-flash]
+  spark: [local-extract, local-coder]
+roles: {}
+reasoning:
+  default: medium
+  classes:
+    spark: low
+  roles: {}

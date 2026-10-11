@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+	emitClassTiers,
 	emitFallbackSettings,
 	emitRouterSettings,
 	loadGatewayPolicy,
 	parsePolicy,
+	resolveClassGroups,
+	resolveReasoningEffort,
+	resolveRoleClass,
 } from "../bin/router-policy.ts";
 
 const REPO_POLICY = new URL("../bin/routing-policy.yaml", import.meta.url)
@@ -184,5 +188,95 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(out.includes("fallbacks")).toBe(false);
 		expect(out).toContain("routing_strategy: latency-based-routing");
 		expect(emitFallbackSettings(parsePolicy("version: 1\n"))).toBe("");
+	});
+});
+
+/** W648 fixture — suffix rule + explicit override + the effort axis. */
+const W648_DOC = [
+	"classes:",
+	"  frontier: [glm-5.3]",
+	"  standard: [glm-5.3-flash]",
+	"  spark: [local-extract, local-coder]",
+	"roles:",
+	"  reviewer-low: frontier",
+	"reasoning:",
+	"  default: medium",
+	"  classes:",
+	"    spark: low",
+	"  roles:",
+	"    executor: xhigh",
+	"",
+].join("\n");
+
+describe("role-class schema (W648, oh-my-codex §1 lift)", () => {
+	test("committed default carries the three class rows + effort defaults", () => {
+		const p = loadGatewayPolicy(REPO_POLICY);
+		expect(p.classes).toEqual({
+			frontier: ["glm-5.3"],
+			standard: ["glm-5.3-flash"],
+			spark: ["local-extract", "local-coder"],
+		});
+		expect(p.roles).toEqual({});
+		expect(p.reasoning).toEqual({
+			default: "medium",
+			classes: { spark: "low" },
+			roles: {},
+		});
+	});
+
+	test("-low suffix drops to spark; explicit roles win; default is standard", () => {
+		const p = parsePolicy(W648_DOC);
+		expect(resolveRoleClass(p, "executor")).toBe("standard");
+		expect(resolveRoleClass(p, "summarize-low")).toBe("spark");
+		expect(resolveRoleClass(p, "reviewer-low")).toBe("frontier");
+	});
+
+	test("standard inherits frontier; spark inherits standard → frontier", () => {
+		const p = parsePolicy("classes:\n  frontier: [glm-5.3]\n");
+		expect(resolveClassGroups(p, "standard")).toEqual(["glm-5.3"]);
+		expect(resolveClassGroups(p, "spark")).toEqual(["glm-5.3"]);
+	});
+
+	test("no rows configured → every class resolves empty (pre-schema files stay valid)", () => {
+		const p = parsePolicy("version: 1\n");
+		for (const cls of ["frontier", "standard", "spark"] as const)
+			expect(resolveClassGroups(p, cls)).toEqual([]);
+	});
+
+	test("bad class keys, empty group lists and invalid efforts fail closed", () => {
+		expect(() => parsePolicy("classes:\n  ultra: [glm-5.3]\n")).toThrow(
+			"not one of",
+		);
+		expect(() => parsePolicy("classes:\n  spark: []\n")).toThrow(
+			"non-empty list",
+		);
+		expect(() => parsePolicy("reasoning:\n  default: ultra\n")).toThrow(
+			"must be one of",
+		);
+		expect(() => parsePolicy("roles:\n  executor: ✗\n")).toThrow("not one of");
+	});
+
+	test("effort precedence: role row > class row > global default", () => {
+		const p = parsePolicy(
+			"reasoning:\n  default: low\n  classes:\n    standard: medium\n  roles:\n    executor: xhigh\n",
+		);
+		expect(resolveReasoningEffort(p, "executor")).toBe("xhigh");
+		expect(resolveReasoningEffort(p, "planner")).toBe("medium");
+		expect(resolveReasoningEffort(p, "watcher-low")).toBe("low");
+	});
+
+	test("class-tiers.json artifact parses and carries the resolved map", () => {
+		const doc = JSON.parse(emitClassTiers(parsePolicy(W648_DOC))) as {
+			classes: Record<string, string[]>;
+			roles: Record<string, string>;
+			reasoning: {
+				default: string;
+				classes: Record<string, string>;
+				roles: Record<string, string>;
+			};
+		};
+		expect(doc.classes.spark).toEqual(["local-extract", "local-coder"]);
+		expect(doc.roles["reviewer-low"]).toBe("frontier");
+		expect(doc.reasoning.default).toBe("medium");
 	});
 });
