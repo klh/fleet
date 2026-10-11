@@ -41,6 +41,7 @@ import {
 	twoPersonReason,
 } from "./destructive.ts";
 import { laneId, leaseExpired } from "./governor.ts";
+import { lifecycleGate } from "./lifecycle.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
@@ -379,6 +380,12 @@ export function bashGate(hook: HookInput): never {
 		}
 	}
 
+	// ---- W576.7.1 service lifecycle fence: protected active units + receipt +
+	// direct launchctl mutations need a lifecycle grant (governor.db). Runs
+	// BEFORE the two-person rule: a granted launchctl mutation IS the second
+	// opinion — the two-person launchctl family stands down for this command.
+	const lifecycleApproved = lifecycleGate(SEGS, CWD);
+
 	// ---- W250 two-person rule: a lane-issued destructive command needs a
 	// human co-signer. The detector is conservative; the approval is a
 	// signed, single-use, command-hash-bound file the SECOND person mints
@@ -413,6 +420,9 @@ export function bashGate(hook: HookInput): never {
 			}
 			const hit = destructiveHit(w, segCwd, home);
 			if (!hit) continue;
+			// a granted lifecycle op already carried its authority above —
+			// the two-person launchctl family does not double-charge it
+			if (lifecycleApproved && hit.startsWith("launchctl")) continue;
 			if (verifyAndConsumeCmd(CMD)) {
 				auditApproval(CMD);
 				cmdApproved = true;
