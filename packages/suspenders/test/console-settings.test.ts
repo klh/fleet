@@ -233,14 +233,13 @@ describe("policy config surface (board-config)", () => {
 describe("console routes (real board, temp config)", () => {
 	test("shell on / and /usage; console sections render", async () => {
 		const home = await (await fetch(`${BASE}/`)).text();
-		expect(home).toContain('id="cbar"');
+		expect(home).toContain("<klh-topbar");
 		expect(home).toContain('href="/console/belt"');
 		expect(home).toContain('href="/console/local"');
-		expect(home).toContain('id="cavbtn"');
-		expect(home).toContain("/api/console/me");
+		expect(home).toContain('src="/vendor/klh-topbar.js"');
 		const usage = await (await fetch(`${BASE}/usage`)).text();
-		expect(usage).toContain('id="cbar"');
-		expect(usage).toContain("cavbtn");
+		expect(usage).toContain("<klh-topbar");
+		expect(usage).toContain('src="/vendor/klh-topbar.js"');
 		const belt = await (await fetch(`${BASE}/console/belt`)).text();
 		expect(belt).toContain("Routing policy");
 		expect(belt).toContain("glm-5.3-flash");

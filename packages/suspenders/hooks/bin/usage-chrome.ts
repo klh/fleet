@@ -7,9 +7,8 @@
 // law rides the W184 staged Lit migration.
 import { readFileSync } from "node:fs";
 import { GROUPS } from "../lib/usage.ts";
-import { TOPBAR_JS, topbar } from "./console-html.ts";
 import { USAGE_CHART_JS } from "./usage-charts.ts";
-import { THEME_HEAD } from "../lib/theme.ts";
+import { THEME_HEAD, FLEET_NAV_CSS, fleetNav } from "../lib/theme.ts";
 
 // uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
 // vendored single file, license header preserved at the top of the source.
@@ -117,6 +116,6 @@ export function usagePageShell(cfg: {
 	body: string;
 	payload: string;
 }): string {
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
+	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script>${USAGE_CHART_JS}</script>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "suspenders")}<klh-topbar></klh-topbar><main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}<script type="module" src="/vendor/klh-topbar.js"></script></body></html>`;
 }

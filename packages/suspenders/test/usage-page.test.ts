@@ -114,14 +114,13 @@ describe("usagePage render contract (W152)", () => {
 		const html = usagePage(r, { days: 7, team: "platform", dept: "" });
 		const all = buildUsageReport(db, { days: 7, nowMs: NOW });
 		expect(all.totals.tok).toBe(4950);
-		expect(html).toContain('id="cbar"');
-		expect(html).toContain("cavbtn");
+		expect(html).toContain("<klh-topbar");
+		expect(html).toContain('src="/vendor/klh-topbar.js"');
 		expect(html).toContain("var uPlot=function()");
 		expect(html).toContain("box-sizing: border-box");
 		expect(html).toContain('id="u-timeline"');
 		expect(html).toContain('id="u-hours"');
 		expect(html).toContain('id="klh-theme-tokens"');
-		expect(html).toContain('id="klh-settings"');
 		const m = html.match(
 			/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
 		);

@@ -3,12 +3,13 @@
 // string builders on the klh theme tokens (hooks/lib/theme.ts — var(--klh-*),
 // dark/light via data-theme), inline SVG, no framework, no external deps.
 //
-// The top bar is the klh-stack shell: the shared klh·fleet strip (theme.ts
-// fleetNav — belt · suspenders · local, the same row belt.local and bar.local
-// wear) above the console bar: wordmark + [belt gateway | fleet board | local
-// services] menu, gear → settings panel (theme + console settings link), avatar circle with a keyboard-reachable actor
-// dropdown. The SPA board interpolates TOPBAR the same way (String.raw
-// interpolates ${}; only escapes are raw), so every page wears one shell.
+// W658.2: the top bar retired into the klh-topbar Lit component
+// (board-html/klh-topbar.ts → /vendor/klh-topbar.js): pages compose
+// theme.ts fleetNav() + <klh-topbar> — server pages pass `me` as a JSON
+// attribute, the component fetches /api/console/me when absent; page links
+// slot into the settings panel via slot="settings-extra". topbar() and
+// TOPBAR_JS (incl. its cavload fill) are gone; the avatar dropdown, theme
+// radios and actor select live in the component's shadow DOM.
 //
 // Settings flow (config-over-code, never a code edit): form →
 // /console/settings/preview (validate + diff) → confirm form →
@@ -27,13 +28,9 @@ import {
 } from "../lib/service-inventory.ts";
 import {
 	FLEET_NAV_CSS,
-	FLEET_NAV_JS,
 	fleetNav,
 	displayLabel,
-	settingsBlock,
 	THEME_HEAD,
-	THEME_SETTINGS_CSS,
-	THEME_SETTINGS_JS,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
 import type { ExecutorEntry } from "../board/executor-catalog.ts";
@@ -54,107 +51,29 @@ export const esc = (s: string): string =>
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;");
 
-const SHELL_CSS = `
-#cbbar { display:none; }
-#klh-fleetnav { margin:0; padding:var(--klh-space-2) var(--klh-space-5); background:var(--klh-panel); }
-#cbar { display:flex; align-items:center; gap:14px; padding:7px 16px; border-bottom:1px solid var(--klh-edge-soft); background:var(--klh-panel); position:sticky; top:0; z-index:50; }
-#cbar .cw { font-size:12px; font-weight:700; letter-spacing:.10em; color:var(--klh-ink); text-decoration:none; white-space:nowrap; }
-#cbar .cwdot { color:var(--klh-accent); }
-#cbar .cnavs { display:flex; gap:2px; }
-#cbar .cnav { color:var(--klh-dim); text-decoration:none; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 11px; border-bottom:2px solid transparent; }
-#cbar .cnav:hover { color:var(--klh-ink); }
-#cbar .cnav[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
-#cbar .cend { margin-left:auto; display:flex; align-items:center; gap:12px; }
-@media(max-width:600px){#cbar{flex-wrap:wrap;gap:4px 12px}#cbar .cnavs{order:3;flex:1 0 100%;flex-wrap:wrap}#cbar .cnav{padding:7px 9px}}
-.cavwrap { position:relative; }
-.cavbtn { width:26px; height:26px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 11px/1 var(--klh-font-sans); cursor:pointer; padding:0; }
-.cavbtn:hover, .cavbtn[aria-expanded="true"] { border-color:var(--klh-accent); color:var(--klh-accent); }
-.cavdrop { position:absolute; right:0; top:32px; width:260px; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:3px; padding:10px 12px; box-shadow:0 4px 18px var(--klh-shadow); }
-.cavhead { display:flex; gap:9px; align-items:center; }
-.cavbig { width:30px; height:30px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 13px/30px var(--klh-font-sans); text-align:center; flex:none; }
-.cavname { font-size:12.5px; color:var(--klh-ink); font-weight:600; word-break:break-all; }
-.cavsub { font-size:10.5px; color:var(--klh-dim); }
-.cavsec { margin-top:9px; font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.cavdrop select { width:100%; margin-top:4px; }
-.cavnote { margin-top:7px; font-size:10.5px; color:var(--klh-dim); }
-`;
-
-const initial = (actor: string): string =>
-	actor && actor !== "unassigned" ? actor.charAt(0).toUpperCase() : "?";
-
-const tagLine = (tags: Record<string, string>): string =>
-	["team", "department"]
-		.filter((k) => tags[k])
-		.map((k) => esc(tags[k]))
-		.join(" · ") || "no team tags";
-
-// ─── top bar (the klh-stack shell, identical on every page) ───────────────
-export const topbar = (
-	active: "belt" | "suspenders" | "local" | "settings" | "",
-	me?: ConsoleMe,
-): string => {
-	const cur = (k: string): string =>
-		k === active ? ` aria-current="page"` : "";
-	const actor = me?.actor ?? "unassigned";
-	const sel = (): string => {
-		const opts = me.actors.includes(me.defaultActor)
-			? me.actors
-			: [me.defaultActor, ...me.actors];
-		return `<select id="cavsel" aria-label="switch actor (demo preview)">${opts.map((a) => `<option${a === me.defaultActor ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
-	};
-	const dropInner = me
-		? `<div class="cavhead"><span class="cavbig">${esc(initial(actor))}</span><span><span class="cavname">${esc(actor)}</span><br><span class="cavsub">${tagLine(me.tags)}</span></span></div><div class="cavsec">switch actor (demo preview)</div>${sel()}<div class="cavnote">demo preview — stamps nothing live; live switching is a follow-up item</div>`
-		: `<div class="cavname" id="cavload">loading actor…</div>`;
-	return `<style>${SHELL_CSS}${THEME_SETTINGS_CSS}${FLEET_NAV_CSS}</style>${fleetNav("suspenders", active)}<nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh<span class="cwdot">·</span>console</a><span class="cend">${settingsBlock(`<a${cur("settings")} href="/console/settings">all console settings &rarr;</a>`)}<span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
-};
-
-// Dropdown behavior: click toggles, outside-click + Escape close (focus
-// returns to the button). When the panel was NOT server-rendered (the SPA
-// board), one /api/console/me fetch fills actor/tags/demo select.
-const TOPBAR_JS_A = `(function(){
-var btn=document.getElementById('cavbtn'),drop=document.getElementById('cavdrop');
-if(!btn||!drop)return;
-var open=false;
-function set(o){open=o;drop.hidden=!o;btn.setAttribute('aria-expanded',o?'true':'false');}
-btn.addEventListener('click',function(e){e.stopPropagation();set(!open);});
-document.addEventListener('click',function(e){if(open&&e.target instanceof Node&&!drop.contains(e.target))set(false);});
-document.addEventListener('keydown',function(e){if(open&&e.key==='Escape'){set(false);btn.focus();}});`;
-
-// Panel fill for the SPA (no server-rendered me): one /api/console/me fetch
-// builds the same panel the console pages render server-side.
-const TOPBAR_JS_B = `
-if(document.getElementById('cavload')){
-fetch('/api/console/me').then(function(r){return r.json()}).then(function(d){
-if(!d||!d.ok)return;
-window.__execPrefs=(d.executor_prefs||[]);
-var head=document.createElement('div');head.className='cavhead';
-head.innerHTML='<span class="cavbig"></span><span><span class="cavname"></span><br><span class="cavsub"></span></span>';
-head.querySelector('.cavbig').textContent=(d.actor&&d.actor!=='unassigned')?d.actor.charAt(0).toUpperCase():'?';
-head.querySelector('.cavname').textContent=d.actor||'unassigned';
-var tg=(d.tags&&d.tags.team?d.tags.team:'')+(d.tags&&d.tags.department?(d.tags.team?' · ':'')+d.tags.department:'');
-head.querySelector('.cavsub').textContent=tg||'no team tags';
-var load=document.getElementById('cavload');load.replaceWith(head);
-var sec=document.createElement('div');sec.className='cavsec';sec.textContent='switch actor (demo preview)';head.after(sec);
-var sel=document.createElement('select');sel.id='cavsel';sel.setAttribute('aria-label','switch actor (demo preview)');
-var opts=(d.actors&&d.actors.length)?d.actors.slice():[];
-if(d.default_actor&&opts.indexOf(d.default_actor)<0)opts.unshift(d.default_actor);
-if(!opts.length)opts=['unassigned'];
-opts.forEach(function(a){var o=document.createElement('option');o.textContent=a;if(a===d.default_actor)o.selected=true;sel.appendChild(o);});
-sec.after(sel);
-var note=document.createElement('div');note.className='cavnote';note.textContent='demo preview — stamps nothing live; live switching is a follow-up item';sel.after(note);
-}).catch(function(){});}
-})();`;
-export const TOPBAR_JS =
-	TOPBAR_JS_A + TOPBAR_JS_B + THEME_SETTINGS_JS + FLEET_NAV_JS;
+// ─── top bar retired (W658.2) ─────────────────────────────────────────────
+// topbar()/TOPBAR_JS moved to board-html/klh-topbar.ts — pages compose
+// fleetNav() + <klh-topbar>; the avatar dropdown, settings gear and the
+// /api/console/me fetch live in the component.
 
 // ─── page shell ───────────────────────────────────────────────────────────
+// klh-topbar data: server pages pass `me` as a JSON attribute (esc()'d like
+// klh-service-row's probe attr); absent → the component fetches
+// /api/console/me itself (board SPA, /usage).
+const meAttr = (me?: ConsoleMe): string =>
+	me ? ` me="${esc(JSON.stringify(me))}"` : "";
+
+// the page's settings-panel link (aria-current when the page IS settings)
+const settingsExtra = (active: string): string =>
+	`<a slot="settings-extra" href="/console/settings"${active === "settings" ? ' aria-current="page"' : ""}>all console settings &rarr;</a>`;
+
 export const consolePage = (
 	title: string,
 	active: "belt" | "suspenders" | "local" | "settings" | "",
 	body: string,
 	me?: ConsoleMe,
 ): string =>
-	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:var(--klh-text-lg)/1.6 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:28px;letter-spacing:0;margin:28px 0 20px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:1400px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
+	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:var(--klh-text-lg)/1.6 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:28px;letter-spacing:0;margin:28px 0 20px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", active)}<klh-topbar${meAttr(me)}>${settingsExtra(active)}</klh-topbar><main style="max-width:1400px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script type="module" src="/vendor/klh-topbar.js"></script></body></html>`;
 
 // ─── belt gateway view (/console/belt) ────────────────────────────────────
 // W273: a probe row carries its recovery-map entry (null = unmapped)
