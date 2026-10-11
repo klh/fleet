@@ -7,6 +7,8 @@
 // buckle-remote) — this file proves the public seam contract only.
 import { describe, expect, test } from "bun:test";
 import type {
+	HubEntitlementsFactory,
+	HubEntitlementsProvider,
 	RedeemResult,
 	SpokeEnrollmentProvider,
 	UsageIngestProvider,
@@ -14,6 +16,19 @@ import type {
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
+
+/** Mint a spoke:READ_ key through the admin API. */
+async function issueSpokeKey(base: string): Promise<string> {
+	const res = await fetch(`${base}/v1/admin/keys`, {
+		method: "POST",
+		headers: { authorization: `Bearer ${ROOT}` },
+		body: JSON.stringify({
+			name: "spoke-seam",
+			scopes: ["buckle:spoke:READ_"],
+		}),
+	});
+	return ((await res.json()) as { key: string }).key;
+}
 
 /** Hub with a scratch pool + versioned policy surface. */
 async function startFed(opts: {
@@ -24,6 +39,7 @@ async function startFed(opts: {
 		db: import("bun:sqlite").Database,
 		policy: unknown,
 	) => UsageIngestProvider;
+	hubEntitlements?: HubEntitlementsFactory;
 }): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w233-seam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
@@ -177,6 +193,55 @@ describe("spoke-enrollment seam — injected provider", () => {
 			const list = await fetch(`${base}/v1/admin/spokes`, { headers: ADMIN });
 			expect(list.status).toBe(200);
 			expect((await list.json()).spokes).toHaveLength(1);
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("entitlements seam — solo posture (no provider)", () => {
+	test("authenticated spoke pull answers an honest 501", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/entitlements`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(501);
+			const body = (await res.json()) as { error: { code: string } };
+			expect(body.error.code).toBe("buckle.no_federation");
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("entitlements seam — injected provider", () => {
+	test("stub menu served through the real route; ceilings ride along", async () => {
+		const stub: HubEntitlementsProvider = {
+			models: () => [
+				{
+					id: "glm-5.3-flash",
+					family: "openai-compat",
+					tier: "general",
+					locality: "hub-local",
+					available: true,
+				},
+			],
+		};
+		const { base, stop } = await startFed({ hubEntitlements: () => stub });
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/entitlements`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				models: Array<{ id: string }>;
+				ceilings: unknown;
+			};
+			expect(body.models).toEqual([stub.models()[0]]);
+			expect(body.ceilings).toBeNull();
 		} finally {
 			stop();
 		}

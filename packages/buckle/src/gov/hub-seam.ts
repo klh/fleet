@@ -7,6 +7,7 @@
 // references the overlay.
 import type { Database } from "bun:sqlite";
 import type { GatewayPolicy } from "../policy.ts";
+import type { UpstreamPool } from "../upstreams.ts";
 
 export const ENROLLMENT_DEFAULT_TTL_S = 900;
 
@@ -115,3 +116,27 @@ export interface UsageIngestProvider {
 	ingest(o: { body: unknown; spoke: string }): UsageIngestResult;
 	read(days: number, nowMs?: number): FedUsageReport;
 }
+/** Echo-menu row (W154): one hub-entitled model entry a spoke belt
+ *  mirrors. */
+export interface EntitlementModel {
+	id: string;
+	family: string | null;
+	tier: string;
+	locality: "cloud" | "hub-local";
+	available: boolean;
+}
+
+/** W233.1: the hub entitlement-menu provider — the pool→menu mapping
+ *  (buildModels) lives in the enterprise overlay (klh-remote
+ *  buckle-remote); public solo posture runs provider-less and the
+ *  entitlements route answers an honest 501. Team ceilings stay public
+ *  (federation.ts reads the shared governance schema). */
+export interface HubEntitlementsProvider {
+	models(): EntitlementModel[];
+}
+
+/** Factory over the hub's live upstream pool + policy capability tags. */
+export type HubEntitlementsFactory = (
+	pool: UpstreamPool,
+	tags: Record<string, string[]>,
+) => HubEntitlementsProvider;

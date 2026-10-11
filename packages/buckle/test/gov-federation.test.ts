@@ -5,13 +5,16 @@
 // W193: pulls are authenticated (spoke:READ_) and the manifest is signed.
 import { describe, expect, test } from "bun:test";
 import { declareCR } from "../src/gov/federation-manifest.ts";
+import type { HubEntitlementsFactory } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
 
 /** Hub with a scratch pool: one live loopback group, one dormant cloud tier,
  *  one spoke-private group that must never leak into entitlements. */
-async function startFed(): Promise<{
+async function startFed(
+	opts: { hubEntitlements?: HubEntitlementsFactory } = {},
+): Promise<{
 	base: string;
 	srv: ReturnType<typeof startServer>;
 	stop: () => void;
@@ -51,7 +54,7 @@ async function startFed(): Promise<{
 		policyPath: `${dir}.policy.yaml`,
 		upstreamsPath: `${dir}.upstreams.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		auth: { rootKey: ROOT, ...opts },
 	});
 	return {
 		base: `http://127.0.0.1:${srv.port}`,
@@ -101,7 +104,7 @@ describe("federation: policy manifest (anonymous spoke-pull)", () => {
 });
 
 describe("federation: entitlements (echo menu, visibility law)", () => {
-	test("hub models only — spoke-private excluded, dormant = cloud", async () => {
+	test("solo posture — authenticated spoke pull answers honest 501", async () => {
 		const fed = await startFed();
 		const spokeKey = await issueKey(fed.base, {
 			name: "spoke-menu",
@@ -110,30 +113,12 @@ describe("federation: entitlements (echo menu, visibility law)", () => {
 		const res = await fetch(`${fed.base}/federation/entitlements`, {
 			headers: { authorization: `Bearer ${spokeKey}` },
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(501);
 		const body = (await res.json()) as {
-			models: Array<{
-				id: string;
-				tier: string;
-				locality: string;
-				available: boolean;
-				family: string | null;
-			}>;
-			ceilings: unknown;
+			error: { code: string; message: string };
 		};
-		const ids = body.models.map((m) => m.id);
-		expect(ids).toContain("glm-5.3-flash");
-		expect(ids).toContain("gpt-5.2");
-		expect(ids).not.toContain("local-swarm");
-		const glm = body.models.find((m) => m.id === "glm-5.3-flash");
-		expect(glm?.locality).toBe("hub-local");
-		expect(glm?.available).toBe(true);
-		expect(glm?.family).toBe("openai-compat");
-		const gpt = body.models.find((m) => m.id === "gpt-5.2");
-		expect(gpt?.tier).toBe("frontier");
-		expect(gpt?.locality).toBe("cloud");
-		expect(gpt?.available).toBe(false);
-		expect(body.ceilings).toBeNull();
+		expect(body.error.code).toBe("buckle.no_federation");
+		expect(body.error.message).toContain("no entitlements surface");
 		fed.stop();
 	});
 
@@ -151,7 +136,21 @@ describe("federation: entitlements (echo menu, visibility law)", () => {
 
 describe("federation: spoke-class scopes + team ceilings", () => {
 	test("team key → entitlements carry ceilings", async () => {
-		const fed = await startFed();
+		const fed = await startFed({
+			// W233.1: the menu is overlay-owned; a stub provider proves the
+			// ceilings read-side (shared governance schema) stays public.
+			hubEntitlements: () => ({
+				models: () => [
+					{
+						id: "stub",
+						family: null,
+						tier: "general",
+						locality: "cloud",
+						available: false,
+					},
+				],
+			}),
+		});
 		await fetch(`${fed.base}/v1/admin/teams`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${ROOT}` },

@@ -17,6 +17,7 @@ import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
 import type {
+	HubEntitlementsFactory,
 	SpokeEnrollmentFactory,
 	UsageIngestFactory,
 } from "./gov/hub-seam.ts";
@@ -70,10 +71,12 @@ export interface ServerOpts {
 	// W141 governance: root break-glass key + optional JWT validator config.
 	// W468: slots overrides the env-resolved admission-control pool caps.
 	// W233: spokeEnrollment injects the enterprise overlay's enrollment
-	// provider (klh-remote buckle-remote); unset = solo posture. W233.2:
-	// usageIngest injects the usage-ingest provider the same way.
+	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
+	// hubEntitlements injects the entitlement-menu provider the same way.
+	// W233.2: usageIngest injects the usage-ingest provider the same way.
 	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots"> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
+		hubEntitlements?: HubEntitlementsFactory;
 		usageIngest?: UsageIngestFactory;
 	};
 }
@@ -209,6 +212,7 @@ export function buildDeps(
 		),
 		spokeEnrollment: opts.auth?.spokeEnrollment,
 		usageIngest: opts.auth?.usageIngest,
+		hubEntitlements: opts.auth?.hubEntitlements,
 	});
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).

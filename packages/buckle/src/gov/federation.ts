@@ -13,7 +13,6 @@ import { YAML } from "bun";
 import type { GatewayPolicy } from "../policy.ts";
 import type { UpstreamPool } from "../upstreams.ts";
 import { readFileSync } from "node:fs";
-import { buildModels } from "./federation-entitlements.ts";
 import {
 	buildRules,
 	crQueue,
@@ -27,6 +26,8 @@ import { applyGovernanceSchema } from "./schema.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
 import type {
+	HubEntitlementsFactory,
+	HubEntitlementsProvider,
 	RedeemResult,
 	SpokeEnrollmentFactory,
 	SpokeEnrollmentProvider,
@@ -53,6 +54,10 @@ export interface FederationOpts {
 	/** W233.2: the usage-ingest seam — same posture law. Unset in solo
 	 *  posture: /federation/usage answers honest 501s (no rollup store). */
 	usageIngest?: UsageIngestFactory;
+	/** W233.1 seam: the hub entitlement-menu provider factory (enterprise
+	 *  overlay). Unset in solo posture — the entitlements route answers an
+	 *  honest 501. */
+	hubEntitlements?: HubEntitlementsFactory;
 }
 
 export interface CrRow {
@@ -141,6 +146,9 @@ export class Federation {
 	/** W233.2 seam: the aggregate self-report hub ingest + rollup read —
 	 *  provider-less in solo posture (honest 501s, no rollup store). */
 	readonly usage: UsageIngestProvider | null;
+	/** W233.1 seam: the hub entitlement menu (enterprise overlay) —
+	 *  provider-less in solo posture (honest 501). */
+	readonly entitlementsMenu: HubEntitlementsProvider | null;
 	/** W160 verification probes, by target prefix (longest match wins). */
 	private readonly probes = new Map<string, CrProbe>();
 
@@ -153,6 +161,8 @@ export class Federation {
 		this.signer = opts.signer ?? null;
 		this.spokes = opts.spokeEnrollment?.(this.db) ?? null;
 		this.usage = opts.usageIngest?.(this.db, this.policy) ?? null;
+		this.entitlementsMenu =
+			opts.hubEntitlements?.(this.pool, this.policy.tags ?? {}) ?? null;
 		const rev = policyRevisionProbe(opts.policyPath);
 		this.registerProbe("policy@", rev);
 		this.registerProbe("routing-policy@", rev);
@@ -193,11 +203,21 @@ export class Federation {
 	}
 
 	/** Echo-menu entitlements: hub menu only, team ceilings when the pull
-	 *  presents a team-carrying principal. */
-	entitlements(p: Principal | null): Record<string, unknown> {
-		const models = buildModels(this.pool, this.policy.tags ?? {});
+	 *  presents a team-carrying principal. W233.1: the menu rides the
+	 *  injected HubEntitlementsProvider (enterprise overlay); absent in solo
+	 *  posture → honest 501. */
+	private entitlementsRoute(p: Principal | null): Response {
+		if (this.entitlementsMenu === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no entitlements surface on this gate (solo posture)",
+			);
 		const ceilings = p?.team ? this.teamCeilings(p.team) : null;
-		return { models, ceilings };
+		return Response.json({
+			models: this.entitlementsMenu.models(),
+			ceilings,
+		});
 	}
 
 	/** W141 team ceilings read through this handle (teams table is in the
@@ -257,7 +277,7 @@ export class Federation {
 		if (req.method === "GET" && url.pathname === "/federation/policy-manifest")
 			return this.pullHeartbeat(req, p, this.manifest());
 		if (req.method === "GET" && url.pathname === "/federation/entitlements")
-			return Response.json(this.entitlements(p));
+			return this.entitlementsRoute(p);
 		if (req.method === "POST" && url.pathname === "/federation/enroll")
 			return this.enroll(req);
 		if (req.method === "POST" && url.pathname === "/federation/usage")
