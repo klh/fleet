@@ -131,6 +131,26 @@ export function resetRecovery(
 	})();
 }
 
+/** Machine proof the CAS reclaim released THIS claim: exit 0 is necessary
+ * but not sufficient — the printed receipt must match claim for claim. */
+export function reclaimReceiptMatches(
+	out: string,
+	claim: { project: string; id: string; owner: string; revision: number },
+): boolean {
+	try {
+		const r = JSON.parse(out) as Record<string, unknown>;
+		return (
+			r.released === true &&
+			r.project === claim.project &&
+			r.id === claim.id &&
+			r.previousOwner === claim.owner &&
+			r.previousUpdatedAt === claim.revision
+		);
+	} catch {
+		return false;
+	}
+}
+
 export function attemptRecovery(
 	store: GovernorStore,
 	claim: { project: string; id: string; owner: string; revision: number },
@@ -156,26 +176,14 @@ export function attemptRecovery(
 	if (!deathConfirmed()) return "held";
 	const result = reclaim();
 	if (result.code !== 0) return "held";
-	try {
-		const receipt = JSON.parse(result.out);
-		if (
-			receipt.released !== true ||
-			receipt.project !== claim.project ||
-			receipt.id !== claim.id ||
-			receipt.previousOwner !== claim.owner ||
-			receipt.previousUpdatedAt !== claim.revision
-		)
-			return "held";
-		const after = reread();
-		return after.project === claim.project &&
-			after.id === claim.id &&
-			after.state === "READY" &&
-			after.owner_sid === null
-			? "released"
-			: "held";
-	} catch {
-		return "held";
-	}
+	if (!reclaimReceiptMatches(result.out, claim)) return "held";
+	const after = reread();
+	return after.project === claim.project &&
+		after.id === claim.id &&
+		after.state === "READY" &&
+		after.owner_sid === null
+		? "released"
+		: "held";
 }
 
 if (import.meta.main) {

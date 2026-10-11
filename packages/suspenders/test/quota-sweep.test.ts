@@ -35,14 +35,15 @@ const governor = (
 ): Database => {
 	const db = new Database(":memory:");
 	db.run(
-		"CREATE TABLE work_items (id TEXT, project TEXT, state TEXT, owner_sid TEXT)",
+		"CREATE TABLE work_items (id TEXT, project TEXT, state TEXT, owner_sid TEXT, updated_at INTEGER)",
 	);
 	for (const r of rows)
 		db.run(
-			"INSERT INTO work_items VALUES (?, ?, 'CLAIMED', ?)",
+			"INSERT INTO work_items VALUES (?, ?, 'CLAIMED', ?, ?)",
 			r.id,
 			r.project,
 			r.owner_sid,
+			1710000000 + Number(r.id.slice(1)),
 		);
 	return db;
 };
@@ -84,14 +85,16 @@ const buckle = (
 	return `${root}/buckle.db`;
 };
 
-const recorders = () => {
+const recorders = (override?: { code: number; out: string }) => {
 	const emitted: Array<{ sid: string; note: string }> = [];
 	const broadcasts: string[] = [];
 	const reclaimed: Array<{ id: string; root: string }> = [];
+	const pins: Array<{ id: string; owner: string; revision: number }> = [];
 	return {
 		emitted,
 		broadcasts,
 		reclaimed,
+		pins,
 		deps: {
 			emit: (sid: string, note: string) => {
 				emitted.push({ sid, note });
@@ -100,9 +103,30 @@ const recorders = () => {
 				broadcasts.push(note);
 				return 3;
 			},
-			reclaim: (id: string, root: string) => {
-				reclaimed.push({ id, root });
-				return { code: 0, out: "reclaimed" };
+			reclaim: (claim: {
+				id: string;
+				project: string;
+				root: string;
+				owner: string;
+				revision: number;
+			}) => {
+				reclaimed.push({ id: claim.id, root: claim.root });
+				pins.push({
+					id: claim.id,
+					owner: claim.owner,
+					revision: claim.revision,
+				});
+				if (override) return { code: override.code, out: override.out };
+				return {
+					code: 0,
+					out: JSON.stringify({
+						project: claim.project,
+						id: claim.id,
+						previousOwner: claim.owner,
+						previousUpdatedAt: claim.revision,
+						released: true,
+					}),
+				};
 			},
 		},
 	};
@@ -354,5 +378,84 @@ describe("quotaSweep", () => {
 		});
 		expect(report.auditDb).toBe(`${root}/nope.db`);
 		expect(report.verdicts[0]?.exhausted).toBeFalse();
+	});
+
+	test("W573: reclaim rides CAS pins and succeeds on a matching receipt", async () => {
+		const root = tempRoot();
+		laneLog(root, "autow12", "API Error (429)\n");
+		const rec = recorders();
+		const report = await quotaSweep({
+			db: governor([
+				{ id: "W12", project: `${root}/.git`, owner_sid: "autow12" },
+			]),
+			buckleDb: null,
+			probeLive: () => false,
+			act: true,
+			...rec.deps,
+			recentEmit: () => false,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(rec.pins).toEqual([
+			{ id: "W12", owner: "autow12", revision: 1710000012 },
+		]);
+		expect(rec.reclaimed).toEqual([{ id: "W12", root }]);
+		expect(
+			report.actions.some(
+				(a) => a.kind === "reclaim" && a.detail.includes("receipt verified"),
+			),
+		).toBeTrue();
+	});
+
+	test("W573: failed reclaim reports held, never fleet pickup", async () => {
+		const root = tempRoot();
+		laneLog(root, "autow13", "API Error (429)\n");
+		const rec = recorders({ code: 1, out: "owner changed — reclaim refused" });
+		const report = await quotaSweep({
+			db: governor([
+				{ id: "W13", project: `${root}/.git`, owner_sid: "autow13" },
+			]),
+			buckleDb: null,
+			probeLive: () => false,
+			act: true,
+			...rec.deps,
+			recentEmit: () => false,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(
+			report.actions.some(
+				(a) => a.kind === "reclaim" && a.detail.includes("RECLAIM FAILED"),
+			),
+		).toBeTrue();
+		expect(rec.emitted[0]?.note).toContain("held: W13");
+		expect(rec.broadcasts[0]).toContain("held: W13");
+		expect(rec.broadcasts[0]).toContain("reclaimed nothing");
+	});
+
+	test("W573: forged receipt (code 0, mismatched pins) holds, never releases", async () => {
+		const root = tempRoot();
+		laneLog(root, "autow14", "API Error (429)\n");
+		const rec = recorders({
+			code: 0,
+			out: JSON.stringify({
+				project: "other-project",
+				id: "W14",
+				previousOwner: "autow14",
+				previousUpdatedAt: 999,
+				released: true,
+			}),
+		});
+		const report = await quotaSweep({
+			db: governor([
+				{ id: "W14", project: `${root}/.git`, owner_sid: "autow14" },
+			]),
+			buckleDb: null,
+			probeLive: () => false,
+			act: true,
+			...rec.deps,
+			recentEmit: () => false,
+		});
+		expect(report.verdicts[0]?.exhausted).toBeTrue();
+		expect(rec.emitted[0]?.note).toContain("held: W14");
+		expect(rec.broadcasts[0]).toContain("reclaimed nothing");
 	});
 });
