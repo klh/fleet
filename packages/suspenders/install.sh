@@ -185,7 +185,16 @@ report_caddy() {
 }
 KLH_LOCAL_BIN="$HOME/.local/bin/klh-local"
 if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
-  if "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
+  # W631: an installed klh-local predating W602 emits the unloadable loopback
+  # `bind 127.0.0.1 ::1` posture — caddy validate passes (specific-address
+  # binds fail only at LOAD time on macOS), the reload wedges the install and
+  # a landed fragment crash-loops com.klh-local.caddy. Probe the installed
+  # klh-local for the W602 request-level posture and degrade with the
+  # remediation command instead of attempting a reload that cannot load.
+  if ! grep -q "abort @external" "$KLH_LOCAL_BIN"; then
+    echo "→ degraded install: installed klh-local predates W602 (unloadable loopback bind posture) — refresh it: bash packages/local/install.sh from the fleet checkout"
+    report_caddy failed "installed klh-local predates W602 — refresh via packages/local/install.sh before registering"
+  elif "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
     echo "→ suspenders.local → 127.0.0.1:7799 (klh-local / Caddy)"
     report_caddy ok "board registered with klh-local/Caddy"
   else

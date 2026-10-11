@@ -21,7 +21,10 @@
 #   env          EnvironmentVariables — string values, may carry
 #                placeholders. Substitution table (identical to install.sh's
 #                sed pass today): BUN (bun binary) · HOME (user home) ·
-#                PREFIX (installed harness) · REPO (this package root) ·
+#                PREFIX (installed harness) · REPO (this package root;
+#                registerLaunchd renders it only from a pinned checkout —
+#                snapshot invocations normalize via the harness receipt or
+#                refuse, W631) ·
 #                BELT_URL (belt front; default http://127.0.0.1:4100) ·
 #                BELT_TOKEN (belt auth token; default empty). Values come
 #                from flags / process env at render time.

@@ -88,9 +88,11 @@ describe("W549 truthful Caddy install outcome", () => {
 		const bin = join(f.repo, ".local/bin");
 		mkdirSync(bin, { recursive: true });
 		const local = join(bin, "klh-local");
+		// W631: the posture probe gates registration — the fake must carry the
+		// W602 marker or the degraded branch short-circuits before register.
 		writeFileSync(
 			local,
-			'#!/bin/bash\nprintf preserved > "$HOME/rollback-proof"\nexit 1\n',
+			'#!/bin/bash\n# abort @external\nprintf preserved > "$HOME/rollback-proof"\nexit 1\n',
 		);
 		writeFileSync(join(bin, "caddy"), "#!/bin/bash\nexit 0\n");
 		chmodSync(local, 0o755);
@@ -107,5 +109,38 @@ describe("W549 truthful Caddy install outcome", () => {
 		expect(existsSync(join(f.repo, "rollback-proof"))).toBe(true);
 		expect(JSON.parse(readFileSync(report, "utf8")).status).toBe("failed");
 		expect(child.stdout.toString()).toContain("degraded");
+	});
+});
+
+describe("W631 stale klh-local registration guard", () => {
+	test("klh-local predating W602 degrades WITHOUT attempting registration", () => {
+		const f = fixture();
+		const source = readFileSync(join(import.meta.dir, "../install.sh"), "utf8");
+		const start = source.indexOf("# optional: register the board");
+		const end = source.indexOf('echo "done. restart Claude Code', start);
+		expect(start).toBeGreaterThan(0);
+		expect(end).toBeGreaterThan(start);
+		const bin = join(f.repo, ".local/bin");
+		mkdirSync(bin, { recursive: true });
+		// No abort @external marker → probe must trip before register runs.
+		writeFileSync(
+			join(bin, "klh-local"),
+			'#!/bin/bash\nprintf attempted > "$HOME/rollback-proof"\nexit 0\n',
+		);
+		writeFileSync(join(bin, "caddy"), "#!/bin/bash\nexit 0\n");
+		chmodSync(join(bin, "klh-local"), 0o755);
+		chmodSync(join(bin, "caddy"), 0o755);
+		const report = join(f.repo, "report.ndjson");
+		const child = Bun.spawnSync(["bash", "-c", source.slice(start, end)], {
+			env: {
+				HOME: f.repo,
+				PATH: `${bin}:/usr/bin:/bin`,
+				SUSPENDERS_LEGACY_REPORT: report,
+			},
+		});
+		expect(child.exitCode).toBe(0);
+		expect(existsSync(join(f.repo, "rollback-proof"))).toBe(false);
+		expect(JSON.parse(readFileSync(report, "utf8")).status).toBe("failed");
+		expect(child.stdout.toString()).toContain("refresh it");
 	});
 });

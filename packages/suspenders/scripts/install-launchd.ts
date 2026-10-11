@@ -14,7 +14,7 @@ import {
 	rmSync,
 	statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import {
 	digestUnit,
@@ -34,23 +34,85 @@ export const LEGACY_LABELS = [
 	"com.klh.local-llm",
 ] as const;
 
-// W427: a unit rendered from a linked git worktree pins the agent to a
-// reapable tree (the spoke served from a codex demo worktree until its plist
-// was re-rendered from the pinned checkout). .git as a FILE is the
-// linked-worktree marker; a main checkout has the .git DIR and the installed
-// harness copy has no .git at all.
-export function pinnedCheckoutRefusal(repo: string): string | null {
-	const gitPath = join(repo, ".git");
-	let stat;
+// W631: registerLaunchd must render units only from a STABLE tree — the pinned
+// checkout. A snapshot harness copy (no .git — the generation dirs under
+// ~/.claude/hooks) is mutable and reapable: the 2026-10-11 outage ran
+// install.ts --step registerLaunchd from $PREFIX/scripts, resolved __REPO__
+// into suspenders.generation-<hash>/.harness (no packages/buckle) and the
+// buckle-spoke crash-looped with governance:strict fail-closing dispatch.
+// .git as a FILE is the linked-worktree marker (W427); a main checkout has
+// the .git DIR. Snapshots normalize to the checkout named by the harness
+// receipt's `source`; when that yields no pinned checkout, registration
+// refuses. Supersedes W427's pinnedCheckoutRefusal, which waved the no-.git
+// snapshot through — exactly the shape that crashed the spoke.
+export type StableRepo =
+	| { ok: true; repo: string; normalized: boolean }
+	| { ok: false; refusal: string };
+
+export function resolveStableRepo(repo: string, prefix: string): StableRepo {
+	// Positive ID only — never classify by walking ancestors for a .git: the
+	// ~/.claude dotfiles checkout puts a .git DIR above every snapshot under
+	// the hooks dir, so a climb misclassifies the generation snapshot as a
+	// pinned checkout (live-verified 2026-10-11).
+	const repoGit = gitDirKind(repo);
+	if (repoGit === "dir") return { ok: true, repo, normalized: false };
+	if (basename(dirname(repo)) === "packages") {
+		const root = dirname(dirname(repo));
+		const rootGit = gitDirKind(root);
+		if (rootGit === "dir") return { ok: true, repo, normalized: false };
+		if (rootGit === "file")
+			return {
+				ok: false,
+				refusal: `${join(root, ".git")} is a file — ${root} is a linked git worktree, not a pinned stack checkout; launchd units must not point into a reapable tree (run install.sh from the pinned checkout)`,
+			};
+	}
+	return normalizeSnapshotRepo(repo, prefix);
+}
+
+// statSync(join(dir, ".git")): "dir" = a pinned checkout toplevel, "file" =
+// the linked-worktree marker (W427), undefined = absent.
+function gitDirKind(dir: string): "dir" | "file" | undefined {
 	try {
-		stat = statSync(gitPath);
+		return statSync(join(dir, ".git")).isDirectory() ? "dir" : "file";
 	} catch {
-		return null; // no .git — installed harness copy, not a worktree
+		return undefined;
 	}
-	if (!stat.isDirectory()) {
-		return `${gitPath} is a file — ${repo} is a linked git worktree, not a pinned stack checkout; launchd units must not point into a reapable tree (run install.sh from the pinned checkout)`;
+}
+
+function normalizeSnapshotRepo(repo: string, prefix: string): StableRepo {
+	const receiptPath = join(prefix, "harness-receipt.json");
+	let source: string | undefined;
+	try {
+		const parsed = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+			source?: unknown;
+		};
+		if (typeof parsed.source === "string" && parsed.source.trim() !== "")
+			source = parsed.source;
+	} catch {
+		/* absent or unreadable receipt is refused below */
 	}
-	return null;
+	if (source === undefined)
+		return {
+			ok: false,
+			refusal: `${repo} is a snapshot harness copy (no .git) and ${receiptPath} names no source checkout — launchd units must not point into a reapable snapshot (run install.sh from the pinned checkout)`,
+		};
+	let checkoutStat: import("node:fs").Stats | undefined;
+	try {
+		checkoutStat = statSync(join(source, ".git"));
+	} catch {
+		/* source without .git is refused below */
+	}
+	const candidate = join(source, "packages", "suspenders");
+	if (
+		checkoutStat === undefined ||
+		!checkoutStat.isDirectory() ||
+		!existsSync(candidate)
+	)
+		return {
+			ok: false,
+			refusal: `${receiptPath} source ${source} is not a pinned stack checkout — launchd units must not point into a reapable snapshot (refresh the harness or run install.sh from the pinned checkout)`,
+		};
+	return { ok: true, repo: candidate, normalized: true };
 }
 
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
@@ -60,10 +122,11 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			note: "not macOS — launchd agents not registered (matches install.sh)",
 		};
 	}
-	const refusal = pinnedCheckoutRefusal(ctx.repo);
-	if (refusal !== null) {
-		return { status: "failed", note: refusal };
+	const stable = resolveStableRepo(ctx.repo, ctx.prefix);
+	if (!stable.ok) {
+		return { status: "failed", note: stable.refusal };
 	}
+	const repo = stable.repo;
 	const home = process.env.HOME ?? "";
 	const agentsDir = join(home, "Library", "LaunchAgents");
 	const insightsDir = join(home, ".claude-insights");
@@ -77,7 +140,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			note: "bun is not on PATH — cannot render services",
 		};
 	}
-	const renderer = join(ctx.repo, "scripts/install-services.ts");
+	const renderer = join(repo, "scripts/install-services.ts");
 	const res = await execa(
 		process.execPath,
 		[
@@ -94,9 +157,9 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			"--prefix",
 			ctx.prefix,
 			"--repo",
-			ctx.repo,
+			repo,
 		],
-		{ cwd: ctx.repo, stderr: "inherit" },
+		{ cwd: repo, stderr: "inherit" },
 	);
 	const rendered = JSON.parse(res.stdout) as {
 		services: Array<{ service: string; files: string[]; port?: number }>;
@@ -131,7 +194,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		// diagnostics land in the insights log, never the installer's stdout
 		const load = await execa(
 			"bash",
-			[join(ctx.repo, "scripts/load-launchd.sh"), unit, log],
+			[join(repo, "scripts/load-launchd.sh"), unit, log],
 			{ reject: false, stdout: "pipe", stderr: "pipe" },
 		);
 		if (load.exitCode !== 0) failed.push(label);
@@ -166,9 +229,9 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		schema: "fleet.service-activation.v1",
 		platform: "darwin",
 		domain: `gui/${process.getuid()}`,
-		manifest: join(ctx.repo, "deploy/services.yaml"),
+		manifest: join(repo, "deploy/services.yaml"),
 		manifestSha256: digestUnit(
-			readFileSync(join(ctx.repo, "deploy/services.yaml")),
+			readFileSync(join(repo, "deploy/services.yaml")),
 		),
 		services: activated,
 	};
@@ -202,7 +265,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	}
 	return {
 		status: "ok",
-		note: `${rendered.services.length} launchd agents rendered via install-services.ts and loaded`,
+		note: `${rendered.services.length} launchd agents rendered via install-services.ts and loaded${stable.normalized ? " — snapshot normalized to the pinned checkout (W631)" : ""}`,
 		detail: `${agentsDir} — from deploy/services.yaml; legacy labels superseded: ${superseded.length > 0 ? superseded.join(" ") : "none"}`,
 	};
 }
