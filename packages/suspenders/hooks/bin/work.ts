@@ -55,7 +55,7 @@ import {
 	persistCompletion,
 	type CompletionRecord,
 } from "../lib/work-completion-record.ts";
-import { laneAlive, type LaneRef } from "../lib/lane-liveness.ts";
+import { auditLanes, type LaneRef } from "../lib/lane-liveness.ts";
 import {
 	clearReclaimStrikes,
 	observeReclaim,
@@ -218,7 +218,13 @@ const SCHEMA: Record<string, Spec> = {
 		reqFlags: [],
 		usage: "usage: orphaned [--item <id>] [--json]",
 	},
-	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
+	lanes: {
+		flags: ["--json", "--fleet"],
+		minPos: 0,
+		reqFlags: [],
+		usage:
+			"usage: lanes [--json] [--fleet <path>] — THE liveness audit: tri-state verdict (alive/dead/unknown) per registry lane; coord fleet and dispatch registry render the same verdict",
+	},
 	reclaim: {
 		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
 		switches: ["--json"],
@@ -1191,10 +1197,10 @@ if (cmd === "add") {
 				: dim("(no orphans)"),
 	);
 } else if (cmd === "lanes") {
-	// THE lane-liveness surface (2026-10-05): one honest audit of
-	// .fleet/lanes.json — process-identity + worktree cwd for local lanes,
-	// transcript freshness for host/remote lanes (never permanent trust).
-	// --json for dispatch-next/fleet-loop; text for humans.
+	// THE lane-liveness surface (2026-10-05; W652.1 one read face): rows
+	// come from auditLanes (lib/lane-liveness.ts) — the same tri-state
+	// verdict coord fleet and dispatch registry render. --json for
+	// dispatch-next/fleet-loop/fleet-watch; text for humans.
 	const readRegistry =
 		flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
 			? loadLaneRegistryFile
@@ -1208,12 +1214,7 @@ if (cmd === "add") {
 		launchedAt?: number;
 	}>(flag("--fleet") ?? process.cwd());
 
-	const audit = entries.map((l) => ({
-		sid: l.sid,
-		item: l.item,
-		live: laneAlive(l),
-		host: l.host ?? null,
-	}));
+	const audit = auditLanes(entries);
 	if (flag("--json") !== undefined) {
 		console.log(JSON.stringify(audit));
 	} else {

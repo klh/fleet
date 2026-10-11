@@ -78,11 +78,17 @@ const productPath = (path: string): boolean =>
 	);
 type LaneContext = { sid?: string; item?: string; baseline?: string };
 /** Lane identity is absolute: missing → null, corrupt → hard error, and a
- * context bound to another item or owner is rejected, never ignored. */
+ * context bound to another item or owner is rejected, never ignored —
+ * except the graph-proven kept-child case (W652.1): `work split --keep`
+ * claims the kept child for the SPLITTER, whose dispatch context still
+ * names the SHATTERED parent. When the context item is the completing
+ * item's actual parent and the sid binding holds, the parent-bound
+ * context may complete the child. */
 const laneContextAt = (
 	path: string,
 	item: string,
 	sid: string,
+	parentOf: (id: string) => string | null = () => null,
 ): LaneContext | null => {
 	if (!existsSync(path)) return null;
 	let context: LaneContext;
@@ -93,7 +99,12 @@ const laneContextAt = (
 			"Invalid lane completion context; restore it before completing",
 		);
 	}
-	if (context?.item !== item || context.sid !== sid)
+	if (context?.sid !== sid)
+		throw new Error(
+			"Lane completion context does not match this item and owner",
+		);
+	// W652.1 kept-child: the graph link proves the parent binding
+	if (context?.item !== item && context.item !== parentOf(item))
 		throw new Error(
 			"Lane completion context does not match this item and owner",
 		);
@@ -196,10 +207,22 @@ export function prepareCompletion(
 		top = git(o.cwd, "rev-parse", "--show-toplevel");
 	} catch {}
 	let contextRepo = top;
+	// W652.1: graph-backed parent lookup for the kept-child context binding
+	const parentOf = (id: string): string | null => {
+		try {
+			const row = db
+				.query("SELECT parent_id FROM work_items WHERE project = ? AND id = ?")
+				.get(o.project, id) as { parent_id: string } | null;
+			return row?.parent_id ?? null;
+		} catch {
+			return null;
+		}
+	};
 	context = laneContextAt(
 		join(top, ".fleet", "lane-context.json"),
 		o.item,
 		o.sid,
+		parentOf,
 	);
 	if (!context && /^autow/.test(o.sid)) {
 		const wt = join(projectRootOf(o.project), ".worktrees", o.item);
@@ -207,6 +230,7 @@ export function prepareCompletion(
 			join(wt, ".fleet", "lane-context.json"),
 			o.item,
 			o.sid,
+			parentOf,
 		);
 		if (fallback) {
 			context = fallback;

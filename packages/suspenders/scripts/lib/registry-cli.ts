@@ -101,7 +101,7 @@ export const classifyPrune = (
 };
 
 const fmtRow = (r: Lane): string =>
-	`${r.sid}  item=${r.item}  pid=${r.pid ?? "-"}  host=${r.host ?? "-"}  launched=${r.launchedAt ? new Date(r.launchedAt).toISOString() : "-"}`;
+	`${laneVerdict(r)}  ${r.sid}  item=${r.item}  pid=${r.pid ?? "-"}  host=${r.host ?? "-"}  launched=${r.launchedAt ? new Date(r.launchedAt).toISOString() : "-"}`;
 
 const listVerb = (args: string[], fleet: string): number => {
 	const rows = loadLanes(fleet);

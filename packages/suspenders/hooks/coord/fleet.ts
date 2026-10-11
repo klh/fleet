@@ -29,6 +29,8 @@ import {
 } from "./shared.ts";
 import type { Database, Ev } from "./shared.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
+import { verdictBySid } from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
 import {
 	type BriefWeight,
@@ -225,6 +227,11 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		.query("SELECT sid, intent FROM claims ORDER BY sid")
 		.all() as { sid: string; intent: string | null }[];
 	const lanes = [...new Set(crows.map((c) => c.sid))].sort();
+	// W652.1: liveness delegates to the shared verdict (lib/lane-liveness.ts)
+	// — state glyphs say what a lane CLAIMS (lane.<sid>.state facts); only
+	// positive death evidence flips the glyph to ×. Unknown keeps the state
+	// glyph (lookup failure is never death — monitor doctrine W51).
+	const verdicts = verdictBySid(lanes, loadLaneRegistry(process.cwd()));
 	const states = db
 		.query("SELECT key, value FROM facts WHERE key LIKE 'lane.%.state'")
 		.all() as { key: string; value: string }[];
@@ -270,6 +277,8 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 					name: sessionNames.get(l) ?? null,
 					intent: names.get(l) ?? null,
 					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
+					verdict: verdicts.get(l) ?? null,
+					live: verdicts.get(l) === "alive",
 				})),
 			}),
 		);
@@ -277,8 +286,12 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	}
 	const parts = lanes.map((l) => {
 		const st = byKey.get(`lane.${l.sid}.state`);
-		const g =
-			st === "PAUSE_REQUESTED"
+		// W652.1: confirmed death outranks the claim-state glyph; unknown
+		// never does (lookup failure is never death — monitor doctrine W51)
+		const dead = verdicts.get(l) === "dead";
+		const g = dead
+			? red("×")
+			: st === "PAUSE_REQUESTED"
 				? amber("◐")
 				: st === "PAUSED"
 					? amber("⏸")
