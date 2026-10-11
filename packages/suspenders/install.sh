@@ -78,18 +78,17 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
     cp "$SCRIPT_DIR/../belt/bin/litellm-target.ts" "$LLM_HOME/litellm-target.ts"
   fi
   # W465 one-source: the registry and the :4000 router are BELT-owned now —
-  # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
-  # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
-  # is retired. spawner/health stay kit-local. Runtime copies are never
-  # clobbered (kept = the live fleet's possibly-customized source of truth).
-  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts spawner.ts spawn-admission.ts; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
-    else
-      cp "$SCRIPT_DIR/../belt/bin/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f (from belt/bin)"
-    fi
-  done
+  # registry.ts and router-shim.ts come from belt/bin, and since W661 the
+  # overlay ships router-shim's FULL import closure (the old hardcoded list
+  # shipped router-shim.ts without ./audio.ts + ./escalate.ts — :4000 died on
+  # every spawn, ~95 launchd revives over 4h). Copies never clobber the
+  # runtime home (kept = the live fleet's possibly-customized source of truth).
+  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" overlay \
+    --runtime "$LLM_HOME" --entry "$SCRIPT_DIR/../belt/bin/router-shim.ts"
+  # W661 self-check: the flattened runtime must actually serve. A spawn that
+  # dies on a missing module fails the install loudly here instead of looping
+  # the launchd revive on :4000 (the smoke rides a scratch port).
+  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" smoke --runtime "$LLM_HOME"
   if [ ! -f "$LLM_HOME/health.ts" ]; then
     cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
   fi
