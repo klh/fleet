@@ -345,6 +345,11 @@ export function openGovernorDb(): Database {
 	// takes, the scored reason ("allocate: score=…") for allocate --apply.
 	if (!wiCols.includes("alloc_reason"))
 		db.run("ALTER TABLE work_items ADD COLUMN alloc_reason TEXT");
+	// W248 — per-item effort budget (simple | complex): stamped at add,
+	// inherited by split children; the brief composes the EFFORT BUDGET line
+	// from it (hooks/lib/work-effort.ts owns the vocabulary + text).
+	if (!wiCols.includes("effort"))
+		db.run("ALTER TABLE work_items ADD COLUMN effort TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a

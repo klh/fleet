@@ -7,6 +7,7 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
+import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
 import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
@@ -43,24 +44,34 @@ export interface BriefOpts {
 	agent?: string;
 	/** archived-origin landing redirect (the W428 lesson) */
 	landing?: string;
+	/** W248: per-item effort budget — vocabulary + budget text live in
+	 *  hooks/lib/work-effort.ts; absent/null = no budget line. */
+	effort?: string | null;
 	/** W645: explicit validation command (tests); undefined = detect from
 	 *  qlty/package metadata, null = drop the line entirely. */
 	validation?: string | null;
 }
 
-const briefOpening = (o: BriefOpts): string[] => [
-	`You are lane "${o.sid}", Work Graph item ${o.item}, repo ${o.repo ?? REPO}. English only.`,
-	``,
-	`IDENTITY: executor ${o.agent ?? "claude"}. [HUB] prefixes are labels — traffic routes through that hub's gateway.`,
-	``,
-	`MISSION (from work show):`,
-	// W334 caveman tier at the source: the lane's actual prompt text gets
-	// the condense pass (filler/meta/dedupe, technical surface masked).
-	condensePrompt(o.showOut.replace(ANSI, "").trim()),
-	``,
-	`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
-	`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
-];
+const briefOpening = (o: BriefOpts): string[] => {
+	// W248: the per-item effort budget rides the brief — simple = work solo,
+	// 3-10 tool calls; complex = fan out via work split; unset = no budget
+	// line (legacy briefs stay byte-identical).
+	const budget = effortBudgetLine(o.effort);
+	return [
+		`You are lane "${o.sid}", Work Graph item ${o.item}, repo ${o.repo ?? REPO}. English only.`,
+		``,
+		`IDENTITY: executor ${o.agent ?? "claude"}. [HUB] prefixes are labels — traffic routes through that hub's gateway.`,
+		``,
+		`MISSION (from work show):`,
+		// W334 caveman tier at the source: the lane's actual prompt text gets
+		// the condense pass (filler/meta/dedupe, technical surface masked).
+		condensePrompt(o.showOut.replace(ANSI, "").trim()),
+		...(budget ? [budget] : []),
+		``,
+		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
+		`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
+	];
+};
 
 // W645 (oh-my-claude L5): the concrete validation command for the target
 // repo, read from qlty + package metadata — never guessed, never hardcoded
