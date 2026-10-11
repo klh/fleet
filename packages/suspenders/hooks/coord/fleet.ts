@@ -28,7 +28,7 @@ import {
 	resolve,
 } from "./shared.ts";
 import type { Database, Ev } from "./shared.ts";
-import { formatEventLine } from "./bus.ts";
+import { ageOf, formatEventLine } from "./bus.ts";
 import { homedir } from "node:os";
 import {
 	type BriefWeight,
@@ -867,13 +867,6 @@ export async function cmdEvents(rest: string[]): Promise<void> {
 		);
 		return;
 	}
-	const ageOf = (ms: number): string => {
-		const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-		if (s < 60) return `${s}s`;
-		if (s < 3_600) return `${Math.floor(s / 60)}m`;
-		if (s < 86_400) return `${Math.floor(s / 3_600)}h`;
-		return `${Math.floor(s / 86_400)}d`;
-	};
 	for (const r of rows)
 		console.log(`${dim(ageOf(r.ts).padStart(4))}${formatEventLine(r)}`);
 	console.log(
