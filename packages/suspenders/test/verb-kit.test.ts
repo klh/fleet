@@ -166,6 +166,46 @@ describe("runCli — the process door (spawned)", () => {
 	});
 });
 
+describe("runCli default-verb door (W656.3 daemons)", () => {
+	const FIXTURE = join(import.meta.dir, "fixtures", "verb-kit-daemon-demo.ts");
+	const daemon = (
+		...args: string[]
+	): { out: string; err: string; code: number } => {
+		const p = Bun.spawnSync(["bun", FIXTURE, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+	};
+
+	test("bare invocation rides the default verb (compose/launchd contract)", () => {
+		const r = daemon();
+		expect(r.code).toBe(0);
+		expect(JSON.parse(r.out).verb).toBe("loop");
+	});
+
+	test("a flag head parses against the default verb's declared flags", () => {
+		const r = daemon("--interval", "30");
+		expect(r.code).toBe(0);
+		expect(JSON.parse(r.out)).toEqual({ verb: "loop", interval: "30" });
+	});
+
+	test("unknown flag heads die with the kit's option error", () => {
+		const r = daemon("--bogus");
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("daemon-demo: unknown option: --bogus");
+	});
+
+	test("an explicit verb still resolves; top-level --help wins over the door", () => {
+		const once = daemon("once");
+		expect(once.code).toBe(0);
+		expect(JSON.parse(once.out).verb).toBe("once");
+		const help = daemon("--help");
+		expect(help.code).toBe(0);
+		expect(help.out).toContain("daemon-demo — W656.3 default-verb fixture.");
+	});
+});
+
 
 
 
