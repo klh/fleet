@@ -140,7 +140,8 @@ describe("take — CAS claim", () => {
 		expect(work("take", a, "--as", "lane-one").code).toBe(0);
 		const again = work("take", a, "--as", "lane-two");
 		expect(again.code).toBe(2);
-		expect(again.err).toContain("was taken");
+		// W515 assignTask wording: a non-READY item refuses as "claim refused"
+		expect(again.err).toContain("claim refused");
 	});
 
 	test("take refuses nonexistent ids and unmet dependencies", () => {

@@ -231,10 +231,7 @@ export async function cmdLeaseRelease(rest: string[]): Promise<void> {
 	// own rows; taking a foreign lease is monitor --fix / arbitration work.
 	const paths = rest.filter((r) => !r.startsWith("--"));
 	const as = arg("--as");
-	if (!paths.length || !as)
-		die(
-			"usage:knowledge-verify | knowledge-curate | lease-release <path...> --as <sid>",
-		);
+	if (!paths.length || !as) die("usage: lease-release <path...> --as <sid>");
 	const del = db.query("DELETE FROM locks WHERE path = ? AND sid = ?");
 	let n = 0;
 	for (const p of paths) {
@@ -244,9 +241,7 @@ export async function cmdLeaseRelease(rest: string[]): Promise<void> {
 		} catch {}
 		n += del.run(P, as).changes;
 	}
-	console.log(
-		`${green("✓")}knowledge-verify | knowledge-curate | lease-release: ${n} lock(s) released`,
-	);
+	console.log(`${green("✓")} lease-release: ${n} lock(s) released`);
 }
 
 export async function cmdKb(rest: string[]): Promise<void> {

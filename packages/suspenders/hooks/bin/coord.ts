@@ -2,44 +2,12 @@
 // BY REFERENCE (short structured events + canonical facts), never by retelling
 // it in prose. Direct SendMessage stays reserved for interrupts.
 //
-// usage:
-//   bun ~/.claude/bin/coord.ts emit <kind> [--scope s] [--sha x] [--note "..."] [--as sid]
-//   bun ~/.claude/bin/coord.ts subscribe --as sid [--scope s] [--kinds a,b]
-//        (W303, THE event-read face: live WebSocket push on the store
-//         server — one process for the whole session, no polling, no
-//         relaunching, ever. Falls back to wait --forever when no HTTP
-//         store is bound.)
-//   bun ~/.claude/bin/coord.ts wait --as sid [--scope s] [--kinds a,b] [--max-seconds 30] [--forever]
-//        (the fallback face: adaptive long-poll, 250ms fast path, backs off
-//         to 2s when idle; --forever = the persistent fallback)
-//   bun ~/.claude/bin/coord.ts poll [--as sid] [--scope s] [--kinds a,b] [--limit n]
-//        (one-shot manual read past the cursor; advances past SHOWN)
-//   bun ~/.claude/bin/coord.ts inbox --as sid [--ack]
-//        (directed catch-up read; the cursor moves only with --ack)
-//   bun ~/.claude/bin/coord.ts metrics [project] [--days N]
-//   bun ~/.claude/bin/coord.ts bootstrap --as sid [--name label]
-//        (--name stamps a user-facing lane name — coord fleet + the board show it)
-//   bun ~/.claude/bin/coord.ts fact set <key> <value> [--source s] [--if-version n]
-//   bun ~/.claude/bin/coord.ts fact get <key> / fact list
-//        (W466: machine cursor namespaces hidden; --prefix p / --limit n /
-//         --all bound or lift the listing; fact get/list print "(vN)" for
-//         read-then-CAS via --if-version)
-//   bun ~/.claude/bin/coord.ts diff [--since <seq|event-id>] [--last N] [--table t] [--json]
-//        (row-image delta log: what changed in sessions/claims/locks/facts/
-//         work_items between two points — events/cursors are the bus's own trail)
-//   bun ~/.claude/bin/coord.ts events [--kinds a,b] [--last N] [--json]
-//        (W430: the bus's own trail gets a CLI read — newest-first, --kinds
-//         exact-match csv, --last N default 50)
-//   bun ~/.claude/bin/coord.ts targets [--filter text] [--cap <c>] [--json]
-//   bun ~/.claude/bin/coord.ts message <target-label-or-sid-or-substring> "text" [--as sid]
-//   bun ~/.claude/bin/coord.ts message --all "text" [--as sid]
-//   bun ~/.claude/bin/coord.ts hubs [--label name] [--json]
-//        (W356: hub topology — labels from hubs.json + stack.yaml, candidate
-//         walk with health probe; the first alive candidate is the hub URL)
-//
-// event kinds (doctrine): checkpoint | landed | interface_changed | test_red |
+// usage: GENERATED from the verb registry — `coord --help`, `coord <verb> --help`.
+// (W651: the hand-maintained block never listed wisdom/broadcast/executor-cv —
+//  drift this migration retires for good.)
 
-import { die, setRest } from "../coord/shared.ts";
+import { setRest } from "../coord/shared.ts";
+import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 import {
 	cmdEmit,
 	cmdBroadcast,
@@ -91,83 +59,278 @@ import {
 } from "../coord/fleet.ts";
 import { cmdHubs } from "../coord/hubs.ts";
 
-const [cmd, ...rest] = process.argv.slice(2);
-// --help anywhere wins before any parsing that could create state
-if (
-	cmd === "--help" ||
-	cmd === "-h" ||
-	rest.includes("--help") ||
-	rest.includes("-h")
-) {
-	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message | executor-cv\n" +
-			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
-			"  fleet — claims projection; lane liveness DELEGATES to the shared verdict (work lanes / lib/lane-liveness.ts): × = confirmed dead, state glyph otherwise\n" +
-			"  executor-cv [--apply] — the executor trust tally folded from work events (W620)\n" +
-			"  project identity | project rekey <old> <new> — graph identity migration (W428)\n" +
-			"\n" +
-			"event reads — the relationship:\n" +
-			"  subscribe  THE face — live WS push (W303); one process per lane, never exits;\n" +
-			"             with no HTTP store bound it falls back to wait --forever\n" +
-			"  wait       the fallback — adaptive long-poll (250ms→2s); --forever = persistent\n" +
-			"  poll       one-shot manual read past the cursor; advances past SHOWN\n" +
-			"  inbox      directed catch-up read; the cursor moves only with --ack",
-	);
-	process.exit(0);
-}
+// W157/W651: handler bodies live verbatim in hooks/coord/*.ts; the kit
+// resolves the verb, intercepts --help, parses (lax — handlers own their
+// validation), and pins `rest` for arg()'s closure via onVerb. CLI surface
+// byte-compatible; help + the unknown-command try-list are registry-generated.
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "emit",
+		usage:
+			'usage: emit <kind> [--to sid] [--scope s] [--sha x] [--note "..."] [--field=value ...] [--as sid]',
+		lax: true,
+		run: (p) => cmdEmit(p.rest),
+	}),
+	defineVerb({
+		name: "broadcast",
+		usage: 'usage: broadcast --note "..." [--as sid]',
+		lax: true,
+		run: (p) => cmdBroadcast(p.rest),
+	}),
+	defineVerb({
+		name: "poll",
+		usage: "usage: poll [--as sid] [--scope s] [--kinds a,b] [--limit n]",
+		lax: true,
+		run: (p) => cmdPoll(p.rest),
+	}),
+	defineVerb({
+		name: "wait",
+		usage:
+			"usage: wait --as <sid> [--scope s] [--kinds a,b] [--max-seconds 30] [--forever]",
+		lax: true,
+		run: (p) => cmdWait(p.rest),
+	}),
+	defineVerb({
+		name: "subscribe",
+		usage: "usage: subscribe --as <sid> [--scope s] [--kinds a,b]",
+		lax: true,
+		run: (p) => cmdSubscribe(p.rest),
+	}),
+	defineVerb({
+		name: "state",
+		usage: "usage: state --as <sid>",
+		lax: true,
+		run: (p) => cmdState(p.rest),
+	}),
+	defineVerb({
+		name: "inbox",
+		usage: "usage: inbox --as <sid> [--ack]",
+		lax: true,
+		run: (p) => cmdInbox(p.rest),
+	}),
+	defineVerb({
+		name: "pause",
+		usage:
+			'usage: pause <sid> --reason "why" [--scope s] [--intervention "what is coming"]',
+		lax: true,
+		run: (p) => cmdPause(p.rest),
+	}),
+	defineVerb({
+		name: "paused",
+		usage: "usage: paused --as <sid> --sha <checkpoint-sha> [--step s]",
+		lax: true,
+		run: (p) => cmdPaused(p.rest),
+	}),
+	defineVerb({
+		name: "resume",
+		usage:
+			'usage: resume <sid> --onto <sha> [--diff-from <pause-base>] [--note "delta summary"]',
+		lax: true,
+		run: (p) => cmdResume(p.rest),
+	}),
+	defineVerb({
+		name: "resumed",
+		usage: "usage: resumed --as <sid>",
+		lax: true,
+		run: (p) => cmdResumed(p.rest),
+	}),
+	defineVerb({
+		name: "resume-session",
+		usage: "usage: resume-session --as <new-sid> --from <old-sid>",
+		lax: true,
+		run: (p) => cmdResumeSession(p.rest),
+	}),
+	defineVerb({
+		name: "fact",
+		usage:
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+		lax: true,
+		run: (p) => cmdFact(p.rest),
+	}),
+	defineVerb({
+		name: "governance",
+		usage: "usage: governance | governance strict|solo [--source s]",
+		lax: true,
+		run: (p) => cmdGovernance(p.rest),
+	}),
+	defineVerb({
+		name: "capsule",
+		usage:
+			"usage: capsule set --as <sid> [--item <id>] [--checkpoint <sha|none>] --done <t> --next <t>",
+		lax: true,
+		run: (p) => cmdCapsule(p.rest),
+	}),
+	defineVerb({
+		name: "lease-release",
+		usage: "usage: lease-release <path...> --as <sid>",
+		lax: true,
+		run: (p) => cmdLeaseRelease(p.rest),
+	}),
+	defineVerb({
+		name: "kb",
+		usage:
+			'usage: kb search "<query words>" | kb list | kb stats | kb add "<problem>" --solution "<solution>"',
+		lax: true,
+		run: (p) => cmdKb(p.rest),
+	}),
+	defineVerb({
+		name: "gc",
+		usage: "usage: gc — governor.db housekeeping (archives audit/usage tables)",
+		lax: true,
+		run: (p) => cmdGc(p.rest),
+	}),
+	defineVerb({
+		name: "consult",
+		usage:
+			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
+		lax: true,
+		run: (p) => cmdConsult(p.rest),
+	}),
+	defineVerb({
+		name: "consult-reply",
+		usage:
+			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
+		lax: true,
+		run: (p) => cmdConsultReply(p.rest),
+	}),
+	defineVerb({
+		name: "consults",
+		usage: "usage: consults --as <sid>",
+		lax: true,
+		run: (p) => cmdConsults(p.rest),
+	}),
+	defineVerb({
+		name: "who-knows",
+		usage: 'usage: who-knows "query words" [--scope src/x]',
+		lax: true,
+		run: (p) => cmdWhoKnows(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge",
+		lax: true,
+		run: (p) => cmdKnowledge(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-enqueue",
+		usage:
+			'usage: knowledge-enqueue --source <why> --payload "<text>" [--domain d] [--area a] [--code-origin repo/path] [--as sid]',
+		lax: true,
+		run: (p) => cmdKnowledgeEnqueue(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-promote",
+		usage: "usage: knowledge-promote <id>",
+		lax: true,
+		run: (p) => cmdKnowledgePromote(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-retire",
+		usage: "usage: knowledge-retire <id> [--superseded-by <id>]",
+		lax: true,
+		run: (p) => cmdKnowledgeRetire(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-note",
+		usage: 'usage: knowledge-note <id> --what "what changed" --as <sid>',
+		lax: true,
+		run: (p) => cmdKnowledgeNote(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-verify",
+		lax: true,
+		run: (p) => cmdKnowledgeVerify(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-curate",
+		lax: true,
+		run: (p) => cmdKnowledgeCurate(p.rest),
+	}),
+	defineVerb({
+		name: "bootstrap",
+		usage:
+			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label]",
+		lax: true,
+		run: (p) => cmdBootstrap(p.rest),
+	}),
+	defineVerb({
+		name: "fleet",
+		lax: true,
+		run: (p) => cmdFleet(p.rest),
+	}),
+	defineVerb({
+		name: "hubs",
+		usage: "usage: hubs [--label name] [--json]",
+		lax: true,
+		run: (p) => cmdHubs(p.rest),
+	}),
+	defineVerb({
+		name: "project",
+		usage: "usage: project identity | project rekey <old> <new>",
+		lax: true,
+		run: (p) => cmdProject(p.rest),
+	}),
+	defineVerb({
+		name: "metrics",
+		usage: "usage: metrics [project] [--days N]",
+		lax: true,
+		run: (p) => cmdMetrics(p.rest),
+	}),
+	defineVerb({
+		name: "doctor-session",
+		usage: "usage: doctor-session <sid>",
+		lax: true,
+		run: (p) => cmdDoctorSession(p.rest),
+	}),
+	defineVerb({
+		name: "diff",
+		usage:
+			"usage: diff [--since <seq|event-id>] [--last N] [--table t] [--json]",
+		lax: true,
+		run: (p) => cmdDiff(p.rest),
+	}),
+	defineVerb({
+		name: "events",
+		usage: "usage: events [--kinds a,b] [--last N] [--json]",
+		lax: true,
+		run: (p) => cmdEvents(p.rest),
+	}),
+	defineVerb({
+		name: "targets",
+		usage: "usage: targets [--filter text] [--cap <c>] [--json]",
+		lax: true,
+		run: (p) => cmdTargets(p.rest),
+	}),
+	defineVerb({
+		name: "message",
+		usage:
+			'usage: message <target-label-or-sid-or-substring> "text" [--as sid] | message --all "text" [--as sid]',
+		lax: true,
+		run: (p) => cmdMessage(p.rest),
+	}),
+	defineVerb({
+		name: "wisdom",
+		usage: "usage: wisdom — manual fleet-correction pass (read-only)",
+		lax: true,
+		run: (p) => cmdWisdom(p.rest),
+	}),
+	defineVerb({
+		name: "executor-cv",
+		usage: "usage: executor-cv [--apply]",
+		lax: true,
+		run: (p) => cmdExecutorCv(p.rest),
+	}),
+];
 
-// W157: the 32-command if/else chain lives in hooks/coord/*.ts as
-// verbatim handler bodies; this entry parses argv, pins `rest` for
-// `arg()`'s closure, and dispatches. CLI surface byte-compatible.
-setRest(rest);
-
-const cmds: Record<string, (rest: string[]) => Promise<void>> = {
-	emit: cmdEmit,
-	broadcast: cmdBroadcast,
-	poll: cmdPoll,
-	wait: cmdWait,
-	subscribe: cmdSubscribe,
-	state: cmdState,
-	inbox: cmdInbox,
-	pause: cmdPause,
-	paused: cmdPaused,
-	resume: cmdResume,
-	resumed: cmdResumed,
-	"resume-session": cmdResumeSession,
-	fact: cmdFact,
-	governance: cmdGovernance,
-	capsule: cmdCapsule,
-	"lease-release": cmdLeaseRelease,
-	kb: cmdKb,
-	gc: cmdGc,
-	consult: cmdConsult,
-	"consult-reply": cmdConsultReply,
-	consults: cmdConsults,
-	"who-knows": cmdWhoKnows,
-	knowledge: cmdKnowledge,
-	"knowledge-enqueue": cmdKnowledgeEnqueue,
-	"knowledge-promote": cmdKnowledgePromote,
-	"knowledge-retire": cmdKnowledgeRetire,
-	"knowledge-note": cmdKnowledgeNote,
-	"knowledge-verify": cmdKnowledgeVerify,
-	"knowledge-curate": cmdKnowledgeCurate,
-	bootstrap: cmdBootstrap,
-	fleet: cmdFleet,
-	hubs: cmdHubs,
-	project: cmdProject,
-	metrics: cmdMetrics,
-	"doctor-session": cmdDoctorSession,
-	diff: cmdDiff,
-	events: cmdEvents,
-	targets: cmdTargets,
-	message: cmdMessage,
-	wisdom: cmdWisdom,
-	"executor-cv": cmdExecutorCv,
-};
-
-const fn = cmds[cmd ?? ""];
-if (fn) await fn(rest);
-else
-	die(
-		"unknown command — try emit | broadcast | poll | wait | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message",
-	);
+await runCli({
+	prog: "coord",
+	about: "coord — control plane.",
+	verbs: VERBS,
+	epilog: [
+		"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
+		"  executor-cv [--apply] — the executor trust tally folded from work events (W620)",
+		"  project identity | project rekey <old> <new> — graph identity migration (W428)",
+	].join("\n"),
+	onVerb: (_name, p) => {
+		setRest(p.rest);
+	},
+});

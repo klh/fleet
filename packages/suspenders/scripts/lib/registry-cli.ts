@@ -8,29 +8,43 @@
 // the dispatch refusal check and `work lanes` trust), or the age-based trust
 // below — re-verified under the registry lock. Live and young-unknown reads
 // are REFUSALS, never silent skips.
+import {
+	defineVerb,
+	parseVerb,
+	renderRegistryHelp,
+	renderVerbHelp,
+	type Parsed,
+	type VerbSpec,
+} from "../../hooks/lib/verb-kit.ts";
 import { pruneLaneRegistry } from "../../hooks/lib/lane-registry.ts";
 import { laneVerdict, type LaneRef } from "../../hooks/lib/lane-liveness.ts";
 import { loadLanes, type Lane } from "./lane.ts";
 
-const USAGE = `Usage: dispatch registry <verb> [options]
-
-Inspect and prune the durable lane registry (.fleet/lanes.json).
-
-  list [--json]                       Print entries + liveness verdicts
-  prune --sid <sid> [--sid ...]       Remove entries whose lane is provably dead
-  forget --sid <sid> [--sid ...]      Alias of prune
-  prune --all-dead [--dry-run]        Sweep every provably-dead entry
-  --dry-run                           Classify without writing
-  -h, --help                          Print this help
-
-An entry is prunable on a prune warrant (W636.1): the shared liveness
-verdict "dead" — recorded pid gone (or never recorded) with anchored
-harness args absent AND the claimant transcript stale past the 15-min
-reclaim lease — OR age-based trust: verdict "unknown" AND no pid ever
-recorded (pid=0/absent) AND the entry launched >24h ago. Live entries and
-young-unknown entries RETAIN — age trust never overrides a live verdict or
-a recorded pid.
-Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
+// W651: the verb registry owns the surface — help is generated, parsing rides
+// the kit's pure door (this is an embedded main: the caller owns exit codes).
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "list",
+		usage: "usage: list [--json] — entries + liveness verdicts",
+		switches: ["--json"],
+		lax: true,
+	}),
+	defineVerb({
+		name: "prune",
+		usage:
+			"usage: prune --sid <sid> [--sid ...] [--dry-run] | prune --all-dead [--dry-run]",
+		flags: ["--sid"],
+		switches: ["--dry-run", "--all-dead"],
+		lax: true,
+	}),
+	defineVerb({
+		name: "forget",
+		usage: "usage: forget --sid <sid> [--sid ...] — alias of prune",
+		flags: ["--sid"],
+		switches: ["--dry-run"],
+		lax: true,
+	}),
+];
 
 export type PruneClass =
 	| "prunable"
@@ -103,9 +117,9 @@ export const classifyPrune = (
 const fmtRow = (r: Lane): string =>
 	`${laneVerdict(r)}  ${r.sid}  item=${r.item}  pid=${r.pid ?? "-"}  host=${r.host ?? "-"}  launched=${r.launchedAt ? new Date(r.launchedAt).toISOString() : "-"}`;
 
-const listVerb = (args: string[], fleet: string): number => {
+const listVerb = (parsed: Parsed, fleet: string): number => {
 	const rows = loadLanes(fleet);
-	if (args.includes("--json")) {
+	if (parsed.flag("--json") === "true") {
 		const now = Date.now();
 		console.log(
 			JSON.stringify(
@@ -159,16 +173,9 @@ const printPruneVerdict = (
 		);
 };
 
-const flagValues = (args: string[], flag: string): string[] => {
-	const out: string[] = [];
-	for (let i = 0; i < args.length; i++)
-		if (args[i] === flag) out.push(args[++i] ?? "");
-	return out.filter((v) => v.length > 0);
-};
-
 /** Parse + classify a prune request. Null = usage error (help printed). */
 const prunePlanFor = (
-	args: string[],
+	parsed: Parsed,
 	fleet: string,
 ): {
 	dry: boolean;
@@ -176,9 +183,9 @@ const prunePlanFor = (
 	plan: PrunePlan;
 	requested: string[];
 } | null => {
-	const dry = args.includes("--dry-run");
-	const allDead = args.includes("--all-dead");
-	const explicit = flagValues(args, "--sid");
+	const dry = parsed.flag("--dry-run") === "true";
+	const allDead = parsed.flag("--all-dead") === "true";
+	const explicit = parsed.all("--sid").filter((v) => v.length > 0);
 	if (!allDead && !explicit.length) {
 		console.log(USAGE);
 		return null;
@@ -195,10 +202,10 @@ const prunePlanFor = (
 	return { dry, now, plan, requested };
 };
 
-const pruneVerb = (args: string[], fleet: string): number => {
-	const parsed = prunePlanFor(args, fleet);
-	if (!parsed) return 2;
-	const { dry, now, plan, requested } = parsed;
+const pruneVerb = (parsed: Parsed, fleet: string): number => {
+	const ask = prunePlanFor(parsed, fleet);
+	if (!ask) return 2;
+	const { dry, now, plan, requested } = ask;
 	for (const [sid, c] of plan) printPruneVerdict(sid, c, dry);
 	if (dry) return 0;
 	const result = pruneLaneRegistry(
@@ -222,18 +229,50 @@ const pruneVerb = (args: string[], fleet: string): number => {
 	return refused > 0 ? 1 : 0;
 };
 
+// generated help: about + registry verbs + the W636.1 warrant prose
+const EPILOG = `An entry is prunable on a prune warrant (W636.1): the shared liveness
+verdict "dead" — recorded pid gone (or never recorded) with anchored
+harness args absent AND the claimant transcript stale past the 15-min
+reclaim lease — OR age-based trust: verdict "unknown" AND no pid ever
+recorded (pid=0/absent) AND the entry launched >24h ago. Live entries and
+young-unknown entries RETAIN — age trust never overrides a live verdict or
+a recorded pid.
+Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
+
+const HELP = renderRegistryHelp(
+	"dispatch registry",
+	"Usage: dispatch registry <verb> [options] — inspect and prune the durable lane registry (.fleet/lanes.json).",
+	VERBS,
+	`${VERBS.map((v) => renderVerbHelp(v))
+		.filter(Boolean)
+		.join("\n")}\n\n${EPILOG}`,
+);
+
 /** `dispatch registry <verb>` entrypoint — returns the process exit code. */
 export const registryMain = (
 	args: string[],
 	ctx: { fleet: string },
 ): number => {
 	const [verb = "", ...rest] = args;
-	if (!verb || verb === "-h" || verb === "--help" || verb === "help") {
-		console.log(USAGE);
+	if (!verb || verb === "help") {
+		console.log(HELP);
 		return verb ? 0 : 2;
 	}
-	if (verb === "list") return listVerb(rest, ctx.fleet);
-	if (verb === "prune" || verb === "forget") return pruneVerb(rest, ctx.fleet);
-	console.log(USAGE);
-	return 2;
+	const spec = VERBS.find((v) => v.name === verb);
+	if (!spec) {
+		console.log(HELP);
+		return 2;
+	}
+	if (rest.includes("--help") || rest.includes("-h")) {
+		console.log(renderVerbHelp(spec) || HELP);
+		return 0;
+	}
+	const outcome = parseVerb(spec, rest);
+	if (!outcome.ok) {
+		console.log(HELP);
+		return 2;
+	}
+	const parsed = outcome.parsed;
+	if (spec.name === "list") return listVerb(parsed, ctx.fleet);
+	return pruneVerb(parsed, ctx.fleet);
 };
