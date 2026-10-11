@@ -43,6 +43,8 @@ import {
 	retirementProcessLive,
 } from "../lib/lane-registry.ts";
 import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+// W641: the ladder's govdb lease gate — shared flush predicate, one source
+import { itemClaimOf } from "../lib/ladder-lease.ts";
 // W177: lane resource caps live with the other spawn plumbing (lane.ts);
 // the dispatch verb's inline recipe embeds the same jobslab preamble.
 import {
@@ -101,7 +103,7 @@ const argv = process.argv.slice(2);
 const MODE = argv[0];
 if (
 	!MODE ||
-	!["once", "watch", "lanes", "dispatch", "ship"].includes(MODE) ||
+	!["once", "watch", "lanes", "dispatch", "flush", "ship"].includes(MODE) ||
 	!argv.includes("--repo")
 ) {
 	console.error(
@@ -111,6 +113,7 @@ if (
 			`          [--dispatch-cmd <template>]              optional policy script\n` +
 			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
 			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
+			`          flush --repo <dir>                       merge only DONE+verified branches, then exit (W641)\n` +
 			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
 	);
 	process.exit(MODE ? 1 : 0);
@@ -422,7 +425,7 @@ function mergeFail(b: string, tail: string): void {
 	try {
 		openGovernorDb()
 			.query(
-				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'BROADCAST', ?, ?, NULL)",
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'NEED_DECISION', ?, ?, NULL)",
 			)
 			.run(
 				Date.now(),
@@ -446,6 +449,8 @@ function mergeFail(b: string, tail: string): void {
 	}
 }
 
+// W641: the ladder's lease gate lives in hooks/lib/ladder-lease.ts
+
 // one branch through the ladder — the cycle's per-branch body, shared with
 // the board's one-click ship (`ship --branch <b>` runs it foreground).
 // Fail-isolated: a failed ladder aborts the merge, leaves the branch for
@@ -462,6 +467,16 @@ function mergeOne(b: string): void {
 	// treated ahead>0 as ready and its retire swept the worktree out from
 	// under the agents)
 	if (laneIsAlive(b)) return;
+	// W641 ladder lease: the govdb lease outranks every liveness signal — a
+	// branch whose item is CLAIMED/RUNNING never merges, even with its lane
+	// process dead (pre-reclaim window) or unregistered. A store failure makes
+	// the lease unverifiable, which blocks too: the must is never merge
+	// leased work, and the next cycle retries.
+	const claim = itemClaimOf(REPO, b);
+	if (claim.blocked) {
+		log(`LEASE-BLOCK ${b} — ${claim.reason}`);
+		return;
+	}
 	// W101: a live .fleet/merge-active marker means another runner is
 	// mid-ladder (the marker is written BEFORE the merge starts, so it can
 	// be live with no MERGE_HEAD yet) — never start a second ladder over
@@ -1275,6 +1290,61 @@ if (MODE === "dispatch") {
 	process.exit(process.exitCode ?? 0);
 }
 
+// flush — the ladder as a control-plane step (W641, gap found 2026-10-11):
+// the refill tick verifies+closes+dispatches but nothing merges; a paused
+// ladder daemon then parks verified work on branches matching the glob until
+// a human notices (4 sat ~40 min). One-shot, foreground, tick-invocable:
+// merge ONLY branches whose item is DONE and whose result_sha resolves to
+// the branch head. Everything else defers loudly. The merge itself is
+// mergeOne's fail-isolated path — guardedMerge conflict-refusal,
+// strikes→park, work.landed broadcast per flush, retire lifecycle. Never
+// auto-resolves: a conflicted branch takes the NEED_DECISION in mergeFail
+// and is left for inspection.
+if (MODE === "flush") {
+	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
+		const live = mergeRunnerAlive();
+		if (live) {
+			log(`FLUSH-VETO — merge runner pid ${live} mid-flight, flush refused`);
+			process.exit(1);
+		}
+		healCrashedMerge();
+	}
+	let merged = 0;
+	let deferred = 0;
+	for (const b of sh([
+		"git",
+		"branch",
+		"--list",
+		GLOB,
+		"--format",
+		"%(refname:short)",
+	])
+		.split("\n")
+		.filter(Boolean)) {
+		const claim = itemClaimOf(REPO, b);
+		const head = sh(["git", "rev-parse", "--verify", b]);
+		const stored = claim.resultSha
+			? sh(["git", "rev-parse", "--verify", `${claim.resultSha}^{commit}`])
+			: "";
+		const verified =
+			claim.state === "DONE" && !claim.blocked && !!head && stored === head;
+		if (!verified) {
+			const why = claim.blocked
+				? claim.reason
+				: claim.state !== "DONE"
+					? `item ${claim.item} is ${claim.state ?? "unknown to the graph"}`
+					: `result_sha ${claim.resultSha ?? "none"} ≠ branch head`;
+			log(`FLUSH-DEFER ${b} — ${why}`);
+			deferred++;
+			continue;
+		}
+		mergeOne(b);
+		merged++;
+	}
+	log(`FLUSH merged=${merged} deferred=${deferred}`);
+	process.exit(0);
+}
+
 // ship: one branch through the ladder NOW — the board's one-click ship
 // trigger (W64, fleet-board /api/ship). A foreground single-shot of the
 // cycle's merge step: same merge-liveness veto + crashed-merge heal, ladder
@@ -1346,7 +1416,14 @@ let standbyLogged = false;
 while (true) {
 	if (!controllerIdentity) {
 		try {
-			controllerIdentity = currentControllerIdentity(CONTROLLER_NONCE);
+			// W641: the fence identity derives from the CALLER's entrypoint —
+			// the one-arg call left scriptPath undefined and crash-looped watch
+			// at every spawn (CONTROLLER-REFUSED, .fleet/loop.log 2026-10-11),
+			// so the ladder never ran a cycle and verified branches sat unmerged
+			controllerIdentity = currentControllerIdentity(
+				CONTROLLER_NONCE,
+				import.meta.path,
+			);
 		} catch (error) {
 			log(
 				`CONTROLLER-REFUSED pid=${process.pid} — ${error instanceof Error ? error.message : String(error)}`,
