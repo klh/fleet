@@ -20,5 +20,5 @@
 	"dependencies": {
 		"@klh/blam": "workspace:*"
 	},
-	"license": "BUSL-1.1"
+	"license": "PolyForm-Noncommercial-1.0.0"
 }

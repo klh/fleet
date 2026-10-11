@@ -301,7 +301,10 @@ Quality runs at three moments: the governor post-files gate applies qlty fmt + f
 
 ## License
 
-MIT
+speedy is source-available under the **PolyForm Noncommercial License 1.0.0**
+(see [LICENSE](LICENSE)) — free for any noncommercial purpose (personal
+projects, education, research); production or commercial use requires a
+commercial license from the Licensor.
 
 ---
 

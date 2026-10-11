@@ -6,7 +6,7 @@
 	"workspaces": [
 		"*"
 	],
-	"license": "BUSL-1.1",
+	"license": "PolyForm-Noncommercial-1.0.0",
 	"scripts": {
 		"test": "bun test test/",
 		"test:e2e": "playwright test --config e2e/playwright.config.ts",

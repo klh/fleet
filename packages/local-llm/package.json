@@ -11,5 +11,5 @@
 		"status": "bun swarm.ts status",
 		"serve": "bun swarm.ts serve"
 	},
-	"license": "BUSL-1.1"
+	"license": "PolyForm-Noncommercial-1.0.0"
 }
