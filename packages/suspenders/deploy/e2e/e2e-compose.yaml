@@ -20,12 +20,13 @@
 name: klh-e2e
 
 x-fleet-image: &fleet-image oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
-# read-only bind of the checkout under test — the unit under test in CI
+# read-only bind of the checkout under test — the unit under test in CI.
+# The anchor is ONE volume entry (a map), usable as a list element everywhere.
 x-fleet-code: &fleet-code
-  - type: bind
-    source: ${FLEET_DIR:?set FLEET_DIR to the fleet checkout under test}
-    target: /src/fleet
-    read_only: true
+  type: bind
+  source: ${FLEET_DIR:?set FLEET_DIR to the fleet checkout under test}
+  target: /src/fleet
+  read_only: true
 
 x-default-logging: &default-logging
   driver: json-file
