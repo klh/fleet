@@ -3,7 +3,9 @@
 // is the data (any CLI/GUI consumes it), GET /fleet-tree is a demo page built
 // with native DOM only (createElement + textContent). Sources: local
 // /registry.json + hubs.json
-// candidate probes + hubs-demo.json static demo roots (W534). Demo content
+// candidate probes + hubs-demo.json static demo roots (W534, W565: demo
+// leaves are strict display whitelists, labels namespaced from live hubs).
+// Demo content
 // lives in machine config ONLY — this module has zero IKEA knowledge.
 // W530.2: single-flight refresh (concurrent misses coalesce into ONE sweep),
 // bounded parallel leaf probes (probeLimit, was sequential 700ms each),
@@ -25,21 +27,19 @@ export const simulationAuthorizationSchema = z.object({
 	scopes: z.array(z.string().min(1).max(128)).max(32),
 	status: z.enum(["granted", "denied"]),
 });
+// W565: demo leaves are a STRICT display whitelist — an operator cannot
+// assert live/up state (`up`/`down`) or park secrets on a demo model; a
+// profile that tries is malformed and skipped whole (malformed profiles
+// cannot shadow live discovery). Unprobed/unknown stays up:null = neutral.
+const demoLeafSchema = z.strictObject({
+	label: z.string(),
+	port: z.number().int().positive().optional(),
+	tier: z.string().optional(),
+	note: z.string().optional(),
+});
 const demoProfileSchema = z.object({
 	note: z.string().optional(),
-	models: z
-		.array(
-			z.union([
-				z.string(),
-				z.object({
-					label: z.string(),
-					port: z.number().int().positive().optional(),
-					tier: z.string().optional(),
-					note: z.string().optional(),
-				}),
-			]),
-		)
-		.default([]),
+	models: z.array(z.union([z.string(), demoLeafSchema])).default([]),
 	simulation: z
 		.object({ authorization: simulationAuthorizationSchema })
 		.optional(),
@@ -298,8 +298,12 @@ const demoRoots = (deps: TreeDeps): Root[] => {
 		const models: Leaf[] = v2.models.map((m) =>
 			typeof m === "string" ? { label: m, up: null } : { ...m, up: null },
 		);
+		// W565: every demo root's display label is namespaced distinct from live
+		// hubs — plain demo entries get "(demo)", explicit display simulations
+		// keep "(simulation)" — so a same-label live hub can never be confused
+		// with unprobed display capacity.
 		out.push({
-			label: explicit ? `${label} (simulation)` : label,
+			label: explicit ? `${label} (simulation)` : `${label} (demo)`,
 			identity: `simulation:${label}`,
 			...(explicit ? { simulationOf: label } : {}),
 			provenance: "simulation",

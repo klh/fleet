@@ -105,6 +105,10 @@ test.beforeAll(async () => {
 					},
 				},
 			},
+			nas: {
+				note: "display double of the live hub",
+				models: ["demo-nas-model"],
+			},
 		}),
 	);
 	process.env.SUSPENDERS_LLM_HOME = llmHome;
@@ -175,6 +179,35 @@ test("startup renders live hub, protected hub, dead hub and simulation root", as
 	await expect(page.locator("#stamp")).not.toBeEmpty();
 	await page.screenshot({
 		path: "e2e/test-results/w5302-a-startup.png",
+		fullPage: true,
+	});
+});
+
+test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async () => {
+	const t = await page.locator("#tree").innerText();
+	expect(t).toContain("nas (demo)");
+	// DOM-level namespace: one live "nas" rootlabel, demo doubles carry
+	// namespaced labels on the demo class
+	const labels = await page.evaluate(() => ({
+		live: [...document.querySelectorAll(".rootlabel")].map(
+			(n) => n.textContent,
+		),
+		demo: [...document.querySelectorAll(".demo")].map((n) => n.textContent),
+	}));
+	expect(labels.live.filter((l) => l === "nas")).toHaveLength(1);
+	expect(labels.demo).toContain("nas (demo)");
+	expect(labels.demo).toContain("shadow-prod (simulation)");
+	// unprobed demo leaves render neutral, never as verified live capacity
+	expect(await leafClass("sim-model-a")).toBe("tier");
+	expect(await leafClass("demo-nas-model")).toBe("tier");
+	// provenance note retained on every demo root, live leaves stay green
+	expect(
+		(t.match(/display simulation only · no live routes or health/g) ?? [])
+			.length,
+	).toBe(2);
+	expect(await leafClass("coder :")).toContain("up");
+	await page.screenshot({
+		path: "e2e/test-results/w565-demo-namespace.png",
 		fullPage: true,
 	});
 });

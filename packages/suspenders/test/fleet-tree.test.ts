@@ -92,7 +92,7 @@ const writeHome = (hubs: unknown, demo: unknown): void => {
 };
 const HUBS = { nas: { candidates: ["http://127.0.0.1:5999"] } };
 const DEMO = {
-	"demo-hub": { note: "scenario", models: [{ label: "m1", up: null }] },
+	"demo-hub": { note: "scenario", models: ["m1"] },
 };
 
 describe("W530.2 fleet tree refresh", () => {
@@ -160,13 +160,7 @@ describe("W530.2 fleet tree refresh", () => {
 			{ NAS: { candidates: ["http://protected:4101"] } },
 			{
 				NAS: {
-					models: [
-						{
-							label: "simulated model",
-							up: true,
-							token: "model-secret-must-not-export",
-						},
-					],
+					models: [{ label: "simulated model" }],
 					simulation: {
 						authorization: {
 							principal: "demo-owner",
@@ -453,7 +447,58 @@ describe("W530.2 fleet tree refresh", () => {
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const snap = await src.tree(true);
 		const demoRoot = snap.tree.find((r: Row) => r.demo === true);
-		expect(demoRoot?.label).toBe("demo-hub");
+		expect(demoRoot?.label).toBe("demo-hub (demo)");
+		expect(demoRoot?.provenance).toBe("simulation");
+		expect(demoRoot?.identity).toBe("simulation:demo-hub");
+		// unprobed demo leaves ride the wire neutral, never operator-green
+		expect(demoRoot?.models).toEqual([{ label: "m1", up: null }]);
+	});
+
+	test("W565 operator-asserted live state is forbidden in demo leaves: profile skipped whole, live discovery unshadowed", async () => {
+		writeHome(
+			{ NAS: { candidates: ["http://protected:4101"] } },
+			{
+				NAS: {
+					models: [{ label: "claimed-live", up: true, token: "parked-secret" }],
+					simulation: {
+						authorization: {
+							principal: "demo",
+							scopes: ["registry:read"],
+							status: "granted",
+						},
+					},
+				},
+			},
+		);
+		const s: Scenario = {
+			registryOk: false,
+			upLeaves: new Set<string>(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const snap = await src.tree(true);
+		expect(snap.tree.some((r: Row) => r.demo === true)).toBe(false);
+		expect(s.seen.urls).toContain("http://protected:4101/registry.json");
+	});
+
+	test("W565 same-label demo namespace stays distinct from the live hub", async () => {
+		writeHome(
+			{ nas: { candidates: ["http://127.0.0.1:5999"] } },
+			{ nas: { note: "display double", models: ["m1"] } },
+		);
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set<string>(["http://127.0.0.1:5999/v1/models"]),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const snap = await src.tree(true);
+		const live = snap.tree.find((r: Row) => r.label === "nas");
+		const demo = snap.tree.find((r: Row) => r.label === "nas (demo)");
+		expect(live?.provenance).toBe("live-discovery");
+		expect(live?.models.every((m: Row) => m.up === true)).toBe(true);
+		expect(demo?.demo).toBe(true);
+		expect(demo?.models).toEqual([{ label: "m1", up: null }]);
 	});
 
 	test("routing cannot resolve a scenario-only label (hubs-demo.json is invisible to resolveHub)", async () => {
@@ -487,6 +532,12 @@ describe("W530.2 fleet tree refresh", () => {
 		const wire = (await api.json()) as Row;
 		expect(wire.tree.length).toBeGreaterThan(0);
 		expect(wire.generated_at).toBeTruthy();
+		// W565: provenance survives the API consumer — demo roots keep the
+		// namespaced label, provenance and identity on the wire
+		const wireDemo = wire.tree.find((r: Row) => r.demo === true);
+		expect(wireDemo?.label).toBe("demo-hub (demo)");
+		expect(wireDemo?.provenance).toBe("simulation");
+		expect(wireDemo?.identity).toBe("simulation:demo-hub");
 		await get("http://b/api/fleet-tree?refresh=1");
 		expect(s.seen.registry).toBe(2); // ?refresh=1 bypassed the TTL
 		const page = await get("http://b/fleet-tree");
