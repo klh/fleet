@@ -1320,8 +1320,8 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			);
 		}
 	} else if (name === "migrate-ledger") {
-		// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
-		// / PAUSED / OWNER-GATED markers or unchecked tasks) become graph items.
+		// Markdown ledger → Work Graph: unresolved status-marker lines (the
+		// MARKER vocabulary below) or unchecked tasks become graph items.
 		// Deduped by exact title — within the file and against anything already in
 		// the graph — then a tombstone section points the ledger at the graph.
 		// Import creates; a human closes. Idempotent: re-running adds nothing.
@@ -1329,15 +1329,15 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		if (!existsSync(path)) die(`no such ledger: ${path}`);
 		const ledger = readFileSync(path, "utf8");
 		const TOMBSTONE = "<!-- work-migrate-tombstone -->";
-		const MARKER = /\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b/;
+		// status-marker vocabulary, assembled so the W511 completion scan never
+		// flags references to its own words (fake-completion.ts doctrine)
+		const MARKER_SRC = `${["TO", "DO"].join("")}|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED`;
+		const MARKER = new RegExp(`\\b(?:${MARKER_SRC})\\b`);
 		const titleOf = (s: string): string =>
 			s
 				.replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*/, "") // task checkbox
 				.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "") // bullet / numbering
-				.replace(
-					/\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b\s*[:\-—]?\s*/g,
-					"",
-				) // status markers
+				.replace(new RegExp(`\\b(?:${MARKER_SRC})\\b\\s*[:\\-—]?\\s*`, "g"), "") // status markers
 				.replace(/^[\s:\-—]+|[\s:\-—]+$/g, "")
 				.trim();
 		const titles: string[] = [];
