@@ -123,3 +123,8 @@ blam tiers per model).
   identity evidence, summary that recomputes. No gate pass, no row.
 - **W536 remainder** — W274 post-W270 router/engine rerun + buckle gateway
   acceptance probes (still OPEN).
+- **MTP at 30B+** (W242): the MoE×MTP cell is untested — the 4B W115 verdict
+  does not extrapolate and the W535 MTP losses were dense (confounded).
+  Watch: `bun packages/belt/bin/specdec.ts scan`; a real untried challenger
+  (e.g. a MoE MTP checkpoint that fits the resident budget) triggers
+  `fleet-refresh ab` against the same-class slot.
