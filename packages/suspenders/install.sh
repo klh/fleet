@@ -5,8 +5,8 @@
 # step yet (each marked TODO(install.ts) inline). Flags unchanged:
 #   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models]
 #                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
-#                [--prune] [--hub <name>] [--yes] [--json] [--verbose]
-#                [--step <name>]
+#                [--prune] [--hub <name>] [--wire-repo <path>] [--yes]
+#                [--json] [--verbose] [--step <name>]
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
@@ -260,6 +260,7 @@ fi
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
 LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0 LEG_PRUNE=0
+LEG_WIRE_REPO="" wire_repo_pending=0
 NATIVE=()
 prev_step=0
 LEG_HUB=""
@@ -268,8 +269,10 @@ hub_pending=0
 for arg in "$@"; do
   if [[ $prev_step -eq 1 ]]; then NATIVE+=("$arg"); prev_step=0; continue; fi
   if [[ $hub_pending -eq 1 ]]; then LEG_HUB="$arg"; hub_pending=0; continue; fi
+  if [[ $wire_repo_pending -eq 1 ]]; then LEG_WIRE_REPO="$arg"; wire_repo_pending=0; continue; fi
   case "$arg" in
     --hub) hub_seen=1; hub_pending=1 ;;
+    --wire-repo) wire_repo_pending=1 ;;
     --wire) LEG_WIRE=1 ;;
     --with-launchd) LEG_WITH_LAUNCHD=1 ;;
     --skip-models) LEG_SKIP_MODELS=1 ;;
@@ -303,6 +306,13 @@ fi
 
 if [[ $LEG_GATEWAY -eq 1 ]]; then
   exec bun "$SCRIPT_DIR/scripts/refresh-gateway.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# --wire-repo <path> (W637): native repo wiring — merge-not-clobber the hooks
+# block into <path>/.claude/settings.json via the TS installer's wireSettings
+# step. Early-exit like the other targeted flags; --dry-run rides the plan.
+if [[ -n "$LEG_WIRE_REPO" ]]; then
+  exec bun "$SCRIPT_DIR/scripts/install.ts" --step wireSettings --yes --wire-repo "$LEG_WIRE_REPO" ${NATIVE[@]+"${NATIVE[@]}"}
 fi
 
 # Upgrade the existing kit code explicitly, never switch supervisor families.

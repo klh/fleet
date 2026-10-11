@@ -3,7 +3,14 @@
 // pause builder, and executePlan. Pure logic — no CLI parsing, no printing.
 // The contract (scripts/install-contract.ts) is the frozen surface.
 import { join } from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { execa } from "execa";
 import {
@@ -27,6 +34,8 @@ export interface StepContext {
 	prefix: string;
 	shimBin: string;
 	llmHome: string;
+	/** W637: with --step wireSettings — the repo whose project settings get wired */
+	wireRepo: string | null;
 }
 
 export interface StepResult {
@@ -82,6 +91,68 @@ async function refreshDashboards(ctx: StepContext): Promise<StepResult> {
 		status: "ok",
 		note: "belt dashboards refreshed",
 		detail: `${script}${tail === "" ? "" : ` — ${tail}`}`,
+	};
+}
+
+// W637: real wireSettings — merges the settings.example.json hooks block into
+// <wireRepo>/.claude/settings.json: per-event array concat, dedupe on JSON
+// form, $HOME placeholder rewritten to the real prefix. No --wire-repo: the
+// user-level wire stays bash-owned (the step pauses with the bash resume).
+export async function wireSettings(ctx: StepContext): Promise<StepResult> {
+	if (ctx.wireRepo === null) {
+		return {
+			status: "need_user_action",
+			note: "user-level wire is under install.sh --wire — pass --wire-repo <path> to wire a repo's project settings",
+		};
+	}
+	const repo = realpathSync(ctx.wireRepo);
+	const settingsPath = join(repo, ".claude", "settings.json");
+	let ex: { hooks: Record<string, unknown> };
+	try {
+		ex = JSON.parse(
+			readFileSync(join(ctx.repo, "settings.example.json"), "utf8"),
+		);
+	} catch {
+		return {
+			status: "failed",
+			note: `settings.example.json unreadable at ${ctx.repo} — the wire step runs from a fleet checkout`,
+		};
+	}
+	const doc = (() => {
+		try {
+			return JSON.parse(readFileSync(settingsPath, "utf8")) as {
+				hooks?: Record<string, unknown>;
+			};
+		} catch {
+			return {} as { hooks?: Record<string, unknown> };
+		}
+	})();
+	doc.hooks ??= {};
+	let added = 0;
+	for (const [event, entries] of Object.entries(ex.hooks)) {
+		const rewritten = JSON.parse(
+			JSON.stringify(entries).replaceAll(
+				"$HOME/.claude/hooks/suspenders",
+				ctx.prefix,
+			),
+		) as unknown[];
+		const cur = (
+			Array.isArray(doc.hooks[event]) ? doc.hooks[event] : []
+		) as unknown[];
+		doc.hooks[event] = cur;
+		const seen = new Set(cur.map((m) => JSON.stringify(m)));
+		for (const e of rewritten) {
+			if (!seen.has(JSON.stringify(e))) {
+				cur.push(e);
+				added++;
+			}
+		}
+	}
+	mkdirSync(join(repo, ".claude"), { recursive: true });
+	writeFileSync(settingsPath, `${JSON.stringify(doc, null, 2)}\n`);
+	return {
+		status: "ok",
+		note: `wired ${settingsPath} (per-event merge, ${added} new hook entries)`,
 	};
 }
 
@@ -212,6 +283,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	refreshDashboards,
 	registerLaunchd,
 	syncHarness,
+	wireSettings,
 };
 
 // ─── plan runner ───
@@ -323,6 +395,13 @@ export async function executePlan(
 		try {
 			const r = await impl(ctx);
 			emit({ ...r, name: step.name });
+			// W637: an impl can fold to a pause (wireSettings without
+			// --wire-repo — the user-level wire stays bash-owned)
+			if (r.status === "need_user_action") {
+				const p = pauseFor(step, ctx, r.note);
+				pauses.push(p.pause);
+				continue;
+			}
 			if (r.status === "failed") outcome = "failed";
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);

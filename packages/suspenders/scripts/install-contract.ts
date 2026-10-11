@@ -104,6 +104,7 @@ export interface InstallContract {
 		yes: ContractFlag;
 		verbose: ContractFlag;
 		step: ContractFlag;
+		wireRepo: ContractFlag;
 	};
 	/** environment knobs, PATH/default pointers only — never values */
 	env: {
@@ -165,7 +166,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"v1: not a flag yet — the wireSettings pause carries the bash --wire resume_command",
+					"repo wiring is native: --step wireSettings --wire-repo <path>; the user-level wire rides the bash --wire resume_command",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -220,6 +221,11 @@ export const INSTALL_CONTRACT = {
 			flag: "--step",
 			meaning:
 				"run one step by frozen name (see steps[].name); unknown name = exit 2",
+		},
+		wireRepo: {
+			flag: "--wire-repo",
+			meaning:
+				"with --step wireSettings: wire THIS repo checkout's project settings instead of pausing on the bash user-level wire",
 		},
 	},
 	env: {
@@ -309,10 +315,10 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge hook registrations into ~/.claude/settings.json per-event, never clobber",
+				"merge the hooks block into a repo's project settings via --wire-repo <path> (per-event merge, never clobber); the user-level wire rides the bash --wire resume",
 			mutates: true,
 			optIn: true,
-			v1: "stub",
+			v1: "real",
 		},
 		{
 			name: "registerLaunchd",
@@ -480,6 +486,7 @@ export interface InstallOutcome {
 		yes: boolean;
 		verbose: boolean;
 		step: string | null;
+		wireRepo: string | null;
 	};
 	paths: {
 		repo: string;
