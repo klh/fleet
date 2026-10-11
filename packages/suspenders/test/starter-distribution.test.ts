@@ -57,7 +57,7 @@ describe("starter-distribution: grants", () => {
 	});
 
 	test("fail-closed: no authz file = nobody holds authority", () => {
-		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [] });
+		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [], readers: [] });
 	});
 
 	test("write + read roundtrip, 0600", () => {
@@ -70,7 +70,7 @@ describe("starter-distribution: grants", () => {
 	test("corrupt authz file reads as empty (fail-closed)", () => {
 		writeGrants(repo, { promoters: ["lane-a"], revokers: [] });
 		writeFileSync(starterAuthzFile(repo), "{corrupt");
-		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [] });
+		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [], readers: [] });
 	});
 });
 describe("starter-distribution: promotion authority", () => {

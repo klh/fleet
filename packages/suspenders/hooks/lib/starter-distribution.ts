@@ -27,7 +27,13 @@ import {
 	type StarterPutResult,
 } from "./starter-artifacts.ts";
 
-export type StarterGrants = { promoters: string[]; revokers: string[] };
+export type StarterGrants = {
+	promoters: string[];
+	revokers: string[];
+	/** Who may materialize starter content — the per-task auth recheck the
+	 *  materialization contract runs (W458.3). Absent = fail-closed. */
+	readers?: string[];
+};
 
 export const starterAuthzFile = (repo: string): string =>
 	join(starterRegistryDir(repo), "authz.json");
@@ -42,7 +48,7 @@ const nonEmpty = (v: unknown): v is string =>
  *  missing or corrupt file means nobody holds authority. */
 export const readGrants = (repo: string): StarterGrants => {
 	const f = starterAuthzFile(repo);
-	if (!existsSync(f)) return { promoters: [], revokers: [] };
+	if (!existsSync(f)) return { promoters: [], revokers: [], readers: [] };
 	try {
 		const parsed = JSON.parse(readFileSync(f, "utf8")) as Record<
 			string,
@@ -53,9 +59,10 @@ export const readGrants = (repo: string): StarterGrants => {
 		return {
 			promoters: ids(parsed.promoters),
 			revokers: ids(parsed.revokers),
+			readers: ids(parsed.readers),
 		};
 	} catch {
-		return { promoters: [], revokers: [] };
+		return { promoters: [], revokers: [], readers: [] };
 	}
 };
 export const writeGrants = (repo: string, grants: StarterGrants): void => {
@@ -81,6 +88,12 @@ export const assertCanPromote = (repo: string, sid: string): void => {
 
 export const assertCanRevoke = (repo: string, sid: string): void => {
 	if (!readGrants(repo).revokers.includes(sid)) failClosed("revoke", sid);
+};
+
+/** Materialization-time auth recheck (W458.3): permissions are rechecked
+ *  when the artifact is materialized, never assumed from earlier state. */
+export const assertCanRead = (repo: string, sid: string): void => {
+	if (!readGrants(repo).readers.includes(sid)) failClosed("materialize", sid);
 };
 
 export type StarterRevocation = {
