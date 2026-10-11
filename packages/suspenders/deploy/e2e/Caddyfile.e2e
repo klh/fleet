@@ -1,0 +1,11 @@
+# Caddyfile for the e2e harness — the klh/local front shape. The catch-all
+# proxies the gate (run-e2e.ts probes it via the published :8080); the named
+# site mirrors the per-service fragment klh-local emits for a <label>.local
+# front (bin/klh-local.ts). Loopback publishes only.
+:8080 {
+	reverse_proxy buckle-hub:4111
+}
+
+e2e-buckle.local:8080 {
+	reverse_proxy buckle-hub:4111
+}
