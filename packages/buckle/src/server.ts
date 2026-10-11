@@ -30,6 +30,10 @@ import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
+import {
+	resolveResidency,
+	residencyFromEnv,
+} from "./gov/residency.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
@@ -133,7 +137,10 @@ export function buildDeps(
 		policy.allowed_fails ?? 3,
 		policy.cooldown_time ?? 30,
 	);
-	const table = new CandidateTable({ pool, policy, cooldowns });
+	// W235 locked residency floors: resolve once at boot (env + compiled
+	// floor, tighten-only); the candidate table benches outsiders.
+	const residency = resolveResidency(residencyFromEnv(process.env));
+	const table = new CandidateTable({ pool, policy, cooldowns, residency });
 	table.start();
 	// W4 intent expansion: the local direct tier (aids.expand.group, default
 	// local-swarm) serves the enhance digest — structurally local (never a
