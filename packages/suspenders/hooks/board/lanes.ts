@@ -327,6 +327,82 @@ export function label(sid: string, role: string): string {
 	return sid.slice(0, 8);
 }
 
+// W663: the batch face of label() — ONE sessions query + ONE claims query
+// feed maps so payload() never walks claims per-sid (445 registered lanes
+// turned each /api/data poll into 900+ synchronous store RPCs on the board's
+// main thread; /api/data wedged and the whole .local face starved with it).
+// Semantics mirror label() exactly: session name leads, first non-monitor
+// claim intent follows, sid prefix is the last resort.
+export function labelMaps(): {
+	names: Map<string, string>;
+	intents: Map<string, string>;
+} {
+	const names = new Map<string, string>();
+	for (const r of db.query("SELECT sid, tags FROM sessions").all() as {
+		sid: string;
+		tags: string | null;
+	}[]) {
+		const name = tagNameOf(r.tags);
+		if (name) names.set(r.sid, name.slice(0, 24));
+	}
+	const intents = new Map<string, string>();
+	for (const r of db
+		.query(
+			"SELECT sid, intent FROM claims WHERE intent IS NOT NULL ORDER BY ts DESC",
+		)
+		.all() as { sid: string; intent: string | null }[]) {
+		if (intents.has(r.sid)) continue;
+		if (r.intent && !r.intent.startsWith("restored by monitor"))
+			intents.set(r.sid, r.intent.slice(0, 24));
+	}
+	return { names, intents };
+}
+
+// W663 sibling: lane executor/model/locality facts for EVERY sid in ONE
+// facts query (laneModelOf costs 3 store RPCs per sid; at 445 sessions that
+// is 1335 more synchronous curls per /api/data poll). Key shape:
+// lane.<sid>.<k>. Consumers read the same values laneModelOf returns.
+export function laneModelMaps(): Map<
+	string,
+	{ executor: string | null; model: string; locality: string }
+> {
+	const map = new Map<
+		string,
+		{ executor: string | null; model: string; locality: string }
+	>();
+	for (const r of db
+		.query("SELECT key, value FROM facts WHERE key GLOB 'lane.*.*'")
+		.all() as { key: string; value: string }[]) {
+		const rest = r.key.slice("lane.".length);
+		const dot = rest.indexOf(".");
+		if (dot <= 0) continue;
+		const sid = rest.slice(0, dot);
+		const k = rest.slice(dot + 1);
+		let e = map.get(sid);
+		if (!e) {
+			e = { executor: null, model: "", locality: "" };
+			map.set(sid, e);
+		}
+		if (k === "executor") e.executor = r.value;
+		else if (k === "model") e.model = r.value;
+		else if (k === "locality") e.locality = r.value;
+	}
+	return map;
+}
+
+// label from prebuilt maps (labelMaps) with label()'s exact fallback chain
+export function labelFrom(
+	maps: { names: Map<string, string>; intents: Map<string, string> },
+	sid: string,
+	role: string,
+): string {
+	return (
+		maps.names.get(sid) ??
+		maps.intents.get(sid) ??
+		(role === "coordinator" ? "coordinator" : sid.slice(0, 8))
+	);
+}
+
 // every project the control plane knows — the UI's global filter options
 export function projectList(): string[] {
 	return (
