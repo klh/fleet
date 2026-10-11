@@ -13,20 +13,34 @@
 // (bytes, ratio, rules fired, pointers, lostPointers, degraded).
 import { readFileSync } from "node:fs";
 import { prepPacket } from "../lib/packet-prep.ts";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderVerbHelp,
+} from "../lib/verb-kit.ts";
 
-const USAGE = `usage: packet-prep.ts <file...> [--json] | --stdin [--json] | --help`;
+const SPEC = defineVerb({
+	name: "packet-prep",
+	usage: "usage: packet-prep <file...> [--json] [--stdin]",
+	switches: ["--json", "--stdin"],
+});
+const die = dieFor("packet-prep");
 
 const main = (): number => {
-	// Bun strips `--` before argv (lesson: bun-swallows-double-dash) —
-	// positionals come from argv[2:] verbatim, flags matched exactly.
-	const args = process.argv.slice(2);
-	if (args.length === 0 || args.includes("--help")) {
-		console.error(USAGE);
-		return args.includes("--help") ? 0 : 1;
+	// kit-owned parse (W656.2) — the Bun strips-`--` reality is baked into
+	// verb-kit; unknown options die before any file is read
+	const argv = process.argv.slice(2);
+	if (argv.includes("--help") || argv.includes("-h")) {
+		console.log(renderVerbHelp(SPEC));
+		return 0;
 	}
-	const json = args.includes("--json");
-	const files = args.filter((a: string) => !a.startsWith("--"));
-	const stdin = args.includes("--stdin");
+	const outcome = parseVerb(SPEC, argv);
+	if (!outcome.ok) die(outcome.message || (SPEC.usage ?? ""));
+	const parsed = outcome.parsed;
+	const json = parsed.flag("--json") === "true";
+	const files = parsed.pos;
+	const stdin = parsed.flag("--stdin") === "true";
 
 	const inputs: { source: string; text: string }[] = [];
 	for (const f of files) {
@@ -40,10 +54,7 @@ const main = (): number => {
 		}
 	}
 	if (stdin) inputs.push({ source: "<stdin>", text: readFileSync(0, "utf8") });
-	if (inputs.length === 0) {
-		console.error(USAGE);
-		return 1;
-	}
+	if (inputs.length === 0) die(SPEC.usage ?? "no inputs");
 
 	for (const { source, text } of inputs) {
 		const r = prepPacket(text);

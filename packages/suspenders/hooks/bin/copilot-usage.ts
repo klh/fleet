@@ -16,16 +16,33 @@ import {
 	flushLaneUsageFacts,
 	meterCopilotLanes,
 } from "../../scripts/lib/copilot-meter.ts";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderVerbHelp,
+} from "../lib/verb-kit.ts";
+
+const SPEC = defineVerb({
+	name: "copilot-usage",
+	usage:
+		"usage: copilot-usage [--fleet <dir>] [--store <db>] [--json] [--flush]",
+	flags: ["--fleet", "--store"],
+	switches: ["--json", "--flush"],
+});
 
 const argv = process.argv.slice(2);
-const val = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
-const flush = argv.includes("--flush");
-const json = argv.includes("--json");
-const fleet = val("--fleet") ?? projectRootOf(projectIdentity());
-const store = val("--store") ?? copilotStorePath();
+if (argv.includes("--help") || argv.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, argv);
+if (!outcome.ok) dieFor("copilot-usage")(outcome.message || (SPEC.usage ?? ""));
+const p = outcome.parsed;
+const flush = p.flag("--flush") === "true";
+const json = p.flag("--json") === "true";
+const fleet = p.flag("--fleet") ?? projectRootOf(projectIdentity());
+const store = p.flag("--store") ?? copilotStorePath();
 
 const report = meterCopilotLanes(fleet, { storeDb: store });
 if (!report.ok) {

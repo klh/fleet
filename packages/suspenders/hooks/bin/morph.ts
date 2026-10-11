@@ -6,35 +6,48 @@
 // --count mismatch (splice.ts discipline), or any NEW pre-emit diagnostic —
 // in every abort case nothing reaches disk.
 //
-//   bun morph.ts rename <file> --symbol OLD --to NEW [--count N] [--apply]
-//   bun morph.ts move   <file> --symbol NAME --to TARGET.ts [--apply]
-//   bun morph.ts organize [file...]               [--apply]
-//
-// Common flags: --root DIR (repeatable, default cwd), --apply.
+// usage: GENERATED from the verb registry — `morph --help`.
 import { loadSession } from "../lib/morph";
 import type { Outcome } from "../lib/morph";
 import { moveSymbol, organizeImports, renameSymbol } from "../lib/morph";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderRegistryHelp,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
-const argv = process.argv.slice(2);
-const get = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
-const VALUE_FLAGS = new Set(["--count", "--symbol", "--to", "--root"]);
-const positionals = argv.filter(
-	(a, i) => !a.startsWith("--") && !(i > 0 && VALUE_FLAGS.has(argv[i - 1])),
-);
-const collect = (flag: string): string[] => {
-	const out: string[] = [];
-	for (let i = 0; i < argv.length; i++) {
-		if (argv[i] === flag) out.push(argv[i + 1] ?? "");
-	}
-	return out;
-};
+const die = dieFor("morph");
 
-const USAGE = `usage: morph.ts <recipe> [file...] [--apply] [--count N] [--symbol NAME] [--to NEW|TARGET.ts] [--root DIR]...
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "rename",
+		usage:
+			"usage: morph rename <file> --symbol OLD --to NEW [--count N] [--apply]",
+		flags: ["--count", "--symbol", "--to", "--root"],
+		reqFlags: ["--symbol", "--to"],
+		switches: ["--apply"],
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "move",
+		usage: "usage: morph move <file> --symbol NAME --to TARGET.ts [--apply]",
+		flags: ["--symbol", "--to", "--root"],
+		reqFlags: ["--symbol", "--to"],
+		switches: ["--apply"],
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "organize",
+		usage: "usage: morph organize [file...] [--apply]",
+		flags: ["--root"],
+		switches: ["--apply"],
+	}),
+];
 
-recipes:
+const EPILOG = `recipes:
   rename <file> --symbol OLD --to NEW [--count N]
       AST rename across every loaded file (language-service backed).
   move <file> --symbol NAME --to TARGET.ts
@@ -48,60 +61,50 @@ guardrails: dry-run by default. Zero matches, a --count mismatch, or any NEW
 pre-emit diagnostic after mutation aborts with exit 2 and writes nothing.
 On success everything lands through exactly one project.saveSync().`;
 
-const countRaw = get("--count");
-const count = countRaw === undefined ? undefined : Number(countRaw);
-if (count !== undefined && (!Number.isInteger(count) || count < 1)) {
-	console.error(`morph: --count must be a positive integer, got ${countRaw}`);
-	process.exit(1);
+// kit door (W656.2): resolve the recipe, parse its flags — the kit owns
+// help, unknown recipes and parse violations (uniform `morph: message` die)
+const argv = process.argv.slice(2);
+if (!argv.length) die("usage: morph <recipe> — try `morph --help`");
+if (argv[0] === "--help" || argv[0] === "-h") {
+	console.log(
+		renderRegistryHelp(
+			"morph",
+			"morph — AST-grade structural edits (W79).",
+			VERBS,
+			EPILOG,
+		),
+	);
+	process.exit(0);
 }
+const spec = VERBS.find((v) => v.name === argv[0]);
+if (!spec)
+	die(`unknown recipe "${String(argv[0])}" — try rename | move | organize`);
+const outcome = parseVerb(spec, argv.slice(1));
+if (!outcome.ok) die(outcome.message || (spec.usage ?? ""));
+const p: Parsed = outcome.parsed;
 
-const cmdArg = positionals[0] ?? "";
-if (
-	cmdArg === "" ||
-	cmdArg === "-h" ||
-	cmdArg === "--help" ||
-	positionals.length === 0
-) {
-	console.error(USAGE);
-	process.exit(1);
-}
-const symbol = get("--symbol");
-const to = get("--to");
-const apply = argv.includes("--apply");
-const roots = collect("--root");
+const countRaw = p.flag("--count");
+const count = countRaw === null ? undefined : Number(countRaw);
+if (count !== undefined && (!Number.isInteger(count) || count < 1))
+	die(`--count must be a positive integer, got ${countRaw ?? ""}`);
+
+const symbol = p.flag("--symbol") ?? undefined;
+const to = p.flag("--to") ?? undefined;
+const apply = p.flag("--apply") === "true";
+const roots = p.all("--root").filter(Boolean);
 if (roots.length === 0) roots.push(process.cwd());
+// reqFlags guarantee --symbol/--to for rename/move at parse — narrowing only
+if (p.name !== "organize" && (!symbol || !to))
+	die(`${p.name} needs --symbol and --to`);
 
 const s = await loadSession(roots);
 let out: Outcome;
-if (cmdArg === "rename") {
-	if (!positionals[1] || !symbol || !to) {
-		console.error(USAGE);
-		process.exit(1);
-	}
-	out = renameSymbol(s, {
-		file: positionals[1],
-		from: symbol,
-		to,
-		count,
-		apply,
-	});
-} else if (cmdArg === "move") {
-	if (!positionals[1] || !symbol || !to) {
-		console.error(USAGE);
-		process.exit(1);
-	}
-	out = moveSymbol(s, {
-		file: positionals[1],
-		name: symbol,
-		target: to,
-		apply,
-	});
-} else if (cmdArg === "organize") {
-	out = organizeImports(s, { only: positionals.slice(1), apply });
+if (p.name === "rename") {
+	out = renameSymbol(s, { file: p.pos[0], from: symbol, to, count, apply });
+} else if (p.name === "move") {
+	out = moveSymbol(s, { file: p.pos[0], name: symbol, target: to, apply });
 } else {
-	console.error(`morph: unknown recipe "${cmdArg}"`);
-	console.error(USAGE);
-	process.exit(1);
+	out = organizeImports(s, { only: p.pos, apply });
 }
 
 if (!out.ok) {
