@@ -104,6 +104,15 @@ export function writeActivation(
 		rmSync(temporary, { force: true });
 	}
 }
+/** launchctl print renders one argument per line inside the arguments block. */
+export function parseLoadedArguments(printOut: string): string[] | null {
+	const argBlock = /\n\s*arguments = \{([\s\S]*?)\n\s*\}/.exec(printOut);
+	if (!argBlock) return null;
+	return argBlock[1]
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+}
 const defaultInspect: Inspect = (args) => {
 	try {
 		const child = Bun.spawnSync(args, {
@@ -185,12 +194,8 @@ export function inspectServices(
 					: "unknown",
 				"exact-domain service inspection failed",
 			);
-		const argBlock = /\n\s*arguments = \{([\s\S]*?)\n\s*\}/.exec(loaded.out);
-		if (!argBlock) return result("unknown", "loaded arguments unavailable");
-		const args = argBlock[1]
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean);
+		const args = parseLoadedArguments(loaded.out);
+		if (args === null) return result("unknown", "loaded arguments unavailable");
 		if (JSON.stringify(args) !== JSON.stringify(service.arguments))
 			return result(
 				"drift",
@@ -259,13 +264,7 @@ export function inspectServices(
 				if (fresh.code !== 0)
 					return result("unknown", "supervised PID recheck unavailable", pid);
 				const freshPid = /\n\s*pid = (\d+)/.exec(fresh.out)?.[1];
-				const freshBlock = /\n\s*arguments = \{([\s\S]*?)\n\s*\}/.exec(
-					fresh.out,
-				);
-				const freshArgs = freshBlock?.[1]
-					.split("\n")
-					.map((line) => line.trim())
-					.filter(Boolean);
+				const freshArgs = parseLoadedArguments(fresh.out);
 				if (
 					freshPid === owners[0] &&
 					JSON.stringify(freshArgs) === JSON.stringify(service.arguments)
