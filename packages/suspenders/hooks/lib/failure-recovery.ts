@@ -13,6 +13,9 @@ export interface FailureContext {
 	generation: string;
 	holder?: string;
 	recovery: string;
+	/** W576.3: the enforcement-policy version that produced the decision —
+	 *  recorded on the incident and every event it emits */
+	policyVersion?: string;
 }
 
 function schema(db: Database): void {
@@ -142,6 +145,7 @@ export function recordFailure(
 						attempts,
 						consult: consultId,
 						recovery: c.recovery,
+						policyVersion: c.policyVersion,
 					}),
 					c.sid,
 				);
@@ -156,7 +160,7 @@ export function recordFailure(
 						remote_consult_id: number | null;
 					} | null)
 				: null;
-			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, consult: consultId ? `C${consultId}` : null, delivery: delivery ? { id: delivery.delivery_id, status: delivery.status, remoteConsult: delivery.remote_consult_id ? `C${delivery.remote_consult_id}` : null, note: "consult is the local incident ID; use remoteConsult for coord reply/feedback on a remote store" } : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
+			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, policy: c.policyVersion, consult: consultId ? `C${consultId}` : null, delivery: delivery ? { id: delivery.delivery_id, status: delivery.status, remoteConsult: delivery.remote_consult_id ? `C${delivery.remote_consult_id}` : null, note: "consult is the local incident ID; use remoteConsult for coord reply/feedback on a remote store" } : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
 		})();
 	} catch {
 		return `\nRECOVERY ${JSON.stringify({ fingerprint, next: c.recovery, retry: "only after the recovery condition changes" })}`;

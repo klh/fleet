@@ -18,6 +18,7 @@ import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
 import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 import { expireObservedLease } from "../lib/lease-expiry.ts";
+import { classifyOutage, recordOutage } from "../lib/outage-ledger.ts";
 import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
 import type { Database } from "bun:sqlite";
 import {
@@ -34,6 +35,10 @@ const REG = `${process.env.HOME}/.cache/claude-governor`;
 const DRIFT = `${REG}/drift.jsonl`;
 const EXEMPT = `${REG}/exempt.json`;
 export const TTL_MS = 15 * 60_000;
+// W576.3: every recorded deny/resolve decision names the enforcement policy
+// version that produced it — allow/deny at the harness boundary is enforced
+// here, prompt text stays guidance (OPA pattern, control-chain review).
+export const GOVERNOR_DECISION_POLICY = "fenced-lease.v1";
 
 // Canonical path: symlinks resolved for what exists, nearest existing ancestor
 // otherwise (Write-new has no file yet). Keys in the locks table are canonical.
@@ -103,12 +108,22 @@ export function governorGate(hook: HookInput): void {
 	const now = Date.now();
 	const tpSelf = hook.transcript_path ?? "";
 
-	// registry DB — fail open: if it cannot open, no leases/claims enforce
+	// registry DB — explicit per-operation outage policy (W576.3): this gate
+	// fails OPEN (owner law: gates are guard-rails, not boundaries — a dead
+	// registry never blocks an edit), but the degraded outcome is audited:
+	// one deduped structured event lands in outage.jsonl, OUTSIDE the dead
+	// authority itself, so fail-open is a recorded decision, not silence.
 	let db: Database | null = null;
 	try {
 		db = openGovernorDb();
-	} catch {
+	} catch (e) {
 		db = null;
+		recordOutage({
+			op: "governor.edit",
+			phase: "db-open",
+			reasonCode: classifyOutage(e),
+			path: canon(F),
+		});
 	}
 
 	// ---- lease sweep: stale leases release, regardless of holder liveness ----
@@ -151,6 +166,7 @@ export function governorGate(hook: HookInput): void {
 				generation,
 				holder,
 				recovery,
+				policyVersion: GOVERNOR_DECISION_POLICY,
 			});
 		deny(`${reason}${note}`);
 	};
@@ -216,8 +232,15 @@ export function governorGate(hook: HookInput): void {
 					);
 				} catch {}
 			}
-		} catch {
-			// claims read failed (contention) — claims layer off this call
+		} catch (e) {
+			// claims read failed — the claims layer is off this call. Same
+			// audited-fail-open contract as the DB-open outage above.
+			recordOutage({
+				op: "governor.edit",
+				phase: "claims-read",
+				reasonCode: classifyOutage(e),
+				path: P,
+			});
 		}
 	}
 
