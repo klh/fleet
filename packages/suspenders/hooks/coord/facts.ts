@@ -16,6 +16,7 @@ import {
 } from "./shared.ts";
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
+import { run } from "../lib/run.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
@@ -175,6 +176,25 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			// W606: --if-version=N is the CAS expectation, not capsule payload
 			if (m[1] === "if-version") iv = m[2];
 			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
+		}
+		// W577: a capsule checkpoint is git evidence, not free text — "none" stays
+		// the explicit nothing-banked marker, anything else must be a 40-hex sha
+		// that resolves to a commit in the caller's repo (the stop evaluator
+		// re-proves reachability from HEAD at park time; outside a
+		// repo the format check is all the producer can do).
+		if (extra.checkpoint !== undefined && extra.checkpoint !== "none") {
+			if (!/^[a-f0-9]{40}$/i.test(extra.checkpoint))
+				die(
+					`capsule: --checkpoint must be a 40-hex commit sha or "none", got "${extra.checkpoint}"`,
+				);
+			const repo = run("git", ["rev-parse", "--is-inside-work-tree"]);
+			if (
+				repo.ok &&
+				!run("git", ["cat-file", "-e", `${extra.checkpoint}^{commit}`]).ok
+			)
+				die(
+					`capsule: --checkpoint ${extra.checkpoint} is not a commit in this repo`,
+				);
 		}
 		// arg() fallback covers the two-token form --if-version N
 		const expected = parseIfVersion(iv ?? arg("--if-version"));

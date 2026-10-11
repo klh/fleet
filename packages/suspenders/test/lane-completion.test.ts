@@ -211,6 +211,8 @@ test("a git-reachable capsule checkpoint parks the claimed item instead of faili
 		"set",
 		"--as",
 		"dispatch-owner",
+		"--item",
+		f.id,
 		`--checkpoint=${sha}`,
 		"--done=progress committed",
 		"--next=finish and work done",
@@ -226,30 +228,160 @@ test("a git-reachable capsule checkpoint parks the claimed item instead of faili
 test("a capsule checkpoint HEAD cannot reach does not park", () => {
 	const f = fixture();
 	f.stopFresh(); // burn the offer
-	f.coord(
-		"capsule",
-		"set",
-		"--as",
-		"dispatch-owner",
-		"--checkpoint=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-	);
+	// the producer refuses an arbitrary sha outright
+	expect(
+		f.coord(
+			"capsule",
+			"set",
+			"--as",
+			"dispatch-owner",
+			"--item",
+			f.id,
+			"--checkpoint=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		).code,
+	).not.toBe(0);
+	// a real commit orphaned from HEAD cannot park either
+	writeFileSync(join(f.cwd, "orphan.txt"), "orphan\n");
+	f.git("add", "orphan.txt");
+	f.git("commit", "-qm", "orphaned progress");
+	const orphan = f.git("rev-parse", "HEAD").out.trim();
+	f.git("reset", "-q", "--hard", "HEAD~1");
+	expect(
+		f.coord(
+			"capsule",
+			"set",
+			"--as",
+			"dispatch-owner",
+			"--item",
+			f.id,
+			`--checkpoint=${orphan}`,
+		).code,
+	).toBe(0);
 	expect(f.stop().err).toContain("Re-ask");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
 });
 
 test("a declared BLOCKED skips the checkpoint park and records FAILED", () => {
 	const f = fixture();
+	writeFileSync(join(f.cwd, "progress.txt"), "real progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "checkpointed progress");
 	const sha = f.git("rev-parse", "HEAD").out.trim();
 	f.coord(
 		"capsule",
 		"set",
 		"--as",
 		"dispatch-owner",
+		"--item",
+		f.id,
 		`--checkpoint=${sha}`,
-		"--done=stale progress",
-		"--next=irrelevant",
+		"--done=real parked progress",
+		"--next=finish or declare",
 	);
 	expect(f.stop(`BLOCKED ${f.id}: upstream unavailable`).code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
+});
+
+test("a zero-progress checkpoint at the dispatch baseline cannot park", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	const base = f.git("rev-parse", "HEAD").out.trim();
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${base}`,
+	);
+	expect(f.stop().err).toContain("Re-ask");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("a legacy lane-scoped capsule without the item key cannot park", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	writeFileSync(join(f.cwd, "progress.txt"), "progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "progress");
+	const sha = f.git("rev-parse", "HEAD").out.trim();
+	// no --item: banks lane.<sid>.capsule only — no authoritative item link
+	f.coord("capsule", "set", "--as", "dispatch-owner", `--checkpoint=${sha}`);
+	expect(f.stop().err).toContain("Re-ask");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("a stale capsule timestamp cannot park", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	writeFileSync(join(f.cwd, "progress.txt"), "progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "progress");
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${f.git("rev-parse", "HEAD").out.trim()}`,
+	);
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		db.query("UPDATE facts SET ts = ? WHERE key = ?").run(
+			Date.now() - 25 * 86_400_000,
+			`work.${f.id}.capsule`,
+		);
+	} finally {
+		db.close();
+	}
+	expect(f.stop().err).toContain("Re-ask");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("a spoofed dispatch baseline cannot park", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	writeFileSync(join(f.cwd, "progress.txt"), "progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "progress");
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${f.git("rev-parse", "HEAD").out.trim()}`,
+	);
+	const context = JSON.parse(
+		readFileSync(join(f.cwd, ".fleet/lane-context.json"), "utf8"),
+	);
+	context.baseline = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+	writeFileSync(
+		join(f.cwd, ".fleet/lane-context.json"),
+		JSON.stringify(context),
+	);
+	expect(f.stop().err).toContain("Re-ask");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("an explicit NO_OP overrides a valid parked checkpoint", () => {
+	const f = fixture();
+	writeFileSync(join(f.cwd, "progress.txt"), "progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "progress");
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${f.git("rev-parse", "HEAD").out.trim()}`,
+	);
+	expect(f.stop(`NO_OP ${f.id}: verified nothing left to do`).code).toBe(0);
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
 });
 

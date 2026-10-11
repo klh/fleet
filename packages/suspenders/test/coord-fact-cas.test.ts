@@ -116,7 +116,7 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 			"set",
 			"--as",
 			"w606caps",
-			"--checkpoint=abc",
+			"--checkpoint=none",
 		]);
 		expect(s1.code).toBe(0);
 		const s2 = runCli([
@@ -125,7 +125,7 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 			"--as",
 			"w606caps",
 			"--if-version=1",
-			"--checkpoint=def",
+			"--checkpoint=none",
 		]);
 		expect(s2.code).toBe(0);
 		const s3 = runCli([
@@ -134,7 +134,7 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 			"--as",
 			"w606caps",
 			"--if-version=1",
-			"--checkpoint=stale",
+			"--checkpoint=none",
 		]); // current is 2
 		expect(s3.code).toBe(2);
 		expect(s3.err).toContain("refused");
@@ -142,7 +142,7 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 		// the refusal left the stored payload untouched, flag never lands in it
 		const g = runCli(["capsule", "get", "--as", "w606caps"]);
 		const cap = JSON.parse(g.out.trim()) as Record<string, string>;
-		expect(cap.checkpoint).toBe("def");
+		expect(cap.checkpoint).toBe("none");
 		expect(cap["if-version"]).toBeUndefined();
 	});
 
@@ -163,18 +163,18 @@ describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 			"w617lane",
 			"--item",
 			"W617",
-			"--checkpoint=cafef00d",
+			"--checkpoint=none",
 			"--done=half",
 		]);
 		expect(s.code).toBe(0);
 		expect(s.out).toContain("item W617");
 		const gi = runCli(["capsule", "get", "--item", "W617"]);
 		const cap = JSON.parse(gi.out.trim()) as Record<string, string>;
-		expect(cap.checkpoint).toBe("cafef00d");
+		expect(cap.checkpoint).toBe("none");
 		expect(cap.item).toBeUndefined(); // the flag is a destination, not payload
 		// lane key got the same payload
 		const gl = runCli(["capsule", "get", "--as", "w617lane"]);
-		expect(JSON.parse(gl.out.trim()).checkpoint).toBe("cafef00d");
+		expect(JSON.parse(gl.out.trim()).checkpoint).toBe("none");
 	});
 
 	test("--if-version guards the ITEM key (successive lane writers)", () => {
@@ -186,14 +186,14 @@ describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 			"--item",
 			"W617",
 			"--if-version=0",
-			"--checkpoint=stale",
+			"--checkpoint=none",
 		]); // item key is at v1 already
 		expect(stale.code).toBe(2);
 		expect(stale.err).toContain("work.W617.capsule");
 		expect(stale.err).toContain("current version 1");
 		// refusal left the item key untouched
 		const kept = runCli(["capsule", "get", "--item", "W617"]);
-		expect(JSON.parse(kept.out.trim()).checkpoint).toBe("cafef00d");
+		expect(JSON.parse(kept.out.trim()).checkpoint).toBe("none");
 		const next = runCli([
 			"capsule",
 			"set",
@@ -202,11 +202,11 @@ describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 			"--item",
 			"W617",
 			"--if-version=1",
-			"--checkpoint=ffeedd",
+			"--checkpoint=none",
 		]);
 		expect(next.code).toBe(0);
 		const won = runCli(["capsule", "get", "--item", "W617"]);
-		expect(JSON.parse(won.out.trim()).checkpoint).toBe("ffeedd");
+		expect(JSON.parse(won.out.trim()).checkpoint).toBe("none");
 	});
 
 	test("get --item on a missing capsule prints the no-capsule placeholder", () => {

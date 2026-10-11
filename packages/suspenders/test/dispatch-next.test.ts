@@ -248,7 +248,7 @@ describe("capsule protocol (real coord verb, scratch db)", () => {
 			"set",
 			"--as",
 			"autowrt",
-			"--checkpoint=deadbeef",
+			"--checkpoint=none",
 			"--file=src/x.ts:42",
 			"--done=parser green",
 			"--next=wire the gate",
@@ -258,7 +258,7 @@ describe("capsule protocol (real coord verb, scratch db)", () => {
 		expect(got.code).toBe(0);
 		const cap = parseCapsuleGet(got.out);
 		expect(cap).not.toBeNull();
-		expect(cap?.checkpoint).toBe("deadbeef");
+		expect(cap?.checkpoint).toBe("none");
 		expect(cap?.next).toBe("wire the gate");
 		// empty read is null, not a crash — the fresh-lane path
 		expect(parseCapsuleGet("(no capsule)")).toBeNull();
