@@ -27,6 +27,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { quotaWindowVerdict } from "./quota-window.ts";
+import {
+	defineVerb,
+	runCli,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
 const GOV_DIR = `${process.env.HOME}/.cache/claude-governor`;
 const DB_PATH = `${GOV_DIR}/governor.db`;
@@ -167,7 +173,7 @@ export function admissionVerdict(input: {
 	}
 	const cd = cooldownVerdict(input.cooldownValue, input.nowMs);
 	if (cd.active) {
-		const until = new Date(cd.untilMs!).toISOString();
+		const until = new Date(cd.untilMs ?? 0).toISOString();
 		return {
 			exit: 1,
 			retryAfterSec: cd.remainingSec,
@@ -244,13 +250,11 @@ export function buildDegradationPlan(
 	const resetInMin = quota.expiry
 		? Math.max(0, Math.round((quota.expiry - nowMs) / 60000))
 		: null;
-	const queued = live
-		.filter(isZaiHeavy)
-		.map((e) => ({
-			id: e.id,
-			label: e.label ?? "",
-			retryAfterMinutes: resetInMin,
-		}));
+	const queued = live.filter(isZaiHeavy).map((e) => ({
+		id: e.id,
+		label: e.label ?? "",
+		retryAfterMinutes: resetInMin,
+	}));
 	const keep = live
 		.filter((e) => !isZaiHeavy(e))
 		.map((e) => {
@@ -338,115 +342,148 @@ export function clearCooldownFact(dbPath: string): void {
 	db.close();
 }
 
-function usage(): never {
-	console.log(
-		"admission — z.ai-heavy admission control. check | dispatch-check | degradation-status | cooldown",
-	);
-	process.exit(2);
-}
-
-function arg(name: string, argv: string[]): string | undefined {
-	const i = argv.indexOf(name);
-	return i >= 0 ? argv[i + 1] : undefined;
-}
-
-// [main-block]
-
-if (import.meta.main) {
-	const cmd = process.argv[2];
-	const as = arg("--as", process.argv) ?? "unknown";
-	try {
-		if (cmd === "check") {
-			if (arg("--kind", process.argv) !== "zai-heavy") {
-				console.log("admission: UNKNOWN — unsupported --kind (only zai-heavy)");
-				process.exit(2);
-			}
-			let cdVal: string | null = null;
-			let dbError = false;
-			try {
-				cdVal = getCooldownFact();
-			} catch {
-				dbError = true;
-			}
-			const v = admissionVerdict({
-				nowMs: Date.now(),
-				cooldownValue: cdVal,
-				dbError,
-				entries: readProgressEntries(),
-			});
-			for (const l of v.lines) console.log(l);
-			process.exit(v.exit);
-		}
-		if (cmd === "dispatch-check") {
-			// --project accepted but ignored: cap + cooldown are fleet-global
-			void arg("--project", process.argv);
-			const qv = quotaWindowVerdict();
-			let cdVal: string | null = null;
-			let dbError = false;
-			try {
-				cdVal = getCooldownFact();
-			} catch {
-				dbError = true;
-			}
-			const av = admissionVerdict({
-				nowMs: Date.now(),
-				cooldownValue: cdVal,
-				dbError,
-				entries: readProgressEntries(),
-			});
-			const dv = dispatchVerdict(qv, av);
-			for (const l of dv.lines) console.log(l);
-			process.exit(dv.exit);
-		}
-		if (cmd === "degradation-status") {
-			const qv = quotaWindowVerdict();
-			const plan = buildDegradationPlan(qv, readProgressEntries(), Date.now());
-			console.log(JSON.stringify(plan, null, 2));
-			process.exit(
-				plan.verdict === "safe" ? 0 : plan.verdict === "near-cliff" ? 1 : 2,
-			);
-		}
-		if (cmd === "cooldown") {
-			const nowMs = Date.now();
-			if (process.argv.includes("--clear")) {
-				try {
-					clearCooldownFact(DB_PATH);
-					console.log("cooldown: cleared zai.cooldown.until");
-					process.exit(0);
-				} catch (e) {
-					console.log(`cooldown: clear failed — ${(e as Error).message}`);
-					process.exit(2);
-				}
-			}
-			const untilRaw = arg("--until", process.argv);
-			const retryAfter = arg("--retry-after", process.argv);
-			if (untilRaw === undefined && retryAfter === undefined) usage();
-			let existingMs: number | null = null;
-			try {
-				const cd = cooldownVerdict(getCooldownFact(), nowMs);
-				if (cd.active) existingMs = cd.untilMs;
-			} catch {}
-			const proposed =
-				retryAfter !== undefined
-					? nowMs +
-						Number(retryAfter) * 1000 +
-						Math.floor(Math.random() * JITTER_MS)
-					: parseUntilMs(untilRaw!);
-			if (!Number.isFinite(proposed)) usage();
-			const finalMs = mergeCooldown(existingMs, proposed, nowMs);
-			setCooldownFact(DB_PATH, finalMs, `admission:${as}`);
-			const jitterNote =
-				retryAfter !== undefined ? ", includes herd jitter" : "";
-			const keptNote =
-				finalMs !== proposed ? ", existing longer cooldown kept" : "";
-			console.log(
-				`cooldown: zai.cooldown.until = ${new Date(finalMs).toISOString()} (source admission:${as}${jitterNote}${keptNote})`,
-			);
-			process.exit(0);
-		}
-		usage();
-	} catch (e) {
-		console.log(`admission: UNKNOWN — ${(e as Error).message}`);
+const cmdCheck = (p: Parsed): void => {
+	if (p.flag("--kind") !== "zai-heavy") {
+		console.log("admission: UNKNOWN — unsupported --kind (only zai-heavy)");
 		process.exit(2);
 	}
+	let cdVal: string | null = null;
+	let dbError = false;
+	try {
+		cdVal = getCooldownFact();
+	} catch {
+		dbError = true;
+	}
+	const v = admissionVerdict({
+		nowMs: Date.now(),
+		cooldownValue: cdVal,
+		dbError,
+		entries: readProgressEntries(),
+	});
+	for (const l of v.lines) console.log(l);
+	process.exit(v.exit);
+};
+
+const cmdDispatchCheck = (p: Parsed): void => {
+	// --project accepted but ignored: cap + cooldown are fleet-global
+	void p.flag("--project");
+	const qv = quotaWindowVerdict();
+	let cdVal: string | null = null;
+	let dbError = false;
+	try {
+		cdVal = getCooldownFact();
+	} catch {
+		dbError = true;
+	}
+	const av = admissionVerdict({
+		nowMs: Date.now(),
+		cooldownValue: cdVal,
+		dbError,
+		entries: readProgressEntries(),
+	});
+	const dv = dispatchVerdict(qv, av);
+	for (const l of dv.lines) console.log(l);
+	process.exit(dv.exit);
+};
+
+const cmdDegradation = (): void => {
+	const qv = quotaWindowVerdict();
+	const plan = buildDegradationPlan(qv, readProgressEntries(), Date.now());
+	console.log(JSON.stringify(plan, null, 2));
+	process.exit(
+		plan.verdict === "safe" ? 0 : plan.verdict === "near-cliff" ? 1 : 2,
+	);
+};
+
+const USAGE_COOLDOWN =
+	"usage: admission cooldown --retry-after <sec> | --until <iso|epoch-ms> | --clear";
+
+const cmdCooldown = (p: Parsed): void => {
+	const nowMs = Date.now();
+	const as = p.flag("--as") ?? "unknown";
+	if (p.flag("--clear") !== null) {
+		try {
+			clearCooldownFact(DB_PATH);
+			console.log("cooldown: cleared zai.cooldown.until");
+			process.exit(0);
+		} catch (e) {
+			console.log(`cooldown: clear failed — ${(e as Error).message}`);
+			process.exit(2);
+		}
+	}
+	const untilRaw = p.flag("--until");
+	const retryAfter = p.flag("--retry-after");
+	if (untilRaw === null && retryAfter === null) {
+		console.error(USAGE_COOLDOWN);
+		process.exit(2);
+	}
+	const proposed =
+		retryAfter !== null
+			? nowMs +
+				Number(retryAfter) * 1000 +
+				Math.floor(Math.random() * JITTER_MS)
+			: parseUntilMs(untilRaw ?? "");
+	if (!Number.isFinite(proposed)) {
+		console.error(USAGE_COOLDOWN);
+		process.exit(2);
+	}
+	let existingMs: number | null = null;
+	try {
+		const cd = cooldownVerdict(getCooldownFact(), nowMs);
+		if (cd.active) existingMs = cd.untilMs;
+	} catch {}
+	const finalMs = mergeCooldown(existingMs, proposed, nowMs);
+	setCooldownFact(DB_PATH, finalMs, `admission:${as}`);
+	const jitterNote = retryAfter !== null ? ", includes herd jitter" : "";
+	const keptNote =
+		finalMs !== proposed ? ", existing longer cooldown kept" : "";
+	console.log(
+		`cooldown: zai.cooldown.until = ${new Date(finalMs).toISOString()} (source admission:${as}${jitterNote}${keptNote})`,
+	);
+	process.exit(0);
+};
+
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "check",
+		usage: "usage: admission check --kind zai-heavy --as <sid>",
+		flags: ["--kind", "--as"],
+	}),
+	defineVerb({
+		name: "dispatch-check",
+		usage: "usage: admission dispatch-check --as <sid> [--project p]",
+		flags: ["--project", "--as"],
+	}),
+	defineVerb({
+		name: "degradation-status",
+		usage: "usage: admission degradation-status — JSON degradation plan",
+		flags: ["--as"],
+	}),
+	defineVerb({
+		name: "cooldown",
+		usage: USAGE_COOLDOWN,
+		flags: ["--retry-after", "--until", "--as"],
+		switches: ["--clear"],
+	}),
+];
+
+// the CLI face runs only as the entrypoint — this module is also imported
+// for its lib functions (test/admission.test.ts), so guard the runner.
+if (import.meta.main) {
+	await runCli({
+		prog: "admission",
+		about: "admission — z.ai-heavy admission control + degradation planning.",
+		verbs: VERBS,
+		dispatch: (name, p) => {
+			try {
+				if (name === "check") cmdCheck(p);
+				else if (name === "dispatch-check") cmdDispatchCheck(p);
+				else if (name === "degradation-status") cmdDegradation();
+				else cmdCooldown(p);
+			} catch (e) {
+				console.log(`admission: UNKNOWN — ${(e as Error).message}`);
+				process.exit(2);
+			}
+		},
+	});
 }

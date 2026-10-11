@@ -7,9 +7,9 @@
 // so parallel lanes don't collide; a reboot clears /tmp, so cleanup is
 // automatic — stale entries die via TTL regardless.
 //
-//   bun ~/.claude/bin/progress.ts set <id> <done> <total> [label] [etaSeconds]
-//   bun ~/.claude/bin/progress.ts clear <id>
-//   bun ~/.claude/bin/progress.ts list
+//   progress.ts set <id> <done> <total> [label] [etaSeconds]
+//   progress.ts clear <id>
+//   progress.ts list
 //
 // <id>: [a-z0-9-]{1,40} (unsanitized ids are rejected). Label is capped at
 // 60 chars — it renders verbatim in the statusline.
@@ -22,6 +22,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+	defineVerb,
+	runCli,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
 const DIR = "/tmp/agent-progress";
 const TTL_MS = 15 * 60_000;
@@ -48,58 +54,65 @@ const num = (raw: string, flag: string): number => {
 	return n;
 };
 
-function main(): void {
-	const [cmd, ...rest] = process.argv.slice(2);
-	mkdirSync(DIR, { recursive: true });
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "set",
+		usage: "usage: progress set <id> <done> <total> [label] [etaSeconds]",
+		minPos: 3,
+	}),
+	defineVerb({
+		name: "clear",
+		usage: "usage: progress clear <id>",
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "list",
+		usage: "usage: progress list — entries inside the TTL window",
+	}),
+];
 
-	if (cmd === "set") {
-		const [rawId, rawDone, rawTotal, label, eta] = rest;
-		if (!rawId || rawDone === undefined || rawTotal === undefined) {
-			throw new Error(
-				"usage: progress.ts set <id> <done> <total> [label] [etaSeconds]",
+const cmdSet = (p: Parsed): void => {
+	const [rawId, rawDone, rawTotal, label, eta] = p.pos;
+	const entry: Entry = {
+		at: Date.now(),
+		done: Math.max(0, num(rawDone, "done")),
+		total: Math.max(0, num(rawTotal, "total")),
+	};
+	if (label) entry.label = label.slice(0, 60);
+	if (eta !== undefined && eta !== "")
+		entry.etaSeconds = Math.max(0, num(eta, "eta"));
+	writeFileSync(join(DIR, `${idOf(rawId)}.json`), `${JSON.stringify(entry)}\n`);
+};
+
+const cmdClear = (p: Parsed): void => {
+	rmSync(join(DIR, `${idOf(p.pos[0])}.json`), { force: true });
+};
+
+const cmdList = (): void => {
+	for (const file of readdirSync(DIR).sort()) {
+		try {
+			const e = JSON.parse(readFileSync(join(DIR, file), "utf8")) as Entry;
+			if (Date.now() - e.at > TTL_MS) continue;
+			console.log(
+				file.replace(/\.json$/, ""),
+				`${e.done}/${e.total}`,
+				e.label ?? "",
+				e.etaSeconds ? `~${Math.round(e.etaSeconds / 60)}m` : "",
 			);
+		} catch {
+			// corrupt/foreign entry — skip, never fail the listing
 		}
-		const entry: Entry = {
-			at: Date.now(),
-			done: Math.max(0, num(rawDone, "done")),
-			total: Math.max(0, num(rawTotal, "total")),
-		};
-		if (label) entry.label = label.slice(0, 60);
-		if (eta !== undefined && eta !== "")
-			entry.etaSeconds = Math.max(0, num(eta, "eta"));
-		writeFileSync(
-			join(DIR, idOf(rawId) + ".json"),
-			`${JSON.stringify(entry)}\n`,
-		);
-		return;
 	}
+};
 
-	if (cmd === "clear") {
-		const [rawId] = rest;
-		if (!rawId) throw new Error("usage: progress.ts clear <id>");
-		rmSync(join(DIR, idOf(rawId) + ".json"), { force: true });
-		return;
-	}
-
-	if (cmd === "list" || cmd === undefined) {
-		for (const file of readdirSync(DIR).sort()) {
-			try {
-				const e = JSON.parse(readFileSync(join(DIR, file), "utf8")) as Entry;
-				if (Date.now() - e.at > TTL_MS) continue;
-				console.log(
-					file.replace(/\.json$/, ""),
-					e.done + "/" + e.total,
-					e.label ?? "",
-					e.etaSeconds ? `~${Math.round(e.etaSeconds / 60)}m` : "",
-				);
-			} catch {
-				// corrupt/foreign entry — skip, never fail the listing
-			}
-		}
-		return;
-	}
-
-	throw new Error(`unknown command '${cmd}' (set|clear|list)`);
-}
-
-main();
+await runCli({
+	prog: "progress",
+	about: "progress — agent progress-bar protocol (/tmp/agent-progress).",
+	verbs: VERBS,
+	dispatch: (name, p) => {
+		mkdirSync(DIR, { recursive: true });
+		if (name === "set") cmdSet(p);
+		else if (name === "clear") cmdClear(p);
+		else cmdList();
+	},
+});

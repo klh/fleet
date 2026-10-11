@@ -30,17 +30,35 @@ if (lane) {
 	process.exit(1);
 }
 
-// bun swallows the `--` separator (it never reaches process.argv), so accept
-// both forms: with `--` (if a future bun passes it through) and without.
-const sep = process.argv.indexOf("--");
-const cmd = process.argv
-	.slice(sep >= 0 ? sep + 1 : 2)
+// bun swallows a leading `--` (W250, baked into the kit) and a surviving
+// `--` is end-of-options — either way the RAW token list IS the command
+// text: unknown-looking tokens must survive verbatim, so the spec is lax
+// and cmd comes from parsed.rest, never from the positional list.
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
+
+const SPEC = defineVerb({
+	name: "approve",
+	usage:
+		'usage: bun approve-destructive.ts -- <the exact command>  (e.g. bun approve-destructive.ts -- "rm -rf ./build")',
+	minPos: 1,
+	lax: true,
+});
+const tokens = process.argv.slice(2);
+if (tokens.includes("--help") || tokens.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, tokens);
+if (!outcome.ok) {
+	console.error(outcome.message);
+	process.exit(1);
+}
+const cmd = outcome.parsed.rest
+	.slice(outcome.parsed.rest[0] === "--" ? 1 : 0)
 	.join(" ")
 	.trim();
 if (!cmd) {
-	console.error(
-		'usage: bun approve-destructive.ts -- <the exact command>  (e.g. bun approve-destructive.ts -- "rm -rf ./build")',
-	);
+	console.error(outcome.message);
 	process.exit(1);
 }
 
