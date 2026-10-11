@@ -19,7 +19,11 @@ export {
 	sweepStaleSessions,
 	tagNameOf,
 } from "../lib/govdb.ts";
-export { makeStore, enqueueKnowledge } from "../lib/knowledge-ports.ts";
+export {
+	makeStore,
+	enqueueKnowledge,
+	currentPromptHash,
+} from "../lib/knowledge-ports.ts";
 export { readFileSync, realpathSync };
 export { createHash };
 export { resolve };
@@ -189,7 +193,9 @@ export function lessonLookup(
 // (trustOf via withTrust) is answered BY THE PLANE, trust attached — no
 // expert round-trip. Same deterministic overlap bar as kbLookup; 1-hop
 // pointer neighbors never answer (they matched the graph, not the question).
-export async function factLookup(question: string): Promise<KnowledgeHit | null> {
+export async function factLookup(
+	question: string,
+): Promise<KnowledgeHit | null> {
 	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
 	const hits = withTrust(

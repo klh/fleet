@@ -11,6 +11,7 @@ import {
 	renderKnowledgeHit,
 	makeStore,
 	enqueueKnowledge,
+	currentPromptHash,
 	readFileSync,
 	createHash,
 } from "./shared.ts";
@@ -61,7 +62,7 @@ export async function cmdKnowledge(rest: string[]): Promise<void> {
 	}
 }
 
-export async function cmdKnowledgeEnqueue(rest: string[]): Promise<void> {
+export async function cmdKnowledgeEnqueue(_rest: string[]): Promise<void> {
 	// feed the standalone ingest worker (hooks/bin/knowledge-worker.ts, launchd
 	// com.suspenders.knowledge-ingest): the worker distills the payload with
 	// the configured LLM into CANDIDATE knowledge rows — promotion stays
@@ -154,7 +155,7 @@ export async function cmdKnowledgeVerify(rest: string[]): Promise<void> {
 	}
 }
 
-export async function cmdKnowledgeCurate(rest: string[]): Promise<void> {
+export async function cmdKnowledgeCurate(_rest: string[]): Promise<void> {
 	// W103 substitution curation: flag rows restating what ONE repo file/doc
 	// already teaches — human review decides pointer-ize vs retire; flagged
 	// rows stay in place (state untouched, append-only contributor note).
@@ -170,4 +171,36 @@ export async function cmdKnowledgeCurate(rest: string[]): Promise<void> {
 	console.log(
 		`${green("✓")} curate: ${res.flagged.length}/${res.checked} rows flagged for review (left in place, state unchanged)`,
 	);
+}
+
+// W244 — parser-change reprocess checkpoint: default is a dry-run reporting
+// what WOULD requeue under the active prompt hash; --apply executes the
+// exactly-once requeue transaction (marks the archive, copies the sources,
+// advances the checkpoint).
+export async function cmdKnowledgeReprocess(rest: string[]): Promise<void> {
+	const apply = rest.includes("--apply");
+	const rep = await makeStore().reprocessCheck(currentPromptHash(), apply);
+	if (!apply) {
+		if (rep.checkpoint === rep.current)
+			console.log(
+				dim(
+					`checkpoint current (${rep.current.slice(0, 12)}) — nothing to reprocess`,
+				),
+			);
+		else
+			console.log(
+				`dry-run: would requeue ${rep.requeued}, mark ${rep.marked} archived rows (${rep.skippedNoPayload} payload-less, skipped) — pass --apply`,
+			);
+		return;
+	}
+	if (rep.advanced)
+		console.log(
+			`${green("✓")} reprocess: ${rep.requeued} requeued, ${rep.marked} archived rows marked (${rep.skippedNoPayload} payload-less, skipped) · checkpoint → ${rep.current.slice(0, 12)}`,
+		);
+	else
+		console.log(
+			dim(
+				`checkpoint current (${rep.current.slice(0, 12)}) — nothing to reprocess`,
+			),
+		);
 }
