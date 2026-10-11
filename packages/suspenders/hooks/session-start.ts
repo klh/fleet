@@ -5,7 +5,7 @@
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
 import type { Database } from "bun:sqlite";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
 	openStore,
@@ -16,6 +16,7 @@ import {
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+import { run } from "./lib/run.ts";
 
 type In = {
 	session_id?: string;
@@ -446,5 +447,27 @@ if (input.cwd && !isSubagent) {
 			"POLICY CHECK UNAVAILABLE: invalid runtime configuration; policy compliance is unknown.",
 		);
 	}
+}
+// W642: PreCompact state re-injection — the PreCompact gate flushed the
+// lane's claim + progress + capsule to .fleet/state-<sid>.md before the
+// summarizer ran; a compact SessionStart re-injects it so the post-compact
+// session resumes with its in-flight state (fresh within 24h).
+if (src === "compact" && input.cwd) {
+	try {
+		const top = run("git", ["-C", input.cwd, "rev-parse", "--show-toplevel"], {
+			cwd: input.cwd,
+		});
+		if (top.ok) {
+			const fleetDir = `${top.out.trim()}/.fleet`;
+			for (const name of [`state-${lane}.md`, `state-${sid}.md`]) {
+				const p = join(fleetDir, name);
+				if (!existsSync(p)) continue;
+				if (Date.now() - statSync(p).mtimeMs > 86_400_000) break;
+				out.push(
+					`PRECOMPACT STATE (${name}):\n${readFileSync(p, "utf8").slice(0, 1500)}`,
+				);
+			}
+		}
+	} catch {}
 }
 console.log(out.join("\n"));

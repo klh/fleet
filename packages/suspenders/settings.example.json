@@ -104,6 +104,16 @@
 					}
 				]
 			}
+		],
+		"PreCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts precompact"
+					}
+				]
+			}
 		]
 	},
 	"statusLine": {
