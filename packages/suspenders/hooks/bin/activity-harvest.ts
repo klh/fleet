@@ -28,16 +28,17 @@
 // cache-read 0.1x / out 5x) is report-time only — stored columns stay raw
 // tokens. Library + thin CLI; runs as a board-API subroutine behind its own
 // TTL gate (same harvest_ttl_s knob), never a daemon.
+// W652.3: discovery/cursor/tail ride the shared harvest engine (byte-true
+// cursors — W243's string-index `next` could under-advance on multibyte rows).
 import type { Database } from "bun:sqlite";
-import { statSync } from "node:fs";
-import { basename, join } from "node:path";
 import { readBoardSettings } from "../lib/board-config.ts";
 import {
-	cursorKey,
-	loadCursor,
-	readTail,
-	saveCursor,
-} from "../lib/transcript-cursor.ts";
+	gatedHarvest,
+	num,
+	scanTranscriptTails,
+	sessionActorMap,
+} from "../lib/harvest-engine.ts";
+import { saveCursor } from "../lib/transcript-cursor.ts";
 import { modelGroup, type ModelGroup } from "./usage-harvest.ts";
 
 // ─── decant shape: buckets, axis, pricing ──────────────────────────────────
@@ -145,8 +146,6 @@ interface Snap {
 	byAct: Record<Activity, ActUsage>;
 }
 
-const n = (x: unknown): number =>
-	typeof x === "number" && Number.isFinite(x) ? x : 0;
 const max0 = (x: number): number => (x > 0 ? x : 0);
 
 /** One-time seed for the journal-invisible system prompt (W111 §3.3). */
@@ -187,8 +186,6 @@ export function harvestActivity(
 	opts: { root?: string; nowMs?: number; windowDays?: number } = {},
 ): ActivityHarvestStats {
 	const now = opts.nowMs ?? Date.now();
-	const cutoff = now - (opts.windowDays ?? WINDOW_DAYS) * 86_400_000;
-	const root = opts.root ?? `${process.env.HOME}/.claude/projects`;
 	const out: ActivityHarvestStats = {
 		files: 0,
 		harvested: 0,
@@ -200,11 +197,9 @@ export function harvestActivity(
 		cacheR: 0,
 		cacheC: 0,
 	};
-	const actorOf = new Map<string, { actor: string | null }>();
-	for (const r of db
-		.query("SELECT sid, actor FROM sessions WHERE actor IS NOT NULL")
-		.all() as { sid: string; actor: string | null }[])
-		actorOf.set(r.sid, { actor: r.actor });
+	const actorOf = sessionActorMap(db);
+	const defaultActor =
+		readBoardSettings().settings.default_actor ?? "unassigned";
 	const upsert = db.query(
 		"INSERT INTO activity_rollup (week_bucket, actor, model_group, activity, in_tok, out_tok, cache_r, cache_c, requests, searches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(week_bucket, actor, model_group, activity) DO UPDATE SET in_tok = in_tok + excluded.in_tok, out_tok = out_tok + excluded.out_tok, cache_r = cache_r + excluded.cache_r, cache_c = cache_c + excluded.cache_c, requests = requests + excluded.requests, searches = searches + excluded.searches",
 	);
@@ -261,197 +256,194 @@ export function harvestActivity(
 		row.searches += searches;
 	};
 
-	const glob = new Bun.Glob("**/*.jsonl");
-	for (const rel of [...glob.scanSync({ cwd: root, onlyFiles: true })].sort()) {
-		out.files++;
-		const abs = join(root, rel);
-		let size: number;
-		let mtimeMs: number;
-		try {
-			const s = statSync(abs);
-			size = s.size;
-			mtimeMs = s.mtimeMs;
-		} catch {
-			continue; // vanished mid-scan — next pass catches the remainder
-		}
-		const key = cursorKey("activity.tp", abs);
-		let cur = loadCursor(db, key);
-		if (!cur && mtimeMs < cutoff) continue; // stale + never opened → out of window
-		if (cur && size < cur.o) cur = null; // truncated → full re-read (rare)
-		if (cur && size === cur.o && mtimeMs === cur.m) {
-			out.skipped++;
-			continue; // unchanged: the idempotency fast path
-		}
-		const start = cur?.o ?? 0;
-		const text = readTail(abs, start);
-		const nl = text.lastIndexOf("\n");
-		if (nl === -1) {
-			saveCursor(db, key, { o: start, m: mtimeMs }, "activity-harvest", now);
-			continue; // no complete line in the tail — retry next pass
-		}
-		const body = text.slice(0, nl + 1);
-		const next = start + nl + 1;
-
-		// per-file pass state
-		let volume: Record<Activity, number> = {
-			context: SEED_CHARS,
-			planning: 0,
-			code: 0,
-			communicating: 0,
-		};
-		const pending = new Map<string, Activity>(); // tool_use_id → bucket
-		const snaps = new Map<string, Snap>(); // requestId dedup snapshots
-		let lineSeq = 0;
-
-		for (const line of body.split("\n")) {
-			if (line.length < 2) continue;
-			let e:
-				| {
-						type?: string;
-						isCompactSummary?: boolean;
-						timestamp?: string;
-						message?: {
-							id?: string;
-							model?: string;
-							usage?: Record<string, unknown>;
-							content?: unknown;
-						};
-				  }
-				| undefined;
-			try {
-				e = JSON.parse(line) as typeof e;
-			} catch {
-				continue;
+	const stats = scanTranscriptTails(
+		db,
+		{
+			root: opts.root,
+			prefix: "activity.tp",
+			windowDays: opts.windowDays ?? WINDOW_DAYS,
+			nowMs: now,
+		},
+		(scan) => {
+			if (scan.kind === "skip") {
+				out.skipped++;
+				return;
 			}
-			if (!e || (e.type !== "assistant" && e.type !== "user")) continue;
-			// compaction: the context-window basis resets, the summary text
-			// becomes the new context volume
-			if (e.isCompactSummary || lineIncludes(e, COMPACT_MARK)) {
-				volume = {
-					context: SEED_CHARS,
-					planning: 0,
-					code: 0,
-					communicating: 0,
-				};
-				pending.clear();
+			if (scan.kind === "empty") {
+				// no complete line in the tail — refresh cursor mtime, retry next pass
+				saveCursor(
+					db,
+					scan.key,
+					{ o: scan.start, m: scan.mtimeMs },
+					"activity-harvest",
+					now,
+				);
+				return;
 			}
-			const content = e.message?.content;
-			if (e.type === "user") {
-				// string content = plain user text → context
-				if (typeof content === "string") {
-					volume.context += content.length;
+			// per-file pass state
+			let volume: Record<Activity, number> = {
+				context: SEED_CHARS,
+				planning: 0,
+				code: 0,
+				communicating: 0,
+			};
+			const pending = new Map<string, Activity>(); // tool_use_id → bucket
+			const snaps = new Map<string, Snap>(); // requestId dedup snapshots
+			let lineSeq = 0;
+			for (const { text: line } of scan.lines) {
+				if (line.length < 2) continue;
+				let e:
+					| {
+							type?: string;
+							isCompactSummary?: boolean;
+							timestamp?: string;
+							message?: {
+								id?: string;
+								model?: string;
+								usage?: Record<string, unknown>;
+								content?: unknown;
+							};
+					  }
+					| undefined;
+				try {
+					e = JSON.parse(line) as typeof e;
+				} catch {
 					continue;
 				}
-				if (!Array.isArray(content)) continue;
-				for (const b of content as Block[]) {
-					if (b.type === "tool_result") {
-						const target = pending.get(b.tool_use_id ?? "") ?? "context";
-						volume[target] += resultChars(b.content);
-						pending.delete(b.tool_use_id ?? "");
-					} else if (b.type === "text") {
-						volume.context += (b.text ?? "").length;
+				if (!e || (e.type !== "assistant" && e.type !== "user")) continue;
+				// compaction: the context-window basis resets, the summary text
+				// becomes the new context volume
+				if (e.isCompactSummary || lineIncludes(e, COMPACT_MARK)) {
+					volume = {
+						context: SEED_CHARS,
+						planning: 0,
+						code: 0,
+						communicating: 0,
+					};
+					pending.clear();
+				}
+				const content = e.message?.content;
+				if (e.type === "user") {
+					// string content = plain user text → context
+					if (typeof content === "string") {
+						volume.context += content.length;
+						continue;
 					}
+					if (!Array.isArray(content)) continue;
+					for (const b of content as Block[]) {
+						if (b.type === "tool_result") {
+							const target = pending.get(b.tool_use_id ?? "") ?? "context";
+							volume[target] += resultChars(b.content);
+							pending.delete(b.tool_use_id ?? "");
+						} else if (b.type === "text") {
+							volume.context += (b.text ?? "").length;
+						}
+					}
+					continue;
 				}
-				continue;
-			}
-			// assistant message: register tool_use → bucket for the pending map,
-			// then aggregate usage through the requestId dedup contract
-			const blocks = Array.isArray(content) ? (content as Block[]) : [];
-			for (const b of blocks)
-				if (b.type === "tool_use" && b.id)
-					pending.set(b.id, classifyTool(b.name ?? "", b.input));
-			const u = e.message?.usage;
-			if (!u || !Number.isFinite(Date.parse(e.timestamp ?? ""))) continue;
-			const ts = Date.parse(e.timestamp ?? "");
-			const model = e.message?.model ?? "";
-			const group = modelGroup(model);
-			const actor =
-				actorOf.get(basename(rel).replace(/\.jsonl$/, ""))?.actor ??
-				readBoardSettings().settings.default_actor ??
-				"unassigned";
-			const w = weekBucket(ts);
-			const uin = n(u.input_tokens);
-			const uout = n(u.output_tokens);
-			const ucr = n(u.cache_read_input_tokens);
-			const ucc = n(u.cache_creation_input_tokens);
-			out.requests++;
-			out.inTok += uin;
-			out.outTok += uout;
-			out.cacheR += ucr;
-			out.cacheC += ucc;
+				// assistant message: register tool_use → bucket for the pending map,
+				// then aggregate usage through the requestId dedup contract
+				const blocks = Array.isArray(content) ? (content as Block[]) : [];
+				for (const b of blocks)
+					if (b.type === "tool_use" && b.id)
+						pending.set(b.id, classifyTool(b.name ?? "", b.input));
+				const u = e.message?.usage;
+				if (!u || !Number.isFinite(Date.parse(e.timestamp ?? ""))) continue;
+				const ts = Date.parse(e.timestamp ?? "");
+				const model = e.message?.model ?? "";
+				const group = modelGroup(model);
+				const actor = actorOf.get(scan.sid)?.actor ?? defaultActor;
+				const w = weekBucket(ts);
+				const uin = num(u.input_tokens);
+				const uout = num(u.output_tokens);
+				const ucr = num(u.cache_read_input_tokens);
+				const ucc = num(u.cache_creation_input_tokens);
+				out.requests++;
+				out.inTok += uin;
+				out.outTok += uout;
+				out.cacheR += ucr;
+				out.cacheC += ucc;
 
-			// allocation
-			const inAct = zeroAct();
-			let total = 0;
-			for (const a of ACTIVITIES) total += volume[a];
-			for (const a of ACTIVITIES)
-				if (total > 0) {
-					const share = volume[a] / total;
-					inAct[a].in = uin * share;
-					inAct[a].cr = ucr * share;
-					inAct[a].cc = ucc * share;
-				}
-			const outAct = zeroAct();
-			const chars = blockChars(blocks);
-			let charsTotal = 0;
-			for (const a of ACTIVITIES) charsTotal += chars[a];
-			let searches = 0;
-			for (const b of blocks)
-				if (b.type === "tool_use" && isSearch(b.name ?? "", b.input))
-					searches++;
-			out.searches += searches; // raw-row count; the rollup dedups growth-only
-			if (charsTotal > 0)
+				// allocation
+				const inAct = zeroAct();
+				let total = 0;
+				for (const a of ACTIVITIES) total += volume[a];
 				for (const a of ACTIVITIES)
-					outAct[a].out = (uout * chars[a]) / charsTotal;
-			else outAct.communicating.out = uout; // blockless stub → visible channel
+					if (total > 0) {
+						const share = volume[a] / total;
+						inAct[a].in = uin * share;
+						inAct[a].cr = ucr * share;
+						inAct[a].cc = ucc * share;
+					}
+				const outAct = zeroAct();
+				const chars = blockChars(blocks);
+				let charsTotal = 0;
+				for (const a of ACTIVITIES) charsTotal += chars[a];
+				let searches = 0;
+				for (const b of blocks)
+					if (b.type === "tool_use" && isSearch(b.name ?? "", b.input))
+						searches++;
+				out.searches += searches; // raw-row count; the rollup dedups growth-only
+				if (charsTotal > 0)
+					for (const a of ACTIVITIES)
+						outAct[a].out = (uout * chars[a]) / charsTotal;
+				else outAct.communicating.out = uout; // blockless stub → visible channel
 
-			// requestId dedup: first sighting aggregates whole; later sightings
-			// aggregate only the positive growth of the recomputed allocation vs
-			// the stored snapshot (largest-output snapshot wins). Shares drift as
-			// volume accumulates, so the comparison is allocation-vs-allocation —
-			// never token-delta × new-share, which would double-subtract.
-			lineSeq++;
-			const id = e.message?.id || `\u0000seq${lineSeq}`;
-			const prev = snaps.get(id);
-			const alloc = mergeAlloc(inAct, outAct);
-			if (prev) {
-				for (const a of ACTIVITIES) {
-					const pn = prev.byAct[a];
-					bump(
-						w,
-						actor,
-						group,
-						a,
-						{
-							in: max0(alloc[a].in - pn.in),
-							out: max0(alloc[a].out - pn.out),
-							cr: max0(alloc[a].cr - pn.cr),
-							cc: max0(alloc[a].cc - pn.cc),
-						},
-						0,
-						a === "context" ? max0(searches - prev.searches) : 0,
-					);
+				// requestId dedup: first sighting aggregates whole; later sightings
+				// aggregate only the positive growth of the recomputed allocation vs
+				// the stored snapshot (largest-output snapshot wins). Shares drift as
+				// volume accumulates, so the comparison is allocation-vs-allocation —
+				// never token-delta × new-share, which would double-subtract.
+				lineSeq++;
+				const id = e.message?.id || `\u0000seq${lineSeq}`;
+				const prev = snaps.get(id);
+				const alloc = mergeAlloc(inAct, outAct);
+				if (prev) {
+					for (const a of ACTIVITIES) {
+						const pn = prev.byAct[a];
+						bump(
+							w,
+							actor,
+							group,
+							a,
+							{
+								in: max0(alloc[a].in - pn.in),
+								out: max0(alloc[a].out - pn.out),
+								cr: max0(alloc[a].cr - pn.cr),
+								cc: max0(alloc[a].cc - pn.cc),
+							},
+							0,
+							a === "context" ? max0(searches - prev.searches) : 0,
+						);
+					}
+				} else {
+					// requests + searches ride the context row by contract (a request
+					// and a search are orientation work; the other activity rows of
+					// the same message stay count-silent so sums never 4×-count)
+					for (const a of ACTIVITIES)
+						bump(
+							w,
+							actor,
+							group,
+							a,
+							alloc[a],
+							a === "context" ? 1 : 0,
+							a === "context" ? searches : 0,
+						);
 				}
-			} else {
-				// requests + searches ride the context row by contract (a request
-				// and a search are orientation work; the other activity rows of
-				// the same message stay count-silent so sums never 4×-count)
-				for (const a of ACTIVITIES)
-					bump(
-						w,
-						actor,
-						group,
-						a,
-						alloc[a],
-						a === "context" ? 1 : 0,
-						a === "context" ? searches : 0,
-					);
+				snaps.set(id, { searches, byAct: alloc });
 			}
-			snaps.set(id, { searches, byAct: alloc });
-		}
-		saveCursor(db, key, { o: next, m: mtimeMs }, "activity-harvest", now);
-		out.harvested++;
-	}
+			saveCursor(
+				db,
+				scan.key,
+				{ o: scan.next, m: scan.mtimeMs },
+				"activity-harvest",
+				now,
+			);
+			out.harvested++;
+		},
+	);
+	out.files = stats.files;
 	if (add.size) {
 		db.run("BEGIN IMMEDIATE");
 		try {
@@ -527,38 +519,18 @@ function resultChars(content: unknown): number {
 	return 0;
 }
 
-// ─── TTL gate (board-API subroutine — never a daemon) ─────────────────────
-let inFlight = false;
-const defaultTtlMs = (): number => {
-	const s = readBoardSettings().settings.harvest_ttl_s;
-	return s && s >= 1 ? s * 1000 : 5 * 60_000;
-};
-
+// ─── board TTL gate rides the shared engine (W652.3) ──────────────────────
 export function maybeHarvestActivity(
 	db: Database,
-	ttlMs = defaultTtlMs(),
+	ttlMs?: number,
 ): ActivityHarvestStats | null {
-	const row = db
-		.query("SELECT value FROM facts WHERE key = 'activity.harvestAt'")
-		.get() as { value: string | null } | null;
-	const at = Number(row?.value ?? 0);
-	if (inFlight || (Number.isFinite(at) && at > 0 && Date.now() - at < ttlMs))
-		return null;
-	inFlight = true;
-	try {
-		const s = harvestActivity(db);
-		db.query(
-			"INSERT INTO facts (key, value, source, ts) VALUES ('activity.harvestAt', ?, 'activity-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
-		).run(String(Date.now()), Date.now());
-		return s;
-	} catch (e) {
-		console.error(
-			`[activity-harvest] failed soft: ${e instanceof Error ? e.message : e}`,
-		);
-		return null;
-	} finally {
-		inFlight = false;
-	}
+	return gatedHarvest(
+		db,
+		"activity",
+		"activity-harvest",
+		() => harvestActivity(db),
+		ttlMs,
+	);
 }
 
 // ─── report: weekly classify, context-share per lane, axis, searches ──────
@@ -673,10 +645,10 @@ export function activityReport(
 	};
 	for (const r of rows) {
 		const u = {
-			in: n(r.i),
-			out: n(r.o),
-			cr: n(r.cr),
-			cc: n(r.cc),
+			in: num(r.i),
+			out: num(r.o),
+			cr: num(r.cr),
+			cc: num(r.cc),
 		};
 		const cost = shapeCost(u);
 		const tok = u.in + u.out + u.cr + u.cc;
@@ -688,12 +660,12 @@ export function activityReport(
 		totals.out += u.out;
 		totals.cr += u.cr;
 		totals.cc += u.cc;
-		totals.requests += n(r.rq);
-		totals.searches += n(r.se);
+		totals.requests += num(r.rq);
+		totals.searches += num(r.se);
 		totals.cost += cost;
 		activities[act].tok += tok;
 		activities[act].cost += cost;
-		const wk = weekly.get(n(r.w));
+		const wk = weekly.get(num(r.w));
 		if (wk) {
 			wk.cost += cost;
 			wk.shares[act] += cost;
@@ -714,8 +686,8 @@ export function activityReport(
 			};
 			actorMap.set(r.actor, ar);
 		}
-		ar.requests += n(r.rq);
-		ar.searches += n(r.se);
+		ar.requests += num(r.rq);
+		ar.searches += num(r.se);
 		ar.cost += cost;
 		ar.byAct[act].tok += tok;
 		ar.byAct[act].cost += cost;

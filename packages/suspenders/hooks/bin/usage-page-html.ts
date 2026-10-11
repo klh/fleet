@@ -17,35 +17,18 @@
 // in FIXED group order (never cycled — flash is always blue), palette
 // validated against surface var(--klh-surface), recessive grid, muted axis ink,
 // tabular-nums, native <title> hovers on the non-uPlot marks, dark palette.
-import { readFileSync } from "node:fs";
 import { GROUPS, type UsageReport } from "../lib/usage.ts";
 import { ACTIVITIES, type ActivityReport } from "./activity-harvest.ts";
-// W147: every page wears the console shell — topbar + avatar dropdown JS
-import { TOPBAR_JS, topbar } from "./console-html.ts";
-import { USAGE_CHART_JS } from "./usage-charts.ts";
-import { THEME_HEAD } from "../lib/theme.ts";
-
-// uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
-// vendored single file, license header preserved at the top of the source.
-// Read at render time relative to this module; inlined per page load.
-const UPILOT_SRC = readFileSync(
-	new URL("./vendor/uPlot.iife.min.js", import.meta.url),
-	"utf8",
-);
-const UPLOT_CSS = readFileSync(
-	new URL("./vendor/uPlot.min.css", import.meta.url),
-	"utf8",
-);
-
-// validated dark categorical slots, fixed order = GROUPS (never cycled —
-// color follows the entity: flash is always blue, full always orange, …)
-const SLOT: Record<string, string> = {
-	flash: "#3987e5",
-	full: "#d95926",
-	luna: "#199e70",
-	local: "#c98500",
-	other: "#d55181",
-};
+// W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
+// for both usage dashboards; W171's per-page copies retired)
+import {
+	esc,
+	fmtTok,
+	legendHtml,
+	SLOT,
+	tilesRow,
+	usagePageShell,
+} from "./usage-chrome.ts";
 
 // W243 activity hues — fixed per bucket (color follows the entity), same
 // validated-dark family as the SLOT palette
@@ -55,25 +38,6 @@ const ACT_COLOR: Record<string, string> = {
 	code: "#d95926",
 	communicating: "#c98500",
 };
-
-const esc = (s: string): string =>
-	s
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
-
-const fmtTok = (n: number): string =>
-	n >= 1e9
-		? `${(n / 1e9).toFixed(1)}B`
-		: n >= 1e6
-			? `${(n / 1e6).toFixed(1)}M`
-			: n >= 1e3
-				? `${(n / 1e3).toFixed(1)}K`
-				: String(Math.round(n));
-
-// W171: shared with the federation rollup page (same dataviz chrome).
-export { esc, fmtTok };
 
 // ─── uPlot-ready payload (embedded as #usage-data JSON) ──────────────────
 // Columnar on purpose: timeline = [x, flash, full, luna, local, other] with
@@ -104,12 +68,7 @@ function tilesHtml(r: UsageReport): string {
 		["MOST-USED MODEL", topModel ? esc(topModel[0]) : "—"],
 		["OUTPUT TOK/S (RECENT)", String(r.rate.tokPerSec)],
 	];
-	return `<div class="utiles">${cells
-		.map(
-			([k, v]) =>
-				`<div class="utile"><div class="uv">${v}</div><div class="uk">${k}</div></div>`,
-		)
-		.join("")}</div>`;
+	return tilesRow(cells);
 }
 
 // ─── filter row: timeframe + team/department chips (server-side) ──────────
@@ -217,50 +176,6 @@ function aidsHtml(r: UsageReport): string {
 	return `<div class="upanel"><h2>AID ROI · INJECTED VS SKIPPED</h2><p class="ufoot">${r.aids.join.length} aid-joined session hours in this filter · aggregate table covers all fleet actors because aid_rollup has no actor dimension · join: aid_events(sid) ⋈ sessions(sid→actor) ⋈ usage_rollup(actor, hour)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${roll}</tbody></table></div>`;
 }
 
-// ─── page CSS (scoped u*) — board dark palette, dataviz chrome ────────────
-const U_CSS = `
-.utiles { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
-.utile { flex:1 1 150px; background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:10px 14px; }
-.uv { font-size:22px; font-weight:600; color:var(--klh-ink); font-variant-numeric:tabular-nums; word-break:break-all; }
-.uk { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
-.uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
-.uwin { font-size:10.5px; color:var(--klh-dim); }
-.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
-.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
-.upanel .uhead { display:flex; align-items:baseline; gap:12px; }
-.upanel .uhead .ufoot { margin:0; }
-.ulegend { display:flex; gap:14px; font-size:11px; color:var(--klh-ink-2); margin:0 0 8px; flex-wrap:wrap; }
-.ulegend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
-.ufilters { display:flex; gap:18px; align-items:center; margin:0 0 14px; flex-wrap:wrap; }
-.ufgroup { display:flex; gap:6px; align-items:center; }
-.ufgroup::before { content:attr(data-label); font-size:9.5px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.ufilter, .ufchip { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
-.ufilter.on, .ufchip.on { color:var(--klh-accent); border-color:var(--klh-accent); }
-.uon { font-size:10.5px; color:var(--klh-accent); }
-table.uacts { width:100%; border-collapse:collapse; font-size:12px; }
-table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid var(--klh-rule); text-align:left; }
-.unum { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-ink-2); white-space:nowrap; }
-.ubar { display:flex; height:12px; border-radius:3px; overflow:hidden; min-width:2px; }
-.ubar i { display:block; height:100%; }
-.udot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
-.uchip { font-size:10px; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 6px; margin-left:6px; }
-tr.udetail td { padding-top:0; border-bottom:none; }
-tr.udetail details { font-size:11px; color:var(--klh-dim); }
-tr.udetail summary { cursor:pointer; }
-table.umtab { margin:6px 0 10px; border-collapse:collapse; }
-table.umtab td, table.umtab th { padding:2px 10px 2px 0; font-size:11px; text-align:left; color:var(--klh-ink-2); }
-.uempty { color:var(--klh-dim); font-size:12px; }
-.ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
-.uchart { width:100%; }
-/* uPlot chrome on the board dark palette: recessive grid + muted axis ink
-   are also set per-axis in usage-charts.ts; these style the live legend */
-.uplot .u-legend { font: 10.5px/1.7 var(--klh-font-mono); color:var(--klh-ink-2); text-transform:uppercase; letter-spacing:.04em; }
-.uplot .u-legend .u-value { font-variant-numeric:tabular-nums; color:var(--klh-ink); }
-.uplot .u-legend .u-series.u-off { opacity:.4; }
-.uplot .u-marker { width:9px; height:9px; border-radius:2px; }
-.uplot text { font-size:10px; }
-`;
-
 // ─── W243 activity panel: weekly classify + context-share per lane ────────
 function activityHtml(a: ActivityReport): string {
 	const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
@@ -292,13 +207,6 @@ function activityHtml(a: ActivityReport): string {
 }
 
 // ─── page assembly ───────────────────────────────────────────────────────
-function legendHtml(): string {
-	const items = GROUPS.map(
-		(g) => `<span><i style="background:${SLOT[g]}"></i>${g}</span>`,
-	);
-	return `<div class="ulegend">${items.join("")}</div>`;
-}
-
 export function usagePage(
 	r: UsageReport,
 	opts: {
@@ -328,6 +236,9 @@ export function usagePage(
 		? activityHtml(opts.activity)
 		: `<div class="upanel"><h2>ACTIVITY · DECANT SHAPE (W243)</h2><p class="uempty">meter not wired on this route — pass activity report to usagePage</p></div>`;
 	const back = `<div class="uback"><a href="/">&larr; fleet board</a><span class="uwin">${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view</span></div>`;
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${chartPayload(r)}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>FLEET USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${back}${head}${timeline}${hours}${tbl}${activity}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
+	return usagePageShell({
+		title: "FLEET USAGE",
+		body: `${back}${head}${timeline}${hours}${tbl}${activity}${aidsHtml(r)}`,
+		payload: chartPayload(r),
+	});
 }

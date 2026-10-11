@@ -11,6 +11,7 @@ import type { Database } from "bun:sqlite";
 export interface TpCursor {
 	o: number; // byte offset of the first unharvested byte
 	m: number; // mtimeMs at last harvest
+	v?: number; // metering schema version; legacy cursors omit it (W127 guard)
 }
 
 /** Sync byte tail of `path` from `start` — deterministic, no async edges. */
@@ -39,9 +40,9 @@ export const cursorKey = (prefix: string, path: string): string =>
 const parse = (raw: string | null | undefined): TpCursor | null => {
 	if (!raw) return null;
 	try {
-		const c = JSON.parse(raw) as { o?: unknown; m?: unknown };
+		const c = JSON.parse(raw) as { o?: unknown; m?: unknown; v?: unknown };
 		return typeof c.o === "number" && typeof c.m === "number"
-			? { o: c.o, m: c.m }
+			? { o: c.o, m: c.m, ...(typeof c.v === "number" ? { v: c.v } : {}) }
 			: null;
 	} catch {
 		return null;
