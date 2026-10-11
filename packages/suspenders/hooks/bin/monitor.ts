@@ -7,6 +7,9 @@
 // transcript-liveness is only decidable for TOP-LEVEL session sids. Checks
 // here are therefore ts-based or pure-DB; ownership liveness for lanes is a
 // known blind spot (backlog W9), surfaced by `work orphaned` instead.
+// W652.1: the lane liveness AUDIT lives in `work lanes` (lib/lane-liveness
+// .ts verdicts — the same read coord fleet and dispatch registry render);
+// the zombie sweep here is claim-ownership HYGIENE, a different axis.
 // usage: bun ~/.claude/bin/monitor.ts [--fix]
 import {
 	closeSync,

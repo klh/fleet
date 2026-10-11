@@ -319,7 +319,16 @@ export const laneAlive = (l: LaneRef): boolean =>
 // needs the honest third answer. Foreign-host lanes carry no process-table
 // trust — transcript is their only liveness term, and without it they read
 // unknown, never dead.
-export type LaneVerdict = "alive" | "dead" | "unknown";
+// W652.1 — ONE liveness read face. Every projection of the registry
+// (`work lanes`, coord fleet, dispatch registry list) renders THESE rows —
+// the tri-state verdict is computed once here, never re-derived per face.
+export interface LaneAuditRow {
+	sid: string;
+	item: string;
+	verdict: LaneVerdict;
+	live: boolean;
+	host: string | null;
+}
 export const laneVerdict = (l: LaneRef): LaneVerdict => {
 	if (l.host !== undefined && l.host !== THIS_HOST)
 		return transcriptAlive(l.sid) ? "alive" : "unknown";
@@ -327,4 +336,42 @@ export const laneVerdict = (l: LaneRef): LaneVerdict => {
 	if (identity === true || transcriptAlive(l.sid)) return "alive";
 	if (identity === false) return "dead";
 	return "unknown";
+};
+
+/** THE registry audit projection: verdict + collapsed `live` (the boolean
+ *  `work lanes --json` has always carried) in one shape. */
+export const auditLanes = (registry: readonly LaneRef[]): LaneAuditRow[] =>
+	registry.map((l) => {
+		const verdict = laneVerdict(l);
+		return {
+			sid: l.sid,
+			item: l.item,
+			verdict,
+			live: verdict === "alive",
+			host: l.host ?? null,
+		};
+	});
+
+/** Claim-sid → shared verdict join for projection faces (coord fleet):
+ *  exact sid first, then the prefix variants fleet-watch joins on (short
+ *  claim sid vs long registry sid). Unmatched claims join to nothing — the
+ *  face shows no verdict, never an invented one. */
+export const verdictBySid = (
+	lanes: readonly string[],
+	registry: readonly LaneRef[],
+): Map<string, LaneVerdict> => {
+	const rows = new Map(registry.map((r) => [r.sid, r]));
+	const join = (sid: string): LaneRef | undefined => {
+		const hit = rows.get(sid);
+		if (hit) return hit;
+		for (const [rsid, r] of rows)
+			if (rsid.startsWith(`${sid}-`) || sid.startsWith(`${rsid}-`)) return r;
+		return undefined;
+	};
+	const out = new Map<string, LaneVerdict>();
+	for (const sid of lanes) {
+		const row = join(sid);
+		if (row) out.set(sid, laneVerdict(row));
+	}
+	return out;
 };
