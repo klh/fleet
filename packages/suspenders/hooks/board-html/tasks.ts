@@ -78,9 +78,11 @@ function renderTaskProjOptions(ts){
   names.sort();
   var html = '<option value="all">all projects</option>';
   for (var j = 0; j < names.length; j++) html += '<option value="' + esc(names[j]) + '">' + esc(names[j]) + '</option>';
-  if (sel.dataset.sig === html) return;
-  sel.innerHTML = html;
+  if (sel.dataset.sig === html) return; // the option-list string stays the dedupe key; options build natively
   sel.dataset.sig = html;
+  while (sel.options.length > 0) sel.remove(0);
+  sel.add(new Option('all projects', 'all'));
+  for (var j = 0; j < names.length; j++) sel.add(new Option(names[j], names[j]));
   var has = false;
   for (var o = 0; o < sel.options.length; o++) if (sel.options[o].value === taskProj) has = true;
   if (!has) { taskProj = 'all'; saveTaskView(); }
@@ -96,9 +98,11 @@ function renderTaskOwnerOptions(ts){
   names.sort(function(a, b){ return a[1].localeCompare(b[1]); });
   var html = '<option value="all">all sessions</option>';
   for (var j = 0; j < names.length; j++) html += '<option value="' + esc(names[j][0]) + '">' + esc(names[j][1]) + '</option>';
-  if (sel.dataset.sig === html) return;
-  sel.innerHTML = html;
+  if (sel.dataset.sig === html) return; // the option-list string stays the dedupe key; options build natively
   sel.dataset.sig = html;
+  while (sel.options.length > 0) sel.remove(0);
+  sel.add(new Option('all sessions', 'all'));
+  for (var j = 0; j < names.length; j++) sel.add(new Option(names[j][1], names[j][0]));
   var has = false;
   for (var o = 0; o < sel.options.length; o++) if (sel.options[o].value === taskOwner) has = true;
   if (!has) { taskOwner = 'all'; saveTaskView(); }
@@ -463,9 +467,7 @@ function renderDrawer(){
   if (!d) {
     if (!task.err) return; // keep the loading row
     body.setAttribute('data-sig', '');
-    body.innerHTML = '<div class="derr">task unavailable — ' + esc(String(task.err).slice(0, 120)) + '</div>' +
-      '<button class="retry" id="taskRetry" type="button">retry</button>';
-    byId('taskRetry').addEventListener('click', function(){ task.err = null; pollTask(true); });
+    errBanner(body, 'task unavailable — ' + String(task.err).slice(0, 120), function(){ task.err = null; pollTask(true); });
     return;
   }
   var t = d.task;

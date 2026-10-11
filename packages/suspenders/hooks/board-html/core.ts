@@ -31,7 +31,17 @@ function setText(el, v){ if (el && el.textContent !== v) el.textContent = v; }
 function sigSet(el, sig, html){
   if (el.getAttribute('data-sig') === sig) return;
   el.setAttribute('data-sig', sig);
-  el.innerHTML = html;
+  // W658.3: the html-string sink is retired (UI law). Fragments parse
+  // out-of-line (DOMParser content never executes scripts) and move in as
+  // nodes; row fragments parse in table context so <tr> survives intact.
+  var rows = el.tagName === 'TBODY' || el.tagName === 'THEAD';
+  var doc = new DOMParser().parseFromString(
+    rows ? '<table><tbody>' + html + '</tbody></table>' : '<div>' + html + '</div>',
+    'text/html');
+  var root = rows ? doc.body.firstElementChild.firstElementChild : doc.body.firstElementChild;
+  var nodes = [];
+  while (root.firstChild) nodes.push(root.removeChild(root.firstChild));
+  el.replaceChildren.apply(el, nodes);
 }
 // sig-guarded rebuild that keeps focus alive across row swaps (tasks table)
 function sigSetKeep(el, sig, html, attr){
