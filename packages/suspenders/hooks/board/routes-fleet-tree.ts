@@ -448,6 +448,12 @@ const el = (tag, cls, text) => {
 };
 const stamp = document.getElementById("stamp");
 const btn = document.getElementById("refresh");
+// W552.7: URL-initialized presentation mode — /fleet-tree?view=presentation
+// renders the recording view: plain headings, no diagnostic labels. The API
+// keeps every field; the default view renders exactly as before.
+const qs = new URLSearchParams(location.search);
+const presentation = qs.get("view") === "presentation";
+const plain = (s) => presentation ? s.replace(" (simulation)", "") : s;
 const load = async (force) => {
 	btn.disabled = true;
 	btn.textContent = "refreshing…";
@@ -457,19 +463,19 @@ const load = async (force) => {
 		tree.replaceChildren();
 		stamp.replaceChildren();
 		stamp.append(el("span", "tier", new Date(data.generated_at).toLocaleTimeString()));
-		if (data.stale) stamp.append(el("span", "down", "  stale — last good"));
+		if (data.stale && !presentation) stamp.append(el("span", "down", "  stale — last good"));
 		for (const root of data.tree) {
 			const row = el("div", "root");
 			const head = el("div");
-			head.append(el("span", root.demo ? "demo" : "rootlabel", label(root.label)));
-			if (root.note) head.append(el("span", "tier", "  — " + root.note));
-			if (root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
-			if (root.authorization) {
+			head.append(el("span", root.demo ? "demo" : "rootlabel", label(plain(root.label))));
+			if (!presentation && root.note) head.append(el("span", "tier", "  — " + root.note));
+			if (!presentation && root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
+			if (!presentation && root.authorization) {
 				const auth = root.authorization;
 				const text = auth.mode === "simulated" ? "  simulated authorization: " + auth.status + " · " + auth.principal + " · " + auth.scopes.join(", ") : "  authorization required · capacity unknown";
 				head.append(el("span", "tier", text));
 			}
-			if (root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
+			if (!presentation && root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
 			if (root.down) head.append(el("span", "down", "  (down)"));
 			row.append(head);
 			const kids = root.models;
