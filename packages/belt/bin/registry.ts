@@ -25,6 +25,12 @@ export interface Specialist {
 	maxInflight?: number;
 	engine?: "mlx_lm" | "rapid"; // default mlx_lm; rapid = rapid-mlx (MTP, prefix cache, batching)
 	flags?: string[]; // extra server args for the chosen engine
+	// W242 catalog dimension: speculative decoding lives in the CHECKPOINT —
+	// rapid-mlx auto-detects `mtp.*` weights and uses them; mlx_lm strips them
+	// at load. "mtp" = the checkpoint ships MTP heads. Absent = plain
+	// next-token decoding. bin/specdec.ts check verifies this declaration
+	// against the served snapshot's weight names.
+	spec_dec?: "mtp";
 	// terse capability tags, comma-separated — written so an LLM picking an
 	// agent-LLM from a fleet manifest chooses the right specialist
 	good_at: string;
@@ -345,6 +351,9 @@ export interface RegistryEntry {
 	ram_gb: number;
 	tier: "resident" | "ondemand";
 	engine: "mlx_lm" | "rapid" | "external";
+	// W242 catalog dimension — mirror of Specialist.spec_dec (external rows
+	// have no MLX checkpoint, so never set it there)
+	spec_dec?: "mtp";
 	protocol: string;
 	external: boolean;
 	owner: string;
@@ -383,6 +392,7 @@ export function registryEntries(
 			ram_gb: s.ram_gb,
 			tier: s.tier,
 			engine: s.engine ?? "mlx_lm",
+			spec_dec: s.spec_dec,
 			protocol: SPECIALIST_PROTOCOL,
 			external: false,
 			owner: "belt swarm",

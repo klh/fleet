@@ -77,6 +77,7 @@ export function emitDirectTiers(
 			`    context_tokens: ${e.contextTokens}`,
 			`    tier: ${e.tier}`,
 			`    engine: ${e.engine}`,
+			...(e.spec_dec ? [`    spec_dec: ${e.spec_dec}`] : []),
 			`    external: ${e.external}`,
 			`    source: ${q(e.source)}`,
 		].join("\n"),
