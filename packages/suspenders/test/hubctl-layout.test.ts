@@ -86,19 +86,19 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 		"belt-health",
 	])
 		expect(cmd(name)).toContain(
-			"${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts",
+			`\${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts`,
 		);
 	expect(compose.services["buckle-hub"].working_dir).toBe(
-		"${HUB_FLEET_SRC:-/src/fleet/packages}/buckle",
+		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle`,
 	);
 	expect(compose.services["buckle-hub"].environment.BUCKLE_POLICY).toBe(
-		"${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml",
+		`\${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml`,
 	);
 	expect(cmd("board-hub")).toContain(
-		"${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts",
+		`\${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts`,
 	);
 	expect(cmd("belt-hub")).toContain(
-		"${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/dashboard.ts",
+		`\${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/dashboard.ts`,
 	);
 	for (const name of ["buckle-state", "hub-state", "hub-secrets", "belt-state"])
 		expect(name in compose.volumes).toBe(true);
@@ -172,4 +172,26 @@ test("repo initializer fetches an immutable SHA into a fresh volume and updates 
 	expect(readFileSync(join(target, "README.md"), "utf8")).toBe(
 		"reviewed revision",
 	);
+});
+
+test("unset repos.src collapses byte-identical to the pre-W493 public layout", () => {
+	// W493.1 closure evidence: with repos.src unset the renderer emits no
+	// HUB_FLEET_SRC, so the template must reduce to the pre-W493 public
+	// layout by substituting the compose default back in.
+	const repo = join(import.meta.dir, "../../..");
+	const show = (ref: string): string =>
+		Bun.spawnSync(
+			[
+				"git",
+				"-C",
+				repo,
+				"show",
+				`${ref}:packages/suspenders/deploy/hub-compose.yaml`,
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		).stdout.toString();
+	const pre = show("e6801ee~1"); // the commit that parameterized the layout
+	const knob = `\${HUB_FLEET_SRC:-/src/fleet/packages}`;
+	expect(template.split(knob).length - 1).toBeGreaterThan(0);
+	expect(template.replaceAll(knob, "/src/fleet/packages")).toBe(pre);
 });
