@@ -14,6 +14,9 @@ test("installer receipt includes only successfully activated services without se
 	try {
 		const repo = join(root, "repo"),
 			home = join(root, "home");
+		// W631: the fixture models a pinned checkout — a snapshot-shaped tree
+		// (no .git) now refuses before rendering any unit.
+		mkdirSync(join(repo, ".git"), { recursive: true });
 		mkdirSync(join(repo, "deploy"), { recursive: true });
 		writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
 		const script = `import {mock} from "bun:test";import{mkdirSync,writeFileSync}from"node:fs";import{join}from"node:path";
