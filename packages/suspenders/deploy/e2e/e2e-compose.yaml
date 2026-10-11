@@ -111,6 +111,9 @@ services:
         limits:
           memory: 256m
     restart: unless-stopped
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
     command: bun /srv/fleet/packages/suspenders/deploy/e2e/stub-tier.ts
     ports:
       - "127.0.0.1:8902:8902"
@@ -136,6 +139,9 @@ services:
         limits:
           memory: 512m
     restart: unless-stopped
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
     command: bun /srv/fleet/packages/suspenders/hooks/bin/fleet-board.ts --port 7809
     ports:
       - "127.0.0.1:7809:7809"
@@ -163,6 +169,9 @@ services:
         limits:
           memory: 256m
     restart: unless-stopped
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
     command: bun /srv/fleet/packages/suspenders/hooks/bin/store-server.ts --port 7796
     ports:
       - "127.0.0.1:7796:7796"
@@ -198,7 +207,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - buckle-hub
+      buckle-hub:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD-SHELL
@@ -222,7 +232,10 @@ services:
           memory: 128m
     restart: unless-stopped
     depends_on:
-      - buckle-hub
+      fleet-deps:
+        condition: service_completed_successfully
+      buckle-hub:
+        condition: service_started
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://buckle-hub:4111/status --listen 4112
     volumes:
       - fleet-tree:/srv/fleet
@@ -244,7 +257,10 @@ services:
           memory: 128m
     restart: unless-stopped
     depends_on:
-      - board-hub
+      fleet-deps:
+        condition: service_completed_successfully
+      board-hub:
+        condition: service_started
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://board-hub:7809/status --listen 7800
     volumes:
       - fleet-tree:/srv/fleet
@@ -266,7 +282,10 @@ services:
           memory: 128m
     restart: unless-stopped
     depends_on:
-      - store-hub
+      fleet-deps:
+        condition: service_completed_successfully
+      store-hub:
+        condition: service_started
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://store-hub:7796/status --listen 7794
     volumes:
       - fleet-tree:/srv/fleet
