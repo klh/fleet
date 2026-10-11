@@ -1,7 +1,10 @@
 // work-alloc.test.ts — W515: allocation scorer + decision-object rebalance.
 // Lib tests on an in-memory store fixture (mirrors work-release.test.ts
-// style); one CLI e2e that fabricates a live lane (fresh transcript inside
+// style); one CLI e2e that fabricates a lane (fresh transcript inside
 // the 15-min reclaim lease) and drives `work allocate --apply` end to end.
+// W646: scope-hint overlap — HintSet path/word split (paths weigh ×3),
+// recent-claim history affinity, scope-miss penalty, score>overlap>load>
+// live>sid tiebreak, overlap evidence in the reason string.
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	assignTask,
+	beats,
+	candidateLanes,
+	hintSet,
 	hintTokens,
 	planAllocation,
 	scoreLane,
@@ -60,11 +66,13 @@ const lane = (
 	live: boolean,
 	caps: string[] = [],
 	hints: string[] = [],
+	history: string[] = [],
 ): AllocLane => ({
 	sid,
 	live,
 	caps,
 	hints,
+	history,
 });
 
 describe("hintTokens + scorer", () => {
@@ -77,23 +85,105 @@ describe("hintTokens + scorer", () => {
 			),
 		).toEqual(["packages", "belt", "hooks", "lib"]);
 	});
+	test("hintSet splits path tokens from domain words", () => {
+		expect(
+			hintSet("packages/belt", "fix board render", "see hooks/lib here"),
+		).toEqual({ paths: ["hooks", "lib"], words: ["packages", "belt"] });
+	});
 	test("role bonus, affinity, load, tiebreak via scoreLane", () => {
-		const item = { requires: ["build"], hints: ["hooks", "lib"] };
+		const item = {
+			requires: ["build"],
+			hints: { paths: ["hooks"], words: ["lib"] },
+		};
 		const capable = lane("zeta", true, ["build"], ["hooks"]);
 		const other = lane("alpha", true, ["build"], []);
-		// zeta: role 18 + affinity (1/2 ×4 = 2); alpha: role 18 only — but the
-		// deterministic tiebreak is sid, and affinity lifts zeta above it
+		// zeta: role 18 + affinity (path hit: 3/4 of the weight ×4 = 3);
+		// alpha: role only — affinity lifts zeta above the sid tiebreak
 		const z = scoreLane(item, capable, 0);
 		const a = scoreLane(item, other, 0);
-		expect(z.score).toBe(20);
+		expect(z.score).toBe(21);
+		expect(z.parts).toContain("affinity +3 [hooks]");
 		expect(a.score).toBe(18);
 		expect(z.parts).toContain("role +18");
 	});
 	test("load penalizes by 4 per held item", () => {
-		const item = { requires: [], hints: [] };
+		const item = { requires: [], hints: { paths: [], words: [] } };
 		const { score, parts } = scoreLane(item, lane("a", true), 2);
 		expect(score).toBe(-8);
 		expect(parts).toContain("load -8");
+	});
+	test("path hits weigh 3× word hits inside the affinity", () => {
+		const item = { requires: [], hints: { paths: ["a"], words: ["b"] } };
+		const both = scoreLane(item, lane("x", true, [], ["a", "b"]), 0);
+		const wordOnly = scoreLane(item, lane("y", true, [], ["b"]), 0);
+		// both: 3+1 of 4 weighted → +4; word-only: 1 of 4 → +1
+		expect(both.score).toBe(4);
+		expect(wordOnly.score).toBe(1);
+	});
+	test("history hits count like worktree hints", () => {
+		const item = { requires: [], hints: { paths: ["hooks"], words: [] } };
+		const { score, parts } = scoreLane(
+			item,
+			lane("h", true, [], [], ["hooks"]),
+			0,
+		);
+		expect(score).toBe(4);
+		expect(parts).toContain("affinity +4 [hooks]");
+	});
+	test("scope knowledge with zero overlap takes the −3 penalty", () => {
+		const item = { requires: [], hints: { paths: ["x"], words: [] } };
+		const { score, parts } = scoreLane(
+			item,
+			lane("s", true, [], ["unrelated"]),
+			0,
+		);
+		expect(score).toBe(-3);
+		expect(parts).toContain("scope-penalty -3");
+	});
+});
+
+describe("beats tiebreak", () => {
+	test("score dominates; equal score → more overlap wins", () => {
+		const a = lane("a", true);
+		const b = lane("b", true);
+		expect(
+			beats(
+				{ lane: a, score: 1, overlap: 0, load: 9 },
+				{ lane: b, score: 0, overlap: 9, load: 0 },
+			),
+		).toBe(true);
+		expect(
+			beats(
+				{ lane: a, score: 0, overlap: 2, load: 5 },
+				{ lane: b, score: 0, overlap: 1, load: 0 },
+			),
+		).toBe(true);
+	});
+	test("then load, then live, then sid", () => {
+		const a = lane("a", true);
+		const z = lane("z", true);
+		const dead = lane("z9", false);
+		// equal score+overlap → lighter lane wins even against a live one
+		expect(
+			beats(
+				{ lane: a, score: 0, overlap: 0, load: 0 },
+				{ lane: dead, score: 0, overlap: 0, load: 1 },
+			),
+		).toBe(true);
+		// equal so-far → live wins
+		expect(
+			beats(
+				{ lane: a, score: 0, overlap: 0, load: 0 },
+				{ lane: z, score: 0, overlap: 0, load: 0 },
+			),
+		).toBe(true);
+		// all equal → smaller sid
+		expect(
+			beats(
+				{ lane: z, score: 0, overlap: 0, load: 0 },
+				{ lane: a, score: 0, overlap: 0, load: 0 },
+			),
+		).toBe(false);
 	});
 });
 
@@ -176,6 +266,55 @@ describe("planAllocation", () => {
 		expect(decisions.map((d) => d.item)).toEqual(["W2", "W1"]);
 		// W9 needs build — no lane has it — no decision at all
 		expect(decisions.map((d) => d.item)).not.toContain("W9");
+	});
+	test("recent-claim history steers overlap; reason carries the evidence", () => {
+		const db = fixture();
+		// laneA closed a claim that named hooks/lib; W2 overlaps that history
+		seed(db, "H1", "DONE", "laneA");
+		db.query(
+			"UPDATE work_items SET title='fix hooks/lib bug' WHERE id='H1'",
+		).run();
+		seed(db, "W2");
+		db.query(
+			"UPDATE work_items SET title='fix hooks/lib bug' WHERE id='W2'",
+		).run();
+		const [d] = planAllocation(
+			db,
+			"project",
+			candidateLanes(
+				db,
+				[
+					{ sid: "laneA", item: "H1" },
+					{ sid: "laneB", item: "W9" },
+				],
+				"project",
+			),
+			{ capacity: 1 },
+		);
+		expect(d).toMatchObject({ item: "W2", sid: "laneA" });
+		expect(String(d?.reason)).toContain("affinity +4 [hooks,lib,src]");
+	});
+});
+
+describe("candidateLanes history", () => {
+	test("collects hint tokens from the lane's recent claims", () => {
+		const db = fixture();
+		seed(db, "H1", "DONE", "laneA");
+		db.query(
+			"UPDATE work_items SET title='fix hooks/lib bug' WHERE id='H1'",
+		).run();
+		const lanes = candidateLanes(
+			db,
+			[
+				{ sid: "laneA", item: "H1" },
+				{ sid: "laneB", item: "W9" },
+			],
+			"project",
+		);
+		const [a, b] = lanes;
+		expect(a.history).toContain("hooks");
+		expect(a.history).toContain("lib");
+		expect(b.history).toEqual([]);
 	});
 });
 

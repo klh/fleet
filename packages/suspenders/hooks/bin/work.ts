@@ -1153,7 +1153,7 @@ if (cmd === "add") {
 		const sugg = planAllocation(
 			db(),
 			PROJECT,
-			candidateLanes(db(), loadLaneRegistry(process.cwd())),
+			candidateLanes(db(), loadLaneRegistry(process.cwd()), PROJECT),
 			{ items: unkept },
 		);
 		if (sugg.length)
@@ -1243,7 +1243,7 @@ if (cmd === "add") {
 	const decisions = planAllocation(
 		db(),
 		PROJECT,
-		candidateLanes(db(), entries),
+		candidateLanes(db(), entries, PROJECT),
 		{ capacity: Number(flag("--capacity") ?? 1) },
 	);
 	if (flag("--json")) console.log(JSON.stringify(decisions));
