@@ -25,6 +25,11 @@ import {
 	upgradeGateway,
 } from "../scripts/upgrade-gateway.ts";
 import { assertBuckleActivation } from "../scripts/assert-service-activation.ts";
+import {
+	acquireApprovalFence,
+	assertFenceForLifecycle,
+	releaseApprovalFence,
+} from "../scripts/lib/approval-fence.ts";
 import { parseFlags } from "../scripts/install-cli.ts";
 
 function fixture() {
@@ -104,6 +109,35 @@ function fixture() {
 		receipt,
 		clean: () => rmSync(root, { recursive: true, force: true }),
 	};
+}
+const LABEL = "com.suspenders.buckle-spoke";
+
+/** Two independent writers over one fixture: instrumented deps whose load
+ * presents the shared approval fence exactly like the real fenced loader. */
+function approveFixture(f: ReturnType<typeof fixture>) {
+	const staging = join(f.home, ".config/klh/gateway-review");
+	let loads = 0;
+	const deps = {
+		observe: () => "stable process",
+		load: (_args: string[], prefix: string) => {
+			const fence = assertFenceForLifecycle(staging, LABEL);
+			expect(fence.state).toBe("PUBLISHED");
+			expect(prefix).toBe(f.generation);
+			loads++;
+			return { exitCode: 0 };
+		},
+	};
+	const ctx = {
+		repo: join(f.payload, "packages/suspenders"),
+		prefix: f.generation,
+		shimBin: "/unused",
+		llmHome: "/unused",
+		dryRun: false,
+		yes: true,
+		json: true,
+		verbose: true,
+	};
+	return { ctx, deps, staging, loads: () => loads };
 }
 test("prepare pins real generation and preserves database cwd and machine environment without writes or execution", () => {
 	const f = fixture();
@@ -291,6 +325,98 @@ test("canonical staging and approved fake lifecycle preserve existing DB/key and
 		expect(existsSync(join(f.payload, "packages/buckle/buckle.db"))).toBe(
 			false,
 		);
+	} finally {
+		process.env.HOME = previousHome;
+		if (previousPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = previousPrefix;
+		f.clean();
+	}
+});
+
+test("bounded interruption retains approved intent without blind rollback", async () => {
+	const f = fixture();
+	const g = approveFixture(f);
+	const previousHome = process.env.HOME;
+	const previousPrefix = process.env.SUSPENDERS_PREFIX;
+	process.env.HOME = f.home;
+	process.env.SUSPENDERS_PREFIX = f.generation;
+	try {
+		const prepared = await upgradeGateway(g.ctx, g.deps);
+		const token = JSON.parse(prepared.detail ?? "{}").reviewSha256;
+		await expect(
+			upgradeGateway(
+				{ ...g.ctx, gatewayReview: token },
+				{ ...g.deps, load: () => ({ exitCode: 1 }) },
+			),
+		).rejects.toThrow("Reviewed gateway registration failed");
+		// Approved receipt and unit stand; nothing rolled back.
+		expect(readActivation(f.receipt).services[0].generation?.root).toBe(
+			f.generation,
+		);
+		expect(readFileSync(f.unit, "utf8")).toContain("server.bundle.js");
+		// Re-prepare binds the published state as the next truthful baseline.
+		const again = await upgradeGateway(g.ctx, g.deps);
+		const token2 = JSON.parse(again.detail ?? "{}").reviewSha256;
+		expect(token2).not.toBe(token);
+		const committed = await upgradeGateway(
+			{ ...g.ctx, gatewayReview: token2 },
+			g.deps,
+		);
+		expect(committed.status).toBe("ok");
+		expect(g.loads()).toBe(1);
+		expect(
+			readFileSync(join(f.root, "machine/database/existing.db"), "utf8"),
+		).toBe("existing database");
+		expect(
+			readFileSync(join(f.root, "machine/database/root.key"), "utf8"),
+		).toBe("existing key");
+		expect(existsSync(join(f.payload, "packages/buckle/buckle.db"))).toBe(
+			false,
+		);
+	} finally {
+		process.env.HOME = previousHome;
+		if (previousPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = previousPrefix;
+		f.clean();
+	}
+});
+
+test("competing supported approvals serialize: one fence, one commit per snapshot", async () => {
+	const f = fixture(),
+		a = approveFixture(f),
+		b = approveFixture(f),
+		previousHome = process.env.HOME,
+		previousPrefix = process.env.SUSPENDERS_PREFIX;
+	process.env.HOME = f.home;
+	process.env.SUSPENDERS_PREFIX = f.generation;
+	try {
+		const beforeUnit = readFileSync(f.unit, "utf8"),
+			beforeReceipt = readFileSync(f.receipt, "utf8");
+		const prepared = await upgradeGateway(a.ctx, a.deps);
+		const token = JSON.parse(prepared.detail ?? "{}").reviewSha256;
+		// Writer A holds the fence mid-publish when writer B attempts its commit.
+		const held = acquireApprovalFence(a.staging, LABEL, token);
+		await expect(
+			upgradeGateway({ ...b.ctx, gatewayReview: token }, b.deps),
+		).rejects.toThrow(
+			"another approved writer holds the gateway approval fence",
+		);
+		expect(b.loads()).toBe(0);
+		expect(readFileSync(f.unit, "utf8")).toBe(beforeUnit);
+		expect(readFileSync(f.receipt, "utf8")).toBe(beforeReceipt);
+		// A releases uncommitted; B re-drives truthfully from the same snapshot.
+		releaseApprovalFence(a.staging, LABEL, held, token);
+		expect(
+			(await upgradeGateway({ ...b.ctx, gatewayReview: token }, b.deps)).status,
+		).toBe("ok");
+		expect(b.loads()).toBe(1);
+		expect(readActivation(f.receipt).services[0].generation?.root).toBe(
+			f.generation,
+		);
+		// The commit is a new snapshot: A's stale approval cannot commit again.
+		await expect(
+			upgradeGateway({ ...a.ctx, gatewayReview: token }, a.deps),
+		).rejects.toThrow("approval differs");
 	} finally {
 		process.env.HOME = previousHome;
 		if (previousPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;

@@ -32,6 +32,23 @@ recovery; it does not silently adopt another unit or restart other services.
 The source generation is content-verified, not an OS privilege boundary:
 user-owned files can be changed, and such changes invalidate integrity.
 
+## Approval fence — serialization among supported writers
+
+As of W576.7.2 the approval boundary additionally holds an expiry-bounded
+approval fence (`scripts/lib/approval-fence.ts`) around the whole reviewed
+upgrade: both the receipt/unit publish and the bootout/bootstrap lifecycle
+action present the same live unexpired lease. Two competing supported
+upgrades cannot both commit from one prior snapshot; the second sees the
+held fence and refuses (typed, unit and receipt untouched). Owner identity
+is PID + process birth (the W576.3 launch-fencing authority). Proven-dead,
+recycled-PID and expired owners are stale-broken by renaming the fence
+record aside (auditable, never deleted); unreadable owners and corrupt
+records are typed refusals, never takeovers. Interruption recovery is
+bounded: a crashed holder's lease expires, and recovery re-prepares from
+the published receipt — truthful intent, never blind rollback. Initial
+install (`--owner-initial-install`) bypasses the fence; every other
+buckle-spoke lifecycle action requires it.
+
 
 This is a bounded receipt fence, not an operating-system write sandbox or an
 atomic lock across arbitrary programs. W427 bypassed shell target inspection
@@ -42,6 +59,7 @@ does not interpret JavaScript filesystem calls. Preventing those writes requires
 the shared lifecycle/lease enforcement work, rather than another installer.
 
 The existing receipt also does not establish an immutable Buckle code payload.
-An approved pinned worktree remains writable. Immutable gateway publication and
-eliminating races with arbitrary concurrent receipt/unit writers remain separate
-work; this boundary does not claim either guarantee.
+An approved pinned worktree remains writable. Immutable gateway publication
+remains separate work. Races among supported writers are now fenced (see the
+approval fence section above); races with arbitrary filesystem writers remain
+outside this boundary, so this boundary does not claim either guarantee.

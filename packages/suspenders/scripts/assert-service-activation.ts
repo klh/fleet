@@ -7,6 +7,7 @@ import {
 } from "./lib/activated-dispatch.ts";
 import { assertServiceActivation } from "./lib/service-activation-fence.ts";
 import { readActivation, type ActivationReceipt } from "./lib/service-drift.ts";
+import { assertFenceForLifecycle } from "./lib/approval-fence.ts";
 
 export function assertBuckleActivation(
 	unit: string,
@@ -108,8 +109,17 @@ export function assertLaunchdActivation(
 		throw new Error(
 			"activation refused: unit label does not match its destination",
 		);
-	if (parsed.stdout.toString().trim() === "com.suspenders.buckle-spoke")
+	if (parsed.stdout.toString().trim() === "com.suspenders.buckle-spoke") {
 		assertBuckleActivation(unit, bytes, initialInstall);
+		// Lifecycle action shares the approval fence: no live unexpired owner,
+		// no bootout/bootstrap — a stale or revoked owner is a typed refusal
+		// and the running service stays untouched.
+		if (!initialInstall)
+			assertFenceForLifecycle(
+				join(process.env.HOME ?? "", ".config/klh/gateway-review"),
+				"com.suspenders.buckle-spoke",
+			);
+	}
 }
 
 if (import.meta.main) {

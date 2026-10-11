@@ -8,6 +8,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { processBirth } from "./lib/launch-fencing.ts";
+import {
+	acquireApprovalFence,
+	markApprovalPublished,
+	releaseApprovalFence,
+	type FenceInspect,
+} from "./lib/approval-fence.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
 	digestUnit,
@@ -141,6 +147,8 @@ export const gatewayReviewToken = (proposal: GatewayUpgrade): string =>
 export async function upgradeGateway(
 	ctx: StepContext & { gatewayReview?: string },
 	deps: {
+		now?: () => number;
+		inspect?: FenceInspect;
 		observe: () => string;
 		load: (args: string[], prefix: string) => { exitCode: number };
 	} = {
@@ -160,7 +168,6 @@ export async function upgradeGateway(
 		};
 	const home = process.env.HOME ?? "";
 	const proposal = prepareGatewayUpgrade(ctx.prefix, home, deps.observe);
-	const receiptPath = join(home, ".config/klh/service-activation.json");
 	const staging = join(home, ".config/klh/gateway-review");
 	mkdirSync(staging, { recursive: true, mode: 0o700 });
 	const reviewSha256 = gatewayReviewToken(proposal);
@@ -181,70 +188,109 @@ export async function upgradeGateway(
 	if (ctx.gatewayReview !== reviewSha256)
 		throw new Error("Gateway approval differs from current reviewed candidate");
 	const reviewed = JSON.parse(readFileSync(prepared, "utf8")) as GatewayUpgrade;
-	const beforeReceipt = readFileSync(receiptPath, "utf8"),
-		beforeUnit = readFileSync(proposal.unit, "utf8");
-	assertUpgradeSnapshot(
-		reviewed,
-		beforeUnit,
-		beforeReceipt,
-		proposal.generation,
-		deps.observe(),
-	);
-	const old = readActivation(receiptPath);
-	const approved: ActivationReceipt = {
-		...old,
-		manifest: proposal.manifest,
-		manifestSha256: digestUnit(readFileSync(proposal.manifest)),
-		services: old.services.map((service) =>
-			service.label === LABEL
-				? {
-						...service,
-						unitSha256: proposal.candidateSha256,
-						arguments: proposal.arguments,
-						generation: proposal.generation,
-					}
-				: service,
-		),
-	};
-	// Use the existing receipt publisher and fenced loader, not a second installer.
-	// Check both snapshots immediately before publishing approved intent.
-	assertUpgradeSnapshot(
-		reviewed,
-		readFileSync(proposal.unit, "utf8"),
-		readFileSync(receiptPath, "utf8"),
-		proposal.generation,
-		deps.observe(),
-	);
-	writeActivation(receiptPath, approved);
-	const nextUnit = `${proposal.unit}.reviewed-${crypto.randomUUID()}`;
-	try {
-		writeFileSync(nextUnit, proposal.candidate, { mode: 0o600 });
-		renameSync(nextUnit, proposal.unit);
-	} catch (error) {
-		// Restore prior intent only if no competing receipt writer intervened.
-		if (
-			digestUnit(readFileSync(receiptPath)) ===
-			digestUnit(JSON.stringify(approved))
-		)
-			writeActivation(receiptPath, old);
-		throw error;
-	} finally {
-		rmSync(nextUnit, { force: true });
-	}
+	return approveGatewayUpgrade(reviewed, proposal, ctx, deps, reviewSha256);
+}
 
-	const result = deps.load(
-		[
-			"/bin/bash",
-			join(proposal.generation.root, "scripts/load-launchd.sh"),
-			proposal.unit,
-			join(home, ".claude-insights/launchd-reviewed-gateway.log"),
-		],
-		ctx.prefix,
-	);
-	if (result.exitCode !== 0)
-		throw new Error(
-			"Reviewed gateway registration failed; approved candidate retained for observation and owner recovery",
+async function approveGatewayUpgrade(
+	reviewed: GatewayUpgrade,
+	proposal: GatewayUpgrade,
+	ctx: StepContext & { gatewayReview?: string },
+	deps: {
+		now?: () => number;
+		inspect?: FenceInspect;
+		observe: () => string;
+		load: (args: string[], prefix: string) => { exitCode: number };
+	},
+	reviewSha256: string,
+): Promise<StepResult> {
+	const home = process.env.HOME ?? "";
+	const receiptPath = join(home, ".config/klh/service-activation.json");
+	const staging = join(home, ".config/klh/gateway-review");
+	const fence = acquireApprovalFence(staging, LABEL, reviewSha256, {
+		now: deps.now,
+		inspect: deps.inspect,
+	});
+	try {
+		const beforeReceipt = readFileSync(receiptPath, "utf8"),
+			beforeUnit = readFileSync(proposal.unit, "utf8");
+		assertUpgradeSnapshot(
+			reviewed,
+			beforeUnit,
+			beforeReceipt,
+			proposal.generation,
+			deps.observe(),
 		);
+		const old = readActivation(receiptPath);
+		const approved: ActivationReceipt = {
+			...old,
+			manifest: proposal.manifest,
+			manifestSha256: digestUnit(readFileSync(proposal.manifest)),
+			services: old.services.map((service) =>
+				service.label === LABEL
+					? {
+							...service,
+							unitSha256: proposal.candidateSha256,
+							arguments: proposal.arguments,
+							generation: proposal.generation,
+						}
+					: service,
+			),
+		};
+		// Use the existing receipt publisher and fenced loader, not a second installer.
+		// Check both snapshots immediately before publishing approved intent.
+		assertUpgradeSnapshot(
+			reviewed,
+			readFileSync(proposal.unit, "utf8"),
+			readFileSync(receiptPath, "utf8"),
+			proposal.generation,
+			deps.observe(),
+		);
+		writeActivation(receiptPath, approved);
+		const nextUnit = `${proposal.unit}.reviewed-${crypto.randomUUID()}`;
+		try {
+			writeFileSync(nextUnit, proposal.candidate, { mode: 0o600 });
+			renameSync(nextUnit, proposal.unit);
+		} catch (error) {
+			// Restore prior intent only if no competing receipt writer intervened.
+			if (
+				digestUnit(readFileSync(receiptPath)) ===
+				digestUnit(JSON.stringify(approved))
+			)
+				writeActivation(receiptPath, old);
+			throw error;
+		} finally {
+			rmSync(nextUnit, { force: true });
+		}
+
+		// The lifecycle action presents the same fence: predicated flip proves the
+		// lease was not stolen or expired between publish and bootout.
+		markApprovalPublished(
+			staging,
+			LABEL,
+			{ pid: fence.pid, birth: fence.birth },
+			reviewSha256,
+		);
+		const result = deps.load(
+			[
+				"/bin/bash",
+				join(proposal.generation.root, "scripts/load-launchd.sh"),
+				proposal.unit,
+				join(home, ".claude-insights/launchd-reviewed-gateway.log"),
+			],
+			ctx.prefix,
+		);
+		if (result.exitCode !== 0)
+			throw new Error(
+				"Reviewed gateway registration failed; approved candidate retained for observation and owner recovery",
+			);
+	} finally {
+		releaseApprovalFence(
+			staging,
+			LABEL,
+			{ pid: fence.pid, birth: fence.birth },
+			reviewSha256,
+		);
+	}
 	return {
 		status: "ok",
 		note: `Gateway registered from reviewed generation ${proposal.generation.revision}`,
