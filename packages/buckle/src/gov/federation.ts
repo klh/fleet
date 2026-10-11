@@ -33,11 +33,11 @@ import {
 } from "./federation-usage.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
-import {
-	redeemEnrollmentCode,
-	touchSpoke,
-	type RedeemResult,
-} from "./federation-spokes.ts";
+import type {
+	RedeemResult,
+	SpokeEnrollmentFactory,
+	SpokeEnrollmentProvider,
+} from "./hub-seam.ts";
 import type { ManifestSigner } from "./federation-signing.ts";
 
 export interface FederationOpts {
@@ -50,6 +50,11 @@ export interface FederationOpts {
 	/** W193: RS256 manifest-signing identity — JWKS serve + detached-JWS
 	 *  signature over the exact manifest bytes (null = serve unsigned). */
 	signer?: ManifestSigner;
+	/** W233 enterprise-posture seam: the spoke-enrollment + fleet-registry
+	 *  provider factory (implementation lives in the enterprise overlay,
+	 *  klh-remote buckle-remote). Unset in solo posture — the enrollment
+	 *  routes answer honest 501s and the pull heartbeat is a no-op. */
+	spokeEnrollment?: SpokeEnrollmentFactory;
 }
 
 export interface CrRow {
@@ -132,6 +137,9 @@ export class Federation {
 	private readonly pool: UpstreamPool;
 	/** W193: the hub signing identity (JWKS + manifest signatures). */
 	readonly signer: ManifestSigner | null;
+	/** W233 seam: spoke enrollment + fleet registry — provider-less in solo
+	 *  posture (honest 501s; the pull heartbeat is a no-op). */
+	readonly spokes: SpokeEnrollmentProvider | null;
 	/** W160 verification probes, by target prefix (longest match wins). */
 	private readonly probes = new Map<string, CrProbe>();
 
@@ -142,6 +150,7 @@ export class Federation {
 		this.policy = opts.policy;
 		this.pool = opts.pool;
 		this.signer = opts.signer ?? null;
+		this.spokes = opts.spokeEnrollment?.(this.db) ?? null;
 		const rev = policyRevisionProbe(opts.policyPath);
 		this.registerProbe("policy@", rev);
 		this.registerProbe("routing-policy@", rev);
@@ -230,7 +239,7 @@ export class Federation {
 		m: FedManifest,
 	): Response {
 		if (p !== null)
-			touchSpoke(this.db, {
+			this.spokes?.touch({
 				keyId: p.keyId,
 				version: str(req.headers.get("x-buckle-spoke-version")),
 				policyVersion: m.version,
@@ -265,9 +274,11 @@ export class Federation {
 
 	/** W173 enrollment redeem — the code IS the credential on this route (the
 	 *  gate lets POST /federation/enroll through bearer-optional; a presented
-	 *  bearer is still validated). Unknown/expired → 401, already-redeemed →
-	 *  409, bad body → 400; success 201 {spoke_id, key_id, key, scopes,
-	 *  expires_at}. Raw key material exists exactly once — this response. */
+	 *  bearer is still validated). W233: redemption rides the injected
+	 *  SpokeEnrollmentProvider — absent in solo posture → honest 501.
+	 *  Unknown/expired → 401, already-redeemed → 409, bad body → 400;
+	 *  success 201 {spoke_id, key_id, key, scopes, expires_at}. Raw key
+	 *  material exists exactly once — this response. */
 	private async enroll(req: Request): Promise<Response> {
 		const body = (await req.json().catch(() => null)) as Record<
 			string,
@@ -276,7 +287,13 @@ export class Federation {
 		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
 		const code = str(body.code);
 		if (code === null) return bad(400, "buckle.bad_body", "missing code");
-		const out: RedeemResult = redeemEnrollmentCode(this.db, { code });
+		if (this.spokes === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no enrollment surface on this gate (solo posture)",
+			);
+		const out: RedeemResult = this.spokes.redeem({ code });
 		if (!out.ok) {
 			const status = out.code === "buckle.enroll_used" ? 409 : 401;
 			return bad(status, out.code, out.why);
