@@ -12,6 +12,10 @@
 // owner directive; the law enforces itself through data absence).
 import type { Cooldowns } from "./cooldown.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
+import {
+	residencyAllowsCandidate,
+	type ResidencyPolicy,
+} from "./gov/residency.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 
 export type Kind = "local" | "remote" | "cloud";
@@ -67,6 +71,10 @@ export interface CandidateTableDeps {
 	pool: UpstreamPool;
 	policy: GatewayPolicy;
 	cooldowns: Cooldowns;
+	/** W235 locked residency floors: rows outside the resolved policy never
+	 *  become healthy — data absence enforces the law (flashx precedent).
+	 *  Undefined = the loosest compiled floor (everything admitted). */
+	residency?: ResidencyPolicy;
 }
 
 /** The in-memory candidate table. snapshot() is the decision path's only
@@ -142,6 +150,16 @@ export class CandidateTable {
 			for (const dep of deps.pool.deployments(group)) {
 				const id = candIdOf(dep);
 				const u = new URL(dep.url);
+				// W235: residency admission — a candidate outside the resolved
+				// floor is benched for residency (healthy=false), never
+				// dispatched to. Solo floor = everything admitted (no-op).
+				const resident =
+					deps.residency === undefined ||
+					residencyAllowsCandidate({
+						host: u.hostname,
+						groupTags: deps.policy.tags?.[group] ?? [],
+						residency: deps.residency,
+					});
 				const old = this.met.get(id);
 				this.met.set(id, old ?? freshMetrics());
 				this.refs.set(id, { group, dep });
@@ -155,7 +173,7 @@ export class CandidateTable {
 					group,
 					capability_text: capabilityText(group, dep, deps.policy.tags),
 					dep,
-					healthy: !deps.cooldowns.benched(dep),
+					healthy: resident && !deps.cooldowns.benched(dep),
 					estimate_ms: old?.ewms ?? null,
 					calls: old?.calls ?? 0,
 					errors: old?.errors ?? 0,

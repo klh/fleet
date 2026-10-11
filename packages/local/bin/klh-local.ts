@@ -255,9 +255,12 @@ const exposureLines = (exposure: Exposure): string => {
 		return "\t@external not remote_ip 127.0.0.1 ::1\n\tabort @external\n";
 	const fa = parseForwardAuth(exposure.forwardAuth ?? "");
 	if (!fa) throw new Error("--lan requires a valid --forward-auth URL");
+	// W235: the identity the proxy asserts rides SIGNED — the SSO service
+	// returns the buckle-sso-v1 HMAC pair; Caddy copies both onto the
+	// request. Buckle (gov/identity-headers.ts) verifies before trusting.
 	return `\tforward_auth ${fa.upstream} {
 		uri ${fa.uri}
-		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name X-KLH-Identity X-KLH-Identity-Sig
 	}
 `;
 };

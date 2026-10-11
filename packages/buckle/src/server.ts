@@ -23,6 +23,7 @@ import type {
 	UsageIngestFactory,
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
+import { loadOverlay, overlayModuleAdaptation } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
@@ -32,6 +33,7 @@ import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
 import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
+import { resolveResidency, residencyFromEnv } from "./gov/residency.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
@@ -76,7 +78,7 @@ export interface ServerOpts {
 	// hubEntitlements injects the entitlement-menu provider the same way.
 	// W233.2: usageIngest injects the usage-ingest provider the same way.
 	// W233.3: manifestCr injects the manifest + CR queue serving provider.
-	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots"> & {
+	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots" | "adaptation"> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
 		hubEntitlements?: HubEntitlementsFactory;
 		usageIngest?: UsageIngestFactory;
@@ -139,7 +141,10 @@ export function buildDeps(
 		policy.allowed_fails ?? 3,
 		policy.cooldown_time ?? 30,
 	);
-	const table = new CandidateTable({ pool, policy, cooldowns });
+	// W235 locked residency floors: resolve once at boot (env + compiled
+	// floor, tighten-only); the candidate table benches outsiders.
+	const residency = resolveResidency(residencyFromEnv(process.env));
+	const table = new CandidateTable({ pool, policy, cooldowns, residency });
 	table.start();
 	// W4 intent expansion: the local direct tier (aids.expand.group, default
 	// local-swarm) serves the enhance digest — structurally local (never a
@@ -287,6 +292,7 @@ export function startServer(
 			jwt: opts.auth?.jwt,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			adaptation: opts.auth?.adaptation,
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
@@ -321,8 +327,11 @@ export function startServer(
 	};
 }
 
-/** Entry: bind the shadow port, log the guard. */
-export function main(): void {
+/** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
+ *  solo posture; what loaded is logged (log-at-startup law). */
+export async function boot(): Promise<
+	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+> {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance
 	// gate ON; without a root key NOTHING can authenticate or mint — every
@@ -330,14 +339,43 @@ export function main(): void {
 	// BUCKLE_ROOT_KEY from runtime env seeds the bootstrap principal; mint
 	// real bksk_ keys via /v1/admin/keys and retire the root when done.
 	const rootKey = process.env.BUCKLE_ROOT_KEY;
-	const server = startServer({
-		port,
-		...(rootKey ? { auth: { rootKey } } : {}),
+	const overlay = await loadOverlay({
+		dir: process.env.KLH_OVERLAY_DIR,
+		expectSha256: process.env.KLH_OVERLAY_SHA256,
 	});
-	console.log(
-		`buckle: shadow router on http://${server.hostname}:${port}` +
-			` (4100 refused by design${rootKey ? ", root-keyed" : ", NO ROOT KEY — mint nothing"})`,
+	if (!overlay.ok && overlay.why !== "unset")
+		throw new Error(`overlay refused: ${overlay.why}`);
+	const adaptation = overlay.ok
+		? overlayModuleAdaptation(overlay.module)
+		: undefined;
+	if (overlay.ok)
+		console.log(
+			`buckle: overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
+				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)`,
+		);
+	return startServer({
+		port,
+		...(rootKey || adaptation
+			? {
+					auth: {
+						...(rootKey ? { rootKey } : {}),
+						...(adaptation ? { adaptation } : {}),
+					},
+				}
+			: {}),
+	});
+}
+
+/** Entry: bind the shadow port, log the guard. */
+export function main(): void {
+	void boot().then((server) =>
+		console.log(
+			`buckle: shadow router on http://${server.hostname}:${server.port}` +
+				` (4100 refused by design, root ${process.env.BUCKLE_ROOT_KEY ? "keyed" : "unset"})`,
+		),
 	);
 }
+
+if (import.meta.main) main();
 
 if (import.meta.main) main();

@@ -71,6 +71,9 @@ describe("fragmentConf exposure", () => {
 		expect(f).not.toContain("@external");
 		expect(f).toContain("forward_auth http://127.0.0.1:9091 {");
 		expect(f).toContain("uri /api/verify?rd=x");
+		expect(f).toContain(
+			"copy_headers Remote-User Remote-Groups Remote-Email Remote-Name X-KLH-Identity X-KLH-Identity-Sig",
+		);
 		expect(() => fragmentConf("belt", 7791, [], { lan: true })).toThrow();
 	});
 
