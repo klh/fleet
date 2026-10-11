@@ -30,6 +30,8 @@ import {
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+import { ANSI, BIN, composeBrief } from "./lib/brief.ts";
+export { composeBrief };
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -70,7 +72,6 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
-import { condensePrompt } from "../hooks/board/prompt-transform.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
@@ -193,7 +194,6 @@ const SHOW_CAPSULE = val("--show-capsule");
 // SUSPENDERS_RESUME_RETAKE=on + the freshness fence. Default OFF —
 // doctrine stays fresh lane + capsule.
 const RESUME_FROM = val("--resume-from");
-const BIN = `${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin`;
 const FLEET = `${REPO}/.fleet`;
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
@@ -271,8 +271,6 @@ const log = (msg: string): void => {
 };
 const loadLanes = (): Lane[] => loadLaneRegistry<Lane>(FLEET);
 const saveLanes = (lanes: Lane[]): void => mergeLaneRegistry(FLEET, lanes);
-
-const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /** parse `work ready` rows (renderRow format, ANSI-stripped): glyph, id,
  *  truncated title, and the `⟨needs …⟩` capability suffix (W619 — the
@@ -392,97 +390,6 @@ export const itemCapsuleGet = (item: string): Record<string, string> | null =>
 /** the mission brief. Everything a headless lane needs: full item spec,
  *  capsule protocol, landing chain, sid + how it gets resumed. Resume runs
  *  embed the dead lane's last capsule as RESUME CONTEXT. */
-export const composeBrief = (o: {
-	item: string;
-	showOut: string;
-	sid: string;
-	branch: string;
-	worktree: string;
-	capsule: Record<string, string> | null;
-	/** W617: item-scoped capsule — injected for ANY claimer, not just the
-	 *  reused sid. */
-	itemCapsule?: Record<string, string> | null;
-	repo?: string;
-	aids?: string[];
-	extra?: string[];
-	agent?: string;
-	/** Archived-origin guard (the W428 lesson): set when the item's origin
-	 *  is archived — the brief redirects the landing to the living repo. */
-	landing?: string;
-}): string => {
-	const parts = [
-		`You are lane "${o.sid}", Work Graph item ${o.item}, repo ${o.repo ?? REPO}. English only.`,
-		``,
-		`IDENTITY: executor ${o.agent ?? "claude"}. [HUB] prefixes are labels — traffic routes through that hub's gateway.`,
-		``,
-		`MISSION (from work show):`,
-		// W334 caveman tier at the source: the lane's actual prompt text gets
-		// the condense pass (filler/meta/dedupe, technical surface masked).
-		condensePrompt(o.showOut.replace(ANSI, "").trim()),
-		``,
-		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
-		`FORMAT: Read the nearest .qlty/qlty.toml and Biome config, and match adjacent code. Use qlty fmt on changed files before final checks, tests and commit; never manually chase formatter wrapping. Successful auto-formatting is advisory: re-read only before editing that file again.`,
-		// W417.2: the inbox contract rides EVERY brief — one line, all executors.
-		// Claude lanes get the same contract pushed at session bootstrap; non-claude
-		// executors get no hooks, so THIS line is their delivery. Push feed = the
-		// spawn/bootstrap-attached coord subscribe (W303, idempotent per sid).
-		`INBOX CONTRACT (WS-first): your inbox pushes over one live coord subscribe — attached at spawn/bootstrap, idempotent per sid, its feed tails into ~/.claude-insights/coord-subscribe-${o.sid}.log (read it with tail). The pull path works on EVERY executor: bun ${BIN}/coord.ts inbox --as ${o.sid}. Check both before planning and again before finishing — coordinator and board messages arrive there.`,
-		`COLLABORATION: after a second unchanged failure or an interface conflict, consult one relevant expert: bun ${BIN}/coord.ts consult --best "<command, error, attempts, precise question>" --scope "<package/path>" --as ${o.sid}. Inspect evidence before acting; avoid fleet-wide broadcasts. If no expert or no answer within 60 seconds, retain evidence in the capsule, continue independent work and request a decision before another unchanged attempt.`,
-		`Reply with answer, evidence, applicability and next action. After trying an answer: bun ${BIN}/coord.ts consult-reply <Cnumber> --feedback resolved|failed|unused --evidence "<command and observed result>" --as ${o.sid}. Only verified answers at the same project, scope and code version are reused.`,
-		`REPORT VERDICTS: any report-shaped output — review, QA pass, consult answer, paired-lane findings — ends with ONE machine-parseable verdict line, never paraphrased: review = VERDICT: PASS | VERDICT: FAIL - <reason> · critique = APPROVED | NEEDS REVISION - <reason> · gap analysis = CLEAR | GAPS_FOUND - <detail> | INSUFFICIENT_CONTEXT. Parents regex the final line, not the prose.`,
-		`Work in the EXISTING worktree ${o.worktree} (branch ${o.branch}).`,
-		``,
-		`CAPSULE PROTOCOL — resumable lanes: at every work-unit boundary (a gate passed, a commit landed, before any pause) bank a ≤10-line capsule:`,
-		`  bun ${BIN}/coord.ts capsule set --as ${o.sid} --checkpoint=<branch-head-sha|none> --file="<anchor path:line>" --done="<done so far>" --next="<next step>"`,
-		`The LAST capsule stands as the hand-off: if this lane dies, the next dispatch resumes from it. A stale or missing capsule strands the work.`,
-		``,
-		`RESUME PATH: while your process is alive you are reachable via your sid — it is the item's owner_sid on the graph, and coord inbox --as ${o.sid} reaches you. If you die mid-item, the fleet loop re-dispatches the SAME sid, reads your latest capsule, and returns it below as RESUME CONTEXT. Reconcile with it and the worktree state — never restart blind.`,
-		``,
-		`LANDING CHAIN (all three, in order):`,
-		`1. commit on ${o.branch} (subject starts with the item id) — land a checkpoint commit early; a zero-commit branch is indistinguishable from debris to the reaper.`,
-		...(o.landing ? [o.landing] : []),
-		`2. bun ${BIN}/work.ts done ${o.item} --sha <branch-head> --as ${o.sid}`,
-		`3. bun ${BIN}/coord.ts fact set finding.${o.item.toLowerCase()} --text "<one-line headline + how to verify>" --source ${o.sid}`,
-		``,
-		`IDENTITY: prefix every progress note, inbox reply and your final report lines with [${o.item}] plus a locality tag when it aids scanning — [${o.item}·local], [${o.item}·remote], [${o.item}·sim], [${o.item}·buckle] — the owner's agent list shows your live activity text, and the id is what ties it to the graph. Humans deep-link your item on the fleet board as #task=${o.item}${process.env.FLEET_BOARD_URL ? ` (full URL: ${process.env.FLEET_BOARD_URL}/#task=${o.item})` : ""}; include the link in your final report.`,
-		`CRAFT: ≤25-line anchored edits per write (content gate parse-checks; splice via /tmp chunks for larger); build verify every ~3rd edit; GUI deliverables get a headless-Chrome render-and-look pass against the LIVE surface with real data — report what you saw; evidence before claims, always.`,
-		`VOICE (owner law 2026-10-03): terse — no preamble, no restating the task, no filler; minimal prose in commits, progress notes, questions and .klh-done.md. Tokens spent on prose are tokens not spent on work.`,
-		``,
-		`Final: DONE <sha> | SPLIT ${o.item} | BLOCKED (after 3 honest attempts, tree restored).`,
-	];
-	// W146 interfaces: down = knowledge interfaces + aids placeholder for the
-	// child lane; extra = supervisor context lines appended verbatim.
-	if (o.aids?.length) {
-		parts.push(
-			``,
-			`AIDS (knowledge interfaces):`,
-			...o.aids.map((a) => `  - ${a}`),
-		);
-	}
-	if (o.extra?.length) parts.push(``, ...o.extra);
-	if (o.capsule) {
-		parts.push(
-			``,
-			`RESUME CONTEXT — latest capsule from a previous run of this lane (reconcile with the worktree + item state before continuing):`,
-			JSON.stringify(o.capsule),
-		);
-	}
-	// W617: the item capsule rides for any claimer — skipped when identical
-	// to the lane capsule (a same-sid resume would otherwise print it twice
-	// and the brief-size gate notices).
-	if (
-		o.itemCapsule &&
-		JSON.stringify(o.itemCapsule) !== JSON.stringify(o.capsule)
-	) {
-		parts.push(
-			``,
-			`RESUME CONTEXT — item capsule from a previous lane on this item (any claimer; reconcile with the worktree + item state before continuing):`,
-			JSON.stringify(o.itemCapsule),
-		);
-	}
-	return parts.join("\n");
-};
-
 // W460: sidOf is the legacy-named alias of the canonical laneSid —
 // dispatch/supervise/fleet-loop/board must never derive sids independently
 export const sidOf = laneSid;

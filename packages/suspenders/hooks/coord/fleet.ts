@@ -29,6 +29,13 @@ import {
 } from "./shared.ts";
 import type { Database, Ev } from "./shared.ts";
 import { formatEventLine } from "./bus.ts";
+import { homedir } from "node:os";
+import {
+	type BriefWeight,
+	buckleLaneTokens,
+	type LaneTokens,
+	measureBriefWeight,
+} from "../../scripts/lib/brief-weight.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -364,10 +371,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	if (ledger) {
 		try {
 			costs = itemSpend(
-				laneSpendRows(
-					ledger,
-					`${new Date(cut).toISOString().slice(0, 13)}:00`,
-				),
+				laneSpendRows(ledger, `${new Date(cut).toISOString().slice(0, 13)}:00`),
 				claimWindows(db as Database, project, now).windows,
 			);
 		} catch {
@@ -381,8 +385,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			: n >= 1e3
 				? `${Math.round(n / 1e3)}k`
 				: `${n}`;
-	const totalTok = (c: ItemSpend): number =>
-		c.in + c.out + c.cacheR + c.cacheC;
+	const totalTok = (c: ItemSpend): number => c.in + c.out + c.cacheR + c.cacheC;
 	let sumIn = 0;
 	let sumOut = 0;
 	let tokN = 0;
@@ -438,10 +441,28 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			);
 			if (costStats.groups.length)
 				console.log(
-					`    ${costStats.groups.slice(0, 5).map(([g, tok]) => `${g} ${fmtTok(tok)}`).join(" · ")}`,
+					`    ${costStats.groups
+						.slice(0, 5)
+						.map(([g, tok]) => `${g} ${fmtTok(tok)}`)
+						.join(" · ")}`,
 				);
 		}
 	}
+	// W633 brief weight: the per-dispatch instruction injection (brief
+	// boilerplate + AGENTS.md chain + machine harness) and the REAL per-lane
+	// in_tok from the buckle ledger — the weight audit, reportable per run.
+	const bw = await briefWeight(days);
+	if (bw) console.log(bw.line);
+	if (bw?.laneTok?.length)
+		console.log(
+			`  buckle in_tok/req 30d: ${bw.laneTok
+				.slice(0, 3)
+				.map(
+					(l) =>
+						`${l.lane.replace(/-p98b.*$/, "")} ${fmtTok(Math.round(l.inTok / Math.max(1, l.reqs)))}`,
+				)
+				.join(" · ")} (${bw.laneTok.length} lanes)`,
+		);
 	// dwell: PAUSED windows are evented (paused → resume_ready); WAIT_RATE /
 	// WAIT_DED leave no event trail, so ongoing dwell = now − lane.<sid>.state
 	// fact ts (the only state history facts keep is their own last ts).
@@ -533,9 +554,16 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 		failed,
 		costItems: costStats?.costed,
 		medianItemSpendTok: costStats?.median,
-		costByGroup: costStats
-			? Object.fromEntries(costStats.groups)
-			: undefined,
+		costByGroup: costStats ? Object.fromEntries(costStats.groups) : undefined,
+		brief_weight: bw && {
+			brief: bw.w.brief,
+			brief_chars: bw.w.briefChars,
+			root_agents: bw.w.rootAgents,
+			pkg_max: bw.w.pkgAgents[0] ?? null,
+			harness: bw.w.harness,
+			per_lane_static_tok: bw.w.perLaneStaticTok,
+			buckle_lanes_30d: bw.laneTok.length,
+		},
 	};
 	const snapKey = `metrics.snapshot.${new Date(now).toISOString().slice(0, 10)}`;
 	db.query(
@@ -543,6 +571,33 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	).run(snapKey, JSON.stringify(snap), now);
 	console.log(`  ${dim(`snapshot → ${snapKey}`)}`);
 }
+
+/** W633: the brief+protocol weight line + per-lane real in_tok from the
+ *  buckle ledger (BUCKLE_DB or the spoke default path). Null when the
+ *  composer cannot load (non-fleet runs) — the section is omitted, never
+ *  faked. */
+async function briefWeight(
+	days: number,
+): Promise<{ w: BriefWeight; line: string; laneTok: LaneTokens[] } | null> {
+	const fleetTree = resolve(import.meta.dir, "..", "..", "..", "..");
+	const w = await measureBriefWeight(fleetTree);
+	if (!w) return null;
+	const pkg = w.pkgAgents[0];
+	const parts = [
+		`brief ${w.brief}`,
+		w.rootAgents ? `agents-root ${w.rootAgents}` : null,
+		pkg
+			? `pkg-max ${pkg.tok} (${pkg.file.replace("packages/", "").replace("/AGENTS.md", "")})`
+			: null,
+		w.harness ? `harness ${w.harness}` : null,
+	];
+	const line = `  brief weight (W633, approx tok): ${parts.filter(Boolean).join(" · ")} ⇒ ${w.perLaneStaticTok}/lane`;
+	const laneTok = buckleLaneTokens(buckleDbPath(), days);
+	return { w, line, laneTok };
+}
+
+const buckleDbPath = (): string =>
+	process.env.BUCKLE_DB || `${homedir()}/.claude/local-llm/buckle.db`;
 
 export async function cmdDoctorSession(rest: string[]): Promise<void> {
 	// rebind integrity: NO live coordination state may point at a closed
