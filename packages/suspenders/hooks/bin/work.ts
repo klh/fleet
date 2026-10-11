@@ -8,23 +8,7 @@
 // goes through get/setState/deps, which own the project bind; the only
 // exception is take's CAS, which needs the state guard in its WHERE.
 //
-// usage:
-//   work add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]
-//   work list [open|ready|all] / work ready / work mine --as <sid> / work owned
-//   work show <id>
-//   work take <id> --as <sid>            (CAS: READY → CLAIMED; refuses taken/unmet-deps/foreign-project)
-//   work release <id> --as sid           (CLAIMED/RUNNING → READY; owner-verified; releases the scope claim)
-//   work start <id> [--as sid]           (CLAIMED → RUNNING; owner-verified when --as given)
-//   work done <id> [--as sid] --sha <sha> (→ DONE; owner-verified when --as given; rolls SHATTERED parents up)
-//   work fail <id> --note "why"
-//   work cancel <id> --note "reason"     (close unfinished work — W182)
-//   work split <id> "t1" "t2" ... --reason independent-scopes [--keep N] [--plan <itemId>]
-//   work migrate-ledger <path>            (ingest a Markdown ledger's unresolved items)
-//   work block <id> --on <id2>           / work unblock <id> --on <id2>   (cycle-checked)
-//   work supersede <id> --by <new-id>
-//   work orphaned                        / work reclaim <id>|all
-//   work allocate [--apply] [--json] [--capacity N]   (W515 allocation scorer + rebalance)
-//
+// usage: GENERATED from the verb registry — `work --help`, `work <verb> --help`.
 // workgraph mirror (beads-inspired): mutations re-export <repo>/.workgraph.jsonl
 // (atomic, best-effort); reads fall back to the committed mirror when
 // governor.db cannot serve the project — fresh clone / DB unreachable.
@@ -69,42 +53,15 @@ import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import {
+	defineVerb,
+	dieFor,
+	runCli,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
-const die = (m: string): never => {
-	console.error(`work: ${m}`);
-	process.exit(2);
-};
-
-const [cmd, ...rest] = process.argv.slice(2);
-
-// bare --help/-h or no verb wins before any parsing that could create state
-// (`verb --help` falls through to the spec block for per-verb help)
-if (!cmd || cmd === "--help" || cmd === "-h") {
-	if (cmd) {
-		console.log(
-			"work — hierarchical shatterable work graph. add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim <id>|all | extend <id> --for <dur> | migrate-ledger",
-		);
-		process.exit(0);
-	}
-	console.error("usage: work <command> [args] — try `work --help`");
-	process.exit(2);
-}
-
-// ---- declarative per-command schema -------------------------------------
-// One row per subcommand: the value-taking flags it recognizes, the minimum
-// number of positionals, required flags, and the usage line die'd on
-// violation. parseArgs() is generic; handlers read what it returns. `lax`
-// commands (list, mine, owned, orphaned) take no positionals and ignore
-// unknown options — they predate strict parsing and nothing they read is
-// flag-shaped.
-type Spec = {
-	flags: string[];
-	switches?: string[];
-	minPos: number;
-	reqFlags: string[];
-	usage: string;
-	lax?: boolean;
-};
+const die = dieFor("work");
 
 // vocabulary shared by the item commands: option-looking tokens are never
 // content — a known flag consumes its value, unknown ones die
@@ -124,174 +81,160 @@ const ITEM_FLAGS = [
 	"--requires",
 ];
 const CAPS = new Set(CAPABILITIES);
-const SCHEMA: Record<string, Spec> = {
-	add: {
-		flags: ITEM_FLAGS,
+
+// ---- the verb registry (W651) -------------------------------------------
+// ONE declaration per verb — hooks/lib/verb-kit.ts owns argv parsing (the
+// Bun strips-`--` reality baked in), per-verb --help, the unknown-command
+// try-list and top-level help. Add a verb = one defineVerb entry here
+// (+ a branch in dispatchVerb below).
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "add",
+		usage:
+			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]',
+		flags: [...ITEM_FLAGS],
 		minPos: 1,
-		reqFlags: [],
-		usage: `usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]`,
-	},
-	list: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	ready: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	mine: {
-		flags: ["--as"],
-		minPos: 0,
-		reqFlags: ["--as"],
-		usage: "usage: mine --as <sid>",
+	}),
+	defineVerb({
+		name: "list",
 		lax: true,
-	},
-	owned: { flags: [], minPos: 0, reqFlags: [], usage: "", lax: true },
-	show: {
+	}),
+	defineVerb({
+		name: "ready",
+		lax: true,
+	}),
+	defineVerb({
+		name: "mine",
+		usage: "usage: mine --as <sid>",
+		flags: ["--as"],
+		reqFlags: ["--as"],
+		lax: true,
+	}),
+	defineVerb({
+		name: "owned",
+		lax: true,
+	}),
+	defineVerb({
+		name: "show",
+		usage: "usage: show <id> [--json]",
 		flags: [...ITEM_FLAGS, "--json"],
 		switches: ["--json"],
 		minPos: 1,
-		reqFlags: [],
-		usage: "usage: show <id> [--json]",
-	},
-	stats: {
-		flags: [],
-		minPos: 0,
-		reqFlags: [],
+	}),
+	defineVerb({
+		name: "stats",
 		usage: "usage: stats (project-scoped JSON progress snapshot)",
-	},
-	take: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--as"],
+	}),
+	defineVerb({
+		name: "take",
 		usage: "usage: take <id> --as <sid> [--origin <host:agent>]",
-	},
-	release: {
-		flags: ITEM_FLAGS,
+		flags: [...ITEM_FLAGS],
 		minPos: 1,
 		reqFlags: ["--as"],
+	}),
+	defineVerb({
+		name: "release",
 		usage: "usage: release <id> --as <sid>",
-	},
-	start: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	summary: {
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
+		reqFlags: ["--as"],
+	}),
+	defineVerb({
+		name: "start",
+		flags: [...ITEM_FLAGS],
+	}),
+	defineVerb({
+		name: "summary",
+		usage: "usage: summary <id> [--json]",
 		flags: ["--json"],
 		switches: ["--json"],
 		minPos: 1,
-		reqFlags: [],
-		usage: "usage: summary <id> [--json]",
-	},
-	done: {
+	}),
+	defineVerb({
+		name: "done",
+		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
 		flags: [...ITEM_FLAGS, "--summary"],
 		minPos: 1,
-		reqFlags: [],
-		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
-	},
-	fail: { flags: ITEM_FLAGS, minPos: 0, reqFlags: [], usage: "" },
-	cancel: {
-		flags: ITEM_FLAGS,
+	}),
+	defineVerb({
+		name: "fail",
+		flags: [...ITEM_FLAGS],
+	}),
+	defineVerb({
+		name: "cancel",
+		usage: 'usage: cancel <id> --note "reason"',
+		flags: [...ITEM_FLAGS],
 		minPos: 1,
 		reqFlags: ["--note"],
-		usage: `usage: cancel <id> --note "reason"`,
-	},
-	supersede: {
-		flags: ITEM_FLAGS,
+	}),
+	defineVerb({
+		name: "supersede",
+		usage: "usage: supersede <id> --by <new-id>",
+		flags: [...ITEM_FLAGS],
 		minPos: 1,
 		reqFlags: ["--by"],
-		usage: "usage: supersede <id> --by <new-id>",
-	},
-	block: {
-		flags: ITEM_FLAGS,
-		minPos: 1,
-		reqFlags: ["--on"],
+	}),
+	defineVerb({
+		name: "block",
 		usage: "usage: block <id> --on <other-id>",
-	},
-	unblock: {
-		flags: ITEM_FLAGS,
+		flags: [...ITEM_FLAGS],
 		minPos: 1,
 		reqFlags: ["--on"],
+	}),
+	defineVerb({
+		name: "unblock",
 		usage: "usage: unblock <id> --on <id2>",
-	},
-	split: {
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
+		reqFlags: ["--on"],
+	}),
+	defineVerb({
+		name: "split",
+		usage:
+			'usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]',
 		flags: ["--reason", "--keep", "--plan"],
 		minPos: 3,
 		reqFlags: ["--reason"],
-		usage: `usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]`,
-	},
-	orphaned: {
+	}),
+	defineVerb({
+		name: "orphaned",
+		usage: "usage: orphaned [--item <id>] [--json]",
 		flags: ["--item", "--json"],
 		switches: ["--json"],
-		minPos: 0,
-		reqFlags: [],
-		usage: "usage: orphaned [--item <id>] [--json]",
-	},
-	lanes: { flags: ["--json", "--fleet"], minPos: 0, reqFlags: [], usage: "" },
-	reclaim: {
+	}),
+	defineVerb({
+		name: "lanes",
+		flags: ["--json", "--fleet"],
+	}),
+	defineVerb({
+		name: "reclaim",
+		usage:
+			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
 		switches: ["--json"],
 		minPos: 1,
-		reqFlags: [],
+	}),
+	defineVerb({
+		name: "extend",
 		usage:
-			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
-	},
-	extend: {
+			"usage: extend <id> [--as sid] --for <duration> (45m | 2h | 90s; max 24h) — hold `reclaim all` off a CLAIMED/RUNNING item for a known-long op",
 		flags: [...ITEM_FLAGS, "--for"],
 		minPos: 1,
 		reqFlags: ["--for"],
-		usage:
-			"usage: extend <id> [--as sid] --for <duration> (45m | 2h | 90s; max 24h) — hold `reclaim all` off a CLAIMED/RUNNING item for a known-long op",
-	},
-	allocate: {
-		flags: ["--apply", "--json", "--capacity", "--fleet"],
-		switches: ["--apply", "--json"],
-		minPos: 0,
-		reqFlags: [],
+	}),
+	defineVerb({
+		name: "allocate",
 		usage:
 			"usage: allocate [--apply] [--json] [--capacity N] [--fleet <path>] — score READY work × lanes; decisions {assign|recommend}; --apply claims only the assign kind",
-	},
-};
-
-const spec = SCHEMA[cmd];
-if (!spec)
-	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | extend | migrate-ledger",
-	);
-
-// per-verb help: semantics live on the surface, not in source-diving —
-// `work <verb> --help` prints the verb's usage + flags from its SCHEMA spec
-if (rest.includes("--help") || rest.includes("-h")) {
-	if (spec.usage) console.log(spec.usage);
-	if (spec.flags.length) console.log(`  flags: ${spec.flags.join(" ")}`);
-	process.exit(0);
-}
-
-// generic parse + validate: known flags consume their value (first occurrence
-// wins, a trailing flag yields null), everything non-flag is a positional.
-// Violations die with the command's usage line — before any state is touched.
-function parseArgs(spec: Spec): {
-	pos: string[];
-	flag: (name: string) => string | null;
-} {
-	const pos: string[] = [];
-	const vals = new Map<string, string | null>();
-	for (let i = 0; i < rest.length; i++) {
-		if (spec.switches?.includes(rest[i])) {
-			vals.set(rest[i], "true");
-			continue;
-		}
-		if (spec.flags.includes(rest[i])) {
-			if (!vals.has(rest[i])) vals.set(rest[i], rest[i + 1] ?? null);
-			i++;
-			continue;
-		}
-		if (rest[i].startsWith("--")) {
-			if (spec.lax) continue;
-			die(`unknown option: ${rest[i]}`);
-		}
-		pos.push(rest[i]);
-	}
-	if (
-		pos.length < spec.minPos ||
-		spec.reqFlags.some((f) => !vals.has(f) || vals.get(f) === null)
-	)
-		die(spec.usage);
-	return { pos, flag: (name: string): string | null => vals.get(name) ?? null };
-}
-
-const { pos, flag } = parseArgs(spec);
+		flags: ["--apply", "--json", "--capacity", "--fleet"],
+		switches: ["--apply", "--json"],
+	}),
+	defineVerb({
+		name: "migrate-ledger",
+		usage: "usage: migrate-ledger <path>",
+		minPos: 1,
+	}),
+];
 
 // LAZY DB open with per-command routing (was a module-top openGovernorDb()):
 // mutators need the real DB — die with a hint when it is unreachable; readers
@@ -299,10 +242,11 @@ const { pos, flag } = parseArgs(spec);
 // partition counts as unreachable for readers: items are never deleted, so
 // zero rows means this machine's DB has never seen this project's graph
 // (fresh clone / worktree on a new machine — the beads use case).
+let VERB = ""; // current verb — set by the kit onVerb hook
 let handle: GovernorStore | undefined;
 function db(): GovernorStore {
 	if (handle) return handle;
-	const isRead = READ_CMDS.has(cmd);
+	const isRead = READ_CMDS.has(VERB);
 	let d: GovernorStore;
 	try {
 		d = openStore();
@@ -692,785 +636,805 @@ function resolveSid(as: string): string {
 	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
 	return as;
 }
-if (cmd === "add") {
-	const title = pos[0];
-	if (!title)
-		die(
-			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]',
-		);
-	const parent = flag("--parent");
-	const scope = flag("--scope");
-	const priority = Number(flag("--priority") ?? 0);
-	const by = flag("--by") ?? "unknown";
-	const requires = flag("--requires");
-	if (requires) {
-		const bad = requires.split(",").filter((c) => !CAPS.has(c.trim()));
-		if (bad.length)
+const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
+	if (name === "add") {
+		const title = pos[0];
+		if (!title)
 			die(
-				`unknown capability: ${bad.join(",")} — vocabulary: ${[...CAPS].join(",")}`,
+				'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]',
 			);
-	}
-	const id = parent ? nextChildId(parent) : nextRootId();
-	if (parent) get(parent);
-	insertItem(
-		id,
-		parent,
-		title,
-		scope,
-		priority,
-		by,
-		flag("--reason"),
-		requires
-			? requires
-					.split(",")
-					.map((c) => c.trim())
-					.join(",")
-			: null,
-		flag("--desc"),
-	);
-	emit("work.added", id, { scope: scope ?? "" });
-	console.log(
-		`${green("✓")} ${cyan(id)} ${dim("READY")} — ${title} ${dim(`[project: ${PROJECT}]`)}`,
-	);
-} else if (cmd === "list" || cmd === "ready") {
-	const mode = cmd === "ready" ? "ready" : (rest[0] ?? "open");
-	let rows: Item[];
-	const unmergedNotes: string[] = [];
-	if (mode === "ready") {
-		const all = db()
-			.query(
-				"SELECT * FROM work_items WHERE project = ? AND state = 'READY' ORDER BY priority DESC, id",
-			)
-			.all(PROJECT) as Item[];
-		rows = all.filter((r) => depsMet(r.id as string));
-		for (const r of all) {
-			if (rows.includes(r)) continue;
-			const note = unmergedNote(deps(r.id as string), PROJECT);
-			if (note) unmergedNotes.push(`${note} — ${r.id} stays gated`);
+		const parent = flag("--parent");
+		const scope = flag("--scope");
+		const priority = Number(flag("--priority") ?? 0);
+		const by = flag("--by") ?? "unknown";
+		const requires = flag("--requires");
+		if (requires) {
+			const bad = requires.split(",").filter((c) => !CAPS.has(c.trim()));
+			if (bad.length)
+				die(
+					`unknown capability: ${bad.join(",")} — vocabulary: ${[...CAPS].join(",")}`,
+				);
 		}
-	} else if (mode === "all") {
-		rows = db()
-			.query("SELECT * FROM work_items WHERE project = ? ORDER BY id")
-			.all(PROJECT) as Item[];
-	} else {
-		rows = db()
+		const id = parent ? nextChildId(parent) : nextRootId();
+		if (parent) get(parent);
+		insertItem(
+			id,
+			parent,
+			title,
+			scope,
+			priority,
+			by,
+			flag("--reason"),
+			requires
+				? requires
+						.split(",")
+						.map((c) => c.trim())
+						.join(",")
+				: null,
+			flag("--desc"),
+		);
+		emit("work.added", id, { scope: scope ?? "" });
+		console.log(
+			`${green("✓")} ${cyan(id)} ${dim("READY")} — ${title} ${dim(`[project: ${PROJECT}]`)}`,
+		);
+	} else if (name === "list" || name === "ready") {
+		const mode = name === "ready" ? "ready" : (rest[0] ?? "open");
+		let rows: Item[];
+		const unmergedNotes: string[] = [];
+		if (mode === "ready") {
+			const all = db()
+				.query(
+					"SELECT * FROM work_items WHERE project = ? AND state = 'READY' ORDER BY priority DESC, id",
+				)
+				.all(PROJECT) as Item[];
+			rows = all.filter((r) => depsMet(r.id as string));
+			for (const r of all) {
+				if (rows.includes(r)) continue;
+				const note = unmergedNote(deps(r.id as string), PROJECT);
+				if (note) unmergedNotes.push(`${note} — ${r.id} stays gated`);
+			}
+		} else if (mode === "all") {
+			rows = db()
+				.query("SELECT * FROM work_items WHERE project = ? ORDER BY id")
+				.all(PROJECT) as Item[];
+		} else {
+			rows = db()
+				.query(
+					"SELECT * FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
+				)
+				.all(PROJECT) as Item[];
+		}
+		console.log(rows.map(renderRow).join("\n") || dim("(none)"));
+		for (const n of unmergedNotes) console.log(dim(`  ${n}`));
+	} else if (name === "mine") {
+		const as = flag("--as");
+		if (!as) die("usage: mine --as <sid>");
+		const rows = db()
 			.query(
-				"SELECT * FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
+				"SELECT * FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
+			)
+			.all(PROJECT, as) as Item[];
+		console.log(
+			rows.length ? rows.map(renderRow).join("\n") : dim("(nothing owned)"),
+		);
+	} else if (name === "owned") {
+		const rows = db()
+			.query(
+				"SELECT * FROM work_items WHERE project = ? AND owner_sid IS NOT NULL AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY owner_sid, id",
 			)
 			.all(PROJECT) as Item[];
-	}
-	console.log(rows.map(renderRow).join("\n") || dim("(none)"));
-	for (const n of unmergedNotes) console.log(dim(`  ${n}`));
-} else if (cmd === "mine") {
-	const as = flag("--as");
-	if (!as) die("usage: mine --as <sid>");
-	const rows = db()
-		.query(
-			"SELECT * FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
-		)
-		.all(PROJECT, as) as Item[];
-	console.log(
-		rows.length ? rows.map(renderRow).join("\n") : dim("(nothing owned)"),
-	);
-} else if (cmd === "owned") {
-	const rows = db()
-		.query(
-			"SELECT * FROM work_items WHERE project = ? AND owner_sid IS NOT NULL AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY owner_sid, id",
-		)
-		.all(PROJECT) as Item[];
-	console.log(rows.map(renderRow).join("\n") || dim("(nothing owned)"));
-} else if (cmd === "stats") {
-	const counts = db()
-		.query(
-			"SELECT state, COUNT(*) AS n FROM work_items WHERE project = ? GROUP BY state",
-		)
-		.all(PROJECT) as { state: string; n: number }[];
-	const done = db()
-		.query(
-			"SELECT MAX(updated_at) AS latest_done FROM work_items WHERE project = ? AND state = 'DONE'",
-		)
-		.get(PROJECT) as { latest_done: number | null };
-	console.log(
-		JSON.stringify({
-			project: PROJECT,
-			counts: Object.fromEntries(counts.map((r) => [r.state, r.n])),
-			latest_done: done.latest_done,
-		}),
-	);
-} else if (cmd === "show") {
-	const id = pos[0];
-	const it = get(id ?? "");
-	if (flag("--json")) {
-		const capRow = db()
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`work.${id}.capsule`) as { value: string } | null;
+		console.log(rows.map(renderRow).join("\n") || dim("(nothing owned)"));
+	} else if (name === "stats") {
+		const counts = db()
+			.query(
+				"SELECT state, COUNT(*) AS n FROM work_items WHERE project = ? GROUP BY state",
+			)
+			.all(PROJECT) as { state: string; n: number }[];
+		const done = db()
+			.query(
+				"SELECT MAX(updated_at) AS latest_done FROM work_items WHERE project = ? AND state = 'DONE'",
+			)
+			.get(PROJECT) as { latest_done: number | null };
 		console.log(
 			JSON.stringify({
-				...it,
-				completion: completionRecord(db(), PROJECT, String(it.id)),
-				capsule: capRow ? JSON.parse(capRow.value) : null,
+				project: PROJECT,
+				counts: Object.fromEntries(counts.map((r) => [r.state, r.n])),
+				latest_done: done.latest_done,
 			}),
 		);
-		process.exit(0);
-	}
-	const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
-	console.log(`${col(g)} ${it.id} ${col(it.state as string)}  ${it.title}`);
-	for (const k of [
-		"scope",
-		"owner_sid",
-		"result_sha",
-		"why_parallel",
-		"requires",
-		"tags",
-		"alloc_reason",
-		"description",
-	] as const) {
-		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
-	}
-	// W617: the item capsule travels with the item, not the lane — printed
-	// here (and injected by composeBrief) so any claimer resumes informed.
-	const cap = db()
-		.query("SELECT value FROM facts WHERE key = ?")
-		.get(`work.${id}.capsule`) as { value: string } | null;
-	if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
-	const kids = db()
-		.query(
-			"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
-		)
-		.all(PROJECT, id) as Item[];
-	if (kids.length) {
-		console.log(dim("  children:"));
-		console.log(kids.map(renderRow).join("\n"));
-	}
-	const d = deps(id ?? "");
-	if (d.length)
-		console.log(
-			dim(
-				`  depends on: ${d.map((x) => `${x.depends_on}(${x.state ?? "?"})`).join(", ")}`,
-			),
-		);
-} else if (cmd === "take") {
-	const id = pos[0];
-	let as = flag("--as");
-	const origin = flag("--origin");
-	if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
-	// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
-	// the owner of record — expand a unique session-sid prefix to the full sid
-	as = resolveSid(as);
-	const it = get(id);
-	// capability-aware dispatch (v2): requires ⊆ capabilities or refuse —
-	// kills the W28/W29-class NO-SHELL dead spawn at the CLI boundary
-	const caps = (
-		(
-			db().query("SELECT capabilities FROM sessions WHERE sid = ?").get(as) as {
-				capabilities: string | null;
-			} | null
-		)?.capabilities ?? ""
-	)
-		.split(",")
-		.filter(Boolean);
-	const missing = ((it.requires as string | null) ?? "")
-		.split(",")
-		.filter(Boolean)
-		.filter((r) => !caps.includes(r));
-	if (missing.length)
-		die(
-			`${id} requires [${missing.join(",")}] — session ${as.slice(0, 8)} advertises [${caps.join(",") || "none"}] — dispatch to a capable agent`,
-		);
-	if (!depsMet(id)) {
-		const unmet = deps(id)
-			.filter((d) => d.state !== "DONE")
-			.map((d) => d.depends_on);
-		const unmerged = unmergedDeps(deps(id), PROJECT).map(
-			(x) => `dep ${x.dep} done but unmerged (sha not on main)`,
-		);
-		die(`${id} has unmet dependencies: ${[...unmet, ...unmerged].join(", ")}`);
-	}
-	// compare-and-set through the ONE assignment gateway (W515): the CAS +
-	// claim coupling + post-lock readiness recheck + alloc_reason audit stamp
-	// happen in a single transaction inside assignTask
-	const claimed = assignTask(db(), PROJECT, {
-		id,
-		sid: as,
-		reason: "manual take",
-		origin: origin ?? null,
-	});
-	if (!claimed.ok)
-		die(
-			claimed.why === "race lost"
-				? `${id} was taken (or is not READY) — race lost, pick another from \`work ready\``
-				: `${id} claim refused: ${claimed.why}`,
-		);
-	console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
-} else if (cmd === "release") {
-	const id = pos[0];
-	const as = flag("--as");
-	if (!id || !as) die("usage: release <id> --as <sid>");
-	const it = get(id);
-	// release is the OWNER's give-up: state and caller are verified — --as is
-	// no longer accepted-then-ignored. Operator override for a foreign/stuck
-	// item stays explicit: `work reclaim`.
-	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
-		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be released`);
-	const owner = resolveSid(as);
-	if (it.owner_sid !== owner)
-		die(
-			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${owner.slice(0, 8)} cannot release it`,
-		);
-	if (!releaseObserved(it, owner, "owner-release"))
-		die(`${id} claim changed — release refused; inspect before retrying`);
-	// W418: an idle owner's WS subscribe is reaped — no unfinished item, no
-	// inbox to push to (subscribe lifecycle rides the work graph)
-	reapIfIdle(db(), owner);
-	console.log(`${cyan("·")} ${dim(`${id} → READY`)}`);
-} else if (cmd === "start") {
-	const id = pos[0];
-	const as = flag("--as");
-	const it = get(id ?? "");
-	// transition guard: only claimed work starts; --as (when given) must be
-	// the owner of record
-	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
-		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can start`);
-	if (as && it.owner_sid !== resolveSid(String(as)))
-		die(
-			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot start it`,
-		);
-	if (it.state !== "RUNNING") setState(id, "RUNNING");
-	console.log(`${green("▶")} ${id}`);
-} else if (cmd === "summary") {
-	const id = pos[0];
-	get(id ?? "");
-	const record = completionRecord(db(), PROJECT, id);
-	if (!record) die(`${id} has no verified permanent completion record`);
-	console.log(flag("--json") ? JSON.stringify(record) : record.summary);
-} else if (cmd === "done") {
-	const id = pos[0];
-	const sha = flag("--sha");
-	const as = flag("--as");
-	if (!id) die("usage: done <id> [--as sid] --sha <sha>");
-	const it = get(id);
-	// transition + ownership guard: stray completions corrupt roll-up — only
-	// CLAIMED/RUNNING work completes, and --as (when given) must be the
-	// owner of record
-	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
-		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be marked done`);
-	if (as && it.owner_sid !== resolveSid(String(as)))
-		die(
-			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
-		);
-	let record: CompletionRecord | null;
-	try {
-		record = prepareCompletion(db(), {
-			project: PROJECT,
-			item: id,
-			sid: String(it.owner_sid ?? as ?? "manual"),
-			cwd: process.cwd(),
-			sha,
-			summary: flag("--summary"),
-		});
-	} catch (error) {
-		die(error instanceof Error ? error.message : String(error));
-	}
-	const tx = db().transaction(() => {
-		if (record) persistCompletion(db(), record);
-		setState(id, "DONE", null, record?.commit_sha ?? sha);
-		emit("work.done", id, {
-			sha: record?.commit_sha ?? sha ?? "",
-			verified: !!record,
-			summary: record?.summary ?? null,
-		});
-		const unblocked = freeDependents(id);
-		releaseClaim(
-			(it.owner_sid as string) ?? "",
-			it.scope as string | null,
-			it.id as string,
-		);
-		return unblocked;
-	});
-	const { freed, gated } = tx();
-	rollUp(id);
-	const p = it.parent_id;
-	if (p) rollUp(p as string);
-	console.log(
-		`${green("✓")} ${cyan(id)} DONE${sha ? ` @${sha.slice(0, 8)}` : ""}`,
-	);
-	if (record) console.log(record.summary);
-	if (freed.length)
-		console.log(
-			`${amber("▶")} startable now: ${cyan(freed.join(", "))} ${dim(`— unblocked by ${id}`)}`,
-		);
-	for (const g of gated)
-		console.log(
-			`${amber("●")} ${g.note} — ${cyan(g.id)} stays gated (W60 dep-merge gate)`,
-		);
-	// W52: retire the item's per-item worktree if it has one (clean → removed,
-	// dirty → kept with a note; branch suspenders/<id> always survives)
-	retireItemWorktree(id);
-	// W418: the item is DONE — when the owner holds nothing else, their WS
-	// inbox connection is reaped (subscribe lifecycle rides the work graph)
-	reapIfIdle(db(), String(it.owner_sid ?? ""));
-} else if (cmd === "fail") {
-	const id = pos[0];
-	const note = flag("--note") ?? "";
-	const as = flag("--as");
-	db().transaction(() => {
+	} else if (name === "show") {
+		const id = pos[0];
 		const it = get(id ?? "");
-		if (
-			as &&
-			(it.owner_sid !== resolveSid(String(as)) ||
-				!["CLAIMED", "RUNNING"].includes(it.state as string))
-		)
-			die(`${id} is not an unfinished claim owned by ${as} — failure refused`);
-		setState(id, "FAILED");
-		emit("work.failed", id, { note });
-	})();
-	console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
-} else if (cmd === "cancel") {
-	// W182 — CANCELLED terminal state: close completely with a required
-	// reason; claim + worktree released safely. Deliberately NOT in rollUp's
-	// satisfied set — a cancelled child keeps its SHATTERED parent open until
-	// reclaimed or superseded (same doctrine as FAILED).
-	const id = pos[0];
-	const note = flag("--note") ?? "";
-	db().transaction(() => {
-		const it = get(id ?? "");
-		if (
-			["DONE", "FAILED", "SUPERSEDED", "CANCELLED", "SHATTERED"].includes(
-				it.state as string,
-			)
-		)
-			die(`${id} is ${it.state} — already closed`);
-		setState(id, "CANCELLED", null);
-		releaseClaim(
-			(it.owner_sid as string) ?? "",
-			it.scope as string | null,
-			it.id as string,
-		);
-		emit("work.cancelled", id, { note });
-	})();
-	console.log(`${dim("⊘")} ${id} CANCELLED${note ? dim(` — ${note}`) : ""}`);
-	retireItemWorktree(id);
-} else if (cmd === "supersede") {
-	const id = pos[0];
-	const byId = flag("--by");
-	if (!id || !byId) die("usage: supersede <id> --by <new-id>");
-	const it = get(id);
-	setState(id, "SUPERSEDED", null, byId);
-	// superseding the last unsatisfied child closes its SHATTERED parent
-	const p = it.parent_id;
-	if (p) rollUp(p as string);
-	console.log(`${dim("■")} ${id} superseded by ${byId}`);
-} else if (cmd === "block") {
-	const id = pos[0];
-	const on = flag("--on");
-	if (!id || !on) die("usage: block <id> --on <other-id>");
-	get(on ?? "");
-	if (reaches(on, id))
-		die(`dependency cycle: ${on} already (transitively) depends on ${id}`);
-	db()
-		.query(
-			"INSERT OR REPLACE INTO work_deps (project, work_id, depends_on) VALUES (?, ?, ?)",
-		)
-		.run(PROJECT, id, on);
-	console.log(`${red("⚠")} ${id} blocked on ${on}`);
-} else if (cmd === "unblock") {
-	const id = pos[0];
-	const on = flag("--on");
-	if (!id || !on) die("usage: unblock <id> --on <id2>");
-	db()
-		.query(
-			"DELETE FROM work_deps WHERE project = ? AND work_id = ? AND depends_on = ?",
-		)
-		.run(PROJECT, id, on);
-	console.log(`${cyan("·")} ${id} unblocked from ${on}`);
-} else if (cmd === "split") {
-	// atomic shatter: parent → SHATTERED, children → READY; the splitter may
-	// keep one child (--keep N, 1-based). Requires why_parallel so splits
-	// answer "why is this parallel work at all".
-	const id = pos[0];
-	const titles = pos.slice(1);
-	const reason = flag("--reason");
-	const keep = Number(flag("--keep") ?? 0);
-	const it = get(id);
-	if (!["READY", "CLAIMED", "RUNNING"].includes(it.state as string))
-		die(`${id} is ${it.state} — only READY/CLAIMED/RUNNING items can shatter`);
-	// split gate (W16): a fan-out beyond 2 children must reference a registered
-	// plan item — the monitor flags drive-by splits, the gate refuses them.
-	// 1-2 child splits stay free. Checked before the transaction: a refusal
-	// must not leave partial state.
-	const plan = flag("--plan");
-	if (titles.length > 2) {
-		if (!plan)
-			die(
-				`split fans out to ${titles.length} children — pass --plan <itemId> (the registered decomposition plan; 1-2 child splits stay free)`,
+		if (flag("--json")) {
+			const capRow = db()
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`work.${id}.capsule`) as { value: string } | null;
+			console.log(
+				JSON.stringify({
+					...it,
+					completion: completionRecord(db(), PROJECT, String(it.id)),
+					capsule: capRow ? JSON.parse(capRow.value) : null,
+				}),
 			);
-		if (
-			!db()
-				.query("SELECT 1 FROM work_items WHERE project = ? AND id = ?")
-				.get(PROJECT, plan)
-		)
-			die(
-				`--plan ${plan} does not exist in this project — register the plan with \`work add\` first`,
-			);
-	}
-	const tx = db().transaction(() => {
-		setState(id, "SHATTERED");
-		let n = 0;
-		for (const t of titles) {
-			const cid = nextChildId(id);
-			// children inherit the parent's capability requirement — a split must
-			// not be able to launder away the dispatch constraint
-			insertItem(
-				cid,
-				id,
-				t,
-				it.scope as string | null,
-				Number(it.priority),
-				it.owner_sid as string,
-				reason,
-				(it.requires as string | null) ?? null,
-			);
-			if (++n === keep) setState(cid, "CLAIMED", it.owner_sid as string);
+			process.exit(0);
 		}
-	});
-	tx();
-	emit("work.shattered", id, { children: String(titles.length), reason });
-	const kids = db()
-		.query(
-			"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
-		)
-		.all(PROJECT, id) as Item[];
-	console.log(
-		`${cyan("⊞")} ${cyan(id)} SHATTERED → ${titles.length} children${keep ? `, child ${keep} kept by ${dim(String(it.owner_sid ?? "").slice(0, 8))}` : ""}`,
-	);
-	console.log(kids.map(renderRow).join("\n"));
-	// W515: decision objects for the minted children (recommend-only — split
-	// never claims; the scorer suggests a lane per unkept child)
-	const unkept = kids
-		.filter((k) => k.state === "READY")
-		.map((k) => String(k.id));
-	if (unkept.length) {
-		const sugg = planAllocation(
-			db(),
-			PROJECT,
-			candidateLanes(db(), loadLaneRegistry(process.cwd()), PROJECT),
-			{ items: unkept },
-		);
-		if (sugg.length)
+		const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
+		console.log(`${col(g)} ${it.id} ${col(it.state as string)}  ${it.title}`);
+		for (const k of [
+			"scope",
+			"owner_sid",
+			"result_sha",
+			"why_parallel",
+			"requires",
+			"tags",
+			"alloc_reason",
+			"description",
+		] as const) {
+			if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
+		}
+		// W617: the item capsule travels with the item, not the lane — printed
+		// here (and injected by composeBrief) so any claimer resumes informed.
+		const cap = db()
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(`work.${id}.capsule`) as { value: string } | null;
+		if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
+		const kids = db()
+			.query(
+				"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
+			)
+			.all(PROJECT, id) as Item[];
+		if (kids.length) {
+			console.log(dim("  children:"));
+			console.log(kids.map(renderRow).join("\n"));
+		}
+		const d = deps(id ?? "");
+		if (d.length)
 			console.log(
-				`${dim("⇢ suggested allocation:")}\n${renderAllocPlan(sugg)}`,
+				dim(
+					`  depends on: ${d.map((x) => `${x.depends_on}(${x.state ?? "?"})`).join(", ")}`,
+				),
 			);
-	}
-} else if (cmd === "orphaned") {
-	// CLAIMED/RUNNING claims with no live evidence — the SAME tri-state the
-	// bulk reaper uses (W610: verdict !== alive lists dead AND unknown so the
-	// operator inspects before per-item reclaim; alive lanes stay out)
-	const item = flag("--item");
-	const lanesBySid = claimantLanes();
-	const rows = db()
-		.query(
-			`SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING')${item ? " AND id = ?" : ""} ORDER BY id`,
+	} else if (name === "take") {
+		const id = pos[0];
+		let as = flag("--as");
+		const origin = flag("--origin");
+		if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
+		// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
+		// the owner of record — expand a unique session-sid prefix to the full sid
+		as = resolveSid(as);
+		const it = get(id);
+		// capability-aware dispatch (v2): requires ⊆ capabilities or refuse —
+		// kills the W28/W29-class NO-SHELL dead spawn at the CLI boundary
+		const caps = (
+			(
+				db()
+					.query("SELECT capabilities FROM sessions WHERE sid = ?")
+					.get(as) as {
+					capabilities: string | null;
+				} | null
+			)?.capabilities ?? ""
 		)
-		.all(...(item ? [PROJECT, item] : [PROJECT])) as Item[];
-	const out = rows.filter((r) => {
-		const owner = String(r.owner_sid ?? "");
-		return (
-			probeClaim(db(), PROJECT, {
-				id: String(r.id),
-				owner,
-				revision: Number(r.updated_at),
-				lane: lanesBySid.get(owner),
-			}).verdict !== "alive"
-		);
-	});
-	console.log(
-		rest.includes("--json")
-			? JSON.stringify(out)
-			: out.length
-				? out.map(renderRow).join("\n")
-				: dim("(no orphans)"),
-	);
-} else if (cmd === "lanes") {
-	// THE lane-liveness surface (2026-10-05): one honest audit of
-	// .fleet/lanes.json — process-identity + worktree cwd for local lanes,
-	// transcript freshness for host/remote lanes (never permanent trust).
-	// --json for dispatch-next/fleet-loop; text for humans.
-	const readRegistry =
-		flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
-			? loadLaneRegistryFile
-			: loadLaneRegistry;
-	const entries = readRegistry<{
-		sid: string;
-		item: string;
-		pid?: number;
-		worktree?: string;
-		host?: string;
-		launchedAt?: number;
-	}>(flag("--fleet") ?? process.cwd());
-
-	const audit = entries.map((l) => ({
-		sid: l.sid,
-		item: l.item,
-		live: laneAlive(l),
-		host: l.host ?? null,
-	}));
-	if (flag("--json") !== undefined) {
-		console.log(JSON.stringify(audit));
-	} else {
-		for (const a of audit)
-			console.log(
-				`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
+			.split(",")
+			.filter(Boolean);
+		const missing = ((it.requires as string | null) ?? "")
+			.split(",")
+			.filter(Boolean)
+			.filter((r) => !caps.includes(r));
+		if (missing.length)
+			die(
+				`${id} requires [${missing.join(",")}] — session ${as.slice(0, 8)} advertises [${caps.join(",") || "none"}] — dispatch to a capable agent`,
 			);
-	}
-} else if (cmd === "allocate") {
-	// W515: allocation scorer + decision-object rebalance (oh-my-codex lift);
-	// scorer/planner details in lib/work-alloc.ts. PURE unless --apply, which
-	// claims ONLY the assign kind through assignTask(). In NEITHER cmd set:
-	// the plan needs sessions/events (no mirror fallback), and a pure plan
-	// must not re-export the mirror ("reads never write").
-	const readRegistry =
-		flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
-			? loadLaneRegistryFile
-			: loadLaneRegistry;
-	const entries = readRegistry<{
-		sid: string;
-		item: string;
-		pid?: number;
-		worktree?: string;
-		host?: string;
-		launchedAt?: number;
-	}>(flag("--fleet") ?? process.cwd());
-	const decisions = planAllocation(
-		db(),
-		PROJECT,
-		candidateLanes(db(), entries, PROJECT),
-		{ capacity: Number(flag("--capacity") ?? 1) },
-	);
-	if (flag("--json")) console.log(JSON.stringify(decisions));
-	else
+		if (!depsMet(id)) {
+			const unmet = deps(id)
+				.filter((d) => d.state !== "DONE")
+				.map((d) => d.depends_on);
+			const unmerged = unmergedDeps(deps(id), PROJECT).map(
+				(x) => `dep ${x.dep} done but unmerged (sha not on main)`,
+			);
+			die(
+				`${id} has unmet dependencies: ${[...unmet, ...unmerged].join(", ")}`,
+			);
+		}
+		// compare-and-set through the ONE assignment gateway (W515): the CAS +
+		// claim coupling + post-lock readiness recheck + alloc_reason audit stamp
+		// happen in a single transaction inside assignTask
+		const claimed = assignTask(db(), PROJECT, {
+			id,
+			sid: as,
+			reason: "manual take",
+			origin: origin ?? null,
+		});
+		if (!claimed.ok)
+			die(
+				claimed.why === "race lost"
+					? `${id} was taken (or is not READY) — race lost, pick another from \`work ready\``
+					: `${id} claim refused: ${claimed.why}`,
+			);
+		console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
+	} else if (name === "release") {
+		const id = pos[0];
+		const as = flag("--as");
+		if (!id || !as) die("usage: release <id> --as <sid>");
+		const it = get(id);
+		// release is the OWNER's give-up: state and caller are verified — --as is
+		// no longer accepted-then-ignored. Operator override for a foreign/stuck
+		// item stays explicit: `work reclaim`.
+		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
+			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be released`);
+		const owner = resolveSid(as);
+		if (it.owner_sid !== owner)
+			die(
+				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${owner.slice(0, 8)} cannot release it`,
+			);
+		if (!releaseObserved(it, owner, "owner-release"))
+			die(`${id} claim changed — release refused; inspect before retrying`);
+		// W418: an idle owner's WS subscribe is reaped — no unfinished item, no
+		// inbox to push to (subscribe lifecycle rides the work graph)
+		reapIfIdle(db(), owner);
+		console.log(`${cyan("·")} ${dim(`${id} → READY`)}`);
+	} else if (name === "start") {
+		const id = pos[0];
+		const as = flag("--as");
+		const it = get(id ?? "");
+		// transition guard: only claimed work starts; --as (when given) must be
+		// the owner of record
+		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
+			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can start`);
+		if (as && it.owner_sid !== resolveSid(String(as)))
+			die(
+				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot start it`,
+			);
+		if (it.state !== "RUNNING") setState(id, "RUNNING");
+		console.log(`${green("▶")} ${id}`);
+	} else if (name === "summary") {
+		const id = pos[0];
+		get(id ?? "");
+		const record = completionRecord(db(), PROJECT, id);
+		if (!record) die(`${id} has no verified permanent completion record`);
+		console.log(flag("--json") ? JSON.stringify(record) : record.summary);
+	} else if (name === "done") {
+		const id = pos[0];
+		const sha = flag("--sha");
+		const as = flag("--as");
+		if (!id) die("usage: done <id> [--as sid] --sha <sha>");
+		const it = get(id);
+		// transition + ownership guard: stray completions corrupt roll-up — only
+		// CLAIMED/RUNNING work completes, and --as (when given) must be the
+		// owner of record
+		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
+			die(
+				`${id} is ${it.state} — only CLAIMED/RUNNING work can be marked done`,
+			);
+		if (as && it.owner_sid !== resolveSid(String(as)))
+			die(
+				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
+			);
+		let record: CompletionRecord | null;
+		try {
+			record = prepareCompletion(db(), {
+				project: PROJECT,
+				item: id,
+				sid: String(it.owner_sid ?? as ?? "manual"),
+				cwd: process.cwd(),
+				sha,
+				summary: flag("--summary"),
+			});
+		} catch (error) {
+			die(error instanceof Error ? error.message : String(error));
+		}
+		const tx = db().transaction(() => {
+			if (record) persistCompletion(db(), record);
+			setState(id, "DONE", null, record?.commit_sha ?? sha);
+			emit("work.done", id, {
+				sha: record?.commit_sha ?? sha ?? "",
+				verified: !!record,
+				summary: record?.summary ?? null,
+			});
+			const unblocked = freeDependents(id);
+			releaseClaim(
+				(it.owner_sid as string) ?? "",
+				it.scope as string | null,
+				it.id as string,
+			);
+			return unblocked;
+		});
+		const { freed, gated } = tx();
+		rollUp(id);
+		const p = it.parent_id;
+		if (p) rollUp(p as string);
 		console.log(
-			renderAllocPlan(decisions) || dim("(nothing READY to allocate)"),
+			`${green("✓")} ${cyan(id)} DONE${sha ? ` @${sha.slice(0, 8)}` : ""}`,
 		);
-	if (flag("--apply")) {
-		const { applied, skipped } = applyAllocations(db(), PROJECT, decisions);
-		for (const s of skipped)
-			console.log(`${amber("●")} ${s.item} skipped: ${s.why}`);
-		console.log(`${green("✓")} ${applied.length} item(s) allocated`);
-		exportMirror(db(), PROJECT);
-	}
-} else if (cmd === "extend") {
-	// W610 claim-extend (Hermes lift): a claimant facing a known-long op holds
-	// `reclaim all` off its item. The lease lives in facts
-	// (reclaim.extend.<project>.<id>), re-armable, capped at 24h; reclaim-all
-	// honors it via probeClaim, the strike counter stays cleared while held.
-	const id = pos[0];
-	const ms = parseDuration(String(flag("--for") ?? ""));
-	if (ms === null) die("extend: --for must be <n>s|m|h (e.g. 45m), 1s..24h");
-	const it = get(id ?? "");
-	if (!["CLAIMED", "RUNNING"].includes(it.state as string))
-		die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be extended`);
-	const as = flag("--as");
-	if (as && it.owner_sid !== resolveSid(String(as)))
-		die(
-			`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot extend it`,
+		if (record) console.log(record.summary);
+		if (freed.length)
+			console.log(
+				`${amber("▶")} startable now: ${cyan(freed.join(", "))} ${dim(`— unblocked by ${id}`)}`,
+			);
+		for (const g of gated)
+			console.log(
+				`${amber("●")} ${g.note} — ${cyan(g.id)} stays gated (W60 dep-merge gate)`,
+			);
+		// W52: retire the item's per-item worktree if it has one (clean → removed,
+		// dirty → kept with a note; branch suspenders/<id> always survives)
+		retireItemWorktree(id);
+		// W418: the item is DONE — when the owner holds nothing else, their WS
+		// inbox connection is reaped (subscribe lifecycle rides the work graph)
+		reapIfIdle(db(), String(it.owner_sid ?? ""));
+	} else if (name === "fail") {
+		const id = pos[0];
+		const note = flag("--note") ?? "";
+		const as = flag("--as");
+		db().transaction(() => {
+			const it = get(id ?? "");
+			if (
+				as &&
+				(it.owner_sid !== resolveSid(String(as)) ||
+					!["CLAIMED", "RUNNING"].includes(it.state as string))
+			)
+				die(
+					`${id} is not an unfinished claim owned by ${as} — failure refused`,
+				);
+			setState(id, "FAILED");
+			emit("work.failed", id, { note });
+		})();
+		console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
+	} else if (name === "cancel") {
+		// W182 — CANCELLED terminal state: close completely with a required
+		// reason; claim + worktree released safely. Deliberately NOT in rollUp's
+		// satisfied set — a cancelled child keeps its SHATTERED parent open until
+		// reclaimed or superseded (same doctrine as FAILED).
+		const id = pos[0];
+		const note = flag("--note") ?? "";
+		db().transaction(() => {
+			const it = get(id ?? "");
+			if (
+				["DONE", "FAILED", "SUPERSEDED", "CANCELLED", "SHATTERED"].includes(
+					it.state as string,
+				)
+			)
+				die(`${id} is ${it.state} — already closed`);
+			setState(id, "CANCELLED", null);
+			releaseClaim(
+				(it.owner_sid as string) ?? "",
+				it.scope as string | null,
+				it.id as string,
+			);
+			emit("work.cancelled", id, { note });
+		})();
+		console.log(`${dim("⊘")} ${id} CANCELLED${note ? dim(` — ${note}`) : ""}`);
+		retireItemWorktree(id);
+	} else if (name === "supersede") {
+		const id = pos[0];
+		const byId = flag("--by");
+		if (!id || !byId) die("usage: supersede <id> --by <new-id>");
+		const it = get(id);
+		setState(id, "SUPERSEDED", null, byId);
+		// superseding the last unsatisfied child closes its SHATTERED parent
+		const p = it.parent_id;
+		if (p) rollUp(p as string);
+		console.log(`${dim("■")} ${id} superseded by ${byId}`);
+	} else if (name === "block") {
+		const id = pos[0];
+		const on = flag("--on");
+		if (!id || !on) die("usage: block <id> --on <other-id>");
+		get(on ?? "");
+		if (reaches(on, id))
+			die(`dependency cycle: ${on} already (transitively) depends on ${id}`);
+		db()
+			.query(
+				"INSERT OR REPLACE INTO work_deps (project, work_id, depends_on) VALUES (?, ?, ?)",
+			)
+			.run(PROJECT, id, on);
+		console.log(`${red("⚠")} ${id} blocked on ${on}`);
+	} else if (name === "unblock") {
+		const id = pos[0];
+		const on = flag("--on");
+		if (!id || !on) die("usage: unblock <id> --on <id2>");
+		db()
+			.query(
+				"DELETE FROM work_deps WHERE project = ? AND work_id = ? AND depends_on = ?",
+			)
+			.run(PROJECT, id, on);
+		console.log(`${cyan("·")} ${id} unblocked from ${on}`);
+	} else if (name === "split") {
+		// atomic shatter: parent → SHATTERED, children → READY; the splitter may
+		// keep one child (--keep N, 1-based). Requires why_parallel so splits
+		// answer "why is this parallel work at all".
+		const id = pos[0];
+		const titles = pos.slice(1);
+		const reason = flag("--reason");
+		const keep = Number(flag("--keep") ?? 0);
+		const it = get(id);
+		if (!["READY", "CLAIMED", "RUNNING"].includes(it.state as string))
+			die(
+				`${id} is ${it.state} — only READY/CLAIMED/RUNNING items can shatter`,
+			);
+		// split gate (W16): a fan-out beyond 2 children must reference a registered
+		// plan item — the monitor flags drive-by splits, the gate refuses them.
+		// 1-2 child splits stay free. Checked before the transaction: a refusal
+		// must not leave partial state.
+		const plan = flag("--plan");
+		if (titles.length > 2) {
+			if (!plan)
+				die(
+					`split fans out to ${titles.length} children — pass --plan <itemId> (the registered decomposition plan; 1-2 child splits stay free)`,
+				);
+			if (
+				!db()
+					.query("SELECT 1 FROM work_items WHERE project = ? AND id = ?")
+					.get(PROJECT, plan)
+			)
+				die(
+					`--plan ${plan} does not exist in this project — register the plan with \`work add\` first`,
+				);
+		}
+		const tx = db().transaction(() => {
+			setState(id, "SHATTERED");
+			let n = 0;
+			for (const t of titles) {
+				const cid = nextChildId(id);
+				// children inherit the parent's capability requirement — a split must
+				// not be able to launder away the dispatch constraint
+				insertItem(
+					cid,
+					id,
+					t,
+					it.scope as string | null,
+					Number(it.priority),
+					it.owner_sid as string,
+					reason,
+					(it.requires as string | null) ?? null,
+				);
+				if (++n === keep) setState(cid, "CLAIMED", it.owner_sid as string);
+			}
+		});
+		tx();
+		emit("work.shattered", id, { children: String(titles.length), reason });
+		const kids = db()
+			.query(
+				"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
+			)
+			.all(PROJECT, id) as Item[];
+		console.log(
+			`${cyan("⊞")} ${cyan(id)} SHATTERED → ${titles.length} children${keep ? `, child ${keep} kept by ${dim(String(it.owner_sid ?? "").slice(0, 8))}` : ""}`,
 		);
-	const by = as
-		? resolveSid(String(as))
-		: resolveSid(String(it.owner_sid ?? ""));
-	setReclaimHold(db(), PROJECT, String(id), Date.now() + ms, by);
-	emit("work.lease-extended", String(id), { forMs: String(ms), by });
-	console.log(
-		`${green("⏸")} ${cyan(id)} reclaim held ${flag("--for")} — until ${new Date(Date.now() + ms).toISOString()}`,
-	);
-} else if (cmd === "reclaim") {
-	// W339: `work reclaim all` — the supported bulk operation. Reclaims every
-	// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
-	// listing). Capsule law preserved: this CAN strand uncommitted lane state;
-	// each reclaim is listed for audit and `work reclaim <id>` stays the
-	// careful per-item path.
-	if (pos[0] === "all") {
-		if (
-			flag("--expect-owner") ||
-			flag("--expect-updated-at") ||
-			rest.includes("--json")
-		)
-			die("expected claim/JSON requires a single item");
-		// W610 liveness parity: the SAME tri-state the lanes verb trusts —
-		// registry process identity + claimant transcript + governor heartbeat
-		// (sessions.hb) — with unknown never releasing, an extend lease as a
-		// pause, and death needing 3 consecutive dead passes (fact-counted).
+		console.log(kids.map(renderRow).join("\n"));
+		// W515: decision objects for the minted children (recommend-only — split
+		// never claims; the scorer suggests a lane per unkept child)
+		const unkept = kids
+			.filter((k) => k.state === "READY")
+			.map((k) => String(k.id));
+		if (unkept.length) {
+			const sugg = planAllocation(
+				db(),
+				PROJECT,
+				candidateLanes(db(), loadLaneRegistry(process.cwd()), PROJECT),
+				{ items: unkept },
+			);
+			if (sugg.length)
+				console.log(
+					`${dim("⇢ suggested allocation:")}\n${renderAllocPlan(sugg)}`,
+				);
+		}
+	} else if (name === "orphaned") {
+		// CLAIMED/RUNNING claims with no live evidence — the SAME tri-state the
+		// bulk reaper uses (W610: verdict !== alive lists dead AND unknown so the
+		// operator inspects before per-item reclaim; alive lanes stay out)
+		const item = flag("--item");
 		const lanesBySid = claimantLanes();
 		const rows = db()
 			.query(
-				"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
+				`SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING')${item ? " AND id = ?" : ""} ORDER BY id`,
 			)
-			.all(PROJECT) as Item[];
-		let n = 0;
-		for (const r of rows) {
+			.all(...(item ? [PROJECT, item] : [PROJECT])) as Item[];
+		const out = rows.filter((r) => {
 			const owner = String(r.owner_sid ?? "");
-			const d = observeReclaim(db(), PROJECT, {
-				id: String(r.id),
-				owner,
-				revision: Number(r.updated_at),
-				lane: lanesBySid.get(owner),
-			});
-			if (d.action !== "release") {
-				console.log(`${dim(String(r.id))} held — ${d.why}`);
-				continue;
-			}
-			if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
-				console.log(`${dim(String(r.id))} claim changed — skipped`);
-				continue;
-			}
-			clearReclaimStrikes(db(), PROJECT, String(r.id));
-			console.log(
-				`${cyan("·")} ${r.id} reclaimed → READY (was ${owner.slice(0, 8)}) — ${d.why}`,
+			return (
+				probeClaim(db(), PROJECT, {
+					id: String(r.id),
+					owner,
+					revision: Number(r.updated_at),
+					lane: lanesBySid.get(owner),
+				}).verdict !== "alive"
 			);
-			n++;
-		}
-		console.log(
-			n === 0
-				? dim("(nothing reclaimable — claims are alive, unknown or leased)")
-				: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
-		);
-	} else {
-		const id = pos[0];
-		const it = get(id ?? "");
-		if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
-			die(
-				`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
-			);
-		const expectedOwner = flag("--expect-owner");
-		if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
-			die(`${id} owner changed — reclaim refused`);
-		const revision = flag("--expect-updated-at");
-		if (
-			revision &&
-			(!Number.isSafeInteger(Number(revision)) ||
-				Number(revision) !== it.updated_at)
-		)
-			die(`${id} revision changed — reclaim refused`);
-		if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
-			die(`${id} claim changed — reclaim refused; inspect before retrying`);
+		});
 		console.log(
 			rest.includes("--json")
-				? JSON.stringify({
-						project: PROJECT,
-						id,
-						previousOwner: it.owner_sid,
-						previousUpdatedAt: it.updated_at,
-						released: true,
-					})
-				: `${cyan("·")} ${id} reclaimed → READY`,
+				? JSON.stringify(out)
+				: out.length
+					? out.map(renderRow).join("\n")
+					: dim("(no orphans)"),
 		);
-	}
-} else if (cmd === "migrate-ledger") {
-	// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
-	// / PAUSED / OWNER-GATED markers or unchecked tasks) become graph items.
-	// Deduped by exact title — within the file and against anything already in
-	// the graph — then a tombstone section points the ledger at the graph.
-	// Import creates; a human closes. Idempotent: re-running adds nothing.
-	const path = pos[0];
-	if (!existsSync(path)) die(`no such ledger: ${path}`);
-	const ledger = readFileSync(path, "utf8");
-	const TOMBSTONE = "<!-- work-migrate-tombstone -->";
-	const MARKER = /\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b/;
-	const titleOf = (s: string): string =>
-		s
-			.replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*/, "") // task checkbox
-			.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "") // bullet / numbering
-			.replace(
-				/\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b\s*[:\-—]?\s*/g,
-				"",
-			) // status markers
-			.replace(/^[\s:\-—]+|[\s:\-—]+$/g, "")
-			.trim();
-	const titles: string[] = [];
-	let fence = false;
-	for (const line of ledger.split("\n")) {
-		if (/^\s*```/.test(line)) fence = !fence;
-		else if (fence) continue;
-		else if (line.includes(TOMBSTONE)) break;
-		else if (/^\s*#/.test(line)) continue;
-		else if (MARKER.test(line) || /^\s*[-*+]\s+\[ \]/.test(line)) {
-			const t = titleOf(line);
-			if (t) titles.push(t);
-		}
-	}
-	if (!titles.length) {
-		console.log(dim(`(nothing to migrate in ${path})`));
-	} else {
-		const byTitle = new Map(
-			(
-				db()
-					.query("SELECT id, title FROM work_items WHERE project = ?")
-					.all(PROJECT) as Item[]
-			).map((r) => [String(r.title), String(r.id)]),
-		);
-		const seen = new Set<string>();
-		const rows: { title: string; id: string; fresh: boolean }[] = [];
-		for (const t of titles) {
-			if (seen.has(t)) continue; // exact-title dedupe within the ledger
-			seen.add(t);
-			const known = byTitle.get(t);
-			rows.push(
-				known
-					? { title: t, id: known, fresh: false }
-					: { title: t, id: "", fresh: true },
-			);
-		}
-		const fresh = rows.filter((r) => r.fresh);
-		for (const r of fresh) r.id = nextRootId(); // allocate ids before the tx — no nested transactions
-		db().transaction(() => {
-			for (const r of fresh) {
-				insertItem(r.id, null, r.title, null, 0, "migrate-ledger", null);
-				emit("work.added", r.id, { scope: "" });
-			}
-		})();
-		for (const r of rows) {
-			console.log(
-				r.fresh
-					? `${green("✓")} ${cyan(r.id)} ${dim("READY")} — ${r.title}`
-					: `${cyan("·")} ${cyan(r.id)} ${dim("already in the graph — skipped")} — ${r.title}`,
-			);
-		}
-		console.log(
-			`${green("✓")} migrated ${fresh.length} — ${rows.length - fresh.length} already in the graph`,
-		);
-		if (!ledger.includes(TOMBSTONE) && fresh.length) {
-			const note = [
-				"",
-				"---",
-				"",
-				`## Migrated to the Work Graph — this ledger is HISTORICAL ${TOMBSTONE}`,
-				"",
-				"<!-- `work migrate-ledger` imported the unresolved items above into the Work Graph",
-				"(governor.db, work CLI) on " +
-					new Date().toISOString().slice(0, 10) +
-					". Import creates — a human closes:",
-				"`work done <id> --sha <sha>`. Re-running migrate-ledger adds nothing new. -->",
-				"",
-				"| ledger line | work item |",
-				"| --- | --- |",
-				...rows.map(
-					(r) =>
-						`| ${r.title.replaceAll("|", "\\|")} | ` +
-						"`" +
-						r.id +
-						"`" +
-						(r.fresh ? "" : " (already in graph)") +
-						" |",
-				),
-			].join("\n");
-			appendFileSync(path, `${note}\n`);
-		}
-	}
-} else {
-	die(
-		"unknown command — try add | list | ready | mine | owned | show | take | release | start | done | fail | cancel | supersede | split | block | unblock | orphaned | lanes | allocate | reclaim | migrate-ledger",
-	);
-}
+	} else if (name === "lanes") {
+		// THE lane-liveness surface (2026-10-05): one honest audit of
+		// .fleet/lanes.json — process-identity + worktree cwd for local lanes,
+		// transcript freshness for host/remote lanes (never permanent trust).
+		// --json for dispatch-next/fleet-loop; text for humans.
+		const readRegistry =
+			flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
+				? loadLaneRegistryFile
+				: loadLaneRegistry;
+		const entries = readRegistry<{
+			sid: string;
+			item: string;
+			pid?: number;
+			worktree?: string;
+			host?: string;
+			launchedAt?: number;
+		}>(flag("--fleet") ?? process.cwd());
 
-// reached ONLY after a successful mutating command — every failure path die()s
-// before this line, so a mirror refresh here is exactly "the graph changed".
-if (MUTATING_CMDS.has(cmd)) exportMirror(db(), PROJECT);
+		const audit = entries.map((l) => ({
+			sid: l.sid,
+			item: l.item,
+			live: laneAlive(l),
+			host: l.host ?? null,
+		}));
+		if (flag("--json") !== undefined) {
+			console.log(JSON.stringify(audit));
+		} else {
+			for (const a of audit)
+				console.log(
+					`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
+				);
+		}
+	} else if (name === "allocate") {
+		// W515: allocation scorer + decision-object rebalance (oh-my-codex lift);
+		// scorer/planner details in lib/work-alloc.ts. PURE unless --apply, which
+		// claims ONLY the assign kind through assignTask(). In NEITHER cmd set:
+		// the plan needs sessions/events (no mirror fallback), and a pure plan
+		// must not re-export the mirror ("reads never write").
+		const readRegistry =
+			flag("--fleet") && basename(String(flag("--fleet"))) !== ".fleet"
+				? loadLaneRegistryFile
+				: loadLaneRegistry;
+		const entries = readRegistry<{
+			sid: string;
+			item: string;
+			pid?: number;
+			worktree?: string;
+			host?: string;
+			launchedAt?: number;
+		}>(flag("--fleet") ?? process.cwd());
+		const decisions = planAllocation(
+			db(),
+			PROJECT,
+			candidateLanes(db(), entries, PROJECT),
+			{ capacity: Number(flag("--capacity") ?? 1) },
+		);
+		if (flag("--json")) console.log(JSON.stringify(decisions));
+		else
+			console.log(
+				renderAllocPlan(decisions) || dim("(nothing READY to allocate)"),
+			);
+		if (flag("--apply")) {
+			const { applied, skipped } = applyAllocations(db(), PROJECT, decisions);
+			for (const s of skipped)
+				console.log(`${amber("●")} ${s.item} skipped: ${s.why}`);
+			console.log(`${green("✓")} ${applied.length} item(s) allocated`);
+			exportMirror(db(), PROJECT);
+		}
+	} else if (name === "extend") {
+		// W610 claim-extend (Hermes lift): a claimant facing a known-long op holds
+		// `reclaim all` off its item. The lease lives in facts
+		// (reclaim.extend.<project>.<id>), re-armable, capped at 24h; reclaim-all
+		// honors it via probeClaim, the strike counter stays cleared while held.
+		const id = pos[0];
+		const ms = parseDuration(String(flag("--for") ?? ""));
+		if (ms === null) die("extend: --for must be <n>s|m|h (e.g. 45m), 1s..24h");
+		const it = get(id ?? "");
+		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
+			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be extended`);
+		const as = flag("--as");
+		if (as && it.owner_sid !== resolveSid(String(as)))
+			die(
+				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot extend it`,
+			);
+		const by = as
+			? resolveSid(String(as))
+			: resolveSid(String(it.owner_sid ?? ""));
+		setReclaimHold(db(), PROJECT, String(id), Date.now() + ms, by);
+		emit("work.lease-extended", String(id), { forMs: String(ms), by });
+		console.log(
+			`${green("⏸")} ${cyan(id)} reclaim held ${flag("--for")} — until ${new Date(Date.now() + ms).toISOString()}`,
+		);
+	} else if (name === "reclaim") {
+		// W339: `work reclaim all` — the supported bulk operation. Reclaims every
+		// CLAIMED/RUNNING item whose claimant transcript is dead (the `orphaned`
+		// listing). Capsule law preserved: this CAN strand uncommitted lane state;
+		// each reclaim is listed for audit and `work reclaim <id>` stays the
+		// careful per-item path.
+		if (pos[0] === "all") {
+			if (
+				flag("--expect-owner") ||
+				flag("--expect-updated-at") ||
+				rest.includes("--json")
+			)
+				die("expected claim/JSON requires a single item");
+			// W610 liveness parity: the SAME tri-state the lanes verb trusts —
+			// registry process identity + claimant transcript + governor heartbeat
+			// (sessions.hb) — with unknown never releasing, an extend lease as a
+			// pause, and death needing 3 consecutive dead passes (fact-counted).
+			const lanesBySid = claimantLanes();
+			const rows = db()
+				.query(
+					"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
+				)
+				.all(PROJECT) as Item[];
+			let n = 0;
+			for (const r of rows) {
+				const owner = String(r.owner_sid ?? "");
+				const d = observeReclaim(db(), PROJECT, {
+					id: String(r.id),
+					owner,
+					revision: Number(r.updated_at),
+					lane: lanesBySid.get(owner),
+				});
+				if (d.action !== "release") {
+					console.log(`${dim(String(r.id))} held — ${d.why}`);
+					continue;
+				}
+				if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
+					console.log(`${dim(String(r.id))} claim changed — skipped`);
+					continue;
+				}
+				clearReclaimStrikes(db(), PROJECT, String(r.id));
+				console.log(
+					`${cyan("·")} ${r.id} reclaimed → READY (was ${owner.slice(0, 8)}) — ${d.why}`,
+				);
+				n++;
+			}
+			console.log(
+				n === 0
+					? dim("(nothing reclaimable — claims are alive, unknown or leased)")
+					: `${cyan("·")} ${n} orphaned item(s) reclaimed`,
+			);
+		} else {
+			const id = pos[0];
+			const it = get(id ?? "");
+			if (!["CLAIMED", "RUNNING", "ORPHANED"].includes(it.state as string))
+				die(
+					`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
+				);
+			const expectedOwner = flag("--expect-owner");
+			if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
+				die(`${id} owner changed — reclaim refused`);
+			const revision = flag("--expect-updated-at");
+			if (
+				revision &&
+				(!Number.isSafeInteger(Number(revision)) ||
+					Number(revision) !== it.updated_at)
+			)
+				die(`${id} revision changed — reclaim refused`);
+			if (!releaseObserved(it, "operator-reclaim", "operator-reclaim"))
+				die(`${id} claim changed — reclaim refused; inspect before retrying`);
+			console.log(
+				rest.includes("--json")
+					? JSON.stringify({
+							project: PROJECT,
+							id,
+							previousOwner: it.owner_sid,
+							previousUpdatedAt: it.updated_at,
+							released: true,
+						})
+					: `${cyan("·")} ${id} reclaimed → READY`,
+			);
+		}
+	} else if (name === "migrate-ledger") {
+		// Markdown ledger → Work Graph: unresolved lines (TODO / IN-FLIGHT / BLOCKED
+		// / PAUSED / OWNER-GATED markers or unchecked tasks) become graph items.
+		// Deduped by exact title — within the file and against anything already in
+		// the graph — then a tombstone section points the ledger at the graph.
+		// Import creates; a human closes. Idempotent: re-running adds nothing.
+		const path = pos[0];
+		if (!existsSync(path)) die(`no such ledger: ${path}`);
+		const ledger = readFileSync(path, "utf8");
+		const TOMBSTONE = "<!-- work-migrate-tombstone -->";
+		const MARKER = /\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b/;
+		const titleOf = (s: string): string =>
+			s
+				.replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*/, "") // task checkbox
+				.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "") // bullet / numbering
+				.replace(
+					/\b(?:TODO|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED)\b\s*[:\-—]?\s*/g,
+					"",
+				) // status markers
+				.replace(/^[\s:\-—]+|[\s:\-—]+$/g, "")
+				.trim();
+		const titles: string[] = [];
+		let fence = false;
+		for (const line of ledger.split("\n")) {
+			if (/^\s*```/.test(line)) fence = !fence;
+			else if (fence) continue;
+			else if (line.includes(TOMBSTONE)) break;
+			else if (/^\s*#/.test(line)) continue;
+			else if (MARKER.test(line) || /^\s*[-*+]\s+\[ \]/.test(line)) {
+				const t = titleOf(line);
+				if (t) titles.push(t);
+			}
+		}
+		if (!titles.length) {
+			console.log(dim(`(nothing to migrate in ${path})`));
+		} else {
+			const byTitle = new Map(
+				(
+					db()
+						.query("SELECT id, title FROM work_items WHERE project = ?")
+						.all(PROJECT) as Item[]
+				).map((r) => [String(r.title), String(r.id)]),
+			);
+			const seen = new Set<string>();
+			const rows: { title: string; id: string; fresh: boolean }[] = [];
+			for (const t of titles) {
+				if (seen.has(t)) continue; // exact-title dedupe within the ledger
+				seen.add(t);
+				const known = byTitle.get(t);
+				rows.push(
+					known
+						? { title: t, id: known, fresh: false }
+						: { title: t, id: "", fresh: true },
+				);
+			}
+			const fresh = rows.filter((r) => r.fresh);
+			for (const r of fresh) r.id = nextRootId(); // allocate ids before the tx — no nested transactions
+			db().transaction(() => {
+				for (const r of fresh) {
+					insertItem(r.id, null, r.title, null, 0, "migrate-ledger", null);
+					emit("work.added", r.id, { scope: "" });
+				}
+			})();
+			for (const r of rows) {
+				console.log(
+					r.fresh
+						? `${green("✓")} ${cyan(r.id)} ${dim("READY")} — ${r.title}`
+						: `${cyan("·")} ${cyan(r.id)} ${dim("already in the graph — skipped")} — ${r.title}`,
+				);
+			}
+			console.log(
+				`${green("✓")} migrated ${fresh.length} — ${rows.length - fresh.length} already in the graph`,
+			);
+			if (!ledger.includes(TOMBSTONE) && fresh.length) {
+				const note = [
+					"",
+					"---",
+					"",
+					`## Migrated to the Work Graph — this ledger is HISTORICAL ${TOMBSTONE}`,
+					"",
+					"<!-- `work migrate-ledger` imported the unresolved items above into the Work Graph",
+					"(governor.db, work CLI) on " +
+						new Date().toISOString().slice(0, 10) +
+						". Import creates — a human closes:",
+					"`work done <id> --sha <sha>`. Re-running migrate-ledger adds nothing new. -->",
+					"",
+					"| ledger line | work item |",
+					"| --- | --- |",
+					...rows.map(
+						(r) =>
+							`| ${r.title.replaceAll("|", "\\|")} | ` +
+							"`" +
+							r.id +
+							"`" +
+							(r.fresh ? "" : " (already in graph)") +
+							" |",
+					),
+				].join("\n");
+				appendFileSync(path, `${note}\n`);
+			}
+		}
+	}
+};
+
+// verb-kit dispatch (W651): the kit resolves the verb, intercepts --help,
+// parses and validates BEFORE dispatchVerb runs — parse errors never touch
+// state. Mirror re-export rides the kit's after-hook (mutations only).
+await runCli({
+	prog: "work",
+	about: "work — hierarchical shatterable work graph.",
+	verbs: VERBS,
+	onVerb: (name) => {
+		VERB = name;
+	},
+	dispatch: dispatchVerb,
+	after: (name) => {
+		if (MUTATING_CMDS.has(name)) exportMirror(db(), PROJECT);
+	},
+});
