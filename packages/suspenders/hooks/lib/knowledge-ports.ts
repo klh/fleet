@@ -167,6 +167,25 @@ export interface KnowledgeStore {
 	// W166 (design §4): FTS5 segment merge after every job that wrote rows —
 	// measured 70 ms per run, ~5% read-latency recovery after churn.
 	optimize(): Promise<void>;
+	// W244 — parser-change reprocess checkpoint. `cur` = active distill-prompt
+	// hash; done rows processed under an older parser re-enqueue EXACTLY ONCE.
+	// apply=false is a read-only dry-run (would-counts only, no writes).
+	reprocessCheck(cur: string, apply: boolean): Promise<ReprocessReport>;
+}
+
+// W244 — outcome of one reprocessCheck pass. requeued/marked are did-counts
+// when applied, would-counts on a dry-run; checkpoint = the stored hash the
+// pass compared against (null = no checkpoint yet); advanced = the checkpoint
+// moved this pass.
+export interface ReprocessReport {
+	current: string;
+	checkpoint: string | null;
+	advanced: boolean;
+	requeued: number;
+	marked: number;
+	/** legacy rows whose payload was cleared pre-W244 — marked so they never
+	 *  re-fire, honestly NOT re-ingestable (source text is gone). */
+	skippedNoPayload: number;
 }
 
 export interface DistillClient {
@@ -275,22 +294,38 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		domain: string | null,
 		by: string | null,
 	): Promise<void> {
+		// W244: the parser stamp + payload retention make done rows re-ingestable
+		// — the reprocess checkpoint re-enqueues them exactly once per prompt
+		// version (reprocessCheck). Payload was cleared pre-W244; those rows are
+		// marked-and-skipped honestly by the checkpoint.
 		this.db
 			.query(
-				"UPDATE knowledge_queue SET state = 'done', result_key = ?, payload = '' WHERE id = ?",
+				"UPDATE knowledge_queue SET state = 'done', result_key = ?, prompt_hash = ? WHERE id = ?",
 			)
-			.run(JSON.stringify(ledger), id);
+			.run(JSON.stringify(ledger), currentPromptHash(), id);
 		await this.emitLanded(domain, ledger.written, id, by);
 	}
 
 	async fail(id: number, err: string, poison: boolean): Promise<void> {
-		if (poison)
+		if (poison) {
 			this.db
 				.query(
 					"UPDATE knowledge_queue SET state = 'failed', result_key = ?, payload = '' WHERE id = ?",
 				)
 				.run(`failed after max attempts: ${err.slice(0, 250)}`, id);
-		else
+			// W244: a poisoned REPROCESS copy re-arms its archived parent — the
+			// next prompt evolution re-ingests the source; the failed copy stays
+			// dead. Without this, a dead copy would orphan the only payload.
+			const row = this.db
+				.query("SELECT reprocess_of FROM knowledge_queue WHERE id = ?")
+				.get(id) as { reprocess_of: number | null } | undefined;
+			if (row?.reprocess_of)
+				this.db
+					.query(
+						"UPDATE knowledge_queue SET reprocessed_at = NULL WHERE id = ?",
+					)
+					.run(row.reprocess_of);
+		} else
 			this.db
 				.query("UPDATE knowledge_queue SET state = 'queued' WHERE id = ?")
 				.run(id);
@@ -595,6 +630,131 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 			.query("INSERT INTO knowledge_fts (knowledge_fts) VALUES ('optimize')")
 			.run();
 	}
+
+	// W244 — parser-change reprocess checkpoint: done rows distilled under an
+	// older parser than `cur` re-enqueue EXACTLY ONCE. apply=false is a
+	// read-only dry-run (would-counts only — nothing is written or advanced).
+	reprocessCheck(cur: string, apply: boolean): Promise<ReprocessReport> {
+		return this.reprocessApplyTx(cur, apply);
+	}
+
+	// reprocessApplyTx part 1 — read the checkpoint, count the affected done
+	// rows, dry-run the would-counts or hand to the apply transaction.
+	private async reprocessApplyTx(
+		cur: string,
+		apply: boolean,
+	): Promise<ReprocessReport> {
+		const cpAt = (): string | null =>
+			(
+				this.db
+					.query("SELECT prompt_hash FROM queue_checkpoint WHERE id = 1")
+					.get() as { prompt_hash: string | null } | undefined
+			)?.prompt_hash ?? null;
+		const report: ReprocessReport = {
+			current: cur,
+			checkpoint: cpAt(),
+			advanced: false,
+			requeued: 0,
+			marked: 0,
+			skippedNoPayload: 0,
+		};
+		if (report.checkpoint === cur) return report; // current parser — no-op
+		const scan = this.db
+			.query(
+				"SELECT id, payload FROM knowledge_queue WHERE state = 'done' AND reprocessed_at IS NULL AND (prompt_hash IS NULL OR prompt_hash != ?) ORDER BY id",
+			)
+			.all(cur) as { id: number; payload: string }[];
+		if (!apply) {
+			for (const r of scan)
+				if (r.payload) report.requeued++;
+				else report.skippedNoPayload++;
+			report.marked = scan.length; // would-count: every scanned row gets marked
+			return report;
+		}
+		return this.reprocessCommitTx(cur, scan, report, cpAt);
+	}
+
+	// reprocessApplyTx part 2 — the exactly-once anchor: ONE BEGIN IMMEDIATE
+	// transaction marks the archive, enqueues the reprocess copies and
+	// advances the checkpoint; the in-tx re-check kills the worker/CLI race.
+	private async reprocessCommitTx(
+		cur: string,
+		scan: { id: number; payload: string }[],
+		report: ReprocessReport,
+		cpAt: () => string | null,
+	): Promise<ReprocessReport> {
+		this.db.run("BEGIN IMMEDIATE");
+		try {
+			// a racing applier may have advanced the checkpoint between the scan
+			// and the lock — then the pass no-ops (still exactly once)
+			if (cpAt() === cur) {
+				this.db.run("COMMIT");
+				return report;
+			}
+			this.reprocessRows(scan, report);
+			this.db
+				.query(
+					"INSERT INTO queue_checkpoint (id, prompt_hash, ts) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET prompt_hash = excluded.prompt_hash, ts = excluded.ts",
+				)
+				.run(cur, Date.now());
+			this.db.run("COMMIT");
+			report.advanced = true;
+		} catch (e) {
+			try {
+				this.db.run("ROLLBACK");
+			} catch {}
+			throw e;
+		}
+		return this.reprocessEvent(cur, report);
+	}
+
+	// reprocessCommitTx part 2 — one plane event per advancing pass
+	private reprocessEvent(
+		cur: string,
+		report: ReprocessReport,
+	): ReprocessReport {
+		this.bus()
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'knowledge.reprocess', 'knowledge', ?, NULL)",
+			)
+			.run(
+				Date.now(),
+				"knowledge-worker",
+				JSON.stringify({
+					from: report.checkpoint,
+					to: cur,
+					requeued: report.requeued,
+					marked: report.marked,
+					skipped: report.skippedNoPayload,
+				}),
+			);
+		return report;
+	}
+
+	private reprocessRows(
+		scan: { id: number; payload: string }[],
+		report: ReprocessReport,
+	): void {
+		for (const r of scan) {
+			const marked = this.db
+				.query(
+					"UPDATE knowledge_queue SET reprocessed_at = ? WHERE id = ? AND reprocessed_at IS NULL",
+				)
+				.run(Date.now(), r.id).changes;
+			if (!marked) continue; // racing applier marked it first — never twice
+			report.marked++;
+			if (!r.payload) {
+				report.skippedNoPayload++;
+				continue;
+			}
+			this.db
+				.query(
+					"INSERT INTO knowledge_queue (ts, source, payload, state, attempts, domain, area, code_origin, origin_sid, source_ref, source_hash, reprocess_of) SELECT ?, source, payload, 'queued', 0, domain, area, code_origin, origin_sid, source_ref, source_hash, ? FROM knowledge_queue WHERE id = ?",
+				)
+				.run(Date.now(), r.id, r.id);
+			report.requeued++;
+		}
+	}
 }
 
 // ─── distill support: strict JSON parse + canon clamps (#7) ───
@@ -660,13 +820,18 @@ function asItem(x: unknown): DistillItem | null {
 	};
 }
 
-const PROMPT_FILE = join(import.meta.dir, "..", "knowledgeworker.md");
+// W244: the prompt file resolves per request — KNOWLEDGE_PROMPT_FILE is the
+// config-over-code override (enterprise gateway, tests); unset → the shipped
+// hooks/knowledgeworker.md.
+const PROMPT_FILE = (): string =>
+	process.env.KNOWLEDGE_PROMPT_FILE ??
+	join(import.meta.dir, "..", "knowledgeworker.md");
 
 // knowledgeworker.md: config-over-code — re-read at REQUEST time so prompt
 // edits apply to the next queued job without a restart (#6)
 export function systemPrompt(): string {
 	try {
-		return readFileSync(PROMPT_FILE, "utf8");
+		return readFileSync(PROMPT_FILE(), "utf8");
 	} catch {
 		return "";
 	}
@@ -675,6 +840,13 @@ export function systemPrompt(): string {
 // missing prompt file → minimal inline fallback, never a dead worker
 const FALLBACK_PROMPT =
 	"You are an impartial indexer for a fleet knowledge store. You do not evaluate truth, quality, or usefulness — you describe, condense, link, and timestamp. Return ONLY a JSON array. Each element: {topic, fact, confidence 0..1, domain, area, origin_kind (lesson|incident|decision|study|fact), origin_system, supersedes_id (only when the source text EXPLICITLY declares it replaces/corrects a row, else null), source_ref (REQUIRED when the payload names a doc path: the repo-relative path of that exact doc, else null)}. Never copy credentials into facts — redact as [REDACTED] or reject. Substitution contract: never restate what one file/doc already teaches — pointer-ize (source_ref + non-obvious residue) or reject. Corrections create a new row via supersedes_id; history is append-only.";
+
+// W244 — the ACTIVE prompt is what a distill request sends right now (both
+// clients fall back identically when the file is absent); its sha256 is the
+// parser version the reprocess checkpoint compares queue rows against.
+export const activePrompt = (): string => systemPrompt() || FALLBACK_PROMPT;
+export const currentPromptHash = (): string =>
+	createHash("sha256").update(activePrompt()).digest("hex");
 
 async function defaultModel(url: string, key?: string): Promise<string> {
 	try {
@@ -722,7 +894,7 @@ export class LocalLlmDistillClient implements DistillClient {
 		model: string,
 		originSid: string | null,
 	): Promise<DistillItem[]> {
-		const sys = systemPrompt() || FALLBACK_PROMPT;
+		const sys = activePrompt();
 		const user = `payload:\n${payload}\n\nenqueue hints (authoritative over your guesses when set): ${hintsLine}${originSid ? `\norigin_sid: ${originSid}` : ""}`;
 		const r = await fetch(this.url, {
 			method: "POST",
@@ -768,7 +940,7 @@ export class BeltDistillClient implements DistillClient {
 		const loc = await resolveBelt();
 		if (!loc)
 			throw new Error("belt unreachable — jobs stay queued, retry later");
-		const sys = systemPrompt() || FALLBACK_PROMPT;
+		const sys = activePrompt();
 		const user = `payload:\n${payload}\n\nenqueue hints: domain=${hints.domain ?? "null"}, area=${hints.area ?? "null"}, code_origin=${hints.codeOrigin ?? "null"}`;
 		return this.route(user, sys, loc);
 	}

@@ -907,6 +907,24 @@ export function openKnowledgeDb(): Database {
 	}
 	db.run("PRAGMA synchronous=NORMAL");
 	db.run("PRAGMA mmap_size=1073741824");
+	// W244 — parser-change reprocess checkpoint. Guarded ALTERs heal every
+	// pre-W244 knowledge.db (CREATE TABLE IF NOT EXISTS cannot upgrade a live
+	// table); a fresh file without knowledge_queue is skipped — its schema
+	// arrives with the v10 split and the next open heals it.
+	const kqCols244 = (
+		db.query("PRAGMA table_info(knowledge_queue)").all() as { name: string }[]
+	).map((c) => c.name);
+	if (kqCols244.length) {
+		if (!kqCols244.includes("prompt_hash"))
+			db.run("ALTER TABLE knowledge_queue ADD COLUMN prompt_hash TEXT");
+		if (!kqCols244.includes("reprocessed_at"))
+			db.run("ALTER TABLE knowledge_queue ADD COLUMN reprocessed_at INTEGER");
+		if (!kqCols244.includes("reprocess_of"))
+			db.run("ALTER TABLE knowledge_queue ADD COLUMN reprocess_of INTEGER");
+	}
+	db.run(
+		"CREATE TABLE IF NOT EXISTS queue_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), prompt_hash TEXT NOT NULL, ts INTEGER NOT NULL)",
+	);
 	return db;
 }
 

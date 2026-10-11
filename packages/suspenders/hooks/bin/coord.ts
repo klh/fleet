@@ -74,6 +74,7 @@ import {
 	cmdKnowledgeNote,
 	cmdKnowledgeVerify,
 	cmdKnowledgeCurate,
+	cmdKnowledgeReprocess,
 } from "../coord/knowledge.ts";
 import {
 	cmdBootstrap,
@@ -95,7 +96,7 @@ if (
 	rest.includes("-h")
 ) {
 	console.log(
-		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message | executor-cv\n" +
+		"coord — control plane. emit | broadcast | poll | wait | subscribe | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | knowledge-reprocess | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message | executor-cv\n" +
 			"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)\n" +
 			"  executor-cv [--apply] — the executor trust tally folded from work events (W620)\n" +
 			"  project identity | project rekey <old> <new> — graph identity migration (W428)",
@@ -138,6 +139,7 @@ const cmds: Record<string, (rest: string[]) => Promise<void>> = {
 	"knowledge-note": cmdKnowledgeNote,
 	"knowledge-verify": cmdKnowledgeVerify,
 	"knowledge-curate": cmdKnowledgeCurate,
+	"knowledge-reprocess": cmdKnowledgeReprocess,
 	bootstrap: cmdBootstrap,
 	fleet: cmdFleet,
 	hubs: cmdHubs,
@@ -156,5 +158,5 @@ const fn = cmds[cmd ?? ""];
 if (fn) await fn(rest);
 else
 	die(
-		"unknown command — try emit | broadcast | poll | wait | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message",
+		"unknown command — try emit | broadcast | poll | wait | fact | governance | bootstrap | state | inbox | capsule | pause | paused | resume | resumed | resume-session | doctor-session | who-knows | consult | consult-reply | consults | kb | knowledge | knowledge-enqueue | knowledge-promote | knowledge-retire | knowledge-note | knowledge-verify | knowledge-curate | knowledge-reprocess | lease-release | gc | fleet | hubs | metrics | diff | events | project | targets | message",
 	);
