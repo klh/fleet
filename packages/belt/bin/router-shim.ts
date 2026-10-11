@@ -37,6 +37,7 @@ import {
 	classifierText,
 	kevEligible,
 	openLocalStream,
+	type RequestTimings,
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
@@ -397,6 +398,7 @@ Bun.serve({
 		}
 
 		const startTime = Date.now();
+		const t0 = performance.now();
 		const text = classifierText(body);
 		const wantStream = body.stream === true;
 
@@ -410,9 +412,16 @@ Bun.serve({
 		if (arith !== null) {
 			const id = `msg_arith_${Date.now()}`;
 			const routing = { tier: "SIMPLE", category: "arithmetic" };
+			// no upstream leg — the lane answers in-process
+			const timings = { total_ms: Math.round(performance.now() - t0) };
 			if (wantStream)
 				return new Response(
-					anthropicSseFromText(arith, { id, model: body.model, routing }),
+					anthropicSseFromText(arith, {
+						id,
+						model: body.model,
+						routing,
+						timings,
+					}),
 					{ headers: sseHeaders(routing) },
 				);
 			return Response.json({
@@ -424,6 +433,7 @@ Bun.serve({
 				stop_reason: "end_turn",
 				usage: { input_tokens: 0, output_tokens: 0 },
 				_routing: routing,
+				_server_timings: timings,
 			});
 		}
 
@@ -533,6 +543,7 @@ Bun.serve({
 			let finish: string | undefined;
 			let usedPort: number = route.port;
 			let usedModel = route.model;
+			let localTimings: RequestTimings | undefined;
 			const note: string[] = [
 				`complexity ${score.total.toFixed(2)} → ${score.tier}${isCode ? "+code" : ""}${classifier ? ` ${classifier}` : ""}`,
 			];
@@ -631,6 +642,7 @@ Bun.serve({
 						const b = budgetFor(t);
 						return openLocalStream(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							startedAt: t0,
 						});
 					},
 					note,
@@ -648,6 +660,8 @@ Bun.serve({
 							id: `msg_${route.role}_${Date.now()}`,
 							model: body.model,
 							routing,
+							startedAt: t0,
+							openedAt: opened.result.openedAt,
 						},
 						(r) => {
 							fbRelease?.();
@@ -659,6 +673,7 @@ Bun.serve({
 										? undefined
 										: "empty",
 								finish: r.finish,
+								...r.timings,
 							});
 						},
 					);
@@ -673,6 +688,7 @@ Bun.serve({
 						const b = budgetFor(t);
 						return viaLocal(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							startedAt: t0,
 						});
 					},
 					note,
@@ -682,6 +698,7 @@ Bun.serve({
 				usedPort = got.used.port;
 				usedModel = got.used.model;
 				retryAfter = got.retryAfterMs;
+				localTimings = got.result.timings;
 				if (got.result.ok) {
 					response = got.result.response;
 					finish = got.result.finish;
@@ -745,14 +762,27 @@ Bun.serve({
 				);
 			}
 
-			logDone({ escalated: usedPort === 0 ? "z.ai" : undefined, finish });
+			// W257 `_server_timings`: the used leg's prefill window when a local
+			// specialist answered; total always. Fields the leg couldn't observe
+			// (ttft/decode on buffered legs) stay absent.
+			const timings: RequestTimings = {
+				total_ms: Math.round(performance.now() - t0),
+				...(localTimings?.prefill_ms !== undefined
+					? { prefill_ms: localTimings.prefill_ms }
+					: {}),
+			};
+			logDone({
+				escalated: usedPort === 0 ? "z.ai" : undefined,
+				finish,
+				...timings,
+			});
 			const id = `msg_${route.role}_${Date.now()}`;
 			const routing = routingInfo();
 			if (wantStream)
 				return new Response(
 					anthropicSseFromText(
 						response,
-						{ id, model: body.model, routing },
+						{ id, model: body.model, routing, timings },
 						finish,
 					),
 					{ headers: sseHeaders(routing) },
@@ -767,6 +797,7 @@ Bun.serve({
 					stop_reason: stopReason(finish),
 					usage: { input_tokens: 0, output_tokens: 0 },
 					_routing: routing,
+					_server_timings: timings,
 				},
 				{ headers: condenseResponseHeaders(routing) },
 			);
