@@ -32,6 +32,27 @@ recovery; it does not silently adopt another unit or restart other services.
 The source generation is content-verified, not an OS privilege boundary:
 user-owned files can be changed, and such changes invalidate integrity.
 
+## Re-bless verb — correcting stale manifest intent (W640)
+
+A receipt recorded before the last harness sync carries a stale
+manifestSha256; the render fence then refuses every render into LaunchAgents
+("activation refused: candidate differs from explicit approved service
+intent"). The supported recovery is the owner-gated re-bless verb:
+
+    ./install.sh --re-bless-activation --confirm <manifest-sha-prefix>
+
+A run without --confirm dry-renders via `install-services.ts --out` (never
+stdout — banner bytes would shift the sha), prints the old-receipt-intent vs
+candidate diff and names the sha to confirm; nothing is written until BOTH
+the intent flag and a >=12-hex prefix of the NEW candidate manifest sha are
+present. The candidate sha is read from the ACTIVE GENERATION's
+services.yaml and must hash-equal the repo copy (they hash-equal only right
+after a sync). Units and launchd state are never touched; the write goes
+through service-drift `writeActivation` only, retaining prior intent for
+labels absent from the candidate render. Generation-pinned receipts are
+refused (those belong to the reviewed gateway upgrade path). A successful
+install --with-launchd afterwards rewrites the receipt wholesale.
+
 ## Approval fence — serialization among supported writers
 
 As of W576.7.2 the approval boundary additionally holds an expiry-bounded

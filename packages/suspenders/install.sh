@@ -7,6 +7,7 @@
 #                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
 #                [--prune] [--hub <name>] [--wire-repo <path>] [--yes]
 #                [--json] [--verbose] [--step <name>]
+#                [--re-bless-activation [--confirm <manifest-sha-prefix>]]
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
@@ -262,7 +263,7 @@ fi
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
 LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0 LEG_PRUNE=0
-LEG_WIRE_REPO="" wire_repo_pending=0
+LEG_WIRE_REPO="" LEG_CONFIRM="" confirm_pending=0 LEG_REBLESS=0
 NATIVE=()
 prev_step=0
 prev_review=0
@@ -277,9 +278,16 @@ for arg in "$@"; do
   fi
   if [[ $hub_pending -eq 1 ]]; then LEG_HUB="$arg"; hub_pending=0; continue; fi
   if [[ $wire_repo_pending -eq 1 ]]; then LEG_WIRE_REPO="$arg"; wire_repo_pending=0; continue; fi
+  if [[ $confirm_pending -eq 1 ]]; then
+    if [[ "$arg" == --* ]]; then echo "--confirm needs a manifest sha prefix" >&2; exit 2; fi
+    LEG_CONFIRM="$arg"; confirm_pending=0; continue
+  fi
   case "$arg" in
     --hub) hub_seen=1; hub_pending=1 ;;
     --wire-repo) wire_repo_pending=1 ;;
+    --re-bless-activation) LEG_REBLESS=1 ;;
+    --confirm) confirm_pending=1 ;;
+    --confirm=*) LEG_CONFIRM="${arg#--confirm=}" ;;
     --wire) LEG_WIRE=1 ;;
     --with-launchd) LEG_WITH_LAUNCHD=1 ;;
     --skip-models) LEG_SKIP_MODELS=1 ;;
@@ -327,6 +335,20 @@ fi
 # step. Early-exit like the other targeted flags; --dry-run rides the plan.
 if [[ -n "$LEG_WIRE_REPO" ]]; then
   exec bun "$SCRIPT_DIR/scripts/install.ts" --step wireSettings --yes --wire-repo "$LEG_WIRE_REPO" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# --re-bless-activation (W640): owner-gated activation-receipt re-bless — the
+# W639 hand-run bun script as a supported verb. Requires BOTH the intent flag
+# and --confirm <manifest-sha-prefix> (>=12 hex of the NEW candidate sha; a
+# confirm-less run dry-renders, prints the old-intent vs candidate diff and
+# names the sha — writes nothing). Corrects the receipt BEFORE install
+# --with-launchd: the render fence compares receipt.manifestSha256 against
+# the ACTIVE GENERATION's services.yaml. No launchd mutation; the write goes
+# through service-drift writeActivation only.
+if [[ $LEG_REBLESS -eq 1 ]]; then
+  CONFIRM_ARGS=()
+  if [[ -n "$LEG_CONFIRM" ]]; then CONFIRM_ARGS+=(--confirm "$LEG_CONFIRM"); fi
+  exec bun "$SCRIPT_DIR/scripts/rebless-activation.ts" --re-bless-activation ${CONFIRM_ARGS[@]+"${CONFIRM_ARGS[@]}"}
 fi
 
 # Upgrade the existing kit code explicitly, never switch supervisor families.
