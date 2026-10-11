@@ -33,6 +33,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /console/local  Caddy-served .local services from the klh-local registry (static view)
 - GET /console/settings   settings hub — one entry per feature (belt budgets, buckle ladder+cooldowns, suspenders board knobs); every write previews a diff + confirms
 - GET /api/console/me avatar data: {ok, actor, tags, actors[], default_actor} — board host's latest session actor, "unassigned" until coord bootstrap --actor stamps one
+- GET /api/fleet-tree W530 fleet tree, hub-grouped like a directory tree, from the local belt registry + hubs.json candidates, bounded parallel leaf probes; ?refresh=1 bypasses the TTL (single-flight coalescing); snapshot = {roots, generated_at, stale}
+- GET /fleet-tree     the same tree as a GUI-disconnected demo page (native DOM only)
 - GET /llms.txt       this file
 
 ## Write endpoints (human at the board; origin/host guarded)
