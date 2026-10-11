@@ -75,16 +75,13 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:4111:4111"
+      # the stub shares the gate's netns, so the RUNNER's host probes of the
+      # tier (:8902 healthz) ride this publish
+      - "127.0.0.1:8902:8902"
     env_file:
       - ./buckle.env
     environment:
       BUCKLE_PORT: "4111"
-      # egress law: plain http is allowed only to loopback or hosts listed
-      # here — belt-stub is a compose-network name
-      BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
-      # kindOfHost classes any non-loopback host "cloud"; the stub rides the
-      # compose bridge, so prefs open the cloud gate (decide.ts viable())
-      BUCKLE_PREFS: /srv/fleet/packages/suspenders/deploy/e2e/prefs.e2e.json
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_DB: /state/buckle/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
@@ -104,10 +101,11 @@ services:
       start_period: 15s
 
   # belt in cpu-mode: the swarm specialists are MLX (Apple-only), so the
-  # harness serves the same wire contract (OpenAI /v1/chat/completions on
-  # the tier port buckle's committed ladder targets, :8902) from a canned
-  # stub. This is the tier the routing ladder walks — chain evidence ends
-  # "…→ belt-stub responded".
+  # harness serves the tier port the routing ladder targets (:8902) from a
+  # canned stub. The stub shares the
+  # GATE'S netns — the real hub shape (belt tiers live on the gate host's
+  # loopback; hub-compose is host-networked). Loopback = kind "local" in
+  # kindOfHost, W136 escalation not consulted for local rows.
   belt-stub:
     image: *fleet-image
     logging: *default-logging
@@ -116,16 +114,13 @@ services:
         limits:
           memory: 256m
     restart: unless-stopped
+    network_mode: "service:buckle-hub"
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
+      buckle-hub:
+        condition: service_started
     command: bun /srv/fleet/packages/suspenders/deploy/e2e/stub-tier.ts
-    ports:
-      - "127.0.0.1:8902:8902"
-    volumes:
-      - fleet-tree:/srv/fleet
-    environment:
-      TIER_PORT: "8902"
     healthcheck:
       test:
         - CMD-SHELL
@@ -134,6 +129,10 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
+    environment:
+      TIER_PORT: "8902"
+    volumes:
+      - fleet-tree:/srv/fleet
 
   # suspenders control plane: fleet board + coord store.
   board-hub:
@@ -335,8 +334,6 @@ services:
       BUCKLE_PORT: "4121"
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_AUTH: "on"
-      BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
-      BUCKLE_PREFS: /srv/fleet/packages/suspenders/deploy/e2e/prefs.e2e.json
       BUCKLE_DB: /state/buckle-overlay/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.yaml
