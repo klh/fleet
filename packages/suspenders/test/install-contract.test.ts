@@ -75,7 +75,7 @@ describe("install --json outcomes (W490.1)", () => {
 			expect(doc.contract.flags[key].flag).toBe(kebab(key));
 		}
 		expect(doc.contract.name).toBe("suspenders-install");
-		expect(doc.contract.steps).toHaveLength(12);
+		expect(doc.contract.steps).toHaveLength(13);
 	});
 
 	test("plan without consent pauses (exit 0, never blocks)", async () => {
@@ -227,10 +227,11 @@ describe("contract ⇔ CLI drift checks (W490.1)", () => {
 		}
 	});
 
-	test("flag types: exactly two string flags (--step, --wire-repo), rest boolean", () => {
+	test("flag types: exactly three string flags (--step, --wire-repo, --gateway-review), rest boolean", () => {
 		for (const key of Object.keys(meowFlags)) {
-			const expected =
-				key === "step" || key === "wireRepo" ? "string" : "boolean";
+			const expected = ["step", "wireRepo", "gatewayReview"].includes(key)
+				? "string"
+				: "boolean";
 			expect(meowFlags[key].type).toBe(expected);
 		}
 	});

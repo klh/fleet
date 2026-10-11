@@ -20,6 +20,7 @@ export type StepName =
 	| "seedLocalLlm"
 	| "downloadModels"
 	| "wireSettings"
+	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
 	| "releaseNotify"
@@ -217,6 +218,11 @@ export const INSTALL_CONTRACT = {
 			flag: "--verbose",
 			meaning: "include per-step detail and resolved paths in the outcome",
 		},
+		gatewayReview: {
+			flag: "--gateway-review",
+			meaning:
+				"approve the exact staged gateway candidate SHA256 for the explicit upgradeGateway step",
+		},
 		step: {
 			flag: "--step",
 			meaning:
@@ -316,6 +322,14 @@ export const INSTALL_CONTRACT = {
 			name: "wireSettings",
 			oneLiner:
 				"merge the hooks block into a repo's project settings via --wire-repo <path> (per-event merge, never clobber); the user-level wire rides the bash --wire resume",
+			mutates: true,
+			optIn: true,
+			v1: "real",
+		},
+		{
+			name: "upgradeGateway",
+			oneLiner:
+				"stage or explicitly activate a reviewed immutable gateway candidate, preserving machine database state",
 			mutates: true,
 			optIn: true,
 			v1: "real",

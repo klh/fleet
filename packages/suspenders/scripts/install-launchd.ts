@@ -179,6 +179,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 			"--out",
 			agentsDir,
 			"--json",
+			"--owner-initial-install",
 			"--bun",
 			bun,
 			"--home",
@@ -224,7 +225,12 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		// diagnostics land in the insights log, never the installer's stdout
 		const load = await execa(
 			"bash",
-			[join(repo, "scripts/load-launchd.sh"), unit, log],
+			[
+				join(repo, "scripts/load-launchd.sh"),
+				unit,
+				log,
+				"--owner-initial-install",
+			],
 			{ reject: false, stdout: "pipe", stderr: "pipe" },
 		);
 		if (load.exitCode !== 0) failed.push(label);
