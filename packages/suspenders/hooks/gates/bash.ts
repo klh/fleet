@@ -42,6 +42,7 @@ import {
 } from "./destructive.ts";
 import { laneId, leaseExpired } from "./governor.ts";
 import { lifecycleGate } from "./lifecycle.ts";
+import { scrubGateSegments } from "./scrub.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
@@ -220,6 +221,12 @@ export function bashGate(hook: HookInput): never {
 				);
 		}
 	}
+
+	// ---- W236 scrub gate (gates/scrub.ts): the pre-commit/pre-push surface
+	// of lib/scrub.ts — staged/unpushed ADDED lines through the rule set
+	// (home paths, local-denylist hosts/IPs/MACs, key material, IKEA-internal  // scrub:allow
+	// markers). SUSPENDERS_SCRUB=0 disables. Fail-inert on plumbing failure.
+	scrubGateSegments(SEGS, CWD);
 
 	// ---- no-lane-push-to-main (W70): the merge ladder owns main — lanes push
 	// their branch only; the ladder (board ship trigger / fleet-loop ship)
