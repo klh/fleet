@@ -7,6 +7,7 @@
 // (the PROTOCOL line points at it) — redundancy here is measured by
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
+import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
 export const BIN = `${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin`;
@@ -42,6 +43,9 @@ export interface BriefOpts {
 	agent?: string;
 	/** archived-origin landing redirect (the W428 lesson) */
 	landing?: string;
+	/** W645: explicit validation command (tests); undefined = detect from
+	 *  qlty/package metadata, null = drop the line entirely. */
+	validation?: string | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => [
@@ -58,6 +62,18 @@ const briefOpening = (o: BriefOpts): string[] => [
 	`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
 ];
 
+// W645 (oh-my-claude L5): the concrete validation command for the target
+// repo, read from qlty + package metadata — never guessed, never hardcoded
+// per-ecosystem. A repo with no metadata source gets no line at all.
+const briefValidation = (o: BriefOpts): string[] => {
+	const cmd =
+		o.validation !== undefined
+			? o.validation
+			: validationCommand(o.repo ?? REPO);
+	if (!cmd) return [];
+	return [``, `VALIDATION (<files> = the paths you changed): ${cmd}`];
+};
+
 // W633 trim: inbox + collaboration + verdicts carry the commands; the long
 // rationale prose went to AGENTS.md (protocol 1 + consult narration), where
 // the PROTOCOL line already points. Vocab anchors tests regex stay verbatim.
@@ -65,6 +81,7 @@ const briefInboxCollab = (o: BriefOpts): string[] => [
 	`INBOX CONTRACT (WS-first): one live coord subscribe attaches at spawn (idempotent per sid); its feed tails ~/.claude-insights/coord-subscribe-${o.sid}.log (read with tail). Catch-up read on every executor: bun ${BIN}/coord.ts inbox --as ${o.sid} — check before planning and again before finishing.`,
 	`COLLABORATION: after a second unchanged failure or an interface conflict, consult ONE expert: bun ${BIN}/coord.ts consult --best "<command, error, attempts, precise question>" --scope "<package/path>" --as ${o.sid}; no answer in 60s → capsule the evidence, keep moving, request a decision before another unchanged attempt. Replies: answer, evidence, applicability, next action; after trying one: bun ${BIN}/coord.ts consult-reply <Cnumber> --feedback resolved|failed|unused --evidence "<command and observed result>" --as ${o.sid}.`,
 	`REPORT VERDICTS: report-shaped output — review, QA pass, consult answer, paired-lane findings — ends with ONE machine-parseable final line, never paraphrased: review = VERDICT: PASS | VERDICT: FAIL - <reason> · critique = APPROVED | NEEDS REVISION - <reason> · gap analysis = CLEAR | GAPS_FOUND - <detail> | INSUFFICIENT_CONTEXT. Parents regex the final line, not the prose.`,
+	`VERDICT CONTRACT: if the item IS a review/verify/critique, that final line is MANDATORY — the parent regexes it, prose is ignored. Consuming a verdict (writer lane): regex the FINAL line only — PASS/APPROVED/CLEAR proceeds; FAIL/NEEDS REVISION/GAPS_FOUND fails fast (fix or coord consult), never reinterpreted as a pass.`,
 	`Work in the EXISTING worktree ${o.worktree} (branch ${o.branch}).`,
 ];
 
@@ -94,6 +111,7 @@ const briefLanding = (o: BriefOpts): string[] => [
 
 export const composeBrief = (o: BriefOpts): string => {
 	const parts = briefOpening(o);
+	parts.push(...briefValidation(o));
 	parts.push(...briefInboxCollab(o));
 	parts.push(...briefResume(o));
 	parts.push(...briefLanding(o));
