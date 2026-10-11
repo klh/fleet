@@ -70,12 +70,18 @@ services:
     restart: unless-stopped
     working_dir: /srv/fleet/packages/buckle
     command: bun run src/server.ts
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4111:4111"
     env_file:
       - ./buckle.env
     environment:
       BUCKLE_PORT: "4111"
+      # egress law: plain http is allowed only to loopback or hosts listed
+      # here — belt-stub is a compose-network name
+      BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_DB: /state/buckle/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
@@ -309,6 +315,9 @@ services:
     restart: unless-stopped
     working_dir: /srv/overlay/packages/buckle
     command: bun run src/server.ts
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4121:4121"
     env_file:
@@ -317,6 +326,7 @@ services:
       BUCKLE_PORT: "4121"
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_AUTH: "on"
+      BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
       BUCKLE_DB: /state/buckle-overlay/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.yaml
