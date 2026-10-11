@@ -113,8 +113,13 @@ blam tiers per model).
 ## 6. Open benchmarks — tracked in the work graph, not here
 
 - **2026-10-08 redo** (successor of W532/W536): local 35B-A3B vs z.ai (flash +
-  frontier) vs claude (sonnet-5 seat) vs copilot claude-opus-5.5 — per-round
+  frontier) vs claude (bench arm) vs copilot claude-opus-5.5 — per-round
   served identity, reasoning vs answer tokens split, uncapped budgets,
-  frontier included. Harness: `packages/belt/bench/arena/` (legs.ts).
+  frontier included. Harness: `packages/belt/bench/local-reason-overnight.ts`.
+- **Publication law (W532.1)**: a local-vs-cloud comparison row enters
+  benchmarks.md only after
+  `bun bench/local-reason-publish-gate.ts <run>.jsonl` exits 0 on the run's
+  sealed jsonl — one seal, full predeclared matrix attempted, per-round
+  identity evidence, summary that recomputes. No gate pass, no row.
 - **W536 remainder** — W274 post-W270 router/engine rerun + buckle gateway
   acceptance probes (still OPEN).

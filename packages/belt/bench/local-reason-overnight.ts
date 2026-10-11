@@ -124,11 +124,13 @@ export function classify(
 	grade: CodeGrade | null,
 ): RoundVerdict {
 	const identity = o.ok && expected !== null && (o.served ?? null) !== expected;
+	// a transport-ok answer with NO stop/finish reason has no proof of clean
+	// termination — unknown termination grades as truncation (unknown ≠ zero)
 	const failKind: FailKind = !o.ok
 		? "transport"
 		: identity
 			? "identity"
-			: o.finish === "length"
+			: o.finish === "length" || o.finish === null
 				? "truncated"
 				: o.text.length === 0
 					? "empty"
@@ -246,7 +248,7 @@ export interface RoundRow {
 	ttft_ms: number | null;
 	in_tok: number;
 	out_tok: number;
-	reason_tok: number;
+	reason_tok: number | null;
 	reason_chars: number;
 	tok_est: boolean;
 	finish: string | null;
@@ -367,6 +369,45 @@ export const sealRow = (
 		"identity+truncation+tests in-gate; no retries; failed rounds stay in the denominator",
 });
 
+/** Resume control: the existing seal must describe THIS invocation — the
+ *  seeded orderings and the predeclared budget/rubric/task plan only mean
+ *  something under the seal that declared them. Empty list = seal stands. */
+export function sealMismatches(
+	seal: Record<string, unknown>,
+	now: {
+		rounds: number;
+		tasks: string[];
+		seed: string;
+		scriptSha: string;
+		promptsSha: string;
+		rubricSha: string;
+		reviewSrcSha: string;
+	},
+): string[] {
+	const mis: string[] = [];
+	if (seal.rounds !== now.rounds)
+		mis.push(`rounds: seal ${String(seal.rounds)} vs now ${now.rounds}`);
+	const sealed = Array.isArray(seal.tasks) ? seal.tasks.join(",") : "?";
+	if (sealed !== now.tasks.join(","))
+		mis.push(`tasks: seal [${sealed}] vs now [${now.tasks.join(",")}]`);
+	if (seal.seed !== now.seed)
+		mis.push(`seed: seal ${String(seal.seed)} vs now ${now.seed}`);
+	const shas: [string, string, string][] = [
+		["script_sha", "scriptSha", now.scriptSha],
+		["prompts_sha", "promptsSha", now.promptsSha],
+		["rubric_sha", "rubricSha", now.rubricSha],
+		["review_src_sha", "reviewSrcSha", now.reviewSrcSha],
+	];
+	for (const [k, label, want] of shas) {
+		const got = seal[k];
+		if (typeof got !== "string" || got !== want)
+			mis.push(
+				`${label}: seal ${typeof got === "string" ? got.slice(0, 12) : String(got)} vs now ${want.slice(0, 12)}`,
+			);
+	}
+	return mis;
+}
+
 export interface Executed {
 	o: Out;
 	v: RoundVerdict;
@@ -425,9 +466,11 @@ export const warmup = async (ctx: RunContext): Promise<boolean> => {
 		);
 		put(ctx.file, row);
 		console.log(warmupLine(leg.id, e));
-		// warmup asserts transport + served identity only — a 16-token answer
-		// from a thinking model always "truncates", which is not a warmup fail
-		if (!e.v.ok || e.v.identity) return false;
+		// warmup asserts transport + served identity + explicit termination: a
+		// 16-token answer always stops on "length" (not a fail), but a MISSING
+		// stop reason means the wire never proved it can signal termination —
+		// catch a finish-less server before the sealed budget is spent
+		if (!e.v.ok || e.v.identity || e.o.finish === null) return false;
 	}
 	return true;
 };
@@ -669,19 +712,39 @@ async function main(): Promise<void> {
 		head,
 		file,
 	};
-	// 9. seal — one row, only on a fresh file
+	// 9. seal — written once on a fresh file; on RESUME the existing seal is
+	// re-validated against this invocation (rounds/tasks/seed + every hash) —
+	// a broken seal is a hard stop, never a silent continue
+	const script = await Bun.file(import.meta.path).text();
+	const shas = {
+		scriptSha: sha(script),
+		promptsSha: sha(JSON.stringify(prompts)),
+		rubricSha: sha(rubric),
+		reviewSrcSha: sha(src),
+	};
 	if (!existsSync(file)) {
 		put(
 			file,
-			sealRow(
-				ctx,
-				sha(rubric),
-				sha(src),
-				sha(JSON.stringify(prompts)),
-				await Bun.file(import.meta.path).text(),
-				{ ac, vpn },
-			),
+			sealRow(ctx, shas.rubricSha, shas.reviewSrcSha, shas.promptsSha, script, {
+				ac,
+				vpn,
+			}),
 		);
+	} else {
+		const first = readFileSync(file, "utf8").split("\n")[0] ?? "";
+		const seal = JSON.parse(first) as Record<string, unknown>;
+		const mis = sealMismatches(seal, {
+			rounds,
+			tasks,
+			seed,
+			...shas,
+		});
+		if (mis.length > 0) {
+			console.error(
+				`seal broken on resume — refusing to continue:\n  ${mis.join("\n  ")}`,
+			);
+			process.exit(3);
+		}
 	}
 	// 10. resume — warmup once per file, then the (leg|round|task) skip set
 	if (loadRows(file).filter((r) => r.phase === "warmup").length === 0) {

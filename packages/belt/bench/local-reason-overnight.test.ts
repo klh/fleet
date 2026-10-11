@@ -12,6 +12,7 @@ import {
 	median,
 	type RoundRow,
 	roundPlan,
+	sealMismatches,
 	summarize,
 } from "./local-reason-overnight.ts";
 
@@ -62,6 +63,9 @@ describe("classify", () => {
 	});
 	test("length finish is truncated", () => {
 		expect(verdict({ finish: "length" }, "m").failKind).toBe("truncated");
+	});
+	test("ok answer with NO stop reason is unproven termination → truncated", () => {
+		expect(verdict({ finish: null }, "m").failKind).toBe("truncated");
 	});
 	test("stop with empty text is empty", () => {
 		expect(verdict({ text: "" }, "m").failKind).toBe("empty");
@@ -195,5 +199,65 @@ describe("doneSet", () => {
 		const done = doneSet(file);
 		rmSync(dir, { recursive: true, force: true });
 		expect([...done].sort()).toEqual(["a|1|code", "b|2|review"]);
+	});
+});
+
+describe("summarize reason tokens", () => {
+	test("known-zero is signal, unknown is null — never conflated", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w532-tok-"));
+		const file = join(dir, "run.jsonl");
+		const lines = [
+			mkRow({
+				leg: "a",
+				wall_ms: 100,
+				out_tok: 100,
+				reason_tok: 0,
+				cost_usd: 0,
+			}),
+			mkRow({
+				leg: "b",
+				wall_ms: 100,
+				out_tok: 100,
+				reason_tok: null,
+				cost_usd: 0,
+			}),
+		];
+		writeFileSync(file, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`);
+		const s = summarize(file, ["a", "b"]);
+		rmSync(dir, { recursive: true, force: true });
+		expect(s[0]?.reason_share_p50_warm).toBe(0);
+		expect(s[1]?.reason_share_p50_warm).toBeNull();
+	});
+});
+
+describe("sealMismatches", () => {
+	const now = {
+		rounds: 10,
+		tasks: ["code", "review"],
+		seed: "s1",
+		scriptSha: "aaa2",
+		promptsSha: "bbb2",
+		rubricSha: "ccc2",
+		reviewSrcSha: "ddd2",
+	};
+	const seal = {
+		rounds: 10,
+		seed: "s1",
+		tasks: ["code", "review"],
+		script_sha: "aaa2",
+		prompts_sha: "bbb2",
+		rubric_sha: "ccc2",
+		review_src_sha: "ddd2",
+	};
+	test("a seal that describes this invocation is silent", () => {
+		expect(sealMismatches(seal, now)).toEqual([]);
+	});
+	test("broken bindings are named; non-string hash fails closed", () => {
+		const mis = sealMismatches(
+			{ ...seal, rounds: 5, script_sha: "fff3", rubric_sha: 42 },
+			now,
+		);
+		expect(mis).toHaveLength(3);
+		expect(mis[0]).toContain("rounds");
 	});
 });
