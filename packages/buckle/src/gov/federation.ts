@@ -9,25 +9,19 @@
 // models never appear —
 // structural (hub cannot see them) + defensive `visibility: spoke-private`.
 import { Database } from "bun:sqlite";
-import { YAML } from "bun";
 import type { GatewayPolicy } from "../policy.ts";
 import type { UpstreamPool } from "../upstreams.ts";
-import { readFileSync } from "node:fs";
-import {
-	buildRules,
-	crQueue,
-	declareCR,
-	type CrProbe,
-	type FedManifest,
-	manifestVersion,
-	transitionCR,
-} from "./federation-manifest.ts";
 import { applyGovernanceSchema } from "./schema.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
 import type {
+	CrProbe,
+	CrRow,
+	FedManifest,
 	HubEntitlementsFactory,
 	HubEntitlementsProvider,
+	ManifestCrFactory,
+	ManifestCrProvider,
 	RedeemResult,
 	SpokeEnrollmentFactory,
 	SpokeEnrollmentProvider,
@@ -58,25 +52,9 @@ export interface FederationOpts {
 	 *  overlay). Unset in solo posture — the entitlements route answers an
 	 *  honest 501. */
 	hubEntitlements?: HubEntitlementsFactory;
-}
-
-export interface CrRow {
-	id: string;
-	action: string;
-	target: string;
-	declared_at: string;
-	state: string;
-	note: string | null;
-	updated_at: number | null;
-	reported_at: number | null;
-	/** W160: the declared change (JSON) + origination record (JSON). */
-	payload: string | null;
-	origin: string | null;
-	verified_at: number | null;
-	/** W193 claim binding: the first spoke report binds claimed_by (other
-	 *  non-admin principals 403 buckle.cr_claimed; hub-admin moves anything). */
-	claimed_by: string | null;
-	claimed_at: number | null;
+	/** W233.3: the manifest + CR seam — same posture law. Unset in solo
+	 *  posture: the manifest pull + CR routes answer honest 501s. */
+	manifestCr?: ManifestCrFactory;
 }
 
 /** The principal a gate-authenticated request carries (WeakMap stash — no
@@ -103,37 +81,6 @@ function str(v: unknown): string | null {
 	return typeof v === "string" && v.length > 0 ? v : null;
 }
 
-/** W160: the built-in policy-revision probe — RE-READS routing-policy.yaml
- *  from disk at verify time (the hub re-reads the target surface; a spoke's
- *  word alone never grants `verified`). Registered for `policy@N` and
- *  `routing-policy@N` targets (longest-prefix match). */
-function policyRevisionProbe(policyPath: string | undefined): CrProbe {
-	return (cr: CrRow): { ok: boolean; why: string | null } => {
-		const m = /@(\d+)$/.exec(cr.target);
-		if (m === null)
-			return { ok: false, why: `no revision in target '${cr.target}'` };
-		const want = Number(m[1]);
-		if (policyPath === undefined)
-			return { ok: false, why: "no policy surface wired on this hub" };
-		let have = 0;
-		try {
-			// doc-level `version` — parsePolicy keeps only the gateway block
-			const doc = YAML.parse(readFileSync(policyPath, "utf8")) as {
-				version?: number;
-			} | null;
-			have = doc?.version ?? 0;
-		} catch (e) {
-			return { ok: false, why: `policy surface unreadable: ${String(e)}` };
-		}
-		return have >= want
-			? { ok: true, why: null }
-			: {
-					ok: false,
-					why: `hub policy revision ${String(have)} < CR target ${String(want)}`,
-				};
-	};
-}
-
 export class Federation {
 	readonly db: Database;
 	private readonly policy: GatewayPolicy;
@@ -149,8 +96,9 @@ export class Federation {
 	/** W233.1 seam: the hub entitlement menu (enterprise overlay) —
 	 *  provider-less in solo posture (honest 501). */
 	readonly entitlementsMenu: HubEntitlementsProvider | null;
-	/** W160 verification probes, by target prefix (longest match wins). */
-	private readonly probes = new Map<string, CrProbe>();
+	/** W233.3 seam: the policy manifest + CR queue hub serving —
+	 *  provider-less in solo posture (honest 501s). */
+	readonly cr: ManifestCrProvider | null;
 
 	constructor(opts: FederationOpts) {
 		this.db = new Database(opts.dbPath, { create: true });
@@ -163,43 +111,13 @@ export class Federation {
 		this.usage = opts.usageIngest?.(this.db, this.policy) ?? null;
 		this.entitlementsMenu =
 			opts.hubEntitlements?.(this.pool, this.policy.tags ?? {}) ?? null;
-		const rev = policyRevisionProbe(opts.policyPath);
-		this.registerProbe("policy@", rev);
-		this.registerProbe("routing-policy@", rev);
+		this.cr = opts.manifestCr?.(this.db, this.policy, opts.policyPath) ?? null;
 	}
 
-	/** Register a verification probe for targets with the given prefix. */
+	/** Register a verification probe — rides the W233.3 seam; no-op in solo
+	 *  posture (nothing verifies against a provider-less CR store). */
 	registerProbe(prefix: string, probe: CrProbe): void {
-		this.probes.set(prefix, probe);
-	}
-
-	/** Run the probe matching this CR's target (longest registered prefix);
-	 *  no match = honest failure — verified is never granted on faith. */
-	private runProbe(cr: CrRow): { ok: boolean; why: string | null } {
-		let best: string | null = null;
-		for (const prefix of this.probes.keys()) {
-			if (!cr.target.startsWith(prefix)) continue;
-			if (best === null || prefix.length > best.length) best = prefix;
-		}
-		if (best === null)
-			return {
-				ok: false,
-				why: `no verification probe registered for target '${cr.target}'`,
-			};
-		const probe = this.probes.get(best);
-		if (probe === undefined)
-			return { ok: false, why: `probe gap for '${cr.target}'` };
-		return probe(cr);
-	}
-
-	/** The manifest payload: content-addressed version + rules + CR queue. */
-	manifest(): FedManifest {
-		const rules = buildRules(this.policy);
-		return {
-			version: manifestVersion(rules),
-			rules,
-			cr_queue: crQueue(this.db),
-		};
+		this.cr?.registerProbe(prefix, probe);
 	}
 
 	/** Echo-menu entitlements: hub menu only, team ceilings when the pull
@@ -240,8 +158,8 @@ export class Federation {
 	 *  signing identity is wired (spokes degrade honestly). Accepts a
 	 *  precomputed manifest so the W173 heartbeat touches the registry with
 	 *  the exact version it serves. */
-	private manifestResponse(m?: FedManifest): Response {
-		const body = JSON.stringify(m ?? this.manifest());
+	private manifestResponse(m: FedManifest): Response {
+		const body = JSON.stringify(m);
 		const headers: Record<string, string> = {
 			"content-type": "application/json; charset=utf-8",
 		};
@@ -254,12 +172,17 @@ export class Federation {
 
 	/** W173 heartbeat: the pull IS the heartbeat — registry last_seen moves,
 	 *  the spoke may report its version header, policy_version = the exact
-	 *  manifest version being served (pull == apply). */
-	private pullHeartbeat(
-		req: Request,
-		p: Principal | null,
-		m: FedManifest,
-	): Response {
+	 *  manifest version being served (pull == apply). W233.3: the manifest
+	 *  content rides the ManifestCrProvider (honest 501 provider-less —
+	 *  solo posture serves no fleet policy). */
+	private pullHeartbeat(req: Request, p: Principal | null): Response {
+		if (this.cr === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no manifest serving surface on this gate (solo posture)",
+			);
+		const m = this.cr.manifest();
 		if (p !== null)
 			this.spokes?.touch({
 				keyId: p.keyId,
@@ -275,7 +198,7 @@ export class Federation {
 	async handle(req: Request, p: Principal | null): Promise<Response> {
 		const url = new URL(req.url);
 		if (req.method === "GET" && url.pathname === "/federation/policy-manifest")
-			return this.pullHeartbeat(req, p, this.manifest());
+			return this.pullHeartbeat(req, p);
 		if (req.method === "GET" && url.pathname === "/federation/entitlements")
 			return this.entitlementsRoute(p);
 		if (req.method === "POST" && url.pathname === "/federation/enroll")
@@ -349,17 +272,21 @@ export class Federation {
 		if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
 		const state = typeof body.state === "string" ? body.state : "";
 		const note = typeof body.note === "string" ? body.note : null;
-		const out = transitionCR(
-			this.db,
+		if (this.cr === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no CR surface on this gate (solo posture)",
+			);
+		const out = this.cr.transition({
 			id,
-			state,
+			to: state,
 			note,
-			(cr) => this.runProbe(cr),
-			{
+			actor: {
 				id: p.keyId,
 				admin: p.kind === "root" || hasScope(p.scopes, "buckle:admin:WRITE_"),
 			},
-		);
+		});
 		if (!out.ok) return bad(out.status, out.code, out.why);
 		return Response.json({
 			id,
@@ -383,13 +310,21 @@ export class Federation {
 		return null;
 	}
 
-	/** W160 CR declare: guard (401/403) → body → seam; 422 private-domain. */
+	/** W160 CR declare: guard (401/403) → 501 provider-less → body → seam;
+	 *  the provider owns the structural private-domain guard (422) and
+	 *  shape validation (400). */
 	private async crDeclare(
 		req: Request,
 		p: Principal | null,
 	): Promise<Response> {
 		const guard = this.crDeclareGuard(p);
 		if (guard !== null) return guard;
+		if (this.cr === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no CR surface on this gate (solo posture)",
+			);
 		const body = (await req.json().catch(() => null)) as Record<
 			string,
 			unknown
@@ -404,7 +339,7 @@ export class Federation {
 			`cr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 		const o = body.origin as Record<string, unknown> | null | undefined;
 		const hasOrigin = o !== null && typeof o === "object" && !Array.isArray(o);
-		const out = declareCR(this.db, {
+		const out = this.cr.declare({
 			id,
 			action,
 			target,
@@ -423,16 +358,12 @@ export class Federation {
 				...(hasOrigin ? o : {}),
 			} as { system: string; actor: string },
 		});
-		if (!out.ok)
-			return bad(
-				out.code === "buckle.cr_private_domain" ? 422 : 400,
-				out.code,
-				out.why,
-			);
+		if (!out.ok) return bad(out.status, out.code, out.why);
 		return Response.json(this.crOut(out.row), { status: 201 });
 	}
 
-	/** W160 CR list: hub-admin read (buckle:admin:READ_; WRITE_ implies). */
+	/** W160 CR list: hub-admin read (buckle:admin:READ_; WRITE_ implies);
+	 *  W233.3: rides the seam — honest 501 provider-less. */
 	private crList(p: Principal | null): Response {
 		if (p === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token");
@@ -442,8 +373,14 @@ export class Federation {
 				"buckle.insufficient_scope",
 				"requires buckle:admin:READ_",
 			);
+		if (this.cr === null)
+			return bad(
+				501,
+				"buckle.no_federation",
+				"no CR surface on this gate (solo posture)",
+			);
 		return Response.json({
-			cr_queue: crQueue(this.db).map((r) => this.crOut(r)),
+			cr_queue: this.cr.list().map((r) => this.crOut(r)),
 		});
 	}
 

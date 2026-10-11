@@ -116,6 +116,95 @@ export interface UsageIngestProvider {
 	ingest(o: { body: unknown; spoke: string }): UsageIngestResult;
 	read(days: number, nowMs?: number): FedUsageReport;
 }
+
+/** CR queue row (W154/W160/W193): the wire row both the manifest's
+ *  cr_queue and the hub-admin CR read serve; payload/origin ride storage
+ *  JSON — the parse lives at the public wire edge (federation.ts crOut). */
+export interface CrRow {
+	id: string;
+	action: string;
+	target: string;
+	declared_at: string;
+	state: string;
+	note: string | null;
+	updated_at: number | null;
+	reported_at: number | null;
+	payload: string | null;
+	origin: string | null;
+	verified_at: number | null;
+	claimed_by: string | null;
+	claimed_at: number | null;
+}
+
+/** The signed policy manifest the spoke pull serves (content-addressed
+ *  version + rules + CR queue) — typed here so the public route keeps its
+ *  wire contract; the content building lives in the overlay. */
+export interface FedManifest {
+	version: string;
+	rules: Array<Record<string, unknown>>;
+	cr_queue: CrRow[];
+}
+
+/** W160: the hub-side verification probe — before a CR may report
+ *  `verified`, the hub re-reads the CR's target surface; spoke claims are
+ *  never trusted alone. */
+export type CrProbe = (cr: CrRow) => { ok: boolean; why: string | null };
+
+/** W193 claim identity: the reporting principal's stable id plus whether it
+ *  holds hub-admin capability (admins/root may move any CR; spokes only
+ *  their own claims). */
+export interface CrActor {
+	id: string;
+	admin: boolean;
+}
+
+/** Verdict shape both CR verbs return: ok carries the fresh row; !ok is
+ *  the route's error envelope (400 bad body/origin · 403 claim binding ·
+ *  404 unknown id · 409 state/probe · 422 private domain). */
+export type CrVerdict =
+	| { ok: true; row: CrRow }
+	| { ok: false; status: number; code: string; why: string };
+
+/** The policy manifest + CR queue hub provider: the content-addressed
+ *  manifest a spoke pull reconciles (buildRules/manifestVersion), the CR
+ *  origination + linear lifecycle store, and the verification-probe
+ *  registry. The implementation lives in the enterprise overlay
+ *  (klh-remote buckle-remote); public solo posture runs provider-less —
+ *  the manifest pull + CR routes answer honest 501s. */
+export interface ManifestCrProvider {
+	/** The manifest payload: content-addressed version + rules + CR queue. */
+	manifest(): FedManifest;
+	/** Hub-admin CR origination (W160): shape + origin + the structural
+	 *  private-domain guard runs here, before any row exists. */
+	declare(o: {
+		id: string;
+		action: string;
+		target: string;
+		payload: unknown;
+		origin: Record<string, unknown>;
+	}): CrVerdict;
+	/** The CR queue a spoke must reconcile, oldest first (admin read). */
+	list(): CrRow[];
+	/** Spoke-reported lifecycle transition, enforced server-side; the
+	 *  provider matches registered probes for applied→verified. */
+	transition(o: {
+		id: string;
+		to: string;
+		note: string | null;
+		actor: CrActor;
+	}): CrVerdict;
+	/** Register a verification probe for targets with the given prefix
+	 *  (longest match wins at verify time). */
+	registerProbe(prefix: string, probe: CrProbe): void;
+}
+
+/** Factory over the federation db + policy (+ the routing-policy surface
+ *  path for the built-in policy-revision probe). */
+export type ManifestCrFactory = (
+	db: Database,
+	policy: GatewayPolicy,
+	policyPath: string | undefined,
+) => ManifestCrProvider;
 /** Echo-menu row (W154): one hub-entitled model entry a spoke belt
  *  mirrors. */
 export interface EntitlementModel {

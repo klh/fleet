@@ -18,6 +18,7 @@ import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
 import type {
 	HubEntitlementsFactory,
+	ManifestCrFactory,
 	SpokeEnrollmentFactory,
 	UsageIngestFactory,
 } from "./gov/hub-seam.ts";
@@ -74,10 +75,12 @@ export interface ServerOpts {
 	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
 	// hubEntitlements injects the entitlement-menu provider the same way.
 	// W233.2: usageIngest injects the usage-ingest provider the same way.
+	// W233.3: manifestCr injects the manifest + CR queue serving provider.
 	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots"> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
 		hubEntitlements?: HubEntitlementsFactory;
 		usageIngest?: UsageIngestFactory;
+		manifestCr?: ManifestCrFactory;
 	};
 }
 
@@ -213,6 +216,7 @@ export function buildDeps(
 		spokeEnrollment: opts.auth?.spokeEnrollment,
 		usageIngest: opts.auth?.usageIngest,
 		hubEntitlements: opts.auth?.hubEntitlements,
+		manifestCr: opts.auth?.manifestCr,
 	});
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).

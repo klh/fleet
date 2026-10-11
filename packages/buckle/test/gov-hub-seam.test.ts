@@ -9,6 +9,8 @@ import { describe, expect, test } from "bun:test";
 import type {
 	HubEntitlementsFactory,
 	HubEntitlementsProvider,
+	ManifestCrFactory,
+	ManifestCrProvider,
 	RedeemResult,
 	SpokeEnrollmentProvider,
 	UsageIngestProvider,
@@ -40,6 +42,7 @@ async function startFed(opts: {
 		policy: unknown,
 	) => UsageIngestProvider;
 	hubEntitlements?: HubEntitlementsFactory;
+	manifestCr?: ManifestCrFactory;
 }): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w233-seam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
@@ -329,5 +332,91 @@ describe("usage-ingest seam — injected provider", () => {
 			"buckle.self_report_disabled",
 		);
 		stop();
+	});
+});
+
+describe("manifest/CR seam — solo posture (no provider)", () => {
+	test("GET /federation/policy-manifest answers honest 501", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/policy-manifest`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(501);
+			const body = (await res.json()) as { error: { code: string } };
+			expect(body.error.code).toBe("buckle.no_federation");
+		} finally {
+			stop();
+		}
+	});
+
+	test("CR declare/list/status answer honest 501s", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const h = { authorization: `Bearer ${ROOT}` };
+			const declare = await fetch(`${base}/federation/cr`, {
+				method: "POST",
+				headers: { ...h, "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "adopt-policy",
+					target: "policy@1",
+					origin: { system: "belt", actor: "t" },
+				}),
+			});
+			expect(declare.status).toBe(501);
+			const list = await fetch(`${base}/federation/cr`, { headers: h });
+			expect(list.status).toBe(501);
+			const status = await fetch(`${base}/federation/cr/x/status`, {
+				method: "POST",
+				headers: { ...h, "content-type": "application/json" },
+				body: JSON.stringify({ state: "delivered" }),
+			});
+			expect(status.status).toBe(501);
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("manifest/CR seam — injected provider", () => {
+	test("manifest pull rides the provider; the hub signs the exact bytes", async () => {
+		const stub: ManifestCrProvider = {
+			manifest: () => ({
+				version: "fed-seam-stub",
+				rules: [{ id: "gateway.knobs", kind: "gateway" }],
+				cr_queue: [],
+			}),
+			declare: () => ({
+				ok: false,
+				status: 422,
+				code: "buckle.cr_private_domain",
+				why: "stub",
+			}),
+			list: () => [],
+			transition: () => ({
+				ok: false,
+				status: 409,
+				code: "buckle.cr_state",
+				why: "stub",
+			}),
+			registerProbe: () => {},
+		};
+		const { base, stop } = await startFed({ manifestCr: () => stub });
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/policy-manifest`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				version: string;
+				rules: Array<{ id: string }>;
+			};
+			expect(body.version).toBe("fed-seam-stub");
+			expect(body.rules[0]?.id).toBe("gateway.knobs");
+		} finally {
+			stop();
+		}
 	});
 });
