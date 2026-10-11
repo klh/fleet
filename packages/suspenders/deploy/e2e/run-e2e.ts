@@ -456,6 +456,14 @@ if (import.meta.main) {
 	main().catch((err) => {
 		console.error(`[W234·e2e] FATAL ${String(err)}`);
 		try {
+			// evidence before teardown: health states + container logs name
+			// the boot failure
+			console.log(compose(["ps", "-a"], overlayOn));
+			console.log(compose(["logs", "--tail", "40"], overlayOn));
+		} catch (logErr) {
+			console.error(`[W234·e2e] (no logs: ${String(logErr)})`);
+		}
+		try {
 			compose(["down", "-v", "--remove-orphans"], overlayOn);
 		} catch {
 			// teardown best-effort on failure paths
