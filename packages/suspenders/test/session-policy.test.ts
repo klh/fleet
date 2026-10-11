@@ -462,3 +462,32 @@ test("an approved scoped exception suppresses the per-session decision until it 
 	await checkSessionPolicies({ ...options, sid: "exc-resumed" });
 	expect(n("exc-resumed")).toEqual({ n: 1 });
 });
+
+test("SessionStart refuses absolute overrides that do not exist without creating decisions", async () => {
+	const sid = "missing-policy-start";
+	const proc = Bun.spawn(
+		["bun", join(import.meta.dir, "../hooks/session-start.ts")],
+		{
+			cwd: fixture.REPO,
+			env: {
+				...fixture.env,
+				SUSPENDERS_REPO_POLICY_CONFIG: join(home, "never-written.json"),
+			},
+			stdin: "pipe",
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
+	proc.stdin.write(JSON.stringify({ session_id: sid, cwd: fixture.REPO }));
+	proc.stdin.end();
+	const output = await new Response(proc.stdout).text();
+	expect(await proc.exited).toBe(0);
+	expect(output).toContain("invalid runtime configuration");
+	expect(
+		db
+			.query(
+				"SELECT COUNT(*) AS n FROM events WHERE source = ? AND kind = 'NEED_DECISION'",
+			)
+			.get(sid),
+	).toEqual({ n: 0 });
+});
