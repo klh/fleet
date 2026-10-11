@@ -110,6 +110,12 @@ export function auditApproval(cmd: string): void {
 	);
 }
 
+// W266.2 plane-loop gate: an exempt session's escape is evidence too — same
+// JSONL as denials (tool:"plane-exempt"), fire-and-forget like auditDeny.
+export function auditEscape(reason: string): void {
+	auditLine("plane-exempt", reason);
+}
+
 export function allow(): never {
 	if (DIALECT) outD(DIALECT.decide("allow", "", ""));
 	process.stdout.write("{}");

@@ -3,7 +3,14 @@
 // The gate collects write targets with REAL filesystem resolution — fixture
 // dirs are created for real so containment/sensitive checks see them.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const tmp = mkdtempSync(join(process.cwd(), ".bashhard-gate-test-"));
@@ -12,7 +19,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 // real nested dir for the in-worktree allow case
 mkdirSync(join(tmp, "pkg"), { recursive: true });
 
-function spawnGate(command: string, cwd: string) {
+function spawnGate(command: string, cwd: string, env?: Record<string, string>) {
 	const pf = join(tmp, `payload-${Math.random().toString(36).slice(2)}.json`);
 	writeFileSync(
 		pf,
@@ -26,7 +33,12 @@ function spawnGate(command: string, cwd: string) {
 	);
 	const r = Bun.spawnSync(
 		["bun", join(import.meta.dir, "..", "hooks", "gate.ts"), "pre-bash"],
-		{ stdin: Bun.file(pf), stdout: "pipe", stderr: "pipe" },
+		{
+			stdin: Bun.file(pf),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: env ? { ...process.env, ...env } : undefined,
+		},
 	);
 	rmSync(pf);
 	let json: {
@@ -198,5 +210,97 @@ describe("bash-hardening through the real gate", () => {
 		expect(
 			decision(spawnGate("bun test test/gates.test.ts > /tmp/o", tmp)),
 		).toBe("allow");
+	});
+});
+
+// W266.2 plane-loop gate through the REAL gate: the narrow conjunction
+// (outside-repo AND unbounded-loop AND plane-verb spawn) plus the logged
+// plane-exempt escape. The outside fixture MUST live under os.tmpdir() —
+// the default fixture above sits inside this repo, where the gate allows.
+describe("W266.2 plane-loop gate", () => {
+	const outside = mkdtempSync(join(realpathSync(tmpdir()), "plane-gate-out-"));
+	afterAll(() => rmSync(outside, { recursive: true, force: true }));
+
+	const writeExempt = (sids: string[]) => {
+		mkdirSync(join(outside, ".cache/claude-governor"), { recursive: true });
+		writeFileSync(
+			join(outside, ".cache/claude-governor/plane-exempt.json"),
+			JSON.stringify(sids),
+		);
+	};
+
+	test("unbounded loop + coord outside any repo → deny", () => {
+		writeLanes(laneEntry(process.pid));
+		const r = spawnGate("while true; do coord ping; done", outside);
+		expect(decision(r)).toBe("deny");
+		expect(reason(r)).toContain("plane-loop-gate");
+	});
+
+	test("until false + board, cd-tracked outside → deny", () => {
+		writeLanes(laneEntry(process.pid));
+		const r = spawnGate(
+			`cd ${outside} && until false; do board status; done`,
+			tmp,
+		);
+		expect(decision(r)).toBe("deny");
+	});
+
+	test("sh -c nested payload → deny (gateSegments unwrap)", () => {
+		writeLanes(laneEntry(process.pid));
+		const r = spawnGate("bash -c 'while true; do coord ping; done'", outside);
+		expect(decision(r)).toBe("deny");
+	});
+
+	test("bounded loop + coord → allow", () => {
+		writeLanes(laneEntry(process.pid));
+		expect(
+			decision(spawnGate("for i in 1 2 3; do coord ping; done", outside)),
+		).toBe("allow");
+	});
+
+	test("unbounded loop without a plane verb → allow", () => {
+		writeLanes(laneEntry(process.pid));
+		expect(decision(spawnGate("while true; do echo hi; done", outside))).toBe(
+			"allow",
+		);
+	});
+
+	test("plane verb + unbounded loop INSIDE the repo → allow", () => {
+		writeLanes(laneEntry(process.pid));
+		expect(decision(spawnGate("while true; do coord ping; done", tmp))).toBe(
+			"allow",
+		);
+	});
+
+	test("plane-exempt sid escapes WITH a log line", () => {
+		writeLanes(laneEntry(process.pid));
+		writeExempt(["bashhard-gate-lane"]);
+		const r = spawnGate(
+			"while true; do fleet-loop once --repo .; done",
+			outside,
+			{ HOME: outside }, // exempt file + audit resolve in the fixture HOME
+		);
+		expect(decision(r)).toBe("allow");
+		const lines = require("node:fs")
+			.readFileSync(
+				join(outside, ".cache/claude-governor/denied-calls.jsonl"),
+				"utf8",
+			)
+			.trim()
+			.split("\n");
+		const last = JSON.parse(lines[lines.length - 1] ?? "{}");
+		expect(last.tool).toBe("plane-exempt");
+		expect(last.reason).toContain("fleet-loop");
+		rmSync(join(outside, ".cache"), { recursive: true, force: true });
+	});
+
+	test("exempt file must name the sid — another sid still denies", () => {
+		writeLanes(laneEntry(process.pid));
+		writeExempt(["some-other-lane"]);
+		const r = spawnGate("while true; do coord ping; done", outside, {
+			HOME: outside,
+		});
+		expect(decision(r)).toBe("deny");
+		rmSync(join(outside, ".cache"), { recursive: true, force: true });
 	});
 });

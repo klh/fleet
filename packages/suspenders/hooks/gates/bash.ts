@@ -41,6 +41,7 @@ import {
 	twoPersonReason,
 } from "./destructive.ts";
 import { laneId, leaseExpired } from "./governor.ts";
+import { planeLoopGate } from "./plane-loop.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
@@ -427,6 +428,12 @@ export function bashGate(hook: HookInput): never {
 	// Device redirects deny everyone; sensitive-state writes deny lanes and
 	// nudge the owner; containment + destructive-git deny lanes only.
 	hardeningGate(SEGS, CWD, cmdApproved);
+
+	// ---- W266.2 plane-loop gate: the narrow conjunction — outside-repo AND
+	// unbounded-loop AND plane-verb spawn (coord/fleet-loop/board). Denies
+	// every session; the plane itself escapes via plane-exempt.json (sid
+	// array) and the escape is logged, never silent.
+	planeLoopGate(SEGS, CWD, hook.session_id ?? "");
 
 	// ---- edit-enforce ----
 	for (const w of SEGS) {
