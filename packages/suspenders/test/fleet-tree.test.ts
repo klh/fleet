@@ -15,6 +15,7 @@ import { resolveHub } from "../hooks/lib/hub-locate.ts";
 type Row = Record<string, unknown>;
 type Scenario = {
 	registryOk: boolean;
+	hubOk?: boolean; // NAS candidate registry, defaults to registryOk
 	upLeaves: Set<string>;
 	seen: {
 		registry: number;
@@ -31,7 +32,7 @@ const stubDeps = (home: string, registry: string, s: Scenario): TreeDeps => ({
 		s.seen.urls.push(u);
 		// the hub candidate gets its OWN doc: leaves ride port 5999 on the hub
 		// host — the W530.2 origin fix makes probes hit :5999, never :5999:5999
-		if (u === "http://127.0.0.1:5999/registry.json" && s.registryOk)
+		if (u === "http://127.0.0.1:5999/registry.json" && (s.hubOk ?? s.registryOk))
 			return new Response(
 				JSON.stringify({
 					router: { port: 5999 },
@@ -54,11 +55,36 @@ const stubDeps = (home: string, registry: string, s: Scenario): TreeDeps => ({
 				JSON.stringify({
 					router: { port: 4001 },
 					entries: [
-						{ alias: "coder", label: "coder", port: 4001, tier: "coder" },
-						{ alias: "reason", label: "reason", port: 4002, tier: "reason" },
-						{ alias: "danish", label: "danish", port: 4003, tier: "danish" },
-						{ alias: "vision", label: "vision", port: 4004, tier: "vision" },
-						{ alias: "extract", label: "extract", port: 4005, tier: "extract" },
+						{
+							alias: "coder",
+							label: "coder",
+							port: 4001,
+							tier: "resident",
+						},
+						{
+							alias: "reason",
+							label: "reason",
+							port: 4002,
+							tier: "ondemand",
+						},
+						{
+							alias: "danish",
+							label: "danish",
+							port: 4003,
+							tier: "resident",
+						},
+						{
+							alias: "vision",
+							label: "vision",
+							port: 4004,
+							tier: "ondemand",
+						},
+						{
+							alias: "extract",
+							label: "extract",
+							port: 4005,
+							tier: "resident",
+						},
 						{
 							alias: "cloudy",
 							label: "cloudy",
@@ -115,6 +141,7 @@ describe("W530.2 fleet tree refresh", () => {
 			});
 			const hub = (await src.tree()).tree.find((root) => root.label === "NAS");
 			expect(hub).toMatchObject({
+				state: "configured",
 				connectivity: "responding",
 				discovery: { state: "protected", httpStatus: status },
 				authorization: { mode: "required", status: "unknown" },
@@ -125,7 +152,7 @@ describe("W530.2 fleet tree refresh", () => {
 	);
 
 	test.each([500, 0, 200])(
-		"unavailable discovery HTTP %s preserves connectivity without claiming capacity",
+		"unavailable discovery HTTP %s is typed, never a bare down hub",
 		async (status) => {
 			writeHome({ NAS: { candidates: ["http://failed:4101"] } }, {});
 			const s: Scenario = {
@@ -147,7 +174,7 @@ describe("W530.2 fleet tree refresh", () => {
 			expect(
 				(await src.tree()).tree.find((root) => root.label === "NAS"),
 			).toMatchObject({
-				down: true,
+				state: status === 0 ? "unreachable" : "configured",
 				connectivity: status === 0 ? "unreachable" : "responding",
 				discovery: { state: "unavailable" },
 				models: [],
@@ -198,7 +225,7 @@ describe("W530.2 fleet tree refresh", () => {
 				scopes: ["registry:read"],
 				status: "granted",
 			},
-			models: [{ label: "simulated model", up: null }],
+			models: [{ label: "simulated model", state: "unknown" }],
 		});
 		expect(JSON.stringify(simulated)).not.toContain("secret-must-not-export");
 		expect(s.seen.urls.some((url) => url.startsWith("http://protected:"))).toBe(
@@ -341,8 +368,14 @@ describe("W530.2 fleet tree refresh", () => {
 		expect(leaves.length).toBe(7); // router + 6 entries
 		expect(s.seen.maxInflight).toBeLessThanOrEqual(2);
 		expect(s.seen.maxInflight).toBe(2); // 7 probes DO saturate the pool
-		const ups = leaves.filter((m: Row) => m.up === true).length;
-		expect(ups).toBe(0); // upLeaves empty — every probeable leaf down
+		const states = leaves.map((m: Row) => m.state as string);
+		expect(states.filter((x) => x === "loaded").length).toBe(0);
+		// reason + vision are ondemand: probed, no answer, IDLE — not down
+		expect(states.filter((x) => x === "idle").length).toBe(2);
+		// router + coder + danish + extract are resident: no answer = unreachable
+		expect(states.filter((x) => x === "unreachable").length).toBe(4);
+		// cloudy is external: never probed = unknown
+		expect(states.filter((x) => x === "unknown").length).toBe(1);
 	});
 
 	test("lane stop/start transition flips the leaf on the next sweep", async () => {
@@ -356,18 +389,18 @@ describe("W530.2 fleet tree refresh", () => {
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const before = await src.tree(true);
 		expect(
-			before.tree[0].models.find((m: Row) => m.label.includes("coder"))?.up,
-		).toBe(true);
+			before.tree[0].models.find((m: Row) => m.label.includes("coder"))?.state,
+		).toBe("loaded");
 		s.upLeaves.delete(coderUrl); // lane stops answering
 		const after = await src.tree(true);
 		expect(
-			after.tree[0].models.find((m: Row) => m.label.includes("coder"))?.up,
-		).toBe(false);
+			after.tree[0].models.find((m: Row) => m.label.includes("coder"))?.state,
+		).toBe("unreachable");
 		s.upLeaves.add(coderUrl); // lane starts again
 		const again = await src.tree(true);
 		expect(
-			again.tree[0].models.find((m: Row) => m.label.includes("coder"))?.up,
-		).toBe(true);
+			again.tree[0].models.find((m: Row) => m.label.includes("coder"))?.state,
+		).toBe("loaded");
 	});
 
 	test("inaccessible registry: last-good snapshot served stale", async () => {
@@ -387,8 +420,8 @@ describe("W530.2 fleet tree refresh", () => {
 		const stale = await src.tree(true);
 		expect(stale.stale).toBe(true);
 		expect(stale.generated_at).toBe(good.generated_at);
-		// the stale view IS the last good tree — local was fine moments ago
-		expect(stale.tree[0].down).toBeUndefined();
+		// the stale view IS the last good tree — local was loaded moments ago
+		expect(stale.tree[0].state).toBe("loaded");
 		expect(stale.tree.some((r: Row) => r.demo === true)).toBe(true);
 	});
 
@@ -438,7 +471,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const snap = await src.tree(true);
 		expect(snap.stale).toBeUndefined();
-		expect(snap.tree[0].down).toBe(true);
+		expect(snap.tree[0].state).toBe("unreachable");
 		expect(snap.generated_at).toBeTruthy();
 		expect(snap.tree.some((r: Row) => r.demo === true)).toBe(true);
 	});
@@ -453,7 +486,7 @@ describe("W530.2 fleet tree refresh", () => {
 		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
 		const snap = await src.tree(true);
 		const demoRoot = snap.tree.find((r: Row) => r.demo === true);
-		expect(demoRoot?.label).toBe("demo-hub");
+		expect(demoRoot?.label).toBe("demo-hub (simulation)");
 	});
 
 	test("routing cannot resolve a scenario-only label (hubs-demo.json is invisible to resolveHub)", async () => {
@@ -507,8 +540,71 @@ describe("W530.2 fleet tree refresh", () => {
 		const snap = await src.tree(true);
 		const hub = snap.tree.find((r: Row) => r.label === "nas");
 		expect(hub?.models.length).toBe(2); // router + one entry, both :5999
-		expect(hub?.models.every((m: Row) => m.up === true)).toBe(true);
+		expect(hub?.models.every((m: Row) => m.state === "loaded")).toBe(true);
 		expect(s.seen.urls).toContain("http://127.0.0.1:5999/v1/models");
 		expect(s.seen.urls).not.toContain("http://127.0.0.1:5999:5999/v1/models");
 	}, 10000);
+
+	test("residency-aware states: on-demand miss = idle, resident miss = unreachable, cloud = unknown", async () => {
+		writeHome({}, DEMO);
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const local = (await src.tree(true)).tree[0];
+		const by = (frag: string): Row =>
+			local.models.find((m: Row) => m.label.includes(frag)) as Row;
+		expect(by("reason").residency).toBe("ondemand");
+		expect(by("reason").state).toBe("idle"); // probed, absent — not an outage
+		expect(by("coder").residency).toBe("resident");
+		expect(by("coder").state).toBe("unreachable");
+		expect(by("cloudy").state).toBe("unknown"); // external — never probed
+		expect(by("router").state).toBe("unreachable");
+	});
+	test("demo config cannot inject health: forced unknown under a synthetic identity", async () => {
+		writeHome(
+			{},
+			{
+				"plain-scenario": {
+					models: [{ label: "ghost model", up: true, state: "loaded" }],
+				},
+			},
+		);
+		const s: Scenario = {
+			registryOk: false,
+			upLeaves: new Set(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const demo = (await src.tree(true)).tree.find((r: Row) => r.demo === true);
+		expect(demo?.state).toBe("unknown");
+		expect(demo?.identity).toBe("simulation:plain-scenario");
+		expect(demo?.label).toBe("plain-scenario (simulation)");
+		expect(demo?.simulationOf).toBe("plain-scenario");
+		expect(demo?.models[0]).toEqual({ label: "ghost model", state: "unknown" });
+	});
+	test("failed registry keeps last-known residency beside unreachable health", async () => {
+		writeHome(HUBS, DEMO);
+		let t = 5_000;
+		const s: Scenario = {
+			registryOk: true,
+			hubOk: true,
+			upLeaves: new Set(["u"]),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const deps = stubDeps(home, "http://127.0.0.1:4000", s);
+		const src = createTreeSource({ ...deps, now: () => (t += 1000) });
+		const good = await src.tree(true);
+		expect(good.tree[0].models.length).toBeGreaterThan(0);
+		s.registryOk = false; // local registry dies; NAS keeps answering
+		const after = await src.tree(true);
+		expect(after.stale).toBeUndefined(); // NAS still loaded — sweep served as-is
+		const local = after.tree[0];
+		expect(local.state).toBe("unreachable");
+		expect(local.models).toEqual([]);
+		expect(local.lastKnown?.models.length).toBe(good.tree[0].models.length);
+		expect(local.lastKnown?.at).toBeTruthy();
+	});
 });

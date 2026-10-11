@@ -5,6 +5,12 @@
 // /registry.json + hubs.json
 // candidate probes + hubs-demo.json static demo roots (W534). Demo content
 // lives in machine config ONLY — this module has zero IKEA knowledge.
+// W530.1: health is TYPED, never a bare boolean. Leaf state loaded / idle /
+// unreachable / unknown / configured — residency-aware (an on-demand
+// specialist missing its probe is idle, not an outage), demo health forced
+// unknown under a distinct simulation:<label> identity, a failed registry
+// under a RESPONDING hub reads configured (never "hub down"), and each
+// root's last-known residency rides lastKnown beside target health.
 // W530.2: single-flight refresh (concurrent misses coalesce into ONE sweep),
 // bounded parallel leaf probes (probeLimit, was sequential 700ms each),
 // generated_at + last-good snapshot (`stale` on the wire when only demo roots
@@ -45,12 +51,29 @@ const demoProfileSchema = z.object({
 		.optional(),
 });
 
+// W530.1 typed health — the one vocabulary for probe/truth on this wire:
+// loaded (probe answered) · idle (on-demand specialist not resident —
+// expected, not an outage) · unreachable (probeable, no answer) · unknown
+// (never probed: cloud/demo) · configured (declared in runtime config, no
+// live capacity data).
+export type ProbeState =
+	| "loaded"
+	| "idle"
+	| "unreachable"
+	| "unknown"
+	| "configured";
+export type Residency = "resident" | "ondemand";
+// last-known residency preserved SEPARATELY from target health (W530.1): a
+// registry that answered before but fails now keeps its leaves, stamped.
+export type LastKnown = { at: string; models: Leaf[] };
+
 type Leaf = {
 	label: string;
 	port?: number;
 	tier?: string;
+	residency?: Residency;
 	note?: string;
-	up: boolean | null; // null = not probeable (cloud/demo)
+	state: ProbeState;
 };
 export type Root = {
 	label: string;
@@ -69,8 +92,9 @@ export type Root = {
 		scopes?: string[];
 	};
 	demo?: boolean;
-	down?: boolean;
+	state: ProbeState;
 	note?: string;
+	lastKnown?: LastKnown;
 	models: Leaf[];
 };
 
@@ -118,7 +142,7 @@ const readJson = (p: string): unknown => {
 	}
 };
 
-const up = async (deps: TreeDeps, url: string): Promise<boolean> => {
+const answers = async (deps: TreeDeps, url: string): Promise<boolean> => {
 	try {
 		// any HTTP answer = listening
 		await deps.fetchImpl(url, {
@@ -129,6 +153,16 @@ const up = async (deps: TreeDeps, url: string): Promise<boolean> => {
 		return false;
 	}
 };
+
+// residency from the registry's tier field (belt registry.json carries
+// "resident" | "ondemand"); anything else is display-only tiering
+const residencyOf = (tier?: string): Residency | undefined =>
+	tier === "resident" || tier === "ondemand" ? tier : undefined;
+
+// probe outcome → typed state, residency-aware (W530.1): an on-demand
+// specialist that misses its probe is idle — expected, never an outage
+const stateOf = (ok: boolean, leaf: Leaf): ProbeState =>
+	ok ? "loaded" : leaf.residency === "ondemand" ? "idle" : "unreachable";
 
 // W530.2: bounded parallel leaf probes — a worker pool so a registry with
 // many entries never serializes 700ms timeouts per leaf.
@@ -152,8 +186,9 @@ export const pooled = async <T, R>(
 };
 
 // registry doc → leaves; probeable ports fanned through the bounded pool,
-// cloud/demo leaves ride along unprobed (up stays null). `origin` prefixes
-// hub leaf URLs ("" for local loopback leaves).
+// cloud leaves ride along unprobed (state stays unknown). `origin` prefixes
+// hub leaf URLs ("" for local loopback leaves); hub leaves ride the
+// candidate HOST with the registry PORT (W530.2).
 const docLeaves = (
 	doc: RegistryDoc,
 	origin: string,
@@ -165,21 +200,27 @@ const docLeaves = (
 				label: `router :${doc.router.port}`,
 				port: doc.router.port,
 				tier: "anthropic-shim",
-				up: false,
+				residency: "resident",
+				state: "unknown",
 			},
 			url: `${origin}:${doc.router.port}/v1/models`,
 		});
 	for (const e of doc.entries ?? []) {
 		if (e.external) {
-			out.push({ leaf: { label: `${e.label} (cloud)`, up: null }, url: null });
+			out.push({
+				leaf: { label: `${e.label} (cloud)`, state: "unknown" },
+				url: null,
+			});
 			continue;
 		}
+		const residency = residencyOf(e.tier);
 		out.push({
 			leaf: {
 				label: `${e.label} :${e.port}`,
 				port: e.port,
 				tier: e.tier,
-				up: false,
+				...(residency ? { residency } : {}),
+				state: "unknown",
 			},
 			url: `${origin}:${e.port}/v1/models`,
 		});
@@ -187,21 +228,24 @@ const docLeaves = (
 	return out;
 };
 
-// registry doc → probed leaves; cloud entries stay up:null
+// registry doc → probed leaves; cloud entries stay unknown (never probed)
 const leafModels = async (
 	deps: TreeDeps,
 	doc: RegistryDoc,
 	origin: string,
 ): Promise<Leaf[]> => {
 	const built = docLeaves(doc, origin);
-	const ups = await pooled(built, deps.probeLimit, (b) =>
-		b.url === null ? Promise.resolve(b.leaf.up) : up(deps, b.url),
+	const oks = await pooled(built, deps.probeLimit, (b) =>
+		b.url === null ? Promise.resolve(false) : answers(deps, b.url),
 	);
-	return built.map((b, i) => ({ ...b.leaf, up: ups[i] }));
+	return built.map((b, i) =>
+		b.url === null ? b.leaf : { ...b.leaf, state: stateOf(oks[i], b.leaf) },
+	);
 };
 
 const localRoot = async (deps: TreeDeps): Promise<Root> => {
-	const root: Root = { label: "local", models: [] };
+	// the local registry IS the router — nothing answering = unreachable
+	const root: Root = { label: "local", state: "unreachable", models: [] };
 	try {
 		const r = await deps.fetchImpl(`${deps.localRegistry()}/registry.json`, {
 			signal: AbortSignal.timeout(1500),
@@ -210,8 +254,9 @@ const localRoot = async (deps: TreeDeps): Promise<Root> => {
 		const doc = (await r.json()) as RegistryDoc;
 		const o = new URL(deps.localRegistry());
 		root.models = await leafModels(deps, doc, `${o.protocol}//${o.hostname}`);
+		root.state = "loaded";
 	} catch {
-		root.down = true;
+		root.state = "unreachable";
 	}
 	return root;
 };
@@ -227,9 +272,11 @@ const hubRoot = async (
 			const r = await deps.fetchImpl(`${c.replace(/\/$/, "")}/registry.json`, {
 				signal: AbortSignal.timeout(deps.registryTimeoutMs),
 			});
+			// the hub ANSWERED — target health stays responding; a failed or
+			// opaque registry never reads "hub down" (W530.1)
 			observed ??= {
 				label,
-				down: true,
+				state: "configured",
 				provenance: "live-discovery",
 				connectivity: "responding",
 				discovery: { state: "unavailable", httpStatus: r.status },
@@ -253,7 +300,8 @@ const hubRoot = async (
 									status: "unknown" as const,
 								},
 							}
-						: { down: true }),
+						: {}),
+					state: "configured",
 					models: [],
 				};
 				if (!observed || protectedDiscovery) observed = failed;
@@ -268,6 +316,7 @@ const hubRoot = async (
 				provenance: "live-discovery",
 				connectivity: "responding",
 				discovery: { state: "available" },
+				state: "loaded",
 				models: await leafModels(deps, doc, `${u.protocol}//${u.hostname}`),
 			};
 		} catch {}
@@ -275,7 +324,7 @@ const hubRoot = async (
 	return (
 		observed ?? {
 			label,
-			down: true,
+			state: "unreachable",
 			connectivity: "unreachable",
 			provenance: "live-discovery",
 			discovery: { state: "unavailable" },
@@ -294,25 +343,30 @@ const demoRoots = (deps: TreeDeps): Root[] => {
 		if (!parsed.success) continue; // malformed profiles cannot shadow live discovery
 		const v2 = parsed.data;
 		const auth = v2.simulation?.authorization;
-		const explicit = auth !== undefined;
+		// W530.1: normalize runtime config — only identity/scenario fields pass
+		// through; health is FORCED unknown, config can never inject probes.
 		const models: Leaf[] = v2.models.map((m) =>
-			typeof m === "string" ? { label: m, up: null } : { ...m, up: null },
+			typeof m === "string"
+				? { label: m, state: "unknown" as const }
+				: {
+						label: m.label,
+						...(m.port === undefined ? {} : { port: m.port }),
+						...(m.tier === undefined ? {} : { tier: m.tier }),
+						...(m.note === undefined ? {} : { note: m.note }),
+						state: "unknown" as const,
+					},
 		);
 		out.push({
-			label: explicit ? `${label} (simulation)` : label,
+			label: `${label} (simulation)`,
 			identity: `simulation:${label}`,
-			...(explicit ? { simulationOf: label } : {}),
+			simulationOf: label,
 			provenance: "simulation",
 			discovery: { state: "simulated" },
-			...(explicit
-				? {
-						authorization: {
-							mode: "simulated" as const,
-							...auth,
-						},
-					}
+			...(auth
+				? { authorization: { mode: "simulated" as const, ...auth } }
 				: {}),
 			demo: true,
+			state: "unknown",
 			note: v2.note,
 			models,
 		});
@@ -341,6 +395,8 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 	let lastGood: TreeSnapshot | null = null;
 	let configuration: string | null = null;
 	let inFlight: Promise<TreeSnapshot> | null = null;
+	// W530.1: per-root last-known residency (label → leaves + when seen)
+	const lastKnownByRoot = new Map<string, LastKnown>();
 
 	const sweep = async (): Promise<TreeSnapshot> => {
 		const demos = demoRoots(deps);
@@ -364,12 +420,27 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 					!simulatedLabels.has(label),
 			)
 			.map(([label, v]) => hubRoot(deps, label, v?.candidates ?? []));
-		const tree = await Promise.all([localRoot(deps), ...jobs, ...demos]);
+		const found = await Promise.all([localRoot(deps), ...jobs, ...demos]);
+		// W530.1: preserve each root's last-known residency separately from
+		// target health — a registry that answered before but fails now keeps
+		// its leaves, stamped at the sweep that saw them.
+		const tree = found.map((root) => {
+			if (root.demo) return root;
+			if (root.models.length > 0) {
+				lastKnownByRoot.set(root.label, {
+					at: new Date(deps.now()).toISOString(),
+					models: root.models,
+				});
+				return root;
+			}
+			const prior = lastKnownByRoot.get(root.label);
+			return prior ? { ...root, lastKnown: prior } : root;
+		});
 		const snap: TreeSnapshot = {
 			tree,
 			generated_at: new Date(deps.now()).toISOString(),
 		};
-		if (tree.some((r) => !r.down && !r.demo)) lastGood = snap;
+		if (tree.some((r) => r.state === "loaded")) lastGood = snap;
 		return snap;
 	};
 
@@ -383,7 +454,7 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 				// Cache the served snapshot, including last-good fallback. Keeping
 				// the failed sweep here would make the next TTL hit lose stale data.
 				const effective =
-					!snap.tree.some((r) => !r.down && !r.demo) &&
+					!snap.tree.some((r) => r.state === "loaded") &&
 					lastGood &&
 					lastGood !== snap
 						? { ...lastGood, stale: true }
@@ -470,13 +541,16 @@ const load = async (force) => {
 				head.append(el("span", "tier", text));
 			}
 			if (root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));
-			if (root.down) head.append(el("span", "down", "  (down)"));
+			if (root.state === "unreachable") head.append(el("span", "down", "  (down)"));
+			else if (root.state === "configured") head.append(el("span", "tier", "  (configured)"));
+			if (root.lastKnown) head.append(el("span", "tier", "  last known " + new Date(root.lastKnown.at).toLocaleTimeString() + " · " + root.lastKnown.models.length + " models"));
 			row.append(head);
 			const kids = root.models;
 			kids.forEach((m, i) => {
 				const line = el("div", "leaf");
 				line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
-				line.append(el("span", m.up === true ? "up" : m.up === false ? "downleaf" : "tier", label(m.label)));
+				line.append(el("span", m.state === "loaded" ? "up" : m.state === "unreachable" ? "downleaf" : "tier", label(m.label)));
+				if (m.state !== "loaded") line.append(el("span", "tier", "  " + m.state));
 				if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
 				if (m.note) line.append(el("span", "tier", "  " + m.note));
 				row.append(line);
