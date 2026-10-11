@@ -482,9 +482,14 @@ const zProjects = db
 for (const { project } of zProjects) {
 	const claimed = db
 		.query(
-			"SELECT id, owner_sid, title FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
+			"SELECT id, owner_sid, title, updated_at FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
 		)
-		.all(project) as { id: string; owner_sid: string; title: string }[];
+		.all(project) as {
+		id: string;
+		owner_sid: string;
+		title: string;
+		updated_at: number;
+	}[];
 	for (const w of claimed) {
 		if (waiting.has(w.owner_sid)) {
 			// waiting for you — own alert class, never ZOMBIE/SUSPECT: the OPEN
@@ -632,12 +637,18 @@ for (const { project } of zProjects) {
 			if (since && now - since.ts > RECLAIM_MS) {
 				const age = `${((now - since.ts) / 86_400_000).toFixed(1)}d`;
 				const wt = projectRootOf(OWN_PROJECT);
+				// W573: CAS-pinned on the observed owner+revision — a claim that
+				// changed hands while the zombie aged is refused, never released.
 				const r = Bun.spawnSync(
 					[
 						process.execPath,
 						new URL("./work.ts", import.meta.url).pathname,
 						"reclaim",
 						w.id,
+						"--expect-owner",
+						w.owner_sid,
+						"--expect-updated-at",
+						String(w.updated_at),
 					],
 					{ cwd: wt, stdout: "pipe", stderr: "pipe" },
 				);

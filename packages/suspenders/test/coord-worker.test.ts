@@ -104,6 +104,13 @@ describe("coordinator bootstrap bounds", () => {
 		expect(text).toContain("worktree.ts create <id>");
 		expect(text).toContain("work.ts done <id> --sha <branch-head>");
 	});
+	test("W573: dead-claim cleanup is CAS-pinned per item, never bulk", () => {
+		expect(text).toContain(
+			"work.ts reclaim <id> --expect-owner <sid> --expect-updated-at <rev> --json",
+		);
+		expect(text).toContain("NEVER reclaim all");
+		expect(text).not.toContain("work.ts reclaim all");
+	});
 	test("identity + cadence line", () => {
 		expect(text).toContain('"coordworker"');
 		expect(text).toContain("every 900s");

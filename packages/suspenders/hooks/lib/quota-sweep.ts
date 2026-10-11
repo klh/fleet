@@ -12,11 +12,13 @@
 //          transcript, no live lanes.json entry — same trust basis as
 //          `work reclaim`). A lane still writing is backing off, not dead.
 //   act    reclaim the dead sid's claims via the supported verb
-//          (`work reclaim <id>`, cwd = owning repo), emit `quota.exhausted`
-//          on the bus (once per sid per 24h), broadcast one aggregated
-//          note so live lanes + SessionStart see it. Reclaimed items go
-//          READY; the dispatch loop refills within its cycle — that is
-//          the "fleet pickup".
+//          (`work reclaim <id> --expect-owner --expect-updated-at --json`,
+//          cwd = owning repo; W573: CAS-pinned + receipt-verified — a
+//          failed or forged reclaim never reads as released), emit
+//          `quota.exhausted` on the bus (once per sid per 24h), broadcast
+//          one aggregated note so live lanes + SessionStart see it.
+//          Reclaimed items go READY; the dispatch loop refills within its
+//          cycle — that is the "fleet pickup".
 //
 // Consumed by `hooks/bin/quota-sweep.ts` (CLI, report-only by default,
 // --act performs) and monitor.ts's --fix pass (launchd, every 15 min —
@@ -24,6 +26,7 @@
 // tests never touch governor.db or the network.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Database } from "bun:sqlite";
+import { reclaimReceiptMatches } from "./dead-claim-recovery.ts";
 
 const STALE_MS = 15 * 60_000; // lane-log silence floor (== transcript floor)
 const LIVE_HB_MS = 30 * 60_000; // sessions heartbeat window (bus parity)
@@ -76,7 +79,12 @@ export type SidVerdict = {
 	exhausted: boolean;
 	live: boolean;
 	hits: QuotaHit[];
-	claims: Array<{ id: string; project: string }>;
+	claims: Array<{
+		id: string;
+		project: string;
+		owner: string;
+		revision: number;
+	}>;
 	note: string;
 };
 
@@ -108,7 +116,16 @@ export type SweepDeps = {
 	waitingSids?: Set<string>;
 	emit?: (sid: string, note: string) => void;
 	broadcast?: (note: string) => number;
-	reclaim?: (id: string, projectRoot: string) => { code: number; out: string };
+	// W573: the reclaim producer gets the CAS pins (owner + revision the sweep
+	// observed) and must return the verb's exit code + stdout — the receipt is
+	// verified against the pins before any success is reported or broadcast.
+	reclaim?: (claim: {
+		id: string;
+		project: string;
+		root: string;
+		owner: string;
+		revision: number;
+	}) => { code: number; out: string };
 	recentEmit?: (db: Database, sid: string, now: number) => boolean;
 };
 
@@ -223,18 +240,40 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 		deps.probeLive ?? defaultProbeLive(deps.db, projectsDir, now);
 	const recentEmit = deps.recentEmit ?? defaultRecentEmit;
 	const actions: SweepAction[] = [];
+	// W573: claim id → receipt-verified release result, so the aggregated
+	// broadcast lists only claims the CAS verb verifiably released.
+	const releasedByClaim = new Map<string, boolean>();
 
-	// 1. live claims per sid, across every project (governor is global)
+	// 1. live claims per sid, across every project (governor is global).
+	// W573: owner + revision ride along — the act phase CAS-pins every reclaim
+	// on them, so a claim that changed hands between read and act is refused,
+	// never released on stale knowledge.
 	const items = deps.db
 		.query(
-			"SELECT id, project, owner_sid FROM work_items WHERE state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
+			"SELECT id, project, owner_sid, updated_at FROM work_items WHERE state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
 		)
-		.all() as Array<{ id: string; project: string; owner_sid: string }>;
-	const bySid = new Map<string, Array<{ id: string; project: string }>>();
+		.all() as Array<{
+		id: string;
+		project: string;
+		owner_sid: string;
+		updated_at: number;
+	}>;
+	type Claim = {
+		id: string;
+		project: string;
+		owner: string;
+		revision: number;
+	};
+	const bySid = new Map<string, Claim[]>();
 	for (const it of items) {
 		if (deps.sid && it.owner_sid !== deps.sid) continue;
 		const list = bySid.get(it.owner_sid) ?? [];
-		list.push({ id: it.id, project: it.project });
+		list.push({
+			id: it.id,
+			project: it.project,
+			owner: it.owner_sid,
+			revision: Number(it.updated_at),
+		});
 		bySid.set(it.owner_sid, list);
 	}
 
@@ -362,28 +401,66 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 		if (!exhausted || !deps.act) continue;
 		const reclaim =
 			deps.reclaim ??
-			((id: string, cwd: string) => {
+			((claim: {
+				id: string;
+				project: string;
+				root: string;
+				owner: string;
+				revision: number;
+			}) => {
 				const bin = new URL("../bin/work.ts", import.meta.url).pathname;
-				const p = Bun.spawnSync([process.execPath, bin, "reclaim", id], {
-					cwd,
-					stdout: "pipe",
-					stderr: "pipe",
-				});
+				const p = Bun.spawnSync(
+					[
+						process.execPath,
+						bin,
+						"reclaim",
+						claim.id,
+						"--expect-owner",
+						claim.owner,
+						"--expect-updated-at",
+						String(claim.revision),
+						"--json",
+					],
+					{
+						cwd: claim.root,
+						stdout: "pipe",
+						stderr: "pipe",
+					},
+				);
 				return {
 					code: p.exitCode ?? 1,
 					out: `${p.stdout?.toString() ?? ""}${p.stderr?.toString() ?? ""}`.trim(),
 				};
 			});
+		const releasedIds: string[] = [];
+		const failedIds: string[] = [];
 		for (const c of claims) {
-			const r = reclaim(c.id, projectRootOf(c.project));
+			const r = reclaim({
+				id: c.id,
+				project: c.project,
+				root: projectRootOf(c.project),
+				owner: c.owner,
+				revision: c.revision,
+			});
+			const released =
+				r.code === 0 &&
+				reclaimReceiptMatches(r.out, {
+					project: c.project,
+					id: c.id,
+					owner: c.owner,
+					revision: c.revision,
+				});
+			(released ? releasedIds : failedIds).push(c.id);
+			releasedByClaim.set(c.id, released);
 			actions.push({
 				sid,
 				kind: "reclaim",
-				detail: `${c.id} ${r.code === 0 ? "→ READY" : `RECLAIM FAILED (${r.out.slice(0, 80)})`}`,
+				detail: `${c.id} ${released ? "→ READY (receipt verified)" : `RECLAIM FAILED (${r.out.slice(0, 80)})`}`,
 			});
 		}
 		if (!recentEmit(deps.db, sid, now)) {
-			const eventNote = `${sid} ${verdict.note}; claims ${claims.map((c) => c.id).join(",") || "none"} → READY, dispatch refills`;
+			const held = failedIds.length > 0 ? `; held: ${failedIds.join(",")}` : "";
+			const eventNote = `${sid} ${verdict.note}; claims ${releasedIds.join(",") || "none"} → READY, dispatch refills${held}`;
 			const doEmit =
 				deps.emit ??
 				(async (_s: string, n: string) => {
@@ -400,13 +477,20 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 	}
 
 	// one aggregated broadcast per sweep (live lanes' inboxes + SessionStart)
+	// W573: only receipt-verified releases read as "reclaimed" here — a held
+	// or failed reclaim is listed as held, never as fleet pickup.
 	if (deps.act && verdicts.some((v) => v.exhausted)) {
 		const lines = verdicts
 			.filter((v) => v.exhausted)
-			.map(
-				(v) =>
-					`  ${v.sid}: ${v.note}; reclaimed ${v.claims.map((c) => c.id).join(",") || "nothing"}`,
-			)
+			.map((v) => {
+				const reclaimed = v.claims
+					.filter((c) => releasedByClaim.get(c.id) === true)
+					.map((c) => c.id);
+				const heldOut = v.claims
+					.filter((c) => releasedByClaim.get(c.id) === false)
+					.map((c) => c.id);
+				return `  ${v.sid}: ${v.note}; reclaimed ${reclaimed.join(",") || "nothing"}${heldOut.length > 0 ? `; held: ${heldOut.join(",")}` : ""}`;
+			})
 			.join("\n");
 		const note = `[quota-sweep] quota-exhausted lane(s) picked up (claims → READY, dispatch refills):\n${lines}`;
 		const doBroadcast =
