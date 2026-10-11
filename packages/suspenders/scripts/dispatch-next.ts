@@ -23,8 +23,6 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
-	readFileSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
@@ -58,12 +56,9 @@ import {
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
 import {
-	adminKey,
 	ensureLaneKey,
-	hubCredential,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
-	revokeLaneKey,
 } from "./lib/lane-auth.ts";
 
 export type { GovernanceDecision } from "./lib/governance-decide.ts";
@@ -97,7 +92,6 @@ import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
 	fencedExecutor,
-	finishFailedLaunch,
 	heldLaunchItems,
 	inspectLaunchIntent,
 	type LaunchIntent,
@@ -105,13 +99,11 @@ import {
 	nextReservedAttempt,
 	readConfiguredLaunches,
 	reserveLaunchIntent,
-	terminateOwnLaunch,
 } from "./lib/launch-fencing.ts";
 import { launchParent } from "./lib/launch-parent.ts";
+import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
 	acquireLaunchLease,
-	releaseFailedLaunch,
-	releaseLaunchLease,
 	renewLaunchLease,
 	resolveLaneExecutor,
 } from "./lib/launch-preflight.ts";
@@ -128,13 +120,16 @@ import {
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
 import {
-	ANSI,
 	capabilityGate,
 	isOwnerGated,
 	parseReady,
 } from "./lib/ready-pool.ts";
 export { capabilityGate, isOwnerGated, parseReady };
 import { landingRedirect } from "./lib/landing-redirect.ts";
+import { cvSnapshot, parseCapsuleGet } from "./lib/dispatch-admission.ts";
+// parseCapsuleGet is re-exported so supervise.ts and the test suites keep
+// their dispatch-next import path (W576.1.1 decomposition).
+export { parseCapsuleGet };
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
@@ -299,7 +294,7 @@ const log = (msg: string): void => {
 const loadLanes = (): Lane[] => loadLaneRegistry<Lane>(FLEET);
 const saveLanes = (lanes: Lane[]): void => mergeLaneRegistry(FLEET, lanes);
 
-// W636 decomposition: READY-pool helpers (ANSI, parseReady, isOwnerGated,
+// W636 decomposition: READY-pool helpers (parseReady, isOwnerGated,
 // capabilityGate) moved to scripts/lib/ready-pool.ts; re-exports at the
 // import block keep supervise.ts + the test importers on their path.
 
@@ -322,21 +317,6 @@ const governanceMode = (): "strict" | "solo" => {
 	return governanceModeCache;
 };
 
-/** `coord capsule get --as <sid>` output → parsed capsule, or null when the
- *  lane has none. (Bare `capsule get <sid>` misparses the sid as "get" —
- *  always pass --as.) */
-export const parseCapsuleGet = (
-	stdout: string,
-): Record<string, string> | null => {
-	const line = stdout.replace(ANSI, "").trim();
-	if (!line || line.includes("(no capsule)")) return null;
-	try {
-		const c = JSON.parse(line) as Record<string, string>;
-		return typeof c === "object" && c !== null ? c : null;
-	} catch {
-		return null;
-	}
-};
 
 const capsuleGet = (sid: string): Record<string, string> | null =>
 	parseCapsuleGet(
@@ -359,16 +339,6 @@ export const sidOf = laneSid;
 
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */
-// W620: dry-run cv snapshot — facts read only, no write; the dry brief shows
-// the same trust-reordered default ladder the spawn path would pick.
-const cvSnapshot = (): Map<string, number> => {
-	const s = openStore();
-	try {
-		return cvMap(s, hostname());
-	} finally {
-		s.close();
-	}
-};
 
 const dispatchItem = async (
 	item: string,
@@ -1000,87 +970,22 @@ const dispatchItem = async (
 		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
 		return null;
 	} finally {
-		if (!committedLaunch) {
-			let ownsFiles = false;
-			let childStopped = true;
-			try {
-				ownsFiles = renewLaunchLease(store, project, sid, nonce);
-			} catch (error) {
-				log(`LAUNCH-CLEANUP ${item} — lease check failed: ${String(error)}`);
-			}
-			if (launchedProc && launchedProc.exitCode === null) {
-				try {
-					await terminateOwnLaunch(launchedProc);
-				} catch (error) {
-					childStopped = false;
-					log(
-						`LAUNCH-CLEANUP ${item} — own child termination failed: ${String(error)}`,
-					);
-				}
-			}
-			if (childStopped && intent) {
-				try {
-					finishFailedLaunch(store, intent);
-				} catch (error) {
-					log(
-						`LAUNCH-CLEANUP ${item} — intent update failed: ${String(error)}`,
-					);
-				}
-			}
-			if (childStopped && claimRevision !== undefined) {
-				try {
-					const released = releaseFailedLaunch(store, {
-						project,
-						item,
-						sid,
-						revision: claimRevision,
-						nonce,
-					});
-					log(
-						`LAUNCH-CLEANUP ${item} — ${released ? "claim released" : "claim changed; preserved"}`,
-					);
-				} catch (error) {
-					log(
-						`LAUNCH-CLEANUP ${item} — configured store release failed: ${String(error)}`,
-					);
-				}
-			}
-			if (childStopped && ownedKeyId) {
-				try {
-					// W615: hub-minted keys revoke AT the minting hub with the hub
-					// credential — the local admin cannot revoke them.
-					const cred =
-						ownedKeyFront !== undefined
-							? hubCredential(pick.hub ?? ownedKeyFront)
-							: adminKey();
-					const revoked = cred
-						? await revokeLaneKey(ownedKeyId, cred, fetch, ownedKeyFront)
-						: false;
-					log(
-						`LAUNCH-CLEANUP ${item} — own key ${ownedKeyId} ${revoked ? "revoked" : "revoke failed; TTL bounds it"}`,
-					);
-				} catch (error) {
-					log(
-						`LAUNCH-CLEANUP ${item} — own key revoke failed: ${String(error)}`,
-					);
-				}
-			}
-			for (const [path, expected] of ownsFiles && childStopped
-				? writtenFiles
-				: []) {
-				try {
-					if (readFileSync(path, "utf8") === expected) rmSync(path);
-				} catch {
-					/* foreign or absent file is preserved */
-				}
-			}
-		}
-		try {
-			releaseLaunchLease(store, project, sid, nonce);
-		} catch (error) {
-			log(`LAUNCH-CLEANUP ${item} — lease release failed: ${String(error)}`);
-		}
-		store.close();
+		await launchCleanup({
+			committedLaunch,
+			store,
+			project,
+			sid,
+			item,
+			nonce,
+			launchedProc,
+			intent,
+			claimRevision,
+			ownedKeyId,
+			ownedKeyFront,
+			hub: pick.hub,
+			writtenFiles,
+			log,
+		});
 	}
 };
 
