@@ -116,6 +116,7 @@ export async function handleData(
 				vf === "klh-recovery.js" ||
 				vf === "klh-hub-admin.js" ||
 				vf === "usage-panels.js" ||
+				vf === "klh-topbar.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
