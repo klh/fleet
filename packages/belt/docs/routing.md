@@ -101,3 +101,20 @@ vendor base (tests/staging). CLI: `bun bin/audio.ts speak <text...> --out
 FILE [--voice ID] [--model ID] | transcribe FILE | status`. Candidate uses:
 spoken NEED_DECISION alerts from the board, voice-dictate missions (STT →
 `work add`), lane-status audio summaries.
+
+## Per-machine capability forecast (W258)
+
+This table was hand-measured on ONE machine (2026-09-04). The generated
+counterpart — conservative per-machine magnitude predictions for every row
+the fleet catalog knows (registry + remotes.json) — lives in
+`bin/catalog-capability.ts` and on the dashboard:
+
+```sh
+bun bin/catalog-capability.ts          # markdown per-machine forecast
+bun bin/catalog-capability.ts --json   # raw rows + its doctrine block
+curl belt.local:7791/api/catalog       # the same rows over HTTP
+```
+
+Predictions never override the measured rows above (route-policy law:
+unproven is not fast) — rows carry [lo, hi] tok/s bands with the LOW end as
+the safe claim; cloud rows are network-bound and stay unclocked.

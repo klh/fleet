@@ -28,6 +28,8 @@ import {
 	type RouteLogEntry,
 } from "./remotes.ts";
 import { metricsFor, metricsSnapshot } from "./metrics.ts";
+// W258: per-machine capability forecast rides the catalog surface
+import { capabilityPayload } from "./catalog-capability.ts";
 import { readStatus } from "./supervisor.ts";
 import { endpointState, supervisorSource } from "./dashboard-state.ts";
 import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
@@ -649,6 +651,7 @@ const ROUTES: RouteMethods = {
 	"/": ["GET", "HEAD"],
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
+	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/supervisor": ["GET", "HEAD"],
 	"/observation.js": ["GET", "HEAD"],
@@ -703,6 +706,8 @@ Bun.serve({
 		if (preflight) return preflight;
 		if (path === "/api/status") return etagJson(req, await statusBody());
 		if (path === "/api/remotes") return json(await remotesSnapshot());
+		// W258 — the capability forecast: conservative per-machine rows
+		if (path === "/api/catalog") return json(capabilityPayload());
 		if (path === "/api/route") return serveRoute(req);
 		// W272 self-heal status (ports, last probe, restarts, since) written by
 		// `swarm.ts supervise`; null when no supervisor has ever run.
