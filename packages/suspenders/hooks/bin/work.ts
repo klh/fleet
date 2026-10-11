@@ -49,6 +49,7 @@ import {
 } from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
+import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
@@ -960,6 +961,10 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// W418: the item is DONE — when the owner holds nothing else, their WS
 		// inbox connection is reaped (subscribe lifecycle rides the work graph)
 		reapIfIdle(db(), String(it.owner_sid ?? ""));
+		// W249 merge-on-done: a dispatched lane's close fires the ladder NOW — a
+		// detached flush waits out this lane's exit and merges seconds later,
+		// instead of at the next watch cycle. Manual closes (no lane entry) skip.
+		triggerMergeOnDone(projectRootOf(PROJECT), id);
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";

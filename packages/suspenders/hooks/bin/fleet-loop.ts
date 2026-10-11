@@ -45,6 +45,7 @@ import {
 import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import { itemClaimOf } from "../lib/ladder-lease.ts";
+import { flushOnDoneWait } from "../lib/merge-on-done.ts";
 // W177: lane resource caps live with the other spawn plumbing (lane.ts);
 // the dispatch verb's inline recipe embeds the same jobslab preamble.
 import {
@@ -113,7 +114,7 @@ if (
 			`          [--dispatch-cmd <template>]              optional policy script\n` +
 			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
 			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
-			`          flush --repo <dir>                       merge only DONE+verified branches, then exit (W641)\n` +
+			`          flush --repo <dir> [--item <id>] [--await <secs>]   merge DONE+verified branches (W641); --item waits out the closing lane first (W249)\n` +
 			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
 	);
 	process.exit(MODE ? 1 : 0);
@@ -1309,18 +1310,27 @@ if (MODE === "flush") {
 		}
 		healCrashedMerge();
 	}
+	// W249 merge-on-done: --item <id> --await <secs> — the done-verb's detached
+	// trigger waits HERE for the closing lane to exit (the alive-lane veto
+	// protects live work), then the sweep below merges it; timeout defers
+	// loudly, the daemon sweep still owns the branch.
+	const doneWait = await flushOnDoneWait(
+		REPO,
+		val("--item"),
+		num("--await", 0),
+		laneIsAlive,
+		log,
+	);
+	if (doneWait.exit) process.exit(0);
 	let merged = 0;
 	let deferred = 0;
-	for (const b of sh([
-		"git",
-		"branch",
-		"--list",
-		GLOB,
-		"--format",
-		"%(refname:short)",
-	])
-		.split("\n")
-		.filter(Boolean)) {
+	const sweep = new Set(
+		sh(["git", "branch", "--list", GLOB, "--format", "%(refname:short)"])
+			.split("\n")
+			.filter(Boolean),
+	);
+	if (doneWait.branch) sweep.add(doneWait.branch);
+	for (const b of sweep) {
 		const claim = itemClaimOf(REPO, b);
 		const head = sh(["git", "rev-parse", "--verify", b]);
 		const stored = claim.resultSha
