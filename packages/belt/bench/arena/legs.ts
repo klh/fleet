@@ -274,7 +274,10 @@ export interface Out {
 	reasoningChars: number;
 	inTok: number;
 	outTok: number;
-	reasonTok: number;
+	/** Reasoning tokens as reported by the provider; null = not reported
+	 *  (unknown is never zero — a known-zero share is signal, an unknown
+	 *  one is not). */
+	reasonTok: number | null;
 	cachedTok: number;
 	tokEst: boolean;
 	finish: string | null;
@@ -294,7 +297,7 @@ export const blank = (): Out => ({
 	reasoningChars: 0,
 	inTok: 0,
 	outTok: 0,
-	reasonTok: 0,
+	reasonTok: null,
 	cachedTok: 0,
 	tokEst: false,
 	finish: null,
@@ -401,7 +404,7 @@ function applyUsage(o: Out, q: Req, usage: Usage | undefined) {
 	if (usage) {
 		o.inTok = usage.prompt_tokens ?? usage.input_tokens ?? 0;
 		o.outTok = usage.completion_tokens ?? usage.output_tokens ?? 0;
-		o.reasonTok = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+		o.reasonTok = usage.completion_tokens_details?.reasoning_tokens ?? null;
 		o.cachedTok =
 			usage.prompt_tokens_details?.cached_tokens ??
 			usage.cache_read_input_tokens ??
