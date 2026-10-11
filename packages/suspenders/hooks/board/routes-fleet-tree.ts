@@ -13,6 +13,11 @@
 // answer), manual `?refresh=1` + bounded auto refresh (page, TTL cadence,
 // visible tab only). Env knobs (test/CI): SUSPENDERS_LLM_HOME swaps the
 // hubs/hubs-demo dir, SUSPENDERS_LOCAL_REGISTRY swaps the local belt URL.
+// W569: a hub's /registry.json 401 is PROTECTED discovery, not a dead hub —
+// hubs.json `token` (mode-600 operator config, the exact key resolveHub
+// routes with) authorizes the registry read; a presented-but-refused
+// credential reads authorization denied, an absent one unknown — never
+// down, never capacity, and the secret never reaches the wire.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
@@ -216,16 +221,21 @@ const localRoot = async (deps: TreeDeps): Promise<Root> => {
 	return root;
 };
 
+// W569 authorized discovery: `token` is the hub's registry-read credential
+// from machine config (hubs.json, the same schema resolveHub routes with) —
+// presented on the /registry.json fetch only, never stored on the Root.
 const hubRoot = async (
 	deps: TreeDeps,
 	label: string,
 	cands: string[],
+	token: string | null,
 ): Promise<Root> => {
 	let observed: Root | null = null;
 	for (const c of cands) {
 		try {
 			const r = await deps.fetchImpl(`${c.replace(/\/$/, "")}/registry.json`, {
 				signal: AbortSignal.timeout(deps.registryTimeoutMs),
+				...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
 			});
 			observed ??= {
 				label,
@@ -238,6 +248,10 @@ const hubRoot = async (
 			if (!r.ok) {
 				await r.body?.cancel();
 				const protectedDiscovery = r.status === 401 || r.status === 403;
+				// a refused credential is a KNOWN denial; no credential stays unknown
+				const authStatus = token
+					? ("denied" as const)
+					: ("unknown" as const);
 				const failed: Root = {
 					label,
 					provenance: "live-discovery",
@@ -250,7 +264,7 @@ const hubRoot = async (
 						? {
 								authorization: {
 									mode: "required" as const,
-									status: "unknown" as const,
+									status: authStatus,
 								},
 							}
 						: { down: true }),
@@ -353,7 +367,7 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 		);
 		const hubs = readJson(`${deps.llmHome()}/hubs.json`) as Record<
 			string,
-			{ candidates?: string[] }
+			{ candidates?: string[]; token?: string }
 		> | null;
 		const currentConfiguration = JSON.stringify({ hubs, demos });
 		if (configuration !== currentConfiguration) {
@@ -367,7 +381,9 @@ export const createTreeSource = (deps: TreeDeps): TreeSource => {
 					!label.startsWith("_") &&
 					!simulatedLabels.has(label),
 			)
-			.map(([label, v]) => hubRoot(deps, label, v?.candidates ?? []));
+			.map(([label, v]) =>
+				hubRoot(deps, label, v?.candidates ?? [], v?.token ?? null),
+			);
 		const tree = await Promise.all([localRoot(deps), ...jobs, ...demos]);
 		const snap: TreeSnapshot = {
 			tree,
@@ -476,7 +492,7 @@ const load = async (force) => {
 			if (!presentation && root.discovery) head.append(el("span", "tier", "  discovery: " + root.discovery.state));
 			if (!presentation && root.authorization) {
 				const auth = root.authorization;
-				const text = auth.mode === "simulated" ? "  simulated authorization: " + auth.status + " · " + auth.principal + " · " + auth.scopes.join(", ") : "  authorization required · capacity unknown";
+				const text = auth.mode === "simulated" ? "  simulated authorization: " + auth.status + " · " + auth.principal + " · " + auth.scopes.join(", ") : auth.status === "denied" ? "  authorization denied · capacity unknown" : "  authorization required · capacity unknown";
 				head.append(el("span", "tier", text));
 			}
 			if (!presentation && root.provenance === "simulation") head.append(el("span", "demo", "  display simulation only · no live routes or health"));

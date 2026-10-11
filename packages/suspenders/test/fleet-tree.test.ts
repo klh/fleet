@@ -1,6 +1,8 @@
 // W530.2 — fleet tree refresh semantics: single-flight coalescing, bounded
 // parallel probes, up/down transitions, last-good on inaccessible registry,
 // scenario-only (demo) roots never reaching routing.
+// W569 — authorized discovery: hubs.json `token` rides the registry fetch,
+// a refused credential reads denied (never down), the secret stays local.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -152,6 +154,85 @@ describe("W530.2 fleet tree refresh", () => {
 				discovery: { state: "unavailable" },
 				models: [],
 			});
+		},
+	);
+
+	test("configured registry credential authorizes discovery, secret stays off the wire", async () => {
+		writeHome(
+			{ NAS: { candidates: ["http://guarded:4101"], token: "bksk_registry_nas_read" } },
+			{},
+		);
+		const s: Scenario = {
+			registryOk: false,
+			upLeaves: new Set(["http://guarded:5999/v1/models"]),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const raw = stubDeps(home, "http://127.0.0.1:4000", s);
+		let presented: string | null = null;
+		const src = createTreeSource({
+			...raw,
+			fetchImpl: (async (url, init) => {
+				if (String(url) === "http://guarded:4101/registry.json") {
+					presented = new Headers(init?.headers).get("authorization");
+					return presented === "Bearer bksk_registry_nas_read"
+						? Response.json({
+								router: { port: 5999 },
+								entries: [{ alias: "nas-coder", label: "nas-coder", port: 5999, tier: "coder" }],
+							})
+						: new Response("denied", { status: 401 });
+				}
+				return raw.fetchImpl(url, init);
+			}) as typeof fetch,
+		});
+		const snap = await src.tree(true);
+		const hub = snap.tree.find((r: Row) => r.label === "NAS");
+		expect(hub).toMatchObject({
+			connectivity: "responding",
+			provenance: "live-discovery",
+			discovery: { state: "available" },
+			models: [
+				{ label: "router :5999", up: true },
+				{ label: "nas-coder :5999", up: true },
+			],
+		});
+		expect(presented).toBe("Bearer bksk_registry_nas_read");
+		expect(JSON.stringify(snap)).not.toContain("bksk_registry_nas_read");
+	});
+
+	test.each([401, 403])(
+		"refused registry credential reads denied, never down, secret stays off the wire (HTTP %s)",
+		async (status) => {
+			writeHome(
+				{ NAS: { candidates: ["http://guarded:4101"], token: "bksk_wrong" } },
+				{},
+			);
+			const s: Scenario = {
+				registryOk: false,
+				upLeaves: new Set<string>(),
+				seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+			};
+			const raw = stubDeps(home, "http://127.0.0.1:4000", s);
+			let presented: string | null = null;
+			const src = createTreeSource({
+				...raw,
+				fetchImpl: (async (url, init) => {
+					if (!String(url).startsWith("http://guarded:"))
+						return raw.fetchImpl(url, init);
+					presented = new Headers(init?.headers).get("authorization");
+					return new Response("denied", { status });
+				}) as typeof fetch,
+			});
+			const snap = await src.tree(true);
+			const hub = snap.tree.find((r: Row) => r.label === "NAS");
+			expect(hub).toMatchObject({
+				connectivity: "responding",
+				discovery: { state: "protected", httpStatus: status },
+				authorization: { mode: "required", status: "denied" },
+				models: [],
+			});
+			expect(hub?.down).toBeUndefined();
+			expect(presented).toBe("Bearer bksk_wrong");
+			expect(JSON.stringify(snap)).not.toContain("bksk_wrong");
 		},
 	);
 

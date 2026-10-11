@@ -3,7 +3,9 @@
 // mission: (A) startup renders the stub fleet (live hub, protected hub,
 // dead hub, simulation root display-only), (B) lane stop/start transitions
 // flip the leaf on the next sweep, (C) inaccessible registry → last-good
-// snapshot served with the stale badge. Rides realDeps env knobs
+// snapshot served with the stale badge. W569: credential-shaped discovery
+// (token accepted → available, wrong token → denied, none → unknown).
+// Rides realDeps env knobs
 // (SUSPENDERS_LLM_HOME, SUSPENDERS_LOCAL_REGISTRY) + the module singleton,
 // so the spec exercises the exact wire surface a human sees.
 import {
@@ -78,6 +80,25 @@ const vault = Bun.serve({
 	port: 0,
 	fetch: () => new Response("denied", { status: 401 }),
 });
+// W569: one guarded stub keyed on the presented credential — vaultkey sends
+// the configured token (authorized discovery), vaultdeny a wrong one (401
+// → denied), proving credential-shaped discovery in the real page
+const seenAuth: string[] = [];
+const guarded = Bun.serve({
+	hostname: "127.0.0.1",
+	port: 0,
+	fetch: (req) => {
+		seenAuth.push(req.headers.get("authorization") ?? "");
+		return req.headers.get("authorization") === "Bearer bksk_e2e_good"
+			? Response.json({
+					router: { port: LANE },
+					entries: [
+						{ alias: "vault-coder", label: "vault coder", port: LANE, tier: "coder" },
+					],
+				})
+			: new Response("denied", { status: 401 });
+	},
+});
 
 test.beforeAll(async () => {
 	HOME = mkdtempSync(join(tmpdir(), "w5302-e2e-home-"));
@@ -89,6 +110,14 @@ test.beforeAll(async () => {
 			nas: { candidates: [`http://127.0.0.1:${nas.port}`] },
 			desktop: { candidates: [`http://127.0.0.1:${DEAD}`] },
 			vault: { candidates: [`http://127.0.0.1:${vault.port}`] },
+			vaultkey: {
+				candidates: [`http://127.0.0.1:${guarded.port}`],
+				token: "bksk_e2e_good",
+			},
+			vaultdeny: {
+				candidates: [`http://127.0.0.1:${guarded.port}`],
+				token: "bksk_e2e_wrong",
+			},
 		}),
 	);
 	writeFileSync(
@@ -121,7 +150,7 @@ test.beforeAll(async () => {
 			(await handleFleetTree(req, new URL(req.url))) ??
 			new Response("not found", { status: 404 }),
 	});
-	stops.push(board, registry, nas, vault);
+	stops.push(board, registry, nas, vault, guarded);
 	stops.push({
 		stop: () => {
 			vault.stop(true);
@@ -208,6 +237,22 @@ test("W565 demo roots stay namespaced and unprobed leaves stay neutral", async (
 	expect(await leafClass("coder :")).toContain("up");
 	await page.screenshot({
 		path: "e2e/test-results/w565-demo-namespace.png",
+	fullPage: true,
+	});
+});
+
+test("W569 authorized discovery renders authorized, denied and unknown hubs", async () => {
+	await refresh();
+	const t = await page.locator("#tree").innerText();
+	expect(seenAuth).toContain("Bearer bksk_e2e_good");
+	expect(seenAuth).toContain("Bearer bksk_e2e_wrong");
+	expect(t).toContain("vaultkey");
+	expect(t).toContain("vault coder");
+	expect(t).toContain("discovery: available"); // vaultkey: token accepted
+	expect(t).toContain("authorization denied · capacity unknown"); // vaultdeny
+	expect(t).toContain("authorization required · capacity unknown"); // vault no credential
+	await page.screenshot({
+		path: "e2e/test-results/w569-authorized.png",
 		fullPage: true,
 	});
 });
@@ -237,6 +282,7 @@ test("inaccessible registry serves last-good snapshot with the stale badge", asy
 	registry.stop(true);
 	nas.stop(true);
 	vault.stop(true);
+	guarded.stop(true);
 	await refresh();
 	await expect(page.locator("#stamp")).toContainText("stale — last good");
 	const t = await page.locator("#tree").innerText();
