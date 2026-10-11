@@ -27,6 +27,7 @@ import {
 } from "./spawn-admission.ts";
 import type { Specialist } from "./registry.ts";
 import { modelBudgetGb, rapidMemoryArgs } from "./memory-policy.ts";
+import { serverKvArgs } from "./kv-prefix.ts";
 
 const HOME = process.env.HOME;
 const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
@@ -68,6 +69,10 @@ export function spawnArgs(s: Specialist): string[] {
 		"--prompt-cache-bytes",
 		"4GB",
 		...(s.flags ?? []),
+		// W240: persistent packet-prefix KV — appended only when the probe
+		// file says the installed mlx_lm server declares the flags (no-op on
+		// 0.31.3; lights up when upstream ships cache-file ingestion).
+		...serverKvArgs(s.model),
 	];
 }
 
