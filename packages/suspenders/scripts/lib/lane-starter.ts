@@ -74,16 +74,11 @@ export const laneIdentityPrompt = (sid: string, wt: string): string =>
 	`Lane ${sid} (fork of the orientation starter). Your worktree is ${wt}. Read ${wt}/.klh-brief.md (your readable worktree copy of the mission brief) and execute it fully.`;
 
 // Secrets must never enter starter history: the seed is shared across every
-// fork of its version, so one leaked token leaks into every lane.
-export const assertNoSecrets = (text: string): void => {
-	const hits = text.match(
-		/sk-[A-Za-z0-9_-]{8,}|bksk_[A-Za-z0-9_-]{8,}|gho_[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{8,}|xoxb-|BEGIN (RSA|OPENSSH) PRIVATE KEY/,
-	);
-	if (hits)
-		throw new Error(
-			`starter seed refused — credential material detected: ${hits[0].slice(0, 8)}…`,
-		);
-};
+// fork of its version, so one leaked token leaks into every lane. The guard
+// lives in hooks/lib/secret-guard.ts (W458.1) — one pattern shared with the
+// starter-artifact validation.
+import { assertNoSecrets } from "../../hooks/lib/secret-guard.ts";
+export { assertNoSecrets };
 
 export const starterVersion = (seedPrompt: string): string =>
 	createHash("sha256").update(seedPrompt).digest("hex").slice(0, 12);
