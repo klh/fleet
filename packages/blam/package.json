@@ -13,6 +13,7 @@
 	},
 	"devDependencies": {
 		"@klh/belt": "workspace:*",
+		"@klh/buckle": "workspace:*",
 		"@klh/suspenders": "workspace:*"
 	}
 }
