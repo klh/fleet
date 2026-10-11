@@ -1,0 +1,118 @@
+// W661: closure walk + never-clobber overlay + scratch-port router smoke.
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	beltBinClosure,
+	overlayBeltBin,
+	relativeImports,
+	smokeRouter,
+} from "./belt-bin-overlay.ts";
+
+const ROOT = join(import.meta.dir, "../../belt/bin");
+const ENTRY = join(ROOT, "router-shim.ts");
+
+setDefaultTimeout(30_000);
+
+test("relativeImports extracts static, re-export and dynamic specifiers", () => {
+	expect(
+		relativeImports(
+			'import { a } from "./a.ts";\nexport * from "./b.ts";\nawait import("./c.ts");\nfrom "../outside.ts"',
+		),
+	).toEqual(["./a.ts", "./b.ts", "./c.ts"]);
+});
+
+test("closure ships the full router-shim import closure, not a hardcoded list", async () => {
+	const closure = await beltBinClosure(ENTRY, ROOT);
+	const names = closure.map((rel) => rel.split("/").pop());
+	// the 2026-10-11 incident files the old overlay list missed
+	expect(names).toContain("audio.ts");
+	expect(names).toContain("escalate.ts");
+	// transitive deps the old list also missed (kv-prefix via spawner.ts)
+	expect(names).toContain("kv-prefix.ts");
+	expect(names).toContain("memory-policy.ts");
+	// router-shim's direct deps are all present
+	for (const direct of [
+		"admission.ts",
+		"health.ts",
+		"prompt-fingerprint.ts",
+		"registry.ts",
+		"registry-emit.ts",
+		"router-condense.ts",
+		"router-core.ts",
+		"spawn-admission.ts",
+		"spawner.ts",
+	])
+		expect(names).toContain(direct);
+	// every closure member exists, is flat, and is code
+	for (const rel of closure) {
+		expect(await Bun.file(join(ROOT, rel)).exists()).toBe(true);
+		expect(rel).not.toContain("..");
+		expect(rel.endsWith(".ts")).toBe(true);
+	}
+});
+
+test("overlay seeds an empty runtime with the full closure", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-overlay-empty-"));
+	try {
+		const report = await overlayBeltBin(runtime, ENTRY, ROOT);
+		expect(report.copied.length).toBe(
+			(await beltBinClosure(ENTRY, ROOT)).length,
+		);
+		for (const rel of report.copied)
+			expect(await Bun.file(join(runtime, rel)).exists()).toBe(true);
+		// closure ≠ wholesale: belt/bin files the router never imports stay out
+		expect(report.copied).not.toContain("dashboard.ts");
+		const report2 = await overlayBeltBin(runtime, ENTRY, ROOT);
+		expect(report2.copied).toEqual([]);
+		expect(report2.kept.length).toBe(report.copied.length);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("overlay never clobbers a present runtime copy", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-overlay-kept-"));
+	try {
+		await writeFile(join(runtime, "registry.ts"), "// operator sentinel\n");
+		const report = await overlayBeltBin(runtime, ENTRY, ROOT);
+		expect(report.kept).toContain("registry.ts");
+		expect(report.copied).not.toContain("dashboard.ts");
+		expect(await readFile(join(runtime, "registry.ts"), "utf8")).toBe(
+			"// operator sentinel\n",
+		);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("smoke proves the real router serves /health on a scratch port", async () => {
+	const { port } = await smokeRouter(ROOT);
+	expect(port).toBeGreaterThan(1024);
+});
+
+test("smoke fails loudly on a missing module instead of looping", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-smoke-broken-"));
+	try {
+		await writeFile(join(runtime, "router-shim.ts"), 'import "./nope.ts";\n');
+		await expect(smokeRouter(runtime)).rejects.toThrow("nope");
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("smoke fails a shim that never serves", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-smoke-silent-"));
+	try {
+		await writeFile(
+			join(runtime, "router-shim.ts"),
+			"await new Promise(() => {});\n",
+		);
+		await expect(smokeRouter(runtime, { timeoutMs: 2_000 })).rejects.toThrow(
+			"router smoke failed",
+		);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
