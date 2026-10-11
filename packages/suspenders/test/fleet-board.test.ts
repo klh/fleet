@@ -54,6 +54,8 @@ describe("served page", () => {
 		expect(txt).toContain("# suspenders");
 		expect(txt).toContain("/api/data");
 		expect(txt).toContain("/api/start");
+		expect(txt).toContain("/api/fleet-tree");
+		expect(txt).toContain("/fleet-tree");
 		expect(txt).toContain("http://www.threads.dk");
 	});
 

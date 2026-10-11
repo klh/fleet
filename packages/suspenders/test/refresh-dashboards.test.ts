@@ -136,6 +136,7 @@ function capturedFixture() {
 			"health.ts",
 			"klh-local.ts",
 			"dns-reconcile.ts",
+			"dns-maintenance.ts",
 			"dashboard-page.html",
 			"klh-theme.ts",
 			"vendor/lit-shared.js",
