@@ -1,0 +1,325 @@
+# deploy/e2e/e2e-compose.yaml — W234 docker e2e harness. Stands up the FULL
+# serving chain from the CHECKOUT UNDER TEST (CI + local):
+#   belt-stub (cpu-mode/no-MLX belt tier stub, OpenAI dialect, :8902)
+#   → buckle-hub (gate ON, root-keyed, :4111) → caddy (klh/local front, :8080)
+#   + the suspenders control plane (board-hub :7809, store-hub :7796).
+# One bridge network, host-loopback publishes only; state lives in named
+# volumes, containers write nothing to the repo bind.
+#
+# NOT a hub deploy: hub-compose.yaml (git-pulled volume, pinned ref, probe
+# sidecars, host networking) is the deploy-grade template — this file tests
+# the local checkout, so the code arrives via a read-only bind of $FLEET_DIR
+# and the outside-process verdict comes from run-e2e.ts probing over the
+# published ports from the host (the runner is the external prober).
+#
+# Solo is the default (overlay excluded): `docker compose up -d`. The
+# private *-remote overlay leg is opt-in via profile:
+#   KLH_E2E_OVERLAY_SRC=<overlay packages root> \
+#     docker compose --profile overlay up -d   # adds buckle-overlay :4121
+
+name: klh-e2e
+
+x-fleet-image: &fleet-image oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+# read-only bind of the checkout under test — the unit under test in CI.
+# The anchor is ONE volume entry (a map), usable as a list element everywhere.
+x-fleet-code: &fleet-code
+  type: bind
+  source: ${FLEET_DIR:?set FLEET_DIR to the fleet checkout under test}
+  target: /srv/fleet
+  read_only: true
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+services:
+  # Seed the checkout under test into a writable volume: containers never
+  # write to the host bind (repo law), and the services need node_modules
+  # (the @klh/* workspace links), which only bun install can build for the
+  # container platform. node_modules/.git are NOT seeded — fleet-deps builds
+  # them fresh for linux from the root bun.lock.
+  repo-seed:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - cd /src/host && tar -cf - --exclude=./node_modules --exclude=./.git --exclude=./.worktrees . | tar -xf - -C /srv/fleet && echo seeded
+    volumes:
+      - *fleet-code
+      - fleet-tree:/srv/fleet
+
+  fleet-deps:
+    image: *fleet-image
+    working_dir: /srv/fleet
+    command: bun install --frozen-lockfile
+    depends_on:
+      repo-seed:
+        condition: service_completed_successfully
+    volumes:
+      - fleet-tree:/srv/fleet
+
+  # The LLM gate: auth ON (the default — non-loopback bind refuses to boot
+  # without it), root key from the runner-minted 0600 env_file (fail-closed:
+  # a missing file fails `up`), routing ladder pointed at the stub tier via
+  # the BUCKLE_UPSTREAMS runtime override.
+  buckle-hub:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
+    working_dir: /srv/fleet/packages/buckle
+    command: bun run src/server.ts
+    ports:
+      - "127.0.0.1:4111:4111"
+    env_file:
+      - ./buckle.env
+    environment:
+      BUCKLE_PORT: "4111"
+      BUCKLE_BIND: 0.0.0.0
+      BUCKLE_DB: /state/buckle/buckle.db
+      BUCKLE_SECRETS_HOME: /state/secrets
+      BUCKLE_POLICY: /srv/fleet/packages/buckle/routing-policy.yaml
+      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.yaml
+    volumes:
+      - fleet-tree:/srv/fleet
+      - buckle-state:/state/buckle
+      - hub-secrets:/state/secrets
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:4111/status"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # belt in cpu-mode: the swarm specialists are MLX (Apple-only), so the
+  # harness serves the same wire contract (OpenAI /v1/chat/completions on
+  # the tier port buckle's committed ladder targets, :8902) from a canned
+  # stub. This is the tier the routing ladder walks — chain evidence ends
+  # "…→ belt-stub responded".
+  belt-stub:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    restart: unless-stopped
+    command: bun /srv/fleet/packages/suspenders/deploy/e2e/stub-tier.ts
+    ports:
+      - "127.0.0.1:8902:8902"
+    volumes:
+      - fleet-tree:/srv/fleet
+    environment:
+      TIER_PORT: "8902"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:8902/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # suspenders control plane: fleet board + coord store.
+  board-hub:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
+    command: bun /srv/fleet/packages/suspenders/hooks/bin/fleet-board.ts --port 7809
+    ports:
+      - "127.0.0.1:7809:7809"
+    environment:
+      HOME: /state/hub-home
+      HUB_BOARD_PORT: "7809"
+      SUSPENDERS_BIND: 0.0.0.0
+    volumes:
+      - fleet-tree:/srv/fleet
+      - hub-state:/state/hub-home
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:7809/status"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  store-hub:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    restart: unless-stopped
+    command: bun /srv/fleet/packages/suspenders/hooks/bin/store-server.ts --port 7796
+    ports:
+      - "127.0.0.1:7796:7796"
+    environment:
+      HOME: /state/hub-home
+      HUB_STORE_PORT: "7796"
+    volumes:
+      - fleet-tree:/srv/fleet
+      - hub-state:/state/hub-home
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:7796/status"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # klh/local shape: the Caddy .local front. Catch-all proxies the gate;
+  # the named site mirrors the per-service fragment shape klh-local emits.
+  caddy:
+    image: caddy:2-alpine
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./Caddyfile.e2e:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - buckle-hub
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:8080/status || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # Health sidecars (owner law: health is outside-process) — same
+  # probe.ts contract as hub-compose. They poll their REAL target over the
+  # compose network and serve the verdict on their own port; `docker compose
+  # ps` shows honest health. The run-e2e.ts probes stay the gating verdict
+  # (they hit the published ports from the host).
+  buckle-health:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    restart: unless-stopped
+    depends_on:
+      - buckle-hub
+    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://buckle-hub:4111/status --listen 4112
+    volumes:
+      - fleet-tree:/srv/fleet
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:4112/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  board-health:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    restart: unless-stopped
+    depends_on:
+      - board-hub
+    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://board-hub:7809/status --listen 7800
+    volumes:
+      - fleet-tree:/srv/fleet
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:7800/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  store-health:
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    restart: unless-stopped
+    depends_on:
+      - store-hub
+    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://store-hub:7796/status --listen 7794
+    volumes:
+      - fleet-tree:/srv/fleet
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:7794/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # Private *-remote overlay leg (auth ON) — activated ONLY with
+  # --profile overlay by the private repo's harness run, which points
+  # KLH_E2E_OVERLAY_SRC at its overlay packages root. The public repo
+  # never activates the profile (solo = the public surface).
+  buckle-overlay:
+    profiles: ["overlay"]
+    image: *fleet-image
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
+    working_dir: /srv/overlay/packages/buckle
+    command: bun run src/server.ts
+    ports:
+      - "127.0.0.1:4121:4121"
+    env_file:
+      - ./buckle.env
+    environment:
+      BUCKLE_PORT: "4121"
+      BUCKLE_BIND: 0.0.0.0
+      BUCKLE_AUTH: "on"
+      BUCKLE_DB: /state/buckle-overlay/buckle.db
+      BUCKLE_SECRETS_HOME: /state/secrets
+      BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.yaml
+      BUCKLE_UPSTREAMS: /srv/fleet/packages/suspenders/deploy/e2e/upstreams.e2e.yaml
+    volumes:
+      - fleet-tree:/srv/fleet
+      - type: bind
+        source: ${KLH_E2E_OVERLAY_SRC:-/nonexistent}
+        target: /srv/overlay
+        read_only: true
+      - buckle-overlay-state:/state/buckle-overlay
+      - hub-secrets:/state/secrets
+
+volumes:
+  fleet-tree:
+  buckle-state:
+  buckle-overlay-state:
+  hub-state:
+  hub-secrets:
+  caddy-data:
+  caddy-config:

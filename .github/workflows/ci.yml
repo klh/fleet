@@ -44,6 +44,24 @@ jobs:
           docker run --rm -v "$PWD:/w:ro" -w /w oven/bun:1 \
             bun packages/suspenders/deploy/runtime-info.ts --check --json
 
+  # W234: the docker e2e harness — full chain up (belt-stub + buckle + caddy
+  # + board/store), four probes (chat through buckle, admin token lifecycle,
+  # enroll a hub, dispatch a lane), runner exit code gates.
+  docker-e2e:
+    runs-on: ubuntu-latest
+    env:
+      FLEET_DIR: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # the runner mints the 0600 root-key env_file BEFORE compose up (the
+      # env_file is fail-closed: a missing file would fail config/up), so
+      # run-e2e.ts is the single validation + probe surface
+      - name: e2e probes
+        run: bun packages/suspenders/deploy/e2e/run-e2e.ts
+
   # Every CLI entrypoint must at least parse/build.
   entrypoints:
     runs-on: ubuntu-latest
