@@ -1,4 +1,4 @@
-// scripts/starter-milestone.ts — W458.6: the first-milestone integration
+// tools/starter-milestone.ts — W458.6: the first-milestone integration
 // proof. One project, two hubs (hub-a, hub-b), two developers (lane-a,
 // lane-b), same immutable starter — exercising the REAL registry,
 // distribution, materialization, gate and telemetry libs end to end:
@@ -15,6 +15,9 @@
 //
 // Exit 0 = every acceptance proved; exit 1 = the first failed step (its
 // line says which). Deterministic: no network, no model calls, tmpdir only.
+// Authoring-time tool, run from packages/blam: bun tools/starter-milestone.ts
+// (lives here, not suspenders/scripts — bench/ is not in the install's
+// SOURCE_PATHS, so relative ../../blam imports died in any installed prefix).
 import {
 	existsSync,
 	mkdirSync,
@@ -29,7 +32,7 @@ import {
 	getStarter,
 	listStartersIn,
 	type StarterArtifactContent,
-} from "../hooks/lib/starter-artifacts.ts";
+} from "@klh/suspenders/hooks/lib/starter-artifacts.ts";
 import {
 	pullFromDir,
 	promoteStarter,
@@ -39,18 +42,18 @@ import {
 	replicateToDir,
 	rollbackStarter,
 	writeGrants,
-} from "../hooks/lib/starter-distribution.ts";
+} from "@klh/suspenders/hooks/lib/starter-distribution.ts";
 import {
 	materializeStarter,
 	readOutcomes,
 	recordOutcome,
-} from "../hooks/lib/starter-materialize.ts";
-import { gatePromotion, rollbackTargetOf } from "../../blam/src/promotion.ts";
-import { pairedLift } from "../../blam/bench/paired/types.ts";
+} from "@klh/suspenders/hooks/lib/starter-materialize.ts";
+import { gatePromotion, rollbackTargetOf } from "../src/promotion.ts";
+import { pairedLift } from "../bench/paired/types.ts";
 import {
 	LaneTelemetryLog,
 	type LaneCacheRow,
-} from "../../buckle/src/cache-boundary.ts";
+} from "@klh/buckle/src/cache-boundary.ts";
 
 // --- harness ---------------------------------------------------------------
 const outDir = (() => {

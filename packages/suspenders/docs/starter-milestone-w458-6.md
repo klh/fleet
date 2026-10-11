@@ -2,7 +2,7 @@
 
 Item: W458.6 (first milestone: 1 project, 2 hubs, 2 developers, same starter) ·
 Branch: `suspenders/W458.6` · 2026-10-11 · runner:
-`packages/suspenders/scripts/starter-milestone.ts` · spec:
+`packages/blam/tools/starter-milestone.ts` · spec:
 [starter-registry-architecture.md](starter-registry-architecture.md).
 
 Built on W458.1–.5, all landed on this branch: 1ae29e4 (artifact schema +
@@ -13,7 +13,7 @@ per-lane telemetry), 111ed99 (promotion evals + rollback authority).
 ## Run it
 
 ```sh
-bun packages/suspenders/scripts/starter-milestone.ts
+bun packages/blam/tools/starter-milestone.ts
 ```
 
 Deterministic: tmpdir-only, no network, no model calls. Exit 0 = every
