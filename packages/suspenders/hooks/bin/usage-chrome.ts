@@ -65,6 +65,86 @@ export function legendHtml(): string {
 	return `<div class="ulegend">${items.join("")}</div>`;
 }
 
+// ─── W652.3.1 panel payload slices (W184 staged Lit migration) ────────────
+// The emitters stopped string-building panel interiors per request: they
+// shape display-ready slices into the #usage-data payload's `panels` key and
+// emit static <klh-usage-*> hosts; board-html/usage-panels.ts renders them
+// client-side. Interfaces here (the seam, server-side, no lit import) are
+// the one contract both sides read.
+export interface UsageTile {
+	k: string;
+	v: string;
+}
+export interface UsageSeg {
+	g: string;
+	tok: number;
+}
+export interface UsageActorRow {
+	actor: string;
+	demo: boolean;
+	chips: string[];
+	barW: number;
+	segs: UsageSeg[];
+	models: { m: string; g: string; tok: number; rq: number }[];
+	total: number;
+	rq: number;
+}
+export interface UsageActorsPanel {
+	rows: UsageActorRow[];
+}
+export interface UsageAidsPanel {
+	title: string;
+	foot?: string;
+	empty?: string;
+	rows: {
+		aid: string;
+		domain: string;
+		inj: number;
+		skip: number;
+		tok: number;
+	}[];
+}
+export interface UsageActivityCell {
+	key: string;
+	share: number;
+}
+export interface UsageActivityWeek {
+	d: string;
+	cost: number;
+	cells: UsageActivityCell[];
+	orient: number;
+}
+export interface UsageActivityLane {
+	actor: string;
+	cells: UsageActivityCell[];
+	orient: number;
+	spr: string;
+	cost: number;
+	req: number;
+}
+export interface UsageActivityPanel {
+	foot: string;
+	weekly: UsageActivityWeek[];
+	lanes: UsageActivityLane[];
+}
+export interface UsageSpokesPanel {
+	rows: {
+		spoke: string;
+		team: string;
+		barW: number;
+		segs: UsageSeg[];
+		total: number;
+		rq: number;
+	}[];
+}
+export interface UsagePanels {
+	tiles?: UsageTile[];
+	actors?: UsageActorsPanel;
+	aids?: UsageAidsPanel;
+	activity?: UsageActivityPanel | { empty: string };
+	spokes?: UsageSpokesPanel;
+}
+
 // the full W152 u* chrome — the superset of both dashboards' local copies;
 // extra classes are inert where a page doesn't render those elements
 const U_CSS = `
@@ -117,6 +197,6 @@ export function usagePageShell(cfg: {
 	body: string;
 	payload: string;
 }): string {
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
+	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script><script type="module" src="/vendor/usage-panels.js"></script>`;
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
 }

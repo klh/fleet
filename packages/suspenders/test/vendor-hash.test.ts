@@ -1,12 +1,18 @@
 // vendor-hash.test.ts — W292 (W278 review finding #9): the committed vendored
 // Lit bundles must byte-match a fresh production build (drift alarm), ship
-// WITHOUT the dev-mode runtime ("Lit is in dev mode"), and share ONE lit copy
-// via a lit-shared.js chunk instead of inlining lit per bundle. The fresh
+// WITHOUT the dev-mode runtime ("Lit is in dev mode"), and share ONE lit
+// runtime chunk instead of inlining lit per bundle. The fresh
 // build reuses the package.json `build:vendor` line verbatim (shell-quote
 // parsed, outdir swapped for a tmpdir) so the flags have one source of truth;
 // the repo's vendor/ dir is never written by this test.
 import { describe, expect, test } from "bun:test";
-import { readdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	readdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -62,7 +68,7 @@ describe("vendor-hash (W292)", () => {
 			"--production",
 			"--splitting",
 			"--chunk-naming",
-			"lit-shared.[ext]",
+			"lit-[hash].[ext]",
 			"hooks/board-html/klh-components.ts",
 			"hooks/board-html/klh-service-row.ts",
 		])
@@ -87,12 +93,21 @@ describe("vendor-hash (W292)", () => {
 		}
 	});
 
-	test("one shared lit chunk; both entries import that same chunk", () => {
-		const files = readdirSync(VENDOR).filter((f) => f.endsWith(".js"));
-		const chunks = files.filter((f) => f === "lit-shared.js");
-		expect(chunks).toHaveLength(1);
-		const chunk = chunks[0] ?? "";
-		for (const entry of ["klh-components.js", "klh-service-row.js"])
-			expect(readFileSync(join(VENDOR, entry), "utf8")).toContain(`./${chunk}`);
+	test("one shared lit runtime chunk; every entry imports it", () => {
+		const importsOf = (f: string): string[] =>
+			[
+				...readFileSync(join(VENDOR, f), "utf8").matchAll(
+					/from"\.\/(lit-[^"]+\.js)"/g,
+				),
+			].map((m) => m[1] ?? "");
+		const entries = readdirSync(VENDOR).filter(
+			(f) => f.endsWith(".js") && !f.startsWith("lit-"),
+		);
+		// hash-named chunks are fine; the >1KB runtime must be shared by all
+		const shared = entries
+			.map((f) => importsOf(f))
+			.reduce((a, b) => a.filter((c) => b.includes(c)))
+			.filter((c) => statSync(join(VENDOR, c)).size > 1024);
+		expect(shared).toHaveLength(1);
 	});
 });

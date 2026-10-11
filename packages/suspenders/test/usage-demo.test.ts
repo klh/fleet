@@ -42,6 +42,14 @@ test("demo provenance is excluded across series; names never hide real traffic",
 	const page = usagePage(demo, { days: 1, team: "fake", includeDemo: true });
 	expect(page).toContain("Synthetic demo usage included");
 	expect(page).toContain("includeDemo=true");
-	expect(page).toContain("synthetic demo</span>");
+	// W652.3.1: the demo badge rides the payload actor row (Lit renders it)
+	const panels = JSON.parse(
+		page.match(
+			/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
+		)?.[1] ?? "{}",
+	) as { panels: { actors: { rows: { actor: string; demo: boolean }[] } } };
+	expect(
+		panels.panels.actors.rows.find((row) => row.actor === "synthetic")?.demo,
+	).toBe(true);
 	db.close();
 });

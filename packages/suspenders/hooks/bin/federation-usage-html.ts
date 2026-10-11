@@ -13,7 +13,10 @@ import {
 	fmtTok,
 	legendHtml,
 	SLOT,
-	tilesRow,
+	type UsageAidsPanel,
+	type UsageSeg,
+	type UsageSpokesPanel,
+	type UsageTile,
 	usagePageShell,
 } from "./usage-chrome.ts";
 
@@ -68,8 +71,11 @@ function timelineData(r: FedPageReport): number[][] {
 	const sorted = [...keys].sort((a, b) => a - b);
 	const xs = sorted.map((b) => Math.round(b / 1000));
 	for (const w of r.windows) {
-		const g = byBucket.get(w.bucket);
-		if (g === undefined) continue;
+		let g = byBucket.get(w.bucket);
+		if (g === undefined) {
+			g = {};
+			byBucket.set(w.bucket, g);
+		}
 		for (const [cls, m] of Object.entries(w.classes)) {
 			g[cls] = (g[cls] ?? 0) + m.in_tok + m.out_tok + m.cache_r + m.cache_c;
 		}
@@ -100,7 +106,10 @@ function byHourData(r: FedPageReport): number[][] {
 }
 
 // ─── page sections ────────────────────────────────────────────────────────
-function tilesHtml(r: FedPageReport): string {
+// W652.3.1: panels ride the Lit components (board-html/usage-panels.ts) —
+// the emitters shape display slices into the payload instead of building
+// panel HTML strings per request.
+const fedTilesData = (r: FedPageReport): UsageTile[] => {
 	const byClass = zeroGroups();
 	let rq = 0;
 	let windows = 0;
@@ -115,15 +124,17 @@ function tilesHtml(r: FedPageReport): string {
 	const top = Object.entries(byClass)
 		.sort((a, b) => b[1] - a[1])
 		.find(([, v]) => v > 0);
-	const cells: [string, string][] = [
-		["REPORTING SPOKES", String(r.spokes)],
-		["TOTAL TOKENS", fmtTok(Object.values(byClass).reduce((a, b) => a + b, 0))],
-		["REQUESTS", fmtTok(rq)],
-		["TOP MODEL CLASS", top === undefined ? "—" : top[0]],
-		["WINDOWS", String(windows)],
+	return [
+		{ k: "REPORTING SPOKES", v: String(r.spokes) },
+		{
+			k: "TOTAL TOKENS",
+			v: fmtTok(Object.values(byClass).reduce((a, b) => a + b, 0)),
+		},
+		{ k: "REQUESTS", v: fmtTok(rq) },
+		{ k: "TOP MODEL CLASS", v: top === undefined ? "—" : top[0] },
+		{ k: "WINDOWS", v: String(windows) },
 	];
-	return tilesRow(cells);
-}
+};
 
 function filtersHtml(days: number): string {
 	const tLinks = [7, 28, 90]
@@ -135,10 +146,8 @@ function filtersHtml(days: number): string {
 	return `<div class="ufilters"><span class="ufgroup" data-label="window">${tLinks}</span></div>`;
 }
 
-/** Per-spoke table: one row per (spoke, team), class-segmented bar. */
-function spokesHtml(r: FedPageReport): string {
-	if (r.windows.length === 0)
-		return `<div class="upanel"><h2>SPOKES</h2><p class="uempty">no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)</p></div>`;
+/** Per-spoke slice: one row per (spoke, team), class-segmented bar. */
+const spokesData = (r: FedPageReport): UsageSpokesPanel => {
 	const per = new Map<
 		string,
 		{ team: string; classes: Record<string, number>; rq: number }
@@ -155,32 +164,40 @@ function spokesHtml(r: FedPageReport): string {
 			row.rq += m.requests;
 		}
 	}
-	const rows = [...per.entries()]
-		.map(([spoke, agg]) => {
-			const total = Object.values(agg.classes).reduce((a, b) => a + b, 0);
-			const maxTok = Math.max(
-				1,
-				...[...per.values()].map((x) =>
-					Object.values(x.classes).reduce((a, b) => a + b, 0),
-				),
-			);
-			const segs = GROUPS.map((g) => {
-				const tok = agg.classes[g] ?? 0;
-				if (tok === 0) return "";
-				const pct = total > 0 ? ((tok / total) * 100).toFixed(2) : "0";
-				return `<i style="width:${pct}%;background:${SLOT[g]}" title="${g}: ${fmtTok(tok)} tok"></i>`;
-			}).join("");
-			const barW = Math.max(2, (total / maxTok) * 100);
-			return `<tr><td><b>${esc(spoke)}</b><span class="uchip">${esc(agg.team)}</span></td><td><div class="ubar" style="width:${barW.toFixed(1)}%">${segs}</div></td><td class="unum">${fmtTok(total)}</td><td class="unum">${fmtTok(agg.rq)}</td></tr>`;
-		})
-		.join("");
-	return `<div class="upanel"><h2>SPOKES</h2><table class="uacts"><thead><tr><th>spoke</th><th style="width:38%">tokens by model class</th><th class="unum">total</th><th class="unum">req</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
+	const maxTok = Math.max(
+		1,
+		...[...per.values()].map((x) =>
+			Object.values(x.classes).reduce((a, b) => a + b, 0),
+		),
+	);
+	const rows = [...per.entries()].map(([spoke, agg]) => {
+		const total = Object.values(agg.classes).reduce((a, b) => a + b, 0);
+		const segs: UsageSeg[] = [];
+		for (const g of GROUPS) {
+			const tok = agg.classes[g] ?? 0;
+			if (tok === 0) continue;
+			segs.push({ g, tok });
+		}
+		return {
+			spoke,
+			team: agg.team,
+			barW: Math.max(2, (total / maxTok) * 100),
+			segs,
+			total,
+			rq: agg.rq,
+		};
+	});
+	return { rows };
+};
 
-/** Aid-ROI-over-federation panel: per aid+domain sums across spokes. */
-function aidsHtml(r: FedPageReport): string {
+/** Aid-ROI-over-federation slice: per aid+domain sums across spokes. */
+const fedAidsData = (r: FedPageReport): UsageAidsPanel => {
 	if (r.aids.length === 0)
-		return `<div class="upanel"><h2>AID ROI · FEDERATED</h2><p class="uempty">no aid aggregates reported yet — spokes with opted-in teams include aid_rollup sums (private-domain rows never leave the spoke)</p></div>`;
+		return {
+			title: "AID ROI · FEDERATED",
+			empty:
+				"no aid aggregates reported yet — spokes with opted-in teams include aid_rollup sums (private-domain rows never leave the spoke)",
+		};
 	const per = new Map<
 		string,
 		{
@@ -202,15 +219,12 @@ function aidsHtml(r: FedPageReport): string {
 		row.skip += a.skipped;
 		row.tok += a.tok_injected;
 	}
-	const rows = [...per.values()]
-		.sort((a, b) => b.tok - a.tok)
-		.map(
-			(a) =>
-				`<tr><td><b>${esc(a.aid)}</b></td><td>${esc(a.domain)}</td><td class="unum">${fmtTok(a.inj)}</td><td class="unum">${fmtTok(a.skip)}</td><td class="unum">${fmtTok(a.tok)}</td></tr>`,
-		)
-		.join("");
-	return `<div class="upanel"><h2>AID ROI · FEDERATED</h2><p class="ufoot">spoke-reported sums · private-domain rows are filtered spoke-side (domain separation)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
+	return {
+		title: "AID ROI · FEDERATED",
+		foot: "spoke-reported sums · private-domain rows are filtered spoke-side (domain separation)",
+		rows: [...per.values()].sort((a, b) => b.tok - a.tok),
+	};
+};
 
 /** The federation usage dashboard page. */
 export function federationUsagePage(
@@ -228,16 +242,21 @@ export function federationUsagePage(
 		`<h1 class="utitle">FEDERATED USAGE</h1>` +
 		`<div class="uback"><a href="/">&larr; fleet board</a>${note}</div>` +
 		filtersHtml(r.days) +
-		tilesHtml(r);
+		`<klh-usage-tiles></klh-usage-tiles>`;
 	const payload = JSON.stringify({
 		groups: GROUPS,
 		slot: SLOT,
 		timeline: timelineData(r),
 		byHour: byHourData(r),
+		panels: {
+			tiles: fedTilesData(r),
+			spokes: spokesData(r),
+			aids: fedAidsData(r),
+		},
 	});
 	return usagePageShell({
 		title: "FEDERATED USAGE",
-		body: `${head}${timeline}${hours}${spokesHtml(r)}${aidsHtml(r)}`,
+		body: `${head}${timeline}${hours}<klh-usage-spokes></klh-usage-spokes><klh-usage-aids></klh-usage-aids>`,
 		payload,
 	});
 }
