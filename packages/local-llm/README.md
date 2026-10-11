@@ -24,6 +24,7 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `serve-observation.ts` | Bounded network probes and atomic Belt-compatible evidence snapshot |
 | `litellm-target.ts` | Re-export of Belt's canonical LiteLLM target |
 | `memory-policy.ts` | Per-model Metal budget, bounded caches and concurrency |
+| `ikea-shim.ts` | anthropic→copilot gateway on `:4102` (W226) — `login`/`status`/`selftest` |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
 
@@ -43,6 +44,7 @@ runtime home from belt/bin (W465).
 | `:4000` | belt router-shim (anthropic seam over the swarm) |
 | `:4100` | LiteLLM engine, owned by the serving swarm |
 | `:4101` | Buckle authenticated front door, separate service |
+| `:4102` | ikea-shim (anthropic→copilot gateway, W226) |
 
 ## Runtime home
 
@@ -131,6 +133,13 @@ Buckle liveness alone cannot verify inference: recovery verification must
 include an authenticated request through its governed route, then revoke the
 temporary test key. On 2026-10-07, Buckle was listening while its LiteLLM
 backend was absent because the minimal legacy swarm did not supervise it.
+
+## ikea-shim (W226)
+
+Anthropic→copilot gateway so the INTERACTIVE claude CLI rides the IKEA
+Copilot seat's models (`login` → `status` → point `ANTHROPIC_BASE_URL` at
+`:4102`; dispatch lanes are untouched — their 0600 per-lane `--settings`
+files pin their own upstream). launchd: `com.suspenders.ikea-shim`.
 
 ## Config stubs
 
