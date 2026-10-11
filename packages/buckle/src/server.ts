@@ -21,6 +21,10 @@ import type {
 	SpokeEnrollmentFactory,
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
+import {
+	loadOverlay,
+	overlayModuleAdaptation,
+} from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
@@ -321,8 +325,11 @@ export function startServer(
 	};
 }
 
-/** Entry: bind the shadow port, log the guard. */
-export function main(): void {
+/** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
+ *  solo posture; what loaded is logged (log-at-startup law). */
+export async function boot(): Promise<
+	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+> {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance
 	// gate ON; without a root key NOTHING can authenticate or mint — every
@@ -330,14 +337,43 @@ export function main(): void {
 	// BUCKLE_ROOT_KEY from runtime env seeds the bootstrap principal; mint
 	// real bksk_ keys via /v1/admin/keys and retire the root when done.
 	const rootKey = process.env.BUCKLE_ROOT_KEY;
-	const server = startServer({
-		port,
-		...(rootKey ? { auth: { rootKey } } : {}),
+	const overlay = await loadOverlay({
+		dir: process.env.KLH_OVERLAY_DIR,
+		expectSha256: process.env.KLH_OVERLAY_SHA256,
 	});
-	console.log(
-		`buckle: shadow router on http://${server.hostname}:${port}` +
-			` (4100 refused by design${rootKey ? ", root-keyed" : ", NO ROOT KEY — mint nothing"})`,
+	if (!overlay.ok && overlay.why !== "unset")
+		throw new Error(`overlay refused: ${overlay.why}`);
+	const adaptation = overlay.ok
+		? overlayModuleAdaptation(overlay.module)
+		: undefined;
+	if (overlay.ok)
+		console.log(
+			`buckle: overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
+				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)`,
+		);
+	return startServer({
+		port,
+		...(rootKey || adaptation
+			? {
+					auth: {
+						...(rootKey ? { rootKey } : {}),
+						...(adaptation ? { adaptation } : {}),
+					},
+				}
+			: {}),
+	});
+}
+
+/** Entry: bind the shadow port, log the guard. */
+export function main(): void {
+	void boot().then((server) =>
+		console.log(
+			`buckle: shadow router on http://${server.hostname}:${server.port}` +
+				` (4100 refused by design, root ${process.env.BUCKLE_ROOT_KEY ? "keyed" : "unset"})`,
+		),
 	);
 }
+
+if (import.meta.main) main();
 
 if (import.meta.main) main();
