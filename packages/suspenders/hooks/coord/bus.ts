@@ -12,9 +12,9 @@ import {
 	dim,
 	cyan,
 	amber,
-	scopeCovers,
 	projectIdentity,
 } from "./shared.ts";
+import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 
 export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
@@ -177,31 +177,17 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 			} | null)
 		: null;
 	const since = cur?.event_id ?? 0;
-	// fetch all past the cursor, filter in TS, THEN limit — a SQL LIMIT here
-	// would cut off the newest matching events; and the cursor may only advance
-	// to what was actually SHOWN, or filtered consumers silently lose events.
+	// keyset pages past the cursor (W644): per-row scope/kinds filtering, stop
+	// at limit; the cursor advances to the last row EXAMINED below — a
+	// rejected row can never match again, and nothing unexamined is skipped.
 	// A consumer with --as sees broadcasts + anything directed at it.
-	let rows = as
-		? (db
-				.query(
-					"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND (target IS NULL OR target = ?) ORDER BY id",
-				)
-				.all(since, as) as Ev[])
-		: (db
-				.query(
-					"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND target IS NULL ORDER BY id",
-				)
-				.all(since) as Ev[]);
-	if (scope)
-		rows = rows.filter(
-			(r) =>
-				r.scope &&
-				(r.scope === scope ||
-					scopeCovers(r.scope, scope) ||
-					scopeCovers(scope, r.scope)),
-		);
-	if (kinds.length) rows = rows.filter((r) => kinds.includes(r.kind));
-	rows = rows.slice(0, limit);
+	const { shown: rows, examined } = fetchEventsPaged({
+		since,
+		as,
+		scope,
+		kinds,
+		limit,
+	});
 	for (const r of rows) {
 		const { sha, note, ...restP } = r.payload
 			? (JSON.parse(r.payload) as Record<string, string>)
@@ -214,16 +200,9 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 			`  ${dim(`#${r.id}`)} ${dim(`${ago}s`.padStart(4))}  ${cyan(r.kind.padEnd(18))}${dim(r.source.slice(0, 8).padEnd(9))}${r.scope ? `${r.scope}  ` : ""}${sha ? green(`@${sha.slice(0, 8)}  `) : ""}${Object.keys(restP).length ? `${extra}  ` : ""}${note ? dim(`— ${note}`) : ""}`,
 		);
 	}
-	const latest = rows.length ? Math.max(...rows.map((r) => r.id)) : since; // advance only past SHOWN events
-	if (as && rows.length) {
-		if (cur)
-			db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(latest, as);
-		else
-			db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-				as,
-				latest,
-			);
-	}
+	// advance past every EXAMINED row (shown or filtered) — never beyond; a
+	// dormant lane pays one page per poll instead of the whole bus tail
+	if (as) advanceCursor(as, since, examined);
 	if (!rows.length) console.log(dim("(no new events)"));
 }
 
@@ -264,35 +243,21 @@ export async function cmdWait(rest: string[]): Promise<void> {
 					event_id: number;
 				} | null
 			)?.event_id ?? 0;
-		let rows = db
-			.query(
-				"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND (target IS NULL OR target = ?) ORDER BY id",
-			)
-			.all(cur, as) as Ev[];
-		if (scope)
-			rows = rows.filter(
-				(r) =>
-					r.scope &&
-					(r.scope === scope ||
-						scopeCovers(r.scope, scope) ||
-						scopeCovers(scope, r.scope)),
-			);
-		if (kinds.length) rows = rows.filter((r) => kinds.includes(r.kind));
+		// keyset pages per tick (W644): the wait loop re-scans from its cursor
+		// every interval — pages keep a stale cursor from re-paying the tail
+		const { shown: rows, examined } = fetchEventsPaged({
+			since: cur,
+			as,
+			scope,
+			kinds,
+		});
 		if (rows.length) {
 			for (const r of rows) {
 				console.log(formatEventLine(r));
 			}
-			const shownMax = Math.max(...rows.map((r) => r.id));
-			if (cur)
-				db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(
-					shownMax,
-					as,
-				);
-			else
-				db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-					as,
-					shownMax,
-				);
+			// advance past every EXAMINED row (shown or filtered) — the filters
+			// are fixed for this invocation, so rejected rows never match again
+			advanceCursor(as, cur, examined);
 			if (!forever) process.exit(0);
 			interval = 250; // a hit resets the backoff same as the non-forever path
 			continue;
@@ -409,24 +374,7 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	}
 	if (rest.includes("--ack")) {
 		const latest = rows.length ? Math.max(...rows.map((r) => r.id)) : ncur;
-		const c =
-			(
-				db.query("SELECT event_id FROM cursors WHERE sid = ?").get(as) as {
-					event_id: number;
-				} | null
-			)?.event_id ?? 0;
-		if (latest > c) {
-			if (c)
-				db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(
-					latest,
-					as,
-				);
-			else
-				db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-					as,
-					latest,
-				);
-		}
+		advanceCursor(as, ncur, latest);
 	}
 	if (!rows.length) console.log(dim("(inbox empty)"));
 }
