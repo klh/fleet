@@ -98,5 +98,7 @@ loopback token mocks need `BUCKLE_TOKEN_HOST_LOOPBACK=on`.
 - `docs/design/buckle/adapters-2026-10-01.md` — the five adapter families
   and the provider-as-data law
 
-License: see [LICENSE](LICENSE). Litellm internals were studied as
-documentation only; no code was copied.
+License: see [LICENSE](LICENSE). The LiteLLM provider docs vendored under
+[docs/providers/](docs/providers/README.md) remain MIT — their license text
+ships alongside ([LICENSE-litellm](docs/providers/LICENSE-litellm)). Litellm
+internals were studied as documentation only; no code was copied.

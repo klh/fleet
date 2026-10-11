@@ -3,7 +3,7 @@
 	"version": "2.0.0",
 	"description": "Local LLM fleet — MLX specialists, anthropic-wire router, benchmark rig",
 	"type": "module",
-	"license": "BUSL-1.1",
+	"license": "PolyForm-Noncommercial-1.0.0",
 	"private": true,
 	"engines": {
 		"bun": ">=1.2"

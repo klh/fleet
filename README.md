@@ -250,8 +250,11 @@ work graph before a fresh hub installation.
 
 ## License
 
-Each package carries its own Business Source License 1.1 and notices; consult the
-package `LICENSE` for terms, including its declared Change Date. BLAM's dataset
+Each package carries its own PolyForm Noncommercial License 1.0.0
+(`PolyForm-Noncommercial-1.0.0`) and notices; consult the package `LICENSE`
+for terms. Any noncommercial use — personal projects, research, education —
+is free; production or commercial use requires a commercial license from the
+Licensor. BLAM's dataset
 has a separate CC-BY-4.0 notice. This repository is not a blanket open-source grant.
 
 ---

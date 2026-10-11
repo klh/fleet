@@ -169,10 +169,10 @@ gateway config during an approved maintenance window.
 
 ## License
 
-belt is source-available under the **Business Source License 1.1** (see [LICENSE](LICENSE)):
+belt is source-available under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE](LICENSE)):
 
-- **Free** for personal projects, education, research, and internal evaluation.
+- **Free** for any noncommercial purpose — personal projects, education, research, and internal evaluation.
 - **Production / commercial use requires a commercial license** — running it in a product or service, in paid client work, or as part of business operations. Contact the Licensor (see LICENSE) for terms.
-- **No conversion** — unlike standard BSL 1.1, the Change Date / Change License parameters are **N/A**: the Licensed Work never converts to an open license; all rights remain with the Licensor indefinitely.
+- **No conversion clause** — PolyForm licenses have no Change Date: the Licensed Work never converts to an open license; all rights remain with the Licensor.
 
 A Threads thing — [threads.dk](http://www.threads.dk).
