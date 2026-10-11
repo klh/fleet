@@ -2,11 +2,12 @@
 // cleanup for dead durable-registry entries. Before this verb, a stale row
 // from a dead lane could only be cleared by raw store surgery while dispatch
 // refused re-dispatch with "durable registry already holds a live or unknown
-// lane". Deletion is liveness-guarded end to end: an entry leaves ONLY on
-// the shared tri-state verdict "dead" (anchored process identity false AND
-// claimant transcript stale — the same verdict the dispatch refusal check
-// and `work lanes` trust), re-verified under the registry lock. Live and
-// unknown reads are REFUSALS, never silent skips.
+// lane". Deletion is liveness-guarded end to end: an entry leaves ONLY on a
+// prune warrant (W636.1) — the shared tri-state verdict "dead" (anchored
+// process identity false AND claimant transcript stale — the same verdict
+// the dispatch refusal check and `work lanes` trust), or the age-based trust
+// below — re-verified under the registry lock. Live and young-unknown reads
+// are REFUSALS, never silent skips.
 import { pruneLaneRegistry } from "../../hooks/lib/lane-registry.ts";
 import { laneVerdict, type LaneRef } from "../../hooks/lib/lane-liveness.ts";
 import { loadLanes, type Lane } from "./lane.ts";
@@ -22,11 +23,14 @@ Inspect and prune the durable lane registry (.fleet/lanes.json).
   --dry-run                           Classify without writing
   -h, --help                          Print this help
 
-An entry is prunable only when the shared liveness verdict reads "dead":
-recorded pid gone (or never recorded) with anchored harness args absent AND
-the claimant transcript stale past the 15-min reclaim lease. Live and
-unknown verdicts RETAIN the entry — unknown never authorizes deletion.
-Exit codes: 0 pruned/clean, 1 refused (live/unknown retained), 2 usage.`;
+An entry is prunable on a prune warrant (W636.1): the shared liveness
+verdict "dead" — recorded pid gone (or never recorded) with anchored
+harness args absent AND the claimant transcript stale past the 15-min
+reclaim lease — OR age-based trust: verdict "unknown" AND no pid ever
+recorded (pid=0/absent) AND the entry launched >24h ago. Live entries and
+young-unknown entries RETAIN — age trust never overrides a live verdict or
+a recorded pid.
+Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
 
 export type PruneClass =
 	| "prunable"
@@ -34,14 +38,45 @@ export type PruneClass =
 	| "refused-unknown"
 	| "absent";
 
-export type PrunePlan = Map<string, { class: PruneClass; row?: Lane }>;
+export type PrunePlan = Map<
+	string,
+	{ class: PruneClass; row?: Lane; warrant?: PruneWarrant }
+>;
+
+/** W636.1 age-based trust: an UNKNOWN verdict with NO process id ever
+ * recorded (pid=0/absent — the dispatch recovery path stamps placeholder
+ * identities, never processes) and older than 24h is prunable. The unknown
+ * verdict already proves the claimant transcript cold; pid-less proves the
+ * process probe has nothing to mis-kill; age proves nothing is waiting on
+ * the entry. Live and young-unknown entries keep full protection. */
+export const UNKNOWN_PRUNE_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Why a row may leave the registry: "dead" = shared verdict dead;
+ * "age-trusted" = unknown + pid-less + >24h. Null = protected. */
+export type PruneWarrant = "dead" | "age-trusted";
+export const pruneWarrant = (
+	row: Lane,
+	v: "alive" | "dead" | "unknown",
+	now: number,
+): PruneWarrant | null => {
+	if (v === "dead") return "dead";
+	if (
+		v === "unknown" &&
+		!row.pid &&
+		now - (row.launchedAt ?? 0) >= UNKNOWN_PRUNE_AGE_MS
+	)
+		return "age-trusted";
+	return null;
+};
 
 /** Pure prune classification — verdictOf injects the shared liveness surface
- * so tests need no process table. */
+ * so tests need no process table; now injects the clock (determinism in
+ * tests). */
 export const classifyPrune = (
 	rows: Lane[],
 	sids: string[],
 	verdictOf: (l: LaneRef) => "alive" | "dead" | "unknown",
+	now: number = Date.now(),
 ): PrunePlan => {
 	const plan: PrunePlan = new Map();
 	const bySid = new Map(rows.map((r) => [r.sid, r]));
@@ -52,14 +87,14 @@ export const classifyPrune = (
 			continue;
 		}
 		const v = verdictOf(row);
+		const warrant = pruneWarrant(row, v, now);
+		if (warrant) {
+			plan.set(sid, { row, warrant, class: "prunable" });
+			continue;
+		}
 		plan.set(sid, {
 			row,
-			class:
-				v === "dead"
-					? "prunable"
-					: v === "alive"
-						? "refused-live"
-						: "refused-unknown",
+			class: v === "alive" ? "refused-live" : "refused-unknown",
 		});
 	}
 	return plan;
@@ -71,9 +106,17 @@ const fmtRow = (r: Lane): string =>
 const listVerb = (args: string[], fleet: string): number => {
 	const rows = loadLanes(fleet);
 	if (args.includes("--json")) {
+		const now = Date.now();
 		console.log(
 			JSON.stringify(
-				rows.map((r) => ({ ...r, verdict: laneVerdict(r) })),
+				rows.map((r) => {
+					const verdict = laneVerdict(r);
+					return {
+						...r,
+						verdict,
+						prunable: pruneWarrant(r, verdict, now) !== null,
+					};
+				}),
 				null,
 				2,
 			),
@@ -103,7 +146,11 @@ const printPruneVerdict = (
 		return;
 	}
 	if (c.class === "prunable")
-		console.log(`PRUNED ${sid} — dead lane entry (item ${c.row?.item})`);
+		console.log(
+			c.warrant === "age-trusted"
+				? `PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item ${c.row?.item})`
+				: `PRUNED ${sid} — dead lane entry (item ${c.row?.item})`,
+		);
 	else if (c.class === "refused-live")
 		console.log(`RETAINED ${sid} — live lane (probe confirmed); entry stays`);
 	else
@@ -123,7 +170,12 @@ const flagValues = (args: string[], flag: string): string[] => {
 const prunePlanFor = (
 	args: string[],
 	fleet: string,
-): { dry: boolean; plan: PrunePlan; requested: string[] } | null => {
+): {
+	dry: boolean;
+	now: number;
+	plan: PrunePlan;
+	requested: string[];
+} | null => {
 	const dry = args.includes("--dry-run");
 	const allDead = args.includes("--all-dead");
 	const explicit = flagValues(args, "--sid");
@@ -131,27 +183,28 @@ const prunePlanFor = (
 		console.log(USAGE);
 		return null;
 	}
+	const now = Date.now();
 	const rows = loadLanes(fleet);
 	const wanted = [
 		...new Set(allDead ? [...explicit, ...rows.map((r) => r.sid)] : explicit),
 	];
-	const plan = classifyPrune(rows, wanted, laneVerdict);
+	const plan = classifyPrune(rows, wanted, laneVerdict, now);
 	const requested = [...plan]
 		.filter(([, c]) => c.class === "prunable")
 		.map(([sid]) => sid);
-	return { dry, plan, requested };
+	return { dry, now, plan, requested };
 };
 
 const pruneVerb = (args: string[], fleet: string): number => {
 	const parsed = prunePlanFor(args, fleet);
 	if (!parsed) return 2;
-	const { dry, plan, requested } = parsed;
+	const { dry, now, plan, requested } = parsed;
 	for (const [sid, c] of plan) printPruneVerdict(sid, c, dry);
 	if (dry) return 0;
 	const result = pruneLaneRegistry(
 		fleet,
 		requested,
-		(row) => laneVerdict(row) === "dead",
+		(row) => pruneWarrant(row, laneVerdict(row), now) !== null,
 	);
 	const removed = new Set(result.removed.map((r) => r.sid));
 	for (const sid of requested)
