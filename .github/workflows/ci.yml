@@ -56,6 +56,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # the dispatch probe runs dispatch-next.ts on the HOST — it imports the
+      # @klh/* workspace links, so the root node_modules must exist first
+      - name: root install (workspace links)
+        run: bun install --frozen-lockfile
       # the runner mints the 0600 root-key env_file BEFORE compose up (the
       # env_file is fail-closed: a missing file would fail config/up), so
       # run-e2e.ts is the single validation + probe surface

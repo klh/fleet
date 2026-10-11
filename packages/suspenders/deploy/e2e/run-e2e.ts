@@ -340,6 +340,9 @@ async function probeDispatchLane(
 			evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as Evidence;
 			break;
 		}
+		// the dispatch may die instantly (module resolution, bad args) —
+		// break so the streams are drained BEFORE the buffered stdio is lost
+		if (p.exitCode !== null || p.signalCode !== null) break;
 		await Bun.sleep(1000);
 	}
 	// reap: never leave a lane behind

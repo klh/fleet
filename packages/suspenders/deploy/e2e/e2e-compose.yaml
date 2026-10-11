@@ -82,6 +82,9 @@ services:
       # egress law: plain http is allowed only to loopback or hosts listed
       # here — belt-stub is a compose-network name
       BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
+      # kindOfHost classes any non-loopback host "cloud"; the stub rides the
+      # compose bridge, so prefs open the cloud gate (decide.ts viable())
+      BUCKLE_PREFS: /srv/fleet/packages/suspenders/deploy/e2e/prefs.e2e.json
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_DB: /state/buckle/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
@@ -333,6 +336,7 @@ services:
       BUCKLE_BIND: 0.0.0.0
       BUCKLE_AUTH: "on"
       BUCKLE_HTTP_UPSTREAM_HOSTS: belt-stub
+      BUCKLE_PREFS: /srv/fleet/packages/suspenders/deploy/e2e/prefs.e2e.json
       BUCKLE_DB: /state/buckle-overlay/buckle.db
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_POLICY: /srv/overlay/packages/buckle/routing-policy.yaml
