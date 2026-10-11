@@ -40,4 +40,12 @@ export const claudeAdapter: ExecutorAdapter = {
 	// W454 starter-session fork — binary-verified on the installed executor.
 	forkArgs: (sessionId) => ["--resume", sessionId, "--fork-session"],
 	processNames: ["claude"],
+	// W422.21 direct-launch rows: the plain git-worktree lane.
+	wireDialect: null,
+	workspace: "git-worktree",
+	privateGitStore: false,
+	identityProtocol: true,
+	coordBootstrap: true,
+	launchArgs: ({ prompt }) => ["-p", prompt, ...claudeAdapter.spawnArgs({})],
+	initWorkspaceGit: null,
 };

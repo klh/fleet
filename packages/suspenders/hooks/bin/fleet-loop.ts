@@ -92,6 +92,9 @@ import {
 } from "../../scripts/lib/work-inspection.ts";
 import { isResumableClaim } from "../../scripts/lib/resumable-claim.ts";
 import { guardedMerge } from "../lib/merge-guard.ts";
+// W422.21: the dispatch gate and launch rows ride the executor-adapter
+// registry — zero executor branches in core dispatch (W422 law, this side).
+import { adapterForExact } from "../lib/executors/registry.ts";
 
 const argv = process.argv.slice(2);
 const MODE = argv[0];
@@ -105,7 +108,7 @@ if (
 			`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
 			`          [--ladder-timeout 10]                    minutes; watchdog-kills a hung ladder\n` +
 			`          [--dispatch-cmd <template>]              optional policy script\n` +
-			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
+			`          [--agent <executor>]                     dispatch backend = a spawnable registry row (default claude)\n` +
 			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
 			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
 	);
@@ -857,8 +860,13 @@ if (MODE === "dispatch") {
 		console.error("dispatch requires --item <Wn>");
 		process.exit(1);
 	}
-	if (AGENT !== "claude" && AGENT !== "codex") {
-		console.error("dispatch --agent must be claude or codex");
+	// W422.21: the dispatch gate is registry data — spawnable adapter rows,
+	// never a name list in core dispatch. A new executor flips its own row.
+	const adapter = adapterForExact(AGENT);
+	if (!adapter?.spawnable) {
+		console.error(
+			`dispatch --agent must be a spawnable registry row (got "${AGENT}")`,
+		);
 		process.exit(1);
 	}
 	const sid =
@@ -955,10 +963,11 @@ if (MODE === "dispatch") {
 		);
 
 		// reuse path: an existing worktree (dead lane's leftover) is used as-is —
-		// only a missing one is created. Codex workspaces are NOT git worktrees:
-		// a plain dir whose .git file points at the private store (see below).
+		// only a missing one is created. plain-dir workspaces (codex seatbelt)
+		// are NOT git worktrees: a plain dir whose .git file points at the
+		// private store the adapter's initWorkspaceGit prepares.
 		if (!existsSync(wt)) {
-			if (AGENT === "codex") {
+			if (adapter.workspace === "plain-dir") {
 				mkdirSync(wt, { recursive: true });
 				// build dirs symlinked from the repo root — parity with worktree.ts
 				// create, so codex lanes skip reinstalls too
@@ -982,7 +991,7 @@ if (MODE === "dispatch") {
 			})
 				.stdout?.toString()
 				.trim() || `suspenders/${item}`;
-		if (AGENT !== "codex") {
+		if (adapter.coordBootstrap) {
 			const parentSid = launchParent(store, project, item);
 			const registered = runTool([
 				`${process.env.HOME}/.claude/hooks/suspenders/bin/coord.ts`,
@@ -1041,10 +1050,11 @@ if (MODE === "dispatch") {
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
 		const env = { ...process.env };
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
-		if (AGENT !== "codex") {
-			env.SUSPENDERS_SID = sid;
+		if (adapter.identityProtocol) {
 			env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
 		}
+		// W73/W296: the fleet sid rides EVERY lane's env — hooks inherit it.
+		env.SUSPENDERS_SID = sid;
 		delete env.ANTHROPIC_BASE_URL;
 		delete env.ANTHROPIC_AUTH_TOKEN;
 		// model overrides must not ride the coordinator's env into lanes — a
@@ -1057,18 +1067,11 @@ if (MODE === "dispatch") {
 		delete env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 		delete env.ANTHROPIC_DEFAULT_OPUS_MODEL;
 		delete env.ANTHROPIC_DEFAULT_SONNET_MODEL;
-		if (AGENT === "codex") {
+		// codex's seatbelt law: lane git operations ride the private store via
+		// GIT_DIR/GIT_WORK_TREE (adapter row privateGitStore, codex only).
+		if (adapter.privateGitStore) {
 			env.GIT_DIR = `${wt}/.gitstore`;
 			env.GIT_WORK_TREE = wt;
-			// W73: the fleet sid rides the lane env — hooks inherit it, making
-			// SUSPENDERS_SID the primary identity channel for the codex adapter
-			// (ppid-walk into lanes.json stays the fallback, lib/fleetlane.ts).
-			env.SUSPENDERS_SID = sid;
-		} else if (AGENT === "copilot" || AGENT === "grok" || AGENT === "cline") {
-			// W296: same identity-channel parity as codex above, minus the
-			// seatbelt-driven private git store workaround — these dialects use
-			// normal worktrees, so only the sid needs to ride the lane env.
-			env.SUSPENDERS_SID = sid;
 		}
 		// W432: same rule as dispatch-next — the lane prompt points at the
 		// READABLE worktree copy, not the canonical .fleet path lanes can't read.
@@ -1081,13 +1084,8 @@ if (MODE === "dispatch") {
 		// one). A failed wire aborts — never a silent gate-less lane (W68
 		// degradation rule). Every dialect's wire.ts targets a GLOBAL config
 		// file (not per-worktree), so this is safe to re-run on every dispatch.
-		const WIRE_BY_AGENT: Record<string, string> = {
-			codex: "codex",
-			copilot: "copilot",
-			grok: "grok",
-			cline: "cline",
-		};
-		const wireDialect = WIRE_BY_AGENT[AGENT];
+		// The dialect is an adapter row (W422.21), not a name map.
+		const wireDialect = adapter.wireDialect;
 		if (wireDialect) {
 			const wire = Bun.spawnSync(
 				[
@@ -1107,91 +1105,14 @@ if (MODE === "dispatch") {
 				throw new Error("direct launch preparation failed");
 			}
 		}
-		// codex lanes: codex's seatbelt denies every write into any .git
-		// directory (name-based, verified empirically 2026-09-28), so the standard
-		// worktree layout (admin dir + objects under REPO/.git) can never commit.
-		// The lane gets a PRIVATE git store under a non-.git name inside its
-		// workspace, wired with GIT_DIR/GIT_WORK_TREE env: main-repo objects are
-		// shared read-only via alternates; the lane's own objects/refs land in
-		// the private store — the main object db stays seatbelt-protected.
-		if (AGENT === "codex") {
-			const store = `${wt}/.gitstore`;
-			if (!existsSync(`${store}/HEAD`)) {
-				Bun.spawnSync(["git", "init", "--quiet", "--bare", store]);
-				const g = (args: string[]): void => {
-					Bun.spawnSync(["git", "--git-dir", store, ...args], {
-						cwd: REPO,
-						stdout: "ignore",
-						stderr: "ignore",
-					});
-				};
-				g(["config", "core.bare", "false"]);
-				g(["config", "core.worktree", wt]);
-				writeFileSync(
-					`${store}/objects/info/alternates`,
-					`${REPO}/.git/objects\n`,
-				);
-				g([
-					"update-ref",
-					`refs/heads/suspenders/${item}`,
-					sh(["git", "-C", REPO, "rev-parse", MAIN]),
-				]);
-				g(["symbolic-ref", "HEAD", `refs/heads/suspenders/${item}`]);
-				g(["reset", "--hard", "--quiet"]);
-				g([
-					"remote",
-					"add",
-					"origin",
-					sh(["git", "-C", REPO, "remote", "get-url", "origin"]),
-				]);
-				// loud, never silent: verify the store landed on the lane's branch
-				// before spawning anyone (unborn main = lane can push origin main)
-				const head = Bun.spawnSync(
-					["git", "--git-dir", store, "symbolic-ref", "--short", "HEAD"],
-					{ stdout: "pipe" },
-				)
-					.stdout?.toString()
-					.trim();
-				if (head !== `suspenders/${item}`) {
-					console.error(
-						`codex store init failed: HEAD=${head || "unborn"} — inspect ${store}`,
-					);
-					throw new Error("direct launch preparation failed");
-				}
-			}
-			writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
-		}
-		const agentArgs =
-			AGENT === "codex"
-				? // full access — owner directive 2026-09-28: codex lanes are
-					// EQUIVALENT to claude lanes (same trust class, unsandboxed).
-					// The seatbelt structurally denies git writes, which forked the
-					// protocol into lane-commits vs coordinator-commits; one
-					// approach, two backends. The private git store stays: even
-					// unsandboxed, a codex lane's commits never touch the main
-					// object db until the coordinator merges.
-					["exec", "--sandbox", "danger-full-access", prompt]
-				: AGENT === "copilot"
-					? // W223.1 — copilot's own non-interactive flags (verified via
-						// `copilot --help`): -p/--prompt exits after one turn;
-						// --allow-all-tools is REQUIRED for non-interactive mode
-						// (copilot otherwise blocks on a confirmation prompt it can
-						// never receive headless); --allow-all-paths matches the
-						// other dialects' unsandboxed worktree access.
-						["-p", prompt, "--allow-all-tools", "--allow-all-paths"].concat(
-							// W183.1 — only forward when the owner actually chose
-							// a level; belt/llm: dispatch never reaches this branch
-							// (separate litellm-gateway stack, out of scope here).
-							EFFORT ? ["--reasoning-effort", EFFORT] : [],
-						)
-					: [
-							"-p",
-							prompt,
-							"--allowedTools",
-							"Bash(git:*) Bash(bun:*) Bash(qlty:*) Bash(rg:*) Bash(eza:*) Bash(ls:*) Bash(mkdir:*) Bash(sd:*) Bash(sed:*) Bash(diff) Edit Write",
-							"--permission-mode",
-							"acceptEdits",
-						];
+		// codex lanes: the adapter owns the private-store recipe — seatbelt .git
+		// denial (name-based, verified 2026-09-28), main object db stays
+		// protected; idempotent, re-points .git on resume.
+		adapter.initWorkspaceGit?.({ wt, repo: REPO, main: MAIN, item });
+		// W422.21: the full argv composes from the adapter row — codex's
+		// prompt-LAST exec grammar, copilot's --reasoning-effort passthrough
+		// and every executor's trust class are adapter facts, not core branches.
+		const agentArgs = adapter.launchArgs({ prompt, effort: EFFORT });
 		// Detached harness children survive dispatcher process-group teardown.
 		// unref only releases Bun's event-loop reference. exec keeps
 		// the registry PID, stdin EOF avoids input waits, and logs feed the board.

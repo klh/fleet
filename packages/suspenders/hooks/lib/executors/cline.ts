@@ -16,4 +16,13 @@ export const clineAdapter: ExecutorAdapter = {
 	promptArgs: (prompt) => ["-p", prompt],
 	forkArgs: () => null,
 	processNames: ["cline"],
+	// W422.21 direct-launch rows: rides the claude-grammar recipe today;
+	// still refused by the spawnable row until a binary probe verifies it.
+	wireDialect: "cline",
+	workspace: "git-worktree",
+	privateGitStore: false,
+	identityProtocol: true,
+	coordBootstrap: true,
+	launchArgs: ({ prompt }) => ["-p", prompt],
+	initWorkspaceGit: null,
 };

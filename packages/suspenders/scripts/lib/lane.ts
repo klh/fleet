@@ -54,6 +54,32 @@ export interface ExecutorAdapter {
 	forkArgs(sessionId: string): string[] | null;
 	/** Process-table names this executor answers to (liveness matcher). */
 	processNames: string[];
+	// — W422.21 fleet-loop direct-launch rows. Core dispatch branches on
+	// these DATA rows, never on executor names.
+	/** Gate wire dialect (hooks/dialects/<name>/wire.ts); null = none
+	 *  (claude's hooks ride the global install). */
+	wireDialect: string | null;
+	/** Lane workspace: "git-worktree" (worktree.ts create) or "plain-dir"
+	 *  (mkdir + build-dir symlinks — codex's seatbelt denies .git writes). */
+	workspace: "git-worktree" | "plain-dir";
+	/** Private git store: lane commits ride GIT_DIR=<wt>/.gitstore (main
+	 *  objects shared read-only via alternates) — codex seatbelt law. */
+	privateGitStore: boolean;
+	/** SUSPENDERS_SESSION_IDENTITY_PROTOCOL=canonical-v1 rides the lane env
+	 *  (codex: false — SUSPENDERS_SID is its primary channel, W73). */
+	identityProtocol: boolean;
+	/** coord bootstrap (session metadata) runs before spawn. */
+	coordBootstrap: boolean;
+	/** Full direct-launch argv, bin EXCLUDED (resolveLaneExecutor owns the
+	 *  binary). Each adapter owns its grammar — codex composes the prompt
+	 *  LAST (`exec … <prompt>`); opts.effort is the dialect passthrough
+	 *  (copilot --reasoning-effort, W183.1). */
+	launchArgs(o: { prompt: string; effort?: string }): string[];
+	/** Prepare the workspace's git plumbing before spawn (codex: init the
+	 *  private .gitstore). null = the standard worktree layout needs nothing. */
+	initWorkspaceGit:
+		| null
+		| ((o: { wt: string; repo: string; main: string; item: string }) => void);
 }
 
 export const sh = (cmd: string[], cwd = process.cwd()): string => {
