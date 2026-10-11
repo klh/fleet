@@ -9,6 +9,12 @@
 // work.claimed payload for auditability. assignTask() is the SOLE assignment
 // gateway: CAS claim + claim coupling + post-lock readiness recheck (deps all
 // DONE and verified merged) in one transaction.
+// W646: scope-hint overlap lifted from OMX — hintTokens splits into
+// HintSet{paths,words} (path tokens weigh ×3 inside the ×4 affinity), the
+// scorer matches item hints against worktree hints ∪ recent-claim history
+// (candidateLanes reads the lane's last items), a lane owning scope with zero
+// overlap takes SCOPE_MISS_PENALTY, ties break score > overlap > load >
+// live > sid, and the reason string carries the matched tokens as evidence.
 import { unmergedDeps, type DepRow } from "./dep-merge-gate.ts";
 import { laneAlive, transcriptPath, type LaneRef } from "./lane-liveness.ts";
 import type { GovernorStore } from "./govdb.ts";
@@ -17,12 +23,15 @@ import type { GovernorStore } from "./govdb.ts";
 export const ROLE_BONUS = 18; // +18 role-grouping
 export const AFFINITY_WEIGHT = 4; // ×4 path/domain-hint affinity
 export const LOAD_PENALTY = 4; // −4 per held item
+export const SCOPE_MISS_PENALTY = 3; // −3 owns-scope-but-zero-overlap (OMX)
+export const PATH_HINT_WEIGHT = 3; // path hints weigh ×3 inside affinity
 
 export type AllocLane = {
 	sid: string;
 	live: boolean;
 	caps: string[];
 	hints: string[]; // path/domain tokens (worktree segments)
+	history?: string[]; // W646: hint tokens from the lane's recent claims
 };
 
 export type AllocDecision = {
@@ -43,33 +52,55 @@ type ReadyRow = {
 	updated_at: number;
 };
 
-// path/domain-hint tokens: scope segments + slash-paths from title/description
+// path/domain-hint extraction: slash-paths in title/description → paths
+// (weighted ×3 in affinity); scope segments → domain words (weight 1). W646:
+// the split lets the scorer weight file-path evidence above loose domain words.
 const PATH_RE = /[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
+export type HintSet = { paths: string[]; words: string[] };
+export function hintSet(
+	scope: string | null,
+	title: string,
+	description?: string | null,
+): HintSet {
+	const paths = new Set<string>();
+	const words = new Set<string>();
+	for (const seg of String(scope ?? "")
+		.split(/[^A-Za-z0-9_.-]/)
+		.filter(Boolean))
+		words.add(seg.toLowerCase());
+	for (const raw of [title, description]) {
+		if (!raw) continue;
+		for (const m of String(raw).matchAll(PATH_RE))
+			for (const seg of m[0].toLowerCase().split("/")) paths.add(seg);
+	}
+	// a token known both ways counts once, as a path (the stronger evidence)
+	return {
+		paths: [...paths].filter((p) => !words.has(p)),
+		words: [...words],
+	};
+}
+
+// flat union, paths last (dedupe across sources) — plain token list for
+// callers/tests that don't care about the path/word split
 export function hintTokens(
 	scope: string | null,
 	title: string,
 	description?: string | null,
 ): string[] {
-	const tokens = new Set<string>();
-	for (const seg of String(scope ?? "")
-		.split(/[^A-Za-z0-9_.-]/)
-		.filter(Boolean))
-		tokens.add(seg.toLowerCase());
-	for (const raw of [title, description]) {
-		if (!raw) continue;
-		for (const m of String(raw).matchAll(PATH_RE))
-			for (const seg of m[0].toLowerCase().split("/")) tokens.add(seg);
-	}
-	return [...tokens];
+	const { paths, words } = hintSet(scope, title, description);
+	return [...words, ...paths];
 }
 
-// the greedy scorer: one (item, lane) pair → score + reason parts.
+// the greedy scorer: one (item, lane) pair → score + reason parts + overlap
+// count (the tiebreak evidence). W646: lane knowledge = worktree hints ∪
+// recent-claim history; path hits weigh ×3 inside the ×4 affinity; a lane
+// with scope knowledge but zero overlap takes the fresh-lane penalty.
 // Ineligible (requires ⊄ caps) is the planner's job — this scores pairs.
 export function scoreLane(
-	item: { requires: string[]; hints: string[] },
+	item: { requires: string[]; hints: HintSet },
 	lane: AllocLane,
 	load: number,
-): { score: number; parts: string[] } {
+): { score: number; parts: string[]; overlap: number } {
 	let score = 0;
 	const parts: string[] = [];
 	if (
@@ -79,27 +110,39 @@ export function scoreLane(
 		score += ROLE_BONUS;
 		parts.push("role +18");
 	}
-	const hits = item.hints.filter((h) => lane.hints.includes(h));
-	if (item.hints.length && hits.length) {
-		const pts =
-			Math.round(((AFFINITY_WEIGHT * hits.length) / item.hints.length) * 10) /
-			10;
-		score += pts;
-		parts.push(`affinity +${pts}`);
+	const known = new Set([...lane.hints, ...(lane.history ?? [])]);
+	const pathHits = item.hints.paths.filter((p) => known.has(p));
+	const wordHits = item.hints.words.filter((w) => known.has(w));
+	const overlap = pathHits.length + wordHits.length;
+	const total =
+		PATH_HINT_WEIGHT * item.hints.paths.length + item.hints.words.length;
+	if (total > 0) {
+		if (overlap > 0) {
+			const weighted = PATH_HINT_WEIGHT * pathHits.length + wordHits.length;
+			const pts = Math.round(((AFFINITY_WEIGHT * weighted) / total) * 10) / 10;
+			score += pts;
+			const ev = [...pathHits, ...wordHits].slice(0, 5).join(",");
+			parts.push(`affinity +${pts} [${ev}]`);
+		} else if (lane.hints.length || lane.history?.length) {
+			score -= SCOPE_MISS_PENALTY;
+			parts.push(`scope-penalty -${SCOPE_MISS_PENALTY}`);
+		}
 	}
 	if (load > 0) {
 		score -= LOAD_PENALTY * load;
 		parts.push(`load -${LOAD_PENALTY * load}`);
 	}
-	return { score, parts };
+	return { score, parts, overlap };
 }
 
 // candidate lanes from the .fleet/lanes.json registry: liveness via laneAlive
 // (process identity / transcript lease), capabilities from the sessions
-// table, path hints from each lane's worktree.
+// table, path hints from each lane's worktree, and (W646) hint tokens from
+// the lane's recent claims — files/paths named in its last owned items.
 export function candidateLanes(
 	store: GovernorStore,
 	entries: LaneRef[],
+	project?: string,
 ): AllocLane[] {
 	const capsBySid = new Map<string, string[]>();
 	if (entries.length) {
@@ -117,6 +160,32 @@ export function candidateLanes(
 					.filter(Boolean),
 			);
 	}
+	// W646 lane history: hint tokens from the lane's recent claims — files and
+	// paths named in its last ≤8 owned items, newest first. Skipped without a
+	// project (advice call sites may omit it).
+	const historyBySid = new Map<string, Set<string>>();
+	const seen = new Map<string, number>();
+	if (project && entries.length) {
+		const marks = entries.map(() => "?").join(",");
+		const rows = store
+			.query(
+				`SELECT owner_sid, title, description, scope FROM work_items WHERE project = ? AND owner_sid IN (${marks}) AND state IN ('CLAIMED','RUNNING','ORPHANED','DONE') ORDER BY updated_at DESC`,
+			)
+			.all(project, ...entries.map((e) => e.sid)) as {
+			owner_sid: string;
+			title: string;
+			description: string | null;
+			scope: string | null;
+		}[];
+		for (const r of rows) {
+			if ((seen.get(r.owner_sid) ?? 0) >= 8) continue;
+			seen.set(r.owner_sid, (seen.get(r.owner_sid) ?? 0) + 1);
+			const set = historyBySid.get(r.owner_sid) ?? new Set<string>();
+			for (const t of hintTokens(r.scope, String(r.title), r.description))
+				set.add(t);
+			historyBySid.set(r.owner_sid, set);
+		}
+	}
 	return entries.map((e) => ({
 		sid: e.sid,
 		live: laneAlive(e),
@@ -124,19 +193,28 @@ export function candidateLanes(
 		hints: String(e.worktree ?? "")
 			.split(/[^A-Za-z0-9_.-]/)
 			.filter(Boolean),
+		history: [...(historyBySid.get(e.sid) ?? [])],
 	}));
 }
 
 export type PlanOpts = { capacity?: number; items?: string[] };
 
-// deterministic ranking: higher score wins; on a tie the LIVE lane wins (an
-// assign beats a recommend at equal score); then the lexicographically
-// smaller sid — same items, same lanes, same plan every time
+// deterministic ranking (W646): higher score wins; ties break by more overlap
+// evidence, then lower load, then the live lane (assign beats recommend at
+// equal score), then the lexicographically smaller sid — same items, same
+// lanes, same plan every time. Chain: score > overlap > load > live > sid.
 export function beats(
-	x: { lane: AllocLane; score: number },
-	y: { lane: AllocLane; score: number },
+	x: {
+		lane: AllocLane;
+		score: number;
+		overlap: number;
+		load: number;
+	},
+	y: { lane: AllocLane; score: number; overlap: number; load: number },
 ): boolean {
 	if (x.score !== y.score) return x.score > y.score;
+	if (x.overlap !== y.overlap) return x.overlap > y.overlap;
+	if (x.load !== y.load) return x.load < y.load;
 	if (x.lane.live !== y.lane.live) return x.lane.live;
 	return x.lane.sid < y.lane.sid;
 }
@@ -199,23 +277,26 @@ export function planAllocation(
 		const requires = String(it.requires ?? "")
 			.split(",")
 			.filter(Boolean);
-		const itemHints = hintTokens(it.scope, it.title, it.description);
+		const itemHints = hintSet(it.scope, it.title, it.description);
 		let best: {
 			lane: AllocLane;
 			score: number;
 			parts: string[];
+			overlap: number;
+			load: number;
 		} | null = null;
 		for (const lane of lanes) {
 			if (stuck.has(lane.sid)) continue; // blocked → lighter lanes
 			if (requires.length && !requires.every((r) => lane.caps.includes(r)))
 				continue;
 			const cur = load.get(lane.sid) ?? 0;
-			const { score, parts } = scoreLane(
+			const { score, parts, overlap } = scoreLane(
 				{ requires, hints: itemHints },
 				lane,
 				cur,
 			);
-			if (!best || beats({ lane, score }, best)) best = { lane, score, parts };
+			const cand = { lane, score, parts, overlap, load: cur };
+			if (!best || beats(cand, best)) best = cand;
 		}
 		if (!best) continue; // no eligible lane at all — nothing to suggest
 		const free = best.lane.live && (load.get(best.lane.sid) ?? 0) < capacity;
