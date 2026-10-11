@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.belt.mcp</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/bun</string>
+        <string>__HOME__/.claude/local-llm/mcp-server.ts</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.claude-insights/belt-mcp.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.claude-insights/belt-mcp.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+    <!-- W260: belt MCP server on :7793 — knowledge_search + belt_infer over
+         Streamable HTTP, Entra-gated. Config rides the machine-level
+         belt-mcp.env (0600) the server loads at boot; see docs/mcp.md. -->
+</dict>
+</plist>

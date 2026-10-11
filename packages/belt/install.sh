@@ -127,6 +127,16 @@ if [ -x "$HOME/.local/bin/klh-local" ] && command -v caddy >/dev/null 2>&1; then
 else
   echo "optional: install klh/local to serve belt.local"
 fi
+
+# W260: the MCP surface rides the same .local front when klh-local + caddy
+# exist — Entra config comes from belt-mcp.env (0600, machine-level).
+if [ -x "$HOME/.local/bin/klh-local" ] && command -v caddy >/dev/null 2>&1; then
+  if "$HOME/.local/bin/klh-local" register belt-mcp --port 7793 --health /health; then
+    echo "→ belt-mcp.local registered — http://belt-mcp.local (caddy → :7793)"
+  fi
+else
+  echo "optional: belt-mcp.local (Copilot Studio fronting) — needs klh/local + caddy"
+fi
 echo
 echo "done. next:"
 echo "  bun $PREFIX/coordinator.ts status   # every port: up/down, model, RAM"
