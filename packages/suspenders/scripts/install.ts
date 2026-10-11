@@ -60,6 +60,7 @@ async function main(): Promise<void> {
 		yes: false,
 		verbose: false,
 		step: null,
+		wireRepo: null,
 	};
 	if (parsed.error !== undefined) {
 		const doc = usageOutcome(parsed.error, flags);
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
 		yes: flags.yes,
 		json: flags.json,
 		verbose: flags.verbose,
+		wireRepo: flags.wireRepo,
 		...resolvePaths(),
 	};
 	const mode: "plan" | "step" = flags.step === null ? "plan" : "step";

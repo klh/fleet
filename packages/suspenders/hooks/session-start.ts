@@ -301,6 +301,14 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 			? "GOVERNANCE: solo — dispatch may ride belt-direct when the buckle front is unreachable (restore strict: coord governance strict)"
 			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
 	);
+	// W637 supervisor default (owner law 2026-10-11): when the pool holds
+	// READY work, the arm-loop directive renders here — compliance by
+	// injection, not model-recall of the global CLAUDE.md rule. Top-level
+	// sessions only: a subagent lane is not a loop-arming runtime.
+	if (readyN > 0 && !isSubagent)
+		out.push(
+			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply ONE line: lanes live x/N, READY n, dispatched. Keep working owned items when slots are full.`,
+		);
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or

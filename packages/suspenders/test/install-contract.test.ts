@@ -4,7 +4,13 @@
 // (temp-PREFIX snapshot before/after); every documented step name is accepted
 // via --step; the contract flags and meow's flags never drift.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, statSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install-contract.ts";
@@ -175,6 +181,37 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(doc.steps[0].status).toBe("need_user_action");
 		expect(doc.pauses[0].resume_command).toContain("--wire");
 	});
+
+	test("wireSettings --wire-repo merges into project settings, idempotent", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "w637-wire-"));
+		const args = [
+			"--step",
+			"wireSettings",
+			"--yes",
+			"--wire-repo",
+			dir,
+			"--json",
+		];
+		const { code, stdout } = await run(args);
+		expect(code).toBe(0);
+		const doc = JSON.parse(stdout);
+		expect(doc.outcome).toBe("ok");
+		expect(doc.steps[0].status).toBe("ok");
+		expect(doc.steps[0].note).toContain("wired");
+		const settings = JSON.parse(
+			readFileSync(join(dir, ".claude", "settings.json"), "utf8"),
+		);
+		expect(Array.isArray(settings.hooks.SessionStart)).toBe(true);
+		expect(JSON.stringify(settings.hooks.SessionStart)).toContain(
+			"session-start.ts",
+		);
+		// idempotent: the second run adds nothing
+		const second = await run(args);
+		const doc2 = JSON.parse(second.stdout);
+		expect(doc2.outcome).toBe("ok");
+		expect(doc2.steps[0].note).toContain("0 new hook entries");
+		rmSync(dir, { recursive: true, force: true });
+	});
 });
 
 describe("contract ⇔ CLI drift checks (W490.1)", () => {
@@ -190,9 +227,10 @@ describe("contract ⇔ CLI drift checks (W490.1)", () => {
 		}
 	});
 
-	test("flag types: exactly one string flag (--step), rest boolean", () => {
+	test("flag types: exactly two string flags (--step, --wire-repo), rest boolean", () => {
 		for (const key of Object.keys(meowFlags)) {
-			const expected = key === "step" ? "string" : "boolean";
+			const expected =
+				key === "step" || key === "wireRepo" ? "string" : "boolean";
 			expect(meowFlags[key].type).toBe(expected);
 		}
 	});
