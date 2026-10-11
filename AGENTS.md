@@ -22,6 +22,14 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 - **Secrets are minted, never typed**: root keys generated ON the target
   device (0600, idempotent, never printed); admin + per-lane `bksk_` keys
   minted via the gate's admin API; revocable, audited.
+- **Scrub gate (W236)**: git commit/push runs staged/unpushed ADDED lines
+  through the scrub rule set (hooks/lib/scrub.ts): `/Users/<user>` paths,
+  local-denylist hosts/IPs/MACs (`~/.claude/local-llm/scrub-denylist`, mode
+  600, machine-local, never committed), key material (sk-/AKIA/ghp_/PEM/
+  slack), IKEA-internal markers. Denies with file:line + redacted match;
+  the only escape is the explicit `scrub:allow` marker on the offending
+  line. `SUSPENDERS_SCRUB=0` disables; repo-level enforcement via
+  `git config core.hooksPath .githooks` (committed .githooks stubs).
 - **No host-path deploys**: hub containers mount git-pulled volumes.
 - **qlty is THE quality tool**; `.qlty/` must exist or the on-write gate
   silently no-ops. SPEC FIRST: read `.qlty/qlty.toml` + the biome rule set
