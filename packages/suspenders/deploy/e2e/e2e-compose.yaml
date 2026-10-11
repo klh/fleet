@@ -316,6 +316,7 @@ services:
       - hub-secrets:/state/secrets
 
 volumes:
+  fleet-tree:
   buckle-state:
   buckle-overlay-state:
   hub-state:
