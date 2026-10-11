@@ -11,6 +11,7 @@
 //   scrub-gate hook push           .githooks/pre-push entry (stdin ref lines)
 //   scrub-gate --json              machine output (findings array)
 import { readFileSync } from "node:fs";
+import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 import {
 	addedDiffLines,
 	findingsText,
@@ -106,8 +107,8 @@ const fileFindings = (paths: string[]): ScrubFinding[] => {
 };
 
 // emit findings; the exit code IS the verdict (0 clean, 1 blocked, 2 usage)
-const emit = (found: ScrubFinding[]): number => {
-	if (process.argv.includes("--json")) {
+const emit = (found: ScrubFinding[], json: boolean): number => {
+	if (json) {
 		console.log(JSON.stringify(found, null, 2));
 	} else if (found.length > 0) {
 		console.error(
@@ -119,31 +120,50 @@ const emit = (found: ScrubFinding[]): number => {
 	return found.length > 0 ? 1 : 0;
 };
 
-const argv = process.argv.slice(2).filter((a) => a !== "--json");
-const cmd = argv[0] ?? "";
-if (cmd === "hook") {
-	const mode = argv[1] ?? "";
-	process.exitCode =
-		mode === "push"
-			? emit(hookPushFindings())
-			: mode === "commit"
-				? emit(stagedFindings())
-				: 2;
-} else if (cmd === "--push") {
-	process.exitCode = emit(pushFindings());
-} else if (cmd === "--files") {
-	const paths = argv.slice(1);
-	if (paths.length === 0) {
-		console.error("usage: scrub-gate --files <path…>");
-		process.exitCode = 2;
-	} else {
-		process.exitCode = emit(fileFindings(paths));
-	}
-} else if (cmd === "" || cmd === "--staged") {
-	process.exitCode = emit(stagedFindings());
-} else {
-	console.error(
-		"usage: scrub-gate [--staged|--push|--files <path…>|hook commit|hook push] [--json]",
-	);
-	process.exitCode = 2;
-}
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "staged",
+		usage: "usage: scrub-gate staged — staged added lines (cwd repo)",
+		switches: ["--json"],
+	}),
+	defineVerb({
+		name: "push",
+		usage: "usage: scrub-gate push — upstream…worktree added lines",
+		switches: ["--json"],
+	}),
+	defineVerb({
+		name: "files",
+		usage: "usage: scrub-gate files <path…> — whole files, 1-based lines",
+		minPos: 1,
+		switches: ["--json"],
+	}),
+	defineVerb({
+		name: "hook",
+		usage: "usage: scrub-gate hook <commit|push> — the .githooks entry faces",
+		minPos: 1,
+		switches: ["--json"],
+	}),
+];
+
+await runCli({
+	prog: "scrub-gate",
+	about:
+		"scrub-gate — W236 secret/path scrub scanner; the exit code IS the verdict.",
+	verbs: VERBS,
+	dispatch: (name, p) => {
+		const json = p.rest.includes("--json");
+		if (name === "staged") process.exitCode = emit(stagedFindings(), json);
+		else if (name === "push") process.exitCode = emit(pushFindings(), json);
+		else if (name === "files")
+			process.exitCode = emit(fileFindings(p.pos), json);
+		else {
+			const mode = p.pos[0] ?? "";
+			process.exitCode =
+				mode === "push"
+					? emit(hookPushFindings(), json)
+					: mode === "commit"
+						? emit(stagedFindings(), json)
+						: 2;
+		}
+	},
+});

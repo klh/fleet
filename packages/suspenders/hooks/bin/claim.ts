@@ -16,9 +16,10 @@
 // A trailing /** or /* is accepted and stripped — prefer the bare prefix so
 // shells never see glob characters to expand. Relative scopes are worktree-
 // portable: the governor matches them as path-segment suffixes.
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { transcriptPath } from "../lib/lane-liveness.ts";
+import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
 const TTL = 15 * 60_000;
 
@@ -69,102 +70,142 @@ const normalizeScope = (s: string): string => s.replace(/\/\*\*?$/, "");
 const all = (): Row[] =>
 	db.query("SELECT sid, scope, intent, hot, ts, tp FROM claims").all() as Row[];
 
-const [cmd, ...rest] = process.argv.slice(2);
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "add",
+		usage: 'usage: claim add <sid> <scope...> [--intent "..."]',
+		minPos: 2,
+		flags: ["--intent"],
+	}),
+	defineVerb({
+		name: "release",
+		usage: "usage: claim release <sid> [--scope <scope>]",
+		minPos: 1,
+		flags: ["--scope"],
+	}),
+	defineVerb({
+		name: "hot",
+		usage: "usage: claim hot '<scope>' | hot --claim <sid>",
+		flags: ["--claim"],
+	}),
+	defineVerb({
+		name: "cool",
+		usage: "usage: claim cool '<scope>' | cool --claim <sid>",
+		flags: ["--claim"],
+	}),
+	defineVerb({
+		name: "doctor",
+		usage: "usage: claim doctor — delete dead/expired claims",
+	}),
+	defineVerb({
+		name: "list",
+		usage: "usage: claim list [--json]",
+		switches: ["--json"],
+	}),
+];
 
-if (cmd === "add") {
-	const sid = rest[0];
-	const scopes: string[] = [];
-	let intent = "";
-	for (let i = 1; i < rest.length; i++) {
-		if (rest[i] === "--intent") intent = rest[++i] ?? "";
-		else scopes.push(normalizeScope(rest[i]));
-	}
-	if (!sid || !scopes.length)
-		die('usage: add <sid> <scope...> [--intent "..."]');
-	const tp = liveTranscript(sid);
-	if (!tp)
-		die(
-			`no live transcript for ${sid} — refusing to claim for a fabricated/dead session`,
-		);
-	const cur = db
-		.query("SELECT intent FROM claims WHERE sid = ? LIMIT 1")
-		.get(sid) as { intent: string | null } | null;
-	const keepIntent = intent || cur?.intent || "";
-	const up = db.query(
-		"INSERT INTO claims (sid, scope, intent, hot, ts, tp) VALUES (?, ?, ?, COALESCE((SELECT hot FROM claims WHERE sid = ? AND scope = ?), 0), ?, ?) ON CONFLICT(sid, scope) DO UPDATE SET intent = excluded.intent, ts = excluded.ts, tp = excluded.tp",
-	);
-	for (const s of scopes) up.run(sid, s, keepIntent, sid, s, Date.now(), tp);
-	console.log(`claimed ${scopes.join(", ")} → ${sid.slice(0, 8)}`);
-} else if (cmd === "release") {
-	const sid = rest[0];
-	const scopeIdx = rest.indexOf("--scope");
-	const only = scopeIdx >= 0 ? normalizeScope(rest[scopeIdx + 1] ?? "") : null;
-	if (!sid) die("usage: release <sid> [--scope <scope>]");
-	if (only) {
-		const rows = all().filter(
-			(r) =>
-				r.sid === sid &&
-				(scopeMatch(r.scope, only) || scopeMatch(only, r.scope)),
-		);
-		const del = db.query("DELETE FROM claims WHERE sid = ? AND scope = ?");
-		for (const r of rows) del.run(r.sid, r.scope);
-	} else {
-		db.query("DELETE FROM claims WHERE sid = ?").run(sid);
-	}
-	console.log(`released ${only ?? "all"} for ${sid.slice(0, 8)}`);
-} else if (cmd === "hot" || cmd === "cool") {
-	const claimIdx = rest.indexOf("--claim");
-	const target = claimIdx >= 0 ? rest[claimIdx + 1] : rest[0];
-	if (!target) die(`usage: ${cmd} '<scope>' | ${cmd} --claim <sid>`);
-	const rows =
-		claimIdx >= 0
-			? all().filter((r) => r.sid === target)
-			: all().filter((r) => scopeMatch(r.scope, target));
-	const upd = db.query("UPDATE claims SET hot = ? WHERE sid = ? AND scope = ?");
-	for (const r of rows) upd.run(cmd === "hot" ? 1 : 0, r.sid, r.scope);
-	console.log(`${cmd}: ${rows.length} claim(s) updated`);
-} else if (cmd === "doctor") {
-	const rows = all();
-	const del = db.query("DELETE FROM claims WHERE sid = ? AND scope = ?");
-	const removed: string[] = [];
-	for (const r of rows) {
-		const dead = Date.now() - r.ts > TTL && !liveTranscript(r.sid);
-		if (dead) {
-			del.run(r.sid, r.scope);
-			removed.push(`${r.sid.slice(0, 8)}  ${r.scope} (dead/expired)`);
+const route = (cmd: string, rest: string[]): void => {
+	if (cmd === "add") {
+		const sid = rest[0];
+		const scopes: string[] = [];
+		let intent = "";
+		for (let i = 1; i < rest.length; i++) {
+			if (rest[i] === "--intent") intent = rest[++i] ?? "";
+			else scopes.push(normalizeScope(rest[i]));
 		}
+		if (!sid || !scopes.length)
+			die('usage: add <sid> <scope...> [--intent "..."]');
+		const tp = liveTranscript(sid);
+		if (!tp)
+			die(
+				`no live transcript for ${sid} — refusing to claim for a fabricated/dead session`,
+			);
+		const cur = db
+			.query("SELECT intent FROM claims WHERE sid = ? LIMIT 1")
+			.get(sid) as { intent: string | null } | null;
+		const keepIntent = intent || cur?.intent || "";
+		const up = db.query(
+			"INSERT INTO claims (sid, scope, intent, hot, ts, tp) VALUES (?, ?, ?, COALESCE((SELECT hot FROM claims WHERE sid = ? AND scope = ?), 0), ?, ?) ON CONFLICT(sid, scope) DO UPDATE SET intent = excluded.intent, ts = excluded.ts, tp = excluded.tp",
+		);
+		for (const s of scopes) up.run(sid, s, keepIntent, sid, s, Date.now(), tp);
+		console.log(`claimed ${scopes.join(", ")} → ${sid.slice(0, 8)}`);
+	} else if (cmd === "release") {
+		const sid = rest[0];
+		const scopeIdx = rest.indexOf("--scope");
+		const only =
+			scopeIdx >= 0 ? normalizeScope(rest[scopeIdx + 1] ?? "") : null;
+		if (!sid) die("usage: release <sid> [--scope <scope>]");
+		if (only) {
+			const rows = all().filter(
+				(r) =>
+					r.sid === sid &&
+					(scopeMatch(r.scope, only) || scopeMatch(only, r.scope)),
+			);
+			const del = db.query("DELETE FROM claims WHERE sid = ? AND scope = ?");
+			for (const r of rows) del.run(r.sid, r.scope);
+		} else {
+			db.query("DELETE FROM claims WHERE sid = ?").run(sid);
+		}
+		console.log(`released ${only ?? "all"} for ${sid.slice(0, 8)}`);
+	} else if (cmd === "hot" || cmd === "cool") {
+		const claimIdx = rest.indexOf("--claim");
+		const target = claimIdx >= 0 ? rest[claimIdx + 1] : rest[0];
+		if (!target) die(`usage: ${cmd} '<scope>' | ${cmd} --claim <sid>`);
+		const rows =
+			claimIdx >= 0
+				? all().filter((r) => r.sid === target)
+				: all().filter((r) => scopeMatch(r.scope, target));
+		const upd = db.query(
+			"UPDATE claims SET hot = ? WHERE sid = ? AND scope = ?",
+		);
+		for (const r of rows) upd.run(cmd === "hot" ? 1 : 0, r.sid, r.scope);
+		console.log(`${cmd}: ${rows.length} claim(s) updated`);
+	} else if (cmd === "doctor") {
+		const rows = all();
+		const del = db.query("DELETE FROM claims WHERE sid = ? AND scope = ?");
+		const removed: string[] = [];
+		for (const r of rows) {
+			const dead = Date.now() - r.ts > TTL && !liveTranscript(r.sid);
+			if (dead) {
+				del.run(r.sid, r.scope);
+				removed.push(`${r.sid.slice(0, 8)}  ${r.scope} (dead/expired)`);
+			}
+		}
+		console.log(
+			removed.length ? `removed:\n  ${removed.join("\n  ")}` : "registry clean",
+		);
+	} else if (cmd === "list") {
+		const rows = all();
+		if (rest.includes("--json")) {
+			console.log(JSON.stringify(rows, null, 1));
+			process.exit(0);
+		}
+		const bySid = new Map<
+			string,
+			{ scopes: string[]; intent: string | null; hot: number; ts: number }
+		>();
+		for (const r of rows) {
+			const cur = bySid.get(r.sid) ?? {
+				scopes: [],
+				intent: r.intent,
+				hot: 0,
+				ts: r.ts,
+			};
+			cur.scopes.push(r.scope);
+			cur.hot = cur.hot || r.hot;
+			bySid.set(r.sid, cur);
+		}
+		const out = [...bySid.entries()].map(
+			([sid, c]) =>
+				`  ${dim(sid.slice(0, 8))}  ${c.hot ? amber("HOT ") : dim("soft")}  ${cyan(c.scopes.join(" "))}${c.intent ? dim(`  — ${c.intent}`) : ""}`,
+		);
+		console.log(out.length ? out.join("\n") : dim("(no claims)"));
 	}
-	console.log(
-		removed.length ? `removed:\n  ${removed.join("\n  ")}` : "registry clean",
-	);
-} else if (cmd === "list") {
-	const rows = all();
-	if (rest.includes("--json")) {
-		console.log(JSON.stringify(rows, null, 1));
-		process.exit(0);
-	}
-	const bySid = new Map<
-		string,
-		{ scopes: string[]; intent: string | null; hot: number; ts: number }
-	>();
-	for (const r of rows) {
-		const cur = bySid.get(r.sid) ?? {
-			scopes: [],
-			intent: r.intent,
-			hot: 0,
-			ts: r.ts,
-		};
-		cur.scopes.push(r.scope);
-		cur.hot = cur.hot || r.hot;
-		bySid.set(r.sid, cur);
-	}
-	const out = [...bySid.entries()].map(
-		([sid, c]) =>
-			`  ${dim(sid.slice(0, 8))}  ${c.hot ? amber("HOT ") : dim("soft")}  ${cyan(c.scopes.join(" "))}${c.intent ? dim(`  — ${c.intent}`) : ""}`,
-	);
-	console.log(out.length ? out.join("\n") : dim("(no claims)"));
-} else {
-	die(
-		`unknown command "${cmd}" — try add | release | hot | cool | doctor | list`,
-	);
-}
+};
+
+await runCli({
+	prog: "claim",
+	about: "claim — scope claim registry (live-transcript validated).",
+	verbs: VERBS,
+	dispatch: (name, p) => route(name, p.rest),
+});

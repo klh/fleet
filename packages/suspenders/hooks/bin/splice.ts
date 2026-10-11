@@ -9,19 +9,33 @@
 //
 // --count omittable for single-occurrence edits (the common case); an
 // explicit count that mismatches, or zero matches, aborts untouched.
-const file = process.argv[2];
-const get = (flag: string): string | undefined => {
-	const i = process.argv.indexOf(flag);
-	return i >= 0 ? process.argv[i + 1] : undefined;
-};
-const find = get("--find");
-const rep = get("--replace");
-const want = get("--count");
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
-if (!file || find === undefined || rep === undefined) {
-	console.error(
+const SPEC = defineVerb({
+	name: "splice",
+	usage:
 		"usage: splice.ts <file> --find '<exact text>' --replace '<new>' [--count N]",
-	);
+	minPos: 1,
+	reqFlags: ["--find", "--replace"],
+	flags: ["--find", "--replace", "--count"],
+});
+const tokens = process.argv.slice(2);
+if (tokens.includes("--help") || tokens.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, tokens);
+if (!outcome.ok) {
+	console.error(outcome.message);
+	process.exit(1);
+}
+const p = outcome.parsed;
+const file = p.pos[0];
+const find = p.flag("--find") ?? "";
+const rep = p.flag("--replace") ?? "";
+const want = p.flag("--count");
+if (!file) {
+	console.error(outcome.message || "missing <file>");
 	process.exit(1);
 }
 const text = await Bun.file(file).text();
@@ -30,7 +44,7 @@ if (n === 0) {
 	console.error(`splice: --find not found in ${file} — untouched`);
 	process.exit(1);
 }
-const expected = want === undefined ? 1 : Number(want);
+const expected = want === null ? 1 : Number(want);
 if (!Number.isInteger(expected) || expected < 1) {
 	console.error(`splice: --count must be a positive integer, got ${want}`);
 	process.exit(1);
