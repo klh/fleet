@@ -34,7 +34,7 @@ function command(cwd: string, args: string[], input?: unknown) {
 		err: p.stderr.toString(),
 	};
 }
-function fixture() {
+function fixture(priority?: number) {
 	const cwd = join(root, `repo-${++sequence}`);
 	mkdirSync(cwd);
 	const git = (...args: string[]) => command(cwd, ["git", ...args]);
@@ -46,7 +46,11 @@ function fixture() {
 	git("commit", "-qm", "base");
 	const work = (...args: string[]) =>
 		command(cwd, [process.execPath, join(source, "bin/work.ts"), ...args]);
-	const id = work("add", "completion test").out.match(/W\d+/)?.[0] ?? "";
+	const priorityFlag =
+		priority === undefined ? [] : ["--priority", String(priority)];
+	const id =
+		work("add", "completion test", ...priorityFlag).out.match(/W\d+/)?.[0] ??
+		"";
 	expect(work("take", id, "--as", "dispatch-owner").code).toBe(0);
 	mkdirSync(join(cwd, ".fleet"));
 	writeFileSync(join(cwd, ".klh-brief.md"), "generated mission");
@@ -78,11 +82,12 @@ function fixture() {
 	return { cwd, git, work, id, stop, stopFresh, coord };
 }
 
-test("empty lane cannot bypass stop checks; third stop records FAILED", () => {
+test("empty lane cannot bypass stop checks; budget exhaustion records FAILED", () => {
 	const f = fixture();
-	for (let attempt = 1; attempt <= 2; attempt++) {
+	// priority 0 → class light → continuation budget 3
+	for (let attempt = 1; attempt <= 3; attempt++) {
 		const result = f.stop();
-		expect(result.err + result.out).toContain(`Re-ask ${attempt}/2`);
+		expect(result.err + result.out).toContain(`Re-ask ${attempt}/3`);
 	}
 	expect(f.stop().code).toBe(0);
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
@@ -136,8 +141,8 @@ test("landed product commits do not bypass bounded failure and decision recordin
 		f.git("commit", "-qm", `progress ${commit}`);
 	}
 	expect(f.work("start", f.id, "--as", "dispatch-owner").code).toBe(0);
-	for (let attempt = 1; attempt <= 2; attempt++)
-		expect(f.stop().err).toContain(`Re-ask ${attempt}/2`);
+	for (let attempt = 1; attempt <= 3; attempt++)
+		expect(f.stop().err).toContain(`Re-ask ${attempt}/3`);
 	expect(f.stop().code).toBe(0);
 	const row = JSON.parse(f.work("show", f.id, "--json").out);
 	expect(row.state).toBe("FAILED");
@@ -193,8 +198,10 @@ test("first stop with work in flight offers one bounded continuation", () => {
 		readFileSync(join(f.cwd, ".fleet/completion-attempt.json"), "utf8"),
 	);
 	expect(marker.tries).toBe(1);
-	// the loop guard ends the offer: the follow-up stop is a plain re-ask
-	expect(f.stop().err).toContain("Re-ask 2/2");
+	// the loop guard ends the offer: the follow-up stops are plain re-asks
+	// until the light budget (3) exhausts — FAILED on the next stop after
+	expect(f.stop().err).toContain("Re-ask 2/3");
+	expect(f.stop().err).toContain("Re-ask 3/3");
 	expect(f.stop().code).toBe(0);
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("FAILED");
 });
@@ -420,4 +427,50 @@ test("FAILED with a pending decision retries recording once before permitting st
 	} finally {
 		db.close();
 	}
+});
+
+test("priority 2 (heavy) extends the continuation budget to 10", () => {
+	const f = fixture(2);
+	f.stopFresh(); // the offer burns slot 1
+	for (let attempt = 2; attempt <= 6; attempt++)
+		expect(f.stop().err).toContain(`Re-ask ${attempt}/10`);
+	// light budget would have FAILED at re-ask 3/3 — still CLAIMED here
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("a stop past the class TTL resets the budget (engaged lane, new episode)", () => {
+	const f = fixture(); // light: TTL 5min
+	f.stopFresh(); // offer, tries=1, ts=now
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	const state = JSON.parse(readFileSync(marker, "utf8"));
+	// backdate past the 5-minute light TTL
+	state.ts = Date.now() - 6 * 60_000;
+	writeFileSync(marker, JSON.stringify(state));
+	expect(f.stop().err).toContain("Re-ask 1/3");
+});
+
+test("terminal-phase short-circuit: a parked activation stays concluded", () => {
+	const f = fixture();
+	f.stopFresh(); // burn the offer
+	writeFileSync(join(f.cwd, "p.txt"), "progress\n");
+	f.git("add", "p.txt");
+	f.git("commit", "-qm", "checkpoint progress");
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${f.git("rev-parse", "HEAD").out.trim()}`,
+		"--done=progress parked",
+		"--next=resume and finish",
+	);
+	expect(f.stop().code).toBe(0); // parks
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).outcome).toBe("PARKED");
+	// later stops in the same session stay silent — no re-evaluation
+	expect(f.stop().code).toBe(0);
+	expect(f.stop().code).toBe(0);
+	expect(JSON.parse(readFileSync(marker, "utf8")).outcome).toBe("PARKED");
 });

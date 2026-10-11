@@ -29,10 +29,13 @@ const CAPSULE_SHA = /^[a-f0-9]{40}$/i;
 const CAPSULE_MAX_AGE_MS = 24 * 86_400_000;
 const CAPSULE_FUTURE_SKEW_MS = 5 * 60_000;
 
-/** The item-authoritative capsule value: work.<item>.capsule, written by the
- * owner sid (facts source column), with a row ts proving the evidence is
+/** The item-authoritative capsule, parsed: work.<item>.capsule, written by
+ * the owner sid (facts source column), with a row ts proving the evidence is
  * fresh. Anything else — legacy lane-scoped, other-owner, stale — is null. */
-function freshOwnerCapsule(item: string, sid: string): string | null {
+export function capsuleEvidence(
+	item: string,
+	sid: string,
+): { checkpoint?: unknown; done?: unknown; next?: unknown } | null {
 	let row: { value?: unknown; source?: unknown; ts?: unknown } | undefined;
 	try {
 		row = openGovernorDb()
@@ -46,22 +49,24 @@ function freshOwnerCapsule(item: string, sid: string): string | null {
 		row.ts <= Date.now() + CAPSULE_FUTURE_SKEW_MS &&
 		Date.now() - row.ts <= CAPSULE_MAX_AGE_MS;
 	// owner association rides the facts row's source column, never payload text
-	return row && fresh && row.source === sid && typeof row.value === "string"
-		? row.value
-		: null;
+	if (!row || !fresh || row.source !== sid || typeof row.value !== "string")
+		return null;
+	try {
+		return JSON.parse(row.value) as {
+			checkpoint?: unknown;
+			done?: unknown;
+			next?: unknown;
+		};
+	} catch {
+		return null;
+	}
 }
 
 /** The one capsule checkpoint allowed to park: fresh, owner-banked on the
  * item key, and git-proven strictly-new progress over the dispatch baseline. */
 function parkedCheckpoint(wt: string, context: Context): string | null {
-	const value = freshOwnerCapsule(context.item, context.sid);
-	if (!value) return null;
-	let cap: { checkpoint?: unknown };
-	try {
-		cap = JSON.parse(value) as { checkpoint?: unknown };
-	} catch {
-		return null;
-	}
+	const cap = capsuleEvidence(context.item, context.sid);
+	if (!cap) return null;
 	const sha =
 		typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)
 			? cap.checkpoint
@@ -85,6 +90,28 @@ function parkedCheckpoint(wt: string, context: Context): string | null {
 		: null;
 }
 
+/** The lane's activation context: .fleet/lane-context.json in this worktree,
+ * else the main checkout's .fleet/lanes.json index matched by worktree. */
+export function laneContext(wt: string): Context | undefined {
+	try {
+		const local = join(wt, ".fleet/lane-context.json");
+		if (existsSync(local)) return JSON.parse(readFileSync(local, "utf8"));
+		const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
+		if (!common.ok) return undefined;
+		const index = join(
+			dirname(resolve(wt, common.out.trim())),
+			".fleet/lanes.json",
+		);
+		const rows = JSON.parse(readFileSync(index, "utf8")) as Context[];
+		const matches = rows.filter(
+			(row) => row.worktree && resolve(row.worktree) === wt,
+		);
+		return matches.length === 1 ? matches[0] : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */
 export function laneCompletion(
 	hook: HookInput & { last_assistant_message?: string },
@@ -94,26 +121,7 @@ export function laneCompletion(
 	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (!top.ok) return null;
 	const wt = top.out.trim();
-	let context: Context | undefined;
-	try {
-		const local = join(wt, ".fleet/lane-context.json");
-		if (existsSync(local)) context = JSON.parse(readFileSync(local, "utf8"));
-		else {
-			const common = run("git", ["rev-parse", "--git-common-dir"], { cwd: wt });
-			if (!common.ok) return null;
-			const index = join(
-				dirname(resolve(wt, common.out.trim())),
-				".fleet/lanes.json",
-			);
-			const rows = JSON.parse(readFileSync(index, "utf8")) as Context[];
-			const matches = rows.filter(
-				(row) => row.worktree && resolve(row.worktree) === wt,
-			);
-			if (matches.length === 1) context = matches[0];
-		}
-	} catch {
-		return null;
-	}
+	const context = laneContext(wt);
 	if (!context?.sid || !context.item) return null;
 	const bin = resolve(import.meta.dir, "../bin");
 	const show = run(
@@ -127,6 +135,7 @@ export function laneCompletion(
 		owner_sid?: string;
 		state?: string;
 		project?: string;
+		priority?: number;
 		result_sha?: string;
 		completion?: {
 			project?: string;
@@ -179,6 +188,7 @@ export function laneCompletion(
 			JSON.stringify({
 				...context,
 				tries,
+				ts: Date.now(),
 				outcome: "FAILED",
 				reason,
 				decisionPending: !decision.ok,
@@ -218,12 +228,43 @@ export function laneCompletion(
 		return null;
 	if (!["CLAIMED", "RUNNING"].includes(row.state ?? ""))
 		return `STOP-GATE: ${context.item} has no verified terminal outcome or transferred owner; control-plane intervention required.`;
+	// W642 terminal-phase short-circuit (research-oh-my-claudecode §1.7): an
+	// activation that already concluded — parked on a capsule or failed with
+	// its decision recorded — stays concluded. Re-evaluating later would
+	// un-park or re-fail on stale evidence; the claim belongs to the reaper.
+	if (previous.outcome === "PARKED" || previous.outcome === "FAILED")
+		return null;
+	// W642 reinforcement classes (research-oh-my-claudecode §1.7): the
+	// continuation budget was a hardcoded 2; classes scale it by item
+	// priority (>=2 heavy / 1 medium / else light; SUSPENDERS_REINFORCEMENT_CLASS
+	// overrides) and a stale TTL resets an ENGAGED lane's count — a stop that
+	// comes >TTL after quiet productive work is a new episode, not budget
+	// burn. Global staleness clamps at 2h.
+	const classes = {
+		light: { max: 3, ttl: 5 * 60_000 },
+		medium: { max: 5, ttl: 15 * 60_000 },
+		heavy: { max: 10, ttl: 30 * 60_000 },
+	};
+	const envClass = process.env.SUSPENDERS_REINFORCEMENT_CLASS;
+	const cls =
+		envClass === "light" || envClass === "medium" || envClass === "heavy"
+			? envClass
+			: (row.priority ?? 0) >= 2
+				? "heavy"
+				: (row.priority ?? 0) === 1
+					? "medium"
+					: "light";
+	const budget = classes[cls];
+	const stale =
+		typeof previous.ts === "number" &&
+		Date.now() - previous.ts > Math.min(budget.ttl, 2 * 3_600_000);
 	const dir = join(wt, ".fleet");
 	mkdirSync(dir, { recursive: true });
-	const tries =
-		typeof previous.tries === "number" &&
-		Number.isInteger(previous.tries) &&
-		previous.tries >= 0
+	const tries = stale
+		? 0
+		: typeof previous.tries === "number" &&
+				Number.isInteger(previous.tries) &&
+				previous.tries >= 0
 			? previous.tries
 			: 0;
 	const declaration = /^(NO_OP|BLOCKED)\s+(\S+):\s*(.{10,})$/m.exec(
@@ -243,24 +284,31 @@ export function laneCompletion(
 				JSON.stringify({
 					...context,
 					tries,
+					ts: Date.now(),
 					outcome: "PARKED",
 					checkpoint: parked,
 				}),
 			);
 			return null;
 		}
-		if (tries < 2 && hook.stop_hook_active !== true) {
-			writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
+		if (tries < budget.max && hook.stop_hook_active !== true) {
+			writeFileSync(
+				marker,
+				JSON.stringify({ ...context, tries: tries + 1, ts: Date.now() }),
+			);
 			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume: (a) FINISH — complete and run work done ${context.item} --sha <commit> --summary <completion paragraph>; or (b) CHECKPOINT — commit progress and bank a capsule: coord capsule set --as ${context.sid} --item ${context.item} --checkpoint=<head> --done=<progress> --next=<step>; an item-keyed capsule with a git-reachable checkpoint that advances the dispatch baseline parks the item CLAIMED/resumable and the stop is allowed. Edits and commits are progress, not completion.`;
 		}
 	}
-	if (tries < 2 && !declared) {
-		writeFileSync(marker, JSON.stringify({ ...context, tries: tries + 1 }));
-		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Edits and commits are progress, not completion. Finish with work done ${context.item} --sha <commit> --summary <completion paragraph>. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/2; exhaustion records FAILED, never DONE.`;
+	if (tries < budget.max && !declared) {
+		writeFileSync(
+			marker,
+			JSON.stringify({ ...context, tries: tries + 1, ts: Date.now() }),
+		);
+		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Edits and commits are progress, not completion. Finish with work done ${context.item} --sha <commit> --summary <completion paragraph>. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/${budget.max}; exhaustion records FAILED, never DONE.`;
 	}
 	const reason = declared
 		? (declaration?.[0] ?? "declared blocked")
-		: "lane remains incomplete after two completion re-asks";
+		: `lane remains incomplete after the continuation budget (${cls}, max ${budget.max})`;
 	const failed = run(
 		process.execPath,
 		[
@@ -281,6 +329,7 @@ export function laneCompletion(
 		JSON.stringify({
 			...context,
 			tries,
+			ts: Date.now(),
 			outcome: "FAILED",
 			reason,
 			decisionPending: true,

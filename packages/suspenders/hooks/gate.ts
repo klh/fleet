@@ -22,6 +22,7 @@ import { readGate } from "./gates/read.ts";
 import { stopGate } from "./gates/stop.ts";
 import { postFailGate } from "./gates/post-fail.ts";
 import { pushGate } from "./gates/push.ts";
+import { preCompactGate } from "./gates/precompact.ts";
 import { preFilesChain } from "./gates/chain.ts";
 
 const hook = await readHook();
@@ -54,6 +55,9 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: stopGate is `: never` — the call ends the case
 	case "stop":
 		stopGate(hook);
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preCompactGate is `: never` — the call ends the case
+	case "precompact":
+		preCompactGate(hook); // W642: flush lane state to .fleet/state-<sid>.md pre-compaction
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: codexGate never resolves — await parks the case
 	case "codex": {
 		// W73 codex adapter — dialect bound by argv (`gate.ts codex <mode>`):
