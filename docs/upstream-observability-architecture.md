@@ -268,6 +268,25 @@ The read model keys on `ResolvedProject.id` (the stage-1 identity contract),
 so the stage-3 opaque-ID swap does not move its call sites. Serving surfaces
 (scoped board queries, filtered push) are the sibling scope W621.2.
 
+## Implementation record: W621.2 — scoped serving on the board
+
+Landed 2026-10-11 (W621.2): `hooks/board/observation-serving.ts` serves the
+plane at `/api/observation-plane/*` (registered from routes-observations.ts):
+
+- **Ingest** (`POST /ingest`): write-token-guarded batch (≤200 events,
+  256 KiB body) through the W621.1 lib, plus board-side retention (10k
+  events); the response carries the serving install's observer `store` id.
+- **Scoped queries** (`GET /lanes`): viewer scope (`visibility` +
+  `projects`) parsed and applied SERVER-side; the redacted `observes` view
+  is open and default; `owns`/`authorized` detail rides the per-install
+  write token — the operator at this board is the authority, a shortcut
+  stage-3 viewer identity retires.
+- **Filtered push** (`GET /stream`): bounded SSE — scoped snapshot, then a
+  full fresh re-projection per in-scope ingest. The wake probe is scoped
+  too (an observes viewer never learns when foreign projects ingest);
+  deltas are whole summaries so replay cannot gap; slow clients get the
+  explicit resync + close.
+
 ## Fleet integration points verified in source
 
 - `buckle/src/citizenship.ts` and `handlers.ts`: local `/w/<slug>` attribution

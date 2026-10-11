@@ -4,6 +4,7 @@ import {
 	laneObservationSnapshot,
 	recordLaneObservation,
 } from "./lane-observations.ts";
+import { handleObservationPlane } from "./observation-serving.ts";
 import { LaneProjection } from "../../../buckle/src/projection.ts";
 
 function numParam(url: URL, name: string): number | null {
@@ -51,6 +52,10 @@ export async function handleObservations(
 	req: Request,
 	url: URL,
 ): Promise<Response | null> {
+	// W621.2: the observation plane's serving surfaces (scoped projection
+	// queries + filtered push + ingest) live in observation-serving.ts
+	if (url.pathname.startsWith("/api/observation-plane/"))
+		return handleObservationPlane(req, url);
 	if (url.pathname === "/api/lane-routes") return handleLaneRoutes(req, url);
 	if (url.pathname !== "/api/lane-observations") return null;
 	if (req.method === "GET" || req.method === "HEAD")
