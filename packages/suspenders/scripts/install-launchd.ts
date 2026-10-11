@@ -18,6 +18,7 @@ import { basename, dirname, join } from "node:path";
 import { execa } from "execa";
 import {
 	digestUnit,
+	parseLoadedArguments,
 	readActivation,
 	retainActivation,
 	writeActivation,
@@ -115,6 +116,34 @@ function normalizeSnapshotRepo(repo: string, prefix: string): StableRepo {
 	return { ok: true, repo: candidate, normalized: true };
 }
 
+// W576.7: publication may only bless definitions launchd actually LOADED.
+// A supported writer rewriting the unit between bootstrap and receipt
+// publication would otherwise be adopted silently — the loaded arguments are
+// compared against the rendered unit and any mismatch refuses the unit.
+export async function verifiedLoad(
+	label: string,
+	domain: string,
+	expected: string[],
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+	const printed = await execa(
+		"/bin/launchctl",
+		["print", `${domain}/${label}`],
+		{ reject: false, stdout: "pipe", stderr: "pipe" },
+	);
+	if (printed.exitCode !== 0)
+		return { ok: false, reason: "loaded definition inspection failed" };
+	const args = parseLoadedArguments(printed.stdout);
+	if (args === null)
+		return { ok: false, reason: "loaded arguments unavailable" };
+	if (JSON.stringify(args) !== JSON.stringify(expected))
+		return {
+			ok: false,
+			reason:
+				"loaded arguments differ from the rendered unit — competing writer after load",
+		};
+	return { ok: true };
+}
+
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	if (process.platform !== "darwin") {
 		return {
@@ -168,6 +197,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		s.files.filter((f) => f.endsWith(".plist")),
 	);
 	const failed: string[] = [];
+	const refused: string[] = [];
 	const activated: ActivationService[] = [];
 	const ports = JSON.parse(
 		process.env.SUSPENDERS_SERVICE_PORTS_JSON ?? "{}",
@@ -211,6 +241,18 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 				};
 				// machine env override wins, else the manifest declaration
 				const port = ports[label] ?? declaredPorts.get(label);
+				// W576.7: refuse units whose loaded arguments left the rendered
+				// definition between bootstrap and publication.
+				const verified = await verifiedLoad(
+					label,
+					`gui/${process.getuid()}`,
+					definition.ProgramArguments,
+				);
+				if (!verified.ok) {
+					failed.push(label);
+					refused.push(`${label} — ${verified.reason}`);
+					continue;
+				}
 				activated.push({
 					label,
 					unit,
@@ -260,7 +302,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		return {
 			status: "failed",
 			note: `launchd jobs failed: ${failed.join(" ")}`,
-			detail: `diagnostics: ${join(insightsDir, "launchd-<label>.log")}`,
+			detail: `diagnostics: ${join(insightsDir, "launchd-<label>.log")}${refused.length > 0 ? `; refused: ${refused.join("; ")}` : ""}`,
 		};
 	}
 	return {

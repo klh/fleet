@@ -25,6 +25,7 @@ mock.module("execa",()=>({execa:async(command,args)=>{
  if(command===process.execPath){for(const name of ["board","store-server"])writeFileSync(join(agents,"com.suspenders."+name+".plist"),name);return{stdout:JSON.stringify({services:[{service:"board",files:["com.suspenders.board.plist"]},{service:"store-server",files:["com.suspenders.store-server.plist"]}]})};}
  if(command==="bash")return{exitCode:phase>0 || args[1].includes("store-server")?1:0};
  if(command==="/usr/bin/plutil")return{stdout:JSON.stringify({ProgramArguments:["/bun","/board.ts"],KeepAlive:true})};
+ if(command==="/bin/launchctl")return args[0]==="print"?{exitCode:0,stdout:"\\n\\targuments = {\\n\\t\\t/bun\\n\\t\\t/board.ts\\n\\t}\\n"}:{exitCode:0};
  if(command==="launchctl")return{exitCode:0};
  forbidden=true;throw Error("unexpected subprocess");}}));
 const{registerLaunchd}=await import(process.argv[1]);const result=await registerLaunchd(JSON.parse(process.argv[2]));phase=1;const second=await registerLaunchd(JSON.parse(process.argv[2]));console.log(JSON.stringify({result,second,forbidden}));`;
