@@ -100,13 +100,10 @@ export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
 	return incoming;
 }
 
-/** Snapshots are upserts, never deletion authority. Re-read under the cross-process lock. */
-export function mergeLaneRegistry<T extends RegistryLane>(
-	input: string,
-	incoming: T[],
-): void {
-	const file = laneRegistryFile(input),
-		lock = `${file}.lock`;
+/** Cross-process registry lock: mkdir-atomic, owner.json discloses the pid.
+ * fn's return value passes through; the lock is always released. */
+function withRegistryLock<T>(file: string, fn: (file: string) => T): T {
+	const lock = `${file}.lock`;
 	mkdirSync(dirname(file), { recursive: true });
 	const deadline = Date.now() + 5000;
 	for (;;) {
@@ -122,37 +119,93 @@ export function mergeLaneRegistry<T extends RegistryLane>(
 			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);
 		}
 	}
-	const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
 	try {
 		writeFileSync(
 			join(lock, "owner.json"),
 			JSON.stringify({ pid: process.pid, acquiredAt: Date.now() }),
 			{ mode: 0o600 },
 		);
-		const state = readFile<T>(file);
-		if (!state.known && existsSync(file))
-			throw new Error(
-				`Refusing to overwrite unreadable lane registry: ${state.error}`,
-			);
-		const rows = new Map<string, T>();
-		for (const row of [...state.lanes, ...incoming]) {
-			if (!row || typeof row.sid !== "string")
-				throw new Error("Invalid incoming lane");
-			const previous = rows.get(row.sid);
-			rows.set(row.sid, previous ? newerLane(previous, row) : row);
-		}
-		const fd = openSync(temp, "wx", 0o600);
-		try {
-			writeFileSync(fd, JSON.stringify([...rows.values()], null, 2));
-			fsyncSync(fd);
-		} finally {
-			closeSync(fd);
-		}
-		renameSync(temp, file);
+		return fn(file);
 	} finally {
-		rmSync(temp, { force: true });
 		rmSync(lock, { recursive: true, force: true });
 	}
+}
+
+/** Snapshots are upserts, never deletion authority. Re-read under the cross-process lock. */
+export function mergeLaneRegistry<T extends RegistryLane>(
+	input: string,
+	incoming: T[],
+): void {
+	// W636: the upsert now runs under the shared cross-process registry lock.
+	withRegistryLock(laneRegistryFile(input), (file) => {
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			const state = readFile<T>(file);
+			if (!state.known && existsSync(file))
+				throw new Error(
+					`Refusing to overwrite unreadable lane registry: ${state.error}`,
+				);
+			const rows = new Map<string, T>();
+			for (const row of [...state.lanes, ...incoming]) {
+				if (!row || typeof row.sid !== "string")
+					throw new Error("Invalid incoming lane");
+				const previous = rows.get(row.sid);
+				rows.set(row.sid, previous ? newerLane(previous, row) : row);
+			}
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify([...rows.values()], null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
+}
+
+/** W636: the registry's ONE deletion authority — same cross-process lock and
+ * atomic temp+rename write as mergeLaneRegistry. The caller's liveness guard
+ * is re-evaluated under the lock per requested row, so only provably-dead
+ * lanes ever leave (a lane that went live between probe and prune is
+ * retained); rows outside `sids` are never candidates. */
+export function pruneLaneRegistry<T extends RegistryLane>(
+	input: string,
+	sids: string[],
+	guard: (row: T) => boolean,
+): { removed: T[]; kept: T[] } {
+	if (!sids.length) return { removed: [], kept: [] };
+	return withRegistryLock(laneRegistryFile(input), (file) => {
+		const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+		try {
+			const state = readFile<T>(file);
+			if (!state.known && existsSync(file))
+				throw new Error(
+					`Refusing to prune unreadable lane registry: ${state.error}`,
+				);
+			const wanted = new Set(sids);
+			const removed: T[] = [];
+			const kept: T[] = [];
+			for (const row of state.lanes) {
+				if (wanted.has(row.sid) && guard(row)) removed.push(row);
+				else kept.push(row);
+			}
+			if (!removed.length) return { removed, kept };
+			const fd = openSync(temp, "wx", 0o600);
+			try {
+				writeFileSync(fd, JSON.stringify(kept, null, 2));
+				fsyncSync(fd);
+			} finally {
+				closeSync(fd);
+			}
+			renameSync(temp, file);
+			return { removed, kept };
+		} finally {
+			rmSync(temp, { force: true });
+		}
+	});
 }
 
 /** Unknown observations never authorize filesystem destruction. */
