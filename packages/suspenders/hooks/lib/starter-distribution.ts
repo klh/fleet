@@ -292,3 +292,59 @@ export const pullFromDir = (
 	);
 	return { rows, revocations };
 };
+
+export type StarterRollbackRecord = {
+	starter: string;
+	from: number;
+	to: number;
+	fromDigest: string;
+	toDigest: string;
+	reason: string;
+	at: string;
+	by: string;
+};
+
+export const starterRollbacksFile = (repo: string): string =>
+	join(starterRegistryDir(repo), "rollbacks.jsonl");
+
+/** Execute a blam-resolved rollback (W458.5): revoke the bad version and
+ *  append the pointer record. Blam decides, the registry executes — both
+ *  appends, never rewrites. */
+export const rollbackStarter = (
+	repo: string,
+	actor: string,
+	plan: {
+		starter: string;
+		from: number;
+		fromDigest: string;
+		to: number;
+		toDigest: string;
+	},
+	reason: string,
+): StarterRollbackRecord => {
+	assertCanRevoke(repo, actor);
+	const row: StarterRollbackRecord = {
+		...plan,
+		reason,
+		at: new Date().toISOString(),
+		by: actor,
+	};
+	mkdirSync(starterRegistryDir(repo), { recursive: true });
+	appendRevocation(repo, actor, {
+		id: plan.starter,
+		version: plan.from,
+		reason: `rollback: ${reason}`,
+	});
+	appendFileSync(starterRollbacksFile(repo), `${JSON.stringify(row)}\n`);
+	return row;
+};
+
+/** Every rollback record, in order (tolerant reader). */
+export const readRollbacks = (repo: string): StarterRollbackRecord[] => {
+	const f = starterRollbacksFile(repo);
+	if (!existsSync(f)) return [];
+	return readFileSync(f, "utf8")
+		.split("\n")
+		.filter((l) => l.trim())
+		.map((l) => JSON.parse(l) as StarterRollbackRecord);
+};

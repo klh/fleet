@@ -18,9 +18,11 @@ import {
 	pullFromDir,
 	promoteStarter,
 	readGrants,
+	readRollbacks,
 	readStarterAuthorized,
 	readRevocations,
 	replicateToDir,
+	rollbackStarter,
 	starterAuthzFile,
 	writeGrants,
 } from "../hooks/lib/starter-distribution.ts";
@@ -57,7 +59,11 @@ describe("starter-distribution: grants", () => {
 	});
 
 	test("fail-closed: no authz file = nobody holds authority", () => {
-		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [], readers: [] });
+		expect(readGrants(repo)).toEqual({
+			promoters: [],
+			revokers: [],
+			readers: [],
+		});
 	});
 
 	test("write + read roundtrip, 0600", () => {
@@ -70,7 +76,11 @@ describe("starter-distribution: grants", () => {
 	test("corrupt authz file reads as empty (fail-closed)", () => {
 		writeGrants(repo, { promoters: ["lane-a"], revokers: [] });
 		writeFileSync(starterAuthzFile(repo), "{corrupt");
-		expect(readGrants(repo)).toEqual({ promoters: [], revokers: [], readers: [] });
+		expect(readGrants(repo)).toEqual({
+			promoters: [],
+			revokers: [],
+			readers: [],
+		});
 	});
 });
 describe("starter-distribution: promotion authority", () => {
@@ -232,5 +242,53 @@ describe("starter-distribution: inventory", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0].id).toBe("fleet-orientation");
 		expect(rows[0].corrupt).toBeUndefined();
+	});
+});
+describe("starter-distribution: rollback execution", () => {
+	const repo = scratch();
+	afterEach(() => {
+		rmSync(join(repo, ".fleet"), { recursive: true, force: true });
+	});
+
+	test("rollback revokes the bad version and records the pointer", () => {
+		writeGrants(repo, { promoters: ["p"], revokers: ["rev-lane"] });
+		const v1 = base();
+		promoteStarter(repo, "p", v1);
+		const v2 = base();
+		v2.version = 2;
+		v2.instructions = "v2 wording — the bad promotion";
+		promoteStarter(repo, "p", v2);
+		const rec = rollbackStarter(
+			repo,
+			"rev-lane",
+			{
+				starter: "fleet-orientation",
+				from: 2,
+				fromDigest: "dig-2",
+				to: 1,
+				toDigest: v1.digest,
+			},
+			"eval regression",
+		);
+		expect(rec.to).toBe(1);
+		expect(rec.by).toBe("rev-lane");
+		expect(readRollbacks(repo)).toHaveLength(1);
+		const bad = readStarterAuthorized(repo, "fleet-orientation", 2);
+		expect(bad.ok).toBe(false);
+		if (!bad.ok && "revoked" in bad) expect(bad.revoked).toMatch(/rollback/);
+		const good = readStarterAuthorized(repo, "fleet-orientation", 1);
+		expect(good.ok).toBe(true);
+	});
+
+	test("rollback needs the revoke grant", () => {
+		writeGrants(repo, { promoters: ["p"], revokers: [] });
+		expect(() =>
+			rollbackStarter(
+				repo,
+				"p",
+				{ starter: "s", from: 2, fromDigest: "d2", to: 1, toDigest: "d1" },
+				"r",
+			),
+		).toThrow(/no revoke grant/);
 	});
 });
