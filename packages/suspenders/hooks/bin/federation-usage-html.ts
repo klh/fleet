@@ -6,30 +6,16 @@
 // content; the page degrades honestly until spokes report (default OFF
 // until an operator opts teams in on the hub policy).
 import { GROUPS } from "../lib/usage.ts";
-// W171: esc/fmtTok shared with the local /usage page (same dataviz chrome).
-import { esc, fmtTok } from "./usage-page-html.ts";
-import { TOPBAR_JS, topbar } from "./console-html.ts";
-import { USAGE_CHART_JS } from "./usage-charts.ts";
-import { THEME_HEAD } from "../lib/theme.ts";
-import { readFileSync } from "node:fs";
-
-// uPlot 1.6.32 (MIT) — vendored, inlined (offline LAN, never CDN).
-const UPILOT_SRC = readFileSync(
-	new URL("./vendor/uPlot.iife.min.js", import.meta.url),
-	"utf8",
-);
-const UPLOT_CSS = readFileSync(
-	new URL("./vendor/uPlot.min.css", import.meta.url),
-	"utf8",
-);
-
-const SLOT: Record<string, string> = {
-	flash: "#3987e5",
-	full: "#d95926",
-	luna: "#199e70",
-	local: "#c98500",
-	other: "#d55181",
-};
+// W652.3: chrome (palette/esc/fmtTok/tiles/legend/shell) rides the shared
+// usage-chrome module — W171's per-page copies retired.
+import {
+	esc,
+	fmtTok,
+	legendHtml,
+	SLOT,
+	tilesRow,
+	usagePageShell,
+} from "./usage-chrome.ts";
 
 export interface FedPageWindow {
 	bucket: number;
@@ -136,12 +122,7 @@ function tilesHtml(r: FedPageReport): string {
 		["TOP MODEL CLASS", top === undefined ? "—" : top[0]],
 		["WINDOWS", String(windows)],
 	];
-	return `<div class="utiles">${cells
-		.map(
-			([k, v]) =>
-				`<div class="utile"><div class="uv">${v}</div><div class="uk">${k}</div></div>`,
-		)
-		.join("")}</div>`;
+	return tilesRow(cells);
 }
 
 function filtersHtml(days: number): string {
@@ -231,35 +212,6 @@ function aidsHtml(r: FedPageReport): string {
 	return `<div class="upanel"><h2>AID ROI · FEDERATED</h2><p class="ufoot">spoke-reported sums · private-domain rows are filtered spoke-side (domain separation)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-// ─── page assembly (the W152 u* chrome, scoped to this page) ─────────────
-const U_CSS = `
-.utiles { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
-.utile { flex:1 1 150px; background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:10px 14px; }
-.uv { font-size:22px; font-weight:600; color:var(--klh-ink); font-variant-numeric:tabular-nums; word-break:break-all; }
-.uk { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
-.uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
-.uwin { font-size:10.5px; color:var(--klh-dim); }
-.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
-.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
-.upanel .uhead { display:flex; align-items:baseline; gap:12px; }
-.upanel .uhead .ufoot { margin:0; }
-.ulegend { display:flex; gap:14px; font-size:11px; color:var(--klh-ink-2); margin:0 0 8px; flex-wrap:wrap; }
-.ulegend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
-.ufilters { display:flex; gap:18px; align-items:center; margin:0 0 14px; flex-wrap:wrap; }
-.ufgroup::before { content:attr(data-label); font-size:9.5px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.ufilter { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
-.ufilter.on { color:var(--klh-accent); border-color:var(--klh-accent); }
-table.uacts { width:100%; border-collapse:collapse; font-size:12px; }
-table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid var(--klh-rule); text-align:left; }
-.unum { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-ink-2); white-space:nowrap; }
-.ubar { display:flex; height:12px; border-radius:3px; overflow:hidden; min-width:2px; }
-.ubar i { display:block; height:100%; }
-.uchip { font-size:10px; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 6px; margin-left:6px; }
-.uempty { color:var(--klh-dim); font-size:12px; }
-.ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
-.uchart { width:100%; }
-`;
-
 /** The federation usage dashboard page. */
 export function federationUsagePage(
 	r: FedPageReport,
@@ -283,13 +235,9 @@ export function federationUsagePage(
 		timeline: timelineData(r),
 		byHour: byHourData(r),
 	});
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${payload}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>FEDERATED USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${head}${timeline}${hours}${spokesHtml(r)}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
-}
-
-function legendHtml(): string {
-	const items = GROUPS.map(
-		(g) => `<span><i style="background:${SLOT[g]}"></i>${g}</span>`,
-	);
-	return `<div class="ulegend">${items.join("")}</div>`;
+	return usagePageShell({
+		title: "FEDERATED USAGE",
+		body: `${head}${timeline}${hours}${spokesHtml(r)}${aidsHtml(r)}`,
+		payload,
+	});
 }
