@@ -24,7 +24,7 @@
 // no more per-request panel HTML strings. Filters stay server-side native
 // links (URL state must work without JS).
 import { GROUPS, type UsageReport } from "../lib/usage.ts";
-import { ACTIVITIES, type ActivityReport } from "./activity-harvest.ts";
+import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
 import {

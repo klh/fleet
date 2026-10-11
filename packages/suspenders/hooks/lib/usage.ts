@@ -3,7 +3,7 @@
 // calls maybeHarvest() then this. All sums run over usage_rollup within the
 // window [floor(now - days), floor(now)] on hour boundaries.
 import type { Database } from "bun:sqlite";
-import type { ModelGroup } from "../bin/usage-harvest.ts";
+import type { ModelGroup } from "../lib/usage-harvest.ts";
 import { verifiedLegacySeedActors } from "./usage-provenance.ts";
 import { usageRollupSource, verifiedUsageActive } from "./usage-source.ts";
 

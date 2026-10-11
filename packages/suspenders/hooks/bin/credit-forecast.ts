@@ -28,13 +28,36 @@ import {
 	statePathDefault,
 	samplesPathDefault,
 } from "../lib/credit-forecast.ts";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
-const argv = process.argv.slice(2);
-const verb = argv[0] === "sample" ? "sample" : "forecast";
-const val = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
+const outcome = parseVerb(
+	defineVerb({
+		name: "credit-forecast",
+		usage: "bun hooks/bin/credit-forecast.ts [sample | forecast] [flags]",
+		flags: [
+			"--used",
+			"--limit",
+			"--plan",
+			"--multipliers",
+			"--source",
+			"--note",
+			"--db",
+			"--state",
+			"--dedupe-hours",
+			"--queued",
+			"--cost-per-item",
+			"--horizon-hours",
+			"--overage-cost",
+		],
+		switches: ["--json", "--act", "--overage-permitted", "--no-overage"],
+		lax: true,
+	}),
+	process.argv.slice(2),
+);
+const argv = outcome.parsed.rest;
+const verb = outcome.parsed.pos[0] === "sample" ? "sample" : "forecast";
+const val = (flag: string): string | undefined =>
+	outcome.parsed.flag(flag) ?? undefined;
 const fail = (msg: string): never => {
 	console.error(msg);
 	process.exit(2);

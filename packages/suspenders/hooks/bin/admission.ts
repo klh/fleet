@@ -26,7 +26,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { quotaWindowVerdict } from "./quota-window.ts";
+import { quotaWindowVerdict } from "../lib/quota-window.ts";
 
 const GOV_DIR = `${process.env.HOME}/.cache/claude-governor`;
 const DB_PATH = `${GOV_DIR}/governor.db`;
@@ -167,7 +167,7 @@ export function admissionVerdict(input: {
 	}
 	const cd = cooldownVerdict(input.cooldownValue, input.nowMs);
 	if (cd.active) {
-		const until = new Date(cd.untilMs!).toISOString();
+		const until = new Date(cd.untilMs ?? input.nowMs).toISOString();
 		return {
 			exit: 1,
 			retryAfterSec: cd.remainingSec,
@@ -244,13 +244,11 @@ export function buildDegradationPlan(
 	const resetInMin = quota.expiry
 		? Math.max(0, Math.round((quota.expiry - nowMs) / 60000))
 		: null;
-	const queued = live
-		.filter(isZaiHeavy)
-		.map((e) => ({
-			id: e.id,
-			label: e.label ?? "",
-			retryAfterMinutes: resetInMin,
-		}));
+	const queued = live.filter(isZaiHeavy).map((e) => ({
+		id: e.id,
+		label: e.label ?? "",
+		retryAfterMinutes: resetInMin,
+	}));
 	const keep = live
 		.filter((e) => !isZaiHeavy(e))
 		.map((e) => {
@@ -431,7 +429,7 @@ if (import.meta.main) {
 					? nowMs +
 						Number(retryAfter) * 1000 +
 						Math.floor(Math.random() * JITTER_MS)
-					: parseUntilMs(untilRaw!);
+					: parseUntilMs(untilRaw ?? "");
 			if (!Number.isFinite(proposed)) usage();
 			const finalMs = mergeCooldown(existingMs, proposed, nowMs);
 			setCooldownFact(DB_PATH, finalMs, `admission:${as}`);
