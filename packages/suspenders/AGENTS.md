@@ -135,6 +135,16 @@ styling (surface/ink/spacing/type + plane hues). Lit is vendored (offline
 LAN — never CDN). Legacy string chunks retire per the W184 staged
 migration — elimination, not deprecation.
 
+## CLI Toolkit Law (W651)
+
+`hooks/lib/verb-kit.ts` is the ONE way new CLIs declare, parse, and explain
+verbs: `defineVerb({...})` into a registry; the kit owns argv parsing (the
+Bun strips-`--` reality baked in), per-verb `--help`, generated help and
+unknown-command try-lists, and the uniform `prog: message` die. The big
+three ride it (work.ts process door, coord.ts run wrappers, registry-cli.ts
+pure door). **New CLIs MUST use the kit — no hand-rolled `process.argv`
+dissection, no hand-maintained usage blocks.**
+
 ## Streams Over Buffers
 
 Streaming interfaces by default — no whole-payload buffering or memory
