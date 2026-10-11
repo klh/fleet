@@ -6,6 +6,7 @@
 // facts table. Library + thin CLI; buckle down = honest skip, never an
 // error (aids are garnish — the control plane never blocks on them).
 import type { Database } from "bun:sqlite";
+import { num } from "../lib/harvest-engine.ts";
 
 export interface AidHarvestStats {
 	pulled: number;
@@ -15,9 +16,6 @@ export interface AidHarvestStats {
 }
 
 type Row = Record<string, unknown>;
-
-const num = (v: unknown): number =>
-	typeof v === "number" && Number.isFinite(v) ? v : 0;
 
 const str = (v: unknown): string | null =>
 	typeof v === "string" && v.length > 0 ? v : null;

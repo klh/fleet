@@ -2,16 +2,22 @@
 // Mines THIS host's ~/.claude/projects/**/*.jsonl transcripts for assistant
 // usage rows (tokenUsage precedent in govdb.ts), aggregates them into hourly
 // (hour_bucket, actor, model) buckets, and UPSERT-ADDS them into
-// governor.db's usage_rollup. Idempotent per transcript via a facts-table
-// cursor {offset, mtime}: an unchanged transcript is skipped (no double
+// governor.db's usage_rollup. Idempotent per transcript via a machine_cursors
+// {offset, mtime, v:2} cursor: an unchanged transcript is skipped (no double
 // count); a grown one is read as an append-only tail. Durable assistant
-// message identities charge one request and only growth across blocks. Runs as a
-// board-API subroutine (TTL-gated maybeHarvest) — never a daemon.
-import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+// message identities charge one request and only growth across blocks. Runs
+// as a board-API subroutine (TTL-gated maybeHarvest) — never a daemon.
+// W652.3: discovery/cursor/tail ride the shared harvest engine.
 import type { GovernorStore } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { harvestAids } from "./aid-harvest.ts";
+import {
+	gatedHarvest,
+	num,
+	scanTranscriptTails,
+	sessionActorMap,
+} from "../lib/harvest-engine.ts";
+import { saveCursor } from "../lib/transcript-cursor.ts";
 import { usageMessageLedger } from "../lib/usage-message-ledger.ts";
 import { usageRollupSource, verifiedUsageActive } from "../lib/usage-source.ts";
 
@@ -39,41 +45,18 @@ export interface HarvestStats {
 	cacheC: number;
 }
 
-interface Cursor {
-	o: number; // byte offset of the first unharvested byte
-	m: number; // mtimeMs at last harvest
-	v?: number; // metering schema; legacy cursors require reviewed rebuild
-}
-
+// ledger keys stay `usage.tp.<sha1>` in BOTH provenance modes — only the
+// cursor namespace shifts to usage.v2.tp when the verified source is active
 const tpKey = (p: string): string => {
 	const h = new Bun.CryptoHasher("sha1");
 	h.update(p);
 	return `usage.tp.${h.digest("hex")}`;
 };
 
-const n = (x: unknown): number =>
-	typeof x === "number" && Number.isFinite(x) ? x : 0;
-
-// byte tail of a file from `start` — sync keeps the harvest deterministic
-// (and maybeHarvest reentrancy trivial)
-function readTail(path: string, start: number): string {
-	const fh = openSync(path, "r");
-	try {
-		const len = fstatSync(fh).size - start;
-		if (len <= 0) return "";
-		const buf = Buffer.allocUnsafe(len);
-		readSync(fh, buf, 0, len, start);
-		return buf.toString("utf8");
-	} finally {
-		closeSync(fh);
-	}
-}
-
 export function harvestUsage(
 	db: GovernorStore,
 	opts: { root?: string } = {},
 ): HarvestStats {
-	const root = opts.root ?? `${process.env.HOME}/.claude/projects`;
 	const verified = verifiedUsageActive(db);
 	if (
 		!verified &&
@@ -97,33 +80,9 @@ export function harvestUsage(
 	};
 	// actor attribution: transcript basename → sessions.sid → actor. No
 	// session row (or NULL actor) ⇒ "unassigned" — honest, never guessed.
-	const actorOf = new Map<string, { actor: string | null }>();
-	for (const r of db
-		.query("SELECT sid, actor FROM sessions WHERE actor IS NOT NULL")
-		.all() as { sid: string; actor: string | null }[])
-		actorOf.set(r.sid, { actor: r.actor });
-	const getCur = (key: string): Cursor | null => {
-		// W466: cursors live in machine_cursors (govdb v12), not facts
-		const row = db
-			.query("SELECT value FROM machine_cursors WHERE key = ?")
-			.get(key) as { value: string | null } | null;
-		if (!row?.value) return null;
-		try {
-			const c = JSON.parse(row.value) as {
-				o?: unknown;
-				m?: unknown;
-				v?: number;
-			};
-			return typeof c.o === "number" && typeof c.m === "number"
-				? { o: c.o, m: c.m, v: c.v }
-				: null;
-		} catch {
-			return null;
-		}
-	};
-	const setCur = db.query(
-		"INSERT INTO machine_cursors (key, value, source, ts) VALUES (?, ?, 'usage-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
-	);
+	const actorOf = sessionActorMap(db);
+	const defaultActor =
+		readBoardSettings().settings.default_actor ?? "unassigned";
 	const upsert = db.query(
 		`INSERT INTO ${rollup} (hour_bucket, actor, model, model_group, in_tok, out_tok, cache_r, cache_c, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hour_bucket, actor, model) DO UPDATE SET in_tok = in_tok + excluded.in_tok, out_tok = out_tok + excluded.out_tok, cache_r = cache_r + excluded.cache_r, cache_c = cache_c + excluded.cache_c, requests = requests + excluded.requests`,
 	);
@@ -172,114 +131,106 @@ export function harvestUsage(
 				req: 0,
 			};
 		}
-		r.in += n(u.input_tokens);
-		r.out += n(u.output_tokens);
-		r.cr += n(u.cache_read_input_tokens);
-		r.cc += n(u.cache_creation_input_tokens);
+		r.in += num(u.input_tokens);
+		r.out += num(u.output_tokens);
+		r.cr += num(u.cache_read_input_tokens);
+		r.cc += num(u.cache_creation_input_tokens);
 		r.req += requests;
 		add.set(key, r);
 	};
 	db.run("BEGIN IMMEDIATE");
 	try {
-		const glob = new Bun.Glob("**/*.jsonl");
-		for (const rel of [
-			...glob.scanSync({ cwd: root, onlyFiles: true }),
-		].sort()) {
-			out.files++;
-			const abs = join(root, rel);
-			let st: { size: number; mtimeMs: number };
-			try {
-				const s = statSync(abs);
-				st = { size: s.size, mtimeMs: s.mtimeMs };
-			} catch {
-				continue; // vanished mid-scan — next harvest catches the remainder
-			}
-			const key = verified
-				? tpKey(abs).replace("usage.tp.", "usage.v2.tp.")
-				: tpKey(abs);
-			let cur = getCur(key);
-			if (cur && cur.o > 0 && cur.v !== 2)
-				throw new Error(
-					"usage source requires reviewed provenance rebuild before metering: " +
-						key,
-				);
-			if (cur && st.size < cur.o) cur = null; // truncated → full re-read (rare)
-			if (cur && st.size === cur.o && st.mtimeMs === cur.m) {
-				out.skipped++;
-				continue; // unchanged transcript: the idempotency fast path
-			}
-			const start = cur?.o ?? 0;
-			const text = readTail(abs, start);
-			const nl = text.lastIndexOf("\n");
-			if (nl === -1) {
-				// no complete line in the tail — advance nothing, retry next pass
-				setCur.run(
-					key,
-					JSON.stringify({ o: start, m: st.mtimeMs, v: 2 }),
+		const stats = scanTranscriptTails(
+			db,
+			{
+				root: opts.root,
+				prefix: verified ? "usage.v2.tp" : "usage.tp",
+				// W466 legacy-cursor refusal rides the engine guard hook
+				guard: ({ key, cur }) => {
+					if (cur && cur.o > 0 && cur.v !== 2)
+						throw new Error(
+							"usage source requires reviewed provenance rebuild before metering: " +
+								key,
+						);
+				},
+			},
+			(scan) => {
+				if (scan.kind === "skip") {
+					out.skipped++;
+					return;
+				}
+				if (scan.kind === "empty") {
+					// no complete line in the tail — advance nothing, retry next pass
+					saveCursor(
+						db,
+						scan.key,
+						{ o: scan.start, m: scan.mtimeMs, v: 2 },
+						"usage-harvest",
+						Date.now(),
+					);
+					return;
+				}
+				// attribution fallback: the settings default_actor (config-over-code)
+				// — "unassigned" only when no default is configured
+				const actor = actorOf.get(scan.sid)?.actor ?? defaultActor;
+				for (const { text: line, offset: lineOffset } of scan.lines) {
+					let o:
+						| {
+								timestamp?: string;
+								uuid?: string;
+								type?: string;
+								message?: {
+									id?: string;
+									model?: string;
+									usage?: Record<string, unknown>;
+								};
+						  }
+						| undefined;
+					try {
+						o = JSON.parse(line);
+					} catch {
+						continue;
+					}
+					const ts = Date.parse(o?.timestamp ?? "");
+					const u = o?.message?.usage;
+					if (o?.type !== "assistant" || !u || !Number.isFinite(ts)) continue;
+					const model = o?.message?.model ?? "";
+					const delta = meter(
+						tpKey(scan.abs),
+						o.message?.id
+							? `message:${o.message.id}`
+							: o.uuid
+								? `uuid:${o.uuid}`
+								: `offset:${lineOffset}`,
+						Math.floor(ts / 3_600_000) * 3_600_000,
+						actor,
+						model,
+						u,
+					);
+					bump(
+						delta.hour,
+						delta.actor,
+						delta.model,
+						delta.requests,
+						delta.usage,
+					);
+					out.requests += delta.requests;
+					out.inTok += num(delta.usage.input_tokens);
+					out.outTok += num(delta.usage.output_tokens);
+					out.cacheR += num(delta.usage.cache_read_input_tokens);
+					out.cacheC += num(delta.usage.cache_creation_input_tokens);
+				}
+				saveCursor(
+					db,
+					scan.key,
+					{ o: scan.next, m: scan.mtimeMs, v: 2 },
+					"usage-harvest",
 					Date.now(),
 				);
-				continue;
-			}
-			const body = text.slice(0, nl + 1);
-			const next = start + Buffer.byteLength(body);
-			const sid = basename(rel).replace(/\.jsonl$/, "");
-			// attribution fallback: the settings default_actor (config-over-code)
-			// — "unassigned" only when no default is configured
-			const actor =
-				actorOf.get(sid)?.actor ??
-				readBoardSettings().settings.default_actor ??
-				"unassigned";
-			let offset = start;
-			for (const line of body.split("\n")) {
-				const lineOffset = offset;
-				offset += Buffer.byteLength(line) + 1;
-				let o:
-					| {
-							timestamp?: string;
-							uuid?: string;
-							type?: string;
-							message?: {
-								id?: string;
-								model?: string;
-								usage?: Record<string, unknown>;
-							};
-					  }
-					| undefined;
-				try {
-					o = JSON.parse(line);
-				} catch {
-					continue;
-				}
-				const ts = Date.parse(o?.timestamp ?? "");
-				const u = o?.message?.usage;
-				if (o?.type !== "assistant" || !u || !Number.isFinite(ts)) continue;
-				const model = o?.message?.model ?? "";
-				const delta = meter(
-					tpKey(abs),
-					o.message?.id
-						? `message:${o.message.id}`
-						: o.uuid
-							? `uuid:${o.uuid}`
-							: `offset:${lineOffset}`,
-					Math.floor(ts / 3_600_000) * 3_600_000,
-					actor,
-					model,
-					u,
-				);
-				bump(delta.hour, delta.actor, delta.model, delta.requests, delta.usage);
-				out.requests += delta.requests;
-				out.inTok += n(delta.usage.input_tokens);
-				out.outTok += n(delta.usage.output_tokens);
-				out.cacheR += n(delta.usage.cache_read_input_tokens);
-				out.cacheC += n(delta.usage.cache_creation_input_tokens);
-			}
-			setCur.run(
-				key,
-				JSON.stringify({ o: next, m: st.mtimeMs, v: 2 }),
-				Date.now(),
-			);
-			out.harvested++;
-		}
+				out.harvested++;
+			},
+		);
+		out.files = stats.files;
 		if (add.size) {
 			for (const r of add.values())
 				upsert.run(
@@ -306,45 +257,27 @@ export function harvestUsage(
 
 // board-API entry: harvest at most once per TTL; concurrent/reentrant calls
 // (same process or overlapping board requests) fold into the running one.
-// W147: the default TTL rides the console settings file (~/.claude/local-llm/
-// suspenders-board.json harvest_ttl_s) — config-over-code, 300s when unset.
-let inFlight = false;
-const defaultTtlMs = (): number => {
-	const s = readBoardSettings().settings.harvest_ttl_s;
-	return s && s >= 1 ? s * 1000 : 5 * 60_000;
-};
 export function maybeHarvest(
 	db: GovernorStore,
-	ttlMs = defaultTtlMs(),
+	ttlMs?: number,
 ): HarvestStats | null {
-	const row = db
-		.query("SELECT value FROM facts WHERE key = 'usage.harvestAt'")
-		.get() as { value: string | null } | null;
-	const at = Number(row?.value ?? 0);
-	if (inFlight || (Number.isFinite(at) && at > 0 && Date.now() - at < ttlMs))
-		return null;
-	inFlight = true;
-	try {
-		const s = harvestUsage(db);
-		db.query(
-			"INSERT INTO facts (key, value, source, ts) VALUES ('usage.harvestAt', ?, 'usage-harvest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
-		).run(String(Date.now()), Date.now());
-		// W142: aid metering rides the same TTL gate (fire-and-forget — the
-		// report built this tick may lag one cycle; aids are garnish).
-		void harvestAids(db).catch((e: unknown) =>
-			console.error(
-				`[aid-harvest] soft: ${e instanceof Error ? e.message : e}`,
-			),
-		);
-		return s;
-	} catch (e) {
-		console.error(
-			`[usage-harvest] failed soft: ${e instanceof Error ? e.message : e}`,
-		);
-		return null;
-	} finally {
-		inFlight = false;
-	}
+	return gatedHarvest(
+		db,
+		"usage",
+		"usage-harvest",
+		() => {
+			const s = harvestUsage(db);
+			// W142: aid metering rides the same TTL gate (fire-and-forget — the
+			// report built this tick may lag one cycle; aids are garnish).
+			void harvestAids(db).catch((e: unknown) =>
+				console.error(
+					`[aid-harvest] soft: ${e instanceof Error ? e.message : e}`,
+				),
+			);
+			return s;
+		},
+		ttlMs,
+	);
 }
 
 if (import.meta.main) {
