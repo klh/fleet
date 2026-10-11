@@ -297,3 +297,19 @@ services:
     nice: 10
     logs: { out: /tmp/coord-worker.log }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+
+  # W638 auto-install watcher — every 5 min: fleet main moved past the
+  # last-installed stamp AND the repo volume mounted AND no lane live/unknown
+  # → plain `bash install.sh` (no unit re-registration, no restarts) + one
+  # dead-lane registry prune afterwards. Failed installs never advance the
+  # stamp; skips are waiting states. Activate with install.sh --with-launchd.
+  - name: auto-install
+    bunEntry: "__PREFIX__/scripts/auto-install.ts"
+    args: ["--repo", "__REPO__"]
+    cwd: "__REPO__"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { intervalSeconds: 300 }
+    logs: { out: "__HOME__/.claude-insights/auto-install.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
