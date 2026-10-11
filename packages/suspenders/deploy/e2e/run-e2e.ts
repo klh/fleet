@@ -36,7 +36,6 @@ const BUCKLE = "http://127.0.0.1:4111";
 const BELT_STUB = "http://127.0.0.1:8902";
 const CADDY = "http://127.0.0.1:8080";
 const BOARD = "http://127.0.0.1:7809";
-const STORE = "http://127.0.0.1:7796";
 const MARKER = "e2e-stub-ok";
 const ROOT_KEY_FILE = join(DIR, "buckle.env");
 
@@ -409,7 +408,9 @@ async function main(): Promise<void> {
 	await waitHealthy("buckle", `${BUCKLE}/status`, timeoutS * 1000);
 	await waitHealthy("caddy", `${CADDY}/status`, timeoutS * 1000);
 	await waitHealthy("board", `${BOARD}/status`, timeoutS * 1000);
-	await waitHealthy("store", `${STORE}/status`, timeoutS * 1000);
+	// the store is loopback-only (W92) — no host probe can reach it through
+	// a published port; its verdict rides the shared-netns store-health
+	// sidecar, enforced by compose up --wait
 	if (overlay)
 		await waitHealthy(
 			"buckle-overlay",
