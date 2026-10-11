@@ -20,13 +20,9 @@
 name: klh-e2e
 
 x-fleet-image: &fleet-image oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
-# read-only bind of the checkout under test — the unit under test in CI.
-# The anchor is ONE volume entry (a map), usable as a list element everywhere.
-x-fleet-code: &fleet-code
-  type: bind
-  source: ${FLEET_DIR:?set FLEET_DIR to the fleet checkout under test}
-  target: /srv/fleet
-  read_only: true
+# the checkout under test arrives ONLY via repo-seed's read-only bind of
+# $FLEET_DIR (short syntax — proven on every runner); everything else reads
+# the seeded fleet-tree volume.
 
 x-default-logging: &default-logging
   driver: json-file
@@ -47,7 +43,7 @@ services:
       - -c
       - cd /src/host && tar -cf - --exclude=./node_modules --exclude=./.git --exclude=./.worktrees . | tar -xf - -C /srv/fleet && echo seeded
     volumes:
-      - *fleet-code
+      - ${FLEET_DIR:?set FLEET_DIR to the fleet checkout under test}:/src/host:ro
       - fleet-tree:/srv/fleet
 
   fleet-deps:
