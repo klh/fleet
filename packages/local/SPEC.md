@@ -109,7 +109,7 @@ belt.local {
 
 ## The verbs
 
-`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply` — plus the bar, the read-only status GUI serving the registry (below).
+`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply` / `dns-serve` / `dns-reconcile` — plus the bar, the read-only status GUI serving the registry (below).
 
 ### register `<name> --port N [--health /health] [--no-dns] [--route /path=port] [--lan --forward-auth URL]`
 
@@ -168,6 +168,14 @@ Rewrites the managed block in `/etc/hosts` from the registry — the determinist
 Hosts files cannot wildcard and macOS sends `*.local` to mDNS, so the dnsmasq `address=/.local/` catch-all was rejected by design: it hijacks every `.local` lookup machine-wide (printers, AirPlay, HomeKit `.local` hosts start answering 127.0.0.1). Exact names in one marked block touch nothing outside it — and only inside the markers does klh-local ever edit. `register`/`deregister` print a drift hint when the file disagrees with the registry; the write runs under sudo — the one sudo in klh-local's world.
 
 Under sudo `HOME` may be root's, so the registry path resolves from `--registry PATH`, else `SUDO_USER`'s home (`dscl` `NFSHomeDirectory`, fallback `/Users/<user>`), else `HOME`. A missing registry file exits 1 instead of clearing the block. The write is atomic: unique temp file next to the resolved target (`/etc/hosts` → `/private/etc/hosts`), original mode preserved, rename.
+
+### dns-serve
+
+The resident claim runner (fleet manifest `local-dns`, LaunchAgent `com.suspenders.local-dns`): every 30 seconds one serial pass restores every enabled registration whose claimant's exact identity (pid + full argv) is missing — only after the active Caddy route (host → target, admin API) verifies; a down or unconverged Caddy leaves DNS untouched and retries next pass. Routes, listeners, and service processes are never touched; `--no-dns` registrations stay disabled so another owner can announce those names. On SIGTERM/SIGINT it releases only claims this runner published that still match both the registry pid and the expected argv — a reused pid or a claim re-homed by another owner is left alone.
+
+### dns-reconcile `<name>`
+
+One restore pass for a single registered name, on demand: verifies the active Caddy route (host → target, admin API) first — mismatch or unreachable admin API exits 1 with DNS unchanged; this verb never reloads Caddy and never writes fragments. Under the registry lock it re-reads the registry and refuses on a mid-flight change, then reports `unchanged` when the exact claimant (pid + argv) is already alive, or spawns a fresh claim, waits up to 1s for the new process to register its exact identity, publishes the verified pid, and reports `reconciled` — a failed publish SIGTERMs only the new claimant. Exposure follows the registration (127.0.0.1 loopback / LAN address); a manual run on a `--no-dns` name claims it (explicit ask — the runner itself stays out of disabled names).
 
 ## DNS claims
 
