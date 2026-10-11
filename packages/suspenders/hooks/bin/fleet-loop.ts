@@ -85,6 +85,10 @@ import {
 	finishFailedLaunch,
 	type LaunchIntent,
 } from "../../scripts/lib/launch-fencing.ts";
+import {
+	controllerWatchBoundary,
+	currentControllerIdentity,
+} from "../../scripts/lib/controller-fence.ts";
 import { laneAttemptLimit } from "../../scripts/lib/lane-retry-budget.ts";
 import {
 	canonicalWorkClaim,
@@ -1325,11 +1329,55 @@ if (MODE === "once") {
 	process.exit(0);
 }
 
-// watch: each cycle is a killable --once child under a watchdog timer
+// watch: each cycle is a killable --once child under a watchdog timer.
+// W576.5 controller fence: exactly one watch per project acts. Authority is
+// a governor lease (pid+birth fenced, generation recorded); a second watch
+// STANDBYS — no cycles, no dispatch — while the holder is provably alive,
+// takes over only a provably dead holder, and releases authority at this
+// idle cycle boundary when the owner requested a handoff (launchd KeepAlive
+// respawns the successor; lanes are separate processes, never touched).
 log(
 	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
 );
+const CONTROLLER_NONCE = crypto.randomUUID();
+let controllerIdentity: ReturnType<typeof currentControllerIdentity> | null =
+	null;
+let standbyLogged = false;
 while (true) {
+	if (!controllerIdentity) {
+		try {
+			controllerIdentity = currentControllerIdentity(CONTROLLER_NONCE);
+		} catch (error) {
+			log(
+				`CONTROLLER-REFUSED pid=${process.pid} — ${error instanceof Error ? error.message : String(error)}`,
+			);
+			process.exit(1);
+		}
+	}
+	const fenceStore = openStore();
+	const verdict = controllerWatchBoundary(
+		fenceStore,
+		projectIdentity(REPO),
+		controllerIdentity,
+	);
+	fenceStore.close();
+	if (verdict === "standby") {
+		if (!standbyLogged) {
+			log(
+				`CONTROLLER-STANDBY pid=${process.pid} — a provably alive controller holds the authority; standing by, no cycles`,
+			);
+			standbyLogged = true;
+		}
+		await Bun.sleep(EVERY_MS);
+		continue;
+	}
+	standbyLogged = false;
+	if (verdict === "handoff") {
+		log(
+			`CONTROLLER-RELEASED pid=${process.pid} — owner-requested handoff released at idle boundary; KeepAlive respawns the successor`,
+		);
+		process.exit(0);
+	}
 	const childArgs = argv.slice(1);
 	const repoIndex = childArgs.indexOf("--repo");
 	if (repoIndex >= 0) childArgs[repoIndex + 1] = CALLER_REPO;

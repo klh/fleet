@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import {
 	defaultRenderValues,
@@ -10,10 +10,10 @@ import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import { processBirth } from "./lib/launch-fencing.ts";
 import { recordExistingService } from "./lib/record-existing-service.ts";
 import {
+	type ActivationReceipt,
 	digestUnit,
 	readActivation,
 	writeActivation,
-	type ActivationReceipt,
 } from "./lib/service-drift.ts";
 
 /** Owner-invoked provenance registration; no launchd mutation or source synchronization. */
@@ -29,6 +29,16 @@ export function recordFleetLoopActivation(options: {
 	if (active.state !== "ok" || !active.root)
 		throw new Error("immutable activated generation unavailable");
 	const packageRoot = join(active.root, "packages/suspenders");
+	// W576.5 conflation guard: the operator work repo (the merge/dispatch
+	// surface --repo names) must stay distinct from the immutable policy-code
+	// root — a repo inside the activated generation would have the loop's
+	// child scripts sourcing the very mutable tree the fence exists to bypass.
+	const prefixRoot = realpathSync(options.prefix);
+	const repoReal = realpathSync(options.repo ?? packageRoot);
+	if (repoReal === prefixRoot || repoReal.startsWith(`${prefixRoot}/`))
+		throw new Error(
+			"work repo must be distinct from the immutable policy-code root; pass --repo outside the activated generation",
+		);
 	const manifest = join(packageRoot, "deploy/services.yaml");
 	const spec = loadManifest(manifest).find(
 		(service) => service.name === "fleet-loop",

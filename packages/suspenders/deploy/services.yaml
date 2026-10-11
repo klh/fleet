@@ -124,7 +124,9 @@ services:
 
   # belt LLM routing watcher (W145) — DELIVERED NOT INSTALLED: activation is
   # a coordinator step. Secrets ride render-time env (BELT_URL/BELT_TOKEN),
-  # never this manifest.
+  # never this manifest. W576.5: --dispatch-cmd is prefix-absolute so the
+  # loop's child policy script loads from the immutable generation root,
+  # never the mutable work repo the unit's --repo/cwd point at.
   - name: fleet-loop
     bunEntry: "__PREFIX__/bin/fleet-loop.ts"
     args:
@@ -138,7 +140,7 @@ services:
       - "--ladder"
       - "git merge --no-ff {branch}"
       - "--dispatch-cmd"
-      - "__BUN__ scripts/dispatch-next.ts --target 8"
+      - "__BUN__ __PREFIX__/scripts/dispatch-next.ts --target 8"
       - "--every"
       - "120"
     cwd: "__REPO__"

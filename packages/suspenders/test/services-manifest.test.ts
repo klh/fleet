@@ -10,20 +10,20 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	TEMPLATE_DIR,
 	defaultRenderValues,
 	loadManifest,
+	type RenderValues,
 	renderDarwin,
 	renderLinux,
 	renderLinuxTimer,
 	renderTarget,
 	renderUnits,
 	renderWin32,
+	type ServiceSpec,
 	substitute,
+	TEMPLATE_DIR,
 	usedPlaceholders,
 	validateSpec,
-	type RenderValues,
-	type ServiceSpec,
 } from "../scripts/install-services.ts";
 import { parsePlistXml, project } from "./plist-fields.ts";
 
@@ -82,6 +82,18 @@ describe("services manifest (W488.1)", () => {
 		expect(env.PATH).toBe(
 			"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		);
+	});
+
+	test("fleet-loop dispatch-cmd is prefix-absolute — child policy scripts never load from the mutable work repo (W576.5)", () => {
+		const d = parsePlistXml(renderDarwin(byName("fleet-loop"), FIXTURE));
+		const args = d.ProgramArguments as string[];
+		const cmd = args[args.indexOf("--dispatch-cmd") + 1];
+		expect(cmd).toBe(
+			`${FIXTURE.bun} ${FIXTURE.prefix}/scripts/dispatch-next.ts --target 8`,
+		);
+		// WorkingDirectory/--repo stay the operator work repo — distinct from
+		// the immutable policy-code root the child script is sourced from
+		expect(d.WorkingDirectory as string).toBe(FIXTURE.repo);
 	});
 
 	test("belt defaults match install.sh ($BELT_URL / $BELT_TOKEN with fallbacks)", () => {
