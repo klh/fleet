@@ -30,7 +30,7 @@ import {
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
-import { ANSI, BIN, composeBrief } from "./lib/brief.ts";
+import { BIN, composeBrief } from "./lib/brief.ts";
 export { composeBrief };
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
@@ -124,10 +124,26 @@ import {
 	recordLaneExecutor,
 	writeExecutorCvFacts,
 } from "../hooks/lib/executor-cv.ts";
+// W636 decomposition: the READY-pool helpers + the archived-origin landing
+// guard moved to lib modules; the re-exports keep supervise.ts and the test
+// suites on their dispatch-next import path.
+import {
+	ANSI,
+	capabilityGate,
+	isOwnerGated,
+	parseReady,
+} from "./lib/ready-pool.ts";
+export { capabilityGate, isOwnerGated, parseReady };
+import { landingRedirect } from "./lib/landing-redirect.ts";
 
 const argv = process.argv.slice(2);
 // Command discovery must precede repo lookup, claims, registry writes and spawn.
-if (import.meta.main && (argv.includes("--help") || argv.includes("-h"))) {
+// `registry <verb> --help` belongs to the registry verb below, not this usage.
+if (
+	import.meta.main &&
+	argv[0] !== "registry" &&
+	(argv.includes("--help") || argv.includes("-h"))
+) {
 	console.log(`Usage: dispatch [options]
 
 Refill agent lanes from READY work and resume unfinished claims.
@@ -143,6 +159,9 @@ Refill agent lanes from READY work and resume unfinished claims.
                             (claude --resume --fork-session). Policy-gated:
                             SUSPENDERS_RESUME_RETAKE=on + cache-warm
                             transcript fence; any miss = fresh + capsule.
+  registry list|prune|forget  Inspect the durable lane registry; prune removes
+                            entries whose lane is provably dead (liveness-
+                            guarded; live/unknown entries are retained)
   -h, --help               Print this help without dispatching
 
 Crash recovery defaults to three total launches per lane.
@@ -195,6 +214,14 @@ const SHOW_CAPSULE = val("--show-capsule");
 // doctrine stays fresh lane + capsule.
 const RESUME_FROM = val("--resume-from");
 const FLEET = `${REPO}/.fleet`;
+// W636: `registry` verb family — liveness-guarded operator cleanup of the
+// durable lane registry (list/prune/forget); command discovery precedes the
+// dispatch pipeline exactly like --help above. Dynamic import: the verb
+// module costs nothing on a normal dispatch run.
+if (import.meta.main && argv[0] === "registry") {
+	const { registryMain } = await import("./lib/registry-cli.ts");
+	process.exit(await registryMain(argv.slice(1), { fleet: FLEET }));
+}
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
@@ -272,75 +299,11 @@ const log = (msg: string): void => {
 const loadLanes = (): Lane[] => loadLaneRegistry<Lane>(FLEET);
 const saveLanes = (lanes: Lane[]): void => mergeLaneRegistry(FLEET, lanes);
 
-/** parse `work ready` rows (renderRow format, ANSI-stripped): glyph, id,
- *  truncated title, and the `⟨needs …⟩` capability suffix (W619 — the
- *  dispatch-side capability pre-filter reads it). The title is for gating/log
- *  lines only — the brief must carry the FULL spec from `work show` (gaps W279
- *  phantom-lane lesson). W494: the renderer pads the id field (width 7) — ids
- *  ≥7 chars emit NO separator space, so the id/title gap is zero-or-more and
- *  the title may be empty. The [\d.]+ class stops the id at the first non-id
- *  char. */
-export const parseReady = (
-	stdout: string,
-): { id: string; title: string; requires: string[] }[] =>
-	stdout
-		.replace(ANSI, "")
-		.split("\n")
-		.map((l) => /^\s*·\s+(W[\d.]+)\s*(.*)$/.exec(l.trimEnd()))
-		.map((m) => {
-			if (!m) return null;
-			const needs = /⟨needs ([^⟩]*)⟩/.exec(m[2]);
-			return {
-				id: m[1],
-				title: m[2].trim(),
-				requires: needs
-					? needs[1]
-							.split(",")
-							.map((c) => c.trim())
-							.filter(Boolean)
-					: [],
-			};
-		})
-		.filter((x): x is { id: string; title: string; requires: string[] } => !!x);
+// W636 decomposition: READY-pool helpers (ANSI, parseReady, isOwnerGated,
+// capabilityGate) moved to scripts/lib/ready-pool.ts; re-exports at the
+// import block keep supervise.ts + the test importers on their path.
 
 /** decision-gated items never ride the automagic — they surface to the owner. */
-export const isOwnerGated = (title: string): boolean =>
-	/OWNER-GATED|OWNER GATE|\bGATED\b|\bHELD\b|NEED_DECISION|\bDECISION\b|PAUSED/i.test(
-		title,
-	);
-
-/** W619 capability gate: split the fresh READY pool into dispatchable rows
- *  and capability-mismatched skips. Pure — capsOf injects the sessions read
- *  (the take check's exact mirror: a never-dispatched sid has no row, so its
- *  caps are empty and any requires-work starves). skips are the SKIP notes
- *  main() prints; starved aggregates capability → wanting items. */
-export const capabilityGate = (
-	rows: { id: string; requires: string[] }[],
-	capsOf: (sid: string) => string[],
-	laneSidOf: (id: string) => string,
-): {
-	dispatchable: { id: string; requires: string[] }[];
-	starved: Map<string, string[]>;
-	skips: string[];
-} => {
-	const starved = new Map<string, string[]>();
-	const dispatchable: { id: string; requires: string[] }[] = [];
-	const skips: string[] = [];
-	for (const r of rows) {
-		const sid = laneSidOf(r.id);
-		const missing = r.requires.filter((c) => !capsOf(sid).includes(c));
-		if (!missing.length) {
-			dispatchable.push(r);
-			continue;
-		}
-		skips.push(
-			`SKIP ${r.id} — capability-mismatched: requires [${r.requires.join(",")}] missing [${missing.join(",")}] on lane ${sid.slice(0, 8)} — dispatch to a capable agent`,
-		);
-		for (const c of missing) starved.set(c, [...(starved.get(c) ?? []), r.id]);
-	}
-	return { dispatchable, starved, skips };
-};
-
 // governance mode: read ONCE per dispatch run, through the coord CLI the
 // script already uses for facts (copilot-meter pattern) — no second store,
 // no raw sqlite on governor.db. Absent/broken fact reads fold to strict.
@@ -396,66 +359,6 @@ export const sidOf = laneSid;
 
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */
-// ─── archived-origin landing guard (the W428 lesson, 2026-10-05) ─────────
-// The monorepo cutover archived every member origin — pushes to them
-// bounce, and a lane that discovers this mid-run dies silently with its
-// claim held (autow428). The brief carries the redirect BEFORE the lane
-// pushes: probe the origin archive flag once per dispatch (10-min cache)
-// and, when archived, redirect the landing to the living repo.
-const ARCHIVE_PROBE_TTL_MS = 10 * 60_000;
-const archiveProbeCache = new Map<string, { at: number; archived: boolean }>();
-const GITHUB_SLUG = /github\.com[:/]+([^/]+)\/([^.]+?)(?:\.git)?$/;
-
-export const landingRedirect = async (
-	repo: string,
-	branch: string,
-): Promise<string | null> => {
-	const note = (a: boolean): string | null =>
-		a
-			? `ORIGIN ARCHIVED (monorepo cutover): ${repo} is push-dead. Commit on ${branch} as usual, then push the branch to the living repo instead of the archived origin: git push https://github.com/klh/fleet.git HEAD:refs/heads/${branch} — work done --sha takes the FLEET head sha. Pushing to the archived origin bounces and ends the lane's run silently.`
-			: null;
-	return await probeArchive(repo, note);
-};
-
-const probeArchive = async (
-	repo: string,
-	note: (a: boolean) => string | null,
-): Promise<string | null> => {
-	const cached = archiveProbeCache.get(repo);
-	if (cached && Date.now() - cached.at < ARCHIVE_PROBE_TTL_MS)
-		return note(cached.archived);
-	return await fetchArchiveFlag(repo, note);
-};
-
-const fetchArchiveFlag = async (
-	repo: string,
-	note: (a: boolean) => string | null,
-): Promise<string | null> => {
-	let archived = false;
-	try {
-		const r = run(["git", "-C", repo, "remote", "get-url", "origin"]);
-		if (r.code === 0) {
-			const m = GITHUB_SLUG.exec(r.out);
-			if (m) {
-				const res = await fetch(
-					`https://api.github.com/repos/${m[1]}/${m[2]}`,
-					{
-						headers: { accept: "application/vnd.github+json" },
-						signal: AbortSignal.timeout(8_000),
-					},
-				);
-				if (res.ok)
-					archived =
-						((await res.json()) as { archived?: boolean }).archived === true;
-			}
-		}
-	} catch {
-		archived = false;
-	}
-	archiveProbeCache.set(repo, { at: Date.now(), archived });
-	return note(archived);
-};
-
 // W620: dry-run cv snapshot — facts read only, no write; the dry brief shows
 // the same trust-reordered default ladder the spawn path would pick.
 const cvSnapshot = (): Map<string, number> => {
