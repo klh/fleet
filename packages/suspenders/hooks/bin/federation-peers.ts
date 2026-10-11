@@ -6,6 +6,7 @@
 // last-known, never blocks the hub. --once exits 2 when any peer degraded
 // (honest signal for the caller), loop mode never exits on peer-down.
 import { pullPeerPolicy, resolvePeerLabels } from "../lib/federation-peers.ts";
+import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const INTERVAL_S = Number(process.env.FEDERATION_PEERS_INTERVAL_S ?? "300");
 
@@ -35,15 +36,38 @@ async function cycle(): Promise<boolean> {
 }
 
 if (import.meta.main) {
-	if (process.argv.includes("--once")) {
-		const ok = await cycle();
-		process.exit(ok ? 0 : 2);
-	}
-	console.log(
-		`[federation-peers] loop every ${String(INTERVAL_S)}s (HUB_PEERS=${process.env.HUB_PEERS ?? "unset"} KLH_HUB_NAME=${process.env.KLH_HUB_NAME ?? "unset"})`,
-	);
-	for (;;) {
-		await cycle();
-		await Bun.sleep(INTERVAL_S * 1000);
-	}
+	// legacy `--once` flag rides as an alias of the `once` verb; BARE (the
+	// compose contract) and any other flag head ride the `loop` default
+	const rest = process.argv.slice(2);
+	const tokens = rest[0] === "--once" ? ["once", ...rest.slice(1)] : rest;
+	await runCli({
+		prog: "federation-peers",
+		about: "federation-peers — W362 peer policy propagation.",
+		verbs: [
+			defineVerb({
+				name: "once",
+				usage:
+					"usage: federation-peers once — one cycle; exits 2 when any peer degraded",
+			}),
+			defineVerb({
+				name: "loop",
+				usage:
+					"usage: federation-peers loop — cycle every FEDERATION_PEERS_INTERVAL_S (default 300s)",
+			}),
+		],
+		defaultVerb: "loop",
+		argv: ["bun", "hooks/bin/federation-peers.ts", ...tokens],
+		dispatch: async (name) => {
+			if (name === "loop") {
+				console.log(
+					`[federation-peers] loop every ${String(INTERVAL_S)}s (HUB_PEERS=${process.env.HUB_PEERS ?? "unset"} KLH_HUB_NAME=${process.env.KLH_HUB_NAME ?? "unset"})`,
+				);
+				for (;;) {
+					await cycle();
+					await Bun.sleep(INTERVAL_S * 1000);
+				}
+			}
+			return (await cycle()) ? 0 : 2;
+		},
+	});
 }

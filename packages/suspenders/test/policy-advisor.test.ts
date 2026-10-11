@@ -7,7 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArgs, renderHuman } from "../hooks/bin/policy-advisor.ts";
+import { CHECK_VERB, renderHuman } from "../hooks/bin/policy-advisor.ts";
+import { parseVerb } from "../hooks/lib/verb-kit.ts";
 import {
 	catalogManifest,
 	policyCatalog,
@@ -226,8 +227,8 @@ describe("run semantics + CLI", () => {
 		expect(out.findings.some((f) => f.rule === "law.qlty-required")).toBe(true);
 	});
 
-	test("parseArgs: flags, repeatable --rule, positional root", () => {
-		const a = parseArgs([
+	test("check verb parses via the kit registry: --rule repeats, switches, root", () => {
+		const r = parseVerb(CHECK_VERB, [
 			"/some/root",
 			"--rule",
 			"law.a",
@@ -236,10 +237,13 @@ describe("run semantics + CLI", () => {
 			"--json",
 			"--strict",
 		]);
-		expect(a.root).toBe("/some/root");
-		expect(a.rules).toEqual(["law.a", "law.b"]);
-		expect(a.json).toBe(true);
-		expect(a.strict).toBe(true);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.parsed.pos[0]).toBe("/some/root");
+			expect(r.parsed.all("--rule")).toEqual(["law.a", "law.b"]);
+			expect(r.parsed.flag("--json")).toBe("true");
+			expect(r.parsed.flag("--strict")).toBe("true");
+		}
 	});
 
 	test("renderHuman: citation + offer surface per finding", () => {

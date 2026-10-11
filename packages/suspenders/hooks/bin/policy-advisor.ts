@@ -5,59 +5,24 @@
 // tool never edits, never commits, never opens a PR — the implement-and-PR
 // step is a human opt-in, and PRs land on branches, never straight to main.
 //
-// usage:
-//   bun hooks/bin/policy-advisor.ts [root] [--rule <id>] [--json]
-//       [--manifest] [--strict]
-//
-//   root        repo to check (default: $PWD) — "the worked-on service"
-//   --rule <id> restrict to catalog rule ids (repeatable; unknown ids are
-//               reported in skipped[])
-//   --json      machine-readable run result (for board/console integrations)
-//   --manifest  print the W154 policy-pull payload ({version, rules,
-//               cr_queue}) — the hub-distributable catalog form — and exit
-//   --strict    exit 1 when findings exist (default: exit 0 — advice never
-//               blocks; blocking is the gates' job, not the advisor's)
+// CLI (W656.3 verb-kit): `policy-advisor --help` for the generated face —
+// the `check` verb is the default (bare/flag-first argv rides it, the old
+// verb-less face preserved): [root] [--rule <id>]... [--json] [--manifest]
+// [--strict].
 
 import { catalogManifest } from "../lib/policy/catalog.ts";
 import { runPolicyChecks } from "../lib/policy/checks.ts";
+import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 import type { PolicyRunResult } from "../lib/policy/types.ts";
 
-export interface AdvisorArgs {
-	root: string;
-	rules: string[];
-	json: boolean;
-	manifest: boolean;
-	strict: boolean;
-}
-
-export function parseArgs(argv: string[]): AdvisorArgs {
-	const out: AdvisorArgs = {
-		root: process.cwd(),
-		rules: [],
-		json: false,
-		manifest: false,
-		strict: false,
-	};
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i] ?? "";
-		if (a === "--json") out.json = true;
-		else if (a === "--manifest") out.manifest = true;
-		else if (a === "--strict") out.strict = true;
-		else if (a === "--rule") {
-			const v = argv[i + 1];
-			if (v === undefined || v.startsWith("--")) {
-				console.error("policy-advisor: --rule needs a value");
-				process.exit(2);
-			}
-			out.rules.push(v);
-			i++;
-		} else if (a.startsWith("--")) {
-			console.error(`policy-advisor: unknown flag ${a}`);
-			process.exit(2);
-		} else out.root = a;
-	}
-	return out;
-}
+// exported for the test suite — parse semantics ride the kit (parseVerb)
+export const CHECK_VERB: VerbSpec = defineVerb({
+	name: "check",
+	usage:
+		"usage: policy-advisor [check] [root] [--rule <id>]... [--json] [--manifest] [--strict]",
+	flags: ["--rule"],
+	switches: ["--json", "--manifest", "--strict"],
+});
 
 /** Human report: finding → where + detail, policy citation, fix, offer. */
 export function renderHuman(out: PolicyRunResult): string {
@@ -85,16 +50,33 @@ export function renderHuman(out: PolicyRunResult): string {
 }
 
 if (import.meta.main) {
-	const args = parseArgs(process.argv.slice(2));
-	if (args.manifest) {
-		console.log(JSON.stringify(catalogManifest(), null, "\t"));
-	} else {
-		const out = runPolicyChecks(
-			args.root,
-			args.rules.length > 0 ? { rules: args.rules } : {},
-		);
-		if (args.json) console.log(JSON.stringify(out, null, "\t"));
-		else console.log(renderHuman(out));
-		if (args.strict && out.findings.length > 0) process.exit(1);
-	}
+	// the old verb-less face: a non-verb, non-flag head token is the root
+	// positional, not a command — prefix the default verb and let the kit parse
+	const rest = process.argv.slice(2);
+	const head = rest[0];
+	const tokens =
+		head !== undefined && head !== "check" && !head.startsWith("-")
+			? ["check", ...rest]
+			: rest;
+	await runCli({
+		prog: "policy-advisor",
+		about: "policy-advisor — W161 policy catalog vs a repo root.",
+		verbs: [CHECK_VERB],
+		defaultVerb: "check",
+		argv: ["bun", "hooks/bin/policy-advisor.ts", ...tokens],
+		dispatch: async (_name, p) => {
+			if (p.flag("--manifest")) {
+				console.log(JSON.stringify(catalogManifest(), null, "\t"));
+				return 0;
+			}
+			const rules = p.all("--rule");
+			const out = runPolicyChecks(
+				p.pos[0] ?? process.cwd(),
+				rules.length > 0 ? { rules } : {},
+			);
+			if (p.flag("--json")) console.log(JSON.stringify(out, null, "\t"));
+			else console.log(renderHuman(out));
+			return p.flag("--strict") && out.findings.length > 0 ? 1 : undefined;
+		},
+	});
 }

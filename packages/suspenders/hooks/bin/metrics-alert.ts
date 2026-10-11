@@ -15,9 +15,10 @@
 //   SPIKE   an alert-counter increased since the previous pass
 //   QUEUE   oldest READY work item older than the queue-age threshold
 //
-// usage: bun metrics-alert.ts [--watch <s>] [--json]
-//   targets: METRICS_ALERT_TARGETS env (comma-separated URLs), else the
-//   loopback defaults (board :7799, buckle spoke :4101).
+// usage: metrics-alert [--help] — the `run` verb is the default (W656.3
+//   verb-kit): [--watch <s>] [--json]; targets: METRICS_ALERT_TARGETS env
+//   (comma-separated URLs), else the loopback defaults (board :7799, buckle
+//   spoke :4101).
 import {
 	appendFileSync,
 	mkdirSync,
@@ -28,6 +29,7 @@ import {
 import { homedir } from "node:os";
 import { openGovernorDb } from "../lib/govdb.ts";
 import { urlInQuietHours } from "../lib/stack-config.ts";
+import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 export interface Series {
 	name: string;
@@ -126,12 +128,9 @@ export function familyDrops(
 		prev.map((s) => [`${s.name}|${labelKey(s.labels)}`, s] as const),
 	);
 	const after = new Set(cur.map((s) => `${s.name}|${labelKey(s.labels)}`));
-	return [...before.keys()]
-		.filter((k) => !after.has(k))
-		.map((k) => {
-			const s = before.get(k)!;
-			return { name: s.name, labels: labelKey(s.labels) };
-		});
+	return [...before.entries()]
+		.filter(([k]) => !after.has(k))
+		.map(([, s]) => ({ name: s.name, labels: labelKey(s.labels) }));
 }
 
 // counter resets are legal (servicemon set()) — a reset never alerts
@@ -352,10 +351,6 @@ export function emitAlerts(alerts: Alert[]): void {
 }
 
 // ---- main (guarded: importable by tests) ----------------------------------
-export const arg = (name: string): string | null => {
-	const i = process.argv.indexOf(name);
-	return i > 0 ? (process.argv[i + 1] ?? null) : null;
-};
 
 // W483: a quiet-hours hub is EXPECTED dark — skip the scrape (no DROP
 // accumulates) and forgive misses so the 08:00 boot never pages a stale
@@ -371,7 +366,10 @@ export function skipQuietTarget(
 	return true;
 }
 
-export async function runPass(s: AlertState): Promise<number> {
+export async function runPass(
+	s: AlertState,
+	out: { json: boolean } = { json: false },
+): Promise<number> {
 	const now = Date.now();
 	const alerts: Alert[] = [];
 	for (const t of resolveTargets()) {
@@ -379,23 +377,41 @@ export async function runPass(s: AlertState): Promise<number> {
 		alerts.push(...(await scrapeTarget(s, t, now)));
 	}
 	alerts.push(...queuePass(s, now));
-	const out = arg("--json")
+	const emit = out.json
 		? (a: Alert) => console.log(JSON.stringify(a))
 		: (a: Alert) => console.log(formatAlert(a));
-	for (const a of alerts) out(a);
+	for (const a of alerts) emit(a);
 	emitAlerts(alerts);
 	saveState(s);
 	return alerts.length;
 }
 
 if (import.meta.main) {
-	const watchS = Number(arg("--watch") ?? 0);
-	const s = loadState();
-	let fired = 0;
-	for (;;) {
-		fired += await runPass(s);
-		if (!watchS) break;
-		await new Promise((r) => setTimeout(r, watchS * 1000));
-	}
-	if (fired > 0) process.exit(1);
+	await runCli({
+		prog: "metrics-alert",
+		about: "metrics-alert — W452 fleet /status+/metrics alerting.",
+		verbs: [
+			defineVerb({
+				name: "run",
+				usage:
+					"usage: metrics-alert [run] [--watch <s>] [--json] — exits 1 when alerts fired",
+				flags: ["--watch"],
+				switches: ["--json"],
+			}),
+		],
+		defaultVerb: "run",
+		argv: ["bun", "hooks/bin/metrics-alert.ts", ...process.argv.slice(2)],
+		dispatch: async (_name, p) => {
+			const json = p.flag("--json") === "true";
+			const watchS = Number(p.flag("--watch") ?? 0);
+			const s = loadState();
+			let fired = 0;
+			for (;;) {
+				fired += await runPass(s, { json });
+				if (!watchS) break;
+				await new Promise((r) => setTimeout(r, watchS * 1000));
+			}
+			return fired > 0 ? 1 : undefined;
+		},
+	});
 }

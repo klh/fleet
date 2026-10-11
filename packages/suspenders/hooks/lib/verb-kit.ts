@@ -155,6 +155,10 @@ export type RunCliOpts = {
 	epilog?: string;
 	/** tokens AFTER the script path; defaults to process.argv (kit slices :2) */
 	argv?: string[];
+	/** bare or flag-first argv rides this verb (daemons: compose/launchd
+	 *  spawn bare; the FULL token list parses against it). Verb-named argv
+	 *  resolves as usual — `--help` still wins everywhere. (W656.3) */
+	defaultVerb?: string;
 	/** notified with the parsed verb right before dispatch */
 	onVerb?: (name: string, parsed: Parsed) => void;
 	/** legacy dispatch callback — used when the resolved spec has no run */
@@ -169,43 +173,61 @@ export const runCli = async (opts: RunCliOpts): Promise<void> => {
 	const tokens = (opts.argv ?? process.argv).slice(2);
 	const byName = new Map(opts.verbs.map((v) => [v.name, v]));
 	const names = opts.verbs.map((v) => v.name);
-	if (!tokens.length) {
+	// the shared dispatch tail: per-verb --help, parse+validate, notify, run
+	const runSpec = async (spec: VerbSpec, rest: string[]): Promise<void> => {
+		// --help anywhere wins before any parsing that could create state
+		if (rest.includes("--help") || rest.includes("-h")) {
+			const help = renderVerbHelp(spec);
+			if (help) console.log(help);
+			process.exit(0);
+		}
+		const outcome = parseVerb(spec, rest);
+		if (!outcome.ok)
+			die(
+				outcome.message ||
+					`usage: ${spec.name} — see \`${opts.prog} ${spec.name} --help\``,
+			);
+		const parsed = outcome.parsed;
+		opts.onVerb?.(spec.name, parsed);
+		if (spec.run) {
+			const r = await spec.run(parsed);
+			if (typeof r === "number") process.exit(r);
+		} else if (opts.dispatch) {
+			const r = await opts.dispatch(spec.name, parsed);
+			if (typeof r === "number") process.exit(r);
+		} else {
+			die(`verb has no handler: ${spec.name}`);
+		}
+		opts.after?.(spec.name);
+	};
+	// default-verb door (W656.3): bare or flag-first argv rides the default
+	// verb with the FULL token list — compose/launchd spawn daemons bare, and
+	// a flag head still parses against the default verb's declared flags
+	const head = tokens[0];
+	const fallback =
+		opts.defaultVerb !== undefined ? byName.get(opts.defaultVerb) : undefined;
+	if (
+		fallback &&
+		(head === undefined ||
+			(head.startsWith("-") && head !== "--help" && head !== "-h"))
+	) {
+		await runSpec(fallback, tokens);
+		return;
+	}
+	const head2 = tokens[0];
+	if (!tokens.length || head2 === undefined) {
 		console.error(
 			`usage: ${opts.prog} <command> [args] — try \`${opts.prog} --help\``,
 		);
 		process.exit(2);
 	}
-	if (tokens[0] === "--help" || tokens[0] === "-h") {
+	if (head2 === "--help" || head2 === "-h") {
 		console.log(
 			renderRegistryHelp(opts.prog, opts.about, opts.verbs, opts.epilog),
 		);
 		process.exit(0);
 	}
-	const spec = byName.get(tokens[0]);
+	const spec = byName.get(head2);
 	if (!spec) die(`unknown command — try ${names.join(" | ")}`);
-	const rest = tokens.slice(1);
-	// --help anywhere wins before any parsing that could create state
-	if (rest.includes("--help") || rest.includes("-h")) {
-		const help = renderVerbHelp(spec);
-		if (help) console.log(help);
-		process.exit(0);
-	}
-	const outcome = parseVerb(spec, rest);
-	if (!outcome.ok)
-		die(
-			outcome.message ||
-				`usage: ${spec.name} — see \`${opts.prog} ${spec.name} --help\``,
-		);
-	const parsed = outcome.parsed;
-	opts.onVerb?.(spec.name, parsed);
-	if (spec.run) {
-		const r = await spec.run(parsed);
-		if (typeof r === "number") process.exit(r);
-	} else if (opts.dispatch) {
-		const r = await opts.dispatch(spec.name, parsed);
-		if (typeof r === "number") process.exit(r);
-	} else {
-		die(`verb has no handler: ${spec.name}`);
-	}
-	opts.after?.(spec.name);
+	await runSpec(spec, tokens.slice(1));
 };
