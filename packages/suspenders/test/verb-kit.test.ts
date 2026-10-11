@@ -84,7 +84,9 @@ describe("parseVerb — the one parser", () => {
 
 describe("help rendering — generated, never hand-maintained", () => {
 	test("renderVerbHelp: usage + flags line (switches fold in)", () => {
-		const help = renderVerbHelp(spec({ flags: ["--on"], switches: ["--json"] }));
+		const help = renderVerbHelp(
+			spec({ flags: ["--on"], switches: ["--json"] }),
+		);
 		expect(help).toContain("usage: probe <x> --on <id>");
 		expect(help).toContain("flags: --on --json");
 	});
@@ -103,12 +105,18 @@ describe("help rendering — generated, never hand-maintained", () => {
 
 describe("runCli — the process door (spawned)", () => {
 	const FIXTURE = join(import.meta.dir, "fixtures", "verb-kit-demo.ts");
-	const demo = (...args: string[]): { out: string; err: string; code: number } => {
+	const demo = (
+		...args: string[]
+	): { out: string; err: string; code: number } => {
 		const p = Bun.spawnSync(["bun", FIXTURE, ...args], {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+		return {
+			out: p.stdout.toString(),
+			err: p.stderr.toString(),
+			code: p.exitCode,
+		};
 	};
 
 	test("happy path: parse feeds run, after hook fires, exit 0", () => {
@@ -175,7 +183,11 @@ describe("runCli default-verb door (W656.3 daemons)", () => {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		return { out: p.stdout.toString(), err: p.stderr.toString(), code: p.exitCode };
+		return {
+			out: p.stdout.toString(),
+			err: p.stderr.toString(),
+			code: p.exitCode,
+		};
 	};
 
 	test("bare invocation rides the default verb (compose/launchd contract)", () => {
@@ -205,7 +217,3 @@ describe("runCli default-verb door (W656.3 daemons)", () => {
 		expect(help.out).toContain("daemon-demo — W656.3 default-verb fixture.");
 	});
 });
-
-
-
-

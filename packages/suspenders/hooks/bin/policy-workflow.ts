@@ -7,22 +7,9 @@
 // prototype of the toto-gpt.md shared-policy-workflow design, not corporate
 // enforcement: nothing here gates release by itself.
 //
-// usage:
-//   bun hooks/bin/policy-workflow.ts assess <service> [--org <id>] [--project <id>]
-//       [--deployment <json-file>]       assess against the health policy
-//   bun hooks/bin/policy-workflow.ts propose <service> --spec <json-file>
-//       [--org <id>] [--project <id>]    idempotent remediation proposal
-//   bun hooks/bin/policy-workflow.ts decide <remediation-id> <approve|defer|exception>
-//       --actor <id> --hash <proposal-hash> [--expires <ms-epoch>]
-//   bun hooks/bin/policy-workflow.ts authorize <remediation-id>
-//       --actor <id> --hash <proposal-hash>   approve + mint the ONE remediation
-//       work item (exact-once under concurrent approvals)
-//   bun hooks/bin/policy-workflow.ts remediation <remediation-id> <claim|review|merge|cancel>
-//       --actor <id>
-//   bun hooks/bin/policy-workflow.ts attest <service> --instance <id>
-//       [--verify|--fail] [--evidence <json-file>] [--ttl <ms>]
-//   bun hooks/bin/policy-workflow.ts list <assessments|remediations|attestations> [--project <id>]
-//   bun hooks/bin/policy-workflow.ts expire            sweep expired attestations
+// CLI (W656.3 verb-kit): `policy-workflow --help` for the generated verb
+// list; per-verb `--help` carries the usage line. Verbs: assess, propose,
+// decide, authorize, remediation, attest, list, expire.
 import { readFileSync } from "node:fs";
 import { openGovernorDb } from "../lib/govdb.ts";
 import {
@@ -47,11 +34,82 @@ import {
 	transitionRemediation,
 	authorizeRemediation,
 } from "../lib/policy-workflow/store.ts";
+import {
+	defineVerb,
+	dieFor,
+	runCli,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
-function usage(): never {
-	console.error("policy-workflow: see header comment for verbs");
-	process.exit(2);
-}
+const die = dieFor("policy-workflow");
+
+const usageOf = (name: string): string =>
+	VERBS.find((v) => v.name === name)?.usage ?? "";
+
+// ---- the verb registry (W656.3) — the kit owns parse/help/die ------------
+// Sim contract (sim/ikea-pilot.ts): assess/propose/authorize pass --org and
+// --project on every call, so those flags ride every db-touching verb.
+export const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "assess",
+		usage:
+			"usage: assess <service> [--org <id>] [--project <id>] [--deployment <json-file>]",
+		flags: ["--org", "--project", "--deployment"],
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "propose",
+		usage:
+			"usage: propose <service> --spec <json-file> [--org <id>] [--project <id>]",
+		flags: ["--spec", "--org", "--project"],
+		minPos: 1,
+		reqFlags: ["--spec"],
+	}),
+	defineVerb({
+		name: "decide",
+		usage:
+			"usage: decide <remediation-id> <approve|defer|exception> --actor <id> --hash <proposal-hash> [--expires <ms-epoch>]",
+		flags: ["--actor", "--hash", "--expires", "--org", "--project"],
+		minPos: 2,
+		reqFlags: ["--actor", "--hash"],
+	}),
+	defineVerb({
+		name: "authorize",
+		usage:
+			"usage: authorize <remediation-id> --actor <id> --hash <proposal-hash> [--org <id>] [--project <id>]",
+		flags: ["--actor", "--hash", "--org", "--project"],
+		minPos: 1,
+		reqFlags: ["--hash"],
+	}),
+	defineVerb({
+		name: "remediation",
+		usage:
+			"usage: remediation <remediation-id> <claim|review|merge|cancel> [--actor <id>]",
+		flags: ["--actor", "--project"],
+		minPos: 2,
+	}),
+	defineVerb({
+		name: "attest",
+		usage:
+			"usage: attest <service> --instance <id> [--verify|--fail] [--evidence <json-file>] [--ttl <ms>]",
+		flags: ["--instance", "--evidence", "--ttl", "--org", "--project"],
+		switches: ["--verify", "--fail"],
+		minPos: 1,
+		reqFlags: ["--instance"],
+	}),
+	defineVerb({
+		name: "list",
+		usage:
+			"usage: list <assessments|remediations|attestations> [--project <id>]",
+		flags: ["--project"],
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "expire",
+		usage: "usage: expire — sweep expired attestations",
+	}),
+];
 
 function readJson(path: string): Record<string, unknown> {
 	return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -81,14 +139,12 @@ function sourceRevision(): string {
 	return edited ? `${id}:dirty` : `${id}:clean`;
 }
 
-function main(): void {
-	const argv = process.argv.slice(2);
-	const [verb, subject, action] = argv;
-	if (!verb) usage();
-	const flag = (name: string): string | undefined => {
-		const i = argv.indexOf(`--${name}`);
-		return i >= 0 ? argv[i + 1] : undefined;
-	};
+/** Kit-dispatched verb body — the old main() branches, argv now Parsed. */
+function runVerb(p: Parsed): number | undefined {
+	const verb = p.name;
+	const subject = p.pos[0];
+	const action = p.pos[1];
+	const flag = (name: string): string | undefined => p.flag(name) ?? undefined;
 	const project = flag("project") ?? "fleet";
 	const orgId = flag("org") ?? "klh";
 	const db = openGovernorDb();
@@ -156,7 +212,7 @@ function main(): void {
 		}
 		if (verb === "propose" && subject) {
 			const spec = flag("spec");
-			if (!spec) usage();
+			if (!spec) die(usageOf(verb));
 			const { id, created } = proposeRemediation(db, {
 				project,
 				orgId,
@@ -175,7 +231,8 @@ function main(): void {
 			return;
 		}
 		if (verb === "decide" && subject && action) {
-			if (!["approve", "defer", "exception"].includes(action)) usage();
+			if (!["approve", "defer", "exception"].includes(action))
+				die(usageOf(verb));
 			const hash = flag("hash");
 			const actor = flag("actor");
 			if (!hash || !actor) usage();
@@ -201,7 +258,7 @@ function main(): void {
 		if (verb === "authorize" && subject) {
 			const hash = flag("hash");
 			const actor = flag("actor") ?? "cli";
-			if (!hash) usage();
+			if (!hash) die(usageOf(verb));
 			const result = authorizeRemediation(db, {
 				project,
 				remediationId: subject,
@@ -224,7 +281,7 @@ function main(): void {
 				merge: "merged",
 				cancel: "cancelled",
 			}[action];
-			if (!to) usage();
+			if (!to) die(usageOf(verb));
 			const result = transitionRemediation(db, {
 				project,
 				remediationId: subject,
@@ -240,7 +297,7 @@ function main(): void {
 		}
 		if (verb === "attest" && subject) {
 			const instance = flag("instance");
-			if (!instance) usage();
+			if (!instance) die(usageOf(verb));
 			const { id } = createAttestation(db, {
 				project,
 				orgId,
@@ -283,7 +340,7 @@ function main(): void {
 						: subject === "attestations"
 							? "policy_attestations"
 							: null;
-			if (!table) usage();
+			if (!table) die(usageOf(verb));
 			const rows = db
 				.query(
 					`SELECT * FROM ${table} WHERE project = ? ORDER BY updated_at DESC LIMIT 50`,
@@ -300,10 +357,18 @@ function main(): void {
 			console.log(`expired ${String(expireAttestations(db))} attestation(s)`);
 			return;
 		}
-		usage();
+		die(usageOf(verb));
 	} finally {
 		db.close();
 	}
 }
 
-if (import.meta.main) main();
+if (import.meta.main) {
+	await runCli({
+		prog: "policy-workflow",
+		about: "policy-workflow — W462 corporate policy workflow.",
+		verbs: VERBS,
+		argv: ["bun", "hooks/bin/policy-workflow.ts", ...process.argv.slice(2)],
+		dispatch: (_name, p) => runVerb(p),
+	});
+}
