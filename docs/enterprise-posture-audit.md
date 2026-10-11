@@ -28,8 +28,9 @@ A surface moves iff **both** hold:
 | `buckle federation-spokes.ts` (enrollment codes, registry, heartbeat touch) | **MOVED (W233)** | imported only by admin.ts + federation.ts hub routes; zero solo reach; mints + inventories |
 | `buckle federation-manifest.ts` (policy manifest + CR queue content) | **FOLLOW-UP** | hub-serving content; move rides the same seam pattern once the overlay carries the CR queue DDL (schema.ts federation CR tables are the residual public DDL) |
 | `buckle federation-usage.ts` (hub ingest + rollup DDL) | **FOLLOW-UP** | hub-side ingest only; spoke POST side is suspenders-side and stays |
-| `buckle federation-entitlements.ts` (hub menu) | **FOLLOW-UP** | single import site federation.ts:187 (buildModels) — cleanest next move |
-| `buckle federation.ts` hub routes (enroll/usage/entitlements/CR handle dispatch) | **PARTIAL (W233)** | enroll + heartbeat ride the spoke provider seam (W233); usage/entitlements/CR dispatch follows each module's move |
+| `buckle federation-entitlements.ts` (hub menu) | **MOVED (W233.1)** | single import site federation.ts (buildModels) — moved to klh-remote buckle-remote `src/gov/entitlements.ts` (`createHubEntitlements`), route rides `auth.hubEntitlements`, honest 501 solo posture; ceilings read-side stays public |
+| `buckle federation-spokes.ts` residue (dead module file, no importers post-W233) | **REMOVED (W233.1)** | the W233 move left the file behind with zero importers; deleted — no dead code left public |
+| `buckle federation.ts` hub routes (enroll/usage/entitlements/CR handle dispatch) | **PARTIAL (W233/W233.1)** | enroll + heartbeat ride the spoke provider seam (W233); entitlements rides the menu seam (W233.1); usage/CR dispatch follows each module's move |
 | `belt bin/federation-cr.ts` (hub-admin CR originate CLI) | **FOLLOW-UP** | hub-admin capability by its own header law; belt route-policy/remotes stay public (defensive, finding) |
 | `suspenders hooks/lib/federation.ts` + `bin/federation-pull.ts`, `federation-report.ts`, `federation-peers.ts`, `board/routes-federation.ts` + `bin/federation-usage-html.ts` | **KEEP (phase-2 review)** | spoke-side pull/report (owner-scenario client of defensive policy distribution); peers = W362 hub-to-hub propagation (belt-remote profile surface); board panel is hub-admin read view — phase 2 candidates once the buckle-side moves land |
 | `belt local/_http._tcp advertise + _klh-llm._tcp browse` | **KEEP** (solo-used) | belt.local dashboard advertisement is the solo LAN face; remotes browse is the owner's multi-machine LLM routing (finding keeps belt remotes public) |
@@ -52,6 +53,26 @@ A surface moves iff **both** hold:
   is the injection point; server buildDeps passes it to Federation.
 - **No dead code public**: spokes module, its tables, federationDb()
   helper, and the e2e test all left public; DDL comment marks the move.
+  (W233.1 residue fix: the module FILE itself lingered with zero
+  importers — deleted in W233.1.)
+
+## The second move (W233.1 — entitlements)
+
+`buckle federation-entitlements.ts` → klh-remote `packages/buckle-remote`
+`src/gov/entitlements.ts`:
+
+- **Overlay export**: `createHubEntitlements(pool, tags)` — pure mapping
+  (no tables), the W154 buildModels verbatim; the echo-menu e2e re-homed
+  as the overlay's `test/entitlements.test.ts`.
+- **Public seam**: `EntitlementModel` + `HubEntitlementsFactory` joined
+  `SpokeEnrollmentProvider` in `src/gov/hub-seam.ts`; federation.ts
+  entitlementsRoute 501s provider-less (solo posture); startServer
+  `auth.hubEntitlements` is the injection point. Team ceilings read-side
+  stays public (shared governance schema, phase-2 strip decision).
+- **Pin**: overlay pins fleet at the W233.1 seam head (github resolution
+  lands with the fleet ref push; until then the seam branch checked out
+  at the dep — the lane store sync replicates it and the overlay suite
+  ran green against it, 9/9).
 
 ## Migration ladder (deploy-order gate)
 
@@ -74,8 +95,12 @@ surface, never a 500).
 
 ## Verification
 
-- buckle suite 445 pass / 0 fail with the seam + strip landed.
+- buckle suite 457 pass / 0 fail with the entitlements seam + strip
+  landed (W233.1); sibling W233's overlay e2e (enrollment + registry +
+  heartbeat + CR walk) verified green against the same seam-head store
+  sync — 9/9 overlay tests pass.
 - Seam contract test: gov-hub-seam.test.ts (501s provider-less, full
-  mint→redeem→list via stub through the real routes).
+  mint→redeem→list via stub through the real routes; W233.1 adds the
+  entitlements seam cases — solo 501 + stub menu through the real route).
 - Overlay e2e (enrollment + registry + heartbeat + CR walk) re-lands as
   the overlay's own test against the pinned fleet base.
