@@ -9,8 +9,11 @@ import { describe, expect, test } from "bun:test";
 import type {
 	HubEntitlementsFactory,
 	HubEntitlementsProvider,
+	ManifestCrFactory,
+	ManifestCrProvider,
 	RedeemResult,
 	SpokeEnrollmentProvider,
+	UsageIngestProvider,
 } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
@@ -34,7 +37,12 @@ async function startFed(opts: {
 	spokeEnrollment?: (
 		db: import("bun:sqlite").Database,
 	) => SpokeEnrollmentProvider;
+	usageIngest?: (
+		db: import("bun:sqlite").Database,
+		policy: unknown,
+	) => UsageIngestProvider;
 	hubEntitlements?: HubEntitlementsFactory;
+	manifestCr?: ManifestCrFactory;
 }): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w233-seam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
@@ -237,6 +245,176 @@ describe("entitlements seam — injected provider", () => {
 			};
 			expect(body.models).toEqual([stub.models()[0]]);
 			expect(body.ceilings).toBeNull();
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("usage-ingest seam — solo posture (no provider)", () => {
+	test("POST/GET /federation/usage answer honest 501s", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const post = await fetch(`${base}/federation/usage`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${ROOT}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ team: "t", windows: [{ bucket: 1 }] }),
+			});
+			expect(post.status).toBe(501);
+			expect((await post.json()).error.code).toBe("buckle.no_federation");
+			const get = await fetch(`${base}/federation/usage`, { headers: ADMIN });
+			expect(get.status).toBe(501);
+			expect((await get.json()).error.code).toBe("buckle.no_federation");
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("usage-ingest seam — injected provider", () => {
+	test("ingest rides the provider, spoke = the presenting key's name", async () => {
+		const stored: string[] = [];
+		const stub: UsageIngestProvider = {
+			ingest(o) {
+				stored.push(o.spoke);
+				return { ok: true, windows: 1, rows: 2 };
+			},
+			read() {
+				return { days: 7, spokes: 1, windows: [], aids: [] };
+			},
+		};
+		const { base, stop } = await startFed({ usageIngest: () => stub });
+		const post = await fetch(`${base}/federation/usage`, {
+			method: "POST",
+			headers: { ...ADMIN, "content-type": "application/json" },
+			body: JSON.stringify({ team: "t", windows: [] }),
+		});
+		expect(post.status).toBe(200);
+		const posted = (await post.json()) as {
+			ok: boolean;
+			rows: number;
+			spoke: string;
+		};
+		// root has no api_keys row — the opaque keyId is the fallback label
+		expect(posted).toMatchObject({ ok: true, rows: 2, spoke: "root" });
+		expect(stored).toEqual(["root"]);
+		stop();
+	});
+
+	test("read rides the provider; error envelope maps verbatim", async () => {
+		const stub: UsageIngestProvider = {
+			ingest: () => ({ ok: true, windows: 0, rows: 0 }),
+			read: () => ({ days: 7, spokes: 1, windows: [], aids: [] }),
+		};
+		const { base, stop } = await startFed({ usageIngest: () => stub });
+		const got = await fetch(`${base}/federation/usage?days=7`, {
+			headers: ADMIN,
+		});
+		expect(got.status).toBe(200);
+		expect(await got.json()).toMatchObject({ ok: true, days: 7, spokes: 1 });
+		// the route maps a !ok verdict straight onto the response
+		stub.ingest = () => ({
+			ok: false,
+			status: 403,
+			code: "buckle.self_report_disabled",
+			why: "not opted in",
+		});
+		const denied = await fetch(`${base}/federation/usage`, {
+			method: "POST",
+			headers: { ...ADMIN, "content-type": "application/json" },
+			body: JSON.stringify({ team: "t", windows: [] }),
+		});
+		expect(denied.status).toBe(403);
+		expect((await denied.json()).error.code).toBe(
+			"buckle.self_report_disabled",
+		);
+		stop();
+	});
+});
+
+describe("manifest/CR seam — solo posture (no provider)", () => {
+	test("GET /federation/policy-manifest answers honest 501", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/policy-manifest`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(501);
+			const body = (await res.json()) as { error: { code: string } };
+			expect(body.error.code).toBe("buckle.no_federation");
+		} finally {
+			stop();
+		}
+	});
+
+	test("CR declare/list/status answer honest 501s", async () => {
+		const { base, stop } = await startFed({});
+		try {
+			const h = { authorization: `Bearer ${ROOT}` };
+			const declare = await fetch(`${base}/federation/cr`, {
+				method: "POST",
+				headers: { ...h, "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "adopt-policy",
+					target: "policy@1",
+					origin: { system: "belt", actor: "t" },
+				}),
+			});
+			expect(declare.status).toBe(501);
+			const list = await fetch(`${base}/federation/cr`, { headers: h });
+			expect(list.status).toBe(501);
+			const status = await fetch(`${base}/federation/cr/x/status`, {
+				method: "POST",
+				headers: { ...h, "content-type": "application/json" },
+				body: JSON.stringify({ state: "delivered" }),
+			});
+			expect(status.status).toBe(501);
+		} finally {
+			stop();
+		}
+	});
+});
+
+describe("manifest/CR seam — injected provider", () => {
+	test("manifest pull rides the provider; the hub signs the exact bytes", async () => {
+		const stub: ManifestCrProvider = {
+			manifest: () => ({
+				version: "fed-seam-stub",
+				rules: [{ id: "gateway.knobs", kind: "gateway" }],
+				cr_queue: [],
+			}),
+			declare: () => ({
+				ok: false,
+				status: 422,
+				code: "buckle.cr_private_domain",
+				why: "stub",
+			}),
+			list: () => [],
+			transition: () => ({
+				ok: false,
+				status: 409,
+				code: "buckle.cr_state",
+				why: "stub",
+			}),
+			registerProbe: () => {},
+		};
+		const { base, stop } = await startFed({ manifestCr: () => stub });
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/policy-manifest`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				version: string;
+				rules: Array<{ id: string }>;
+			};
+			expect(body.version).toBe("fed-seam-stub");
+			expect(body.rules[0]?.id).toBe("gateway.knobs");
 		} finally {
 			stop();
 		}

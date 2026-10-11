@@ -1,10 +1,11 @@
 // test/gov-federation.test.ts — W154 federation surfaces e2e: anonymous
-// spoke-pull GETs (manifest + entitlements), credential validation (presented
-// creds never downgraded), spoke-class scopes, team ceilings, CR lifecycle
-// transitions enforced server-side, visibility-law exclusion.
+// spoke-pull GETs, credential validation (presented creds never downgraded),
+// spoke-class scopes, team ceilings, visibility-law exclusion.
 // W193: pulls are authenticated (spoke:READ_) and the manifest is signed.
+// W233.3: the manifest pull + CR lifecycle ride the ManifestCrProvider seam
+// — solo posture answers honest 501s; the serving e2e re-homes to the
+// enterprise overlay (klh-remote buckle-remote).
 import { describe, expect, test } from "bun:test";
-import { declareCR } from "../src/gov/federation-manifest.ts";
 import type { HubEntitlementsFactory } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
@@ -76,8 +77,8 @@ async function issueKey(
 	return out.key;
 }
 
-describe("federation: policy manifest (anonymous spoke-pull)", () => {
-	test("GET /federation/policy-manifest → 200 {version, rules[], cr_queue[]}", async () => {
+describe("federation: policy manifest (solo posture)", () => {
+	test("GET /federation/policy-manifest → honest 501 provider-less", async () => {
 		const fed = await startFed();
 		const spokeKey = await issueKey(fed.base, {
 			name: "spoke-pull",
@@ -86,19 +87,12 @@ describe("federation: policy manifest (anonymous spoke-pull)", () => {
 		const res = await fetch(`${fed.base}/federation/policy-manifest`, {
 			headers: { authorization: `Bearer ${spokeKey}` },
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(501);
 		const body = (await res.json()) as {
-			version: string;
-			rules: Array<{ id: string }>;
-			cr_queue: unknown[];
+			error: { code: string; message: string };
 		};
-		expect(body.version.startsWith("fed-")).toBe(true);
-		expect(body.rules.length).toBeGreaterThan(0);
-		const ids = body.rules.map((r) => r.id);
-		expect(ids).toContain("gateway.knobs");
-		expect(ids).toContain("ladder.glm-5.3-flash");
-		expect(ids).toContain("tags.glm-5.3-flash");
-		expect(Array.isArray(body.cr_queue)).toBe(true);
+		expect(body.error.code).toBe("buckle.no_federation");
+		expect(body.error.message).toContain("no manifest serving surface");
 		fed.stop();
 	});
 });
@@ -190,73 +184,6 @@ describe("federation: spoke-class scopes + team ceilings", () => {
 	});
 });
 
-interface CrEntry {
-	id: string;
-	action: string;
-	state: string;
-	declared_at: string;
-}
-
-describe("federation: CR lifecycle (server-side transitions)", () => {
-	test("declared CR rides the manifest; POST requires spoke auth", async () => {
-		const fed = await startFed();
-		const fedDb = fed.srv.gov.federation?.db;
-		if (fedDb === undefined)
-			throw new Error("federation surface missing on gov");
-		declareCR(fedDb, {
-			id: "cr-1",
-			action: "adopt-policy",
-			target: "routing-policy@1",
-			origin: { system: "belt", actor: "w154-test" },
-		});
-		const spokeKey = await issueKey(fed.base, {
-			name: "spoke-cr",
-			scopes: ["buckle:spoke:READ_"],
-		});
-		const res = await fetch(`${fed.base}/federation/policy-manifest`, {
-			headers: { authorization: `Bearer ${spokeKey}` },
-		});
-		const body = (await res.json()) as { cr_queue: CrEntry[] };
-		expect(body.cr_queue).toHaveLength(1);
-		expect(body.cr_queue[0]?.id).toBe("cr-1");
-		expect(body.cr_queue[0]?.state).toBe("declared");
-		const anon = await fetch(`${fed.base}/federation/cr/cr-1/status`, {
-			method: "POST",
-			body: JSON.stringify({ state: "delivered" }),
-		});
-		expect(anon.status).toBe(401);
-		fed.stop();
-	});
-
-	test("spoke:WRITE_ key walks declared→delivered; 409 on illegal; 404 unknown", async () => {
-		const fed = await startFed();
-		const fedDb = fed.srv.gov.federation?.db;
-		if (fedDb === undefined)
-			throw new Error("federation surface missing on gov");
-		declareCR(fedDb, {
-			id: "cr-2",
-			action: "adopt-policy",
-			target: "policy@2",
-			origin: { system: "belt", actor: "w154-test" },
-		});
-		const key = await issueKey(fed.base, {
-			name: "spoke-w",
-			scopes: ["buckle:spoke:WRITE_"],
-		});
-		const post = (state: string, id: string) =>
-			fetch(`${fed.base}/federation/cr/${id}/status`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${key}` },
-				body: JSON.stringify({ state }),
-			});
-		const d = await post("delivered", "cr-2");
-		expect(d.status).toBe(200);
-		const dBody = (await d.json()) as { state: string };
-		expect(dBody.state).toBe("delivered");
-		const again = await post("delivered", "cr-2");
-		expect(again.status).toBe(409);
-		const missing = await post("delivered", "no-such-cr");
-		expect(missing.status).toBe(404);
-		fed.stop();
-	});
-});
+// W233.3: the CR lifecycle e2e (declared→delivered walks, 409 illegal,
+// 404 unknown, claim binding, probe-gated verified) re-homes to the
+// enterprise overlay with the ManifestCrProvider implementation.

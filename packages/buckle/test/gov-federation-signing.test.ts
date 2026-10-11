@@ -55,7 +55,34 @@ async function testHub(secretsHome: string): Promise<{
 		policyPath: wp,
 		upstreamsPath: wu,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		auth: {
+			rootKey: ROOT,
+			// W233.3: the manifest content is overlay-owned — a stub provider
+			// proves the PUBLIC signing wrapper (W193 exact-bytes signature)
+			// rides whatever the seam serves; the real serving e2e lives in
+			// the enterprise overlay (klh-remote buckle-remote).
+			manifestCr: () => ({
+				manifest: () => ({
+					version: "fed-stub-w2333",
+					rules: [{ id: "gateway.knobs", kind: "gateway", target: null }],
+					cr_queue: [],
+				}),
+				declare: () => ({
+					ok: false as const,
+					status: 501,
+					code: "buckle.no_federation",
+					why: "stub",
+				}),
+				list: () => [],
+				transition: () => ({
+					ok: false as const,
+					status: 501,
+					code: "buckle.no_federation",
+					why: "stub",
+				}),
+				registerProbe: () => {},
+			}),
+		},
 		secretsHome,
 	});
 	return {
