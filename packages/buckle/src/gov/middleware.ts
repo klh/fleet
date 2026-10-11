@@ -24,6 +24,14 @@ import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
 import { Slots, type SlotLimits, slotsFromEnv } from "./slots.ts";
 import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
+import {
+	principalFromSso,
+	type AdaptationConfig,
+	type AuditTapEvent,
+	validDeny,
+	validSsoIdentity,
+	validateAdaptation,
+} from "./adaptation.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;
@@ -37,10 +45,14 @@ export interface GovernanceOpts {
 	/** W468 admission control: simultaneous-generation pool caps
 	 *  (global + per-team); default resolves from env, 0 disables. */
 	slots?: SlotLimits;
+	/** W235 adaptation surface v2: the typed hook points (authenticate/
+	 *  authorize/audit/budget) an enterprise overlay registers — validated
+	 *  at boot, fail-closed; absent = solo posture. */
+	adaptation?: AdaptationConfig;
 }
 
 export interface Principal {
-	kind: "root" | "api_key" | "jwt";
+	kind: "root" | "api_key" | "jwt" | "sso";
 	keyId: string;
 	team: string | null;
 	actor: string | null;
@@ -70,8 +82,12 @@ export class Governance {
 	private readonly jwtValidator: ReturnType<typeof createJwtValidator> | null;
 	private readonly rootHash: string | null;
 	/** W154: shared Federation surface (auth semantics at the gate; serving
-	 *  itself lives on the app deps). */
+	 *  lives on the app deps). */
 	readonly federation: Federation | null;
+	/** W235: the registered adaptation surface (null = solo posture).
+	 *  Adopted AFTER the core auth stores are built — the
+	 *  registration-after-core law. Hooks validated fail-closed at boot. */
+	readonly adaptation: AdaptationConfig | null;
 
 	constructor(deps: GovernanceDeps, opts: GovernanceOpts) {
 		this.sm = deps.sm;
@@ -91,6 +107,11 @@ export class Governance {
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
 		this.rootHash = opts.rootKey ? hashKey(opts.rootKey) : null;
 		this.federation = opts.federation ?? null;
+		// W235: register the adaptation surface last — hooks adopt only after
+		// the core auth stores above exist; malformed surfaces throw here.
+		this.adaptation = opts.adaptation
+			? validateAdaptation(opts.adaptation)
+			: null;
 	}
 
 	/** Denial audit: route_audit row (denied audits too — W136) + counter. */
@@ -133,6 +154,32 @@ export class Governance {
 		this.sm
 			.counter("buckle_auth_decisions_total", "Governance gate decisions.")
 			.inc({ decision: p.code, route: p.route });
+		// W235 audit tap: the registered hook sees the same denial row the
+		// core stream wrote (the tap only ADDS — it may not replace the core
+		// audit). A throwing tap counts, never surfaces to the caller.
+		const tap = this.adaptation?.hooks.audit;
+		if (tap !== undefined) {
+			const event: AuditTapEvent = {
+				rid: p.rid,
+				ts,
+				actor: p.actor,
+				route: p.route,
+				dialect: p.dialect,
+				code: p.code,
+				status: p.status,
+				why: p.why,
+			};
+			try {
+				tap(event);
+			} catch {
+				this.sm
+					.counter(
+						"buckle_adaptation_errors_total",
+						"Adaptation hook errors.",
+					)
+					.inc({ hook: "audit" });
+			}
+		}
 	}
 
 	/** Presented credential (Bearer or Anthropic-wire x-api-key) → Principal,
@@ -223,8 +270,28 @@ export class Governance {
 		};
 	}
 
-	/** The request gate: classify → authenticate → authorize → budget →
-	 *  inner. Every denial audits + rejects into auth_events. */
+	/** W235 SSO resolve: the authenticate hook (verified signed identity
+	 *  headers → claims → Principal). Malformed hook output = no opinion —
+	 *  the core 401 stands; hook throws are counted, never surfaced. */
+	private async resolveSso(req: Request): Promise<Principal | null> {
+		const hook = this.adaptation?.hooks.authenticate;
+		if (hook === undefined) return null;
+		let out: unknown;
+		try {
+			out = await hook(req);
+		} catch {
+			this.sm
+				.counter(
+					"buckle_adaptation_errors_total",
+					"Adaptation hook errors.",
+				)
+				.inc({ hook: "authenticate" });
+			return null;
+		}
+		const id = validSsoIdentity(out);
+		if (id === null) return null;
+		return principalFromSso(id, this.adaptation?.ssoRoles ?? {});
+	}
 	gate(
 		inner: (req: Request) => Response | Promise<Response>,
 	): (req: Request) => Promise<Response> {
@@ -244,6 +311,22 @@ export class Governance {
 			const rid = `g${t0.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 			const auth = await this.authenticate(req);
 			if (!auth.ok) {
+				// W235 SSO seam: identity resolution ONLY on a missing
+				// credential — presented-but-invalid stays a 401 (W173 law).
+				const sso =
+					auth.code === "buckle.auth_missing"
+						? await this.resolveSso(req)
+						: null;
+				if (sso !== null)
+					return this.authorize(
+						req,
+						path,
+						routeClass,
+						rid,
+						sso,
+						t0,
+						inner,
+					);
 				this.rejectEvent(req, auth.code);
 				this.auditDenial({
 					rid,
@@ -254,7 +337,9 @@ export class Governance {
 					status: auth.status,
 					why: auth.why,
 				});
-				return authError(auth.status, auth.code, auth.why, { instance: path });
+				return authError(auth.status, auth.code, auth.why, {
+					instance: path,
+				});
 			}
 			return this.authorize(
 				req,
@@ -359,6 +444,29 @@ export class Governance {
 				inner,
 			});
 		}
+		// W235 authorize veto: RBAC/entitlement denial AFTER the core scope
+		// check passed — hooks can only deny, never open. Malformed verdicts
+		// are discarded (validDeny = fail closed).
+		const veto = validDeny(
+			this.adaptation?.hooks.authorize?.({
+				principal: p,
+				route: path,
+				action: req.method === "GET" ? "read" : "write",
+				scope: needed,
+			}),
+		);
+		if (veto !== null)
+			return this.denied({
+				req,
+				path,
+				rid,
+				p,
+				status: veto.status,
+				code: veto.code,
+				why: veto.why,
+				t0,
+				inner,
+			});
 		if (routeClass === "admin") {
 			stashPrincipal(req, p);
 			const admin = await import("./admin.ts");
@@ -383,6 +491,27 @@ export class Governance {
 	): Response | Promise<Response> {
 		void rid;
 		void t0;
+		// W235 budget tap: billing/quota admission BEFORE the core check —
+		// may only deny or pass; it can never raise a core limit.
+		const bill = validDeny(
+			this.adaptation?.hooks.budget?.({
+				principal: p,
+				route: path,
+				reqBytes: Number(req.headers.get("content-length") ?? "0"),
+			}),
+		);
+		if (bill !== null)
+			return this.denied({
+				req,
+				path,
+				rid,
+				p,
+				status: bill.status,
+				code: bill.code,
+				why: bill.why,
+				t0,
+				inner,
+			});
 		const ceiling = p.team !== null ? this.keys.teamCeilings(p.team) : null;
 		const limits = effectiveLimit({ rpm: p.rpm, tpm: p.tpm }, ceiling);
 		// W468: the team aggregate row is enforced against the raw ceiling
@@ -501,13 +630,14 @@ export class Governance {
 		return resp;
 	}
 
-	/** Scope-denied (403): audit row + fixed envelope. */
+	/** Scope-denied (403): audit row + fixed envelope. W235: status widened
+	 *  to carry adaptation-hook denials (401/403/429). */
 	private denied(p: {
 		req: Request;
 		path: string;
 		rid: string;
 		p: Principal;
-		status: 401 | 403;
+		status: 401 | 403 | 429;
 		code: string;
 		why: string;
 		t0: number;

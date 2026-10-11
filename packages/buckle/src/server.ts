@@ -72,7 +72,7 @@ export interface ServerOpts {
 	// W233: spokeEnrollment injects the enterprise overlay's enrollment
 	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
 	// hubEntitlements injects the entitlement-menu provider the same way.
-	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots"> & {
+	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots" | "adaptation"> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
 		hubEntitlements?: HubEntitlementsFactory;
 	};
@@ -279,6 +279,7 @@ export function startServer(
 			jwt: opts.auth?.jwt,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
+			adaptation: opts.auth?.adaptation,
 		},
 	);
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
