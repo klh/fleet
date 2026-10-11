@@ -17,6 +17,9 @@ import {
 	failNote,
 	ago,
 	label,
+	labelMaps,
+	labelFrom,
+	laneModelMaps,
 	ownerLabel,
 	payloadOf,
 	sessionAlive,
@@ -321,6 +324,8 @@ export interface SessionView {
 }
 
 export function sessions(): SessionView[] {
+	const lm = labelMaps();
+	const laneModel = laneModelMaps();
 	return (
 		db
 			.query(
@@ -329,13 +334,17 @@ export function sessions(): SessionView[] {
 			.all() as SessionRow[]
 	).map((s) => ({
 		sid: s.sid,
-		label: label(s.sid, s.role),
+		label: labelFrom(lm, s.sid, s.role),
 		role: s.role,
 		state: s.state,
 		parent: s.parent_sid,
 		project: s.project,
 		hbAgo: ago(s.hb),
-		...laneModelOf(s.sid),
+		...(laneModel.get(s.sid) ?? {
+			executor: null,
+			model: null,
+			locality: null,
+		}),
 	}));
 }
 
@@ -686,10 +695,11 @@ export function payload() {
 	const ss = sessions();
 	const labels: Record<string, string> = {};
 	for (const s of ss) labels[s.sid] = s.label;
+	const lm = labelMaps();
 	for (const c of db.query("SELECT DISTINCT sid FROM claims").all() as {
 		sid: string;
 	}[]) {
-		if (!labels[c.sid]) labels[c.sid] = label(c.sid, "worker");
+		if (!labels[c.sid]) labels[c.sid] = labelFrom(lm, c.sid, "worker");
 	}
 	const zombies = (
 		db
