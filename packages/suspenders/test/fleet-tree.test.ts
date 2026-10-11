@@ -496,6 +496,42 @@ describe("W530.2 fleet tree refresh", () => {
 		expect(html).toContain("visibilitychange");
 	}, 10000);
 
+	test("presentation view init from the URL renders plain headings, API untouched", async () => {
+		writeHome({}, DEMO);
+		const s: Scenario = {
+			registryOk: true,
+			upLeaves: new Set<string>(),
+			seen: { registry: 0, inflight: 0, maxInflight: 0, urls: [] },
+		};
+		const src = createTreeSource(stubDeps(home, "http://127.0.0.1:4000", s));
+		const get = (u: string) => handleFleetTree(new Request(u), new URL(u), src);
+		// the same static page serves both modes — the URL initializes the view
+		const html = await (await get("http://b/fleet-tree")).text();
+		expect(html).toContain('"view") === "presentation"');
+		expect(html).toContain('s.replace(" (simulation)", "")');
+		// API metadata is preserved verbatim: demo label keeps its provenance
+		writeHome(
+			{},
+			{
+				IKEA: {
+					note: "scenario",
+					simulation: {
+						authorization: {
+							principal: "demo operator",
+							scopes: ["inventory:read"],
+							status: "granted",
+						},
+					},
+					models: [{ label: "Local inference", up: null }],
+				},
+			},
+		);
+		const wire = (await (await get("http://b/api/fleet-tree?refresh=1")).json()) as Row;
+		const demo = (wire.tree as Row[]).find((r) => r.identity === "simulation:IKEA");
+		expect(demo?.label).toBe("IKEA (simulation)");
+		expect(demo?.authorization).toBeTruthy();
+	}, 10000);
+
 	test("hub leaves probe the candidate HOST with the registry PORT", async () => {
 		writeHome(HUBS, DEMO);
 		const s: Scenario = {
