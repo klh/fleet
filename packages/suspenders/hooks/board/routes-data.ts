@@ -114,6 +114,7 @@ export async function handleData(
 			(vf === "klh-components.js" ||
 				vf === "klh-service-row.js" ||
 				vf === "klh-recovery.js" ||
+				vf === "klh-hub-admin.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;

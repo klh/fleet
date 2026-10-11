@@ -5,7 +5,7 @@
 // second (WAL allows concurrent readers).
 // Start from anywhere:  bun ~/.claude/bin/fleet-board.ts [--port 7799]
 // then open http://127.0.0.1:<port> — dropdown lists every known session;
-// focusing a session shows its project's TODO / IN-FLIGHT / DONE board,
+// focusing a session shows its project's backlog / IN-FLIGHT / DONE board,
 // its claims, inbox, lane state, and the event tail.
 
 import type { Database } from "bun:sqlite";
@@ -27,6 +27,7 @@ import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleConsole } from "../board/routes-console.ts";
+import { handleHubAdmin } from "../board/routes-hub-admin.ts";
 import { handleMeta } from "../board/routes-meta.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleObservations } from "../board/routes-observations.ts";
@@ -95,6 +96,7 @@ const base = {
 			handleOrch,
 			handleSuggest,
 			handleConsole,
+			(req2, url2) => handleHubAdmin(req2, url2, db),
 			handleMeta,
 		]) {
 			const r = await h(req, url);
