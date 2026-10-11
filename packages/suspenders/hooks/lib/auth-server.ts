@@ -11,8 +11,15 @@
 // refresh_endpoint, and one agent_next_steps sentence; 401s from an expired
 // access token carry the x-auth-renew header.
 import type { AuthFailure } from "./auth.ts";
-import { issueTokens, rotateRefresh, revoke, verifyJwt } from "./auth.ts";
+import {
+	issueTokens,
+	loadAuthConfig,
+	rotateRefresh,
+	revoke,
+	verifyJwt,
+} from "./auth.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { hasFederation } from "./identity-federation.ts";
 
 export interface AuthServerOpts {
 	store: GovernorStore;
@@ -50,6 +57,16 @@ const bad = (d: string): Response =>
 		{ status: 400 },
 	);
 
+// federation gate reads the config again post-auth; verifyJwt has already
+// failed closed on a malformed file, so an unreadable file here = no gate
+function loadAuthConfigSafe(): { issuers: { type: string }[] } {
+	try {
+		return loadAuthConfig();
+	} catch {
+		return { issuers: [] };
+	}
+}
+
 function validateIssueBody(body: IssueBody): Response | null {
 	if (!body.actor || !body.token_class)
 		return bad("actor and token_class are required (app-role | delegated)");
@@ -73,6 +90,19 @@ async function handleToken(
 	const body = (await req.json().catch(() => ({}))) as IssueBody;
 	const invalid = validateIssueBody(body);
 	if (invalid) return invalid;
+	// W262: under federation the IdP owns user identity — local delegated
+	// tokens are retired on the API surface. app-role (machine) stays.
+	if (body.token_class === "delegated" && hasFederation(loadAuthConfigSafe()))
+		return Response.json(
+			{
+				error: "delegated_federated",
+				error_description:
+					"user identity is federated to the IdP; local delegated tokens are retired",
+				agent_next_steps:
+					"Authenticate via the IdP (OIDC login). Machine workloads: token_class app-role.",
+			},
+			{ status: 403 },
+		);
 	const scopes = Array.isArray(body.scopes)
 		? body.scopes
 		: (body.scopes ?? "")
@@ -114,7 +144,13 @@ async function handleRefresh(
 		refresh_token?: string;
 	};
 	if (!body.refresh_token) return bad("refresh_token is required in the body");
-	const r = rotateRefresh(store, body.refresh_token, "api:/auth/refresh");
+	// W262: delegated pairs stop rotating under federation (the IdP owns user
+	// sessions); app-role rotation is untouched
+	const r = rotateRefresh(store, body.refresh_token, "api:/auth/refresh", {
+		denyClasses: hasFederation(loadAuthConfigSafe())
+			? ["delegated"]
+			: undefined,
+	});
 	if (!r.ok)
 		return authFailureResponse({ status: 401, code: r.code, error: r.error });
 	return Response.json({

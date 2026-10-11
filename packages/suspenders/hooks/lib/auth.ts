@@ -41,6 +41,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GovernorStore } from "./govdb.ts";
 import { adminAudit } from "./admin-audit.ts";
+import {
+	mapIdpClaims,
+	type ClaimsMapConfig,
+	type MappedClaims,
+} from "./identity-federation.ts";
 
 export const LOCAL_ISSUER = "buckle";
 const AUDIENCE = "buckle";
@@ -255,7 +260,7 @@ export interface LocalIssuerConfig {
 	audience?: string;
 }
 
-export interface OidcIssuerConfig {
+export interface OidcIssuerConfig extends ClaimsMapConfig {
 	type: "oidc";
 	iss: string; // must equal the token's iss claim — v2-first allowlist
 	discovery: string; // openid-configuration URL
@@ -487,6 +492,7 @@ export function rotateRefresh(
 	store: GovernorStore,
 	rawRefresh: string,
 	via = "api",
+	opts: { denyClasses?: TokenClass[] } = {},
 ): RotateResult {
 	const now = Date.now();
 	return runTx(store, () => {
@@ -506,6 +512,13 @@ export function rotateRefresh(
 		};
 		if (!row)
 			return reject("unknown_refresh_token", "refresh token not recognized");
+		// W262: federated deployments retire the delegated plane — human
+		// sessions belong to the IdP; rotation of old pairs is refused too.
+		if (opts.denyClasses?.includes(metaOf(row).class))
+			return reject(
+				"delegated_federated",
+				"user identity is federated to the IdP; refresh rotation is retired for this token class",
+			);
 		if (row.token_type !== "refresh")
 			return reject("not_a_refresh_token", "token is not a refresh token");
 		if (row.revoked_at) return reject("token_revoked", "refresh token revoked");
@@ -812,6 +825,7 @@ export async function verifyJwt(
 	if (!b.ok) return b;
 	const j = parseJwt(b.token);
 	if (!j.ok) return j;
+	let mapped: MappedClaims | null = null;
 	let cfg: AuthConfig;
 	try {
 		cfg = opts.config ?? loadAuthConfig();
@@ -843,17 +857,31 @@ export async function verifyJwt(
 	} else {
 		const r = checkRoles(entry, j.payload);
 		if (r) return r;
+		// W262: group→scope mapping — a configured map turns the entry into a
+		// full resource-server: federated tokens carry local-shaped scopes and
+		// get scope-checked like local tokens. No map = roles-only trust
+		// (unchanged legacy bypass).
+		if (entry.group_scope_map) mapped = mapIdpClaims(entry, j.payload);
 	}
-	if (
-		entry.type === "local" &&
-		!scopeCheck(j.claims.scopes ?? [], requiredScope)
-	)
+	const granted =
+		entry.type === "local"
+			? (j.claims.scopes ?? [])
+			: mapped
+				? mapped.scopes
+				: null; // null = no mapping configured → scope checks skipped
+	if (granted !== null && !scopeCheck(granted, requiredScope))
 		return fail(
 			403,
 			"insufficient_scope",
 			`required scope missing: ${String(requiredScope)}`,
 		);
-	return { ok: true, claims: j.claims, keyId: j.claims.jti };
+	return {
+		ok: true,
+		claims: mapped
+			? { ...j.claims, team: mapped.team, scopes: mapped.scopes }
+			: j.claims,
+		keyId: j.claims.jti,
+	};
 }
 // fingerprint helper — reports show FIRST/LAST 4 + length, never raw material
 export const fingerprint = (t: string): string =>
