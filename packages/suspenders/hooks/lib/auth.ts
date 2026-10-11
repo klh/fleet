@@ -326,7 +326,8 @@ interface RowMeta {
 // api_keys has no class column (v8 is settled — no migration) — the pair's
 // class rides the row's `name` column as JSON {label, class}, written at
 // issue, read back at rotation. A plain (legacy) name reads as app-role.
-function metaOf(row: KeyRow): RowMeta {
+// W231: exported for the hub admin plane's masked inventory (hub-tokens.ts).
+export function metaOf(row: { name: string | null }): RowMeta {
 	try {
 		const m = JSON.parse(row.name ?? "") as RowMeta;
 		if (m.class === "app-role" || m.class === "delegated") return m;
