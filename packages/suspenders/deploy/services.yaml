@@ -258,6 +258,18 @@ services:
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]
 
+  # ikea-shim (W226) — anthropic→copilot gateway on :4102 for the INTERACTIVE
+  # claude CLI. Runs from the runtime-home copy (kit, like local-llm).
+  # DELIVERED NOT INSTALLED: the Copilot-seat login is an owner step
+  # (bun ~/.claude/local-llm/ikea-shim.ts login); --with-launchd renders +
+  # loads the unit.
+  - name: ikea-shim
+    bunEntry: "__HOME__/.claude/local-llm/ikea-shim.ts"
+    args: []
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/ikea-shim-launchd.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
   # consult-relay (W480) — resident relay with a 10s relaunch throttle
   - name: consult-relay
     bunEntry: "__PREFIX__/bin/consult-relay.ts"
