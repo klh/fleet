@@ -6,6 +6,7 @@
 // stamped and kept so the owner can compare evaluations over time.
 import { db } from "./context.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
+import { beltChat } from "../lib/belt-chat.ts";
 import {
 	kevProbabilityLines,
 	kevTypedDecision,
@@ -57,6 +58,17 @@ export function decisionEvals(id: number): EvalEntry[] {
 	} catch {
 		return [];
 	}
+}
+
+/** Persist one evaluation (W552.6.1: one source of truth — the kev, gateway
+ *  and direct paths all append through this). */
+function persistEval(id: number, text: string): EvalEntry {
+	const entry: EvalEntry = { ts: Date.now(), text };
+	const all = [...decisionEvals(id), entry].slice(-CAP);
+	db.query(
+		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'decision-eval', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
+	).run(evalKey(id), JSON.stringify(all), Date.now());
+	return entry;
 }
 
 /** One fresh evaluation: the decision question + its linked work item. */
@@ -118,23 +130,29 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 		});
 		if (kev) {
 			const pct = (n: number) => `${Math.round(n * 100)}%`;
-			const entry: EvalEntry = {
-				ts: Date.now(),
-				text: [
+			return persistEval(
+				id,
+				[
 					`Recommendation: ${kev.choice} — ${kev.model} typed choice pass`,
 					`Probabilities:\n${kevProbabilityLines(kev)
 						.map((l) => `- ${l}`)
 						.join("\n")}`,
 					`Confidence ${pct(kev.confidence)} · ${kev.inputTokens} in / ${kev.outputTokens} out tokens · ${Math.round(kev.latencyMs / 100) / 10}s`,
 				].join("\n"),
-			};
-			const all = [...decisionEvals(id), entry].slice(-CAP);
-			db.query(
-				"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'decision-eval', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
-			).run(evalKey(id), JSON.stringify(all), Date.now());
-			return entry;
+			);
 		}
 	}
+	// W552.6.1: the governed gateway FIRST — belt picks the best healthy
+	// target from its own metrics; the shared belt-chat leg validates the
+	// reply, so a "(empty response)" placeholder is never stored as an
+	// evaluation. Null (belt down, non-200, placeholder reply) degrades to
+	// the direct SUSPENDERS_LLM_URL leg below, unchanged.
+	const gw = await beltChat({
+		role: "reasoning",
+		user: prompt,
+		maxTokens: 600,
+	});
+	if (gw) return persistEval(id, gw.text);
 	// same executor contract as hooks/bin/advise.ts: SUSPENDERS_LLM_URL/KEY/
 	// MODEL (openai-compat — the local swarm / z.ai path, W201 policy)
 	const llmUrl = `${llmBase()}/chat/completions`;
@@ -163,10 +181,5 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 	const text = (wire.choices?.[0]?.message?.content ?? "").trim();
 	if (!text) throw new Error("eval upstream returned no text");
 
-	const entry: EvalEntry = { ts: Date.now(), text };
-	const all = [...decisionEvals(id), entry].slice(-CAP);
-	db.query(
-		"INSERT INTO facts (key, value, source, ts) VALUES (?, ?, 'decision-eval', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, ts = excluded.ts",
-	).run(evalKey(id), JSON.stringify(all), Date.now());
-	return entry;
+	return persistEval(id, text);
 }
