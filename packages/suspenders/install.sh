@@ -263,7 +263,7 @@ fi
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
 LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0 LEG_PRUNE=0
-LEG_WIRE_REPO="" LEG_CONFIRM="" confirm_pending=0 LEG_REBLESS=0
+LEG_WIRE_REPO="" wire_repo_pending=0 LEG_CONFIRM="" confirm_pending=0 LEG_REBLESS=0
 NATIVE=()
 prev_step=0
 prev_review=0
