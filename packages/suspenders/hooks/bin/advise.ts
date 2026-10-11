@@ -26,12 +26,28 @@ import {
 	kevUrl,
 	parseOptions,
 } from "../lib/kev.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
-const id = Number(process.argv[2] ?? 0);
-if (!id) {
-	console.error("usage: bun hooks/bin/advise.ts <event-id>");
+// W656.2: kit-owned parse — the board's routes-actions spawns
+// `advise.ts <event-id>`; the surface is one positional, help is new
+const USAGE = "usage: bun hooks/bin/advise.ts <event-id>";
+const SPEC = defineVerb({
+	name: "advise",
+	usage: USAGE,
+	minPos: 1,
+	lax: true,
+});
+const argv = process.argv.slice(2);
+if (argv.includes("--help") || argv.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, argv);
+if (!outcome.ok || !Number(outcome.parsed.pos[0])) {
+	console.error(outcome.message || USAGE);
 	process.exit(1);
 }
+const id = Number(outcome.parsed.pos[0]);
 // recommendation endpoint (W217 model map): user settings override env —
 // config-over-code; the hub-default tier is a later policy-manifest rule
 const SETTINGS = readBoardSettings().settings;

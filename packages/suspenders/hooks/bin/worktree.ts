@@ -7,15 +7,7 @@
 // silently discarded — the branch survives either way for the integration
 // spine).
 //
-//   bun worktree.ts create <id>               # item must be CLAIMED/RUNNING
-//   bun worktree.ts retire <id> [--force]     # clean+idle → remove; dirty → keep (exit 3);
-//                                             # clean but live lane inside → keep (exit 4)
-//   bun worktree.ts path <id>                 # print the worktree path
-//   bun worktree.ts sweep [--main <b>] [--dry-run]  # W494.2.2 supported sweep:
-//                                             # patch-id cherry vs main; dirty/
-//                                             # live/claimed/young kept; unmerged
-//                                             # trees stay with a NEED_DECISION
-//
+// usage: GENERATED from the verb registry — `worktree --help`.
 // The path is DERIVED (no schema change): .worktrees/<id> existing = the item
 // has a worktree. `work done` calls retire automatically.
 
@@ -30,25 +22,46 @@ import {
 	resolveItemWorktree,
 } from "../lib/worktree-lookup.ts";
 import { retireLaneKey } from "../../scripts/lib/lane-auth.ts";
+import {
+	defineVerb,
+	runCli,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 
-const [cmd, id, ...flags] = process.argv.slice(2);
-const FORCE = flags.includes("--force");
-
-if (!cmd || (!id && cmd !== "sweep")) {
-	console.log("usage: worktree.ts {create|retire|path} <id> [--force]");
-	console.log("       worktree.ts sweep [--main <branch>] [--dry-run]");
-	process.exit(2);
-}
+const VERBS: VerbSpec[] = [
+	defineVerb({
+		name: "create",
+		usage: "usage: worktree create <id>",
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "retire",
+		usage: "usage: worktree retire <id> [--force]",
+		minPos: 1,
+		switches: ["--force"],
+	}),
+	defineVerb({
+		name: "path",
+		usage: "usage: worktree path <id>",
+		minPos: 1,
+	}),
+	defineVerb({
+		name: "sweep",
+		usage:
+			"usage: worktree sweep [--main <branch>] [--dry-run] — patch-id cherry vs main; dirty/live/claimed/young kept; unmerged trees NEED_DECISION",
+		flags: ["--main"],
+		switches: ["--dry-run"],
+	}),
+];
 
 // W459.1: the graph key and the local checkout root resolve together —
 // .worktrees lives at the checkout root even when run inside a worktree
 const RP = resolveProject();
 const PROJECT = RP.id;
 const ROOT = RP.root;
-// W211: resolve the item's tree from git's registry by branch, falling back
-// to the conventional .worktrees/<id> — never derive-and-pray
-const wtDir = id ? resolveItemWorktree(ROOT, id) : null;
-const branch = id ? `suspenders/${id}` : "";
+// W211: per-handler — each verb derives wtDir/branch from its parsed
+// positional (registry-first resolveItemWorktree, conventional fallback).
 
 // Retiring a migrated item must still revoke the key of its retire/sweep path.
 async function retireItemKey(id: string) {
@@ -109,7 +122,10 @@ const emit = (
 };
 
 // ─── create ───
-if (cmd === "create") {
+const create = async (p: Parsed): Promise<number> => {
+	const id = p.pos[0];
+	const wtDir = resolveItemWorktree(ROOT, id);
+	const branch = `suspenders/${id}`;
 	const db = openGovernorDb();
 	const it = db
 		.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
@@ -146,11 +162,15 @@ if (cmd === "create") {
 
 	emit(id, "work.tree", { path: target, branch });
 	console.log(`${target}`);
-	process.exit(0);
-}
+	return 0;
+};
 
 // ─── retire ───
-if (cmd === "retire") {
+const retire = async (p: Parsed): Promise<number> => {
+	const id = p.pos[0];
+	const wtDir = resolveItemWorktree(ROOT, id);
+	const branch = `suspenders/${id}`;
+	const FORCE = p.flag("--force") === "true";
 	// W463 lane-key lifecycle: a lane over is a key revoked. The dirty guard
 	// below keeps a POSSIBLY-LIVE lane's key (exit 3 = the lane may still be
 	// running); exit 4 (the W123 liveness guard below) keeps it too — the
@@ -198,14 +218,16 @@ if (cmd === "retire") {
 	console.log(
 		`retired ${wtDir} — branch ${branch} kept for integration${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
 	);
-	process.exit(0);
-}
+	return 0;
+};
 
 // ─── path ───
-if (cmd === "path") {
+const showPath = async (p: Parsed): Promise<number> => {
+	const id = p.pos[0];
+	const wtDir = resolveItemWorktree(ROOT, id);
 	console.log(wtDir ?? join(ROOT, ".worktrees", id));
-	process.exit(0);
-}
+	return 0;
+};
 
 // ─── sweep ───
 // W494.2.2: the supported sweep. 2026-10-06: 14 worktrees of DONE items
@@ -217,11 +239,10 @@ if (cmd === "path") {
 // (mid-spawn grace), then the merge verdict. Unmerged trees stay with a
 // NEED_DECISION; swept branches pin a refs/recover/* tip before removal.
 // --dry-run previews the verdicts without writing anything.
-if (cmd === "sweep") {
+const sweep = async (p: Parsed): Promise<number> => {
 	// args, counters, the graph handle
-	const mi = flags.indexOf("--main");
-	const MAIN = mi >= 0 ? (flags[mi + 1] ?? "main") : "main";
-	const DRY = flags.includes("--dry-run");
+	const MAIN = p.flag("--main") ?? "main";
+	const DRY = p.flag("--dry-run") === "true";
 	const GRACE = Number(process.env.WORKTREE_SWEEP_GRACE_MS ?? 600_000);
 	const kept = (wid: string, reason: string): void => {
 		console.log(`KEPT ${wid} — ${reason}`);
@@ -253,8 +274,9 @@ if (cmd === "sweep") {
 			considered++;
 			continue;
 		}
-		// loop-local: the module-level `branch` is suspenders/<argv-id> — for
-		// sweep there IS no id, so it must never leak into this verdict
+		// loop-local: the create/retire handlers' `branch` is
+		// suspenders/<argv-id> — sweep has no argv id, so it must never leak
+		// into this verdict
 		const br = e.branch;
 		const dirty = git(["status", "--porcelain"], e.path).out;
 		if (dirty !== "") {
@@ -361,7 +383,22 @@ if (cmd === "sweep") {
 	console.log(
 		`sweep: ${DRY ? "would-sweep" : "swept"}=${DRY ? would : swept} unmerged=${unmerged} kept=${considered}`,
 	);
-	process.exit(0);
-}
+	return 0;
+};
 
-die(`unknown command ${cmd}`, 2);
+await runCli({
+	prog: "worktree",
+	about: "worktree — per-item git worktrees (W52).",
+	verbs: VERBS,
+	dispatch: async (cmd, p) => {
+		const h =
+			cmd === "create"
+				? create
+				: cmd === "retire"
+					? retire
+					: cmd === "path"
+						? showPath
+						: sweep;
+		return await h(p);
+	},
+});

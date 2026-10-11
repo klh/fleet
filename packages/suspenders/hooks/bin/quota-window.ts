@@ -18,6 +18,12 @@ import {
 	mkdirSync,
 	readdirSync,
 } from "node:fs";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderRegistryHelp,
+} from "../lib/verb-kit.ts";
 
 const STATE = `${process.env.HOME}/.cache/claude-governor/quota-window.json`;
 const PROJECTS = `${process.env.HOME}/.claude/projects`;
@@ -45,7 +51,7 @@ export function harvestResets(projectsDir = PROJECTS): number[] {
 				for (const m of txt.matchAll(
 					/reset at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/g,
 				)) {
-					resets.push(new Date(m[1].replace(" ", "T") + "+00:00").getTime());
+					resets.push(new Date(`${m[1].replace(" ", "T")}+00:00`).getTime());
 				}
 			}
 		}
@@ -99,18 +105,45 @@ export function quotaWindowVerdict(
 }
 
 if (import.meta.main) {
-	const argv = process.argv;
-	const margin =
-		Number(
-			argv.includes("--margin") ? argv[argv.indexOf("--margin") + 1] : 45,
-		) * 60_000;
+	// W656.2: kit-owned parse — bare invocation stays STATUS (the launchd /
+	// ad-hoc default), `note <text>` is the second verb; --help is new
+	const die = dieFor("quota-window");
+	const STATUS = defineVerb({
+		name: "status",
+		usage:
+			"usage: quota-window [status] [--margin <minutes>] — exit 0 safe / 1 near cliff / 2 unknown",
+		flags: ["--margin"],
+	});
+	const NOTE_SPEC = defineVerb({
+		name: "note",
+		usage: 'usage: quota-window note "reset at YYYY-MM-DD HH:MM:SS"',
+		minPos: 1,
+	});
+	const argv = process.argv.slice(2);
+	if (argv[0] === "--help" || argv[0] === "-h") {
+		console.log(
+			renderRegistryHelp(
+				"quota-window",
+				"quota-window — z.ai/GLM 5-hour window tracker.",
+				[STATUS, NOTE_SPEC],
+			),
+		);
+		process.exit(0);
+	}
+	const note = argv[0] === "note";
+	const spec = note ? NOTE_SPEC : STATUS;
+	const rest = note || argv[0] === "status" ? argv.slice(1) : argv;
+	const outcome = parseVerb(spec, rest);
+	if (!outcome.ok) die(outcome.message || (spec.usage ?? ""));
+	const p = outcome.parsed;
+	const margin = Number(p.flag("--margin") ?? 45) * 60_000;
 	// manual observations survive log rotation: quota-window.ts note "reset at <time>"
-	const noteArg = argv[2] === "note" ? argv.slice(3).join(" ") : "";
+	const noteArg = note ? p.pos.join(" ") : "";
 	const noteReset: number[] = [];
 	if (noteArg) {
 		const m = noteArg.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
 		if (m)
-			noteReset.push(new Date(m[1].replace(" ", "T") + "+00:00").getTime());
+			noteReset.push(new Date(`${m[1].replace(" ", "T")}+00:00`).getTime());
 	}
 	const v = quotaWindowVerdict({ marginMs: margin, extraResets: noteReset });
 	for (const l of v.lines) console.log(l);

@@ -17,6 +17,7 @@
 import {
 	appendSample,
 	assess,
+	DEFAULT_POLICY,
 	envPolicy,
 	forecastHeadroom,
 	forecastPush,
@@ -28,55 +29,103 @@ import {
 	statePathDefault,
 	samplesPathDefault,
 } from "../lib/credit-forecast.ts";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderRegistryHelp,
+	type Parsed,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
+
+const die = dieFor("credit-forecast");
+
+// W656.2: kit-owned parse — forecast stays the DEFAULT verb (verb-less
+// invocation rides forecast); --help renders from the registry
+const FLAGS = [
+	"--used",
+	"--limit",
+	"--plan",
+	"--multipliers",
+	"--source",
+	"--note",
+	"--db",
+	"--state",
+	"--queued",
+	"--cost-per-item",
+	"--horizon-hours",
+	"--overage-cost",
+	"--dedupe-hours",
+];
+const SWITCHES = ["--json", "--act", "--overage-permitted", "--no-overage"];
+
+const SAMPLE = defineVerb({
+	name: "sample",
+	usage:
+		"usage: sample --used N --limit M --plan <plan> [--multipliers k=v,...] [--source s] [--note ...] [--db path] [--state path]",
+	reqFlags: ["--used", "--limit"],
+	flags: FLAGS,
+	switches: SWITCHES,
+});
+const FORECAST = defineVerb({
+	name: "forecast",
+	usage:
+		"usage: forecast [--json] [--act] [--db <samples.jsonl>] [--queued N] [--cost-per-item F] [--horizon-hours H] [--overage-permitted|--no-overage] [--overage-cost F] [--dedupe-hours H]",
+	flags: FLAGS,
+	switches: SWITCHES,
+});
+const VERBS: VerbSpec[] = [SAMPLE, FORECAST];
 
 const argv = process.argv.slice(2);
-const verb = argv[0] === "sample" ? "sample" : "forecast";
-const val = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
-const fail = (msg: string): never => {
-	console.error(msg);
-	process.exit(2);
-};
+if (!argv.length || argv[0] === "--help" || argv[0] === "-h") {
+	console.log(
+		renderRegistryHelp(
+			"credit-forecast",
+			"credit-forecast — W566 premium-credit headroom forecast (forecast is the default verb).",
+			VERBS,
+		),
+	);
+	process.exit(0);
+}
+const named = argv[0] === "sample" || argv[0] === "forecast";
+const spec = named ? (argv[0] === "sample" ? SAMPLE : FORECAST) : FORECAST;
+const outcome = parseVerb(spec, named ? argv.slice(1) : argv);
+if (!outcome.ok) die(outcome.message || (spec.usage ?? ""));
+const p: Parsed = outcome.parsed;
 
 const runSample = (): void => {
-	const used = val("--used");
-	const limit = val("--limit");
-	if (used === undefined || limit === undefined)
-		fail(
-			"usage: sample --used N --limit M --plan <plan> [--multipliers k=v,...] [--source s] [--note ...] [--db path]",
-		);
-	const u = Number(used);
-	const l = Number(limit);
+	// --used/--limit are reqFlags — presence guaranteed at parse; the finite
+	// check stays here (parse can't know "5x" isn't a credit count)
+	const u = Number(p.flag("--used"));
+	const l = Number(p.flag("--limit"));
 	if (!Number.isFinite(u) || !Number.isFinite(l))
-		fail(
+		die(
 			"sample needs finite --used and --limit (credits, never inferred from tokens)",
 		);
-	const db = val("--db") ?? samplesPathDefault();
+	const db = p.flag("--db") ?? samplesPathDefault();
+	const mult = p.flag("--multipliers");
+	const note = p.flag("--note");
 	const sample = {
 		at: Date.now(),
 		used: u,
 		limit: l,
-		plan: val("--plan") ?? "unknown",
-		multipliers: val("--multipliers")
-			? parseMultipliers(val("--multipliers") ?? "")
-			: {},
-		source: val("--source") ?? "manual",
-		...(val("--note") !== undefined ? { note: val("--note") } : {}),
+		plan: p.flag("--plan") ?? "unknown",
+		multipliers: mult ? parseMultipliers(mult) : {},
+		source: p.flag("--source") ?? "manual",
+		...(note !== null ? { note } : {}),
 	};
 	appendSample(db, sample);
 	console.log(`sampled: ${sampleLine(sample)}`);
 };
 const runForecast = (): void => {
-	const db = val("--db") ?? samplesPathDefault();
+	const db = p.flag("--db") ?? samplesPathDefault();
 	const policy = mergePolicy(
 		DEFAULT_POLICY,
 		mergePolicy(envPolicy(), policyFromArgv(argv)),
 	);
 	const f = forecastHeadroom(loadSamples(db), {});
 	const a = assess(f, policy);
-	const json = argv.includes("--json");
+	const json = p.flag("--json") === "true";
 	if (json)
 		console.log(
 			JSON.stringify(
@@ -86,11 +135,11 @@ const runForecast = (): void => {
 			),
 		);
 	else for (const l of a.lines) console.log(l);
-	if (argv.includes("--act")) {
+	if (p.flag("--act") === "true") {
 		const line = forecastPush({
 			act: true,
 			samplesPath: db,
-			statePath: val("--state") ?? statePathDefault(),
+			statePath: p.flag("--state") ?? statePathDefault(),
 			policy,
 		});
 		if (line !== null) console.log(`act: ${line}`);
@@ -99,19 +148,19 @@ const runForecast = (): void => {
 };
 
 const dedupeHours = (): number | undefined => {
-	const h = val("--dedupe-hours");
-	if (h === undefined) return undefined;
+	const h = p.flag("--dedupe-hours");
+	if (h === null) return undefined;
 	const n = Number(h);
 	return Number.isFinite(n) ? n * 3_600_000 : undefined;
 };
-if (verb === "sample") {
+if (argv[0] === "sample") {
 	runSample();
 	// a fresh authoritative read immediately re-evaluates the push: same
 	// path the dispatch loop takes, so a warning lands the same turn
 	const line = forecastPush({
 		act: true,
-		samplesPath: val("--db") ?? samplesPathDefault(),
-		statePath: val("--state") ?? statePathDefault(),
+		samplesPath: p.flag("--db") ?? samplesPathDefault(),
+		statePath: p.flag("--state") ?? statePathDefault(),
 		policy: mergePolicy(envPolicy(), policyFromArgv(argv)),
 		dedupeMs: dedupeHours(),
 	});
