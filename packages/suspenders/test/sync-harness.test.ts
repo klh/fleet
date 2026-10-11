@@ -38,7 +38,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		mkdirSync(join(file, ".."), { recursive: true });
 		writeFileSync(file, value);
 	};
-	for (const name of ["suspenders", "belt", "local-llm", "blam"])
+	for (const name of ["suspenders", "belt", "local-llm", "blam", "buckle"])
 		put(
 			`packages/${name}/package.json`,
 			JSON.stringify({
@@ -70,6 +70,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"subagent-statusline.ts",
 		"bin/coord.ts",
 		"bin/work.ts",
+		"bin/fleet-board.ts",
 		"bin/fleet-loop.ts",
 		"bin/fleet-tracker.ts",
 		"bin/fleet-watch.ts",
@@ -104,6 +105,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	);
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
+	put("packages/buckle/src/fixture.ts", "export const value = 1;");
 	put(
 		"packages/suspenders/install.sh",
 		`#!/bin/sh\ntouch ${join(root, "service-called")}\n`,
@@ -164,6 +166,15 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(readFileSync(packagedDefaults, "utf8")).toBe(
 		`${f.git("show", `${receipt.revision}:packages/buckle/upstreams.yaml`)}\n`,
 	);
+	// W441: buckle src ships in the harness so the board's cross-package
+	// import (routes-observations → buckle/src/projection) resolves outside
+	// the repo layout.
+	expect(
+		readFileSync(
+			join(f.ctx.prefix, ".harness/packages/buckle/src/fixture.ts"),
+			"utf8",
+		),
+	).toBe("export const value = 1;");
 	// Runtime code and shared imports survive deletion of the source checkout.
 	rmSync(f.source, { recursive: true, force: true });
 	expect(readFileSync(packagedDefaults, "utf8")).toContain("reviewed-default");

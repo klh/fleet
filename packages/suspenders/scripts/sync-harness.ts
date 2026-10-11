@@ -29,6 +29,8 @@ const SOURCE_PATHS = [
 	"packages/belt/bin",
 	"packages/belt/package.json",
 	"packages/buckle/upstreams.yaml",
+	"packages/buckle/src",
+	"packages/buckle/package.json",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
@@ -43,6 +45,7 @@ const ENTRYPOINTS = [
 	"hooks/bin/fleet-tracker.ts",
 	"hooks/bin/fleet-watch.ts",
 	"hooks/bin/morph.ts",
+	"hooks/bin/fleet-board.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
@@ -228,7 +231,7 @@ export async function syncHarness(
 		const manifest = JSON.parse(
 			readFileSync(join(suspenders, "package.json"), "utf8"),
 		);
-		for (const name of ["suspenders", "belt", "local-llm", "blam"]) {
+		for (const name of ["suspenders", "belt", "local-llm", "blam", "buckle"]) {
 			const path = join(packageRoot, name, "package.json");
 			const item = JSON.parse(readFileSync(path, "utf8"));
 			delete item.devDependencies;
