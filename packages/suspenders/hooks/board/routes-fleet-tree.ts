@@ -550,9 +550,9 @@ const load = async (force) => {
 				const line = el("div", "leaf");
 				line.append(el("span", "glyph", (i === kids.length - 1 ? "└─ " : "├─ ")));
 				line.append(el("span", m.state === "loaded" ? "up" : m.state === "unreachable" ? "downleaf" : "tier", label(m.label)));
-				if (m.state !== "loaded") line.append(el("span", "tier", "  " + m.state));
 				if (m.tier) line.append(el("span", "tier", "  [" + m.tier + "]"));
 				if (m.note) line.append(el("span", "tier", "  " + m.note));
+				if (m.state !== "loaded") line.append(el("span", "tier", "  " + m.state));
 				row.append(line);
 			});
 			tree.append(row);

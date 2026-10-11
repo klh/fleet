@@ -32,7 +32,10 @@ const stubDeps = (home: string, registry: string, s: Scenario): TreeDeps => ({
 		s.seen.urls.push(u);
 		// the hub candidate gets its OWN doc: leaves ride port 5999 on the hub
 		// host — the W530.2 origin fix makes probes hit :5999, never :5999:5999
-		if (u === "http://127.0.0.1:5999/registry.json" && (s.hubOk ?? s.registryOk))
+		if (
+			u === "http://127.0.0.1:5999/registry.json" &&
+			(s.hubOk ?? s.registryOk)
+		)
 			return new Response(
 				JSON.stringify({
 					router: { port: 5999 },
