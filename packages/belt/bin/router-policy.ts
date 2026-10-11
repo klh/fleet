@@ -30,11 +30,18 @@ export interface GatewayPolicy {
 	allowed_fails?: number;
 	cooldown_time?: number;
 	fallbacks?: Record<string, string[]>;
+	/** W648 role-class rows — validated at parse, resolved per request. */
+	classes?: ClassPolicy;
+	roles?: Record<string, RoleClass>;
+	reasoning?: ReasoningPolicy;
 }
 
 interface PolicyDoc {
 	version?: number;
 	gateway?: GatewayPolicy;
+	classes?: unknown;
+	roles?: unknown;
+	reasoning?: unknown;
 }
 
 /** Native-free defaults; the committed YAML carries the same values. */
@@ -52,6 +59,10 @@ export function parsePolicy(text: string): GatewayPolicy {
 	const policy = { ...DEFAULTS, ...(doc.gateway ?? {}) };
 	validateInnerRetries(policy.litellm_num_retries);
 	validateInnerFallbacks(policy.litellm_fallbacks);
+	if (doc.classes !== undefined) policy.classes = parseClasses(doc.classes);
+	if (doc.roles !== undefined) policy.roles = parseRoles(doc.roles);
+	if (doc.reasoning !== undefined)
+		policy.reasoning = parseReasoning(doc.reasoning);
 	return policy;
 }
 
@@ -180,4 +191,195 @@ export function resolveTarget(
 ): { base: string; direct: boolean } {
 	const d = direct[model];
 	return d ? { base: d, direct: true } : { base: gatewayBase, direct: false };
+}
+
+// ─── role-class routing (W648, oh-my-codex §1 lift) ───
+// Declarative class rows in routing-policy.yaml: classes map
+// frontier/standard/spark to ordered group ladders (the groups are the
+// existing litellm model_name / buckle group / direct-tier aliases — buckle
+// and litellm keep resolving group → provider natively). Any role or lane
+// named *-low drops to the spark class with no registry edit; reasoning
+// effort rides as a SEPARATE axis (role row > class row > default).
+export const ROLE_CLASSES = ["frontier", "standard", "spark"] as const;
+export type RoleClass = (typeof ROLE_CLASSES)[number];
+
+export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+export interface ClassPolicy {
+	frontier?: string[];
+	standard?: string[];
+	spark?: string[];
+}
+
+export interface ReasoningPolicy {
+	default?: ReasoningEffort;
+	classes?: Partial<Record<RoleClass, ReasoningEffort>>;
+	roles?: Record<string, ReasoningEffort>;
+}
+
+/** Group and role names share one grammar — the belt-facing alias namespace
+ *  (litellm model_name / buckle group / direct-tier key). */
+const TOKEN_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function parseEffort(v: unknown): ReasoningEffort {
+	if (
+		typeof v !== "string" ||
+		!REASONING_EFFORTS.includes(v as ReasoningEffort)
+	)
+		throw new Error(
+			`router-policy: reasoning effort must be one of ${REASONING_EFFORTS.join("|")}`,
+		);
+	return v as ReasoningEffort;
+}
+
+/** Parse the `classes:` rows — only the three known classes, each a
+ *  non-empty ordered list of group names. Unknown class keys fail closed
+ *  (a misspelled class would otherwise route nobody, silently). */
+function parseClasses(raw: unknown): ClassPolicy {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+		throw new Error(
+			"router-policy: classes must be a map of class → [group names]",
+		);
+	const out: ClassPolicy = {};
+	for (const [cls, groups] of Object.entries(raw)) {
+		if (!ROLE_CLASSES.includes(cls as RoleClass))
+			throw new Error(
+				`router-policy: classes.${cls} is not one of ${ROLE_CLASSES.join("|")}`,
+			);
+		if (
+			!Array.isArray(groups) ||
+			groups.length === 0 ||
+			groups.some((g) => typeof g !== "string" || !TOKEN_RE.test(g))
+		)
+			throw new Error(
+				`router-policy: classes.${cls} must be a non-empty list of group names (letters/digits/._-, ≤64 chars)`,
+			);
+		out[cls as RoleClass] = groups as string[];
+	}
+	return out;
+}
+
+/** Parse the `roles:` override map — grammar-checked role names → class. */
+function parseRoles(raw: unknown): Record<string, RoleClass> {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+		throw new Error("router-policy: roles must be a map of role → class");
+	const out: Record<string, RoleClass> = {};
+	for (const [role, cls] of Object.entries(raw)) {
+		if (!TOKEN_RE.test(role))
+			throw new Error(
+				`router-policy: roles.${role} must be a role name (letters/digits/._-, ≤64 chars)`,
+			);
+		if (!ROLE_CLASSES.includes(cls as RoleClass))
+			throw new Error(
+				`router-policy: roles.${role} is not one of ${ROLE_CLASSES.join("|")}`,
+			);
+		out[role] = cls as RoleClass;
+	}
+	return out;
+}
+
+/** Parse the `reasoning:` axis — model-independent effort (W648): a
+ *  per-role override map, class-level defaults, and a global default. Every
+ *  value must be a known effort (low..xhigh) — invalid tiers fail closed. */
+function parseReasoning(raw: unknown): ReasoningPolicy {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+		throw new Error(
+			"router-policy: reasoning must be a map (default/classes/roles)",
+		);
+	const rec = raw as Record<string, unknown>;
+	const out: ReasoningPolicy = {};
+	if (rec.default !== undefined) out.default = parseEffort(rec.default);
+	if (rec.classes !== undefined) {
+		if (typeof rec.classes !== "object" || rec.classes === null)
+			throw new Error(
+				"router-policy: reasoning.classes must be a map of class → effort",
+			);
+		const cls: Partial<Record<RoleClass, ReasoningEffort>> = {};
+		for (const [k, v] of Object.entries(rec.classes)) {
+			if (!ROLE_CLASSES.includes(k as RoleClass))
+				throw new Error(
+					`router-policy: reasoning.classes.${k} is not one of ${ROLE_CLASSES.join("|")}`,
+				);
+			cls[k as RoleClass] = parseEffort(v);
+		}
+		out.classes = cls;
+	}
+	if (rec.roles !== undefined) {
+		if (typeof rec.roles !== "object" || rec.roles === null)
+			throw new Error(
+				"router-policy: reasoning.roles must be a map of role → effort",
+			);
+		const roles: Record<string, ReasoningEffort> = {};
+		for (const [k, v] of Object.entries(rec.roles)) {
+			if (!TOKEN_RE.test(k))
+				throw new Error(
+					`router-policy: reasoning.roles.${k} must be a role name (letters/digits/._-, ≤64 chars)`,
+				);
+			roles[k] = parseEffort(v);
+		}
+		out.roles = roles;
+	}
+	return out;
+}
+
+/** OMX §1 role→class: an explicit `roles:` row wins, a `-low` name suffix
+ *  drops to spark, everything else rides the standard lane. */
+export function resolveRoleClass(
+	policy: GatewayPolicy,
+	role: string,
+): RoleClass {
+	const explicit = policy.roles?.[role];
+	if (explicit) return explicit;
+	if (role.endsWith("-low")) return "spark";
+	return "standard";
+}
+
+/** Ordered group ladder for a class. standard inherits frontier when unset
+ *  (OMX §1: the cheap lane is the opt-in, expensive by default); spark
+ *  inherits standard → frontier. Empty = no rows configured (a runtime
+ *  copy predating the schema) — callers fall back to today's behavior. */
+export function resolveClassGroups(
+	policy: GatewayPolicy,
+	cls: RoleClass,
+): string[] {
+	const c = policy.classes ?? {};
+	if (cls === "frontier") return c.frontier ?? [];
+	if (cls === "standard") return c.standard ?? c.frontier ?? [];
+	return c.spark ?? c.standard ?? c.frontier ?? [];
+}
+
+/** Effort precedence: role row > class row > global default > medium. */
+export function resolveReasoningEffort(
+	policy: GatewayPolicy,
+	role: string,
+): ReasoningEffort {
+	const r = policy.reasoning;
+	const cls = resolveRoleClass(policy, role);
+	return r?.roles?.[role] ?? r?.classes?.[cls] ?? r?.default ?? "medium";
+}
+
+/** The class-tiers.json artifact (W648): the resolved class map for non-TS
+ *  consumers — dispatch brief composition and the W512 Task pin read this
+ *  instead of importing belt code. Groups stay the existing belt-facing
+ *  aliases; buckle/litellm resolve group → provider as before. */
+export function emitClassTiers(policy: GatewayPolicy): string {
+	return `${JSON.stringify(
+		{
+			version: 1,
+			classes: {
+				frontier: resolveClassGroups(policy, "frontier"),
+				standard: resolveClassGroups(policy, "standard"),
+				spark: resolveClassGroups(policy, "spark"),
+			},
+			roles: policy.roles ?? {},
+			reasoning: {
+				default: policy.reasoning?.default ?? "medium",
+				classes: policy.reasoning?.classes ?? {},
+				roles: policy.reasoning?.roles ?? {},
+			},
+		},
+		null,
+		2,
+	)}\n`;
 }

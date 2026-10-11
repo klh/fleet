@@ -5,6 +5,7 @@
 // resolved at runtime via os.environ/Z_AI_API_KEY, never inline).
 import { readFileSync } from "node:fs";
 import {
+	emitClassTiers,
 	emitFallbackSettings,
 	emitRouterSettings,
 	loadDirectTiers,
@@ -159,3 +160,8 @@ console.log(
 const directOut = `${HOME}/.claude/local-llm/direct-tiers.json`;
 await Bun.write(directOut, `${JSON.stringify(loadDirectTiers(), null, 2)}\n`);
 console.log(`wrote ${directOut}`);
+// W648 role-class map for non-TS consumers (dispatch briefs, the W512 Task
+// pin): role → class → ordered groups + the reasoning-effort axis.
+const classOut = `${HOME}/.claude/local-llm/class-tiers.json`;
+await Bun.write(classOut, emitClassTiers(policy));
+console.log(`wrote ${classOut}`);
