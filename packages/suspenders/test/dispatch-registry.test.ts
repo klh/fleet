@@ -57,20 +57,49 @@ const capture = async (
 
 describe("classifyPrune", () => {
 	test("dead prunes, live/unknown refuse, absent no-ops", () => {
+		const now = Date.now();
 		const verdicts = new Map([
 			["d", "dead"],
 			["l", "alive"],
 			["u", "unknown"],
 		] as const);
 		const plan = classifyPrune(
-			[row("d"), row("l"), row("u")],
-			["d", "l", "u", "gone"],
+			[
+				row("d"),
+				row("l"),
+				row("u", { launchedAt: now }),
+				row("u-aged", { launchedAt: 1 }),
+			],
+			["d", "l", "u", "u-aged", "gone"],
 			(l) => verdicts.get(l.sid) ?? "unknown",
 		);
 		expect(plan.get("d")?.class).toBe("prunable");
+		expect(plan.get("d")?.warrant).toBe("dead");
 		expect(plan.get("l")?.class).toBe("refused-live");
 		expect(plan.get("u")?.class).toBe("refused-unknown");
+		expect(plan.get("u-aged")?.class).toBe("prunable");
+		expect(plan.get("u-aged")?.warrant).toBe("age-trusted");
 		expect(plan.get("gone")?.class).toBe("absent");
+	});
+
+	test("age trust needs pid-less AND >24h — age alone never prunes", () => {
+		const now = Date.now();
+		const verdictOf = (): "unknown" => "unknown";
+		const plan = classifyPrune(
+			[
+				row("aged-pidless", { launchedAt: 1 }),
+				row("young-pidless", { launchedAt: now }),
+				row("aged-pid", { launchedAt: 1, pid: 42 }),
+			],
+			["aged-pidless", "young-pidless", "aged-pid"],
+			verdictOf,
+			now,
+		);
+		expect(plan.get("aged-pidless")?.class).toBe("prunable");
+		expect(plan.get("aged-pidless")?.warrant).toBe("age-trusted");
+		expect(plan.get("young-pidless")?.class).toBe("refused-unknown");
+		// a recorded pid means the probe may still find the process — protected
+		expect(plan.get("aged-pid")?.class).toBe("refused-unknown");
 	});
 });
 
@@ -131,10 +160,12 @@ describe("registry CLI (real liveness verdict)", () => {
 		expect(left).toEqual(["stayer"]);
 	});
 
-	test("retains a foreign-host entry: exit 1, unknown, row untouched", async () => {
+	test("retains a young foreign-host entry: exit 1, unknown, row untouched", async () => {
 		const fleet = fleetOf();
 		const sid = `autow636-remote-${Math.random().toString(36).slice(2, 8)}`;
-		mergeLaneRegistry(fleet, [row(sid, { host: "elsewhere.example" })]);
+		mergeLaneRegistry(fleet, [
+			row(sid, { host: "elsewhere.example", launchedAt: Date.now() }),
+		]);
 		const r = await capture(() =>
 			registryMain(["prune", "--sid", sid], { fleet }),
 		);
@@ -143,6 +174,22 @@ describe("registry CLI (real liveness verdict)", () => {
 			`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
 		);
 		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
+	});
+
+	test("prunes an aged pid-less foreign entry on the age-trust warrant", async () => {
+		const fleet = fleetOf();
+		const sid = `autow636-aged-${Math.random().toString(36).slice(2, 8)}`;
+		mergeLaneRegistry(fleet, [
+			row(sid, { host: "elsewhere.example", launchedAt: 1 }),
+		]);
+		const out = await capture(() =>
+			registryMain(["prune", "--sid", sid], { fleet }),
+		);
+		expect(out.lines.join("\n")).toContain(
+			`PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item W636)`,
+		);
+		expect(out.code).toBe(0);
+		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
 	});
 
 	test("dry-run reports without writing; forget is a prune alias", async () => {
