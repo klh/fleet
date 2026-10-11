@@ -56,8 +56,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - name: compose config validates
-        run: docker compose -f packages/suspenders/deploy/e2e/e2e-compose.yaml config -q
+      # the runner mints the 0600 root-key env_file BEFORE compose up (the
+      # env_file is fail-closed: a missing file would fail config/up), so
+      # run-e2e.ts is the single validation + probe surface
       - name: e2e probes
         run: bun packages/suspenders/deploy/e2e/run-e2e.ts
 
