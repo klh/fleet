@@ -1,4 +1,11 @@
 import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
+import {
+	itemSpend,
+	laneSpendRows,
+	resolveBuckleDb,
+	type ItemSpend,
+} from "../lib/lane-spend.ts";
+import { claimWindows } from "../lib/work-timing.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
@@ -349,6 +356,24 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	// attribution is by claim-window overlap in time, not causality (a session
 	// working several items serially shares its transcript across windows).
 	const tokens = tokenUsage(db as Database, project, now);
+	// W635 — cost per DONE item: buckle-ledger lane spend joined to claim
+	// windows (lib/lane-spend.ts). Window attribution like W24 tokens; a
+	// missing/unreadable ledger yields null — no cost section, never blocks.
+	const ledger = resolveBuckleDb();
+	let costs: Map<string, ItemSpend> | null = null;
+	if (ledger) {
+		try {
+			costs = itemSpend(
+				laneSpendRows(
+					ledger,
+					`${new Date(cut).toISOString().slice(0, 13)}:00`,
+				),
+				claimWindows(db as Database, project, now).windows,
+			);
+		} catch {
+			costs = null; // unreadable ledger — fail soft
+		}
+	}
 	const shown = [...timing].sort((a, b) => b.wallMs - a.wallMs).slice(0, 8);
 	const fmtTok = (n: number): string =>
 		n >= 1e6
@@ -356,6 +381,8 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			: n >= 1e3
 				? `${Math.round(n / 1e3)}k`
 				: `${n}`;
+	const totalTok = (c: ItemSpend): number =>
+		c.in + c.out + c.cacheR + c.cacheC;
 	let sumIn = 0;
 	let sumOut = 0;
 	let tokN = 0;
@@ -367,14 +394,54 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			sumOut += k.out;
 		}
 		const tok = k ? fmtTok(k.in + k.out + k.cacheR + k.cacheC) : "-";
+		const c = costs?.get(t.work);
+		const spend =
+			c && c.in + c.out + c.cacheR + c.cacheC > 0
+				? fmtTok(c.in + c.out + c.cacheR + c.cacheC)
+				: "-";
 		console.log(
-			`    ${cyan(t.work.padEnd(8))} wall ${fmt(t.wallMs).padStart(6)}  agent ${fmt(t.agentMs).padStart(6)}  tok ${tok.padStart(6)}  ${t.claims} claim${t.claims === 1 ? "" : "s"}${t.failed ? red(" FAILED") : t.done ? "" : amber(" open")}`,
+			`    ${cyan(t.work.padEnd(8))} wall ${fmt(t.wallMs).padStart(6)}  agent ${fmt(t.agentMs).padStart(6)}  tok ${tok.padStart(6)}  spend ${spend.padStart(6)}  ${t.claims} claim${t.claims === 1 ? "" : "s"}${t.failed ? red(" FAILED") : t.done ? "" : amber(" open")}`,
 		);
 	}
 	if (shown.length)
 		console.log(
 			`  tokens (approx, window-attributed): in ${tokN ? fmtTok(sumIn) : "-"} · out ${tokN ? fmtTok(sumOut) : "-"} across ${shown.length} shown items`,
 		);
+	// W635 cost summary: median spend per DONE item + per-class (model_group)
+	// split — the dispatch-mix decision metric. Tokens, not $: pricing stays
+	// in machine config (config-over-code).
+	let costStats: {
+		costed: number;
+		median: number;
+		groups: [string, number][];
+	} | null = null;
+	if (costs) {
+		const doneCosts = doneItems
+			.map((t) => costs?.get(t.work))
+			.filter((c): c is ItemSpend => c != null);
+		const costed = doneCosts.filter((c) => totalTok(c) > 0);
+		if (costed.length) {
+			const byGroup = new Map<string, number>();
+			for (const c of costed)
+				for (const [g, v] of c.groups)
+					byGroup.set(
+						g,
+						(byGroup.get(g) ?? 0) + v.in + v.out + v.cacheR + v.cacheC,
+					);
+			costStats = {
+				costed: costed.length,
+				median: med(costed.map(totalTok)),
+				groups: [...byGroup.entries()].sort((a, b) => b[1] - a[1]),
+			};
+			console.log(
+				`  cost/item (buckle ledger, window-attributed): ${costStats.costed}/${doneItems.length} done items costed — median ${fmtTok(costStats.median)} tok/item`,
+			);
+			if (costStats.groups.length)
+				console.log(
+					`    ${costStats.groups.slice(0, 5).map(([g, tok]) => `${g} ${fmtTok(tok)}`).join(" · ")}`,
+				);
+		}
+	}
 	// dwell: PAUSED windows are evented (paused → resume_ready); WAIT_RATE /
 	// WAIT_DED leave no event trail, so ongoing dwell = now − lane.<sid>.state
 	// fact ts (the only state history facts keep is their own last ts).
@@ -464,6 +531,11 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 		conflicts,
 		rework,
 		failed,
+		costItems: costStats?.costed,
+		medianItemSpendTok: costStats?.median,
+		costByGroup: costStats
+			? Object.fromEntries(costStats.groups)
+			: undefined,
 	};
 	const snapKey = `metrics.snapshot.${new Date(now).toISOString().slice(0, 10)}`;
 	db.query(

@@ -98,6 +98,58 @@ export function workTiming(
 	return [...out.values()].sort((a, b) => (a.work < b.work ? -1 : 1));
 }
 
+// W635 — claim windows per item, replayed from the same bus events as
+// workTiming/tokenUsage: each work.claimed (payload `by` = owner sid) opens
+// [claim → closing work.released/done/failed], open claims run to nowMs.
+// Claims without a `by` get sid "" (no spend matches them).
+export interface ClaimWindow {
+	sid: string;
+	start: number;
+	end: number; // 0 = still open
+}
+
+export interface ClaimReplay {
+	windows: Map<string, ClaimWindow[]>;
+	done: Set<string>;
+}
+
+export function claimWindows(
+	db: Database,
+	project: string,
+	nowMs = Date.now(),
+): ClaimReplay {
+	const rows = db
+		.query(
+			"SELECT id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') AND project = ? ORDER BY ts, id",
+		)
+		.all(project) as {
+		id: number;
+		ts: number;
+		kind: string;
+		payload: string | null;
+	}[];
+	const windows = new Map<string, ClaimWindow[]>();
+	const done = new Set<string>();
+	for (const r of rows) {
+		let p: { work?: string; by?: string } = {};
+		try {
+			p = JSON.parse(r.payload ?? "{}") as { work?: string; by?: string };
+		} catch {}
+		if (!p.work) continue;
+		if (r.kind === "work.claimed") {
+			if (!windows.has(p.work)) windows.set(p.work, []);
+			windows.get(p.work)?.push({ sid: p.by ?? "", start: r.ts, end: 0 });
+		} else {
+			const w = windows.get(p.work)?.find((x) => x.end === 0); // claims close in order (FIFO)
+			if (w) w.end = r.ts;
+			if (r.kind === "work.done") done.add(p.work);
+		}
+	}
+	for (const ws of windows.values())
+		for (const w of ws) if (!w.end) w.end = nowMs; // open claims run to nowMs
+	return { windows, done };
+}
+
 // W24 — usage per task. APPROXIMATION: a transcript shared across items (one
 // session working several items serially) is attributed by claim-window
 // overlap in time, not causality. Windows replay from the same bus events as
@@ -121,45 +173,15 @@ export function tokenUsage(
 	project: string,
 	nowMs = Date.now(),
 ): Map<string, ItemTokens | null> {
-	const rows = db
-		.query(
-			"SELECT id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') AND project = ? ORDER BY ts, id",
-		)
-		.all(project) as {
-		id: number;
-		ts: number;
-		kind: string;
-		payload: string | null;
-	}[];
-	const wins = new Map<string, { start: number; end: number }[]>(); // work id → claim windows (end 0 = still open)
-	const sids = new Map<string, string[]>();
-	const done = new Set<string>();
-	for (const r of rows) {
-		let p: { work?: string; by?: string } = {};
-		try {
-			p = JSON.parse(r.payload ?? "{}") as { work?: string; by?: string };
-		} catch {}
-		if (!p.work) continue;
-		if (r.kind === "work.claimed") {
-			if (!wins.has(p.work)) wins.set(p.work, []);
-			wins.get(p.work)?.push({ start: r.ts, end: 0 });
-			if (p.by) {
-				const arr = sids.get(p.work) ?? [];
-				arr.push(p.by);
-				sids.set(p.work, arr);
-			}
-		} else {
-			const w = wins.get(p.work)?.find((x) => x.end === 0); // claims close in order (FIFO)
-			if (w) w.end = r.ts;
-			if (r.kind === "work.done") done.add(p.work);
-		}
-	}
+	const { windows: wins, done } = claimWindows(db, project, nowMs);
 	const out = new Map<string, ItemTokens | null>();
 	for (const [work, ws] of wins) {
 		out.set(work, null); // default: unresolvable → rendered '-', never 0
 		try {
 			const paths = new Set<string>();
-			for (const sid of sids.get(work) ?? []) {
+			for (const sid of new Set(
+				ws.map((w) => w.sid).filter((s) => s !== ""),
+			)) {
 				const tp = (
 					db
 						.query("SELECT transcript_path FROM sessions WHERE sid = ?")
