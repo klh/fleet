@@ -437,7 +437,9 @@ test("gateway dependency import failures abort publication without executing ser
 		"-m",
 		"reviewed broken import fixture",
 	);
-	await expect(syncHarness(f.ctx)).rejects.toThrow("Bundle failed");
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Staged gateway import graph failed",
+	);
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
 		"private-preserved",

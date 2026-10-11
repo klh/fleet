@@ -29,6 +29,10 @@ const SOURCE_PATHS = [
 	"packages/belt/bin",
 	"packages/belt/package.json",
 	"packages/buckle/upstreams.yaml",
+	"packages/buckle/routing-policy.yaml",
+	"packages/buckle/repo-policy.yaml",
+	"packages/buckle/src",
+	"packages/buckle/package.json",
 	"packages/local-llm",
 	"packages/blam/src",
 	"packages/blam/package.json",
@@ -143,6 +147,21 @@ async function validate(stage: string): Promise<string> {
 			],
 			stage,
 		);
+	// Bundle the gateway's complete dependency graph (including vendored blam).
+	// Never execute the server while validating or publishing code.
+	const gateway = await Bun.build({
+		entrypoints: [join(payload, "packages/buckle/src/server.ts")],
+		target: "bun",
+		write: false,
+		throw: false,
+	});
+	if (!gateway.success || gateway.outputs.length !== 1)
+		throw new Error("Staged gateway import graph failed");
+	writeFileSync(
+		join(payload, "packages/buckle/src/server.bundle.js"),
+		await gateway.outputs[0].text(),
+		{ mode: 0o444 },
+	);
 	return payloadChecksum(payload);
 }
 
