@@ -237,7 +237,7 @@ services:
       fleet-deps:
         condition: service_completed_successfully
       buckle-hub:
-        condition: service_started
+        condition: service_healthy
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://buckle-hub:4111/status --listen 4112
     volumes:
       - fleet-tree:/srv/fleet
@@ -262,7 +262,7 @@ services:
       fleet-deps:
         condition: service_completed_successfully
       board-hub:
-        condition: service_started
+        condition: service_healthy
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://board-hub:7809/status --listen 7800
     volumes:
       - fleet-tree:/srv/fleet
@@ -287,7 +287,7 @@ services:
       fleet-deps:
         condition: service_completed_successfully
       store-hub:
-        condition: service_started
+        condition: service_healthy
     command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://store-hub:7796/status --listen 7794
     volumes:
       - fleet-tree:/srv/fleet

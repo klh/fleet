@@ -6,6 +6,9 @@
 	reverse_proxy buckle-hub:4111
 }
 
-e2e-buckle.local:8080 {
+# explicit http:// — without it caddy's auto-HTTPS claims the hostname and
+# serves TLS + redirects on :8080 (seen in CI: "enabling automatic
+# HTTP->HTTPS redirects"), breaking the plain-http healthcheck + probes
+http://e2e-buckle.local:8080 {
 	reverse_proxy buckle-hub:4111
 }
