@@ -16,7 +16,10 @@ import { DietStore } from "./diet.ts";
 import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
-import type { SpokeEnrollmentFactory } from "./gov/hub-seam.ts";
+import type {
+	HubEntitlementsFactory,
+	SpokeEnrollmentFactory,
+} from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
@@ -67,9 +70,11 @@ export interface ServerOpts {
 	// W141 governance: root break-glass key + optional JWT validator config.
 	// W468: slots overrides the env-resolved admission-control pool caps.
 	// W233: spokeEnrollment injects the enterprise overlay's enrollment
-	// provider (klh-remote buckle-remote); unset = solo posture.
+	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
+	// hubEntitlements injects the entitlement-menu provider the same way.
 	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots"> & {
 		spokeEnrollment?: SpokeEnrollmentFactory;
+		hubEntitlements?: HubEntitlementsFactory;
 	};
 }
 
@@ -203,6 +208,7 @@ export function buildDeps(
 				join(process.env.HOME ?? homedir(), ".claude", "local-llm"),
 		),
 		spokeEnrollment: opts.auth?.spokeEnrollment,
+		hubEntitlements: opts.auth?.hubEntitlements,
 	});
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
