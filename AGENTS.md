@@ -97,6 +97,17 @@ Coordination (`coord`):
   children-first + `PRAGMA defer_foreign_keys` (composite FKs on
   work_deps→work_items 500 otherwise); refused when the target holds items
 
+Oracle (`oracle` — the named review/escalation tool, W647):
+
+- `oracle review` / `oracle bugs` / `oracle analyze` — the fixed prompt
+  contract (replaces ad-hoc "-review" phrasing in lane prompts); stateless,
+  one request one answer. Default leg is PINNED to the :8903 local-reason
+  tier (direct OpenAI-wire POST; `ORACLE_ROUTE_URL`/`_KEY`/`_MODEL` are the
+  config-over-code overrides); `--cloud` fires the stronger cloud route via
+  the :4000 router's own escalation leg (buckle-gate `BELT_ESCALATE_*` env,
+  glm-5.3). NO automatic stuck-detection routing — a lane or human invokes
+  it explicitly, every time. Exit 0 answer · 1 usage/input · 2 leg failure.
+
 Lanes (`dispatch`) — spawns a headless lane from READY work: brief
 composed (caveman-condensed), per-lane `bksk_` key minted from
 `belt.env BUCKLE_ADMIN_KEY`, rides the buckle front `/w/<sid>`, 0600
