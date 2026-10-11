@@ -57,11 +57,13 @@ sidecars give `docker compose ps` its health view; the RUNNER gates CI:
 `KLH_E2E_TIMEOUT_S` overrides the per-service health budget (default 240s
 local, 420s CI).
 
-## Why a code bind, not a git-pulled volume
+## Why a seeded volume, not a git-pulled one
 
 hub-compose.yaml is the DEPLOY-grade template (git-pulled volume, pinned
 ref, host networking, probe sidecars). The e2e harness tests the local
-checkout — in CI that is the PR sha itself — so the code arrives via a
-read-only bind of $FLEET_DIR, containers never write to the bind, and
-secrets never enter it (root key = the runner's 0600 `buckle.env`,
-mounted via env_file, gitignored).
+checkout — in CI that is the PR sha itself — so `repo-seed` copies the
+read-only $FLEET_DIR bind into the `fleet-tree` volume (never writing to
+the bind) and `fleet-deps` runs `bun install --frozen-lockfile` there:
+the services need the @klh/* workspace links. Secrets never enter the
+tree (root key = the runner's 0600 `buckle.env`, mounted via env_file,
+gitignored).
