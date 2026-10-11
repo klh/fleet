@@ -250,6 +250,10 @@ services:
       retries: 6
       start_period: 15s
 
+  # board + store are loopback-only services (W92 store law; board defaults
+  # SUSPENDERS_BIND=127.0.0.1), so their sidecars share the hub's network
+  # namespace and poll 127.0.0.1 — still a separate PROCESS (the
+  # outside-process law is about process, not netns)
   board-health:
     image: *fleet-image
     logging: *default-logging
@@ -258,12 +262,13 @@ services:
         limits:
           memory: 128m
     restart: unless-stopped
+    network_mode: "service:board-hub"
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
       board-hub:
         condition: service_healthy
-    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://board-hub:7809/status --listen 7800
+    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:7809/status --listen 7800
     volumes:
       - fleet-tree:/srv/fleet
     healthcheck:
@@ -283,12 +288,13 @@ services:
         limits:
           memory: 128m
     restart: unless-stopped
+    network_mode: "service:store-hub"
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
       store-hub:
         condition: service_healthy
-    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://store-hub:7796/status --listen 7794
+    command: bun /srv/fleet/packages/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:7796/status --listen 7794
     volumes:
       - fleet-tree:/srv/fleet
     healthcheck:
