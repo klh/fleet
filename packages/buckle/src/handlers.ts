@@ -51,7 +51,7 @@ import type { RepoPolicyRow } from "./repo-policy.ts";
 import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
-import { SseSniffer } from "./sse.ts";
+import { SseSniffer, sseReframer } from "./sse.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -610,8 +610,10 @@ async function jsonResponse(
 }
 
 /** SSE pass-through with the usage-only tee: one branch flows to the client
- *  through an identity TransformStream (byte identity), the other feeds the
- *  sniffer into a black hole. No re-route after first byte; an upstream
+ *  through the W616.1 sseReframer for anthropic clients (canonical frames,
+ *  pings dropped, corrupt events quarantined — byte identity is amended:
+ *  upstream framing defects must not reach lane clients), the other feeds
+ *  the sniffer into a black hole. No re-route after first byte; an upstream
  *  death mid-stream appends a dialect error event and closes. */
 function streamResponse(
 	deps: AppDeps,
@@ -631,7 +633,24 @@ function streamResponse(
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
 		// the sniff branch failing must not affect the client branch
 	});
-	clientBranch.pipeTo(downstream.writable).then(finish, (err: unknown) => {
+	// W616.1: anthropic clients get the re-framer — canonical frames, pings
+	// dropped, corrupt events quarantined (litellm's keepalive ping splices
+	// mid-line under load; byte-identity forwarded the defect to the lane).
+	const sanitized =
+		ctx.dialect === "anthropic"
+			? clientBranch.pipeThrough(
+					sseReframer((reason, preview) => {
+						deps.sm
+							.counter(
+								"buckle_sse_reframe_dropped_total",
+								"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
+							)
+							.inc({ reason });
+						console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
+					}),
+				)
+			: clientBranch;
+	sanitized.pipeTo(downstream.writable).then(finish, (err: unknown) => {
 		finish();
 		writeErrorEvent(downstream.writable, ctx.dialect, err);
 	});

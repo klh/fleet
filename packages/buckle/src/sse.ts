@@ -121,3 +121,118 @@ export class SseSniffer {
 		return this.openai;
 	}
 }
+
+/**
+ * W616.1 — canonical SSE re-framer for the anthropic pass-through client
+ * branch. Byte identity (tee()) forwarded upstream framing defects verbatim:
+ * litellm's anthropic adapter emits `event: ping` keepalives during quiet
+ * windows, and its ping write races the content write — the ping frame lands
+ * MID-LINE inside a `data:` payload (fleet/lane-autow499 log: `data: {...,
+ * "inde` + `event: ping`), the client's parser joins the corrupt data lines
+ * and JSON.parse kills the lane mid-stream. This transform re-assembles
+ * events with the same WHATWG framing SseSniffer uses, then re-emits each
+ * one as a canonical frame. Ping events are dropped outright (keepalives,
+ * no client value — the anthropic SDK treats them as no-ops). An event whose
+ * data does not parse is quarantined: dropped, counted, stream kept alive —
+ * one lost delta beats one dead lane. Well-framed events re-emit
+ * semantically identical (multi-line data joins back per spec).
+ */
+export function sseReframer(
+	onDrop?: (reason: "ping" | "corrupt", preview: string) => void,
+): TransformStream<Uint8Array, Uint8Array> {
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
+	let buf = "";
+	let eventType = "";
+	/** data: lines of the event being assembled (joined with \n at emit) */
+	let dataLines: string[] = [];
+
+	const drop = (reason: "ping" | "corrupt", preview: string): void => {
+		try {
+			onDrop?.(reason, preview);
+		} catch {
+			// a failing observer must never break the stream
+		}
+	};
+
+	const dispatch = (c: TransformStreamDefaultController<Uint8Array>): void => {
+		const payload = dataLines.join("\n").trim();
+		const evt = eventType;
+		dataLines = [];
+		eventType = "";
+		if (evt === "ping") {
+			drop("ping", payload.slice(0, 80));
+			return;
+		}
+		if (payload.length === 0) {
+			if (evt.length > 0) c.enqueue(encoder.encode(`event: ${evt}\n\n`));
+			return;
+		}
+		if (payload !== "[DONE]") {
+			try {
+				const j: unknown = JSON.parse(payload);
+				if (j && typeof j === "object" && (j as AnyRec).type === "ping") {
+					drop("ping", payload.slice(0, 80));
+					return;
+				}
+			} catch {
+				drop("corrupt", payload.slice(0, 80));
+				return;
+			}
+		}
+		c.enqueue(
+			encoder.encode(
+				evt.length > 0
+					? `event: ${evt}\ndata: ${payload}\n\n`
+					: `data: ${payload}\n\n`,
+			),
+		);
+	};
+
+	const line = (
+		raw: string,
+		c: TransformStreamDefaultController<Uint8Array>,
+	): void => {
+		const l = raw.replace(/\r$/, "");
+		if (l.length === 0) {
+			dispatch(c); // blank line = event boundary
+			return;
+		}
+		if (l.startsWith(":")) {
+			// keep-alive comment: pass through verbatim (never buffered)
+			c.enqueue(encoder.encode(`${l}\n`));
+			return;
+		}
+		const colon = l.indexOf(":");
+		const field = colon < 0 ? l : l.slice(0, colon);
+		let value = colon < 0 ? "" : l.slice(colon + 1);
+		if (value.startsWith(" ")) value = value.slice(1);
+		if (field === "event") eventType = value.trim();
+		else if (field === "data") dataLines.push(value);
+		// other fields (id/retry): not on the anthropic wire, ignored
+	};
+
+	const drain = (c: TransformStreamDefaultController<Uint8Array>): void => {
+		let i = buf.indexOf("\n");
+		while (i >= 0) {
+			line(buf.slice(0, i), c);
+			buf = buf.slice(i + 1);
+			i = buf.indexOf("\n");
+		}
+	};
+
+	return new TransformStream({
+		transform(chunk, c) {
+			buf += decoder.decode(chunk, { stream: true });
+			drain(c);
+		},
+		flush(c) {
+			buf += decoder.decode();
+			if (buf.length > 0) {
+				line(buf, c);
+				buf = "";
+			}
+			dispatch(c); // tail event never closed by a blank line
+		},
+	});
+}
