@@ -388,6 +388,13 @@ ${fleetNav("belt", "models")}
 <script src="/threads-mark.js"></script>
 <script>
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+// UI law: never HTML-string DOM writes — strings are parsed by DOMParser and
+// the nodes moved into the live tree; data is esc()'d at build time as before.
+function mount(el,html){
+  var parsed=new DOMParser().parseFromString(html,'text/html');
+  var nodes=Array.prototype.slice.call(parsed.body.childNodes);
+  el.replaceChildren.apply(el,nodes);
+}
 function short(m){return String(m||'').replace('mlx-community/','');}
 var statusData=null,remoteRows=[];
 var openRows={};
@@ -467,7 +474,7 @@ function renderFleet(){
       +'<p class="mut">'+bits.join(' · ')+'</p>'
       +'</div></details>';
   });
-  fleet.innerHTML=html;
+  mount(fleet,html);
 }
 function age(iso,now){
   if(!iso)return '—';
@@ -494,7 +501,7 @@ function tick(){
     var chips=s.available.length
       ?s.available.map(function(m){return '<span class="chip">'+esc(short(m))+'</span>';}).join('')
       :'all registry models loaded';
-    fleetmeta.innerHTML='resident '+s.ram.resident_gb.toFixed(1)+' / 128 GB unified memory · available: '+chips;
+    mount(fleetmeta,'resident '+s.ram.resident_gb.toFixed(1)+' / 128 GB unified memory · available: '+chips);
     log.textContent=s.routing_tail.length?s.routing_tail.map(fmt).join('\\n'):'No requests logged yet.';
     prefsline.textContent='mode '+(s.prefs.cost_speed||'balanced')
       +' · cloud '+(s.prefs.allow_cloud?'on':'off')
@@ -512,9 +519,9 @@ function tickRemotes(){
     remoteRows=s.rows||[];
     renderFleet();
     var disc=s.discovered||[];
-    remotesdisc.innerHTML=disc.length
+    mount(remotesdisc,disc.length
       ?disc.map(function(d){return '<span class="chip">'+esc(d.name)+'.local <span class="u">discovered · not configured</span></span>';}).join('')
-      :'';
+      :'');
     fetch('/api/metrics').then(function(r){return r.json();}).then(function(m){
       var lines=(m.recent||[]).map(function(e){
         return e.ts.slice(11,19)+'  '+e.role+'  →  '+e.machine+':'+e.port

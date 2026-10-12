@@ -47,8 +47,26 @@ const SH_ALLOWLIST = [
 	"packages/suspenders/test/load-launchd.test.sh",
 ];
 
-function tracked(pattern: string): string[] {
-	const out = Bun.spawnSync(["git", "ls-files", pattern], { cwd: ROOT });
+// W711 (W694 M5/M6): the UI-law gate (hooks/gates/files.ts) only sees
+// Write/Edit payloads; this scan sees every tracked code file at CI time.
+// HTML-string DOM writes are NEVER allowed; module code and script tags
+// must load from the repo (offline LAN), never a CDN.
+// The vendored third-party bundles under /vendor/ are the pinned exception.
+const UI_LAW_PATTERNS: Array<[RegExp, string]> = [
+	[/\.innerHTML\s*\+?=/, ".innerHTML= — never HTML-string DOM writes"],
+	[/\.outerHTML\s*\+?=/, ".outerHTML= — never HTML-string DOM writes"],
+	[/document\.write\s*\(/, "document.write("],
+	[/insertAdjacentHTML\s*\(/, "insertAdjacentHTML("],
+	[/(?:import|from)\s*\(?\s*["']https?:/, "remote module import — vendor it, never CDN"],
+];
+const UI_LAW_HTML_PATTERNS: Array<[RegExp, string]> = [
+	[/<script[^>]+src=["']https?:/, "remote <script src> — vendor it, never CDN"],
+];
+const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.test\.ts$/];
+const UI_LAW_GLOBS = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.html", "*.htm", "*.svg"];
+
+function tracked(...patterns: string[]): string[] {
+	const out = Bun.spawnSync(["git", "ls-files", ...patterns], { cwd: ROOT });
 	if (out.exitCode !== 0) {
 		throw new Error(`git ls-files ${pattern} failed: ${out.stderr}`);
 	}
@@ -84,4 +102,23 @@ test("tracked .sh files match the pinned allowlist exactly", () => {
 		tracked("*.sh").sort(),
 		"a new .sh needs an explicit entry in tests/law-guards.test.ts (shell-script ban)",
 	).toEqual(SH_ALLOWLIST);
+});
+
+test("no tracked code file writes HTML strings into the DOM or imports from a CDN", () => {
+	const offenders: string[] = [];
+	for (const f of tracked(...UI_LAW_GLOBS)) {
+		if (UI_LAW_ALLOWLIST.some((re) => re.test(f))) continue;
+		const text = readFileSync(join(ROOT, f), "utf8");
+		const pats = /\.html?$/.test(f)
+			? UI_LAW_PATTERNS.concat(UI_LAW_HTML_PATTERNS)
+			: UI_LAW_PATTERNS;
+		for (const [re, why] of pats) {
+			if (re.test(text)) offenders.push(`${f}: ${why}`);
+		}
+	}
+	expect(offenders, "UI law: HTML-string DOM writes and CDN imports are never allowed").toEqual([]);
+});
+
+test("UI-law scan has teeth (real tracked code population)", () => {
+	expect(tracked(...UI_LAW_GLOBS).length).toBeGreaterThan(500);
 });
