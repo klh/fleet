@@ -46,8 +46,7 @@ normalizes (`*.test.ts` may stay beside their modules — they never ship).
 - Tests: `test/<mirror>/<name>.test.ts`; bench-harness tests may sit beside
   their harness inside `bench/`; fixtures in `test/fixtures/`.
 - Benchmarks docs: ONE `benchmarks.md` per package, decision-grade rows only
-  (owner law); `bench-questions.md` merges into it (belt + buckle both carry
-  the drift today — wave 4).
+  (owner law); `bench-questions.md` merged into it (wave 4, W669.5).
 - No stray state files in package roots: `*.db`, `*.lock` beyond the root
   bun.lock, scratch `-.` dirs are debris (wave 0).
 

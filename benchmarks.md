@@ -128,3 +128,20 @@ blam tiers per model).
   Watch: `bun packages/belt/bin/specdec.ts scan`; a real untried challenger
   (e.g. a MoE MTP checkpoint that fits the resident budget) triggers
   `fleet-refresh ab` against the same-class slot.
+
+## 7. Decision-model protocol (Jev / kev / hosted decision APIs)
+
+Shared protocol for any hosted decision model, per the beri.net full
+evaluation (2026-10-02); belt + buckle bench docs cross-point here (W669.5):
+
+1. Shadow eval on OUR labelled dispatch log before any production routing —
+   decomposition plus fitted weights, not zero-shot alone.
+2. Pin the version (`jev-1.13.0`, never `-latest`); re-run the suite on any
+   version bump.
+3. Report calibration (ECE), not just accuracy; expect choice/score fields
+   overconfident out of distribution; add a "none of these" option to every
+   forced choice.
+4. Wrong criteria text can score below random (16.7% on a 4-way choice) —
+   the question text is the program; diff it like code.
+5. State is data, not treated as hostile — anything user-authored inside
+   the state (task hints) needs an injection check in front.
