@@ -48,6 +48,10 @@ const env = {
 	...process.env,
 	HOME,
 	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
+	// W670: the resume-budget fixtures assume the default attempt cap — pin
+	// it so an ambient SUSPENDERS_LANE_MAX_ATTEMPTS (the operator quarantine
+	// unblock knob) cannot leak through ...process.env and move the threshold.
+	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
 };
 
 mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
