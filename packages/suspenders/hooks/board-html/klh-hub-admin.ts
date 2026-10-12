@@ -179,6 +179,7 @@ class KlhHubAdmin extends LitElement {
 		css`
 		:host {
 			display: block;
+			max-width: 1000px;
 			font: var(--klh-text-lg, 14px)/1.6 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e4da);
 		}
@@ -315,6 +316,11 @@ class KlhHubAdmin extends LitElement {
 	];
 	protected render(): TemplateResult {
 		return html`
+			<p class="dim intro">
+				Tokens, provider keys and federation for this hub — enforcement rides
+				the identity layer (scoped, expiring bearer tokens) and every GUI
+				mutation lands in the audit trail.
+			</p>
 			${
 				this.err === null
 					? nothing

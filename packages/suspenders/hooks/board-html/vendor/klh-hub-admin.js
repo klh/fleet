@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","accent"],i=(a)=>{let o=String(a??"").toLowerCase();return u.includes(o)?o:"dim"};class c extends s{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{r,e,t,s}from"./lit-9bpcreb0.js";var u=["dim","ok","warn","bad","info","accent"],i=(a)=>{let o=String(a??"").toLowerCase();return u.includes(o)?o:"dim"};class c extends s{static properties={tone:{type:String,reflect:!0}};static styles=r`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);
@@ -34,6 +34,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",c);var d=(a)=>a===null?"forever":new Date(a).toISOString().slice(0,16).replace("T"," "),m=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class h extends s{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,n]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=n.peers??null,this.fedme=n.me??null,this.fedidle=n.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((p)=>p.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}static styles=[r`
 		:host {
 			display: block;
+			max-width: 1000px;
 			font: var(--klh-text-lg, 14px)/1.6 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e4da);
 		}
@@ -163,6 +164,11 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 			font-family: var(--klh-font-mono);
 		}
 	`];render(){return e`
+			<p class="dim intro">
+				Tokens, provider keys and federation for this hub — enforcement rides
+				the identity layer (scoped, expiring bearer tokens) and every GUI
+				mutation lands in the audit trail.
+			</p>
 			${this.err===null?t:e`<div class="err" role="alert">${this.err}</div>`}
 			${this.renderTokens()} ${this.renderKeys()} ${this.renderFederation()}
 		`}renderTokens(){let a=this.tokens??[];return e`
