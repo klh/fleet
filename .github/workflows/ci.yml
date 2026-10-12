@@ -59,6 +59,31 @@ jobs:
           docker run --rm -v "$PWD:/w:ro" -w /w oven/bun:1 \
             bun packages/suspenders/deploy/runtime-info.ts --check --json
 
+  # W698: release manifest + SBOM. Emits the manifest (fleet sha, lock digest,
+  # image digests, schema versions, checksums), the CycloneDX SBOM and the
+  # license notice as one artifact, and runs the schema upgrade /
+  # migration-failure / rollback-compat suite. A floating (undigested) image
+  # fails the build.
+  release-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: schema upgrade / failure / rollback suite
+        run: bun test packages/suspenders/test/release-manifest.test.ts
+      - name: emit manifest + SBOM + notices
+        run: |
+          set -e
+          bun packages/suspenders/deploy/release-manifest.ts --pinned "$GITHUB_SHA" --out release
+          bun -e 'const m=await Bun.file("release/release-manifest.json").json(); if(m.runtime.unpinnedImages.length){console.error("unpinned images:",m.runtime.unpinnedImages);process.exit(1)}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release/
+
   # W234: the docker e2e harness — full chain up (belt-stub + buckle + caddy
   # + board/store), four probes (chat through buckle, admin token lifecycle,
   # enroll a hub, dispatch a lane), runner exit code gates.
