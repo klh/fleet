@@ -16,6 +16,7 @@ import {
 import { dirname, resolve } from "node:path";
 import { transcriptAlive } from "./lane-liveness.ts";
 import { migrateEventsShred } from "./events-shred.ts";
+import { migrateIdentityRegistry } from "./identity-registry.ts";
 
 const REG = `${process.env.HOME}/.cache/claude-governor`;
 
@@ -884,6 +885,9 @@ export function openGovernorDb(): Database {
 	// per-row json_extract the DuckDB-2.0 finding measured (board 1s poll,
 	// timing/token replays) rides columns now.
 	migrateEventsShred(db);
+	// v15 (W459.5) — identity registry: additive DDL after the shred (nothing
+	// order-dependent; the registry mints rows, never rewrites existing ones).
+	migrateIdentityRegistry(db);
 	migrateJSON(db);
 	return db;
 }

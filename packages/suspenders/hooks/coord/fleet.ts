@@ -29,6 +29,7 @@ import {
 } from "./shared.ts";
 import type { Database, Ev } from "./shared.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
+import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
 import { verdictBySid } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
@@ -914,8 +915,13 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		console.log(projectIdentity());
 		return;
 	}
+	if (sub === "enroll") return cmdEnroll(rest);
+	if (sub === "bind") return cmdBind(rest);
+	if (sub === "verify") return cmdVerify(rest);
 	if (sub !== "rekey")
-		die("usage: coord project identity | coord project rekey <old> <new>");
+		die(
+			"usage: coord project identity | coord project rekey <old> <new> | coord project enroll|bind|verify",
+		);
 	const pos = rest.slice(1).filter((a) => !a.startsWith("--"));
 	const [from, to] = pos;
 	if (!from || !to) die("usage: coord project rekey <old> <new>");
