@@ -48,6 +48,7 @@ import {
 	setReclaimHold,
 } from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
@@ -1082,6 +1083,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					`--plan ${plan} does not exist in this project — register the plan with \`work add\` first`,
 				);
 		}
+		let rebound: string | null = null;
 		const tx = db().transaction(() => {
 			setState(id, "SHATTERED");
 			let n = 0;
@@ -1101,7 +1103,21 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					null,
 					it.effort as string | null,
 				);
-				if (++n === keep) setState(cid, "CLAIMED", it.owner_sid as string);
+				if (++n === keep) {
+					setState(cid, "CLAIMED", it.owner_sid as string);
+					// W628: --keep transfers the parent's claim to this child — the
+					// keeping lane's context follows the claim inside the SAME
+					// transaction (a failed rewrite rolls the shatter back);
+					// pre-fix splits left it bound to the SHATTERED parent and the
+					// lane had to hand-edit its own context to close (W621.1).
+					rebound = rebindKeptLaneContext(
+						process.cwd(),
+						projectRootOf(PROJECT),
+						id,
+						String(it.owner_sid ?? ""),
+						cid,
+					);
+				}
 			}
 		});
 		tx();
@@ -1115,6 +1131,11 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			`${cyan("⊞")} ${cyan(id)} SHATTERED → ${titles.length} children${keep ? `, child ${keep} kept by ${dim(String(it.owner_sid ?? "").slice(0, 8))}` : ""}`,
 		);
 		console.log(kids.map(renderRow).join("\n"));
+		// W628: say the rebind happened — the keeping lane reads this output
+		if (rebound)
+			console.log(
+				`${dim("⇢")} lane context rebound to ${cyan(rebound)} (kept child)`,
+			);
 		// W515: decision objects for the minted children (recommend-only — split
 		// never claims; the scorer suggests a lane per unkept child)
 		const unkept = kids

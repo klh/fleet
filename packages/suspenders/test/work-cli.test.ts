@@ -208,6 +208,63 @@ describe("split — shatter, child ids, roll-up", () => {
 		expect(firstLine(work("show", `${p}.1`).out)).toContain("CLAIMED");
 		expect(firstLine(work("show", `${p}.2`).out)).toContain("READY");
 	});
+
+	test("--keep rebinds the keeping lane's context to the kept child (W628)", () => {
+		const p = idOf(work("add", "keep rebind").out);
+		expect(work("take", p, "--as", "lane-rebind").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(
+			contextPath,
+			JSON.stringify({
+				sid: "lane-rebind",
+				item: p,
+				baseline: "abc",
+				launchedAt: 1,
+			}),
+		);
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).toContain("rebound");
+		const rebound = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(rebound.item).toBe(`${p}.1`);
+		expect(rebound.sid).toBe("lane-rebind");
+		expect(rebound.baseline).toBe("abc"); // evidence baseline survives
+		rmSync(contextPath); // the shared REPO outlives this test — no context leaks
+	});
+
+	test("split leaves foreign lane contexts untouched (W628)", () => {
+		const p = idOf(work("add", "keep foreign").out);
+		expect(work("take", p, "--as", "lane-x").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(contextPath, JSON.stringify({ sid: "other-lane", item: p }));
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).not.toContain("rebound");
+		const untouched = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(untouched.sid).toBe("other-lane");
+		expect(untouched.item).toBe(p);
+		rmSync(contextPath);
+	});
 });
 
 describe("done — roll-up for shattered parents", () => {
