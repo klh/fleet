@@ -39,6 +39,7 @@ import { type DietStore, dietRoutes } from "./diet.ts";
 import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
+import { hopBaggageOf, hopFromBaggage, hopKindOf, type HopContext } from "./hop.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
@@ -110,6 +111,9 @@ export interface AppDeps {
 	// W461 stage 2: the bounded observation outbox. Optional — absent =
 	// observations inert (bare deps, or BUCKLE_OBSERVATIONS_PATH unset).
 	observations?: ObservationOutbox;
+	// W706: this hub's stable id (BUCKLE_HUB_ID) — the peer/origin identity
+	// stamped on relay legs + observations. Absent → "local".
+	hubId?: string;
 }
 
 interface App {
@@ -220,6 +224,9 @@ interface Ctx {
 	/** W461 stage 1: request trace context (inbound traceparent or a fresh
 	 *  root; baggage filtered to the fleet allowlist). */
 	trace: TraceContext;
+	/** W706: hop attribution — origin (self when entered here) + the
+	 *  immediate peer (null = entered the fleet at this hub). */
+	hop: HopContext;
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;
@@ -254,6 +261,7 @@ function deny(
 		allow_cloud: false,
 		error_code: code,
 		why,
+		hop: hopKindOf(ctx.hop),
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
@@ -275,6 +283,8 @@ function observe(
 		dialect: ctx.dialect,
 		model: ctx.model,
 		traceparent: ctx.trace.traceparent,
+		origin: ctx.hop.origin,
+		...(ctx.hop.peer ? { peer: ctx.hop.peer } : {}),
 		...extra,
 	});
 }
@@ -305,6 +315,7 @@ async function proxy(
 	deps: AppDeps,
 	lane = "",
 ): Promise<Response> {
+	const hubId = deps.hubId ?? "local";
 	const ctx: Ctx = {
 		key: keyIdFromToken(tokenFromHeaders(req.headers)),
 		group: "",
@@ -319,11 +330,17 @@ async function proxy(
 		condenseIn: false,
 		affKey: null,
 		// W461 stage 1: accept a caller traceparent, else root a fresh trace;
-		// baggage survives only in the fleet-allowlisted subset.
+		// baggage survives only in the fleet-allowlisted subset. W706: the
+		// hop marker rides the same baggage header — origin defaults to self
+		// (the request entered the fleet here), peer = the forwarding hub.
 		trace: {
 			traceparent:
 				parseTraceparent(req.headers.get("traceparent")) ?? newTraceparent(),
 			baggage: allowlistedBaggage(req.headers.get("baggage")),
+		},
+		hop: {
+			origin: hopFromBaggage(req.headers.get("baggage")).origin || hubId,
+			peer: hopFromBaggage(req.headers.get("baggage")).peer,
 		},
 	};
 	ctx.t0 = Date.now();
@@ -421,6 +438,7 @@ async function runExecute(
 		allow_cloud: sel.prefs.allow_cloud,
 		error_code: null,
 		why: sel.why,
+		hop: hopKindOf(ctx.hop),
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
@@ -458,6 +476,7 @@ async function runExecute(
 			body,
 			key: ctx.key,
 			trace: ctx.trace,
+			relayBaggage: hopBaggageOf(ctx.trace.baggage, deps.hubId ?? "local"),
 			signal: req.signal,
 			sel,
 			tier: ctx.tier,

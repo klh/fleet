@@ -154,6 +154,7 @@ describe("lane prefix contract", () => {
 		raw.close();
 		const ledger = new Ledger(path);
 		ledger.auditDecision({
+		hop: "origin",
 			rid: "r-pre-lane",
 			ts: new Date().toISOString(),
 			actor: "",

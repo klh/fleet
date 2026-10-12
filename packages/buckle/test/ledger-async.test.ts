@@ -41,6 +41,7 @@ describe("Ledger async flush", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.record(rec(7));
 		db.auditDecision({
+		hop: "origin",
 			rid: "r1",
 			ts: "2026-10-01T00:00:00.000Z",
 			actor: "a",
@@ -72,6 +73,7 @@ describe("Ledger async flush", () => {
 	test("audit INSERT→UPDATE order survives the ring", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
+		hop: "origin",
 			rid: "rX",
 			ts: "2022-02-02T22:22:22.222Z",
 			actor: "a",
@@ -102,6 +104,7 @@ describe("Ledger async flush", () => {
 	test("W457: auditUsage lands cache_r/cache_c on the decision row", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
+		hop: "origin",
 			rid: "rC",
 			ts: "2026-10-06T00:00:00.000Z",
 			actor: "a",
@@ -132,6 +135,7 @@ describe("Ledger async flush", () => {
 	test("W457: auditUsage(null) skips the write — unobserved cache stays NULL", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
+		hop: "origin",
 			rid: "rN",
 			ts: "2026-10-06T00:00:00.000Z",
 			actor: "a",

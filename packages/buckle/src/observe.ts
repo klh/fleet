@@ -29,6 +29,11 @@ export interface ObservationData {
 	outcome?: string;
 	status?: number;
 	attempts?: number;
+	/** W706 hop attribution: verified origin hub (self when the request
+	 *  entered the fleet here) + the immediate peer that forwarded the leg
+	 *  (absent = entered here). */
+	origin: string;
+	peer?: string;
 }
 
 /** CloudEvents 1.0.2-shaped observation (the subset the ingest needs). */

@@ -4,6 +4,7 @@
 // Key ids are a truncated SHA-256 of the bearer token — token material never
 // touches the ledger (SECURITY: nothing hashable → empty string).
 import { Database } from "bun:sqlite";
+import type { HopKind } from "./hop.ts";
 import type { Usage } from "./usage.ts";
 
 export interface UsageRecord {
@@ -39,6 +40,11 @@ export interface RouteAuditDecision {
 	allow_cloud: boolean;
 	error_code: string | null;
 	why: string;
+	/** W706 hop marker: 'origin' = the request entered the fleet at this hub
+	 *  and this row is the designated billing source; 'forwarded' = a peer
+	 *  hub relayed the leg — evidence only, never billed again. Exactly one
+	 *  billable row per relayed request. */
+	hop: HopKind;
 }
 
 export interface RouteAuditOutcome {
@@ -62,8 +68,8 @@ INSERT INTO route_audit (
   rid, ts, actor, lane, dialect, hint,
   candidates_seen, candidates_top,
   target_kind, target_host, target_port, target_model,
-  decision, latency_class, tier, allow_cloud, error_code, why
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  decision, latency_class, tier, allow_cloud, error_code, why, hop
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SCHEMA = `
@@ -96,7 +102,8 @@ CREATE TABLE IF NOT EXISTS route_audit (
   error_code TEXT,
   why TEXT NOT NULL DEFAULT '',
   status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
-  cache_r INTEGER, cache_c INTEGER
+  cache_r INTEGER, cache_c INTEGER,
+  hop TEXT
 );
 `;
 
@@ -208,6 +215,10 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_r INTEGER");
 		if (!auditCols.includes("cache_c"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
+		// W706: hop marker (pre-W706 databases heal the same way; NULL hop =
+		// unmarked legacy row — billable, the pre-W706 default).
+		if (!auditCols.includes("hop"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN hop TEXT");
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -421,6 +432,7 @@ export class Ledger {
 			row.allow_cloud ? 1 : 0,
 			row.error_code,
 			row.why,
+			row.hop,
 		);
 	}
 

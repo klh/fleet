@@ -5,7 +5,7 @@
 // via the observer's per-boot sequence, and active-request reconciliation
 // after crashes. Stale/expired observer evidence is UNKNOWN — never proof
 // a lane ended. Scoped queries only: immediate-downstream grouping by
-// default, origin/time/error filters, distinct-lane counts and
+// default, source/origin/time/error filters, distinct-lane counts and
 // cursor-paginated detail. No work-graph replication, ever.
 import { Database, type Statement } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
@@ -31,6 +31,10 @@ export interface RequestEdge {
 	outcome: string | null;
 	status: number | null;
 	attempts: number | null;
+	/** W706: verified origin hub vs the immediate peer that forwarded this
+	 *  leg (peer = null/'' → the request entered the fleet at this hub). */
+	origin: string;
+	peer: string | null;
 }
 
 export interface RouteGroup {
@@ -69,6 +73,7 @@ CREATE TABLE IF NOT EXISTS request_edges (
 	traceparent TEXT NOT NULL,
 	admitted_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER,
 	outcome TEXT, status INTEGER, attempts INTEGER,
+	origin TEXT NOT NULL DEFAULT '', peer TEXT,
 	PRIMARY KEY (source, rid));
 CREATE INDEX IF NOT EXISTS request_edges_admitted ON request_edges (admitted_at DESC);
 CREATE TABLE IF NOT EXISTS observer_state (
@@ -91,13 +96,25 @@ export class LaneProjection {
 		this.db = new Database(path, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
 		this.db.exec(SCHEMA);
+		// W706: hop columns heal onto pre-W706 projection dbs the same way the
+		// ledger heals cache_r/cache_c — idempotent per open, NULL peer = the
+		// request entered the fleet at this hub.
+		const edgeCols = (
+			this.db
+				.query("SELECT name FROM pragma_table_info('request_edges')")
+				.all() as Array<{ name: string }>
+		).map((r) => r.name);
+		if (!edgeCols.includes("origin"))
+			this.db.run("ALTER TABLE request_edges ADD COLUMN origin TEXT NOT NULL DEFAULT ''");
+		if (!edgeCols.includes("peer"))
+			this.db.run("ALTER TABLE request_edges ADD COLUMN peer TEXT");
 		this.insEvent = this.db.query(
 			"INSERT OR IGNORE INTO obs_events (source, id, type, time, data) VALUES (?, ?, ?, ?, ?)",
 		);
 		this.insEdge = this.db.query(
 			`INSERT OR IGNORE INTO request_edges
-			(source, rid, lane, actor, model, dialect, traceparent, admitted_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(source, rid, lane, actor, model, dialect, traceparent, admitted_at, origin, peer)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		);
 		this.edgeStarted = this.db.query(
 			`UPDATE request_edges SET started_at = ? WHERE source = ? AND rid = ? AND started_at IS NULL`,
@@ -187,6 +204,8 @@ export class LaneProjection {
 						typeof d.dialect === "string" ? d.dialect : "",
 						typeof d.traceparent === "string" ? d.traceparent : "",
 						Date.parse(o.time) || now,
+						typeof d.origin === "string" ? d.origin : "",
+						typeof d.peer === "string" ? d.peer : null,
 					);
 				} else if (o.type === "lane.request.started" && rid) {
 					this.edgeStarted.run(now, o.source, rid);
@@ -207,11 +226,12 @@ export class LaneProjection {
 	}
 
 	/** Scoped snapshot: immediate-downstream grouping (per observer source)
-	 *  by default, origin/time/error filters, distinct-lane counts, and
+	 *  by default, source/origin/time/error filters, distinct-lane counts, and
 	 *  cursor-paginated edge detail (keyset on admitted_at + rid). */
 	snapshot(
 		q: {
-			origin?: string | null;
+			source?: string | null;
+			originFilter?: string | null;
 			since?: number | null;
 			until?: number | null;
 			errorOnly?: boolean;
@@ -223,9 +243,13 @@ export class LaneProjection {
 		const limit = Math.min(Math.max(q.limit ?? 100, 1), 1000);
 		const where: string[] = ["1=1"];
 		const args: (string | number)[] = [];
-		if (q.origin) {
+		if (q.source) {
 			where.push("source = ?");
-			args.push(q.origin);
+			args.push(q.source);
+		}
+		if (q.originFilter) {
+			where.push("origin = ?");
+			args.push(q.originFilter);
 		}
 		if (q.since !== undefined && q.since !== null) {
 			where.push("admitted_at >= ?");
@@ -280,7 +304,7 @@ export class LaneProjection {
 			.query(
 				`SELECT source, rid, lane, actor, model, dialect, traceparent,
 				admitted_at AS admittedAt, started_at AS startedAt, ended_at AS endedAt,
-				outcome, status, attempts
+				outcome, status, attempts, origin, peer
 				FROM request_edges WHERE ${clause} ${cursorClause}
 				ORDER BY admitted_at DESC, rid DESC LIMIT ${limit}`,
 			)

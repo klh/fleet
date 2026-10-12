@@ -34,6 +34,9 @@ export interface Deployment {
 	// /federation/entitlements (defensive marker; spoke-local pools are
 	// structurally absent from the hub pool anyway).
 	visibility?: string;
+	// W706: the upstream is another buckle hub — the relay leg carries the
+	// hop marker baggage (origin + peer) instead of the external-egress strip.
+	buckle?: boolean;
 	group: string;
 }
 
@@ -50,6 +53,7 @@ interface DeploymentSpec {
 	adapter?: string;
 	adapter_config?: Record<string, unknown>;
 	visibility?: string;
+	buckle?: boolean;
 }
 
 export interface UpstreamPool {
