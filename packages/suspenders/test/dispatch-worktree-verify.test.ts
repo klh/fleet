@@ -1,145 +1,18 @@
 // test/dispatch-worktree-verify.test.ts — W695.8.7 re-integration of
-// parked/W349: dispatch verifies the worktree branch before spawn. Lives in
-// its own file because dispatch-next.test.ts sits at the 1500-line law cap;
-// the harness mirrors dispatch-next.test.ts (scratch HOME + repo + async
-// spawns so the stub buckle front never stalls).
-import { describe, expect, test, afterAll } from "bun:test";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	realpathSync,
-	rmSync,
-	symlinkSync,
-	chmodSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+// parked/W349: dispatch verifies the worktree branch before spawn. The
+// scratch HOME/repo + async spawns come from the shared dispatch harness
+// (test/helpers/dispatch-harness.ts) so the stub buckle front never stalls.
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-w349-dispatch-home-"));
-const REPO = realpathSync(
-	mkdtempSync(join(tmpdir(), "suspenders-w349-dispatch-repo-")),
-);
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
-const testExecutor = join(HOME, "test-claude");
-writeFileSync(testExecutor, "#!/bin/sh\nexit 0\n");
-chmodSync(testExecutor, 0o700);
-const env = {
-	SUSPENDERS_CLAUDE_BIN: testExecutor,
-	...process.env,
-	HOME,
-	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
-	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
-};
-
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+const { HOME, REPO, toolA, dispatchA, addItem } = dispatchHarness(afterAll, {
+	tag: "w349-dispatch",
+	beltEnv: true,
 });
-
-// scratch repo: one commit so worktree ops would have a base
-const g = (args: string[]): void => {
-	const p = Bun.spawnSync(["/usr/bin/git", ...args], {
-		cwd: REPO,
-		encoding: "utf8",
-	});
-	if (p.exitCode !== 0)
-		throw new Error(`git ${args.join(" ")} failed: ${p.stderr}`);
-};
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
-writeFileSync(join(REPO, "README.md"), "x");
-g(["add", "-A"]);
-g(["commit", "-m", "base"]);
-
-// scratch belt.env with an admin key — mint succeeds at the stub below
-writeFileSync(join(HOME, "belt.env"), "BUCKLE_ADMIN_KEY=bksk_admin_scratch\n");
-
-const stubBuckle = (mint = false): {
-	port: number;
-	calls: string[];
-	stop: () => void;
-} => {
-	const calls: string[] = [];
-	const server = Bun.serve({
-		port: 0,
-		fetch: (req) => {
-			const path = new URL(req.url).pathname;
-			calls.push(`${req.method} ${path}`);
-			if (path === "/status") return new Response("ok");
-			if (path === "/v1/admin/keys" && mint)
-				return Response.json({ key: "bksk_fixture_only", key_id: "owned-key" });
-			if (path === "/v1/admin/keys")
-				return new Response(JSON.stringify({ error: "stub-mint-fail" }), {
-					status: 500,
-				});
-			if (path.endsWith("/revoke"))
-				return new Response(JSON.stringify({ revoked: "ok" }));
-			return new Response("not found", { status: 404 });
-		},
-	});
-	return { port: server.port, calls, stop: () => server.stop(true) };
-};
-
-const toolA = async (
-	extra: Record<string, string | undefined>,
-	bin: string,
-	...args: string[]
-): Promise<{ out: string; err: string; code: number }> => {
-	const p = Bun.spawn([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env: { ...env, ...extra },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [out, err] = await Promise.all([
-		new Response(p.stdout).text(),
-		new Response(p.stderr).text(),
-	]);
-	const code = await p.exited;
-	return { out, err, code };
-};
-
-const dispatchA = async (
-	extra: Record<string, string | undefined>,
-	...args: string[]
-): Promise<{ out: string; err: string; code: number }> => {
-	const p = Bun.spawn(
-		[
-			process.execPath,
-			join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-			"--repo",
-			REPO,
-			...args,
-		],
-		{
-			cwd: REPO,
-			env: { ...env, ...extra },
-			stdout: "pipe",
-			stderr: "pipe",
-		},
-	);
-	const [out, err] = await Promise.all([
-		new Response(p.stdout).text(),
-		new Response(p.stderr).text(),
-	]);
-	const code = await p.exited;
-	return { out, err, code };
-};
-
-const addItem = async (title: string): Promise<string> => {
-	const added = await toolA({}, "work.ts", "add", title);
-	const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
-	expect(id).toBeTruthy();
-	return id;
-};
 
 describe("leftover worktree verification before spawn (W349)", () => {
 	test("wrong-branch leftover is recreated before spawn", async () => {

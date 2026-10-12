@@ -15,28 +15,28 @@
 // writes (settings env outranks the process env in the CLI), the lanes.json
 // registry row, and the dispatch stdout note.
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	chmodSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-	existsSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { dispatchHarness } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-w357-hub-home-"));
-const REPO = realpathSync(
-	mkdtempSync(join(tmpdir(), "suspenders-w357-hub-repo-")),
-);
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
+// fake executor (see executorBody below): dumps its process env — the
+// only proof of what the LANE actually saw — records its pid, and stays
+// alive past the 1s launch check.
+const { HOME, REPO, dispatchA, addItem, cleanup } = dispatchHarness(afterAll, {
+	tag: "w357-hub",
+	beltEnv: true,
+	executorBody:
+		'#!/bin/sh\nenv > "$HOME/lane-env-dump"\necho $$ >> "$HOME/lane-pids"\nexec /bin/sleep 30\n',
+	envOverrides: ({ HOME }) => ({
+		ANTHROPIC_BASE_URL: undefined,
+		SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+	}),
+});
+
+const PIDFILE = join(HOME, "lane-pids");
+const ENVFILE = join(HOME, "lane-env-dump");
 
 // the two live hub stands-ins — DESKTOP and NAS, real HTTP on 127.0.0.1.
 // W615: hub-won lanes mint their lane key AT the hub, so the stand-ins
@@ -58,82 +58,6 @@ const oneOffHub = Bun.serve({ port: 0, fetch: hubFetch("oneoff") });
 const DESKTOP_URL = `http://127.0.0.1:${desktopHub.port}`;
 const NAS_URL = `http://127.0.0.1:${nasHub.port}`;
 const ONEOFF_URL = `http://127.0.0.1:${oneOffHub.port}`;
-
-// fake executor: dumps its process env (the only proof of what the LANE
-// actually saw), records its pid, and stays alive past the 1s launch check
-const PIDFILE = join(HOME, "lane-pids");
-const ENVFILE = join(HOME, "lane-env-dump");
-const executor = join(HOME, "w357-executor");
-writeFileSync(
-	executor,
-	`#!/bin/sh\nenv > "${ENVFILE}"\necho $$ >> "${PIDFILE}"\nexec /bin/sleep 30\n`,
-);
-chmodSync(executor, 0o700);
-
-const env = {
-	...process.env,
-	HOME,
-	SUSPENDERS_CLAUDE_BIN: executor,
-	// dead buckle front by construction: hub-won cases never probe it (the
-	// hub owns the base URL), and the fallback case must take the loud
-	// belt-direct path deterministically
-	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
-	SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
-	// strip the runner's real base URL: pre-set env ALWAYS wins over lane
-	// insertion (lib/insertion.ts fills unset vars only), so a leaked base
-	// would silently veto the hub pin under test — while UNSET env makes
-	// insertionCtx fall to its :4000 local-belt default, which is exactly
-	// what the fallback case asserts
-	ANTHROPIC_BASE_URL: undefined,
-};
-writeFileSync(join(HOME, "belt.env"), "BUCKLE_ADMIN_KEY=bksk_w357_scratch\n");
-
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-// scratch repo: one commit so worktree ops have a base
-const g = (args: string[]): void => {
-	const p = spawnSync("/usr/bin/git", args, { cwd: REPO, encoding: "utf8" });
-	if (p.status !== 0)
-		throw new Error(`git ${args.join(" ")} failed: ${p.stderr}`);
-};
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
-writeFileSync(join(REPO, "README.md"), "w357 hub e2e");
-g(["add", "-A"]);
-g(["commit", "-m", "base"]);
-
-const dispatchA = async (
-	extra: Record<string, string | undefined>,
-	...args: string[]
-): Promise<{ out: string; err: string; code: number }> => {
-	const p = Bun.spawn(
-		[
-			process.execPath,
-			join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-			"--repo",
-			REPO,
-			...args,
-		],
-		{ cwd: REPO, env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" },
-	);
-	const [out, err] = await Promise.all([
-		new Response(p.stdout).text(),
-		new Response(p.stderr).text(),
-	]);
-	return { out, err, code: await p.exited };
-};
-
-const addItem = async (title: string): Promise<string> => {
-	const p = Bun.spawnSync(
-		[process.execPath, join(BIN, "work.ts"), "add", title],
-		{ cwd: REPO, env: { ...env }, stdout: "pipe", stderr: "pipe" },
-	);
-	const id = (p.stdout.toString().match(/W\d+/) ?? [])[0] ?? "";
-	expect(id).toBeTruthy();
-	return id;
-};
 
 // reaper: never leave a sleep-30 lane behind between cases
 const reapLanes = (): void => {
@@ -203,8 +127,7 @@ afterAll(() => {
 	desktopHub.stop(true);
 	nasHub.stop(true);
 	oneOffHub.stop(true);
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	cleanup();
 });
 
 describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
