@@ -47,6 +47,7 @@ const ENTRYPOINTS = [
 	"hooks/bin/fleet-loop.ts",
 	"hooks/bin/fleet-tracker.ts",
 	"hooks/bin/fleet-watch.ts",
+	"hooks/bin/fleet-board.ts", // W630: the board graph is the one that crash-looped unaudited
 	"hooks/bin/morph.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
@@ -128,6 +129,7 @@ async function validate(stage: string): Promise<string> {
 			entrypoints: [join(suspenders, relative)],
 			target: "bun",
 			write: false,
+			throw: false, // W630: surface WHICH entrypoint failed and why, not a bare "Bundle failed"
 		});
 		if (!result.success)
 			throw new Error(
