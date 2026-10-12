@@ -533,6 +533,13 @@ describe("govdbImportViolation (W92.4)", () => {
 
 	test("store owners pass silently", () => {
 		expect(govdbImportViolation(`${HOOKS}/lib/govdb.ts`, IMPORT)).toBeNull();
+		// W624 decomposition — the owner code lives in these siblings now
+		expect(
+			govdbImportViolation(`${HOOKS}/lib/govdb-open.ts`, IMPORT),
+		).toBeNull();
+		expect(
+			govdbImportViolation(`${HOOKS}/lib/govdb-store.ts`, IMPORT),
+		).toBeNull();
 	});
 
 	test("grandfathered consumers soft-note, never block", () => {
