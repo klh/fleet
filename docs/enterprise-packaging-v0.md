@@ -37,7 +37,9 @@ One hub, auth ON, shared operation. Adds the single-hub half of the
 klh-remote overlay:
 
 - hub profile defaults + hubctl deploy lifecycle
-- auth ON: multi-user token issuance/revocation (W231), admin GUI
+- auth ON: enterprise auth enforcement wiring; multi-user token
+  issuance/revocation + admin GUI (W231) are fleet base code, not
+  overlay (correction 2026-10-12, see end note)
 - per-repo pin policies on the buckle gateway
 - usage metering ingest + rollup (hub-side, W233.2)
 - multi-user budget ceilings (teams/ceilings read surface)
@@ -59,13 +61,13 @@ does not fail open.
 
 ## Seat bands (list, per seat/month, annual)
 
-| band      | Team | Enterprise |
-| --------- | ---- | ---------- |
-| 5–24      | $145 | $190       |
-| 25–99     | $120 | $160       |
-| 100–249   | $105 | $135       |
-| 250–499   | —    | $120       |
-| 500+      | —    | $105       |
+| band    | Team | Enterprise |
+| ------- | ---- | ---------- |
+| 5–24    | $145 | $190       |
+| 25–99   | $120 | $160       |
+| 100–249 | $105 | $135       |
+| 250–499 | —    | $120       |
+| 500+    | —    | $105       |
 
 - Team starts at 5 seats; below that Core is the honest answer.
 - Team collapses to the $105 floor at 100 seats — Team is not the
@@ -74,20 +76,20 @@ does not fail open.
 
 ## Enterprise-gated vs public core (code evidence)
 
-| capability                          | tier       | where it lives (W232/W233)                        |
-| ----------------------------------- | ---------- | ------------------------------------------------- |
-| gate, binds, allowlists, key mint   | Core       | public buckle (defensive, W233 KEEP verdicts)     |
-| JWT validator seam, JWKS crypto     | Core       | public buckle (defensive primitives)              |
-| solo work graph + coord plane       | Core       | public suspenders                                 |
-| multi-user tokens + admin GUI       | Team       | W231 (already overlay)                            |
-| hub profile + hubctl fleet deploys  | Team       | suspenders-remote                                 |
-| per-repo pin policies               | Team       | buckle-remote                                     |
-| usage metering ingest/rollup        | Team       | federation-usage (W233.2 overlay)                 |
-| OIDC enforced auth                  | Enterprise | suspenders-remote (W191)                          |
-| spoke enrollment + hub peers        | Enterprise | federation-spokes (W233), peers (W322/W362)       |
-| policy manifest + CR queue          | Enterprise | federation-manifest (W233.3) + federation-cr CLI  |
-| entitlements menu                   | Enterprise | W233.1 overlay                                    |
-| teams/ceilings multi-user budgets   | Team       | read-side public, DDL shared (phase-2 candidate)  |
+| capability                         | tier       | where it lives (W232/W233)                       |
+| ---------------------------------- | ---------- | ------------------------------------------------ |
+| gate, binds, allowlists, key mint  | Core       | public buckle (defensive, W233 KEEP verdicts)    |
+| JWT validator seam, JWKS crypto    | Core       | public buckle (defensive primitives)             |
+| solo work graph + coord plane      | Core       | public suspenders                                |
+| multi-user tokens + admin GUI      | Core       | W231 fleet base, 5c9c54c4 (corrected 2026-10-12) |
+| hub profile + hubctl fleet deploys | Team       | suspenders-remote                                |
+| per-repo pin policies              | Team       | buckle-remote                                    |
+| usage metering ingest/rollup       | Team       | federation-usage (W233.2 overlay)                |
+| OIDC enforced auth                 | Enterprise | suspenders-remote (W191)                         |
+| spoke enrollment + hub peers       | Enterprise | federation-spokes (W233), peers (W322/W362)      |
+| policy manifest + CR queue         | Enterprise | federation-manifest (W233.3) + federation-cr CLI |
+| entitlements menu                  | Enterprise | W233.1 overlay                                   |
+| teams/ceilings multi-user budgets  | Team       | read-side public, DDL shared (phase-2 candidate) |
 
 Public keeps defensive security and honest 501 seams — packaging never
 moves a defensive primitive behind a paywall (W233 decision rule).
@@ -96,5 +98,19 @@ moves a defensive primitive behind a paywall (W233 decision rule).
 
 1. Approve/adjust v0 numbers and band edges.
 2. Hosted/SaaS posture — out of scope for v0; klh-remote is self-host
-   only until the GitHub push lands (existing owner-held decision).
+   only (the GitHub push landed: private `klh/fleet-enterprise`, see
+   the 2026-10-12 correction below).
 3. Whether `blam` ships in Core public or moves reference-only.
+
+## Corrections (2026-10-12, W702)
+
+- W231 (multi-user tokens + admin GUI) is **not** overlay. It is fleet
+  base code — `/console/hub` on the board, `5c9c54c4`
+  (`hooks/board/routes-hub-admin.ts`); W690 decision
+  `decision-w690-w231-audit-row-correction.md`. The "Team" tier row
+  above is re-banded to Core accordingly; what stays overlay is OIDC/RBAC
+  enforcement per customer (W191), per-customer policy pinning and
+  billing gates. Seat-band pricing is unchanged pending owner re-review.
+- "Until the GitHub push lands" is stale: the overlay is pushed as the
+  private repo `klh/fleet-enterprise` (W422.9, W688.1.1). Hosted/SaaS
+  posture remains out of scope.
