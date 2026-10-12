@@ -1,7 +1,7 @@
 // W185 — bin/install-fleet.ts contract tests (bun test). HOME-isolated
 // fixtures (process.env.HOME redirected, restored after); the only sockets
 // are a loopback mock hub. Never the real ~/.claude, never external network.
-import { test, expect, afterAll } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -14,17 +14,17 @@ import { join } from "node:path";
 import {
 	buildPlan,
 	enrollHub,
+	type FleetFlags,
 	firstPolicyPull,
+	type HubIO,
 	hubAsk,
 	withFleetCheckout,
 	writeStandaloneHubConfig,
-	type FleetFlags,
-	type HubIO,
 } from "../bin/install-fleet.ts";
 
 const REPO = join(import.meta.dir, "..");
 const FLEET = join(REPO, "bin/install-fleet.ts");
-const SANDBOX = "/tmp/w185-fleet-home-" + process.pid;
+const SANDBOX = `/tmp/w185-fleet-home-${process.pid}`;
 const REAL_HOME = process.env.HOME;
 
 afterAll(() => {
@@ -41,7 +41,7 @@ function bareHome(): string {
 
 function freshHome(): string {
 	bareHome();
-	mkdirSync(SANDBOX + "/.claude/local-llm", { recursive: true });
+	mkdirSync(`${SANDBOX}/.claude/local-llm`, { recursive: true });
 	return SANDBOX;
 }
 
@@ -58,7 +58,12 @@ function fakeIO(lines: string[]): { io: HubIO; out: () => string } {
 	return { io, out: () => acc };
 }
 
-const FULL_FLAGS: FleetFlags = { dryRun: false, skipModels: false, only: null };
+const FULL_FLAGS: FleetFlags = {
+	dryRun: false,
+	skipModels: false,
+	only: null,
+	llm: "minimal",
+};
 
 function runCli(args: string[], home: string): { code: number; out: string } {
 	const r = Bun.spawnSync([process.execPath, FLEET, ...args], {
@@ -96,7 +101,7 @@ function startMock(): {
 				});
 			}
 			if (req.method === "GET" && u.pathname === "/federation/policy") {
-				if (req.headers.get("authorization") !== "Bearer " + TOKEN) {
+				if (req.headers.get("authorization") !== `Bearer ${TOKEN}`) {
 					return new Response("no", { status: 401 });
 				}
 				return Response.json({
@@ -108,7 +113,7 @@ function startMock(): {
 			return new Response("nf", { status: 404 });
 		},
 	});
-	return { srv, url: "http://127.0.0.1:" + srv.port + "/", CODE, TOKEN };
+	return { srv, url: `http://127.0.0.1:${srv.port}/`, CODE, TOKEN };
 }
 
 test("hygiene: no real hosts/paths/keys; 1500-line law", () => {
@@ -122,7 +127,7 @@ test("hygiene: no real hosts/paths/keys; 1500-line law", () => {
 		/xox[baprs]-/,
 	];
 	for (const f of ["bin/install-fleet.ts", "docs/laws.md"]) {
-		const t = readFileSync(REPO + "/" + f, "utf8");
+		const t = readFileSync(`${REPO}/${f}`, "utf8");
 		for (const rx of bad) expect(t).not.toMatch(rx);
 	}
 	const lines = readFileSync(FLEET, "utf8").split("\n").length;
@@ -136,7 +141,7 @@ test("hub ask 'y' end-to-end: prompts, enrolls, pulls, reports connected", async
 	await hubAsk(io);
 	m.srv.stop(true);
 	const cfg = JSON.parse(
-		readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 	) as {
 		hubs: { url: string; token_env: string }[];
 	};
@@ -144,7 +149,7 @@ test("hub ask 'y' end-to-end: prompts, enrolls, pulls, reports connected", async
 	expect(cfg.hubs[0].token_env).toBe("KLH_HUB_SPOKE_TOKEN");
 	expect(out()).toContain("connected");
 	expect(
-		readFileSync(h + "/.claude/local-llm/last-policy-pull.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/last-policy-pull.json`, "utf8"),
 	).toContain("menu");
 });
 
@@ -154,8 +159,8 @@ test("wrong code: no roster, no env file (standalone fallback is hubAsk's job)",
 	const { io } = fakeIO([]);
 	expect(await enrollHub(m.url, "wrong", io)).toBe(false);
 	m.srv.stop(true);
-	expect(existsSync(h + "/.claude/local-llm/hubs.json")).toBe(false);
-	expect(existsSync(h + "/.claude/local-llm/hub.env")).toBe(false);
+	expect(existsSync(`${h}/.claude/local-llm/hubs.json`)).toBe(false);
+	expect(existsSync(`${h}/.claude/local-llm/hub.env`)).toBe(false);
 });
 
 test("enroll happy path: W230 roster, token only in 0600 hub.env, first pull + menu", async () => {
@@ -166,7 +171,7 @@ test("enroll happy path: W230 roster, token only in 0600 hub.env, first pull + m
 	await firstPolicyPull(m.url, m.TOKEN, io);
 	m.srv.stop(true);
 	const cfg = JSON.parse(
-		readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 	) as {
 		hubs: {
 			name: string;
@@ -181,11 +186,11 @@ test("enroll happy path: W230 roster, token only in 0600 hub.env, first pull + m
 	expect(cfg.hubs[0].token_env).toBe("KLH_HUB_SPOKE_TOKEN");
 	expect(cfg.hubs[0].spoke_token).toBeUndefined();
 	expect(cfg.hubs[0].dns_entries).toEqual(["suspenders.local", "belt.local"]);
-	const envf = h + "/.claude/local-llm/hub.env";
+	const envf = `${h}/.claude/local-llm/hub.env`;
 	expect((statSync(envf).mode & 0o777).toString(8)).toBe("600");
 	expect(readFileSync(envf, "utf8")).toBe(`KLH_HUB_SPOKE_TOKEN=${m.TOKEN}\n`);
 	expect(
-		readFileSync(h + "/.claude/local-llm/last-policy-pull.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/last-policy-pull.json`, "utf8"),
 	).toContain("menu");
 	expect(out()).toContain("hub menu");
 	expect(out()).toContain("glm-5.3-flash");
@@ -198,11 +203,11 @@ test("hub ask non-TTY: standalone roster 0600, hubs []", () => {
 	hubAsk(io);
 	expect(out()).toContain("non-interactive — standalone");
 	const cfg = JSON.parse(
-		readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 	) as { hubs: unknown[] };
 	expect(cfg.hubs).toHaveLength(0);
 	expect(
-		(statSync(h + "/.claude/local-llm/hubs.json").mode & 0o777).toString(8),
+		(statSync(`${h}/.claude/local-llm/hubs.json`).mode & 0o777).toString(8),
 	).toBe("600");
 });
 
@@ -215,7 +220,7 @@ test("hub ask 'n': default standalone", () => {
 	);
 	expect(out()).toContain("standalone (default)");
 	const cfg = JSON.parse(
-		readFileSync(h + "/.claude/local-llm/hubs.json", "utf8"),
+		readFileSync(`${h}/.claude/local-llm/hubs.json`, "utf8"),
 	) as { hubs: unknown[] };
 	expect(cfg.hubs).toHaveLength(0);
 });
@@ -233,7 +238,7 @@ test("hub ask with existing roster: status only, never re-prompts", () => {
 			},
 		],
 	};
-	writeFileSync(h + "/.claude/local-llm/hubs.json", JSON.stringify(roster));
+	writeFileSync(`${h}/.claude/local-llm/hubs.json`, JSON.stringify(roster));
 	const { io, out } = fakeIO(["y"]); // would enroll if prompted — it must not
 	hubAsk(io);
 	expect(out()).toContain("enrolled to http://hub.example");
@@ -262,7 +267,7 @@ test("dry-run end-to-end: exit 0, plan on stdout, mutates nothing", () => {
 	expect(r.out).toContain("klh fleet install — plan");
 	expect(r.out).toContain("BELT_TIER=minimal");
 	expect(r.out).toContain("hub ask");
-	expect(existsSync(h + "/.claude")).toBe(false);
+	expect(existsSync(`${h}/.claude`)).toBe(false);
 });
 
 test("dry-run twice: byte-identical plan (no dup markers)", () => {
@@ -276,11 +281,11 @@ test("dry-run twice: byte-identical plan (no dup markers)", () => {
 
 test("plan: markers flip to present — skip; --only trims the plan", () => {
 	const h = freshHome();
-	writeFileSync(h + "/.claude/local-llm/registry.ts", "export const x = 1\n");
-	mkdirSync(h + "/.claude/buckle/src", { recursive: true });
-	writeFileSync(h + "/.claude/buckle/src/server.ts", "console.log(1)\n");
-	mkdirSync(h + "/.claude/hooks/suspenders/bin", { recursive: true });
-	writeFileSync(h + "/.claude/hooks/suspenders/bin/work.ts", "export {}\n");
+	writeFileSync(`${h}/.claude/local-llm/registry.ts`, "export const x = 1\n");
+	mkdirSync(`${h}/.claude/buckle/src`, { recursive: true });
+	writeFileSync(`${h}/.claude/buckle/src/server.ts`, "console.log(1)\n");
+	mkdirSync(`${h}/.claude/hooks/suspenders/bin`, { recursive: true });
+	writeFileSync(`${h}/.claude/hooks/suspenders/bin/work.ts`, "export {}\n");
 	const plan = buildPlan(FULL_FLAGS);
 	expect(plan.find((s) => s.phase === "belt")?.state).toBe("present — skip");
 	expect(plan.find((s) => s.phase === "buckle")?.state).toBe("present — skip");
@@ -349,7 +354,7 @@ test("withFleetCheckout: non-root FLEET_CHECKOUT falls through to the containing
 		});
 		// the worktree this test runs in IS the monorepo — its root resolves
 		expect(seen).toBe(join(REPO, "..", ".."));
-		expect(seen && existsSync(seen + "/packages/suspenders/install.sh")).toBe(
+		expect(seen && existsSync(`${seen}/packages/suspenders/install.sh`)).toBe(
 			true,
 		);
 	} finally {
@@ -369,4 +374,27 @@ test("withFleetCheckout: containing checkout wins — FLEET_REPO_URL never consu
 	} finally {
 		delete process.env.FLEET_REPO_URL;
 	}
+});
+
+// W595 — the --llm tier flag (speedy install.sh contract): off scopes the
+// plan to cloud-only, full names the belt --tier full leg, bogus is refused.
+test("--llm=off: plan scopes the belt phase to cloud-only", () => {
+	const h = bareHome();
+	const r = runCli(["--dry-run", "--llm=off"], h);
+	expect(r.code).toBe(0);
+	expect(r.out).toContain("--llm=off");
+	expect(r.out).toContain("cloud-only");
+});
+
+test("plan: --llm=full belt label names the belt --tier full leg", () => {
+	const h = freshHome();
+	const plan = buildPlan({ ...FULL_FLAGS, llm: "full" });
+	const belt = plan.find((s) => s.phase === "belt");
+	expect(belt?.label).toContain("--tier full");
+	expect(h).toBe(SANDBOX);
+});
+
+test("--llm=bogus: refused with usage, exit 2", () => {
+	const h = bareHome();
+	expect(runCli(["--llm=bogus"], h).code).toBe(2);
 });

@@ -17,13 +17,15 @@ Based on [agent-skills](https://github.com/addyosmani/agent-skills), extended wi
 
 Companion repo: **[klh/skills](https://github.com/klh/skills)** — personal `klh-*` skill variants (`npx skills add klh/skills`).
 
-The klh chain — speedy is the speed + safety config layer on top of three focused repos:
+The klh chain — speedy is the speed + safety config layer on top of sibling
+packages of the [klh/fleet](https://github.com/klh/fleet) monorepo (one repo,
+one version; the pre-migration standalone repos are archived and push-dead):
 
-| Repo                                                | Role                                                             |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| [klh/suspenders](https://github.com/klh/suspenders) | Control plane — governor.db, gate hooks, work graph, fleet board |
-| [klh/belt](https://github.com/klh/belt)             | Local LLM fleet — MLX specialists behind a deterministic router  |
-| [klh/local](https://github.com/klh/local)           | klh-local — registers local services at `<name>.local` via Caddy |
+| Fleet package         | Role                                                             |
+| --------------------- | ---------------------------------------------------------------- |
+| `packages/suspenders` | Control plane — governor.db, gate hooks, work graph, fleet board |
+| `packages/belt`       | Local LLM fleet — MLX specialists behind a deterministic router  |
+| `packages/local`      | klh-local — registers local services at `<name>.local` via Caddy |
 
 ```
   DEFINE          PLAN           BUILD          VERIFY         REVIEW          SHIP
@@ -101,7 +103,7 @@ For N coding lanes on one machine (learned from a 9-lane session + a fleet-wide
 architecture review): **isolate execution, serialize only integration.** The
 control plane behind this table — governor.db, edit-leases, area claims, the
 event bus, zombie monitor, usage windows, the fleet board — ships in
-**[klh/suspenders](https://github.com/klh/suspenders)**; speedy is the
+**`packages/suspenders`** (fleet monorepo); speedy is the
 speed + safety config layer on top of it.
 
 | Layer                  | Mechanism                                                                                                                                                                                                                                                                                                        |
@@ -132,18 +134,18 @@ upgrade path if lanes ever go multi-machine). If finer control is ever needed,
 start with `ts-morph`-based symbol edits (`ts_edit`) before anything heavier.
 
 Unattended install of the coordination plane (claims/leases/event-bus CLIs +
-keepwarm agent) and the local LLM fleet: `install.sh` handles both — the
-control plane ships in
-**[klh/suspenders](https://github.com/klh/suspenders)** (shallow clone + its
-`./install.sh --wire`, namespaced under `~/.claude/hooks/suspenders/`; macOS
-agents — fleet monitor, LLM keepwarm, board keep-alive, rolling db backups —
-opt-in via its `./install.sh --with-launchd`) and the fleet itself in
-**[klh/belt](https://github.com/klh/belt)** (deployed to `~/.claude/local-llm/`,
-tier picked by `install.sh --llm=minimal|full`; models + `com.belt.*` agents
-opt-in inside belt). With [klh-local](https://github.com/klh/local) on the
-machine, `install.sh` also registers `suspenders.local` (:7799) and
+keepwarm agent) and the local LLM fleet: `install.sh` delegates the klh layers
+to `bin/install-fleet.ts`, which acquires the fleet monorepo ONCE
+(FLEET_CHECKOUT → this checkout → a shallow clone of FLEET_REPO_URL at
+FLEET_REF) and runs every `packages/<name>` installer from that one revision:
+the control plane (`packages/suspenders` — `./install.sh --wire`, namespaced
+under `~/.claude/hooks/suspenders/`; macOS agents — fleet monitor, LLM
+keepwarm, board keep-alive, rolling db backups — opt-in via
+`--with-launchd`), the swarm kit (`packages/belt`, tier via
+`--llm=minimal|full`), the router plane (`packages/buckle`) and klh-local
+(`packages/local`), which registers `suspenders.local` (:7799) and
 `belt.local` (:7791) as Caddy `.local` services. Only the klh-specific
-claude-insights agent remains in this repo's
+claude-insights agent remains in this package's
 [hooks/launchd/](hooks/launchd/). The ready-to-copy binding protocol for a multi-agent
 repo lives in [docs/coordination-protocol.md](docs/coordination-protocol.md).
 
@@ -234,46 +236,59 @@ Requires `~/.claude/.skill-review-secret` (32-byte hex, 0600). Reference impleme
 
 ## Local LLM fleet (optional layer)
 
-The local-inference layer is **[klh/belt](https://github.com/klh/belt)** —
+The local-inference layer is **belt** (`packages/belt` in the fleet monorepo) —
 a specialist swarm of MLX models behind a deterministic router, with the
 benchmark rig, the measured results, and the add-a-model guide (including the
 rejection log). Routine agent traffic never leaves the machine; suspenders'
-advice worker and keepwarm ride belt's endpoints. `install.sh` deploys belt
-when you pass an LLM tier — `--llm=minimal` (small models only, ~3GB resident,
-for machines without 64GB+ unified memory) or `--llm=full`; fresh installs
-default to `--llm=off` (cloud-only) and upgrades keep an already-deployed
-fleet. Models and launchd agents are opt-in inside belt:
+advice worker and keepwarm ride belt's endpoints. `install.sh` deploys the
+swarm when you pass an LLM tier — `--llm=minimal` (smallest-fit,
+BELT_TIER=minimal residents ≤4GB, for machines without 64GB+ unified memory)
+or `--llm=full` (adds the `packages/belt/install.sh --tier full` leg); fresh
+installs default to `--llm=minimal` (spoke install baseline law, 2026-10-01)
+and upgrades keep an already-deployed fleet. Models and launchd agents are
+opt-in inside belt:
 
 ```bash
-git clone https://github.com/klh/belt && cd belt
+git clone https://github.com/klh/fleet && cd fleet/packages/belt
 ./install.sh --with-models --with-launchd
 ```
 
 ## Install
 
-### Option 1: Clone into ~/.claude (recommended — like dotfiles, full restore)
+### Option 1: Fleet checkout (recommended — like dotfiles)
 
 ```bash
-mv ~/.claude ~/.claude.bak
-git clone https://github.com/klh/speedy.git ~/.claude
-~/.claude/install.sh                      # add --llm=minimal|full for the local LLM fleet
-cp ~/.claude/settings.example.json ~/.claude/settings.json  # then edit token/allowlist
+git clone https://github.com/klh/fleet.git
+cd fleet/packages/speedy
+./install.sh                              # add --llm=minimal|full for the local LLM fleet
+cp settings.example.json ~/.claude/settings.json  # then edit token/allowlist
 ```
 
-This restores the complete setup: 36 skills, 16 personas, hooks (insight-recall + pa-prefix + the suspenders gates), slash commands, statusline, and CLAUDE.md. The seven `mj-*` personas additionally need a `midjourney` MCP server exposing `mj_imagine`, `mj_describe`, `mj_blend`, `mj_button`, `mj_job`.
+The installer syncs the active skill set, the speedy hooks + statusline
+(keep-if-present), the suspenders gates (policy adapters), and the klh layers
+from ONE fleet revision. Personas, slash commands and CLAUDE.md stay in the
+checkout — point your settings at the paths you use. The seven `mj-*`
+personas additionally need a `midjourney` MCP server exposing `mj_imagine`,
+`mj_describe`, `mj_blend`, `mj_button`, `mj_job`.
 
-### Option 2: CLI tools only (no skills)
+### Option 2: One-liner (curl | bash)
+
+The piped installer acquires the fleet revision and re-runs the in-repo
+installer from it — the full install, no manual clone:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/klh/speedy/main/install.sh | bash
-# pick an LLM tier:  curl -fsSL https://raw.githubusercontent.com/klh/speedy/main/install.sh | bash -s -- --llm=full
+curl -fsSL https://raw.githubusercontent.com/klh/fleet/main/packages/speedy/install.sh | bash
+# pick an LLM tier:  curl -fsSL https://raw.githubusercontent.com/klh/fleet/main/packages/speedy/install.sh | bash -s -- --llm=full
 ```
 
 ### Option 3: Skills via npx
 
 ```bash
-npx skills add klh/speedy -g -y   # or the companion: npx skills add klh/skills -g -y
+npx skills add klh/skills -g -y   # the personal klh-* variants (companion repo)
 ```
+
+speedy's own skill set installs from the fleet checkout (Option 1) —
+`packages/speedy/skills/`.
 
 `install.sh` installs 35+ tools (brew/cargo + the qlty release binary), sets `delta` as git pager, and initializes `zoxide`. It does **not** touch your `settings.json` — copy `settings.example.json` yourself.
 
@@ -282,9 +297,8 @@ npx skills add klh/speedy -g -y   # or the companion: npx skills add klh/skills 
 Headless `claude -p` performance + tool-stack audits at 06:43 daily, findings land in `~/.claude/insights/` and surface at the next session start:
 
 ```bash
-cp ~/.claude/hooks/daily-insights.sh ~/.claude/hooks/            # already there via clone
-cp ~/.claude/hooks/launchd/com.klh.claude-insights.plist ~/Library/LaunchAgents/
-sed "s|__HOME__|$HOME|g" ~/.claude/hooks/launchd/com.klh.claude-insights.plist > ~/Library/LaunchAgents/com.klh.claude-insights.plist
+# from the fleet checkout (packages/speedy) — install.sh wires this for you
+sed "s|__HOME__|$HOME|g" hooks/launchd/com.klh.claude-insights.plist > ~/Library/LaunchAgents/com.klh.claude-insights.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.klh.claude-insights.plist
 ```
 
