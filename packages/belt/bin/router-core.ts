@@ -8,6 +8,7 @@
 //   - upstream 429 + Retry-After honored (bounded wait, then fallback/propagate)
 //   - OpenAI SSE → Anthropic SSE streaming translation (TTFT = first token)
 
+import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
@@ -240,15 +241,14 @@ export function applyBudget(
 }
 
 // ─── Retry-After ───
-const envInt = (v: string | undefined, dflt: number): number => {
-	const n = Number(v);
-	return Number.isInteger(n) && n >= 0 ? n : dflt;
-};
+// envInt lives in admission.ts (W669.12 dedup); min=0 keeps the
+// wait-cap-expresses-no-cap semantics (BELT_RETRY_WAIT_CAP_MS=0).
 /** Longest upstream Retry-After the router waits out in-request before
  *  taking the fallback hop instead. */
 export const RETRY_WAIT_CAP_MS = envInt(
 	process.env.BELT_RETRY_WAIT_CAP_MS,
 	2000,
+	0,
 );
 
 /** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */

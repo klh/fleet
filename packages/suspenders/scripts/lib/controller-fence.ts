@@ -19,7 +19,11 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
-import { type ProcessBirth, processBirth } from "./launch-fencing.ts";
+import {
+	type ProcessBirth,
+	processBirth,
+	sameMachine,
+} from "./launch-fencing.ts";
 
 export interface ControllerLease {
 	project: string;
@@ -102,15 +106,6 @@ export function currentControllerIdentity(
 		generation: controllerGeneration(scriptPath),
 		codeRoot: realpathSync(dirname(scriptPath)),
 	};
-}
-
-/** macOS flips a host between .local and .localdomain; only that suffix pair
- * normalizes (launch-fencing). pid+birth fencing stays the gate. */
-function sameMachine(a: string, b: string): boolean {
-	return (
-		a.replace(/(?:\.(?:local|localdomain))+$/i, "") ===
-		b.replace(/(?:\.(?:local|localdomain))+$/i, "")
-	);
 }
 
 /** Liveness of a recorded controller holder, pid+birth against the live

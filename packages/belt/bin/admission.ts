@@ -8,10 +8,11 @@
 export const DEFAULT_MAX_INFLIGHT = 4;
 export const DEFAULT_RETRY_AFTER_S = 2;
 
-const envInt = (v: string | undefined, dflt: number): number => {
+const envInt = (v: string | undefined, dflt: number, min = 1): number => {
 	const n = Number(v);
-	return Number.isInteger(n) && n > 0 ? n : dflt;
+	return Number.isInteger(n) && n >= min ? n : dflt;
 };
+export { envInt };
 
 /** Parse a "8903:2,8901:3" caps table; malformed/zero entries are dropped,
  *  never fatal — a bad knob must not take the router down. */
@@ -37,8 +38,12 @@ export interface Admission {
 }
 
 export function createAdmission(
-	max = envInt(process.env.BELT_MAX_INFLIGHT, DEFAULT_MAX_INFLIGHT),
-	retryAfterS = envInt(process.env.BELT_RETRY_AFTER_S, DEFAULT_RETRY_AFTER_S),
+	max = envInt(process.env.BELT_MAX_INFLIGHT, DEFAULT_MAX_INFLIGHT, 1),
+	retryAfterS = envInt(
+		process.env.BELT_RETRY_AFTER_S,
+		DEFAULT_RETRY_AFTER_S,
+		1,
+	),
 	caps: Record<number, number> = parsePortCaps(process.env.BELT_PORT_CAPS),
 ): Admission {
 	const counts = new Map<number, number>();
