@@ -3,7 +3,7 @@
 // surface join (aid_events(sid) ⋈ sessions ⋈ usage_rollup(actor, hour)).
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { harvestAids } from "../hooks/bin/aid-harvest.ts";
+import { harvestAids } from "../hooks/lib/aid-harvest.ts";
 import { buildUsageReport } from "../hooks/lib/usage.ts";
 
 const SCHEMA = `

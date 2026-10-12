@@ -22,7 +22,7 @@ const { openGovernorDb } = await import(
 );
 const { classifyTool, weekBucket, harvestActivity, activityReport, shapeCost } =
 	await import(
-		`../hooks/bin/activity-harvest.ts?home=${encodeURIComponent(HOME)}`
+		`../hooks/lib/activity-harvest.ts?home=${encodeURIComponent(HOME)}`
 	);
 process.env.HOME = REAL_HOME;
 

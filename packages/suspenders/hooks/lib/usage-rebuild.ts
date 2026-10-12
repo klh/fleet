@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { harvestUsage } from "../bin/usage-harvest.ts";
+import { harvestUsage } from "./usage-harvest.ts";
 
 const hash = (bytes: Uint8Array) =>
 	new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
