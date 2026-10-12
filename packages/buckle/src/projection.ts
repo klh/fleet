@@ -332,11 +332,11 @@ export class LaneProjection {
 }
 
 /** Tails the stage-2 outbox into the projection: byte-offset tracked, only
- *  complete lines consumed (a torn crash tail waits), rotation (file
- *  smaller than the offset) restarts from the head. */
+ *  complete lines consumed (a torn crash tail waits — offset-only: the
+ *  partial stays in the file and combines with the append, never a carry),
+ *  rotation (file smaller than the offset) restarts from the head. */
 export class OutboxTailer {
 	private offset = 0;
-	private carry = "";
 
 	constructor(
 		private readonly projection: LaneProjection,
@@ -345,21 +345,19 @@ export class OutboxTailer {
 
 	async poll(now = Date.now()): Promise<number> {
 		const size = (await stat(this.path).catch(() => null))?.size ?? 0;
-		if (size < this.offset) {
-			this.offset = 0; // rotated: the head is new content again
-			this.carry = "";
-		}
+		if (size < this.offset) this.offset = 0; // rotated: head is new content
 		if (size === this.offset) return 0;
 		const chunk = await Bun.file(this.path)
 			.slice(this.offset)
 			.text()
 			.catch(() => "");
 		if (!chunk) return 0;
-		const body = this.carry + chunk;
-		const complete = body.endsWith("\n")
-			? body
-			: body.slice(0, body.lastIndexOf("\n") + 1);
-		this.carry = body.slice(complete.length);
+		// offset-only: the torn tail stays in the file and combines with the
+		// append on the next poll — carrying it here would glue the partial
+		// to its own re-read and corrupt the completed line (W717)
+		const complete = chunk.endsWith("\n")
+			? chunk
+			: chunk.slice(0, chunk.lastIndexOf("\n") + 1);
 		this.offset += complete.length;
 		if (!complete) return 0;
 		const obs = complete

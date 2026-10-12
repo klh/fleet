@@ -1,7 +1,7 @@
 // test/projection.test.ts — W461 stage 3: the lane/route read model —
 // idempotent ingest, gap reconciliation, scoped queries, pagination.
 import { describe, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { appendFile, rm } from "node:fs/promises";
 import type { Observation } from "../src/observe.ts";
 import { LaneProjection, OutboxTailer } from "../src/projection.ts";
 
@@ -156,6 +156,37 @@ describe("OutboxTailer", () => {
 		const snap = p.snapshot();
 		expect(snap.requests).toBe(1);
 		expect(snap.edges[0]?.startedAt).not.toBeNull();
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a torn line completes via append — no carry doubling, nothing dropped", async () => {
+		const dir = `/tmp/buckle-tail-append-${Date.now()}`;
+		const path = `${dir}/obs.jsonl`;
+		const p = new LaneProjection(`${dir}/proj.db`);
+		const t = new OutboxTailer(p, path);
+		const a = obs("lane.request.admitted", { ...ADMIT, rid: "r1" });
+		const b = obs("lane.request.started", { ...ADMIT, rid: "r1" });
+		const c = obs("lane.request.ended", {
+			...ADMIT,
+			rid: "r1",
+			outcome: "ok",
+			status: 200,
+			attempts: 1,
+		});
+		const torn = JSON.stringify(b).slice(0, 24);
+		await Bun.write(path, `${JSON.stringify(a)}\n${torn}`);
+		expect(await t.poll()).toBe(1); // a lands; torn b waits
+		expect(await t.poll()).toBe(0); // polls while torn stay quiet
+		await appendFile(path, `${JSON.stringify(b).slice(24)}\n`);
+		expect(await t.poll()).toBe(1); // b parses whole, not carry-glued
+		await appendFile(path, `${JSON.stringify(c)}\n`);
+		expect(await t.poll()).toBe(1);
+		const snap = p.snapshot();
+		expect(snap.requests).toBe(1);
+		expect(snap.edges[0]?.startedAt).not.toBeNull();
+		expect(snap.edges[0]?.endedAt).not.toBeNull();
+		expect(snap.edges[0]?.outcome).toBe("ok");
+		p.close();
 		await rm(dir, { recursive: true, force: true });
 	});
 });
