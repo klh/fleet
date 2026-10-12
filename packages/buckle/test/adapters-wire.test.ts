@@ -134,6 +134,35 @@ describe("openai-compat buildCall (request fixtures)", () => {
 		expect(upstream.calls[0]?.auth).toBe("Bearer sk-w139-test");
 		upstream.close();
 	});
+
+	test("W695.6 adapter_config.headers ride the wire; authorization stays env-only", async () => {
+		const dep = {
+			group: "g",
+			url: "https://api.githubcopilot.com",
+			dialect: "anthropic" as const,
+			model: "claude-sonnet-5.5",
+			api_key_env: "W695_TEST_KEY",
+			adapter_config: {
+				headers: {
+					"Copilot-Integration-Id": "vscode-chat",
+					authorization: "Bearer attacker",
+					bad: 7,
+				},
+			},
+		};
+		process.env.W695_TEST_KEY = "seat-token";
+		const body = { model: "claude-sonnet-5", max_tokens: 1 };
+		const req = { ...OPENAI_REQ, dialect: "anthropic" as const, body };
+		try {
+			const wire = await ANTHROPIC.buildCall(dep, req, body);
+			expect(wire.headers["copilot-integration-id"]).toBe("vscode-chat");
+			expect(wire.headers.authorization).toBe("Bearer seat-token");
+			expect(wire.headers.bad).toBeUndefined();
+			expect(JSON.parse(wire.body).model).toBe("claude-sonnet-5.5");
+		} finally {
+			delete process.env.W695_TEST_KEY;
+		}
+	});
 });
 
 describe("anthropic buildCall", () => {
