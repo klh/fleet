@@ -198,9 +198,10 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
   env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
 - IKEA Copilot seat (W695.6): claude-* lane models are first-class buckle
-  upstreams — `https://api.githubcopilot.com` speaks the Anthropic wire
-  (`/v1/messages` + tools + SSE) with Bearer `GITHUB_COPILOT_PAT` and header
-  `copilot-integration-id` (`adapter_config.headers`); group `claude-sonnet-5`
+  upstreams — `https://api.githubcopilot.com` serves the Anthropic wire
+  (`/v1/messages`, Bearer `GITHUB_COPILOT_PAT`, header
+  `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
+  wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
   → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
   `packages/buckle/upstreams.copilot.yaml` → merge into the machine
   `upstreams.yaml`. The `:4102` ikea-shim is RETIRED (never activated);

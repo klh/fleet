@@ -5,12 +5,14 @@
 # named by api_key_env (GITHUB_COPILOT_PAT, resolved into buckle-spoke.env
 # from the 0600 copilot.key chain; the value is never printed or committed).
 #
-# Wire facts (verified live, 2026-10-12): api.githubcopilot.com serves the
-# Anthropic Messages wire DIRECTLY — POST /v1/messages (+ /count_tokens) with
-# Bearer auth + Copilot-Integration-Id, real tool_use blocks, SSE streaming.
-# Same dialect as the lane client => byte-identical pass-through, no bridge,
-# no litellm (its /v1/messages bridge hits the Responses API, which Copilot
-# rejects; its github_copilot provider forces an interactive device flow).
+# Wire facts (2026-10-12): api.githubcopilot.com SERVES the Anthropic
+# Messages wire — POST /v1/messages answers with Bearer auth +
+# Copilot-Integration-Id (quota-exhausted 429s observed live, with
+# x-ratelimit-* headers; W684 verified real tool_calls on /chat/completions
+# the same day). Same dialect as the lane client => byte-identical
+# pass-through, no bridge, no litellm (its /v1/messages bridge hits the
+# Responses API, which Copilot rejects; its github_copilot provider forces
+# an interactive device flow). SSE + tool_use on THIS wire: unverified.
 #
 # Group name = the wire id lanes send (dashes); `model:` = the seat's real id
 # (dots) — the dots-to-dashes alias lives here, as data.
