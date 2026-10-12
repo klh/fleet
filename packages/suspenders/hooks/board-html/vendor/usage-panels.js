@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-9bpcreb0.js";var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},h=()=>x()?.panels??null,P=()=>x()?.slot??{},n=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),f=(a)=>`${(a*100).toFixed(1)}%`,v=r`
+import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},h=()=>x()?.panels??null,P=()=>x()?.slot??{},n=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),f=(a)=>`${(a*100).toFixed(1)}%`,v=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);

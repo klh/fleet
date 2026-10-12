@@ -117,6 +117,7 @@ export async function handleData(
 				vf === "klh-hub-admin.js" ||
 				vf === "usage-panels.js" ||
 				vf === "klh-topbar.js" ||
+				vf === "klh-board-tabs.js" ||
 				vf === "klh-console-cards.js" ||
 				isLitChunk)
 		) {
