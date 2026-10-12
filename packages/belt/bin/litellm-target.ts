@@ -32,6 +32,10 @@ export interface LitellmPaths {
 	 *  api.anthropic.com (claude-sonnet-5 / claude-haiku-4-5). Optional:
 	 *  without it only the claude upstreams fail, the gateway still serves. */
 	anthropicKeyFile: string;
+	/** GitHub Copilot seat token (IKEA Copilot suite) for litellm.yaml rows
+	 *  pointing at api.githubcopilot.com. Optional: without it only the
+	 *  copilot upstreams fail, the gateway still serves. */
+	copilotKeyFile: string;
 	log: string;
 }
 
@@ -42,6 +46,7 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	zaiConfig: `${HOME}/.config/zai/config.json`,
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
 	anthropicKeyFile: `${HOME}/.claude/local-llm/anthropic.key`,
+	copilotKeyFile: `${HOME}/.claude/local-llm/copilot.key`,
 	log: `${HOME}/.claude/local-llm/litellm-gateway.log`,
 };
 
@@ -49,6 +54,7 @@ export interface LitellmKeys {
 	Z_AI_API_KEY: string;
 	LITELLM_KEY: string;
 	ANTHROPIC_API_KEY?: string;
+	COPILOT_API_KEY?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -88,6 +94,8 @@ export function loadKeys(
 		env.ANTHROPIC_API_KEY ||
 		tryRead(read, paths.anthropicKeyFile)?.trim() ||
 		null;
+	const copilot =
+		env.COPILOT_API_KEY || tryRead(read, paths.copilotKeyFile)?.trim() || null;
 	const missing: string[] = [];
 	if (!zai) missing.push(`Z_AI_API_KEY (env or ${paths.zaiConfig} apiKey)`);
 	if (!master) missing.push(`LITELLM_KEY (env or ${paths.masterKeyFile})`);
@@ -96,6 +104,7 @@ export function loadKeys(
 		Z_AI_API_KEY: zai,
 		LITELLM_KEY: master,
 		...(anthropic ? { ANTHROPIC_API_KEY: anthropic } : {}),
+		...(copilot ? { COPILOT_API_KEY: copilot } : {}),
 	};
 }
 
