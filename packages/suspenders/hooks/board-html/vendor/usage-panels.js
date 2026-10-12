@@ -1,4 +1,75 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},m=()=>x()?.panels??null,A=()=>x()?.slot??{},n=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),y=(a)=>`${(a*100).toFixed(1)}%`,v=r`
+import{r,e,t,s}from"./lit-sq0mv1by.js";var O=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class x extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=O()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
+			<div class="uback">
+				<a href=${a.backHref}>&larr; ${a.backLabel}</a>
+				<span class=${a.note.kind==="on"?"uon":"uwin"}
+					>${a.note.text}</span
+				>
+			</div>
+			<div class="ufilters">
+				${a.filters.map((l)=>e`<span class="ufgroup" data-label=${l.label}>
+						${l.options.map((n)=>e`<a class=${n.on?"ufilter on":"ufilter"} href=${n.href}
+									>${n.label}</a
+								>`)}
+					</span>`)}
+			</div>`}}x.styles=r`
+	:host {
+		display: block;
+	}
+	a {
+		color: var(--klh-accent, #e0a458);
+	}
+	.utitle {
+		font-size: 14px;
+		letter-spacing: 0.08em;
+		margin: 14px 0 10px;
+		color: var(--klh-ink, #e8e6e1);
+	}
+	.uback {
+		display: flex;
+		gap: 16px;
+		align-items: baseline;
+		margin: 12px 0 0;
+	}
+	.uwin {
+		font-size: 10.5px;
+		color: var(--klh-dim, #98958e);
+	}
+	.uon {
+		font-size: 10.5px;
+		color: var(--klh-accent, #e0a458);
+	}
+	.ufilters {
+		display: flex;
+		gap: 18px;
+		align-items: center;
+		margin: 12px 0 14px;
+		flex-wrap: wrap;
+	}
+	.ufgroup {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+	.ufgroup::before {
+		content: attr(data-label);
+		font-size: 9.5px;
+		color: var(--klh-dim, #98958e);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.ufilter {
+		font-size: 11px;
+		color: var(--klh-dim, #98958e);
+		text-decoration: none;
+		border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.12));
+		border-radius: 2px;
+		padding: 2px 9px;
+	}
+	.ufilter.on {
+		color: var(--klh-accent, #e0a458);
+		border-color: var(--klh-accent, #e0a458);
+	}
+`;customElements.define("klh-usage-head",x);var w=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},m=()=>w()?.panels??null,A=()=>w()?.slot??{},i=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),y=(a)=>`${(a*100).toFixed(1)}%`,f=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -75,8 +146,8 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`;class w extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=m()?.header??null}chips(a,l,i){return e`<span class="ufgroup" data-label=${a}
-			>${l.map((o)=>e`<a class="${i}${o.on?" on":""}" href=${o.href}
+`;class R extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=m()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
+			>${l.map((o)=>e`<a class="${n}${o.on?" on":""}" href=${o.href}
 						>${o.label}</a
 					>`)}</span
 		>`}body(a){let l=a.demoToggle;return e`<div class="uback">
@@ -92,7 +163,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 							>${l.label}</a
 						>`:t}
 				<span class="uon">${a.status}</span>
-			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}w.styles=r`
+			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}R.styles=r`
 	:host {
 		display: block;
 	}
@@ -152,12 +223,12 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class R extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=m()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class T extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=m()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((a)=>e`<div class="utile">
 					<div class="uv">${a.v}</div>
 					<div class="uk">${a.k}</div>
 				</div>`)}
-		</div>`}}R.styles=r`
+		</div>`}}T.styles=r`
 	:host {
 		display: block;
 	}
@@ -188,10 +259,10 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;var b=(a,l)=>a[l]??"#888",S=(a,l,i)=>{let o=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
-		style=${`width:${o};background:${b(i,a.g)}`}
-		title=${`${a.g}: ${n(a.tok)} tok`}
-	></i>`};class T extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=m()?.actors?.rows??[],this.slot=A()}render(){let a=m()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
+`;var b=(a,l)=>a[l]??"#888",S=(a,l,n)=>{let o=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
+		style=${`width:${o};background:${b(n,a.g)}`}
+		title=${`${a.g}: ${i(a.tok)} tok`}
+	></i>`};class U extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=m()?.actors?.rows??[],this.slot=A()}render(){let a=m()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
 			<h2>ACTORS</h2>
 			<table class="uacts">
 				<thead>
@@ -206,18 +277,18 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 					${a.map((l)=>this.row(l))}
 				</tbody>
 			</table>
-		</div>`}row(a){let l=[...a.demo?["synthetic demo"]:[],...a.chips].map((i)=>e`<span class="uchip">${i}</span>`);return e`<tr class="uact">
+		</div>`}row(a){let l=[...a.demo?["synthetic demo"]:[],...a.chips].map((n)=>e`<span class="uchip">${n}</span>`);return e`<tr class="uact">
 				<td>
 					<b>${a.actor}</b>
 					${l}
 				</td>
 				<td>
 					<div class="ubar" style=${`width:${a.barW}%`}>
-						${a.segs.map((i)=>S(i,a.total,this.slot))}
+						${a.segs.map((n)=>S(n,a.total,this.slot))}
 					</div>
 				</td>
-				<td class="unum">${n(a.total)}</td>
-				<td class="unum">${n(a.rq)}</td>
+				<td class="unum">${i(a.total)}</td>
+				<td class="unum">${i(a.rq)}</td>
 			</tr>
 			${this.detail(a.models)}`}detail(a){return e`<tr class="udetail">
 			<td colspan="4">
@@ -243,9 +314,9 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 				></i
 				>${a.m}
 			</td>
-			<td class="unum">${n(a.tok)}</td>
-			<td class="unum">${n(a.rq)}</td>
-		</tr>`}}T.styles=[v,r`
+			<td class="unum">${i(a.tok)}</td>
+			<td class="unum">${i(a.rq)}</td>
+		</tr>`}}U.styles=[f,r`
 		tr.udetail td {
 			padding-top: 0;
 			border-bottom: none;
@@ -271,7 +342,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class U extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
+	`];class C extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
 				<h2>${a.title}</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -294,14 +365,14 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		</div>`}arow(a){return e`<tr>
 			<td><b>${a.aid}</b></td>
 			<td>${a.domain}</td>
-			<td class="unum">${n(a.inj)}</td>
-			<td class="unum">${n(a.skip)}</td>
-			<td class="unum">${n(a.tok)}</td>
-		</tr>`}}U.styles=[v,r`
+			<td class="unum">${i(a.inj)}</td>
+			<td class="unum">${i(a.skip)}</td>
+			<td class="unum">${i(a.tok)}</td>
+		</tr>`}}C.styles=[f,r`
 		:host {
 			display: block;
 		}
-	`];var O={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class C extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var L={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class E extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -323,19 +394,19 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 			<tbody>
 				${a.map((l)=>e`<tr>
 					<td>${l.d}</td>
-					<td class="unum">${n(l.cost)}</td>
-					<td style="width:44%">${l.cells.map((i,o)=>this.cell(i,o))}</td>
+					<td class="unum">${i(l.cost)}</td>
+					<td style="width:44%">${l.cells.map((n,o)=>this.cell(n,o))}</td>
 					<td class="unum">${y(l.orient)}</td>
 				</tr>`)}
 			</tbody>
-		</table>`}cell(a,l){let i=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${i}<span class="uempty">—</span>`;let o=y(a.share);return e`${i}<span class="ucwrap">
+		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let o=y(a.share);return e`${n}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${o};background:${O[a.key]??"#888"}`}
+					style=${`width:${o};background:${L[a.key]??"#888"}`}
 					title=${`${a.key}: ${o}`}
 				></i></span
 			><span class="unum">${o}</span></span
-		>`}lanes(a){let l=a.length?a.map((i)=>this.laneRow(i)):[e`<tr>
+		>`}lanes(a){let l=a.length?a.map((n)=>this.laneRow(n)):[e`<tr>
 						<td colspan="6" class="uempty">
 							no classified activity yet — first harvest fills this table
 						</td>
@@ -358,9 +429,9 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 			<td>${this.cell(a.cells[0],0)}</td>
 			<td class="unum">${y(a.orient)}</td>
 			<td class="unum">${a.spr}</td>
-			<td class="unum">${n(a.cost)}</td>
-			<td class="unum">${n(a.req)}</td>
-		</tr>`}}C.styles=[v,r`
+			<td class="unum">${i(a.cost)}</td>
+			<td class="unum">${i(a.req)}</td>
+		</tr>`}}E.styles=[f,r`
 		.ucwrap {
 			display: flex;
 			align-items: center;
@@ -373,9 +444,9 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var H="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class E extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.spokes??null,this.slot=A()}render(){let a=m()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var M="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class P extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.spokes??null,this.slot=A()}render(){let a=m()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
-			<p class="uempty">${H}</p>
+			<p class="uempty">${M}</p>
 		</div>`}body(a){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<table class="uacts">
@@ -401,13 +472,13 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 					${a.segs.map((l)=>S(l,a.total,this.slot))}
 				</div>
 			</td>
-			<td class="unum">${n(a.total)}</td>
-			<td class="unum">${n(a.rq)}</td>
-		</tr>`}}E.styles=[v,r`
+			<td class="unum">${i(a.total)}</td>
+			<td class="unum">${i(a.rq)}</td>
+		</tr>`}}P.styles=[f,r`
 		:host {
 			display: block;
 		}
-	`];class P extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=x();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
+	`];class z extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=w();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -421,8 +492,8 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var x=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(u,d)=>getComputedStyle(document.documentElement).getPropertyValue(u).trim()||d,i=()=>l("--klh-chart-grid","#2c2c2a"),o=()=>l("--klh-chart-hair","#383835"),k=()=>l("--klh-chart-axis","#898781"),g=(u,d)=>d.map((p)=>n(p)),h=(u,d)=>{let p={side:u,stroke:k,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:o,width:1}};if(d)p.values=d;return p},c=this.querySelector("#u-timeline");if(c&&this.groups.length){let u=[{}];for(let d of this.groups){let p=b(this.slot,d);u.push({label:d,stacked:!0,stroke:p,fill:p,width:1,points:{show:!1},value:(z)=>n(z??0)})}this.chart(c,a,{width:c.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:u,axes:[h(2),h(3,g)]},this.timeline,300)}let f=this.querySelector("#u-hours");if(f)this.chart(f,a,{width:f.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:b(this.slot,"flash"),fill:b(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(u)=>n(u??0)}],axes:[h(2,(u,d)=>d.map((p)=>String(Math.round(p)).padStart(2,"0"))),h(3,g)]},this.byHour,190)}chart(a,l,i,o,k){let g=new l(i,o,a);this.charts.push(g);let h=()=>{let c=a.clientWidth;if(c>0&&c!==g.width)g.setSize({width:c,height:k})};if(typeof ResizeObserver==="function"){let c=new ResizeObserver(h);c.observe(a),this.ros.push(c)}else this.resizes.push(h),window.addEventListener("resize",h)}}P.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(u,c)=>getComputedStyle(document.documentElement).getPropertyValue(u).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),o=()=>l("--klh-chart-hair","#383835"),v=()=>l("--klh-chart-axis","#898781"),g=(u,c)=>c.map((p)=>i(p)),h=(u,c)=>{let p={side:u,stroke:v,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:o,width:1}};if(c)p.values=c;return p},d=this.querySelector("#u-timeline");if(d&&this.groups.length){let u=[{}];for(let c of this.groups){let p=b(this.slot,c);u.push({label:c,stacked:!0,stroke:p,fill:p,width:1,points:{show:!1},value:(H)=>i(H??0)})}this.chart(d,a,{width:d.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:u,axes:[h(2),h(3,g)]},this.timeline,300)}let k=this.querySelector("#u-hours");if(k)this.chart(k,a,{width:k.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:b(this.slot,"flash"),fill:b(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(u)=>i(u??0)}],axes:[h(2,(u,c)=>c.map((p)=>String(Math.round(p)).padStart(2,"0"))),h(3,g)]},this.byHour,190)}chart(a,l,n,o,v){let g=new l(n,o,a);this.charts.push(g);let h=()=>{let d=a.clientWidth;if(d>0&&d!==g.width)g.setSize({width:d,height:v})};if(typeof ResizeObserver==="function"){let d=new ResizeObserver(h);d.observe(a),this.ros.push(d)}else this.resizes.push(h),window.addEventListener("resize",h)}}z.styles=r`
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",w);customElements.define("klh-usage-tiles",R);customElements.define("klh-usage-actors",T);customElements.define("klh-usage-aids",U);customElements.define("klh-usage-activity",C);customElements.define("klh-usage-spokes",E);customElements.define("klh-usage-charts",P);export{C as KlhUsageActivity,T as KlhUsageActors,U as KlhUsageAids,P as KlhUsageCharts,w as KlhUsageHeader,E as KlhUsageSpokes,R as KlhUsageTiles};
+`;customElements.define("klh-usage-header",R);customElements.define("klh-usage-tiles",T);customElements.define("klh-usage-actors",U);customElements.define("klh-usage-aids",C);customElements.define("klh-usage-activity",E);customElements.define("klh-usage-spokes",P);customElements.define("klh-usage-charts",z);export{E as KlhUsageActivity,U as KlhUsageActors,C as KlhUsageAids,z as KlhUsageCharts,R as KlhUsageHeader,P as KlhUsageSpokes,T as KlhUsageTiles};

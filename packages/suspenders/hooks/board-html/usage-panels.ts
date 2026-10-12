@@ -35,6 +35,8 @@ import type {
 	UsagePanels,
 	UsageSeg,
 } from "../bin/usage-chrome.ts";
+// W695.3.5: the page head rides the same bundle (side-effect registers it)
+import "./klh-usage-head.ts";
 
 // ─── shared payload read ──────────────────────────────────────────────────
 interface PanelRoot {

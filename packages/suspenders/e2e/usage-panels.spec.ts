@@ -91,6 +91,12 @@ test("federation page: spokes + aid rows paint from rollups", async ({
 	await expect(page.locator("klh-usage-tiles")).toContainText(
 		"REPORTING SPOKES",
 	);
+	// W695.3.5: the head rides <klh-usage-head> (title, back link, chips)
+	const head = page.locator("klh-usage-head");
+	await expect(head).toContainText("FEDERATED USAGE");
+	await expect(head.locator('a[href="/"]')).toHaveCount(1);
+	await expect(head.locator("a.ufilter")).toHaveCount(3);
+	await expect(head.locator("a.ufilter.on")).toHaveCount(1);
 	await expect(page.locator("klh-usage-spokes")).toContainText("nas");
 	await expect(page.locator("klh-usage-spokes")).toContainText("desktop");
 	await expect(page.locator("klh-usage-aids")).toContainText("fleet-lessons");
