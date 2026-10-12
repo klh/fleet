@@ -5,10 +5,12 @@
 // checkouts (public hub posture) have no node_modules/fleet and skip step 2.
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
 	symlinkSync,
+	unlinkSync,
 } from "node:fs";
 
 const ROOT = "/src/fleet";
@@ -31,8 +33,17 @@ for (const dir of readdirSync(basePkgs)) {
 		.name;
 	if (!name) continue;
 	const link = `${ROOT}/node_modules/${name}`;
-	if (existsSync(link)) continue;
+	// lstat (no follow) sees a dangling link where existsSync (follow)
+	// reports nothing: replace broken links, keep real files/dirs as-is
+	const st = lstatSync(link, { throwIfNoEntry: false });
+	if (st && !st.isSymbolicLink()) continue;
+	if (st) unlinkSync(link);
+	// relative target from the link's own dir: scoped names live one level
+	// deeper (@klh/x -> node_modules/@klh/x) — same ../../fleet hop
 	mkdirSync(`${ROOT}/node_modules/${name.split("/")[0]}`, { recursive: true });
-	symlinkSync(`fleet/packages/${dir}`, link);
+	symlinkSync(
+		`${name.startsWith("@") ? "../" : ""}fleet/packages/${dir}`,
+		link,
+	);
 	console.log(`linked ${name} -> fleet/packages/${dir}`);
 }
