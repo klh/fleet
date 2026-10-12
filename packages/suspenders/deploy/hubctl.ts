@@ -145,10 +145,26 @@ const UPSTREAM_ENV_SCRIPT = [
 	'mv "$OUT.tmp" "$OUT"',
 ].join("\n");
 
+const DEFAULT_CONNECT_TIMEOUT = 10;
+
+/** W701: ssh/scp -o flags — an unreachable hub fails in seconds (not ~75s of
+ *  TCP retries) and never blocks on a password prompt. Timeout is the
+ *  stack.yaml `deploy.connect_timeout` knob (seconds). */
+function sshOpts(hub: HubProfile): string[] {
+	const t = hub.deploy?.connect_timeout;
+	const secs =
+		typeof t === "number" && Number.isFinite(t) && t > 0
+			? Math.ceil(t)
+			: DEFAULT_CONNECT_TIMEOUT;
+	return ["-o", `ConnectTimeout=${secs}`, "-o", "BatchMode=yes"];
+}
+
 /** Run a script on the hub (or locally when the hub has no ssh target). */
 function runOnHub(hub: HubProfile, script: string): string {
 	if (hub.deploy?.ssh) {
-		return execFileSync("ssh", [hub.deploy.ssh, script], { encoding: "utf8" });
+		return execFileSync("ssh", [...sshOpts(hub), hub.deploy.ssh, script], {
+			encoding: "utf8",
+		});
 	}
 	return execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
 }
@@ -168,7 +184,13 @@ function tryRunOnHub(hub: HubProfile, script: string): string | null {
  *  SFTP subsystem; the hub's deploy.dir must exist). */
 function copyToHub(hub: HubProfile, src: string, dest: string): void {
 	if (hub.deploy?.ssh) {
-		execFileSync("scp", ["-O", "-q", src, `${hub.deploy.ssh}:${dest}`]);
+		execFileSync("scp", [
+			"-O",
+			"-q",
+			...sshOpts(hub),
+			src,
+			`${hub.deploy.ssh}:${dest}`,
+		]);
 		return;
 	}
 	writeFileSync(dest, readFileSync(src));
@@ -231,7 +253,11 @@ function pushConfig(
 	const envPath = `${dir}/.env`;
 	// ensure the deploy dir on both paths before any file lands
 	if (hub.deploy?.ssh) {
-		execFileSync("ssh", [hub.deploy.ssh, `mkdir -p ${JSON.stringify(dir)}`]);
+		execFileSync("ssh", [
+			...sshOpts(hub),
+			hub.deploy.ssh,
+			`mkdir -p ${JSON.stringify(dir)}`,
+		]);
 	} else {
 		mkdirSync(dir, { recursive: true });
 	}
@@ -240,6 +266,7 @@ function pushConfig(
 		execFileSync(
 			"ssh",
 			[
+				...sshOpts(hub),
 				hub.deploy.ssh,
 				`/bin/sh -c 'cat > ${JSON.stringify(`${dir}/upstreams.hub.yaml`)}'`,
 			],
@@ -252,7 +279,11 @@ function pushConfig(
 	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",
-			[hub.deploy.ssh, `/bin/sh -c 'cat > ${JSON.stringify(envPath)}'`],
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'cat > ${JSON.stringify(envPath)}'`,
+			],
 			{ input: envText },
 		);
 		return;
