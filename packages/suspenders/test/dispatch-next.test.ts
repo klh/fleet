@@ -3,22 +3,23 @@
 // through the REAL coord verb (scratch-HOME governor db), dry-run dispatch
 // (prints item + brief, spawns nothing, takes nothing), and resume-rebrief
 // composition (dead lane's last capsule returns as RESUME CONTEXT).
-import { describe, expect, test, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	symlinkSync,
-	chmodSync,
 } from "node:fs";
-import { tmpdir, hostname } from "node:os";
-import { Database } from "bun:sqlite";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
-import { laneSid } from "../hooks/lib/laneslug.ts";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
+import { laneSid } from "../hooks/lib/laneslug.ts";
 import {
 	capabilityGate,
 	composeBrief,
@@ -30,6 +31,7 @@ import {
 	parseReady,
 	probeFrontDecision,
 } from "../scripts/dispatch-next.ts";
+import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
 const REPO = realpathSync(
@@ -64,6 +66,7 @@ afterAll(() => {
 
 // scratch repo: one commit so worktree ops would have a base
 import { spawnSync } from "node:child_process";
+
 const g = (args: string[]): void => {
 	const p = spawnSync("/usr/bin/git", args, { cwd: REPO, encoding: "utf8" });
 	if (p.status !== 0)
@@ -72,7 +75,9 @@ const g = (args: string[]): void => {
 g(["init", "-b", "main"]);
 g(["config", "user.email", "t@threads.dk"]);
 g(["config", "user.name", "t"]);
+
 import { readFileSync, writeFileSync } from "node:fs";
+
 writeFileSync(join(REPO, "README.md"), "x");
 g(["add", "-A"]);
 g(["commit", "-m", "base"]);
@@ -1482,3 +1487,57 @@ test("fast legitimate work start survives dispatcher registry publication", asyn
 		}
 	}
 }, 15000);
+// ─── W512 Task-layer model pin via PreToolUse updatedInput ─────────────────
+describe("W512 lane settings Task-pin hook", () => {
+	test("dispatch writes the Task-pin hook into the lane --settings file", async () => {
+		const stub = stubBuckle(true);
+		const id = await addItem("W512 task-pin settings fixture");
+		const sid = laneSid(id, projectIdentity(REPO));
+		const pidFile = join(HOME, "w512-sleeper.pid");
+		const executor = join(HOME, "w512-sleeper");
+		writeFileSync(
+			executor,
+			`#!/bin/sh\necho $$ > "${pidFile}"\nexec /bin/sleep 30\n`,
+		);
+		chmodSync(executor, 0o700);
+		try {
+			const result = await dispatchA(
+				{
+					SUSPENDERS_CLAUDE_BIN: executor,
+					SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${stub.port}`,
+					SUSPENDERS_BELT_ENV: join(HOME, "belt.env"),
+				},
+				"--item",
+				id,
+			);
+			expect(result.out).toContain(`dispatched ${id}`);
+			const settingsPath = join(REPO, ".fleet", `lane-settings-${sid}.json`);
+			const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+				env: Record<string, string>;
+				hooks: {
+					PreToolUse: Array<{
+						matcher: string;
+						hooks: Array<{ type: string; command: string; timeout: number }>;
+					}>;
+				};
+			};
+			const group = settings.hooks.PreToolUse[0];
+			expect(group.matcher).toBe("Task");
+			expect(group.hooks[0].type).toBe("command");
+			expect(group.hooks[0].timeout).toBe(10);
+			expect(group.hooks[0].command).toContain(
+				"bin/lane-model-pin.ts --model glm-5.3-flash",
+			);
+			expect(settings.env.ANTHROPIC_MODEL).toBe("opus");
+			expect(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("glm-5.3-flash");
+			expect(statSync(settingsPath).mode & 0o777).toBe(0o600);
+		} finally {
+			stub.stop();
+			try {
+				process.kill(Number(readFileSync(pidFile, "utf8")));
+			} catch {}
+			rmSync(join(REPO, ".fleet", "lanes.json"), { force: true });
+			await toolA({}, "work.ts", "fail", id);
+		}
+	}, 60_000);
+});
