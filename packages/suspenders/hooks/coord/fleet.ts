@@ -1,3 +1,4 @@
+import { capsuleProjectTag } from "../lib/capsule-fence.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
 import {
 	itemSpend,
@@ -1009,6 +1010,16 @@ export async function cmdProject(rest: string[]): Promise<void> {
 			.query("SELECT COUNT(*) AS n FROM events WHERE project = ?")
 			.get(from) as { n: number }
 	).n;
+	// W687: item capsules ride facts keys tagged with sha256(projectIdentity) —
+	// a rekey must carry them or the hand-offs strand on the old hash. The
+	// exclusivity rail above already refuses an occupied target graph.
+	const capsulePrefix = `work.capsule.${capsuleProjectTag(from)}.`;
+	const capsuleN = (
+		db
+			.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE ?")
+			.get(`${capsulePrefix}%`) as { n: number }
+	).n;
+	counts["capsule facts"] = capsuleN;
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
@@ -1046,6 +1057,15 @@ export async function cmdProject(rest: string[]): Promise<void> {
 
 		for (const t of PROJECT_TABLES)
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
+		if (capsuleN)
+			db.run(
+				// key = prefix-for-to || item tail; substr is 1-based, the prefix
+				// (with its trailing dot) is exactly what the item index skips
+				"UPDATE facts SET key = ? || substr(key, ?) WHERE key LIKE ?",
+				`work.capsule.${capsuleProjectTag(to)}.`,
+				capsulePrefix.length + 1,
+				`${capsulePrefix}%`,
+			);
 		if (hasDecisions)
 			db.run("UPDATE decisions SET project = ? WHERE project = ?", to, from);
 		if (hasRecovery)

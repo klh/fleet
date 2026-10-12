@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { allow, context, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
 import { capsuleEvidence, laneContext } from "../lib/lane-completion.ts";
+import { projectIdentity } from "../lib/govdb-project.ts";
 import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
 import { join, resolve } from "node:path";
 
@@ -46,7 +47,9 @@ export function preCompactGate(hook: HookInput): never {
 	const wt = top.out.trim();
 	const lane = laneContext(wt);
 	const sid = lane?.sid ?? hook.session_id ?? "unknown";
-	const cap = lane ? capsuleEvidence(lane.item, sid) : null;
+	const cap = lane
+		? capsuleEvidence(lane.item, sid, projectIdentity(wt))
+		: null;
 	const branch = run("git", ["-C", wt, "rev-parse", "--abbrev-ref", "HEAD"]);
 	const head = run("git", ["-C", wt, "rev-parse", "--short=8", "HEAD"]);
 	const log = run("git", ["-C", wt, "log", "--oneline", "-5"]);

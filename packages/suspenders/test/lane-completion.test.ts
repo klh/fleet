@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import { projectIdentity } from "../hooks/lib/govdb-project.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-completion-"));
 const home = join(root, "home");
@@ -348,7 +350,7 @@ test("a stale capsule timestamp cannot park", () => {
 	try {
 		db.query("UPDATE facts SET ts = ? WHERE key = ?").run(
 			Date.now() - 25 * 86_400_000,
-			`work.${f.id}.capsule`,
+			itemCapsuleKey(projectIdentity(f.cwd), f.id),
 		);
 	} finally {
 		db.close();

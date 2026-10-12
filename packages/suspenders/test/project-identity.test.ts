@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { capsuleProjectTag, itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
 import { launchSchema } from "../scripts/lib/launch-fencing.ts";
 import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
 
@@ -123,6 +124,38 @@ describe("coord project rekey (W460)", () => {
 			.get() as { project: string };
 		rd.close();
 		expect(item.project).toBe(PROJ);
+	});
+
+	test("item capsule facts keys ride the rekey (W687 project-scoped tags)", () => {
+		// fresh pair — earlier tests already moved PROJ→TARGET
+		const P3 = `${PROJ}-p3`;
+		const T3 = `${PROJ}-p3-v2`;
+		const db = new Database(DB);
+		seedItem(P3, "W9");
+		db.query(
+			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'lane-a', 1, ?)",
+		).run(itemCapsuleKey(P3, "W9"), '{"checkpoint":"none","done":"half"}', TS);
+		db.close();
+
+		const r = run(REPO, coord, "project", "rekey", P3, T3);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("capsule facts");
+
+		const rd = new Database(DB, { readonly: true });
+		try {
+			// the row moved to the target tag, value intact; nothing stranded
+			const moved = rd
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(itemCapsuleKey(T3, "W9")) as { value: string } | undefined;
+			expect(moved?.value).toBe('{"checkpoint":"none","done":"half"}');
+			expect(
+				rd
+					.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE ?")
+					.get(`work.capsule.${capsuleProjectTag(P3)}.%`),
+			).toEqual({ n: 0 });
+		} finally {
+			rd.close();
+		}
 	});
 
 	test("coord-only store without a decisions table still rekeys", () => {
