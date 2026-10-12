@@ -40,7 +40,10 @@ bun ~/.claude/bin/coord.ts emit landed --scope <scope> --sha <sha> --as <sid>
   connection, never exited or relaunched; idempotent per sid, its feed tails
   `~/.claude-insights/coord-subscribe-<sid>.log` (the delivery for hookless
   executors — codex/copilot/cline/grok get the same inbox without Claude
-  hooks). `coord wait`'s poll/relaunch loop is retired. `coord inbox --as
+  hooks); claude-code lanes also get it pushed: the `gate.ts push`
+  PostToolUse hook (W417.4) tails new log lines into context per tool call,
+  byte offset per lane (`SUSPENDERS_PUSH_TAIL=0` opts out). `coord wait`'s
+  poll/relaunch loop is retired. `coord inbox --as
   <sid>` is a catch-up read (session start, before finishing), not a poll
 - **Direct messages are interrupts-only**: STOP, CONFLICT, DEPENDENCY_CHANGED,
 - **Transport guarantees**: `coord` events/inbox are the guaranteed unattended path; native cross-session messaging is permission-mode sensitive (may queue for human approval) - opportunistic only. Retired ledgers become tombstone files pointing at the Work Graph; never append operational state to them.
