@@ -88,7 +88,10 @@ import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
-import { dispatchStarterFork } from "./lib/lane-starter.ts";
+import {
+	dispatchStarterFork,
+	type StarterSeedFailure,
+} from "./lib/lane-starter.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
 import {
 	assertLaunchClaim,
@@ -242,6 +245,9 @@ const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
 const governanceRefusals: string[] = [];
+// W695.1: seed-failure fallbacks — dispatched cold because the starter seed
+// failed. Surfaced in the final summary line and carried on the registry row.
+const seedFallbacks: string[] = [];
 
 // W519: .prefer routing constraints ride the brief — prefer= soft, must=
 // reserved (lib/prefer-routing.ts); parse errors loud on the dispatch log,
@@ -268,6 +274,9 @@ type Lane = {
 	slab?: string;
 	launchedAt: number;
 	attempt?: number;
+	/** W695.1: set when the lane was dispatched on a COLD-START fallback after
+	 *  a starter-seed failure — exit code, stderr tail, phase, preflight. */
+	seedError?: StarterSeedFailure;
 };
 
 // lane liveness is THE plane's verdict (2026-10-05): work lanes --json
@@ -823,7 +832,7 @@ const dispatchItem = async (
 		// shared-prefix starter session instead of cold orientation; the seed
 		// rides a fleet identity (fleet-starter attribution slug), never the
 		// lane's minted key. Wiring lives in scripts/lib/lane-starter.ts.
-		const { forkArgs: starterFork, prompt: lanePrompt } =
+		const { forkArgs: starterFork, prompt: lanePrompt, seedError } =
 			await dispatchStarterFork({
 				env,
 				noBelt: NO_BELT,
@@ -836,6 +845,12 @@ const dispatchItem = async (
 				coldPrompt: prompt,
 				log,
 			});
+		if (seedError) {
+			const detail = `${seedError.phase}, code ${seedError.code}${seedError.preflight ? `, ${seedError.preflight}` : ""}: ${seedError.stderrTail}`;
+			console.log(`SEED FAILED ${item} — ${detail}`);
+			log(`SEED FAILED ${item} → ${sid} — ${detail}`);
+			seedFallbacks.push(`${item} (${detail})`);
+		}
 		// W622 retake knob: an honored --resume-from outranks the starter
 		// fork — the lane continues the prior transcript as a NEW session
 		// (--fork-session leaves pass 1's transcript immutable). Any missed
@@ -971,6 +986,7 @@ const dispatchItem = async (
 			slab,
 			launchedAt: Date.now(),
 			attempt,
+			...(seedError ? { seedError } : {}),
 		};
 		// Accept the launch only after its PID and ownership are durable.
 		if (!renewLaunchLease(store, project, sid, nonce))
@@ -1251,8 +1267,13 @@ const main = async (): Promise<void> => {
 		}
 	}
 	console.log(
-		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
+		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
 	);
+	// W695.1: a seed fallback dispatched a lane that will re-orient from cold
+	// context — never read as a fully healthy dispatch even when nothing was
+	// refused.
+	if (seedFallbacks.length > 0 && governanceRefusals.length === 0)
+		process.exitCode = 1;
 	// W463: a governance refusal is an ERROR the caller must see — the run
 	// never reads as a clean "pool drained" exit.
 	if (governanceRefusals.length > 0)

@@ -11,6 +11,7 @@ import {
 	assertNoSecrets,
 	dispatchStarterFork,
 	ensureStarter,
+	flattenTail,
 	forkArgsFor,
 	laneIdentityPrompt,
 	parseSessionId,
@@ -68,8 +69,13 @@ describe("lane-starter", () => {
 			{ run: runStub },
 		);
 		expect(first).not.toBeNull();
-		expect(first?.sessionId).toBe("seed-1");
-		expect(first?.forkArgs).toEqual(["--resume", "seed-1", "--fork-session"]);
+		expect(first?.kind).toBe("fork");
+		expect(first?.fork.sessionId).toBe("seed-1");
+		expect(first?.fork.forkArgs).toEqual([
+			"--resume",
+			"seed-1",
+			"--fork-session",
+		]);
 		const again = ensureStarter(
 			fleet,
 			"claude",
@@ -78,18 +84,41 @@ describe("lane-starter", () => {
 			{ run: runStub },
 		);
 		expect(runs).toBe(1);
-		expect(again?.sessionId).toBe("seed-1");
-		expect(again?.version).toBe(first?.version);
+		expect(again?.fork.sessionId).toBe("seed-1");
+		expect(again?.fork.version).toBe(first?.fork.version);
 	});
 
-	test("ensureStarter returns null and logs on seed failure", () => {
+	test("ensureStarter returns the failure record and logs on seed failure", () => {
 		const logs: string[] = [];
 		const out = ensureStarter(fleet, "claude", "/bin/true", {}, {
 			run: () => ({ code: 1, out: "boom" }),
 			log: (l) => logs.push(l),
 		} as never);
-		expect(out).toBeNull();
+		expect(out?.kind).toBe("failure");
+		expect(out?.failure.phase).toBe("starter-seed");
+		expect(out?.failure.code).toBe(1);
+		expect(out?.failure.stderrTail).toBe("boom");
 		expect(logs.join(" ")).toMatch(/seed failed/);
+	});
+
+	test("ensureStarter: stderr is captured separately from stdout", () => {
+		const out = ensureStarter(fleet, "claude", "/bin/true", {}, {
+			run: () => ({
+				code: 1,
+				out: `${JSON.stringify({ type: "result" })}\n`,
+				err: "unrecognized model line\ntrace tail",
+			}),
+		} as never);
+		expect(out?.kind).toBe("failure");
+		expect(out?.failure.stderrTail).toContain("unrecognized model line");
+	});
+
+	test("flattenTail bounds and flattens", () => {
+		expect(flattenTail("a\nb\n c")).toBe("a b c");
+		const long = "x".repeat(400);
+		const t = flattenTail(long);
+		expect(t.length).toBe(220);
+		expect(t.startsWith("…")).toBe(true);
 	});
 
 	test("forkArgsFor: claude only, others catalog-only", () => {
@@ -170,5 +199,71 @@ describe("lane-starter", () => {
 		expect(r.forkArgs).toEqual(["--resume", "seed-2", "--fork-session"]);
 		expect(r.prompt).toContain("s2");
 		expect(logs.join(" ")).toMatch(/forked/);
+	});
+
+	test("dispatchStarterFork: seed failure carries exit code + stderr tail", async () => {
+		const logs: string[] = [];
+		const r = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: true,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W695.1",
+			sid: "s3",
+			wt: "/wt3",
+			coldPrompt: "COLD",
+			log: (l) => logs.push(l),
+			ensureOpts: {
+				run: () => ({ code: 7, err: "connect ECONNREFUSED 127.0.0.1:4000" }),
+			},
+		});
+		expect(r.forkArgs).toEqual([]);
+		expect(r.prompt).toBe("COLD");
+		expect(r.seedError?.phase).toBe("starter-seed");
+		expect(r.seedError?.code).toBe(7);
+		expect(r.seedError?.stderrTail).toContain("ECONNREFUSED");
+		expect(r.seedError?.preflight).toBeUndefined();
+		expect(logs.join(" ")).toMatch(/seed failed/);
+	});
+
+	test("dispatchStarterFork: preflight down rides the seedError", async () => {
+		const r = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: false,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W695.1",
+			sid: "s4",
+			wt: "/wt4",
+			coldPrompt: "COLD",
+			log: () => {},
+			probe: async () => null,
+			ensureOpts: {
+				run: () => ({ code: 1, err: "seed died" }),
+			},
+		});
+		expect(r.seedError?.preflight).toContain("belt-front down");
+	});
+
+	test("dispatchStarterFork: preflight up verdict rides the seedError", async () => {
+		const r = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: false,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W695.1",
+			sid: "s5",
+			wt: "/wt5",
+			coldPrompt: "COLD",
+			log: () => {},
+			probe: async () => "http://127.0.0.1:4101",
+			ensureOpts: {
+				run: () => ({ code: 1, err: "seed died" }),
+			},
+		});
+		expect(r.seedError?.preflight).toContain("belt-front up");
 	});
 });
