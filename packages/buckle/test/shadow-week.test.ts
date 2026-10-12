@@ -7,7 +7,7 @@ import {
 	diffDay,
 	parseBenchRows,
 	type BenchRow,
-} from "../bin/shadow-week.ts";
+} from "../src/shadow-week.ts";
 
 const row = (over: Partial<BenchRow>): BenchRow => ({
 	scenario: "stream-short",
