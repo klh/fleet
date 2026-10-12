@@ -84,10 +84,26 @@ export interface ChatAdapter {
 	readonly caps: AdapterCaps;
 }
 
+/** adapter_config.headers — static, NON-secret request headers a provider
+ *  mandates (GitHub Copilot's Copilot-Integration-Id). Auth + content-type
+ *  are never overridable from config; non-string values are dropped. */
+function staticHeaders(dep: Deployment): Record<string, string> {
+	const raw = dep.adapter_config?.headers;
+	const out: Record<string, string> = {};
+	if (!raw || typeof raw !== "object") return out;
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		const name = k.toLowerCase();
+		if (typeof v !== "string" || name === "authorization") continue;
+		out[name] = v;
+	}
+	return out;
+}
+
 /** Shared auth header profile for bearer families: the key never lives in
  *  config — api_key_env names the env var read at request time. */
 export function bearerHeaders(dep: Deployment): Record<string, string> {
 	const headers: Record<string, string> = {
+		...staticHeaders(dep),
 		"content-type": "application/json",
 	};
 	if (dep.api_key_env) {

@@ -1,0 +1,50 @@
+# W695.6 — IKEA/GitHub Copilot seat as a first-class claude-* upstream.
+# Operator overlay TEMPLATE: copy these groups into the machine
+# BUCKLE_UPSTREAMS file (merged over upstreams.yaml by group name). Never
+# committed as the active default — the seat token lives only in the env var
+# named by api_key_env (GITHUB_COPILOT_PAT, resolved into buckle-spoke.env
+# from the 0600 copilot.key chain; the value is never printed or committed).
+#
+# Wire facts (2026-10-12): api.githubcopilot.com SERVES the Anthropic
+# Messages wire — POST /v1/messages answers with Bearer auth +
+# Copilot-Integration-Id (quota-exhausted 429s observed live, with
+# x-ratelimit-* headers; W684 verified real tool_calls on /chat/completions
+# the same day). Same dialect as the lane client => byte-identical
+# pass-through, no bridge, no litellm (its /v1/messages bridge hits the
+# Responses API, which Copilot rejects; its github_copilot provider forces
+# an interactive device flow). SSE + tool_use on THIS wire: unverified.
+#
+# Group name = the wire id lanes send (dashes); `model:` = the seat's real id
+# (dots) — the dots-to-dashes alias lives here, as data.
+version: 1
+
+groups:
+  claude-sonnet-5:
+    - &copilot
+      url: https://api.githubcopilot.com
+      dialect: anthropic
+      adapter: anthropic
+      api_key_env: GITHUB_COPILOT_PAT
+      model: claude-sonnet-5.5
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  claude-opus-5-5:
+    - <<: *copilot
+      model: claude-opus-5.5
+  claude-haiku-4-5:
+    - <<: *copilot
+      model: claude-haiku-4.5
+  # the 5.5 generations under their own names
+  claude-sonnet-5-5:
+    - <<: *copilot
+      model: claude-sonnet-5.5
+  claude-haiku-5-5:
+    - <<: *copilot
+      model: claude-haiku-5.5
+  claude-opus-4-8:
+    - <<: *copilot
+      model: claude-opus-4.8
+  claude-opus-5:
+    - <<: *copilot
+      model: claude-opus-5
