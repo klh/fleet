@@ -7,7 +7,8 @@
 // residents); degradation — an optional layer failing never aborts the chain;
 // centralized ledger — this installer carries state on disk, never todo lists.
 //
-//   bun bin/install-fleet.ts [--dry-run] [--skip-models] [--only <phase>]
+//   bun bin/install-fleet.ts [--dry-run] [--skip-models] [--llm=off|minimal|full]
+//     [--only <phase>]
 //
 // Phases (brief order): deps → belt → buckle → suspenders → local.
 // `belt` and `suspenders` share one installer acquisition: the swarm comes up
@@ -25,6 +26,12 @@
 // script (running from a clone installs THAT revision), else a shallow clone
 // of FLEET_REPO_URL at FLEET_REF. Phases then run packages/<name> installers
 // inside that root, so belt/buckle/suspenders/local can never drift apart.
+//
+// The tier flag (--llm, same contract as speedy install.sh) scopes the belt
+// phase: off = suspenders installer --no-llm (cloud-only), minimal =
+// BELT_TIER=minimal residents, full = + packages/belt/install.sh --tier full
+// (tier manifest re-pointed; weights honor --skip-models). An upgrade over a
+// deployed swarm never demotes it.
 //
 // Everything spawns through argument arrays, never shell strings; launchd
 // gets an absolute bun path (belt lesson — launchd PATH is minimal).
@@ -117,6 +124,9 @@ function cloneShallow(repo: string, into: string, ref?: string): boolean {
 
 export type PhaseId = "deps" | "belt" | "buckle" | "suspenders" | "local";
 
+// LLM tier — speedy install.sh's --llm contract (off/minimal/full).
+export type LlmTier = "off" | "minimal" | "full";
+
 export interface PhaseStep {
 	phase: PhaseId;
 	label: string;
@@ -127,6 +137,7 @@ export interface FleetFlags {
 	dryRun: boolean;
 	skipModels: boolean;
 	only: PhaseId | null;
+	llm: LlmTier;
 }
 
 export function buildPlan(flags: FleetFlags): PhaseStep[] {
@@ -142,7 +153,11 @@ export function buildPlan(flags: FleetFlags): PhaseStep[] {
 		steps.push({
 			phase: "belt",
 			label:
-				"local-llm swarm via suspenders install.sh (BELT_TIER=minimal smallest-fit)",
+				flags.llm === "off"
+					? "swarm — none (--llm=off, cloud-only)"
+					: `local-llm swarm via suspenders install.sh (BELT_TIER=minimal smallest-fit)${
+							flags.llm === "full" ? " + belt --tier full" : ""
+						}`,
 			state: existsSync(SWARM_MARKER()) ? "present — skip" : "install",
 		});
 	}
@@ -189,12 +204,13 @@ function printPlan(flags: FleetFlags): void {
 		const n = String(i + 1).padStart(2, "0");
 		console.log(`  ${n}. ${s.phase.padEnd(11)} ${s.label} — ${s.state}`);
 	}
-	const flagsLine = [
-		`--dry-run`,
-		flags.skipModels
-			? `--skip-models (offline install)`
-			: `model downloads per BELT_TIER=minimal`,
-	];
+	const modelLine =
+		flags.llm === "off"
+			? "no model downloads (--llm=off, cloud-only)"
+			: flags.skipModels
+				? "--skip-models (offline install)"
+				: "model downloads per BELT_TIER=minimal";
+	const flagsLine = ["--dry-run", modelLine, `--llm=${flags.llm}`];
 	console.log(`  flags: ${flagsLine.join(" · ")}`);
 	console.log(
 		`  laws: docs/laws.md (spoke install baseline, degradation, PQC wire)`,
@@ -254,6 +270,13 @@ export function withFleetCheckout<T>(fn: (root: string | null) => T): T {
 }
 
 function beltPhase(flags: FleetFlags): PhaseResult {
+	if (flags.llm === "off") {
+		return {
+			ok: true,
+			detail:
+				"cloud-only (--llm=off) — swarm untouched (re-run with --llm=minimal|full to add it)",
+		};
+	}
 	if (existsSync(SWARM_MARKER())) {
 		return {
 			ok: true,
@@ -278,17 +301,45 @@ function beltPhase(flags: FleetFlags): PhaseResult {
 			`  → fleet packages/suspenders/install.sh ${args.slice(1).join(" ")} (BELT_TIER=minimal)`,
 		);
 		const r = spawnSync("/bin/bash", args, { env, stdio: "inherit" });
-		if (r.status === 0)
+		if (r.status !== 0)
+			return {
+				ok: false,
+				detail:
+					"suspenders installer failed — continuing without the swarm (degradation law)",
+			};
+		if (flags.llm === "full") {
+			const tier = beltTier(root, flags);
+			if (!tier.ok)
+				return {
+					ok: false,
+					detail: `swarm deployed (minimal residents) — full-tier leg: ${tier.detail} (re-run to retry)`,
+				};
 			return {
 				ok: true,
-				detail: "swarm deployed (BELT_TIER=minimal residents)",
+				detail: "swarm deployed (belt tier: full)",
 			};
-		return {
-			ok: false,
-			detail:
-				"suspenders installer failed — continuing without the swarm (degradation law)",
-		};
+		}
+		return { ok: true, detail: "swarm deployed (BELT_TIER=minimal residents)" };
 	});
+}
+
+// The --llm=full leg: belt's own installer re-points the tier manifest at
+// full and (without --skip-download) scopes the full resident set. Failure
+// degrades — the minimal swarm from the suspenders installer stays up.
+function beltTier(root: string, flags: FleetFlags): PhaseResult {
+	const installer = join(root, "packages/belt/install.sh");
+	if (!existsSync(installer))
+		return { ok: false, detail: "packages/belt/install.sh missing" };
+	const args = ["--tier", "full"];
+	if (flags.skipModels) args.push("--skip-download");
+	console.log(`  → fleet packages/belt/install.sh ${args.join(" ")}`);
+	const r = spawnSync("/bin/bash", [installer, ...args], {
+		cwd: join(root, "packages/belt"),
+		stdio: "inherit",
+	});
+	return r.status === 0
+		? { ok: true, detail: "tier manifest: full" }
+		: { ok: false, detail: "belt installer failed" };
 }
 
 function bucklePhase(): PhaseResult {
@@ -372,7 +423,7 @@ function writeBucklePlist(target: string, bunAbs: string): string | null {
 	return plistPath;
 }
 
-function suspendersPhase(): PhaseResult {
+function suspendersPhase(flags: FleetFlags): PhaseResult {
 	if (existsSync(SUSPENDERS_MARKER())) {
 		return { ok: true, detail: "control plane already installed" };
 	}
@@ -385,13 +436,15 @@ function suspendersPhase(): PhaseResult {
 				ok: false,
 				detail: "no fleet checkout available (clone failed)",
 			};
-		const r = spawnSync("/bin/bash", [installer, "--wire", "--with-launchd"], {
+		const args = ["--wire", "--with-launchd"];
+		if (flags.llm === "off") args.push("--no-llm");
+		const r = spawnSync("/bin/bash", [installer, ...args], {
 			stdio: "inherit",
 		});
 		if (r.status === 0)
 			return {
 				ok: true,
-				detail: "control plane installed (--wire --with-launchd)",
+				detail: `control plane installed (${args.join(" ")})`,
 			};
 		return {
 			ok: false,
@@ -640,10 +693,11 @@ function readTokenFromEnvFile(): string | null {
 
 // ─── CLI ──────────────────────────────────────────────────────────────────
 
-const USAGE = `usage: bun bin/install-fleet.ts [--dry-run] [--skip-models] [--only <phase>]
+const USAGE = `usage: bun bin/install-fleet.ts [--dry-run] [--skip-models] [--llm=off|minimal|full] [--only <phase>]
 
   --dry-run      print the install plan and exit — touch nothing, prompt nothing
   --skip-models  no model downloads anywhere in the chain (offline install)
+  --llm=...      LLM tier: off (cloud-only, suspenders --no-llm) | minimal (BELT_TIER=minimal) | full (+ belt --tier full)
   --only <phase> run one phase: deps | belt | buckle | suspenders | local
 
 Phases: deps → belt (swarm via suspenders, BELT_TIER=minimal) → buckle →
@@ -651,12 +705,19 @@ suspenders → local (.local registration). The hub ask runs at the end of a
 full install — default standalone.`;
 
 function parseArgs(argv: string[]): FleetFlags | null {
-	const flags: FleetFlags = { dryRun: false, skipModels: false, only: null };
+	const flags: FleetFlags = {
+		dryRun: false,
+		skipModels: false,
+		only: null,
+		llm: "minimal",
+	};
 	const phaseIds: PhaseId[] = ["deps", "belt", "buckle", "suspenders", "local"];
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--dry-run") flags.dryRun = true;
 		else if (a === "--skip-models") flags.skipModels = true;
+		else if (a === "--llm=off" || a === "--llm=minimal" || a === "--llm=full")
+			flags.llm = a.slice(6) as LlmTier;
 		else if (a === "--only") {
 			const v = argv[i + 1];
 			if (!v || !phaseIds.includes(v as PhaseId)) {
@@ -684,7 +745,7 @@ async function main(): Promise<number> {
 		{ id: "deps", run: depsPhase },
 		{ id: "belt", run: () => beltPhase(flags) },
 		{ id: "buckle", run: bucklePhase },
-		{ id: "suspenders", run: suspendersPhase },
+		{ id: "suspenders", run: () => suspendersPhase(flags) },
 		{ id: "local", run: localPhase },
 	];
 	const selected = flags.only
