@@ -68,6 +68,12 @@ type PanelSlice = {
 	activity?: { empty?: string };
 };
 
+type HeaderSlice = {
+	teams: { label: string; href: string; on: boolean }[];
+	depts: { label: string; href: string; on: boolean }[];
+	filtered?: string;
+};
+
 /** Parse the embedded #usage-data payload's panels slice. */
 const panelsOf = (html: string): PanelSlice => {
 	const m = html.match(
@@ -209,9 +215,21 @@ describe("usagePage chips + LOCAL-ONLY (W152)", () => {
 		seed(db);
 		const r = buildUsageReport(db, { days: 7, nowMs: NOW, team: "platform" });
 		const html = usagePage(r, { days: 7, team: "platform", dept: "" });
-		expect(html).toContain("dept=infra");
-		expect(html).toContain("team=platform&amp;dept=infra");
-		expect(html).toContain("dashboard filtered: team=platform");
+		// W695.3.4: chips are the payload `header` slice (rendered by
+		// <klh-usage-header>); hrefs are raw (Lit escapes on render)
+		expect(html).toContain("<klh-usage-header></klh-usage-header>");
+		const hdr = (
+			JSON.parse(
+				html.match(
+					/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
+				)?.[1] ?? "{}",
+			) as { panels: { header: HeaderSlice } }
+		).panels.header;
+		expect(hdr.depts.map((c) => c.href)).toContain(
+			"/usage?days=7&team=platform&dept=infra",
+		);
+		expect(hdr.teams.find((c) => c.on)?.label).toBe("platform");
+		expect(hdr.filtered).toBe("dashboard filtered: team=platform");
 		expect(html).toContain("alice");
 		expect(html).not.toContain("bob<");
 		expect(html).not.toContain("/Users/");
