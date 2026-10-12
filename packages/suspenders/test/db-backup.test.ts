@@ -100,6 +100,44 @@ describe("db-backup knowledge parity (W444)", () => {
 		expect(existsSync(join(DEST, "knowledge-1000.db"))).toBe(false);
 	});
 
+	test("two snapshots in one slot — the newest survives (W696)", () => {
+		const home3 = mkdtempSync(join(tmpdir(), "suspenders-dbbackup-slot-"));
+		const dest3 = mkdtempSync(join(tmpdir(), "suspenders-dbbackup-d3-"));
+		const now = Date.now();
+		const older = now - 12 * 86_400_000;
+		const newer = now - 10 * 86_400_000;
+		for (const ts of [older, newer]) {
+			new Database(join(dest3, `governor-${ts}.db`)).close();
+			new Database(join(dest3, `knowledge-${ts}.db`)).close();
+		}
+		mkdirSync(join(home3, ".cache", "claude-governor"), { recursive: true });
+		const g = new Database(
+			join(home3, ".cache", "claude-governor", "governor.db"),
+		);
+		g.exec("CREATE TABLE work_items (id INTEGER PRIMARY KEY, title TEXT)");
+		g.exec("CREATE TABLE sessions (sid TEXT PRIMARY KEY)");
+		g.close();
+		const r = Bun.spawnSync(
+			[
+				"bun",
+				join(import.meta.dir, "..", "hooks", "bin", "db-backup.ts"),
+				"--home",
+				home3,
+				"--dest",
+				dest3,
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		const files = readdirSync(dest3);
+		rmSync(home3, { recursive: true, force: true });
+		rmSync(dest3, { recursive: true, force: true });
+		expect(r.exitCode).toBe(0);
+		expect(files).toContain(`knowledge-${newer}.db`);
+		expect(files).not.toContain(`knowledge-${older}.db`);
+		expect(files).toContain(`governor-${newer}.db`);
+		expect(files).not.toContain(`governor-${older}.db`);
+	});
+
 	test("no knowledge.db → graceful skip, governor still backed up", () => {
 		const home2 = mkdtempSync(join(tmpdir(), "suspenders-dbbackup-nokb-"));
 		const regd2 = join(home2, ".cache", "claude-governor");
