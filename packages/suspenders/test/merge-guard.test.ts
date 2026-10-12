@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { guardedMerge } from "../hooks/lib/merge-guard.ts";
 
 const LOOP = join(import.meta.dir, "../hooks/bin/fleet-loop.ts");
+const MERGE_LEAK = "/Users/kk/dev/m"; // scrub:allow
 const repos: string[] = [];
 const git = (repo: string, ...args: string[]) => {
 	const p = Bun.spawnSync(["git", ...args], {
@@ -201,4 +202,25 @@ test("option-looking branch is rejected before any ladder executes", () => {
 	expect(result.code).toBe(1);
 	expect(result.tail).toContain("unsafe ladder branch");
 	expect(git(repo, "rev-parse", "HEAD").out).toBe(before);
+});
+
+test("preflight scrub denies a home-path leak in the lane content", () => {
+	const { repo, before } = fixture(`export const p = "${MERGE_LEAK}";\n`);
+	ship(repo);
+	rejected(repo, before);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"scrub findings",
+	);
+});
+
+test("postflight scrub denies a leak a committing ladder injects", () => {
+	const { repo, before } = fixture("export const valid = 1;\n");
+	ship(
+		repo,
+		`git merge --no-ff {branch} -m custom && printf '%s\\n' ${JSON.stringify(`${MERGE_LEAK} cache`)} > injected.md && git add injected.md && git commit -m injected`,
+	);
+	rejected(repo, before);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"injected.md",
+	);
 });
