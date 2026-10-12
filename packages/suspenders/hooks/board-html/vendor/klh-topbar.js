@@ -1,5 +1,5 @@
-import{i,r,e,s}from"./lit-9bpcreb0.js";import{a,n,l}from"./lit-qfg13a0t.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((o)=>t[o]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${i(l)}
+import{a,r,e,s}from"./lit-068t0yrb.js";import{i,n,l}from"./lit-bc0syz5r.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((o)=>t[o]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${a(l)}
 		:host {
 			display: block;
 		}
@@ -153,7 +153,7 @@ import{i,r,e,s}from"./lit-9bpcreb0.js";import{a,n,l}from"./lit-qfg13a0t.js";var 
 								<label>
 									<input
 										type="radio"
-										name=${a}
+										name=${i}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}

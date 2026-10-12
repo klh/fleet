@@ -6,8 +6,6 @@
 // follows the entity, validated dark palette); component-ization per the UI
 // law rides the W184 staged Lit migration.
 import { readFileSync } from "node:fs";
-import { GROUPS } from "../lib/usage.ts";
-import { USAGE_CHART_JS } from "./usage-charts.ts";
 import { THEME_HEAD, FLEET_NAV_CSS, fleetNav } from "../lib/theme.ts";
 
 // uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
@@ -47,22 +45,6 @@ export const fmtTok = (n: number): string =>
 			: n >= 1e3
 				? `${(n / 1e3).toFixed(1)}K`
 				: String(Math.round(n));
-
-// stat-tile row: the label/value cells both dashboards open with
-export const tilesRow = (cells: [string, string][]): string =>
-	`<div class="utiles">${cells
-		.map(
-			([k, v]) =>
-				`<div class="utile"><div class="uv">${v}</div><div class="uk">${k}</div></div>`,
-		)
-		.join("")}</div>`;
-
-export function legendHtml(): string {
-	const items = GROUPS.map(
-		(g) => `<span><i style="background:${SLOT[g]}"></i>${g}</span>`,
-	);
-	return `<div class="ulegend">${items.join("")}</div>`;
-}
 
 // ─── W652.3.1 panel payload slices (W184 staged Lit migration) ────────────
 // The emitters stopped string-building panel interiors per request: they
@@ -144,13 +126,10 @@ export interface UsagePanels {
 	spokes?: UsageSpokesPanel;
 }
 
-// the full W152 u* chrome — the superset of both dashboards' local copies;
-// extra classes are inert where a page doesn't render those elements
+// the light-DOM u* chrome the two dashboards still render server-side or in
+// <klh-usage-charts> — the W652.3.1 Lit panels carry shadow-scoped copies of
+// everything else (tiles/tables/bars/chips)
 const U_CSS = `
-.utiles { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
-.utile { flex:1 1 150px; background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:10px 14px; }
-.uv { font-size:22px; font-weight:600; color:var(--klh-ink); font-variant-numeric:tabular-nums; word-break:break-all; }
-.uk { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
 .uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
 .uwin { font-size:10.5px; color:var(--klh-dim); }
 .upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
@@ -165,23 +144,10 @@ const U_CSS = `
 .ufilter, .ufchip { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
 .ufilter.on, .ufchip.on { color:var(--klh-accent); border-color:var(--klh-accent); }
 .uon { font-size:10.5px; color:var(--klh-accent); }
-table.uacts { width:100%; border-collapse:collapse; font-size:12px; }
-table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid var(--klh-rule); text-align:left; }
-.unum { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-ink-2); white-space:nowrap; }
-.ubar { display:flex; height:12px; border-radius:3px; overflow:hidden; min-width:2px; }
-.ubar i { display:block; height:100%; }
-.udot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
-.uchip { font-size:10px; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 6px; margin-left:6px; }
-tr.udetail td { padding-top:0; border-bottom:none; }
-tr.udetail details { font-size:11px; color:var(--klh-dim); }
-tr.udetail summary { cursor:pointer; }
-table.umtab { margin:6px 0 10px; border-collapse:collapse; }
-table.umtab td, table.umtab th { padding:2px 10px 2px 0; font-size:11px; text-align:left; color:var(--klh-ink-2); }
-.uempty { color:var(--klh-dim); font-size:12px; }
 .ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
 .uchart { width:100%; }
 /* uPlot chrome on the board dark palette: recessive grid + muted axis ink
-   are also set per-axis in usage-charts.ts; these style the live legend */
+   are also set per-axis in the charts component; these style the live legend */
 .uplot .u-legend { font: 10.5px/1.7 var(--klh-font-mono); color:var(--klh-ink-2); text-transform:uppercase; letter-spacing:.04em; }
 .uplot .u-legend .u-value { font-variant-numeric:tabular-nums; color:var(--klh-ink); }
 .uplot .u-legend .u-series.u-off { opacity:.4; }
@@ -196,6 +162,6 @@ export function usagePageShell(cfg: {
 	body: string;
 	payload: string;
 }): string {
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script>${USAGE_CHART_JS}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
+	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "suspenders")}<klh-topbar></klh-topbar><main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
 }

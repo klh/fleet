@@ -156,8 +156,11 @@ describe("usagePage render contract (W152)", () => {
 		expect(html).toContain('src="/vendor/klh-topbar.js"');
 		expect(html).toContain("var uPlot=function()");
 		expect(html).toContain("box-sizing: border-box");
-		expect(html).toContain('id="u-timeline"');
-		expect(html).toContain('id="u-hours"');
+		// W658.4: chart panels ride the <klh-usage-charts> host — the ids now
+		// live in the component's light-DOM render, not the server HTML
+		expect(html).toContain("<klh-usage-charts");
+		expect(html).not.toContain('id="u-timeline"');
+		expect(html).not.toContain('id="u-hours"');
 		expect(html).toContain('id="klh-theme-tokens"');
 		expect(html).toContain("/vendor/usage-panels.js");
 		expect(html).toContain("<klh-usage-tiles></klh-usage-tiles>");

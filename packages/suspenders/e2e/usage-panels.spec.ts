@@ -62,11 +62,10 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	await expect(page.locator("klh-usage-actors")).toContainText("alice");
 	await expect(page.locator("klh-usage-actors")).toContainText("platform");
 	await expect(page.locator("klh-usage-actors")).toContainText("bob");
-	await expect(page.locator("klh-usage-aids")).toContainText(
-		"no aid events yet",
-	);
-	await expect(page.locator("klh-usage-activity")).toContainText(
-		"meter not wired",
+	// W658.4: the chart panels upgrade as <klh-usage-charts> (light DOM) and
+	// mount uPlot into their own render root — one canvas per panel
+	await expect(page.locator("klh-usage-charts")).toContainText(
+		"STACKED BY MODEL GROUP",
 	);
 	await expect(page.locator("#u-timeline canvas")).toHaveCount(1);
 	await expect(page.locator("#u-hours canvas")).toHaveCount(1);
@@ -96,6 +95,11 @@ test("federation page: spokes + aid rows paint from rollups", async ({
 	await expect(page.locator("klh-usage-spokes")).toContainText("desktop");
 	await expect(page.locator("klh-usage-aids")).toContainText("fleet-lessons");
 	await expect(page.locator("klh-usage-aids")).toContainText("4.8K");
+	// W658.4: fed timeline title rides the component attribute
+	await expect(page.locator("klh-usage-charts")).toContainText(
+		"GLOBAL TOKENS · STACKED BY MODEL CLASS",
+	);
+	await expect(page.locator("#u-timeline canvas")).toHaveCount(1);
 	// W171 regression pin: the global timeline aggregation must actually
 	// accumulate per-bucket cells (the byBucket map was never initialized —
 	// every window hit the undefined-continue and the chart rendered all-zero)
