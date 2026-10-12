@@ -1,4 +1,3 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { CAPABILITIES, die, arg, db, dim, cyan, green } from "./shared.ts";
 import {
 	formatSessionLabel,
@@ -7,6 +6,7 @@ import {
 	slugifyLabelPart,
 	llmShorthand,
 } from "../lib/addressing.ts";
+import { transcriptTail } from "../lib/transcript.ts";
 import { emitEvent, broadcastNote, isLiveSession } from "./bus.ts";
 
 interface SessionRow {
@@ -97,38 +97,27 @@ const targetRows = (now = Date.now()): SessionRow[] =>
 	).filter((row) => isLiveSession(row, now));
 
 function readTranscriptModel(path: string | null | undefined): string | null {
-	if (!path || !existsSync(path)) return null;
-	let fd: number | null = null;
-	try {
-		const size = statSync(path).size;
-		if (!size) return null;
-		fd = openSync(path, "r");
-		const take = Math.min(size, 64 * 1024);
-		const start = size - take;
-		const buf = Buffer.allocUnsafe(take);
-		readSync(fd, buf, 0, take, start);
-		for (const line of buf.toString("utf8").split("\n").reverse()) {
-			if (!line.includes('"model"')) continue;
-			try {
-				const parsed = JSON.parse(line) as {
-					message?: { model?: string };
-					model?: string;
-				};
-				const model =
-					typeof parsed.message?.model === "string"
-						? parsed.message.model
-						: typeof parsed.model === "string"
-							? parsed.model
-							: null;
-				if (safeText(model)) return model;
-			} catch {}
-		}
-		return null;
-	} catch {
-		return null;
-	} finally {
-		if (fd !== null) closeSync(fd);
+	// W669.12 dedup: lib/transcript.ts owns byte-capped tail reads; the model
+	// scan (reverse line JSON walk) stays local to coord addressing.
+	const tail = path ? transcriptTail(path, 64 * 1024) : "";
+	if (!tail) return null;
+	for (const line of tail.split("\n").reverse()) {
+		if (!line.includes('"model"')) continue;
+		try {
+			const parsed = JSON.parse(line) as {
+				message?: { model?: string };
+				model?: string;
+			};
+			const model =
+				typeof parsed.message?.model === "string"
+					? parsed.message.model
+					: typeof parsed.model === "string"
+						? parsed.model
+						: null;
+			if (safeText(model)) return model;
+		} catch {}
 	}
+	return null;
 }
 
 function latestWorkItemName(sid: string): string | null {

@@ -198,7 +198,9 @@ export function processBirth(pid: number): ProcessBirth | false | null {
  * that exact suffix pair normalizes — pid+birth+argv fencing stays the gate. */
 const normalizeHost = (host: string): string =>
 	host.replace(/(?:\.(?:local|localdomain))+$/i, "");
-const sameMachine = (a: string, b: string): boolean =>
+/** Same-machine verdict under the macOS .local/.localdomain flip — shared
+ * with controller-fencing (W669.12: one source, controller-fence imports). */
+export const sameMachine = (a: string, b: string): boolean =>
 	normalizeHost(a) === normalizeHost(b);
 export function inspectLaunchIntent(
 	intent: LaunchIntent,
