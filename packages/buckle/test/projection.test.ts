@@ -70,6 +70,25 @@ describe("LaneProjection", () => {
 		p.close();
 	});
 
+	test("W706: relayed origin + peer project onto the edge", () => {
+		const db = `/tmp/buckle-proj-hop-${Date.now()}.db`;
+		const p = new LaneProjection(db);
+		p.ingest([
+			obs("lane.request.admitted", { ...ADMIT, origin: "hubA", peer: "hubA" }),
+			obs("lane.request.admitted", { ...ADMIT, rid: "rLocal", origin: "local" }),
+		]);
+		const snap = p.snapshot();
+		const relayed = snap.edges.find((e) => e.rid === "r1");
+		expect(relayed?.origin).toBe("hubA");
+		expect(relayed?.peer).toBe("hubA");
+		const local = snap.edges.find((e) => e.rid === "rLocal");
+		expect(local?.origin).toBe("local");
+		expect(local?.peer).toBeNull();
+		// the W706 origin filter is its own axis, distinct from the observer
+		expect(p.snapshot({ originFilter: "hubA" }).requests).toBe(1);
+		p.close();
+	});
+
 	test("scoped queries: origin filter, errorOnly, keyset pagination + resync", () => {
 		const db = `/tmp/buckle-proj-scope-${Date.now()}.db`;
 		const p = new LaneProjection(db);
@@ -100,7 +119,7 @@ describe("LaneProjection", () => {
 		expect(all.groups).toHaveLength(2);
 		expect(all.lanes).toBe(1); // one lane observed through two origins
 		expect(all.errors).toBe(5);
-		const nas = p.snapshot({ origin: "buckle://desktop/boot2" });
+		const nas = p.snapshot({ source: "buckle://desktop/boot2" });
 		expect(nas.requests).toBe(15);
 		const errs = p.snapshot({ errorOnly: true });
 		expect(errs.requests).toBe(5);

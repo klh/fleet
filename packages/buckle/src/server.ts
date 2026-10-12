@@ -278,6 +278,7 @@ export function buildDeps(
 		laneCache,
 		diet,
 		observations,
+		hubId: process.env.BUCKLE_HUB_ID ?? "local",
 	};
 }
 

@@ -59,6 +59,9 @@ export interface UpstreamRequest {
 	/** W461 stage 1: request-scoped W3C trace context (correlation only —
 	 *  never identity/authz). Absent → the wire roots a fresh trace. */
 	trace?: TraceContext;
+	/** W706: the outbound baggage for a relay leg to a buckle-marked peer
+	 *  (origin passed through + peer=self). Absent/non-buckle → the strip. */
+	relayBaggage?: string;
 	signal?: AbortSignal;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,

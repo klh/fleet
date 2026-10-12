@@ -34,9 +34,14 @@ export async function defaultFetch(
 	// W461 stage 1: one child traceparent per outbound attempt — same trace
 	// id, fresh span id (retry ordinals distinct). Baggage never rides the
 	// upstream leg (external-provider egress redaction): providers get the
-	// traceparent only.
+	// traceparent only. W706: buckle-marked peers ARE the trust boundary —
+	// the relay leg carries the hop marker baggage instead of the strip.
 	wire.headers.traceparent = childSpanOf(req.trace?.traceparent);
-	stripPrivateTrace(wire.headers);
+	if (dep.buckle && req.relayBaggage) {
+		wire.headers.baggage = req.relayBaggage;
+	} else {
+		stripPrivateTrace(wire.headers);
+	}
 	// W143 warm-rate gate: a cold origin (first dispatch since boot/pre-warm)
 	// counts one pool_refill and marks warm — the connect cost is counted,
 	// never silently mixed into the warm distribution.

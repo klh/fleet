@@ -52,6 +52,7 @@ describe("Ledger durability", () => {
 	test("audit ops keep INSERT→UPDATE order across a retry", () => {
 		const l = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		l.auditDecision({
+		hop: "origin",
 			rid: "r1",
 			ts: "2026-10-01T00:00:00.000Z",
 			actor: "a",
