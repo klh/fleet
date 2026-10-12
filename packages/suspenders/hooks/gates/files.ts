@@ -213,7 +213,11 @@ export function filesCheck(hook: HookInput): FilesExit {
 // first attempt, d4ba6478) died with that implementation; this one starts
 // with the gates already retired off it.
 const STORE_OWNERS = [
+	// W624 decomposition — the owner code moved into these siblings; the
+	// entrypoint govdb.ts is now a pure re-export shim over them.
 	"/lib/govdb.ts",
+	"/lib/govdb-open.ts",
+	"/lib/govdb-store.ts",
 	"/bin/store-server.ts",
 	"/lib/knowledge-ports.ts",
 ];

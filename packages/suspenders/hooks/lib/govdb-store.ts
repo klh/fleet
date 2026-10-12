@@ -1,0 +1,231 @@
+// hooks/lib/govdb-store.ts — the W92 store port: consumers bind to
+// GovernorStore, never to the DB file. The in-process SQLite Database
+// and the HTTP binding (bin/store-server.ts) are the same interface.
+import { Database } from "bun:sqlite";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { openGovernorDb } from "./govdb-open.ts";
+import { REG } from "./govdb-util.ts";
+
+// ─── W92 store port ──────────────────────────────────────────────────────────
+// The control-plane seam: consumers bind to GovernorStore, never to the DB
+// file. Local is the special case of distributed (owner doctrine): the DEFAULT
+// binding is the in-process SQLite Database (today's behavior, byte-identical
+// output) and the SAME interface rides HTTP (bin/store-server.ts, loopback)
+// for lanes on other machines. Address chain: env GOVERNOR_STORE_URL →
+// /store.url (coordinator-written one-liner) → in-process; the
+// .local/mDNS legs land with cross-machine activation. Statement-shaped on
+// purpose: a binding executes the exact SQL the CLIs run today — that is what
+// keeps CLI output byte-compatible and makes the port a pure transport swap.
+// Liveness sweeps (sweepStaleSessions) and token metrics (tokenUsage) read
+// THIS host's ~/.claude/projects transcripts, so they stay Database-typed and
+// sweep-taking verbs (coord bootstrap, coord gc) sweep only on db.local.
+export interface StoreResult {
+	changes: number;
+	lastInsertRowid: number;
+}
+
+// the port's unit of exchange — bun:sqlite statements satisfy this structurally
+export interface GovernorStatement {
+	get(...params: unknown[]): unknown;
+	all(...params: unknown[]): unknown[];
+	run(...params: unknown[]): StoreResult;
+}
+
+export interface GovernorStore {
+	// false on the HTTP binding: this process sees the local transcript tree,
+	// so transcript-derived behavior (liveness sweeps) must not run remotely
+	local: boolean;
+	query(sql: string): GovernorStatement;
+	run(sql: string, ...params: unknown[]): StoreResult;
+	transaction<T>(fn: () => T): () => T;
+	close(): void;
+}
+
+// W166 — the control-plane store must never proxy knowledge statements:
+// knowledge is no longer resident in governor.db, so a knowledge statement
+// riding the control plane either fails ("no such table") or — far worse —
+// silently puts the read-heavy FTS workload back on the write-hot file if
+// the tables are ever resurrected. String literals are stripped first:
+// events LIKE 'knowledge.%' and deltas tbl='knowledge' are legit
+// control-plane SQL over the WORD, never the table.
+export function knowledgeSqlViolation(sql: string): string | null {
+	const bare = sql
+		.replace(/'(?:[^']|'')*'/g, "''")
+		.replace(/"(?:[^"]|"")*"/g, '""');
+	const m = /\bknowledge(?:_fts|_queue)?\b/.exec(bare);
+	return m ? m[0] : null;
+}
+
+// HTTP binding: the same interface against bin/store-server.ts — sync by
+// design (the CLIs are sync programs; one statement = one curl round trip).
+// transaction(fn) holds a server-side BEGIN IMMEDIATE for the body's duration
+// (client-tagged txid, serialized, idle-timeout rolled back), so work
+// add/done/split and resume-session run unchanged on a remote lane.
+export class HttpGovernorStore implements GovernorStore {
+	readonly local = false;
+
+	constructor(
+		private base: string,
+		private token: string | null,
+	) {
+		// eager probe: a dead server fails AT OPEN — work.ts's mirror fallback
+		// and coord's module-top open both expect today's throw timing
+		this.query("SELECT 1").get();
+	}
+
+	private rpc(
+		mode: "get" | "all" | "run" | "tx",
+		sql: string,
+		params: unknown[],
+	): { row?: unknown; rows?: unknown[] } & Partial<StoreResult> {
+		const args = [
+			"curl",
+			"-sSf",
+			"--max-time",
+			"10",
+			"-w",
+			// W662 — trailing status line: curl -f flattens every HTTP >= 400
+			// to exit 22, which the old error mislabeled as "unreachable"
+			"\n%{http_code}",
+			"-X",
+			"POST",
+			`${this.base}/rpc`,
+			"-H",
+			"content-type: application/json",
+		];
+		if (this.token) args.push("-H", `x-governor-token: ${this.token}`);
+		args.push(
+			"--data-binary",
+			JSON.stringify({ mode, sql, params, txid: this.txid }),
+		);
+		const r = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
+		const raw = new TextDecoder().decode(r.stdout);
+		const nl = raw.lastIndexOf("\n");
+		const status = nl >= 0 ? Number(raw.slice(nl + 1).trim()) : NaN;
+		const bodyText = nl >= 0 ? raw.slice(0, nl) : raw;
+		if (r.exitCode !== 0) {
+			if (status > 0) {
+				const detail = bodyText.trim().slice(0, 200);
+				throw new Error(
+					`governor store ${this.base} HTTP ${status}${detail ? `: ${detail}` : ""}`,
+				);
+			}
+			throw new Error(
+				`governor store ${this.base} unreachable (curl exit ${r.exitCode})`,
+			);
+		}
+		const out = JSON.parse(bodyText);
+		// server-side refusals ride a 200 body ({err}) — curl -f cannot see them
+		if (out.err) throw new Error(`governor store: ${out.err}`);
+		return out;
+	}
+
+	query(sql: string): GovernorStatement {
+		return {
+			get: (...params) => this.rpc("get", sql, params).row,
+			all: (...params) => this.rpc("all", sql, params).rows ?? [],
+			run: (...params) =>
+				this.rpc("run", sql, params) as unknown as StoreResult,
+		};
+	}
+
+	run(sql: string, ...params: unknown[]): StoreResult {
+		return this.rpc("run", sql, params) as unknown as StoreResult;
+	}
+
+	// bun:sqlite shape: transaction(fn) returns the callable that runs it. Over
+	// HTTP the body's statements are TAGGED with a client txid; the server holds
+	// BEGIN IMMEDIATE on its tx connection for the body's duration (serialized,
+	// idle-timeout rolled back). A failed body rolls back before the throw.
+	transaction<T>(fn: () => T): () => T {
+		return () => {
+			const id = crypto.randomUUID();
+			this.txid = id; // begin CARRIES the txid — the server stamps it verbatim
+			try {
+				this.rpc("tx", "begin", []);
+			} catch (e) {
+				this.txid = null;
+				throw e;
+			}
+			let out: T;
+			try {
+				out = fn();
+			} catch (e) {
+				try {
+					this.rpc("tx", "rollback", []); // txid still set — must match
+				} catch {}
+				this.txid = null;
+				throw e;
+			}
+			this.rpc("tx", "commit", []);
+			this.txid = null;
+			return out;
+		};
+	}
+
+	close(): void {}
+}
+
+// binding resolver: GOVERNOR_STORE_URL wins, then /store.url, else the
+// in-process SQLite Database. GOVERNOR_STORE_URL=local forces in-process
+// (tests, emergencies). The cast is the ONE place Database becomes the port —
+// bun's Database already has the statement shape, only the type differs.
+export function openStore(): GovernorStore {
+	const raw = (process.env.GOVERNOR_STORE_URL ?? storeUrlFile() ?? "").trim();
+	if (raw && raw !== "local")
+		return new HttpGovernorStore(raw.replace(/\/+$/, ""), resolveStoreToken());
+	const d = openGovernorDb() as unknown as GovernorStore;
+	d.local = true;
+	return d;
+}
+
+// same binding chain as openStore(), exposed for callers that need the raw
+// HTTP address (W303 — coord's WebSocket subscribe client upgrades this to
+// ws(s):// itself). null when the binding is in-process SQLite (no server to
+// connect a socket to).
+export function resolveStoreHttpBase(): {
+	base: string;
+	token: string | null;
+} | null {
+	const raw = (process.env.GOVERNOR_STORE_URL ?? storeUrlFile() ?? "").trim();
+	if (!raw || raw === "local") return null;
+	return {
+		base: raw.replace(/\/+$/, ""),
+		token: resolveStoreToken(),
+	};
+}
+
+// A launchd worker can use the same binding without embedding credentials in
+// its plist. Private file configuration is shared with ordinary coord/work.
+function resolveStoreToken(): string | null {
+	if (process.env.GOVERNOR_STORE_TOKEN) return process.env.GOVERNOR_STORE_TOKEN;
+	const file = process.env.GOVERNOR_STORE_TOKEN_FILE ?? `${REG()}/store.token`;
+	if (!existsSync(file)) {
+		if (process.env.GOVERNOR_STORE_TOKEN_FILE)
+			throw new Error("Configured store token file unavailable");
+		return null;
+	}
+	const stat = statSync(file);
+	if (!stat.isFile() || (stat.mode & 0o777) !== 0o600 || stat.size > 4096)
+		throw new Error("Store token file must be private mode 600");
+	const token = readFileSync(file, "utf8").trim();
+	if (!token || /\s/.test(token)) throw new Error("Invalid store token file");
+	return token;
+}
+
+function storeUrlFile(): string | null {
+	try {
+		return readFileSync(`${REG()}/store.url`, "utf8") || null;
+	} catch {
+		return null;
+	}
+}
+
+// in-memory store for work.ts's mirror fallback — the port surface with zero
+// file involvement (was a bare `new Database(":memory:")` in work.ts, which
+// is a consumer and must not own a Database import)
+export function openMemoryStore(): GovernorStore {
+	const d = new Database(":memory:") as unknown as GovernorStore;
+	d.local = true;
+	return d;
+}
