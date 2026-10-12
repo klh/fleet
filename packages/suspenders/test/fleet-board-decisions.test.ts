@@ -4,10 +4,13 @@
 // port — so one bun test run keeps the family files isolated.
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
+import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 type Row = Record<string, unknown>;
-const { HOME, run, getData, getDecisions, post, fork, addWork } =
+const { HOME, REPO, run, sleep, getData, getDecisions, post, fork, addWork } =
 	await boardFixture(0, afterAll);
 
 describe("decision lifecycle (docs/decisions-api.md)", () => {
@@ -340,5 +343,104 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		const d = await getData();
 		expect(typeof d.decisionsTs).toBe("number");
 		expect(d.needs).toBeUndefined();
+	});
+
+	test("W667: registry-dead target classifies stale (sessions row RUNNING), answer routes owner ruling", async () => {
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"board-lane",
+				"--note",
+				"stale lane fork",
+				"--as",
+				"board-lane",
+			]).code,
+		).toBe(0);
+		const rec = fork(await getDecisions(), "stale lane fork");
+		expect(rec).toBeDefined();
+		expect(rec.owner_actionable).toBe(false); // sessions face: RUNNING
+		// register the target as a dead dispatch lane (dead pid, no transcript)
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		writeFileSync(
+			join(REPO, ".fleet", "lanes.json"),
+			JSON.stringify([
+				{ sid: "board-lane", item: "W1", pid: 999999999, host: hostname() },
+			]),
+		);
+		// the 3s registry memo may serve the pre-registration read — retry
+		let staleRec: Row | undefined;
+		for (let i = 0; i < 20; i++) {
+			await sleep(300);
+			staleRec = fork(await getDecisions(), "stale lane fork");
+			if (staleRec.owner_actionable === true) break;
+		}
+		expect(staleRec?.owner_actionable).toBe(true);
+		expect(staleRec?.owner_reason).toBe("target-dead");
+		// the owner ruling resolves without a lane ack
+		const ans = await post("/api/answer", {
+			id: staleRec?.id,
+			to: staleRec?.target,
+			note: "owner decides: proceed",
+			token: staleRec?.answer_token,
+		});
+		expect(ans.status).toBe(200);
+		expect(ans.json.ruling).toBe(true);
+		expect(fork(await getDecisions(), "stale lane fork").state).toBe(
+			"ANSWERED",
+		);
+	});
+
+	test("W667: /api/advise dedupe rides the in-flight stamp; the child clears it on its terminal write", async () => {
+		run("coord.ts", [
+			"emit",
+			"NEED_DECISION",
+			"--to",
+			"board-lane",
+			"--note",
+			"advise dedupe fork",
+			"--as",
+			"board-lane",
+		]);
+		const rec = fork(await getDecisions(), "advise dedupe fork");
+		expect(rec).toBeDefined();
+		// first POST: no stamp → spawns the detached child (started:true)
+		const first = await post("/api/advise", { id: rec.id });
+		expect(first.status).toBe(200);
+		expect(first.json.started).toBe(true);
+		// the child runs against dead upstreams (:1) — it exits writing the
+		// error fact AND clearing the requested stamp (its terminal write)
+		const gdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		gdb.run("PRAGMA busy_timeout = 4000");
+		let cleared = false;
+		for (let i = 0; i < 100; i++) {
+			const stamp = gdb
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${rec.id}.requested`) as { value: string } | null;
+			const err = gdb
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${rec.id}.error`) as { value: string } | null;
+			if (err && !stamp) {
+				cleared = true;
+				break;
+			}
+			await sleep(100);
+		}
+		expect(cleared).toBe(true);
+		gdb.close();
+		// a stamped fork: the next POST rides in-flight, no second spawn
+		const sdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		sdb.run("PRAGMA busy_timeout = 4000");
+		sdb
+			.query(
+				"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, 'in-flight', 'fleet-board', 1, ?)",
+			)
+			.run(`advice.${rec.id}.requested`, Date.now());
+		const second = await post("/api/advise", { id: rec.id });
+		expect(second.json.ok).toBe(true);
+		expect(second.json.inFlight).toBe(true);
+		expect(second.json.started).toBe(false);
+		sdb.close();
 	});
 });

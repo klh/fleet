@@ -25,6 +25,26 @@ GET /api/decisions → { ts, decisions: [ …record + age_s, task_title (joined
 from work_items when task_id set), asked_by_label ] }. Decision ids are
 globally unambiguous (event id + project in the record).
 
+## Id contract (W667 — one name on the wire)
+
+`id` is THE decision id everywhere on the wire: GET /api/decisions emits
+`id`; POST /api/answer consumes `id` (the legacy alias `forEvent` is
+accepted and MUST carry the same value). All of them are the store event
+id — the `decisions.event_id` column, and the `decision` field the ANSWER
+bus event records. The SQLite column keeps its legacy name; the API never
+exposes `event_id`.
+
+## W667 target-liveness classification
+
+Each record carries `owner_actionable` + `owner_reason` ("owner-needed" |
+"target-dead"). W667: "target-dead" reads the process-backed lane registry
+(the `work lanes` surface — lib/lane-liveness.ts verdicts: recorded pid
+alive with anchored harness args, or transcript fresh in the 15-min lease)
+with the sessions face as the fallback for unregistered targets;
+`unknown` never reads dead. The board auto-classifies stale-lane
+decisions — no human notices required — and /api/answer routes them to
+recordOwnerRuling without a lane ack.
+
 ## State machine
 
 OPEN → ANSWERED (human sends; POST /api/answer idempotent: same token+note
@@ -43,6 +63,18 @@ ANSWERED → ACKNOWLEDGED (lane inbox sees the ANSWER and the lane's next
 checkpoint/message references it — best-effort heuristic, monotonic)
 Never: dismiss/ack of the NOTIFICATION resolves a decision. The board's
 dismiss button on a card = CANCELLED and asks for confirmation.
+
+## Advise (W667)
+
+POST /api/advise {id} fires hooks/bin/advise.ts detached and returns
+{ok:true, started:true}, or {ok:true, started:false, inFlight:true} when a
+request stamp (fact `advice.<id>.requested`) is younger than 120s — the
+detached child can run minutes, so re-clicks and client backoff retries
+ride the in-flight child instead of stacking spawns. advise.ts clears the
+stamp on both terminal writes (advice fact / error fact). The client keeps
+the spinner honest: transport failures (e.g. the 8s fetch timeout) back
+off 2s/4s/8s and re-fire up to 3 times (advice landing clears every state);
+exhaustion or a spinner past 5m30s lands a retry-button error.
 
 ## Agent health
 
