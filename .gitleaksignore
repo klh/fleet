@@ -57,3 +57,5 @@
 5c32bc10d6518074cc9a438abd24032d46a23d1f:test/fleet-board-flows.test.ts:generic-api-key:422
 f8b9e2e28002f9984dab57a1bbd9abb6ac963d50:bench/arena/gen.ts:generic-api-key:936
 test/fleet-board-flows.test.ts:generic-api-key:422
+# W307: BELT_MCP_DEV=1 env knob in prose (owner commit 6e98a89) — not a secret
+packages/belt/docs/mcp.md:generic-api-key:13
