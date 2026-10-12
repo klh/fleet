@@ -1,5 +1,5 @@
-// distill.test.ts — co-situated tests for bin/distill.ts (pure helpers; no
-// network, no spawn). Run: bun test packages/belt/bin/distill.test.ts
+// distill.test.ts — tests for bin/distill.ts (pure helpers; no
+// network, no spawn). Run: bun test packages/belt/test/distill.test.ts
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
@@ -16,7 +16,7 @@ import {
 	toRow,
 	type Chat,
 	type Packet,
-} from "./distill.ts";
+} from "../bin/distill.ts";
 
 describe("packets", () => {
 	const good = '{"id":"p1","question":"Q?","context":"C"}\n';
@@ -167,7 +167,7 @@ describe("CLI subprocess", () => {
 		};
 		for (const verb of ["status", "plan"]) {
 			const p = Bun.spawnSync({
-				cmd: ["bun", join(import.meta.dir, "distill.ts"), verb],
+				cmd: ["bun", join(import.meta.dir, "..", "bin", "distill.ts"), verb],
 				env,
 				cwd: import.meta.dir,
 			});
