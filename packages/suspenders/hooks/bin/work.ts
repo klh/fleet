@@ -20,6 +20,7 @@ import {
 	projectRootOf,
 } from "../lib/govdb.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
+import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -778,7 +779,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		if (flag("--json")) {
 			const capRow = db()
 				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`work.${id}.capsule`) as { value: string } | null;
+				.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
 			console.log(
 				JSON.stringify({
 					...it,
@@ -806,9 +807,11 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		}
 		// W617: the item capsule travels with the item, not the lane — printed
 		// here (and injected by composeBrief) so any claimer resumes informed.
+		// W687: the key is project-scoped (itemCapsuleKey) — item ids are
+		// per-project sequences; a global key served another project's capsule.
 		const cap = db()
 			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`work.${id}.capsule`) as { value: string } | null;
+			.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
 		if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
 		const kids = db()
 			.query(

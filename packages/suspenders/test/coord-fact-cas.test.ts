@@ -6,6 +6,8 @@ import { describe, expect, test, afterAll, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import { projectIdentity } from "../hooks/lib/govdb-project.ts";
 
 setDefaultTimeout(30_000); // spawn-heavy suite (bun:test 5s default flake floor)
 
@@ -189,7 +191,11 @@ describe("capsule set --item <W-id> — the item-scoped capsule", () => {
 			"--checkpoint=none",
 		]); // item key is at v1 already
 		expect(stale.code).toBe(2);
-		expect(stale.err).toContain("work.W617.capsule");
+		// W687: the refusal names the project-scoped item key (the child CLI
+		// resolves the identity from the inherited test cwd — same as ours)
+		expect(stale.err).toContain(
+			itemCapsuleKey(projectIdentity(process.cwd()), "W617"),
+		);
 		expect(stale.err).toContain("current version 1");
 		// refusal left the item key untouched
 		const kept = runCli(["capsule", "get", "--item", "W617"]);

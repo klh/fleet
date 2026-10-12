@@ -17,7 +17,7 @@ import {
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import { run } from "../lib/run.ts";
-import { assertCapsuleBounds } from "../lib/capsule-fence.ts";
+import { assertCapsuleBounds, itemCapsuleKey } from "../lib/capsule-fence.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
@@ -157,13 +157,16 @@ export async function cmdFact(rest: string[]): Promise<void> {
 
 export async function cmdCapsule(rest: string[]): Promise<void> {
 	// continuation capsule: the minimum restart packet (checkpoint/step/next/assumptions)
-	// W617: --item <W-id> banks the capsule on the ITEM too (work.<id>.capsule,
-	// alongside the lane-scoped lane.<sid>.capsule) — an item reclaimed and
-	// re-taken by a fresh lane resumes from it instead of starting blind.
+	// W617: --item <W-id> banks the capsule on the ITEM too (the project-scoped
+	// itemCapsuleKey, W687 — item ids are per-project sequences) alongside the
+	// lane-scoped lane.<sid>.capsule — an item reclaimed and re-taken by a
+	// fresh lane resumes from it instead of starting blind.
 	const item = arg("--item");
 	const as = arg("--as") ?? rest[0];
 	if (!as || rest[0] === "get") {
-		const key = item ? `work.${item}.capsule` : `lane.${as ?? ""}.capsule`;
+		const key = item
+			? itemCapsuleKey(projectIdentity(), item)
+			: `lane.${as ?? ""}.capsule`;
 		const cap = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
 			value: string;
 		} | null;
@@ -222,7 +225,9 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 		// with --item the CAS expectation guards the item key — that is the
 		// key successive lane writers race over the item's life; the lane key
 		// stays single-writer and rides along unconditionally
-		const primary = item ? `work.${item}.capsule` : `lane.${as}.capsule`;
+		const primary = item
+			? itemCapsuleKey(projectIdentity(), item)
+			: `lane.${as}.capsule`;
 		const r = casWrite(primary, expected, () => upsert(primary));
 		if (!r.ok)
 			die(
