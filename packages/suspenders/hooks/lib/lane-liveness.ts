@@ -329,10 +329,13 @@ export interface LaneAuditRow {
 	live: boolean;
 	host: string | null;
 }
-export const laneVerdict = (l: LaneRef): LaneVerdict => {
+export const laneVerdict = (
+	l: LaneRef,
+	inspect: ProcessInspector = inspectProcesses,
+): LaneVerdict => {
 	if (l.host !== undefined && l.host !== THIS_HOST)
 		return transcriptAlive(l.sid) ? "alive" : "unknown";
-	const identity = laneProcessIdentity(l);
+	const identity = laneProcessIdentity(l, inspect);
 	if (identity === true || transcriptAlive(l.sid)) return "alive";
 	if (identity === false) return "dead";
 	return "unknown";
@@ -359,6 +362,7 @@ export const auditLanes = (registry: readonly LaneRef[]): LaneAuditRow[] =>
 export const verdictBySid = (
 	lanes: readonly string[],
 	registry: readonly LaneRef[],
+	inspect: ProcessInspector = inspectProcesses,
 ): Map<string, LaneVerdict> => {
 	const rows = new Map(registry.map((r) => [r.sid, r]));
 	const join = (sid: string): LaneRef | undefined => {
@@ -371,7 +375,7 @@ export const verdictBySid = (
 	const out = new Map<string, LaneVerdict>();
 	for (const sid of lanes) {
 		const row = join(sid);
-		if (row) out.set(sid, laneVerdict(row));
+		if (row) out.set(sid, laneVerdict(row, inspect));
 	}
 	return out;
 };

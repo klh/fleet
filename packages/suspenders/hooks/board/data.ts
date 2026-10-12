@@ -22,7 +22,7 @@ import {
 	laneModelMaps,
 	ownerLabel,
 	payloadOf,
-	sessionAlive,
+	decisionVerdicts,
 	transcriptTail,
 	subscribeTail,
 	unblockedBy,
@@ -556,6 +556,11 @@ export function decisionRecords(
 		ack_ts: number | null;
 		task_title: string | null;
 	}[];
+	// W667: one batched liveness pass feeds every row — registry verdicts
+	// (the `work lanes` surface) with the sessions face as fallback
+	const verdicts = decisionVerdicts(
+		rows.map((d) => ({ sid: d.target, project: d.project })),
+	);
 	return rows.map((d) => {
 		let options: { label: string; tradeoff?: string | null }[] = [];
 		try {
@@ -597,7 +602,7 @@ export function decisionRecords(
 		);
 		const ownerNeeded =
 			classification === "owner-needed" || classification === "owner_needed";
-		const targetGone = !sessionAlive(d.target);
+		const targetGone = d.target ? verdicts.get(d.target) === "dead" : true; // legacy no-target rows: gone by definition
 		return {
 			id: d.event_id,
 			project: d.project || null,

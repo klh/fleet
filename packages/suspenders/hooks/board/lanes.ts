@@ -6,7 +6,14 @@ import { db } from "./context.ts";
 // (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
 // on purpose: lanes.ts never calls it, the two lists just change together)
 import { tagNameOf } from "../lib/govdb.ts";
-import { transcriptAlive } from "../lib/lane-liveness.ts";
+import {
+	type LaneRef,
+	type LaneVerdict,
+	type ProcessInspection,
+	transcriptAlive,
+	verdictBySid,
+} from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import {
 	closeSync,
@@ -274,6 +281,77 @@ export const sessionAlive = (sid: string): boolean => {
 		return true;
 	if (Date.now() - s.hb <= deadAfterMs()) return true;
 	return transcriptWarm(sid);
+};
+
+// W667 decision staleness: a decision's target is judged by the
+// process-backed lane registry (the `work lanes` surface — lib/
+// lane-liveness.ts verdicts), never by the sessions row alone: rows stay
+// RUNNING for dead dispatch lanes, which is how stale-lane NEED_DECISIONs
+// sat OPEN for days. A registry hit (exact sid, then the prefix join
+// verdictBySid uses) is authoritative; unregistered targets keep the
+// sessions+transcript verdict; `unknown` never reads dead (monitor
+// doctrine: lookup failure is not death).
+const laneRegistryCache = new Map<string, { until: number; rows: LaneRef[] }>();
+const psCache: { until: number; snap: ProcessInspection | null } = {
+	until: 0,
+	snap: null,
+};
+const boardProcessInspector = (): ProcessInspection => {
+	if (psCache.snap && Date.now() < psCache.until) return psCache.snap;
+	const r = Bun.spawnSync(["ps", "-axo", "pid=,args="], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	psCache.snap = { exitCode: r.exitCode, stdout: r.stdout.toString() };
+	psCache.until = Date.now() + 3_000;
+	return psCache.snap;
+};
+const registryRows = (project: string | null): LaneRef[] => {
+	const key = project ?? "";
+	const hit = laneRegistryCache.get(key);
+	if (hit && Date.now() < hit.until) return hit.rows;
+	let rows: LaneRef[] = [];
+	try {
+		rows = project ? loadLaneRegistry(project) : [];
+	} catch {}
+	laneRegistryCache.set(key, { until: Date.now() + 3_000, rows });
+	return rows;
+};
+
+/** Batch face for decisionRecords: sid → liveness verdict, registry-first.
+ *  Unregistered sids collapse the sessions face to alive/dead (the pre-W667
+ *  sessionAlive semantics). */
+export function decisionVerdicts(
+	pairs: { sid: string | null; project: string | null }[],
+): Map<string, LaneVerdict> {
+	const out = new Map<string, LaneVerdict>();
+	const byProject = new Map<string, string[]>();
+	for (const { sid, project } of pairs) {
+		if (!sid || out.has(sid)) continue;
+		const key = project ?? "";
+		const lanes = byProject.get(key) ?? [];
+		lanes.push(sid);
+		byProject.set(key, lanes);
+	}
+	for (const [project, lanes] of byProject) {
+		const reg = verdictBySid(lanes, registryRows(project || null), () =>
+			boardProcessInspector(),
+		);
+		for (const sid of lanes) {
+			const v = reg.get(sid);
+			out.set(sid, v ?? (sessionAlive(sid) ? "alive" : "dead"));
+		}
+	}
+	return out;
+}
+
+/** Single-target face for /api/answer's owner-ruling gate. */
+export const decisionTargetAlive = (
+	sid: string | null,
+	project: string | null,
+): boolean => {
+	if (!sid) return true;
+	return decisionVerdicts([{ sid, project }]).get(sid) !== "dead";
 };
 
 export const failNote = (id: string): string | null => {

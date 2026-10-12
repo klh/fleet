@@ -13,6 +13,7 @@ import {
 	lanesOf,
 	readShipJson,
 	sessionAlive,
+	decisionTargetAlive,
 	payloadOf,
 } from "./lanes.ts";
 import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
@@ -25,6 +26,12 @@ import { laneSid } from "../lib/laneslug.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+
+// W667: /api/advise dedupe window — the detached advise child can run
+// minutes (belt leg timeout 300s); within this window re-clicks and UI
+// backoff retries ride the in-flight child (inFlight:true) instead of
+// stacking spawns. advise.ts clears the stamp on its terminal writes.
+const ADVISE_INFLIGHT_MS = 120_000;
 
 // W487 owner ruling: capture the human's answer directly for the owner when
 // the fork must not dead-end on Send-to-lane — classified owner-needed, or
@@ -439,7 +446,7 @@ export async function handleActions(
 		syncDecisions();
 		const row = db
 			.query(
-				"SELECT state, answer_note, answer_token, answer_to, target FROM decisions WHERE event_id = ?",
+				"SELECT state, answer_note, answer_token, answer_to, target, project FROM decisions WHERE event_id = ?",
 			)
 			.get(id) as {
 			state: string;
@@ -447,6 +454,7 @@ export async function handleActions(
 			answer_token: string | null;
 			answer_to: string | null;
 			target: string | null;
+			project: string | null;
 		} | null;
 		// reject unknown ids instead of silently answering nothing
 		if (!row)
@@ -458,7 +466,9 @@ export async function handleActions(
 		if (row.state !== "OPEN" || row.answer_token !== token)
 			return json({ ok: false, error: "stale" }, 409);
 		// W487 owner ruling gate: owner-needed classification or a target
-		// session that is not RUNNING resolves here, never via Send-to-lane.
+		// that is not live (W667: process-backed registry verdict — the
+		// sessions row stays RUNNING for dead lanes) resolves here, never
+		// via Send-to-lane.
 		const classification = String(
 			payloadOf(
 				(
@@ -470,7 +480,7 @@ export async function handleActions(
 		);
 		const ownerNeeded =
 			classification === "owner-needed" || classification === "owner_needed";
-		if (ownerNeeded || !sessionAlive(row.target ?? to))
+		if (ownerNeeded || !decisionTargetAlive(row.target ?? to, row.project))
 			return recordOwnerRuling(id, row.target ?? to, note, token);
 		// accept full sids, unique prefixes, or live bus aliases (an identity
 		// that has emitted before — e.g. a coordinator's chosen --as name)
@@ -587,8 +597,14 @@ export async function handleActions(
 		return json({ ok: true });
 	}
 	if (req.method === "POST" && url.pathname === "/api/advise") {
-		// fire hooks/bin/advise.ts detached — it writes fact advice.<id> when
-		// the LLM answers; the 1s poll picks it up. Human decides after.
+		// W667: fire hooks/bin/advise.ts detached — it writes fact advice.<id>
+		// when the LLM answers; the 1s poll picks it up. A request stamp
+		// (advice.<id>.requested) dedupes the window: the detached child can
+		// run minutes (belt leg 300s), so re-clicks and the UI's backoff
+		// retries ride the in-flight child instead of stacking spawns (the
+		// "signal timed out" spam: the client gave up at 8s, the child kept
+		// running, every retry spawned another). advise.ts clears the stamp
+		// on both terminal writes (advice fact or error fact).
 		const guard = writeGuard(req, url);
 		if (guard) return guard;
 		const parsed = await readJson(req);
@@ -601,6 +617,15 @@ export async function handleActions(
 		if (!ev) return json({ ok: false, error: `unknown event id: ${id}` }, 404);
 		if (!isDecisionKind(ev.kind))
 			return json({ ok: false, error: `not a decision event: ${id}` }, 400);
+		const stamp = `advice.${id}.requested`;
+		const inflight = db
+			.query("SELECT ts FROM facts WHERE key = ?")
+			.get(stamp) as { ts: number } | null;
+		if (inflight && Date.now() - inflight.ts < ADVISE_INFLIGHT_MS)
+			return json({ ok: true, started: false, inFlight: true });
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'fleet-board', 1, ?)",
+		).run(stamp, "in-flight", Date.now());
 		const child = Bun.spawn([process.execPath, CLI("advise.ts"), String(id)], {
 			stdin: "ignore",
 			stdout: "ignore",
