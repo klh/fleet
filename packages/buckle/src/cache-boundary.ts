@@ -132,3 +132,66 @@ export class LaneTelemetryLog {
 		};
 	}
 }
+
+/** Structural view of a pool deployment for boundary derivation — narrow
+ *  on purpose: no upstreams.ts import (adapters pull heavy deps;
+ *  cache-boundary stays leaf-pure). */
+export type BoundaryDep = {
+	dialect: string;
+	url: string;
+	adapter?: string;
+	api_key_env?: string;
+	adapter_config?: Record<string, unknown>;
+};
+
+/** The cache boundary a pool deployment serves. Tenant = the credential
+ *  account identity — the api_key_env NAME (never the value); keyless
+ *  (fleet-local) deployments fall back to the URL origin, the serving
+ *  process identity. Region from adapter_config (vertex/azure carry one);
+ *  the empty string = region-unknown. Unknown never MERGES boundaries —
+ *  it only means less reuse gets claimed, never more (honest default).
+ *  Provider = the wire family (adapter name ?? dialect). */
+export const boundaryOfDeployment = (
+	dep: BoundaryDep,
+	model: string,
+): CacheBoundary => ({
+	provider: dep.adapter ?? dep.dialect,
+	tenant: dep.api_key_env ?? new URL(dep.url).origin,
+	region:
+		typeof dep.adapter_config?.region === "string"
+			? dep.adapter_config.region
+			: "",
+	model,
+});
+
+/** The credential ACCOUNT a deployment bills: the api_key_env name; the
+ *  empty string = keyless (fleet-local workers — one self-hosted
+ *  account). The anti-collapse gate plane: steering between same-account
+ *  deployments never changes whose data lands where; cross-account
+ *  steering would collapse tenant boundaries for cache savings and is
+ *  refused. OpenAI org = the account env name; Claude workspace
+ *  isolation = the workspace-scoped credential env name — one env name,
+ *  one account. */
+export const accountOfDeployment = (dep: BoundaryDep): string =>
+	dep.api_key_env ?? "";
+
+/** Region a deployment processes in (adapter_config), empty = unknown. */
+export const regionOfDeployment = (dep: BoundaryDep): string =>
+	typeof dep.adapter_config?.region === "string"
+		? dep.adapter_config.region
+		: "";
+
+/** The ride-gate identity for cache-motivated steering: account + region
+ *  + family + model. Steering may never change any of these — changing
+ *  one means riding a different cache population, landing data on
+ *  another account, or moving processing region. The URL origin is
+ *  deliberately ABSENT: steering between same-account fleet workers is
+ *  routing, not tenant collapse (each such ride stays inside the
+ *  account the selection already chose). */
+export const rideGateKeyOf = (dep: BoundaryDep, model: string): string =>
+	[
+		accountOfDeployment(dep),
+		regionOfDeployment(dep),
+		dep.adapter ?? dep.dialect,
+		model,
+	].join("|");

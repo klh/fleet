@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { RpcAdmission } from "./admission.ts";
 import { PrefixAffinity } from "./affinity.ts";
+import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
 import { Cooldowns } from "./cooldown.ts";
@@ -125,6 +126,13 @@ export function buildDeps(
 					)
 					.inc({ kind }, n),
 		},
+	);
+	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
+	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed
+	// requests only — bare ingress appends nothing.
+	const laneCache = new LaneTelemetryLog(
+		process.env.BUCKLE_LANE_CACHE_LOG ??
+			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
 	);
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
 	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
@@ -267,6 +275,7 @@ export function buildDeps(
 		table,
 		federation,
 		affinity,
+		laneCache,
 		diet,
 		observations,
 	};

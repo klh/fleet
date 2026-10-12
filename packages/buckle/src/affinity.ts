@@ -9,6 +9,7 @@
 // BUCKLE_AFFINITY_TTL_S overrides the window (default 300s — the preseed
 // TTL). No packet block → no key → zero touch (pass-through doctrine).
 import { packetBlockOf } from "./align.ts";
+import { rideGateKeyOf } from "./cache-boundary.ts";
 import type { CandidateRow } from "./candidates.ts";
 import type { RouteSelection } from "./decide.ts";
 
@@ -82,6 +83,16 @@ export function applyAffinity(
 	if (i <= 0) return sel; // absent, or already head
 	const row = sel.ordered[i] as CandidateRow | undefined;
 	if (!row?.healthy) return sel;
+	// W458.4 anti-collapse: cache-motivated steering may never change the
+	// ride boundary (account, region, family, model). Reordering onto a
+	// candidate on another credential or region would collapse tenant
+	// boundaries for savings — refused; the memo keeps its bind, the ride
+	// does not happen. Same-account steering (fleet workers, pool replicas)
+	// passes: that is routing, not tenant collapse.
+	const cur = sel.ordered[0];
+	if (!cur) return sel;
+	if (rideGateKeyOf(cur.dep, cur.model) !== rideGateKeyOf(row.dep, row.model))
+		return sel;
 	const ordered = [
 		row,
 		...sel.ordered.slice(0, i),
