@@ -12,38 +12,78 @@ import {
 	symlinkSync,
 	unlinkSync,
 } from "node:fs";
+import { dirname } from "node:path";
 
-const ROOT = "/src/fleet";
+export interface BaseLink {
+	name: string;
+	dir: string;
+}
 
-const install = Bun.spawnSync(
-	["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
-	{ cwd: ROOT, stdout: "inherit", stderr: "inherit" },
-);
-if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
+/** Plan the workspace links for one base-monorepo tree. All manifests are
+ *  validated BEFORE any link is applied, so a malformed manifest fails the
+ *  boot loudly instead of leaving a half-linked tree (W714). */
+export function planBaseWorkspaces(root: string): BaseLink[] {
+	const basePkgs = `${root}/node_modules/fleet/packages`;
+	if (!existsSync(basePkgs)) return [];
+	const planned: BaseLink[] = [];
+	for (const dir of readdirSync(basePkgs)) {
+		const manifest = `${basePkgs}/${dir}/package.json`;
+		if (!existsSync(manifest)) continue;
+		let name: string | undefined;
+		try {
+			name = (JSON.parse(readFileSync(manifest, "utf8")) as { name?: string })
+				.name;
+		} catch (cause) {
+			throw new Error(
+				`malformed workspace manifest ${manifest}: ${String(cause)}`,
+			);
+		}
+		if (!name) {
+			throw new Error(`workspace manifest ${manifest} has no "name"`);
+		}
+		planned.push({ name, dir });
+	}
+	return planned;
+}
 
-// Link every base-monorepo workspace under its real package name so
-// node resolution from node_modules/fleet/packages/<pkg> finds siblings.
-const basePkgs = `${ROOT}/node_modules/fleet/packages`;
-if (!existsSync(basePkgs)) process.exit(0);
+/** Apply the planned links, replacing dangling symlinks, keeping real
+ *  files/dirs as-is. Returns the links that were applied. */
+export function linkBaseWorkspaces(root: string): BaseLink[] {
+	const planned = planBaseWorkspaces(root);
+	for (const { name, dir } of planned) {
+		const link = `${root}/node_modules/${name}`;
+		// lstat (no follow) sees a dangling link where existsSync (follow)
+		// reports nothing: replace broken links, keep real files/dirs as-is
+		const st = lstatSync(link, { throwIfNoEntry: false });
+		if (st && !st.isSymbolicLink()) continue;
+		if (st) unlinkSync(link);
+		// mkdir the link's PARENT (dirname), never the link path itself —
+		// an unscoped name made the old split("/")[0] mkdir collide with
+		// the symlink below (EEXIST); @klh/* names masked it until W714
+		mkdirSync(dirname(link), { recursive: true });
+		symlinkSync(
+			`${name.startsWith("@") ? "../" : ""}fleet/packages/${dir}`,
+			link,
+		);
+	}
+	return planned;
+}
 
-for (const dir of readdirSync(basePkgs)) {
-	const manifest = `${basePkgs}/${dir}/package.json`;
-	if (!existsSync(manifest)) continue;
-	const name = (JSON.parse(readFileSync(manifest, "utf8")) as { name?: string })
-		.name;
-	if (!name) continue;
-	const link = `${ROOT}/node_modules/${name}`;
-	// lstat (no follow) sees a dangling link where existsSync (follow)
-	// reports nothing: replace broken links, keep real files/dirs as-is
-	const st = lstatSync(link, { throwIfNoEntry: false });
-	if (st && !st.isSymbolicLink()) continue;
-	if (st) unlinkSync(link);
-	// relative target from the link's own dir: scoped names live one level
-	// deeper (@klh/x -> node_modules/@klh/x) — same ../../fleet hop
-	mkdirSync(`${ROOT}/node_modules/${name.split("/")[0]}`, { recursive: true });
-	symlinkSync(
-		`${name.startsWith("@") ? "../" : ""}fleet/packages/${dir}`,
-		link,
+if (import.meta.main) {
+	const install = Bun.spawnSync(
+		["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
+		{ cwd: ROOT, stdout: "inherit", stderr: "inherit" },
 	);
-	console.log(`linked ${name} -> fleet/packages/${dir}`);
+	if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
+
+	// public hub posture: absent base-monorepo dep is correct, but the skip
+	// must be visible in the boot log (W714)
+	const basePkgs = `${ROOT}/node_modules/fleet/packages`;
+	if (!existsSync(basePkgs)) {
+		console.log(`no ${basePkgs} — plain fleet checkout, linking skipped`);
+		process.exit(0);
+	}
+	for (const { name, dir } of linkBaseWorkspaces(ROOT)) {
+		console.log(`linked ${name} -> fleet/packages/${dir}`);
+	}
 }
