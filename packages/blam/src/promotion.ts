@@ -1,5 +1,6 @@
 // src/promotion.ts — W458.5: promotion evals + rollback authority for the
-// starter registry (spec: docs/starter-registry-architecture.md). Laws:
+// starter registry (architecture record:
+// packages/suspenders/docs/starter-milestone-w458-6.md). Laws:
 // - a BLAM evaluation gates every promotion: the criterion is a measured
 //   paired lift on comparable work — self-reported confidence can never
 //   reach this gate (it takes a Lift, not an opinion);

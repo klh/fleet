@@ -1,6 +1,6 @@
 // hooks/lib/starter-distribution.ts — W458.2: registry authorization,
-// revocation, and hub replication for the starter registry (spec:
-// docs/starter-registry-architecture.md). Laws:
+// revocation, and hub replication for the starter registry (architecture
+// record: docs/starter-milestone-w458-6.md). Laws:
 // - grants fail closed: no authz file = nobody promotes or revokes;
 // - revocation is append-only NDJSON and beats the local copy — a hub that
 //   holds a revoked starter is still refused at read time;
