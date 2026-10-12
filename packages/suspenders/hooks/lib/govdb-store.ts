@@ -56,6 +56,11 @@ export function knowledgeSqlViolation(sql: string): string | null {
 	return m ? m[0] : null;
 }
 
+// W716 — store-server's serialized-tx refusal: while a peer's transaction
+// window is open, outside statements come back {err: "a transaction is
+// open — retry"}. Read paths backoff-retry on it (rpc) instead of crashing.
+const TX_BUSY_RE = /a transaction is open/i;
+
 // HTTP binding: the same interface against bin/store-server.ts — sync by
 // design (the CLIs are sync programs; one statement = one curl round trip).
 // transaction(fn) holds a server-side BEGIN IMMEDIATE for the body's duration
@@ -73,7 +78,28 @@ export class HttpGovernorStore implements GovernorStore {
 		this.query("SELECT 1").get();
 	}
 
+	// W716 — read paths backoff-retry the serialized-tx refusal (~3x/200ms):
+	// work ready/dispatch crashed on it under concurrent lane load (the
+	// server serializes /rpc on one connection; a peer's tx window blocks
+	// outside statements for its whole duration). Reads are idempotent;
+	// writes and tx control (begin/commit/rollback) surface immediately.
 	private rpc(
+		mode: "get" | "all" | "run" | "tx",
+		sql: string,
+		params: unknown[],
+	): { row?: unknown; rows?: unknown[] } & Partial<StoreResult> {
+		const tries = mode === "get" || mode === "all" ? 3 : 1;
+		for (let attempt = 1; ; attempt++) {
+			try {
+				return this.rpcOnce(mode, sql, params);
+			} catch (e) {
+				if (attempt >= tries || !TX_BUSY_RE.test(String(e))) throw e;
+				Bun.sleepSync(200);
+			}
+		}
+	}
+
+	private rpcOnce(
 		mode: "get" | "all" | "run" | "tx",
 		sql: string,
 		params: unknown[],
