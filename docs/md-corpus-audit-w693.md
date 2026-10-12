@@ -71,4 +71,106 @@ Not minted (no code-confirmed uncovered gap): Kubernetes / network DB / broker
 
 ## docs/*.md corpus
 
-See the per-doc sections appended below.
+Checked at `2fad9810`. Minted gaps: W696–W700. Everything else is a
+landed-note or a record of what is stale.
+
+### Monorepo / cutover / layout docs
+
+| Doc | Verdict | Evidence | Item |
+| --- | ------- | -------- | ---- |
+| `monorepo-review-2026-10-05.md` P1s + P2 | LANDED | sync-harness links blam (`scripts/sync-harness.ts:304-318`); `ci.yml`; hub-compose `HUB_FLEET_REPO_URL`; 7 manifests at 2.0.0; `install-fleet.ts:63`; no `innerHTML` in `board-html/` | W422.5/.7/.13/.14/.19/.20, W658.3 |
+| `monorepo-audit-2026-10-05.md` rows 1–7 | LANDED | root `bun.lock`, runtime state untracked, root `CLAUDE.md` stub, `ci.yml:240` docs guard, `buckle/package.json:23` license | W422.13–.19 |
+| `monorepo-audit` P2 #8 hard-coded home-dir fallback + LAN hosts | **GAP** | `belt/bin/gateway.ts:12`; `spikes/w86/remote-provider.ts:22,38,43` | **W700** |
+| `monorepo-audit` P2 #9 stale `examples/ pages/ spikes/` | GAP (low) | dirs still in `packages/suspenders`; noted, not a separate item | W700 |
+| `monorepo-cutover-record.md` | RECORD | no actionable recommendation | — |
+| `clean-install-w422.6.md` | LANDED | board import poison fixed; W422.6.1/.2 DONE. NEED_DECISION #25273 STALE (pin since bumped) | W422.6.x |
+| `layout-convention.md` waves 0–5, `*-html.ts` Lit | LANDED | W669.1–.6, W669.11 DONE | W669.x |
+| `layout-convention.md` verb-kit retrofit | LIVE-ish | W669.12.3 FAILED, no live cover; W695 owns the FAILED backlog | W669.12.3/W695 |
+| `w612-fmt-churn-record.md` | RECORD | doctrine restated in AGENTS.md; W625 DONE | W625 |
+| `w652-shatter-executed.md`, `w656-wave1-batch-map.md` | LANDED | `lane-liveness.ts:419`, `bus.ts:2`, 29 `hooks/bin` files on `defineVerb` | W652.x/W656.x |
+| `w658-shatter-executed.md` | STALE | W658.4 NEED_DECISION #37872 moot; W658.4/W672 DONE | W658.4 |
+| `w293-session-name-bridge-record.md` | LANDED | `tagNameOf` now `lib/govdb-sessions.ts:70` (doc cite `govdb.ts:1300` stale) | W293 |
+
+### Control chain / lifecycle docs
+
+| Doc | Verdict | Evidence | Item |
+| --- | ------- | -------- | ---- |
+| `control-chain-review-2026-10-07.md` liveness, recovery CAS, retry ownership, lease renewal | LANDED | `lane-liveness.ts:419,435`; `--expect-owner/--expect-updated-at` (`quota-sweep.ts:15`, `monitor.ts:654`); `lease-expiry.ts:14` | W573/W576.x/W652.1 |
+| `control-chain-review` "three launch implementations" | PARTIAL | `scripts/supervise.ts:484-503` still calls `laneEnv`/`spawnClaude` directly; umbrella W576 FAILED | W576 (→ W695) |
+| `lifecycle-launch-contract.md` `LaunchRequestV1`/`LaunchReceiptV1`, capacity admission, audited budget reset | GAP, not minted | no hits under `packages/`; W576 FAILED and W695 owns re-mint of real FAILED work — a new item would duplicate that triage | W576/W695 |
+| `lifecycle-launch-contract.md` fencing, UNKNOWN holds, recovery CAS | LANDED | W572, W573 | W572/W573 |
+| `parked-branch-audit-2026-10-07.md` option B/C | STALE / LIVE | 50+ `parked/*` branches (doc says 11); `refs/archive` empty; W165 `profile.ts`/`secrets-home.ts` absent from main. Recovery list is W695's deliverable | W385/W695 |
+
+### Harness-lift / research docs
+
+| Doc | Verdict | Evidence | Item |
+| --- | ------- | -------- | ---- |
+| `harness-lift-research.md` #2a tri-state liveness, #2b `work extend`, #4 steer delivery, #5 paired-arm evals | LANDED | `lib/reclaim-liveness.ts`, `work.ts:225,1305`; `gates/files.ts:197-202`; `packages/blam/bench/paired/*` | W610/W611/W612 |
+| `harness-lift-research.md` #1 claim_epoch, #2d origin-scoped reclaim, #3 fail_count/--cause | **GAP — DONE but unmerged** | W609 `152382d2`, W613 `2df48987`, W616 `af7a1a33`: `git branch --contains` finds neither main nor W693; only `parked/*` and `origin/suspenders/W609,W613`. HEAD: `claim_epoch` only in `resume-from.ts`, no `fail_count`, blind `setState`, `lane-liveness.ts:372` `THIS_HOST = hostname()` | **W699** |
+| `grid-coordination-research.md` A poison quarantine | GAP | same as W616 | W699 |
+| `grid-coordination-research.md` B executor trust tally | LANDED | `lib/executor-cv.ts` | W620 |
+| `grid-coordination-research.md` rest | RESEARCH-ONLY | no actionable ask | — |
+| `swarm-comms-research.md` capsule, consult feedback/expiry, `coord targets --cap` | LANDED | `coord/facts.ts:160-231`, `coord/consult.ts:246-313`, `lib/consult-expiry.ts`, `coord/addressing.ts:311-313` | W617 |
+| `swarm-comms-research.md` `--cause` | GAP | rides W616 | W699 |
+| `swarm-comms-research.md` `work ready --json` requires-match hint | minor, not minted | nice-to-have, no defect | — |
+| `owner-correction-taxonomy.md` | PARTIAL, not minted | `coord/wisdom.ts` implements C1, C2, C7 (W469/W470); C3/C4/C5/C8/C9/C10 absent — low-priority detector backlog | W469/W470 |
+
+### Enterprise / NAS docs
+
+Hub state is from graph state, not rendered config (`stack.yaml` read denied
+to the audit agent).
+
+| Doc | Verdict | Evidence | Item |
+| --- | ------- | -------- | ---- |
+| `enterprise-posture-audit.md` spokes/entitlements/usage/manifest/CR to overlay | LANDED | public `buckle/src/gov` holds only `federation*.ts`, `hub-seam.ts`; overlay `origin/main` carries the rest; no federation files left in `packages/belt` | W233.x, W688.1.1.3, W233.4 |
+| `enterprise-posture-audit.md` ladder step 2 (hub flips) | Desktop LANDED, NAS GAP | desktop W689/W692; NAS W493.3/W632 FAILED, owner-blocked NEED_DECISION #30282 | W632 (→ W695) |
+| `enterprise-gap-review-w688-2026-10-12.md` | LANDED / STALE | overlay published (tags stack-fdf90f0…6161cb2); "W233.3 MISSING" stale (`cr-provider.ts` on overlay main); desktop flip + bump W692 | W688.1.1, W692 |
+| `enterprise-gap-review` hub-entry gov wiring | LIVE | `server.ts:351-375` `boot()` passes only `rootKey`/`adaptation` | W688.7.1 ◐ |
+| `enterprise-gap-review` W235 `manifest.json`, enrollment walk e2e | GAP, owned | W688.4 / W688.6 FAILED; W695 triage re-mints or closes | W695 |
+| `enterprise-packaging-v0.md` W231 gate-map row (`:40,82`) | STALE | contradicts W690 (admin GUI is base) | **W702** |
+| `enterprise-packaging-v0.md` per-repo pin policies | STALE-claim | no pin-policy module in overlay; build or drop is an owner call, not minted | — |
+| `overlay-flip-gate-w233-5-2026-10-11.md` | LANDED / STALE | desktop flip done; pin `stack-5234813` superseded by `stack-6161cb2` | W692, **W702** |
+| `nas-dsm-7-4-1-upgrade-runbook.md`, `nas-flip-retry-w632.md`, `nas-route-blocker` | GAP, owner-blocked | route restore + `hubctl deploy nas` gated on #30282; W484.1 FAILED behind it | W632/W484.1 (→ W695) |
+| same: ssh legs lack `ConnectTimeout` | **GAP** | `deploy/hubctl.ts:117,190,197` ssh and `:137` scp, no timeout flags (~75 s hang) | **W701** |
+| `w232-remote-split-record.md` | STALE | "not on GitHub yet" and "suspenders-remote adds admin GUI" both superseded | **W702** |
+| `adaptation-surface-v2.md` five seams, residency telemetry, docker e2e | LANDED | `gov/adaptation.ts`, `residency.ts:143`, `deploy/e2e/e2e-compose.yaml:311-347` | W235/W234 |
+| `adaptation-surface-v2.md` tamper-evident audit stream | **GAP** | no `prev_hash`/hash-chain in `packages/buckle/src` | **W703** |
+| `decision-w690-*` federation, teams/ceilings public | LANDED | `middleware.ts:515`, `schema.ts:154-157` | W690 |
+| `decision-w690-*` teams-deltas mirror drops ceilings; `finding.auth-posture-split` W231 clause | conditional / STALE | `schema.ts:103`; fact refresh rides W702 | W702 |
+| `identity-enrollment-pilot.md` verbs | LANDED | `hooks/coord/identity.ts:39,93,195,264` | W459.5 |
+| `identity-enrollment-pilot.md` pilot G1–G6 | GAP, owned | never run (no `.klh/repo-hint.json`); parent W459 FAILED | W459 (→ W695) |
+| `governance-mode-enrollment.md` | RECORD | `hooks/coord/governance.ts` exists; nothing actionable | — |
+
+### Identity / observability / starter / demo docs
+
+FAILED parents (W459, W458.6, W454, W491, W552, W552.6) are not coverage; W695
+owns that triage, so their residual gaps are noted, not re-minted.
+
+| Doc | Verdict | Evidence | Item |
+| --- | ------- | -------- | ---- |
+| `cross-hub-project-identity.md` stages 1–3, resolver use, rekey `decisions`, lane-id qualification, KB project filter, hub attribution | LANDED | `govdb-project.ts:37-62`, `lib/exec-namespace.ts`, `coord/identity.ts:93-280`, `coord/fleet.ts:1049`, `lib/laneslug.ts:16-19`, `coord/shared.ts:115`, `dispatch-next.ts:725-733` | W459.1/.2/.5, W460, W615 |
+| same: resolver honours binding; writers enforce `writes_enabled`/`authority_epoch` | GAP, owned | `govdb-project.ts:29-55` ignores enrollment; no writer reads `writes_enabled` | W459 (→ W695), W539.1 |
+| same: stages 4–8 migration verb (alias map, backup, orphan checks) | GAP, design only | rekey still rename-only `fleet.ts:903-1066`; low priority until a second clone | W459 (→ W695) |
+| same: store RPC / WS feed tenant boundary | GAP, owned elsewhere | `store-server.ts:175-198` any SQL behind token; `:150` scope-only filter; W694 adversarial review in flight | W694 |
+| `upstream-observability-architecture.md` traceparent, observations, projection | LANDED, off by default | `buckle/src/wire.ts:38`, `trace.ts`, `observe.ts:49`, `projection.ts:212` | W461, W621 |
+| same: plane has no producer | **GAP** | `appendObservation` called only from its test | **W705** |
+| same: origin vs peer; billing once per hop | **GAP** | `observe.ts:22-32`, `ledger.ts:61` | **W706** |
+| same: OTLP export, broker/HA | DEFERRED | doc gates on measured need | — |
+| same: relay config | GAP, operator | `observation-relay.ts:204` disabled until configured | W491 (→ W695) |
+| `starter-registry-architecture.md` artifacts, grants, materialize lib, cache boundary, promotion | LANDED | `starter-artifacts.ts:73`, `starter-distribution.ts:49`, `starter-materialize.ts:104`, `cache-boundary.ts:28`, `promotion.ts:33` | W458.1–.5 |
+| same: line 5 "nothing implemented yet" | STALE | rows above | — |
+| same: materialization wired into dispatch | GAP, owned | `materializeStarter` has no caller outside module/tests; dispatch uses W454 fork path | W454/W458.6 (→ W695) |
+| `gui-observability-review.md` findings 1–9, key-admin GUI | LANDED / STALE | W476–W478, W231 done | W476–W478 |
+| same: orchestrate children readback | **GAP** | `board/orch.ts:301` normalizes, `:358` queries raw key | **W704** |
+| `health-status-contract.md` | LANDED | `deploy/healthcheck/probe.ts:330-429`, `belt/bin/health.ts:56`, `deploy/hubctl.ts:319` | W485 |
+| same: "NAS unreachable, nothing deployed" | STALE | NAS activation done | W486/W552.3 |
+| `demo-single-request-take.md` | LIVE | routing/empty-output fix in flight; take needs owner GO #30663 | W552.6.1 ◐ |
+| `silent-recording-capture-pipeline.md` | RECORD | only open action is the owner's recording | W552 |
+
+## Minted by this audit
+
+W696 db-backup rotation sort · W697 hub-compose hardening · W698 release
+manifest/SBOM/rollback · W699 re-land W609/W613/W616 · W700 machine-state
+leaks · W701 hubctl ssh timeouts · W702 stale-claim doc refresh · W703
+tamper-evident audit stream · W704 orch readback key · W705 observation
+producer · W706 hop attribution.
