@@ -2,19 +2,15 @@ name: ci
 on: [push, pull_request]
 
 jobs:
-  # Per-package test matrix. Green suites gate; suites with known pre-existing
-  # failures (suspenders full-suite ~19, belt w267-belt-eval registry drift)
-  # run continue-on-error so they stay VISIBLE without blocking the monorepo.
+  # Per-package test matrix — every suite gates. belt + suspenders rode
+  # continue-on-error until W715 (W694 L7): both suites green on CI
+  # (run 37737788689, 2026-10-08), so the tolerate flag was stale and red
+  # suites now block the monorepo.
   test:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { pkg: blam, tolerate: "false" }
-          - { pkg: buckle, tolerate: "false" }
-          - { pkg: speedy, tolerate: "false" }
-          - { pkg: belt, tolerate: "true" }
-          - { pkg: suspenders, tolerate: "true" }
+        pkg: [blam, buckle, speedy, belt, suspenders]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +23,20 @@ jobs:
             (cd packages/${{ matrix.pkg }} && bun install --frozen-lockfile)
           fi
       - name: tests
-        continue-on-error: ${{ matrix.tolerate == 'true' }}
         run: bun test packages/${{ matrix.pkg }}/test/
+
+  # W715: the AGENTS.md laws as CI gates (W694 L4/L5) — the 1500-line .ts
+  # limit and the shell-script ban (tracked .sh must EQUAL the allowlist
+  # pinned in the guard). Same root-tests pattern as the docs job.
+  laws:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: line-limit + shell-ban guards
+        run: bun test tests/law-guards.test.ts
 
   # W649: every cross-package `from "@klh/<pkg>"` must be declared by the
   # importing package (tests/cross-package-imports.test.ts). The installed

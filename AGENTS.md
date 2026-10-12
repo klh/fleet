@@ -37,7 +37,13 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   formatting; prettier owns markdown only.
 - **1500-line hard limit** on any .ts — decompose, DRY the second
   duplicate, ast-grep for shareable patterns before adding near the limit.
-  The on-write gate blocks past 1500.
+  The on-write gate blocks past 1500; CI gates every commit
+  (tests/law-guards.test.ts).
+- **Shell scripts are banned** — TypeScript on Bun is the automation
+  surface (LaunchAgent→bun entry points, one-line aliases only). The
+  tracked .sh set is the pinned legacy exception, guarded by
+  tests/law-guards.test.ts; a new .sh needs an explicit allowlist entry
+  arguing why bun won't do.
 - **UI engineering law**: Lit web components + CSS design tokens. NEVER
   `innerHTML`, never `document.write`. Native elements before custom.
   Lit is vendored (offline LAN — never CDN).
