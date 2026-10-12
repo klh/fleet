@@ -8,8 +8,9 @@
 // execs the uv-installed litellm with the generated config. LITELLM_KEY
 // (proxy master key) is read from ~/.claude/local-llm/litellm.key.
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 
-const HOME = process.env.HOME ?? "/Users/kk";
+const HOME = process.env.HOME ?? homedir();
 const cfg = JSON.parse(readFileSync(`${HOME}/.claude.json`, "utf8")) as Record<
 	string,
 	unknown

@@ -19,7 +19,7 @@ export interface RemoteProvider {
 	label: string;
 	role: "embed"; // remote ML is embed-shaped today; widen as remotes appear
 	kind: "immich"; // protocol adapter; widen: ollama | openai-compatible
-	base_url: string; // "http://nas.threads.dk:2283"
+	base_url: string; // e.g. "http://nas.example.invalid:2283" (W86_REMOTE_BASE_URL)
 	health_path: string; // "/api/server/ping" — cheap unauthenticated liveness
 	/** belt never stores secrets — name of the env var holding the key */
 	api_key_env: string;
@@ -35,12 +35,13 @@ export const REMOTES: RemoteProvider[] = [
 		label: "NAS Immich ML",
 		role: "embed",
 		kind: "immich",
-		base_url: "http://nas.threads.dk:2283",
+		base_url:
+			process.env.W86_REMOTE_BASE_URL ?? "http://nas.example.invalid:2283",
 		health_path: "/api/server/ping",
 		api_key_env: "IMMICH_API_KEY",
 		wakeable: true,
-		wol_mac: "90:09:d0:5a:ff:8f",
-		wol_broadcast: "192.168.1.255:9",
+		wol_mac: process.env.W86_WOL_MAC,
+		wol_broadcast: process.env.W86_WOL_BROADCAST,
 	},
 ];
 

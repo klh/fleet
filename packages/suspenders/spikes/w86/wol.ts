@@ -24,7 +24,7 @@ export async function magicPacket(
 	});
 }
 
-/** Broadcast to 192.168.1.255 can miss on some APs — also try 255.255.255.255. */
+/** A subnet broadcast can miss on some APs — also try 255.255.255.255. */
 function sendFallback(
 	sock: dgram.Socket,
 	payload: Buffer,
