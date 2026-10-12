@@ -7,6 +7,7 @@
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
+import { touchSessionHeartbeat } from "../lib/session-bridge.ts";
 import {
 	readSessionState,
 	sessionStatePath,
@@ -102,6 +103,10 @@ function contextPressureGuard(hook: HookInput): void {
 }
 
 export function stopGate(hook: HookInput): never {
+	// W294 plane heartbeat: every turn's stop refreshes the session row's hb
+	// (all dialects share this gate) and fills an empty transcript_path —
+	// fail-open inside the touch, never blocks the checks below.
+	touchSessionHeartbeat(hook.session_id, hook.transcript_path);
 	const incomplete = laneCompletion(hook);
 	if (incomplete) feedback(incomplete);
 
