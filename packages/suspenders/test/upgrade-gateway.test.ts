@@ -237,6 +237,12 @@ test("approval flag is bounded and only valid for explicit gateway upgrade", () 
 		parseFlags({ step: "upgradeGateway", gatewayReview: "HEAD" }, []).error,
 	).toBeDefined();
 });
+test("W165 --profile parses hub|spoke; unknown values refuse", () => {
+	expect(parseFlags({ profile: "spoke" }, []).flags?.profile).toBe("spoke");
+	expect(parseFlags({ profile: "hub" }, []).flags?.profile).toBe("hub");
+	expect(parseFlags({}, []).flags?.profile).toBe("hub");
+	expect(parseFlags({ profile: "bogus" }, []).error).toBeDefined();
+});
 
 test("service observation rejects altered activated bundle even with matching unit and launchd", () => {
 	const f = fixture();

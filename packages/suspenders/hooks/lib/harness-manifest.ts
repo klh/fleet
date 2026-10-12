@@ -50,6 +50,7 @@ export const MANAGED_PREFIX_ENTRIES = new Set([
 	"node_modules",
 	"package.json",
 	"bun.lock",
+	"capabilities.json",
 	RECEIPT_FILE,
 ]);
 

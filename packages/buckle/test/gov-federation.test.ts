@@ -95,7 +95,6 @@ describe("federation: policy manifest (solo posture)", () => {
 		expect(body.error.message).toContain("no manifest serving surface");
 		fed.stop();
 	});
-
 });
 
 describe("federation: entitlements (echo menu, visibility law)", () => {

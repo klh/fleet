@@ -39,6 +39,9 @@ export interface StepContext {
 	llmHome: string;
 	/** W637: with --step wireSettings — the repo whose project settings get wired */
 	wireRepo: string | null;
+	/** W165: with --step syncHarness — spoke excludes hub-only modules from the
+	 *  payload and capabilities.json records the variant (absent = hub). */
+	profile?: "hub" | "spoke";
 }
 
 export interface StepResult {

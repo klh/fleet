@@ -21,6 +21,7 @@ export const meowFlags = {
 	step: { type: "string" },
 	wireRepo: { type: "string" },
 	gatewayReview: { type: "string" },
+	profile: { type: "string" },
 } as const;
 
 export interface ResolvedFlags {
@@ -31,6 +32,7 @@ export interface ResolvedFlags {
 	step: string | null;
 	wireRepo: string | null;
 	gatewayReview?: string;
+	profile: "hub" | "spoke";
 }
 
 export function resolvePaths(): {
@@ -67,6 +69,9 @@ export function parseFlags(
 		typeof raw.wireRepo === "string" && raw.wireRepo.trim() !== ""
 			? raw.wireRepo
 			: null;
+	const rawProfile = raw.profile;
+	const profile =
+		rawProfile === "spoke" || rawProfile === "hub" ? rawProfile : undefined;
 	const flags: ResolvedFlags = {
 		dryRun: bool("dryRun"),
 		json: bool("json"),
@@ -74,6 +79,7 @@ export function parseFlags(
 		verbose: bool("verbose"),
 		step,
 		wireRepo,
+		profile: profile ?? "hub",
 		...(typeof raw.gatewayReview === "string"
 			? { gatewayReview: raw.gatewayReview }
 			: {}),
@@ -82,6 +88,13 @@ export function parseFlags(
 	const unknown = Object.keys(raw).filter((k) => !known.includes(k));
 	if (unknown.length > 0) {
 		return { error: `unknown flag --${unknown[0] ?? ""}`, flags };
+	}
+	if (
+		rawProfile !== undefined &&
+		rawProfile !== "hub" &&
+		rawProfile !== "spoke"
+	) {
+		return { error: "--profile requires hub|spoke", flags };
 	}
 	if (input.length > 0) {
 		return {
