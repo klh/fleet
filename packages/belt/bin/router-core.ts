@@ -455,12 +455,21 @@ export async function openLocalStream(
 	opts: CallOpts = {},
 ): Promise<StreamOpen> {
 	try {
+		// W278: connect/TTFB-only timeout — AbortSignal.timeout stayed armed
+		// through the body and cut healthy streams >120s mid-generation. Once
+		// headers land the pump + client cancel() own the body; a stale one-shot
+		// fire after a failed open only aborts an orphaned controller (no-op).
+		const ctrl = new AbortController();
+		const ttfb = setTimeout(
+			() => ctrl.abort(new Error("ttfb timeout")),
+			opts.timeoutMs ?? 120_000,
+		);
 		const res = await fetch(
 			`${opts.base ?? specialistBase(r.port)}/v1/chat/completions`,
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+				signal: ctrl.signal,
 				body: JSON.stringify({
 					model: r.model,
 					messages,
@@ -471,6 +480,10 @@ export async function openLocalStream(
 				}),
 			},
 		);
+		// headers in — disarm; a late fire would abort the live body (the
+		// signal stays bound to the fetch). On a failed open the stale fire
+		// aborts an orphaned controller: harmless no-op.
+		clearTimeout(ttfb);
 		const ct = res.headers.get("content-type") ?? "";
 		if (res.ok && res.body && ct.includes("text/event-stream"))
 			return {
@@ -687,6 +700,11 @@ export function anthropicSseFromOpenAi(
 		return textDelta(text);
 	};
 	const reader = upstream.getReader();
+	// W278: after cancel() the controller is closed — a pump enqueue throws,
+	// the catch enqueues again, and that second throw escapes the void async
+	// as an unhandled rejection (shim died on client aborts). One flag,
+	// checked before every controller call.
+	let clientGone = false;
 	return new ReadableStream({
 		start(c) {
 			c.enqueue(enc.encode(anthropicHead(meta)));
@@ -701,8 +719,10 @@ export function anthropicSseFromOpenAi(
 							const timings = composeTimings();
 							const out =
 								handleLine(buf) + anthropicTail(finish, outTokens, timings);
-							c.enqueue(enc.encode(out));
-							c.close();
+							if (!clientGone) {
+								c.enqueue(enc.encode(out));
+								c.close();
+							}
 							done();
 							return;
 						}
@@ -710,27 +730,30 @@ export function anthropicSseFromOpenAi(
 						const lines = buf.split("\n");
 						buf = lines.pop() ?? "";
 						const out = lines.map(handleLine).join("");
-						if (out) c.enqueue(enc.encode(out));
+						if (out && !clientGone) c.enqueue(enc.encode(out));
 					}
 				} catch (e) {
 					const msg = e instanceof Error ? e.message : String(e);
-					c.enqueue(
-						enc.encode(
-							sseEvent("error", {
-								type: "error",
-								error: {
-									type: "api_error",
-									message: `router: upstream stream broke (${msg})`,
-								},
-							}),
-						),
-					);
-					c.close();
+					if (!clientGone) {
+						c.enqueue(
+							enc.encode(
+								sseEvent("error", {
+									type: "error",
+									error: {
+										type: "api_error",
+										message: `router: upstream stream broke (${msg})`,
+									},
+								}),
+							),
+						);
+						c.close();
+					}
 					done(msg);
 				}
 			})();
 		},
 		cancel(reason) {
+			clientGone = true;
 			done("client cancelled");
 			return reader.cancel(reason);
 		},
