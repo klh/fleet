@@ -11,6 +11,7 @@
 import { Database } from "bun:sqlite";
 import type { GatewayPolicy } from "../policy.ts";
 import type { UpstreamPool } from "../upstreams.ts";
+
 import { applyGovernanceSchema } from "./schema.ts";
 import { authError, type Principal } from "./middleware.ts";
 import { hasScope } from "./scopes.ts";
@@ -28,6 +29,7 @@ import type {
 	UsageIngestFactory,
 	UsageIngestProvider,
 } from "./hub-seam.ts";
+import { buildCapabilities } from "./hub-seam.ts";
 import type { ManifestSigner } from "./federation-signing.ts";
 
 export interface FederationOpts {
@@ -55,6 +57,9 @@ export interface FederationOpts {
 	/** W233.3: the manifest + CR seam — same posture law. Unset in solo
 	 *  posture: the manifest pull + CR routes answer honest 501s. */
 	manifestCr?: ManifestCrFactory;
+	/** W165: which variant this gateway runs — the manifest advertises it
+	 *  (hub = full: identity, issuance, admin; default). */
+	profile?: "hub" | "spoke";
 }
 
 /** The principal a gate-authenticated request carries (WeakMap stash — no
@@ -85,6 +90,8 @@ export class Federation {
 	readonly db: Database;
 	private readonly policy: GatewayPolicy;
 	private readonly pool: UpstreamPool;
+	/** W165: the hub's own profile — manifest capability flags ride it. */
+	readonly profile: "hub" | "spoke";
 	/** W193: the hub signing identity (JWKS + manifest signatures). */
 	readonly signer: ManifestSigner | null;
 	/** W233 seam: spoke enrollment + fleet registry — provider-less in solo
@@ -106,6 +113,7 @@ export class Federation {
 		applyGovernanceSchema(this.db);
 		this.policy = opts.policy;
 		this.pool = opts.pool;
+		this.profile = opts.profile ?? "hub";
 		this.signer = opts.signer ?? null;
 		this.spokes = opts.spokeEnrollment?.(this.db) ?? null;
 		this.usage = opts.usageIngest?.(this.db, this.policy) ?? null;
@@ -182,7 +190,10 @@ export class Federation {
 				"buckle.no_federation",
 				"no manifest serving surface on this gate (solo posture)",
 			);
-		const m = this.cr.manifest();
+		const m = {
+			...this.cr.manifest(),
+			capabilities: buildCapabilities(this.profile),
+		};
 		if (p !== null)
 			this.spokes?.touch({
 				keyId: p.keyId,

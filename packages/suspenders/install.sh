@@ -8,6 +8,11 @@
 #                [--prune] [--hub <name>] [--wire-repo <path>] [--yes]
 #                [--json] [--verbose] [--step <name>]
 #                [--re-bless-activation [--confirm <manifest-sha-prefix>]]
+#                [--profile hub|spoke]
+# --profile (W165 capability split): hub (default) = full (identity,
+#   issuance, admin); spoke ships no auth-issuance/identity/key-custody
+#   code — the hub-only modules are excluded from $PREFIX and
+#   capabilities.json records the flags (rides the federation pull).
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the

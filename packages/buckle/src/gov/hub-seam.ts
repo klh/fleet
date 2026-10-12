@@ -143,6 +143,40 @@ export interface FedManifest {
 	version: string;
 	rules: Array<Record<string, unknown>>;
 	cr_queue: CrRow[];
+	/** W165: the hub's capability variant — Federation stamps it at serve time. */
+	capabilities?: CapabilityFlags;
+}
+
+// ─── W165 capability flags (shared grammar with suspenders
+// hooks/lib/profile.ts) — hub-only never ships on a spoke: auth issuance,
+// identity administration, key custody. Hub profile = full.
+// Federation stamps its variant at serve time (buildCapabilities(profile));
+// the overlay provider supplies manifest content only.
+export type HubSpokeProfile = "hub" | "spoke";
+
+export interface CapabilityFlags {
+	routing: boolean;
+	adapters: boolean;
+	aids_metering: boolean;
+	pull_client: boolean;
+	auth_issuance: boolean;
+	identity_admin: boolean;
+	key_custody: boolean;
+}
+
+export function buildCapabilities(
+	profile: HubSpokeProfile = "hub",
+): CapabilityFlags {
+	const hubOnly = profile === "hub";
+	return {
+		routing: true,
+		adapters: true,
+		aids_metering: true,
+		pull_client: true,
+		auth_issuance: hubOnly,
+		identity_admin: hubOnly,
+		key_custody: hubOnly,
+	};
 }
 
 /** W160: the hub-side verification probe — before a CR may report
