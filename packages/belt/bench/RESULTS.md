@@ -1,8 +1,8 @@
 # RESULTS.md — historical stub
 
-Moved per owner law (2026-10-02): curated tables live in
-[benchmarks.md](../../benchmarks.md), questions in
-[bench-questions.md](../../bench-questions.md). **Do not store bench data
+Moved per owner law (2026-10-02): curated tables live in the fleet root
+[benchmarks.md](../../benchmarks.md), belt questions in
+[benchmarks.md](../benchmarks.md). **Do not store bench data
 here.** The 2026-09-23 fleet snapshot is preserved below for provenance.
 
 ## Dated run log (pointers only — tables live in benchmarks.md)
