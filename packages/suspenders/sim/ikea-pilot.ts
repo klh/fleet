@@ -28,7 +28,7 @@ function record(leg: string, ok: boolean, detail: string): void {
 }
 
 const ROOT = "/tmp/ikea-pilot";
-const WT = import.meta.dir + "/../../.."; // packages/suspenders/sim → fleet root
+const WT = `${import.meta.dir}/../../..`; // packages/suspenders/sim → fleet root
 
 function script(name: string): string {
 	return join(WT, "packages", "suspenders", "hooks", "bin", name);
@@ -178,7 +178,10 @@ async function manifestLeg(): Promise<void> {
  *  hubs (never a write, never a crash experiment). */
 async function hierarchyLegs(): Promise<void> {
 	for (const [name, base] of [
-		["nas", "http://nas.threads.dk:4101"],
+		[
+			"nas",
+			process.env.IKEA_PILOT_NAS_HUB ?? "http://nas.example.invalid:4101",
+		],
 		["desktop", "http://127.0.0.1:4111"],
 	] as const) {
 		try {

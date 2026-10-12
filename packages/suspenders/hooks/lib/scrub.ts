@@ -71,6 +71,16 @@ export const BUILTIN_RULES: ScrubRule[] = [
 		"IKEA-internal marker — real hosts belong in the local denylist; internal intel lives in coord facts only", // scrub:allow
 		/\bikea[-_ .]?(internal|intranet|confidential)|\bikea\.(internal|intranet|net)\b/gi,
 	),
+	rule(
+		"mac-address",
+		"MAC address — real NIC hardware addresses belong in the local denylist; scrub or mark scrub:allow",
+		/\b[0-9a-f]{2}(?:[:-][0-9a-f]{2}){5}\b/gi,
+	),
+	rule(
+		"rfc1918",
+		"RFC1918 private IPv4 (10/8, 172.16/12, 192.168/16) — real LAN addrs belong in the local denylist; scrub or mark scrub:allow",
+		/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2[0-9]|3[01])(?:\.\d{1,3}){2})\b/g,
+	),
 ];
 
 // regex-source escape helper (plain char loop, no replacement patterns)

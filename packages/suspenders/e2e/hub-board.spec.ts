@@ -67,7 +67,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	const H = mustHub();
 	const look = watch(page);
 	const TITLE = "Delegate: reconcile hub policy manifest on the spoke";
-	const ORIGIN = "nas.threads.dk:claude";
+	const ORIGIN = process.env.HUB_BOARD_ORIGIN ?? "nas.example.invalid:claude";
 
 	// DECLARE — the hub declares a delegated work item on its own graph
 	// (the CR wire channel that carries it to the spoke is W352's e2e; the
