@@ -1,5 +1,11 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+	addedDiffLines,
+	findingsText,
+	scrubAddedLines,
+	scrubRules,
+} from "./scrub.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -67,6 +73,25 @@ function validateTree(repo: string, before: string, tree: string): Result {
 			);
 		if (markers.code !== 1)
 			return fail("merge guard: candidate marker scan failed");
+	}
+	// W694 H1: the merge ladder publishes via `merge --no-ff` + `--ff-only` in
+	// a scratch worktree — the Bash scrub gate never sees it. Scan the whole
+	// candidate delta (added lines vs integration HEAD) before publication.
+	if (process.env.SUSPENDERS_SCRUB !== "0") {
+		const d = command(repo, [
+			"git",
+			"diff",
+			`${before}..${tree}`,
+			"-U0",
+			"--no-color",
+		]);
+		if (d.code !== 0)
+			return fail("merge guard: candidate scrub scan failed");
+		const found = scrubAddedLines(addedDiffLines(d.out), scrubRules());
+		if (found.length > 0)
+			return fail(
+				`merge guard: scrub findings in candidate merge tree:\n${findingsText(found)}`,
+			);
 	}
 	for (const path of paths.filter(
 		(p) => SOURCE.test(p) || /\.jsonc?$/i.test(p),

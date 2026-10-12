@@ -181,6 +181,34 @@ describe("scrub gate e2e (gate.ts pre-bash)", () => {
 		expect(r.out).toContain("late.md:1");
 		expect(r.out).toContain("denylist:2");
 	});
+
+	test("merge leg: leak the clean auto-commit would land is denied pre-run", () => {
+		sh(["checkout", "-b", "mLane"]);
+		writeFileSync(join(REPO, "mLeak.md"), `p ${HOME_LEAK_DIR}\n`);
+		sh(["add", "mLeak.md"]);
+		sh(["commit", "-m", "mLane"]);
+		sh(["checkout", "main"]);
+		const head = sh(["rev-parse", "HEAD"]).out;
+		const r = gate("git merge mLane");
+		expect(r.out).toContain('"permissionDecision":"deny"');
+		expect(r.out).toContain("mLeak.md:1");
+		expect(r.out).toContain("home-path");
+		expect(sh(["rev-parse", "HEAD"]).out).toBe(head); // merge never ran
+	});
+
+	test("merge leg: ancestor ref and --abort scan clean", () => {
+		expect(gate("git merge main").out).toBe("{}"); // ancestor → empty delta
+		expect(gate("git merge --abort").out).toBe("{}"); // no merge happens
+	});
+
+	test("merge leg: -m message is not mistaken for a ref", () => {
+		sh(["checkout", "-b", "mClean"]);
+		writeFileSync(join(REPO, "mClean.md"), "harmless content\n");
+		sh(["add", "mClean.md"]);
+		sh(["commit", "-m", "mClean"]);
+		sh(["checkout", "main"]);
+		expect(gate('git merge -m "bring it" mClean').out).toBe("{}");
+	});
 });
 
 describe("scrub gate: kill switch", () => {
