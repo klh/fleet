@@ -1,5 +1,5 @@
 // hooks/lib/starter-materialize.ts — W458.3: the per-task materialization
-// contract (spec: docs/starter-registry-architecture.md). Laws:
+// contract (spec: docs/starter-milestone-w458-6.md). Laws:
 // - permissions rechecked at materialization (assertCanRead) — earlier
 //   authorization is never assumed;
 // - freshness + compatibility filter BEFORE ranking; rank = measured
