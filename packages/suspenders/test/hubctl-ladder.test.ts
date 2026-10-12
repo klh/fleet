@@ -29,7 +29,7 @@ writeFileSync(
 		hubs: {
 			ent: {
 				host: "127.0.0.1",
-				buckle_entry: "../buckle-remote/src/server.ts",
+				buckle_entry: "../buckle-overlay/src/server.ts",
 				http_upstream_hosts: ["engine.example"],
 				ready_model: "claude-haiku-4-5",
 				deploy: { dir: deployDir },
@@ -67,7 +67,7 @@ function hubctl(verb: string, hub: string) {
 test("render carries the enterprise entry + egress knobs; solo emits none", () => {
 	const ent = hubctl("render", "ent");
 	expect(ent.code).toBe(0);
-	expect(ent.out).toContain("HUB_BUCKLE_ENTRY=../buckle-remote/src/server.ts");
+	expect(ent.out).toContain("HUB_BUCKLE_ENTRY=../buckle-overlay/src/server.ts");
 	expect(ent.out).toContain("HUB_HTTP_UPSTREAM_HOSTS=engine.example");
 	expect(ent.out).toContain("HUB_READY_MODEL=claude-haiku-4-5");
 	const solo = hubctl("render", "solo");

@@ -75,7 +75,7 @@ export interface ServerOpts {
 	// W141 governance: root break-glass key + optional JWT validator config.
 	// W468: slots overrides the env-resolved admission-control pool caps.
 	// W233: spokeEnrollment injects the enterprise overlay's enrollment
-	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
+	// provider; unset = solo posture. W233.1:
 	// hubEntitlements injects the entitlement-menu provider the same way.
 	// W233.2: usageIngest injects the usage-ingest provider the same way.
 	// W233.3: manifestCr injects the manifest + CR queue serving provider.

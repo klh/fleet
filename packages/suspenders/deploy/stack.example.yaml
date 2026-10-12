@@ -1,7 +1,7 @@
 # deploy/stack.example.yaml — placeholder runtime config for a hub (W310).
 # Copy the shape to ~/.config/klh/stack.yaml (mode 600) and fill real values.
 # REAL hosts, keys, tokens, Entra tenant data NEVER go in committed files —
-# the *-remote overlay law: config-over-code, placeholders only in repos.
+# the overlay law: config-over-code, placeholders only in repos.
 
 # The start-topology: a local user defines several hubs; each hub may declare
 # peers (its own sub-hubs). The graph is data, never hardcoded.
@@ -34,7 +34,7 @@ hubs:
     peers:
       - desktop # first topology edge (W322): nas declares desktop as peer.
         # Hub LABELS only — hosts/ports/keys resolve at runtime from the
-        # real stack.yaml; the belt-remote hub profile mirrors the edge as
+        # real stack.yaml; an overlay hub profile mirrors the edge as
         # federation.peers.
     # deployment knobs (hubctl, deploy/hubctl.ts): binds + repo trees +
     # deploy transport + secret PATHS (values minted on the hub, never here)
@@ -65,7 +65,7 @@ hubs:
     secrets:
       buckle_root_key: /volume1/docker/hub/buckle/buckle.env
 
-# Enterprise layer (the -remote overlay knobs, materialized per hub):
+# Enterprise layer (the overlay knobs, materialized per hub):
 auth:
   required: true
   tokens:

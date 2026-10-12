@@ -65,13 +65,13 @@ CREATE TABLE IF NOT EXISTS auth_events (
   via TEXT
 );
 -- W233: federation_spokes + federation_enrollment_codes DDL moved to the
--- enterprise overlay (klh-remote buckle-remote hub schema) — solo posture
+-- enterprise overlay hub schema — solo posture
 -- never holds a fleet registry.
 -- W233.2: federation_usage_rollup + federation_aid_rollup DDL moved to the
--- enterprise overlay (klh-remote buckle-remote hub schema) — solo posture
+-- enterprise overlay hub schema — solo posture
 -- never holds a fleet-wide rollup store.
 -- W233.3: the federation_cr_queue DDL moved to the enterprise overlay
--- (klh-remote buckle-remote hub schema) — solo posture never holds a CR
+-- hub schema — solo posture never holds a CR
 -- queue; the manifest/CR serving rides the ManifestCrProvider seam.
 `;
 

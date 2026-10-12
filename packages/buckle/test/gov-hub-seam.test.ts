@@ -3,8 +3,7 @@
 // SpokeEnrollmentProvider. Provider-less (solo posture) they answer honest
 // 501s; with a provider they reach mint/redeem/list. The REAL enrollment
 // implementation + its e2e (codes, TTL, one-time redeem, KeyStore issue,
-// heartbeat rows) live in the enterprise overlay (klh-remote
-// buckle-remote) — this file proves the public seam contract only.
+// heartbeat rows) live in the enterprise overlay — this file proves the public seam contract only.
 import { describe, expect, test } from "bun:test";
 import type {
 	HubEntitlementsFactory,

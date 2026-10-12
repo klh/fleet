@@ -60,7 +60,7 @@ async function testHub(secretsHome: string): Promise<{
 			// W233.3: the manifest content is overlay-owned — a stub provider
 			// proves the PUBLIC signing wrapper (W193 exact-bytes signature)
 			// rides whatever the seam serves; the real serving e2e lives in
-			// the enterprise overlay (klh-remote buckle-remote).
+			// the enterprise overlay.
 			manifestCr: () => ({
 				manifest: () => ({
 					version: "fed-stub-w2333",
