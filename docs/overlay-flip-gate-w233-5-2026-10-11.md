@@ -47,12 +47,20 @@ W233.2–W233.4 land in a LATER overlay tag). The flip is safe now and the
 `repos.ref` bump rides each future stack version bump — never the 40-hex
 version itself (GH002).
 
+## Correction 2026-10-12 (W702)
+
+Every `stack-5234813` / `523481347b6…` pin above is **superseded**: the
+current pin is `stack-6161cb2` (fleet `6161cb2`, W692 re-pin; stack.yaml
+version bumped, enterprise re-pinned + tagged, desktop redeployed).
+Read the flip steps above with `repos.ref: stack-6161cb2`. The body is
+left as written for the 2026-10-11 audit trail.
+
 ## Unblock
 
 1. Owner GO on the desktop flip (this decision) → apply the stack.yaml
    edit, `hubctl deploy desktop` once the Docker daemon is up, verify
    `hubctl status desktop` sidecars.
 2. Owner route restore for the NAS deploy (#30282, open) → `hubctl
-   deploy nas` + `status nas`.
+deploy nas` + `status nas`.
 
 Both flips must land before the next strip-carrying stack version bump.

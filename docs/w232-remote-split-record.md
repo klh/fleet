@@ -9,14 +9,14 @@ tokens, admin GUI, no local-MLX assumptions.
 
 The split shipped inside the W422.1 monorepo migration (owner GO
 2026-10-05) as the private tier **klh-remote** — one private monorepo
-mirroring `packages/`, local dir `~/github/klh/fleet-enterprise`, not on
-GitHub yet (push is an owner-held decision):
+mirroring `packages/`, local dir `~/github/klh/fleet-enterprise` (pushed
+since — see Correction 2026-10-12 below):
 
-| overlay                      | builds on             | adds                                            |
-| ---------------------------- | --------------------- | ----------------------------------------------- |
-| `packages/suspenders-remote` | fleet `suspenders`    | auth ON, OIDC enforced (W191), admin GUI (W231) |
-| `packages/belt-remote`       | fleet `belt`          | fleet auth, federation peers (W322 edge)        |
-| `packages/buckle-remote`     | fleet `buckle`        | gateway auth, per-repo pin policies             |
+| overlay                      | builds on          | adds                                                                                       |
+| ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------ |
+| `packages/suspenders-remote` | fleet `suspenders` | auth ON, OIDC enforced (W191); W231 admin GUI is base code, not overlay (correction below) |
+| `packages/belt-remote`       | fleet `belt`       | fleet auth, federation peers (W322 edge)                                                   |
+| `packages/buckle-remote`     | fleet `buckle`     | gateway auth, per-repo pin policies                                                        |
 
 Each overlay: git dep pinned at the stack version (`deploy/pin.ts` renders
 from `~/.config/klh/stack.yaml`) + `config/hub-profile.yaml` (placeholders
@@ -40,7 +40,17 @@ are inert mirrors; content fully absorbed by the overlays.
 - klh-remote tree clean at `f09333f`, root `package.json` private, deps =
   fleet at the stack sha.
 
-## Held decision
+## Held decision (superseded — see correction)
 
 `gh repo create klh/klh-remote --private` + tag-per-stack-ref push remains
 owner-only (advice.10457). Until then the enterprise tier is local-only.
+
+## Correction 2026-10-12 (W702)
+
+- The overlay **is on GitHub**: private `klh/fleet-enterprise`
+  (verified 2026-10-12 via `gh repo view`: PRIVATE, not archived, pushed
+  2026-10-12). Published under W422.9 / W688.1.1 (main pushed, tag
+  `stack-<sha>` per stack ref). The "local-only / held decision" text
+  above is historical.
+- The W231 admin GUI is fleet base code (`/console/hub`, `5c9c54c4`),
+  not an overlay add — W690 `decision-w690-w231-audit-row-correction.md`.
