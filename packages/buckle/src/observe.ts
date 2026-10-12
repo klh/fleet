@@ -29,6 +29,8 @@ export interface ObservationData {
 	outcome?: string;
 	status?: number;
 	attempts?: number;
+	/** ended-only: wall-clock request duration; the plane's latency facts */
+	latencyMs?: number;
 }
 
 /** CloudEvents 1.0.2-shaped observation (the subset the ingest needs). */

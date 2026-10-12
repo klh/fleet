@@ -38,6 +38,7 @@ export function unusedPort(): number {
 export async function boardFixture(
 	PORT: number,
 	afterAll: (fn: () => void | Promise<void>) => void,
+	extraEnv: Record<string, string> = {},
 ): Promise<{
 	TOKEN;
 	HOME;
@@ -73,6 +74,7 @@ export async function boardFixture(
 	// front + real belt.env would let an enrollment mint real keys
 	const env: Record<string, string | undefined> = {
 		...process.env,
+		...extraEnv,
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 		SUSPENDERS_MDNS: "0",

@@ -256,7 +256,11 @@ function deny(
 		why,
 	});
 	if (ctx.admitted)
-		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
+		observe(deps, ctx, "lane.request.ended", {
+			outcome: decision,
+			status,
+			latencyMs: Date.now() - ctx.t0,
+		});
 	return auditAndStamp(deps, ctx, status, why, code, decision);
 }
 
@@ -546,6 +550,7 @@ function finishResponse(
 			outcome: decision,
 			status: resp.status,
 			attempts: result.kind === "upstream" ? result.attempts : undefined,
+			latencyMs: Date.now() - ctx.t0,
 		});
 	return stamped(resp, ctx, { decision, row, code });
 }

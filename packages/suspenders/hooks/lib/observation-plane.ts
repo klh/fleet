@@ -101,7 +101,7 @@ export interface LaneSummary {
 	latencyMs: { avg: number | null; max: number | null };
 }
 
-function ensureObservationPlane(db: Database): void {
+export function ensureObservationPlane(db: Database): void {
 	db.run(`CREATE TABLE IF NOT EXISTS observation_outbox (
 		id TEXT NOT NULL, source TEXT NOT NULL, boot_id TEXT NOT NULL,
 		seq INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL,

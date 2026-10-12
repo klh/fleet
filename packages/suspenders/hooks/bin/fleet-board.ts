@@ -36,6 +36,7 @@ import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
+import { startObservationPlaneProducer } from "../lib/observation-producer.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
 // executed it inline before Bun.serve; the side-effect import keeps that
 // timing (nothing else imports the demo module)
@@ -45,6 +46,8 @@ ensureLaneObservations(db);
 ensureLaneReadModel(db);
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
+const planeProducer = startObservationPlaneProducer(db as Database);
+process.on("exit", () => planeProducer.stop());
 
 let tokAggAt = 0;
 function feedTokens(): void {
