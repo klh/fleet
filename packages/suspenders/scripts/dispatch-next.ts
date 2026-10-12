@@ -161,6 +161,9 @@ Refill agent lanes from READY work and resume unfinished claims.
   registry list|prune|forget  Inspect the durable lane registry; prune removes
                             entries whose lane is provably dead (liveness-
                             guarded; live/unknown entries are retained)
+  intent inspect|fail      Inspect launch intents (+liveness verdicts) or mark a
+                            wedged intent FAILED — liveness-guarded, --evidence
+                            required, never a live lane
   -h, --help               Print this help without dispatching
 
 Crash recovery defaults to three total launches per lane.
@@ -207,20 +210,10 @@ const residueOf = (wt: string): string =>
 // null on success. Retire refuses dirty trees (exit 3) so residue is never
 // silently discarded.
 const recreateWorktree = (item: string): string | null => {
-	const retired = run([
-		process.execPath,
-		`${BIN}/worktree.ts`,
-		"retire",
-		item,
-	]);
+	const retired = run([process.execPath, `${BIN}/worktree.ts`, "retire", item]);
 	if (retired.code !== 0)
 		return `SKIP ${item} — leftover worktree retire failed: ${retired.out.split("\n")[0]}`;
-	const created = run([
-		process.execPath,
-		`${BIN}/worktree.ts`,
-		"create",
-		item,
-	]);
+	const created = run([process.execPath, `${BIN}/worktree.ts`, "create", item]);
 	if (created.code !== 0)
 		return `SKIP ${item} — worktree recreate failed: ${created.out.split("\n")[0]}`;
 	return null;
@@ -274,6 +267,10 @@ const FLEET = `${REPO}/.fleet`;
 if (import.meta.main && argv[0] === "registry") {
 	const { registryMain } = await import("./lib/registry-cli.ts");
 	process.exit(await registryMain(argv.slice(1), { fleet: FLEET }));
+}
+if (import.meta.main && argv[0] === "intent") {
+	const { intentMain } = await import("./lib/launch-intent-cli.ts");
+	process.exit(intentMain(argv.slice(1), { repo: REPO }));
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
@@ -901,19 +898,22 @@ const dispatchItem = async (
 		// shared-prefix starter session instead of cold orientation; the seed
 		// rides a fleet identity (fleet-starter attribution slug), never the
 		// lane's minted key. Wiring lives in scripts/lib/lane-starter.ts.
-		const { forkArgs: starterFork, prompt: lanePrompt, seedError } =
-			await dispatchStarterFork({
-				env,
-				noBelt: NO_BELT,
-				harness: pick.bin ?? "claude",
-				fleet: FLEET,
-				bin,
-				item,
-				sid,
-				wt,
-				coldPrompt: prompt,
-				log,
-			});
+		const {
+			forkArgs: starterFork,
+			prompt: lanePrompt,
+			seedError,
+		} = await dispatchStarterFork({
+			env,
+			noBelt: NO_BELT,
+			harness: pick.bin ?? "claude",
+			fleet: FLEET,
+			bin,
+			item,
+			sid,
+			wt,
+			coldPrompt: prompt,
+			log,
+		});
 		if (seedError) {
 			const detail = `${seedError.phase}, code ${seedError.code}${seedError.preflight ? `, ${seedError.preflight}` : ""}: ${seedError.stderrTail}`;
 			console.log(`SEED FAILED ${item} — ${detail}`);
