@@ -20,23 +20,28 @@ import {
 	type Signal,
 } from "../lib/harvest.ts";
 import { homedir } from "node:os";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
-const argv = process.argv.slice(2);
-const mode = argv[0] ?? "";
-const arg = (name: string): string | null => {
-	const i = argv.indexOf(name);
-	return i !== -1 && argv[i + 1] ? argv[i + 1] : null;
-};
-const repo = arg("--repo") ?? process.cwd();
-const days = Number(arg("--days") ?? "7");
-
+const outcome = parseVerb(
+	defineVerb({
+		name: "harvest",
+		usage: "usage: bun harvest.ts scan|run --repo <path> [--days N]",
+		flags: ["--repo", "--days"],
+		minPos: 1,
+	}),
+	process.argv.slice(2),
+);
 const die = (msg: string): never => {
 	console.error(msg);
 	process.exit(2);
 };
 
+if (!outcome.ok) die(outcome.message);
+const mode = outcome.parsed.pos[0] ?? "";
 if (mode !== "scan" && mode !== "run")
 	die("usage: bun harvest.ts scan|run --repo <path> [--days N]");
+const repo = outcome.parsed.flag("--repo") ?? process.cwd();
+const days = Number(outcome.parsed.flag("--days") ?? "7");
 if (!Number.isInteger(days) || days < 1 || days > 60)
 	die("--days must be 1..60");
 

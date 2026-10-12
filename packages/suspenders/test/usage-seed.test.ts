@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-seed-"));
 const { seedUsage, purgeUsage } = await import(
-	`../hooks/bin/usage-seed.ts?home=${encodeURIComponent(HOME)}`
+	`../hooks/lib/usage-seed.ts?home=${encodeURIComponent(HOME)}`
 );
 
 const NOW_MS = Date.parse("2026-10-01T12:00:00Z");

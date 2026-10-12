@@ -3,6 +3,10 @@
 // mapping, actor attribution via sessions.actor, and the govdb v7 migration
 // (sessions.actor/tags + usage_rollup) on a temp HOME — never the live hub.
 import { describe, test, expect, afterAll } from "bun:test";
+import {
+	runHarvestPipeline,
+	type HarvestAdapter,
+} from "../hooks/lib/harvest-engine.ts";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,
@@ -10,6 +14,7 @@ import {
 	writeFileSync,
 	appendFileSync,
 	rmSync,
+	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,9 +26,10 @@ process.env.HOME = HOME;
 const { openGovernorDb } = await import(
 	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
-const { harvestUsage, modelGroup } = await import(
-	`../hooks/bin/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
-);
+const { harvestUsage, modelGroup, harvestAll, usageAdapter, maybeHarvest } =
+	await import(
+		`../hooks/lib/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
+	);
 // restore: REG was already captured at govdb module load; leaving the temp
 // HOME set leaks into later-loading suites (the gate-writes interference)
 process.env.HOME = REAL_HOME;
@@ -82,6 +88,8 @@ const FACTS_DDL =
 const ROLLUP_DDL =
 	"CREATE TABLE usage_rollup (hour_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model TEXT NOT NULL, model_group TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour_bucket, actor, model))";
 // W466: harvest cursors live here, not in facts (govdb v12)
+const ACT_DDL =
+	"CREATE TABLE activity_rollup (week_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model_group TEXT NOT NULL, activity TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, searches INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (week_bucket, actor, model_group, activity))";
 const MACHINE_CURSORS_DDL =
 	"CREATE TABLE machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)";
 
@@ -91,6 +99,7 @@ function freshDb(): Database {
 	db.run(FACTS_DDL);
 	db.run(ROLLUP_DDL);
 	db.run(MACHINE_CURSORS_DDL);
+	db.run(ACT_DDL);
 	return db;
 }
 
@@ -360,5 +369,80 @@ describe("harvestUsage", () => {
 			db.close();
 			rmSync(configPath, { force: true });
 		}
+	});
+});
+
+// ─── W657 pipeline: one read pass serves both collectors ────────────────────
+describe("W657 pipeline", () => {
+	const PROOT = join(HOME, "pipe-root");
+	test("one pass, both rollups, per-slot cursors (byte-true)", () => {
+		const db = freshDb();
+		mkdirSync(join(PROOT, "p1"), { recursive: true });
+		const p = join(PROOT, "p1", "s.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`);
+		const r = harvestAll(db, { root: PROOT });
+		expect(r.usage.requests).toBe(1);
+		expect(r.usage.files).toBe(1);
+		expect(r.activity.harvested).toBe(1);
+		expect(r.activity.files).toBe(1);
+		expect(
+			db.query("SELECT requests, in_tok FROM usage_rollup").get(),
+		).toMatchObject({ requests: 1, in_tok: 100 });
+		// per-slot cursors: two namespaces, one read, same byte offset
+		const cursors = db
+			.query(
+				"SELECT value FROM machine_cursors WHERE key LIKE 'usage.tp.%' OR key LIKE 'activity.tp.%'",
+			)
+			.all() as { value: string }[];
+		expect(cursors.length).toBe(2);
+		const offs = cursors.map((c) => JSON.parse(c.value).o as number);
+		expect(new Set(offs).size).toBe(1);
+		expect(offs[0]).toBe(statSync(p).size);
+		db.close();
+	});
+
+	test("flush failure rolls the whole pass back", () => {
+		const db = freshDb();
+		mkdirSync(join(PROOT, "p2"), { recursive: true });
+		const p = join(PROOT, "p2", "s2.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 10, 2, "2026-10-01T11:00:00Z")}\n`);
+		const boom: HarvestAdapter = {
+			name: "boom",
+			prefixes: ["w657boom.tp"],
+			onScan: () => {},
+			flush() {
+				throw new Error("boom");
+			},
+		};
+		expect(() =>
+			runHarvestPipeline(db, [usageAdapter(db), boom], { root: PROOT }),
+		).toThrow("boom");
+		// atomicity: usage cursor save + rollup upsert rolled back with it
+		expect(db.query("SELECT value FROM machine_cursors").all().length).toBe(0);
+		expect(
+			db.query("SELECT COUNT(*) AS n FROM usage_rollup").get(),
+		).toMatchObject({ n: 0 });
+		db.close();
+	});
+
+	test("maybeHarvest gates on the shared TTL face", () => {
+		const db = freshDb();
+		// maybeHarvest scans the DEFAULT root ($HOME/.claude/projects) — the
+		// fixture HOME is the transcript tree for this one
+		mkdirSync(join(HOME, ".claude", "projects", "p3"), { recursive: true });
+		const p = join(HOME, ".claude", "projects", "p3", "s.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 5, 1, "2026-10-01T12:00:00Z")}\n`);
+		let first: ReturnType<typeof maybeHarvest> = null;
+		process.env.HOME = HOME;
+		try {
+			first = maybeHarvest(db, 60_000);
+			// re-entrant fold: the second call inside the TTL is gated out
+			expect(maybeHarvest(db, 60_000)).toBeNull();
+		} finally {
+			process.env.HOME = REAL_HOME;
+		}
+		expect(first).not.toBeNull();
+		expect(first?.requests).toBe(1);
+		db.close();
 	});
 });

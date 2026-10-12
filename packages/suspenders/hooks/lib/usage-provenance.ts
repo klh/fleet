@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { seedUsage } from "../bin/usage-seed.ts";
+import { seedUsage } from "./usage-seed.ts";
 
 const cache = new WeakMap<Database, { at: number; actors: string[] }>();
 /** Legacy seeds lost their session rows during session retention. Admit only

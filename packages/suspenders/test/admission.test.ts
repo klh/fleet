@@ -5,10 +5,8 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {
-	ZAI_HEAVY_CAP,
 	PROGRESS_TTL_MS,
 	isZaiHeavy,
-	activeEntries,
 	countActiveZaiHeavy,
 	parseUntilMs,
 	cooldownVerdict,
@@ -24,7 +22,7 @@ import {
 	clearCooldownFact,
 	type Verdict,
 } from "../hooks/bin/admission.ts";
-import type { QuotaVerdict } from "../hooks/bin/quota-window.ts";
+import type { QuotaVerdict } from "../hooks/lib/quota-window.ts";
 
 const NOW = 1_790_000_000_000;
 

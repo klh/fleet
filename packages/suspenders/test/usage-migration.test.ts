@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { harvestUsage } from "../hooks/bin/usage-harvest.ts";
+import { harvestUsage } from "../hooks/lib/usage-harvest.ts";
 import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
 import {
 	activateTranscriptUsage,
@@ -98,7 +98,7 @@ test("cached legacy harvester cannot consume verified deltas after activation", 
 		.replace(
 			/from "(\.\.?\/[^"\n]+)"/g,
 			(_match, relative) =>
-				`from ${JSON.stringify(resolve(import.meta.dir, "../hooks/bin", relative))}`,
+				`from ${JSON.stringify(resolve(import.meta.dir, "../hooks/lib", relative))}`,
 		);
 	const cachedModule = join(dirname(f.root), "cached-legacy.ts");
 	writeFileSync(cachedModule, source);
