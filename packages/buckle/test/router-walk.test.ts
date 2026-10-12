@@ -200,4 +200,19 @@ describe("walkSelected cloud heads (W209)", () => {
 		expect(r.kind).toBe("exhausted");
 		expect(executed.every((g) => g !== "gpt-5.2")).toBe(true);
 	});
+
+	test("demanded must + prefs closed: owner prefs still bind the demanded set (W709)", async () => {
+		const { router, decide, executed } = rig(CLOUD_FIRST, {
+			allowCloud: true,
+			tier: "SIMPLE",
+		});
+		const sel = decide("must reasoning");
+		if (!sel.ok) throw new Error("decide must deliver the demanded set");
+		// prefs drift between decide and walk — the walk re-checks the owner
+		// gate on demanded rows instead of trusting decide-time state.
+		sel.sel.prefs = { cost_speed: "balanced", allow_cloud: false };
+		const r = await router.execute(REQ(sel, "SIMPLE"));
+		expect(r.kind).toBe("exhausted");
+		expect(executed.every((g) => g !== "gpt-5.2")).toBe(true);
+	});
 });

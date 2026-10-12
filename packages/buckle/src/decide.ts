@@ -127,11 +127,25 @@ export function decideRoute(input: DecideInput): DecideResult {
 	// request dialect.
 	const pinnedRows = input.candidates.filter((c) => c.group === input.group);
 	const pinned = pinnedRows.length > 0;
+	// W709 (W694 H3): the owner-gate filter binds pinned rows too — a pinned
+	// cloud group with the gate closed never heads. An all-cloud pin refuses
+	// loudly (cloud_forbidden, must's own owner-gate precedent); a mixed pin
+	// delivers its local rows.
+	const pinnedViable = pinnedRows.filter(viable);
+	if (pinned && pinnedViable.length === 0)
+		return {
+			ok: false,
+			err: {
+				code: "cloud_forbidden",
+				seen: pinnedRows.length,
+				why: `pin '${input.group}': cloud is disabled by owner prefs — pins never substitute`,
+			},
+		};
 	const scoped = pinned
-		? pinnedRows.filter((c) => input.allowCross || c.dialect === input.dialect)
-		: input.candidates.filter(
-				(c) => c.dialect === input.dialect && viable(c),
-			);
+		? pinnedViable.filter(
+				(c) => input.allowCross || c.dialect === input.dialect,
+			)
+		: input.candidates.filter((c) => c.dialect === input.dialect && viable(c));
 	const pool: CandidateRow[] = [...scoped];
 	if (!pinned && input.allowCross)
 		pool.push(
