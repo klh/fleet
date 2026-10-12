@@ -98,13 +98,19 @@ describe("W549 truthful Caddy install outcome", () => {
 		chmodSync(local, 0o755);
 		chmodSync(join(bin, "caddy"), 0o755);
 		const report = join(f.repo, "report.ndjson");
-		const child = Bun.spawnSync(["bash", "-c", source.slice(start, end)], {
-			env: {
-				HOME: f.repo,
-				PATH: `${bin}:/usr/bin:/bin`,
-				SUSPENDERS_LEGACY_REPORT: report,
+		// The reporter definition lives at the top of legacy_full since W650 —
+		// the extracted caddy section is not self-contained without it.
+		const reporter = source.match(/report_step\(\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+		const child = Bun.spawnSync(
+			["bash", "-c", `${reporter}\n${source.slice(start, end)}`],
+			{
+				env: {
+					HOME: f.repo,
+					PATH: `${bin}:/usr/bin:/bin`,
+					SUSPENDERS_LEGACY_REPORT: report,
+				},
 			},
-		});
+		);
 		expect(child.exitCode).toBe(0);
 		expect(existsSync(join(f.repo, "rollback-proof"))).toBe(true);
 		expect(JSON.parse(readFileSync(report, "utf8")).status).toBe("failed");
@@ -131,13 +137,19 @@ describe("W631 stale klh-local registration guard", () => {
 		chmodSync(join(bin, "klh-local"), 0o755);
 		chmodSync(join(bin, "caddy"), 0o755);
 		const report = join(f.repo, "report.ndjson");
-		const child = Bun.spawnSync(["bash", "-c", source.slice(start, end)], {
-			env: {
-				HOME: f.repo,
-				PATH: `${bin}:/usr/bin:/bin`,
-				SUSPENDERS_LEGACY_REPORT: report,
+		// The reporter definition lives at the top of legacy_full since W650 —
+		// the extracted caddy section is not self-contained without it.
+		const reporter = source.match(/report_step\(\) \{[\s\S]*?\n\}/)?.[0] ?? "";
+		const child = Bun.spawnSync(
+			["bash", "-c", `${reporter}\n${source.slice(start, end)}`],
+			{
+				env: {
+					HOME: f.repo,
+					PATH: `${bin}:/usr/bin:/bin`,
+					SUSPENDERS_LEGACY_REPORT: report,
+				},
 			},
-		});
+		);
 		expect(child.exitCode).toBe(0);
 		expect(existsSync(join(f.repo, "rollback-proof"))).toBe(false);
 		expect(JSON.parse(readFileSync(report, "utf8")).status).toBe("failed");

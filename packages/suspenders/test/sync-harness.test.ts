@@ -87,6 +87,14 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	put("packages/suspenders/hooks/knowledgeworker.md", "fixture");
 	put("packages/suspenders/deploy/services.yaml", "services: []");
 	put(
+		".githooks/pre-commit",
+		'#!/bin/sh\nexec bun "$P/hooks/bin/scrub-gate.ts" hook commit\n',
+	);
+	put(
+		".githooks/pre-push",
+		'#!/bin/sh\nexec bun "$P/hooks/bin/scrub-gate.ts" hook push\n',
+	);
+	put(
 		"packages/suspenders/scripts/lib/shared.ts",
 		problem === "syntax" ? "export const =;" : "export const value = 1;",
 	);
@@ -178,6 +186,13 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(readFileSync(packagedDefaults, "utf8")).toBe(
 		`${f.git("show", `${receipt.revision}:packages/buckle/upstreams.yaml`)}\n`,
 	);
+	// W650: the scrub-gate stubs ride the prefix (symlinked from the payload).
+	expect(lstatSync(join(f.ctx.prefix, ".githooks")).isSymbolicLink()).toBe(
+		true,
+	);
+	expect(
+		readFileSync(join(f.ctx.prefix, ".githooks/pre-commit"), "utf8"),
+	).toContain("scrub-gate.ts");
 	// Runtime code and shared imports survive deletion of the source checkout.
 	rmSync(f.source, { recursive: true, force: true });
 	expect(readFileSync(packagedDefaults, "utf8")).toContain("reviewed-default");
@@ -444,5 +459,42 @@ test("gateway dependency import failures abort publication without executing ser
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
 		"private-preserved",
+	);
+});
+test("registerGitHooks wires core.hooksPath on the source repo and verifies the stubs", async () => {
+	const f = fixture();
+	const result = await executePlan("step", "registerGitHooks", f.ctx, () => {});
+	expect(result.outcome).toBe("ok");
+	expect(result.rows).toHaveLength(1);
+	expect(result.rows[0].status).toBe("ok");
+	expect(result.rows[0].note).toContain("core.hooksPath=.githooks");
+	const readBack = Bun.spawnSync(
+		["git", "-C", f.source, "config", "core.hooksPath"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	expect(readBack.exitCode).toBe(0);
+	expect(readBack.stdout.toString().trim()).toBe(".githooks");
+});
+test("registerGitHooks skips when the source repo is not a git checkout", async () => {
+	const f = fixture();
+	rmSync(join(f.source, ".git"), { recursive: true, force: true });
+	const skipped = await executePlan(
+		"step",
+		"registerGitHooks",
+		f.ctx,
+		() => {},
+	);
+	expect(skipped.outcome).toBe("ok");
+	expect(skipped.rows[0].status).toBe("skipped");
+	expect(skipped.rows[0].note).toContain("not a git checkout");
+});
+test("registerGitHooks fails loud when a committed stub is missing", async () => {
+	const f = fixture();
+	rmSync(join(f.source, ".githooks/pre-commit"), { force: true });
+	const result = await executePlan("step", "registerGitHooks", f.ctx, () => {});
+	expect(result.outcome).toBe("failed");
+	expect(result.rows[0].status).toBe("failed");
+	expect(result.rows[0].note).toContain(
+		"committed .githooks/pre-commit missing",
 	);
 });

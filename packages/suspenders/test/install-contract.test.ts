@@ -75,7 +75,7 @@ describe("install --json outcomes (W490.1)", () => {
 			expect(doc.contract.flags[key].flag).toBe(kebab(key));
 		}
 		expect(doc.contract.name).toBe("suspenders-install");
-		expect(doc.contract.steps).toHaveLength(13);
+		expect(doc.contract.steps).toHaveLength(14);
 	});
 
 	test("plan without consent pauses (exit 0, never blocks)", async () => {
