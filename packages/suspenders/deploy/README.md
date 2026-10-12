@@ -136,3 +136,22 @@ A remote hub board is fronted by the Mac's Caddy under a `<label>.local`
 name (klh-local register <label> --upstream host:port — b6528ba) with the
 board's SUSPENDERS_ALLOWED_HOSTS set to that name. Example:
 https://nas-hub.local → $NAS_HOST:7799.
+
+## Release manifest + SBOM (W698)
+
+`bun deploy/hubctl.ts manifest <hub> [--out <dir>]` (or
+`bun deploy/release-manifest.ts --pinned <ref> --out <dir>`) emits:
+
+- `release-manifest.json` — fleet sha (+ the stack version the hub pins and
+  whether it equals the checkout), `bun.lock` sha256, every compose image
+  digest (`unpinnedImages` must be empty), the schema versions a fresh
+  governor.db / knowledge.db reach through the real migration ladder, and
+  sha256 checksums of compose, lock, SBOM and notice.
+- `sbom.cdx.json` — CycloneDX 1.5 from `bun.lock` (purl + sha512 per package)
+  plus the digest-pinned container images.
+- `THIRD-PARTY-NOTICES.txt` — license per installed package.
+
+Deterministic (no clock): same checkout → same bytes. CI job
+`release-manifest` uploads all three and fails on a floating image. The
+schema upgrade / migration-failure / rollback-compat contract is
+`test/release-manifest.test.ts`.

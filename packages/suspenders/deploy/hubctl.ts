@@ -12,6 +12,7 @@
 //                                     #   (refuses a stale/unpinned hub .env; --force overrides)
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
 //   bun deploy/hubctl.ts deploy <hub>   # install-grade one-shot: mint → push → up → status
+//   bun deploy/hubctl.ts manifest <hub> [--out <dir>]  # W698: release manifest + SBOM
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
@@ -26,6 +27,13 @@ import {
 	type HubProfile,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
+
+import {
+	buildRelease,
+	checkoutSha,
+	schemaVersions,
+	writeRelease,
+} from "./release-manifest.ts";
 
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
 
@@ -398,6 +406,19 @@ function deployHub(
 	console.log(`deploy: ${name} all healthy`);
 }
 
+/** W698: release manifest + SBOM for the checkout, recording the stack
+ *  version this hub deploys (--out <dir> writes the three files). */
+function emitManifest(pinned: string | undefined, flags: string[]): void {
+	const r = buildRelease({
+		sha: checkoutSha(),
+		pinned,
+		schema: schemaVersions(),
+	});
+	const i = flags.indexOf("--out");
+	if (i >= 0 && flags[i + 1]) writeRelease(r, flags[i + 1]);
+	else console.log(JSON.stringify(r.manifest, null, 2));
+}
+
 function main(): void {
 	const [verb, hubName, ...flags] = process.argv.slice(2);
 	const force = flags.includes("--force");
@@ -405,7 +426,7 @@ function main(): void {
 	const authRequired = stack.auth?.required;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy> <hub> — config: ~/.config/klh/stack.yaml\n" +
+			"usage: hubctl <render|mint|push|up|status|deploy|manifest> <hub> — config: ~/.config/klh/stack.yaml\n" +
 				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)",
 		);
 		process.exit(hubName ? 0 : 2);
@@ -440,9 +461,12 @@ function main(): void {
 		case "deploy":
 			deployHub(hub, hubName, authRequired, stack.version);
 			return;
+		case "manifest":
+			emitManifest(stack.version, flags);
+			return;
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|manifest`,
 			);
 			process.exit(2);
 	}
