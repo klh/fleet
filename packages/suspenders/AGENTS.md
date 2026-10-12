@@ -21,7 +21,8 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
    then `split --plan <id>`). Your inbox is WS-first (W303): `coord subscribe
    --as <sid>` attaches at spawn/bootstrap, idempotent per sid — one
    persistent push connection whose feed tails
-   `~/.claude-insights/coord-subscribe-<sid>.log`; never poll it. `coord
+   `~/.claude-insights/coord-subscribe-<sid>.log` (claude-code: the `push`
+   gate surfaces new lines per tool call); never poll it. `coord
    inbox --as <sid>` is the catch-up read before starting and before
    finishing — coordinator/board messages arrive there (drawer "send
    message" delivers there).
