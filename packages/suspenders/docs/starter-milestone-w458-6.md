@@ -3,7 +3,7 @@
 Item: W458.6 (first milestone: 1 project, 2 hubs, 2 developers, same starter) ·
 Branch: `suspenders/W458.6` · 2026-10-11 · runner:
 `packages/blam/tools/starter-milestone.ts` · spec:
-[starter-registry-architecture.md](starter-registry-architecture.md).
+[starter-registry-architecture.md](../../../docs/starter-registry-architecture.md).
 
 Built on W458.1–.5, all landed on this branch: 1ae29e4 (artifact schema +
 registry store), 04e7ba3 (authorization + revocation + hub replication),
