@@ -186,3 +186,46 @@ test("exponential jitter grows across fallback rungs, not just within a rung", a
 	});
 	expect(slept).toEqual([1250, 2250, 4250]); // No delay once no attempt remains.
 });
+
+test("quota-wall retry-after (W695.6.1): floor capped, 429 + retry-after still relayed", async () => {
+	const slept: number[] = [];
+	const router = new Router(
+		{ num_retries: 1, retry_after_cap_s: 60 },
+		{
+			pool: {
+				groups: () => ["primary"],
+				deployments: (group) => [
+					{ group, url: `http://${group}`, dialect: "anthropic" },
+				],
+			},
+			rng: () => 0,
+			sleepMs: async (ms) => {
+				slept.push(ms);
+			},
+			fetchImpl: async () =>
+				Response.json(
+					{
+						type: "error",
+						error: {
+							type: "rate_limit_error",
+							code: "1302",
+							message: "quota exhausted",
+						},
+					},
+					{ status: 429, headers: { "retry-after": "1670111" } },
+				),
+		},
+	);
+	const result = await router.execute({
+		group: "primary",
+		dialect: "anthropic",
+		path: "/v1/messages",
+		body: {},
+		key: "",
+	});
+	expect(slept).toEqual([60_000]); // capped floor — not 1,670,111,000 ms
+	expect(result.kind).toBe("client-error");
+	if (result.kind !== "client-error") throw new Error("rate limit lost");
+	expect(result.response.status).toBe(429);
+	expect(result.response.headers.get("retry-after")).toBe("1670111");
+});

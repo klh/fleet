@@ -335,6 +335,7 @@ export class Router {
 	): Promise<ExecuteResult | null> {
 		const retries = this.policy.num_retries ?? 1;
 		const capS = this.policy.retry_max_delay_s ?? 8;
+		const floorCapS = this.policy.retry_after_cap_s ?? 60;
 		const timeoutMs = (this.policy.request_timeout_s ?? 120) * 1000;
 		// W450: streaming bodies get idle+total guards; non-streaming keeps
 		// request_timeout_s as its whole-exchange cap (the wire applies it).
@@ -390,7 +391,8 @@ export class Router {
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
 			st.pendingRetryMs =
-				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS) * 1000;
+				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS, floorCapS) *
+				1000;
 		}
 		return null;
 	}
