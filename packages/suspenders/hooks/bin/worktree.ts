@@ -154,13 +154,27 @@ const create = async (p: Parsed): Promise<number> => {
 	// W211: a new tree always plants at the conventional .worktrees/<id> —
 	// resolution is registry-first, planting stays conventional
 	const target = join(ROOT, ".worktrees", id);
-	const r = git(["worktree", "add", "-b", branch, target]);
+	// W349: the branch survives a retire (integration spine) — a re-minted
+	// item re-checks out the surviving ref at its tip instead of failing on
+	// -b; the fresh checkout IS the reset.
+	const branchExists =
+		git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).code ===
+		0;
+	const r = branchExists
+		? git(["worktree", "add", target, branch])
+		: git(["worktree", "add", "-b", branch, target]);
 	if (r.code !== 0) die(`git worktree add failed: ${r.out || "(stderr)"}`);
 
 	// symlink canonical gitignored build dirs so lanes skip reinstalls
 	symlinkBuildDirs(ROOT, target);
 
-	emit(id, "work.tree", { path: target, branch });
+	emit(
+		id,
+		"work.tree",
+		branchExists
+			? { path: target, branch, branch_existed: "1" }
+			: { path: target, branch },
+	);
 	console.log(`${target}`);
 	return 0;
 };

@@ -191,6 +191,38 @@ const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 	};
 };
+// W349 residue probe: git-state dirt the lane did NOT make — dispatch's own
+// worktree artifacts (.klh-brief.md, .fleet/) are not residue.
+const residueOf = (wt: string): string =>
+	sh(["git", "-C", wt, "status", "--porcelain"])
+		.split("\n")
+		.filter((line) => {
+			const p = line.slice(3).trim();
+			return line && p !== ".klh-brief.md" && !p.startsWith(".fleet/");
+		})
+		.join("\n");
+// W349: retire+recreate a wrong-branch leftover — the SKIP line on failure,
+// null on success. Retire refuses dirty trees (exit 3) so residue is never
+// silently discarded.
+const recreateWorktree = (item: string): string | null => {
+	const retired = run([
+		process.execPath,
+		`${BIN}/worktree.ts`,
+		"retire",
+		item,
+	]);
+	if (retired.code !== 0)
+		return `SKIP ${item} — leftover worktree retire failed: ${retired.out.split("\n")[0]}`;
+	const created = run([
+		process.execPath,
+		`${BIN}/worktree.ts`,
+		"create",
+		item,
+	]);
+	if (created.code !== 0)
+		return `SKIP ${item} — worktree recreate failed: ${created.out.split("\n")[0]}`;
+	return null;
+};
 // W629 DRY: the execPath+CLI prefix was composed inline 16× across this
 // file — one builder per CLI; call sites pass the verb tail (rest params
 // fold the conditional spreads several sites carry).
@@ -406,10 +438,15 @@ const dispatchItem = async (
 		// read-only end to end: no claim, no worktree, no brief file, no spawn
 		const show = run(workCli("show", item));
 		const capsule = capsuleGet(sid);
-		const branch = existsSync(wt)
-			? sh(["git", "-C", wt, "branch", "--show-current"]) ||
-				`suspenders/${item}`
-			: `suspenders/${item}`;
+		const expected = `suspenders/${item}`;
+		const cur = existsSync(wt)
+			? sh(["git", "-C", wt, "branch", "--show-current"])
+			: expected;
+		const branch = cur || expected;
+		if (existsSync(wt) && cur !== expected)
+			console.log(
+				`NOTE — DRY: leftover worktree ${wt} sits on ${cur || "(detached)"} (expected ${expected}) — live dispatch recreates it before spawn (W349)`,
+			);
 		const pick = execPick(attempt, CALLER_REPO, cvSnapshot());
 		// W422: the brief-verify harness + enforcement ride the executor
 		// adapter — the if copilot/else-claude ternary is registry data now.
@@ -569,6 +606,15 @@ const dispatchItem = async (
 		// parity with the board path) — model fact only when a pin exists
 		recordLaneExecutor(store, sid, pick.name, pick.model);
 
+		// W349: a leftover worktree never reaches the lane — W219 inherited a
+		// W229-era tree. Verify branch == suspenders/<item> before spawn:
+		// wrong branch → recreate (clean trees only; residue is never
+		// silently discarded); right branch + unbanked residue on a fresh
+		// spawn → skip loud. A resume's own tree stands (resume context).
+		const expected = `suspenders/${item}`;
+		let cur = existsSync(wt)
+			? sh(["git", "-C", wt, "branch", "--show-current"])
+			: expected;
 		if (!existsSync(wt)) {
 			const created = run([
 				process.execPath,
@@ -582,9 +628,30 @@ const dispatchItem = async (
 				);
 				return null;
 			}
+		} else if (cur !== expected) {
+			// wrong branch = another lifecycle's tree; never spawn into it
+			if (residueOf(wt)) {
+				console.log(
+					`SKIP ${item} — leftover worktree sits on ${cur || "(detached)"} AND is dirty — residue is never silently discarded; worktree.ts retire ${item} --force, then re-dispatch`,
+				);
+				return null;
+			}
+			const skip = recreateWorktree(item);
+			if (skip) {
+				console.log(skip);
+				return null;
+			}
+			console.log(
+				`NOTE — recreated ${wt} (was on ${cur || "(detached)"}) before spawn (W349)`,
+			);
+			cur = expected;
+		} else if (!resume && residueOf(wt)) {
+			console.log(
+				`SKIP ${item} — worktree holds unbanked residue on the item branch — never spawn into unbanked state; worktree.ts retire ${item} --force, then re-dispatch`,
+			);
+			return null;
 		}
-		const branch =
-			sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
+		const branch = cur || expected;
 		const show = run(workCli("show", item));
 		const capsule = capsuleGet(sid);
 		// W643: dispatch output shows the capsule's reconciliation verdict —
