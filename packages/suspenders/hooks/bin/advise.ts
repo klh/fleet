@@ -217,6 +217,9 @@ function storeAdvice(text: string, meta: { model: string; host: string }) {
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 	).run(fk, advice, Date.now());
+	// W667: both terminal writes clear the board's in-flight stamp so the
+	// next /api/advise can spawn fresh after the dedupe window
+	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
 	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.error`);
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'ADVICE', ?, ?, ?)",
@@ -428,6 +431,7 @@ try {
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 	).run(`${fk}.error`, unavailable ? `unavailable: ${msg}` : msg, Date.now());
+	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
 	console.error(
 		unavailable
 			? `advise #${id}: no advice LLM at ${LLM_HOST} (${msg.slice(0, 120)}) — advice unavailable, fork stays open`
