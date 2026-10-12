@@ -150,6 +150,17 @@ export function openGovernorDb(): Database {
 	// from it (hooks/lib/work-effort.ts owns the vocabulary + text).
 	if (!wiCols.includes("effort"))
 		db.run("ALTER TABLE work_items ADD COLUMN effort TEXT");
+	// W643 — evidence-gated terminal transition (work-fence.ts): the declared
+	// closing-evidence patterns ride the item row. Shipped WITHOUT this ALTER
+	// in the W643 merge — insertItem wrote a column no fresh db had, breaking
+	// `work add` on every new governor.db (found blocking W687's fixtures).
+	if (!wiCols.includes("evidence"))
+		db.run("ALTER TABLE work_items ADD COLUMN evidence TEXT");
+	// W643 — claim-token fence: take mints a sha256 claim token on the row so
+	// a stale writer mismatches at done. Same W643 merge gap as evidence —
+	// fresh dbs broke at take ("no such column: claim_token_hash").
+	if (!wiCols.includes("claim_token_hash"))
+		db.run("ALTER TABLE work_items ADD COLUMN claim_token_hash TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a
