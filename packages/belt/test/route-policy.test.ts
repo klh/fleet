@@ -3,7 +3,7 @@
 // (kind, machine, model, tags), so the grammar is provable without booting
 // the dashboard or touching metrics.db.
 import { describe, expect, test } from "bun:test";
-import { hintFit, hintTotal, parseHint } from "./route-policy.ts";
+import { hintFit, hintTotal, parseHint } from "../bin/route-policy.ts";
 
 const cand = (
 	kind: string,

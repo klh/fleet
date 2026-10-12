@@ -1,4 +1,4 @@
-// bin/fit-classifier.test.ts — W159 stage-2 fit classifier: same task →
+// test/fit-classifier.test.ts — W159 stage-2 fit classifier: same task →
 // one model call, second look cached; hot-path lookup is sync + O(1);
 // unparseable/unavailable model degrades to regex-only honestly; verdicts
 // refine candidate order stably. Isolated cache file via env override.
@@ -12,7 +12,7 @@ const CACHE = join(
 	"fit-verdicts.json",
 );
 process.env.FIT_VERDICTS_PATH = CACHE; // read at module import — set first
-const FC = await import(`./fit-classifier.ts?w159fit=${Date.now()}`);
+const FC = await import(`../bin/fit-classifier.ts?w159fit=${Date.now()}`);
 
 const CANDS = [
 	{
@@ -159,7 +159,7 @@ test("unparseable reply degrades honestly: nothing cached, regex stands", async 
 });
 
 test("cache round-trips through disk for a fresh module instance", async () => {
-	const again = await import(`./fit-classifier.ts?reload=${Date.now()}`);
+	const again = await import(`../bin/fit-classifier.ts?reload=${Date.now()}`);
 	const sig = FC.taskSignature("prefer local reasoning");
 	// the same normalized hint in a brand-new process/module instance hits disk
 	expect(again.lookupFitVerdict(sig)?.placement).toBe("remote");

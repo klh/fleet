@@ -1,4 +1,4 @@
-// bin/repo-laws.test.ts — W164 belt: the resolution chain (dotfile > user
+// test/repo-laws.test.ts — W164 belt: the resolution chain (dotfile > user
 // > central > default), must-no-fit honest errors, and the user plane.
 // Pure tests — temp files only (BUCKLE_SECRETS_HOME pinned), no network
 // (candidates here are literal fixtures, not probed endpoints).
@@ -14,8 +14,8 @@ import {
 	resolveLawStack,
 	type CentralLaw,
 	type LawStack,
-} from "./repo-laws.ts";
-import { hintFit, hintTotal, parseHint } from "./route-policy.ts";
+} from "../bin/repo-laws.ts";
+import { hintFit, hintTotal, parseHint } from "../bin/route-policy.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "w164-belt-"));
 const ENV = { ...process.env, BUCKLE_SECRETS_HOME: join(TMP, "secrets") };
