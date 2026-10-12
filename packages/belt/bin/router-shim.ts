@@ -236,6 +236,12 @@ if (process.argv[2] === "selftest") {
 	};
 	const note = String(d._routing?.note ?? "");
 	const text = String(d.content?.[0]?.text ?? "");
+	if (!note.includes("forced dead primary")) {
+		console.log(
+			`✗ selftest hook disarmed — restart the shim with BELT_SELFTEST=1 and rerun (note="${note}")`,
+		);
+		process.exit(2);
+	}
 	const ok = r.status === 200 && note.includes("fallback") && text.length > 0;
 	console.log(
 		`${ok ? "✓" : "✗"} fallback ${ok ? "verified" : "BROKEN"} — status=${r.status} note="${note}" head="${text.slice(0, 40)}" (${Math.round(performance.now() - t0)}ms)`,
@@ -597,9 +603,14 @@ Bun.serve({
 				});
 
 			// selftest hook: _force_dead_port swaps the primary target while keeping
-			// route identity — fallbackFor() still maps from the real route
+			// route identity — fallbackFor() still maps from the real route.
+			// W278: env-gated — a request body must not steer production routing;
+			// restart the shim with BELT_SELFTEST=1 to arm it.
 			let primary = route;
-			if (Number.isFinite(Number(body._force_dead_port))) {
+			if (
+				process.env.BELT_SELFTEST === "1" &&
+				Number.isFinite(Number(body._force_dead_port))
+			) {
 				primary = {
 					...route,
 					port: Number(body._force_dead_port) as Specialist["port"],

@@ -11,6 +11,10 @@
 	</array>
 	<key>KeepAlive</key>
 	<true/>
+	<!-- W278: children are services — launchd must not kill the process group
+	     when the supervisor restarts; the new supervisor adopts live ports -->
+	<key>AbandonProcessGroup</key>
+	<true/>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardOutPath</key>
