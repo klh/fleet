@@ -16,11 +16,14 @@
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import {
+	openStore,
+	projectIdentity,
+	type GovernorStore,
+} from "../lib/govdb.ts";
 import { expireObservedLease } from "../lib/lease-expiry.ts";
 import { classifyOutage, recordOutage } from "../lib/outage-ledger.ts";
 import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
-import type { Database } from "bun:sqlite";
 import {
 	appendFileSync,
 	existsSync,
@@ -113,9 +116,9 @@ export function governorGate(hook: HookInput): void {
 	// registry never blocks an edit), but the degraded outcome is audited:
 	// one deduped structured event lands in outage.jsonl, OUTSIDE the dead
 	// authority itself, so fail-open is a recorded decision, not silence.
-	let db: Database | null = null;
+	let db: GovernorStore | null = null;
 	try {
-		db = openGovernorDb();
+		db = openStore();
 	} catch (e) {
 		db = null;
 		recordOutage({
@@ -365,7 +368,7 @@ export function governorGate(hook: HookInput): void {
  * fine-grained fractions only. Never blocks. */
 function activeRoster(): string {
 	try {
-		const db = openGovernorDb();
+		const db = openStore();
 		const rows = db
 			.query(
 				"SELECT substr(owner_sid, 1, 10) AS who, id, title FROM work_items WHERE state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL ORDER BY updated_at DESC LIMIT 5",

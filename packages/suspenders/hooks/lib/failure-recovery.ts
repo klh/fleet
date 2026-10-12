@@ -1,7 +1,7 @@
 // Repeated governor denials become one incident and at most one owner consult.
 // This never grants a lease or weakens a gate. Telemetry failure is fail-open.
 import { createHash } from "node:crypto";
-import type { Database } from "bun:sqlite";
+import type { GovernorStore } from "./govdb.ts";
 import { ensureConsultOutbox, enqueueConsult } from "./consult-outbox.ts";
 
 export interface FailureContext {
@@ -18,7 +18,7 @@ export interface FailureContext {
 	policyVersion?: string;
 }
 
-function schema(db: Database): void {
+function schema(db: GovernorStore): void {
 	ensureConsultOutbox(db);
 	db.run(`CREATE TABLE IF NOT EXISTS failure_incidents (
 		project TEXT NOT NULL, fingerprint TEXT NOT NULL, sid TEXT NOT NULL,
@@ -46,7 +46,7 @@ export function failureFingerprint(c: FailureContext): string {
 }
 
 export function recordFailure(
-	db: Database,
+	db: GovernorStore,
 	c: FailureContext,
 	now = Date.now(),
 ): string {
@@ -168,7 +168,7 @@ export function recordFailure(
 }
 
 export function resolveFailures(
-	db: Database,
+	db: GovernorStore,
 	project: string,
 	sid: string,
 	resource: string,
