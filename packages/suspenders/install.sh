@@ -169,6 +169,20 @@ if [[ "${SUSPENDERS_LEGACY_WIRE:-0}" -eq 1 ]]; then
     console.log("→ wired " + settingsPath);
   '
   SUSPENDERS_PREFIX="$PREFIX" bun "$SCRIPT_DIR/scripts/install-policy-adapters.ts"
+  # W294: dialect gate wiring — the codex/copilot hook registrations must
+  # point at THIS install's gate. Stale checkouts decay the wiring (the
+  # machine's copilot config still points at the archived klh/suspenders
+  # path — sessions went invisible on the plane). The gate-wire scripts are
+  # MARK-based merge-not-clobber: re-running repairs stale paths, preserves
+  # user entries, converges on the prefix. Runs the PREFIX copy so the gate
+  # path resolves to the installed gate; non-fatal.
+  for wire in gate-wire-codex.ts gate-wire-copilot.ts; do
+    if [ -f "$PREFIX/bin/$wire" ]; then
+      bun "$PREFIX/bin/$wire" || echo "→ $wire merge failed (non-fatal)"
+    else
+      echo "→ $PREFIX/bin/$wire missing — skipped (re-run the install sync)"
+    fi
+  done
 fi
 
 # --with-launchd is native since W490.2: install.ts --step registerLaunchd

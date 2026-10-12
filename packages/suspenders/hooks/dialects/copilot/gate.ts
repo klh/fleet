@@ -101,13 +101,16 @@ export async function copilotGate(
 		return preFilesChain(hook); // pre-files
 	}
 
-	// stop: the claim-done gate over the lane worktree
+	// stop: the claim-done gate over the lane worktree; the payload's real
+	// transcript_path rides along for the W294 heartbeat's fill-if-empty
 	return stopGate({
 		session_id: sid,
 		cwd,
 		stop_hook_active: raw.stop_hook_active === true,
 		hook_event_name: "Stop",
-	} as Parameters<typeof stopGate>[0]);
+		transcript_path:
+			typeof raw.transcript_path === "string" ? raw.transcript_path : undefined,
+	});
 }
 
 // session: the session-start.ts analog — synthesize the payload the script
