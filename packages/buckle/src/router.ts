@@ -445,23 +445,24 @@ export class Router {
 		// The escalation law owns EVERY prefer/no-hint cloud delivery: the
 		// hint ranks the head, it does not authorize leaving the machine
 		// (W136 §5.2 — prefs AND tier-warrant AND failed-twice, all AND-ed).
-		// Only must's demanded set bypasses (law 2; prefs already checked at
-		// decide with the loud cloud_forbidden). W209: the old idx-0 head
-		// exemption delivered prefer/no-hint cloud heads at attempts=0 with
-		// the tier-warrant and failed-twice conditions never consulted; an
-		// empty-demand must (total=0) is not a demanded set and does not
-		// ride the exemption either.
+		// Only must's demanded set bypasses the ESCALATION legs (tier-warrant
+		// and failed-twice — the demand is the warrant, W209); the owner
+		// prefs still bind it (precedence 1, W709/W694 H3: prefs > hint >
+		// tier). An empty-demand must (total=0) is not a demanded set and
+		// does not ride the exemption either.
 		const demanded = sel.verb === "must" && sel.total > 0;
+		const prefsOpen = sel.prefs.allow_cloud && sel.prefs.cost_speed !== "cost";
 		const gate = (row: CandidateRow): boolean =>
-			!demanded &&
 			row.kind === "cloud" &&
-			!mayEscalate({
-				group: row.group,
-				tier: req.tier,
-				attempts: st.attempts,
-				prefs: sel.prefs,
-				cloudGroups: sel.cloudGroups,
-			});
+			(demanded
+				? !prefsOpen
+				: !mayEscalate({
+						group: row.group,
+						tier: req.tier,
+						attempts: st.attempts,
+						prefs: sel.prefs,
+						cloudGroups: sel.cloudGroups,
+					}));
 		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (gate(row)) continue;

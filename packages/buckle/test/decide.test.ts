@@ -373,3 +373,53 @@ describe("W690 explicit-model pins (W694 M1-M4)", () => {
 		}
 	});
 });
+
+describe("W709 pin cloud gate (W694 H3)", () => {
+	const PIN = "glm-5.3-flash";
+	const CLOSED: Prefs = { cost_speed: "balanced", allow_cloud: false };
+
+	test("pinned cloud group + gate closed → cloud_forbidden, never the cloud head", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example" });
+		for (const hintRaw of [null, "prefer fast"]) {
+			const r = decide(hintRaw, [cloud], CLOSED, "openai", PIN);
+			expect(r.ok).toBe(false);
+			if (!r.ok) {
+				expect(r.err.code).toBe("cloud_forbidden");
+				expect(r.err.why).toContain(`pin '${PIN}'`);
+			}
+		}
+	});
+
+	test("mixed pin + gate closed → local row heads, cloud row invisible", () => {
+		const cloud = row({
+			kind: "cloud",
+			host: "cloud.example",
+			estimate_ms: 1,
+			calls: 9,
+		});
+		const local = row({ estimate_ms: 900, calls: 5 });
+		const r = decide(null, [cloud, local], CLOSED, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.sel.head.candidate_id).toBe(local.candidate_id);
+			expect(r.sel.ordered.every((c) => c.kind === "local")).toBe(true);
+		}
+	});
+
+	test("pinned cloud group + gate open still delivers the pin", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example" });
+		const r = decide(null, [cloud], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.kind).toBe("cloud");
+	});
+
+	test("gate-closed pin + non-cloud must: owner gate precedes the must conflict", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example" });
+		const r = decide("must model:other*", [cloud], CLOSED, "openai", PIN);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.err.code).toBe("cloud_forbidden");
+			expect(r.err.why).toContain(`pin '${PIN}'`);
+		}
+	});
+});
