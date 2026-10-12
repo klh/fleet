@@ -29,6 +29,11 @@ const CAPSULE_SHA = /^[a-f0-9]{40}$/i;
 const CAPSULE_MAX_AGE_MS = 24 * 86_400_000;
 const CAPSULE_FUTURE_SKEW_MS = 5 * 60_000;
 
+/** Bounded text for the continuation program (context, not an essay). */
+function clip(s: string, n: number): string {
+	return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
+}
+
 /** The item-authoritative capsule, parsed: work.<item>.capsule, written by
  * the owner sid (facts source column), with a row ts proving the evidence is
  * fresh. Anything else — legacy lane-scoped, other-owner, stale — is null. */
@@ -136,6 +141,9 @@ export function laneCompletion(
 		state?: string;
 		project?: string;
 		priority?: number;
+		title?: string;
+		description?: string;
+		capsule?: { done?: unknown; next?: unknown } | null;
 		result_sha?: string;
 		completion?: {
 			project?: string;
@@ -260,6 +268,47 @@ export function laneCompletion(
 		Date.now() - previous.ts > Math.min(budget.ttl, 2 * 3_600_000);
 	const dir = join(wt, ".fleet");
 	mkdirSync(dir, { recursive: true });
+	const head = run("git", ["rev-parse", "HEAD"], { cwd: wt });
+	const porcelain = run("git", ["status", "--porcelain"], { cwd: wt });
+	const headSha = head.ok ? head.out.trim() : "<commit>";
+	const dirty = porcelain.ok && porcelain.out.trim().length > 0;
+	const cap = row.capsule;
+	const remains = clip(
+		(typeof cap?.next === "string" && cap.next.trim()) ||
+			(typeof row.description === "string" && row.description.trim()) ||
+			(typeof row.title === "string" && row.title.trim()) ||
+			context.item,
+		240,
+	);
+	const program = [
+		`WHAT REMAINS: ${remains}`,
+		"CLOSE EXACTLY:",
+		...(dirty
+			? [`  git add -A && git commit -m "${context.item}: checkpoint"`]
+			: []),
+		`  work done ${context.item} --sha ${headSha} --summary "<40+ char completion paragraph>"`,
+		`CHECKPOINT fallback: coord capsule set --as ${context.sid} --item ${context.item} --checkpoint=${headSha} --done=<progress> --next=<step>; a git-reachable checkpoint ahead of the dispatch baseline parks the item CLAIMED/resumable, then declare BLOCKED ${context.item}: <specific reason> (or NO_OP ${context.item}: <specific reason>).`,
+	].join("\n");
+	const sigEnvSource = {
+		...process.env,
+		GIT_INDEX_FILE: join(dir, "sig-index"),
+	};
+	const staged = run(
+		"git",
+		["add", "-A", "--", ".", ":(exclude)node_modules", ":(exclude).fleet"],
+		{ cwd: wt, env: sigEnvSource },
+	);
+	const tree = staged.ok
+		? run("git", ["write-tree"], { cwd: wt, env: sigEnvSource })
+		: null;
+	const sig = staged.ok && tree?.ok ? `${headSha}:${tree.out.trim()}` : null;
+	const prevSig = typeof previous.sig === "string" ? previous.sig : undefined;
+	const stall =
+		stale || sig === null || prevSig !== sig
+			? 0
+			: typeof previous.stall === "number" && previous.stall >= 0
+				? previous.stall + 1
+				: 1;
 	const tries = stale
 		? 0
 		: typeof previous.tries === "number" &&
@@ -294,17 +343,33 @@ export function laneCompletion(
 		if (tries < budget.max && hook.stop_hook_active !== true) {
 			writeFileSync(
 				marker,
-				JSON.stringify({ ...context, tries: tries + 1, ts: Date.now() }),
+				JSON.stringify({
+					...context,
+					tries: tries + 1,
+					sig,
+					stall,
+					ts: Date.now(),
+				}),
 			);
-			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume: (a) FINISH — complete and run work done ${context.item} --sha <commit> --summary <completion paragraph>; or (b) CHECKPOINT — commit progress and bank a capsule: coord capsule set --as ${context.sid} --item ${context.item} --checkpoint=<head> --done=<progress> --next=<step>; an item-keyed capsule with a git-reachable checkpoint that advances the dispatch baseline parks the item CLAIMED/resumable and the stop is allowed. Edits and commits are progress, not completion.`;
+			return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. One bounded continuation before re-asks resume — DO NOT re-read the brief, re-reading is not progress. Edits and commits are progress, not completion.\n${program}`;
 		}
 	}
 	if (tries < budget.max && !declared) {
 		writeFileSync(
 			marker,
-			JSON.stringify({ ...context, tries: tries + 1, ts: Date.now() }),
+			JSON.stringify({
+				...context,
+				tries: tries + 1,
+				sig,
+				stall,
+				ts: Date.now(),
+			}),
 		);
-		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Edits and commits are progress, not completion. Finish with work done ${context.item} --sha <commit> --summary <completion paragraph>. If genuinely blocked or a no-op, declare BLOCKED ${context.item}: <specific reason> or NO_OP ${context.item}: <specific reason>. Re-ask ${tries + 1}/${budget.max}; exhaustion records FAILED, never DONE.`;
+		const stallNote =
+			stall >= 2
+				? ` STALL: ${stall} consecutive continuations changed nothing in this worktree — reads are not progress; execute the program below NOW.`
+				: "";
+		return `STOP-GATE: ${context.item} remains ${row.state} by ${context.sid}. Re-ask ${tries + 1}/${budget.max}; exhaustion records FAILED, never DONE.${stallNote} Edits and commits are progress, not completion.\n${program}`;
 	}
 	const reason = declared
 		? (declaration?.[0] ?? "declared blocked")

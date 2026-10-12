@@ -484,3 +484,47 @@ test("terminal-phase short-circuit: a parked activation stays concluded", () => 
 	expect(f.stop().code).toBe(0);
 	expect(JSON.parse(readFileSync(marker, "utf8")).outcome).toBe("PARKED");
 });
+
+test("the continuation offer carries the actionable program (W686)", () => {
+	const f = fixture();
+	const base = f.git("rev-parse", "HEAD").out.trim();
+	// a banked capsule's --next is the authoritative what-remains; banked at
+	// the baseline so the park path refuses and the offer fires
+	f.coord(
+		"capsule",
+		"set",
+		"--as",
+		"dispatch-owner",
+		"--item",
+		f.id,
+		`--checkpoint=${base}`,
+		"--next=verify the render, then close",
+	);
+	const result = f.stopFresh();
+	expect(result.err).toContain("WHAT REMAINS: verify the render, then close");
+	expect(result.err).toContain("CLOSE EXACTLY:");
+	expect(result.err).toContain(`--sha ${base}`);
+	expect(result.err).toContain("re-reading is not progress");
+	expect(result.err).toContain("CHECKPOINT");
+});
+
+test("two unchanged continuations re-anchor with STALL; work breaks the streak", () => {
+	const f = fixture();
+	f.stopFresh(); // the offer banks the baseline signature
+	expect(f.stop().err).not.toContain("STALL");
+	const stalled = f.stop();
+	expect(stalled.err).toContain("STALL:");
+	expect(stalled.err).toContain("Re-ask 3/3");
+	const marker = join(f.cwd, ".fleet/completion-attempt.json");
+	expect(JSON.parse(readFileSync(marker, "utf8")).stall).toBe(2);
+	// real work + a fresh episode (TTL backdate) breaks the streak
+	writeFileSync(join(f.cwd, "progress.txt"), "progress\n");
+	f.git("add", "progress.txt");
+	f.git("commit", "-qm", "progress");
+	const state = JSON.parse(readFileSync(marker, "utf8"));
+	state.ts = Date.now() - 6 * 60_000; // past the light 5-min TTL
+	writeFileSync(marker, JSON.stringify(state));
+	const next = f.stop();
+	expect(next.err).toContain("Re-ask 1/3");
+	expect(next.err).not.toContain("STALL");
+});

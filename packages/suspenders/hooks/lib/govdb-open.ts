@@ -150,6 +150,19 @@ export function openGovernorDb(): Database {
 	// from it (hooks/lib/work-effort.ts owns the vocabulary + text).
 	if (!wiCols.includes("effort"))
 		db.run("ALTER TABLE work_items ADD COLUMN effort TEXT");
+	// W643 columns dropped by the W624.2 govdb split — restored (W686): the
+	// claim-token fence and the evidence gate INSERT/UPDATE these on fresh
+	// dbs, so a ladder without them breaks every fresh-clone/test fixture.
+	// W643 — claim-token fence: take mints a random token and stores ONLY its
+	// sha256 here; done must present a matching token. NULL = legacy claim
+	// (pre-W643 take, non-graph writers) - closes ungated.
+	if (!wiCols.includes("claim_token_hash"))
+		db.run("ALTER TABLE work_items ADD COLUMN claim_token_hash TEXT");
+	// W643 — evidence-gated terminal transition: JSON array of regex sources
+	// the closing evidence (summary / product paths / added diff lines) must
+	// each match, else done refuses. NULL = no required evidence.
+	if (!wiCols.includes("evidence"))
+		db.run("ALTER TABLE work_items ADD COLUMN evidence TEXT");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a
