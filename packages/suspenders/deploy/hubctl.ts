@@ -18,6 +18,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { stringify } from "yaml";
 // stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
@@ -116,10 +117,35 @@ function renderEnv(
 	// synthetic readiness (W467) — the completion leg's verdict port + model
 	kv("HUB_BUCKLE_READY_PORT", hub.buckle_ready_port);
 	kv("HUB_READY_MODEL", hub.ready_model);
+	// W688.7.1: enterprise entrypoint + private-network ladder egress hosts
+	kv("HUB_BUCKLE_ENTRY", hub.buckle_entry);
+	kv("HUB_HTTP_UPSTREAM_HOSTS", hub.http_upstream_hosts?.join(","));
 	return `${lines.join("\n")}\n`;
 }
 
-/** Run a script on the hub host (or locally when the hub has no ssh target). */
+/** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
+ *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
+ *  (merge-over-base is by group name). Always rendered: compose mounts it. */
+function renderUpstreams(hub: HubProfile): string {
+	return stringify({ version: 1, groups: hub.upstreams?.groups ?? {} });
+}
+
+/** W688.7.1: script run ON the hub device — builds the 0600 upstream.env
+ *  from `NAME=/path/to/keyfile` args (value read there, never echoed). No
+ *  keys declared = an empty file (compose env_file stays valid). */
+const UPSTREAM_ENV_SCRIPT = [
+	"umask 077",
+	'OUT="$1"; shift',
+	': > "$OUT.tmp"',
+	'for pair in "$@"; do',
+	'  name="${pair%%=*}"; path="${pair#*=}"',
+	'  [ -s "$path" ] || { echo "missing key file for $name" >&2; rm -f "$OUT.tmp"; exit 1; }',
+	"  printf '%s=%s\\n' \"$name\" \"$(tr -d '\\r\\n' < \"$path\")\" >> \"$OUT.tmp\"",
+	"done",
+	'mv "$OUT.tmp" "$OUT"',
+].join("\n");
+
+/** Run a script on the hub (or locally when the hub has no ssh target). */
 function runOnHub(hub: HubProfile, script: string): string {
 	if (hub.deploy?.ssh) {
 		return execFileSync("ssh", [hub.deploy.ssh, script], { encoding: "utf8" });
@@ -180,6 +206,16 @@ function mintRootKey(hub: HubProfile): void {
 	console.log(`+ ${target} (${out.trim()})`);
 }
 
+/** W688.7.1: materialize `<dir>/upstream.env` ON the hub (compose env_file). */
+function pushUpstreamEnv(hub: HubProfile, dir: string): void {
+	const pairs = Object.entries(hub.secrets?.upstream_keys ?? {}).map(
+		([name, path]) => `${name}=${path}`,
+	);
+	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+	const args = [`${dir}/upstream.env`, ...pairs].map(quote).join(" ");
+	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
+}
+
 /** Push the compose template + rendered .env to the hub's deploy dir. */
 function pushConfig(
 	hub: HubProfile,
@@ -200,6 +236,19 @@ function pushConfig(
 		mkdirSync(dir, { recursive: true });
 	}
 	copyToHub(hub, COMPOSE_TEMPLATE, `${dir}/hub-compose.yaml`);
+	if (hub.deploy?.ssh) {
+		execFileSync(
+			"ssh",
+			[
+				hub.deploy.ssh,
+				`/bin/sh -c 'cat > ${JSON.stringify(`${dir}/upstreams.hub.yaml`)}'`,
+			],
+			{ input: renderUpstreams(hub) },
+		);
+	} else {
+		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
+	}
+	pushUpstreamEnv(hub, dir);
 	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",

@@ -176,7 +176,11 @@ services:
     network_mode: host
     restart: unless-stopped
     working_dir: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle
-    command: bun run src/server.ts
+    # W688.7.1: the entrypoint is machine config. Unset = the base server
+    # (provider-less solo posture); an enterprise hub points HUB_BUCKLE_ENTRY
+    # at the overlay entry that injects the gov providers (entitlements,
+    # usage, manifest/CR, spokes) into the base startServer.
+    command: bun run ${HUB_BUCKLE_ENTRY:-src/server.ts}
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
@@ -190,6 +194,9 @@ services:
       # compose rejects the path/required long form); a MISSING file still
       # fails `up` (compose stats it before creating the service).
       - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
+      # W688.7.1: ladder key values (LITELLM_KEY …) — hubctl push builds
+      # this 0600 file ON the hub from stack.yaml secrets.upstream_keys paths
+      - ./upstream.env
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
@@ -197,11 +204,19 @@ services:
       BUCKLE_BIND: ${HUB_BUCKLE_BIND:-127.0.0.1}
       BUCKLE_DB: /state/buckle/buckle.db
       BUCKLE_POLICY: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml
-      BUCKLE_UPSTREAMS: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/upstreams.yaml
+      BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.yaml
+      # W688.7.1: private-network ladder legs (e.g. the host litellm via
+      # host.docker.internal) — the egress law admits plain http ONLY to
+      # hosts listed here; empty = loopback only (the public default)
+      BUCKLE_HTTP_UPSTREAM_HOSTS: ${HUB_HTTP_UPSTREAM_HOSTS:-}
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
     volumes:
       - fleet-repo:/src/fleet:ro
+      # W688.7.1: the hub's real upstream ladder, rendered by hubctl from
+      # stack.yaml `upstreams:` (always present — empty groups = the
+      # committed placeholder ladder stands); merged over the base file
+      - ./upstreams.hub.yaml:/etc/klh/upstreams.hub.yaml:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
 
