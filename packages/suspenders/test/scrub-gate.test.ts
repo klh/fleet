@@ -30,6 +30,8 @@ const RSA_KEY_HEADER = "-----BEGIN RSA PRIVATE KEY-----"; // scrub:allow
 const SLACK_TEST_TOKEN = "xoxb-123456789012-abcdefgh"; // scrub:allow
 const IKEA_DOC = "IKEA.Internal Wiki"; // scrub:allow
 const REDACTED_HOME = "/Users/k"; // scrub:allow
+const EXAMPLE_MAC = "aa:bb:cc:dd:ee:ff"; // scrub:allow
+const EXAMPLE_RFC1918 = "10.1.2.3"; // scrub:allow
 
 beforeAll(() => {
 	// deterministic denylist: literal host, regex CIDR, literal MAC
@@ -62,6 +64,12 @@ describe("scrub lib: builtin rules", () => {
 		expect(line(RSA_KEY_HEADER).map((h) => h.rule)).toEqual(["private-key"]);
 		expect(line(SLACK_TEST_TOKEN).map((h) => h.rule)).toEqual(["slack-token"]);
 		expect(line(IKEA_DOC).map((h) => h.rule)).toEqual(["ikea-internal"]); // scrub:allow
+		expect(line(`MAC ${EXAMPLE_MAC}`).map((h) => h.rule)).toEqual([
+			"mac-address",
+		]);
+		expect(line(`ip ${EXAMPLE_RFC1918}`).map((h) => h.rule)).toEqual([
+			"rfc1918",
+		]);
 	});
 });
 
@@ -72,7 +80,9 @@ describe("scrub lib: denylist + marker + redaction", () => {
 		expect(line("git.nas-threads.dk").map((h) => h.rule)).toEqual([
 			"denylist:2",
 		]);
-		expect(line("ip 10.0.1.23").map((h) => h.rule)).toEqual(["denylist:3"]);
+		// the rfc1918 builtin fires BESIDE the denylist regex (builtins scan first)
+		const overlap = line("ip 10.0.1.23").map((h) => h.rule); // scrub:allow
+		expect(overlap).toEqual(["rfc1918", "denylist:3"]);
 		expect(line("mac aabbccddeeff").map((h) => h.rule)).toEqual(["denylist:4"]);
 	});
 

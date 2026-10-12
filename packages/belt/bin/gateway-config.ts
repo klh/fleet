@@ -4,6 +4,7 @@
 // ~/.claude/local-llm/litellm.yaml (mode 600 — carries the zai key reference,
 // resolved at runtime via os.environ/Z_AI_API_KEY, never inline).
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import {
 	emitClassTiers,
 	emitFallbackSettings,
@@ -15,7 +16,7 @@ import { buildRemoteEntries } from "./remotes-validate.ts";
 import { chatEntries } from "./registry.ts";
 import { litellmRows } from "./registry-emit.ts";
 
-const HOME = process.env.HOME ?? "/Users/kk";
+const HOME = process.env.HOME ?? homedir();
 const REMOTES_PATH = `${HOME}/.claude/local-llm/remotes.json`;
 
 // W192: remotes.json is parsed but NEVER trusted — grammar validation and
