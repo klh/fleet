@@ -74,6 +74,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/fleet-loop.ts",
 		"bin/fleet-tracker.ts",
 		"bin/fleet-watch.ts",
+		"bin/fleet-board.ts",
 		"bin/morph.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
@@ -440,6 +441,38 @@ test("gateway dependency import failures abort publication without executing ser
 	);
 	await expect(syncHarness(f.ctx)).rejects.toThrow(
 		"Staged gateway import graph failed",
+	);
+	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
+	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
+		"private-preserved",
+	);
+});
+
+test("board entrypoint import graph failure aborts publication (W630)", async () => {
+	const f = fixture();
+	// The W630 incident shape: the board entry rode a staged generation whose
+	// payload lacked buckle/src/projection.ts — validate() never resolved the
+	// board graph, so the board crash-looped on the installed prefix.
+	f.put(
+		"packages/suspenders/hooks/bin/fleet-board.ts",
+		'import "../../board/routes-observations.ts"; export const value = 1;',
+	);
+	f.put(
+		"packages/suspenders/hooks/board/routes-observations.ts",
+		'import "../../../buckle/src/projection.ts"; export const value = 1;',
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"reviewed board fixture missing projection",
+	);
+	await expect(syncHarness(f.ctx)).rejects.toThrow(
+		"Staged import graph failed (hooks/bin/fleet-board.ts)",
 	);
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 	expect(readFileSync(join(f.ctx.prefix, "operator.env"), "utf8")).toBe(
