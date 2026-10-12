@@ -281,6 +281,17 @@ services:
     logs: { out: "__HOME__/.claude-insights/consult-relay.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
+  # notify (W695.2) — resident board-event fan-out (NEED_DECISION, budget,
+  # hub-down, lane-death → desktop/email/Slack). Idles without
+  # ~/.config/klh/notify.yaml; the daemon owns its own WS reconnect.
+  - name: notify
+    bunEntry: "__PREFIX__/bin/notify.ts"
+    env:
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/notify.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
   # W179.3 nightly real-provider soak — 03:15 calendar, DELIVERED NOT
   # INSTALLED: activation is a coordinator step. Tiny caps by default
   # (SOAK_MAX_USD / SOAK_MAX_TOKENS / SOAK_ITERS / SOAK_MAX_MINUTES env at

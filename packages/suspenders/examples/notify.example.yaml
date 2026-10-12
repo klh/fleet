@@ -1,0 +1,33 @@
+# notify.yaml — placeholder schema only (W695.2). Real file lives at
+# ~/.config/klh/notify.yaml (mode 600; KLH_NOTIFY overrides the path).
+# Webhook URLs and mail credentials NEVER go in the repo: point at files.
+as: notify # sid the subscription binds as
+channels:
+  desktop: { enabled: true } # osascript, darwin only
+  slack:
+    webhook_url_file: ~/.config/klh/slack-webhook # one line, mode 600
+  email:
+    env_file: ~/.gmail.env # mode 600; read at send time
+    user_var: GMAIL_USER # var names inside env_file
+    pass_var: GMAIL_APP_PASSWORD
+    to: [you@example.com] # default: the sending account
+    # host: smtp.gmail.com  port: 587 (STARTTLS)
+# per-class: channels, dedupe window (identical class+subject suppressed),
+# rate limit (max notifications per class per window)
+classes:
+  need-decision:
+    channels: [desktop, slack, email]
+    dedupe_s: 3600
+    rate_limit: { max: 6, per_s: 3600 }
+  budget: # quota.exhausted, credit.headroom.warn
+    channels: [desktop, slack]
+    dedupe_s: 86400
+    rate_limit: { max: 3, per_s: 3600 }
+  hub-down: # hub.down (metrics-alert DROP)
+    channels: [desktop, slack, email]
+    dedupe_s: 1800
+    rate_limit: { max: 6, per_s: 3600 }
+  lane-death: # lane.dead (fleet-loop)
+    channels: [desktop]
+    dedupe_s: 3600
+    rate_limit: { max: 10, per_s: 3600 }
