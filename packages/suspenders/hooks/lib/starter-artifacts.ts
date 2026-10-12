@@ -1,6 +1,6 @@
 // hooks/lib/starter-artifacts.ts — W458.1: immutable versioned starter
-// artifacts + the project-canonical registry store (spec:
-// docs/starter-registry-architecture.md). Laws encoded here:
+// artifacts + the project-canonical registry store (architecture record:
+// docs/starter-milestone-w458-6.md). Laws encoded here:
 // - content-addressed: digest = sha256 over canonical JSON of the content;
 //   every read re-verifies it — corruption is a loud result, never silent reuse.
 // - append-only: one write-once file per (id, version); an existing version
