@@ -11,6 +11,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { unusedPort } from "./helpers/board-fixture.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-split-"));
 process.env.HOME = HOME;
@@ -304,7 +305,7 @@ describe("W166 control-plane rejection", () => {
 	});
 
 	test("live /rpc: knowledge SQL rejected on the wire, control SQL flows", async () => {
-		const port = 7856;
+		const port = unusedPort();
 		const rpc = (sql: string): Promise<Record<string, unknown>> =>
 			fetch(`http://127.0.0.1:${port}/rpc`, {
 				method: "POST",

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { knowledgeSearch, proseCards } from "../hooks/lib/knowledge.ts";
+import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── lib-level: scope predicates on the aux stores (W181 F2/M7) ───
 const db = new Database(":memory:");
@@ -149,7 +150,7 @@ writeFileSync(join(REPO, "docs", "w203-trust-doc.md"), DOC_TEXT);
 const DOC_HASH = createHash("sha256").update(DOC_TEXT).digest("hex");
 const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
-const PORT = 7869 + (process.pid % 8);
+const PORT = unusedPort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // seed through the REAL migration path in a subprocess (HOME-isolated):
