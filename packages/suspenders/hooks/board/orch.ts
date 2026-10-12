@@ -17,7 +17,7 @@ import {
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
-import { projectRootOf } from "../lib/govdb.ts";
+import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -110,13 +110,13 @@ export function parseProposal(text: string): OrchProposal | null {
 // via the union protect grammar). Deterministic (L6), so the preview's
 // disclosed ctx is byte-identical to the dispatched ctx — the held plan
 // materializes ctx once, no tier-keyed cache needed.
-export function orchContext(project: string, repo: string): string {
+export function orchContext(_project: string, repo: string): string {
 	const items = (
 		db
 			.query(
 				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
 			)
-			.all(project, ORCH.CTX_ITEMS) as {
+			.all(projectIdentity(repo), ORCH.CTX_ITEMS) as {
 			id: string;
 			state: string;
 			title: string;
@@ -352,12 +352,15 @@ export function orchRegister(
 				error: `split failed: ${(split.err || split.out).slice(0, 300)}`,
 			},
 		};
+	// work add stored the key the CLI resolved from cwd (common git dir for a
+	// repo) — read back by that same resolver, never the caller's raw string
+	const key = projectIdentity(repo);
 	const children = (
 		db
 			.query(
 				"SELECT id, title FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
 			)
-			.all(project, pid) as { id: string; title: string }[]
+			.all(key, pid) as { id: string; title: string }[]
 	).map((r) => ({ id: r.id, title: r.title }));
 	return { status: 200, body: { ok: true, plan: pid, children } };
 }

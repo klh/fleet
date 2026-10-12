@@ -7,7 +7,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { boardFixture, unusedPort } from "./helpers/board-fixture.ts";
 const { TOKEN, HOME, REPO, GREPO, env, bin, BASE, MY_PROJ, post, waitUp } =
@@ -363,6 +369,22 @@ describe("W57 orchestrate box", () => {
 		const plan = feed.tasks.find((t: Row) => t.id === reg.json.plan);
 		expect(plan?.title).toBe("plan: W57 e2e orchestration");
 	});
+	// W704: work add stores the git-common-dir key; the children readback must
+	// resolve the same key whether the caller sends the repo path or the key
+	for (const [label, proj] of [
+		["repo path", realpathSync(GREPO)],
+		["common-dir key", `${realpathSync(GREPO)}/.git`],
+	] as const) {
+		test(`register children readback finds kids via ${label}`, async () => {
+			const reg = await postO("/api/orchestrate/register", {
+				project: proj,
+				title: `W704 ${label}`,
+				children: ["child alpha scope", "child beta scope"],
+			});
+			expect(reg.status).toBe(200);
+			expect(reg.json.children.length).toBe(2);
+		});
+	}
 	test("W270 prompt settings: defaults, then persisted toggles", async () => {
 		await waitUp(OB);
 		const d = await (await fetch(`${OB}/api/prompt/settings`)).json();
