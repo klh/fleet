@@ -52,10 +52,11 @@ Prerequisites, each gated:
    (`packages/suspenders/hooks/bin/store-server.ts`) already exposes
    `POST /rpc` over loopback with optional `x-governor-token`
    (`store-server.ts:343`); the pilot adds no new network surface.
-5. **Enrollment verbs implemented** (follow-up work item minted from this
-   document). The runbook's `coord project enroll` / `bind` / `verify` verbs are
-   a proposed surface — until they exist, the pilot cannot run and no gate
-   passes by hand-waving.
+5. **Enrollment verbs implemented** (landed as W459.5): `coord project enroll`
+   / `bind` / `verify` now exist in `packages/suspenders/hooks/coord/identity.ts`
+   with the registry tables as the v15 schema step. The verbs below are the
+   shipped surface; until the store-server restarts onto it, remote lanes see
+   "registry unreadable" and refuse fail-closed.
 
 ## ID minting rules
 

@@ -265,7 +265,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "project",
-		usage: "usage: project identity | project rekey <old> <new>",
+		usage:
+			"usage: project identity | project rekey <old> <new> | project enroll|bind|verify",
 		lax: true,
 		run: (p) => cmdProject(p.rest),
 	}),
@@ -329,6 +330,7 @@ await runCli({
 		"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
 		"  executor-cv [--apply] — the executor trust tally folded from work events (W620)",
 		"  project identity | project rekey <old> <new> — graph identity migration (W428)",
+		"  project enroll|bind|verify — managed-project enrollment pilot (W459.5, docs/identity-enrollment-pilot.md)",
 	].join("\n"),
 	onVerb: (_name, p) => {
 		setRest(p.rest);
