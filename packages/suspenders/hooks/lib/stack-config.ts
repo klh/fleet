@@ -25,6 +25,14 @@ export interface HubProfile {
 	 *  names (must be one the hub's routing ladder actually serves). */
 	buckle_ready_port?: number;
 	ready_model?: string;
+	/** W688.7.1: the buckle entrypoint the hub runs (path inside the
+	 *  container). Unset = the base `src/server.ts` (provider-less solo
+	 *  posture); an enterprise hub points it at the overlay entry that
+	 *  injects the gov providers (klh-remote buckle-remote src/server.ts). */
+	buckle_entry?: string;
+	/** W688.7.1: private-network hosts the ladder may reach over plain http
+	 *  (BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlist), e.g. the engine host. */
+	http_upstream_hosts?: string[];
 	bind?: string;
 	board_bind?: string;
 	belt_bind?: string;
@@ -50,7 +58,20 @@ export interface HubProfile {
 		docker?: string;
 		compose?: string;
 	};
-	secrets?: { buckle_root_key?: string };
+	/** W688.7.1: the hub's REAL upstream ladder (config-over-code) — inline
+	 *  `groups:` in buckle's upstreams.yaml shape, materialized by hubctl
+	 *  into the deploy dir and merged over the committed (placeholder)
+	 *  ladder via BUCKLE_UPSTREAMS. Keys stay in env vars named by each
+	 *  row's api_key_env — never values here. */
+	upstreams?: { groups?: Record<string, Array<Record<string, unknown>>> };
+	secrets?: {
+		buckle_root_key?: string;
+		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
+		 *  materializes them into the 0600 `upstream.env` ON the hub (the
+		 *  value is read there, never printed or transported); values never
+		 *  live in config. */
+		upstream_keys?: Record<string, string>;
+	};
 	/** W483: nightly dark window "HH:MM-HH:MM" (may cross midnight) — the
 	 *  hub is EXPECTED down in it (NAS DSM poweroff). Routing skips, dispatch
 	 *  falls back to local belt, monitoring suppresses instead of paging. */
