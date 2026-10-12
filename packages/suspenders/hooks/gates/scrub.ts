@@ -1,9 +1,10 @@
 // hooks/gates/scrub.ts — W236: the pre-commit/pre-push surface of
 // lib/scrub.ts, wired into the PreToolUse(Bash) chain next to the secrets
-// gate. Per git segment: `commit` scans the STAGED added lines, `push`
-// scans the upstream→worktree added lines, and `merge` scans what the merge
-// would add (a clean merge auto-commits with NO hook — W694 H1; content
-// made while the gate was off still cannot leave). SUSPENDERS_SCRUB=0
+// gate. Per git segment: `commit` scans the STAGED added lines + staged
+// binary blobs, `push` scans the pushed range PER COMMIT (a net
+// upstream→worktree tree-diff is blind to add-then-remove — W708), and
+// `merge` scans the ref's incoming history per commit (a clean merge
+// auto-commits with NO hook — W694 H1). SUSPENDERS_SCRUB=0
 // disables. Git plumbing
 // failure is fail-inert (a broken diff never blocks); findings deny with
 // file:line + the marker recipe.
@@ -16,6 +17,11 @@ import {
 	scrubRules,
 	type ScrubFinding,
 } from "../lib/scrub.ts";
+import {
+	commitRangeFindings,
+	firstPushBase,
+	stagedBinaryFindings,
+} from "../lib/scrub-git.ts";
 import { gitSub, gitSubIndex, verb } from "./bash-hardening.ts";
 
 // repo dir a git segment operates on — -C <path> / --git-dir=<path>
@@ -58,11 +64,31 @@ export function scrubGateSegments(segs: string[][], cwd: string): void {
 				deny(scrubDenyText("content a MERGE would add", found));
 			continue;
 		}
-		const diffArgs = diffFor(sub, repoDir);
-		if (!diffArgs) continue;
-		const d = run("git", diffArgs, { cwd: repoDir });
+		if (sub === "push") {
+			// per-commit scan of what the push adds (W708): the net
+			// upstream…worktree tree-diff is blind to an add-then-remove
+			// inside the range; with no upstream the first-push base applies.
+			const up = run(
+				"git",
+				["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+				{ cwd: repoDir },
+			);
+			const base =
+				up.ok && up.out.trim()
+					? up.out.trim()
+					: firstPushBase(repoDir, "HEAD");
+			const found = commitRangeFindings(repoDir, base, "HEAD");
+			if (found.length > 0) deny(scrubDenyText(scannedSet(sub), found));
+			continue;
+		}
+		const d = run("git", ["diff", "--cached", "-U0", "--no-color"], {
+			cwd: repoDir,
+		});
 		if (!d.ok) continue; // fail-inert on plumbing failure
-		const found = scrubAddedLines(addedDiffLines(d.out), scrubRules());
+		const found = [
+			...scrubAddedLines(addedDiffLines(d.out), scrubRules()),
+			...stagedBinaryFindings(repoDir),
+		];
 		if (found.length > 0) deny(scrubDenyText(scannedSet(sub), found));
 	}
 }
@@ -109,29 +135,11 @@ function mergeFindings(
 			{ cwd: repoDir },
 		);
 		if (!sha.ok) continue; // unresolvable ref → fail inert
-		const d = run(
-			"git",
-			["diff", `HEAD...${sha.out.trim()}`, "-U0", "--no-color"],
-			{ cwd: repoDir },
-		);
-		if (!d.ok) continue; // plumbing failure → fail inert
-		out.push(...scrubAddedLines(addedDiffLines(d.out), scrubRules()));
+		// per-commit scan (W708): a merge adds the ref's full history —
+		// the net HEAD...ref tree-diff is blind to an add-then-remove in it.
+		out.push(...commitRangeFindings(repoDir, "HEAD", sha.out.trim()));
 	}
 	return out;
-}
-
-// the diff covering what a commit/push would ADD to history: commit → the
-// staged changes; push → the upstream…worktree added lines (null when no
-// upstream — the commit surface already gated that content).
-function diffFor(sub: string, repoDir: string): string[] | null {
-	if (sub === "commit") return ["diff", "--cached", "-U0", "--no-color"];
-	const up = run(
-		"git",
-		["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-		{ cwd: repoDir },
-	);
-	if (!up.ok || !up.out.trim()) return null;
-	return ["diff", `${up.out.trim()}...`, "-U0", "--no-color"];
 }
 
 const scrubDenyText = (what: string, found: ScrubFinding[]): string =>

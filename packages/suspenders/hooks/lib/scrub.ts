@@ -171,39 +171,50 @@ export interface AddedLine {
 	text: string;
 }
 
-// parse git diff -U0 output into ADDED lines with new-file line numbers:
-// +++/--- headers, \ No-newline markers and binary notices are never
-// content; context lines advance the counter, - lines do not.
+// parse git diff -U0 output into ADDED lines with new-file line numbers.
+// Hunk-aware (W708): +++/--- headers only exist PRE-hunk — inside a hunk a
+// raw `+++ …` line IS added content whose text starts `++ ` and must scan.
+// \ No-newline markers are never content; context lines advance the
+// counter, - lines do not.
 export function addedDiffLines(diff: string): AddedLine[] {
 	const out: AddedLine[] = [];
 	let file = "";
 	let n = 0;
+	let inHunk = false;
 	for (const raw of diff.split("\n")) {
 		if (raw.startsWith("diff --git ")) {
 			file = /^diff --git a\/(.+) b\/(.+)$/.exec(raw)?.[2] ?? raw.slice(11);
 			n = 0;
+			inHunk = false;
 			continue;
 		}
 		if (raw.startsWith("@@")) {
+			inHunk = true;
 			n = Number(/^@@ -\d+(?:,\d+)? \+(\d+)/.exec(raw)?.[1] ?? 0);
 			continue;
 		}
-		if (
-			raw.startsWith("+++ ") ||
-			raw.startsWith("--- ") ||
-			raw.startsWith("\\")
-		) {
-			continue;
-		}
+		if (!inHunk) continue; // index/rename/mode/+++/--- metadata
+		if (raw.startsWith("\\")) continue;
 		if (raw.startsWith("+")) {
 			out.push({ file, line: n, text: raw.slice(1) });
 			n++;
-		} else if (n > 0) {
+		} else if (!raw.startsWith("-") && n > 0) {
 			n++;
 		}
 	}
 	return out;
 }
+
+// whole-buffer scan for binary/NUL-laced content: git diffs emit no hunks
+// for binary files, so the gate hands blobs over whole. latin1 keeps every
+// byte addressable and the rule set is ASCII-patterned — nothing is lost.
+// 1-based line numbers over the \n-split buffer.
+export const scrubBuffer = (
+	buf: Uint8Array,
+	rules: ScrubRule[],
+	file = "",
+): ScrubFinding[] =>
+	scrubText(Buffer.from(buf).toString("latin1"), rules, file);
 
 // scan the ADDED diff lines → findings (file:line from the hunk headers)
 export function scrubAddedLines(

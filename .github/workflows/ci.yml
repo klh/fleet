@@ -282,3 +282,16 @@ jobs:
           bun-version: latest
       - name: docs drift guard
         run: bun test tests/
+
+  # W708 (W694 H2): server-side secret scan. gitleaks runs its default
+  # secret rules over the pushed history; .gitleaksignore carries the
+  # owner-approved suppressions from the W422 cutover.
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

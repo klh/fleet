@@ -8,7 +8,7 @@
 import dgram from "node:dgram";
 
 const NAS = process.env.W86_NAS_HOST ?? "nas.example.invalid";
-const MAC = process.env.W86_WOL_MAC ?? "00:00:00:00:00:00";
+const MAC = process.env.W86_WOL_MAC ?? "00:00:00:00:00:00"; // scrub:allow
 const BROADCAST = process.env.W86_WOL_BROADCAST_IP ?? "255.255.255.255";
 
 function magicPacket(mac: string): Buffer {
