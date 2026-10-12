@@ -5,6 +5,7 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { verifyAuthChain } from "./audit-chain.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
 
@@ -89,6 +90,11 @@ export async function handleAdmin(
 	const revoke = /^\/v1\/admin\/keys\/([0-9a-f]{12})\/revoke$/.exec(path);
 	if (method === "POST" && revoke !== null) {
 		return revokeKey(req, revoke[1] ?? "", p, gov);
+	}
+	// W703: walk the auth_events hash chain; ?head=<hex> pins the tail
+	if (method === "GET" && path === "/v1/admin/audit/verify") {
+		const head = url.searchParams.get("head") ?? undefined;
+		return ok(verifyAuthChain(gov.db, { expectHead: head }));
 	}
 	if (method === "POST" && path === "/v1/admin/teams") {
 		return upsertTeam(req, gov);

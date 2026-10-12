@@ -60,7 +60,11 @@ on `packages/buckle` (+ one Caddy fragment line):
   covers the dropped-peer-file exfiltration vector at the overlay seam.
   If belt peers grow a loader, the same `validatePeerEndpoint` law
   applies there.
-- Tamper-evident append-only audit stream + telemetry enablement knobs:
-  named in the review's "missing" list, absent from the item title; left
-  as follow-up work (mint items if wanted).
+- Tamper-evident append-only audit stream: LANDED W703 — `auth_events`
+  carries `prev_hash`/`row_hash` (sha256 chain, `packages/buckle/src/gov/audit-chain.ts`);
+  verify verb `GET /v1/admin/audit/verify[?head=<hex>]` (edit/remove/reorder
+  detected; a removed TAIL needs the pinned head). Retention-compatible (W174
+  archive-before-delete): a pruned prefix re-anchors, reported `anchored`.
+  `route_audit` (mutable by design: outcome UPDATEs) is not chained. Telemetry
+  enablement knobs: still follow-up work.
 - Docker e2e overlay-ON/solo validation: the W234-docker item's job.

@@ -5,6 +5,7 @@
 // loop govdb runs is created here over the local tables. Team ceilings ride
 // guarded ALTERs (house idempotent pattern).
 import type { Database } from "bun:sqlite";
+import { ensureChainColumns } from "./audit-chain.ts";
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -145,6 +146,8 @@ export function applyGovernanceSchema(db: Database): void {
 	db.exec(
 		"CREATE TABLE IF NOT EXISTS deltas (ts INTEGER NOT NULL, tbl TEXT NOT NULL, op TEXT NOT NULL, pk TEXT NOT NULL, before TEXT, after TEXT)",
 	);
+	// W703: hash-chain columns on auth_events (pre-chain databases heal)
+	ensureChainColumns(db);
 	// team ceilings (W141) — guarded ALTERs, idempotent on every open
 	const cols = (
 		db.query("SELECT name FROM pragma_table_info('teams')").all() as Array<{
