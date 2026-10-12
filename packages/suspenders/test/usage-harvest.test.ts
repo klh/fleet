@@ -245,10 +245,17 @@ describe("harvestUsage", () => {
 			"CREATE TRIGGER fail_usage BEFORE INSERT ON usage_rollup BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
 		);
 		expect(() => harvestFixture(db, root)).toThrow("injected failure");
+		// W466: harvest cursors live in machine_cursors (facts is retired) —
+		// nothing survives the failed pass: no cursor advance, no ledger rows.
 		expect(
 			db
-				.query("SELECT COUNT(*) AS n FROM facts WHERE key LIKE 'usage.tp.%'")
+				.query(
+					"SELECT COUNT(*) AS n FROM machine_cursors WHERE key LIKE 'usage.%'",
+				)
 				.get(),
+		).toEqual({ n: 0 });
+		expect(
+			db.query("SELECT COUNT(*) AS n FROM usage_message_ledger").get(),
 		).toEqual({ n: 0 });
 		db.run("DROP TRIGGER fail_usage");
 		expect(harvestFixture(db, root).requests).toBe(1);
