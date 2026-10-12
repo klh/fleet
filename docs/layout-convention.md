@@ -41,8 +41,10 @@ normalizes (`*.test.ts` may stay beside their modules — they never ship).
 
 - Files: kebab-case; entry CLIs named for the thing (`work.ts`, `coord.ts`);
   multi-verb kits may carry the family name (`federation-pull.ts`).
-- HTML page emitters: `*-html.ts` (the five remaining in `hooks/bin/` merge
-  onto the Lit base per W658's children).
+- HTML page emitters: `*-html.ts` — all five `hooks/bin/` emitters sit on the
+  Lit base as of the W695.3 children (one emitter per lane, completed
+  2026-10-12; emitters stay in `hooks/bin/`, components in `hooks/board-html/`;
+  merge-to-main tracked as W695.3.7).
 - Tests: `test/<mirror>/<name>.test.ts`; bench-harness tests may sit beside
   their harness inside `bench/`; fixtures in `test/fixtures/`.
 - Benchmarks docs: ONE `benchmarks.md` per package, decision-grade rows only
