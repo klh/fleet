@@ -311,7 +311,10 @@ function fixture() {
 	return root;
 }
 
-test("fleet-loop status and script status never report a reused PID alive", () => {
+// W669.3: the parallel scripts/lanes.ts face is retired — `work lanes` /
+// fleet-loop `lanes` is the one lane-liveness read; the reused-PID verdict
+// (dead, never ALIVE) stays pinned here on the surviving face.
+test("fleet-loop status never reports a reused PID alive", () => {
 	const root = fixture();
 	const loop = Bun.spawnSync(
 		[
@@ -326,17 +329,6 @@ test("fleet-loop status and script status never report a reused PID alive", () =
 	expect(loop.exitCode).toBe(0);
 	expect(loop.stdout.toString()).toContain("dead ");
 	expect(loop.stdout.toString()).not.toContain("ALIVE");
-	const script = Bun.spawnSync(
-		[
-			process.execPath,
-			join(import.meta.dir, "../scripts/lanes.ts"),
-			"--repo",
-			root,
-		],
-		{ stdout: "pipe", stderr: "pipe", env: { ...process.env, HOME: root } },
-	);
-	expect(script.exitCode).toBe(0);
-	expect(script.stdout.toString()).toContain("1 dead, 0 unknown");
 });
 
 test("fleet-loop refuses duplicate dispatch when process inspection fails", () => {

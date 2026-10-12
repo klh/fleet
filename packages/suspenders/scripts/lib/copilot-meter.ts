@@ -22,8 +22,8 @@
 // main() flushes once per cycle, so the fleet loop (hooks/bin/fleet-loop.ts
 // --every) keeps totals fresh without a new daemon.
 //
-// (surface) `scripts/lanes.ts` and the board's laneModelOf() read the same
-// fact back through the coord CLI. Missing store / missing fact are honest
+// (surface) the `work lanes` table and the board's laneModelOf() read the
+// same fact back through the coord CLI. Missing store / missing fact are honest
 // empties, never fabricated numbers.
 import { existsSync, readFileSync } from "node:fs";
 
