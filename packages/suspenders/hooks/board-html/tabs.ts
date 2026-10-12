@@ -16,25 +16,18 @@ function renderTab(){
   else if (curTab === 'activity') renderAct();
   else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }  else if (curTab === 'setup') renderSetup();
 }
-var nav = document.querySelector('nav.tabs');
+var nav = byId('boardTabs'); // <klh-board-tabs> (W695.3.6): owns the buttons, emits tab-select
 function setTab(id, fromHash){
   if (!TABS[id]) id = 'decisions';
   curTab = id;
-  var bs = nav.querySelectorAll('button[data-tab]');
-  for (var i = 0; i < bs.length; i++) {
-    if (bs[i].getAttribute('data-tab') === id) bs[i].setAttribute('aria-current', 'true');
-    else bs[i].removeAttribute('aria-current');
-  }
+  nav.current = id;
   for (var name in TABS) byId('tab-' + name).hidden = name !== id;
   if (!fromHash && location.hash !== '#' + id) location.hash = id;
   pollActiveTab();
   renderTab();
 }
 // --- wiring ---
-nav.addEventListener('click', function(e){
-  var b = e.target.closest && e.target.closest('button[data-tab]');
-  if (b) setTab(b.getAttribute('data-tab'));
-});
+nav.addEventListener('tab-select', function(e){ setTab(e.detail); });
 window.addEventListener('hashchange', function(){
   var h = (location.hash || '').replace(/^#/, '');
   if (TABS[h]) setTab(h, true);

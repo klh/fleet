@@ -66,17 +66,11 @@ header .right { margin-left:auto; display:flex; align-items:center; gap:12px; }
 #needsn:empty { display:none; }
 .plabel { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
 select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid var(--klh-edge); border-radius:2px; padding:3px 8px; font:11px var(--klh-font-mono); max-width:380px; }
-nav.tabs { display:flex; gap:2px; margin:2px 0 16px; border-bottom:1px solid var(--klh-edge); }
-nav.tabs button { background:none; border:none; border-bottom:2px solid transparent; color:var(--klh-dim); font:inherit; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 12px; cursor:pointer; }
-nav.tabs button:hover { color:var(--klh-ink); }
-nav.tabs button[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
 @media (max-width:700px) {
   body { padding:12px; }
   header { flex-wrap:wrap; }
   header .right { margin-left:0; flex-wrap:wrap; gap:8px; width:100%; }
   select { max-width:100%; min-width:0; }
-  nav.tabs { flex-wrap:wrap; }
-  nav.tabs button { padding:7px 9px; }
 }
 #fleet { margin-bottom:14px; }
 #fleetHead { display:block; width:100%; text-align:left; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:2px; color:var(--klh-dim); padding:5px 10px; font:inherit; font-size:11px; cursor:pointer; }
@@ -290,4 +284,5 @@ ${fleetNav("suspenders", "suspenders")}
 <klh-topbar></klh-topbar>
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
-<script type="module" src="/vendor/klh-topbar.js"></script>`);
+<script type="module" src="/vendor/klh-topbar.js"></script>
+<script type="module" src="/vendor/klh-board-tabs.js"></script>`);

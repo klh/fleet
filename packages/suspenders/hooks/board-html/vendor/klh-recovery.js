@@ -1,4 +1,4 @@
-import{r,e,s}from"./lit-9bpcreb0.js";import{a}from"./lit-8e31bhpw.js";class l extends s{static properties={data:{state:!0},error:{state:!0},busy:{state:!0},now:{state:!0}};static styles=r`
+import{r,e,s}from"./lit-sq0mv1by.js";import{a}from"./lit-8e31bhpw.js";class l extends s{static properties={data:{state:!0},error:{state:!0},busy:{state:!0},now:{state:!0}};static styles=r`
 		:host { display:block; margin-bottom:20px; color:var(--klh-ink); font:13px/1.5 var(--klh-font-sans); }
 		header { display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; border-bottom:1px solid var(--klh-edge); }
 		h2 { font-size:14px; margin:0 0 8px; } h3 { font-size:12px; margin:18px 0 4px; }
