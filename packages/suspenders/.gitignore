@@ -11,6 +11,9 @@ node_modules/
 
 .worktrees/
 .fleet/
+
+# W669 wave 0: mis-parse scratch named `-` landed here once; never stage it
+/-
 .workgraph.jsonl
 .research/
 
