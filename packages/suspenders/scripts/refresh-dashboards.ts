@@ -41,6 +41,7 @@ export const dashboardCodeGroups = [
 			"spawn-admission.ts",
 			"spawner.ts",
 			"supervisor.ts",
+			"tail-lines.ts",
 			"dashboard-observability.js",
 			"vendor/lit.js",
 		],

@@ -47,6 +47,7 @@ test("every service drops all caps and forbids privilege gain", () => {
 test("runtime services: non-root, read-only rootfs, tmpfs scratch, init, grace", () => {
 	for (const name of RUNTIME) {
 		const s = svcs[name] as Svc;
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
 		expect(s.user, name).toBe("${HUB_RUN_UID:-1000}:${HUB_RUN_GID:-1000}");
 		expect(s.read_only, name).toBe(true);
 		expect(s.tmpfs, name).toEqual(["/tmp:size=64m,mode=1777"]);
@@ -68,16 +69,21 @@ test("build one-shots keep root + writable rootfs but are capless", () => {
 test("only hub-init holds capabilities, and only chown-class ones", () => {
 	const holders = Object.entries(svcs).filter(([, s]) => s.cap_add);
 	expect(holders.map(([n]) => n)).toEqual(["hub-init"]);
-	expect(svcs["hub-init"]?.cap_add).toEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER"]);
+	expect(svcs["hub-init"]?.cap_add).toEqual([
+		"CHOWN",
+		"DAC_OVERRIDE",
+		"FOWNER",
+	]);
 });
 
 test("stateful runtime services wait on hub-init; sidecars never hold state", () => {
 	for (const name of STATEFUL)
-		expect(
-			svcs[name]?.depends_on?.["hub-init"]?.condition,
-			name,
-		).toBe("service_completed_successfully");
-	for (const name of RUNTIME.filter((n) => n.endsWith("-health") || n.endsWith("-ready")))
+		expect(svcs[name]?.depends_on?.["hub-init"]?.condition, name).toBe(
+			"service_completed_successfully",
+		);
+	for (const name of RUNTIME.filter(
+		(n) => n.endsWith("-health") || n.endsWith("-ready"),
+	))
 		expect(
 			(svcs[name]?.volumes ?? []).some((v) => String(v).includes("-state")),
 			name,
@@ -101,11 +107,32 @@ test("writable surface = explicit state mounts; code mounts stay :ro", () => {
 });
 
 test("sidecars get a scratch HOME on tmpfs (rootfs is read-only)", () => {
-	for (const name of RUNTIME.filter((n) => n.endsWith("-health") || n.endsWith("-ready")))
+	for (const name of RUNTIME.filter(
+		(n) => n.endsWith("-health") || n.endsWith("-ready"),
+	))
 		expect(svcs[name]?.environment?.HOME, name).toBe("/tmp");
 });
 
 test("buckle-hub grace covers the ledger flush cadence (5s) with headroom", () => {
 	const g = Number.parseInt(String(svcs["buckle-hub"]?.stop_grace_period), 10);
 	expect(g).toBeGreaterThanOrEqual(20);
+});
+
+// W714 (W694 L2): `test -f A && exec bun A || exec bun B` runs B after A
+// FAILS (exec replaces the shell, so || sees A's exit code). One boot path,
+// chosen by if/else.
+test("fleet-deps picks exactly one boot script (no &&/|| double-run)", () => {
+	const cmd = String(svcs["fleet-deps"]?.command);
+	expect(cmd).toContain("if test -f");
+	expect(cmd).not.toMatch(/&& .* \|\|/);
+});
+
+test("W689 boot comment is stated once", () => {
+	const raw = readFileSync(
+		join(import.meta.dir, "../deploy/hub-compose.yaml"),
+		"utf8",
+	);
+	expect(raw.split("boot script installs the pinned checkout").length - 1).toBe(
+		1,
+	);
 });

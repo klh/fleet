@@ -32,6 +32,7 @@ import { metricsFor, metricsSnapshot } from "./metrics.ts";
 import { capabilityPayload } from "./catalog-capability.ts";
 import { readStatus } from "./supervisor.ts";
 import { endpointState, supervisorSource } from "./dashboard-state.ts";
+import { tailLines } from "./tail-lines.ts";
 import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import {
@@ -180,10 +181,7 @@ async function status() {
 	};
 
 	const prefs = readPrefs();
-	const raw = existsSync(ROUTING_LOG)
-		? readFileSync(ROUTING_LOG, "utf8").trim()
-		: "";
-	const routing_tail = raw ? raw.split("\n").slice(-12) : [];
+	const routing_tail = tailLines(ROUTING_LOG, 12);
 
 	return {
 		router: { ...router, state_label: routerState },

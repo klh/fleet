@@ -123,6 +123,7 @@ function capturedFixture() {
 		"belt/bin": [
 			"dashboard.ts",
 			"dashboard-state.ts",
+			"tail-lines.ts",
 			"health.ts",
 			"remotes.ts",
 			"inventory-probe.ts",
