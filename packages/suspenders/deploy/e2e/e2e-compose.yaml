@@ -13,7 +13,7 @@
 # published ports from the host (the runner is the external prober).
 #
 # Solo is the default (overlay excluded): `docker compose up -d`. The
-# private *-remote overlay leg is opt-in via profile:
+# private overlay leg is opt-in via profile:
 #   KLH_E2E_OVERLAY_SRC=<overlay packages root> \
 #     docker compose --profile overlay up -d   # adds buckle-overlay :4121
 
@@ -308,7 +308,7 @@ services:
       retries: 6
       start_period: 15s
 
-  # Private *-remote overlay leg (auth ON) — activated ONLY with
+  # Private overlay leg (auth ON) — activated ONLY with
   # --profile overlay by the private repo's harness run, which points
   # KLH_E2E_OVERLAY_SRC at its overlay packages root. The public repo
   # never activates the profile (solo = the public surface).

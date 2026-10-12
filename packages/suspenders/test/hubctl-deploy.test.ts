@@ -183,14 +183,14 @@ test("an overlay origin pulls its own repos.ref, not the stack version", () => {
 	const config = JSON.parse(readFileSync(stack, "utf8"));
 	config.hubs.w363.repos = {
 		ref: "stack-5234813",
-		buckle: "https://git.example/klh/fleet-enterprise.git",
+		buckle: "https://git.example/klh/overlay-repo.git",
 	};
 	writeFileSync(overlay, JSON.stringify(config));
 	const result = hubctl(["render", "w363"], { KLH_STACK: overlay });
 	expect(result.code).toBe(0);
 	expect(result.out).toContain("HUB_FLEET_REF=stack-5234813");
 	expect(result.out).toContain(
-		"HUB_FLEET_REPO_URL=https://git.example/klh/fleet-enterprise.git",
+		"HUB_FLEET_REPO_URL=https://git.example/klh/overlay-repo.git",
 	);
 	expect(readFileSync(calls, "utf8")).toBe("");
 });
@@ -200,7 +200,7 @@ test("an overlay origin without repos.ref is refused", () => {
 	const overlay = join(dir, "overlay-noref-stack.json");
 	const config = JSON.parse(readFileSync(stack, "utf8"));
 	config.hubs.w363.repos = {
-		buckle: "https://git.example/klh/fleet-enterprise.git",
+		buckle: "https://git.example/klh/overlay-repo.git",
 	};
 	writeFileSync(overlay, JSON.stringify(config));
 	const result = hubctl(["deploy", "w363"], { KLH_STACK: overlay });

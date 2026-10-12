@@ -1,6 +1,6 @@
 // hooks/lib/federation-peers.ts — W362 peer-to-peer policy propagation.
 // The start-topology edges (hubs.<me>.peers in stack.yaml, mirrored by the
-// belt-remote profile's federation.peers) are the seam: each hub pulls its
+// an overlay profile's federation.peers) are the seam: each hub pulls its
 // declared peers' /federation/policy-manifest and keeps a per-peer
 // last-known store under the federation home. The manifest's
 // content-addressed version is the change detector — same rules → same

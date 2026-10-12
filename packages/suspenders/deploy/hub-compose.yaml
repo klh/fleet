@@ -13,7 +13,7 @@
 #   - repos bind-mount READ-ONLY; containers write only into volumes.
 #   - no registry pushes: oven/bun base + bind mounts only.
 #
-# Enterprise layer (-remote overlays, config-over-code): real hub names,
+# Enterprise layer (private overlays, config-over-code): real hub names,
 # peers, Entra/OIDC values live in ~/.config/klh/stack.yaml (mode 600, never
 # committed — placeholders in deploy/stack.example.yaml). The envs below are
 # the materialized knobs those profiles set; W191 OIDC enforcement is base
@@ -151,7 +151,7 @@ services:
     # base code from node_modules/fleet/packages where bun's git-dep
     # install creates no workspace links (cross-package @klh/* imports
     # would die at boot). Plain fleet checkouts run the in-tree copy;
-    # overlay checkouts (klh-remote) carry no packages/suspenders, so the
+    # overlay checkouts carry no packages/suspenders, so the
     # copy rides the installed base dep.
     command: sh -c "test -f packages/suspenders/deploy/hub-deps.ts && exec bun packages/suspenders/deploy/hub-deps.ts || exec bun node_modules/fleet/packages/suspenders/deploy/hub-deps.ts"
     environment:

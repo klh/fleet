@@ -4,7 +4,7 @@
 // W193: pulls are authenticated (spoke:READ_) and the manifest is signed.
 // W233.3: the manifest pull + CR lifecycle ride the ManifestCrProvider seam
 // — solo posture answers honest 501s; the serving e2e re-homes to the
-// enterprise overlay (klh-remote buckle-remote).
+// enterprise overlay.
 import { describe, expect, test } from "bun:test";
 import type { HubEntitlementsFactory } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";

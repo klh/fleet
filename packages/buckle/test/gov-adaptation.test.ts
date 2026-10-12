@@ -5,7 +5,7 @@
 // hooks may only deny/refine/attribute — never bypass a core floor, the
 // audit tap rides the denied-audits-too stream, and registration is
 // fail-closed at boot. The REAL SSO/enterprise implementations live in the
-// enterprise overlay (klh-remote buckle-remote).
+// enterprise overlay.
 import { describe, expect, test } from "bun:test";
 import {
 	principalFromSso,

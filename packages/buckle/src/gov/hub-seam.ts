@@ -1,7 +1,7 @@
 // src/gov/hub-seam.ts — W233 enterprise-posture seam
 // (finding.auth-posture-split): hub-only surfaces declare their contract
 // here; the implementation lives in the private enterprise overlay
-// (klh-remote packages/buckle-remote). Public solo posture runs
+// (the private overlay repo). Public solo posture runs
 // provider-less — the hub routes answer honest 501s (buckle.no_federation).
 // One-directional: the overlay imports this contract; fleet never
 // references the overlay.
@@ -169,7 +169,7 @@ export type CrVerdict =
  *  manifest a spoke pull reconciles (buildRules/manifestVersion), the CR
  *  origination + linear lifecycle store, and the verification-probe
  *  registry. The implementation lives in the enterprise overlay
- *  (klh-remote buckle-remote); public solo posture runs provider-less —
+ *  (private overlay repo); public solo posture runs provider-less —
  *  the manifest pull + CR routes answer honest 501s. */
 export interface ManifestCrProvider {
 	/** The manifest payload: content-addressed version + rules + CR queue. */
@@ -216,8 +216,8 @@ export interface EntitlementModel {
 }
 
 /** W233.1: the hub entitlement-menu provider — the pool→menu mapping
- *  (buildModels) lives in the enterprise overlay (klh-remote
- *  buckle-remote); public solo posture runs provider-less and the
+ *  (buildModels) lives in the enterprise overlay;
+ *  public solo posture runs provider-less and the
  *  entitlements route answers an honest 501. Team ceilings stay public
  *  (federation.ts reads the shared governance schema). */
 export interface HubEntitlementsProvider {

@@ -3,7 +3,7 @@
 // (forward_auth + Entra via the enterprise SSO service); buckle trusts
 // only SIGNED identity headers — an unsigned Remote-User is not identity,
 // it is a string. The verifier + the reference signer live here; the
-// enterprise overlay (klh-remote) owns the real SSO service that signs
+// enterprise overlay owns the real SSO service that signs
 // after a successful forward_auth. Replay window on the claims' iat;
 // constant-time signature compare.
 import { createHmac, timingSafeEqual } from "node:crypto";

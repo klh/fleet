@@ -28,7 +28,7 @@ export interface HubProfile {
 	/** W688.7.1: the buckle entrypoint the hub runs (path inside the
 	 *  container). Unset = the base `src/server.ts` (provider-less solo
 	 *  posture); an enterprise hub points it at the overlay entry that
-	 *  injects the gov providers (klh-remote buckle-remote src/server.ts). */
+	 *  injects the gov providers (its own src/server.ts). */
 	buckle_entry?: string;
 	/** W688.7.1: private-network hosts the ladder may reach over plain http
 	 *  (BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlist), e.g. the engine host. */

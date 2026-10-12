@@ -41,8 +41,8 @@ export interface FederationOpts {
 	 *  signature over the exact manifest bytes (null = serve unsigned). */
 	signer?: ManifestSigner;
 	/** W233 enterprise-posture seam: the spoke-enrollment + fleet-registry
-	 *  provider factory (implementation lives in the enterprise overlay,
-	 *  klh-remote buckle-remote). Unset in solo posture — the enrollment
+	 *  provider factory (implementation lives in the private
+	 *  enterprise overlay repo). Unset in solo posture — the enrollment
 	 *  routes answer honest 501s and the pull heartbeat is a no-op. */
 	spokeEnrollment?: SpokeEnrollmentFactory;
 	/** W233.2: the usage-ingest seam — same posture law. Unset in solo
