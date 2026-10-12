@@ -385,3 +385,42 @@ Findings (as measured, n=12 smoke-level):
    enable the enhance pass on the local swarm for task prompts, and keep the
    buckle outbound sideband (politeness) default OFF pending a quality bench
    on real responses. W368 re-benches all three blam tiers per model.
+
+## Local 35B vs z.ai — sealed local-reason bench (W695.5, 2026-10-12)
+
+Question: can the resident :8903 35B replace the :4100 z.ai legs as the
+reason tier? Sealed harness
+[local-reason-overnight.ts](packages/belt/bench/local-reason-overnight.ts)
+(seal head `c4560023`; same-day, AC power, no concurrent lanes, per-round
+served-identity check), 10 rounds × {code task graded by `bun test`; review
+task graded blind on a frozen rubric /9, pass ≥6, fabricated evidence caps
+the answer} × 3 legs. n=10 rounds/task — smoke per the quality law above;
+medians as marked. Run:
+`bench/arena/results/local-reason-w532/w6955-20261012.jsonl`
+(publish-gate exit 0).
+
+| leg                                 | code pass | review rubric pass | wall p50 code | wall p50 pooled | out tok/s | cost (20 rounds) |
+| ----------------------------------- | --------: | -----------------: | ------------: | --------------: | --------: | ---------------: |
+| :8903 local 35B (direct MLX)        |   **0/10** |            **0/10** |         14.2s |           14.6s |     124.6 |               $0 |
+| :4100 z.ai glm-5.3-flash (stack)    |      9/10 |              10/10 |        258.8s |          304.8s |      52.9 |           $0.172 |
+| :4100 z.ai glm-5.3 frontier (stack) |      9/10 |              10/10 |        238.5s |          397.5s |      53.5 |           $0.215 |
+
+Findings (as measured, n=10 smoke-level):
+
+1. **The 35B is not a reason-tier candidate for code or review work —
+   0/10 on both.** Every code round fails `bun test` while finishing
+   ~18–27× faster than the cloud legs; speed is irrelevant at 0% task
+   success. Its reviews transport clean but score 5/9: real findings mixed
+   with false claims (OOM via an "unbounded" memo that is 64-capped, a
+   symlink-cycle story) and it misses the module's one real HIGH bug; its
+   one non-templated answer fabricates evidence (an invented `\$` regex
+   bug) and caps at 2/9. At temp 0 it emitted 9/10 byte-identical reviews.
+2. **Both z.ai legs pass 19/20 and every cloud review found the real HIGH
+   bug** (`transcriptsAliveBatch` calls a one-pop-per-call walker exactly
+   once → the batch reports all-dead). Reasoning tokens are 89–91% of cloud
+   output at ~53 tok/s. Rubric medians: flash 8.5/9, frontier 9/9 — the
+   frontier edge is real but unresolvable at this n.
+3. **Verdict**: z.ai flash stays the :4100 reason tier; frontier remains
+   the escalation leg (1.26× flash cost for an n-limited quality edge). Do
+   not route reason tasks at :8903 35B. Re-run at N≥12 after any model
+   bump; a decision-grade quality row needs the ≥130-paired protocol.
