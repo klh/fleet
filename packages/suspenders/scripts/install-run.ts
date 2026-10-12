@@ -4,6 +4,7 @@
 // The contract (scripts/install-contract.ts) is the frozen surface.
 import { join } from "node:path";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -158,6 +159,53 @@ export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 	};
 }
 
+// W650: repo-level scrub-gate enforcement — committed .githooks stubs (W236)
+// exec hooks/bin/scrub-gate.ts from the installed prefix (fallback:
+// repo-local packages/suspenders), fail inert without the stack.
+export async function registerGitHooks(ctx: StepContext): Promise<StepResult> {
+	const top = await execa(
+		"git",
+		["-C", ctx.repo, "rev-parse", "--show-toplevel"],
+		{ reject: false },
+	);
+	if (top.failed || top.exitCode !== 0) {
+		return {
+			status: "skipped",
+			note: `${ctx.repo} is not a git checkout — nothing to register`,
+		};
+	}
+	const root = top.stdout.trim();
+	for (const stub of [".githooks/pre-commit", ".githooks/pre-push"]) {
+		if (!existsSync(join(root, stub))) {
+			return {
+				status: "failed",
+				note: `committed ${stub} missing at ${root}`,
+			};
+		}
+	}
+	const set = await execa(
+		"git",
+		["-C", root, "config", "core.hooksPath", ".githooks"],
+		{ reject: false },
+	);
+	if (set.failed || set.exitCode !== 0) {
+		return {
+			status: "failed",
+			note: `git config core.hooksPath failed — ${set.stderr.trim()}`,
+		};
+	}
+	const verify = await execa("git", ["-C", root, "config", "core.hooksPath"], {
+		reject: false,
+	});
+	const wired = verify.stdout?.trim() === ".githooks";
+	return {
+		status: wired ? "ok" : "failed",
+		note: wired
+			? `core.hooksPath=.githooks on ${root} — bare-git commits run the scrub gate (fail-inert without the stack)`
+			: `core.hooksPath did not read back as .githooks (got: ${verify.stdout?.trim() ?? ""})`,
+	};
+}
+
 /**
  * The v1 delegation: one bash install.sh invocation covers every mutating
  * "delegated" step on a consented full run. W490.2: install.sh's public face
@@ -203,12 +251,16 @@ async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 					note: unknown;
 				};
 				if (
-					row.name !== "registerCaddy" ||
+					typeof row.name !== "string" ||
+					!["registerCaddy", "registerGitHooks"].includes(row.name) ||
 					typeof row.status !== "string" ||
 					!["ok", "failed", "skipped"].includes(row.status) ||
 					typeof row.note !== "string"
 				)
 					throw new Error("invalid legacy step report");
+				// registerGitHooks is native ("real") — a legacy-body row for it is
+				// tolerated here, never consumed: the plan's own run reported it.
+				if (row.name === "registerGitHooks") continue;
 				steps.registerCaddy = {
 					status: row.status as StepStatus,
 					note: row.note,
@@ -283,6 +335,7 @@ function pauseFor(
 const impls: Partial<Record<StepName, StepImpl>> = {
 	probeEnvironment,
 	refreshDashboards,
+	registerGitHooks,
 	registerLaunchd,
 	upgradeGateway,
 	syncHarness,

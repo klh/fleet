@@ -38,7 +38,28 @@ PRUNE_ARGS=()
 if [[ "${SUSPENDERS_LEGACY_PRUNE:-0}" -eq 1 ]]; then
   PRUNE_ARGS+=(--prune)
 fi
+# Legacy step outcome reporter (SUSPENDERS_LEGACY_REPORT ndjson, consumed by
+# install-run.ts delegateBash) — defined before any block that reports.
+report_step() {
+  if [[ -n "${SUSPENDERS_LEGACY_REPORT:-}" ]]; then
+    printf '{"name":"%s","status":"%s","note":"%s"}\n' "$1" "$2" "$3" >> "$SUSPENDERS_LEGACY_REPORT"
+  fi
+}
 bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"}
+
+# registerGitHooks (W650): repo-level scrub-gate enforcement — the committed
+# .githooks stubs (W236) exec hooks/bin/scrub-gate.ts from the prefix
+# (fallback: repo-local packages/suspenders) and fail inert when bun or the
+# stack is absent, so bare-git commits outside the harness run the
+# staged/push-range scrub check.
+if [ -f "$SCRIPT_DIR/.githooks/pre-commit" ] && [ -f "$SCRIPT_DIR/.githooks/pre-push" ]; then
+  git -C "$SCRIPT_DIR" config core.hooksPath .githooks
+  echo "→ .githooks registered (core.hooksPath=.githooks) — bare-git commits run the scrub gate"
+  report_step registerGitHooks ok "core.hooksPath=.githooks (W236 scrub stubs active)"
+else
+  echo "→ degraded install: committed .githooks stubs missing — scrub gate stays harness-only (manual: git config core.hooksPath .githooks)"
+  report_step registerGitHooks failed "committed .githooks stubs missing; scrub gate stays harness-only"
+fi
 
 # Targeted code upgrade for the advanced installed belt supervisor. The kit's
 # older swarm implementation and operator-owned config must remain untouched.
@@ -192,11 +213,6 @@ fi
 # gets http://suspenders.local:7799. Idempotent (converges on re-run) and
 # optional absence is skipped; attempted registration failure is reported as
 # a degraded install without aborting the remaining harness/release work.
-report_caddy() {
-  if [[ -n "${SUSPENDERS_LEGACY_REPORT:-}" ]]; then
-    printf '{"name":"registerCaddy","status":"%s","note":"%s"}\n' "$1" "$2" >> "$SUSPENDERS_LEGACY_REPORT"
-  fi
-}
 KLH_LOCAL_BIN="$HOME/.local/bin/klh-local"
 if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
   # W631: an installed klh-local predating W602 emits the unloadable loopback
@@ -207,17 +223,17 @@ if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
   # remediation command instead of attempting a reload that cannot load.
   if ! grep -q "abort @external" "$KLH_LOCAL_BIN"; then
     echo "→ degraded install: installed klh-local predates W602 (unloadable loopback bind posture) — refresh it: bash packages/local/install.sh from the fleet checkout"
-    report_caddy failed "installed klh-local predates W602 — refresh via packages/local/install.sh before registering"
+    report_step registerCaddy failed "installed klh-local predates W602 — refresh via packages/local/install.sh before registering"
   elif "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
     echo "→ suspenders.local → 127.0.0.1:7799 (klh-local / Caddy)"
-    report_caddy ok "board registered with klh-local/Caddy"
+    report_step registerCaddy ok "board registered with klh-local/Caddy"
   else
     echo "→ degraded install: klh-local register failed — loopback board URL: http://127.0.0.1:7799"
-    report_caddy failed "optional Caddy registration failed; harness installed, use the loopback board URL and inspect Caddy reload/rollback"
+    report_step registerCaddy failed "optional Caddy registration failed; harness installed, use the loopback board URL and inspect Caddy reload/rollback"
   fi
 else
   echo "optional: install klh-local + caddy to also serve this board at http://suspenders.local:7799"
-  report_caddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
+  report_step registerCaddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
 fi
 
 # ─── agent skills (TODO(install.ts): registerSkills) — register every skill

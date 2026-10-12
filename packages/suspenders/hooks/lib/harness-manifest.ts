@@ -43,6 +43,7 @@ export const RECEIPT_FILE = "harness-receipt.json";
 export const MANAGED_PREFIX_ENTRIES = new Set([
 	...HOOK_ITEMS,
 	".harness",
+	".githooks",
 	"scripts",
 	"local-llm",
 	"blam",

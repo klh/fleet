@@ -15,6 +15,7 @@ export const INSTALL_CONTRACT_VERSION = 1;
 export type StepName =
 	| "probeEnvironment"
 	| "syncHarness"
+	| "registerGitHooks"
 	| "refreshSupervisor"
 	| "ensureShims"
 	| "seedLocalLlm"
@@ -283,6 +284,14 @@ export const INSTALL_CONTRACT = {
 			name: "syncHarness",
 			oneLiner:
 				"stage committed harness code and offline dependencies, validate imports, publish with rollback receipt; no services restarted",
+			mutates: true,
+			optIn: false,
+			v1: "real",
+		},
+		{
+			name: "registerGitHooks",
+			oneLiner:
+				"set the source repo's core.hooksPath=.githooks so bare-git commits run the committed W236 scrub-gate stubs (fail-inert without the stack); stub publication rides syncHarness",
 			mutates: true,
 			optIn: false,
 			v1: "real",

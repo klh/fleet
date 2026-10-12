@@ -22,6 +22,7 @@ import {
 import type { StepContext, StepResult } from "./install-run.ts";
 
 const SOURCE_PATHS = [
+	".githooks",
 	"packages/suspenders/hooks",
 	"packages/suspenders/scripts",
 	"packages/suspenders/deploy",
@@ -315,6 +316,9 @@ export async function syncHarness(
 		link(".harness/packages/suspenders/scripts", join(stage, "scripts"));
 		link(".harness/packages/local-llm", join(stage, "local-llm"));
 		link(".harness/packages/blam", join(stage, "blam"));
+		// W650: the W236 scrub-gate stubs ride the prefix so other checkouts
+		// can point core.hooksPath at the installed copy directly.
+		link(".harness/.githooks", join(stage, ".githooks"));
 		const digest = await validate(stage);
 		const dependencyLock = ["bun.lock", "bun.lockb"]
 			.map((file) => join(stage, file))
