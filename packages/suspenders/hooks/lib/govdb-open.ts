@@ -59,8 +59,24 @@ export function openGovernorDb(): Database {
 	// alter-table procedure (sqlite.org/lang_altertable.html).
 	db.run("PRAGMA foreign_keys=OFF");
 	try {
-		db.run("BEGIN IMMEDIATE");
-		for (const name of ["work_deps", "work_items"]) {
+		// pre-check with plain reads — BEGIN IMMEDIATE on every open raced
+		// the store-server's write lock (SQLITE_BUSY boot crash; the board
+		// logged 57 restart banners on 2026-10-12). The write tx opens only
+		// when a legacy shape actually needs the swap; shapes are re-checked
+		// inside the tx so two racing openers cannot double-swap.
+		const legacy = ["work_deps", "work_items"].filter((name) => {
+			const row = db
+				.query(
+					"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+				)
+				.get(name) as { sql?: string } | undefined;
+			return (
+				Boolean(row?.sql) && !/PRIMARY KEY\s*\(\s*project/.test(row.sql ?? "")
+			);
+		});
+		const swapped = legacy.length > 0;
+		if (swapped) db.run("BEGIN IMMEDIATE");
+		for (const name of legacy) {
 			const row = db
 				.query(
 					"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -79,7 +95,7 @@ export function openGovernorDb(): Database {
 				);
 			}
 		}
-		db.run("COMMIT");
+		if (swapped) db.run("COMMIT");
 	} catch (e) {
 		try {
 			db.run("ROLLBACK");
