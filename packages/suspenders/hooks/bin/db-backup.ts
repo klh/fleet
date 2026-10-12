@@ -170,7 +170,8 @@ const ksnaps: Snap[] = readdirSync(DEST)
 		ts: Number(f.slice(10, -3)),
 		file: f,
 		ageD: (stamp - Number(f.slice(10, -3))) / DAY,
-	}));
+	}))
+	.sort((a, b) => b.ts - a.ts);
 const kkeep = new Set<number>();
 for (const [lo, hi] of slots) {
 	const s = ksnaps.find((x) => x.ageD >= lo && x.ageD < hi);
