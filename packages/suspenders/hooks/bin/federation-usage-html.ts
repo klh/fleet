@@ -6,10 +6,10 @@
 // content; the page degrades honestly until spokes report (default OFF
 // until an operator opts teams in on the hub policy).
 import { GROUPS } from "../lib/usage.ts";
+import type { UsageHead } from "../board-html/klh-usage-head.ts";
 // W652.3: chrome (palette/esc/fmtTok/tiles/legend/shell) rides the shared
 // usage-chrome module — W171's per-page copies retired.
 import {
-	esc,
 	fmtTok,
 	SLOT,
 	type UsageAidsPanel,
@@ -135,15 +135,30 @@ const fedTilesData = (r: FedPageReport): UsageTile[] => {
 	];
 };
 
-function filtersHtml(days: number): string {
-	const tLinks = [7, 28, 90]
-		.map(
-			(dd) =>
-				`<a class="ufilter${dd === days ? " on" : ""}" href="/federation-usage?days=${String(dd)}">${String(dd)}d</a>`,
-		)
-		.join("");
-	return `<div class="ufilters"><span class="ufgroup" data-label="window">${tLinks}</span></div>`;
-}
+/** Page-head slice (W695.3.5): <klh-usage-head> renders title, back link,
+ *  honest note and the window chips from this — no per-request head HTML. */
+const headData = (r: FedPageReport, degraded: string | null): UsageHead => ({
+	title: "FEDERATED USAGE",
+	backHref: "/",
+	backLabel: "fleet board",
+	note:
+		degraded === null
+			? {
+					kind: "win",
+					text: "aggregate self-report, opt-in per team — the hub stores model-CLASS buckets only; private-domain aggregates never arrive",
+				}
+			: { kind: "on", text: `hub rollups unavailable: ${degraded}` },
+	filters: [
+		{
+			label: "window",
+			options: [7, 28, 90].map((dd) => ({
+				label: `${String(dd)}d`,
+				href: `/federation-usage?days=${String(dd)}`,
+				on: dd === r.days,
+			})),
+		},
+	],
+});
 
 /** Per-spoke slice: one row per (spoke, team), class-segmented bar. */
 const spokesData = (r: FedPageReport): UsageSpokesPanel => {
@@ -232,20 +247,13 @@ export function federationUsagePage(
 ): string {
 	const degraded = opts.degraded ?? null;
 	// W658.4: the chart panels ride <klh-usage-charts> (the fed timeline
-	// title differs — passed through); no more per-request panel HTML strings
+	// title differs — passed through); W695.3.5: the head rides <klh-usage-head>
 	const timeline = `<klh-usage-charts tl="GLOBAL TOKENS · STACKED BY MODEL CLASS"></klh-usage-charts>`;
-	const note =
-		degraded === null
-			? `<span class="uwin">aggregate self-report, opt-in per team — the hub stores model-CLASS buckets only; private-domain aggregates never arrive</span>`
-			: `<span class="uon">hub rollups unavailable: ${esc(degraded)}</span>`;
-	const head =
-		`<h1 class="utitle">FEDERATED USAGE</h1>` +
-		`<div class="uback"><a href="/">&larr; fleet board</a>${note}</div>` +
-		filtersHtml(r.days) +
-		`<klh-usage-tiles></klh-usage-tiles>`;
+	const head = `<klh-usage-head></klh-usage-head><klh-usage-tiles></klh-usage-tiles>`;
 	const payload = JSON.stringify({
 		groups: GROUPS,
 		slot: SLOT,
+		head: headData(r, degraded),
 		timeline: timelineData(r),
 		byHour: byHourData(r),
 		panels: {

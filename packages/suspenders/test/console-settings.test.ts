@@ -368,11 +368,11 @@ describe("console routes (real board, temp config)", () => {
 		const page = await (
 			await fetch(`${BASE}/console/settings/suspenders`)
 		).text();
-		expect(page).toContain("executor preference order");
-		expect(page).toContain('id="exlist"');
-		expect(page).toContain('id="exadd"');
-		// the add-picker serves the merged catalog (bare executors at minimum)
-		expect(page).toContain('value="claude"');
+		expect(page).toContain("<klh-executor-editor");
+		expect(page).toContain("/vendor/klh-console-forms.js");
+		expect(page).toContain('name="default_executors"');
+		// the add-picker catalog rides the options attribute (bare executors at minimum)
+		expect(page).toContain("&quot;value&quot;:&quot;claude&quot;");
 		// write a chain through the same preview → apply flow the editor posts
 		const pv = await postForm("/console/settings/preview", {
 			feature: "suspenders",

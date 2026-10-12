@@ -118,7 +118,25 @@ export interface UsageSpokesPanel {
 		rq: number;
 	}[];
 }
+// W695.3.4: the page header (back bar + title + filter chips) as a slice —
+// hrefs are computed server-side (the query string IS the view state), the
+// <klh-usage-header> component only lays them out.
+export interface UsageChip {
+	label: string;
+	href: string;
+	on: boolean;
+}
+export interface UsageHeaderPanel {
+	back: string;
+	windows: UsageChip[];
+	teams: UsageChip[];
+	depts: UsageChip[];
+	filtered?: string;
+	demoToggle?: UsageChip;
+	status: string;
+}
 export interface UsagePanels {
+	header?: UsageHeaderPanel;
 	tiles?: UsageTile[];
 	actors?: UsageActorsPanel;
 	aids?: UsageAidsPanel;
@@ -162,6 +180,9 @@ export function usagePageShell(cfg: {
 	body: string;
 	payload: string;
 }): string {
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${cfg.payload}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
+	// "<" → <: equivalent JSON, but a payload string can never close the
+	// script block (W695.3.5: the degraded reason now rides the payload)
+	const safePayload = cfg.payload.replace(/</g, "\\u003c");
+	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${safePayload}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "suspenders")}<klh-topbar></klh-topbar><main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
 }

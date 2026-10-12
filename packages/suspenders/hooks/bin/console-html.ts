@@ -197,6 +197,8 @@ const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kc
 // W669.11: the console cards bundle — every page emitting a klh-*-card host
 // loads it; the components upgrade the hosts from their data attributes
 const CARDS_SCRIPT = `<script type="module" src="/vendor/klh-console-cards.js"></script>`;
+// W695.3.2: the settings form widgets (executor editor, diff view) bundle
+const FORMS_SCRIPT = `<script type="module" src="/vendor/klh-console-forms.js"></script>`;
 
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
@@ -307,13 +309,7 @@ const textField = (
 ): string =>
 	`<div><label class="k" for="f_${name}">${label}</label><input class="wide" id="f_${name}" name="${name}" type="text" value="${esc(val)}"><div class="cfoot">${hint}</div></div>`;
 
-const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}
-.exlist{list-style:none;counter-reset:ex;margin:8px 0;padding:0;max-width:640px}
-.exlist li{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--klh-rule)}
-.exlist li::before{counter-increment:ex;content:counter(ex)". ";font-size:11px;color:var(--klh-dim);min-width:22px}
-.exv{flex:1;font:12px var(--klh-font-mono);word-break:break-all}
-.exadd{display:flex;gap:8px;align-items:flex-end;margin-top:8px;max-width:640px}
-.exadd select{flex:1}`;
+const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}`;
 
 const ladderFields = (gw: PolicyGatewayParsed): string =>
 	Object.entries(gw.fallbacks)
@@ -341,59 +337,16 @@ const formFrame = (
 const HIDDEN_FEATURE = (f: Feature): string =>
 	`<input type="hidden" name="feature" value="${f}">`;
 
-// W183.2 — editor behavior: the hidden input is the single source of truth
-// (comma-joined feed values — the exact shape formToBoardSettings parses);
-// rows render client-side from it. DOM template APIs only (UI law);
-// the add-picker disables entries already in the chain, dups refused.
-const EXECUTOR_EDITOR_JS = `(function(){
-var list=document.getElementById('exlist');if(!list)return;
-var sel=document.getElementById('exadd'),add=document.getElementById('exaddbtn');
-var hid=document.querySelector('input[name=default_executors]');if(!hid)return;
-var tpl=document.getElementById('exrow');if(!tpl)return;
-var vals=function(){var vs=[];list.querySelectorAll('li').forEach(function(li){vs.push(li.getAttribute('data-v'));});return vs;};
-var have=function(v){return vals().indexOf(v)>=0;};
-var sync=function(){hid.value=vals().join(',');};
-var row=function(v){var li=tpl.content.firstElementChild.cloneNode(true);li.setAttribute('data-v',v);
-li.querySelector('.exv').textContent=v;
-li.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-label',b.dataset.act+' '+v);});
-return li;};
-var refresh=function(){var vs=vals();Array.from(sel.options).forEach(function(o){o.disabled=vs.indexOf(o.getAttribute('value'))>=0;});};
-list.addEventListener('click',function(ev){
-var t=ev.target;if(!(t instanceof HTMLButtonElement)||!t.dataset.act)return;
-var li=t.closest('li');if(!li)return;
-if(t.dataset.act==='rm')li.remove();
-else if(t.dataset.act==='up'&&li.previousElementSibling)list.insertBefore(li,li.previousElementSibling);
-else if(t.dataset.act==='down'&&li.nextElementSibling)list.insertBefore(li.nextElementSibling,li);
-else return;
-sync();refresh();
-});
-add.addEventListener('click',function(){var v=sel.value;if(v&&!have(v)){list.appendChild(row(v));sync();refresh();}});
-hid.value.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(v){list.appendChild(row(v));});
-refresh();
-})();`;
+// W695.3.2 — the executor-preference editor rides <klh-executor-editor>
+// (board-html/klh-console-forms.ts); see executorPrefsEditor below.
 
-// W183.2 — the ordered executor-preference editor panel for the suspenders
-// settings form. The hidden input round-trips the comma-joined chain
-// through preview → apply even with JS off; rows render client-side from
-// the hidden input (clone of the #exrow template).
 const executorPrefsEditor = (
 	executors: ExecutorEntry[],
 	current: string[],
-): string =>
-	`<div class="panel"><h2>executor preference order</h2>` +
-	`<p class="cfield-hint">dispatch walks this order as its fallback chain — first entry first; a dead lane re-dispatch advances to the next; the same-model tail rides claude's --fallback-model; claude is appended as the last resort unless enabled_executors blocks it. Empty list = claude only.</p>` +
-	`<ol id="exlist" class="exlist" aria-label="executor preference order"></ol>` +
-	`<template id="exrow"><li><span class="exv"></span>` +
-	`<button type="button" class="btn2 exb" data-act="up" aria-label="move up">↑</button>` +
-	`<button type="button" class="btn2 exb" data-act="down" aria-label="move down">↓</button>` +
-	`<button type="button" class="btn2 exb" data-act="rm" aria-label="remove">✕</button></li></template>` +
-	`<div class="exadd"><label class="k" for="exadd">add executor (catalog)</label><div class="exaddrow"><select id="exadd">` +
-	executors
-		.map((e) => `<option value="${esc(e.value)}">${esc(e.label)}</option>`)
-		.join("") +
-	`</select><button type="button" id="exaddbtn" class="btn2">add</button></div></div>` +
-	`<input type="hidden" name="default_executors" value="${esc(current.join(","))}">` +
-	`<script>${EXECUTOR_EDITOR_JS}</script></div>`;
+): string => {
+	const opts = executors.map((e) => ({ value: e.value, label: e.label }));
+	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}"><input type="hidden" name="default_executors" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
+};
 
 export const settingsFormPage = (
 	feature: Feature,
@@ -567,7 +520,7 @@ export const previewPage = (a: PreviewArgs, me?: ConsoleMe): string => {
 		`<style>${PILL_CSS}</style>` +
 			(a.flash ? `<div class="flash">${esc(a.flash)}</div>` : "") +
 			(a.error ? `<div class="errbox">${esc(a.error)}</div>` : "") +
-			`<div class="panel"><h2>target · ${esc(a.target)}</h2><pre class="diff">${a.diff.map((l) => (l.startsWith("+ ") ? `<span class="add">${esc(l)}</span>` : l.startsWith("- ") ? `<span class="del">${esc(l)}</span>` : esc(l))).join("\n") || "no textual change"}</pre></div>` +
+			`<klh-diff-view heading="target · ${esc(a.target)}" lines="${esc(JSON.stringify(a.diff))}"><pre class="diff">${a.diff.map((l) => (l.startsWith("+ ") ? `<span class="add">${esc(l)}</span>` : l.startsWith("- ") ? `<span class="del">${esc(l)}</span>` : esc(l))).join("\n") || "no textual change"}</pre></klh-diff-view>${FORMS_SCRIPT}` +
 			confirmForm,
 		me,
 	);
