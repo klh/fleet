@@ -162,6 +162,7 @@ services:
     bunEntry: "__PREFIX__/bin/fleet-board.ts"
     env:
       PATH: "__HOME__/.local/bin:__HOME__/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      GOVERNOR_STORE_URL: "local"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/fleet-board.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
