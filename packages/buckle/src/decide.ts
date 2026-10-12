@@ -121,23 +121,38 @@ export function decideRoute(input: DecideInput): DecideResult {
 	// group, the model string is a PIN — scope candidates to that group's
 	// rows, never substitute another group behind the client's back. No
 	// matching rows → the old whole-pool walk (model was a preference).
+	// W710 (W694 M1/M2): each pinned row enters the pool exactly once —
+	// allowCross never re-pushes cross-dialect pins — and allowCross:false
+	// (count_tokens has no openai count endpoint) restricts the pin to the
+	// request dialect.
 	const pinnedRows = input.candidates.filter((c) => c.group === input.group);
-	const scoped =
-		pinnedRows.length > 0
-			? pinnedRows
-			: input.candidates.filter(
-					(c) => c.dialect === input.dialect && viable(c),
-				);
+	const pinned = pinnedRows.length > 0;
+	const scoped = pinned
+		? pinnedRows.filter((c) => input.allowCross || c.dialect === input.dialect)
+		: input.candidates.filter(
+				(c) => c.dialect === input.dialect && viable(c),
+			);
 	const pool: CandidateRow[] = [...scoped];
-	if (input.allowCross)
+	if (!pinned && input.allowCross)
 		pool.push(
-			...(pinnedRows.length > 0
-				? scoped.filter((c) => c.dialect !== input.dialect)
-				: input.candidates.filter(
-						(c) => c.dialect !== input.dialect && viable(c),
-					)),
+			...input.candidates.filter(
+				(c) => c.dialect !== input.dialect && viable(c),
+			),
 		);
-	if (input.hint?.verb === "must") return mustPath(input, pool, gateOpen);
+	if (input.hint?.verb === "must")
+		return mustPath(input, pool, gateOpen, pinned);
+	// W710 (W694 M3): an all-unhealthy pin refuses instead of heading a
+	// doomed row. must keeps its own fit-filtered error and the owner-gate
+	// precedence checked above it.
+	if (pinned && pool.length > 0 && !pool.some((c) => c.healthy))
+		return {
+			ok: false,
+			err: {
+				code: "no_healthy_fit",
+				seen: pool.length,
+				why: `pin '${input.group}': all ${String(pool.length)} row(s) unhealthy — never substitutes`,
+			},
+		};
 	return preferOr(input, pool);
 }
 
@@ -166,6 +181,7 @@ function mustPath(
 	input: DecideInput,
 	pool: CandidateRow[],
 	gateOpen: boolean,
+	pinned: boolean,
 ): DecideResult {
 	const hint = input.hint;
 	if (!hint) return { ok: false, err: noFitErr(input.hintRaw, pool.length) };
@@ -187,7 +203,18 @@ function mustPath(
 		.filter((c) => c.healthy && fitOf(c, hint) === hintTotal(hint))
 		.sort(dialectThen(input.dialect, compareCandidates));
 	const head = fits[0];
-	if (!head) return { ok: false, err: noFitErr(input.hintRaw, pool.length) };
+	if (!head) {
+		// W710 (W694 M3): a must that healthy pinned rows cannot satisfy is a
+		// conflict, not a health fault — the error names both demands.
+		const why =
+			pinned && pool.some((c) => c.healthy)
+				? `must '${input.hintRaw}' vs pin '${input.group}': healthy pinned rows cannot satisfy the must — must never substitutes`
+				: noFitErr(input.hintRaw, pool.length).why;
+		return {
+			ok: false,
+			err: { code: "no_healthy_fit", seen: pool.length, why },
+		};
+	}
 	return okSel(input, pool, fits, head, hintTotal(hint));
 }
 

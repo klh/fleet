@@ -48,10 +48,12 @@ const decide = (
 	candidates: CandidateRow[],
 	prefs: Prefs = PREFS_OPEN,
 	dialect: "openai" | "anthropic" = "openai",
+	group = "",
 ) =>
 	decideRoute({
 		hint: HINT(hintRaw),
 		hintRaw: hintRaw ?? "",
+		group,
 		candidates,
 		prefs,
 		dialect,
@@ -227,6 +229,7 @@ describe("W426 cross-dialect eligibility", () => {
 		const r = decideRoute({
 			hint: null,
 			hintRaw: "",
+			group: "other-group",
 			candidates: [cross, same],
 			prefs: PREFS_OPEN,
 			dialect: "openai",
@@ -240,11 +243,133 @@ describe("W426 cross-dialect eligibility", () => {
 		const r = decideRoute({
 			hint: null,
 			hintRaw: "",
+			group: "other-group",
 			candidates: [antRow()],
 			prefs: PREFS_OPEN,
 			dialect: "openai",
 			allowCross: true,
 		});
 		expect(r.ok).toBe(true);
+	});
+});
+
+describe("W690 explicit-model pins (W694 M1-M4)", () => {
+	const PIN = "glm-5.3-flash";
+	const antRow = (over: Partial<CandidateRow> = {}) =>
+		row({ dialect: "anthropic", ...over });
+
+	test("pin scopes to the group's rows — other groups invisible even when faster", () => {
+		const pinned = row({ estimate_ms: 10, calls: 5 });
+		const faster = row({ group: "other-group", estimate_ms: 1, calls: 9 });
+		const r = decide(null, [pinned, faster], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.candidate_id).toBe(pinned.candidate_id);
+	});
+
+	test("no matching rows → the old whole-pool preference walk", () => {
+		const only = row();
+		const r = decide(null, [only], PREFS_OPEN, "openai", "no-such-group");
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.candidate_id).toBe(only.candidate_id);
+	});
+
+	test("pin + allowCross: every pinned row listed exactly once (W694 M1)", () => {
+		const same = row();
+		const cross = antRow();
+		const r = decideRoute({
+			hint: null,
+			hintRaw: "",
+			group: PIN,
+			candidates: [same, cross],
+			prefs: PREFS_OPEN,
+			dialect: "openai",
+			allowCross: true,
+		});
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			const ids = r.sel.ordered.map((c) => c.candidate_id);
+			expect(ids).toEqual([same.candidate_id, cross.candidate_id]);
+			expect(r.sel.seen).toBe(2);
+		}
+	});
+
+	test("count_tokens-style pin (allowCross:false) scopes to the request dialect (W694 M2)", () => {
+		const same = row();
+		const cross = antRow();
+		const r = decide(null, [same, cross], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.sel.head.candidate_id).toBe(same.candidate_id);
+			expect(r.sel.seen).toBe(1);
+		}
+		const crossOnly = decide(null, [antRow()], PREFS_OPEN, "openai", PIN);
+		expect(crossOnly.ok).toBe(false);
+		if (!crossOnly.ok) expect(crossOnly.err.code).toBe("no_route");
+	});
+
+	test("all-unhealthy pin → no_healthy_fit naming the pin (W694 M3)", () => {
+		const r = decide(
+			null,
+			[row({ healthy: false }), row({ healthy: false })],
+			PREFS_OPEN,
+			"openai",
+			PIN,
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.err.code).toBe("no_healthy_fit");
+			expect(r.err.why).toContain("pin 'glm-5.3-flash'");
+			expect(r.err.why).not.toContain("vs pin");
+		}
+	});
+
+	test("mixed-health pin heads the healthy row", () => {
+		const dead = row({ healthy: false, estimate_ms: 1, calls: 9 });
+		const alive = row({ estimate_ms: 900, calls: 5 });
+		const r = decide(null, [dead, alive], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.candidate_id).toBe(alive.candidate_id);
+	});
+
+	test("must vs pin conflict names both demands (W694 M3)", () => {
+		const r = decide("must model:other*", [row()], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.err.code).toBe("no_healthy_fit");
+			expect(r.err.why).toContain(`vs pin '${PIN}'`);
+			expect(r.err.why).toContain("must never substitutes");
+		}
+	});
+
+	test("must agreeing with the pin delivers inside it", () => {
+		const tagged = row({ capability_text: "fast glm-5.3-flash" });
+		const r = decide("must fast", [tagged], PREFS_OPEN, "openai", PIN);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.sel.head.candidate_id).toBe(tagged.candidate_id);
+			expect(r.sel.decision).toBe("policy");
+		}
+	});
+
+	test("must cloud + gate closed keeps owner-gate precedence over the pin", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example" });
+		const r = decide(
+			"must cloud",
+			[cloud],
+			{ cost_speed: "balanced", allow_cloud: false },
+			"openai",
+			PIN,
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.err.code).toBe("cloud_forbidden");
+	});
+
+	test("unpinned must keeps the plain no-fit error", () => {
+		const r = decide("must model:other*", [row()], PREFS_OPEN, "openai", "");
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.err.why).toContain("no healthy full fit");
+			expect(r.err.why).not.toContain("vs pin");
+		}
 	});
 });
