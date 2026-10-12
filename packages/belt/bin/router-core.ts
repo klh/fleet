@@ -8,6 +8,7 @@
 //   - upstream 429 + Retry-After honored (bounded wait, then fallback/propagate)
 //   - OpenAI SSE → Anthropic SSE streaming translation (TTFT = first token)
 
+import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
@@ -240,15 +241,14 @@ export function applyBudget(
 }
 
 // ─── Retry-After ───
-const envInt = (v: string | undefined, dflt: number): number => {
-	const n = Number(v);
-	return Number.isInteger(n) && n >= 0 ? n : dflt;
-};
+// envInt lives in admission.ts (W669.12 dedup); min=0 keeps the
+// wait-cap-expresses-no-cap semantics (BELT_RETRY_WAIT_CAP_MS=0).
 /** Longest upstream Retry-After the router waits out in-request before
  *  taking the fallback hop instead. */
 export const RETRY_WAIT_CAP_MS = envInt(
 	process.env.BELT_RETRY_WAIT_CAP_MS,
 	2000,
+	0,
 );
 
 /** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */
@@ -263,6 +263,34 @@ export function retryAfterMs(
 	return Number.isNaN(at) ? undefined : Math.max(0, at - now);
 }
 
+// ─── per-request timings (W257) ───
+/** Router-side wall clock, t0 = request receipt. prefill_ms = t0 → upstream
+ *  open (queue + prompt prefill); ttft_ms = t0 → first content token;
+ *  decode_ms = first token → end. ttft/decode only exist on streamed legs —
+ *  a buffered completion hides decode inside prefill, so a field the leg
+ *  can't observe stays absent, never zero. */
+export interface RequestTimings {
+	total_ms: number;
+	prefill_ms?: number;
+	ttft_ms?: number;
+	decode_ms?: number;
+}
+
+/** t0 → upstream-open window shared by viaLocal + openLocalStream. */
+const openWindow = (
+	t0: number | undefined,
+	openAt: number | undefined,
+	endAt: number,
+): Pick<RequestTimings, "total_ms" | "prefill_ms"> => ({
+	total_ms: Math.round(endAt - (t0 ?? endAt)),
+	prefill_ms:
+		t0 === undefined
+			? Math.round(endAt - endAt)
+			: openAt === undefined
+				? Math.round(endAt - t0)
+				: Math.round(openAt - t0),
+});
+
 // ─── specialist call (OpenAI format) ───
 export interface LocalResult {
 	ok: boolean;
@@ -273,10 +301,23 @@ export interface LocalResult {
 	finish?: string;
 }
 
+export interface LocalResult {
+	ok: boolean;
+	response: string;
+	error?: string;
+	status?: number;
+	retryAfterMs?: number;
+	finish?: string;
+	timings?: RequestTimings;
+}
+
 export interface CallOpts {
 	base?: string; // default http://localhost:<port>
 	extra?: Record<string, unknown>;
 	timeoutMs?: number;
+	/** W257: performance.now() at request receipt — enables per-attempt
+	 *  timings on the used hop. */
+	startedAt?: number;
 }
 
 export const specialistBase = (port: number): string =>
@@ -292,6 +333,7 @@ export async function viaLocal(
 	opts: CallOpts = {},
 ): Promise<LocalResult> {
 	let text = "";
+	const t0 = opts.startedAt;
 	try {
 		const res = await fetch(
 			`${opts.base ?? specialistBase(r.port)}/v1/chat/completions`,
@@ -309,6 +351,7 @@ export async function viaLocal(
 				}),
 			},
 		);
+		const tOpen = t0 === undefined ? undefined : performance.now();
 		if (res.status === 429) {
 			await res.body?.cancel();
 			return {
@@ -362,6 +405,9 @@ export async function viaLocal(
 			response,
 			status: res.status,
 			finish: choice?.finish_reason,
+			...(t0 !== undefined
+				? { timings: openWindow(t0, tOpen, performance.now()) }
+				: {}),
 		};
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
@@ -393,7 +439,12 @@ export async function callHonoringRetryAfter<
 
 // ─── streaming: specialist SSE → Anthropic SSE ───
 export type StreamOpen =
-	| { ok: true; body: ReadableStream<Uint8Array> }
+	| {
+			ok: true;
+			body: ReadableStream<Uint8Array>;
+			/** W257: performance.now() when the upstream opened (headers in). */
+			openedAt?: number;
+	  }
 	| { ok: false; error: string; status?: number; retryAfterMs?: number };
 
 export async function openLocalStream(
@@ -422,7 +473,13 @@ export async function openLocalStream(
 		);
 		const ct = res.headers.get("content-type") ?? "";
 		if (res.ok && res.body && ct.includes("text/event-stream"))
-			return { ok: true, body: res.body };
+			return {
+				ok: true,
+				body: res.body,
+				...(opts.startedAt !== undefined
+					? { openedAt: performance.now() }
+					: {}),
+			};
 		const raw = await res.text().catch(() => "");
 		return {
 			ok: false,
@@ -484,6 +541,12 @@ export interface StreamMeta {
 	id: string;
 	model: string | undefined;
 	routing?: Record<string, unknown>;
+	/** W257: t0 = performance.now() at request receipt; openedAt = upstream
+	 *  open; timings = pre-measured (buffered legs). With startedAt set the
+	 *  tail's message_delta usage carries `_server_timings`. */
+	startedAt?: number;
+	openedAt?: number;
+	timings?: RequestTimings;
 }
 
 function anthropicHead(meta: StreamMeta): string {
@@ -509,13 +572,20 @@ function anthropicHead(meta: StreamMeta): string {
 	);
 }
 
-function anthropicTail(finish: string | undefined, outTokens: number): string {
+function anthropicTail(
+	finish: string | undefined,
+	outTokens: number,
+	timings?: RequestTimings,
+): string {
 	return (
 		sseEvent("content_block_stop", { type: "content_block_stop", index: 0 }) +
 		sseEvent("message_delta", {
 			type: "message_delta",
 			delta: { stop_reason: stopReason(finish), stop_sequence: null },
-			usage: { output_tokens: outTokens },
+			usage: {
+				output_tokens: outTokens,
+				...(timings ? { _server_timings: timings } : {}),
+			},
 		}) +
 		sseEvent("message_stop", { type: "message_stop" })
 	);
@@ -540,7 +610,9 @@ export function anthropicSseFromText(
 		start(c) {
 			c.enqueue(
 				enc.encode(
-					anthropicHead(meta) + textDelta(text) + anthropicTail(finish, 0),
+					anthropicHead(meta) +
+						textDelta(text) +
+						anthropicTail(finish, 0, meta.timings),
 				),
 			);
 			c.close();
@@ -565,6 +637,7 @@ export function anthropicSseFromOpenAi(
 		chars: number;
 		finish?: string;
 		error?: string;
+		timings?: RequestTimings;
 	}) => void = () => {},
 ): ReadableStream<Uint8Array> {
 	const enc = new TextEncoder();
@@ -575,10 +648,24 @@ export function anthropicSseFromOpenAi(
 	let finish: string | undefined;
 	let outTokens = 0;
 	let finished = false;
-	const done = (error?: string) => {
+	let ttftAt: number | undefined;
+	/** W257: `_server_timings` from t0/openedAt + the first-token mark; absent
+	 *  (not zero) when the meta carries no t0. */
+	const composeTimings = (): RequestTimings | undefined => {
+		if (meta.startedAt === undefined) return undefined;
+		const endAt = performance.now();
+		return {
+			total_ms: Math.round(endAt - meta.startedAt),
+			prefill_ms: Math.round((meta.openedAt ?? endAt) - meta.startedAt),
+			ttft_ms:
+				ttftAt === undefined ? undefined : Math.round(ttftAt - meta.startedAt),
+			decode_ms: ttftAt === undefined ? undefined : Math.round(endAt - ttftAt),
+		};
+	};
+	const done = (error?: string, timings?: RequestTimings) => {
 		if (finished) return;
 		finished = true;
-		onDone({ chars, finish, error });
+		onDone({ chars, finish, error, timings: timings ?? composeTimings() });
 	};
 	const handleLine = (line: string): string => {
 		if (!line.startsWith("data:")) return "";
@@ -595,6 +682,7 @@ export function anthropicSseFromOpenAi(
 		if (ch?.finish_reason) finish = ch.finish_reason;
 		const text = filter(ch?.delta?.content ?? "");
 		if (!text) return "";
+		if (ttftAt === undefined) ttftAt = performance.now();
 		chars += text.length;
 		return textDelta(text);
 	};
@@ -608,36 +696,38 @@ export function anthropicSseFromOpenAi(
 			void (async () => {
 				try {
 					for (;;) {
-				const { value, done: eof } = await reader.read();
-				if (eof) {
-					const out = handleLine(buf) + anthropicTail(finish, outTokens);
-					c.enqueue(enc.encode(out));
-					c.close();
-					done();
-					return;
-				}
-				buf += dec.decode(value, { stream: true });
-				const lines = buf.split("\n");
-				buf = lines.pop() ?? "";
-				const out = lines.map(handleLine).join("");
-				if (out) c.enqueue(enc.encode(out));
+						const { value, done: eof } = await reader.read();
+						if (eof) {
+							const timings = composeTimings();
+							const out =
+								handleLine(buf) + anthropicTail(finish, outTokens, timings);
+							c.enqueue(enc.encode(out));
+							c.close();
+							done();
+							return;
+						}
+						buf += dec.decode(value, { stream: true });
+						const lines = buf.split("\n");
+						buf = lines.pop() ?? "";
+						const out = lines.map(handleLine).join("");
+						if (out) c.enqueue(enc.encode(out));
 					}
 				} catch (e) {
-				const msg = e instanceof Error ? e.message : String(e);
-				c.enqueue(
-					enc.encode(
-						sseEvent("error", {
-							type: "error",
-							error: {
-								type: "api_error",
-								message: `router: upstream stream broke (${msg})`,
-							},
-						}),
-					),
-				);
-				c.close();
-				done(msg);
-			}
+					const msg = e instanceof Error ? e.message : String(e);
+					c.enqueue(
+						enc.encode(
+							sseEvent("error", {
+								type: "error",
+								error: {
+									type: "api_error",
+									message: `router: upstream stream broke (${msg})`,
+								},
+							}),
+						),
+					);
+					c.close();
+					done(msg);
+				}
 			})();
 		},
 		cancel(reason) {

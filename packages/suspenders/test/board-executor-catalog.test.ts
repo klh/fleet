@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { BeltEndpoint } from "../hooks/board/belt.ts";
 import {
 	buildBeltEntries,
+	feedModelOf,
 	resolveLlmTarget,
 } from "../hooks/board/executor-catalog.ts";
 
@@ -112,5 +113,42 @@ describe("W224 resolveLlmTarget", () => {
 		expect(resolveLlmTarget(rows, "nas", "garbage-id")).toBeNull();
 		expect(resolveLlmTarget(rows, "nope", "9100")).toBeNull();
 		expect(resolveLlmTarget([], "nas", "9100")).toBeNull();
+	});
+});
+
+describe("W183.2 feed-value translation (chain slots)", () => {
+	const specByPort = (p: number) =>
+		p === 8901 ? { model: "qwen3-coder" } : undefined;
+	const userByName = (n: string) =>
+		n === "mistral" ? { model: "mistral-7b" } : undefined;
+
+	test("bare names: claude/copilot → null (own CLI), other names are model ids", () => {
+		expect(feedModelOf("claude", specByPort, userByName)).toBeNull();
+		expect(feedModelOf("copilot", specByPort, userByName)).toBeNull();
+		expect(feedModelOf("glm-5.3-flash", specByPort, userByName)).toBe(
+			"glm-5.3-flash",
+		);
+	});
+
+	test("llm:local:<port> via the swarm inventory; unknown port → null", () => {
+		expect(feedModelOf("llm:local:8901", specByPort, userByName)).toBe(
+			"qwen3-coder",
+		);
+		expect(feedModelOf("llm:local:9999", specByPort, userByName)).toBeNull();
+	});
+
+	test("llm:user:<name> via local-models.json; unknown → null", () => {
+		expect(feedModelOf("llm:user:mistral", specByPort, userByName)).toBe(
+			"mistral-7b",
+		);
+		expect(feedModelOf("llm:user:ghost", specByPort, userByName)).toBeNull();
+	});
+
+	test("machine tail IS the belt model id; malformed shapes → null", () => {
+		expect(feedModelOf("llm:desktop:glm-x", specByPort, userByName)).toBe(
+			"glm-x",
+		);
+		expect(feedModelOf("llm:desktop:", specByPort, userByName)).toBeNull();
+		expect(feedModelOf("llm:nocolon", specByPort, userByName)).toBeNull();
 	});
 });

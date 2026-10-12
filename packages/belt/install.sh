@@ -48,10 +48,26 @@ fi
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
 for item in "$REPO_DIR"/bin/*; do
+  # W556: never clobber the kit serve supervisor the launchd label runs
+  # (com.suspenders.local-llm → swarm.ts serve). Copying belt's swarm.ts
+  # over it would flip the producer's semantics silently — observation-only
+  # serve → self-heal supervise — behind the same argv. Owner law
+  # 2026-10-01: the runtime home's kit runtime is its own source of truth.
+  if [ "$(basename "$item")" = "swarm.ts" ] && [ -f "$PREFIX/swarm.ts" ] && grep -q 'serve-observation' "$PREFIX/swarm.ts"; then
+    echo "= $PREFIX/swarm.ts kept (kit serve runtime is the producer)"
+    continue
+  fi
   cp -R "$item" "$PREFIX/"
 done
 cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
 echo "→ fleet scripts in place"
+
+# W507: the tier choice is machine config, not launchd env — emit the tier
+# manifest the swarm supervisor and llm-keepwarm both read. BELT_TIER (the
+# --tier flag) scopes the emission; re-running with another --tier re-points
+# the fleet on the next service restart.
+echo "→ tier manifest: $TIER → $PREFIX/tier.json"
+bun "$REPO_DIR/bin/registry-emit.ts" tier --out "$PREFIX/tier.json"
 
 # --with-models / --with-launchd: setup/llm-stack.ts handles homebrew deps
 # (bun/uv), the python tooling (mlx-lm, rapid-mlx), model downloads, the Metal
@@ -77,7 +93,7 @@ if $WITH_LAUNCHD; then
     for f in "$REPO_DIR"/launchd/*.plist; do
       name="$(basename "$f")"
       out="$HOME/Library/LaunchAgents/$name"
-      sed -e "s|__HOME__|$HOME|g" -e "s|__TIER__|$TIER|g" "$f" >"$out"
+      sed -e "s|__HOME__|$HOME|g" "$f" >"$out"
       launchctl bootout "gui/$bUid/${name%.plist}" 2>/dev/null || true
       launchctl bootstrap "gui/$bUid" "$out"
       echo "→ loaded $name"
@@ -110,6 +126,16 @@ if [ -x "$HOME/.local/bin/klh-local" ] && command -v caddy >/dev/null 2>&1; then
   fi
 else
   echo "optional: install klh/local to serve belt.local"
+fi
+
+# W260: the MCP surface rides the same .local front when klh-local + caddy
+# exist — Entra config comes from belt-mcp.env (0600, machine-level).
+if [ -x "$HOME/.local/bin/klh-local" ] && command -v caddy >/dev/null 2>&1; then
+  if "$HOME/.local/bin/klh-local" register belt-mcp --port 7793 --health /health; then
+    echo "→ belt-mcp.local registered — http://belt-mcp.local (caddy → :7793)"
+  fi
+else
+  echo "optional: belt-mcp.local (Copilot Studio fronting) — needs klh/local + caddy"
 fi
 echo
 echo "done. next:"

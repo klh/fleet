@@ -46,10 +46,7 @@
 			"type": "object",
 			"properties": {
 				"kind": {
-					"enum": [
-						"single-machine",
-						"distributed"
-					]
+					"enum": ["single-machine", "distributed"]
 				},
 				"lanes": {
 					"type": "integer",
@@ -107,11 +104,7 @@
 		"detection": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": [
-				"how",
-				"time_min",
-				"automated"
-			],
+			"required": ["how", "time_min", "automated"],
 			"properties": {
 				"how": {
 					"type": "string"
@@ -128,11 +121,7 @@
 		"recovery": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": [
-				"action",
-				"time_min",
-				"permanent_fix"
-			],
+			"required": ["action", "time_min", "permanent_fix"],
 			"properties": {
 				"action": {
 					"type": "string"
@@ -167,11 +156,7 @@
 			}
 		},
 		"confidence": {
-			"enum": [
-				"high",
-				"medium",
-				"low"
-			]
+			"enum": ["high", "medium", "low"]
 		},
 		"related": {
 			"type": "array",

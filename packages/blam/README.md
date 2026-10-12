@@ -68,4 +68,4 @@ bun test                                               # validator + stats tests
 
 ## License
 
-Code: MIT (`LICENSE`). Dataset: CC-BY-4.0 (see `dataset/README.md`).
+Code: PolyForm Noncommercial 1.0.0 (`LICENSE`). Dataset: CC-BY-4.0 (see `dataset/README.md`).

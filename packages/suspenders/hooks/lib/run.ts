@@ -8,19 +8,18 @@ export type RunResult = { ok: boolean; status: number | null; out: string };
 const cache = new Map<string, boolean>();
 
 export function have(bin: string): boolean {
-	if (!cache.has(bin)) {
-		cache.set(
-			bin,
-			spawnSync("command", ["-v", bin], { shell: true }).status === 0,
-		);
+	let cached = cache.get(bin);
+	if (cached === undefined) {
+		cached = spawnSync("command", ["-v", bin], { shell: true }).status === 0;
+		cache.set(bin, cached);
 	}
-	return cache.get(bin)!;
+	return cached;
 }
 
 export function run(
 	cmd: string,
 	args: string[],
-	opts: { cwd?: string } = {},
+	opts: { cwd?: string; env?: Record<string, string | undefined> } = {},
 ): RunResult {
 	let r = spawnSync(cmd, args, { encoding: "utf8", ...opts });
 	// status null = spawn failure (fork/resource exhaustion under load), not a

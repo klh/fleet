@@ -99,9 +99,22 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/budgets") {
 		return ok({ windows: gov.budgets.snapshot() });
 	}
-	if (method === "POST" && path === "/v1/admin/budgets/flush") {
-		return ok({ flushed: gov.budgets.flush() });
+	if (method === "GET" && path === "/v1/admin/slots") {
+		return ok({ held: gov.slots.held() });
 	}
+	// W173 spoke enrollment + fleet registry: the hub names its fleet — mint
+	// a one-time enrollment code (admin-only by gate class), read the
+	// inventory (id, version, policy version applied, last-seen). W233:
+	// both ride the injected SpokeEnrollmentProvider (enterprise overlay);
+	// absent in solo posture → honest 501.
+	if (method === "POST" && path === "/v1/admin/spokes/enroll") {
+		return mintEnrollCode(req, p, gov);
+	}
+	if (method === "GET" && path === "/v1/admin/spokes") {
+		return listSpokesRoute(gov);
+	}
+	// W468: the /v1/admin/budgets/flush endpoint is gone with the W141
+	// flush — writes land at the DB authority the moment they are known.
 	// known path, wrong method → 405 + Allow (this runs post-auth)
 	if (allowOf(path) !== null) return methodNotAllowed(path);
 	return bad(404, "buckle.no_route", `no admin route: ${method} ${path}`, path);
@@ -169,6 +182,50 @@ async function revokeKey(
 		return bad(404, "buckle.no_route", `no such key: ${keyId}`);
 	gov.keys.recordAuthEvent(p.actor ?? keyId, "revoked", null, "api_key");
 	return ok({ revoked: keyId });
+}
+
+/** W173 enrollment-code mint: {spoke_id, ttl_s?} → one-time code. The code
+ *  is raw material — exists exactly once, in this response. */
+async function mintEnrollCode(
+	req: Request,
+	p: Principal,
+	gov: Governance,
+): Promise<Response> {
+	const sp = gov.federation?.spokes ?? null;
+	if (sp === null)
+		return bad(
+			501,
+			"buckle.no_federation",
+			"no enrollment surface on this gate (solo posture)",
+		);
+	const body = (await req.json().catch(() => null)) as Record<
+		string,
+		unknown
+	> | null;
+	if (body === null) return bad(400, "buckle.bad_body", "invalid JSON body");
+	const spokeId = str(body.spoke_id);
+	if (spokeId === null) return bad(400, "buckle.bad_body", "missing spoke_id");
+	const out = sp.mint({
+		spokeId,
+		ttlS: num(body.ttl_s),
+		actor: p.actor ?? p.keyId,
+	});
+	return ok(
+		{ spoke_id: spokeId, code: out.code, expires_at: out.expiresAt },
+		201,
+	);
+}
+
+/** W173 fleet inventory: the registry the hub can finally read. */
+function listSpokesRoute(gov: Governance): Response {
+	const sp = gov.federation?.spokes ?? null;
+	if (sp === null)
+		return bad(
+			501,
+			"buckle.no_federation",
+			"no enrollment surface on this gate (solo posture)",
+		);
+	return ok({ spokes: sp.list() });
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {

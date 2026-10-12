@@ -8,6 +8,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	mkdirSync,
 	writeFileSync,
@@ -27,14 +28,26 @@ import {
 	CopilotSessionStartSchema,
 	CopilotPreToolUseSchema,
 } from "../hooks/dialects/copilot/schemas.ts";
+import { lanesFileFor } from "../hooks/lib/fleetlane.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w296-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w296-repo-"));
+// W527: tmpdir + realpath here is load-bearing, not cosmetic — session
+// registration resolves fleet identity by walking UP from the gate spawn's
+// cwd to .fleet/lanes.json + pid ancestry (hooks/lib/fleetlane.ts). A
+// fixture under this repo resolves a REAL lane's sid, and the manual-session
+// row lands under THAT sid (W509-era failure: row?.sid undefined at the
+// manual expect because the row landed under the invoking lane). The
+// lanesFileFor() canary in the manual-session test keeps the vector dead.
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w296-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
-const env = (): Record<string, string> => ({
-	...(process.env as Record<string, string>),
-	HOME,
-});
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env = (): Record<string, string> => {
+	const e = { ...(process.env as Record<string, string>), HOME };
+	delete e.SUSPENDERS_SID;
+	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	return e;
+};
 const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");
 const WIRE = join(
 	import.meta.dir,
@@ -433,10 +446,19 @@ describe("gate.ts copilot integration", () => {
 	});
 
 	test("copilot session with NO fleet lane registers under its OWN session_id (the policy divergence from codex)", () => {
-		gate(["copilot", "session"], {
-			session_id: "manual-copilot-abc",
-			cwd: REPO,
-		});
+		// no fleet identity may leak in: the canary proves the fixture cannot
+		// reach a .fleet/lanes.json by walking up (see the W527 note on REPO),
+		// and the empty SUSPENDERS_SID kills the env-wins resolver branch so
+		// an inherited lane env cannot register under a REAL sid instead.
+		expect(lanesFileFor(REPO)).toBe("");
+		gate(
+			["copilot", "session"],
+			{
+				session_id: "manual-copilot-abc",
+				cwd: REPO,
+			},
+			{ SUSPENDERS_SID: "" },
+		);
 		const db = new Database(
 			join(HOME, ".cache", "claude-governor", "governor.db"),
 		);

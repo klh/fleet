@@ -10,8 +10,9 @@
 // + cooldown_time = passive outlier ejection; num_retries = per-tier retries
 // whose backoff honors the upstream retry-after header with jitter
 // (utils.py::_calculate_retry_after semantics).
-import { YAML } from "bun";
+
 import { existsSync, readFileSync } from "node:fs";
+import { YAML } from "bun";
 
 /** OWNER DIRECTIVE (W124, lesson.fanout-rate-budget): flashx appears in no
  *  group, no ladder, no alias — same upstream family saturates together and
@@ -32,6 +33,12 @@ export interface GatewayPolicy {
 	// compatible): backoff cap for absent retry-after, per-attempt timeout.
 	retry_max_delay_s?: number;
 	request_timeout_s?: number;
+	// W450 long-generation deadlines: a streaming body that stalls longer
+	// than the idle deadline is hung (abort); a healthy stream may run to
+	// the total deadline regardless of request_timeout_s. Non-streaming
+	// exchanges keep request_timeout_s as their whole-exchange cap.
+	stream_idle_timeout_s?: number;
+	stream_total_timeout_s?: number;
 	// W142 knowledge-aids policy (buckle enforcement, belt ignores): the
 	// preseed allowlist is the operator's on-switch per domain; compress is
 	// DEFAULT-OFF per the W137 economics (cache reads are 0.1x — compression
@@ -66,6 +73,16 @@ export interface AidsPolicy {
 	 *  (served bytes never change), so declarations are honored by default;
 	 *  `default: "off"` is the operator kill switch. */
 	"condense-in"?: { default?: "on" | "off"; max_bytes?: number };
+	/** W207 trajectory pruning (diet.ts): the gateway tombstones stale tool
+	 *  results past the keep-window pre-routing. DEFAULT-OFF (W137
+	 *  economics): a prefix rewrite costs provider KV-cache re-reads — it
+	 *  must prove ROI on cache-miss traffic before an operator flips it. */
+	prune?: {
+		default?: "on" | "off";
+		keep_turns?: number;
+		min_bytes?: number;
+		max_store_bytes?: number;
+	};
 	// W171 federation phase 3: opt-in aggregate self-report. The hub lists
 	// the teams a spoke may report for; ABSENT BLOCK = OFF (the default —
 	// no teams, no reporting, the manifest carries no rule at all).
@@ -90,17 +107,27 @@ interface PolicyDoc {
 export const POLICY_DEFAULTS: Required<
 	Omit<
 		GatewayPolicy,
-		"fallbacks" | "tags" | "retry_max_delay_s" | "request_timeout_s" | "aids"
+		| "fallbacks"
+		| "tags"
+		| "retry_max_delay_s"
+		| "request_timeout_s"
+		| "stream_idle_timeout_s"
+		| "stream_total_timeout_s"
+		| "aids"
 	>
 > & {
 	retry_max_delay_s: number;
 	request_timeout_s: number;
+	stream_idle_timeout_s: number;
+	stream_total_timeout_s: number;
 } = {
 	num_retries: 1,
 	allowed_fails: 3,
 	cooldown_time: 30,
 	retry_max_delay_s: 8,
 	request_timeout_s: 120,
+	stream_idle_timeout_s: 60,
+	stream_total_timeout_s: 900,
 };
 
 /** Parse a policy file: gateway knobs + the W136 tags block. */

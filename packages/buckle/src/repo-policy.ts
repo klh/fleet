@@ -38,6 +38,13 @@ export interface RepoPolicyRow {
 	/** "commit" — this committed default; or a LOCAL-ONLY coord-fact pointer
 	 *  (fact:finding.ikea-<topic>) whose text never enters the repo. */
 	policySource: string;
+	/** org-assigned scope (W539 pilot): stable service identity + the policy
+	 *  this row assesses. When a hub publishes them, session-side gap
+	 *  decisions consult the policy workflow's approved scoped exceptions.
+	 *  Never a checkout path — clones of one service share it. */
+	serviceId?: string;
+	policyId?: string;
+	orgId?: string;
 }
 
 /** The declarative condition grammar (v1) — everything a row can express
@@ -256,7 +263,17 @@ function validateRow(raw: unknown, i: number): RepoPolicyRow {
 		check,
 		missingQuestion,
 		policySource,
+		serviceId: boundedOptional(r.serviceId, 200),
+		policyId: boundedOptional(r.policyId, 200),
+		orgId: boundedOptional(r.orgId, 100),
 	};
+}
+
+/** bounded optional string for the org-scope fields; absent/empty stays
+ *  undefined so inert rows keep their shape */
+function boundedOptional(v: unknown, max: number): string | undefined {
+	const s = typeof v === "string" ? v.trim() : "";
+	return s.length > 0 && s.length <= max ? s : undefined;
 }
 
 /** Rows resolve like the gateway policy: explicit path → BUCKLE_REPO_POLICY

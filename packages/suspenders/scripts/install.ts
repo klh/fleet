@@ -36,6 +36,7 @@ Options
   --json          Machine output: one JSON outcome document on stdout
   --yes           Unattended consent (legacy blocks run via install.sh __legacy full)
   --verbose       Per-step detail and resolved paths
+  --gateway-review <sha>  Approve the staged gateway upgrade candidate
   --step <name>   Run one step by frozen name (contract.steps[].name)
 
 Exit codes
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
 		yes: false,
 		verbose: false,
 		step: null,
+		wireRepo: null,
 	};
 	if (parsed.error !== undefined) {
 		const doc = usageOutcome(parsed.error, flags);
@@ -73,6 +75,8 @@ async function main(): Promise<void> {
 		yes: flags.yes,
 		json: flags.json,
 		verbose: flags.verbose,
+		wireRepo: flags.wireRepo,
+		gatewayReview: flags.gatewayReview,
 		...resolvePaths(),
 	};
 	const mode: "plan" | "step" = flags.step === null ? "plan" : "step";

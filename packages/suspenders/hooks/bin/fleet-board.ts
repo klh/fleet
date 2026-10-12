@@ -5,9 +5,10 @@
 // second (WAL allows concurrent readers).
 // Start from anywhere:  bun ~/.claude/bin/fleet-board.ts [--port 7799]
 // then open http://127.0.0.1:<port> — dropdown lists every known session;
-// focusing a session shows its project's TODO / IN-FLIGHT / DONE board,
+// focusing a session shows its project's backlog / IN-FLIGHT / DONE board,
 // its claims, inbox, lane state, and the event tail.
 
+import type { Database } from "bun:sqlite";
 import { db, PORT, BIND } from "../board/context.ts";
 import { projectList } from "../board/lanes.ts";
 import { tokenUsage } from "../lib/govdb.ts";
@@ -26,8 +27,13 @@ import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleConsole } from "../board/routes-console.ts";
+import { handleHubAdmin } from "../board/routes-hub-admin.ts";
 import { handleMeta } from "../board/routes-meta.ts";
+import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleObservations } from "../board/routes-observations.ts";
+import { handleLaneModel } from "../board/routes-lane-model.ts";
+import { ensureLaneReadModel } from "../board/lane-read-model.ts";
+import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
@@ -36,6 +42,7 @@ import { startObservationRelay } from "../board/observation-relay.ts";
 import "../board/demo.ts";
 
 ensureLaneObservations(db);
+ensureLaneReadModel(db);
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
 
@@ -46,7 +53,7 @@ function feedTokens(): void {
 	tokAggAt = Date.now();
 	for (const p of projectList()) {
 		const agg = { in: 0, out: 0, cacheR: 0, cacheC: 0 };
-		for (const t of tokenUsage(db, p, Date.now()).values()) {
+		for (const t of tokenUsage(db as Database, p, Date.now()).values()) {
 			if (!t) continue;
 			agg.in += t.in;
 			agg.out += t.out;
@@ -78,14 +85,18 @@ const base = {
 		// W157: the original 30-route if-chain, order preserved, split into
 		// per-area handlers — first match wins exactly as before
 		for (const h of [
+			handleLaneModel,
 			handleObservations,
+			handleFleetTree,
 			handleData,
 			handleUsage,
 			handleFederationUsage,
 			handleDrawer,
 			handleActions,
 			handleOrch,
+			handleSuggest,
 			handleConsole,
+			(req2, url2) => handleHubAdmin(req2, url2, db),
 			handleMeta,
 		]) {
 			const r = await h(req, url);

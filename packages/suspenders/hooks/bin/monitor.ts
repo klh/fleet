@@ -7,15 +7,37 @@
 // transcript-liveness is only decidable for TOP-LEVEL session sids. Checks
 // here are therefore ts-based or pure-DB; ownership liveness for lanes is a
 // known blind spot (backlog W9), surfaced by `work orphaned` instead.
+// W652.1: the lane liveness AUDIT lives in `work lanes` (lib/lane-liveness
+// .ts verdicts — the same read coord fleet and dispatch registry render);
+// the zombie sweep here is claim-ownership HYGIENE, a different axis.
 // usage: bun ~/.claude/bin/monitor.ts [--fix]
-import { statSync, openSync, readSync, fstatSync, closeSync } from "node:fs";
 import {
-	openGovernorDb,
+	closeSync,
+	existsSync,
+	fstatSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	readSync,
+	statSync,
+} from "node:fs";
+import { join } from "node:path";
+import { transcriptAlive } from "../lib/lane-liveness.ts";
+import {
+	MANAGED_PREFIX_ENTRIES,
+	PRUNE_ALLOWLIST,
+	payloadChecksum,
+} from "../lib/harness-manifest.ts";
+import type { Database } from "bun:sqlite";
+import {
+	openStore,
 	projectIdentity,
+	projectRootOf,
 	sweepStaleSessions,
 } from "../lib/govdb.ts";
 
-const db = openGovernorDb();
+const db = openStore();
 const now = Date.now();
 const fix = process.argv.includes("--fix");
 // published coordinator identity (coord fact set coordinator.sid) — the
@@ -56,24 +78,9 @@ for (const s of db
 	role: string;
 	hb: number;
 }[]) {
-	let live = false;
-	try {
-		const glob = new Bun.Glob(`**/*${s.sid}*.jsonl`);
-		for (const rel of glob.scanSync({
-			cwd: `${process.env.HOME}/.claude/projects`,
-			onlyFiles: true,
-		})) {
-			try {
-				if (
-					statSync(`${process.env.HOME}/.claude/projects/${rel}`).mtimeMs >
-					now - 15 * 60_000
-				) {
-					live = true;
-					break;
-				}
-			} catch {}
-		}
-	} catch {}
+	// W466: the per-session `**` glob retired — transcriptAlive rides the
+	// bounded depth-4 walk in lib/lane-liveness.ts (same 15-min floor)
+	const live = transcriptAlive(s.sid);
 	if (!live) {
 		if (waiting.has(s.sid)) {
 			// waiting on a human, not dead — surfaced, never swept
@@ -97,7 +104,9 @@ for (const s of db
 					`COORDINATOR ${s.sid.slice(0, 8)} hb stale ${ageH}h — left RUNNING (sleeping between waves)`,
 				);
 			}
-		} else if (fix) {
+		} else if (fix && db.local) {
+			// W92 seam: transcript-derived writes sweep THIS host only — a remote
+			// binding's transcript view would close live sessions (govdb law)
 			db.query(
 				"UPDATE sessions SET state = 'CLOSED' WHERE sid = ? AND state = 'RUNNING'",
 			).run(s.sid);
@@ -143,7 +152,7 @@ try {
 			`SELECT project, id, title, owner_sid, scope FROM work_items
 			 WHERE state IN ('READY','CLAIMED','RUNNING') AND title LIKE '%DECISION%'
 			 AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.task_id = work_items.id AND d.state = 'OPEN')
-			 AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'NEED_DECISION' AND json_extract(e.payload, '$.work') = work_items.id)`,
+			 AND NOT EXISTS (SELECT 1 FROM events e WHERE e.kind = 'NEED_DECISION' AND e.work = work_items.id)`,
 		)
 		.all() as typeof decisionGated;
 } catch {} // no decisions table yet — board never ran, nothing to surface
@@ -352,6 +361,54 @@ for (const [key, kids] of bursts) {
 	flush();
 }
 
+// 5d. harness drift: repo-vs-prefix (W420) — the ALWAYS-anchor install law
+// (install.sh is the only repo→prefix sync) becomes observable. Report-only:
+// the repair is always a fresh install.sh run (add --prune for mirror mode),
+// never a monitor mutation. Silent when no harness is installed at this HOME.
+const harnessPrefix =
+	process.env.SUSPENDERS_PREFIX ??
+	`${process.env.HOME}/.claude/hooks/suspenders`;
+try {
+	const installed = realpathSync(harnessPrefix);
+	const receipt = JSON.parse(
+		readFileSync(join(installed, "harness-receipt.json"), "utf8"),
+	) as {
+		revision?: string;
+		source?: string;
+		payloadSha256?: string;
+	};
+	if (receipt.payloadSha256 && existsSync(join(installed, ".harness"))) {
+		// in-place edits: the payload no longer matches the checksum its own
+		// receipt pinned at install time (same scheme, shared helper)
+		if (payloadChecksum(join(installed, ".harness")) !== receipt.payloadSha256)
+			issues.push(
+				`harness drift: installed payload checksum ≠ harness-receipt.json (${receipt.revision?.slice(0, 10) ?? "unknown revision"}) — in-place edits; re-run install.sh`,
+			);
+	}
+	if (receipt.source && receipt.revision) {
+		// stale: the source repo's HEAD has moved past the installed revision
+		const head = Bun.spawnSync(
+			["git", "-C", receipt.source, "rev-parse", "HEAD"],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		if (head.exitCode !== 0)
+			issues.push(`harness drift: source repo unreadable at ${receipt.source}`);
+		else if (head.stdout.toString().trim() !== receipt.revision)
+			issues.push(
+				`harness drift: prefix pinned at ${receipt.revision.slice(0, 10)} but ${receipt.source} HEAD is ${head.stdout.toString().trim().slice(0, 10)} — re-run install.sh to sync`,
+			);
+	}
+	const extras = readdirSync(installed, { withFileTypes: true })
+		.map((entry) => entry.name)
+		.filter(
+			(name) => !MANAGED_PREFIX_ENTRIES.has(name) && !PRUNE_ALLOWLIST.has(name),
+		);
+	if (extras.length)
+		issues.push(
+			`harness drift: prefix holds ${extras.length} unmanaged ${extras.length === 1 ? "entry" : "entries"} (${extras.join(", ")}) — install.sh --prune mirrors these away`,
+		);
+} catch {} // no harness at this HOME — nothing to observe
+
 // 7. zombie lanes: CLAIMED items whose owner went silent — usage-limit
 // deaths freeze subagents silently while the claim and the wall clock keep
 // going (2026-09-24: 47 frozen, 6h blackout). FOUR-STATE multi-signal rule
@@ -431,9 +488,14 @@ const zProjects = db
 for (const { project } of zProjects) {
 	const claimed = db
 		.query(
-			"SELECT id, owner_sid, title FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
+			"SELECT id, owner_sid, title, updated_at FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL",
 		)
-		.all(project) as { id: string; owner_sid: string; title: string }[];
+		.all(project) as {
+		id: string;
+		owner_sid: string;
+		title: string;
+		updated_at: number;
+	}[];
 	for (const w of claimed) {
 		if (waiting.has(w.owner_sid)) {
 			// waiting for you — own alert class, never ZOMBIE/SUSPECT: the OPEN
@@ -580,15 +642,19 @@ for (const { project } of zProjects) {
 				.get(fkSince) as { ts: number } | null;
 			if (since && now - since.ts > RECLAIM_MS) {
 				const age = `${((now - since.ts) / 86_400_000).toFixed(1)}d`;
-				const wt = OWN_PROJECT.endsWith("/.git")
-					? OWN_PROJECT.slice(0, -"/.git".length)
-					: OWN_PROJECT;
+				const wt = projectRootOf(OWN_PROJECT);
+				// W573: CAS-pinned on the observed owner+revision — a claim that
+				// changed hands while the zombie aged is refused, never released.
 				const r = Bun.spawnSync(
 					[
 						process.execPath,
 						new URL("./work.ts", import.meta.url).pathname,
 						"reclaim",
 						w.id,
+						"--expect-owner",
+						w.owner_sid,
+						"--expect-updated-at",
+						String(w.updated_at),
 					],
 					{ cwd: wt, stdout: "pipe", stderr: "pipe" },
 				);
@@ -610,14 +676,14 @@ for (const { project } of zProjects) {
 // 6. FOCUS: workload surface per project — health-clean ≠ nothing to do
 const projs = db
 	.query(
-		"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') ORDER BY project",
+		"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY project",
 	)
 	.all() as { project: string }[];
 for (const { project } of projs) {
 	const name = project.split("/").pop()?.replace(".git", "") || project;
 	const all = db
 		.query(
-			"SELECT id, state, owner_sid, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+			"SELECT id, state, owner_sid, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 		)
 		.all(project) as {
 		id: string;
@@ -660,8 +726,10 @@ try {
 // automagic hygiene: the shared liveness sweep rides along with --fix only —
 // a read-only pass closes nothing (monitor doctrine: alerts first). The
 // always-on sweep points are session-start, coord bootstrap, and coord gc.
-if (fix) {
-	const swept = sweepStaleSessions(db);
+if (fix && db.local) {
+	// W92 seam: the liveness sweep reads THIS host's transcripts — remote
+	// bindings degrade to an alert-only pass (monitor doctrine: alerts first)
+	const swept = sweepStaleSessions(db as Database);
 	if (swept)
 		fixed.push(
 			`swept ${swept} stale session(s) (hb-stale + transcript-dead; coordinator/waiting kept)`,

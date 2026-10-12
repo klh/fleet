@@ -67,10 +67,11 @@ was verified earlier against the live Codex install.
 
 Built already in W73.
 
-Relevant files:
-- `hooks/lib/codex.ts`
-- `hooks/gates/codex.ts`
-- `hooks/bin/gate-wire-codex.ts`
+Relevant files (dialect layout since the W296 refactor — the old
+`lib/codex.ts` / `gates/codex.ts` / `bin/gate-wire-codex.ts` paths are gone):
+- `hooks/dialects/codex/lib.ts`
+- `hooks/dialects/codex/gate.ts`
+- `hooks/dialects/codex/wire.ts` (the former `bin/gate-wire-codex.ts`)
 - `test/hook-adapter.test.ts`
 
 ### Why no new adapter work here

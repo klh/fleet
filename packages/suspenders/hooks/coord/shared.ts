@@ -6,9 +6,9 @@ import {
 	projectIdentity,
 	type GovernorStore,
 } from "../lib/govdb.ts";
-import type { KnowledgeHit } from "../lib/knowledge-ports.ts";
+import { makeStore, type KnowledgeHit } from "../lib/knowledge-ports.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
-import { trustOf } from "../lib/knowledge.ts";
+import { trustOf, withTrust } from "../lib/knowledge.ts";
 
 export {
 	projectIdentity,
@@ -19,7 +19,11 @@ export {
 	sweepStaleSessions,
 	tagNameOf,
 } from "../lib/govdb.ts";
-export { makeStore, enqueueKnowledge } from "../lib/knowledge-ports.ts";
+export {
+	makeStore,
+	enqueueKnowledge,
+	currentPromptHash,
+} from "../lib/knowledge-ports.ts";
 export { readFileSync, realpathSync };
 export { createHash };
 export { resolve };
@@ -75,6 +79,17 @@ export const green = paint("32");
 export const amber = paint("33");
 export const red = paint("31");
 
+// W618 — the kb tokenizer, one source: kbLookup scores term overlap over it,
+// the consult-reply harvest fingerprints problem+answer through it (dedup).
+export function kbTerms(text: string, minLen = 3): string[] {
+	return text
+		.toLowerCase()
+		.split(/[^a-z0-9_.-]+/)
+		.filter((t) => t.length >= minLen);
+}
+// normalized token stream — the dedup fingerprint's atomic unit
+export const kbNorm = (s: string): string => kbTerms(s, 1).join(" ");
+
 export function kbLookup(
 	question: string,
 	project: string = projectIdentity(),
@@ -90,14 +105,7 @@ export function kbLookup(
 } | null {
 	if (verifiedOnly && (!scope || !version)) return null;
 	ensureConsultTrust(db);
-	const terms = [
-		...new Set(
-			question
-				.toLowerCase()
-				.split(/[^a-z0-9_.-]+/)
-				.filter((t) => t.length > 2),
-		),
-	];
+	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
 	try {
 		const cands = db
@@ -180,6 +188,36 @@ export function lessonLookup(
 	return best;
 }
 
+// factLookup — the knowledge store as an auto-answer source (W604): a
+// question overlapping a knowledge row whose provenance hash-checks clean
+// (trustOf via withTrust) is answered BY THE PLANE, trust attached — no
+// expert round-trip. Same deterministic overlap bar as kbLookup; 1-hop
+// pointer neighbors never answer (they matched the graph, not the question).
+export async function factLookup(
+	question: string,
+): Promise<KnowledgeHit | null> {
+	const terms = [...new Set(kbTerms(question))];
+	if (!terms.length) return null;
+	const hits = withTrust(
+		await makeStore().search({ query: question, limit: 10 }),
+	);
+	let best: KnowledgeHit | null = null;
+	let bestOverlap = 0;
+	for (const h of hits) {
+		if (h.kind !== "knowledge" || h.hop || h.trust !== "verified") continue;
+		const hay = `${h.topic ?? ""} ${h.fact ?? ""}`
+			.toLowerCase()
+			.split(/[^a-z0-9_.-]+/);
+		const shared = terms.filter((t) => hay.includes(t));
+		const overlap = shared.length / terms.length;
+		if (shared.length >= 2 && overlap >= 0.6 && overlap > bestOverlap) {
+			best = h;
+			bestOverlap = overlap;
+		}
+	}
+	return best;
+}
+
 export function renderKnowledgeHit(
 	h: KnowledgeHit,
 	dim: (s: string) => string,
@@ -187,8 +225,9 @@ export function renderKnowledgeHit(
 ): void {
 	if (h.kind === "knowledge") {
 		const trust = trustOf(h.source_ref, h.source_hash);
+		const hop = h.hop === 1 ? ` · 1-hop ${h.via}` : "";
 		console.log(
-			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
+			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}${hop}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
 		);
 	} else if (h.kind === "fact")
 		console.log(`${cyan(String(h.key))}\n  ${h.snippet}`);

@@ -20,6 +20,12 @@ import {
 } from "node:fs";
 import { basename, dirname } from "node:path";
 import { probeService, serviceTarget } from "./dashboard-health.ts";
+import {
+	activeRouteMatches,
+	fetchActiveConfig,
+	reconcileDnsClaim,
+} from "./dns-reconcile.ts";
+import { maintainDnsClaims, releaseOwnedClaims } from "./dns-maintenance.ts";
 
 const die = (msg: string): never => {
 	console.error(`✗ ${msg}`);
@@ -239,12 +245,22 @@ export const parseForwardAuth = (
 };
 
 const exposureLines = (exposure: Exposure): string => {
-	if (!exposure.lan) return "\tbind 127.0.0.1 ::1\n";
+	// Listener-level `bind 127.0.0.1 ::1` is unloadable on macOS: unprivileged
+	// processes cannot bind a specific address on ports <1024 (EACCES — kernel
+	// verified; wildcard binds are allowed), so a loopback-bound :443 site can
+	// neither reload under the wildcard catch-all nor boot. The deny therefore
+	// lives at the request level: listeners stay wildcard, external remotes are
+	// aborted before any handler runs.
+	if (!exposure.lan)
+		return "\t@external not remote_ip 127.0.0.1 ::1\n\tabort @external\n";
 	const fa = parseForwardAuth(exposure.forwardAuth ?? "");
 	if (!fa) throw new Error("--lan requires a valid --forward-auth URL");
+	// W235: the identity the proxy asserts rides SIGNED — the SSO service
+	// returns the buckle-sso-v1 HMAC pair; Caddy copies both onto the
+	// request. Buckle (gov/identity-headers.ts) verifies before trusting.
 	return `\tforward_auth ${fa.upstream} {
 		uri ${fa.uri}
-		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name X-KLH-Identity X-KLH-Identity-Sig
 	}
 `;
 };
@@ -327,16 +343,38 @@ const plistConf = (): string => `<?xml version="1.0" encoding="UTF-8"?>
 // validate that staged config, and only then move it into sites/ — a fragment
 // Caddy cannot load never lands where it would poison every later reload. A
 // failed reload restores the prior fragment content (or removes a new one).
+// `served` (ccc951b pattern): when the running instance already serves the
+// claim, converge the fragment WITHOUT reloading — the instance is
+// authoritative and a reload would only re-bind its listeners.
 export type FragmentResult =
 	| { ok: true }
-	| { ok: false; stage: "validate" | "reload"; out: string };
+	| { ok: false; stage: "reload" | "validate"; out: string };
+// macOS maps cross-process port conflicts to EACCES (specific-vs-wildcard) or
+// EADDRINUSE (wildcard-vs-wildcard) — both transient: the conflicting holder
+// (a draining KeepAlive restart, a lane's scratch caddy) exits within seconds.
+// Backoff then --force: force re-provisions identical bytes, re-attempting the
+// binds the first reload lost.
+const RELOAD_BACKOFF_MS = [250, 750];
+const reloadWithRetry = (
+	caddyfile: string,
+	reload: (caddyfile: string, force: boolean) => { code: number; out: string },
+): { code: number; out: string } => {
+	let r = reload(caddyfile, false);
+	for (const ms of RELOAD_BACKOFF_MS) {
+		if (r.code === 0) return r;
+		Bun.sleepSync(ms);
+		r = reload(caddyfile, true);
+	}
+	return r;
+};
 export const applyFragment = (opts: {
 	sites: string;
 	caddyfile: string;
 	name: string;
 	content: string;
 	validate: (caddyfile: string) => { code: number; out: string };
-	reload: (caddyfile: string) => { code: number; out: string };
+	reload: (caddyfile: string, force: boolean) => { code: number; out: string };
+	served?: () => boolean;
 }): FragmentResult => {
 	const { sites, caddyfile, name, content } = opts;
 	const frag = `${sites}/${name}.caddy`;
@@ -365,7 +403,8 @@ export const applyFragment = (opts: {
 	}
 	const prior = existsSync(frag) ? readFileSync(frag, "utf8") : null;
 	writeAtomic(frag, content);
-	const r = opts.reload(caddyfile);
+	if (opts.served?.() === true) return { ok: true };
+	const r = reloadWithRetry(caddyfile, opts.reload);
 	if (r.code === 0) return { ok: true };
 	if (prior === null) rmSync(frag, { force: true });
 	else writeAtomic(frag, prior);
@@ -490,7 +529,7 @@ const cmdInstall = (): void => {
 `);
 };
 
-const cmdRegister = (argv: string[]): void => {
+const cmdRegister = async (argv: string[]): Promise<void> => {
 	let name = "";
 	let portRaw = "";
 	let healthPath = "/";
@@ -544,7 +583,7 @@ const cmdRegister = (argv: string[]): void => {
 		);
 	if (forwardAuth && !lan)
 		die(
-			`--forward-auth only applies with --lan (loopback sites bind 127.0.0.1)`,
+			`--forward-auth only applies with --lan (loopback sites abort external remotes)`,
 		);
 	if (forwardAuth && !parseForwardAuth(forwardAuth))
 		die(
@@ -559,8 +598,24 @@ const cmdRegister = (argv: string[]): void => {
 		: lan
 			? { lan, forwardAuth }
 			: { lan: false };
+	// Probe before the registry lock (read-only): when the running instance
+	// already serves name → target, the register converges without reloading —
+	// a reload re-binds listeners, and on macOS a specific-address bind on a
+	// privileged port is EACCES while a wildcard holder lives (W602).
+	const target = exposure.upstream ?? `127.0.0.1:${port}`;
+	const active = await fetchActiveConfig();
+	const alreadyServed =
+		active !== null && activeRouteMatches(active, `${name}.local`, target);
 	withRegistryLock(() =>
-		registerLocked(name, port, healthPath, noDns, routes, exposure),
+		registerLocked(
+			name,
+			port,
+			healthPath,
+			noDns,
+			routes,
+			exposure,
+			alreadyServed,
+		),
 	);
 };
 
@@ -571,6 +626,7 @@ const registerLocked = (
 	noDns: boolean,
 	routes: Route[],
 	exposure: Exposure,
+	alreadyServed: boolean,
 ): void => {
 	const reg = readRegistry();
 	const existing = reg.find((s) => s.name === name);
@@ -595,7 +651,9 @@ const registerLocked = (
 	const frag = fragmentPath(name);
 
 	console.log(
-		`→ caddy validate (staged) → caddy reload (user-level, zero downtime)`,
+		alreadyServed
+			? `→ caddy validate (staged) → reload skipped (the running instance already serves this route)`
+			: `→ caddy validate (staged) → caddy reload (user-level, zero downtime)`,
 	);
 	const res = applyFragment({
 		sites: SITES,
@@ -603,7 +661,9 @@ const registerLocked = (
 		name,
 		content: fragmentConf(name, port, routes, exposure),
 		validate: (cf) => run([CADDY, "validate", "--config", cf]),
-		reload: (cf) => run([CADDY, "reload", "--config", cf]),
+		reload: (cf, force) =>
+			run([CADDY, "reload", ...(force ? ["--force"] : []), "--config", cf]),
+		served: () => alreadyServed,
 	});
 	if (!res.ok) {
 		if (res.stage === "validate")
@@ -647,7 +707,7 @@ const registerLocked = (
   https://${name}.local/           caddy → 127.0.0.1:${port} (auto-HTTPS)
   http://${name}.local/            caddy → 127.0.0.1:${port}
   http://${name}.local:${port}/    direct
-  exposure ${exposure.lan ? `LAN, behind forward_auth ${exposure.forwardAuth}` : "loopback only (bind 127.0.0.1 ::1)"}
+  exposure ${exposure.lan ? `LAN, behind forward_auth ${exposure.forwardAuth}` : "loopback only (external remotes aborted)"}
 ${
 	routes.length
 		? routes
@@ -697,7 +757,12 @@ const cmdStatus = async (): Promise<void> => {
 	}
 	for (const s of reg) {
 		const target = serviceTarget(s);
-		const h = await probeService(target, s.health_path);
+		const h = await probeService(
+			target,
+			s.health_path,
+			1500,
+			`${s.name}.local`,
+		);
 		const dns = s.dns.claimed
 			? dnsAlive(s.dns.pid)
 				? `alive (pid ${s.dns.pid})`
@@ -820,11 +885,109 @@ const cmdReload = (): void => {
 	console.log(`→ caddy validate`);
 	caddyValidate();
 	console.log(`→ caddy reload`);
-	const r = run([CADDY, "reload", "--config", CADDYFILE]);
+	const r = reloadWithRetry(CADDYFILE, (cf, force) =>
+		run([CADDY, "reload", ...(force ? ["--force"] : []), "--config", cf]),
+	);
 	if (r.code !== 0) {
 		if (r.out.includes("connection refused") || r.out.includes("admin API"))
 			die(`caddy not reachable — run: klh-local install`);
 		die(`caddy reload failed:\n${r.out}`);
+	}
+};
+
+const dnsProcessMatches = (pid: number, argv: string[]): boolean => {
+	const args = run(["/bin/ps", "-p", String(pid), "-o", "args="]);
+	return args.code === 0 && args.out.split(/\s+/).join(" ") === argv.join(" ");
+};
+
+const cmdDnsReconcile = async (
+	name: string,
+	options?: {
+		owned: Map<string, { pid: number; argv: string[] }>;
+		stopped: () => boolean;
+	},
+): Promise<void> => {
+	if (!NAME_RE.test(name))
+		die("usage: klh-local dns-reconcile <registered-name>");
+	const existing = readRegistry().find((service) => service.name === name);
+	if (!existing) throw new Error(`not registered: ${name}`);
+	if (options && !existing.dns.claimed) return;
+	const target = serviceTarget(existing);
+	const active = await fetchActiveConfig();
+	if (active === null || !activeRouteMatches(active, `${name}.local`, target))
+		throw new Error(
+			"active Caddy route does not match registry; DNS unchanged",
+		);
+	if (options?.stopped()) return;
+	withRegistryLock(() => {
+		const registry = readRegistry();
+		const current = registry.find((service) => service.name === name);
+		if (!current || JSON.stringify(current) !== JSON.stringify(existing))
+			throw new Error(
+				"registry changed during route verification; retry DNS reconciliation",
+			);
+		const expected = dnsArgv(
+			name,
+			current.port,
+			current.lan ? lanIp() : "127.0.0.1",
+		);
+		const matches = (pid: number): boolean => dnsProcessMatches(pid, expected);
+		const result = reconcileDnsClaim({
+			current: current.dns,
+			matches,
+			spawn: () => {
+				const claim = claimDns(name, current.port, Boolean(current.lan));
+				for (let attempt = 0; attempt < 10; attempt++) {
+					if (claim.pid && matches(claim.pid)) break;
+					Bun.sleepSync(100);
+				}
+				return claim;
+			},
+			publish: (claim) => {
+				current.dns = claim;
+				saveRegistry(registry);
+				if (options && claim.pid)
+					options.owned.set(name, { pid: claim.pid, argv: expected });
+			},
+			cleanupNew: (pid) => {
+				if (matches(pid)) process.kill(pid, "SIGTERM");
+			},
+		});
+		if (!options || result === "reconciled")
+			console.log(
+				`✓ ${name} DNS ${result}; Caddy listeners and routes unchanged`,
+			);
+	});
+};
+
+const cmdDnsServe = async (): Promise<void> => {
+	const owned = new Map<string, { pid: number; argv: string[] }>();
+	let stopped = false;
+	const stop = (): void => {
+		stopped = true;
+		releaseOwnedClaims({
+			owned,
+			currentPid: (name) =>
+				readRegistry().find((row) => row.name === name)?.dns.pid,
+			matches: dnsProcessMatches,
+			terminate: (pid) => {
+				try {
+					process.kill(pid, "SIGTERM");
+				} catch {}
+			},
+		});
+	};
+	process.once("SIGTERM", stop);
+	process.once("SIGINT", stop);
+	while (!stopped) {
+		await maintainDnsClaims({
+			registrations: readRegistry(),
+			reconcile: (name) =>
+				cmdDnsReconcile(name, { owned, stopped: () => stopped }),
+			onError: (name, error) => console.error(`DNS ${name}: ${String(error)}`),
+		});
+		for (let elapsed = 0; !stopped && elapsed < 30; elapsed++)
+			await Bun.sleep(1000);
 	}
 };
 
@@ -837,16 +1000,20 @@ const usage = `klh-local — one command per local service
   list                             registry table
   status                           health + dns + fragment per service
   reload                           caddy validate + reload (user-level, zero downtime)
+  dns-reconcile <name>             restore registered mDNS claim without reloading Caddy
+  dns-serve                        restore enabled DNS claims at login and after claim loss
   hosts-apply [--registry PATH]    rewrite the managed /etc/hosts block from the registry (sudo)`;
 
 if (import.meta.main) {
 	const [cmd, ...rest] = process.argv.slice(2);
 	if (cmd === "install") cmdInstall();
-	else if (cmd === "register") cmdRegister(rest);
+	else if (cmd === "register") await cmdRegister(rest);
 	else if (cmd === "list") cmdList();
 	else if (cmd === "status") await cmdStatus();
 	else if (cmd === "deregister") cmdDeregister(rest[0] ?? "");
 	else if (cmd === "reload") cmdReload();
+	else if (cmd === "dns-reconcile") await cmdDnsReconcile(rest[0] ?? "");
+	else if (cmd === "dns-serve") await cmdDnsServe();
 	else if (cmd === "hosts-apply") cmdHostsApply(rest);
 	else {
 		console.log(usage);

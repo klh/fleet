@@ -1,9 +1,9 @@
 {
-	"name": "blam",
-	"version": "0.1.0",
+	"name": "@klh/blam",
+	"version": "2.0.0",
 	"description": "BLAM — Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
 	"type": "module",
-	"license": "BUSL-1.1",
+	"license": "PolyForm-Noncommercial-1.0.0",
 	"scripts": {
 		"test": "bun test test/",
 		"validate": "bun tools/label.ts validate dataset/incidents.jsonl"
@@ -12,7 +12,8 @@
 		"bun": ">=1.2"
 	},
 	"devDependencies": {
-		"belt": "workspace:*",
-		"suspenders": "workspace:*"
+		"@klh/belt": "workspace:*",
+		"@klh/buckle": "workspace:*",
+		"@klh/suspenders": "workspace:*"
 	}
 }

@@ -4,7 +4,36 @@
 // keeps them resident. The prompt carries a nonce so the specialists'
 // response-cache doesn't answer from cache (a HIT would skip the forward
 // pass and leave the weights paged out).
-const PORTS = [8901, 8902, 8903, 8913]; // resident tier only (8912 Kev excluded: launchd-managed separately)
+// W507: the warmed set is the emitted tier manifest (belt bin/registry-emit.ts
+// `tier` → ~/.claude/local-llm/tier.json) — ONE emission for the swarm AND
+// this script, so the lockstep that was comment-only (the W500 crash root
+// cause: this list hardcoding the FULL tier) is structural now. 8912 Kev
+// excluded: launchd-managed separately. Missing/unreadable manifest fails
+// safe to the ≤4GB set — under-warming heals in one pass, warming past the
+// tier re-loads the 22GB reasoner forever.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const TIER_PATH =
+	process.env.BELT_TIER_MANIFEST ??
+	join(homedir(), ".claude", "local-llm", "tier.json");
+const PORTS: number[] = (() => {
+	try {
+		const doc = JSON.parse(readFileSync(TIER_PATH, "utf8")) as {
+			warm_ports?: unknown;
+		};
+		if (
+			Array.isArray(doc.warm_ports) &&
+			doc.warm_ports.every((p) => typeof p === "number" && p > 0 && p < 65536)
+		)
+			return doc.warm_ports as number[];
+	} catch {
+		// fall through to the fail-safe set
+	}
+	console.error(`keepwarm: no tier manifest at ${TIER_PATH} — minimal set`);
+	return [8902, 8913];
+})();
 
 async function ping(port: number): Promise<number> {
 	const t0 = Date.now();
@@ -65,4 +94,51 @@ if (probeables.length) {
 		}),
 	);
 	console.log(`${dim(`  remotes`)}  ${remote.join("  ")}`);
+}
+
+// W219.2 gateway fallback drill — /v1/models liveness says nothing about the
+// fallback machinery (the 2026-10-06 z.ai TLS outage: gateway "up", lanes
+// hard-died on Fallbacks=None). One real glm-5.3-flash request through the
+// gateway; when z.ai is dark only a local rung can answer, so a 200 here
+// proves the ladder. Skipped (no key) prints, never throws.
+import { drillFallback } from "./fallback-drill.ts";
+const drill = await drillFallback();
+{
+	const mark = drill.verdict === "pass" ? green("✓") : red("✗");
+	const detail =
+		drill.verdict === "pass"
+			? `${drill.dark ? "z.ai dark, local answered" : "z.ai up"}${drill.model ? ` via ${drill.model}` : ""}`
+			: drill.why;
+	const ms = drill.verdict === "skipped" ? "" : ` ${fmtMs(drill.ms)}`;
+	console.log(
+		`  ${dim("fallback")}  ${mark} glm-5.3-flash ${dim(detail + ms)}`,
+	);
+}
+
+// W623 dispatch prefix-cache keepwarm — replays the captured stable lane
+// prefix (tools+system from a real lane request) through the buckle front
+// every pass, so idle gaps stop evicting it and dispatch briefs pay
+// cache-read rates. Skips (never throws) when the front is down, the admin
+// key is absent, or no prefix is captured yet — bin/prefix-keepwarm.ts
+// --capture seeds it. cached <n> in the line = residency held.
+import {
+	ensureKeepwarmAuth,
+	loadPrefix,
+	prefixCachePath,
+	warmOnce,
+} from "./prefix-keepwarm.ts";
+{
+	const auth = await ensureKeepwarmAuth();
+	const w =
+		auth.mode === "enrolled"
+			? await warmOnce({
+					front: auth.front,
+					key: auth.key,
+					prefix: loadPrefix(prefixCachePath()),
+				})
+			: { verdict: "skipped" as const, why: auth.why, ms: 0, usage: null };
+	const mark = w.verdict === "pass" ? green("✓") : red("✗");
+	const u = w.usage;
+	const tok = u ? ` in ${u.in_tok} cached ${u.cache_r}` : "";
+	console.log(`  ${dim("prefix")}  ${mark} ${dim(`${w.why} ${w.ms}ms${tok}`)}`);
 }

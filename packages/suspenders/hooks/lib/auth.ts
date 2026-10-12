@@ -40,6 +40,12 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GovernorStore } from "./govdb.ts";
+import { adminAudit } from "./admin-audit.ts";
+import {
+	mapIdpClaims,
+	type ClaimsMapConfig,
+	type MappedClaims,
+} from "./identity-federation.ts";
 
 export const LOCAL_ISSUER = "buckle";
 const AUDIENCE = "buckle";
@@ -95,10 +101,102 @@ export function loadSigningKey(): Buffer {
 	return key;
 }
 
-// test seam: drop the module-level key cache (fresh key file per test HOME)
+let cachedRing: { path: string; ring: RingKey[] } | null = null;
+
+// test seam: drop the module-level key caches (fresh key file per test HOME)
 export function resetAuthCache(): void {
 	cachedKey = null;
+	cachedRing = null;
 }
+
+// ─── signing-key ring (W178 rotation + grace) ────────────────────────────────
+// buckle-jwt-ring.json (0600, secrets home) is the JWKS analog for the HS256
+// local issuer: retired keys stay loadable through a grace window so rotation
+// never breaks live tokens. The legacy buckle-jwt.key file remains the on-disk
+// home of the CURRENT material — rotation rewrites it, so pre-ring readers
+// (an unrestarted server) adopt the new key too.
+export interface RingKey {
+	kid: string;
+	material: string; // hex
+	created_at: number; // ms
+	retire_at: number | null; // ms; null = the current signing key
+}
+
+const ringFile = (): string => join(secretsHome(), "buckle-jwt-ring.json");
+
+export function loadKeyRing(): RingKey[] {
+	const path = ringFile();
+	if (cachedRing?.path === path) return cachedRing.ring;
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+			keys: RingKey[];
+		};
+		cachedRing = { path, ring: parsed.keys };
+		return parsed.keys;
+	} catch {
+		return []; // no ring yet — legacy single-key deployment
+	}
+}
+
+function writeKeyRing(ring: RingKey[]): void {
+	const path = ringFile();
+	mkdirSync(secretsHome(), { recursive: true, mode: 0o700 });
+	writeFileSync(path, `${JSON.stringify({ keys: ring }, null, "\t")}\n`, {
+		mode: 0o600,
+	});
+	cachedRing = { path, ring };
+}
+
+// the key we sign with: the ring's live entry, else the legacy key file
+export function currentSigningKey(): Buffer {
+	const live = loadKeyRing().filter((k) => k.retire_at === null);
+	if (live.length)
+		return Buffer.from(
+			live.reduce((a, b) => (b.created_at > a.created_at ? b : a)).material,
+			"hex",
+		);
+	return loadSigningKey();
+}
+
+// rotate: mint a new key, retire the old at now + graceMs (rehearsed W178 —
+// JWKS overlap convention). graceMs 0 = emergency kill: every token signed by
+// the old key fails signature at once. Refresh tokens are opaque (not signed)
+// and rotation-proof — clients self-heal via /auth/refresh.
+export function rotateSigningKey(graceMs = 86_400_000): {
+	kid: string;
+	retired_kid: string | null;
+	graceUntil: number | null;
+} {
+	const now = Date.now();
+	const prev = loadKeyRing();
+	const live = prev.filter((k) => k.retire_at === null);
+	const ring = prev.map((k) =>
+		k.retire_at === null ? { ...k, retire_at: now + graceMs } : k,
+	);
+	let adoptedKid: string | null = null;
+	if (!prev.length) {
+		adoptedKid = `adopted-${randomBytes(4).toString("hex")}`;
+		ring.unshift({
+			kid: adoptedKid,
+			material: currentSigningKey().toString("hex"),
+			created_at: now,
+			retire_at: now + graceMs,
+		});
+	}
+	const kid = `k${now.toString(36)}-${randomBytes(4).toString("hex")}`;
+	const material = randomBytes(32).toString("hex");
+	ring.push({ kid, material, created_at: now, retire_at: null });
+	// rewrite the legacy file with the new material — pre-ring readers adopt it
+	writeFileSync(jwtKeyFile(), `${material}\n`, { mode: 0o600 });
+	cachedKey = null; // next sign/verify reads the new material from disk
+	writeKeyRing(ring);
+	return {
+		kid,
+		retired_kid: live.at(-1)?.kid ?? adoptedKid,
+		graceUntil: graceMs > 0 ? now + graceMs : null,
+	};
+}
+
 // ─── JWT mechanics (HS256) ───────────────────────────────────────────────────
 
 const enc = (o: unknown): string =>
@@ -162,7 +260,7 @@ export interface LocalIssuerConfig {
 	audience?: string;
 }
 
-export interface OidcIssuerConfig {
+export interface OidcIssuerConfig extends ClaimsMapConfig {
 	type: "oidc";
 	iss: string; // must equal the token's iss claim — v2-first allowlist
 	discovery: string; // openid-configuration URL
@@ -233,7 +331,8 @@ interface RowMeta {
 // api_keys has no class column (v8 is settled — no migration) — the pair's
 // class rides the row's `name` column as JSON {label, class}, written at
 // issue, read back at rotation. A plain (legacy) name reads as app-role.
-function metaOf(row: KeyRow): RowMeta {
+// W231: exported for the hub admin plane's masked inventory (hub-tokens.ts).
+export function metaOf(row: { name: string | null }): RowMeta {
 	try {
 		const m = JSON.parse(row.name ?? "") as RowMeta;
 		if (m.class === "app-role" || m.class === "delegated") return m;
@@ -393,6 +492,7 @@ export function rotateRefresh(
 	store: GovernorStore,
 	rawRefresh: string,
 	via = "api",
+	opts: { denyClasses?: TokenClass[] } = {},
 ): RotateResult {
 	const now = Date.now();
 	return runTx(store, () => {
@@ -412,6 +512,13 @@ export function rotateRefresh(
 		};
 		if (!row)
 			return reject("unknown_refresh_token", "refresh token not recognized");
+		// W262: federated deployments retire the delegated plane — human
+		// sessions belong to the IdP; rotation of old pairs is refused too.
+		if (opts.denyClasses?.includes(metaOf(row).class))
+			return reject(
+				"delegated_federated",
+				"user identity is federated to the IdP; refresh rotation is retired for this token class",
+			);
 		if (row.token_type !== "refresh")
 			return reject("not_a_refresh_token", "token is not a refresh token");
 		if (row.revoked_at) return reject("token_revoked", "refresh token revoked");
@@ -442,6 +549,7 @@ export function revoke(
 	store: GovernorStore,
 	sel: RevokeSelector,
 	via = "api",
+	by?: string,
 ): { changes: number; selector: RevokeSelector } {
 	const now = Date.now();
 	if (!sel.jti && !sel.actor && !sel.team)
@@ -462,14 +570,22 @@ export function revoke(
 				.query(`${upd} team = ? AND revoked_at IS NULL`)
 				.run(now, sel.team).changes;
 		const kind = sel.jti ? "jti" : sel.actor ? "actor" : "team";
+		// W174: the who — auth_events records the SUBJECT (revoked tokens'
+		// owner); admin_audit records the DRIVER. Both, so either lens answers.
 		authEvent(
 			store,
 			now,
 			sel.actor ?? null,
 			"revoked",
 			sel.jti ?? null,
-			`${via}: ${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""}`,
+			`${via}: ${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""} by=${by ?? "unknown"}`,
 		);
+		adminAudit(store, {
+			actor: by ?? null,
+			action: "keys.revoke",
+			target: `${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""}`,
+			detail: `${changes} token row(s) revoked via ${via}`,
+		});
 		return { changes, selector: sel };
 	});
 }
@@ -612,6 +728,7 @@ function parseJwt(token: string):
 }
 async function checkSignature(
 	entry: IssuerConfig,
+	nowMs: number,
 	j: {
 		ok: true;
 		header: JwtHeader;
@@ -638,12 +755,18 @@ async function checkSignature(
 	}
 	if (j.header.alg !== "HS256")
 		return fail(401, "bad_algorithm", "local issuer requires HS256");
-	const expect = b64url(
-		createHmac("sha256", loadSigningKey()).update(j.data).digest(),
-	);
-	return safeEq(expect, j.sig.toString("base64url"))
-		? null
-		: fail(401, "bad_signature", "signature verification failed");
+	// ring-aware (W178): current key first, then retired keys inside their
+	// grace window — a token signed by a since-rotated key keeps verifying
+	// until retire_at, then 401s and clients self-heal via /auth/refresh
+	const candidates = [currentSigningKey()];
+	for (const k of loadKeyRing())
+		if (k.retire_at !== null && k.retire_at > nowMs)
+			candidates.push(Buffer.from(k.material, "hex"));
+	for (const key of candidates) {
+		const expect = b64url(createHmac("sha256", key).update(j.data).digest());
+		if (safeEq(expect, j.sig.toString("base64url"))) return null;
+	}
+	return fail(401, "bad_signature", "signature verification failed");
 }
 function checkExpiry(claims: JwtClaims, nowS: number): AuthFailure | null {
 	if (claims.exp != null && claims.exp < nowS)
@@ -696,11 +819,13 @@ export async function verifyJwt(
 	requiredScope?: string | string[],
 	opts: VerifyOpts = {},
 ): Promise<AuthResult> {
-	const nowS = Math.floor((opts.now ?? Date.now)() / 1000);
+	const nowMs = (opts.now ?? Date.now)(); // ms — the ring grace check wants ms
+	const nowS = Math.floor(nowMs / 1000);
 	const b = parseBearer(req);
 	if (!b.ok) return b;
 	const j = parseJwt(b.token);
 	if (!j.ok) return j;
+	let mapped: MappedClaims | null = null;
 	let cfg: AuthConfig;
 	try {
 		cfg = opts.config ?? loadAuthConfig();
@@ -714,7 +839,12 @@ export async function verifyJwt(
 			"issuer_not_allowed",
 			`issuer not in allowlist: ${String(j.claims.iss ?? "?")}`,
 		);
-	const sigFail = await checkSignature(entry, j, opts.fetchImpl ?? fetch);
+	const sigFail = await checkSignature(
+		entry,
+		nowMs,
+		j,
+		opts.fetchImpl ?? fetch,
+	);
 	if (sigFail) return sigFail;
 	const expFail = checkExpiry(j.claims, nowS);
 	if (expFail)
@@ -727,17 +857,31 @@ export async function verifyJwt(
 	} else {
 		const r = checkRoles(entry, j.payload);
 		if (r) return r;
+		// W262: group→scope mapping — a configured map turns the entry into a
+		// full resource-server: federated tokens carry local-shaped scopes and
+		// get scope-checked like local tokens. No map = roles-only trust
+		// (unchanged legacy bypass).
+		if (entry.group_scope_map) mapped = mapIdpClaims(entry, j.payload);
 	}
-	if (
-		entry.type === "local" &&
-		!scopeCheck(j.claims.scopes ?? [], requiredScope)
-	)
+	const granted =
+		entry.type === "local"
+			? (j.claims.scopes ?? [])
+			: mapped
+				? mapped.scopes
+				: null; // null = no mapping configured → scope checks skipped
+	if (granted !== null && !scopeCheck(granted, requiredScope))
 		return fail(
 			403,
 			"insufficient_scope",
 			`required scope missing: ${String(requiredScope)}`,
 		);
-	return { ok: true, claims: j.claims, keyId: j.claims.jti };
+	return {
+		ok: true,
+		claims: mapped
+			? { ...j.claims, team: mapped.team, scopes: mapped.scopes }
+			: j.claims,
+		keyId: j.claims.jti,
+	};
 }
 // fingerprint helper — reports show FIRST/LAST 4 + length, never raw material
 export const fingerprint = (t: string): string =>

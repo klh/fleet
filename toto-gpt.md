@@ -1163,7 +1163,16 @@ and gateway telemetry. Cross-hub project identity and authorized knowledge shari
 remain the separate architecture described above; local Git identity has not been
 replaced by this work.
 
-### Implemented: automatic cross-hub consultation outbox (W480)
+### Implemented: automatic cross-hub consultation outbox (W480, closes W475)
+
+The W471 boundary item W475 (bounded relay so automatic governor consults can
+reach a remote hub inbox) is delivered in full by this W480 work — same scope,
+one delivery. Work item W475 closes against this section's commit; the residual
+step is operational, not code: install the receiving store version plus
+`GOVERNOR_STORE_TOKEN` on each participating hub (owner GO, credentials minted
+on-device).
+
+### Implementation detail (W480)
 
 Automatic governor consultation still writes through the local lease registry,
 but now commits a durable delivery UUID in the same SQLite transaction as the
@@ -1236,3 +1245,101 @@ W477/W478 complete the follow-through: all dashboards share source/target/scope/
 Belt, recovery consoles and local registrations share model inventory/probe paths. Usage separates synthetic sessions and exactly verified legacy seeds from real traffic by default, offers an explicit demo opt-in, and keeps anonymous global traffic separate from actor-scoped totals. Regression fixtures now own isolated child processes and ports and match current task/advice/prompt contracts. Relay configuration, limits and verification are documented in [GUI observability review](docs/gui-observability-review.md).
 
 Activate dashboard code through `bash packages/suspenders/install.sh --refresh-dashboards`, then restart the three dashboard launchd labels. The fixed manifest validates installed dependencies and rolls back a failed upgrade while preserving operator config. It does not restart inference supervision or re-register Caddy routes.
+
+## Implemented: lane recovery and evidence of progress (2026-10-07)
+
+The repair separates model capability, process survival, task progress and completion.
+A successful HTTP response is insufficient: the governed lane probe requires a
+structured tool call, its matching result and a subsequent assistant response
+that uses an unpredictable result nonce (W528, `dd10a5b`). Real canary work must
+also produce edits, passing checks and commit evidence; the W509 canary supplies
+that additional proof. Routing an Anthropic request through the native LiteLLM
+messages endpoint restores structured tools, but does not by itself establish
+that an agent will finish its work.
+
+Claim recovery reads structured graph state (W524, `0ee5ba4`). Missing registry
+entries now recover the original automatic lane identity and worktree, retaining
+its capsule (W494.2.1, `1d41318`). Recovery admits only old local automatic claims,
+skips registered identities, manual owners and owner-gated titles, and respects
+available dispatch slots. Foreign and unknown origins remain untouched. See
+[claim recovery](packages/suspenders/scripts/lib/claim-recovery.ts).
+
+Crash retries count total launches independently of the executor ladder index
+(W533, `3c72b27`). The default budget is three launches, configurable through
+`SUSPENDERS_LANE_MAX_ATTEMPTS` from 1 to 100. Exhaustion marks an unfinished claim
+FAILED only after a transactional owner check, emits a decision request and
+preserves worktree evidence. A dry run neither launches nor changes claims.
+Legacy missing registry entries have no trustworthy historical retry count;
+their reconstructed attempt starts at zero. See
+[retry budget](packages/suspenders/scripts/lib/lane-retry-budget.ts).
+
+The stop gate checks claimed work even when no files changed and bounds repeated
+completion requests (W523, `1ac45a2`). Explicit no-op or blocked declarations
+require review rather than silently becoming DONE. Supervisor stall detection
+uses process-backed live lanes and closed work items; dispatch log lines do not
+count as progress (W525, `afe9afe`). Its recovery kicks have an episode budget
+and cooldown. Watchdog restart bookkeeping adopts the new process identity
+after a restart instead of repeatedly comparing it with the pre-restart PID.
+
+### Durable friction discovered while operating the repair
+
+These are architectural follow-through areas; the work graph remains the task
+ledger and owns their current state.
+
+- **Safe command discovery:** W538 fixes `dispatch --help` entering the dispatch
+  path and recovering claims or starting agents. Help parsing now precedes Git
+  lookup and every mutation. A regression preserves READY and stale automatic
+  claims and verifies that no runtime directories are created. Other command
+  discovery paths should adopt the same contract.
+- **Atomic ownership:** separate create and claim operations race the automatic
+  coordinator. An atomic create-and-claim or reserved assignment would prevent
+  two agents believing they own newly minted work. Preserve the actual graph
+  owner when this race occurs.
+- **Installation verdicts:** harness installation can succeed while Caddy reload
+  fails and restores its previous configuration. An installation doctor should
+  verify effective routes and endpoints and report partial success explicitly.
+  Existing installer/doctor work covers this boundary.
+- **Immutable completion evidence:** a stored literal `HEAD` changes meaning as
+  the checkout advances. Resolve submitted Git references to immutable commits
+  before accepting completion, and provide a governed evidence-correction verb.
+  W506's actual integration commits are recorded in coordination facts while
+  its historical graph evidence needs that supported correction path.
+- **Capability-aware fallback:** any route reachable by tool-bearing lanes must
+  preserve the tool contract or refuse the request visibly. A tool-less overflow
+  route must not silently turn an agent task into a text-only model response.
+
+## Implemented: corporate policy workflow state machines (W462)
+
+The three state machines from the health-policy design above exist as a
+prototype in `packages/suspenders/hooks/lib/policy-workflow/`, persisted over
+governor.db with their own tables (`policy_assessments`,
+`policy_remediations`, `policy_decisions`, `policy_attestations`), piloted on
+the one health policy (`health-policy.ts`, `corp.api.independent-health`).
+The machines stay separate: assessment states are
+pending/assessing/conforming/gap/unknown/stale, remediation states are
+proposed/approved/claimed/in-review/merged/cancelled, attestation states are
+pending/verified/failed/expired, and no transition edge crosses machines — a
+merged patch cannot fast-track a pending attestation.
+
+- Assessment evidence is fenced by a lease with expiry (one assessor at a
+  time) and tied to a sha256 inputs hash; unchanged inputs reuse evidence,
+  changed inputs invalidate to stale. The health assessor classifies
+  conforming/gap/partial/unknown, with partial folding into gap and missing
+  deployment information never producing conformance.
+- Remediation proposals are idempotent by payload digest; decisions are
+  recorded outside the agent — they bind to the exact proposal hash, are
+  one-time per action (unique index), and exceptions carry an expiry without
+  overwriting the assessment's factual gap.
+- Attestations are per deployment instance; verified results expire (TTL
+  sweep), failures re-open, and monitoring wiring to API liveness instead of
+  the reporter verdict is classified as a gap.
+
+The workflow is driven by `hooks/bin/policy-workflow.ts`
+(assess/propose/decide/remediation/attest/list/expire). Remaining boundaries:
+organization-assigned cross-hub identity is still a parameter (`--org`), the
+decision actor is a CLI flag rather than authenticated corporate identity,
+and nothing here gates release by itself — see the boundaries above.
+Validation: unit tests cover lease fencing, invalidation, digest-bound
+one-time decisions, guarded lifecycles and attestation expiry
+(`test/policy-workflow.test.ts`); the CLI was exercised end-to-end against an
+isolated store.

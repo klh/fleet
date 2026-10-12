@@ -39,10 +39,10 @@ flowchart LR
   and Anthropic `/v1/messages` are the client-facing dialects; behind
   them the LiteLLM-internal engine routes to 100+ providers as data rows
   (`upstreams.yaml` + the W150 catalog), not two hardwired backends.
-  `BUCKLE_CROSS_DIALECT=on` (default off) lets a ladder rung fail over
-  between wire dialects through the tool/stream transforms
-  (`src/bridge.ts`): anthropic client → openai upstream (JSON +
-  streaming), openai client → anthropic upstream (JSON only).
+  The native dialect-translation tier (W426) lets any request reach any
+  deployment through the tool/stream transforms (`src/bridge.ts`):
+  anthropic client ↔ openai upstream, both directions, JSON + streaming.
+  Pass-through-first: same-dialect hops rank first, cross hops follow.
 - **Upstreams are data, not code** — `upstreams.yaml` group rows
   (`url`, `dialect`, `adapter`, `api_key_env`), the same move LiteLLM's
   own long tail made (`openai_like/providers.json`). The provider catalog
@@ -98,5 +98,7 @@ loopback token mocks need `BUCKLE_TOKEN_HOST_LOOPBACK=on`.
 - `docs/design/buckle/adapters-2026-10-01.md` — the five adapter families
   and the provider-as-data law
 
-License: see [LICENSE](LICENSE). Litellm internals were studied as
-documentation only; no code was copied.
+License: see [LICENSE](LICENSE). The LiteLLM provider docs vendored under
+[docs/providers/](docs/providers/README.md) remain MIT — their license text
+ships alongside ([LICENSE-litellm](docs/providers/LICENSE-litellm)). Litellm
+internals were studied as documentation only; no code was copied.

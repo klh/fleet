@@ -20,7 +20,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/decisions  decision forks; default OPEN only, ?history=1 adds resolved rows
 - GET /api/tasks      every work item, newest activity first (?project=<path> or all)
 - GET /api/task       one work item + its bus events + its decisions (?project=<path>&id=<id>)
-- GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300)
+- GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300; ?before=<id> keyset-drains older pages — a partial page means the end)
+- GET /api/events     W451 bounded event deltas — the WS cursor contract over HTTP: ?since=<id>&limit=<n> (strict id > since, ascending, cap 300); response {events[], cursor} — cursor = last shown id, drain with ?since=<cursor>
 - GET /api/setup      advisory wiring checks (hooks, monitor agent, advice LLM, bind)
 - GET /api/executors  dispatch targets for the READY-card dropdown: claude, codex, copilot (W223.1), then belt's live openai endpoints as llm:<machine>:<model or port> (belt's registry at the resolveBelt chain + CLI fallback, cached 60s; failed probes included; each entry carries its model id and a local/remote locality marker — W105). W224: every openai row also lists its LIVE /v1/models catalog as one llm:<machine>:<model id> pick per model — the user picks from everything the endpoint serves; dispatch routes the picked model via belt's route-to --model override (garbage tails still 409).
 - GET /api/diff       per-item branch diff for the drawer: repo + branch suspenders/<id> (worktree.ts naming), base = merge-base with main (fallback master); JSON {ok,id,branch,base,stat,diff}, patch tail-capped at 200KB
@@ -32,6 +33,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /console/local  Caddy-served .local services from the klh-local registry (static view)
 - GET /console/settings   settings hub — one entry per feature (belt budgets, buckle ladder+cooldowns, suspenders board knobs); every write previews a diff + confirms
 - GET /api/console/me avatar data: {ok, actor, tags, actors[], default_actor} — board host's latest session actor, "unassigned" until coord bootstrap --actor stamps one
+- GET /api/fleet-tree W530 fleet tree, hub-grouped like a directory tree, from the local belt registry + hubs.json candidates, bounded parallel leaf probes; ?refresh=1 bypasses the TTL (single-flight coalescing); snapshot = {roots, generated_at, stale}
+- GET /fleet-tree     the same tree as a GUI-disconnected demo page (native DOM only)
 - GET /llms.txt       this file
 
 ## Write endpoints (human at the board; origin/host guarded)
@@ -43,10 +46,15 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - POST /api/message   message a work item's owning lane as the coordinator (coord NOTE; id, note required — note capped at 2000)
 - POST /api/start     start a lane on a READY work item (fleet-loop dispatch; project, id required — 409 when claimed, not a READY item, demo, or agent missing; agent=llm:machine:model routes through belt's remotes router instead: claim as the board lane, remotes.ts route the title+description, llm.result on the item thread, claim released)
 - POST /api/ship      one-click ship for a work item's suspenders/<id> branch: live-lane + owner-liveness + merge-ladder guards, then the repo's .fleet/ship.json ladder runs detached via fleet-loop ship (409 without a configured ladder, on demo, while a lane lives, or while a daemon merge ladder is mid-flight)
+- POST /api/release   release a claim without closing the item (project, id required; force=true first signals a live lane to bank its capsule and exit — CAS reclaim, item back to READY; 409 {live:true} when the lane looks alive and force is unset)
+- POST /api/reassign  change the executor on a live claim keeping thread + capsule (project, id required; release + re-dispatch composed — deterministic lane sid means the coord thread and capsule fact carry over; dispatched:false = the old lane was signalled, re-dispatch after it retires; READY items dispatch via /api/start)
+- POST /api/cancel    owner-override close with a required reason (project, id, reason required — work cancel lands the terminal CANCELLED state, releases the claim, retires the worktree; 409 when already terminal)
+- POST /api/second-opinion  spawn a read-only REVIEW lane (no claim) on the item's diff + claims (project, id, executor required — W105 executor routing; runner lands coord NOTE(s), a work.review event and fact review.<id>.<executor>; works on DONE items)
 - POST /api/orchestrate            LLM proposes a plan item + parallel children from a goal (project, goal required; optional previewId dispatches the previewed prompt verbatim, else the prompt transforms run first; read-only — nothing registers, 502 when no parseable plan comes back)
-- POST /api/orchestrate/preview    W270 prompt-transform preview: runs condense (default off, W287) / enhance (opt-in, belt router :4000, falls back to no-enhance) on the goal and returns what WILL be dispatched (debug: final prompt; log: every stage + injected context with byte counts; secrets redacted) + a one-shot previewId; no plan LLM call, nothing written
+- POST /api/orchestrate/preview    W270 prompt-transform preview: runs condense (default off, W287) / enhance (opt-in, rides the buckle front :4101 with the SUSPENDERS_PROMPT_ENHANCE_KEY scoped key — route_audit shows it; falls back to no-enhance) on the goal and returns what WILL be dispatched (debug: final prompt; log: every stage + injected context with byte counts; secrets redacted) + a one-shot previewId; no plan LLM call, nothing written
 - GET|POST /api/prompt/settings     W270 prompt toggles persisted in suspenders-board.json: prompt.condense (default false, W287 politeness-only), prompt.enhance, prompt.debug, prompt.log (default false); POST takes booleans only
 - POST /api/orchestrate/register   register a proposed plan as a plan-gated work split through the work CLI (project, title, children required; children 2..8; the plan item is the split parent — the AGENTS.md add-plan-then-split flow)
+- POST /api/suggest   expand a terse composer draft into a brief-shaped prompt (the local minimal model reads the draft + running lanes; project, draft required — 502 when the model fails or answers junk)
 - POST /console/settings/preview   settings diff preview (host/origin + write-token guarded; form-encoded feature+values; invalid config = rejected with the parser's error, nothing written)
 - POST /console/settings/apply     settings apply (host/origin + write-token guarded; feature + values JSON + preview mtime; mtime guard rejects concurrent edits; atomic tmp+rename write to the allowlisted config path only)
 
@@ -71,14 +79,13 @@ export async function handleMeta(
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname === "/llms.txt")
-		if (url.pathname === "/llms.txt")
-			// static plain-text agent contract (see LLMS_TXT above)
-			return new Response(LLMS_TXT, {
-				headers: {
-					"content-type": "text/plain; charset=utf-8",
-					"cache-control": "no-store",
-				},
-			});
+		// static plain-text agent contract (see LLMS_TXT above)
+		return new Response(LLMS_TXT, {
+			headers: {
+				"content-type": "text/plain; charset=utf-8",
+				"cache-control": "no-store",
+			},
+		});
 	if (url.pathname === "/")
 		return new Response(HTML, {
 			headers: {

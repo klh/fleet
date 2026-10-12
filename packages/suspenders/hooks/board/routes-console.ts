@@ -1,8 +1,9 @@
 // hooks/board/routes-console.ts — W147 console: /console /console/belt /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { BELT_REPO } from "./context.ts";
+import { BELT_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
+import { recentAdminAudit } from "../lib/admin-audit.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import {
 	htmlHdr,
@@ -11,6 +12,9 @@ import {
 	settingsApply,
 } from "./settings.ts";
 import { scrub } from "../lib/servicemon.ts";
+// W183.2 — the settings form's preference editor picks from the same
+// merged catalog /api/executors serves (one source, both surfaces)
+import { executorFeed } from "./routes-data.ts";
 import { probeAll, probeService, withRecovery } from "./service-probe.ts";
 import {
 	ConfigError,
@@ -63,8 +67,7 @@ export async function handleConsole(
 	}
 	if (url.pathname === "/api/console/me") {
 		// avatar dropdown data: board host's latest actor (unassigned until
-		// coord bootstrap --actor stamps it) + tags + distinct known actors
-		// + the settings-file default for the demo select
+		// coord bootstrap --actor bootstrap... see console-view's consoleMe
 		const m = consoleMe();
 		return json({
 			ok: true,
@@ -73,6 +76,23 @@ export async function handleConsole(
 			actors: m.actors,
 			default_actor: m.defaultActor,
 			executor_prefs: readBoardSettings().settings.default_executors ?? [],
+		});
+	}
+	if (url.pathname === "/api/console/audit") {
+		// W174: the admin-action trail as JSON — settings/policy applies and
+		// key revocations, newest first; ?limit= clamps to 1..200; keyset
+		// pagination (W451): ?before=<id> drains older pages
+		const limit = Math.min(
+			200,
+			Math.max(1, Number(url.searchParams.get("limit") ?? 25) || 25),
+		);
+		const before = Number(url.searchParams.get("before")) || undefined;
+		const audit = recentAdminAudit(db, limit, before);
+		return json({
+			ok: true,
+			audit,
+			nextCursor:
+				audit.length === limit ? (audit[audit.length - 1]?.id ?? null) : null,
 		});
 	}
 	if (url.pathname === "/console/settings") {
@@ -98,6 +118,7 @@ export async function handleConsole(
 					: null,
 				set: readBoardSettings(),
 				me: consoleMe(),
+				audit: recentAdminAudit(db, 25),
 			}),
 			{
 				headers: {
@@ -113,6 +134,9 @@ export async function handleConsole(
 		if (f !== "belt" && f !== "buckle" && f !== "suspenders")
 			return new Response("not found", { status: 404 });
 		const feature: Feature = f;
+		// W183.2 — the suspenders form carries the executor-preference editor;
+		// its add-picker lists the same catalog the dispatch feed serves
+		const executors = f === "suspenders" ? await executorFeed() : [];
 		const pol = resolvePolicy({ beltRepo: BELT_REPO });
 		let gw: PolicyGatewayParsed | null = null;
 		let perr: string | null = null;
@@ -134,6 +158,7 @@ export async function handleConsole(
 							? readBoardSettings().path
 							: scrub(policyWritePath()),
 					set: readBoardSettings(),
+					executors,
 				},
 				consoleMe(),
 			),

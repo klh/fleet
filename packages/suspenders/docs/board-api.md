@@ -26,6 +26,9 @@ frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON 
   needs to populate the global filter, sorted.
 - Times are epoch ms; ages precomputed as `*_s` seconds.
 - Labels: the UI never renders raw sids when a label exists — responses include both.
+- `/api/data` session history is capped (W685): the feed serves the most recent
+  400 sessions; CLOSED lanes beyond the cap are summarized by `sessionsTotal`
+  (the fleet view shows an "oldest not served" note when the two diverge).
 
 ## GET /api/tasks?project=
 
@@ -37,11 +40,18 @@ newest activity first:
   "project": "/p/repo/.git", "id": "W7", "title": "…", "state": "READY|CLAIMED|RUNNING|BLOCKED|DONE|SHATTERED",
   "owner_sid": "…|null", "owner_label": "lane-name|null", "requires": "shell,git|null",
   "scope": "src/x|null", "parent_id": "W6|null", "age_s": 4210,
+  "tag": "ikea|null", "tag_color": "#0058A3|null",
   "open_decisions": 1,
   "tail": { "text": "→ Bash: bun test test/", "ts": "2026-09-28T07:19:35.016Z" } | null,
   "unblocked_by": "W6|null"
 }
 ```
+
+`tag`/`tag_color` = the repo tree's `.prefer` identity (W517): `tag` is the
+value stamped on the item at `work add` (rows added before coverage fall back
+to a live resolve), `tag_color` is the tree's RGBHEX color, always live-resolved.
+See `hooks/lib/prefer.ts` — a `.prefer` file at any directory covers everything
+under it, nearest definition wins per key.
 
 `open_decisions` = OPEN decisions rows with `task_id = id`. `owner_label` = the owner's
 newest claim intent, else session name, else null. `tail` = the claiming session's latest
@@ -60,9 +70,19 @@ answer_note|null }]` for the item. Missing id → 404 shape.
 
 ## GET /api/activity?project=&limit=
 
-`{ ok, projects, events: [{ id, ts, kind, source, target|null, note, sha|null, project }] }`
+`{ ok, projects, events: [{ id, ts, kind, source, target|null, note, sha|null, project }], nextCursor }`
 — newest first, default limit 80, cap 300. Note/sha parsed from payload; BROADCAST
-included (it is fleet news, not noise).
+included (it is fleet news, not noise). Keyset pagination (W451): `?before=<id>`
+drains older pages strictly by id (never OFFSET); `nextCursor` is the id to
+pass as the next `before`, null on a partial page = the end.
+
+## GET /api/events?since=&limit=
+
+W451 bounded event deltas — the WS cursor contract (coord poll) over HTTP:
+`{ ok, events: [{ id, ts, source, kind, scope, payload(parsed), target }], cursor }`
+— strict `id > since`, ascending, cap 300. The client holds the cursor; a full
+page means more (drain with `?since=<cursor>`), the cursor advances only past
+shown rows.
 
 ## GET /api/decisions (v3 addition)
 
@@ -168,6 +188,96 @@ REQUIRED: ship must never do a plain merge behind the repo's quality policy's
 back. The merge goes through fleet-loop's shared `mergeOne` (MERGE_HEAD abort,
 ladder timeout, FAIL tail, 3-strike park, retire), so board-shipped branches
 obey the same discipline as loop merges; outcomes land in `<repo>/.fleet/loop.log`.
+
+## POST /api/release (W182)
+
+`{ project, id, force? }` — release a claim without closing the item (the
+GUI's ⏏ on claimed cards). A live lane 409s with `{ok:false, live:true}` so
+the GUI can offer a force — forcing first signals the lane (coord NOTE
+`--to <owner> --work=<id> --project=<p>`): bank your capsule and exit; the
+reaper (`worktree.ts sweep`) retires the worktree on the next pass, never an
+orphan. Validation order — first failure wins:
+
+| condition                                   | status |
+| ------------------------------------------- | ------ |
+| missing `project` or `id`                   | 400    |
+| no live claim (`owner_sid` unset / terminal) | 409    |
+| unknown work item                           | 404    |
+| project directory missing on disk           | 409    |
+| lane live and `force` not set               | 409 `{live:true}` |
+| CAS reclaim lost (claim changed under you)  | 409    |
+
+Success: `{ ok: true, item, released, forced, dispatched:false }` —
+`forced` marks the signal+reclaim path; the item returns to READY.
+
+## POST /api/reassign (W182)
+
+`{ project, id, agent? }` — change the executor on a claimed item keeping
+the thread + capsule (resume-on-another-brain: the deterministic lane sid
+means the coord thread and `lane.<sid>.capsule` fact carry over; the capsule
+IS the handoff). Release + re-dispatch composed: a live lane is signalled to
+bank + exit (same as forced release) and `/api/start` re-dispatches —
+`{ok:true, dispatched:false}` means the lane was signalled but fleet-loop
+will refuse dispatch until the worktree retires (GUI surfaces this). Only
+moves live claims — READY items dispatch via `/api/start`.
+
+| condition                          | status |
+| ---------------------------------- | ------ |
+| missing `project`, `id`            | 400    |
+| unclaimed/terminal item            | 409    |
+| unknown work item                  | 404    |
+| project directory missing on disk  | 409    |
+| release leg failed                 | 409    |
+
+Success: `{ ok: true, item, dispatched }` — dispatched=false = signalled
+only; dispatch when the lane process retires.
+
+## POST /api/cancel (W182)
+
+`{ project, id, reason }` — owner-override close: lands `work cancel
+<id> --note <reason>` (terminal CANCELLED — distinct from DONE/FAILED/
+SUPERSEDED), releases the claim and retires the worktree via the same
+`retireItemWorktree` path `work done` uses. Validation order:
+
+| condition                                   | status |
+| ------------------------------------------- | ------ |
+| missing `project`, `id` or `reason`         | 400    |
+| demo board (`--demo`)                       | 409    |
+| unknown work item                           | 404    |
+| item already terminal (DONE/FAILED/SUPERSEDED/CANCELLED/SHATTERED) | 409 |
+| project directory missing on disk           | 409    |
+| work CLI failed                             | 500    |
+
+Success: `{ ok: true, item, state: "CANCELLED" }`.
+
+## POST /api/second-opinion (W182)
+
+`{ project, id, executor }` — spawns a read-only REVIEW lane (no claim) on
+the item's diff + claims. Works on DONE items — reviewing landed work is the
+point. `executor` rides W105 routing: agent binaries (`codex`/`copilot`/
+`grok`/`cline`/`claude`) spawn directly, `llm:<machine>:<model>` resolves
+through the same catalog `/api/start` uses. The runner
+(`hooks/bin/review-lane.ts`, detached) assembles mission + thread + branch
+diff, asks the executor, and lands the verdict: coord NOTE(s) on the item
+thread, a `work.review` event, and fact `review.<id>.<executor>`
+(`{verdict, headline, ts}`). W634: on PASS a mechanical coverage proof
+(Sinai rule) reverts the diff in a scratch worktree, restores the branch's
+new tests, and requires them to FAIL there — a PASS with no failing new
+test is downgraded to FAIL, and the evidence annotates the headline, note
+and fact (`coverage` field: proved / no-coverage / skipped / error).
+
+| condition                          | status |
+| ---------------------------------- | ------ |
+| missing `project`, `id` or `executor` | 400 |
+| unknown executor name              | 400    |
+| demo board (`--demo`)              | 409    |
+| unknown work item                  | 404    |
+| project directory missing on disk  | 409    |
+| executor binary not on the board's PATH | 409 |
+| llm:* leg unresolvable             | 409/500 |
+
+Success: `{ ok: true, item, executor, started: true }` — the review runs
+detached; the verdict lands on the drawer timeline when it completes.
 
 ## GET /api/tail (W76)
 

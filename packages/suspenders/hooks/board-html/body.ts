@@ -43,7 +43,8 @@ export const BODY = String.raw`
 <section id="tab-tasks" hidden>
   <div id="orch" class="orch">
     <div class="orchrow">
-      <input id="orchGoal" type="text" placeholder="goal — the LLM proposes a plan + parallel children; register = work split" aria-label="orchestration goal">
+      <textarea id="orchGoal" rows="1" placeholder="goal — click to expand; suggest = the local model expands your draft into a brief" aria-label="orchestration goal"></textarea>
+      <button id="orchSuggest" type="button" hidden>suggest</button>
       <button id="orchGo" type="button">orchestrate</button>
     </div>
     <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
@@ -124,6 +125,7 @@ var seen = {}; // decision ids ever toasted (baseline on first good fetch)
 var drafts = {}; // dec id -> typed-but-unsent text, survives re-renders
 var selOpt = {}; // dec id -> chosen option label (selecting, not submitting)
 var advising = {}; // dec id -> ms when the advise request started
+var advRetry = {}; // dec id -> {n, at} advise transport-failure backoff
 var advErr = {}; // dec id -> advise request error (inline)
 var answering = {}; // dec id -> true while an answer POST is in flight
 var ansErr = {}; // dec id -> inline answer/delivery error

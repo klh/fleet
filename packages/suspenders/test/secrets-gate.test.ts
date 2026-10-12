@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-secrets-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-secrets-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-secrets-repo-"));
 const env = {
 	...process.env,
 	HOME,

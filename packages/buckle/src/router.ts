@@ -7,14 +7,19 @@
 // semantics: upstream retry-after verbatim when present, capped exponential
 // 2**attempt + U[0,1) jitter when absent). Owner directive enforced
 // structurally: flashx tiers are refused in every ladder walk.
-import { type ErrorKind, normalizeUpstreamError } from "./adapters/errors.ts";
+import {
+	type ErrorKind,
+	normalizeUpstreamError,
+	routerErrorEnvelope,
+} from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
-import { bridgeRequest, bridgeResponse, crossDialectOn } from "./bridge.ts";
+import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { Cooldowns, retryAfterS, retryDelayS } from "./cooldown.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
 import { FLASHX, type GatewayPolicy } from "./policy.ts";
+import type { TraceContext } from "./trace.ts";
 import type { Deployment, Dialect, UpstreamPool } from "./upstreams.ts";
 
 export { FLASHX };
@@ -51,6 +56,9 @@ export interface UpstreamRequest {
 	path: string;
 	body: Record<string, unknown>;
 	key: string;
+	/** W461 stage 1: request-scoped W3C trace context (correlation only —
+	 *  never identity/authz). Absent → the wire roots a fresh trace. */
+	trace?: TraceContext;
 	signal?: AbortSignal;
 	// W140 routing laws: the pure decision result (handlers decided via the
 	// candidate table before dispatch) + the complexity tier + the raw hint,
@@ -92,6 +100,8 @@ interface WalkState {
 	status: number;
 	error: string;
 	ctxWindow?: Response;
+	rateLimit?: { response: Response; tier: string };
+	pendingRetryMs?: number;
 }
 
 /** Error bodies are small; never buffer an unbounded one. */
@@ -169,6 +179,7 @@ export interface RouterDeps {
 		dep: Deployment,
 		req: UpstreamRequest,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	metrics?: RouterMetrics;
 }
@@ -182,6 +193,7 @@ export class Router {
 		dep: Deployment,
 		req: UpstreamRequest,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	) => Promise<Response>;
 	private readonly metrics?: RouterMetrics;
 
@@ -203,14 +215,15 @@ export class Router {
 		this.fetchImpl = deps.fetchImpl ?? defaultFetchImpl;
 	}
 
-	/** Same-dialect deployments first; with BUCKLE_CROSS_DIALECT=on the
-	 *  bridgeable other-dialect deployments follow (failover only). */
+	/** Same-dialect deployments first (pass-through precedence); the
+	 *  bridgeable other-dialect deployments follow — native translation
+	 *  (W426), not opt-in failover. Unbridgeable hops (count_tokens, a
+	 *  transform that rejects) are skipped, never attempted. */
 	private tierCandidates(tier: string, req: UpstreamRequest): Deployment[] {
 		const live = this.deps.pool
 			.deployments(tier)
 			.filter((d) => !this.cooldowns.benched(d));
 		const same = live.filter((d) => d.dialect === req.dialect);
-		if (!crossDialectOn()) return same;
 		const cross = live.filter(
 			(d) => d.dialect !== req.dialect && bridgeRequest(req, d) !== null,
 		);
@@ -222,13 +235,14 @@ export class Router {
 		req: UpstreamRequest,
 		dep: Deployment,
 		timeoutMs: number,
+		stream?: { idleMs: number; totalMs: number },
 	): Promise<TryOutcome> {
 		const wireReq = bridgeRequest(req, dep);
 		if (wireReq === null)
 			throw new UpstreamError(502, `upstream ${dep.url} not bridgeable`);
 		const bridged = wireReq !== req;
 		try {
-			const resp = await this.fetchImpl(dep, wireReq, timeoutMs);
+			const resp = await this.fetchImpl(dep, wireReq, timeoutMs, stream);
 			if (resp.ok) {
 				this.cooldowns.success(dep);
 				const response = bridged
@@ -240,7 +254,22 @@ export class Router {
 			const ra = err.retryAfterS ?? retryAfterS(resp.headers, this.now);
 			const base = {
 				ok: false as const,
-				response: replay,
+				response:
+					err.kind === "rate_limited"
+						? Response.json(routerErrorEnvelope(err, req.dialect), {
+								status: 429,
+								headers: {
+									...Object.fromEntries(replay.headers),
+									"content-type": "application/json",
+									...(ra === null
+										? {}
+										: {
+												"retry-after":
+													replay.headers.get("retry-after") ?? String(ra),
+											}),
+								},
+							})
+						: replay,
 				status: resp.status,
 				retryAfterS: ra,
 				kind: err.kind,
@@ -304,12 +333,33 @@ export class Router {
 		const retries = this.policy.num_retries ?? 1;
 		const capS = this.policy.retry_max_delay_s ?? 8;
 		const timeoutMs = (this.policy.request_timeout_s ?? 120) * 1000;
+		// W450: streaming bodies get idle+total guards; non-streaming keeps
+		// request_timeout_s as its whole-exchange cap (the wire applies it).
+		const stream =
+			req.body.stream === true
+				? {
+						idleMs: (this.policy.stream_idle_timeout_s ?? 60) * 1000,
+						totalMs: (this.policy.stream_total_timeout_s ?? 900) * 1000,
+					}
+				: undefined;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			const dep = candidates.at(Math.min(attempt, candidates.length - 1));
 			if (!dep) break;
+			if (st.pendingRetryMs !== undefined) {
+				await this.sleepMs(st.pendingRetryMs);
+				st.pendingRetryMs = undefined;
+				if (req.signal?.aborted) return { kind: "aborted" };
+			}
 			st.attempts++;
-			const r = await this.tryOnce(req, dep, timeoutMs);
+			let r: TryOutcome;
+			try {
+				r = await this.tryOnce(req, dep, timeoutMs, stream);
+			} catch (error) {
+				if (req.signal?.aborted) return { kind: "aborted" };
+				if (!st.rateLimit || !(error instanceof UpstreamError)) throw error;
+				break; // An unreachable fallback cannot erase the provider's rate limit.
+			}
 			if (r.ok) {
 				return {
 					kind: "upstream",
@@ -323,7 +373,10 @@ export class Router {
 			}
 			st.status = r.status;
 			st.error = r.error;
+			if (r.kind === "rate_limited" && !st.rateLimit)
+				st.rateLimit = { response: r.response, tier };
 			if (r.clientFault) {
+				if (st.rateLimit) return exhausted(st);
 				return {
 					kind: "client-error",
 					response: r.response,
@@ -333,9 +386,8 @@ export class Router {
 			}
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
-			await this.sleepMs(
-				retryDelayS(attempt, r.retryAfterS, this.rng, capS) * 1000,
-			);
+			st.pendingRetryMs =
+				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS) * 1000;
 		}
 		return null;
 	}
@@ -382,12 +434,23 @@ export class Router {
 		const sel = req.sel;
 		if (!sel) return exhausted(st); // unreachable (guarded)
 		const tried = new Set<string>();
-		// The escalation law applies to any post-failure local→cloud hop:
-		// only the hint's head (and must's demanded set) bypass the tier
-		// gate — cloud rows below the head are failure-hops (W136 §5.2).
-		const gate = (row: CandidateRow, idx: number): boolean =>
-			sel.verb !== "must" &&
-			idx > 0 &&
+		// Unbridgeable rows (count_tokens on an openai row, a transform that
+		// rejects) are skipped, never attempted — skip-not-fail.
+		const ordered = sel.ordered.filter(
+			(row) => bridgeRequest(req, row.dep) !== null,
+		);
+		// The escalation law owns EVERY prefer/no-hint cloud delivery: the
+		// hint ranks the head, it does not authorize leaving the machine
+		// (W136 §5.2 — prefs AND tier-warrant AND failed-twice, all AND-ed).
+		// Only must's demanded set bypasses (law 2; prefs already checked at
+		// decide with the loud cloud_forbidden). W209: the old idx-0 head
+		// exemption delivered prefer/no-hint cloud heads at attempts=0 with
+		// the tier-warrant and failed-twice conditions never consulted; an
+		// empty-demand must (total=0) is not a demanded set and does not
+		// ride the exemption either.
+		const demanded = sel.verb === "must" && sel.total > 0;
+		const gate = (row: CandidateRow): boolean =>
+			!demanded &&
 			row.kind === "cloud" &&
 			!mayEscalate({
 				group: row.group,
@@ -396,9 +459,9 @@ export class Router {
 				prefs: sel.prefs,
 				cloudGroups: sel.cloudGroups,
 			});
-		for (const [idx, row] of sel.ordered.entries()) {
+		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
-			if (gate(row, idx)) continue;
+			if (gate(row)) continue;
 			tried.add(row.candidate_id);
 			const r = await this.attemptTier(req, row.group, [row.dep], st);
 			if (r !== null) return r;
@@ -451,6 +514,13 @@ export class Router {
 /** End of a walk with nothing delivered: an all-rungs context-window
  *  overflow answers the upstream's 4xx; anything else is exhausted. */
 function exhausted(st: WalkState): ExecuteResult {
+	if (st.rateLimit)
+		return {
+			kind: "client-error",
+			response: st.rateLimit.response,
+			tier: st.rateLimit.tier,
+			attempts: st.attempts,
+		};
 	if (st.ctxWindow)
 		return {
 			kind: "client-error",
@@ -470,7 +540,8 @@ async function defaultFetchImpl(
 	dep: Deployment,
 	req: UpstreamRequest,
 	timeoutMs: number,
+	stream?: { idleMs: number; totalMs: number },
 ): Promise<Response> {
 	const { defaultFetch } = await import("./wire.ts");
-	return defaultFetch(dep, req, timeoutMs);
+	return defaultFetch(dep, req, timeoutMs, stream);
 }

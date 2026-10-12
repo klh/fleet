@@ -3,12 +3,13 @@
 // string builders on the klh theme tokens (hooks/lib/theme.ts — var(--klh-*),
 // dark/light via data-theme), inline SVG, no framework, no external deps.
 //
-// The top bar is the klh-stack shell: the shared klh·fleet strip (theme.ts
-// fleetNav — belt · suspenders · local, the same row belt.local and bar.local
-// wear) above the console bar: wordmark + [belt gateway | fleet board | local
-// services] menu, gear → settings panel (theme + console settings link), avatar circle with a keyboard-reachable actor
-// dropdown. The SPA board interpolates TOPBAR the same way (String.raw
-// interpolates ${}; only escapes are raw), so every page wears one shell.
+// W658.2: the top bar retired into the klh-topbar Lit component
+// (board-html/klh-topbar.ts → /vendor/klh-topbar.js): pages compose
+// theme.ts fleetNav() + <klh-topbar> — server pages pass `me` as a JSON
+// attribute, the component fetches /api/console/me when absent; page links
+// slot into the settings panel via slot="settings-extra". topbar() and
+// TOPBAR_JS (incl. its cavload fill) are gone; the avatar dropdown, theme
+// radios and actor select live in the component's shadow DOM.
 //
 // Settings flow (config-over-code, never a code edit): form →
 // /console/settings/preview (validate + diff) → confirm form →
@@ -19,6 +20,7 @@ import type {
 	PolicyGatewayParsed,
 	ResolvedPolicy,
 } from "../lib/board-config.ts";
+import type { AdminAuditRow } from "../lib/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
 	matchingRegistrations,
@@ -26,14 +28,24 @@ import {
 } from "../lib/service-inventory.ts";
 import {
 	FLEET_NAV_CSS,
-	FLEET_NAV_JS,
 	fleetNav,
-	settingsBlock,
+	displayLabel,
 	THEME_HEAD,
-	THEME_SETTINGS_CSS,
-	THEME_SETTINGS_JS,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
+// W669.11: the console data cards ride klh-console-cards (UI law) — pages
+// emit static card hosts + esc(JSON) data attributes (klh-service-row
+// pattern); the components render shadow DOM from the slices.
+import type {
+	AuditRow,
+	AuditListData,
+	PolicyCardData,
+	RegistryCardData,
+	RegistryRow,
+	UpstreamsCardData,
+	KnobsCardData,
+} from "../board-html/klh-console-cards.ts";
+import type { ExecutorEntry } from "../board/executor-catalog.ts";
 import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
 
 export interface ConsoleMe {
@@ -51,107 +63,29 @@ export const esc = (s: string): string =>
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;");
 
-const SHELL_CSS = `
-#cbbar { display:none; }
-#klh-fleetnav { margin:0; padding:var(--klh-space-2) var(--klh-space-5); background:var(--klh-panel); }
-#cbar { display:flex; align-items:center; gap:14px; padding:7px 16px; border-bottom:1px solid var(--klh-edge-soft); background:var(--klh-panel); position:sticky; top:0; z-index:50; }
-#cbar .cw { font-size:12px; font-weight:700; letter-spacing:.10em; color:var(--klh-ink); text-decoration:none; white-space:nowrap; }
-#cbar .cwdot { color:var(--klh-accent); }
-#cbar .cnavs { display:flex; gap:2px; }
-#cbar .cnav { color:var(--klh-dim); text-decoration:none; font-size:12px; font-weight:600; letter-spacing:.04em; padding:7px 11px; border-bottom:2px solid transparent; }
-#cbar .cnav:hover { color:var(--klh-ink); }
-#cbar .cnav[aria-current] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
-#cbar .cend { margin-left:auto; display:flex; align-items:center; gap:12px; }
-@media(max-width:600px){#cbar{flex-wrap:wrap;gap:4px 12px}#cbar .cnavs{order:3;flex:1 0 100%;flex-wrap:wrap}#cbar .cnav{padding:7px 9px}}
-.cavwrap { position:relative; }
-.cavbtn { width:26px; height:26px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 11px/1 var(--klh-font-sans); cursor:pointer; padding:0; }
-.cavbtn:hover, .cavbtn[aria-expanded="true"] { border-color:var(--klh-accent); color:var(--klh-accent); }
-.cavdrop { position:absolute; right:0; top:32px; width:260px; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:3px; padding:10px 12px; box-shadow:0 4px 18px var(--klh-shadow); }
-.cavhead { display:flex; gap:9px; align-items:center; }
-.cavbig { width:30px; height:30px; border-radius:50%; border:1px solid var(--klh-edge-strong); background:var(--klh-surface-hi); color:var(--klh-ink); font:600 13px/30px var(--klh-font-sans); text-align:center; flex:none; }
-.cavname { font-size:12.5px; color:var(--klh-ink); font-weight:600; word-break:break-all; }
-.cavsub { font-size:10.5px; color:var(--klh-dim); }
-.cavsec { margin-top:9px; font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.cavdrop select { width:100%; margin-top:4px; }
-.cavnote { margin-top:7px; font-size:10.5px; color:var(--klh-dim); }
-`;
-
-const initial = (actor: string): string =>
-	actor && actor !== "unassigned" ? actor.charAt(0).toUpperCase() : "?";
-
-const tagLine = (tags: Record<string, string>): string =>
-	["team", "department"]
-		.filter((k) => tags[k])
-		.map((k) => esc(tags[k]))
-		.join(" · ") || "no team tags";
-
-// ─── top bar (the klh-stack shell, identical on every page) ───────────────
-export const topbar = (
-	active: "belt" | "suspenders" | "local" | "settings" | "",
-	me?: ConsoleMe,
-): string => {
-	const cur = (k: string): string =>
-		k === active ? ` aria-current="page"` : "";
-	const actor = me?.actor ?? "unassigned";
-	const sel = (): string => {
-		const opts = me.actors.includes(me.defaultActor)
-			? me.actors
-			: [me.defaultActor, ...me.actors];
-		return `<select id="cavsel" aria-label="switch actor (demo preview)">${opts.map((a) => `<option${a === me.defaultActor ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>`;
-	};
-	const dropInner = me
-		? `<div class="cavhead"><span class="cavbig">${esc(initial(actor))}</span><span><span class="cavname">${esc(actor)}</span><br><span class="cavsub">${tagLine(me.tags)}</span></span></div><div class="cavsec">switch actor (demo preview)</div>${sel()}<div class="cavnote">demo preview — stamps nothing live; live switching is a follow-up item</div>`
-		: `<div class="cavname" id="cavload">loading actor…</div>`;
-	return `<style>${SHELL_CSS}${THEME_SETTINGS_CSS}${FLEET_NAV_CSS}</style>${fleetNav("suspenders")}<nav id="cbar" aria-label="klh console"><a class="cw" href="/">klh<span class="cwdot">·</span>console</a><span class="cnavs"><a class="cnav"${cur("belt")} href="/console/belt">belt gateway</a><a class="cnav"${cur("suspenders")} href="/">fleet board</a><a class="cnav"${cur("local")} href="/console/local">local services</a></span><span class="cend">${settingsBlock(`<a${cur("settings")} href="/console/settings">all console settings &rarr;</a>`)}<span class="cavwrap"><button type="button" id="cavbtn" class="cavbtn" aria-haspopup="true" aria-expanded="false" aria-label="current actor">${esc(initial(actor))}</button><span id="cavdrop" class="cavdrop" hidden>${dropInner}</span></span></span></nav>`;
-};
-
-// Dropdown behavior: click toggles, outside-click + Escape close (focus
-// returns to the button). When the panel was NOT server-rendered (the SPA
-// board), one /api/console/me fetch fills actor/tags/demo select.
-const TOPBAR_JS_A = `(function(){
-var btn=document.getElementById('cavbtn'),drop=document.getElementById('cavdrop');
-if(!btn||!drop)return;
-var open=false;
-function set(o){open=o;drop.hidden=!o;btn.setAttribute('aria-expanded',o?'true':'false');}
-btn.addEventListener('click',function(e){e.stopPropagation();set(!open);});
-document.addEventListener('click',function(e){if(open&&e.target instanceof Node&&!drop.contains(e.target))set(false);});
-document.addEventListener('keydown',function(e){if(open&&e.key==='Escape'){set(false);btn.focus();}});`;
-
-// Panel fill for the SPA (no server-rendered me): one /api/console/me fetch
-// builds the same panel the console pages render server-side.
-const TOPBAR_JS_B = `
-if(document.getElementById('cavload')){
-fetch('/api/console/me').then(function(r){return r.json()}).then(function(d){
-if(!d||!d.ok)return;
-window.__execPrefs=(d.executor_prefs||[]);
-var head=document.createElement('div');head.className='cavhead';
-head.innerHTML='<span class="cavbig"></span><span><span class="cavname"></span><br><span class="cavsub"></span></span>';
-head.querySelector('.cavbig').textContent=(d.actor&&d.actor!=='unassigned')?d.actor.charAt(0).toUpperCase():'?';
-head.querySelector('.cavname').textContent=d.actor||'unassigned';
-var tg=(d.tags&&d.tags.team?d.tags.team:'')+(d.tags&&d.tags.department?(d.tags.team?' · ':'')+d.tags.department:'');
-head.querySelector('.cavsub').textContent=tg||'no team tags';
-var load=document.getElementById('cavload');load.replaceWith(head);
-var sec=document.createElement('div');sec.className='cavsec';sec.textContent='switch actor (demo preview)';head.after(sec);
-var sel=document.createElement('select');sel.id='cavsel';sel.setAttribute('aria-label','switch actor (demo preview)');
-var opts=(d.actors&&d.actors.length)?d.actors.slice():[];
-if(d.default_actor&&opts.indexOf(d.default_actor)<0)opts.unshift(d.default_actor);
-if(!opts.length)opts=['unassigned'];
-opts.forEach(function(a){var o=document.createElement('option');o.textContent=a;if(a===d.default_actor)o.selected=true;sel.appendChild(o);});
-sec.after(sel);
-var note=document.createElement('div');note.className='cavnote';note.textContent='demo preview — stamps nothing live; live switching is a follow-up item';sel.after(note);
-}).catch(function(){});}
-})();`;
-export const TOPBAR_JS =
-	TOPBAR_JS_A + TOPBAR_JS_B + THEME_SETTINGS_JS + FLEET_NAV_JS;
+// ─── top bar retired (W658.2) ─────────────────────────────────────────────
+// topbar()/TOPBAR_JS moved to board-html/klh-topbar.ts — pages compose
+// fleetNav() + <klh-topbar>; the avatar dropdown, settings gear and the
+// /api/console/me fetch live in the component.
 
 // ─── page shell ───────────────────────────────────────────────────────────
+// klh-topbar data: server pages pass `me` as a JSON attribute (esc()'d like
+// klh-service-row's probe attr); absent → the component fetches
+// /api/console/me itself (board SPA, /usage).
+const meAttr = (me?: ConsoleMe): string =>
+	me ? ` me="${esc(JSON.stringify(me))}"` : "";
+
+// the page's settings-panel link (aria-current when the page IS settings)
+const settingsExtra = (active: string): string =>
+	`<a slot="settings-extra" href="/console/settings"${active === "settings" ? ' aria-current="page"' : ""}>all console settings &rarr;</a>`;
+
 export const consolePage = (
 	title: string,
 	active: "belt" | "suspenders" | "local" | "settings" | "",
 	body: string,
 	me?: ConsoleMe,
 ): string =>
-	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:14px;letter-spacing:.08em;margin:16px 0 10px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}</style></head><body>${topbar(active, me)}<main style="max-width:980px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script>${TOPBAR_JS}</script></body></html>`;
+	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:var(--klh-text-lg)/1.6 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.ptitle{font-size:28px;letter-spacing:0;margin:28px 0 20px;color:var(--klh-ink)}.panel{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:12px 14px;margin:0 0 14px}.panel h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.dim{color:var(--klh-dim)}.ok{color:var(--klh-ok)}.bad{color:var(--klh-danger-ink)}table.ct{width:100%;border-collapse:collapse;font-size:12px}table.ct td,table.ct th{padding:5px 8px;border-bottom:1px solid var(--klh-rule);text-align:left}table.ct th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--klh-dim)}.num{font-variant-numeric:tabular-nums}.btn{background:var(--klh-accent);color:var(--klh-on-accent);border:1px solid var(--klh-accent);border-radius:2px;padding:5px 14px;font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer}.btn2{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge-strong);border-radius:2px;padding:5px 12px;font:inherit;font-size:11px;cursor:pointer;text-decoration:none;display:inline-block}input,select,textarea{background:var(--klh-bg);color:var(--klh-ink);border:1px solid var(--klh-edge);border-radius:2px;padding:5px 8px;font:12px var(--klh-font-mono)}label.k{display:block;font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin:8px 0 3px}input.wide{width:100%}.flash{border:1px solid var(--klh-ok);color:var(--klh-ok-hi);background:var(--klh-ok-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px}.errbox{border:1px solid var(--klh-danger);color:var(--klh-danger-ink);background:var(--klh-danger-bg);border-radius:2px;padding:7px 10px;font-size:12px;margin:0 0 14px;white-space:pre-wrap;word-break:break-word}pre.diff{background:var(--klh-bg);border:1px solid var(--klh-edge);border-radius:2px;padding:10px 12px;font:11px/1.5 var(--klh-font-mono);overflow:auto}pre.diff .add{color:var(--klh-ok-hi);display:block}pre.diff .del{color:var(--klh-danger-ink);display:block}.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}@media (max-width:700px){.formgrid{grid-template-columns:1fr}}.cfoot{font-size:10.5px;color:var(--klh-dim);margin-top:4px}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", active)}<klh-topbar${meAttr(me)}>${settingsExtra(active)}</klh-topbar><main style="max-width:1400px;margin:0 auto"><h1 class="ptitle">${esc(title)}</h1>${body}<div class="cfoot">klh console · part of the suspenders fleet board</div></main><script type="module" src="/vendor/klh-topbar.js"></script></body></html>`;
 
 // ─── belt gateway view (/console/belt) ────────────────────────────────────
 // W273: a probe row carries its recovery-map entry (null = unmapped)
@@ -161,6 +95,7 @@ export interface UpstreamGroup {
 	name: string;
 	tiers: number;
 	dormant: boolean;
+	source?: string;
 }
 
 export interface BeltView {
@@ -170,17 +105,41 @@ export interface BeltView {
 	beltApi: { url: string; via: string } | null;
 	health: HealthProbe[];
 	groups: UpstreamGroup[] | null;
+	upstreamSource?: string;
 }
 
-const ladderHtml = (gw: PolicyGatewayParsed): string =>
-	`<table class="ct"><thead><tr><th>model</th><th>fallback ladder (order = priority)</th></tr></thead><tbody>${Object.entries(
-		gw.fallbacks,
-	)
-		.map(
-			([m, tiers]) =>
-				`<tr><td><b>${esc(m)}</b></td><td>${tiers.map((t, i) => `<span class="pill">${i + 1}. ${esc(t)}</span>`).join(" → ")}</td></tr>`,
-		)
-		.join("")}</tbody></table>`;
+// W669.11: the belt policy card's display slice — four states, rendered by
+// <klh-policy-card> from the esc(JSON) data attribute (UI law: the server
+// never builds the card DOM).
+const beltPolicySlice = (v: BeltView): PolicyCardData => {
+	if (!v.policy) return { kind: "missing" };
+	if (v.policyError)
+		return {
+			kind: "error",
+			path: scrub(v.policy.path),
+			error: v.policyError,
+		};
+	if (!v.gateway) return { kind: "no-gateway" };
+	return {
+		kind: "policy",
+		path: scrub(v.policy.path),
+		source: v.policy.source,
+		gateway: v.gateway,
+	};
+};
+
+// settings-index variant: PolicyCur folds "no gateway section" into a
+// gateway-null policy slice (the card shows the heading + shared-file foot)
+const indexPolicySlice = (pol: PolicyCur): PolicyCardData => {
+	if (pol.error)
+		return { kind: "error", path: scrub(pol.path), error: pol.error };
+	return {
+		kind: "policy",
+		path: scrub(pol.path),
+		source: pol.source,
+		gateway: pol.gateway,
+	};
+};
 
 // W273: one <klh-service-row> per monitored service. The Lit component
 // renders from the probe JSON attribute; the light-DOM children are the
@@ -198,55 +157,64 @@ export const serviceRowHtml = (p: HealthProbe): string => {
 	const st = stateOf(p);
 	const cls = st === "idle" ? "dim" : st === "up" ? "ok" : "bad";
 	const where = p.port ? ` :${p.port}` : "";
-	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(p.name)}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
+	return `<klh-service-row data-state="${st}" data-service="${esc(p.id)}" probe="${esc(JSON.stringify(p))}"><div class="srow"><span class="${cls}">${st.toUpperCase()}</span> <b>${esc(displayLabel(p.name))}</b><span class="dim">${where} · ${esc(p.detail)}</span></div>${fallbackRecovery(p)}</klh-service-row>`;
 };
 
-const healthHtml = (h: HealthProbe[]): string => {
+const healthHtml = (h: HealthProbe[], title = "Fleet services"): string => {
 	const dark = h.filter(
 		(p) => stateOf(p) !== "up" && stateOf(p) !== "idle",
 	).length;
 	const idle = h.filter((p) => stateOf(p) === "idle").length;
-	return `<div class="panel"><h2>Fleet services · ${h.length - dark - idle}/${h.length} up${idle ? ` · ${idle} on demand` : ""}${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+	return `<div class="panel"><h2>${esc(title)} · ${h.length - dark - idle}/${h.length} up${idle ? ` · ${idle} on demand` : ""}${dark ? ` · ${dark} need recovery` : ""}</h2>${h.map(serviceRowHtml).join("")}</div><script type="module" src="/vendor/klh-service-row.js"></script>`;
 };
 
 const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:var(--klh-surface);border:1px solid var(--klh-edge);border-radius:2px;padding:4px 8px;font:11px/1.5 var(--klh-font-mono);white-space:pre-wrap}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
 
 // ─── belt page body ───────────────────────────────────────────────────────
-const policyCard = (v: BeltView): string => {
-	if (!v.policy)
-		return `<div class="panel"><h2>Routing policy</h2><p class="dim">no routing-policy.yaml found on the belt chain (BELT_POLICY/BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)</p></div>`;
-	if (v.policyError)
-		return `<div class="panel"><h2>Routing policy</h2><div class="errbox">resolved ${esc(scrub(v.policy.path))} does not parse: ${esc(v.policyError)}</div></div>`;
-	const gw = v.gateway;
-	if (!gw)
-		return `<div class="panel"><h2>Routing policy</h2><p class="dim">policy resolved but no gateway section parsed</p></div>`;
-	return `<div class="panel"><h2>Routing policy · ${esc(scrub(v.policy.path))} · source: ${v.policy.source}</h2><div class="knobs"><span class="kchip">num_retries: <b>${gw.num_retries}</b></span><span class="kchip">allowed_fails: <b>${gw.allowed_fails}</b></span><span class="kchip">cooldown_time: <b>${gw.cooldown_time}s</b></span></div><div class="ladder">${ladderHtml(gw)}</div></div>`;
-};
+// the policy card host (heading + slice ride the esc(JSON) data attribute)
+const policyCard = (v: BeltView): string =>
+	`<klh-policy-card heading="Routing policy" data="${esc(JSON.stringify(beltPolicySlice(v)))}"></klh-policy-card>`;
 
-const upstreamsCard = (v: BeltView): string => {
-	if (!v.groups)
-		return `<div class="panel"><h2>Upstream pool</h2><p class="dimpl">upstreams.yaml unreadable — the ladder above still applies</p></div>`;
-	const rows = v.groups
-		.map(
-			(g) =>
-				`<tr><td><b>${esc(g.name)}</b></td><td class="num">${g.tiers}</td><td>${g.dormant ? `<span class="bad">dormant</span>` : `<span class="ok">active</span>`}</td></tr>`,
-		)
-		.join("");
-	return `<div class="panel"><h2>Upstream pool (buckle upstreams.yaml)</h2><table class="ct"><thead><tr><th>group</th><th>deployments</th><th>state</th></tr></thead><tbody>${rows}</tbody></table><p class="cfoot">dormant = in the ladder but resolving to zero deployments until a BUCKLE_UPSTREAMS override supplies them</p></div>`;
-};
+const upstreamsCard = (v: BeltView): string =>
+	`<klh-upstreams-card data="${esc(JSON.stringify(upstreamsSlice(v)))}"></klh-upstreams-card>`;
+
+// the card slice for the belt view's configured upstream pool (null groups
+// = unreadable upstreams.yaml — the card shows the fallback dimpl)
+const upstreamsSlice = (v: BeltView): UpstreamsCardData => ({
+	source: v.upstreamSource ?? "configuration",
+	groups: v.groups
+		? v.groups.map((g) => ({
+				name: g.name,
+				tiers: g.tiers,
+				dormant: g.dormant,
+				source: g.source ?? "configured",
+			}))
+		: null,
+});
 
 const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
+
+// W669.11: the console cards bundle — every page emitting a klh-*-card host
+// loads it; the components upgrade the hosts from their data attributes
+const CARDS_SCRIPT = `<script type="module" src="/vendor/klh-console-cards.js"></script>`;
 
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}</style>` +
-		healthHtml(v.health) +
+		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		healthHtml(
+			v.health.filter((p) =>
+				["belt-gateway-4000", "litellm-4100", "buckle-4101"].includes(p.id),
+			),
+			"Gateway transports",
+		) +
 		policyCard(v) +
 		upstreamsCard(v) +
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
-			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`);
-	return consolePage("BELT · GATEWAY", "belt", body, me);
+			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +
+		CARDS_SCRIPT;
+	return consolePage("Belt gateway", "belt", body, me);
 };
 
 // ─── local services view (/console/local) — static registry first ─────────
@@ -282,27 +250,25 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 			);
 		})
 		.join("");
-	const unmatched = v.services.filter(
-		(s) => !v.probes.some((p) => registrationPort(s) === p.port),
-	);
-	const regRows = unmatched
-		.map(
-			(s) =>
-				`<tr><td><b>${esc(s.name)}</b></td><td class="num">${esc(s.upstream ?? String(s.port))}</td><td>Not monitored here</td><td><a href="https://${esc(s.name)}.local/">https://${esc(s.name)}.local/</a> <span class="dim">· since ${esc(s.created.slice(0, 10))}</span></td></tr>`,
-		)
-		.join("");
+	// the registry card's slice (scope = route kind; monitored = the local
+	// probe cross-check) — the card owns the table DOM
+	const registryRows: RegistryRow[] = v.services.map((s) => ({
+		name: s.name,
+		scope: registrationPort(s) === null ? "Remote upstream" : "Local upstream",
+		upstream: s.upstream ?? String(s.port),
+		monitored: v.probes.some((p) => registrationPort(s) === p.port)
+			? "Monitored below"
+			: "Not monitored here",
+	}));
+	const registryData: RegistryCardData = { rows: registryRows };
 	const body =
-		`<style>${PAGE_CSS}${PILL_CSS}</style>` +
+		`<style>${PAGE_CSS}${PILL_CSS}</style><p class="dimpl">Registered .local routes, local model capacity and process observations.</p>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<div class="panel"><h2>monitored fleet services — ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>` +
-		(v.probes.length
-			? probeRows
-			: `<p class="dimpl">no monitored services — the recovery map is empty in this deployment</p>`) +
-		(unmatched.length
-			? `</div><div class="panel"><h2>Caddy-served .local services · registry: ${esc(scrub(v.regPath))}</h2><table class="ct"><thead><tr><th>service</th><th>port</th><th>state</th><th>url</th></tr></thead><tbody>${regRows}</tbody></table>`
-			: "") +
-		`<p class="cfoot">${esc(v.source)} — live probes with 15s cache (W273 recovery map); the klh/local registry shows only when present</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;
-	return consolePage("LOCAL · SERVICES", "local", body, me);
+		`<klh-registry-card heading="Registered services · ${v.services.length}" data="${esc(JSON.stringify(registryData))}"></klh-registry-card>` +
+		`<div class="panel"><h2>Local machine · ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>${probeRows || '<p class="dimpl">No monitored services</p>'}<p class="cfoot">${esc(v.source)} · ${esc(scrub(v.regPath))}</p></div><script type="module" src="/vendor/klh-service-row.js"></script>` +
+		CARDS_SCRIPT;
+
+	return consolePage("Local services", "local", body, me);
 };
 
 // ─── settings (/console/settings) — one entry per feature ─────────────────
@@ -321,6 +287,8 @@ export interface FormCur {
 	polError: string | null;
 	target: string;
 	set: BoardSettingsState;
+	// W183.2 — the suspenders form's add-picker rides the merged catalog
+	executors?: ExecutorEntry[];
 }
 
 const numField = (
@@ -339,7 +307,13 @@ const textField = (
 ): string =>
 	`<div><label class="k" for="f_${name}">${label}</label><input class="wide" id="f_${name}" name="${name}" type="text" value="${esc(val)}"><div class="cfoot">${hint}</div></div>`;
 
-const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}`;
+const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}
+.exlist{list-style:none;counter-reset:ex;margin:8px 0;padding:0;max-width:640px}
+.exlist li{display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--klh-rule)}
+.exlist li::before{counter-increment:ex;content:counter(ex)". ";font-size:11px;color:var(--klh-dim);min-width:22px}
+.exv{flex:1;font:12px var(--klh-font-mono);word-break:break-all}
+.exadd{display:flex;gap:8px;align-items:flex-end;margin-top:8px;max-width:640px}
+.exadd select{flex:1}`;
 
 const ladderFields = (gw: PolicyGatewayParsed): string =>
 	Object.entries(gw.fallbacks)
@@ -366,6 +340,60 @@ const formFrame = (
 
 const HIDDEN_FEATURE = (f: Feature): string =>
 	`<input type="hidden" name="feature" value="${f}">`;
+
+// W183.2 — editor behavior: the hidden input is the single source of truth
+// (comma-joined feed values — the exact shape formToBoardSettings parses);
+// rows render client-side from it. DOM template APIs only (UI law);
+// the add-picker disables entries already in the chain, dups refused.
+const EXECUTOR_EDITOR_JS = `(function(){
+var list=document.getElementById('exlist');if(!list)return;
+var sel=document.getElementById('exadd'),add=document.getElementById('exaddbtn');
+var hid=document.querySelector('input[name=default_executors]');if(!hid)return;
+var tpl=document.getElementById('exrow');if(!tpl)return;
+var vals=function(){var vs=[];list.querySelectorAll('li').forEach(function(li){vs.push(li.getAttribute('data-v'));});return vs;};
+var have=function(v){return vals().indexOf(v)>=0;};
+var sync=function(){hid.value=vals().join(',');};
+var row=function(v){var li=tpl.content.firstElementChild.cloneNode(true);li.setAttribute('data-v',v);
+li.querySelector('.exv').textContent=v;
+li.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-label',b.dataset.act+' '+v);});
+return li;};
+var refresh=function(){var vs=vals();Array.from(sel.options).forEach(function(o){o.disabled=vs.indexOf(o.getAttribute('value'))>=0;});};
+list.addEventListener('click',function(ev){
+var t=ev.target;if(!(t instanceof HTMLButtonElement)||!t.dataset.act)return;
+var li=t.closest('li');if(!li)return;
+if(t.dataset.act==='rm')li.remove();
+else if(t.dataset.act==='up'&&li.previousElementSibling)list.insertBefore(li,li.previousElementSibling);
+else if(t.dataset.act==='down'&&li.nextElementSibling)list.insertBefore(li.nextElementSibling,li);
+else return;
+sync();refresh();
+});
+add.addEventListener('click',function(){var v=sel.value;if(v&&!have(v)){list.appendChild(row(v));sync();refresh();}});
+hid.value.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(v){list.appendChild(row(v));});
+refresh();
+})();`;
+
+// W183.2 — the ordered executor-preference editor panel for the suspenders
+// settings form. The hidden input round-trips the comma-joined chain
+// through preview → apply even with JS off; rows render client-side from
+// the hidden input (clone of the #exrow template).
+const executorPrefsEditor = (
+	executors: ExecutorEntry[],
+	current: string[],
+): string =>
+	`<div class="panel"><h2>executor preference order</h2>` +
+	`<p class="cfield-hint">dispatch walks this order as its fallback chain — first entry first; a dead lane re-dispatch advances to the next; the same-model tail rides claude's --fallback-model; claude is appended as the last resort unless enabled_executors blocks it. Empty list = claude only.</p>` +
+	`<ol id="exlist" class="exlist" aria-label="executor preference order"></ol>` +
+	`<template id="exrow"><li><span class="exv"></span>` +
+	`<button type="button" class="btn2 exb" data-act="up" aria-label="move up">↑</button>` +
+	`<button type="button" class="btn2 exb" data-act="down" aria-label="move down">↓</button>` +
+	`<button type="button" class="btn2 exb" data-act="rm" aria-label="remove">✕</button></li></template>` +
+	`<div class="exadd"><label class="k" for="exadd">add executor (catalog)</label><div class="exaddrow"><select id="exadd">` +
+	executors
+		.map((e) => `<option value="${esc(e.value)}">${esc(e.label)}</option>`)
+		.join("") +
+	`</select><button type="button" id="exaddbtn" class="btn2">add</button></div></div>` +
+	`<input type="hidden" name="default_executors" value="${esc(current.join(","))}">` +
+	`<script>${EXECUTOR_EDITOR_JS}</script></div>`;
 
 export const settingsFormPage = (
 	feature: Feature,
@@ -400,6 +428,7 @@ export const settingsFormPage = (
 				s.default_actor ?? "",
 				"preselects the avatar dropdown's demo switch; coord bootstrap default is a follow-up",
 			) +
+			executorPrefsEditor(cur.executors ?? [], s.default_executors ?? []) +
 			`</div>`;
 		return formFrame(
 			"SETTINGS · SUSPENDERS",
@@ -450,37 +479,63 @@ export const settingsFormPage = (
 	);
 };
 
+export interface SettingsIndexArgs {
+	pol: PolicyCur | null;
+	set: BoardSettingsState;
+	me?: ConsoleMe;
+	// W174: recent admin actions — settings/policy applies + key revocations
+	audit: AdminAuditRow[];
+}
+
 export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 	const pol = a.pol;
 	const polCard = pol
-		? `<div class="panel"><h2>routing-policy.yaml · ${esc(scrub(pol.path))} · source: ${esc(pol.source)}</h2>` +
-			(pol.error
-				? `<div class="errbox">current file does not parse: ${esc(pol.error)}</div>`
-				: `<div class="knobs">${
-						pol.gateway
-							? `<span class="kchip">num_retries: <b>${pol.gateway.num_retries}</b></span><span class="kchip">allowed_fails: <b>${pol.gateway.allowed_fails}</b></span><span class="kchip">cooldown_time: <b>${pol.gateway.cooldown_time}s</b></span><span class="kchip">ladder: <b>${Object.entries(
-									pol.gateway.fallbacks,
-								)
-									.map(([m, t]) => `${esc(m)} → ${t.length} tiers`)
-									.join(" · ")}</b></span>`
-							: ""
-					}</div>`) +
-			`<p class="cfoot">belt + buckle share this file — edits apply to both (belt at the next gateway-config emit + kickstart, buckle at restart)</p></div>`
-		: `<div class="panel"><h2>routing-policy.yaml</h2><p class="dimpl">no policy file found on the belt chain</p></div>`;
+		? `<klh-policy-card heading="routing-policy.yaml" compact foot="belt + buckle share this file — edits apply to both (belt at the next gateway-config emit + kickstart, buckle at restart)" data="${esc(JSON.stringify(indexPolicySlice(pol)))}"></klh-policy-card>`
+		: `<klh-policy-card heading="routing-policy.yaml" data="${esc(JSON.stringify({ kind: "missing" as const }))}"></klh-policy-card>`;
 	const s = a.set;
-	const setCard =
-		`<div class="panel"><h2>suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}</h2>` +
-		(s.error
-			? `<div class="errbox">current file does not parse: ${esc(s.error)}</div>`
-			: `<div class="knobs"><span class="kchip">STATUS_REFRESH_S: <b>${s.settings.status_refresh_s ?? "default (5s)"}</b></span><span class="kchip">harvest TTL: <b>${s.settings.harvest_ttl_s ? `${s.settings.harvest_ttl_s}s` : "default (300s)"}</b></span><span class="kchip">default actor: <b>${s.settings.default_actor ? esc(s.settings.default_actor) : "unset"}</b></span></div>`) +
-		`</div>`;
+	const knobs: KnobsCardData = {
+		error: s.error,
+		knobs: [
+			{
+				k: "STATUS_REFRESH_S",
+				v: String(s.settings.status_refresh_s ?? "default (5s)"),
+			},
+			{
+				k: "harvest TTL",
+				v: s.settings.harvest_ttl_s
+					? `${s.settings.harvest_ttl_s}s`
+					: "default (300s)",
+			},
+			{ k: "default actor", v: s.settings.default_actor ?? "unset" },
+			{
+				k: "executors",
+				v: s.settings.default_executors?.length
+					? s.settings.default_executors.join(" → ")
+					: "claude (default)",
+			},
+		],
+	};
+	const setCard = `<klh-knobs-card heading="suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}" data="${esc(JSON.stringify(knobs))}"></klh-knobs-card>`;
+	// W174: the who/when trail — settings/policy applies + key revocations,
+	// newest first, block-mode chips (the card's empty state covers zero rows)
+	const auditRows: AuditRow[] = a.audit.map((r) => ({
+		action: r.action,
+		actor: r.actor ?? "unknown",
+		when: new Date(r.ts).toISOString().replace("T", " ").slice(0, 19),
+		target: r.target ?? "",
+		detail: r.detail ?? "",
+	}));
+	const auditData: AuditListData = { rows: auditRows };
+	const auditCard = `<klh-audit-list heading="admin audit" data="${esc(JSON.stringify(auditData))}"></klh-audit-list>`;
 	return consolePage(
 		"SETTINGS",
 		"settings",
 		`<style>${PAGE_CSS}</style><p class="dimpl">One entry per feature, each with its real config surface. Writes are config-over-code: YAML/JSON in known paths, never code. Every write previews a diff and needs an explicit confirm; invalid config is rejected with the parser's error.</p>` +
 			polCard +
 			`<div class="panel"><h2>edit</h2><div class="btnrow"><a class="btn2" href="/console/settings/belt">belt · budgets</a> <a class="btn2" href="/console/settings/buckle">buckle · ladder + cooldowns</a> <a class="btn2" href="/console/settings/suspenders">suspenders · board</a></div></div>` +
-			setCard,
+			setCard +
+			auditCard +
+			CARDS_SCRIPT,
 		a.me,
 	);
 };

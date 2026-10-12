@@ -1,0 +1,9 @@
+#!/bin/sh
+# scrub gate (W236) — staged content through hooks/bin/scrub-gate.ts.
+# Enable on this machine: git config core.hooksPath .githooks
+# Absent stack → fail-inert (exit 0); the harness gate covers fleet lanes.
+command -v bun >/dev/null 2>&1 || exit 0
+P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
+[ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$(git rev-parse --show-toplevel)/packages/suspenders"
+[ -f "$P/hooks/bin/scrub-gate.ts" ] || exit 0
+exec bun "$P/hooks/bin/scrub-gate.ts" hook commit

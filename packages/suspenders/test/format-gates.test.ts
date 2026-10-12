@@ -46,11 +46,16 @@ function fixture(source: string, lane?: string) {
 	return { repo: dir, file, calls: join(root, `calls-${sequence}.ndjson`) };
 }
 
-function gate(event: string, f: ReturnType<typeof fixture>) {
+function gate(
+	event: string,
+	f: ReturnType<typeof fixture>,
+	extra: Record<string, unknown> = {},
+) {
 	const input = join(root, `input-${sequence}.json`);
 	writeFileSync(
 		input,
 		JSON.stringify({
+			...extra,
 			cwd: f.repo,
 			tool_name: "Write",
 			tool_input: { file_path: f.file },
@@ -78,6 +83,12 @@ function gate(event: string, f: ReturnType<typeof fixture>) {
 }
 
 describe("formatting is normalization, not an unresolved failure", () => {
+	test("a repeated Stop still blocks substantive lint failures", () => {
+		const f = fixture("export const x = 1; // LINT_FAILURE\n");
+		const result = gate("stop", f, { stop_hook_active: true });
+		expect(result.err + result.out).toContain("substantive lint failure");
+		expect(result.code).not.toBe(0);
+	});
 	test("post-save reports a successful rewrite as context with exit zero", () => {
 		const f = fixture("export const x=1\n");
 		const result = gate("post-files", f);

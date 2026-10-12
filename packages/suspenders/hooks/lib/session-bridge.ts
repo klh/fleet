@@ -1,9 +1,10 @@
 // hooks/lib/session-bridge.ts — the ONE spawn-session-start/-end primitive
 // every non-Claude dialect shares (W296, extracted from the W73 codex
-// adapter when copilot needed the identical plumbing). Claude Code itself
-// calls session-start.ts/session-end.ts directly as hook commands — no
-// bridge needed, its payload already matches. Every OTHER harness (codex,
-// copilot, and any future CLI — pi, hermes, grok, vscode) normalizes its
+// adapter when copilot needed the identical plumbing). W294 adds the
+// session-row heartbeat: the shared stop gate touches hb every turn.
+// Claude Code itself calls session-start.ts/session-end.ts directly as hook
+// commands — no bridge needed, its payload already matches.
+// Every OTHER harness (codex,
 // own payload shape and resolves a sid by its own identity rules in its own
 // lib/<dialect>.ts, then calls these three functions with the fields
 // session-start.ts/session-end.ts actually read. Adding a new dialect never
@@ -11,6 +12,7 @@
 import { writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { lanesFileFor } from "./fleetlane.ts";
+import { openStore } from "./govdb.ts";
 
 // Bun's spawnSync drops the `input` option — stdin rides a temp file (the
 // gates.test.ts lesson, shared by every dialect that spawns session-*.ts).
@@ -62,4 +64,33 @@ export function spawnSessionEnd(sessionId: string): void {
 		stderr: "ignore",
 	});
 	rmSync(pf, { force: true });
+}
+
+// touchSessionHeartbeat (W294): the plane's hb refresh — Stop fires every
+// turn for every dialect (claude `gate.ts stop`, codex/copilot/grok/cline
+// stop modes), so the shared stop gate doubles as the liveness heartbeat
+// and live copilot/codex orchestrators stop getting swept CLOSED at the
+// 20-min hb-stale window (govdb sweepStaleSessions). Fills an empty
+// transcript_path (manual copilot/codex sessions carry the real transcript
+// only on the Stop payload), never clobbers one, never resurrects CLOSED.
+// Fail-open: liveness accounting never gates a turn end.
+export function touchSessionHeartbeat(
+	sid: string,
+	transcriptPath?: string,
+): void {
+	if (!sid) return;
+	try {
+		const store = openStore();
+		store.run(
+			"UPDATE sessions SET hb = ?, " +
+				"transcript_path = COALESCE(NULLIF(transcript_path, ''), ?) " +
+				"WHERE sid = ? AND state = 'RUNNING'",
+			Date.now(),
+			transcriptPath || null,
+			sid,
+		);
+		store.close();
+	} catch {
+		// fail-open: a dead store never blocks a stop
+	}
 }

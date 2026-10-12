@@ -9,13 +9,14 @@
 // the live governor.db.
 import { describe, test, expect, afterAll, beforeAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const SERVER = join(BIN, "store-server.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const home = mkdtempSync(join(process.cwd(), ".store-port-test-"));
-const repo = mkdtempSync(join(process.cwd(), ".store-port-repo-"));
+const home = mkdtempSync(join(tmpdir(), "suspenders-store-port-test-"));
+const repo = mkdtempSync(join(tmpdir(), "suspenders-store-port-repo-"));
 // a repo here must be a REAL git checkout — project identity resolves the
 // common git dir; an empty mkdir would walk up into this repo
 Bun.spawnSync(["git", "init", "-q", repo]);
@@ -104,7 +105,7 @@ describe("fact set — arg() null sentinel (lesson.coord-arg-null-sentinel)", ()
 		const r = coord(["fact", "set", "w921.bad", "--text"]);
 		expect(r.code).toBe(2);
 		expect(r.err).toBe(
-			"coord: usage: fact set <key> <value> | fact set <key> --text <text> [--source s]\n",
+			"coord: usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]\n",
 		);
 	});
 	test("get round-trips both shapes", () => {
@@ -153,12 +154,15 @@ describe("HTTP transport (store-server.ts)", () => {
 		expect(
 			work(["add", "http item", "--by", "lane-h"], hdr(url)).out,
 		).toContain("✓ W1 READY");
-		expect(work(["take", "W1", "--as", "lane-h"], hdr(url)).out).toContain(
-			"✓ W1 claimed by lane-h",
-		);
-		expect(work(["done", "W1", "--sha", "f00dfeed"], hdr(url)).out).toBe(
-			"✓ W1 DONE @f00dfeed\n",
-		);
+		const takeOut = work(["take", "W1", "--as", "lane-h"], hdr(url)).out;
+		expect(takeOut).toContain("✓ W1 claimed by lane-h");
+		const tok = /claim token: ([0-9a-f]{48})/.exec(takeOut)?.[1];
+		expect(
+			work(
+				["done", "W1", "--sha", "f00dfeed", ...(tok ? ["--token", tok] : [])],
+				hdr(url),
+			).out,
+		).toBe("✓ W1 DONE @f00dfeed\n");
 		expect(work(["list"], hdr(url)).out).toBe("(none)\n");
 	});
 	test("fact + event verbs byte-identical over HTTP", () => {
@@ -187,7 +191,35 @@ describe("HTTP transport (store-server.ts)", () => {
 			GOVERNOR_STORE_URL: turl,
 		});
 		expect(refused.code).not.toBe(0);
-		expect(refused.err).toContain("unreachable");
+		// W662 — a real HTTP status surfaces, not the old "unreachable" mask
+		expect(refused.err).toContain("HTTP 403");
+	});
+
+	// W662 — server-side 500s used to masquerade as "unreachable" (curl -f
+	// flattens any >= 400 to exit 22). Async spawn: an in-process stub server
+	// cannot answer a spawnSync child (W362).
+	test("server errors surface their HTTP status, not 'unreachable'", async () => {
+		const s = Bun.serve({
+			port: 0,
+			fetch: () => new Response("boom", { status: 500 }),
+		});
+		const p = Bun.spawn(["bun", join(BIN, "coord.ts"), "fact", "get", "k.h"], {
+			cwd: repo,
+			env: {
+				...process.env,
+				HOME: home,
+				NO_COLOR: "1",
+				GOVERNOR_STORE_URL: `http://127.0.0.1:${s.port}`,
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		await p.exited;
+		const err = await new Response(p.stderr).text();
+		s.stop(true);
+		expect(p.exitCode).not.toBe(0);
+		expect(err).toContain("HTTP 500");
+		expect(err).not.toContain("unreachable");
 	});
 });
 

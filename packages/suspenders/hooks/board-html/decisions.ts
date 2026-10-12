@@ -1,20 +1,22 @@
 // hooks/board-html/decisions.ts — decisions tab (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const DECISIONS = String.raw`// --- 2: decisions needed (Decisions tab, /api/decisions) ---
+function decisionInProject(d){
+  return !sel.value || sel.value === 'all' || d.project === sel.value;
+}
 function openDecs(){
   var ds = (lastDec && lastDec.decisions) || [];
   var out = [];
   for (var i = 0; i < ds.length; i++) {
-    if (!ds[i].state || ds[i].state === 'OPEN') out.push(ds[i]);
+    if (decisionInProject(ds[i]) && (!ds[i].state || ds[i].state === 'OPEN')) out.push(ds[i]);
   }
   return out;
 }
 function decById(id){
   var ds = (lastDec && lastDec.decisions) || [];
   for (var i = 0; i < ds.length; i++) {
-    if (ds[i].id === id) return ds[i];
+    if (ds[i].id === id && decisionInProject(ds[i])) return ds[i];
   }
   return null;
 }
@@ -78,6 +80,24 @@ function renderDecisionsInner(){
   for (var k2 in advErr) if (!live[k2]) delete advErr[k2];
   for (var k3 in answering) if (!live[k3]) delete answering[k3];
   for (var k4 in sentOk) if (!live[k4]) delete sentOk[k4];
+  for (var k5 in advRetry) if (!live[k5]) delete advRetry[k5];
+  // W667 advise lifecycle: advice landing clears every request state; a
+  // spinner past the server's max runtime reads dead honestly; armed
+  // backoffs re-fire askAdv (exhaustion lands in advErr)
+  for (var ai = 0; ai < all.length; ai++) {
+    var did = all[ai].id;
+    if ((advising[did] || advRetry[did]) && adviceFor(did) && adviceFor(did).advice) {
+      delete advising[did]; delete advRetry[did]; delete advErr[did];
+    }
+    if (advising[did] && Date.now() - advising[did] > 330000) {
+      delete advising[did]; delete advRetry[did];
+      advErr[did] = 'advice did not land in 5m 30s — press retry';
+    }
+    if (advRetry[did] && advRetry[did].at <= Date.now()) {
+      delete advRetry[did];
+      askAdv(did); // exhaustion lands in advErr inside queueAdvRetry
+    }
+  }
   // header state: loading / N need you / none / feed unavailable
   var st = byId('decState');
   var errEl = byId('decErr');
@@ -131,7 +151,7 @@ function decNode(d){
     q = document.createElement('div');
     q.className = 'dec';
     q.setAttribute('data-id', d.id);
-    q.innerHTML =
+    setNodes(q,
       '<div class="dhead"><span class="dproj mono"></span><span class="dwho"></span><span class="dage dim"></span></div>' +
       '<div class="dq"></div>' +
       '<div class="dblocks"></div>' +
@@ -141,7 +161,7 @@ function decNode(d){
       '<button class="send" type="button">Send</button>' +
       '<button class="getrec" type="button">Get recommendation</button>' +
       '<button class="dismiss" type="button">cancel</button></div>' +
-      '<div class="derr" role="alert"></div>';
+      '<div class="derr" role="alert"></div>');
     list.appendChild(q);
   }
   var inp = q.querySelector('input.ans');
@@ -172,26 +192,43 @@ function decNode(d){
   q.classList.toggle('sent', !!sentOk[d.id]);
   setText(q.querySelector('.dproj'), d.project || '(unknown project)');
   setText(q.querySelector('.dwho'), (d.asked_by_label || d.asked_by || '?') + ' · #' + d.id);
+  // W667 stale badge: target-not-live decisions auto-classify on the server
+  // (owner_actionable + owner_reason) — the card carries the verdict so a
+  // dead lane never waits for a human to notice
+  var staleEl = q.querySelector('.dstale');
+  if (!staleEl) {
+    staleEl = document.createElement('span');
+    staleEl.className = 'dstale pill';
+    var dheadEl = q.querySelector('.dhead');
+    var ageEl = q.querySelector('.dage');
+    if (ageEl) dheadEl.insertBefore(staleEl, ageEl); else dheadEl.appendChild(staleEl);
+  }
+  var staleTxt = d.owner_actionable ? (d.owner_reason === 'target-dead' ? 'stale lane' : 'owner ruling') : '';
+  staleEl.textContent = staleTxt;
+  staleEl.className = 'dstale pill' + (staleTxt ? ' block' : '');
+  staleEl.style.display = staleTxt ? '' : 'none';
   setText(q.querySelector('.dage'), ago(decAge(d)));
   setText(q.querySelector('.dq'), d.question || '(no question text)');
   var blocks = 'blocks: ' + (d.task_title || (d.task_id ? 'task ' + d.task_id : 'no linked task'));
   setText(q.querySelector('.dblocks'), blocks);
+  var ruling = !!d.owner_actionable;
   var errEl2 = q.querySelector('.derr');
-  var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? 'delivery failed — press Send to retry' : '');
+  var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? (ruling ? 'target lane is dead or absent — record the owner ruling' : 'delivery failed — press Send to retry') : '');
   if (errEl2.getAttribute('data-sig') !== errTxt) {
     errEl2.setAttribute('data-sig', errTxt);
     errEl2.textContent = errTxt;
   }
   var sb = q.querySelector('.send');
   sb.disabled = !!answering[d.id];
-  setText(sb, sentOk[d.id] ? 'Sent' : 'Send');
+  // W487: owner-actionable cards resolve on the board — no Send-to-lane step
+  setText(sb, sentOk[d.id] ? 'Sent' : ruling ? 'Record ruling' : 'Send');
   q.querySelector('.getrec').disabled = !!advising[d.id];
   var optEl = q.querySelector('.dopts');
   var opts = Array.isArray(d.options) ? d.options : [];
   var osig = JSON.stringify(opts) + '|' + (selOpt[d.id] || '');
   if (optEl.getAttribute('data-sig') !== osig) {
     optEl.setAttribute('data-sig', osig);
-    optEl.innerHTML = '';
+    optEl.replaceChildren();
     for (var oi = 0; oi < opts.length; oi++) {
       var o = opts[oi] || {};
       var row = document.createElement('div');
@@ -213,35 +250,35 @@ function decNode(d){
   if (advising[d.id] && adviceFor(d.id)) delete advising[d.id]; // fact landed
   var a = advising[d.id] ? null : adviceFor(d.id);
   var asig;
-  if (advising[d.id]) asig = 'busy:' + Math.round((Date.now() - advising[d.id]) / 1000);
+  if (advising[d.id]) asig = 'busy:' + Math.round((Date.now() - advising[d.id]) / 1000) + ':' + (advRetry[d.id] ? 1 : 0);
   else if (advErr[d.id]) asig = 'adverr:' + advErr[d.id];
   else if (a && a.adviceError) asig = 'aerr:' + a.adviceError;
   else if (a && a.advice) asig = 'adv:' + JSON.stringify(a.advice);
   else asig = '';
   if (advEl.getAttribute('data-sig') !== asig) {
     advEl.setAttribute('data-sig', asig);
-    advEl.innerHTML = '';
+    advEl.replaceChildren();
     if (asig === '') {
       advEl.style.display = 'none';
     } else if (advising[d.id]) {
       advEl.style.display = 'block';
       var secs = Math.round((Date.now() - advising[d.id]) / 1000);
-      advEl.innerHTML = '<span class="dim">getting recommendation... ' + secs + 's</span>';
+      setNodes(advEl, '<span class="dim">getting recommendation... ' + secs + 's' + (advRetry[d.id] ? ' (retrying)' : '') + '</span>');
     } else if (advErr[d.id]) {
       advEl.style.display = 'block';
-      advEl.innerHTML = '<span class="risk">advice request failed: ' + esc(advErr[d.id]) + '</span>' +
-        ' <button class="advretry" type="button">retry</button>';
+      setNodes(advEl, '<span class="risk">advice request failed: ' + esc(advErr[d.id]) + '</span>' +
+        ' <button class="advretry" type="button">retry</button>');
     } else if (a && a.adviceError) {
       advEl.style.display = 'block';
-      advEl.innerHTML = '<span class="risk">advice failed: ' + esc(a.adviceError) + '</span>' +
-        ' <button class="advretry" type="button">retry</button>';
+      setNodes(advEl, '<span class="risk">advice failed: ' + esc(a.adviceError) + '</span>' +
+        ' <button class="advretry" type="button">retry</button>');
     } else if (a && a.advice) {
       var ac = a.advice;
       var rhead = '<div class="rhead">RECOMMENDATION' + (ac.model ? ' <span class="dim">' + esc(ac.model) + '</span>' : '') + '</div>';
       var rbody = '<div class="rec">' + esc(ac.rec || '') + '</div>';
       if (ac.rationale) rbody += '<div class="why">' + esc(ac.rationale) + '</div>';
       if (ac.risk) rbody += '<div class="risk">risk: ' + esc(ac.risk) + '</div>';
-      advEl.innerHTML = rhead + rbody + ' <button class="use" type="button">use</button>';
+      setNodes(advEl, rhead + rbody + ' <button class="use" type="button">use</button>');
     }
   }
 }
@@ -304,23 +341,37 @@ function sendAns(id){
     });
 }
 function askAdv(id){
-  if (advising[id]) return;
+  if (advRetry[id] && advRetry[id].at > Date.now()) return; // backoff armed
   delete advErr[id];
-  advising[id] = Date.now();
+  delete advRetry[id];
+  if (!advising[id]) advising[id] = Date.now(); // age continuity across retries
   renderDecisions();
   postJSON('/api/advise', { id: id })
     .then(function(res){
-      if (!res || !res.ok) {
-        delete advising[id];
-        advErr[id] = (res && res.error) || 'advise failed to start';
-      }
+      // started:true → child spawned; started:false+inFlight → an earlier
+      // child still runs — keep the spinner, the poll picks the fact up
+      if (!(res && res.ok)) queueAdvRetry(id, (res && res.error) || 'advise failed to start');
       renderDecisions();
     })
     .catch(function(e){
-      delete advising[id];
-      advErr[id] = String((e && e.message) || e) + ' — retry';
+      // W667: a transport failure (8s fetch timeout etc.) is NOT advice
+      // failure — the detached child keeps running server-side. Back off
+      // and re-fire instead of the old dead "signal timed out" error.
+      queueAdvRetry(id, String((e && e.message) || e));
       renderDecisions();
     });
+}
+// W667: exponential backoff (2s/4s/8s), max 3 auto-retries; exhaustion
+// lands in advErr (manual retry button). The spinner stays up throughout.
+function queueAdvRetry(id, msg){
+  var n = ((advRetry[id] && advRetry[id].n) || 0) + 1;
+  if (n > 3) {
+    delete advising[id];
+    delete advRetry[id];
+    advErr[id] = msg;
+    return;
+  }
+  advRetry[id] = { n: n, at: Date.now() + 1000 * Math.pow(2, n) };
 }
 function useRec(id){
   var a = adviceFor(id);

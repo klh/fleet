@@ -21,15 +21,24 @@
 #   env          EnvironmentVariables — string values, may carry
 #                placeholders. Substitution table (identical to install.sh's
 #                sed pass today): BUN (bun binary) · HOME (user home) ·
-#                PREFIX (installed harness) · REPO (this package root) ·
+#                PREFIX (installed harness) · REPO (this package root;
+#                registerLaunchd renders it only from a pinned checkout —
+#                snapshot invocations normalize via the harness receipt or
+#                refuse, W631) ·
 #                BELT_URL (belt front; default http://127.0.0.1:4100) ·
 #                BELT_TOKEN (belt auth token; default empty). Values come
 #                from flags / process env at render time.
-#   envFile      PATH reference to a machine-level env file the runner may
-#                source — PATH ONLY: secrets NEVER live in this manifest or
-#                in an emitted unit (config-over-code law). No current
-#                service needs one; belt secrets ride render-time env
-#                (BELT_URL/BELT_TOKEN) exactly as install.sh does today.
+#   envFile      PATH or ordered list of machine-level env PATHS. Darwin
+#                sources them with export enabled before exec; systemd gets
+#                one EnvironmentFile directive per path. Later files override
+#                earlier values. All files are required. WinSW documents paths
+#                for operator injection. Secrets are NEVER embedded in units.
+#   port         optional declared listener port (receipt metadata only —
+#                never rendered into any unit). The activation receipt
+#                records it so supervision lsof-verifies the LISTENER, not
+#                just the PID (W546: a spoke that died on EADDRINUSE showed
+#                a live process tree while :4101 was dark). The
+#                SUSPENDERS_SERVICE_PORTS_JSON env overrides per machine.
 #   schedule     runAtLoad        RunAtLoad — all current runners load at
 #                                 login (defaults to true)
 #                keepalive        KeepAlive — restart on exit (residents)
@@ -50,6 +59,64 @@ defaults:
     runAtLoad: true
 
 services:
+  # Restore ephemeral Bonjour claims after login; no routes or model services.
+  - name: local-dns
+    bunEntry: "__HOME__/.local/klh-local/bin/klh-local.ts"
+    args: ["dns-serve"]
+    env: { HOME: "__HOME__" }
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.local/state/klh-local/dns.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
+  # Cloud transport remains available while the local model swarm is paused.
+  # Only LiteLLM is owned here; model/router startup is never part of this unit.
+  - name: cloud-gateway
+    bunEntry: "__PREFIX__/.harness/packages/belt/bin/cloud-gateway.ts"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/cloud-gateway.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # W355 spoke policy-pull — this machine pulls the hub policy manifest +
+  # entitlements on an interval (hooks/bin/federation-pull.ts, loop mode,
+  # 300s default). Credentials ride the machine-level spoke profile (0600,
+  # config-over-code): BUCKLE_HUB_URL + BUCKLE_SPOKE_TOKEN (spoke-scoped,
+  # minted on the hub, revocable via the admin API). The sim pointing
+  # document stays sim/spoke-profile.env — never point the spoke at a sim.
+  - name: federation-pull
+    bunEntry: "__PREFIX__/bin/federation-pull.ts"
+    args: []
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    envFile:
+      - "__HOME__/.claude/local-llm/spoke-profile.env"
+    schedule: { keepalive: true, throttleSeconds: 30 }
+    logs: { out: "__HOME__/.claude-insights/federation-pull.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # W501: the lane gateway is supervised outside interactive agent sessions.
+  # Routing credentials come from belt.env; spoke-only auth/bind settings win.
+  # W546: port feeds the activation receipt so supervision verifies the
+  # :4101 LISTENER — a restart that dies on EADDRINUSE can no longer pass
+  # as running just because a PID exists.
+  - name: buckle-spoke
+    bunEntry: "__REPO__/../buckle/src/server.ts"
+    args: []
+    port: 4101
+    cwd: "__REPO__/../buckle"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    envFile:
+      - "__HOME__/.claude/local-llm/belt.env"
+      - "__HOME__/.claude/local-llm/buckle-spoke.env"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.claude-insights/buckle-spoke.log" }
+    placeholders: ["__BUN__", "__HOME__", "__REPO__"]
+
   # control-plane health sweep — every 15 min, --fix (W264-era monitor)
   - name: fleet-monitor
     bunEntry: "__PREFIX__/bin/monitor.ts"
@@ -60,7 +127,9 @@ services:
 
   # belt LLM routing watcher (W145) — DELIVERED NOT INSTALLED: activation is
   # a coordinator step. Secrets ride render-time env (BELT_URL/BELT_TOKEN),
-  # never this manifest.
+  # never this manifest. W576.5: --dispatch-cmd is prefix-absolute so the
+  # loop's child policy script loads from the immutable generation root,
+  # never the mutable work repo the unit's --repo/cwd point at.
   - name: fleet-loop
     bunEntry: "__PREFIX__/bin/fleet-loop.ts"
     args:
@@ -74,7 +143,7 @@ services:
       - "--ladder"
       - "git merge --no-ff {branch}"
       - "--dispatch-cmd"
-      - "__BUN__ scripts/dispatch-next.ts --target 8"
+      - "__BUN__ __PREFIX__/scripts/dispatch-next.ts --target 8"
       - "--every"
       - "120"
     cwd: "__REPO__"
@@ -144,7 +213,10 @@ services:
     logs: { out: "__HOME__/.claude-insights/dispatch-watchdog-launchd.log" }
     placeholders: ["__BUN__", "__PREFIX__", "__HOME__"]
 
-  # local-llm keepwarm — every 4 min, niced off the interactive foreground
+  # local-llm keepwarm — every 4 min, niced off the interactive foreground.
+  # W507: the warm set is the emitted tier manifest (~/.claude/local-llm/
+  # tier.json, registry-emit `tier`) — no tier env here; missing manifest
+  # fails safe to the ≤4GB set (the W500 crash trigger).
   - name: llm-keepwarm
     bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
     schedule: { intervalSeconds: 240 }
@@ -164,13 +236,13 @@ services:
     logs: { out: "__HOME__/.claude-insights/suspenders-knowledge-api.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
 
-  # knowledge ingest worker — resident; distill target is the local large
-  # model (owner 2026-09-30: slow-queue chore stays off the paid cloud;
-  # unset/override via env to route through belt instead)
+  # knowledge ingest worker — resident; distill rides belt with the W96
+  # 'prefer local distill reasoning' hint (belt decides, local-first — the
+  # :8903 INGEST_LLM_URL pin is retired; INGEST_LLM_URL env still wins in
+  # makeDistillClient() as the enterprise override)
   - name: knowledge-worker
     bunEntry: "__PREFIX__/bin/knowledge-worker.ts"
     env:
-      INGEST_LLM_URL: "http://127.0.0.1:8903/v1/chat/completions"
       KNOWLEDGE_DOCS_ROOT: "__REPO__"
     schedule: { keepalive: true }
     logs: { out: /tmp/suspenders-knowledge-worker.log }
@@ -179,19 +251,25 @@ services:
   # local-llm swarm supervisor (W158) — runs `swarm.ts serve` from the
   # runtime HOME copy (not the harness prefix): children revive with
   # backoff; KeepAlive restarts only the supervisor, which adopts live
-  # children on relaunch
+  # children on relaunch. Tier rides the emitted tier manifest
+  # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
   - name: local-llm
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["serve"]
-    env:
-      # 2026-10-07 OOM root-cause: full tier wired ~40GB of MLX residents
-      # (coder 18 + reason 22) and lane-burst KV growth doubled reason to
-      # 46.5GB RSS — python fleet hit ~91GB of 128GB, jetsam at 22:14, the
-      # machine died. Minimal (≤4GB) + on-demand spawns for the heavy models
-      # (the router owns spawn); memory caps + idle-unload = W500.
-      BELT_TIER: "minimal"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
+  # ikea-shim (W226) — anthropic→copilot gateway on :4102 for the INTERACTIVE
+  # claude CLI. Runs from the runtime-home copy (kit, like local-llm).
+  # DELIVERED NOT INSTALLED: the Copilot-seat login is an owner step
+  # (bun ~/.claude/local-llm/ikea-shim.ts login); --with-launchd renders +
+  # loads the unit.
+  - name: ikea-shim
+    bunEntry: "__HOME__/.claude/local-llm/ikea-shim.ts"
+    args: []
+    schedule: { keepalive: true }
+    logs: { out: "__HOME__/.claude-insights/ikea-shim-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]
 
   # consult-relay (W480) — resident relay with a 10s relaunch throttle
@@ -202,3 +280,50 @@ services:
     schedule: { keepalive: true, throttleSeconds: 10 }
     logs: { out: "__HOME__/.claude-insights/consult-relay.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
+  # W179.3 nightly real-provider soak — 03:15 calendar, DELIVERED NOT
+  # INSTALLED: activation is a coordinator step. Tiny caps by default
+  # (SOAK_MAX_USD / SOAK_MAX_TOKENS / SOAK_ITERS / SOAK_MAX_MINUTES env at
+  # render time); belt auth resolves via resolveBelt() from HOME. A cap hit
+  # is a clean exit (the cap working).
+  - name: soak
+    bunEntry: "__PREFIX__/bin/soak.ts"
+    schedule: { calendar: { hour: 3, minute: 15 }, runAtLoad: false }
+    nice: 10
+    logs: { out: /tmp/soak.log }
+    placeholders: ["__BUN__", "__PREFIX__"]
+
+  # coord-worker (W529) — the headless coordinator cadence: every 15 min a
+  # governed claude run drains inbox/consults, takes at most ONE READY
+  # coordinator-class item (tagged #coord), capsules, exits. No KeepAlive —
+  # the interval IS the cadence and launchd coalesces fires while a run
+  # lives. Fails closed (W463 posture): front down or mint failed refuses
+  # the run; the interactive coordinator's warm transcript (fact
+  # coordinator.sid) stands in front of the worker (skip-live).
+  - name: coord-worker
+    bunEntry: "__PREFIX__/scripts/coord-worker.ts"
+    args: ["--repo", "__REPO__"]
+    cwd: "__REPO__"
+    env:
+      HOME: "__HOME__"
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { intervalSeconds: 900 }
+    nice: 10
+    logs: { out: /tmp/coord-worker.log }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+
+  # W638 auto-install watcher — every 5 min: fleet main moved past the
+  # last-installed stamp AND the repo volume mounted AND no lane live/unknown
+  # → plain `bash install.sh` (no unit re-registration, no restarts) + one
+  # dead-lane registry prune afterwards. Failed installs never advance the
+  # stamp; skips are waiting states. Activate with install.sh --with-launchd.
+  - name: auto-install
+    bunEntry: "__PREFIX__/scripts/auto-install.ts"
+    args: ["--repo", "__REPO__"]
+    cwd: "__REPO__"
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { intervalSeconds: 300 }
+    logs: { out: "__HOME__/.claude-insights/auto-install.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]

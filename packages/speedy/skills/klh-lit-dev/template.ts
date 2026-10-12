@@ -3,12 +3,12 @@
  * Copy this file to start a new component
  */
 
-import { LitElement, html, css } from 'lit';
-import { customElement, property, state, query } from 'lit/decorators.js';
-import { classMap } from 'lit/directives/class-map.js';
-import { when } from 'lit/directives/when.js';
-import type { ComponentNameProps } from './component-name.zod.js';
-import { componentNamePropsSchema } from './component-name.zod.js';
+import { LitElement, html, css } from "lit";
+import { customElement, property, state, query } from "lit/decorators.js";
+import { classMap } from "lit/directives/class-map.js";
+import { when } from "lit/directives/when.js";
+import type { ComponentNameProps } from "./component-name.zod.js";
+import { componentNamePropsSchema } from "./component-name.zod.js";
 
 /**
  * Brief component description.
@@ -31,42 +31,42 @@ import { componentNamePropsSchema } from './component-name.zod.js';
  * </component-name>
  * ```
  */
-@customElement('component-name')
+@customElement("component-name")
 export class ComponentName extends LitElement {
-  // ========== Properties (Public API) ==========
+	// ========== Properties (Public API) ==========
 
-  /** The current value */
-  @property({ type: String, reflect: true })
-  value: string = '';
+	/** The current value */
+	@property({ type: String, reflect: true })
+	value: string = "";
 
-  /** Maximum length */
-  @property({ type: Number, attribute: 'maxlength' })
-  maxlength?: number;
+	/** Maximum length */
+	@property({ type: Number, attribute: "maxlength" })
+	maxlength?: number;
 
-  /** Disabled state */
-  @property({ type: Boolean, reflect: true })
-  disabled = false;
+	/** Disabled state */
+	@property({ type: Boolean, reflect: true })
+	disabled = false;
 
-  /** Variant for styling */
-  @property({ type: String, reflect: true })
-  variant: 'primary' | 'secondary' = 'primary';
+	/** Variant for styling */
+	@property({ type: String, reflect: true })
+	variant: "primary" | "secondary" = "primary";
 
-  // ========== State (Internal) ==========
+	// ========== State (Internal) ==========
 
-  @state()
-  private _isOpen = false;
+	@state()
+	private _isOpen = false;
 
-  @state()
-  private _focused = false;
+	@state()
+	private _focused = false;
 
-  // ========== Queries ==========
+	// ========== Queries ==========
 
-  @query('input')
-  private _input!: HTMLInputElement;
+	@query("input")
+	private _input!: HTMLInputElement;
 
-  // ========== Styles ==========
+	// ========== Styles ==========
 
-  static styles = css`
+	static styles = css`
     :host {
       display: inline-block;
       --component-size: 300px;
@@ -120,23 +120,23 @@ export class ComponentName extends LitElement {
     }
   `;
 
-  // ========== Lifecycle ==========
+	// ========== Lifecycle ==========
 
-  override async firstUpdated() {
-    await this.updateComplete;
-    // Safe to query DOM here
-  }
+	override async firstUpdated() {
+		await this.updateComplete;
+		// Safe to query DOM here
+	}
 
-  override willUpdate(changed: Map<PropertyKey, unknown>) {
-    if (changed.has('value')) {
-      // Compute derived state before render
-    }
-  }
+	override willUpdate(changed: Map<PropertyKey, unknown>) {
+		if (changed.has("value")) {
+			// Compute derived state before render
+		}
+	}
 
-  // ========== Render ==========
+	// ========== Render ==========
 
-  render() {
-    return html`
+	render() {
+		return html`
       <div class="wrapper ${classMap({ [this.variant]: true })}">
         <slot name="prefix"></slot>
         <input
@@ -147,63 +147,67 @@ export class ComponentName extends LitElement {
           @input=${this._handleInput}
           @focus=${this._handleFocus}
           @blur=${this._handleBlur}
-          aria-label="${this.value || 'Empty'}"
+          aria-label="${this.value || "Empty"}"
           aria-disabled="${this.disabled}"
         />
         <slot></slot>
         ${when(
-          this._isOpen,
-          () => html`<div class="dropdown">Dropdown content</div>`,
-        )}
+					this._isOpen,
+					() => html`<div class="dropdown">Dropdown content</div>`,
+				)}
       </div>
     `;
-  }
+	}
 
-  // ========== Event Handlers ==========
+	// ========== Event Handlers ==========
 
-  private _handleInput(e: InputEvent) {
-    const target = e.target as HTMLInputElement;
-    this.value = target.value;
+	private _handleInput(e: InputEvent) {
+		const target = e.target as HTMLInputElement;
+		this.value = target.value;
 
-    this._dispatchChange({ value: this.value });
-  }
+		this._dispatchChange({ value: this.value });
+	}
 
-  private _handleFocus() {
-    this._focused = true;
-  }
+	private _handleFocus() {
+		this._focused = true;
+	}
 
-  private _handleBlur() {
-    this._focused = false;
-    this._isOpen = false;
-  }
+	private _handleBlur() {
+		this._focused = false;
+		this._isOpen = false;
+	}
 
-  // ========== Event Dispatching ==========
+	// ========== Event Dispatching ==========
 
-  private _dispatchChange(detail: ComponentNameProps) {
-    const validated = componentNamePropsSchema.parse(detail);
-    this.dispatchEvent(new CustomEvent('change', {
-      detail: validated,
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	private _dispatchChange(detail: ComponentNameProps) {
+		const validated = componentNamePropsSchema.parse(detail);
+		this.dispatchEvent(
+			new CustomEvent("change", {
+				detail: validated,
+				bubbles: true,
+				composed: true,
+			}),
+		);
+	}
 
-  private _dispatchOpen() {
-    this.dispatchEvent(new CustomEvent('open', {
-      bubbles: true,
-      composed: true,
-    }));
-  }
+	private _dispatchOpen() {
+		this.dispatchEvent(
+			new CustomEvent("open", {
+				bubbles: true,
+				composed: true,
+			}),
+		);
+	}
 
-  // ========== Public Methods ==========
+	// ========== Public Methods ==========
 
-  /** Focuses the input element */
-  focus() {
-    this._input?.focus();
-  }
+	/** Focuses the input element */
+	focus() {
+		this._input?.focus();
+	}
 
-  /** Selects all text */
-  select() {
-    this._input?.select();
-  }
+	/** Selects all text */
+	select() {
+		this._input?.select();
+	}
 }

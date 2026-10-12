@@ -57,3 +57,12 @@
 5c32bc10d6518074cc9a438abd24032d46a23d1f:test/fleet-board-flows.test.ts:generic-api-key:422
 f8b9e2e28002f9984dab57a1bbd9abb6ac963d50:bench/arena/gen.ts:generic-api-key:936
 test/fleet-board-flows.test.ts:generic-api-key:422
+# W307: BELT_MCP_DEV=1 env knob in prose (owner commit 6e98a89) — not a secret
+packages/belt/docs/mcp.md:generic-api-key:13
+6e98a892c95d850eed8f6282b419059bec056698:packages/belt/docs/mcp.md:generic-api-key:13
+# W689: scrub-gate test fixture (fake mxoxb token, asserts the deny path) — not a secret
+packages/suspenders/test/scrub-gate.test.ts:generic-api-key:30
+# W689: scrub/advisor test fixtures, first-hand read 2026-10-12 — hub-admin:179 is a
+# negative-assertion string, policy-advisor:186 is a synthetic PEM body "abc" — not secrets
+packages/suspenders/test/hub-admin.test.ts:sk-key:179
+packages/suspenders/test/policy-advisor.test.ts:private-key:186

@@ -12,6 +12,7 @@ jobs:
         include:
           - { pkg: blam, tolerate: "false" }
           - { pkg: buckle, tolerate: "false" }
+          - { pkg: speedy, tolerate: "false" }
           - { pkg: belt, tolerate: "true" }
           - { pkg: suspenders, tolerate: "true" }
     runs-on: ubuntu-latest
@@ -28,6 +29,57 @@ jobs:
       - name: tests
         continue-on-error: ${{ matrix.tolerate == 'true' }}
         run: bun test packages/${{ matrix.pkg }}/test/
+
+  # W649: every cross-package `from "@klh/<pkg>"` must be declared by the
+  # importing package (tests/cross-package-imports.test.ts). The installed
+  # artifact links only the declared graph — an undeclared import installs
+  # clean and dies at first run on a hub.
+  imports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: cross-package imports vs declared dependencies
+        run: bun test tests/cross-package-imports.test.ts
+
+  # W443: verify the SQLite embedded in the DEPLOY ARTIFACT — oven/bun:1 is
+  # the image every hub + sim container runs — carries the WAL-reset fix
+  # (3.51.3+; sqlite.org/wal.html#walresetbug; backports 3.44.6/3.50.7).
+  # Fails when the floating tag drifts below the fix, so a runtime change
+  # cannot deploy unverified. Host sqlite3 is irrelevant: bun vendors its
+  # amalgamation on Linux and links the system SQLite on macOS.
+  runtime-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: embedded SQLite inside oven/bun:1
+        run: |
+          docker run --rm -v "$PWD:/w:ro" -w /w oven/bun:1 \
+            bun packages/suspenders/deploy/runtime-info.ts --check --json
+
+  # W234: the docker e2e harness — full chain up (belt-stub + buckle + caddy
+  # + board/store), four probes (chat through buckle, admin token lifecycle,
+  # enroll a hub, dispatch a lane), runner exit code gates.
+  docker-e2e:
+    runs-on: ubuntu-latest
+    env:
+      FLEET_DIR: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # the dispatch probe runs dispatch-next.ts on the HOST — it imports the
+      # @klh/* workspace links, so the root node_modules must exist first
+      - name: root install (workspace links)
+        run: bun install --frozen-lockfile
+      # the runner mints the 0600 root-key env_file BEFORE compose up (the
+      # env_file is fail-closed: a missing file would fail config/up), so
+      # run-e2e.ts is the single validation + probe surface
+      - name: e2e probes
+        run: bun packages/suspenders/deploy/e2e/run-e2e.ts
 
   # Every CLI entrypoint must at least parse/build.
   entrypoints:
@@ -89,3 +141,111 @@ jobs:
           ./packages/suspenders/install.sh --wire
           python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});n=sum(len(v) for v in h.values());sys.exit(1) if n!=7 else print('wired', n, 'entries, idempotent')"
           (cd /tmp && "$GITHUB_WORKSPACE/packages/suspenders/install.sh" --wire) # works from any cwd
+
+  # W649: the installed artifact must stand alone. Install into an isolated
+  # HOME (the runner's real HOME stays untouched), then parse-build every
+  # installed CLI entrypoint FROM the installed prefix — build is the runtime
+  # evidence here: the shipped payload carries no e2e specs, so the known
+  # @playwright/chromium-bidi build flake cannot occur. Prove the dispatch
+  # shim resolves into the installed prefix and sweep the artifact for
+  # undeclared checkout paths — the class of break where a fresh-machine
+  # install dies at first run on an import the checkout's workspace links
+  # masked.
+  artifact-roundtrip:
+    runs-on: ubuntu-latest
+    env:
+      ISO: ${{ runner.temp }}/fleet-home
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: isolated-HOME install, installed-entrypoint imports, shim, sweep
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-cache
+        run: |
+          set -e
+          # populate the bun cache the staged offline install reuses
+          bun install --frozen-lockfile
+          mkdir -p "$ISO"
+          export HOME="$ISO"
+          ./packages/suspenders/install.sh --wire --no-llm --skip-models
+          PREFIX="$ISO/.claude/hooks/suspenders"
+          test -f "$PREFIX/bin/fleet-board.ts"
+          test -f "$PREFIX/scripts/dispatch-next.ts"
+          test -x "$ISO/.local/bin/dispatch"
+          # the shim must resolve into the installed prefix, never elsewhere
+          grep -q "$PREFIX/scripts/dispatch-next.ts" "$ISO/.local/bin/dispatch"
+          # import (build) every installed board entrypoint: bin, the hook
+          # frontends, the dispatch shim's target (scripts/ also hosts
+          # checkout-only dev tools — e.g. starter-milestone.ts imports the
+          # unshipped blam/bench — which is why the battery is entrypoints)
+          for f in "$PREFIX"/bin/*.ts "$PREFIX"/gate.ts \
+                   "$PREFIX"/session-start.ts "$PREFIX"/session-end.ts \
+                   "$PREFIX"/scripts/dispatch-next.ts; do
+            bun build "$f" --target=bun --outfile=/dev/null
+          done
+          # zero undeclared checkout paths in installed CODE (.ts/.sh) — the
+          # receipt's source field is declared provenance, and grep -r skips
+          # the prefix's symlinked entries (the .harness payload covers them)
+          if grep -rIl --include='*.ts' --include='*.sh' \
+              -e "$GITHUB_WORKSPACE" -e "/home/runner" \
+              --exclude-dir=node_modules "$PREFIX"; then
+            echo "FAIL: checkout path leaked into the installed artifact" "$PREFIX" >&2
+            exit 1
+          fi
+          python3 -c "import json,os,sys;h=json.load(open(os.environ['HOME']+'/.claude/settings.json')).get('hooks',{});sys.exit(1) if not h else print('wired', sum(len(v) for v in h.values()), 'hook entries, isolated home')"
+
+  # W649: config-over-code deploy chain — a pinned stack fixture drives the
+  # full render surface. hubctl render emits the hub .env from the profile;
+  # install.sh --hub --dry-run (the fresh-hub smoke entrypoint) must render
+  # the identical .env with zero side effects; the rendered .env + template
+  # must validate as ONE pair via compose config (the runner mints a
+  # throwaway root-key fixture first — compose stats the fail-closed
+  # env_file even at config -q, the W234 lesson).
+  hub-render:
+    runs-on: ubuntu-latest
+    env:
+      KLH_STACK: ${{ runner.temp }}/ci-stack.json
+      HUBDIR: ${{ runner.temp }}/hub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: render, dry-run round-trip, compose validation
+        run: |
+          set -e
+          cat > "$KLH_STACK" <<'JSON'
+          {"version":"0123456789abcdef0123456789abcdef01234567","hubs":{"ci":{"host":"127.0.0.1","buckle_port":4111,"board_port":7809,"store_port":7796,"belt_port":7792,"allowed_hosts":["ci.local"],"peers":["edge"],"repos":{"ref":"0123456789abcdef0123456789abcdef01234567"}}}}
+          JSON
+          ENV_OUT="$(bun packages/suspenders/deploy/hubctl.ts render ci)"
+          printf '%s\n' "$ENV_OUT" | grep -qx 'HUB_NAME=ci'
+          printf '%s\n' "$ENV_OUT" | grep -qx 'HUB_FLEET_REF=0123456789abcdef0123456789abcdef01234567'
+          printf '%s\n' "$ENV_OUT" | grep -qx 'HUB_ALLOWED_HOSTS=ci.local'
+          printf '%s\n' "$ENV_OUT" | grep -qx 'HUB_PEERS=edge'
+          # fresh-hub smoke: the installer entrypoint renders the identical
+          # .env, zero side effects
+          test "$(./packages/suspenders/install.sh --hub ci --dry-run)" = "$ENV_OUT"
+          # template + rendered env must validate as one pair
+          mkdir -p "$HUBDIR"
+          printf 'BUCKLE_ROOT_KEY=ci-fixture-not-a-secret\n' > "$HUBDIR/buckle.env"
+          printf '%s\n' "$ENV_OUT" > "$HUBDIR/.env"
+          cp packages/suspenders/deploy/hub-compose.yaml "$HUBDIR/"
+          docker compose -f "$HUBDIR/hub-compose.yaml" \
+            --project-directory "$HUBDIR" config --quiet
+          echo "hub render + dry-run + compose config: ok"
+
+  # W422.16: single-source package docs — every CLAUDE.md is a one-line
+  # @AGENTS.md stub; the canonical doc per package is AGENTS.md. Fails on
+  # drift: real content back in a CLAUDE.md, or a CLAUDE.md without an
+  # AGENTS.md sibling.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: docs drift guard
+        run: bun test tests/

@@ -46,6 +46,7 @@ export interface RemoteEndpoint {
 	protocol: "openai" | "llama" | "immich";
 	roles: string[]; // routing roles this endpoint serves (code/extract/...)
 	model?: string; // openai-protocol model id, if the provider needs one
+	provider?: "openai" | "zai"; // transport adapter; OpenAI-compatible wire need not mean OpenAI provider
 	// ── cloud endpoints — base URL + bearer key instead of LAN ip:port ──
 	tls?: boolean; // informational: the endpoint speaks https
 	base?: string; // full base URL (probe: ${base}/models, route:
@@ -206,10 +207,48 @@ const probeReason = (ep: RemoteEndpoint): string | undefined =>
 		? `missing api key (api_key or ${ep.api_key_env ?? "api_key_env"})`
 		: undefined;
 
+/** Request URL for an endpoint (W308): a `base` wins; a `tls` endpoint keeps
+ *  the DNS HOSTNAME in the URL — the TLS SNI and Host header must match the
+ *  certificate/CDN vhost, and a resolved IP would strip both; plain LAN
+ *  endpoints keep the resolved ip:port. Null when a LAN endpoint cannot
+ *  resolve. */
+export function endpointUrl(
+	machine: RemoteMachine,
+	ep: RemoteEndpoint,
+	path: string,
+): string | null {
+	if (ep.base) return `${ep.base}${path}`;
+	if (ep.tls) return `https://${machine.host}:${ep.port}${path}`;
+	const ip = resolveHost(machine);
+	return ip ? `http://${ip}:${ep.port}${path}` : null;
+}
+
+/** One fetch = one connection for CDN-fronted endpoints (W308, z.ai 421):
+ *  the `connection: close` header stops the fetch pool from carrying a TLS
+ *  handshake opened for one host into a request for another host that
+ *  shares the CDN edge — cross-host reuse the edge answers with 421
+ *  Misdirected Request (SNI/authority mismatch). A 421 that slips through
+ *  anyway (a pooled conn created before this header took effect) gets ONE
+ *  fresh-connection retry before the failure lands at the caller. */
+export async function cdnFetch(
+	url: string,
+	init: RequestInit = {},
+): Promise<Response> {
+	const headers: Record<string, string> = {
+		connection: "close",
+		...((init.headers as Record<string, string> | undefined) ?? {}),
+	};
+	const r = await fetch(url, { ...init, headers });
+	if (r.status !== 421) return r;
+	await r.text(); // drain the rejected body so the socket closes
+	return fetch(url, { ...init, headers });
+}
+
 /** Protocol-aware health probe: openai → GET /v1/models; llama → GET
  *  /health; immich → GET /ping (Immich ML v3.1 answers "pong"; /predict
  *  requires multipart and is broken upstream). Cloud endpoints (base) →
- *  GET ${base}/models with bearer auth; a missing key = unavailable. A
+ *  GET ${base}/models with bearer auth; a missing key = unavailable. tls
+ *  endpoints (no base) ride the same protocol paths by DNS hostname. A
  *  configured check must pass (2xx, without an explicit failed verdict). */
 export async function probeEndpoint(
 	machine: RemoteMachine,
@@ -219,7 +258,7 @@ export async function probeEndpoint(
 		const key = endpointKey(ep);
 		if (!key) return false;
 		try {
-			const r = await fetch(`${ep.base}/models`, {
+			const r = await cdnFetch(`${ep.base}/models`, {
 				headers: { authorization: `Bearer ${key}` },
 				signal: AbortSignal.timeout(4000),
 				redirect: "manual",
@@ -229,16 +268,20 @@ export async function probeEndpoint(
 			return false;
 		}
 	}
-	const ip = resolveHost(machine);
-	if (!ip) return false;
 	const path =
 		ep.protocol === "openai"
 			? "/v1/models"
 			: ep.protocol === "llama"
 				? "/health"
 				: "/ping";
+	const url = endpointUrl(machine, ep, path);
+	if (!url) return false;
+	const headers: Record<string, string> = {};
+	const key = endpointKey(ep);
+	if (key) headers.authorization = `Bearer ${key}`;
 	try {
-		const r = await fetch(`http://${ip}:${ep.port}${path}`, {
+		const r = await cdnFetch(url, {
+			headers,
 			signal: AbortSignal.timeout(4000),
 			redirect: "manual",
 		});
@@ -259,16 +302,16 @@ export async function catalogFor(
 	ep: RemoteEndpoint,
 ): Promise<string[]> {
 	if (ep.protocol === "immich") return [];
-	const ip = ep.base ? "" : resolveHost(machine);
-	if (!ep.base && !ip) return [];
+	const url = endpointUrl(machine, ep, ep.base ? "/models" : "/v1/models");
+	if (!url) return [];
 	const headers: Record<string, string> = {};
 	const key = endpointKey(ep);
 	if (key) headers.authorization = `Bearer ${key}`;
 	try {
-		const r = await fetch(
-			ep.base ? `${ep.base}/models` : `http://${ip}:${ep.port}/v1/models`,
-			{ headers, signal: AbortSignal.timeout(4000) },
-		);
+		const r = await cdnFetch(url, {
+			headers,
+			signal: AbortSignal.timeout(4000),
+		});
 		if (!r.ok) return [];
 		const j = (await r.json()) as { data?: { id?: unknown }[] };
 		const ids = (Array.isArray(j.data) ? j.data : [])
@@ -526,7 +569,7 @@ async function chatCompletion(
 	model: string,
 	prompt: string,
 ): Promise<string> {
-	const r = await fetch(url, {
+	const r = await cdnFetch(url, {
 		method: "POST",
 		headers,
 		body: JSON.stringify({
@@ -569,14 +612,9 @@ export async function routeTask(
 			prompt,
 		);
 	}
-	const ip = resolveHost(machine);
-	if (!ip) throw new Error(`cannot resolve ${machine.host}`);
-	return chatCompletion(
-		`http://${ip}:${ep.port}/v1/chat/completions`,
-		headers,
-		model,
-		prompt,
-	);
+	const url = endpointUrl(machine, ep, "/v1/chat/completions");
+	if (!url) throw new Error(`cannot resolve ${machine.host}`);
+	return chatCompletion(url, headers, model, prompt);
 }
 
 /** Pull `--model <id>` out of a route argv tail (W224): the override rides

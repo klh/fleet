@@ -61,9 +61,9 @@ describe("morph CLI", () => {
 		for (const r of roots) rmSync(r, { recursive: true, force: true });
 	});
 
-	test("usage exits 1", () => {
-		expect(morph().code).toBe(1);
-		expect(morph("bogus").code).toBe(1);
+	test("usage exits 2 (kit uniform die, W656.2)", () => {
+		expect(morph().code).toBe(2);
+		expect(morph("bogus").code).toBe(2);
 	});
 
 	test("rename dry-run: prints diff, writes nothing", () => {
@@ -81,8 +81,8 @@ export const doubled = oldAnswer * 2;
 		const a0 = readFileSync(join(dir, "a.ts"), "utf8");
 		const b0 = readFileSync(join(dir, "b.ts"), "utf8");
 		const r = morph(
-			...withRoot(dir),
 			"rename",
+			...withRoot(dir),
 			join(dir, "a.ts"),
 			"--symbol",
 			"oldAnswer",
@@ -112,8 +112,8 @@ export const doubled = oldAnswer * 2;
 `,
 		});
 		const r = morph(
-			...withRoot(dir),
 			"rename",
+			...withRoot(dir),
 			join(dir, "a.ts"),
 			"--symbol",
 			"oldAnswer",
@@ -131,8 +131,8 @@ export const doubled = oldAnswer * 2;
 		expect(b).toContain("newAnswer * 2");
 		// --count assertion: 4 sites found, so 99 aborts untouched
 		const bad = morph(
-			...withRoot(dir),
 			"rename",
+			...withRoot(dir),
 			join(dir, "a.ts"),
 			"--symbol",
 			"newAnswer",
@@ -159,8 +159,8 @@ export const out = helper(10);
 `,
 		});
 		const r = morph(
-			...withRoot(dir),
 			"move",
+			...withRoot(dir),
 			join(dir, "lib.ts"),
 			"--symbol",
 			"helper",
@@ -203,8 +203,8 @@ export function outer(x: number): number {
 		const before = readFileSync(join(dir, "priv.ts"), "utf8");
 		const target = join(dir, "gone.ts");
 		const r = morph(
-			...withRoot(dir),
 			"move",
+			...withRoot(dir),
 			join(dir, "priv.ts"),
 			"--symbol",
 			"outer",
@@ -226,8 +226,8 @@ export function outer(x: number): number {
 `,
 		});
 		const r = morph(
-			...withRoot(dir),
 			"rename",
+			...withRoot(dir),
 			join(dir, "a.ts"),
 			"--symbol",
 			"missing",
@@ -251,12 +251,12 @@ export const both = alpha + zebra;
 `,
 		});
 		const messy0 = readFileSync(join(dir, "messy.ts"), "utf8");
-		const dry = morph(...withRoot(dir), "organize", join(dir, "messy.ts"));
+		const dry = morph("organize", ...withRoot(dir), join(dir, "messy.ts"));
 		expect(dry.code).toBe(0);
 		expect(readFileSync(join(dir, "messy.ts"), "utf8")).toBe(messy0);
 		const r = morph(
-			...withRoot(dir),
 			"organize",
+			...withRoot(dir),
 			join(dir, "messy.ts"),
 			"--apply",
 		);

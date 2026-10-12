@@ -1,7 +1,7 @@
 // src/cooldown.ts — the two ported LiteLLM primitives the ladder needs:
 // retry-after-aware backoff (utils.py::_calculate_retry_after semantics:
-// upstream retry-after verbatim — both delta-seconds and HTTP-date forms —
-// capped exponential 2**attempt + U[0,1) jitter when absent) and passive
+// upstream retry-after minimum — both delta-seconds and HTTP-date forms —
+// max(provider floor, capped exponential 2**attempt) + U[0,1) jitter) and passive
 // outlier ejection (allowed_fails consecutive failures bench a deployment
 // for cooldown_time seconds; success resets the counter — cooldown_cache /
 // cooldown_handlers semantics at fixed-policy scale).
@@ -14,8 +14,15 @@ export function retryDelayS(
 	rng: () => number,
 	capS: number,
 ): number {
-	if (retryAfter !== null) return retryAfter + rng();
-	return Math.min(2 ** attempt, capS) + rng();
+	const cap = Number.isFinite(capS) ? Math.max(1, capS) : 8;
+	const backoff = Math.min(2 ** Math.max(0, Math.min(30, attempt)), cap);
+	const random = rng();
+	const jitter = Number.isFinite(random) ? Math.max(0, Math.min(1, random)) : 0;
+	const providerFloor =
+		retryAfter !== null && Number.isFinite(retryAfter)
+			? Math.max(0, retryAfter)
+			: 0;
+	return Math.max(backoff, providerFloor) + jitter;
 }
 
 /** retry-after header value in delta seconds, honoring both forms LiteLLM

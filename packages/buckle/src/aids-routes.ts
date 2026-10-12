@@ -6,11 +6,12 @@
 // GET  /aids/rollup   — hourly govdb-shaped rollup rows (harvest seam)
 // Wire path (LLM requests): the x-belt-aids header declares aids per
 // request; cache-align runs ONLY when declared (pass-through doctrine).
-import { parseAids, tokensEstimate, type AidsLedger } from "./aids.ts";
+import { type AidsLedger, parseAids, tokensEstimate } from "./aids.ts";
 import { alignBody } from "./align.ts";
+import { type DietStore, pruneOptsOf, pruneTrajectory } from "./diet.ts";
 import type { Expander } from "./expand.ts";
-import type { Preseeder } from "./preseed.ts";
 import type { AidsPolicy } from "./policy.ts";
+import type { Preseeder } from "./preseed.ts";
 import type { Servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
 
@@ -22,6 +23,9 @@ export interface AidsDeps {
 	/** W4 intent expansion — optional so bare aids deps (tests, dev) skip
 	 *  honestly (garnish law) instead of failing the route. */
 	expander?: Expander;
+	/** W207 diet: the rid-keyed tombstone store. Optional — bare deps skip
+	 *  honestly (garnish law) instead of failing the route. */
+	diet?: DietStore;
 }
 
 type AnyRec = Record<string, unknown>;
@@ -194,18 +198,57 @@ export function aidsRollup(deps: AidsDeps, hours: number): Response {
 	return Response.json({ ok: true, rows: deps.aids.rollupRows(h) });
 }
 
+/** W207: run the `prune` wire aid — DEFAULT-OFF in policy (W137 economics:
+ *  a prefix rewrite costs provider KV-cache re-reads; prove ROI on
+ *  cache-miss traffic before an operator flips it on). Every outcome is
+ *  metered; the pruned body is what rides OUT. */
+function applyPrune(
+	deps: AidsDeps,
+	body: AnyRec,
+	dialect: Dialect,
+	rid?: string,
+): AnyRec {
+	const on = deps.aidsPolicy.prune?.default === "on";
+	if (!on) {
+		meter(deps, { aid: "prune", decision: "skipped", skip_reason: "policy" });
+		return body;
+	}
+	if (!deps.diet) {
+		meter(deps, {
+			aid: "prune",
+			decision: "skipped",
+			skip_reason: "unavailable",
+		});
+		return body;
+	}
+	const out = pruneTrajectory(body, dialect, pruneOptsOf(deps.aidsPolicy));
+	if (out.events.length === 0) {
+		meter(deps, { aid: "prune", decision: "skipped", skip_reason: "no_gain" });
+		return body;
+	}
+	body = out.body;
+	if (rid) deps.diet.put(rid, dialect, out.events);
+	deps.sm
+		.counter("buckle_diet_bytes_total", "Bytes elided by diet.")
+		.inc({ dialect }, out.bytes_before - out.bytes_after);
+	meter(deps, { aid: "prune", decision: "injected", tokens_injected: 0 });
+	return body;
+}
+
 /** Wire-path aids: called on every proxied request (await it). No
  *  x-belt-aids header → zero touch (pass-through doctrine). The expand
  *  branch (W4) runs the intent expansion pre-routing when declared AND the
- *  policy gate is open — the expanded body is what rides OUT. Returns the
- *  (possibly aligned) body plus whether W5 inbound condense was declared
- *  (handled sideband on the response — applyWireAids itself never touches
- *  it). */
+ *  policy gate is open — the expanded body is what rides OUT. W207 prune
+ *  tombstones stale tool results pre-routing the same way. Returns the
+ *  (possibly pruned/aligned) body plus whether W5 inbound condense was
+ *  declared (handled sideband on the response — applyWireAids itself never
+ *  touches it). */
 export async function applyWireAids(
 	deps: AidsDeps,
 	header: string | null,
 	body: AnyRec,
 	dialect: Dialect,
+	rid?: string,
 ): Promise<{ body: AnyRec; aligned: boolean; condenseIn: boolean }> {
 	const stanza = parseAids(header);
 	if (stanza.unknown.length > 0) {
@@ -217,6 +260,7 @@ export async function applyWireAids(
 			});
 	}
 	if (stanza.off) return { body, aligned: false, condenseIn: false };
+	if (stanza.prune) body = applyPrune(deps, body, dialect, rid);
 	if (stanza.expand) {
 		// W4 intent expansion: the local direct tier expands the goal before
 		// routing; a missing expander is an honest policy skip (garnish law).

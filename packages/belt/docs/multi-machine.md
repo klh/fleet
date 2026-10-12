@@ -90,6 +90,20 @@ unified table.
 Future work: Remote endpoints with request queues in front of them (when
 load makes it matter) — deferred.
 
+## Remote hubs (buckle fronts)
+
+`~/.claude/local-llm/hubs.json` — the label → candidate-URLs registry
+suspenders' `resolveHub()` walks — is also belt's hub list (W351). Each
+entry becomes a **probe-only supervised row**: the supervisor TCPs the
+host and expects any HTTP answer on `/api/health` (up / degraded / down),
+but never spawns there — belt observes other machines, it does not run
+them. A registry URL whose port would shadow an existing local target is
+skipped (the supervisor status map is port-keyed). The dashboard's
+Supervisor section groups the rows under **hubs**, and `GET /llms.txt`
+carries a live `## Remote hubs` section (label, URL, state) so agents can
+see the fleet beyond this machine. `SUSPENDERS_HUBS_FILE` overrides the
+registry path.
+
 ## The first machine: a Synology NAS
 
 Ollama on `:11434` speaking the openai protocol, model `qwen2.5:0.5b`, roles

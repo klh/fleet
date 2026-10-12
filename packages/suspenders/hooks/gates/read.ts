@@ -14,10 +14,18 @@
 //   3. RE-READ NUDGE: 3rd+ Read of the same path in one session gets a
 //      non-blocking additionalContext nudge (the fleet-loop.ts 37x case).
 //      Advisory: SUSPENDERS_REREAD_NUDGE=0 disables.
-import { deny, nudge, type HookInput } from "../lib/hookio.ts";
-import { bumpPathCount } from "../lib/gatestate.ts";
-import { clampHeadTail, readSliceLines } from "../lib/clamp.ts";
+
 import { readFileSync, statSync } from "node:fs";
+import { clampHeadTail, readSliceLines } from "../lib/clamp.ts";
+import {
+	credScopeDeny,
+	expandTouch,
+	loadCredScope,
+	secretScopeHit,
+} from "../lib/credscope.ts";
+import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { bumpPathCount } from "../lib/gatestate.ts";
+import { deny, type HookInput, nudge } from "../lib/hookio.ts";
 
 export const DEFAULT_MAX_READ = 40 * 1024;
 
@@ -113,6 +121,16 @@ export function readGate(hook: HookInput): void {
 	};
 	const F = ti.file_path ?? "";
 	if (!F) return;
+
+	// W250 cred-scope: a fleet lane may Read only declared secrets in its
+	// scope. Cheap-first: the scope match runs BEFORE any lane resolution
+	// (the ppid walk), so non-secret reads pay one tiny config read.
+	const cwd = hook.cwd ?? process.cwd();
+	const secrets = loadCredScope();
+	if (secrets.length > 0 && secretScopeHit(expandTouch(F, cwd), secrets)) {
+		const d = credScopeDeny(F, cwd, resolveFleetLane(cwd), secrets);
+		if (d) deny(d);
+	}
 	const hasLimit = ti.limit !== undefined && ti.limit !== null;
 	let size: number;
 	try {

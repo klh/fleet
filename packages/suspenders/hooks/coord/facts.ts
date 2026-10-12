@@ -16,6 +16,64 @@ import {
 } from "./shared.ts";
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
+import { run } from "../lib/run.ts";
+import { assertCapsuleBounds } from "../lib/capsule-fence.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { isLiveSession, type LivenessRow } from "./bus.ts";
+import { expireConsults } from "../lib/consult-expiry.ts";
+
+// W606 — compare-and-set guard for fact/capsule upserts: the blind upsert
+// (facts.version incremented but never checked) races successive writers to
+// one key — per-lane capsules and lesson.* updates lose history silently.
+// expected == null = legacy unconditional write; otherwise the read-then-write
+// rides ONE store transaction, serialized with every writer on both bindings
+// (local SQLite + HTTP store) — mirrors work take's CAS on work_items.state.
+// Refusal carries the current version so writers can read-then-CAS.
+function parseIfVersion(raw: string | null): number | null {
+	if (raw == null) return null;
+	const n = Number(raw);
+	if (!Number.isInteger(n) || n < 0)
+		die(`--if-version must be a non-negative integer, got "${raw}"`);
+	return n;
+}
+
+function casWrite(
+	key: string,
+	expected: number | null,
+	write: () => void,
+): { ok: boolean; cur: number | null } {
+	if (expected == null) {
+		write();
+		return { ok: true, cur: null };
+	}
+	let cur: number | null = null;
+	for (let attempt = 0; ; attempt++) {
+		try {
+			const ok = db.transaction(() => {
+				const r = db
+					.query("SELECT version FROM facts WHERE key = ?")
+					.get(key) as { version: number } | undefined;
+				cur = r ? r.version : null;
+				// absent normalizes to 0: --if-version 0 is the create-only
+				// expectation
+				if ((r ? r.version : 0) !== expected) return false;
+				write();
+				return true;
+			})();
+			return { ok, cur };
+		} catch (e) {
+			// deferred BEGIN upgrades at the first write — under true concurrent
+			// CAS the upgrade race loser throws SQLITE_BUSY (busy_timeout does
+			// not govern the upgrade path). A retry re-reads the version, so it
+			// either matches (writes) or mismatches (clean refusal): no lost
+			// update ever lands.
+			if (attempt >= 3 || (e as { code?: string }).code !== "SQLITE_BUSY")
+				throw e;
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+		}
+	}
+}
 
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
@@ -32,13 +90,22 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		// text vanished into an ignored positional — three A/B findings lost
 		if (!key || value === undefined || value.startsWith("--"))
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
 			);
 		const src = arg("--source") ?? "coord";
-		db.query(
-			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
-				"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
-		).run(key, value, src, Date.now());
+		const expected = parseIfVersion(arg("--if-version"));
+		const r = casWrite(key, expected, () =>
+			db
+				.query(
+					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
+						"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
+				)
+				.run(key, value, src, Date.now()),
+		);
+		if (!r.ok)
+			die(
+				`fact ${key}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
+			);
 		console.log(`fact ${key} = ${value}`);
 	} else if (sub === "get") {
 		const r = db
@@ -48,9 +115,30 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
 	} else if (sub === "list") {
+		// W466 bounding: the facts table is the knowledge read surface. Machine
+		// cursor namespaces (govdb v12 moved them to machine_cursors, but
+		// pre-v12 writers can re-insert in a mixed fleet) never render by
+		// default; --prefix filters, --limit caps, --all lifts the hiding.
+		const prefixes = ["activity.tp.", "usage.tp.", "usage.v2.tp."];
+		const showAll = rest.includes("--all");
+		const prefix = arg("--prefix");
+		const limit = Number(arg("--limit") ?? 0);
+		let where = prefix ? "key LIKE ?" : "1=1";
+		const params: (string | number)[] = prefix ? [`${prefix}%`] : [];
+		// an explicit --prefix is a deliberate drill-in: hiding applies only
+		// to the unscoped default listing
+		if (!showAll && !prefix) {
+			const hidden = prefixes.map(() => "key NOT LIKE ?").join(" AND ");
+			where += ` AND ${hidden}`;
+			for (const p of prefixes) params.push(`${p}%`);
+		}
+		const orderLimit =
+			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
 		const rows = db
-			.query("SELECT key, value, version, ts FROM facts ORDER BY key")
-			.all() as {
+			.query(
+				`SELECT key, value, version, ts FROM facts WHERE ${where}${orderLimit}`,
+			)
+			.all(...params) as {
 			key: string;
 			value: string;
 			version: number;
@@ -61,33 +149,88 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				? rows.map((r) => `${r.key} = ${r.value}  (v${r.version})`).join("\n")
 				: "(no facts)",
 		);
-	} else die("usage: fact set <key> <value> | fact get <key> | fact list");
+	} else
+		die(
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+		);
 }
 
 export async function cmdCapsule(rest: string[]): Promise<void> {
 	// continuation capsule: the minimum restart packet (checkpoint/step/next/assumptions)
+	// W617: --item <W-id> banks the capsule on the ITEM too (work.<id>.capsule,
+	// alongside the lane-scoped lane.<sid>.capsule) — an item reclaimed and
+	// re-taken by a fresh lane resumes from it instead of starting blind.
+	const item = arg("--item");
 	const as = arg("--as") ?? rest[0];
 	if (!as || rest[0] === "get") {
-		const cap = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`lane.${as ?? ""}.capsule`) as { value: string } | null;
+		const key = item ? `work.${item}.capsule` : `lane.${as ?? ""}.capsule`;
+		const cap = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
+			value: string;
+		} | null;
 		console.log(cap?.value ?? dim("(no capsule)"));
 	} else {
 		const extra: Record<string, string> = {};
+		let iv: string | null = null;
 		for (const t of process.argv.slice(2)) {
 			const m = /^--([\w-]+)=(.+)$/.exec(t);
-			if (m && !["as"].includes(m[1])) extra[m[1]] = m[2];
+			if (!m) continue;
+			// W606: --if-version=N is the CAS expectation, not capsule payload
+			if (m[1] === "if-version") iv = m[2];
+			else if (m[1] !== "as" && m[1] !== "item") extra[m[1]] = m[2];
 		}
-		db.query(
-			"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
-		).run(
-			`lane.${as}.capsule`,
-			JSON.stringify({ ...extra, ts: Date.now() }),
-			arg("--as") ?? as,
-			Date.now(),
-		);
+		// W577: a capsule checkpoint is git evidence, not free text — "none" stays
+		// the explicit nothing-banked marker, anything else must be a 40-hex sha
+		// that resolves to a commit in the caller's repo (the stop evaluator
+		// re-proves reachability from HEAD at park time; outside a
+		// repo the format check is all the producer can do).
+		if (extra.checkpoint !== undefined && extra.checkpoint !== "none") {
+			if (!/^[a-f0-9]{40}$/i.test(extra.checkpoint))
+				die(
+					`capsule: --checkpoint must be a 40-hex commit sha or "none", got "${extra.checkpoint}"`,
+				);
+			const repo = run("git", ["rev-parse", "--is-inside-work-tree"]);
+			if (
+				repo.ok &&
+				!run("git", ["cat-file", "-e", `${extra.checkpoint}^{commit}`]).ok
+			)
+				die(
+					`capsule: --checkpoint ${extra.checkpoint} is not a commit in this repo`,
+				);
+			// W643: freshness rides the payload — the checkpoint's commit epoch,
+			// so resume briefs age the hand-off without re-proving git.
+			const ckptTs = run("git", [
+				"log",
+				"-1",
+				"--format=%ct",
+				extra.checkpoint,
+			]);
+			if (ckptTs.ok) extra.checkpoint_ts = ckptTs.out.trim();
+		}
+		// arg() fallback covers the two-token form --if-version N
+		const expected = parseIfVersion(iv ?? arg("--if-version"));
+		const upsert = (key: string) =>
+			db
+				.query(
+					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, version = version + 1, ts = excluded.ts",
+				)
+				.run(
+					key,
+					assertCapsuleBounds(extra, Date.now()),
+					arg("--as") ?? as,
+					Date.now(),
+				);
+		// with --item the CAS expectation guards the item key — that is the
+		// key successive lane writers race over the item's life; the lane key
+		// stays single-writer and rides along unconditionally
+		const primary = item ? `work.${item}.capsule` : `lane.${as}.capsule`;
+		const r = casWrite(primary, expected, () => upsert(primary));
+		if (!r.ok)
+			die(
+				`capsule ${primary}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
+			);
+		if (item) upsert(`lane.${as}.capsule`);
 		console.log(
-			`${green("✓")} ${dim(`capsule stored for @${as.slice(0, 8)}`)}`,
+			`${green("✓")} ${dim(item ? `capsule stored for item ${item} + @${as.slice(0, 8)}` : `capsule stored for @${as.slice(0, 8)}`)}`,
 		);
 	}
 }
@@ -98,10 +241,7 @@ export async function cmdLeaseRelease(rest: string[]): Promise<void> {
 	// own rows; taking a foreign lease is monitor --fix / arbitration work.
 	const paths = rest.filter((r) => !r.startsWith("--"));
 	const as = arg("--as");
-	if (!paths.length || !as)
-		die(
-			"usage:knowledge-verify | knowledge-curate | lease-release <path...> --as <sid>",
-		);
+	if (!paths.length || !as) die("usage: lease-release <path...> --as <sid>");
 	const del = db.query("DELETE FROM locks WHERE path = ? AND sid = ?");
 	let n = 0;
 	for (const p of paths) {
@@ -111,9 +251,7 @@ export async function cmdLeaseRelease(rest: string[]): Promise<void> {
 		} catch {}
 		n += del.run(P, as).changes;
 	}
-	console.log(
-		`${green("✓")}knowledge-verify | knowledge-curate | lease-release: ${n} lock(s) released`,
-	);
+	console.log(`${green("✓")} lease-release: ${n} lock(s) released`);
 }
 
 export async function cmdKb(rest: string[]): Promise<void> {
@@ -243,22 +381,114 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	// work items are the ledger and are NEVER auto-deleted
 	const days = Number(arg("--days") ?? 30);
 	const cut = Date.now() - days * 86_400_000;
-	const e = db.query("DELETE FROM events WHERE ts < ?").run(cut).changes;
-	const s = db
-		.query("DELETE FROM sessions WHERE state = 'CLOSED' AND hb < ?")
-		.run(cut).changes;
+	// W174 retention: events age out with archive-before-delete (lib/retention
+	// .ts) — the NDJSON lines under ~/.cache/claude-governor/archive/ keep
+	// everything gc deletes; route_audit/auth_events/usage_rollup/admin_audit
+	// were previously unbounded (governor bloat).
+	// W603 cursor-aware events retention: orphan cursors go FIRST (a dead
+	// session's stuck cursor must not hold the prune floor), then the events
+	// prune cuts only past EVERY live cursor — unread inbox traffic is never
+	// pruned out from under a reader (min over remaining cursors; no cursor
+	// rows = age-only cut).
 	const c = db
 		.query("DELETE FROM cursors WHERE sid NOT IN (SELECT sid FROM sessions)")
 		.run().changes;
+	const floor = (
+		db.query("SELECT MIN(event_id) AS f FROM cursors").get() as {
+			f: number | null;
+		}
+	).f;
+	const e = pruneSafe({
+		table: "events",
+		tsCol: "ts",
+		cut,
+		floorCol: "id",
+		floorVal: floor ?? undefined,
+		cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],
+	});
+	const auditDays = Number(arg("--audit-days") ?? 90);
+	const usageDays = Number(arg("--usage-days") ?? 180);
+	const ms = (d: number): number => d * 86_400_000;
+	// archive failure must never kill gc — skip that prune (rows survive to
+	// the next pass); archive-before-delete is the contract
+	function pruneSafe(spec: Parameters<typeof archiveAndPrune>[1]): number {
+		try {
+			return archiveAndPrune(db, spec);
+		} catch (e) {
+			console.error(
+				`gc: ${spec.table} archive failed — prune skipped: ${e instanceof Error ? e.message : String(e)}`,
+			);
+			return 0;
+		}
+	}
+	const ra = pruneSafe({
+		table: "route_audit",
+		tsCol: "ts",
+		cut: Date.now() - ms(auditDays),
+		cols: [
+			"rid",
+			"ts",
+			"actor",
+			"dialect",
+			"hint",
+			"candidates",
+			"resolved_target",
+			"decision",
+			"latency_class",
+			"error_code",
+		],
+	});
+	const ae = pruneSafe({
+		table: "auth_events",
+		tsCol: "ts",
+		cut: Date.now() - ms(usageDays),
+		cols: ["id", "ts", "actor", "event", "jti", "via"],
+	});
+	const ur = pruneSafe({
+		table: "usage_rollup",
+		tsCol: "hour_bucket",
+		cut: Date.now() - ms(usageDays),
+		cols: [
+			"hour_bucket",
+			"actor",
+			"model",
+			"model_group",
+			"in_tok",
+			"out_tok",
+			"cache_r",
+			"cache_c",
+			"requests",
+		],
+	});
+	const aa = pruneSafe({
+		table: "admin_audit",
+		tsCol: "ts",
+		cut: Date.now() - ms(365),
+		cols: ["id", "ts", "actor", "action", "target", "detail"],
+	});
+	const af = pruneArchiveFiles(365);
+	const s = db
+		.query("DELETE FROM sessions WHERE state = 'CLOSED' AND hb < ?")
+		.run(cut).changes;
 	const f = db
 		.query("DELETE FROM facts WHERE key LIKE 'lane.%' AND ts < ?")
 		.run(cut).changes;
-	// consults: open questions expire after 1h; closed threads age out
-	const x = db
-		.query(
-			"UPDATE consults SET state = 'EXPIRED', answered_at = ? WHERE state = 'OPEN' AND created_at < ?",
-		)
-		.run(Date.now(), Date.now() - 3_600_000).changes;
+	// W466: machine cursors live in machine_cursors (govdb v12) — facts rows
+	// in the cursor namespaces are strays from pre-v12 writers (mixed fleet);
+	// move them along so the knowledge surface stays clean. The machine
+	// keyspace itself gets NO time-prune: a cursor is an offset into a
+	// transcript that may still exist — deleting it would re-harvest the file
+	// from byte 0 into UPSERT-ADD rollups (double count).
+	for (const p of ["activity.tp.%", "usage.tp.%", "usage.v2.tp.%"]) {
+		db.run(
+			"INSERT OR IGNORE INTO machine_cursors (key, value, source, ts) SELECT key, value, source, ts FROM facts WHERE key LIKE ?",
+			p,
+		);
+		db.run("DELETE FROM facts WHERE key LIKE ?", p);
+	}
+	// consults: open questions expire past their deadline (W611: the flip also
+	// emits consult.expired at the asker); closed threads age out
+	const x = expireConsults(db, Date.now());
 	const cd = db
 		.query(
 			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED') AND answered_at < ? AND answered_at IS NOT NULL",
@@ -269,7 +499,22 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 		.query("DELETE FROM locks WHERE ts < ?")
 		.run(Date.now() - 15 * 60_000).changes;
 	const d = pruneDeltas(db as Database, days * 86_400_000);
+	// W418: ghost-subscribe sweep — a CLOSED or transcript-dead session's WS
+	// subscribe is a dead connection riding the process table; gc reaps it
+	// with the session garbage (done/release reap at the transition, this is
+	// the backstop for sessions that die un-ended).
+	const rs = reapDeadSubscribes((sid) => {
+		const row = db
+			.query(
+				"SELECT hb, parent_sid, role, transcript_path, state FROM sessions WHERE sid = ?",
+			)
+			.get(sid) as (LivenessRow & { state: string }) | undefined;
+		return !row || row.state === "CLOSED" || !isLiveSession(row);
+	});
 	console.log(
-		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
+		`gc: ${e} events, ${s} closed sessions, ${sw} stale RUNNING sessions swept, ${rs.length} ghost subscribe(s) reaped, ${lk} expired locks, ${c} stale cursors, ${f} lane facts, ${x} consults expired, ${cd} consult threads pruned, ${d} deltas (>${days}d; work ledger untouched)`,
+	);
+	console.log(
+		`gc: archived → ${ra} route_audit (>${auditDays}d), ${ae} auth_events, ${ur} usage_rollup (>${usageDays}d), ${aa} admin_audit (365d); ${af} stale archive files; NDJSON in ~/.cache/claude-governor/archive/`,
 	);
 }

@@ -39,6 +39,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
+import { assertBuckleActivation } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
@@ -59,11 +60,14 @@ export interface ServiceSpec {
 	args: string[];
 	cwd?: string;
 	env: Record<string, string>;
-	envFile?: string;
+	envFile?: string | string[];
 	schedule: Schedule;
 	nice?: number;
 	logs: { out: string; err: string };
 	placeholders: string[];
+	/** Declared listener port — receipt metadata for supervision, never
+	 *  rendered into any unit (W546). */
+	port?: number;
 }
 
 interface ManifestFile {
@@ -110,6 +114,7 @@ const KNOWN_SERVICE_KEYS = new Set([
 	"nice",
 	"logs",
 	"placeholders",
+	"port",
 ]);
 
 export function defaultRenderValues(
@@ -142,13 +147,32 @@ function scanText(text: string, into: Set<string>): void {
 	for (const m of text.matchAll(PLACEHOLDER_RE)) into.add(m[0]);
 }
 
+function envFilePaths(spec: ServiceSpec): string[] {
+	if (spec.envFile === undefined) return [];
+	const paths = Array.isArray(spec.envFile) ? spec.envFile : [spec.envFile];
+	if (
+		paths.length === 0 ||
+		paths.some(
+			(path) =>
+				typeof path !== "string" ||
+				!/[/$~_]/.test(path) ||
+				/[\0\r\n]/.test(path),
+		)
+	) {
+		throw new Error(
+			`service "${spec.name}": envFile must be a PATH reference or non-empty list of PATH references`,
+		);
+	}
+	return paths;
+}
+
 // every placeholder the EMITTED unit will contain: __BUN__ is implicit (the
 // emitter always prepends the bun binary as ProgramArguments[0])
 export function usedPlaceholders(spec: ServiceSpec): string[] {
 	const found = new Set<string>(["__BUN__"]);
 	scanText(spec.bunEntry, found);
 	if (spec.cwd !== undefined) scanText(spec.cwd, found);
-	if (spec.envFile !== undefined) scanText(spec.envFile, found);
+	for (const path of envFilePaths(spec)) scanText(path, found);
 	for (const a of spec.args) scanText(a, found);
 	for (const [k, v] of Object.entries(spec.env)) {
 		scanText(k, found);
@@ -165,9 +189,7 @@ export function validateSpec(spec: ServiceSpec): void {
 	if (typeof spec.bunEntry !== "string" || spec.bunEntry.length === 0) {
 		problems.push("bunEntry must be a non-empty string");
 	}
-	if (spec.envFile !== undefined && !/[/$~_]/.test(spec.envFile)) {
-		problems.push(`envFile must be a PATH reference (got "${spec.envFile}")`);
-	}
+	envFilePaths(spec);
 	const cal = spec.schedule.calendar;
 	if (cal !== undefined) {
 		if (!Number.isInteger(cal.hour) || cal.hour < 0 || cal.hour > 23)
@@ -181,6 +203,13 @@ export function validateSpec(spec: ServiceSpec): void {
 			spec.schedule.intervalSeconds <= 0)
 	) {
 		problems.push("intervalSeconds must be a positive integer");
+	}
+	// same range the activation receipt enforces (lib/service-drift.ts)
+	if (
+		spec.port !== undefined &&
+		(!Number.isInteger(spec.port) || spec.port < 1 || spec.port > 65535)
+	) {
+		problems.push("port must be an integer 1..65535");
 	}
 	const used = usedPlaceholders(spec);
 	const declared = [...spec.placeholders].sort();
@@ -256,8 +285,10 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
-		if (entry.envFile !== undefined) spec.envFile = entry.envFile as string;
+		if (entry.envFile !== undefined)
+			spec.envFile = entry.envFile as string | string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
+		if (entry.port !== undefined) spec.port = entry.port as number;
 		for (const a of spec.args) {
 			if (typeof a !== "string")
 				throw new Error(
@@ -308,18 +339,35 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const body: string[] = [];
 	body.push(xmlStr("Label", `${LABEL_PREFIX}.${spec.name}`, "\t"));
 	body.push("\t<key>ProgramArguments</key>\n\t<array>\n");
-	for (const arg of [
+	const directArgs = [
 		values.bun,
 		s(spec.bunEntry),
 		...spec.args.map((a) => s(a)),
-	]) {
+	];
+	const files = envFilePaths(spec).map(s);
+	// launchd has no EnvironmentFile. Positional arguments keep machine
+	// paths and service argv out of shell syntax; exec preserves supervision.
+	const args =
+		files.length === 0
+			? directArgs
+			: [
+					"/bin/sh",
+					"-c",
+					["set -ae", ...files.map(() => '. "$1"; shift'), 'exec "$@"'].join(
+						"; ",
+					),
+					`fleet-${spec.name}`,
+					...files,
+					...directArgs,
+				];
+	for (const arg of args) {
 		body.push(`\t\t<string>${escXml(arg)}</string>\n`);
 	}
 	body.push("\t</array>\n");
 	if (spec.cwd !== undefined)
 		body.push(xmlStr("WorkingDirectory", s(spec.cwd), "\t"));
 	const envKeys = Object.keys(spec.env);
-	if (envKeys.length > 0 || spec.envFile !== undefined) {
+	if (envKeys.length > 0) {
 		body.push("\t<key>EnvironmentVariables</key>\n\t<dict>\n");
 		for (const k of envKeys) body.push(xmlStr(k, s(spec.env[k]), "\t\t"));
 		body.push("\t</dict>\n");
@@ -406,8 +454,8 @@ function linuxServiceSection(
 	for (const [k, v] of Object.entries(spec.env)) {
 		l.push(`Environment=${systemdQuote(`${k}=${s(v)}`)}`);
 	}
-	if (spec.envFile !== undefined) {
-		l.push(`EnvironmentFile=${s(spec.envFile)}`);
+	for (const path of envFilePaths(spec)) {
+		l.push(`EnvironmentFile=${systemdQuote(s(path))}`);
 	}
 	l.push(`StandardOutput=append:${s(spec.logs.out)}`);
 	l.push(`StandardError=append:${s(spec.logs.err)}`);
@@ -619,11 +667,11 @@ function winRuntime(spec: ServiceSpec, values: RenderValues): string[] {
 	for (const [k, v] of Object.entries(spec.env)) {
 		l.push(`  <env name="${escXmlAttr(k)}" value="${escXmlAttr(s(v))}"/>`);
 	}
-	if (spec.envFile !== undefined) {
+	for (const path of envFilePaths(spec)) {
 		l.push(
 			"  <!-- envFile PATH reference only — WinSW core has no envfile element;",
 			"       inject per README-windows.md (contents NEVER embedded):",
-			`       ${s(spec.envFile)} -->`,
+			`       ${s(path)} -->`,
 		);
 	}
 	l.push(`  <logpath>${escXml(winDirname(s(spec.logs.out)))}</logpath>`);
@@ -673,6 +721,7 @@ function main(argv: string[]): number {
 	let target = process.platform;
 	let outDir: string | null = null;
 	let json = false;
+	let initialInstall = false;
 	const only: string[] = [];
 	const overrides: Partial<RenderValues> = {};
 	for (let i = 0; i < argv.length; i++) {
@@ -686,6 +735,7 @@ function main(argv: string[]): number {
 		if (a === "--target") target = val(a);
 		else if (a === "--out") outDir = val(a);
 		else if (a === "--json") json = true;
+		else if (a === "--owner-initial-install") initialInstall = true;
 		else if (a === "--service") only.push(val(a));
 		else if (a === "--bun") overrides.bun = val(a);
 		else if (a === "--home") overrides.home = val(a);
@@ -719,8 +769,23 @@ function main(argv: string[]): number {
 		target: string;
 		outFile: string | null;
 		files: string[];
+		port?: number;
 	}[] = [];
 	if (outDir !== null) {
+		// Check all governed active destinations before writing any output.
+		for (const r of rendered)
+			for (const u of r.units) {
+				const destination = join(resolve(outDir), u.file);
+				if (
+					target === "darwin" &&
+					destination ===
+						join(
+							values.home,
+							"Library/LaunchAgents/com.suspenders.buckle-spoke.plist",
+						)
+				)
+					assertBuckleActivation(destination, u.body, initialInstall);
+			}
 		mkdirSync(outDir, { recursive: true });
 		for (const r of rendered) {
 			for (const u of r.units) {
@@ -731,6 +796,7 @@ function main(argv: string[]): number {
 				target,
 				outFile: join(resolve(outDir), r.units[0].file),
 				files: r.units.map((u) => u.file),
+				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
 			});
 		}
 	} else {
@@ -744,6 +810,7 @@ function main(argv: string[]): number {
 				target,
 				outFile: null,
 				files: r.units.map((u) => u.file),
+				...(r.spec.port === undefined ? {} : { port: r.spec.port }),
 			});
 		}
 	}

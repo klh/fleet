@@ -10,6 +10,7 @@ import {
 	KEV,
 	LINE_CAP,
 	LOCAL_IDS,
+	LOCAL_MODEL,
 	longPrompt,
 	PRICES,
 	PURE_MODEL,
@@ -29,9 +30,18 @@ export type Wire = "openai" | "anthropic" | "kev" | "router";
 export interface Leg {
 	id: string;
 	wire: Wire;
-	priced: "remote" | "local" | "routed";
+	priced: "remote" | "local" | "routed" | "seat";
 	knob?: "body" | "extra_body";
+	/** Ceiling-aware budgets (W532 lesson): a cloud reasoning leg capped at the
+	 *  class budget starves on thinking tokens. Absolute max_tokens override. */
+	budgetOverride?: number;
 	only?: ClassId[];
+	/** W532 identity control: expected `served` model id, per class port. A
+	 *  round whose served id differs is failed and flagged. Router legs
+	 *  (stack-anthropic/stack-router) deliberately omit it — their `served`
+	 *  echoes the requested pin, not the actual route; identity there is the
+	 *  recorded `_routing` block. */
+	servedExpect?: (port: number) => string | null;
 	desc: string;
 }
 export const LEGS: Leg[] = [
@@ -40,6 +50,7 @@ export const LEGS: Leg[] = [
 		wire: "openai",
 		priced: "remote",
 		knob: "body",
+		servedExpect: () => PURE_MODEL,
 		desc: `z.ai direct ${PURE_MODEL} (baseline)`,
 	},
 	{
@@ -53,18 +64,46 @@ export const LEGS: Leg[] = [
 		wire: "openai",
 		priced: "remote",
 		knob: "extra_body",
+		servedExpect: () => "zai-glm-5.3-flash",
 		desc: ":4100 litellm zai-glm-5.3-flash",
+	},
+	{
+		id: "stack-engine-zai-frontier",
+		wire: "openai",
+		priced: "remote",
+		knob: "extra_body",
+		servedExpect: () => "zai-glm-5.3",
+		desc: ":4100 litellm zai-glm-5.3 (frontier glm-5.3, W532 leg)",
+	},
+	{
+		id: "engine-claude",
+		wire: "openai",
+		priced: "seat",
+		knob: "extra_body",
+		budgetOverride: 64_000,
+		servedExpect: () => "claude-sonnet-5",
+		desc: ":4100 litellm claude-sonnet-5 (owner Anthropic seat, 2026-10-08 redo)",
+	},
+	{
+		id: "copilot-opus",
+		wire: "openai",
+		priced: "seat",
+		budgetOverride: 64_000,
+		servedExpect: () => "claude-opus-5.5",
+		desc: "GitHub Copilot seat claude-opus-5.5 direct (premium-request quota, 2026-10-08 redo)",
 	},
 	{
 		id: "stack-engine-local",
 		wire: "openai",
 		priced: "local",
+		servedExpect: (port) => LOCAL_IDS[port] ?? null,
 		desc: ":4100 litellm class-mapped local-*",
 	},
 	{
 		id: "local-direct",
 		wire: "openai",
 		priced: "local",
+		servedExpect: (port) => LOCAL_MODEL[port] ?? null,
 		desc: ":890x raw tier, class-mapped",
 	},
 	{
@@ -91,6 +130,13 @@ export const MODEL_SETS = {
 	local: ["stack-engine-local", "local-direct"],
 	kev: ["kev-direct"],
 	mixed: ["stack-anthropic", "stack-router"],
+	redo: [
+		"pure-api",
+		"stack-engine-zai-frontier",
+		"engine-claude",
+		"copilot-opus",
+		"local-direct",
+	],
 	all: LEGS.map((l) => l.id),
 } as const satisfies Record<string, readonly string[]>;
 export type ModelSet = keyof typeof MODEL_SETS;
@@ -133,7 +179,12 @@ export const engineKeySrc = () =>
 export function target(
 	leg: Leg,
 	port: number,
-): { url: string; model: string; key?: string } {
+): {
+	url: string;
+	model: string;
+	key?: string;
+	headers?: Record<string, string>;
+} {
 	switch (leg.id) {
 		case "pure-api":
 			return {
@@ -149,9 +200,13 @@ export function target(
 				key: process.env.BELT_ROUTER_KEY,
 			};
 		case "stack-engine-zai":
+		case "stack-engine-zai-frontier":
 			return {
 				url: `${ENGINE}/chat/completions`,
-				model: "zai-glm-5.3-flash",
+				model:
+					leg.id === "stack-engine-zai-frontier"
+						? "zai-glm-5.3"
+						: "zai-glm-5.3-flash",
 				key: engineKey(),
 			};
 		case "stack-engine-local":
@@ -159,6 +214,22 @@ export function target(
 				url: `${ENGINE}/chat/completions`,
 				model: LOCAL_IDS[port] ?? "local-extract",
 				key: engineKey(),
+			};
+		case "engine-claude":
+			return {
+				url: `${ENGINE}/chat/completions`,
+				model: "claude-sonnet-5",
+				key: engineKey(),
+			};
+		case "copilot-opus":
+			return {
+				url: "https://api.githubcopilot.com/chat/completions",
+				model: "claude-opus-5.5",
+				key: process.env.GH_TOKEN,
+				headers: {
+					"Copilot-Integration-Id": "klh-ops",
+					"editor-version": "vscode/1.99.0",
+				},
 			};
 		case "local-direct":
 			return {
@@ -203,7 +274,10 @@ export interface Out {
 	reasoningChars: number;
 	inTok: number;
 	outTok: number;
-	reasonTok: number;
+	/** Reasoning tokens as reported by the provider; null = not reported
+	 *  (unknown is never zero — a known-zero share is signal, an unknown
+	 *  one is not). */
+	reasonTok: number | null;
 	cachedTok: number;
 	tokEst: boolean;
 	finish: string | null;
@@ -223,7 +297,7 @@ export const blank = (): Out => ({
 	reasoningChars: 0,
 	inTok: 0,
 	outTok: 0,
-	reasonTok: 0,
+	reasonTok: null,
 	cachedTok: 0,
 	tokEst: false,
 	finish: null,
@@ -330,7 +404,7 @@ function applyUsage(o: Out, q: Req, usage: Usage | undefined) {
 	if (usage) {
 		o.inTok = usage.prompt_tokens ?? usage.input_tokens ?? 0;
 		o.outTok = usage.completion_tokens ?? usage.output_tokens ?? 0;
-		o.reasonTok = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+		o.reasonTok = usage.completion_tokens_details?.reasoning_tokens ?? null;
 		o.cachedTok =
 			usage.prompt_tokens_details?.cached_tokens ??
 			usage.cache_read_input_tokens ??
@@ -399,7 +473,7 @@ function requestBody(
 		const body: Record<string, unknown> = {
 			model: tg.model,
 			messages: [{ role: "user", content: q.user }],
-			max_tokens: q.maxTokens,
+			max_tokens: leg.budgetOverride ?? q.maxTokens,
 			temperature: 0,
 			stream: true,
 			stream_options: { include_usage: true },
@@ -434,6 +508,7 @@ export async function callLeg(leg: Leg, q: Req, kevQs?: KevQs): Promise<Out> {
 			"content-type": "application/json",
 		};
 		const body = requestBody(leg, tg, q, headers);
+		for (const [k, v] of Object.entries(tg.headers ?? {})) headers[k] = v;
 		const res = await fetch(tg.url, {
 			method: "POST",
 			signal: ac.signal,
@@ -511,8 +586,12 @@ export function priceOf(
 	return p ? { model: m, ...p } : null;
 }
 export function costOf(leg: Leg, o: Out): { usd: number; priced: string } {
-	if (leg.priced === "local" || (!o.ok && !o.outTok))
-		return { usd: 0, priced: leg.priced === "local" ? "electricity" : "n/a" };
+	if (leg.priced === "local" || leg.priced === "seat")
+		return {
+			usd: 0,
+			priced: leg.priced === "local" ? "electricity" : "seat quota",
+		};
+	if (!o.ok && !o.outTok) return { usd: 0, priced: "n/a" };
 	let p = priceOf(PURE_MODEL) as Price & { model: string };
 	if (leg.priced === "routed") {
 		const port = Number(o.routed?.port);

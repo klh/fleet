@@ -32,6 +32,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 *.db-wal
 *.db-shm
 
+# W458.4 per-lane cache telemetry (runtime state)
+*.lane-cache.jsonl
+
 
 # IntelliJ based IDEs
 .idea

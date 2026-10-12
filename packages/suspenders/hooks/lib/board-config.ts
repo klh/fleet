@@ -450,11 +450,24 @@ export function readBoardSettings(
 // Form semantics: empty string = unset (removes the knob). Numbers coerce
 // from the form strings; anything non-numeric throws the honest error.
 export function formToBoardSettings(f: Record<string, string>): BoardSettings {
+	// W183.2 — the ordered executor editor submits one comma-joined string;
+	// the apply step re-feeds the serialized patch (array already). Empty
+	// clears the list — dispatch falls back to bare claude.
+	const raw = f.default_executors;
+	const list = Array.isArray(raw)
+		? raw.filter((s) => typeof s === "string")
+		: typeof raw === "string"
+			? raw.split(",").map((s) => s.trim())
+			: [];
+	// absent or empty = no change (the apply step re-parses a sparse patch —
+	// a missing knob must stay missing, never NaN)
+	const num = (v: string | undefined): number | undefined =>
+		v === undefined || v === "" ? undefined : Number(v);
 	return validateBoardSettings({
-		status_refresh_s:
-			f.status_refresh_s === "" ? undefined : Number(f.status_refresh_s),
-		harvest_ttl_s: f.harvest_ttl_s === "" ? undefined : Number(f.harvest_ttl_s),
+		status_refresh_s: num(f.status_refresh_s),
+		harvest_ttl_s: num(f.harvest_ttl_s),
 		default_actor: f.default_actor,
+		default_executors: raw === undefined ? undefined : list.filter(Boolean),
 	});
 }
 

@@ -104,6 +104,27 @@ export interface EndpointHealth {
 	status?: number;
 }
 
+/** One fetch = one connection for CDN-fronted endpoints (W308, z.ai 421):
+ *  the `connection: close` header stops the fetch pool from carrying a TLS
+ *  handshake opened for one host into a request for another host that
+ *  shares the CDN edge — cross-host reuse the edge answers with 421
+ *  Misdirected Request (SNI/authority mismatch). A 421 that slips through
+ *  anyway (a pooled conn created before this header took effect) gets ONE
+ *  fresh-connection retry before the failure lands at the caller. */
+export async function cdnFetch(
+	url: string,
+	init: RequestInit = {},
+): Promise<Response> {
+	const headers: Record<string, string> = {
+		connection: "close",
+		...((init.headers as Record<string, string> | undefined) ?? {}),
+	};
+	const r = await fetch(url, { ...init, headers });
+	if (r.status !== 421) return r;
+	await r.text(); // drain the rejected body so the socket closes
+	return fetch(url, { ...init, headers });
+}
+
 /** Runtime config location — under HOME so tests can point it elsewhere. */
 export function configPath(): string {
 	return `${process.env.HOME}/.claude/local-llm/remotes.json`;
@@ -191,7 +212,7 @@ export async function probeEndpoint(
 				: "/api/server/ping";
 	const t0 = Date.now();
 	try {
-		const r = await fetch(endpointUrl(target, ep, path), {
+		const r = await cdnFetch(endpointUrl(target, ep, path), {
 			headers: authHeaders(ep),
 			signal: AbortSignal.timeout(4000),
 		});
@@ -265,7 +286,7 @@ export async function chatRemote(
 	if (!target) throw new Error(`cannot resolve ${machine.host}`);
 	const model = ep.model ?? "local";
 	const t0 = Date.now();
-	const r = await fetch(endpointUrl(target, ep, "/v1/chat/completions"), {
+	const r = await cdnFetch(endpointUrl(target, ep, "/v1/chat/completions"), {
 		method: "POST",
 		headers: { "content-type": "application/json", ...authHeaders(ep) },
 		body: JSON.stringify({
@@ -287,4 +308,3 @@ export async function chatRemote(
 		model,
 	};
 }
-// W308-fix: zod-schema rework in progress

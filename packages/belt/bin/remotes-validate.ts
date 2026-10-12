@@ -126,6 +126,12 @@ export function validateMachine(m: unknown): MachineVerdict {
 			errs.push(
 				"model must be a provider model id (letters/digits/._:/-, 1-128 chars)",
 			);
+		if (
+			ep.provider !== undefined &&
+			ep.provider !== "openai" &&
+			ep.provider !== "zai"
+		)
+			errs.push("provider must be openai or zai when present");
 		if (ep.base !== undefined && !validBase(ep.base))
 			errs.push(
 				"base must be an http(s) URL without whitespace or control characters",
@@ -198,7 +204,10 @@ export function buildRemoteEntries(parsed: unknown): BuiltRemotes {
 			const head =
 				`  - model_name: ${m.name}-${safe}\n` +
 				`    litellm_params:\n` +
-				`      model: openai/${ep.model}\n`;
+				`      model: ${ep.provider ?? "openai"}/${ep.model}\n` +
+				(ep.provider === "zai"
+					? "      allowed_openai_params: [reasoning_effort]\n"
+					: "");
 			entries.push(
 				ep.base
 					? `${head}      api_base: ${ep.base}\n      api_key: os.environ/Z_AI_API_KEY`

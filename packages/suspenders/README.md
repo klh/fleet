@@ -90,6 +90,7 @@ work take <id> --as <sid>                           # claim it
 work start <id> --as <sid>                          # mark RUNNING
 work done <id> --as <sid> --sha <commit>            # close with evidence
 work fail <id> --as <sid> --note "why"              # close as failed
+work cancel <id> --note "reason"                    # close unfinished work
 work release <id> --as <sid>                        # give it back
 work reclaim <id> --as <sid>                        # take a stalled claim
 work reclaim all                                    # bulk-free dead claims
@@ -105,7 +106,11 @@ work migrate-ledger                                 # import a - [ ] list
 ```sh
 coord fleet                      # who is working (sessions + claims)
 coord state --as <sid>           # your session view
-coord inbox --as <sid>           # unread messages/consults
+# event reads (W652.2 relationship):
+coord subscribe --as <sid>       # THE face — live WebSocket push (W303)
+coord wait --as <sid>            # fallback — adaptive long-poll (--forever = persistent)
+coord poll --as <sid>            # one-shot manual read; advances past SHOWN
+coord inbox --as <sid>           # directed catch-up read (--ack to advance cursor)
 coord message --to <sid> --note "…" --as <sid>   # interrupts only
 coord broadcast --note "…" --as <sid>            # fleet-wide
 coord consult --to <ikea-opus> --note "question" --as <sid>
@@ -113,7 +118,6 @@ coord consult-reply --reply-id <id> --note "…" --as <sid>
 coord fact get lesson.<topic>    # painful knowledge, fleet-shared
 coord fact set lesson.<topic> --note "…"         # write back a lesson
 coord emit NEED_DECISION --to <coordinator> --note "q + options" --as <sid>
-coord subscribe --as <sid>       # live WebSocket push (W303)
 coord gc                         # settle dead sessions
 coord doctor-session <sid>       # rebind a resumed session
 ```
@@ -138,6 +142,22 @@ bun hooks/bin/quota-sweep.ts --act     # pickup: reclaim dead sid's claims →
                                        # READY + coord emit + broadcast
                                        # (launchd, every 15 min)
 ```
+
+### Premium-credit headroom — `bun hooks/bin/credit-forecast.ts`
+
+```sh
+bun hooks/bin/credit-forecast.ts sample --used 29986 --limit 50000 \
+    --plan business --multipliers "opus=15,sonnet=1" --source dashboard
+bun hooks/bin/credit-forecast.ts forecast [--json] [--act]
+```
+
+Windowed burn deltas over the sampled plan counter → remaining, runway vs
+horizon, and the queued-work budget (explicit cost/item config — tokens are
+never inferred to be credits, no reset ETA is invented). Two alert arms
+(projected push need > remaining, pessimistic runway < horizon), deduped via
+a state file; the dispatch loop runs the alert (`W566`) and `--act` also
+stamps the `copilot.credits.headroom` fact. Policy knobs: `CREDIT_FORECAST_*`
+env (queued, cost/item, horizon, overage).
 
 ### Fleet board
 

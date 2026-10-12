@@ -1,7 +1,7 @@
 // Repeated governor denials become one incident and at most one owner consult.
 // This never grants a lease or weakens a gate. Telemetry failure is fail-open.
 import { createHash } from "node:crypto";
-import type { Database } from "bun:sqlite";
+import type { GovernorStore } from "./govdb.ts";
 import { ensureConsultOutbox, enqueueConsult } from "./consult-outbox.ts";
 
 export interface FailureContext {
@@ -13,9 +13,12 @@ export interface FailureContext {
 	generation: string;
 	holder?: string;
 	recovery: string;
+	/** W576.3: the enforcement-policy version that produced the decision —
+	 *  recorded on the incident and every event it emits */
+	policyVersion?: string;
 }
 
-function schema(db: Database): void {
+function schema(db: GovernorStore): void {
 	ensureConsultOutbox(db);
 	db.run(`CREATE TABLE IF NOT EXISTS failure_incidents (
 		project TEXT NOT NULL, fingerprint TEXT NOT NULL, sid TEXT NOT NULL,
@@ -43,7 +46,7 @@ export function failureFingerprint(c: FailureContext): string {
 }
 
 export function recordFailure(
-	db: Database,
+	db: GovernorStore,
 	c: FailureContext,
 	now = Date.now(),
 ): string {
@@ -142,6 +145,7 @@ export function recordFailure(
 						attempts,
 						consult: consultId,
 						recovery: c.recovery,
+						policyVersion: c.policyVersion,
 					}),
 					c.sid,
 				);
@@ -156,7 +160,7 @@ export function recordFailure(
 						remote_consult_id: number | null;
 					} | null)
 				: null;
-			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, consult: consultId ? `C${consultId}` : null, delivery: delivery ? { id: delivery.delivery_id, status: delivery.status, remoteConsult: delivery.remote_consult_id ? `C${delivery.remote_consult_id}` : null, note: "consult is the local incident ID; use remoteConsult for coord reply/feedback on a remote store" } : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
+			return `\nRECOVERY ${JSON.stringify({ fingerprint, attempts, next: c.recovery, policy: c.policyVersion, consult: consultId ? `C${consultId}` : null, delivery: delivery ? { id: delivery.delivery_id, status: delivery.status, remoteConsult: delivery.remote_consult_id ? `C${delivery.remote_consult_id}` : null, note: "consult is the local incident ID; use remoteConsult for coord reply/feedback on a remote store" } : null, retry: attempts >= 2 ? "new evidence or consultation required; do not repeat unchanged" : "only after the recovery condition changes" })}`;
 		})();
 	} catch {
 		return `\nRECOVERY ${JSON.stringify({ fingerprint, next: c.recovery, retry: "only after the recovery condition changes" })}`;
@@ -164,7 +168,7 @@ export function recordFailure(
 }
 
 export function resolveFailures(
-	db: Database,
+	db: GovernorStore,
 	project: string,
 	sid: string,
 	resource: string,

@@ -17,7 +17,7 @@
 import { spawn, execSync } from "node:child_process";
 import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
 import { LITELLM_PORT } from "./litellm-target.ts";
-import { spawnArgs, mlxLogPath } from "./spawner.ts";
+import { spawnReserved } from "./spawner.ts";
 import {
 	fleetTargets,
 	httpProbe,
@@ -91,7 +91,9 @@ async function cmdStart(): Promise<void> {
 
 	// Fire-and-forget: spawn all MLX servers + router, then exit immediately.
 	// Specialists load in the background; check readiness with `swarm.ts status`.
-	// BELT_TIER=minimal scopes this to the ≤4GB residents (extract + rerank).
+	// The tier (via residentSet) scopes this to the ≤4GB residents (extract +
+	// rerank) — tier comes from the emitted tier manifest (W507), env override
+	// still honored.
 	const resident = residentSet();
 
 	for (const s of resident) {
@@ -100,13 +102,11 @@ async function cmdStart(): Promise<void> {
 			continue;
 		}
 		console.log(`  → :${s.port} ${s.label} (loading in background)`);
-		const log = mlxLogPath(s.port);
-		const shellCmd = `nohup ${spawnArgs(s).join(" ")} >> ${log} 2>&1 &`;
-		Bun.spawn(["/bin/sh", "-c", shellCmd], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
+		try {
+			spawnReserved(s).unref();
+		} catch (error) {
+			console.error(`  refused :${s.port}: ${String(error)}`);
+		}
 	}
 
 	// Router

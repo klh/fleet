@@ -25,6 +25,22 @@ Why it is faster, concretely:
 - KV stays bf16 by default; int4/int8 KV quant is available if RAM-bound.
 - Native `/v1/messages` (Anthropic) in addition to `/v1/chat/completions`.
 
+### Speculative decoding is a catalog dimension (W242)
+
+- MTP lives in the CHECKPOINT: rapid-mlx auto-detects `mtp.*` weights and
+  uses them; `mlx_lm` strips them at load (zero speedup). Record the
+  capability on the registry row (`spec_dec`), not on the engine.
+- The 4B W115 verdict does not extrapolate. Every 30B+ MTP loss so far
+  (Qwopus3.6-27B, Xing4.0) was a DENSE checkpoint — density, not MTP,
+  explains the loss; the MoE×MTP cell is the open question.
+- mlx-community is littered with conversion placeholders: check real bytes
+  (tree endpoint), not the name. `Ornith-1.5-35B-A3B-oQ4e-mtp` — a perfect
+  MoE×MTP candidate by name — was a `.gitattributes`-only phantom.
+- `bun bin/specdec.ts check` (declaration vs snapshot drift) and
+  `bun bin/specdec.ts scan` (live sweep; REBENCH-DUE = the cell can be
+  tested) watch the condition. When due:
+  `bun bin/fleet-refresh.ts ab --candidate <id> --incumbent-port <slot> --incumbent-model <id> --keep`.
+
 Gotcha: rapid-mlx prints a scary _kernel-panic warning_ whenever projected RAM
 use is high. It is a firmware-amcc heuristic, not a hard limit — on a 128GB
 machine a 16GB model with 86GB in use is fine, but read the numbers before
@@ -88,9 +104,9 @@ back mushy — use `use_case` only unless you calibrate that head yourself.
 
 ## Benchmarking discipline
 
-Moved to [bench-questions.md](../bench-questions.md) — per-class question
-sets, sample-size laws and runner contracts live there; curated tables in
-[benchmarks.md](../benchmarks.md); raw append-only records in
+Belt questions (per-class question sets, sample-size laws, runner contracts)
+live in [benchmarks.md](../benchmarks.md); curated fleet tables in the
+fleet-root [benchmarks.md](../../benchmarks.md); raw append-only records in
 bench/benchmarks.jsonl.
 
 ## System-level notes (Apple Silicon / Metal)

@@ -1,4 +1,10 @@
-// hooks/coord/bus.ts — bus lifecycle: emit/broadcast/poll/wait + lane state, inbox, pause/resume (W157 command modules).
+// hooks/coord/bus.ts — bus lifecycle: emit/broadcast + the ONE event-read
+// core (readEvents/advanceCursor/formatEventLine) behind poll/wait/inbox,
+// + lane state, pause/resume (W157 command modules).
+// W652.2 consolidation: subscribe is THE event-read face (live WS push,
+// W303); wait is its long-poll fallback (and the no-store subscribe path);
+// poll is the one-shot manual read; inbox is the directed catch-up read.
+// All four share one row-renderer and one cursor helper.
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
@@ -12,9 +18,9 @@ import {
 	dim,
 	cyan,
 	amber,
-	scopeCovers,
 	projectIdentity,
 } from "./shared.ts";
+import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
 
 export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
@@ -166,6 +172,60 @@ export async function cmdBroadcast(_rest: string[]): Promise<void> {
 	);
 }
 
+// ─── the ONE event read (W652.2) ────────────────────────────────────────────
+// subscribe rides the store's WS push (store-server.ts mirrors this exact
+// filter); wait/poll/inbox read the table through here — one query, one
+// read-filter contract: a consumer sees broadcasts + anything directed
+// at it; cursor advancement is event-scan.advanceCursor (examined-advance)
+export function readEvents(opts: {
+	as?: string | null; // consumer sid: sees broadcasts + anything directed at it
+	since: number; // cursor value — rows with id > since
+	scope?: string | null;
+	kinds?: string[];
+	directedOnly?: boolean; // inbox mode: only rows addressed to `as`
+}): Ev[] {
+	let rows = opts.directedOnly
+		? (db
+				.query(
+					"SELECT id, ts, source, kind, scope, payload FROM events WHERE target = ? AND id > ? ORDER BY id",
+				)
+				.all(opts.as, opts.since) as Ev[])
+		: opts.as
+			? (db
+					.query(
+						"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND (target IS NULL OR target = ?) ORDER BY id",
+					)
+					.all(opts.since, opts.as) as Ev[])
+			: (db
+					.query(
+						"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND target IS NULL ORDER BY id",
+					)
+					.all(opts.since) as Ev[]);
+	const scope = opts.scope;
+	if (scope)
+		rows = rows.filter(
+			(r) =>
+				r.scope &&
+				(r.scope === scope ||
+					scopeCovers(r.scope, scope) ||
+					scopeCovers(scope, r.scope)),
+		);
+	const kinds = opts.kinds;
+	if (kinds?.length) rows = rows.filter((r) => kinds.includes(r.kind));
+	return rows;
+}
+
+
+// age glyph for the catch-up reads (poll, events); live faces (wait,
+// subscribe) print rows as they arrive and need none
+export function ageOf(ms: number): string {
+	const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+	if (s < 60) return `${s}s`;
+	if (s < 3_600) return `${Math.floor(s / 60)}m`;
+	if (s < 86_400) return `${Math.floor(s / 3_600)}h`;
+	return `${Math.floor(s / 86_400)}d`;
+}
+
 export async function cmdPoll(_rest: string[]): Promise<void> {
 	const as = arg("--as");
 	const scope = arg("--scope");
@@ -177,31 +237,17 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 			} | null)
 		: null;
 	const since = cur?.event_id ?? 0;
-	// fetch all past the cursor, filter in TS, THEN limit — a SQL LIMIT here
-	// would cut off the newest matching events; and the cursor may only advance
-	// to what was actually SHOWN, or filtered consumers silently lose events.
+	// keyset pages past the cursor (W644): per-row scope/kinds filtering, stop
+	// at limit; the cursor advances to the last row EXAMINED below — a
+	// rejected row can never match again, and nothing unexamined is skipped.
 	// A consumer with --as sees broadcasts + anything directed at it.
-	let rows = as
-		? (db
-				.query(
-					"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND (target IS NULL OR target = ?) ORDER BY id",
-				)
-				.all(since, as) as Ev[])
-		: (db
-				.query(
-					"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND target IS NULL ORDER BY id",
-				)
-				.all(since) as Ev[]);
-	if (scope)
-		rows = rows.filter(
-			(r) =>
-				r.scope &&
-				(r.scope === scope ||
-					scopeCovers(r.scope, scope) ||
-					scopeCovers(scope, r.scope)),
-		);
-	if (kinds.length) rows = rows.filter((r) => kinds.includes(r.kind));
-	rows = rows.slice(0, limit);
+	const { shown: rows, examined } = fetchEventsPaged({
+		since,
+		as,
+		scope,
+		kinds,
+		limit,
+	});
 	for (const r of rows) {
 		const { sha, note, ...restP } = r.payload
 			? (JSON.parse(r.payload) as Record<string, string>)
@@ -214,16 +260,9 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 			`  ${dim(`#${r.id}`)} ${dim(`${ago}s`.padStart(4))}  ${cyan(r.kind.padEnd(18))}${dim(r.source.slice(0, 8).padEnd(9))}${r.scope ? `${r.scope}  ` : ""}${sha ? green(`@${sha.slice(0, 8)}  `) : ""}${Object.keys(restP).length ? `${extra}  ` : ""}${note ? dim(`— ${note}`) : ""}`,
 		);
 	}
-	const latest = rows.length ? Math.max(...rows.map((r) => r.id)) : since; // advance only past SHOWN events
-	if (as && rows.length) {
-		if (cur)
-			db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(latest, as);
-		else
-			db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-				as,
-				latest,
-			);
-	}
+	// advance past every EXAMINED row (shown or filtered) — never beyond; a
+	// dormant lane pays one page per poll instead of the whole bus tail
+	if (as) advanceCursor(as, since, examined);
 	if (!rows.length) console.log(dim("(no new events)"));
 }
 
@@ -240,13 +279,11 @@ export function formatEventLine(r: Ev): string {
 }
 
 export async function cmdWait(rest: string[]): Promise<void> {
-	// adaptive long-poll: 250ms while events flow, backing off to 2s when
-	// idle; resets to fast the moment anything arrives. Near-instant local
-	// coordination without a broker daemon.
-	// --forever: a true persistent subscribe — never exits after a match,
-	// loops internally so one process stays the live watcher for a whole
-	// session instead of the caller having to notice it exited and relaunch
-	// it (that relaunch is pure noise, not narration-worthy; W303).
+	// the fallback face (W652.2): adaptive long-poll — 250ms while events
+	// flow, backing off to 2s when idle; resets to fast the moment anything
+	// arrives. --forever is the persistent fallback face: one process stays
+	// the live watcher for a whole session; subscribe rides it when no HTTP
+	// store is bound. Near-instant coordination without a broker daemon.
 	const as =
 		arg("--as") ??
 		die(
@@ -264,35 +301,21 @@ export async function cmdWait(rest: string[]): Promise<void> {
 					event_id: number;
 				} | null
 			)?.event_id ?? 0;
-		let rows = db
-			.query(
-				"SELECT id, ts, source, kind, scope, payload FROM events WHERE id > ? AND (target IS NULL OR target = ?) ORDER BY id",
-			)
-			.all(cur, as) as Ev[];
-		if (scope)
-			rows = rows.filter(
-				(r) =>
-					r.scope &&
-					(r.scope === scope ||
-						scopeCovers(r.scope, scope) ||
-						scopeCovers(scope, r.scope)),
-			);
-		if (kinds.length) rows = rows.filter((r) => kinds.includes(r.kind));
+		// keyset pages per tick (W644): the wait loop re-scans from its cursor
+		// every interval — pages keep a stale cursor from re-paying the tail
+		const { shown: rows, examined } = fetchEventsPaged({
+			since: cur,
+			as,
+			scope,
+			kinds,
+		});
 		if (rows.length) {
 			for (const r of rows) {
 				console.log(formatEventLine(r));
 			}
-			const shownMax = Math.max(...rows.map((r) => r.id));
-			if (cur)
-				db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(
-					shownMax,
-					as,
-				);
-			else
-				db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-					as,
-					shownMax,
-				);
+			// advance past every EXAMINED row (shown or filtered) — the filters
+			// are fixed for this invocation, so rejected rows never match again
+			advanceCursor(as, cur, examined);
 			if (!forever) process.exit(0);
 			interval = 250; // a hit resets the backoff same as the non-forever path
 			continue;
@@ -306,11 +329,12 @@ export async function cmdWait(rest: string[]): Promise<void> {
 	}
 }
 
-// W303 — real persistent push, replacing relaunch-a-poll: one WebSocket to
-// the store server's /subscribe route, printed as events arrive. The open
-// socket keeps the process alive on its own — no sleep loop, no exit, no
-// relaunch, ever. Falls back to cmdWait --forever when no HTTP store is
-// bound (GOVERNOR_STORE_URL=local dev mode has no server to connect to).
+// W303 — THE event-read face (W652.2): one WebSocket to the store server's
+// /subscribe route, printed as events arrive through the same renderer as
+// every other read. The open socket keeps the process alive on its own —
+// no sleep loop, no exit, no relaunch, ever. Falls back to cmdWait --forever
+// when no HTTP store is bound (GOVERNOR_STORE_URL=local dev mode has no
+// server to connect to) — wait is the face's fallback, not a peer.
 export async function cmdSubscribe(rest: string[]): Promise<void> {
 	const as =
 		arg("--as") ?? die("usage: subscribe --as <sid> [--scope s] [--kinds a,b]");
@@ -383,7 +407,9 @@ export async function cmdState(_rest: string[]): Promise<void> {
 }
 
 export async function cmdInbox(rest: string[]): Promise<void> {
-	// directed events only; never advances the cursor unless --ack
+	// directed catch-up read: everything addressed to --as past the cursor;
+	// the cursor moves only with --ack. W652.2: rows render via the ONE
+	// formatEventLine (source glyph added — same shape as wait/subscribe).
 	const as = arg("--as") ?? die("usage: inbox --as <sid> [--ack]");
 	const ncur =
 		(
@@ -391,43 +417,10 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 				event_id: number;
 			} | null
 		)?.event_id ?? 0;
-	const rows = db
-		.query(
-			"SELECT id, ts, source, kind, scope, payload FROM events WHERE target = ? AND id > ? ORDER BY id",
-		)
-		.all(as, ncur) as Ev[];
-	for (const r of rows) {
-		const { sha, note, ...restP } = r.payload
-			? (JSON.parse(r.payload) as Record<string, string>)
-			: {};
-		const extra = Object.entries(restP)
-			.map(([k, v]) => `${dim(`${k}=`)}${v}`)
-			.join(" ");
-		console.log(
-			`  ${dim(`#${r.id}`)} ${cyan(r.kind)}${r.scope ? ` ${r.scope}` : ""}${sha ? green(`@${sha.slice(0, 8)}`) : ""}${Object.keys(restP).length ? `  ${extra}` : ""}${note ? dim(` — ${note}`) : ""}`,
-		);
-	}
-	if (rest.includes("--ack")) {
-		const latest = rows.length ? Math.max(...rows.map((r) => r.id)) : ncur;
-		const c =
-			(
-				db.query("SELECT event_id FROM cursors WHERE sid = ?").get(as) as {
-					event_id: number;
-				} | null
-			)?.event_id ?? 0;
-		if (latest > c) {
-			if (c)
-				db.query("UPDATE cursors SET event_id = ? WHERE sid = ?").run(
-					latest,
-					as,
-				);
-			else
-				db.query("INSERT INTO cursors (sid, event_id) VALUES (?, ?)").run(
-					as,
-					latest,
-				);
-		}
-	}
+	const rows = readEvents({ as, since: ncur, directedOnly: true });
+	for (const r of rows) console.log(formatEventLine(r));
+	if (rest.includes("--ack"))
+		advanceCursor(as, ncur, rows.length ? Math.max(...rows.map((r) => r.id)) : ncur);
 	if (!rows.length) console.log(dim("(inbox empty)"));
 }
 
@@ -607,7 +600,7 @@ export async function cmdResumeSession(_rest: string[]): Promise<void> {
 	db.transaction(() => {
 		wMoved = db
 			.query(
-				"UPDATE work_items SET owner_sid = ?, updated_at = ? WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED','FAILED')",
+				"UPDATE work_items SET owner_sid = ?, updated_at = ? WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED')",
 			)
 			.run(as, now, proj, from).changes;
 		cMoved = db

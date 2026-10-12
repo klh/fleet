@@ -143,35 +143,32 @@ describe("budgets", () => {
 		expect(b.check("k1", limits, 0).ok).toBe(true);
 	});
 
-	test("flush writes budget_state upsert-ADD, no double count", () => {
+	test("W468: check writes the reservation straight to the authority", () => {
 		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 		const { b, db } = mkBudgets(() => t0);
 		const limits = { rpm: 100, tpm: null };
 		b.check("k1", limits, 0);
 		b.check("k1", limits, 0);
-		expect(b.flush()).toBe(1);
 		b.check("k1", limits, 0);
-		expect(b.flush()).toBe(1);
 		const row = db
 			.query("SELECT used_rpm FROM budget_state WHERE key_id = 'k1'")
 			.get() as { used_rpm: number };
 		expect(row.used_rpm).toBe(3);
-		expect(b.flush()).toBe(0);
 	});
 
-	test("W457: cache tokens ride the budgets flush (additive, skip-clean)", () => {
+	test("W457: cache tokens ride the authority row (addUsage, atomic)", () => {
 		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 		const { b, db } = mkBudgets(() => t0);
 		b.addUsage("k1", 1, 500, 300, 200);
-		expect(b.flush()).toBe(1);
 		b.addUsage("k1", 1, 100, 50, 25);
-		expect(b.flush()).toBe(1);
 		const row = db
-			.query("SELECT cache_r, cache_c FROM budget_state WHERE key_id = 'k1'")
-			.get() as { cache_r: number; cache_c: number };
+			.query(
+				"SELECT cache_r, cache_c, used_tpm FROM budget_state WHERE key_id = 'k1'",
+			)
+			.get() as { cache_r: number; cache_c: number; used_tpm: number };
 		expect(row.cache_r).toBe(350);
 		expect(row.cache_c).toBe(225);
-		expect(b.flush()).toBe(0); // no dirty deltas → no row
+		expect(row.used_tpm).toBe(600);
 	});
 
 	test("window helpers: minute buckets and remainders", () => {
@@ -184,6 +181,39 @@ describe("budgets", () => {
 	test("team ceiling tightens the key limit via effectiveLimit", () => {
 		const out = effectiveLimit({ rpm: 100, tpm: null }, { rpm: 3, tpm: null });
 		expect(out.rpm).toBe(3);
+	});
+
+	test("W468: denial rolls the reservation back — no residue", () => {
+		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+		const { b, db } = mkBudgets(() => t0);
+		const limits = { rpm: 1, tpm: null };
+		expect(b.check("k1", limits, 0).ok).toBe(true);
+		expect(b.check("k1", limits, 0).ok).toBe(false);
+		const row = db
+			.query("SELECT used_rpm FROM budget_state WHERE key_id = 'k1'")
+			.get() as { used_rpm: number };
+		expect(row.used_rpm).toBe(1);
+	});
+
+	test("W468: team ceiling binds across keys sharing the allowance", () => {
+		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+		const { b } = mkBudgets(() => t0);
+		const team = { id: "ops", limits: { rpm: 3, tpm: null } };
+		expect(b.check("k1", { rpm: null, tpm: null }, 0, team).ok).toBe(true);
+		expect(b.check("k2", { rpm: null, tpm: null }, 0, team).ok).toBe(true);
+		expect(b.check("k3", { rpm: null, tpm: null }, 0, team).ok).toBe(true);
+		expect(b.check("k4", { rpm: null, tpm: null }, 0, team).ok).toBe(false);
+		expect(b.snapshotTeams()).toHaveLength(1);
+	});
+
+	test("W468: release drops the reservation on both key and team rows", () => {
+		const t0 = Date.UTC(2026, 9, 1, 12, 0, 0);
+		const { b } = mkBudgets(() => t0);
+		const team = { id: "ops", limits: { rpm: 1, tpm: null } };
+		expect(b.check("k1", { rpm: null, tpm: null }, 0, team).ok).toBe(true);
+		expect(b.check("k2", { rpm: null, tpm: null }, 0, team).ok).toBe(false);
+		b.release("k1", "ops");
+		expect(b.check("k2", { rpm: null, tpm: null }, 0, team).ok).toBe(true);
 	});
 });
 

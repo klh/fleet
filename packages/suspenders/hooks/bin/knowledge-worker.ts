@@ -13,8 +13,10 @@
 // become POINTER rows (source_ref → the doc, fact → the non-obvious residue)
 // or are rejected — never restatements of what one file already teaches.
 // env:   INGEST_LLM_URL / INGEST_LLM_KEY / INGEST_LLM_MODEL — explicit
-//        OpenAI-compatible distill endpoint (enterprise points at their own);
-//        omit and the BeltDistillClient resolves belt via resolveBelt().
+//        OpenAI-compatible distill endpoint (enterprise override — points at
+//        their own gateway); omit (default) and BeltDistillClient resolves
+//        belt via resolveBelt() and sends hint 'prefer local distill
+//        reasoning' — belt decides, local-first (W96).
 //        KNOWLEDGE_STORE_URL — reserved for a remote store adapter.
 //        KNOWLEDGE_DOCS_ROOT — repo root for the substitution test; unset →
 //        the mechanical check is OFF (prompt layer still applies).
@@ -22,6 +24,7 @@
 //        bun hooks/bin/knowledge-worker.ts --once   (drain queued, exit)
 import PQueue from "p-queue";
 import {
+	currentPromptHash,
 	makeDistillClient,
 	makeStore,
 	type KnowledgeStore,
@@ -231,8 +234,16 @@ function gateScan(
 const sha256Hex = (text: string): string =>
 	createHash("sha256").update(text).digest("hex");
 
-// oldest first (ts, id); p-queue serializes distill calls
+// oldest first (ts, id); p-queue serializes distill calls. W244: the parser-
+// change checkpoint rides every tick — a live knowledgeworker.md edit applies
+// to the next queued job AND re-enqueues its older-parser work exactly once
+// (short-circuits to one SELECT while the prompt is unchanged).
 async function tick(): Promise<void> {
+	const rep = await store.reprocessCheck(currentPromptHash(), true);
+	if (rep.advanced)
+		console.log(
+			`knowledge-ingest: reprocess — ${rep.requeued} requeued, ${rep.marked} archived rows marked (${rep.skippedNoPayload} payload-less, skipped)`,
+		);
 	const next = await store.peekNext();
 	if (next) await work.add(() => processRow(next.id));
 }
@@ -242,7 +253,10 @@ await store.recoverOrphans(600_000); // dead worker's orphans requeue (#8)
 
 if (process.argv.includes("--once")) {
 	// manual/test mode: drain what is queued NOW, then exit. The launchd
-	// daemon form runs the 5s poll loop below instead.
+	// daemon form runs the 5s poll loop below instead. W244: the checkpoint
+	// pass runs BEFORE the empty-gate — a prompt change requeues archived
+	// sources even when the queue reads empty at entry.
+	await tick();
 	if (!(await store.queuedCount()))
 		console.log("knowledge-ingest: queue empty");
 	for (;;) {

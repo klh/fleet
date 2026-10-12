@@ -4,16 +4,26 @@
 // active work) and source is `resume`, then injects the restart packet
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import type { Database } from "bun:sqlite";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import {
-	openGovernorDb,
+	openStore,
 	projectIdentity,
 	CAPABILITIES,
 	sweepStaleSessions,
 } from "./lib/govdb.ts";
+import { enrollTopLevel } from "./lib/hook-scripts.ts";
+import { checkSessionPolicies } from "./lib/session-policy.ts";
+import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+import { run } from "./lib/run.ts";
 
-type In = { session_id?: string; source?: string; transcript_path?: string };
+type In = {
+	session_id?: string;
+	source?: string;
+	transcript_path?: string;
+	cwd?: string;
+};
 
 if (process.env.CLAUDE_FLEET_BOOTSTRAP === "0") process.exit(0);
 
@@ -21,9 +31,9 @@ const raw = await new Response(Bun.stdin.stream()).text();
 const input = JSON.parse(raw) as In;
 if (!input.session_id) process.exit(0);
 
-const sid = input.session_id;
+let sid = input.session_id;
 const src = input.source ?? "startup";
-const project = projectIdentity();
+const project = projectIdentity(input.cwd ?? process.cwd());
 const now = Date.now();
 
 // Subagent lanes: Claude Code gives a subagent the PARENT's session_id, so
@@ -31,11 +41,9 @@ const now = Date.now();
 // W30, 2026-09-26: the owner's id showed on lanes they never ran). Same
 // discriminator as the governor's laneId — register the subagent as its own
 // session row and hand it a lane id for claims, checkpoints, and emits.
-const laneMatch = (input.transcript_path ?? "").match(
-	/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/,
-);
-const isSubagent = !!laneMatch;
-const lane = laneMatch ? `${sid}#${laneMatch[1]}` : sid;
+const suffix = subagentLaneSuffix(input.transcript_path ?? "");
+const isSubagent = suffix !== "";
+let lane = `${sid}${suffix}`; // suffix re-derived in the canonical branch below
 
 function pname(p: string): string {
 	const parts = p.split("/");
@@ -116,19 +124,70 @@ const actorDefault = (() => {
 const UPSERT =
 	"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, transcript_path, actor) " +
 	"VALUES (?, ?, 'worker', ?, NULL, ?, ?, 'RUNNING', ?, ?, ?) " +
-	"ON CONFLICT(sid) DO UPDATE SET project = excluded.project, parent_sid = excluded.parent_sid, hb = excluded.hb, state = 'RUNNING', capabilities = COALESCE(excluded.capabilities, sessions.capabilities), transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path), actor = CASE WHEN sessions.actor IS NULL OR sessions.actor = '' THEN excluded.actor ELSE sessions.actor END";
+	"ON CONFLICT(sid) DO UPDATE SET project = excluded.project, parent_sid = COALESCE(excluded.parent_sid, CASE WHEN (SELECT project FROM sessions parent WHERE parent.sid = sessions.parent_sid) = excluded.project THEN sessions.parent_sid END), hb = excluded.hb, state = 'RUNNING', capabilities = COALESCE(excluded.capabilities, sessions.capabilities), transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path), actor = CASE WHEN sessions.actor IS NULL OR sessions.actor = '' THEN excluded.actor ELSE sessions.actor END";
 
 const DEAD_SQL =
 	"SELECT s.sid FROM sessions s WHERE s.project = ? AND s.state = 'CLOSED' " +
 	"AND EXISTS(SELECT 1 FROM work_items w WHERE w.owner_sid = s.sid " +
-	"AND w.project = s.project AND w.state NOT IN ('DONE','SUPERSEDED','FAILED'))";
+	"AND w.project = s.project AND w.state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED'))";
 
 const OWNED_SQL =
 	"SELECT id, title, state FROM work_items " +
 	"WHERE project = ? AND owner_sid = ? " +
-	"AND state NOT IN ('DONE','SUPERSEDED','FAILED') ORDER BY id";
+	"AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED') ORDER BY id";
 
-const db = openGovernorDb();
+const db = openStore();
+// The executor may mint a different SDK session ID. Only a registered lane
+// with a current claim in this exact worktree can supply the canonical ID.
+const declaredSid = process.env.SUSPENDERS_SID;
+const identityProtocol = process.env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+if (identityProtocol !== undefined && identityProtocol !== "canonical-v1") {
+	console.log("SESSION IDENTITY REFUSED: unsupported identity protocol.");
+	db.close();
+	process.exit(1);
+}
+if (identityProtocol === "canonical-v1") {
+	try {
+		if (!declaredSid) throw new Error("canonical lane ID missing");
+		const registered = db
+			.query("SELECT project, worktree, parent_sid FROM sessions WHERE sid = ?")
+			.get(declaredSid) as {
+			project: string;
+			worktree: string | null;
+			parent_sid: string | null;
+		} | null;
+		const claimed = db
+			.query(
+				"SELECT 1 FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
+			)
+			.get(project, declaredSid);
+		if (!registered || registered.project !== project || !claimed || !input.cwd)
+			throw new Error(
+				"declared lane lacks matching project, claim or worktree",
+			);
+		// Older live controllers did not register worktree metadata. Retain
+		// their SDK identity until a supported bootstrap supplies strong binding.
+		if (registered.worktree !== null) {
+			if (realpathSync(registered.worktree) !== realpathSync(input.cwd))
+				throw new Error("declared lane belongs to another worktree");
+			if (
+				registered.parent_sid &&
+				!db
+					.query("SELECT 1 FROM sessions WHERE sid = ? AND project = ?")
+					.get(registered.parent_sid, project)
+			)
+				throw new Error("declared lane parent is outside this project");
+			sid = declaredSid;
+			lane = `${sid}${suffix}`;
+		}
+	} catch {
+		console.log(
+			"SESSION IDENTITY REFUSED: declared lane lacks matching project, active claim or worktree.",
+		);
+		db.close();
+		process.exit(1);
+	}
+}
 db.query(UPSERT).run(
 	lane,
 	project,
@@ -146,39 +205,19 @@ const out = [
 ];
 
 // WS-first inbox (W303, owner directive 2026-10-05): bootstrap opens the
-// live subscribe ONCE per session — agents never poll the plane. Idempotent:
-// a live subscribe for this lane id is detected and left alone.
-{
-	const SUB_LOG = `${process.env.HOME}/.claude-insights/coord-subscribe-${lane}.log`;
-	const live = Bun.spawnSync([
-		"/usr/bin/pgrep",
-		"-f",
-		`coord[.]ts subscribe --as ${lane}$`,
-	]);
-	if (live.exitCode !== 0) {
-		const cmd =
-			"nohup bun " +
-			import.meta.dir +
-			"/bin/coord.ts subscribe --as " +
+// live subscribe ONCE per session — agents never poll the plane. The
+// attach recipe is shared with spawnClaude's spawn-level attach (W417.1);
+// idempotent: a live subscribe for this lane id is detected and left alone.
+if (attachSubscribe(lane))
+	out.push(
+		"WS inbox live: coord subscribe --as " +
 			lane +
-			" >> " +
-			SUB_LOG +
-			" 2>&1 &";
-		Bun.spawn(["/bin/sh", "-c", cmd], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
-		out.push(
-			"WS inbox live: coord subscribe --as " +
-				lane +
-				" (events push; never poll)",
-		);
-	}
-}
+			" (events push; never poll)",
+	);
 
-// automagic hygiene: every bootstrap sweeps stale sessions fleet-wide
-const sweptN = sweepStaleSessions(db);
+// automagic hygiene: every bootstrap sweeps stale sessions fleet-wide —
+// sweeps read THIS host's transcripts, so they ride db.local only (W92 seam)
+const sweptN = db.local ? sweepStaleSessions(db as Database) : 0;
 if (sweptN)
 	out.push(
 		`SWEPT ${sweptN} stale session(s) — hb-stale + transcript-dead (coordinator/waiting kept)`,
@@ -210,6 +249,17 @@ if (dead.length === 1 && dead[0].sid !== sid) {
 	const ids = dead.map((d) => d.sid.slice(0, 8)).join(", ");
 	out.push(`LINEAGE AMBIGUOUS: ${ids} — resolve with coord resume-session`);
 }
+
+// governance mode: read once — feeds the rules line AND the W422.17.1
+// session enrollment decision.
+const govMode =
+	(
+		db
+			.query("SELECT value FROM facts WHERE key = 'fleet.governance'")
+			.get() as { value: string } | null
+	)?.value === "solo"
+		? "solo"
+		: "strict";
 
 const mine = db.query(OWNED_SQL).all(project, lane) as {
 	id: string;
@@ -247,16 +297,39 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	out.push(RULES);
 	// W422.17 (owner ruling 2026-10-06): the governance mode renders as one
 	// rules line — lanes know the probe-false contract before dispatching.
-	const govMode = (
-		db
-			.query("SELECT value FROM facts WHERE key = 'fleet.governance'")
-			.get() as { value: string } | null
-	)?.value;
 	out.push(
 		govMode === "solo"
 			? "GOVERNANCE: solo — dispatch may ride belt-direct when the buckle front is unreachable (restore strict: coord governance strict)"
 			: "GOVERNANCE: strict — lanes dispatch only through buckle (probe-false = refusal; solo mode via: coord governance solo)",
 	);
+	// W637 supervisor default (owner law 2026-10-11): when the pool holds
+	// READY work, the arm-loop directive renders here — compliance by
+	// injection, not model-recall of the global CLAUDE.md rule. Top-level
+	// sessions only: a subagent lane is not a loop-arming runtime.
+	if (readyN > 0 && !isSubagent)
+		out.push(
+			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply ONE line: lanes live x/N, READY n, dispatched. Keep working owned items when slots are full.`,
+		);
+}
+
+// W422.17.1 interactive-session enrollment — top-level sessions mint (or
+// reuse) a per-session bksk_ key and take the 0600 settings env file (the
+// lane pattern generalized, 5efcf83). Subagents inherit the parent's
+// enrollment. Sessions cannot be refused: every buckle miss folds
+// belt-direct with the loud, mode-rendered note. Degrades silently —
+// bootstrap must never break on enrollment.
+if (!isSubagent && input.cwd) {
+	try {
+		const note = await enrollTopLevel({
+			hookDir: import.meta.dir,
+			sid: lane,
+			cwd: input.cwd,
+			govMode,
+		});
+		if (note) out.push(note);
+	} catch {
+		// degrade: the session rides belt-direct like an unreachable front
+	}
 }
 
 // fleet notices: inject unseen `coord broadcast` notes — each session sees
@@ -349,5 +422,52 @@ outer: for (const dir of [".", "docs", "docs/design"]) {
 			break outer;
 		} catch {}
 	}
+}
+if (input.cwd && !isSubagent) {
+	try {
+		const configPath = process.env.SUSPENDERS_REPO_POLICY_CONFIG;
+		if (
+			configPath !== undefined &&
+			(!isAbsolute(configPath) || !existsSync(configPath))
+		)
+			throw new Error(
+				"policy configuration override must exist at an absolute path",
+			);
+		out.push(
+			...(await checkSessionPolicies({
+				db,
+				sid: lane,
+				project,
+				repo: input.cwd,
+				configPath,
+			})),
+		);
+	} catch {
+		out.push(
+			"POLICY CHECK UNAVAILABLE: invalid runtime configuration; policy compliance is unknown.",
+		);
+	}
+}
+// W642: PreCompact state re-injection — the PreCompact gate flushed the
+// lane's claim + progress + capsule to .fleet/state-<sid>.md before the
+// summarizer ran; a compact SessionStart re-injects it so the post-compact
+// session resumes with its in-flight state (fresh within 24h).
+if (src === "compact" && input.cwd) {
+	try {
+		const top = run("git", ["-C", input.cwd, "rev-parse", "--show-toplevel"], {
+			cwd: input.cwd,
+		});
+		if (top.ok) {
+			const fleetDir = `${top.out.trim()}/.fleet`;
+			for (const name of [`state-${lane}.md`, `state-${sid}.md`]) {
+				const p = join(fleetDir, name);
+				if (!existsSync(p)) continue;
+				if (Date.now() - statSync(p).mtimeMs > 86_400_000) break;
+				out.push(
+					`PRECOMPACT STATE (${name}):\n${readFileSync(p, "utf8").slice(0, 1500)}`,
+				);
+			}
+		}
+	} catch {}
 }
 console.log(out.join("\n"));

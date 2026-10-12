@@ -27,8 +27,8 @@ function renderConn(){
   el.title = observed ? 'Source: ' + observed.source + ' · target: ' + observed.target + ' · scope: ' + observed.scope + ' · observed: ' + new Date(observed.observedAt).toLocaleTimeString() + ' · expires: ' + new Date(observed.expiresAt).toLocaleTimeString() : 'Legacy feed without observation provenance';
   if (el.getAttribute('data-sig') !== sig) {
     el.setAttribute('data-sig', sig);
-    el.innerHTML = '<span class="dot ' + cls + '"></span>' + esc(txt) + ' <span class="dim">| ' + esc(dec) + '</span>' +
-      (dataErr ? ' <button class="retry" id="connRetry" type="button">retry</button>' : '');
+    setNodes(el, '<span class="dot ' + cls + '"></span>' + esc(txt) + ' <span class="dim">| ' + esc(dec) + '</span>' +
+      (dataErr ? ' <button class="retry" id="connRetry" type="button">retry</button>' : ''));
     var rb = byId('connRetry');
     if (rb) rb.addEventListener('click', function(){ dataErr = null; pollData(); });
   }
@@ -129,6 +129,8 @@ function renderFleetHistory(view, zombies, needs){
   var start = fleetHistoryPage * 50;
   renderFleetLanes(byId('fleetHistoryLanes'), view.history.slice(start, start + 50), zombies, needs);
   setText(byId('fleetHistoryRange'), (start + 1) + '–' + Math.min(start + 50, view.history.length) + ' of ' + view.history.length);
+  var total = (lastData || {}).sessionsTotal || view.history.length;
+  setText(byId('fleetHistoryNote'), total > view.history.length ? 'Oldest ' + (total - view.history.length) + ' not served — the board caps history at ' + view.history.length + ' lanes per feed.' : '');
   byId('fleetHistoryPrev').disabled = fleetHistoryPage === 0;
   byId('fleetHistoryNext').disabled = fleetHistoryPage >= maxPage;
 }
@@ -159,6 +161,10 @@ function fleetElements(body){
   range.className = 'dim';
   controls.appendChild(range);
   details.appendChild(controls);
+  var note = document.createElement('p');
+  note.id = 'fleetHistoryNote';
+  note.className = 'dim';
+  details.appendChild(note);
   details.addEventListener('toggle', function(){ if (details.open) renderFleet(); });
   body.replaceChildren(caption, recent, details);
 }
@@ -196,7 +202,7 @@ function renderFleet(){
 // --- W28 LLM telemetry (Governor tab): per-model token sums vs budgets + routing log ---
 function renderLlm(d){
   var el = byId('llmview');
-  if (!d.llm) { el.innerHTML = '<div class="dim">no llm telemetry in payload (older board build)</div>'; return; }
+  if (!d.llm) { setNodes(el, '<div class="dim">no llm telemetry in payload (older board build)</div>'); return; }
   var h = '';
   var u = d.llm.usage || [];
   if (!u.length) h += '<div class="dim">no llm.call events today — advise round-trips will appear here</div>';
@@ -213,7 +219,7 @@ function renderLlm(d){
       h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : c.tt + ' tok · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
     }
   }
-  el.innerHTML = h;
+  setNodes(el, h);
 }
 function renderClaims(d){
   var fragment = document.createDocumentFragment();

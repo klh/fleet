@@ -6,30 +6,18 @@
 // content; the page degrades honestly until spokes report (default OFF
 // until an operator opts teams in on the hub policy).
 import { GROUPS } from "../lib/usage.ts";
-// W171: esc/fmtTok shared with the local /usage page (same dataviz chrome).
-import { esc, fmtTok } from "./usage-page-html.ts";
-import { TOPBAR_JS, topbar } from "./console-html.ts";
-import { USAGE_CHART_JS } from "./usage-charts.ts";
-import { THEME_HEAD } from "../lib/theme.ts";
-import { readFileSync } from "node:fs";
-
-// uPlot 1.6.32 (MIT) — vendored, inlined (offline LAN, never CDN).
-const UPILOT_SRC = readFileSync(
-	new URL("./vendor/uPlot.iife.min.js", import.meta.url),
-	"utf8",
-);
-const UPLOT_CSS = readFileSync(
-	new URL("./vendor/uPlot.min.css", import.meta.url),
-	"utf8",
-);
-
-const SLOT: Record<string, string> = {
-	flash: "#3987e5",
-	full: "#d95926",
-	luna: "#199e70",
-	local: "#c98500",
-	other: "#d55181",
-};
+// W652.3: chrome (palette/esc/fmtTok/tiles/legend/shell) rides the shared
+// usage-chrome module — W171's per-page copies retired.
+import {
+	esc,
+	fmtTok,
+	SLOT,
+	type UsageAidsPanel,
+	type UsageSeg,
+	type UsageSpokesPanel,
+	type UsageTile,
+	usagePageShell,
+} from "./usage-chrome.ts";
 
 export interface FedPageWindow {
 	bucket: number;
@@ -82,8 +70,11 @@ function timelineData(r: FedPageReport): number[][] {
 	const sorted = [...keys].sort((a, b) => a - b);
 	const xs = sorted.map((b) => Math.round(b / 1000));
 	for (const w of r.windows) {
-		const g = byBucket.get(w.bucket);
-		if (g === undefined) continue;
+		let g = byBucket.get(w.bucket);
+		if (g === undefined) {
+			g = {};
+			byBucket.set(w.bucket, g);
+		}
 		for (const [cls, m] of Object.entries(w.classes)) {
 			g[cls] = (g[cls] ?? 0) + m.in_tok + m.out_tok + m.cache_r + m.cache_c;
 		}
@@ -114,7 +105,10 @@ function byHourData(r: FedPageReport): number[][] {
 }
 
 // ─── page sections ────────────────────────────────────────────────────────
-function tilesHtml(r: FedPageReport): string {
+// W652.3.1: panels ride the Lit components (board-html/usage-panels.ts) —
+// the emitters shape display slices into the payload instead of building
+// panel HTML strings per request.
+const fedTilesData = (r: FedPageReport): UsageTile[] => {
 	const byClass = zeroGroups();
 	let rq = 0;
 	let windows = 0;
@@ -129,20 +123,17 @@ function tilesHtml(r: FedPageReport): string {
 	const top = Object.entries(byClass)
 		.sort((a, b) => b[1] - a[1])
 		.find(([, v]) => v > 0);
-	const cells: [string, string][] = [
-		["REPORTING SPOKES", String(r.spokes)],
-		["TOTAL TOKENS", fmtTok(Object.values(byClass).reduce((a, b) => a + b, 0))],
-		["REQUESTS", fmtTok(rq)],
-		["TOP MODEL CLASS", top === undefined ? "—" : top[0]],
-		["WINDOWS", String(windows)],
+	return [
+		{ k: "REPORTING SPOKES", v: String(r.spokes) },
+		{
+			k: "TOTAL TOKENS",
+			v: fmtTok(Object.values(byClass).reduce((a, b) => a + b, 0)),
+		},
+		{ k: "REQUESTS", v: fmtTok(rq) },
+		{ k: "TOP MODEL CLASS", v: top === undefined ? "—" : top[0] },
+		{ k: "WINDOWS", v: String(windows) },
 	];
-	return `<div class="utiles">${cells
-		.map(
-			([k, v]) =>
-				`<div class="utile"><div class="uv">${v}</div><div class="uk">${k}</div></div>`,
-		)
-		.join("")}</div>`;
-}
+};
 
 function filtersHtml(days: number): string {
 	const tLinks = [7, 28, 90]
@@ -154,10 +145,8 @@ function filtersHtml(days: number): string {
 	return `<div class="ufilters"><span class="ufgroup" data-label="window">${tLinks}</span></div>`;
 }
 
-/** Per-spoke table: one row per (spoke, team), class-segmented bar. */
-function spokesHtml(r: FedPageReport): string {
-	if (r.windows.length === 0)
-		return `<div class="upanel"><h2>SPOKES</h2><p class="uempty">no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)</p></div>`;
+/** Per-spoke slice: one row per (spoke, team), class-segmented bar. */
+const spokesData = (r: FedPageReport): UsageSpokesPanel => {
 	const per = new Map<
 		string,
 		{ team: string; classes: Record<string, number>; rq: number }
@@ -174,32 +163,40 @@ function spokesHtml(r: FedPageReport): string {
 			row.rq += m.requests;
 		}
 	}
-	const rows = [...per.entries()]
-		.map(([spoke, agg]) => {
-			const total = Object.values(agg.classes).reduce((a, b) => a + b, 0);
-			const maxTok = Math.max(
-				1,
-				...[...per.values()].map((x) =>
-					Object.values(x.classes).reduce((a, b) => a + b, 0),
-				),
-			);
-			const segs = GROUPS.map((g) => {
-				const tok = agg.classes[g] ?? 0;
-				if (tok === 0) return "";
-				const pct = total > 0 ? ((tok / total) * 100).toFixed(2) : "0";
-				return `<i style="width:${pct}%;background:${SLOT[g]}" title="${g}: ${fmtTok(tok)} tok"></i>`;
-			}).join("");
-			const barW = Math.max(2, (total / maxTok) * 100);
-			return `<tr><td><b>${esc(spoke)}</b><span class="uchip">${esc(agg.team)}</span></td><td><div class="ubar" style="width:${barW.toFixed(1)}%">${segs}</div></td><td class="unum">${fmtTok(total)}</td><td class="unum">${fmtTok(agg.rq)}</td></tr>`;
-		})
-		.join("");
-	return `<div class="upanel"><h2>SPOKES</h2><table class="uacts"><thead><tr><th>spoke</th><th style="width:38%">tokens by model class</th><th class="unum">total</th><th class="unum">req</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
+	const maxTok = Math.max(
+		1,
+		...[...per.values()].map((x) =>
+			Object.values(x.classes).reduce((a, b) => a + b, 0),
+		),
+	);
+	const rows = [...per.entries()].map(([spoke, agg]) => {
+		const total = Object.values(agg.classes).reduce((a, b) => a + b, 0);
+		const segs: UsageSeg[] = [];
+		for (const g of GROUPS) {
+			const tok = agg.classes[g] ?? 0;
+			if (tok === 0) continue;
+			segs.push({ g, tok });
+		}
+		return {
+			spoke,
+			team: agg.team,
+			barW: Math.max(2, (total / maxTok) * 100),
+			segs,
+			total,
+			rq: agg.rq,
+		};
+	});
+	return { rows };
+};
 
-/** Aid-ROI-over-federation panel: per aid+domain sums across spokes. */
-function aidsHtml(r: FedPageReport): string {
+/** Aid-ROI-over-federation slice: per aid+domain sums across spokes. */
+const fedAidsData = (r: FedPageReport): UsageAidsPanel => {
 	if (r.aids.length === 0)
-		return `<div class="upanel"><h2>AID ROI · FEDERATED</h2><p class="uempty">no aid aggregates reported yet — spokes with opted-in teams include aid_rollup sums (private-domain rows never leave the spoke)</p></div>`;
+		return {
+			title: "AID ROI · FEDERATED",
+			empty:
+				"no aid aggregates reported yet — spokes with opted-in teams include aid_rollup sums (private-domain rows never leave the spoke)",
+		};
 	const per = new Map<
 		string,
 		{
@@ -221,44 +218,12 @@ function aidsHtml(r: FedPageReport): string {
 		row.skip += a.skipped;
 		row.tok += a.tok_injected;
 	}
-	const rows = [...per.values()]
-		.sort((a, b) => b.tok - a.tok)
-		.map(
-			(a) =>
-				`<tr><td><b>${esc(a.aid)}</b></td><td>${esc(a.domain)}</td><td class="unum">${fmtTok(a.inj)}</td><td class="unum">${fmtTok(a.skip)}</td><td class="unum">${fmtTok(a.tok)}</td></tr>`,
-		)
-		.join("");
-	return `<div class="upanel"><h2>AID ROI · FEDERATED</h2><p class="ufoot">spoke-reported sums · private-domain rows are filtered spoke-side (domain separation)</p><table class="uacts"><thead><tr><th>aid</th><th>domain</th><th class="unum">injected</th><th class="unum">skipped</th><th class="unum">tok injected</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
-// ─── page assembly (the W152 u* chrome, scoped to this page) ─────────────
-const U_CSS = `
-.utiles { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
-.utile { flex:1 1 150px; background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:10px 14px; }
-.uv { font-size:22px; font-weight:600; color:var(--klh-ink); font-variant-numeric:tabular-nums; word-break:break-all; }
-.uk { font-size:10px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
-.uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
-.uwin { font-size:10.5px; color:var(--klh-dim); }
-.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
-.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
-.upanel .uhead { display:flex; align-items:baseline; gap:12px; }
-.upanel .uhead .ufoot { margin:0; }
-.ulegend { display:flex; gap:14px; font-size:11px; color:var(--klh-ink-2); margin:0 0 8px; flex-wrap:wrap; }
-.ulegend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
-.ufilters { display:flex; gap:18px; align-items:center; margin:0 0 14px; flex-wrap:wrap; }
-.ufgroup::before { content:attr(data-label); font-size:9.5px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.ufilter { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
-.ufilter.on { color:var(--klh-accent); border-color:var(--klh-accent); }
-table.uacts { width:100%; border-collapse:collapse; font-size:12px; }
-table.uacts td, table.uacts th { padding:6px 8px; border-bottom:1px solid var(--klh-rule); text-align:left; }
-.unum { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-ink-2); white-space:nowrap; }
-.ubar { display:flex; height:12px; border-radius:3px; overflow:hidden; min-width:2px; }
-.ubar i { display:block; height:100%; }
-.uchip { font-size:10px; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 6px; margin-left:6px; }
-.uempty { color:var(--klh-dim); font-size:12px; }
-.ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
-.uchart { width:100%; }
-`;
+	return {
+		title: "AID ROI · FEDERATED",
+		foot: "spoke-reported sums · private-domain rows are filtered spoke-side (domain separation)",
+		rows: [...per.values()].sort((a, b) => b.tok - a.tok),
+	};
+};
 
 /** The federation usage dashboard page. */
 export function federationUsagePage(
@@ -266,8 +231,9 @@ export function federationUsagePage(
 	opts: { degraded?: string | null } = {},
 ): string {
 	const degraded = opts.degraded ?? null;
-	const timeline = `<div class="upanel"><div class="uhead"><h2>GLOBAL TOKENS · STACKED BY MODEL CLASS</h2><p class="ufoot">hover = values · drag = zoom · double-click = reset</p></div>${legendHtml()}<div id="u-timeline" class="uchart"></div></div>`;
-	const hours = `<div class="upanel"><h2>WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)</h2><div id="u-hours" class="uchart"></div></div>`;
+	// W658.4: the chart panels ride <klh-usage-charts> (the fed timeline
+	// title differs — passed through); no more per-request panel HTML strings
+	const timeline = `<klh-usage-charts tl="GLOBAL TOKENS · STACKED BY MODEL CLASS"></klh-usage-charts>`;
 	const note =
 		degraded === null
 			? `<span class="uwin">aggregate self-report, opt-in per team — the hub stores model-CLASS buckets only; private-domain aggregates never arrive</span>`
@@ -276,20 +242,21 @@ export function federationUsagePage(
 		`<h1 class="utitle">FEDERATED USAGE</h1>` +
 		`<div class="uback"><a href="/">&larr; fleet board</a>${note}</div>` +
 		filtersHtml(r.days) +
-		tilesHtml(r);
+		`<klh-usage-tiles></klh-usage-tiles>`;
 	const payload = JSON.stringify({
 		groups: GROUPS,
 		slot: SLOT,
 		timeline: timelineData(r),
 		byHour: byHourData(r),
+		panels: {
+			tiles: fedTilesData(r),
+			spokes: spokesData(r),
+			aids: fedAidsData(r),
+		},
 	});
-	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${payload}</script><script>${TOPBAR_JS}</script><script>${USAGE_CHART_JS}</script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>FEDERATED USAGE</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}</style></head><body>${topbar("suspenders")}<main style="max-width:1060px;margin:0 auto">${head}${timeline}${hours}${spokesHtml(r)}${aidsHtml(r)}</main><script>${UPILOT_SRC}</script>${scripts}</body></html>`;
-}
-
-function legendHtml(): string {
-	const items = GROUPS.map(
-		(g) => `<span><i style="background:${SLOT[g]}"></i>${g}</span>`,
-	);
-	return `<div class="ulegend">${items.join("")}</div>`;
+	return usagePageShell({
+		title: "FEDERATED USAGE",
+		body: `${head}${timeline}<klh-usage-spokes></klh-usage-spokes><klh-usage-aids></klh-usage-aids>`,
+		payload,
+	});
 }

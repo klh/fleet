@@ -1,3 +1,11 @@
+import { ensureCompletionIdentityMigration } from "../lib/work-completion-record.ts";
+import {
+	itemSpend,
+	laneSpendRows,
+	resolveBuckleDb,
+	type ItemSpend,
+} from "../lib/lane-spend.ts";
+import { claimWindows } from "../lib/work-timing.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
@@ -20,7 +28,17 @@ import {
 	resolve,
 } from "./shared.ts";
 import type { Database, Ev } from "./shared.ts";
-import { formatEventLine } from "./bus.ts";
+import { ageOf, formatEventLine } from "./bus.ts";
+import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
+import { verdictBySid } from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { homedir } from "node:os";
+import {
+	type BriefWeight,
+	buckleLaneTokens,
+	type LaneTokens,
+	measureBriefWeight,
+} from "../../scripts/lib/brief-weight.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -33,6 +51,40 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// project identity is always derived (projectIdentity) — no --project
 	// override, it would let sessions fragment the graph by hand
 	const project = projectIdentity();
+	const parent = arg("--parent");
+	const worktree = arg("--worktree");
+	const existing = db
+		.query("SELECT project,parent_sid,worktree FROM sessions WHERE sid=?")
+		.get(as) as {
+		project: string;
+		parent_sid: string | null;
+		worktree: string | null;
+	} | null;
+	if ((parent || worktree) && existing && existing.project !== project)
+		die("bootstrap metadata cannot cross project identity");
+	if (parent) {
+		const registered = db
+			.query("SELECT project,state FROM sessions WHERE sid=?")
+			.get(parent) as { project: string; state: string } | null;
+		if (
+			parent === as ||
+			!registered ||
+			registered.project !== project ||
+			registered.state !== "RUNNING"
+		)
+			die("bootstrap parent must be a registered live session in this project");
+		if (existing?.parent_sid && existing.parent_sid !== parent)
+			die("bootstrap cannot reassign an existing parent");
+	}
+	const canonicalWorktree = worktree ? realpathSync(resolve(worktree)) : null;
+	if (canonicalWorktree && projectIdentity(canonicalWorktree) !== project)
+		die("bootstrap worktree must belong to this project");
+	if (
+		canonicalWorktree &&
+		existing?.worktree &&
+		realpathSync(existing.worktree) !== canonicalWorktree
+	)
+		die("bootstrap cannot reassign an existing worktree");
 	const role = arg("--role") ?? "worker";
 	// capability-aware dispatch (v2): --caps csv registers what this agent type
 	// offers; lanes inherit the parent's capabilities unless overridden — a
@@ -94,23 +146,40 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// liveness sweeps read THIS host's transcript tree — a remote lane's view
 	// would close live sessions it cannot see; sweeping stays a host concern
 	if (db.local) sweepStaleSessions(db as Database);
-	db.query(
-		"INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, actor, tags) VALUES (?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?) ON CONFLICT(sid) DO UPDATE SET project = excluded.project, role = excluded.role, hb = excluded.hb, capabilities = COALESCE(excluded.capabilities, sessions.capabilities), actor = COALESCE(excluded.actor, sessions.actor), tags = COALESCE(excluded.tags, sessions.tags)",
-	).run(
-		as,
-		project,
-		role,
-		arg("--parent"),
-		arg("--worktree") ?? null,
-		Date.now(),
-		Date.now(),
-		caps,
-		actor,
-		tags,
-	);
+	// Bind provenance atomically. Earlier reads improve errors, but cannot
+	// authorize a competing writer that registered this SID in the meantime.
+	const binding = db
+		.query(
+			`INSERT INTO sessions (sid, project, role, parent_sid, worktree, started_at, hb, state, capabilities, actor, tags)
+		SELECT ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?
+		WHERE ? IS NULL OR EXISTS (SELECT 1 FROM sessions WHERE sid=? AND project=? AND state='RUNNING')
+		ON CONFLICT(sid) DO UPDATE SET role = excluded.role, parent_sid = COALESCE(sessions.parent_sid,excluded.parent_sid), worktree = COALESCE(sessions.worktree,excluded.worktree), hb = excluded.hb, capabilities = COALESCE(excluded.capabilities, sessions.capabilities), actor = COALESCE(excluded.actor, sessions.actor), tags = COALESCE(excluded.tags, sessions.tags)
+		WHERE sessions.project=excluded.project
+		AND (sessions.parent_sid IS NULL OR excluded.parent_sid IS NULL OR sessions.parent_sid=excluded.parent_sid)
+		AND (sessions.worktree IS NULL OR excluded.worktree IS NULL OR sessions.worktree=excluded.worktree)`,
+		)
+		.run(
+			as,
+			project,
+			role,
+			parent,
+			canonicalWorktree,
+			Date.now(),
+			Date.now(),
+			caps,
+			actor,
+			tags,
+			parent,
+			parent,
+			project,
+		);
+	if (!binding.changes)
+		die(
+			"bootstrap identity binding changed concurrently or conflicts with registered provenance",
+		);
 	const mine = db
 		.query(
-			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED') ORDER BY id",
+			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
 		)
 		.all(project, as) as { id: string; title: string; state: string }[];
 	const readyN = (
@@ -159,6 +228,11 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		.query("SELECT sid, intent FROM claims ORDER BY sid")
 		.all() as { sid: string; intent: string | null }[];
 	const lanes = [...new Set(crows.map((c) => c.sid))].sort();
+	// W652.1: liveness delegates to the shared verdict (lib/lane-liveness.ts)
+	// — state glyphs say what a lane CLAIMS (lane.<sid>.state facts); only
+	// positive death evidence flips the glyph to ×. Unknown keeps the state
+	// glyph (lookup failure is never death — monitor doctrine W51).
+	const verdicts = verdictBySid(lanes, loadLaneRegistry(process.cwd()));
 	const states = db
 		.query("SELECT key, value FROM facts WHERE key LIKE 'lane.%.state'")
 		.all() as { key: string; value: string }[];
@@ -192,10 +266,33 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
 			.get() as { value: string } | null
 	)?.value;
+	// W522 fleet-watch feed — the same projection, machine-readable: lane
+	// state facts + session names + claim intents, no ANSI. Undefined state
+	// facts mean a fresh claim (text path paints ▶ too).
+	if (_rest.includes("--json")) {
+		console.log(
+			JSON.stringify({
+				head: head?.slice(0, 7) ?? null,
+				lanes: lanes.map((l) => ({
+					sid: l,
+					name: sessionNames.get(l) ?? null,
+					intent: names.get(l) ?? null,
+					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
+					verdict: verdicts.get(l) ?? null,
+					live: verdicts.get(l) === "alive",
+				})),
+			}),
+		);
+		return;
+	}
 	const parts = lanes.map((l) => {
 		const st = byKey.get(`lane.${l.sid}.state`);
-		const g =
-			st === "PAUSE_REQUESTED"
+		// W652.1: confirmed death outranks the claim-state glyph; unknown
+		// never does (lookup failure is never death — monitor doctrine W51)
+		const dead = verdicts.get(l) === "dead";
+		const g = dead
+			? red("×")
+			: st === "PAUSE_REQUESTED"
 				? amber("◐")
 				: st === "PAUSED"
 					? amber("⏸")
@@ -280,6 +377,21 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	// attribution is by claim-window overlap in time, not causality (a session
 	// working several items serially shares its transcript across windows).
 	const tokens = tokenUsage(db as Database, project, now);
+	// W635 — cost per DONE item: buckle-ledger lane spend joined to claim
+	// windows (lib/lane-spend.ts). Window attribution like W24 tokens; a
+	// missing/unreadable ledger yields null — no cost section, never blocks.
+	const ledger = resolveBuckleDb();
+	let costs: Map<string, ItemSpend> | null = null;
+	if (ledger) {
+		try {
+			costs = itemSpend(
+				laneSpendRows(ledger, `${new Date(cut).toISOString().slice(0, 13)}:00`),
+				claimWindows(db as Database, project, now).windows,
+			);
+		} catch {
+			costs = null; // unreadable ledger — fail soft
+		}
+	}
 	const shown = [...timing].sort((a, b) => b.wallMs - a.wallMs).slice(0, 8);
 	const fmtTok = (n: number): string =>
 		n >= 1e6
@@ -287,6 +399,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			: n >= 1e3
 				? `${Math.round(n / 1e3)}k`
 				: `${n}`;
+	const totalTok = (c: ItemSpend): number => c.in + c.out + c.cacheR + c.cacheC;
 	let sumIn = 0;
 	let sumOut = 0;
 	let tokN = 0;
@@ -298,13 +411,71 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			sumOut += k.out;
 		}
 		const tok = k ? fmtTok(k.in + k.out + k.cacheR + k.cacheC) : "-";
+		const c = costs?.get(t.work);
+		const spend =
+			c && c.in + c.out + c.cacheR + c.cacheC > 0
+				? fmtTok(c.in + c.out + c.cacheR + c.cacheC)
+				: "-";
 		console.log(
-			`    ${cyan(t.work.padEnd(8))} wall ${fmt(t.wallMs).padStart(6)}  agent ${fmt(t.agentMs).padStart(6)}  tok ${tok.padStart(6)}  ${t.claims} claim${t.claims === 1 ? "" : "s"}${t.failed ? red(" FAILED") : t.done ? "" : amber(" open")}`,
+			`    ${cyan(t.work.padEnd(8))} wall ${fmt(t.wallMs).padStart(6)}  agent ${fmt(t.agentMs).padStart(6)}  tok ${tok.padStart(6)}  spend ${spend.padStart(6)}  ${t.claims} claim${t.claims === 1 ? "" : "s"}${t.failed ? red(" FAILED") : t.done ? "" : amber(" open")}`,
 		);
 	}
 	if (shown.length)
 		console.log(
 			`  tokens (approx, window-attributed): in ${tokN ? fmtTok(sumIn) : "-"} · out ${tokN ? fmtTok(sumOut) : "-"} across ${shown.length} shown items`,
+		);
+	// W635 cost summary: median spend per DONE item + per-class (model_group)
+	// split — the dispatch-mix decision metric. Tokens, not $: pricing stays
+	// in machine config (config-over-code).
+	let costStats: {
+		costed: number;
+		median: number;
+		groups: [string, number][];
+	} | null = null;
+	if (costs) {
+		const doneCosts = doneItems
+			.map((t) => costs?.get(t.work))
+			.filter((c): c is ItemSpend => c != null);
+		const costed = doneCosts.filter((c) => totalTok(c) > 0);
+		if (costed.length) {
+			const byGroup = new Map<string, number>();
+			for (const c of costed)
+				for (const [g, v] of c.groups)
+					byGroup.set(
+						g,
+						(byGroup.get(g) ?? 0) + v.in + v.out + v.cacheR + v.cacheC,
+					);
+			costStats = {
+				costed: costed.length,
+				median: med(costed.map(totalTok)),
+				groups: [...byGroup.entries()].sort((a, b) => b[1] - a[1]),
+			};
+			console.log(
+				`  cost/item (buckle ledger, window-attributed): ${costStats.costed}/${doneItems.length} done items costed — median ${fmtTok(costStats.median)} tok/item`,
+			);
+			if (costStats.groups.length)
+				console.log(
+					`    ${costStats.groups
+						.slice(0, 5)
+						.map(([g, tok]) => `${g} ${fmtTok(tok)}`)
+						.join(" · ")}`,
+				);
+		}
+	}
+	// W633 brief weight: the per-dispatch instruction injection (brief
+	// boilerplate + AGENTS.md chain + machine harness) and the REAL per-lane
+	// in_tok from the buckle ledger — the weight audit, reportable per run.
+	const bw = await briefWeight(days);
+	if (bw) console.log(bw.line);
+	if (bw?.laneTok?.length)
+		console.log(
+			`  buckle in_tok/req 30d: ${bw.laneTok
+				.slice(0, 3)
+				.map(
+					(l) =>
+						`${l.lane.replace(/-p98b.*$/, "")} ${fmtTok(Math.round(l.inTok / Math.max(1, l.reqs)))}`,
+				)
+				.join(" · ")} (${bw.laneTok.length} lanes)`,
 		);
 	// dwell: PAUSED windows are evented (paused → resume_ready); WAIT_RATE /
 	// WAIT_DED leave no event trail, so ongoing dwell = now − lane.<sid>.state
@@ -355,12 +526,12 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	const conflicts = (
 		db
 			.query(
-				"SELECT COUNT(*) AS n FROM events WHERE kind = 'conflict' AND ts >= ? AND json_extract(payload, '$.project') = ?",
+				"SELECT COUNT(*) AS n FROM events WHERE kind = 'conflict' AND ts >= ? AND project = ?",
 			)
 			.get(cut, project) as { n: number }
 	).n;
 	const failedQ =
-		"SELECT COUNT(*) AS n FROM events WHERE kind = 'work.failed' AND ts >= ? AND json_extract(payload, '$.project') = ?";
+		"SELECT COUNT(*) AS n FROM events WHERE kind = 'work.failed' AND ts >= ? AND project = ?";
 	const failed = (db.query(failedQ).get(cut, project) as { n: number }).n;
 	const rework = timing.filter((t) => t.claims > 1).length;
 	console.log(
@@ -395,6 +566,18 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 		conflicts,
 		rework,
 		failed,
+		costItems: costStats?.costed,
+		medianItemSpendTok: costStats?.median,
+		costByGroup: costStats ? Object.fromEntries(costStats.groups) : undefined,
+		brief_weight: bw && {
+			brief: bw.w.brief,
+			brief_chars: bw.w.briefChars,
+			root_agents: bw.w.rootAgents,
+			pkg_max: bw.w.pkgAgents[0] ?? null,
+			harness: bw.w.harness,
+			per_lane_static_tok: bw.w.perLaneStaticTok,
+			buckle_lanes_30d: bw.laneTok.length,
+		},
 	};
 	const snapKey = `metrics.snapshot.${new Date(now).toISOString().slice(0, 10)}`;
 	db.query(
@@ -402,6 +585,33 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 	).run(snapKey, JSON.stringify(snap), now);
 	console.log(`  ${dim(`snapshot → ${snapKey}`)}`);
 }
+
+/** W633: the brief+protocol weight line + per-lane real in_tok from the
+ *  buckle ledger (BUCKLE_DB or the spoke default path). Null when the
+ *  composer cannot load (non-fleet runs) — the section is omitted, never
+ *  faked. */
+async function briefWeight(
+	days: number,
+): Promise<{ w: BriefWeight; line: string; laneTok: LaneTokens[] } | null> {
+	const fleetTree = resolve(import.meta.dir, "..", "..", "..", "..");
+	const w = await measureBriefWeight(fleetTree);
+	if (!w) return null;
+	const pkg = w.pkgAgents[0];
+	const parts = [
+		`brief ${w.brief}`,
+		w.rootAgents ? `agents-root ${w.rootAgents}` : null,
+		pkg
+			? `pkg-max ${pkg.tok} (${pkg.file.replace("packages/", "").replace("/AGENTS.md", "")})`
+			: null,
+		w.harness ? `harness ${w.harness}` : null,
+	];
+	const line = `  brief weight (W633, approx tok): ${parts.filter(Boolean).join(" · ")} ⇒ ${w.perLaneStaticTok}/lane`;
+	const laneTok = buckleLaneTokens(buckleDbPath(), days);
+	return { w, line, laneTok };
+}
+
+const buckleDbPath = (): string =>
+	process.env.BUCKLE_DB || `${homedir()}/.claude/local-llm/buckle.db`;
 
 export async function cmdDoctorSession(rest: string[]): Promise<void> {
 	// rebind integrity: NO live coordination state may point at a closed
@@ -420,7 +630,7 @@ export async function cmdDoctorSession(rest: string[]): Promise<void> {
 		const w = (
 			db
 				.query(
-					"SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','SUPERSEDED','FAILED')",
+					"SELECT COUNT(*) AS n FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','FAILED')",
 				)
 				.get(s.project, old) as { n: number }
 		).n;
@@ -475,7 +685,7 @@ export async function cmdDiff(rest: string[]): Promise<void> {
 			.get()
 	)
 		die(
-			"no delta log in governor.db — open the DB once via openGovernorDb() to install the v5 triggers",
+			"no delta log in governor.db — open the DB once via the govdb module to install the v5 triggers",
 		);
 	const sinceArg = arg("--since");
 	const tbl = arg("--table");
@@ -671,13 +881,6 @@ export async function cmdEvents(rest: string[]): Promise<void> {
 		);
 		return;
 	}
-	const ageOf = (ms: number): string => {
-		const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-		if (s < 60) return `${s}s`;
-		if (s < 3_600) return `${Math.floor(s / 60)}m`;
-		if (s < 86_400) return `${Math.floor(s / 3_600)}h`;
-		return `${Math.floor(s / 86_400)}d`;
-	};
 	for (const r of rows)
 		console.log(`${dim(ageOf(r.ts).padStart(4))}${formatEventLine(r)}`);
 	console.log(
@@ -712,8 +915,13 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		console.log(projectIdentity());
 		return;
 	}
+	if (sub === "enroll") return cmdEnroll(rest);
+	if (sub === "bind") return cmdBind(rest);
+	if (sub === "verify") return cmdVerify(rest);
 	if (sub !== "rekey")
-		die("usage: coord project identity | coord project rekey <old> <new>");
+		die(
+			"usage: coord project identity | coord project rekey <old> <new> | coord project enroll|bind|verify",
+		);
 	const pos = rest.slice(1).filter((a) => !a.startsWith("--"));
 	const [from, to] = pos;
 	if (!from || !to) die("usage: coord project rekey <old> <new>");
@@ -747,22 +955,110 @@ export async function cmdProject(rest: string[]): Promise<void> {
 		)
 		.get();
 	if (hasDecisions) counts.decisions = countIn("decisions");
+	const hasRecovery = !!db
+		.query(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_recovery_attempts'",
+		)
+		.get();
+	if (hasRecovery) {
+		counts.work_recovery_attempts = countIn("work_recovery_attempts");
+		if (
+			(
+				db
+					.query(
+						"SELECT COUNT(*) AS n FROM work_recovery_attempts WHERE project=?",
+					)
+					.get(to) as { n: number }
+			).n
+		)
+			die("rekey refused: target already holds recovery budget records");
+	}
+	const launchTables = [
+		"lane_launch_intents",
+		"lane_launch_budgets",
+		"lane_launch_leases",
+	].filter(
+		(table) =>
+			!!db
+				.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+				.get(table),
+	);
+	for (const table of launchTables) counts[table] = countIn(table);
+	const hasCompletions = !!db
+		.query(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_completion_records'",
+		)
+		.get();
+	if (hasCompletions) {
+		counts.work_completion_records = countIn("work_completion_records");
+		const targetRecords = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM work_completion_records WHERE project = ?",
+				)
+				.get(to) as { n: number }
+		).n;
+		if (targetRecords)
+			die(
+				`rekey refused: target already holds ${targetRecords} completion record(s)`,
+			);
+	}
+
 	const eventsN = (
 		db
-			.query(
-				"SELECT COUNT(*) AS n FROM events WHERE json_extract(payload, '$.project') = ?",
-			)
+			.query("SELECT COUNT(*) AS n FROM events WHERE project = ?")
 			.get(from) as { n: number }
 	).n;
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
+		for (const table of launchTables) {
+			const target = db
+				.query(`SELECT COUNT(*) AS n FROM ${table} WHERE project=?`)
+				.get(to) as { n: number };
+			if (target.n)
+				throw new Error(
+					`rekey refused: target already holds launch records in ${table}`,
+				);
+			db.run(`UPDATE ${table} SET project=? WHERE project=?`, to, from);
+		}
+		if (
+			hasRecovery &&
+			(
+				db
+					.query(
+						"SELECT COUNT(*) AS n FROM work_recovery_attempts WHERE project=?",
+					)
+					.get(to) as { n: number }
+			).n
+		)
+			throw new Error(
+				"rekey refused: target already holds recovery budget records",
+			);
+		if (hasCompletions) {
+			ensureCompletionIdentityMigration(db);
+			db.run(
+				"UPDATE work_completion_records SET project = ? WHERE project = ?",
+				to,
+				from,
+			);
+		}
+
 		for (const t of PROJECT_TABLES)
 			db.run(`UPDATE ${t} SET project = ? WHERE project = ?`, to, from);
 		if (hasDecisions)
 			db.run("UPDATE decisions SET project = ? WHERE project = ?", to, from);
+		if (hasRecovery)
+			db.run(
+				"UPDATE work_recovery_attempts SET project=? WHERE project=?",
+				to,
+				from,
+			);
 		db.run(
-			"UPDATE events SET payload = json_set(payload, '$.project', ?) WHERE json_extract(payload, '$.project') = ?",
+			// column + payload ride together — the trigger stamps INSERTs only, so
+			// the rekey's in-place payload mutation must move the column itself
+			"UPDATE events SET payload = json_set(payload, '$.project', ?), project = ? WHERE project = ?",
+			to,
 			to,
 			from,
 		);

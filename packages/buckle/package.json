@@ -1,9 +1,12 @@
 {
-	"name": "buckle",
-	"version": "1.0.0",
+	"name": "@klh/buckle",
+	"version": "2.0.0",
 	"module": "src/server.ts",
 	"type": "module",
 	"private": true,
+	"engines": {
+		"bun": ">=1.2"
+	},
 	"scripts": {
 		"test": "bun test",
 		"start": "bun run src/server.ts"
@@ -15,7 +18,7 @@
 		"typescript": "^7"
 	},
 	"dependencies": {
-		"blam": "workspace:*"
+		"@klh/blam": "workspace:*"
 	},
-	"license": "BUSL-1.1"
+	"license": "PolyForm-Noncommercial-1.0.0"
 }

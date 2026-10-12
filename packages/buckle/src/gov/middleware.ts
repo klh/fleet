@@ -15,14 +15,23 @@ import {
 	type RateLimitView,
 	stampRateLimit,
 } from "../citizenship.ts";
-import type { Ledger } from "../ledger.ts";
+import { tokenFromHeaders, type Ledger } from "../ledger.ts";
 import type { Servicemon } from "../servicemon.ts";
 import { Budgets, type BudgetView, effectiveLimit } from "./budgets.ts";
 import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import { Slots, type SlotLimits, slotsFromEnv } from "./slots.ts";
 import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
+import {
+	principalFromSso,
+	type AdaptationConfig,
+	type AuditTapEvent,
+	validDeny,
+	validSsoIdentity,
+	validateAdaptation,
+} from "./adaptation.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;
@@ -33,10 +42,17 @@ export interface GovernanceOpts {
 	// semantics (anonymous spoke-pull GETs, validated creds, spoke scope
 	// for POST); serving itself lives on the app deps.
 	federation?: Federation;
+	/** W468 admission control: simultaneous-generation pool caps
+	 *  (global + per-team); default resolves from env, 0 disables. */
+	slots?: SlotLimits;
+	/** W235 adaptation surface v2: the typed hook points (authenticate/
+	 *  authorize/audit/budget) an enterprise overlay registers — validated
+	 *  at boot, fail-closed; absent = solo posture. */
+	adaptation?: AdaptationConfig;
 }
 
 export interface Principal {
-	kind: "root" | "api_key" | "jwt";
+	kind: "root" | "api_key" | "jwt" | "sso";
 	keyId: string;
 	team: string | null;
 	actor: string | null;
@@ -59,14 +75,19 @@ export interface GovernanceDeps {
 export class Governance {
 	readonly keys: KeyStore;
 	readonly budgets: Budgets;
+	readonly slots: Slots;
 	readonly db: Database;
 	private readonly sm: Servicemon;
 	private readonly ledger: Ledger;
 	private readonly jwtValidator: ReturnType<typeof createJwtValidator> | null;
 	private readonly rootHash: string | null;
 	/** W154: shared Federation surface (auth semantics at the gate; serving
-	 *  itself lives on the app deps). */
+	 *  lives on the app deps). */
 	readonly federation: Federation | null;
+	/** W235: the registered adaptation surface (null = solo posture).
+	 *  Adopted AFTER the core auth stores are built — the
+	 *  registration-after-core law. Hooks validated fail-closed at boot. */
+	readonly adaptation: AdaptationConfig | null;
 
 	constructor(deps: GovernanceDeps, opts: GovernanceOpts) {
 		this.sm = deps.sm;
@@ -76,12 +97,21 @@ export class Governance {
 		this.db =
 			opts.federation?.db ?? new Database(opts.dbPath, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
+		// W468: cross-replica budget writes contend on the single writer —
+		// wait instead of surfacing SQLITE_BUSY to a request.
+		this.db.exec("PRAGMA busy_timeout = 5000");
 		applyGovernanceSchema(this.db);
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
+		this.slots = new Slots(this.db, opts.slots ?? slotsFromEnv());
 		this.jwtValidator = opts.jwt ? createJwtValidator(opts.jwt) : null;
 		this.rootHash = opts.rootKey ? hashKey(opts.rootKey) : null;
 		this.federation = opts.federation ?? null;
+		// W235: register the adaptation surface last — hooks adopt only after
+		// the core auth stores above exist; malformed surfaces throw here.
+		this.adaptation = opts.adaptation
+			? validateAdaptation(opts.adaptation)
+			: null;
 	}
 
 	/** Denial audit: route_audit row (denied audits too — W136) + counter. */
@@ -124,21 +154,47 @@ export class Governance {
 		this.sm
 			.counter("buckle_auth_decisions_total", "Governance gate decisions.")
 			.inc({ decision: p.code, route: p.route });
+		// W235 audit tap: the registered hook sees the same denial row the
+		// core stream wrote (the tap only ADDS — it may not replace the core
+		// audit). A throwing tap counts, never surfaces to the caller.
+		const tap = this.adaptation?.hooks.audit;
+		if (tap !== undefined) {
+			const event: AuditTapEvent = {
+				rid: p.rid,
+				ts,
+				actor: p.actor,
+				route: p.route,
+				dialect: p.dialect,
+				code: p.code,
+				status: p.status,
+				why: p.why,
+			};
+			try {
+				tap(event);
+			} catch {
+				this.sm
+					.counter(
+						"buckle_adaptation_errors_total",
+						"Adaptation hook errors.",
+					)
+					.inc({ hook: "audit" });
+			}
+		}
 	}
 
-	/** Bearer token → Principal, or a stable machine-readable rejection.
+	/** Presented credential (Bearer or Anthropic-wire x-api-key) → Principal,
+	 *  or a stable machine-readable rejection.
 	 *  Dispatch: root break-glass → api key (hash lookup) → JWT seam. */
 	async authenticate(req: Request): Promise<AuthResult> {
-		const header = req.headers.get("authorization") ?? "";
-		const m = /^Bearer\s+(.+)$/i.exec(header);
-		if (m === null)
+		const token = tokenFromHeaders(req.headers);
+		if (token === null)
 			return {
 				ok: false,
 				status: 401,
 				code: "buckle.auth_missing",
-				why: "missing bearer token",
+				why: "missing credential (send Authorization Bearer or x-api-key)",
 			};
-		return this.authDispatch(m[1]?.trim() ?? "");
+		return this.authDispatch(token);
 	}
 
 	private async authDispatch(token: string): Promise<AuthResult> {
@@ -214,8 +270,28 @@ export class Governance {
 		};
 	}
 
-	/** The request gate: classify → authenticate → authorize → budget →
-	 *  inner. Every denial audits + rejects into auth_events. */
+	/** W235 SSO resolve: the authenticate hook (verified signed identity
+	 *  headers → claims → Principal). Malformed hook output = no opinion —
+	 *  the core 401 stands; hook throws are counted, never surfaced. */
+	private async resolveSso(req: Request): Promise<Principal | null> {
+		const hook = this.adaptation?.hooks.authenticate;
+		if (hook === undefined) return null;
+		let out: unknown;
+		try {
+			out = await hook(req);
+		} catch {
+			this.sm
+				.counter(
+					"buckle_adaptation_errors_total",
+					"Adaptation hook errors.",
+				)
+				.inc({ hook: "authenticate" });
+			return null;
+		}
+		const id = validSsoIdentity(out);
+		if (id === null) return null;
+		return principalFromSso(id, this.adaptation?.ssoRoles ?? {});
+	}
 	gate(
 		inner: (req: Request) => Response | Promise<Response>,
 	): (req: Request) => Promise<Response> {
@@ -235,6 +311,22 @@ export class Governance {
 			const rid = `g${t0.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 			const auth = await this.authenticate(req);
 			if (!auth.ok) {
+				// W235 SSO seam: identity resolution ONLY on a missing
+				// credential — presented-but-invalid stays a 401 (W173 law).
+				const sso =
+					auth.code === "buckle.auth_missing"
+						? await this.resolveSso(req)
+						: null;
+				if (sso !== null)
+					return this.authorize(
+						req,
+						path,
+						routeClass,
+						rid,
+						sso,
+						t0,
+						inner,
+					);
 				this.rejectEvent(req, auth.code);
 				this.auditDenial({
 					rid,
@@ -245,7 +337,9 @@ export class Governance {
 					status: auth.status,
 					why: auth.why,
 				});
-				return authError(auth.status, auth.code, auth.why, { instance: path });
+				return authError(auth.status, auth.code, auth.why, {
+					instance: path,
+				});
 			}
 			return this.authorize(
 				req,
@@ -269,8 +363,21 @@ export class Governance {
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
 		if (this.federation === null) return inner(req);
-		const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
-		if (m === null)
+		const token = tokenFromHeaders(req.headers);
+		// W173: enrollment redeem — the one-time enrollment code IS the
+		// credential on this route; no bearer demanded. A presented bearer is
+		// still validated (never downgraded) and its principal rides along.
+		if (path === "/federation/enroll" && req.method === "POST") {
+			if (token === null) return inner(req);
+			const auth = await this.authenticate(req);
+			if (!auth.ok)
+				return authError(auth.status, auth.code, auth.why, {
+					instance: path,
+				});
+			stashPrincipal(req, auth.principal);
+			return inner(req);
+		}
+		if (token === null)
 			return authError(401, "buckle.auth_missing", "missing bearer token", {
 				instance: path,
 			});
@@ -337,10 +444,38 @@ export class Governance {
 				inner,
 			});
 		}
+		// W235 authorize veto: RBAC/entitlement denial AFTER the core scope
+		// check passed — hooks can only deny, never open. Malformed verdicts
+		// are discarded (validDeny = fail closed).
+		const veto = validDeny(
+			this.adaptation?.hooks.authorize?.({
+				principal: p,
+				route: path,
+				action: req.method === "GET" ? "read" : "write",
+				scope: needed,
+			}),
+		);
+		if (veto !== null)
+			return this.denied({
+				req,
+				path,
+				rid,
+				p,
+				status: veto.status,
+				code: veto.code,
+				why: veto.why,
+				t0,
+				inner,
+			});
 		if (routeClass === "admin") {
+			stashPrincipal(req, p);
 			const admin = await import("./admin.ts");
 			return admin.handleAdmin(req, p, this);
 		}
+		// W607: proxy-class handlers read the authenticated identity via
+		// principalOf(req) (e.g. GET /v1/fleet/whoami) — stash it here the
+		// same way federationGate does, keyed on the request object.
+		stashPrincipal(req, p);
 		return this.budget(req, path, rid, p, t0, inner);
 	}
 
@@ -356,9 +491,37 @@ export class Governance {
 	): Response | Promise<Response> {
 		void rid;
 		void t0;
+		// W235 budget tap: billing/quota admission BEFORE the core check —
+		// may only deny or pass; it can never raise a core limit.
+		const bill = validDeny(
+			this.adaptation?.hooks.budget?.({
+				principal: p,
+				route: path,
+				reqBytes: Number(req.headers.get("content-length") ?? "0"),
+			}),
+		);
+		if (bill !== null)
+			return this.denied({
+				req,
+				path,
+				rid,
+				p,
+				status: bill.status,
+				code: bill.code,
+				why: bill.why,
+				t0,
+				inner,
+			});
 		const ceiling = p.team !== null ? this.keys.teamCeilings(p.team) : null;
 		const limits = effectiveLimit({ rpm: p.rpm, tpm: p.tpm }, ceiling);
-		return this.admit(req, path, rid, p, limits, inner);
+		// W468: the team aggregate row is enforced against the raw ceiling
+		// (not the min()ed effective limit) so a tighter key limit never
+		// masks the team allowance the DB authority must also hold.
+		const team =
+			p.team !== null
+				? { id: p.team, limits: ceiling ?? { rpm: null, tpm: null } }
+				: null;
+		return this.admit(req, path, rid, p, limits, team, inner);
 	}
 
 	private async admit(
@@ -367,20 +530,54 @@ export class Governance {
 		rid: string,
 		p: Principal,
 		limits: { rpm: number | null; tpm: number | null },
+		team: {
+			id: string;
+			limits: { rpm: number | null; tpm: number | null };
+		} | null,
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
-		if (limits.rpm === null && limits.tpm === null) return inner(req);
-		const chk = this.budgets.check(
-			p.keyId,
-			limits,
-			Number(req.headers.get("content-length") ?? "0"),
+		// W468 admission control first: a slot is held for the whole
+		// generation; root keeps break-glass access during a storm. The
+		// finally below hands the slot back whatever the outcome.
+		if (p.kind !== "root" && !this.slots.acquire(p.team))
+			return this.slotLimited(path, rid, p);
+		try {
+			if (limits.rpm === null && limits.tpm === null) return await inner(req);
+			const chk = this.budgets.check(
+				p.keyId,
+				limits,
+				Number(req.headers.get("content-length") ?? "0"),
+				team,
+			);
+			const view = this.rateView(limits, chk.view);
+			if (!chk.ok) return this.rateLimited(path, rid, p, view, chk.retryAfterS);
+			const resp = await inner(req);
+			// http-citizenship: the trio rides every budgeted response.
+			if (view !== null) stampRateLimit(resp.headers, view);
+			return resp;
+		} finally {
+			if (p.kind !== "root") this.slots.release(p.team);
+		}
+	}
+
+	/** Pool full (429): audit + envelope; Retry-After is a short constant —
+	 *  slots free as in-flight generations settle, unlike a window reset. */
+	private slotLimited(path: string, rid: string, p: Principal): Response {
+		this.auditDenial({
+			rid,
+			actor: p.keyId,
+			route: path,
+			dialect: dialectOf(path),
+			code: "buckle.slot_exhausted",
+			status: 429,
+			why: "concurrency slots exhausted",
+		});
+		return authError(
+			429,
+			"buckle.slot_exhausted",
+			"concurrency slots exhausted",
+			{ instance: path, headers: { "retry-after": "2" } },
 		);
-		const view = this.rateView(limits, chk.view);
-		if (!chk.ok) return this.rateLimited(path, rid, p, view, chk.retryAfterS);
-		const resp = await inner(req);
-		// http-citizenship: the trio rides every budgeted response.
-		if (view !== null) stampRateLimit(resp.headers, view);
-		return resp;
 	}
 
 	/** The trio basis: rpm when bounded, else tpm. Unbounded principals get
@@ -433,13 +630,14 @@ export class Governance {
 		return resp;
 	}
 
-	/** Scope-denied (403): audit row + fixed envelope. */
+	/** Scope-denied (403): audit row + fixed envelope. W235: status widened
+	 *  to carry adaptation-hook denials (401/403/429). */
 	private denied(p: {
 		req: Request;
 		path: string;
 		rid: string;
 		p: Principal;
-		status: 401 | 403;
+		status: 401 | 403 | 429;
 		code: string;
 		why: string;
 		t0: number;
@@ -541,9 +739,9 @@ function dialectOf(path: string): string {
 }
 
 function actorOf(req: Request): string {
-	const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
-	if (m === null) return "anonymous";
-	return hashKey(m[1]?.trim() ?? "").slice(0, 12);
+	const token = tokenFromHeaders(req.headers);
+	if (token === null) return "anonymous";
+	return hashKey(token).slice(0, 12);
 }
 
 /** Build the gate over the app deps (ledger + servicemon) + opts. */

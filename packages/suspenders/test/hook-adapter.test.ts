@@ -6,6 +6,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	mkdirSync,
 	writeFileSync,
@@ -21,12 +22,16 @@ import {
 } from "../hooks/dialects/codex/lib.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-w73-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w73-repo-"));
+const REPO = realpathSync(mkdtempSync(join(tmpdir(), "suspenders-w73-repo-")));
 mkdirSync(join(REPO, ".fleet"), { recursive: true });
-const env = (): Record<string, string> => ({
-	...(process.env as Record<string, string>),
-	HOME,
-});
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env = (): Record<string, string> => {
+	const e = { ...(process.env as Record<string, string>), HOME };
+	delete e.SUSPENDERS_SID;
+	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	return e;
+};
 const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");
 const WIRE = join(
 	import.meta.dir,

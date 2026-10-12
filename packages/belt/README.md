@@ -142,6 +142,16 @@ in `test/klh-theme.test.ts`.
 Deterministic, keyword-based, 0 ms — no LLM overhead for routing decisions.
 Full doctrine with the measured table: [`docs/routing.md`](docs/routing.md).
 
+`gateway.num_retries` controls Buckle's outer retry budget;
+`gateway.litellm_num_retries` independently controls the LiteLLM router
+(integer 0–3, default 1). Set the latter to 0 only where Buckle is verified
+to own retries for all clients. Direct LiteLLM clients retain one retry by
+default. Provider SDK retries stay at 0. `gateway.litellm_fallbacks` defaults
+to true; set it to false only after verifying equivalent front-owned fallback
+routes. This omits inner engine ladders while retaining the outer policy.
+Change machine-level `routing-policy.yaml` and regenerate the
+gateway config during an approved maintenance window.
+
 - short tasks → `:8902`, code → `:8901`, deep reasoning → `:8903`,
   Danish/multilingual → `:8906` (on-demand), rerank → `:8913`
 - `>32k` context or frontier-quality production work → remote (z.ai)
@@ -159,10 +169,10 @@ Full doctrine with the measured table: [`docs/routing.md`](docs/routing.md).
 
 ## License
 
-belt is source-available under the **Business Source License 1.1** (see [LICENSE](LICENSE)):
+belt is source-available under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE](LICENSE)):
 
-- **Free** for personal projects, education, research, and internal evaluation.
+- **Free** for any noncommercial purpose — personal projects, education, research, and internal evaluation.
 - **Production / commercial use requires a commercial license** — running it in a product or service, in paid client work, or as part of business operations. Contact the Licensor (see LICENSE) for terms.
-- **No conversion** — unlike standard BSL 1.1, the Change Date / Change License parameters are **N/A**: the Licensed Work never converts to an open license; all rights remain with the Licensor indefinitely.
+- **No conversion clause** — PolyForm licenses have no Change Date: the Licensed Work never converts to an open license; all rights remain with the Licensor.
 
 A Threads thing — [threads.dk](http://www.threads.dk).

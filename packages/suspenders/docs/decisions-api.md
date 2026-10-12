@@ -15,7 +15,7 @@ and this document disagree, fix the code or amend this file in the same commit.
 | question      | TEXT — payload.note (plain language, shown verbatim)         |
 | options       | TEXT — JSON array of {label, tradeoff} from payload.options, else [] |
 | state         | TEXT — OPEN \| ANSWERED \| ACKNOWLEDGED \| CANCELLED \| SUPERSEDED |
-| delivery      | TEXT — DELIVERED \| FAILED (did the lane ack pickup; FAILED shows in UI as "delivery failed — retry") |
+| delivery      | TEXT — DELIVERED \| FAILED (did the lane ack pickup; FAILED shows in UI as "delivery failed — retry", or as the owner-ruling prompt when owner_actionable) |
 | answer_note   | TEXT — the human's answer                                    |
 | answer_to     | TEXT — sid the answer was addressed to                       |
 | answer_token  | TEXT — uuid rotated on every state change; POST /api/answer must carry the token the client read (multi-tab + stale protection) |
@@ -25,15 +25,56 @@ GET /api/decisions → { ts, decisions: [ …record + age_s, task_title (joined
 from work_items when task_id set), asked_by_label ] }. Decision ids are
 globally unambiguous (event id + project in the record).
 
+## Id contract (W667 — one name on the wire)
+
+`id` is THE decision id everywhere on the wire: GET /api/decisions emits
+`id`; POST /api/answer consumes `id` (the legacy alias `forEvent` is
+accepted and MUST carry the same value). All of them are the store event
+id — the `decisions.event_id` column, and the `decision` field the ANSWER
+bus event records. The SQLite column keeps its legacy name; the API never
+exposes `event_id`.
+
+## W667 target-liveness classification
+
+Each record carries `owner_actionable` + `owner_reason` ("owner-needed" |
+"target-dead"). W667: "target-dead" reads the process-backed lane registry
+(the `work lanes` surface — lib/lane-liveness.ts verdicts: recorded pid
+alive with anchored harness args, or transcript fresh in the 15-min lease)
+with the sessions face as the fallback for unregistered targets;
+`unknown` never reads dead. The board auto-classifies stale-lane
+decisions — no human notices required — and /api/answer routes them to
+recordOwnerRuling without a lane ack.
+
 ## State machine
 
 OPEN → ANSWERED (human sends; POST /api/answer idempotent: same token+note
 replays return 200 {ok:true, replay:true}; stale token → 409 {error:"stale"})
+OPEN → ANSWERED as OWNER RULING (W487): a fork whose source event carries
+`classification: owner-needed`, or whose target session is not RUNNING, never
+dead-ends on Send-to-lane — the board renders it owner-actionable (record
+fields `owner_actionable: true`, `owner_reason: "owner-needed" | "target-dead"`)
+and POST /api/answer captures the ruling directly: an ANSWER event on the bus
+with `ruling: owner` + `decision: <id>` and NO lane target, answer_to kept as
+the raw stored addressee. The decision resolves without a lane ack (no
+ANSWERED → ACKNOWLEDGED transition is possible — the addressee is gone by
+definition).
 OPEN → CANCELLED (asking lane supersede/cancel event; NOT by board dismiss)
 ANSWERED → ACKNOWLEDGED (lane inbox sees the ANSWER and the lane's next
 checkpoint/message references it — best-effort heuristic, monotonic)
 Never: dismiss/ack of the NOTIFICATION resolves a decision. The board's
 dismiss button on a card = CANCELLED and asks for confirmation.
+
+## Advise (W667)
+
+POST /api/advise {id} fires hooks/bin/advise.ts detached and returns
+{ok:true, started:true}, or {ok:true, started:false, inFlight:true} when a
+request stamp (fact `advice.<id>.requested`) is younger than 120s — the
+detached child can run minutes, so re-clicks and client backoff retries
+ride the in-flight child instead of stacking spawns. advise.ts clears the
+stamp on both terminal writes (advice fact / error fact). The client keeps
+the spinner honest: transport failures (e.g. the 8s fetch timeout) back
+off 2s/4s/8s and re-fire up to 3 times (advice landing clears every state);
+exhaustion or a spinner past 5m30s lands a retry-button error.
 
 ## Agent health
 
@@ -52,7 +93,10 @@ last good update Xs ago" (fetch/render failure is NEVER rendered as zero).
 Card: question, project · task · agent, why-required/what-blocks (task title
 or "no linked task"), age (readable), options with tradeoffs (selectable ≠
 submitting), recommendation (when a fact exists) with rationale + "use"
-fills the field, custom answer field, explicit Send. Unresolved decisions
+fills the field, custom answer field, explicit Send — labelled "Record
+ruling" on owner-actionable cards (W487: those resolve on the board; a
+dead/absent target renders as "target lane is dead or absent — record the
+owner ruling", never as a retry offer). Unresolved decisions
 persist across reloads/restarts (server state is the truth). Badge with
 pending count visible when collapsed. Toast once per NEW decision id — never
 per poll. Global pending count shown when the view is project-filtered.

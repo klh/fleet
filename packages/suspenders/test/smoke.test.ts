@@ -51,10 +51,21 @@ describe("control plane", () => {
 			run("work.ts", ["add", "wire the flux capacitor", "--scope", "src/flux"])
 				.code,
 		).toBe(0);
-		expect(
-			run("work.ts", ["take", "W1", "--as", "smoke-coord-1111"]).out,
-		).toContain("claimed");
-		const d = run("work.ts", ["done", "W1", "--sha", "abc1234"]);
+		const takeOut = run("work.ts", [
+			"take",
+			"W1",
+			"--as",
+			"smoke-coord-1111",
+		]).out;
+		expect(takeOut).toContain("claimed");
+		const tok = /claim token: ([0-9a-f]{48})/.exec(takeOut)?.[1];
+		const d = run("work.ts", [
+			"done",
+			"W1",
+			"--sha",
+			"abc1234",
+			...(tok ? ["--token", tok] : []),
+		]);
 		expect(d.code).toBe(0);
 		const ready = run("work.ts", ["ready"]);
 		expect(ready.out).not.toContain("W1 ");

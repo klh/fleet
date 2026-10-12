@@ -13,13 +13,419 @@ import {
 	lanesOf,
 	readShipJson,
 	sessionAlive,
+	decisionTargetAlive,
+	payloadOf,
 } from "./lanes.ts";
 import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
-import { isDecisionKind } from "../lib/govdb.ts";
+import {
+	isDecisionKind,
+	projectIdentity,
+	projectRootOf,
+} from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+
+// W667: /api/advise dedupe window — the detached advise child can run
+// minutes (belt leg timeout 300s); within this window re-clicks and UI
+// backoff retries ride the in-flight child (inFlight:true) instead of
+// stacking spawns. advise.ts clears the stamp on its terminal writes.
+const ADVISE_INFLIGHT_MS = 120_000;
+
+// W487 owner ruling: capture the human's answer directly for the owner when
+// the fork must not dead-end on Send-to-lane — classified owner-needed, or
+// the target session is not RUNNING. The ruling lands on the bus as an
+// owner-recorded ANSWER (no lane target); answer_to keeps the raw stored
+// target as the record of the addressee. /api/answer response contract.
+function recordOwnerRuling(
+	id: number,
+	to: string,
+	note: string,
+	token: string,
+): Response {
+	const p = Bun.spawnSync(
+		[
+			process.execPath,
+			CLI("coord.ts"),
+			"emit",
+			"ANSWER",
+			"--note",
+			note,
+			"--as",
+			"fleet-board",
+			`--decision=${id}`,
+			"--ruling=owner",
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	const out = `${p.stdout.toString()} ${p.stderr.toString()}`.trim();
+	if (p.exitCode !== 0)
+		return json({ ok: false, output: out.slice(0, 400), to }, 500);
+	const done = db
+		.query(
+			"UPDATE decisions SET state = 'ANSWERED', answer_note = ?, answer_to = ?, answered_at = ?, answer_token = ? WHERE event_id = ? AND state = 'OPEN' AND answer_token = ?",
+		)
+		.run(note, to, Date.now(), crypto.randomUUID(), id, token);
+	return Number(done.changes) === 0
+		? json({ ok: false, error: "stale" }, 409)
+		: json({ ok: true, ruling: true, to });
+}
+
+// W182 — executor vocabulary shared by every dispatch route: raw agent
+// strings normalize (codex/copilot/grok/cline and llm:* pass through,
+// everything else falls back to claude — never a silently garbled executor).
+const DISPATCHABLE_AGENTS = ["codex", "copilot", "grok", "cline"];
+function normalizeAgent(raw: string): string {
+	return DISPATCHABLE_AGENTS.includes(raw)
+		? raw
+		: raw.startsWith("llm:")
+			? raw
+			: "claude";
+}
+
+// W182 — llm:* leg resolution for /api/second-opinion: the same catalog the
+// ▶ dispatch uses, folded to review-lane args. Local swarm ports resolve
+// registry-side; other machines ride belt targeting. Throws LlmLegError —
+// the route turns it into a JSON error response.
+async function resolveLlmLeg(executor: string): Promise<string[]> {
+	const rest = executor.slice(4);
+	const c1 = rest.indexOf(":");
+	const machine = c1 > 0 ? rest.slice(0, c1) : rest;
+	const tail = c1 > 0 ? rest.slice(c1 + 1) : "";
+	if (machine === "local") {
+		const spec = await specialistByPort(Number(tail));
+		if (!spec) throw new LlmLegError(`unknown local swarm port ${tail}`, 409);
+		return [
+			"--llm-url",
+			`http://127.0.0.1:${spec.port}/v1/chat/completions`,
+			"--llm-model",
+			spec.model,
+		];
+	}
+	const target = resolveLlmTarget(await beltCheck(), machine, tail);
+	if (!target)
+		throw new LlmLegError(
+			`unknown llm target ${executor} — belt registry unreachable?`,
+			409,
+		);
+	const { ep, override } = target;
+	return [
+		"--belt",
+		`${machine}:${ep.port ?? 0}:${override ?? ep.model ?? tail}`,
+	];
+}
+
+// sentinel: the error class the route maps to JSON (kept tiny — the board
+// route's try/catch folds it into {ok:false,error} with the status)
+class LlmLegError extends Error {
+	status: number;
+	constructor(message: string, status: number) {
+		super(message);
+		this.status = status;
+	}
+}
+
+// W182 — shared unclaim core: live-lane check, the bank-capsule signal,
+// and the CAS release. Returns a Response in all cases; `dispatched:false`
+// tells /api/reassign the old lane still lives (dispatch must wait).
+async function releaseClaimCas(
+	project: string,
+	id: string,
+	force: boolean,
+): Promise<Response> {
+	const repo = projectRootOf(project);
+	if (!existsSync(repo))
+		return json(
+			{ ok: false, error: `project directory missing: ${repo}` },
+			409,
+		);
+	const w = db
+		.query(
+			"SELECT state, owner_sid, updated_at FROM work_items WHERE project = ? AND id = ?",
+		)
+		.get(project, id) as {
+		state: string;
+		owner_sid: string | null;
+		updated_at: number;
+	} | null;
+	if (!w)
+		return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+	if (!w.owner_sid || !["CLAIMED", "RUNNING", "ORPHANED"].includes(w.state))
+		return json(
+			{ ok: false, error: `${id} is ${w.state} — nothing to release` },
+			409,
+		);
+	const live =
+		sessionAlive(w.owner_sid) ||
+		!!lanesOf(repo).find((l) => l.sid === w.owner_sid && pidAlive(l.pid));
+	if (live && !force)
+		return json(
+			{
+				ok: false,
+				live: true,
+				error: `${id}'s lane ${w.owner_sid} looks live — force to signal it to bank its capsule and exit`,
+			},
+			409,
+		);
+	if (live && force) {
+		// signal FIRST (bank capsule + exit), then the CAS release — the
+		// reaper (worktree sweep) retires the tree once the lane exits
+		const sig = Bun.spawnSync(
+			[
+				process.execPath,
+				CLI("coord.ts"),
+				"emit",
+				"NOTE",
+				"--to",
+				w.owner_sid,
+				"--note",
+				`board forced release of ${id} — your claim is gone: bank your capsule and exit; do not close the item`,
+				`--work=${id}`,
+				`--project=${project}`,
+				"--as",
+				"fleet-board",
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		if (sig.exitCode !== 0) {
+			const out = `${sig.stdout.toString()} ${sig.stderr.toString()}`.trim();
+			return json(
+				{
+					ok: false,
+					live: true,
+					error: `lane signal failed: ${out.slice(0, 200)}`,
+				},
+				500,
+			);
+		}
+	}
+	const rel = runCli(
+		[
+			WORK_CLI,
+			"reclaim",
+			id,
+			"--expect-owner",
+			w.owner_sid,
+			"--expect-updated-at",
+			String(w.updated_at),
+			"--json",
+		],
+		repo,
+	);
+	if (rel.code !== 0)
+		return json(
+			{
+				ok: false,
+				error: `claim changed — release refused: ${rel.out.slice(0, 200)}`,
+			},
+			409,
+		);
+	return json({
+		ok: true,
+		item: id,
+		released: w.owner_sid,
+		forced: live && force,
+		dispatched: !live,
+	});
+}
+
+// W182 — the /api/start dispatch core, extracted verbatim so /api/reassign
+// reuses the exact claim+route path after its release leg. Everything here
+// moved from the inline block; project/id/agent/effort arrive pre-validated.
+async function dispatchStart(
+	project: string,
+	id: string,
+	agent: string,
+	effort: string,
+): Promise<Response> {
+	if (DEMO)
+		return json({ ok: false, error: "demo board — no real lanes" }, 409);
+	let claude = "";
+	if (!agent.startsWith("llm:")) {
+		claude =
+			Bun.which(agent) ??
+			(agent === "codex"
+				? "/opt/homebrew/bin/codex"
+				: `${process.env.HOME}/.local/bin/claude`);
+		if (!existsSync(claude))
+			return json(
+				{ ok: false, error: `${agent} binary not found on the board's PATH` },
+				409,
+			);
+	}
+	const w = db
+		.query(
+			"SELECT state, owner_sid, project, title, description FROM work_items WHERE project = ? AND id = ?",
+		)
+		.get(project, id) as {
+		state: string;
+		owner_sid: string | null;
+		project: string;
+		title: string;
+		description: string | null;
+	} | null;
+	if (!w)
+		return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+	if (w.owner_sid)
+		return json(
+			{ ok: false, error: `${id} already claimed by ${w.owner_sid}` },
+			409,
+		);
+	if (w.state !== "READY")
+		return json(
+			{
+				ok: false,
+				error: `${id} is ${w.state} — only READY items start a lane`,
+			},
+			409,
+		);
+	const repo = projectRootOf(w.project);
+	if (!existsSync(repo))
+		return json(
+			{ ok: false, error: `project directory missing: ${repo}` },
+			409,
+		);
+	if (agent.startsWith("llm:")) {
+		// board-forced LLM dispatch: claim the item as the board lane
+		// (the same take the agent dispatch uses) so nobody double-
+		// dispatches while belt routes; the answer lands as llm.result
+		// on the item's thread and the claim releases either way
+		const rest = agent.slice(4);
+		const c1 = rest.indexOf(":");
+		const machine = c1 > 0 ? rest.slice(0, c1) : rest;
+		const tail = c1 > 0 ? rest.slice(c1 + 1) : "";
+		if (machine === "local") {
+			// W183.1 — this machine's own swarm: resolve the port<->
+			// model pair straight from registry.ts, no belt hop.
+			const port = Number(tail);
+			const spec = await specialistByPort(port);
+			if (!spec)
+				return json(
+					{ ok: false, error: `unknown local swarm port ${tail}` },
+					409,
+				);
+			const sid = laneSid(id, projectIdentity(repo));
+			const take = runCli(
+				[
+					WORK_CLI,
+					"take",
+					id,
+					"--as",
+					sid,
+					"--origin",
+					`${hostname()}:llm:local`,
+				],
+				repo,
+			);
+			if (take.code !== 0)
+				return json(
+					{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
+					409,
+				);
+			laneExecFacts(sid, agent, spec.model, "local");
+			void localSwarmChat({
+				item: id,
+				repo,
+				port: spec.port,
+				model: spec.model,
+				sid,
+				title: w.title,
+				desc: w.description ?? "",
+			});
+			const claimToken = /claim token: ([0-9a-f]{48})/.exec(
+				String(take.out),
+			)?.[1];
+			return json({ ok: true, item: id, sid, executor: agent, claimToken });
+		}
+		// W224 — machine+tail resolves through executor-catalog's one
+		// reader: a port or default-model pick matches the row directly,
+		// a catalog pick falls back to machine-level targeting with the
+		// model riding belt's route-to --model. Garbage tails 409.
+		const target = resolveLlmTarget(await beltCheck(), machine, tail);
+		if (!target)
+			return json(
+				{
+					ok: false,
+					error: `unknown llm target ${agent} — belt registry unreachable?`,
+				},
+				409,
+			);
+		const { ep, override } = target;
+		const role = ep.roles?.includes("general")
+			? "general"
+			: (ep.roles?.[0] ?? "");
+		if (!role)
+			return json({ ok: false, error: `${agent} serves no route role` }, 409);
+		const sid = laneSid(id, projectIdentity(repo));
+		const take = runCli(
+			[
+				WORK_CLI,
+				"take",
+				id,
+				"--as",
+				sid,
+				"--origin",
+				`${hostname()}:llm:${machine}`,
+			],
+			repo,
+		);
+		if (take.code !== 0)
+			return json(
+				{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
+				409,
+			);
+		laneExecFacts(sid, agent, override ?? ep.model ?? tail, rowLocality(ep));
+		void llmRoute({
+			item: id,
+			repo,
+			machine,
+			port: ep.port ?? 0,
+			model: override,
+			target: `${machine}:${override ?? ep.model ?? tail}`,
+			sid,
+			title: w.title,
+			desc: w.description ?? "",
+		});
+		const claimToken = /claim token: ([0-9a-f]{48})/.exec(
+			String(take.out),
+		)?.[1];
+		return json({ ok: true, item: id, sid, executor: agent, claimToken });
+	}
+	const sid = laneSid(id, projectIdentity(repo));
+	laneExecFacts(sid, agent, agent, "remote");
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			CLI("fleet-loop.ts"),
+			"dispatch",
+			"--repo",
+			repo,
+			"--item",
+			id,
+			"--agent",
+			agent,
+			...(effort ? ["--effort", effort] : []),
+		],
+		{
+			stdin: "ignore",
+			stdout: "ignore",
+			stderr: "ignore",
+			// a launchd board can miss the user PATH — hand the lane's
+			// agent spawn the dir we just resolved it from
+			env: {
+				...process.env,
+				PATH: `${dirname(claude)}:${process.env.PATH ?? ""}`,
+			},
+		},
+	);
+	child.unref();
+	return json({
+		ok: true,
+		item: id,
+		sid,
+	});
+}
 
 export async function handleActions(
 	req: Request,
@@ -46,13 +452,15 @@ export async function handleActions(
 		syncDecisions();
 		const row = db
 			.query(
-				"SELECT state, answer_note, answer_token, answer_to FROM decisions WHERE event_id = ?",
+				"SELECT state, answer_note, answer_token, answer_to, target, project FROM decisions WHERE event_id = ?",
 			)
 			.get(id) as {
 			state: string;
 			answer_note: string | null;
 			answer_token: string | null;
 			answer_to: string | null;
+			target: string | null;
+			project: string | null;
 		} | null;
 		// reject unknown ids instead of silently answering nothing
 		if (!row)
@@ -63,6 +471,23 @@ export async function handleActions(
 				: json({ ok: false, error: "stale" }, 409);
 		if (row.state !== "OPEN" || row.answer_token !== token)
 			return json({ ok: false, error: "stale" }, 409);
+		// W487 owner ruling gate: owner-needed classification or a target
+		// that is not live (W667: process-backed registry verdict — the
+		// sessions row stays RUNNING for dead lanes) resolves here, never
+		// via Send-to-lane.
+		const classification = String(
+			payloadOf(
+				(
+					db.query("SELECT payload FROM events WHERE id = ?").get(id) as {
+						payload: string | null;
+					} | null
+				)?.payload,
+			).classification ?? "",
+		);
+		const ownerNeeded =
+			classification === "owner-needed" || classification === "owner_needed";
+		if (ownerNeeded || !decisionTargetAlive(row.target ?? to, row.project))
+			return recordOwnerRuling(id, row.target ?? to, note, token);
 		// accept full sids, unique prefixes, or live bus aliases (an identity
 		// that has emitted before — e.g. a coordinator's chosen --as name)
 		const exact = db
@@ -178,8 +603,14 @@ export async function handleActions(
 		return json({ ok: true });
 	}
 	if (req.method === "POST" && url.pathname === "/api/advise") {
-		// fire hooks/bin/advise.ts detached — it writes fact advice.<id> when
-		// the LLM answers; the 1s poll picks it up. Human decides after.
+		// W667: fire hooks/bin/advise.ts detached — it writes fact advice.<id>
+		// when the LLM answers; the 1s poll picks it up. A request stamp
+		// (advice.<id>.requested) dedupes the window: the detached child can
+		// run minutes (belt leg 300s), so re-clicks and the UI's backoff
+		// retries ride the in-flight child instead of stacking spawns (the
+		// "signal timed out" spam: the client gave up at 8s, the child kept
+		// running, every retry spawned another). advise.ts clears the stamp
+		// on both terminal writes (advice fact or error fact).
 		const guard = writeGuard(req, url);
 		if (guard) return guard;
 		const parsed = await readJson(req);
@@ -192,6 +623,15 @@ export async function handleActions(
 		if (!ev) return json({ ok: false, error: `unknown event id: ${id}` }, 404);
 		if (!isDecisionKind(ev.kind))
 			return json({ ok: false, error: `not a decision event: ${id}` }, 400);
+		const stamp = `advice.${id}.requested`;
+		const inflight = db
+			.query("SELECT ts FROM facts WHERE key = ?")
+			.get(stamp) as { ts: number } | null;
+		if (inflight && Date.now() - inflight.ts < ADVISE_INFLIGHT_MS)
+			return json({ ok: true, started: false, inFlight: true });
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'fleet-board', 1, ?)",
+		).run(stamp, "in-flight", Date.now());
 		const child = Bun.spawn([process.execPath, CLI("advise.ts"), String(id)], {
 			stdin: "ignore",
 			stdout: "ignore",
@@ -316,219 +756,20 @@ export async function handleActions(
 		return json({ ok: true, to: w.owner_sid, as });
 	}
 	if (req.method === "POST" && url.pathname === "/api/start") {
-		// W65 — start-on-READY: the board dispatches a fresh lane on a READY
-		// item via fleet-loop's dispatch mode (CAS claim → worktree → briefed
-		// headless claude). This endpoint only validates; the claim race
-		// belongs to dispatch's work take. Detached spawn: the HTTP answer
-		// returns while the lane boots.
+		// W65/W182 — start-on-READY: the route validates + normalizes the
+		// agent; dispatchStart (extracted verbatim above so /api/reassign can
+		// reuse it) owns the claim + route.
 		const guard = writeGuard(req, url);
 		if (guard) return guard;
 		const parsed = await readJson(req);
 		if (!parsed.ok) return parsed.resp;
 		const project = String(parsed.body?.project ?? "");
 		const id = String(parsed.body?.id ?? "");
-		const raw = String(parsed.body?.agent ?? "claude");
-		// W223.1 — codex/copilot/grok/cline all dispatch through fleet-loop's
-		// own --agent branching (fleet-loop.ts); only llm:* and the claude
-		// default need special-casing here.
-		const DISPATCHABLE_AGENTS = ["codex", "copilot", "grok", "cline"];
-		const agent = DISPATCHABLE_AGENTS.includes(raw)
-			? raw
-			: raw.startsWith("llm:")
-				? raw
-				: "claude";
-		// W183.1 — copilot's settable reasoning-effort dial; harmless no-op
-		// for every other agent (fleet-loop.ts only reads it in the copilot
-		// branch).
+		const agent = normalizeAgent(String(parsed.body?.agent ?? "claude"));
 		const effort = String(parsed.body?.effort ?? "").trim();
 		if (!project || !id)
 			return json({ ok: false, error: "missing project or id" }, 400);
-		if (DEMO)
-			return json({ ok: false, error: "demo board — no real lanes" }, 409);
-		let claude = "";
-		if (!agent.startsWith("llm:")) {
-			claude =
-				Bun.which(agent) ??
-				(agent === "codex"
-					? "/opt/homebrew/bin/codex"
-					: `${process.env.HOME}/.local/bin/claude`);
-			if (!existsSync(claude))
-				return json(
-					{
-						ok: false,
-						error: `${agent} binary not found on the board's PATH`,
-					},
-					409,
-				);
-		}
-		const w = db
-			.query(
-				"SELECT state, owner_sid, project, title, description FROM work_items WHERE project = ? AND id = ?",
-			)
-			.get(project, id) as {
-			state: string;
-			owner_sid: string | null;
-			project: string;
-			title: string;
-			description: string | null;
-		} | null;
-		if (!w)
-			return json(
-				{ ok: false, error: `no work item ${id} in ${project}` },
-				404,
-			);
-		if (w.owner_sid)
-			return json(
-				{ ok: false, error: `${id} already claimed by ${w.owner_sid}` },
-				409,
-			);
-		if (w.state !== "READY")
-			return json(
-				{
-					ok: false,
-					error: `${id} is ${w.state} — only READY items start a lane`,
-				},
-				409,
-			);
-		const repo = w.project.replace(/\/\.git$/, "");
-		if (!existsSync(repo))
-			return json(
-				{ ok: false, error: `project directory missing: ${repo}` },
-				409,
-			);
-		if (agent.startsWith("llm:")) {
-			// board-forced LLM dispatch: claim the item as the board lane
-			// (the same take the agent dispatch uses) so nobody double-
-			// dispatches while belt routes; the answer lands as llm.result
-			// on the item's thread and the claim releases either way
-			const rest = agent.slice(4);
-			const c1 = rest.indexOf(":");
-			const machine = c1 > 0 ? rest.slice(0, c1) : rest;
-			const tail = c1 > 0 ? rest.slice(c1 + 1) : "";
-			if (machine === "local") {
-				// W183.1 — this machine's own swarm: resolve the port<->
-				// model pair straight from registry.ts, no belt hop.
-				const port = Number(tail);
-				const spec = await specialistByPort(port);
-				if (!spec)
-					return json(
-						{ ok: false, error: `unknown local swarm port ${tail}` },
-						409,
-					);
-				const sid = laneSid(id);
-				const take = runCli(
-					[
-						WORK_CLI,
-						"take",
-						id,
-						"--as",
-						sid,
-						"--origin",
-						`${hostname()}:llm:local`,
-					],
-					repo,
-				);
-				if (take.code !== 0)
-					return json(
-						{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
-						409,
-					);
-				laneExecFacts(sid, agent, spec.model, "local");
-				void localSwarmChat({
-					item: id,
-					repo,
-					port: spec.port,
-					model: spec.model,
-					sid,
-					title: w.title,
-					desc: w.description ?? "",
-				});
-				return json({ ok: true, item: id, sid, executor: agent });
-			}
-			// W224 — machine+tail resolves through executor-catalog's one
-			// reader: a port or default-model pick matches the row directly,
-			// a catalog pick falls back to machine-level targeting with the
-			// model riding belt's route-to --model. Garbage tails 409.
-			const target = resolveLlmTarget(await beltCheck(), machine, tail);
-			if (!target)
-				return json(
-					{
-						ok: false,
-						error: `unknown llm target ${agent} — belt registry unreachable?`,
-					},
-					409,
-				);
-			const { ep, override } = target;
-			const role = ep.roles?.includes("general")
-				? "general"
-				: (ep.roles?.[0] ?? "");
-			if (!role)
-				return json({ ok: false, error: `${agent} serves no route role` }, 409);
-			const sid = laneSid(id);
-			const take = runCli(
-				[
-					WORK_CLI,
-					"take",
-					id,
-					"--as",
-					sid,
-					"--origin",
-					`${hostname()}:llm:${machine}`,
-				],
-				repo,
-			);
-			if (take.code !== 0)
-				return json(
-					{ ok: false, error: `claim failed: ${take.out.slice(0, 300)}` },
-					409,
-				);
-			laneExecFacts(sid, agent, override ?? ep.model ?? tail, rowLocality(ep));
-			void llmRoute({
-				item: id,
-				repo,
-				machine,
-				port: ep.port ?? 0,
-				model: override,
-				target: `${machine}:${override ?? ep.model ?? tail}`,
-				sid,
-				title: w.title,
-				desc: w.description ?? "",
-			});
-			return json({ ok: true, item: id, sid, executor: agent });
-		}
-		const sid = laneSid(id);
-		laneExecFacts(sid, agent, agent, "remote");
-		const child = Bun.spawn(
-			[
-				process.execPath,
-				CLI("fleet-loop.ts"),
-				"dispatch",
-				"--repo",
-				repo,
-				"--item",
-				id,
-				"--agent",
-				agent,
-				...(effort ? ["--effort", effort] : []),
-			],
-			{
-				stdin: "ignore",
-				stdout: "ignore",
-				stderr: "ignore",
-				// a launchd board can miss the user PATH — hand the lane's
-				// agent spawn the dir we just resolved it from
-				env: {
-					...process.env,
-					PATH: `${dirname(claude)}:${process.env.PATH ?? ""}`,
-				},
-			},
-		);
-		child.unref();
-		return json({
-			ok: true,
-			item: id,
-			sid,
-		});
+		return dispatchStart(project, id, agent, effort);
 	}
 	if (req.method === "POST" && url.pathname === "/api/ship") {
 		// W64 — one-click ship from the W55 diff drawer: run the repo's merge
@@ -551,7 +792,7 @@ export async function handleActions(
 				{ ok: false, error: `no work item ${id} in ${project}` },
 				404,
 			);
-		const repo = project.replace(/\/\.git$/, "");
+		const repo = projectRootOf(project);
 		if (!existsSync(repo))
 			return json(
 				{ ok: false, error: `project directory missing: ${repo}` },
@@ -685,6 +926,223 @@ export async function handleActions(
 		);
 		child.unref();
 		return json({ ok: true, item: id, branch, ladder: ship.ladder });
+	}
+	if (req.method === "POST" && url.pathname === "/api/release") {
+		// W182 — unclaim from the GUI: the release button on claimed cards.
+		// A dead lane's claim releases straight away; a LIVE lane refuses until
+		// force, which signals it to bank its capsule and exit first (the note
+		// lands on the item thread), then CAS-releases. The worktree sweep is
+		// the reaper: it retires the tree once the lane is gone — never an
+		// orphan.
+		const guard = writeGuard(req, url);
+		if (guard) return guard;
+		const parsed = await readJson(req);
+		if (!parsed.ok) return parsed.resp;
+		const project = String(parsed.body?.project ?? "");
+		const id = String(parsed.body?.id ?? "");
+		const force = !!parsed.body?.force;
+		if (!project || !id)
+			return json({ ok: false, error: "missing project or id" }, 400);
+		if (DEMO)
+			return json({ ok: false, error: "demo board — no real lanes" }, 409);
+		return releaseClaimCas(project, id, force);
+	}
+	if (req.method === "POST" && url.pathname === "/api/reassign") {
+		// W182 — resume-on-another-brain: release the current claim and
+		// re-dispatch the SAME deterministic sid on the chosen executor. The
+		// coord thread and the capsule fact are keyed by sid, so they ride
+		// along untouched — the capsule IS the handoff. When the old lane is
+		// still live it is signalled (bank capsule + exit) and the response
+		// honestly reports `dispatched:false` — dispatch refuses a live
+		// worktree owner, so the ▶ fires after it retires.
+		const guard = writeGuard(req, url);
+		if (guard) return guard;
+		const parsed = await readJson(req);
+		if (!parsed.ok) return parsed.resp;
+		const project = String(parsed.body?.project ?? "");
+		const id = String(parsed.body?.id ?? "");
+		const agent = normalizeAgent(String(parsed.body?.agent ?? "claude"));
+		const effort = String(parsed.body?.effort ?? "").trim();
+		if (!project || !id)
+			return json({ ok: false, error: "missing project or id" }, 400);
+		if (DEMO)
+			return json({ ok: false, error: "demo board — no real lanes" }, 409);
+		const w = db
+			.query(
+				"SELECT state, owner_sid, updated_at FROM work_items WHERE project = ? AND id = ?",
+			)
+			.get(project, id) as {
+			state: string;
+			owner_sid: string | null;
+			updated_at: number;
+		} | null;
+		if (!w)
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
+		if (!w.owner_sid || !["CLAIMED", "RUNNING"].includes(w.state))
+			return json(
+				{
+					ok: false,
+					error: `${id} is ${w.state} — reassign moves a live claim; READY items dispatch via /api/start`,
+				},
+				409,
+			);
+		const repo = projectRootOf(project);
+		if (!existsSync(repo))
+			return json(
+				{ ok: false, error: `project directory missing: ${repo}` },
+				409,
+			);
+		const rel = await releaseClaimCas(project, id, true);
+		const relBody = (await rel.json()) as Record<string, unknown>;
+		if (!relBody.ok)
+			return json(
+				{ ok: false, error: `release leg failed: ${String(relBody.error)}` },
+				409,
+			);
+		if (relBody.dispatched === false) return json(relBody); // old lane still live — signalled, dispatch later
+		return dispatchStart(project, id, agent, effort);
+	}
+	if (req.method === "POST" && url.pathname === "/api/cancel") {
+		// W182 — CANCELLED from the GUI: close completely with a required
+		// reason (the CLI verb does the work; it releases the claim + retires
+		// the worktree; NOT in rollUp's satisfied set, so a cancelled child
+		// keeps its SHATTERED parent open).
+		const guard = writeGuard(req, url);
+		if (guard) return guard;
+		const parsed = await readJson(req);
+		if (!parsed.ok) return parsed.resp;
+		const project = String(parsed.body?.project ?? "");
+		const id = String(parsed.body?.id ?? "");
+		const reason = String(parsed.body?.reason ?? "")
+			.trim()
+			.slice(0, 2000);
+		if (!project || !id || !reason)
+			return json({ ok: false, error: "missing project, id or reason" }, 400);
+		if (DEMO)
+			return json({ ok: false, error: "demo board — no real lanes" }, 409);
+		const w = db
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(project, id) as { state: string } | null;
+		if (!w)
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
+		if (
+			["DONE", "FAILED", "SUPERSEDED", "CANCELLED", "SHATTERED"].includes(
+				w.state,
+			)
+		)
+			return json(
+				{ ok: false, error: `${id} is ${w.state} — already closed` },
+				409,
+			);
+		const repo = projectRootOf(project);
+		if (!existsSync(repo))
+			return json(
+				{ ok: false, error: `project directory missing: ${repo}` },
+				409,
+			);
+		const c = runCli([WORK_CLI, "cancel", id, "--note", reason], repo);
+		if (c.code !== 0)
+			return json(
+				{ ok: false, error: `cancel failed: ${c.out.slice(0, 300)}` },
+				500,
+			);
+		return json({ ok: true, item: id, state: "CANCELLED" });
+	}
+	if (req.method === "POST" && url.pathname === "/api/second-opinion") {
+		// W182 — a read-only REVIEW lane (never claims) against the item's
+		// diff + claims; W105 executor routing picks the leg. Works on DONE
+		// items — reviewing landed work is the point of a second opinion.
+		// review-lane.ts runs detached, emits NOTE(s) on the item thread +
+		// a work.review verdict event + fact review.<id>.<executor>.
+		const guard = writeGuard(req, url);
+		if (guard) return guard;
+		const parsed = await readJson(req);
+		if (!parsed.ok) return parsed.resp;
+		const project = String(parsed.body?.project ?? "");
+		const id = String(parsed.body?.id ?? "");
+		const executor = String(parsed.body?.executor ?? "");
+		if (!project || !id || !executor)
+			return json({ ok: false, error: "missing project, id or executor" }, 400);
+		if (DEMO)
+			return json({ ok: false, error: "demo board — no real lanes" }, 409);
+		const w = db
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(project, id) as { state: string } | null;
+		if (!w)
+			return json(
+				{ ok: false, error: `no work item ${id} in ${project}` },
+				404,
+			);
+		const repo = projectRootOf(project);
+		if (!existsSync(repo))
+			return json(
+				{ ok: false, error: `project directory missing: ${repo}` },
+				409,
+			);
+		// W105 executor routing: agent binaries ride --bin; llm:* resolves
+		// through the same catalog the ▶ dispatch uses.
+		let legArgs: string[] = [];
+		let binDir: string | null = null;
+		if (DISPATCHABLE_AGENTS.includes(executor)) {
+			const bin =
+				Bun.which(executor) ??
+				(executor === "codex"
+					? "/opt/homebrew/bin/codex"
+					: `${process.env.HOME}/.local/bin/claude`);
+			if (!existsSync(bin))
+				return json(
+					{
+						ok: false,
+						error: `${executor} binary not found on the board's PATH`,
+					},
+					409,
+				);
+			legArgs = ["--bin", bin];
+			binDir = dirname(bin);
+		} else if (executor.startsWith("llm:")) {
+			try {
+				legArgs = await resolveLlmLeg(executor);
+			} catch (e) {
+				const st = e instanceof LlmLegError ? e.status : 500;
+				return json(
+					{ ok: false, error: String(e instanceof Error ? e.message : e) },
+					st,
+				);
+			}
+		} else {
+			return json({ ok: false, error: `unknown executor ${executor}` }, 400);
+		}
+		const env2 = binDir
+			? { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}` }
+			: process.env;
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				CLI("review-lane.ts"),
+				"--item",
+				id,
+				"--project",
+				project,
+				"--executor",
+				executor,
+				...legArgs,
+			],
+			{
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+				env: env2,
+				cwd: repo,
+			},
+		);
+		child.unref();
+		return json({ ok: true, item: id, executor, started: true });
 	}
 	return null;
 }

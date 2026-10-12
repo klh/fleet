@@ -1,6 +1,9 @@
 // registry.ts — SINGLE SOURCE OF TRUTH for the local-llm swarm.
 // swarm.ts (lifecycle) and router-shim.ts (routing) both import this.
 // Port↔model pairs exist ONLY here. Change a model here; both tools follow.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface Specialist {
 	port: SPECIALIST_PORTS;
@@ -15,8 +18,19 @@ export interface Specialist {
 	// route on measured prompt tokens against this, not prose
 	contextTokens: number;
 	tier: "resident" | "ondemand";
+	// W504 request-side cap: max in-flight /v1 calls the :4000 router admits
+	// for this port before 429 + ladder fall-through. Big unified-memory
+	// backends swap under bursts (the W500 OOM class). Unset = global default
+	// (BELT_MAX_INFLIGHT, 4); BELT_PORT_CAPS overrides per port.
+	maxInflight?: number;
 	engine?: "mlx_lm" | "rapid"; // default mlx_lm; rapid = rapid-mlx (MTP, prefix cache, batching)
 	flags?: string[]; // extra server args for the chosen engine
+	// W242 catalog dimension: speculative decoding lives in the CHECKPOINT —
+	// rapid-mlx auto-detects `mtp.*` weights and uses them; mlx_lm strips them
+	// at load. "mtp" = the checkpoint ships MTP heads. Absent = plain
+	// next-token decoding. bin/specdec.ts check verifies this declaration
+	// against the served snapshot's weight names.
+	spec_dec?: "mtp";
 	// terse capability tags, comma-separated — written so an LLM picking an
 	// agent-LLM from a fleet manifest chooses the right specialist
 	good_at: string;
@@ -62,6 +76,7 @@ export const SPECIALISTS: Specialist[] = [
 		alias: "local-coder",
 		role: "code",
 		ram_gb: 18,
+		maxInflight: 2, // 30B MoE — 2 concurrent before KV pressure (W504)
 		contextTokens: 262_144,
 		tier: "resident",
 		engine: "rapid",
@@ -95,6 +110,7 @@ export const SPECIALISTS: Specialist[] = [
 		alias: "local-reason",
 		role: "reason",
 		ram_gb: 22,
+		maxInflight: 2, // 35B — the W500 OOM class; ≤2 concurrent (W504)
 		contextTokens: 262_144,
 		tier: "resident",
 		engine: "rapid",
@@ -199,6 +215,54 @@ export const EXTERNAL: ExternalService[] = [
 	},
 ];
 
+// ─── audio tier (W440) — cloud TTS/STT rows in the fleet catalog ───
+// NOT chat entries: registryEntries()/chatEntries() stay port-served models
+// only, so the LiteLLM/direct/buckle emitters never see these rows — audio
+// rides bin/audio.ts and the router's /v1/audio/* routes, and the ladder
+// stays operator-owned (routing-policy.yaml, W440).
+// Config-over-code: keyEnv carries the env NAME only — the key itself lives
+// in machine config (~/.claude/local-llm/belt.env, 0600). Voice ids are
+// public catalog values (like model ids); ELEVENLABS_BASE overrides base.
+export type AudioClass = "tts" | "stt";
+
+export interface AudioService {
+	alias: string; // belt-facing alias (x-belt-audio on router audio replies)
+	provider: string;
+	model: string; // vendor model id
+	class: AudioClass;
+	base: string; // vendor public API base (override: ELEVENLABS_BASE)
+	keyEnv: string; // env NAME holding the key — machine config only
+	voice?: string; // default voice id (tts rows)
+	good_at: string;
+}
+
+export const AUDIO_SERVICES: AudioService[] = [
+	{
+		alias: "elevenlabs-tts",
+		provider: "elevenlabs",
+		// stable multilingual production model (29 langs incl. Danish); pass
+		// --model / body.model to ride a newer one (e.g. eleven_v3)
+		model: "eleven_multilingual_v2",
+		class: "tts",
+		base: "https://api.elevenlabs.io/v1",
+		keyEnv: "ELEVENLABS_API_KEY",
+		voice: "21m00Tcm4TlvDq8ikWAM", // Rachel — the vendor's catalog default
+		good_at: "lifelike speech synthesis, spoken alerts, danish + 28 langs",
+	},
+	{
+		alias: "elevenlabs-stt",
+		provider: "elevenlabs",
+		model: "scribe_v1",
+		class: "stt",
+		base: "https://api.elevenlabs.io/v1",
+		keyEnv: "ELEVENLABS_API_KEY",
+		good_at: "speech-to-text transcription, voice dictation, 90+ langs",
+	},
+];
+
+export const audioService = (cls: AudioClass): AudioService | undefined =>
+	AUDIO_SERVICES.find((s) => s.class === cls);
+
 export const DOWNLOAD_MODELS: string[] = [
 	...SPECIALISTS.map((s) => s.model),
 	"mlx-community/translategemma-4b-it-4bit",
@@ -208,18 +272,48 @@ export const byPort = (port: number): Specialist | undefined =>
 	SPECIALISTS.find((s) => s.port === port);
 
 // ─── install tier ───
-// BELT_TIER scopes the resident fleet: "full" (default) keeps every resident
-// specialist; "minimal" keeps only ram_gb ≤ 4 (extract :8902 2GB, rerank
-// :8913 1GB) — the fleet a 16GB machine holds. A filter over this registry,
-// not new infrastructure: on-demand models, the router and the dashboard are
-// unchanged. Read once at import; consumers import `residentSet()`.
-export const BELT_TIER: "full" | "minimal" =
-	process.env.BELT_TIER === "minimal" ? "minimal" : "full";
+// The resident-fleet tier scopes SPECIALISTS: "full" keeps every resident;
+// "minimal" keeps only ram_gb ≤ 4 (extract :8902, rerank :8913) — the fleet
+// a 16GB machine holds. A filter over this registry, not new infrastructure:
+// on-demand models, the router and the dashboard are unchanged. Consumers
+// import `residentSet()`.
+//
+// W507: the tier CHOICE is machine config — the emitted tier manifest
+// (registry-emit `tier` → ~/.claude/local-llm/tier.json), written by the
+// installers at deploy time. Service units carry no tier env: every consumer
+// (swarm supervisor, llm-keepwarm) reads the manifest, so both sides of the
+// keepwarm lockstep come from ONE emission (the drift class behind the W500
+// crash trigger). Precedence: explicit BELT_TIER env override → manifest →
+// "full" (today's unconfigured default).
+export type Tier = "full" | "minimal";
 export const TIER_MAX_RAM_GB = 4;
+
+export function tierManifestPath(): string {
+	return (
+		process.env.BELT_TIER_MANIFEST ??
+		join(homedir(), ".claude", "local-llm", "tier.json")
+	);
+}
+
+export function resolveTier(): Tier {
+	if (process.env.BELT_TIER === "minimal" || process.env.BELT_TIER === "full")
+		return process.env.BELT_TIER;
+	try {
+		const doc = JSON.parse(readFileSync(tierManifestPath(), "utf8")) as {
+			tier?: string;
+		};
+		if (doc.tier === "minimal" || doc.tier === "full") return doc.tier;
+	} catch {
+		// no manifest / unreadable / bad tier → unconfigured
+	}
+	return "full";
+}
+
+export const BELT_TIER: Tier = resolveTier();
 
 export function residentSet(): Specialist[] {
 	const resident = SPECIALISTS.filter((s) => s.tier === "resident");
-	return BELT_TIER === "minimal"
+	return resolveTier() === "minimal"
 		? resident.filter((s) => s.ram_gb <= TIER_MAX_RAM_GB)
 		: resident;
 }
@@ -257,6 +351,9 @@ export interface RegistryEntry {
 	ram_gb: number;
 	tier: "resident" | "ondemand";
 	engine: "mlx_lm" | "rapid" | "external";
+	// W242 catalog dimension — mirror of Specialist.spec_dec (external rows
+	// have no MLX checkpoint, so never set it there)
+	spec_dec?: "mtp";
 	protocol: string;
 	external: boolean;
 	owner: string;
@@ -269,6 +366,7 @@ export interface RegistryDoc {
 	source: RegistrySource;
 	router: typeof ROUTER;
 	entries: RegistryEntry[];
+	audio: AudioService[];
 }
 
 export const REGISTRY_SOURCE: RegistrySource = "local";
@@ -294,6 +392,7 @@ export function registryEntries(
 			ram_gb: s.ram_gb,
 			tier: s.tier,
 			engine: s.engine ?? "mlx_lm",
+			spec_dec: s.spec_dec,
 			protocol: SPECIALIST_PROTOCOL,
 			external: false,
 			owner: "belt swarm",
@@ -335,5 +434,6 @@ export function registryDoc(
 		source,
 		router: ROUTER,
 		entries: registryEntries(source),
+		audio: AUDIO_SERVICES,
 	};
 }

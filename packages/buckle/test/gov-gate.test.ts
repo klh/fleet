@@ -19,15 +19,19 @@ async function startGate(
 		issuers: Array<{ issuer: string; jwksUri: string }>;
 		audience: string;
 	},
+	cfgOverride?: string,
+	slots?: { global: number; perTeam: number },
 ): Promise<GateServer> {
 	const dir = `/tmp/buckle-gate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-	const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
+	const cfg =
+		cfgOverride ??
+		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
 	await Bun.write(`${dir}.yaml`, cfg);
 	const server = startServer({
 		port: 0,
 		upstreamsPath: `${dir}.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT, jwt },
+		auth: { rootKey: ROOT, jwt, slots },
 	});
 	return {
 		base: `http://127.0.0.1:${server.port}`,
@@ -79,6 +83,51 @@ describe("gate: auth rejections have stable machine-readable shapes", () => {
 		);
 		gate.stop();
 		upstream.close();
+	});
+
+	test("x-api-key auth: Anthropic-wire header accepted on both dialects (W422.17.2)", async () => {
+		const chatUp = await startMockUpstream(() =>
+			Response.json({ id: "ok-xk", choices: [], usage: {} }),
+		);
+		const gate = await startGate(chatUp.url);
+		// copilot's anthropic dialect rides the official SDK: x-api-key, no
+		// Authorization header — the gate must authenticate it (W422.17.2)
+		const xkChat = await fetch(`${gate.base}/v1/chat/completions`, {
+			method: "POST",
+			headers: { "x-api-key": ROOT, "content-type": "application/json" },
+			body: CHAT_BODY,
+		});
+		expect(xkChat.status).toBe(200);
+		const msgUp = await startMockUpstream(() =>
+			Response.json({
+				id: "msg_xk",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		const msgGate = await startGate(
+			msgUp.url,
+			undefined,
+			`groups:\n  glm-5.3-flash:\n    - url: ${msgUp.url}\n      dialect: anthropic\n`,
+		);
+		// a minted bksk_ key rides x-api-key too (per-lane keys, not just root)
+		const { key } = await issueViaAdmin(msgGate.base, {
+			name: "lane-xk",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const xkMsg = await fetch(`${msgGate.base}/v1/messages`, {
+			method: "POST",
+			headers: { "x-api-key": key, "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "glm-5.3-flash",
+				max_tokens: 8,
+				messages: [{ role: "user", content: "Reply with the word OK" }],
+			}),
+		});
+		expect(xkMsg.status).toBe(200);
+		gate.stop();
+		chatUp.close();
+		msgGate.stop();
+		msgUp.close();
 	});
 
 	test("valid key → 200; revoked key → 401 buckle.key_revoked", async () => {
@@ -360,6 +409,39 @@ describe("gate: introspection + problem 404/405 (W155)", () => {
 		);
 		const mBody = (await missing.json()) as { code: string };
 		expect(mBody.code).toBe("buckle.no_route");
+		gate.stop();
+		upstream.close();
+	});
+});
+
+describe("gate: W468 admission-control slots", () => {
+	test("second in-flight generation is 429'd with buckle.slot_exhausted", async () => {
+		let release!: () => void;
+		const blocked = new Promise<void>((r) => {
+			release = r;
+		});
+		const upstream = await startMockUpstream(async (_req, _body, n) => {
+			if (n === 0) await blocked;
+			return Response.json({ id: "x", choices: [], usage: {} });
+		});
+		const gate = await startGate(upstream.url, undefined, undefined, {
+			global: 1,
+			perTeam: 0,
+		});
+		const { key } = await issueViaAdmin(gate.base, {
+			name: "slots",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const first = chat(gate.base, key);
+		while (upstream.calls.length === 0) await Bun.sleep(5);
+		const second = await chat(gate.base, key);
+		expect(second.status).toBe(429);
+		expect(((await second.json()) as { code: string }).code).toBe(
+			"buckle.slot_exhausted",
+		);
+		expect(second.headers.get("retry-after")).toBe("2");
+		release();
+		expect((await first).status).toBe(200);
 		gate.stop();
 		upstream.close();
 	});

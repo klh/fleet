@@ -16,6 +16,43 @@ import {
 	validPort,
 } from "../bin/remotes-validate.ts";
 
+test("native ZAI adapter preserves reasoning without selecting OpenAI Responses", () => {
+	const endpoint = {
+		port: 443,
+		protocol: "openai",
+		roles: ["code"],
+		model: "glm-5.3-flash",
+		base: "https://provider.example/api/v4",
+		provider: "zai",
+	};
+	const config = (provider: string) => ({
+		machines: [
+			{
+				name: "cloud",
+				host: "provider.example",
+				cloud: true,
+				endpoints: [{ ...endpoint, provider }],
+			},
+		],
+	});
+	const built = buildRemoteEntries(config("zai"));
+	expect(built.skipped).toEqual([]);
+	expect(built.entries[0]).toContain("model: zai/glm-5.3-flash");
+	expect(built.entries[0]).toContain(
+		"allowed_openai_params: [reasoning_effort]",
+	);
+	expect(built.entries[0]).not.toContain("drop_params");
+	expect(
+		buildRemoteEntries(config("zai\n      drop_params: true")).entries,
+	).toEqual([]);
+	expect(buildRemoteEntries(config("openai")).entries[0]).toContain(
+		"model: openai/glm-5.3-flash",
+	);
+	expect(buildRemoteEntries(config("openai")).entries[0]).not.toContain(
+		"allowed_openai_params",
+	);
+});
+
 describe("remotes field grammars (W192)", () => {
 	test("name: letters/digits/dot/_/-, starts alphanumeric, ≤64", () => {
 		expect(validName("nas")).toBe(true);

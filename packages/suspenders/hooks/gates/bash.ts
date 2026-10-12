@@ -3,33 +3,55 @@
 // Review pass 2026-09-03: hoisted constants, deferred EVERY computation,
 // extracted shared redirect-target logic, single denyInstall helper,
 // approvals moved to lib/approvals.ts (fixes the trivial-token bind bug).
-import { parse } from "shell-quote";
-import { allow, deny, nudge, type HookInput } from "../lib/hookio.ts";
+// W513: shell-syntax primitives + hardening denies live in bash-hardening.ts
+// (oh-my-claudecode lift; scope decisions in that module's header).
+
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+	extractSourceRef,
+	verifyAndConsume,
+	verifyAndConsumeCmd,
+} from "../lib/approvals.ts";
+import { credScopeDeny, loadCredScope } from "../lib/credscope.ts";
+import { lanesFileFor, resolveFleetLane } from "../lib/fleetlane.ts";
+import {
+	openStore,
+	resolveStoreHttpBase,
+	type GovernorStore,
+} from "../lib/govdb.ts";
+import {
+	allow,
+	auditApproval,
+	deny,
+	type HookInput,
+	nudge,
+} from "../lib/hookio.ts";
 import { have, run } from "../lib/run.ts";
-import { verifyAndConsume, extractSourceRef } from "../lib/approvals.ts";
-import { basename, dirname, resolve } from "node:path";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { openGovernorDb } from "../lib/govdb.ts";
-import type { Database } from "bun:sqlite";
+import {
+	canonPath,
+	collectWriteTargets,
+	gateSegments,
+	gitSub,
+	gitSubIndex,
+	hardeningGate,
+	throwaway,
+	verb,
+} from "./bash-hardening.ts";
+import {
+	destructiveHit,
+	pipeToShellScan,
+	twoPersonReason,
+} from "./destructive.ts";
 import { laneId, leaseExpired } from "./governor.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { lifecycleGate } from "./lifecycle.ts";
+import { scrubGateSegments } from "./scrub.ts";
+import { planeLoopGate } from "./plane-loop.ts";
 
 // governor-bypass section: shell writes must respect governor leases
 const GOV = `${process.env.HOME}/.cache/claude-governor`;
-const canonPath = (p: string): string => {
-	try {
-		return realpathSync(p);
-	} catch {
-		try {
-			return `${realpathSync(dirname(p))}/${basename(p)}`;
-		} catch {
-			return resolve(p);
-		}
-	}
-};
 
 // ---- module-scope constants (allocated once, not per call) ----
-const WRAPPERS = new Set(["sudo", "nice", "env", "command", "nohup", "time"]);
 const SKILLS_PATH = /\.claude\/skills|\.agents\/skills/;
 const TOOL_MAP: Record<string, string> = {
 	ls: "eza -la (or eza --tree)",
@@ -43,78 +65,15 @@ const TOOL_MAP: Record<string, string> = {
 	curl: "xh",
 };
 
-type Op = { op: string };
-type Cmd = { cmd: string };
-type Tok = string | Op | Cmd;
-
-const isOp = (t: Tok, ...ops: string[]) =>
-	typeof t === "object" && "op" in t && ops.includes((t as Op).op);
-
-function segments(toks: Tok[]): Tok[][] {
-	const segs: Tok[][] = [[]];
-	for (const t of toks) {
-		if (isOp(t, ";", "&", "|", "&&", "||", "(", ")")) segs.push([]);
-		else segs[segs.length - 1].push(t);
-	}
-	return segs.filter((s) => s.length > 0);
-}
-const words = (seg: Tok[]): string[] =>
-	seg.map((t) =>
-		typeof t === "string" ? t : "op" in t ? `<op:${t.op}>` : "<sub>",
-	);
-
-function verb(w: string[]): string {
-	let i = 0;
-	while (i < w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i])) i++;
-	while (i < w.length && WRAPPERS.has(w[i])) i++;
-	return w[i] ?? "";
-}
-
-// the git SUBCOMMAND is the first non-flag token after "git" (global option
-// values skipped — see GIT_GLOBAL_VALUE_OPTS). "push"/"commit" as any OTHER
-// token must not trigger the scans: `git stash push` is a local op — the
-// any-token check denied it in any repo with history secrets (it is not a
-// remote write; W40 incident 2026-09-26).
-const GIT_GLOBAL_VALUE_OPTS = new Set([
-	"-C",
-	"-c",
-	"--git-dir",
-	"--work-tree",
-	"--namespace",
-	"--super-prefix",
-]);
-
-function gitSubIndex(w: string[]): { sub: string; idx: number } {
-	const gi = w.indexOf("git");
-	if (gi === -1) return { sub: "", idx: -1 };
-	for (let i = gi + 1; i < w.length; i++) {
-		const t = w[i];
-		if (GIT_GLOBAL_VALUE_OPTS.has(t)) {
-			i++; // space-form global option: its value is never the subcommand
-			continue;
-		}
-		if (t.startsWith("-")) continue;
-		return { sub: t, idx: i };
-	}
-	return { sub: "", idx: -1 };
-}
-
-function gitSub(w: string[]): string {
-	return gitSubIndex(w).sub;
-}
-
-const throwaway = (p: string) =>
-	p.startsWith("/tmp/") ||
-	p.startsWith("/private/tmp/") ||
-	p.startsWith("/dev/") ||
-	p.includes("$TMPDIR");
-
 /** Shared: find the redirect-target word after any '>' op, if the target is
- *  a real path (not throwaway). Returns "" when no actionable redirect. */
+ *  a real path (not throwaway, not an fd number — `2>&1` is not a write to
+ *  a file named "1"). Returns "" when no actionable redirect. */
 function redirectTarget(w: string[]): string {
 	const idx = w.findIndex((a) => a.startsWith("<op:>"));
 	if (idx === -1 || !w[idx + 1]) return "";
-	return throwaway(w[idx + 1]) ? "" : w[idx + 1];
+	const t = String(w[idx + 1]);
+	if (throwaway(t) || (w[idx] === "<op:>&" && /^\d+$/.test(t))) return "";
+	return t;
 }
 
 /** Shared: single-point deny for the skill-install gate. */
@@ -216,8 +175,7 @@ export function bashGate(hook: HookInput): never {
 	const CWD = hook.cwd ?? process.env.HOME ?? "/";
 	if (hook.tool_name !== "Bash" || !CMD) allow();
 
-	const toks = parse(CMD) as Tok[];
-	const SEGS = segments(toks).map((s) => words(s));
+	const SEGS = gateSegments(CMD);
 
 	// ---- secrets (git commit / push) — per git SEGMENT ----
 	// Each git verb is scanned in ITS OWN repo with the flags of THAT verb:
@@ -267,6 +225,12 @@ export function bashGate(hook: HookInput): never {
 				);
 		}
 	}
+
+	// ---- W236 scrub gate (gates/scrub.ts): the pre-commit/pre-push surface
+	// of lib/scrub.ts — staged/unpushed ADDED lines through the rule set
+	// (home paths, local-denylist hosts/IPs/MACs, key material, IKEA-internal  // scrub:allow
+	// markers). SUSPENDERS_SCRUB=0 disables. Fail-inert on plumbing failure.
+	scrubGateSegments(SEGS, CWD);
 
 	// ---- no-lane-push-to-main (W70): the merge ladder owns main — lanes push
 	// their branch only; the ladder (board ship trigger / fleet-loop ship)
@@ -353,10 +317,10 @@ export function bashGate(hook: HookInput): never {
 	// governor.db (SQLite) — the legacy locks.json read is gone. Lane identity,
 	// canonical paths, TTL/liveness, and exemptions match gates/governor.ts.
 	{
-		let db: Database | null = null;
-		if (existsSync(`${GOV}/governor.db`)) {
+		let db: GovernorStore | null = null;
+		if (resolveStoreHttpBase() || existsSync(`${GOV}/governor.db`)) {
 			try {
-				db = openGovernorDb();
+				db = openStore();
 			} catch {
 				db = null; // fail open: a dead registry never blocks a shell command
 			}
@@ -379,48 +343,9 @@ export function bashGate(hook: HookInput): never {
 					!isSubagent &&
 					existsSync(exPath) &&
 					(JSON.parse(readFileSync(exPath, "utf8")) as string[]).includes(sid);
-				const targets: string[] = [];
-				let segCwd = CWD;
-				for (const w of SEGS) {
-					const v = verb(w);
-					const vi = w.indexOf(v);
-					const rest = vi >= 0 ? w.slice(vi + 1) : w;
-					// collect against the segment's working directory; `cd X` takes
-					// effect for LATER segments (a redirect on the cd line itself
-					// resolves in the pre-cd cwd, as the shell sets it up before cd runs)
-					for (let i = 0; i < w.length; i++) {
-						if (
-							(w[i] === "<op:>" || w[i] === "<op:>>") &&
-							w[i + 1] &&
-							!String(w[i + 1]).startsWith("<op")
-						) {
-							targets.push(resolve(segCwd, String(w[i + 1])));
-						}
-					}
-					if (["tee", "touch", "truncate", "sd", "ambr"].includes(v)) {
-						for (const t of rest)
-							if (!t.startsWith("-")) targets.push(resolve(segCwd, t));
-					}
-					if (["cp", "mv", "rsync", "ditto"].includes(v)) {
-						const last = rest[rest.length - 1];
-						if (last && !last.startsWith("-"))
-							targets.push(resolve(segCwd, last));
-					}
-					if (v === "rm")
-						for (const t of rest)
-							if (!t.startsWith("-")) targets.push(resolve(segCwd, t));
-					if (v === "dd")
-						for (const kv of rest)
-							if (kv.startsWith("of="))
-								targets.push(resolve(segCwd, kv.slice(3)));
-					if (v === "cd") {
-						const target = w[w.length - 1];
-						if (target && !target.startsWith("<op"))
-							segCwd = target.startsWith("/")
-								? target
-								: resolve(segCwd, target);
-					}
-				}
+				const targets = collectWriteTargets(SEGS, CWD).filter(
+					(t) => t && !throwaway(t),
+				);
 				for (const t of targets) {
 					if (!t || throwaway(t)) continue; // temp/dev targets are not arbitrated
 					const P = canonPath(t);
@@ -436,6 +361,100 @@ export function bashGate(hook: HookInput): never {
 			}
 		}
 	}
+	// ---- W250 cred-scope: lane credential blast radius. A fleet lane may
+	// touch only DECLARED secrets named by its sid or work item (the config
+	// recipe rides the deny reason). Undeclared paths and owner sessions are
+	// never blocked; absent/unreadable config = inert gate (fail-inert, the
+	// documented posture in lib/credscope.ts). Cheap-first: the declared
+	// secrets load runs before any lane resolution (the ppid walk).
+	{
+		const secrets = loadCredScope();
+		if (secrets.length > 0 && lanesFileFor(CWD)) {
+			const lane = resolveFleetLane(CWD);
+			if (lane) {
+				let segCwd = CWD;
+				for (const w of SEGS) {
+					const v = verb(w);
+					if (v === "cd") {
+						const tgt = w[w.length - 1];
+						if (tgt && !tgt.startsWith("<op"))
+							segCwd = tgt.startsWith("/") ? tgt : resolve(segCwd, tgt);
+						continue;
+					}
+					for (const t of w) {
+						if (t.startsWith("-") || t.startsWith("<op")) continue;
+						const d = credScopeDeny(t, segCwd, lane, secrets);
+						if (d) deny(d);
+					}
+				}
+			}
+		}
+	}
+
+	// ---- W576.7.1 service lifecycle fence: protected active units + receipt +
+	// direct launchctl mutations need a lifecycle grant (governor.db). Runs
+	// BEFORE the two-person rule: a granted launchctl mutation IS the second
+	// opinion — the two-person launchctl family stands down for this command.
+	const lifecycleApproved = lifecycleGate(SEGS, CWD);
+
+	// ---- W250 two-person rule: a lane-issued destructive command needs a
+	// human co-signer. The detector is conservative; the approval is a
+	// signed, single-use, command-hash-bound file the SECOND person mints
+	// from their own terminal (bin/approve-destructive.ts), and the
+	// consumption lands in the denied-call audit. Owner sessions exempt
+	// (the human is the driver there). SUSPENDERS_TWO_PERSON=0 disables.
+	// Runs BEFORE the W513 hardening layer: a consumed approval stands down
+	// hardening's overlapping destructive-git denies for THIS command (the
+	// device/sensitive/containment absolutes never stand down).
+	let cmdApproved = false;
+	if (process.env.SUSPENDERS_TWO_PERSON !== "0") {
+		const pipeHit = pipeToShellScan(CMD);
+		if (pipeHit) {
+			if (verifyAndConsumeCmd(CMD)) {
+				auditApproval(CMD);
+				cmdApproved = true;
+			} else {
+				const lane = resolveFleetLane(CWD);
+				if (lane) deny(twoPersonReason(lane.sid, pipeHit));
+			}
+		}
+		let segCwd = CWD;
+		const home = process.env.HOME ?? "";
+		for (const w of SEGS) {
+			if (cmdApproved) break; // co-signed once — the WHOLE command was
+			const v = verb(w);
+			if (v === "cd") {
+				const tgt = w[w.length - 1];
+				if (tgt && !tgt.startsWith("<op"))
+					segCwd = tgt.startsWith("/") ? tgt : resolve(segCwd, tgt);
+				continue;
+			}
+			const hit = destructiveHit(w, segCwd, home);
+			if (!hit) continue;
+			// a granted lifecycle op already carried its authority above —
+			// the two-person launchctl family does not double-charge it
+			if (lifecycleApproved && hit.startsWith("launchctl")) continue;
+			if (verifyAndConsumeCmd(CMD)) {
+				auditApproval(CMD);
+				cmdApproved = true;
+				continue;
+			}
+			const lane = lanesFileFor(CWD) ? resolveFleetLane(CWD) : null;
+			if (lane) deny(twoPersonReason(lane.sid, hit));
+		}
+	}
+
+	// ---- W513 hardening lift (oh-my-claudecode deny-layer primitives) ----
+	// Device redirects deny everyone; sensitive-state writes deny lanes and
+	// nudge the owner; containment + destructive-git deny lanes only.
+	hardeningGate(SEGS, CWD, cmdApproved);
+
+	// ---- W266.2 plane-loop gate: the narrow conjunction — outside-repo AND
+	// unbounded-loop AND plane-verb spawn (coord/fleet-loop/board). Denies
+	// every session; the plane itself escapes via plane-exempt.json (sid
+	// array) and the escape is logged, never silent.
+	planeLoopGate(SEGS, CWD, hook.session_id ?? "");
+
 	// ---- edit-enforce ----
 	for (const w of SEGS) {
 		const v = verb(w);
@@ -517,9 +536,7 @@ export function bashGate(hook: HookInput): never {
 	// where the day's corruptions lived — regex escapes, fmt-reflowed anchors,
 	// blanket replaces hitting a second binding. ast-grep matches syntax
 	// nodes, so none of those can happen. Advisory: the tools still work.
-	const joined = SEGS.map((s) =>
-		s.map((t) => (typeof t === "string" ? t : (t as Cmd).cmd)).join(" "),
-	).join(" ; ");
+	const joined = SEGS.map((s) => s.join(" ")).join(" ; ");
 	if (/\b(sd|sed)\b/.test(joined) || /bun\s+-e\b/.test(joined)) {
 		const tsTarget = /[\w./-]+\.(ts|tsx)\b/.test(joined);
 		if (tsTarget)

@@ -111,3 +111,41 @@ export function validateDeploymentEgress(
 		tokenOrigin(String(cfg.token_host), GCP_TOKEN_HOSTS[0], GCP_TOKEN_HOSTS);
 	}
 }
+
+// ─── W235: the overlay/peer endpoint egress law ───
+// A dropped peer/overlay file must never gain egress by default
+// (finding.w233-adaptation-review §5). Overlay-declared endpoints are
+// https-only (or loopback http), never carry userinfo, and every host
+// must sit in the operator allowlist (BUCKLE_EGRESS_ALLOW, CSV) — the
+// check runs at overlay load, fail-closed.
+
+/** The operator peer-egress allowlist (CSV env, config-over-code). */
+export function egressAllowList(): string[] {
+	return envList("BUCKLE_EGRESS_ALLOW");
+}
+
+/** One overlay/peer-declared endpoint: https-only (loopback http for
+ *  tests/dev), no credentials in the URL, host allowlisted. Throws with a
+ *  machine-readable why — the loader turns it into a refusal. */
+export function validatePeerEndpoint(raw: string): void {
+	let u: URL;
+	try {
+		u = new URL(raw);
+	} catch {
+		throw new Error(`peer endpoint "${raw}" is not a valid URL`);
+	}
+	if (u.username || u.password)
+		throw new Error(`peer endpoint "${raw}" must not carry credentials`);
+	const host = u.hostname.toLowerCase();
+	const loopback = isLoopbackHost(host);
+	if (!loopback && u.protocol !== "https:")
+		throw new Error(`peer endpoint "${raw}" refused: https required`);
+	if (u.protocol !== "https:" && u.protocol !== "http:")
+		throw new Error(`peer endpoint "${raw}" refused: http(s) only`);
+	if (loopback) return; // nothing leaves the machine
+	const allow = egressAllowList();
+	if (!allow.includes(host))
+		throw new Error(
+			`peer endpoint host "${host}" refused: not in BUCKLE_EGRESS_ALLOW`,
+		);
+}

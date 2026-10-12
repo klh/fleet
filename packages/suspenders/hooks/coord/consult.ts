@@ -10,12 +10,15 @@ import {
 	cyan,
 	red,
 	kbLookup,
+	kbNorm,
+	factLookup,
 	lessonLookup,
 	rankExperts,
 	projectIdentity,
 } from "./shared.ts";
 
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+import { consultDeadline } from "../lib/consult-expiry.ts";
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -57,7 +60,13 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	const kbHit = rest.includes("--no-kb")
 		? null
 		: kbLookup(question, projectIdentity(), scope, version, true);
-	if (!kbHit) {
+	// W604: consult_kb first (asker-verified solutions), then the knowledge
+	// store — a hash-verified fact answers with its trust attached; lanes only
+	// pinged on miss. --no-kb escapes both.
+	const factHit = (kbHit || rest.includes("--no-kb"))
+		? null
+		: await factLookup(question);
+	if (!kbHit && !factHit) {
 		if (rest.includes("--best"))
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
@@ -124,6 +133,36 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from the knowledge base ${dim(`(learned from ${kbHit.answered_by.slice(0, 8)}${expertLive ? ", still live" : ""}, ${kbHit.hits} prior hits) — --no-kb routes to a human`)}`,
 		);
+	} else if (factHit) {
+		// W604: a hash-verified knowledge row answers BY THE PLANE with its
+		// trust attached — the consult is never routed to a live lane.
+		const r = db
+			.query(
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?)",
+			)
+			.run(
+				projectIdentity(),
+				as,
+				factHit.origin_sid ?? "",
+				question,
+				scope,
+				factHit.fact ?? "",
+				Date.now(),
+				Date.now(),
+			);
+		const cid = `C${r.lastInsertRowid}`;
+		const payload = JSON.stringify({
+			consult: cid,
+			state: "FACT",
+			answer: factHit.fact ?? "",
+			fact: { id: factHit.id, topic: factHit.topic, trust: factHit.trust, source: factHit.source_ref },
+		});
+		db.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
+		).run(Date.now(), as, scope, payload, as);
+		console.log(
+			`${green("✓")} ${cyan(cid)} answered from a verified fleet fact ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}`,
+		);
 	} else {
 		const pending = (
 			db
@@ -138,9 +177,17 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			);
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)",
 			)
-			.run(projectIdentity(), as, expert, question, scope, Date.now());
+			.run(
+				projectIdentity(),
+				as,
+				expert,
+				question,
+				scope,
+				Date.now(),
+				consultDeadline(Date.now()),
+			);
 		const cid = `C${r.lastInsertRowid}`;
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
@@ -264,32 +311,66 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
 	).run(st, decline ? null : text, Date.now(), c.id);
 	// Store candidates, but only asker-verified outcomes permit automatic reuse.
+	// W618 dedup: a same-project row with the same normalized problem+answer
+	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer
+	// appends as a refinement — instead of forking a near-duplicate row.
 	if (!decline) {
-		const kr = db
-			.query(
-				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			)
-			.run(
-				c.question,
-				text,
-				projectIdentity(),
-				c.asker_sid,
-				as,
-				c.id,
-				Date.now(),
+		const nq = kbNorm(c.question);
+		const na = kbNorm(text);
+		const dup = (
+			db
+				.query(
+					"SELECT id, problem, solution FROM consult_kb WHERE project = ? ORDER BY id",
+				)
+				.all(projectIdentity()) as {
+				id: number;
+				problem: string;
+				solution: string;
+			}[]
+		).find((k) => kbNorm(k.problem) === nq);
+		if (dup) {
+			const refined =
+				kbNorm(dup.solution) === na
+					? dup.solution
+					: `${dup.solution}\n— ${text.trim()}`;
+			db.transaction(() => {
+				db.query(
+					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ? WHERE id = ?",
+				).run(refined, Date.now(), dup.id);
+				ensureConsultTrust(db);
+				// link this consult to the row it replenished, so asker feedback
+				// resolves the candidate (the row keeps its original consult_id)
+				db.query(
+					"INSERT OR IGNORE INTO consult_reuse (consult_id, kb_id) VALUES (?, ?)",
+				).run(c.id, dup.id);
+			})();
+		} else {
+			const kr = db
+				.query(
+					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run(
+					c.question,
+					text,
+					projectIdentity(),
+					c.asker_sid,
+					as,
+					c.id,
+					Date.now(),
+				);
+			ensureConsultTrust(db);
+			db.query(
+				"INSERT INTO consult_trust (kb_id, scope, version) VALUES (?, ?, ?)",
+			).run(
+				kr.lastInsertRowid,
+				c.scope ?? "",
+				arg("--version") ?? consultVersion() ?? "",
 			);
-		ensureConsultTrust(db);
-		db.query(
-			"INSERT INTO consult_trust (kb_id, scope, version) VALUES (?, ?, ?)",
-		).run(
-			kr.lastInsertRowid,
-			c.scope ?? "",
-			arg("--version") ?? consultVersion() ?? "",
-		);
-		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
-			kr.lastInsertRowid,
-			c.question,
-		);
+			db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
+				kr.lastInsertRowid,
+				c.question,
+			);
+		}
 	}
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', NULL, ?, ?)",

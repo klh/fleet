@@ -102,3 +102,30 @@ export const resolveLlmTarget = (
 		override: tail === String(ep.port ?? "") ? undefined : tail,
 	};
 };
+
+// W183.2 — one reader for the chain-value grammar: `llm:<machine>:<tail>`
+// resolves to the BELT MODEL ID a dispatched lane rides (ANTHROPIC_MODEL —
+// belt routes by model id, so the raw value is never a valid model):
+// llm:local:<port> via the swarm inventory, llm:user:<name> via
+// local-models.json, any other tail IS the model id. Bare names keep
+// modelOf semantics (claude/copilot → null — they ride their own CLI; other
+// names ARE model ids). Null = the value names no real model — callers
+// skip the entry in a chain and 409 it at /api/start.
+// Lookups are injected so this module stays db-free for unit tests.
+export const feedModelOf = (
+	value: string,
+	specByPort: (port: number) => { model: string } | undefined,
+	userByName: (name: string) => { model: string } | undefined,
+): string | null => {
+	if (!value.startsWith("llm:")) {
+		return value === "claude" || value === "copilot" ? null : value;
+	}
+	const c = value.indexOf(":", 4);
+	if (c < 0) return null;
+	const machine = value.slice(4, c);
+	const tail = value.slice(c + 1);
+	if (!tail) return null;
+	if (machine === "local") return specByPort(Number(tail))?.model ?? null;
+	if (machine === "user") return userByName(tail)?.model ?? null;
+	return tail;
+};

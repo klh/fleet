@@ -9,11 +9,12 @@
 // resolve the secrets home from homedir() per call.
 import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { generateKeyPairSync, createSign } from "node:crypto";
 import { join } from "node:path";
 
 const REAL_HOME = process.env.HOME;
-const HOME = mkdtempSync(join(process.cwd(), ".auth-test-home-"));
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-auth-test-home-"));
 process.env.HOME = HOME;
 // bun caches os.homedir() at process start — the secrets home is env-pinned
 // instead (live read in the libs, inherited by spawned servers/CLIs)

@@ -1,10 +1,19 @@
 // hooks/lib/hookio.ts — the ONE definition of hook input/output contracts.
 // Every gate imports from here; no gate builds its own JSON or exit codes.
+
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { resolveFleetLane } from "./fleetlane.ts";
+import {
+	readSessionState,
+	sessionStatePath,
+	writeSessionState,
+} from "./session-state.ts";
 
 export type HookInput = {
 	tool_name?: string;
+	session_id?: string;
 	tool_input?: {
 		command?: string;
 		file_path?: string;
@@ -14,6 +23,7 @@ export type HookInput = {
 	};
 	cwd?: string;
 	stop_hook_active?: boolean;
+	transcript_path?: string;
 	hook_event_name?: string;
 };
 
@@ -64,7 +74,9 @@ export function auditPath(): string {
 	return `${process.env.HOME ?? ""}/.cache/claude-governor/denied-calls.jsonl`;
 }
 
-export function auditDeny(reason: string): void {
+// shared line builder: one JSONL shape for every audit event; the lane sid
+// rides along (W250) so denials and approvals attribute to a fleet lane.
+function auditLine(tool: string, reason: string, cmd?: string): void {
 	try {
 		const file = auditPath();
 		mkdirSync(dirname(file), { recursive: true });
@@ -72,16 +84,37 @@ export function auditDeny(reason: string): void {
 		const line = {
 			at: new Date().toISOString(),
 			event: process.argv[2] ?? "",
-			tool: HOOK.tool_name ?? "",
-			cmd: (ti.command ?? "").slice(0, 200),
+			tool,
+			cmd: (ti.command ?? cmd ?? "").slice(0, 200),
 			path: (ti.file_path ?? ti.notebook_path ?? "").slice(0, 300),
 			cwd: process.cwd(),
 			reason: reason.slice(0, 300),
+			lane: resolveFleetLane(HOOK.cwd ?? process.cwd())?.sid ?? "",
 		};
 		appendFileSync(file, `${JSON.stringify(line)}\n`);
 	} catch {
 		// fire-and-forget: audit failures never break the deny path
 	}
+}
+
+export function auditDeny(reason: string): void {
+	auditLine(HOOK.tool_name ?? "", reason);
+}
+
+// W250 two-person rule: a consumed approval is evidence the second person
+// co-signed — same JSONL, tool:"approval".
+export function auditApproval(cmd: string): void {
+	auditLine(
+		"approval",
+		"two-person: human-signed approval consumed (single-use)",
+		cmd,
+	);
+}
+
+// W266.2 plane-loop gate: an exempt session's escape is evidence too — same
+// JSONL as denials (tool:"plane-exempt"), fire-and-forget like auditDeny.
+export function auditEscape(reason: string): void {
+	auditLine("plane-exempt", reason);
 }
 
 export function allow(): never {
@@ -110,7 +143,50 @@ export function ask(reason: string): never {
 		},
 	});
 }
+// sha-keyed advisory cooldown (claudecode research §1.6): identical nudge
+// text on every tool call burns context and trains the model to ignore it.
+// Per-session (HOOK.session_id), 5-minute default (SUSPENDERS_NUDGE_COOLDOWN_MS
+// override, 0 disables), 100-entry cap, fails OPEN — throttling must never
+// silence a safety message (denials ride deny()/ask(), never this channel).
+const NUDGE_COOLDOWN_MS = Math.max(
+	0,
+	Number(process.env.SUSPENDERS_NUDGE_COOLDOWN_MS ?? 300_000) || 0,
+);
+const NUDGE_COOLDOWN_CAP = 100;
+
+function nudgeSuppressed(message: string): boolean {
+	if (NUDGE_COOLDOWN_MS === 0) return false;
+	const sid = HOOK.session_id;
+	if (!sid) return false; // no session context → always emit
+	try {
+		return nudgeSuppressedIn(message, sessionStatePath("nudge", sid));
+	} catch {
+		return false;
+	}
+}
+
+function nudgeSuppressedIn(message: string, file: string): boolean {
+	const key = createHash("sha256").update(message).digest("hex").slice(0, 16);
+	const state = readSessionState<Record<string, number>>(file) ?? {};
+	const now = Date.now();
+	const last = state[key];
+	if (last !== undefined && now - last < NUDGE_COOLDOWN_MS) return true;
+	// record this show: prune expired entries, then cap at the newest 100
+	for (const k of Object.keys(state))
+		if (now - state[k] >= NUDGE_COOLDOWN_MS) delete state[k];
+	state[key] = now;
+	const keys = Object.keys(state);
+	if (keys.length > NUDGE_COOLDOWN_CAP)
+		for (const k of keys
+			.sort((a, b) => state[a] - state[b])
+			.slice(0, keys.length - NUDGE_COOLDOWN_CAP))
+			delete state[k];
+	writeSessionState(file, state); // write failure = fail open, nudge emits
+	return false;
+}
+
 export function nudge(message: string): never {
+	if (nudgeSuppressed(message)) allow(); // throttled → plain allow, dialect-aware
 	if (DIALECT) outD(DIALECT.decide("nudge", "", message));
 	out({
 		hookSpecificOutput: {

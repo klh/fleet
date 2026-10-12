@@ -6,17 +6,19 @@
 // nothing (on Linux os.tmpdir() IS /tmp). Each temp repo gets a real
 // `git init`: an empty mkdir'd .git is NOT a valid gitdir, and discovery
 // would walk up into the checkout's own .git, colliding project identity.
-import { describe, test, expect, afterAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
-	mkdtempSync,
-	rmSync,
 	mkdirSync,
-	writeFileSync,
+	mkdtempSync,
 	readFileSync,
+	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
+import { isResumableClaim } from "../scripts/lib/resumable-claim.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "claude-work-cli-home-"));
 const gitInit = (dir: string): void => {
@@ -27,7 +29,7 @@ const gitInit = (dir: string): void => {
 	});
 	if (r.exitCode !== 0) throw new Error(`git init failed in ${dir}`);
 };
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-work-cli-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo-"));
 gitInit(REPO);
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
@@ -61,19 +63,81 @@ function withDb(fn: (db: Database) => void): void {
 	db.close();
 }
 
-/** take → done: the disciplined completion path. */
+/** take → done: the disciplined completion path (W643: carries the
+ * take-minted claim token — `work done` refuses a gated claim without it). */
 function finish(
 	id: string,
 	sid: string,
 ): { code: number; out: string; err: string } {
 	const t = work("take", id, "--as", sid);
 	if (t.code !== 0) return t;
-	return work("done", id, "--sha", `sha-${sid}`);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	return work(
+		"done",
+		id,
+		"--sha",
+		`sha-${sid}`,
+		...(tok ? ["--token", tok] : []),
+	);
+}
+
+/** W643: claim-and-close in one — take mints the token, done must carry it. */
+function finishAs(
+	id: string,
+	sid: string,
+	sha: string,
+): { code: number; out: string; err: string } {
+	const t = work("take", id, "--as", sid);
+	if (t.code !== 0) return t;
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	return work(
+		"done",
+		id,
+		"--as",
+		sid,
+		"--sha",
+		sha,
+		...(tok ? ["--token", tok] : []),
+	);
 }
 
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
+});
+
+test("show --json gives dispatcher state and exact owner in either flag order", () => {
+	const id = idOf(
+		work("add", "JSON state test", "--desc", "state: CLAIMED by wrong-owner")
+			.out,
+	);
+	expect(work("take", id, "--as", "json-owner").code).toBe(0);
+	for (const args of [
+		["show", id, "--json"],
+		["show", "--json", id],
+	]) {
+		const result = work(...args);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.out)).toMatchObject({
+			id,
+			state: "CLAIMED",
+			owner_sid: "json-owner",
+		});
+		expect(isResumableClaim(result.out, id, "json-owner")).toBe(true);
+		expect(isResumableClaim(result.out, id, "wrong-owner")).toBe(false);
+	}
+	expect(work("show", id).out).toContain("owner_sid: json-owner");
+	expect(work("show", "W99999999", "--json").code).not.toBe(0);
+	expect(work("show", "--json").code).not.toBe(0);
+});
+
+test("stats reports project graph counts as structured data", () => {
+	const result = work("stats");
+	expect(result.code).toBe(0);
+	const stats = JSON.parse(result.out);
+	expect(stats.project).toBeTruthy();
+	expect(stats.counts.CLAIMED).toBeGreaterThan(0);
+	expect(stats.latest_done).toBeNull();
 });
 
 describe("add — id allocation", () => {
@@ -104,7 +168,8 @@ describe("take — CAS claim", () => {
 		expect(work("take", a, "--as", "lane-one").code).toBe(0);
 		const again = work("take", a, "--as", "lane-two");
 		expect(again.code).toBe(2);
-		expect(again.err).toContain("was taken");
+		// W515 assignTask wording: a non-READY item refuses as "claim refused"
+		expect(again.err).toContain("claim refused");
 	});
 
 	test("take refuses nonexistent ids and unmet dependencies", () => {
@@ -171,6 +236,63 @@ describe("split — shatter, child ids, roll-up", () => {
 		expect(firstLine(work("show", `${p}.1`).out)).toContain("CLAIMED");
 		expect(firstLine(work("show", `${p}.2`).out)).toContain("READY");
 	});
+
+	test("--keep rebinds the keeping lane's context to the kept child (W628)", () => {
+		const p = idOf(work("add", "keep rebind").out);
+		expect(work("take", p, "--as", "lane-rebind").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(
+			contextPath,
+			JSON.stringify({
+				sid: "lane-rebind",
+				item: p,
+				baseline: "abc",
+				launchedAt: 1,
+			}),
+		);
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).toContain("rebound");
+		const rebound = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(rebound.item).toBe(`${p}.1`);
+		expect(rebound.sid).toBe("lane-rebind");
+		expect(rebound.baseline).toBe("abc"); // evidence baseline survives
+		rmSync(contextPath); // the shared REPO outlives this test — no context leaks
+	});
+
+	test("split leaves foreign lane contexts untouched (W628)", () => {
+		const p = idOf(work("add", "keep foreign").out);
+		expect(work("take", p, "--as", "lane-x").code).toBe(0);
+		mkdirSync(join(REPO, ".fleet"), { recursive: true });
+		const contextPath = join(REPO, ".fleet", "lane-context.json");
+		writeFileSync(contextPath, JSON.stringify({ sid: "other-lane", item: p }));
+		const s = work(
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		expect(s.out).not.toContain("rebound");
+		const untouched = JSON.parse(readFileSync(contextPath, "utf8"));
+		expect(untouched.sid).toBe("other-lane");
+		expect(untouched.item).toBe(p);
+		rmSync(contextPath);
+	});
 });
 
 describe("done — roll-up for shattered parents", () => {
@@ -180,11 +302,9 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", p, "c1", "c2", "--reason", "independent-scopes").code,
 		).toBe(0);
 		expect(work("done", `${p}.1`, "--sha", "s1").code).not.toBe(0); // this repo: READY work cannot be marked done...
-		expect(work("take", `${p}.1`, "--as", "lane-r1").code).toBe(0); // ...claim it first
-		expect(work("done", `${p}.1`, "--sha", "s1").code).toBe(0);
+		expect(finishAs(`${p}.1`, "lane-r1", "s1").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
-		expect(work("take", `${p}.2`, "--as", "lane-r2").code).toBe(0);
-		expect(work("done", `${p}.2`, "--sha", "s2").code).toBe(0);
+		expect(finishAs(`${p}.2`, "lane-r2", "s2").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("DONE");
 	});
 
@@ -197,14 +317,11 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", `${q}.1`, "x1", "x2", "--reason", "independent-scopes")
 				.code,
 		).toBe(0);
-		expect(work("take", `${q}.2`, "--as", "lane-n2").code).toBe(0);
-		expect(work("done", `${q}.2`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.2`, "lane-n2", "s").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(work("take", `${q}.1.1`, "--as", "lane-n11").code).toBe(0);
-		expect(work("done", `${q}.1.1`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.1`, "lane-n11", "s").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(work("take", `${q}.1.2`, "--as", "lane-n12").code).toBe(0);
-		expect(work("done", `${q}.1.2`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.2`, "lane-n12", "s").code).toBe(0);
 		expect(firstLine(work("show", `${q}.1`).out)).toContain("DONE");
 		expect(firstLine(work("show", q).out)).toContain("DONE");
 	});
@@ -228,6 +345,48 @@ describe("done — roll-up for shattered parents", () => {
 	});
 });
 
+describe("cancel — W182 CANCELLED terminal state", () => {
+	test("cancel closes with a required note, clears the claim, emits work.cancelled", () => {
+		const c = idOf(work("add", "cancel me").out);
+		expect(work("cancel", c).code).toBe(2); // --note required
+		expect(work("take", c, "--as", "lane-cx").code).toBe(0);
+		const done = work("cancel", c, "--note", "no longer wanted");
+		expect(done.code).toBe(0);
+		expect(done.out).toContain("CANCELLED");
+		expect(firstLine(work("show", c).out)).toContain("CANCELLED");
+		expect(work("mine", "--as", "lane-cx").out).not.toContain(c); // claim released
+		withDb((db) => {
+			const row = db
+				.query("SELECT owner_sid, state FROM work_items WHERE id = ?")
+				.get(c) as { owner_sid: string | null; state: string };
+			expect(row.state).toBe("CANCELLED");
+			expect(row.owner_sid).toBeNull();
+		});
+	});
+
+	test("terminal states refuse cancel; list/mine hide CANCELLED", () => {
+		const t = idOf(work("add", "already closed").out);
+		expect(finishAs(t, "lane-t1", "s").code).toBe(0);
+		const again = work("cancel", t, "--note", "x");
+		expect(again.code).toBe(2);
+		expect(again.err).toContain("already closed");
+		const z = idOf(work("add", "cancelled hidden").out);
+		expect(work("cancel", z, "--note", "why").code).toBe(0);
+		expect(work("list").out).not.toContain(z);
+		expect(work("owned").out).not.toContain(z);
+	});
+
+	test("a CANCELLED child keeps its SHATTERED parent open (rollUp doctrine)", () => {
+		const q = idOf(work("add", "cancel rollup root").out);
+		expect(
+			work("split", q, "x", "y", "--reason", "independent-scopes").code,
+		).toBe(0);
+		expect(work("take", `${q}.1`, "--as", "lane-cq").code).toBe(0);
+		expect(work("cancel", `${q}.1`, "--note", "dead end").code).toBe(0);
+		expect(firstLine(work("show", q).out)).toContain("SHATTERED"); // NOT rolled up
+	});
+});
+
 describe("ready — dependency gating", () => {
 	test("blocked items leave ready until their dependency is DONE", () => {
 		const a = idOf(work("add", "gate a").out);
@@ -237,8 +396,7 @@ describe("ready — dependency gating", () => {
 		expect(ready).toContain(a);
 		expect(ready).not.toContain(b);
 		expect(work("show", b).out).toContain(`depends on: ${a}(READY)`);
-		expect(work("take", a, "--as", "lane-gate").code).toBe(0); // claim before done (transition guard)
-		expect(work("done", a, "--sha", "s").code).toBe(0);
+		expect(finishAs(a, "lane-gate", "s").code).toBe(0); // claim before done (transition guard)
 		ready = work("ready").out;
 		expect(ready).toContain(b);
 	});
@@ -344,7 +502,7 @@ describe("block — dependencies and cycles", () => {
 
 describe("project partitioning", () => {
 	test("another repo sees none of this project's work", () => {
-		const repo2 = mkdtempSync(join(process.cwd(), ".tmp-work-cli-repo2-"));
+		const repo2 = mkdtempSync(join(tmpdir(), "suspenders-work-cli-repo2-"));
 		gitInit(repo2);
 		try {
 			expect(workIn(repo2, "list").out).toContain("(none)");
@@ -557,8 +715,7 @@ describe("dep-merge ancestor gate (W60)", () => {
 		expect(work("block", depOn, "--on", dep).code).toBe(0);
 
 		// dep lands DONE with the unmerged sha — done output names the gated dependent
-		expect(work("take", dep, "--as", "lane-w60").code).toBe(0);
-		const d = work("done", dep, "--sha", sha);
+		const d = finishAs(dep, "lane-w60", sha);
 		expect(d.code).toBe(0);
 		expect(d.out).toContain(`dep ${dep} done but unmerged (sha not on main)`);
 		expect(d.out).toContain(`${depOn} stays gated`);
@@ -577,8 +734,7 @@ describe("dep-merge ancestor gate (W60)", () => {
 		const dep2 = idOf(work("add", "failopen dep lane").out);
 		const depOn2 = idOf(work("add", "failopen dependent lane").out);
 		expect(work("block", depOn2, "--on", dep2).code).toBe(0);
-		expect(work("take", dep2, "--as", "lane-w60c").code).toBe(0);
-		const d2 = work("done", dep2, "--sha", "0123456789abcdef0123456987654321");
+		const d2 = finishAs(dep2, "lane-w60c", "0123456789abcdef0123456987654321");
 		expect(d2.out).toContain("startable now");
 		expect(work("take", depOn2, "--as", "lane-w60d").code).toBe(0);
 

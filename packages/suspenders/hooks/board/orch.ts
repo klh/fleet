@@ -10,12 +10,14 @@ import {
 	resolvePolicy,
 } from "../lib/board-config.ts";
 import {
+	ENHANCE_URL,
 	enhancePrompt,
 	type PromptPlan,
 	preparePrompt,
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
-import { condenseTier } from "blam/src/condense/tiers.ts";
+import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
+import { projectRootOf } from "../lib/govdb.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -112,7 +114,7 @@ export function orchContext(project: string, repo: string): string {
 	const items = (
 		db
 			.query(
-				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
+				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
 			)
 			.all(project, ORCH.CTX_ITEMS) as {
 			id: string;
@@ -168,7 +170,7 @@ export async function orchPrepare(
 	| { ok: true; plan: PromptPlan; ctx: string }
 	| { ok: false; status: number; error: string }
 > {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			ok: false,
@@ -184,7 +186,7 @@ export async function orchPrepare(
 			orchTelemetry({
 				for: "prompt.enhance",
 				model,
-				host: "127.0.0.1:4000",
+				host: new URL(ENHANCE_URL).host,
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
@@ -208,7 +210,7 @@ export async function orchestrate(
 	goal: string,
 	prepared?: { ctx: string },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			status: 404,
@@ -296,7 +298,7 @@ export function orchRegister(
 	title: string,
 	kids: string[],
 ): { status: number; body: Record<string, unknown> } {
-	const repo = project.replace(/\/\.git$/, "");
+	const repo = projectRootOf(project);
 	if (!existsSync(repo))
 		return {
 			status: 404,

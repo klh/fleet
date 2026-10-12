@@ -16,7 +16,8 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts"
+						"command": "bun $HOME/.claude/hooks/suspenders/session-end.ts",
+						"async": true
 					}
 				]
 			}
@@ -73,6 +74,25 @@
 						"timeout": 10
 					}
 				]
+			},
+			{
+				"matcher": "Bash|Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts post-fail",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts push",
+						"timeout": 10
+					}
+				]
 			}
 		],
 		"Stop": [
@@ -84,6 +104,24 @@
 					}
 				]
 			}
+		],
+		"PreCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts precompact"
+					}
+				]
+			}
 		]
+	},
+	"statusLine": {
+		"type": "command",
+		"command": "bun $HOME/.claude/hooks/suspenders/statusline.ts"
+	},
+	"subagentStatusLine": {
+		"type": "command",
+		"command": "bun $HOME/.claude/hooks/suspenders/subagent-statusline.ts"
 	}
 }

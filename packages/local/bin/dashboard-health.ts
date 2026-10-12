@@ -20,6 +20,7 @@ export async function probeService(
 	target: string,
 	path: string,
 	timeout = 1500,
+	virtualHost?: string,
 ): Promise<HealthObservation> {
 	const start = performance.now();
 	const evidence = () =>
@@ -33,6 +34,7 @@ export async function probeService(
 		);
 	try {
 		const response = await fetch(`http://${target}${path}`, {
+			headers: virtualHost ? { Host: virtualHost } : undefined,
 			signal: AbortSignal.timeout(timeout),
 			redirect: "manual",
 		});

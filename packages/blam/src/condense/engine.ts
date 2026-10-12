@@ -76,6 +76,10 @@ export type Step =
 			/** exact mode: sentences with fewer words are never dropped */
 			minWords?: number;
 	  }
+	// W238 packet tier: an exact (normalized) repeat LINE is boilerplate —
+	// drop later occurrences, keep the first. Lines with fewer than
+	// minWords words are never dropped.
+	| { kind: "line-dedupe"; minWords?: number }
 	| { kind: "cap-resolve" }
 	| { kind: "trim-lines" }
 	| { kind: "trim" };
@@ -265,6 +269,21 @@ function runStep(t: string, step: Step, fired: string[]): string {
 					? jaccardDedupe(s, threshold, fired)
 					: exactDedupe(s, minWords, fired);
 			return step.scope === "line" ? t.split("\n").map(run).join("\n") : run(t);
+		}
+		case "line-dedupe": {
+			const minWords = step.minWords ?? 2;
+			const seen = new Set<string>();
+			const out: string[] = [];
+			for (const line of t.split("\n")) {
+				const key = line.toLowerCase().replace(/\s+/g, " ").trim();
+				if (key.split(" ").length >= minWords && seen.has(key)) {
+					fire(fired, "dedupe:line");
+					continue;
+				}
+				seen.add(key);
+				out.push(line);
+			}
+			return out.join("\n");
 		}
 		case "cap-resolve":
 			return t

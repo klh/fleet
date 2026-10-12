@@ -1,17 +1,21 @@
 // test/gov-federation.test.ts — W154 federation surfaces e2e: anonymous
-// spoke-pull GETs (manifest + entitlements), credential validation (presented
-// creds never downgraded), spoke-class scopes, team ceilings, CR lifecycle
-// transitions enforced server-side, visibility-law exclusion.
+// spoke-pull GETs, credential validation (presented creds never downgraded),
+// spoke-class scopes, team ceilings, visibility-law exclusion.
 // W193: pulls are authenticated (spoke:READ_) and the manifest is signed.
+// W233.3: the manifest pull + CR lifecycle ride the ManifestCrProvider seam
+// — solo posture answers honest 501s; the serving e2e re-homes to the
+// enterprise overlay (klh-remote buckle-remote).
 import { describe, expect, test } from "bun:test";
-import { declareCR } from "../src/gov/federation-manifest.ts";
+import type { HubEntitlementsFactory } from "../src/gov/hub-seam.ts";
 import { startServer } from "../src/server.ts";
 
 const ROOT = "buckle-test-root";
 
 /** Hub with a scratch pool: one live loopback group, one dormant cloud tier,
  *  one spoke-private group that must never leak into entitlements. */
-async function startFed(): Promise<{
+async function startFed(
+	opts: { hubEntitlements?: HubEntitlementsFactory } = {},
+): Promise<{
 	base: string;
 	srv: ReturnType<typeof startServer>;
 	stop: () => void;
@@ -51,7 +55,7 @@ async function startFed(): Promise<{
 		policyPath: `${dir}.policy.yaml`,
 		upstreamsPath: `${dir}.upstreams.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		auth: { rootKey: ROOT, ...opts },
 	});
 	return {
 		base: `http://127.0.0.1:${srv.port}`,
@@ -73,8 +77,8 @@ async function issueKey(
 	return out.key;
 }
 
-describe("federation: policy manifest (anonymous spoke-pull)", () => {
-	test("GET /federation/policy-manifest → 200 {version, rules[], cr_queue[]}", async () => {
+describe("federation: policy manifest (solo posture)", () => {
+	test("GET /federation/policy-manifest → honest 501 provider-less", async () => {
 		const fed = await startFed();
 		const spokeKey = await issueKey(fed.base, {
 			name: "spoke-pull",
@@ -83,25 +87,18 @@ describe("federation: policy manifest (anonymous spoke-pull)", () => {
 		const res = await fetch(`${fed.base}/federation/policy-manifest`, {
 			headers: { authorization: `Bearer ${spokeKey}` },
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(501);
 		const body = (await res.json()) as {
-			version: string;
-			rules: Array<{ id: string }>;
-			cr_queue: unknown[];
+			error: { code: string; message: string };
 		};
-		expect(body.version.startsWith("fed-")).toBe(true);
-		expect(body.rules.length).toBeGreaterThan(0);
-		const ids = body.rules.map((r) => r.id);
-		expect(ids).toContain("gateway.knobs");
-		expect(ids).toContain("ladder.glm-5.3-flash");
-		expect(ids).toContain("tags.glm-5.3-flash");
-		expect(Array.isArray(body.cr_queue)).toBe(true);
+		expect(body.error.code).toBe("buckle.no_federation");
+		expect(body.error.message).toContain("no manifest serving surface");
 		fed.stop();
 	});
 });
 
 describe("federation: entitlements (echo menu, visibility law)", () => {
-	test("hub models only — spoke-private excluded, dormant = cloud", async () => {
+	test("solo posture — authenticated spoke pull answers honest 501", async () => {
 		const fed = await startFed();
 		const spokeKey = await issueKey(fed.base, {
 			name: "spoke-menu",
@@ -110,30 +107,12 @@ describe("federation: entitlements (echo menu, visibility law)", () => {
 		const res = await fetch(`${fed.base}/federation/entitlements`, {
 			headers: { authorization: `Bearer ${spokeKey}` },
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(501);
 		const body = (await res.json()) as {
-			models: Array<{
-				id: string;
-				tier: string;
-				locality: string;
-				available: boolean;
-				family: string | null;
-			}>;
-			ceilings: unknown;
+			error: { code: string; message: string };
 		};
-		const ids = body.models.map((m) => m.id);
-		expect(ids).toContain("glm-5.3-flash");
-		expect(ids).toContain("gpt-5.2");
-		expect(ids).not.toContain("local-swarm");
-		const glm = body.models.find((m) => m.id === "glm-5.3-flash");
-		expect(glm?.locality).toBe("hub-local");
-		expect(glm?.available).toBe(true);
-		expect(glm?.family).toBe("openai-compat");
-		const gpt = body.models.find((m) => m.id === "gpt-5.2");
-		expect(gpt?.tier).toBe("frontier");
-		expect(gpt?.locality).toBe("cloud");
-		expect(gpt?.available).toBe(false);
-		expect(body.ceilings).toBeNull();
+		expect(body.error.code).toBe("buckle.no_federation");
+		expect(body.error.message).toContain("no entitlements surface");
 		fed.stop();
 	});
 
@@ -151,7 +130,21 @@ describe("federation: entitlements (echo menu, visibility law)", () => {
 
 describe("federation: spoke-class scopes + team ceilings", () => {
 	test("team key → entitlements carry ceilings", async () => {
-		const fed = await startFed();
+		const fed = await startFed({
+			// W233.1: the menu is overlay-owned; a stub provider proves the
+			// ceilings read-side (shared governance schema) stays public.
+			hubEntitlements: () => ({
+				models: () => [
+					{
+						id: "stub",
+						family: null,
+						tier: "general",
+						locality: "cloud",
+						available: false,
+					},
+				],
+			}),
+		});
 		await fetch(`${fed.base}/v1/admin/teams`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${ROOT}` },
@@ -191,73 +184,6 @@ describe("federation: spoke-class scopes + team ceilings", () => {
 	});
 });
 
-interface CrEntry {
-	id: string;
-	action: string;
-	state: string;
-	declared_at: string;
-}
-
-describe("federation: CR lifecycle (server-side transitions)", () => {
-	test("declared CR rides the manifest; POST requires spoke auth", async () => {
-		const fed = await startFed();
-		const fedDb = fed.srv.gov.federation?.db;
-		if (fedDb === undefined)
-			throw new Error("federation surface missing on gov");
-		declareCR(fedDb, {
-			id: "cr-1",
-			action: "adopt-policy",
-			target: "routing-policy@1",
-			origin: { system: "belt", actor: "w154-test" },
-		});
-		const spokeKey = await issueKey(fed.base, {
-			name: "spoke-cr",
-			scopes: ["buckle:spoke:READ_"],
-		});
-		const res = await fetch(`${fed.base}/federation/policy-manifest`, {
-			headers: { authorization: `Bearer ${spokeKey}` },
-		});
-		const body = (await res.json()) as { cr_queue: CrEntry[] };
-		expect(body.cr_queue).toHaveLength(1);
-		expect(body.cr_queue[0]?.id).toBe("cr-1");
-		expect(body.cr_queue[0]?.state).toBe("declared");
-		const anon = await fetch(`${fed.base}/federation/cr/cr-1/status`, {
-			method: "POST",
-			body: JSON.stringify({ state: "delivered" }),
-		});
-		expect(anon.status).toBe(401);
-		fed.stop();
-	});
-
-	test("spoke:WRITE_ key walks declared→delivered; 409 on illegal; 404 unknown", async () => {
-		const fed = await startFed();
-		const fedDb = fed.srv.gov.federation?.db;
-		if (fedDb === undefined)
-			throw new Error("federation surface missing on gov");
-		declareCR(fedDb, {
-			id: "cr-2",
-			action: "adopt-policy",
-			target: "policy@2",
-			origin: { system: "belt", actor: "w154-test" },
-		});
-		const key = await issueKey(fed.base, {
-			name: "spoke-w",
-			scopes: ["buckle:spoke:WRITE_"],
-		});
-		const post = (state: string, id: string) =>
-			fetch(`${fed.base}/federation/cr/${id}/status`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${key}` },
-				body: JSON.stringify({ state }),
-			});
-		const d = await post("delivered", "cr-2");
-		expect(d.status).toBe(200);
-		const dBody = (await d.json()) as { state: string };
-		expect(dBody.state).toBe("delivered");
-		const again = await post("delivered", "cr-2");
-		expect(again.status).toBe(409);
-		const missing = await post("delivered", "no-such-cr");
-		expect(missing.status).toBe(404);
-		fed.stop();
-	});
-});
+// W233.3: the CR lifecycle e2e (declared→delivered walks, 409 illegal,
+// 404 unknown, claim binding, probe-gated verified) re-homes to the
+// enterprise overlay with the ManifestCrProvider implementation.

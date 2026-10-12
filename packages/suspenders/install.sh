@@ -5,7 +5,9 @@
 # step yet (each marked TODO(install.ts) inline). Flags unchanged:
 #   ./install.sh [--wire] [--with-launchd] [--dry-run] [--skip-models]
 #                [--no-llm] [--refresh-supervisor] [--refresh-dashboards]
-#                [--yes] [--json] [--verbose] [--step <name>]
+#                [--prune] [--hub <name>] [--wire-repo <path>] [--yes]
+#                [--json] [--verbose] [--step <name>]
+#                [--re-bless-activation [--confirm <manifest-sha-prefix>]]
 # SUSPENDERS_PREFIX / SUSPENDERS_SHIM_BIN pass through to both surfaces.
 # Idempotent: re-running just refreshes the files. Default (owner law
 # 2026-10-01): ALWAYS sets up the local-llm swarm and downloads the
@@ -19,60 +21,45 @@ LLM_HOME="$HOME/.claude/local-llm"
 KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/local-llm"
 
 # ─── legacy body (TODO(install.ts): syncHarness, ensureShims, seedLocalLlm,
-# downloadModels, wireSettings, refreshSupervisor, registerCaddy and
-# releaseNotify still live here — install.ts's delegation runs THIS function,
+# downloadModels, wireSettings, refreshSupervisor, registerCaddy, registerSkills
+# and releaseNotify still live here — install.ts's delegation runs THIS function,
 # never the wrapper front, which would re-enter install.ts) ───
 legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
 echo "→ installing to $PREFIX"
-mkdir -p "$PREFIX"
-# W183.1 follow-up (W300) — local-llm rides along as a harness-relative copy
-# too: hooks/board/local-swarm.ts imports registry.ts via a repo-relative
-# path (../local-llm/registry.ts), which only resolves if $PREFIX has its
-# own local-llm/ sibling to board/. This is separate from $LLM_HOME below
-# (the swarm's runtime home, user-customizable, never clobbered) — this
-# copy is pure harness code, refreshed every install like bin/lib/board.
-for item in bin lib board-html coord board gates launchd rules gate.ts session-start.ts session-end.ts knowledgeworker.md; do
-  cp -R "$SCRIPT_DIR/hooks/$item" "$PREFIX/"
-done
-# the kit itself lives in packages/local-llm (W422.4) — harness copy sourced
-# from there ($PREFIX/local-llm/, sibling of board/, feeds local-swarm.ts)
-cp -R "$KIT_DIR" "$PREFIX/"
-cp "$KIT_DIR/observation.ts" "$PREFIX/lib/observation.ts"
-cp "$SCRIPT_DIR/../belt/bin/inventory-probe.ts" "$PREFIX/lib/inventory-probe.ts"
-# W463 install gap (closed W490.2): prefix bin/* (worktree.ts, fleet-loop.ts,
-# copilot-usage.ts) import ../../scripts/lib/*.ts — from $PREFIX/bin that depth
-# is the PREFIX PARENT (~/.claude/hooks/scripts/lib), so materialize the shared
-# lib there; $PREFIX/scripts/lib mirrors it for prefix-relative imports.
-mkdir -p "$PREFIX/../scripts/lib" "$PREFIX/scripts/lib"
-cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/../scripts/lib/"
-cp "$SCRIPT_DIR"/scripts/lib/*.ts "$PREFIX/scripts/lib/"
-# W494: manifest services run __PREFIX__/scripts/*.ts — the top-level scripts
-# dir syncs like hooks/ does (lib/* materialized separately, above).
-mkdir -p "$PREFIX/scripts"
-cp "$SCRIPT_DIR"/scripts/*.ts "$PREFIX/scripts/"
-cp "$SCRIPT_DIR"/scripts/*.sh "$PREFIX/scripts/" 2>/dev/null || true
-# W422.5 — blam ships whole (manifest included): suspenders' manifest declares
-# "blam": "workspace:*" + workspaces ["*"], so the bun install at $PREFIX
-# (below) symlinks node_modules/blam -> blam/ and board's package-name import
-# (blam/src/condense) resolves. Retires the W422.14 sed-on-copies hack.
-rm -rf "$PREFIX/blam"
-cp -R "$SCRIPT_DIR/../blam" "$PREFIX/blam"
-rm -rf "$PREFIX/blam/node_modules"
-# authoring-time devDeps (belt/suspenders workspace:*) don't ship — bun
-# --production still resolves member devDeps, so strip them from the copy
-bun -e 'const p=process.argv[1];const j=JSON.parse(await Bun.file(p).text());delete j.devDependencies;await Bun.write(p,JSON.stringify(j,null,"\t")+"\n")' "$PREFIX/blam/package.json"
-# W422.5: the manifest copies, the repo lockfile does NOT — its
-# blam@workspace:packages/blam entry references repo paths that do not exist
-# at $PREFIX, which hard-fails install. $PREFIX re-resolves from the ranges,
-# so any stale PREFIX lockfile from earlier installs goes first.
-rm -f "$PREFIX/bun.lock"
-cp "$SCRIPT_DIR/package.json" "$PREFIX/"
-(cd "$PREFIX" && bun install --production) # --production: skip devDeps — blam's authoring-time belt/suspenders devDeps don't ship; shell-quote, for the bash gate
-# Catch broken workspace links/imports before restarting the live services.
-bun -e 'await import(process.argv[1])' "$PREFIX/board/prompt-transform.ts"
-echo "→ harness in place"
+# Native staged sync is shared by full installs and --step syncHarness.
+# It preserves runtime config and publishes only a validated committed payload.
+# --prune rides the env knob exported by the front (SUSPENDERS_LEGACY_PRUNE):
+# mirror mode drops unmanaged prefix entries outside the generated-files
+# allowlist (governor.db, bun.lock, node_modules, .fleet) instead of
+# preserving them — W420.
+PRUNE_ARGS=()
+if [[ "${SUSPENDERS_LEGACY_PRUNE:-0}" -eq 1 ]]; then
+  PRUNE_ARGS+=(--prune)
+fi
+# Legacy step outcome reporter (SUSPENDERS_LEGACY_REPORT ndjson, consumed by
+# install-run.ts delegateBash) — defined before any block that reports.
+report_step() {
+  if [[ -n "${SUSPENDERS_LEGACY_REPORT:-}" ]]; then
+    printf '{"name":"%s","status":"%s","note":"%s"}\n' "$1" "$2" "$3" >> "$SUSPENDERS_LEGACY_REPORT"
+  fi
+}
+bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"}
+
+# registerGitHooks (W650): repo-level scrub-gate enforcement — the committed
+# .githooks stubs (W236) exec hooks/bin/scrub-gate.ts from the prefix
+# (fallback: repo-local packages/suspenders) and fail inert when bun or the
+# stack is absent, so bare-git commits outside the harness run the
+# staged/push-range scrub check.
+if [ -f "$SCRIPT_DIR/.githooks/pre-commit" ] && [ -f "$SCRIPT_DIR/.githooks/pre-push" ]; then
+  git -C "$SCRIPT_DIR" config core.hooksPath .githooks
+  echo "→ .githooks registered (core.hooksPath=.githooks) — bare-git commits run the scrub gate"
+  report_step registerGitHooks ok "core.hooksPath=.githooks (W236 scrub stubs active)"
+else
+  echo "→ degraded install: committed .githooks stubs missing — scrub gate stays harness-only (manual: git config core.hooksPath .githooks)"
+  report_step registerGitHooks failed "committed .githooks stubs missing; scrub gate stays harness-only"
+fi
 
 # Targeted code upgrade for the advanced installed belt supervisor. The kit's
 # older swarm implementation and operator-owned config must remain untouched.
@@ -94,18 +81,7 @@ if [[ "${SUSPENDERS_LEGACY_SUPERVISOR:-0}" -eq 1 ]]; then
   echo "→ refreshed supervisor code (restart com.suspenders.local-llm to activate)"
 fi
 
-# ─── PATH shims (owner law 2026-10-03): bare `coord` / `work` / `dispatch` ───
-# One-line exec wrappers; every session and lane calls the control plane
-# without inlining bun + full .ts paths. Idempotent: refreshed every install.
-SHIM_BIN="${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}"
-mkdir -p "$SHIM_BIN"
-for shim in coord work; do
-  printf '#!/bin/sh\nexec bun %s/bin/%s.ts "$@"\n' "$PREFIX" "$shim" > "$SHIM_BIN/$shim"
-  chmod +x "$SHIM_BIN/$shim"
-done
-printf '#!/bin/sh\nexec bun %s/scripts/dispatch-next.ts "$@"\n' "$SCRIPT_DIR" > "$SHIM_BIN/dispatch"
-chmod +x "$SHIM_BIN/dispatch"
-echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
+# PATH shims are published transactionally by sync-harness.ts above.
 
 # ─── local-llm baseline (owner law 2026-10-01) ───
 # Installing suspenders ALWAYS installs the local-llm swarm — smallest models
@@ -114,27 +90,37 @@ echo "→ shims in $SHIM_BIN (coord, work, dispatch)"
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  # W465 one-source: the registry and the :4000 router are BELT-owned now —
-  # registry.ts and router-shim.ts (+ router-shim's same-dir deps) come from
-  # belt/bin; local-llm/registry.ts is a re-export and its router-shim twin
-  # is retired. spawner/health stay kit-local. Runtime copies are never
-  # clobbered (kept = the live fleet's possibly-customized source of truth).
-  for f in registry.ts router-shim.ts router-core.ts admission.ts prompt-fingerprint.ts registry-emit.ts router-condense.ts; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
-    else
-      cp "$SCRIPT_DIR/../belt/bin/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f (from belt/bin)"
-    fi
-  done
-  for f in spawner.ts health.ts; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (runtime copy is source of truth)"
-    else
+  for f in gateway-supervision.ts memory-policy.ts serve-observation.ts observation.ts ikea-shim.ts; do
+    if [[ ! -f "$LLM_HOME/$f" ]]; then
       cp "$KIT_DIR/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f"
     fi
   done
+  if [[ ! -f "$LLM_HOME/litellm-target.ts" ]]; then
+    cp "$SCRIPT_DIR/../belt/bin/litellm-target.ts" "$LLM_HOME/litellm-target.ts"
+  fi
+  # W465 one-source: the registry and the :4000 router are BELT-owned now —
+  # registry.ts and router-shim.ts come from belt/bin, and since W661 the
+  # overlay ships router-shim's FULL import closure (the old hardcoded list
+  # shipped router-shim.ts without ./audio.ts + ./escalate.ts — :4000 died on
+  # every spawn, ~95 launchd revives over 4h). Copies never clobber the
+  # runtime home (kept = the live fleet's possibly-customized source of truth).
+  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" overlay \
+    --runtime "$LLM_HOME" --entry "$SCRIPT_DIR/../belt/bin/router-shim.ts"
+  # W661 self-check: the flattened runtime must actually serve. A spawn that
+  # dies on a missing module fails the install loudly here instead of looping
+  # the launchd revive on :4000 (the smoke rides a scratch port).
+  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" smoke --runtime "$LLM_HOME"
+  if [ ! -f "$LLM_HOME/health.ts" ]; then
+    cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
+  fi
+  # W507: the tier choice is machine config, not launchd env — every install
+  # re-emits the tier manifest the swarm supervisor and llm-keepwarm both
+  # read (smallest-fit law = minimal). A stale kit copy (no `tier` kind)
+  # degrades to a note, never a failed install.
+  if [ -f "$LLM_HOME/registry-emit.ts" ]; then
+    BELT_TIER=minimal bun "$LLM_HOME/registry-emit.ts" tier --out "$LLM_HOME/tier.json" \
+      || echo "→ tier manifest emission skipped (stale kit registry-emit.ts)"
+  fi
   # swarm.ts is the one kit file that MAY refresh a present copy: an older
   # installed swarm.ts lacks the serve supervisor, and a serve-less swarm.ts
   # under launchd KeepAlive is exactly the busy-loop flaw this fixes.
@@ -145,7 +131,7 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
     echo "= $LLM_HOME/swarm.ts kept (serve already present)"
   fi
   # config stubs — belt.env + routing-policy.yaml, only when absent
-  for f in belt.env routing-policy.yaml; do
+  for f in belt.env routing-policy.yaml ikea.env; do
     if [ -f "$LLM_HOME/$f" ]; then
       echo "= $LLM_HOME/$f kept (operator-owned runtime copy)"
     else
@@ -203,6 +189,21 @@ if [[ "${SUSPENDERS_LEGACY_WIRE:-0}" -eq 1 ]]; then
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     console.log("→ wired " + settingsPath);
   '
+  SUSPENDERS_PREFIX="$PREFIX" bun "$SCRIPT_DIR/scripts/install-policy-adapters.ts"
+  # W294: dialect gate wiring — the codex/copilot hook registrations must
+  # point at THIS install's gate. Stale checkouts decay the wiring (the
+  # machine's copilot config still points at the archived klh/suspenders
+  # path — sessions went invisible on the plane). The gate-wire scripts are
+  # MARK-based merge-not-clobber: re-running repairs stale paths, preserves
+  # user entries, converges on the prefix. Runs the PREFIX copy so the gate
+  # path resolves to the installed gate; non-fatal.
+  for wire in gate-wire-codex.ts gate-wire-copilot.ts; do
+    if [ -f "$PREFIX/bin/$wire" ]; then
+      bun "$PREFIX/bin/$wire" || echo "→ $wire merge failed (non-fatal)"
+    else
+      echo "→ $PREFIX/bin/$wire missing — skipped (re-run the install sync)"
+    fi
+  done
 fi
 
 # --with-launchd is native since W490.2: install.ts --step registerLaunchd
@@ -210,25 +211,56 @@ fi
 
 # optional: register the board with klh-local's user-level Caddy so the LAN
 # gets http://suspenders.local:7799. Idempotent (converges on re-run) and
-# never fatal — the loopback board works without it.
+# optional absence is skipped; attempted registration failure is reported as
+# a degraded install without aborting the remaining harness/release work.
 KLH_LOCAL_BIN="$HOME/.local/bin/klh-local"
 if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
-  if "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
+  # W631: an installed klh-local predating W602 emits the unloadable loopback
+  # `bind 127.0.0.1 ::1` posture — caddy validate passes (specific-address
+  # binds fail only at LOAD time on macOS), the reload wedges the install and
+  # a landed fragment crash-loops com.klh-local.caddy. Probe the installed
+  # klh-local for the W602 request-level posture and degrade with the
+  # remediation command instead of attempting a reload that cannot load.
+  if ! grep -q "abort @external" "$KLH_LOCAL_BIN"; then
+    echo "→ degraded install: installed klh-local predates W602 (unloadable loopback bind posture) — refresh it: bash packages/local/install.sh from the fleet checkout"
+    report_step registerCaddy failed "installed klh-local predates W602 — refresh via packages/local/install.sh before registering"
+  elif "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
     echo "→ suspenders.local → 127.0.0.1:7799 (klh-local / Caddy)"
+    report_step registerCaddy ok "board registered with klh-local/Caddy"
   else
-    echo "→ klh-local register failed (non-fatal) — board stays on http://127.0.0.1:7799"
+    echo "→ degraded install: klh-local register failed — loopback board URL: http://127.0.0.1:7799"
+    report_step registerCaddy failed "optional Caddy registration failed; harness installed, use the loopback board URL and inspect Caddy reload/rollback"
   fi
 else
   echo "optional: install klh-local + caddy to also serve this board at http://suspenders.local:7799"
+  report_step registerCaddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
+fi
+
+# ─── agent skills (TODO(install.ts): registerSkills) — register every skill
+# package under skills/ with the skills CLI (owner hard rule 2026-10-07:
+# agent surfaces distribute as SKILL.md packages, never cp'd into one CLI's
+# dir). Flags are load-bearing: -g global, -y unattended, -a explicit agent —
+# a bare add hits the interactive agent-picker and exits 1 in a non-TTY. One
+# parent-dir add discovers every skills/*/ subpackage (verified: "Found 10").
+# Best-effort: failure prints the manual command, never aborts the install.
+if [ -d "$SCRIPT_DIR/skills" ]; then
+  if bunx skills add "$SCRIPT_DIR/skills" -g -y -a claude-code </dev/null; then
+    echo "→ skills: registered all packages under $SCRIPT_DIR/skills"
+  else
+    echo "  (skills: registration failed — run manually: bunx skills add $SCRIPT_DIR/skills -g -y -a claude-code)"
+  fi
 fi
 
 echo
 echo "done. restart Claude Code so the hooks register, then:"
 echo "  bun $PREFIX/bin/fleet-board.ts        # live fleet board (+ decision forks)"
+echo "  bun $PREFIX/bin/fleet-tracker.ts      # tracker-style lane sidecar (read-only TUI)"
 echo "  bun $PREFIX/bin/work.ts ready         # what the fleet can pick up"
 echo "  bun $PREFIX/bin/monitor.ts            # control-plane health"
 echo "env knobs: SUSPENDERS_LLM_URL / SUSPENDERS_LLM_MODEL / SUSPENDERS_LLM_KEY (advice worker)"
 echo "local-llm: $LLM_HOME (swarm serve supervisor; BELT_TIER=minimal residents + :4000 router)"
+echo "  bun $LLM_HOME/ikea-shim.ts status  # anthropic→copilot gateway (:4102) health"
+echo "  bun $LLM_HOME/ikea-shim.ts login   # device-flow mint (Copilot seat required)"
 echo "  bun $LLM_HOME/swarm.ts status   # swarm health"
 echo "  bun $LLM_HOME/swarm.ts serve    # resident supervisor (launchd label com.suspenders.local-llm)"
 
@@ -259,24 +291,100 @@ fi
 
 # ─── public front: legacy flags → env knobs, then the installer core ───
 LEG_WIRE=0 LEG_WITH_LAUNCHD=0 LEG_SKIP_MODELS=0 LEG_NO_LLM=0 LEG_SUPERVISOR=0
-LEG_DASHBOARDS=0 LEG_DRY_RUN=0
+LEG_DASHBOARDS=0 LEG_DRY_RUN=0 LEG_GATEWAY=0 LEG_PRUNE=0
+LEG_WIRE_REPO="" wire_repo_pending=0 LEG_CONFIRM="" confirm_pending=0 LEG_REBLESS=0
 NATIVE=()
 prev_step=0
+prev_review=0
+LEG_HUB=""
+hub_seen=0
+hub_pending=0
 for arg in "$@"; do
   if [[ $prev_step -eq 1 ]]; then NATIVE+=("$arg"); prev_step=0; continue; fi
+  if [[ $prev_review -eq 1 ]]; then
+    if [[ "$arg" == --* ]]; then echo "--gateway-review needs a review SHA256" >&2; exit 2; fi
+    NATIVE+=("$arg"); prev_review=0; continue
+  fi
+  if [[ $hub_pending -eq 1 ]]; then LEG_HUB="$arg"; hub_pending=0; continue; fi
+  if [[ $wire_repo_pending -eq 1 ]]; then LEG_WIRE_REPO="$arg"; wire_repo_pending=0; continue; fi
+  if [[ $confirm_pending -eq 1 ]]; then
+    if [[ "$arg" == --* ]]; then echo "--confirm needs a manifest sha prefix" >&2; exit 2; fi
+    LEG_CONFIRM="$arg"; confirm_pending=0; continue
+  fi
   case "$arg" in
+    --hub) hub_seen=1; hub_pending=1 ;;
+    --wire-repo) wire_repo_pending=1 ;;
+    --re-bless-activation) LEG_REBLESS=1 ;;
+    --confirm) confirm_pending=1 ;;
+    --confirm=*) LEG_CONFIRM="${arg#--confirm=}" ;;
     --wire) LEG_WIRE=1 ;;
     --with-launchd) LEG_WITH_LAUNCHD=1 ;;
     --skip-models) LEG_SKIP_MODELS=1 ;;
     --no-llm) LEG_NO_LLM=1 ;;
     --refresh-supervisor) LEG_SUPERVISOR=1 ;;
     --refresh-dashboards) LEG_DASHBOARDS=1 ;;
+    --prune) LEG_PRUNE=1 ;;
+    --refresh-gateway) LEG_GATEWAY=1 ;;
     --dry-run) LEG_DRY_RUN=1; NATIVE+=("$arg") ;;
     --yes|--json|--verbose) NATIVE+=("$arg") ;;
     --step) NATIVE+=("$arg"); prev_step=1 ;;
+    --gateway-review) NATIVE+=("$arg"); prev_review=1 ;;
+    --gateway-review=*) NATIVE+=("$arg") ;;
     *) echo "unknown flag: $arg"; exit 2 ;;
   esac
 done
+
+if [[ $prev_review -eq 1 ]]; then
+  echo "--gateway-review needs a review SHA256" >&2
+  exit 2
+fi
+
+if [[ $hub_seen -eq 1 && -z "$LEG_HUB" ]]; then
+  echo "--hub needs a hub name from ~/.config/klh/stack.yaml" >&2
+  exit 2
+fi
+
+# --hub <name>: install-grade hub deploy — materialize the hub from the
+# machine-level stack.yaml (mint → push → up → status via deploy/hubctl.ts).
+# Replaces the W310-era one-off docker-run/compose invocations. --dry-run
+# renders the hub .env only (zero side effects).
+if [[ $hub_seen -eq 1 ]]; then
+  if [[ $LEG_DRY_RUN -eq 1 ]]; then
+    exec bun "$SCRIPT_DIR/deploy/hubctl.ts" render "$LEG_HUB"
+  fi
+  exec bun "$SCRIPT_DIR/deploy/hubctl.ts" deploy "$LEG_HUB"
+fi
+
+if [[ $LEG_GATEWAY -eq 1 ]]; then
+  exec bun "$SCRIPT_DIR/scripts/refresh-gateway.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# --wire-repo <path> (W637): native repo wiring — merge-not-clobber the hooks
+# block into <path>/.claude/settings.json via the TS installer's wireSettings
+# step. Early-exit like the other targeted flags; --dry-run rides the plan.
+if [[ -n "$LEG_WIRE_REPO" ]]; then
+  exec bun "$SCRIPT_DIR/scripts/install.ts" --step wireSettings --yes --wire-repo "$LEG_WIRE_REPO" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
+# --re-bless-activation (W640): owner-gated activation-receipt re-bless — the
+# W639 hand-run bun script as a supported verb. Requires BOTH the intent flag
+# and --confirm <manifest-sha-prefix> (>=12 hex of the NEW candidate sha; a
+# confirm-less run dry-renders, prints the old-intent vs candidate diff and
+# names the sha — writes nothing). Corrects the receipt BEFORE install
+# --with-launchd: the render fence compares receipt.manifestSha256 against
+# the ACTIVE GENERATION's services.yaml. No launchd mutation; the write goes
+# through service-drift writeActivation only.
+if [[ $LEG_REBLESS -eq 1 ]]; then
+  CONFIRM_ARGS=()
+  if [[ -n "$LEG_CONFIRM" ]]; then CONFIRM_ARGS+=(--confirm "$LEG_CONFIRM"); fi
+  exec bun "$SCRIPT_DIR/scripts/rebless-activation.ts" --re-bless-activation ${CONFIRM_ARGS[@]+"${CONFIRM_ARGS[@]}"}
+fi
+
+# Upgrade the existing kit code explicitly, never switch supervisor families.
+# Advanced Belt runtimes retain the legacy supervisor.ts refresh below.
+if [[ $LEG_SUPERVISOR -eq 1 ]] && ! grep -q 'from "./supervisor.ts"' "$LLM_HOME/swarm.ts" 2>/dev/null; then
+  exec bun "$SCRIPT_DIR/scripts/refresh-swarm.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+fi
 
 # --refresh-dashboards: safe GUI-only early exit (native step; --dry-run plans)
 if [[ $LEG_DASHBOARDS -eq 1 ]]; then
@@ -290,6 +398,7 @@ fi
 
 # legacy-only flags ride env knobs into the delegated legacy body
 # (TODO(install.ts): no native flags yet — contract.bashFlags documents these)
+export SUSPENDERS_LEGACY_PRUNE="$LEG_PRUNE"
 export SUSPENDERS_LEGACY_WIRE="$LEG_WIRE"
 export SUSPENDERS_LEGACY_SKIP_MODELS="$LEG_SKIP_MODELS"
 export SUSPENDERS_LEGACY_NO_LLM="$LEG_NO_LLM"

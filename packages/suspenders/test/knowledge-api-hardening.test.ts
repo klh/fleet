@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { knowledgeSearch, proseCards } from "../hooks/lib/knowledge.ts";
+import { unusedPort } from "./helpers/board-fixture.ts";
 
 // ─── lib-level: scope predicates on the aux stores (W181 F2/M7) ───
 const db = new Database(":memory:");
@@ -141,7 +142,7 @@ describe("proseCards honors precomputed trust", () => {
 
 // ─── API-level: the live HTTP face (spawn the real bin) ───
 const HOME = mkdtempSync(join(tmpdir(), "w203-api-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-w203-api-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-w203-api-repo-"));
 mkdirSync(join(REPO, "docs"), { recursive: true });
 const DOC_TEXT =
 	"w203 trust anchor doc: hashes must verify mechanically. w203zq";
@@ -149,7 +150,7 @@ writeFileSync(join(REPO, "docs", "w203-trust-doc.md"), DOC_TEXT);
 const DOC_HASH = createHash("sha256").update(DOC_TEXT).digest("hex");
 const GOVDB_TS = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
 const API_TS = join(import.meta.dir, "..", "hooks", "bin", "knowledge-api.ts");
-const PORT = 7869 + (process.pid % 8);
+const PORT = unusedPort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // seed through the REAL migration path in a subprocess (HOME-isolated):
@@ -316,5 +317,20 @@ describe("knowledge-api live face (W181 F2)", () => {
 			).json()) as { rows: Record<string, unknown>[] }
 		).rows;
 		expect(authRows[0].sourceRef).toBe("docs/w203-trust-doc.md");
+	});
+
+	// W189: the domain axis through the LIVE face. A scope filter must never
+	// surface rows the axis cannot gate (W181 F2 predicate). Post-W166 split
+	// face: facts + consult_kb ride governor.db behind dedicated faces (coord
+	// fact verbs / consult kbSearch) — /search serves knowledge rows only, so
+	// the scoped face serves the knowledge domain subset and nothing leaks.
+	test("domain-scoped /search: no aux rows, the axis filters knowledge", async () => {
+		const scoped = await search({ query: "w203zq", domain: "suspenders" });
+		const hits = scoped.data.hits as Record<string, unknown>[];
+		expect(hits.map((h) => h.kind)).toEqual(["knowledge"]);
+		// the axis bites: a domain with no matching rows serves nothing
+		const empty = await search({ query: "w203zq", domain: "buckle" });
+		expect(empty.status).toBe(200);
+		expect(empty.data.hits).toEqual([]);
 	});
 });

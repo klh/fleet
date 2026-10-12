@@ -10,10 +10,11 @@
 // the actual Bun.serve websocket wiring is what's under test.
 import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");
-const home = mkdtempSync(join(process.cwd(), ".ws-subscribe-test-"));
+const home = mkdtempSync(join(tmpdir(), "suspenders-ws-subscribe-test-"));
 
 const procs: ReturnType<typeof Bun.spawn>[] = [];
 afterAll(() => {

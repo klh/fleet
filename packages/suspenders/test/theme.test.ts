@@ -297,7 +297,9 @@ describe("fleet strip markup (W291)", () => {
 		const ports = { belt: ":7791", suspenders: ":7799", local: ":7792" };
 		for (const s of FLEET_SITES) {
 			expect(s.href).toMatch(/^https:\/\/[a-z]+\.local$/);
-			expect(s.repo).toBe(`https://github.com/klh/${s.id}`);
+			expect(s.repo).toBe(
+				`https://github.com/klh/fleet/tree/main/packages/${s.id}`,
+			);
 			expect(s.title).toContain(ports[s.id]);
 		}
 	});
@@ -311,136 +313,41 @@ describe("fleet strip markup (W291)", () => {
 	});
 });
 
-// FLEET_NAV_JS against a fake strip: two sibling links + a scripted fetch
-function fleetStrip(up: (url: string) => boolean, hidden = false) {
-	const link = (href: string, repo: string) => {
-		const cls = new Set<string>();
-		const toggle = (c: string, on: boolean) => {
-			if (on) cls.add(c);
-			else cls.delete(c);
-		};
-		const getAttribute = (k: string) => (k === "data-repo" ? repo : null);
-		return {
-			href,
-			title: `${href} tip`,
-			cls,
-			classList: { toggle },
-			getAttribute,
-		};
-	};
-	const links = [
-		link("https://belt.local/", "https://github.com/klh/belt"),
-		link("https://bar.local/", "https://github.com/klh/local"),
-	];
-	const calls: [string, Record<string, string>][] = [];
-	const on: Record<string, () => void> = {};
-	let every = 0;
-	const document = {
-		hidden,
-		getElementById: (id: string) =>
-			id === "klh-fleetnav" ? { querySelectorAll: () => links } : null,
-		addEventListener: (t: string, f: () => void) => {
-			on[t] = f;
-		},
-	};
-	const fetch = (url: string, init: Record<string, string>) => {
-		calls.push([url, init]);
-		return up(url)
-			? Promise.resolve({})
-			: Promise.reject(new TypeError("down"));
-	};
-	const tick = (_f: () => void, ms: number) => {
-		every = ms;
-	};
-	new Function("window", "document", "setInterval", FLEET_NAV_JS)(
-		{ fetch },
-		document,
-		tick,
-	);
-	const settle = () => new Promise((r) => setTimeout(r, 0));
-	return { links, calls, on, settle, every: () => every };
-}
-
-describe("fleet strip probe (W291)", () => {
-	test("probes each sibling: HEAD /ping, no-cors, every 5s", async () => {
-		const s = fleetStrip(() => true);
-		await s.settle();
-		expect(s.calls.map((c) => c[0])).toEqual([
-			"https://belt.local/ping",
-			"https://bar.local/ping",
-		]);
-		expect(s.calls[0][1]).toEqual({
-			method: "HEAD",
-			mode: "no-cors",
-			cache: "no-store",
-		});
-		expect(s.every()).toBe(5000);
-		expect(s.links.map((l) => l.cls.has("down"))).toEqual([false, false]);
-	});
-	test("unreachable site dims + points at its repo, then recovers", async () => {
-		let barUp = false;
-		const s = fleetStrip((u) => !u.includes("bar.local") || barUp);
-		await s.settle();
-		const bar = s.links[1];
-		expect([bar.cls.has("down"), bar.href]).toEqual([
-			true,
-			"https://github.com/klh/local",
-		]);
-		expect(bar.title).toContain("unreachable");
-		expect(s.links[0].cls.has("down")).toBe(false);
-		barUp = true;
-		s.on.visibilitychange();
-		await s.settle();
-		expect([bar.cls.has("down"), bar.href, bar.title]).toEqual([
-			false,
-			"https://bar.local/",
-			"https://bar.local/ tip",
-		]);
-	});
-	test("hidden tab: no probes until it is visible again", async () => {
-		const s = fleetStrip(() => true, true);
-		await s.settle();
-		expect(s.calls).toEqual([]);
-	});
-});
-
 // strip the token block itself + data: URIs, then no palette literal remains
 const palette =
 	/#(141413|171614|1c1b19|232220|e8e6e1|98958e|d8900f|c96a4f|af2f12)\b|rgba\(255,255,255/i;
 const bodyOf = (h: string) =>
 	h.replace(THEME_HEAD, "").replace(/data:image\/[^"]+/g, "");
 
-describe("pages wear the theme (W269)", () => {
-	test("fleet board: pre-paint in <head>, settings in the topbar, no palette literals", () => {
+describe("pages wear the theme (W269 + W658.2)", () => {
+	test("fleet board: pre-paint in <head>, klh-topbar mount + vendor module, no palette literals", () => {
 		const head = HTML.slice(0, HTML.indexOf("</head>"));
 		expect(head).toContain(THEME_HEAD);
-		expect(head.indexOf(THEME_HEAD)).toBeLessThan(head.indexOf("<style>\n"));
-		expect(HTML).toContain('id="klh-settings"');
-		expect(HTML).toContain("klh-themechange");
+		expect(head.indexOf(THEME_HEAD)).toBeLessThan(head.indexOf("<style>"));
+		expect(HTML).toContain("<klh-topbar");
+		expect(HTML).toContain('src="/vendor/klh-topbar.js"');
 		expect(bodyOf(HTML)).not.toMatch(palette);
 		expect(HTML).not.toContain("color-scheme: dark");
 	});
-	test("console page: same contract, settings link kept", () => {
+	test("console page: same contract, settings link slotted into the panel", () => {
 		const page = consolePage("Settings", "settings", "<p>x</p>");
 		expect(page.slice(0, page.indexOf("</head>"))).toContain(THEME_HEAD);
-		expect(page).toContain('id="klh-settings"');
-		expect(page).toContain('<a aria-current="page" href="/console/settings">');
+		expect(page).toContain("<klh-topbar");
+		expect(page).toContain('slot="settings-extra"');
+		expect(page).toContain(
+			'<a slot="settings-extra" href="/console/settings" aria-current="page">all console settings',
+		);
 		expect(bodyOf(page)).not.toMatch(palette);
 	});
-	test("board + console wear the fleet strip above #cbar, menu names pages", () => {
-		const strip = fleetNav("suspenders");
+	test("board + console wear the fleet strip above <klh-topbar>", () => {
 		const page = consolePage("Belt", "belt", "<p>x</p>");
 		for (const h of [HTML, page]) {
-			expect(h.split(strip).length).toBe(2);
-			expect(h.indexOf(strip)).toBeLessThan(h.indexOf('id="cbar"'));
-			expect(h).toContain(FLEET_NAV_CSS);
-			expect(h).toContain(FLEET_NAV_JS);
+			const strip = h.indexOf('<nav class="klh-fleetnav"');
+			const bar = h.indexOf("<klh-topbar");
+			expect(strip).toBeGreaterThanOrEqual(0);
+			expect(bar).toBeGreaterThan(strip);
 		}
-		const tabs = [...page.matchAll(/class="cnav"[^>]*>([^<]+)</g)].map(
-			(m) => m[1],
-		);
-		expect(tabs).toEqual(["belt gateway", "fleet board", "local services"]);
-		expect(page).toContain('aria-current="page" href="/console/belt"');
+		expect(page).toContain('href="/console/belt" aria-current="page"');
 	});
 });
 
@@ -477,9 +384,9 @@ describe("vendoring pin (W291)", () => {
 		).arrayBuffer();
 		const sha256 = new Bun.CryptoHasher("sha256").update(src).digest("hex");
 		expect({ version: KLH_THEME_VERSION, sha256 }).toEqual({
-			version: "1.1.0",
+			version: "1.2.0",
 			sha256:
-				"5941ab1ba3ce1b25af38cd46ff68a70182dd2be8d55a0ef739f65f87a80b6d99",
+				"a90da262ab69f3736cb8ab35655bbcc1673c523c19ee9aba5f8c73698783684f",
 		});
 	});
 });

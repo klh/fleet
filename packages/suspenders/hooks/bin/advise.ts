@@ -8,9 +8,9 @@
 // env:   SUSPENDERS_LLM_URL   (default http://127.0.0.1:8901/v1/chat/completions)
 //        SUSPENDERS_LLM_MODEL (default "local")
 //        SUSPENDERS_LLM_KEY   (optional bearer token)
-import { isDecisionKind, openGovernorDb } from "../lib/govdb.ts";
+import { isDecisionKind, openStore } from "../lib/govdb.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
+import { beltChat } from "../lib/belt-chat.ts";
 import {
 	chatRemote,
 	endpointsWithRole,
@@ -26,12 +26,28 @@ import {
 	kevUrl,
 	parseOptions,
 } from "../lib/kev.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
-const id = Number(process.argv[2] ?? 0);
-if (!id) {
-	console.error("usage: bun hooks/bin/advise.ts <event-id>");
+// W656.2: kit-owned parse — the board's routes-actions spawns
+// `advise.ts <event-id>`; the surface is one positional, help is new
+const USAGE = "usage: bun hooks/bin/advise.ts <event-id>";
+const SPEC = defineVerb({
+	name: "advise",
+	usage: USAGE,
+	minPos: 1,
+	lax: true,
+});
+const argv = process.argv.slice(2);
+if (argv.includes("--help") || argv.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, argv);
+if (!outcome.ok || !Number(outcome.parsed.pos[0])) {
+	console.error(outcome.message || USAGE);
 	process.exit(1);
 }
+const id = Number(outcome.parsed.pos[0]);
 // recommendation endpoint (W217 model map): user settings override env —
 // config-over-code; the hub-default tier is a later policy-manifest rule
 const SETTINGS = readBoardSettings().settings;
@@ -71,7 +87,7 @@ async function defaultModel(url: string, key?: string): Promise<string> {
 	}
 }
 
-const db = openGovernorDb();
+const db = openStore();
 const ev = db
 	.query(
 		"SELECT id, ts, source, kind, scope, payload, target FROM events WHERE id = ?",
@@ -201,6 +217,9 @@ function storeAdvice(text: string, meta: { model: string; host: string }) {
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 	).run(fk, advice, Date.now());
+	// W667: both terminal writes clear the board's in-flight stamp so the
+	// next /api/advise can spawn fresh after the dedupe window
+	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
 	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.error`);
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'ADVICE', ?, ?, ?)",
@@ -233,6 +252,10 @@ async function tryRemoteAdvise(
 		],
 		{ maxTokens: 500, timeoutMs: 300_000 },
 	);
+	// W552.6.1: a placeholder/empty remote reply is NOT an answer — skip to
+	// the next candidate instead of storing it
+	const text = out.text.trim();
+	if (!text || text === "(empty response)") return;
 	const host = `${machine.name}:${endpoint.port}`;
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
@@ -248,62 +271,28 @@ async function tryRemoteAdvise(
 			ms: out.ms,
 		}),
 	);
-	storeAdvice(out.text, { model: out.model, host });
+	storeAdvice(text, { model: out.model, host });
 	console.error(`advise #${id}: local LLM down — answered by remote ${host}`);
 	process.exit(0);
 }
 
-/** W89.2 — belt as FIRST candidate: POST /api/route {role:"advise",
- *  execute:true} lets belt pick the best healthy target from its own
- *  metrics (local swarm, NAS, cloud). Null when belt is unreachable —
- *  the local and remote paths below stay as fallbacks. */
+/** W89.2 — belt as FIRST candidate: POST /api/route {execute:true} lets belt
+ *  pick the best healthy target from its own metrics (local swarm, NAS,
+ *  cloud). W552.6.1: the shared belt-chat leg validates the reply — a belt
+ *  placeholder ("(empty response)") and empty text are NOT answers; they
+ *  validate to null and the local + remote fallbacks below stay in charge.
+ *  Null when belt is unreachable — same degrade contract as before. */
 async function tryBeltRoute(
 	sys: string,
 	question: string,
 ): Promise<{ text: string; model: string; host: string; ms: number } | null> {
-	// W91 #9a: belt location resolves through the shared chain (env → config →
-	// belt.local → dev default) — never a hardcoded address
-	const loc = await resolveBelt();
-	if (!loc) return null;
-	const { url: base, token } = loc;
-	try {
-		const r = await fetch(`${base}/api/route`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(token ? { authorization: `Bearer ${token}` } : {}),
-			},
-			body: JSON.stringify({
-				role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
-				execute: true,
-				max_tokens: 500,
-				temperature: 0.2,
-				messages: [
-					{ role: "system", content: sys },
-					{
-						role: "user",
-						content: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
-					},
-				],
-			}),
-			signal: AbortSignal.timeout(300_000),
-		});
-		if (!r.ok) return null;
-		const j = (await r.json()) as {
-			reply?: string;
-			target?: { model?: string; machine?: string; port?: number };
-			ms?: number;
-		};
-		if (!j.reply) return null;
-		return {
-			text: j.reply,
-			model: j.target?.model ?? "belt",
-			host: `belt(${j.target?.machine ?? "?"})`,
-			ms: j.ms ?? 0,
-		};
-	} catch {
-		return null;
-	}
+	return beltChat({
+		role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
+		system: sys,
+		user: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
+		maxTokens: 500,
+		timeoutMs: 300_000,
+	});
 }
 
 // W225 kev-class typed pass FIRST: a fork with structured options is a
@@ -382,6 +371,11 @@ try {
 		usage?: LlmUsage;
 	};
 	text = j.choices?.[0]?.message?.content ?? "";
+	// W552.6.1: empty content is a provider failure, not an empty success —
+	// throw into the failure-telemetry + error-fact path. The message keeps
+	// the "LLM " prefix so the catch treats it as a provider failure (not
+	// "unavailable") — no remote-fallback spin, honest exit 2.
+	if (!text.trim()) throw new Error("LLM answered with no content");
 	// W28 routing telemetry: every advise round-trip becomes an llm.call
 	// event — the board's LLM telemetry block sums today's tokens per model
 	// against optional llm.budget.<model> facts. Usage may be absent (some
@@ -437,6 +431,7 @@ try {
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 	).run(`${fk}.error`, unavailable ? `unavailable: ${msg}` : msg, Date.now());
+	db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
 	console.error(
 		unavailable
 			? `advise #${id}: no advice LLM at ${LLM_HOST} (${msg.slice(0, 120)}) — advice unavailable, fork stays open`

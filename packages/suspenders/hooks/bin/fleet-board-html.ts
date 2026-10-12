@@ -1,8 +1,8 @@
-// W147: the SPA board wears the same console shell as every page — the
-// topbar + avatar dropdown ship from console-html.ts (String.raw interpolates
-// ${}; only escapes are raw). Avatar data is fetched live from /api/console/me.
-import { TOPBAR_JS, topbar } from "./console-html.ts";
-import { THEME_HEAD } from "../lib/theme.ts";
+// W147: the SPA board wears the same console shell as every page. W658.2:
+// the shell is the klh-topbar Lit component (avatar dropdown + settings
+// gear; me fetched live from /api/console/me by the component); the fleet
+// strip above it stays server-rendered theme.ts fleetNav().
+import { THEME_HEAD, FLEET_NAV_CSS, fleetNav } from "../lib/theme.ts";
 
 const unesc = (s) =>
 	s
@@ -41,6 +41,7 @@ import { BOOT } from "../board-html/boot.ts";
 export const HTML = unesc(String.raw`<!doctype html>
 <html><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iI2ZmZiIvPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICA8cGF0aCBkPSJNMjIgMTAgQzIzIDQgNDEgNCA0MiAxMCIvPgogICAgPHBhdGggZD0iTTIyIDEwIEw0NCA0NSBMMzkgNTUiLz4KICAgIDxwYXRoIGQ9Ik00MiAxMCBMMjAgNDUgTDI1IDU1Ii8+CiAgICA8cGF0aCBkPSJNMzIgMjcgTDMyIDQ5Ii8+CiAgPC9nPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIyLjQiPgogICAgPGNpcmNsZSBjeD0iMzkiIGN5PSI1Ny4yIiByPSIyLjYiLz4KICAgIDxjaXJjbGUgY3g9IjI1IiBjeT0iNTcuMiIgcj0iMi42Ii8+CiAgICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjUxLjYiIHI9IjIuNiIvPgogIDwvZz4KPC9zdmc+Cg=="><title>FLEET BOARD</title>
 ${THEME_HEAD}
+<style>${FLEET_NAV_CSS}</style>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script type="module" src="/vendor/klh-recovery.js"></script>
 <style>
@@ -157,8 +158,12 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W57 orchestrate box — LLM proposes a plan + parallel children from a goal; the human registers it as a plan-gated work split */
 .orch { border:1px solid var(--klh-edge); border-radius:6px; padding:10px 12px; margin:0 0 12px; background:var(--klh-wash); }
 .orchrow { display:flex; gap:8px; align-items:center; }
-#orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; }
+#orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; resize:none; }
 #orchGoal:focus { outline:none; border-color:var(--klh-accent); }
+#orch.expanded .orchrow { align-items:flex-start; }
+#orchSuggest { background:none; border:1px solid var(--klh-edge-strong); border-radius:4px; color:var(--klh-dim); font:inherit; font-size:11px; padding:4px 10px; cursor:pointer; }
+#orchSuggest:disabled { opacity:.45; cursor:default; }
+#orchSuggest:hover:not(:disabled) { color:var(--klh-ink); border-color:var(--klh-edge); }
 #orchGo { background:none; border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:4px 10px; cursor:pointer; }
 #orchGo:disabled { opacity:.45; cursor:default; }
 #orchGo:hover:not(:disabled) { background:var(--klh-accent-wash); }
@@ -178,8 +183,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--klh-edge-mid); padding-top:6px; }
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
-.kcard { border:1px solid var(--klh-edge-soft); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
-.kcard:hover { border-color:var(--klh-edge-hover); }
+/* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
+.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
+.kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
+.pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 .krow { display:flex; gap:8px; align-items:baseline; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
@@ -210,6 +217,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.run { color:var(--klh-accent); border-color:var(--klh-accent); }
 .pill.done { color:var(--klh-ok-ink); border-color:var(--klh-ok); }
 .pill.block { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
+.pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
 .rq { color:var(--klh-danger-ink); }
 .scard .shead { display:flex; gap:8px; align-items:baseline; font-size:12.5px; }
@@ -278,7 +286,8 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 #toasts { position:fixed; bottom:16px; right:16px; display:flex; flex-direction:column; gap:6px; z-index:40; max-width:min(380px, 90vw); }
 .toast { background:var(--klh-warm); border:1px solid var(--klh-danger); border-left-width:3px; color:var(--klh-ink); padding:8px 12px; font-size:12px; border-radius:2px; box-shadow:0 2px 12px var(--klh-shadow); }
 </style></head><body>
-${topbar("suspenders")}
-<script>${TOPBAR_JS}</script>
+${fleetNav("suspenders", "suspenders")}
+<klh-topbar></klh-topbar>
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
-<script type="module" src="/vendor/klh-components.js"></script>`);
+<script type="module" src="/vendor/klh-components.js"></script>
+<script type="module" src="/vendor/klh-topbar.js"></script>`);

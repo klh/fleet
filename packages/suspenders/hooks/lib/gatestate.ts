@@ -1,8 +1,13 @@
 // hooks/lib/gatestate.ts — per-session advisory counters for gate nudges.
 // Two consumers (files.ts edit-streak, read.ts re-read nudge): one counter
-// shape — JSON map path → count in $TMPDIR, keyed `claude-<scope>-<sid>.json`.
-// Advisory only: a state failure must never change a gate verdict.
-import { readFileSync, writeFileSync } from "node:fs";
+// shape — JSON map path → count, keyed `claude-<scope>-<sid>.json` via the
+// shared atomic IO (session-state.ts). Advisory only: a state failure must
+// never change a gate verdict.
+import {
+	readSessionState,
+	sessionStatePath,
+	writeSessionState,
+} from "./session-state.ts";
 
 /** Bump and return the per-(session, path) counter. Corrupt/missing state
  * counts from zero; write failures are swallowed (nudges are advisory). */
@@ -11,17 +16,9 @@ export function bumpPathCount(
 	sid: string,
 	path: string,
 ): number {
-	const statePath = `${(process.env.TMPDIR ?? "/tmp").replace(/\/$/, "")}/claude-${scope}-${sid}.json`;
-	let counts: Record<string, number> = {};
-	try {
-		counts = JSON.parse(readFileSync(statePath, "utf8")) as Record<
-			string,
-			number
-		>;
-	} catch {}
+	const file = sessionStatePath(scope, sid);
+	const counts = readSessionState<Record<string, number>>(file) ?? {};
 	counts[path] = (counts[path] ?? 0) + 1;
-	try {
-		writeFileSync(statePath, JSON.stringify(counts));
-	} catch {}
+	writeSessionState(file, counts);
 	return counts[path];
 }

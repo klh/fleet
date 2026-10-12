@@ -16,9 +16,14 @@
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import {
+	openStore,
+	projectIdentity,
+	type GovernorStore,
+} from "../lib/govdb.ts";
+import { expireObservedLease } from "../lib/lease-expiry.ts";
+import { classifyOutage, recordOutage } from "../lib/outage-ledger.ts";
 import { recordFailure, resolveFailures } from "../lib/failure-recovery.ts";
-import type { Database } from "bun:sqlite";
 import {
 	appendFileSync,
 	existsSync,
@@ -33,6 +38,10 @@ const REG = `${process.env.HOME}/.cache/claude-governor`;
 const DRIFT = `${REG}/drift.jsonl`;
 const EXEMPT = `${REG}/exempt.json`;
 export const TTL_MS = 15 * 60_000;
+// W576.3: every recorded deny/resolve decision names the enforcement policy
+// version that produced it — allow/deny at the harness boundary is enforced
+// here, prompt text stays guidance (OPA pattern, control-chain review).
+export const GOVERNOR_DECISION_POLICY = "fenced-lease.v1";
 
 // Canonical path: symlinks resolved for what exists, nearest existing ancestor
 // otherwise (Write-new has no file yet). Keys in the locks table are canonical.
@@ -102,12 +111,22 @@ export function governorGate(hook: HookInput): void {
 	const now = Date.now();
 	const tpSelf = hook.transcript_path ?? "";
 
-	// registry DB — fail open: if it cannot open, no leases/claims enforce
-	let db: Database | null = null;
+	// registry DB — explicit per-operation outage policy (W576.3): this gate
+	// fails OPEN (owner law: gates are guard-rails, not boundaries — a dead
+	// registry never blocks an edit), but the degraded outcome is audited:
+	// one deduped structured event lands in outage.jsonl, OUTSIDE the dead
+	// authority itself, so fail-open is a recorded decision, not silence.
+	let db: GovernorStore | null = null;
 	try {
-		db = openGovernorDb();
-	} catch {
+		db = openStore();
+	} catch (e) {
 		db = null;
+		recordOutage({
+			op: "governor.edit",
+			phase: "db-open",
+			reasonCode: classifyOutage(e),
+			path: canon(F),
+		});
 	}
 
 	// ---- lease sweep: stale leases release, regardless of holder liveness ----
@@ -119,8 +138,8 @@ export function governorGate(hook: HookInput): void {
 	if (db) {
 		db.query("UPDATE sessions SET hb = ? WHERE sid = ?").run(now, lane);
 
-		// Owner-predicated: a row re-leased to someone else between the SELECT and
-		// the DELETE is never touched. No renewal here: ts advances only through
+		// Generation-predicated: transfer OR same-owner renewal between SELECT
+		// and DELETE is never touched. No renewal here: ts advances only through
 		// real touches of that file (the acquire/upsert below), so the denial
 		// message's age reports the holder's last real touch.
 		const rows = db.query("SELECT path, sid, ts FROM locks").all() as {
@@ -128,10 +147,7 @@ export function governorGate(hook: HookInput): void {
 			sid: string;
 			ts: number;
 		}[];
-		const del = db.query("DELETE FROM locks WHERE path = ? AND sid = ?");
-		for (const r of rows) {
-			if (now - r.ts > TTL_MS) del.run(r.path, r.sid);
-		}
+		for (const r of rows) expireObservedLease(db, r, now, TTL_MS);
 	}
 
 	const P = canon(F);
@@ -153,6 +169,7 @@ export function governorGate(hook: HookInput): void {
 				generation,
 				holder,
 				recovery,
+				policyVersion: GOVERNOR_DECISION_POLICY,
 			});
 		deny(`${reason}${note}`);
 	};
@@ -218,8 +235,15 @@ export function governorGate(hook: HookInput): void {
 					);
 				} catch {}
 			}
-		} catch {
-			// claims read failed (contention) — claims layer off this call
+		} catch (e) {
+			// claims read failed — the claims layer is off this call. Same
+			// audited-fail-open contract as the DB-open outage above.
+			recordOutage({
+				op: "governor.edit",
+				phase: "claims-read",
+				reasonCode: classifyOutage(e),
+				path: P,
+			});
 		}
 	}
 
@@ -241,11 +265,9 @@ export function governorGate(hook: HookInput): void {
 		if (row && row.sid !== lane) {
 			if (now - row.ts > TTL_MS) {
 				// expired but not yet swept (another gate's sweep lost the race) —
-				// reclaimable right now
-				db.query("DELETE FROM locks WHERE path = ? AND sid = ?").run(
-					P,
-					row.sid,
-				);
+				// Conditional expiry cannot delete a subsequent renewal. A lost
+				// expiry race leaves the lock for atomic acquire to reject below.
+				expireObservedLease(db, row, now, TTL_MS);
 			} else {
 				denyRecovery(
 					`GOVERNOR: ${P} is leased to another agent (session ${row.sid.slice(0, 8)}, ` +
@@ -346,7 +368,7 @@ export function governorGate(hook: HookInput): void {
  * fine-grained fractions only. Never blocks. */
 function activeRoster(): string {
 	try {
-		const db = openGovernorDb();
+		const db = openStore();
 		const rows = db
 			.query(
 				"SELECT substr(owner_sid, 1, 10) AS who, id, title FROM work_items WHERE state IN ('CLAIMED','RUNNING') AND owner_sid IS NOT NULL ORDER BY updated_at DESC LIMIT 5",

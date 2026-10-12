@@ -57,12 +57,62 @@ export const realDeps: ProbeDeps = {
 	readSupervisor: readSupervisorSnapshot,
 };
 
+// W360: SUSPENDERS_PROBE_DEPS=stub pins every probe to a deterministic miss —
+// a board under test renders honest DOWN tiles without touching real loopback
+// ports (machine-state-coupled flake, proven 2026-10-04).
+export const stubDeps: ProbeDeps = {
+	fetch: () => Promise.reject(new Error("stub probe: network disabled")),
+	launchctl: () => Promise.resolve({ code: 1, out: "" }),
+	now: () => new Date(),
+	readSupervisor: () => null,
+};
+
+// resolved per call so a long-lived board picks the knob up at probe time
+export const activeDeps = (): ProbeDeps =>
+	process.env.SUSPENDERS_PROBE_DEPS === "stub" ? stubDeps : realDeps;
+
+const liteLlmLivenessPassed = async (r: Response): Promise<boolean> => {
+	if (
+		r.status !== 200 ||
+		r.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !==
+			"application/json"
+	) {
+		await r.body?.cancel();
+		return false;
+	}
+	const reader = r.body?.getReader();
+	if (!reader) return false;
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let body = "";
+	try {
+		for (;;) {
+			const chunk = await reader.read();
+			if (chunk.done) break;
+			bytes += chunk.value.byteLength;
+			if (bytes > 1024) return false;
+			body += decoder.decode(chunk.value, { stream: true });
+		}
+		return JSON.parse(body + decoder.decode()) === "I'm alive!";
+	} catch {
+		return false;
+	} finally {
+		await reader.cancel().catch(() => {});
+	}
+};
+
 const httpDetail = async (
 	r: Response,
+	contract?: "litellm-process-liveness",
 ): Promise<{ detail: string; ok: boolean }> => {
 	const base = `HTTP ${r.status}`;
 	let ok = r.ok;
 	try {
+		if (contract === "litellm-process-liveness")
+			return {
+				ok: await liteLlmLivenessPassed(r),
+				detail: `${base} · process liveness`,
+			};
 		const j = (await r.json()) as {
 			uptime_s?: number;
 			requests?: { total?: number };
@@ -93,7 +143,7 @@ const httpDetail = async (
 				detail: `${base} · uptime ${Math.round(j.uptime_s)}s · ${j.requests?.total ?? 0} req`,
 			};
 	} catch {
-		if (r.headers.get("content-type")?.includes("json")) ok = false;
+		if (contract || r.headers.get("content-type")?.includes("json")) ok = false;
 	}
 	return { ok, detail: base };
 };
@@ -143,7 +193,7 @@ const probeOne = async (
 			signal: AbortSignal.timeout(1500),
 			redirect: "manual",
 		});
-		const { detail, ok } = await httpDetail(r);
+		const { detail, ok } = await httpDetail(r, p.contract);
 		if (!ok)
 			return {
 				port: p.port,
@@ -178,7 +228,7 @@ const probeOne = async (
 
 export const probeService = async (
 	id: string,
-	deps: ProbeDeps = realDeps,
+	deps: ProbeDeps = activeDeps(),
 ): Promise<ServiceProbe | null> => {
 	const e = recoveryFor(id);
 	if (!e) return null;
@@ -208,7 +258,7 @@ export const probeService = async (
 };
 
 export const probeAll = async (
-	deps: ProbeDeps = realDeps,
+	deps: ProbeDeps = activeDeps(),
 ): Promise<ServiceProbe[]> =>
 	(
 		await Promise.all(PROBED_SERVICES.map((id) => probeService(id, deps)))

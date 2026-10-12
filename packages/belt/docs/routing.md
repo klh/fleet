@@ -1,6 +1,6 @@
 # Hybrid LLM Routing Doctrine
 
-> Relocated from global CLAUDE.md (2026-09-14). Consult when building routers, automation, or choosing where to send LLM work. Measured 2026-09-04 on M5 Max 128GB. Owner directive 2026-09-27: **speed-first** — the fastest local model with adequate quality wins over cloud; cloud is the frontier ceiling, and the tokens-expired degradation goes all-local, never the other way. Measured numbers behind every "why" below: [benchmarks.md](../benchmarks.md) (canonical since 2026-10-02 — no bench data in this doc).
+> Relocated from global CLAUDE.md (2026-09-14). Consult when building routers, automation, or choosing where to send LLM work. Measured 2026-09-04 on M5 Max 128GB. Owner directive 2026-09-29 (supersedes the 2026-09-27 speed-first wording): **cloud-default** — cloud is fastest for most items and stays the default; the local swarm serves background/long-running work and the cloud-down fallback, and the tokens-expired degradation goes all-local, never the other way. Measured numbers behind every "why" below: [benchmarks.md](../benchmarks.md) (canonical since 2026-10-02 — no bench data in this doc).
 
 | Decision point                        | Route                               | Why                                                                                                       |
 | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ reasons per row there.
 
 ## Rules
 
-1. **Speed-first, local-first** (owner 2026-09-27): the fastest adequate-quality local model wins over cloud — the driver is latency and residency, not cost.
+1. **Speed-first, cloud-default** (owner 2026-09-29, superseding the 2026-09-27 local-first wording): cloud is fastest for most items and stays the default — the driver is SPEED, not cost; the local swarm serves background/long-running work and the cloud-down fallback.
 2. **Cold start penalty** (~800ms first hit) — keep specialists resident via launchd KeepAlive.
 3. **The router is deterministic** (keyword-based, 0ms) — no LLM overhead for routing decisions.
 4. **claude-fast checks the local swarm first** — cloud escalation fires only when local failed twice AND the task is COMPLEX+ (SIMPLE/MEDIUM never leave the machine); falls back cleanly if the local stack is down.
@@ -48,6 +48,20 @@ reasons per row there.
   with the longest Retry-After.
 - **Direct tiers**: `routing-policy.yaml` `direct:` lists hot local aliases that
   skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS clients).
+
+## Role classes + reasoning effort (W648)
+`routing-policy.yaml` gains declarative class rows (oh-my-codex §1 lift):
+`classes:` maps frontier/standard/spark to ordered group ladders — groups are
+the existing belt alias namespace (litellm model_name / buckle group /
+direct-tier key), so buckle/litellm keep resolving group → provider. `roles:`
+overrides a role's class; any role/lane named `*-low` drops to spark with NO
+registry edit. `reasoning:` is a model-independent axis (role row > class row
+> default, low..xhigh) — z.ai honors `reasoning_effort`
+(`allowed_openai_params` on z.ai rows), MLX effort is the router budget
+policy. gateway-config emits the resolved map to
+`~/.claude/local-llm/class-tiers.json` for non-TS consumers (dispatch briefs
++ the W512 Task pin: pin the class, the ladder resolves the model).
+
 ## Model registration (W271)
 Every servable LLM is registered in ONE place: `bin/registry.ts`
 (`SPECIALISTS` + `EXTERNAL`, each with an `alias`). Everything downstream is
@@ -57,6 +71,7 @@ bun bin/registry-emit.ts litellm   # LiteLLM model_list (:4100 engine)
 bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers
 bun bin/registry-emit.ts buckle    # buckle upstreams.yaml groups (merge via BUCKLE_UPSTREAMS)
 bun bin/registry-emit.ts json      # registry document
+bun bin/registry-emit.ts tier      # tier manifest (tier + warm_ports — swarm + keepwarm read it; W507)
 bun bin/registry-emit.ts all --out DIR
 ```
 `bin/gateway-config.ts` builds its local tiers from the registry (live
@@ -64,3 +79,42 @@ bun bin/registry-emit.ts all --out DIR
 `GET /registry.json` with a strong `ETag` (`If-None-Match` → 304). Each row
 and the document carry `source: local | hub:<name>` — hub-fed mode (a hub
 serves its registry, spokes pull) is designed, not yet wired.
+
+## Audio tier (W440)
+Cloud TTS/STT rows live in `bin/registry.ts` (`AUDIO_SERVICES`, also served
+as the `audio:` section of `/registry.json`) — NOT in the chat ladder:
+`chatEntries()` and the LiteLLM/direct/buckle emitters never see them, and
+the ladder stays operator-owned (routing-policy.yaml). The helper is
+`bin/audio.ts`; the router exposes the OpenAI-wire surface:
+
+```sh
+curl -s http://127.0.0.1:4000/v1/audio/speech \
+  -H 'content-type: application/json' \
+  -d '{"input":"lane W440 needs a decision"}' --out alert.mp3
+curl -s -F file=@note.m4a http://127.0.0.1:4000/v1/audio/transcriptions
+```
+
+Config-over-code: the vendor key is machine config only — `ELEVENLABS_API_KEY`
+in `~/.claude/local-llm/belt.env` (0600); a missing key is a clean 503 naming
+the env var, never a value on the wire. `ELEVENLABS_BASE` overrides the
+vendor base (tests/staging). CLI: `bun bin/audio.ts speak <text...> --out
+FILE [--voice ID] [--model ID] | transcribe FILE | status`. Candidate uses:
+spoken NEED_DECISION alerts from the board, voice-dictate missions (STT →
+`work add`), lane-status audio summaries.
+
+## Per-machine capability forecast (W258)
+
+This table was hand-measured on ONE machine (2026-09-04). The generated
+counterpart — conservative per-machine magnitude predictions for every row
+the fleet catalog knows (registry + remotes.json) — lives in
+`bin/catalog-capability.ts` and on the dashboard:
+
+```sh
+bun bin/catalog-capability.ts          # markdown per-machine forecast
+bun bin/catalog-capability.ts --json   # raw rows + its doctrine block
+curl belt.local:7791/api/catalog       # the same rows over HTTP
+```
+
+Predictions never override the measured rows above (route-policy law:
+unproven is not fast) — rows carry [lo, hi] tok/s bands with the LOW end as
+the safe claim; cloud rows are network-bound and stay unclocked.

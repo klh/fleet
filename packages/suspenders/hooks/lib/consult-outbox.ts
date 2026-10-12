@@ -1,7 +1,17 @@
-import type { Database } from "bun:sqlite";
+// W92.4 — port-shape param: callers hand either the store port (openStore(),
+// HTTP or in-process) or the raw Database (store-server owner); both satisfy
+// this structural statement shape, so the outbox rides any binding.
+interface OutboxDb {
+	query: (sql: string) => {
+		get: (...p: unknown[]) => unknown;
+		all: (...p: unknown[]) => unknown[];
+		run: (...p: unknown[]) => unknown;
+	};
+	run: (sql: string, ...p: unknown[]) => unknown;
+}
 
 /** Local transaction boundary: a denial cannot commit a consult without its delivery. */
-export function ensureConsultOutbox(db: Database): void {
+export function ensureConsultOutbox(db: OutboxDb): void {
 	db.run(`CREATE TABLE IF NOT EXISTS consult_outbox (
 		delivery_id TEXT PRIMARY KEY, local_consult_id INTEGER NOT NULL UNIQUE,
 		destination TEXT, remote_project TEXT, remote_store_id TEXT, created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -22,7 +32,7 @@ export function ensureConsultOutbox(db: Database): void {
 	);
 }
 
-export function consultStoreId(db: Database): string {
+export function consultStoreId(db: OutboxDb): string {
 	ensureConsultOutbox(db);
 	db.query(
 		"INSERT OR IGNORE INTO consult_outbox_meta(key,value) VALUES('store-id',?)",
@@ -35,7 +45,7 @@ export function consultStoreId(db: Database): string {
 }
 
 export function enqueueConsult(
-	db: Database,
+	db: OutboxDb,
 	consultId: number,
 	now: number,
 ): string {

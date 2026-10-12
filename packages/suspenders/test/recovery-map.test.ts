@@ -34,6 +34,7 @@ const stubDeps = (
 		const port = Number(new URL(url).port);
 		const v = http[port] ?? "refused";
 		if (v === "refused") throw new Error("Unable to connect. ECONNREFUSED");
+		if (port === 4100) return Response.json("I'm alive!", { status: v });
 		return new Response(
 			JSON.stringify({ uptime_s: 12, requests: { total: 3 } }),
 			{
@@ -69,8 +70,9 @@ describe("recovery map completeness", () => {
 		);
 		expect(labels).toContain("com.suspenders.local-llm");
 		// W277: the standalone com.belt.gateway restarter was retired (it was
-		// a second :4100 restarter racing the swarm supervisor — a fork-bomb
-		// hazard); litellm now lives solely under launchd-local-llm.
+		// a second :4100 restarter — a fork-bomb hazard). W307 truth pass:
+		// litellm's ONE restarter is com.suspenders.cloud-gateway — the swarm
+		// only observes :4100 (owned: false, packages/local-llm/swarm.ts).
 		expect(labels).not.toContain("com.belt.gateway");
 		expect(RECOVERY_MAP.caddy).toBeDefined();
 	});
@@ -82,6 +84,15 @@ describe("recovery map completeness", () => {
 		expect(cmds).toContain(
 			"launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm",
 		);
+		// W307: a dark :4100 is revived by the cloud transport supervisor —
+		// kick the swarm and litellm stays dark.
+		const litellmCmds = RECOVERY_MAP["litellm-4100"].recovery.map((s) => s.cmd);
+		expect(litellmCmds).toContain(
+			"launchctl kickstart -k gui/$(id -u)/com.suspenders.cloud-gateway",
+		);
+		expect(
+			litellmCmds.some((c) => c.includes("com.suspenders.local-llm")),
+		).toBe(false);
 		// the orphaned-:4000 case (2026-10-03) has a kill-the-orphan step
 		expect(
 			RECOVERY_MAP["belt-gateway-4000"].recovery.map((s) => s.cmd),
@@ -252,7 +263,7 @@ describe("server rendering", () => {
 		expect(html).not.toContain("how to recover");
 	});
 
-	test("belt page: every service row, the module, no leakage", async () => {
+	test("belt page: gateway transport rows, the module, no leakage", async () => {
 		const health = (await probeAll(stubDeps({ 4101: 200 }))).map(withRecovery);
 		const page = beltPage({
 			policy: null,
@@ -262,13 +273,14 @@ describe("server rendering", () => {
 			health,
 			groups: null,
 		});
-		for (const id of PROBED_SERVICES)
-			expect(page).toContain(`data-service="${id}"`);
+		const transports = ["belt-gateway-4000", "litellm-4100", "buckle-4101"];
+		for (const id of transports) expect(page).toContain(`data-service="${id}"`);
+		expect(page).not.toContain('data-service="swarm-8901"');
 		expect(page).toContain('src="/vendor/klh-service-row.js"');
-		expect(page).toContain(`${1}/${PROBED_SERVICES.length} up`);
+		expect(page).toContain("1/3 up");
 		const rows =
 			page.match(/<klh-service-row[\s\S]*?<\/klh-service-row>/g) ?? [];
-		expect(rows.length).toBe(PROBED_SERVICES.length);
+		expect(rows.length).toBe(transports.length);
 		const text = rows
 			.join("\n")
 			.replaceAll("&lt;", "<")

@@ -211,3 +211,40 @@ describe("latency classes", () => {
 		expect(compareCandidates(b, a)).toBeGreaterThan(0);
 	});
 });
+
+describe("W426 cross-dialect eligibility", () => {
+	const antRow = (over: Partial<CandidateRow> = {}) =>
+		row({ dialect: "anthropic", ...over });
+
+	test("default: other-dialect rows are invisible", () => {
+		const r = decide(null, [antRow()]);
+		expect(r.ok).toBe(false);
+	});
+
+	test("allowCross: cross rows eligible but ranked behind same-dialect", () => {
+		const same = row();
+		const cross = antRow({ estimate_ms: 1, calls: 9 }); // provably faster
+		const r = decideRoute({
+			hint: null,
+			hintRaw: "",
+			candidates: [cross, same],
+			prefs: PREFS_OPEN,
+			dialect: "openai",
+			allowCross: true,
+		});
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.candidate_id).toBe(same.candidate_id);
+	});
+
+	test("allowCross: cross row delivers when it is the only row", () => {
+		const r = decideRoute({
+			hint: null,
+			hintRaw: "",
+			candidates: [antRow()],
+			prefs: PREFS_OPEN,
+			dialect: "openai",
+			allowCross: true,
+		});
+		expect(r.ok).toBe(true);
+	});
+});

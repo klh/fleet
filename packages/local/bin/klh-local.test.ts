@@ -49,25 +49,31 @@ const setup = (): { sites: string; caddyfile: string } => {
 };
 
 describe("fragmentConf exposure", () => {
-	test("loopback bind by default", () => {
+	test("loopback denies external remotes by default", () => {
 		const f = fragmentConf("belt", 7791);
-		expect(f).toContain("\tbind 127.0.0.1 ::1\n");
+		expect(f).toContain("\t@external not remote_ip 127.0.0.1 ::1\n");
+		expect(f).toContain("\tabort @external\n");
+		expect(f).not.toContain("bind ");
 		expect(f).not.toContain("forward_auth");
 	});
 
-	test("routes keep the loopback bind", () => {
+	test("routes keep the external-remote deny", () => {
 		const f = fragmentConf("belt", 7791, [{ path: "/s*", port: 4100 }]);
-		expect(f.indexOf("bind 127.0.0.1")).toBeLessThan(f.indexOf("handle"));
+		expect(f.indexOf("abort @external")).toBeLessThan(f.indexOf("handle"));
 	});
 
-	test("--lan drops the bind and requires forward_auth", () => {
+	test("--lan drops the deny and requires forward_auth", () => {
 		const f = fragmentConf("belt", 7791, [], {
 			lan: true,
 			forwardAuth: "http://127.0.0.1:9091/api/verify?rd=x",
 		});
 		expect(f).not.toContain("bind ");
+		expect(f).not.toContain("@external");
 		expect(f).toContain("forward_auth http://127.0.0.1:9091 {");
 		expect(f).toContain("uri /api/verify?rd=x");
+		expect(f).toContain(
+			"copy_headers Remote-User Remote-Groups Remote-Email Remote-Name X-KLH-Identity X-KLH-Identity-Sig",
+		);
 		expect(() => fragmentConf("belt", 7791, [], { lan: true })).toThrow();
 	});
 
@@ -154,6 +160,50 @@ describe("applyFragment rollback", () => {
 		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("prior-good");
 	});
 
+	test("transient reload failure is retried with --force and converges", () => {
+		const { sites, caddyfile } = setup();
+		writeFileSync(join(sites, "svc.caddy"), "prior-good");
+		const forces: boolean[] = [];
+		let calls = 0;
+		const res = applyFragment({
+			sites,
+			caddyfile,
+			name: "svc",
+			content: "new",
+			validate: () => ok,
+			reload: (_cf, force) => {
+				calls++;
+				forces.push(force);
+				return calls === 1 ? { code: 1, out: "bind: permission denied" } : ok;
+			},
+		});
+		expect(res).toEqual({ ok: true });
+		expect(forces).toEqual([false, true]);
+		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("new");
+	});
+
+	test("persistent reload failure exhausts retries, then rolls back", () => {
+		const { sites, caddyfile } = setup();
+		writeFileSync(join(sites, "svc.caddy"), "prior-good");
+		const forces: boolean[] = [];
+		const res = applyFragment({
+			sites,
+			caddyfile,
+			name: "svc",
+			content: "new",
+			validate: () => ok,
+			reload: (cf, force) => {
+				void cf;
+				forces.push(force);
+				return { code: 1, out: "bind: permission denied" };
+			},
+		});
+		expect(res.ok).toBe(false);
+		expect((res as { out?: string }).out).toBe("bind: permission denied");
+		expect(forces).toEqual([false, true, true]);
+		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("prior-good");
+	});
+
 	test("reload failure on a new service removes the fragment", () => {
 		const { sites, caddyfile } = setup();
 		applyFragment({
@@ -165,6 +215,26 @@ describe("applyFragment rollback", () => {
 			reload: fail("nope"),
 		});
 		expect(readdirSync(sites)).toEqual([]);
+	});
+
+	test("served-skip converges the fragment without reloading", () => {
+		const { sites, caddyfile } = setup();
+		let reloads = 0;
+		const res = applyFragment({
+			sites,
+			caddyfile,
+			name: "svc",
+			content: "new",
+			validate: () => ok,
+			reload: () => {
+				reloads++;
+				return ok;
+			},
+			served: () => true,
+		});
+		expect(res).toEqual({ ok: true });
+		expect(reloads).toBe(0);
+		expect(readFileSync(join(sites, "svc.caddy"), "utf8")).toBe("new");
 	});
 
 	const caddy = Bun.which("caddy");

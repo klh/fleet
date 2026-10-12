@@ -1,3 +1,4 @@
+import { completionTail } from "../lib/work-completion-record.ts";
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
@@ -13,17 +14,22 @@ import {
 import {
 	projOf,
 	syncDecisions,
-	failNote,
 	ago,
-	label,
+	labelMaps,
+	labelFrom,
+	laneModelMaps,
 	ownerLabel,
 	payloadOf,
+	decisionVerdicts,
 	transcriptTail,
+	subscribeTail,
 	unblockedBy,
 	laneModelOf,
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { chunked } from "./helpers.ts";
 import { observation } from "../lib/observation.ts";
+import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
 
@@ -32,6 +38,10 @@ export function taskShape(
 	openDecisions: number,
 	unblocked: Map<string, string | null> = new Map(),
 ): Record<string, unknown> {
+	// W517 — .prefer tree identity: the stamped tag wins, live resolve
+	// covers rows added before coverage; color is a tree attribute, always
+	// live (TTL-cached per project in prefer.ts)
+	const pref = preferForProject(w.project);
 	return {
 		project: w.project,
 		id: w.id,
@@ -39,12 +49,21 @@ export function taskShape(
 		state: w.state,
 		owner_sid: w.owner_sid ?? null,
 		owner_label: ownerLabel(w.owner_sid),
+		// W353: the dispatch origin stamp (`work take --origin host:agent`) —
+		// the kanban card + drawer template both render t.origin; the feed
+		// never carried it, so delegation provenance was invisible in the GUI
+		origin: w.origin ?? null,
+		tag: w.tags ?? pref.tag,
+		tag_color: pref.color,
 		requires: w.requires ?? null,
 		scope: w.scope ?? null,
 		parent_id: w.parent_id ?? null,
 		age_s: ago(w.updated_at),
 		open_decisions: openDecisions,
-		tail: transcriptTail(w.owner_sid),
+		tail:
+			(w.state === "DONE" ? completionTail(db, w.project, w.id) : null) ??
+			transcriptTail(w.owner_sid) ??
+			subscribeTail(w.owner_sid),
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
 			w.state === "READY"
@@ -95,8 +114,8 @@ export function workEvents(p: string, id: string): unknown[] {
 		db
 			.query(
 				`SELECT id, ts, source, kind, payload FROM events
-				WHERE (json_extract(payload, '$.work') = ? AND json_extract(payload, '$.project') = ?)
-					OR (scope = ? AND (json_extract(payload, '$.project') = ? OR json_extract(payload, '$.project') IS NULL))
+				WHERE (work = ? AND project = ?)
+					OR (scope = ? AND (project = ? OR project IS NULL))
 				ORDER BY id DESC LIMIT 50`,
 			)
 			.all(id, p, id, p) as EventRow[]
@@ -135,25 +154,33 @@ export function taskDecisions(p: string, id: string): unknown[] {
 }
 
 // newest-first bus feed. note/sha ride the payload; project too (CLI emitters
-// stamp it — the source session's project covers anything older)
-export function activity(p: string | null, limit: number): unknown[] {
+// stamp it — the source session's project covers anything older). Keyset
+// pagination (W451): `before` is the previous page's last id — the caller
+// drains history with ?before=<nextCursor>; a partial page means the end.
+export function activity(
+	p: string | null,
+	limit: number,
+	before?: number,
+): { events: unknown[]; nextCursor: number | null } {
+	const hasCursor = typeof before === "number" && Number.isFinite(before);
+	const cursorSql = hasCursor ? " AND id < ?" : "";
 	const evs = (
 		p && p !== "all"
 			? db
 					.query(
 						`SELECT id, ts, source, kind, payload, target FROM events
-					WHERE json_extract(payload, '$.project') = ?
-						OR (json_extract(payload, '$.project') IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?))
+					WHERE (project = ?
+						OR (project IS NULL AND source IN (SELECT sid FROM sessions WHERE project = ?)))${cursorSql}
 					ORDER BY id DESC LIMIT ?`,
 					)
-					.all(p, p, limit)
+					.all(...(hasCursor ? [p, p, before, limit] : [p, p, limit]))
 			: db
 					.query(
-						"SELECT id, ts, source, kind, payload, target FROM events ORDER BY id DESC LIMIT ?",
+						`SELECT id, ts, source, kind, payload, target FROM events WHERE 1=1${cursorSql} ORDER BY id DESC LIMIT ?`,
 					)
-					.all(limit)
+					.all(...(hasCursor ? [before, limit] : [limit]))
 	) as EventRow[];
-	return evs.map((e) => {
+	const rows = evs.map((e) => {
 		const pl = payloadOf(e.payload);
 		return {
 			id: e.id,
@@ -166,6 +193,10 @@ export function activity(p: string | null, limit: number): unknown[] {
 			project: pl.project ?? projOf(e.source) ?? null,
 		};
 	});
+	return {
+		events: rows,
+		nextCursor: evs.length === limit ? (evs[evs.length - 1]?.id ?? null) : null,
+	};
 }
 
 // advisory wiring checks — never throw; a failed check is information, not an
@@ -292,6 +323,8 @@ export interface SessionView {
 }
 
 export function sessions(): SessionView[] {
+	const lm = labelMaps();
+	const laneModel = laneModelMaps();
 	return (
 		db
 			.query(
@@ -300,14 +333,38 @@ export function sessions(): SessionView[] {
 			.all() as SessionRow[]
 	).map((s) => ({
 		sid: s.sid,
-		label: label(s.sid, s.role),
+		label: labelFrom(lm, s.sid, s.role),
 		role: s.role,
 		state: s.state,
 		parent: s.parent_sid,
 		project: s.project,
 		hbAgo: ago(s.hb),
-		...laneModelOf(s.sid),
+		...(laneModel.get(s.sid) ?? {
+			executor: null,
+			model: null,
+			locality: null,
+		}),
 	}));
+}
+
+// W685: batched failNote — newest work.failed payload note per item, one
+// IN(...) read for the whole board instead of a store RPC per FAILED row.
+function failNoteMaps(works: string[]): Map<string, string | null> {
+	const out = new Map<string, string | null>();
+	chunked(works, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(
+				`SELECT work, payload FROM events WHERE kind = 'work.failed' AND work IN (${ph}) ORDER BY id DESC`,
+			)
+			.all(...chunk) as { work: string; payload: string | null }[]) {
+			if (!out.has(r.work)) {
+				const note = payloadOf(r.payload).note;
+				out.set(r.work, note ? String(note).slice(0, 300) : null);
+			}
+		}
+	});
+	return out;
 }
 
 export function board(): Record<string, unknown>[] {
@@ -316,20 +373,42 @@ export function board(): Record<string, unknown>[] {
 			"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') OR state = 'DONE'",
 		)
 		.all() as { project: string }[];
+	// W685: the per-project N+1 (items + deps + failNote per FAILED item)
+	// batches into three all-project reads — 136 store RPCs → 4 per compute.
+	const items = db
+		.query(
+			"SELECT project, id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items ORDER BY project, priority DESC, id",
+		)
+		.all() as (WorkItemRow & { project: string })[];
+	const depRows = db
+		.query(
+			"SELECT project, work_id, depends_on FROM work_deps WHERE depends_on IS NOT NULL AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.project = work_deps.project AND w.id = work_deps.depends_on AND w.state = 'DONE')",
+		)
+		.all() as { project: string; work_id: string; depends_on: string }[];
+	const byProject = new Map<string, WorkItemRow[]>();
+	for (const w of items) {
+		const list = byProject.get(w.project);
+		if (list) list.push(w);
+		else byProject.set(w.project, [w]);
+	}
+	const depsByProject = new Map<
+		string,
+		{ work_id: string; depends_on: string }[]
+	>();
+	for (const r of depRows) {
+		const list = depsByProject.get(r.project);
+		if (list) list.push(r);
+		else depsByProject.set(r.project, [r]);
+	}
+	const failNotes = failNoteMaps(
+		items.filter((w) => w.state === "FAILED").map((w) => w.id),
+	);
 	return projects.map(({ project }) => {
-		const items = db
-			.query(
-				"SELECT id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items WHERE project = ? ORDER BY priority DESC, id",
-			)
-			.all(project) as WorkItemRow[];
+		const items = byProject.get(project) ?? [];
 		const doneIds = new Set(
 			items.filter((w) => w.state === "DONE").map((w) => w.id),
 		);
-		const depRows = db
-			.query(
-				"SELECT work_id, depends_on FROM work_deps WHERE project = ? AND depends_on NOT IN (SELECT id FROM work_items WHERE project = ? AND state = 'DONE')",
-			)
-			.all(project, project) as { work_id: string; depends_on: string }[];
+		const depRows = depsByProject.get(project) ?? [];
 		const blocked = new Set(depRows.map((r) => r.work_id));
 		const openDeps: Record<string, string[]> = {};
 		for (const r of depRows) {
@@ -347,7 +426,7 @@ export function board(): Record<string, unknown>[] {
 			requires: w.requires,
 			blocked: blocked.has(w.id),
 			deps: openDeps[w.id] ?? null,
-			note: w.state === "FAILED" ? failNote(w.id) : null,
+			note: w.state === "FAILED" ? (failNotes.get(w.id) ?? null) : null,
 			updatedAgo: ago(w.updated_at),
 		});
 		return {
@@ -385,6 +464,7 @@ export function board(): Record<string, unknown>[] {
 				.filter(
 					(w) =>
 						w.state === "FAILED" ||
+						w.state === "CANCELLED" ||
 						w.state === "SUPERSEDED" ||
 						w.state === "ORPHANED" ||
 						w.state === "SHATTERED",
@@ -483,19 +563,61 @@ export function inbox(sid: string): unknown[] {
 	}));
 }
 
+// W685 batched read faces — one IN(...) statement per chunk replaces the
+// per-row store RPCs that made a cold payload compute 684 curls ≈ 3.7s.
+function factsByKeys(keys: string[]): Map<string, string> {
+	const out = new Map<string, string>();
+	chunked(keys, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT key, value FROM facts WHERE key IN (${ph})`)
+			.all(...chunk) as { key: string; value: string }[])
+			out.set(r.key, r.value);
+	});
+	return out;
+}
+
+function sessionsRoles(sids: string[]): Map<string, string> {
+	const out = new Map<string, string>();
+	chunked(sids.filter(Boolean), (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT sid, role FROM sessions WHERE sid IN (${ph})`)
+			.all(...chunk) as { sid: string; role: string | null }[])
+			out.set(r.sid, r.role ?? "");
+	});
+	return out;
+}
+
+function eventPayloads(ids: number[]): Map<number, string | null> {
+	const out = new Map<number, string | null>();
+	chunked(ids, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT id, payload FROM events WHERE id IN (${ph})`)
+			.all(...chunk) as { id: number; payload: string | null }[])
+			out.set(r.id, r.payload);
+	});
+	return out;
+}
+
 // records per docs/decisions-api.md — legacy column names (event_id/target/
 // answered_at/created_at) surface under their contract names at the API.
 // OPEN decisions first, then newest resolved; advice (hooks/bin/advise.ts,
 // fact advice.<id> or advice.<id>.error) rides along so the card can show
 // the recommendation — the LLM advises, the human decides.
-export function decisionRecords(): Record<string, unknown>[] {
+export function decisionRecords(
+	project: string | null = null,
+): Record<string, unknown>[] {
+	const selected = project && project !== "all" ? project : null;
 	const rows = db
 		.query(
 			`SELECT d.*, w.title AS task_title FROM decisions d
 			LEFT JOIN work_items w ON w.project = d.project AND w.id = d.task_id
+			${selected ? "WHERE d.project = ?" : ""}
 			ORDER BY (d.state = 'OPEN') DESC, d.event_id DESC LIMIT 200`,
 		)
-		.all() as {
+		.all(...(selected ? [selected] : [])) as {
 		event_id: number;
 		target: string;
 		asked_by: string | null;
@@ -513,6 +635,20 @@ export function decisionRecords(): Record<string, unknown>[] {
 		ack_ts: number | null;
 		task_title: string | null;
 	}[];
+	// W667: one batched liveness pass feeds every row — registry verdicts
+	// (the `work lanes` surface) with the sessions face as fallback
+	const verdicts = decisionVerdicts(
+		rows.map((d) => ({ sid: d.target, project: d.project })),
+	);
+	// W685: the four per-row reads — advice fact, advice error, session role,
+	// source-event payload — batch into four IN(...) reads (the profile's
+	// 3.7s whale: 684 store RPCs per cold compute → ~7).
+	const adviceRows = factsByKeys(
+		rows.flatMap((d) => [`advice.${d.event_id}`, `advice.${d.event_id}.error`]),
+	);
+	const roles = sessionsRoles(rows.map((d) => d.target));
+	const evPayloads = eventPayloads(rows.map((d) => d.event_id));
+	const lm = labelMaps();
 	return rows.map((d) => {
 		let options: { label: string; tradeoff?: string | null }[] = [];
 		try {
@@ -520,32 +656,33 @@ export function decisionRecords(): Record<string, unknown>[] {
 		} catch {}
 		let advice: unknown;
 		let adviceError: string | undefined;
-		const a = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`advice.${d.event_id}`) as { value: string } | null;
+		const a = adviceRows.get(`advice.${d.event_id}`) ?? null;
 		if (a) {
 			try {
-				advice = JSON.parse(a.value);
+				advice = JSON.parse(a);
 			} catch {}
 		} else {
-			const err = db
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`advice.${d.event_id}.error`) as { value: string } | null;
-			if (err) adviceError = err.value.slice(0, 200);
+			const err = adviceRows.get(`advice.${d.event_id}.error`);
+			if (err) adviceError = err.slice(0, 200);
 		}
-		const role =
-			(
-				db.query("SELECT role FROM sessions WHERE sid = ?").get(d.target) as {
-					role: string | null;
-				} | null
-			)?.role ?? "worker";
+		const role = roles.get(d.target ?? "") ?? "worker";
+		// W487 owner-actionable: a fork classified owner-needed, or one whose
+		// target session is not RUNNING, must not dead-end on Send-to-lane —
+		// the board renders it as an owner ruling and /api/answer resolves it
+		// without a lane ack (same accept-set as routes-actions.ts).
+		const classification = String(
+			payloadOf(evPayloads.get(d.event_id) ?? null).classification ?? "",
+		);
+		const ownerNeeded =
+			classification === "owner-needed" || classification === "owner_needed";
+		const targetGone = d.target ? verdicts.get(d.target) === "dead" : true; // legacy no-target rows: gone by definition
 		return {
 			id: d.event_id,
 			project: d.project || null,
 			task_id: d.task_id,
 			task_title: d.task_title ?? null,
 			asked_by: d.asked_by || d.target,
-			asked_by_label: label(d.asked_by || d.target, role),
+			asked_by_label: labelFrom(lm, d.asked_by || d.target, role),
 			target: d.target,
 			question: d.question ?? "",
 			options,
@@ -554,6 +691,12 @@ export function decisionRecords(): Record<string, unknown>[] {
 			answer_note: d.answer_note,
 			answer_to: d.answer_to,
 			answer_token: d.answer_token,
+			owner_actionable: ownerNeeded || targetGone,
+			owner_reason: ownerNeeded
+				? "owner-needed"
+				: targetGone
+					? "target-dead"
+					: null,
 			created_ts: d.created_at,
 			answered_ts: d.answered_at,
 			ack_ts: d.ack_ts,
@@ -564,9 +707,37 @@ export function decisionRecords(): Record<string, unknown>[] {
 	});
 }
 
-export function decisionsPayload(history: boolean): unknown {
+// W663 follow-up (2026-10-12): the UI polls /api/data + /api/decisions every
+// ~1s while one compute costs ~2s (spawnSync-heavy store hops) — stacked
+// recomputes pushed wire TTFB to 5-7s. One shared memo: the first request
+// after expiry computes decisions+data once; the poll storm rides the cache.
+let _feed: {
+	at: number;
+	records: Record<string, unknown>[];
+	data: unknown;
+} | null = null;
+const FEED_TTL_MS = 1_500;
+
+function feedMemo(): {
+	at: number;
+	records: Record<string, unknown>[];
+	data: unknown;
+} {
+	if (_feed && Date.now() - _feed.at < FEED_TTL_MS) return _feed;
 	syncDecisions();
-	const recs = decisionRecords();
+	const records = decisionRecords(null);
+	_feed = { at: Date.now(), records, data: buildPayload() };
+	return _feed;
+}
+
+export function decisionsPayload(
+	history: boolean,
+	project: string | null = null,
+): unknown {
+	const selected = project && project !== "all" ? project : null;
+	const recs = feedMemo().records.filter(
+		(r) => !selected || r.project === selected,
+	);
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];
@@ -623,24 +794,50 @@ export function llm(): unknown {
 }
 
 export function payload() {
-	syncDecisions();
-	const ss = sessions();
+	return feedMemo().data;
+}
+
+// W685 payload bounds: /api/data served EVERY session ever (1898 rows /
+// 423KB) and a labels map mirroring it; the fleet view renders current +
+// recent lanes in full and pages history, so the deep CLOSED tail rode the
+// wire for nothing. Non-CLOSED always ride; CLOSED keeps the newest cap.
+const SESSION_HISTORY_CAP = 400;
+function boundSessions(ss: SessionView[]): SessionView[] {
+	if (ss.length <= SESSION_HISTORY_CAP) return ss;
+	const live = ss.filter((s) => s.state !== "CLOSED");
+	const closed = ss
+		.filter((s) => s.state === "CLOSED")
+		.sort((a, b) => b.hbAgo - a.hbAgo)
+		.slice(0, SESSION_HISTORY_CAP - Math.min(live.length, SESSION_HISTORY_CAP));
+	return [...live, ...closed];
+}
+
+function buildPayload(): unknown {
+	// W685: sessions ride bounded (see boundSessions) and zombies are cut to
+	// the shown-session prefixes — the client zombieFor matches on the same
+	// 10-char prefix, so nothing it can render is lost.
+	const allSessions = sessions();
+	const ss = boundSessions(allSessions);
+	const zombiePrefixes = new Set(ss.map((s) => s.sid.slice(0, 10)));
 	const labels: Record<string, string> = {};
 	for (const s of ss) labels[s.sid] = s.label;
+	const lm = labelMaps();
 	for (const c of db.query("SELECT DISTINCT sid FROM claims").all() as {
 		sid: string;
 	}[]) {
-		if (!labels[c.sid]) labels[c.sid] = label(c.sid, "worker");
+		if (!labels[c.sid]) labels[c.sid] = labelFrom(lm, c.sid, "worker");
 	}
 	const zombies = (
 		db
 			.query("SELECT key, value FROM facts WHERE key LIKE 'zombie.%'")
 			.all() as { key: string; value: string }[]
-	).map((z) => ({
-		item: z.key.slice("zombie.".length),
-		// old monitor versions wrote a leading article — strip it at the boundary
-		label: z.value.replace(/^an? /, ""),
-	}));
+	)
+		.map((z) => ({
+			item: z.key.slice("zombie.".length),
+			// old monitor versions wrote a leading article — strip it at the boundary
+			label: z.value.replace(/^an? /, ""),
+		}))
+		.filter((z) => zombiePrefixes.has(z.label.slice(0, 10)));
 	// consult diagnostics: where inter-agent latency hides; the kb answers
 	// repeat questions without spending an expert round-trip
 	const byState = db
@@ -673,6 +870,7 @@ export function payload() {
 		laneObservations: laneObservationSnapshot(db, null),
 		observationRelay: getObservationRelayStatus(),
 		sessions: ss,
+		sessionsTotal: allSessions.length,
 		labels,
 		projects: board(),
 		claims: claims(),

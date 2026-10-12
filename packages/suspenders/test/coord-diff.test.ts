@@ -5,11 +5,12 @@
 // recipe), and every open of the temp DB re-runs the migration idempotently.
 import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
-const home = mkdtempSync(join(process.cwd(), ".coord-diff-test-"));
+const home = mkdtempSync(join(tmpdir(), "suspenders-coord-diff-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
@@ -84,21 +85,21 @@ db.close();
 ).seq as number;
 
 describe("v5 migration — deltas table + row-image triggers", () => {
-	test("user_version 10 (v10 W166 knowledge split rode on top), deltas table, 36 deltas triggers, bus tables untracked", () => {
+	test("user_version >= 11 (v11 W243 activity meter rode on top), deltas table, 39 deltas triggers (W174 admin_audit x3 rides the create loop), bus tables untracked", () => {
 		expect(
 			(
 				sql<{ user_version: number }>(
 					"SELECT * FROM pragma_user_version",
 				)[0] as { user_version: number }
 			).user_version,
-		).toBe(10);
+		).toBeGreaterThanOrEqual(11);
 		expect(
 			(
 				sql<{ n: number }>(
 					"SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_%'",
 				)[0] as { n: number }
 			).n,
-		).toBe(36);
+		).toBe(39);
 		expect(
 			sql(
 				"SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_events_%'",

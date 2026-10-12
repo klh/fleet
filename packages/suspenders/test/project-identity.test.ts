@@ -16,9 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
+import type { GovernorStore } from "../hooks/lib/govdb.ts";
+import { launchSchema } from "../scripts/lib/launch-fencing.ts";
+import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-pid-"));
-const REPO = mkdtempSync(join(process.cwd(), ".tmp-pid-repo-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-pid-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
@@ -72,10 +75,6 @@ run(REPO, coord, "kb", "stats");
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
-	rmSync(join(process.cwd(), ".tmp-pid-wtrepo-"), {
-		recursive: true,
-		force: true,
-	});
 });
 
 describe("coord project rekey (W460)", () => {
@@ -178,7 +177,7 @@ describe("coord project rekey (W460)", () => {
 
 describe("project identity resolver (W460)", () => {
 	test("linked worktree resolves to the parent common dir, not the .git file", () => {
-		const R = mkdtempSync(join(process.cwd(), ".tmp-pid-wtrepo-"));
+		const R = mkdtempSync(join(tmpdir(), "suspenders-pid-wtrepo-"));
 		try {
 			const git = (args: string[], cwd = R) =>
 				Bun.spawnSync(["git", "-C", cwd, ...args], {
@@ -219,4 +218,90 @@ describe("project identity resolver (W460)", () => {
 			rmSync(R, { recursive: true, force: true });
 		}
 	});
+});
+
+function launchRows(db: Database, project: string, item: string) {
+	launchSchema(db as unknown as GovernorStore);
+	acquireLaunchLease(
+		db as unknown as GovernorStore,
+		project,
+		"fixture-lane",
+		"nonce",
+	);
+	db.query("INSERT INTO lane_launch_budgets VALUES (?,?,?)").run(
+		project,
+		item,
+		3,
+	);
+	db.query(
+		"INSERT INTO lane_launch_intents VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+	).run(
+		project,
+		item,
+		"fixture-lane",
+		"nonce",
+		100,
+		"/fixture/executor",
+		"fixture-host",
+		2,
+		"REGISTERED",
+		42,
+		"birth",
+	);
+}
+test("launch intents, item budgets and leases migrate atomically with project identity", () => {
+	const from = `${PROJ}-launch-old`,
+		to = `${PROJ}-launch-new`;
+	seedItem(from, "WLAUNCH");
+	const db = new Database(DB);
+	launchRows(db, from, "WLAUNCH");
+	const tables = [
+		"lane_launch_intents",
+		"lane_launch_budgets",
+		"lane_launch_leases",
+	];
+	const original = tables.map(
+		(table) =>
+			db.query(`SELECT * FROM ${table} WHERE project=?`).get(from) as Record<
+				string,
+				unknown
+			>,
+	);
+	db.close();
+	const result = run(REPO, coord, "project", "rekey", from, to);
+	expect(result.code).toBe(0);
+	const read = new Database(DB, { readonly: true });
+	tables.forEach((table, index) => {
+		expect(
+			read.query(`SELECT * FROM ${table} WHERE project=?`).get(to),
+		).toEqual({ ...original[index], project: to });
+	});
+	read.close();
+});
+test("a destination launch record refuses rekey without partial graph or budget migration", () => {
+	const from = `${PROJ}-launch-collision-old`,
+		to = `${PROJ}-launch-collision-new`;
+	seedItem(from, "WLAUNCHCOLLISION");
+	const db = new Database(DB);
+	launchRows(db, from, "WLAUNCHCOLLISION");
+	acquireLaunchLease(db as unknown as GovernorStore, to, "other", "hold");
+	db.close();
+	const result = run(REPO, coord, "project", "rekey", from, to);
+	expect(result.code).not.toBe(0);
+	expect(result.out + result.err).toContain(
+		"target already holds launch records",
+	);
+	const read = new Database(DB, { readonly: true });
+	expect(
+		read
+			.query("SELECT project FROM work_items WHERE id=?")
+			.get("WLAUNCHCOLLISION"),
+	).toEqual({ project: from });
+	for (const table of ["lane_launch_intents", "lane_launch_budgets"])
+		expect(
+			read
+				.query(`SELECT project FROM ${table} WHERE item=?`)
+				.get("WLAUNCHCOLLISION"),
+		).toEqual({ project: from });
+	read.close();
 });

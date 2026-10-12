@@ -12,7 +12,12 @@ import { readFileSync } from "node:fs";
 import { MODEL_INVENTORY, probePathFor } from "./service-inventory.ts";
 
 export type ProbeSpec =
-	| { kind: "http"; port: number; path: string }
+	| {
+			kind: "http";
+			port: number;
+			path: string;
+			contract?: "litellm-process-liveness";
+	  }
 	| { kind: "launchd"; label: string };
 
 export interface RecoveryStep {
@@ -61,6 +66,7 @@ const curl = (port: number, path: string): RecoveryStep => ({
 });
 
 const LOCAL_LLM = "com.suspenders.local-llm";
+const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
 const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
 const swarm = (port: number): RecoveryEntry => ({
@@ -155,22 +161,28 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 	{
 		id: "litellm-4100",
 		name: "litellm engine :4100",
-		probe: { kind: "http", port: 4100, path: "/health/liveliness" },
+		probe: {
+			kind: "http",
+			port: 4100,
+			path: "/health/liveliness",
+			contract: "litellm-process-liveness",
+		},
 		what: "The litellm engine on :4100 is not answering, so routed model calls fail.",
 		causes: [
-			// W277: litellm joined the swarm supervisor's respawn/circuit-breaker
-			// set; the old standalone com.belt.gateway restarter was retired
-			// (it was a second :4100 restarter — a fork-bomb hazard).
-			`the swarm supervisor (${LOCAL_LLM}) that revives litellm is not running`,
+			// W277 retired the standalone com.belt.gateway restarter (a second
+			// :4100 restarter — a fork-bomb hazard). W307 truth pass: litellm's
+			// ONE restarter today is com.suspenders.cloud-gateway — the swarm
+			// only observes :4100 (owned: false, packages/local-llm/swarm.ts).
+			`the cloud transport supervisor (${CLOUD_GATEWAY}) that revives litellm is not running`,
 			"an orphaned litellm still holds :4100",
 			"litellm failed to start (bad generated config or missing key file) — the log says which",
 		],
 		recovery: [
 			holder(4100),
 			killOrphan(4100),
-			kick(LOCAL_LLM),
-			bootstrap(LOCAL_LLM),
-			tail("~/.claude/local-llm/litellm-gateway.log"),
+			kick(CLOUD_GATEWAY),
+			bootstrap(CLOUD_GATEWAY),
+			tail("~/.claude-insights/cloud-gateway.log"),
 			curl(4100, "/health/liveliness"),
 		],
 	},
@@ -180,17 +192,20 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		probe: { kind: "http", port: 4101, path: "/status" },
 		what: "The buckle router is not answering, so its routing view and metering on this board are blank.",
 		causes: [
-			"buckle is not started (it has no launchd agent — it runs from its checkout)",
-			"an orphaned buckle process still holds :4101",
-			"buckle crashed on a bad upstreams.yaml or policy edit",
+			// W546: the spoke IS supervised (com.suspenders.buckle-spoke,
+			// deploy/services.yaml) — the old "no launchd agent, start it by
+			// hand" advice manufactured exactly the orphan holders that leave
+			// supervised restarts dying on EADDRINUSE.
+			"an orphaned buckle still holds :4101, so the supervised agent crash-loops on EADDRINUSE (seen 2026-10-07)",
+			"the agent is not loaded — never installed or bootout-ed",
+			"buckle crashed on a bad upstreams.yaml or policy edit — the log says which",
 		],
 		recovery: [
 			holder(4101),
 			killOrphan(4101),
-			{
-				label: "start buckle from its checkout (BUCKLE_REPO = your clone)",
-				cmd: 'cd "$BUCKLE_REPO" && bun run start',
-			},
+			kick("com.suspenders.buckle-spoke"),
+			bootstrap("com.suspenders.buckle-spoke"),
+			tail("~/.claude-insights/buckle-spoke.log"),
 			curl(4101, "/status"),
 		],
 	},
@@ -272,10 +287,10 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		],
 	},
 	// W277 retired the standalone com.belt.gateway launchd agent (it was a
-	// second :4100 restarter racing the swarm supervisor — a fork-bomb
-	// hazard); litellm now lives solely under launchd-local-llm's
-	// respawn/circuit-breaker set, so there is no longer a separate
-	// launchd entry to probe here.
+	// second :4100 restarter — a fork-bomb hazard); there is deliberately no
+	// launchd entry for it in this map. W307 truth pass: litellm's one
+	// restarter is com.suspenders.cloud-gateway (the swarm observes :4100,
+	// owned: false — packages/local-llm/swarm.ts).
 ];
 
 export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =

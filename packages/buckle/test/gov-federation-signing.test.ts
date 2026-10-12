@@ -55,7 +55,34 @@ async function testHub(secretsHome: string): Promise<{
 		policyPath: wp,
 		upstreamsPath: wu,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		auth: {
+			rootKey: ROOT,
+			// W233.3: the manifest content is overlay-owned — a stub provider
+			// proves the PUBLIC signing wrapper (W193 exact-bytes signature)
+			// rides whatever the seam serves; the real serving e2e lives in
+			// the enterprise overlay (klh-remote buckle-remote).
+			manifestCr: () => ({
+				manifest: () => ({
+					version: "fed-stub-w2333",
+					rules: [{ id: "gateway.knobs", kind: "gateway", target: null }],
+					cr_queue: [],
+				}),
+				declare: () => ({
+					ok: false as const,
+					status: 501,
+					code: "buckle.no_federation",
+					why: "stub",
+				}),
+				list: () => [],
+				transition: () => ({
+					ok: false as const,
+					status: 501,
+					code: "buckle.no_federation",
+					why: "stub",
+				}),
+				registerProbe: () => {},
+			}),
+		},
 		secretsHome,
 	});
 	return {
@@ -125,8 +152,10 @@ describe("hub e2e: JWKS + signed manifest + spoke authz", () => {
 		hub.stop();
 	});
 
-	test("entitlements GET demands auth (401 anon; 200 with spoke key)", async () => {
+	test("entitlements GET demands auth (401 anon; 501 with spoke key — solo posture)", async () => {
 		const hub = await testHub(scratchHome());
+		// W233.1: the gate still owns the route (401 anon); with a valid spoke
+		// key the provider-less solo posture answers the honest 501.
 		const anon = await fetch(`${hub.base}/federation/entitlements`);
 		expect(anon.status).toBe(401);
 		const keyRes = await fetch(`${hub.base}/v1/admin/keys`, {
@@ -141,7 +170,7 @@ describe("hub e2e: JWKS + signed manifest + spoke authz", () => {
 		const res = await fetch(`${hub.base}/federation/entitlements`, {
 			headers: { authorization: `Bearer ${key}` },
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(501);
 		hub.stop();
 	});
 });

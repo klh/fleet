@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # speedy — Make Claude Code 10-1400x faster at file operations
-# https://github.com/klh/speedy
+# Part of the klh fleet monorepo: https://github.com/klh/fleet (packages/speedy)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -28,7 +28,6 @@ error() { echo -e "${BOLD}${RED}[ERROR]${RESET} $*"; }
 LLM_FLAG=""
 SKIP_MODELS=0
 DRY_RUN=0
-BUCKLE_REPO_URL="${BUCKLE_REPO_URL:-https://github.com/klh/buckle.git}"
 for ARG in "$@"; do
   case "$ARG" in
     --llm=off | --llm=minimal | --llm=full) LLM_FLAG="${ARG#--llm=}" ;;
@@ -46,6 +45,23 @@ if [ -z "$LLM_FLAG" ]; then
 fi
 info "LLM tier: $LLM_FLAG"
 
+# ─── Fleet revision acquisition (W422.6: one revision, no legacy clones) ──
+# Piped runs (curl | bash) have no checkout adjacent to this script: acquire
+# the fleet monorepo (FLEET_REPO_URL override) and re-run THIS installer from
+# that revision, so every step consumes one tree. A checkout run keeps
+# REPO_DIR — bin/install-fleet.ts sits adjacent and resolves this tree itself.
+FLEET_TS="$REPO_DIR/bin/install-fleet.ts"
+if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$FLEET_TS" ]; then
+  FLEET_TMP="$(mktemp -d)"
+  if git clone --depth 1 --single-branch "${FLEET_REPO_URL:-https://github.com/klh/fleet}" "$FLEET_TMP/fleet"; then
+    info "fleet revision acquired — re-running this installer from it"
+    if bash "$FLEET_TMP/fleet/packages/speedy/install.sh" "$@"; then rc=0; else rc=$?; fi
+    rm -rf "$FLEET_TMP"
+    exit $rc
+  fi
+  warn "fleet clone failed — klh layers will be skipped (FLEET_REPO_URL override)"
+fi
+
 # ─── Preflight ───────────────────────────────────────────
 
 command -v brew >/dev/null 2>&1 || { error "Homebrew not found. Install: https://brew.sh"; exit 1; }
@@ -57,111 +73,42 @@ info "Detected: $OS $ARCH"
 # ─── Dry run: print the plan, touch nothing ──────────────
 if [ "$DRY_RUN" -eq 1 ]; then
   info "--dry-run — the chain, in order (nothing executed):"
-  echo "  1. klh/local (.local services)     $([ -x "$HOME/.local/bin/klh-local" ] && echo "present — skip" || echo "clone + install")"
-  echo "  2. klh/suspenders (control plane)  $([ -f "$HOME/.claude/hooks/suspenders/bin/work.ts" ] && echo "present — skip" || echo "clone + install") — install.sh --wire --with-launchd; local-llm baseline (BELT_TIER=minimal swarm$( [ "$SKIP_MODELS" -eq 1 ] && echo " + --skip-models" ))"
-  echo "  3. klh/buckle (router plane)       clone via BUCKLE_REPO_URL (default $BUCKLE_REPO_URL; override env) + bun install"
-  echo "  4. klh/belt (LLM fleet)            deploy, tier: $LLM_FLAG$( [ "$SKIP_MODELS" -eq 1 ] && echo " (--skip-download)" )"
-  echo "  5. .local registration             suspenders.local, belt.local (when klh-local present)"
-  echo "  6. toolchain                       brew/cargo/qlty/npm packages"
-  case "$LLM_FLAG" in
-    minimal) PLAN_MODELS="BELT_TIER=minimal residents (≤4GB)" ;;
-    full) PLAN_MODELS="the full specialist set" ;;
-    *) PLAN_MODELS="none (cloud-only)" ;;
-  esac
-  [ "$SKIP_MODELS" -eq 1 ] && PLAN_MODELS="$PLAN_MODELS — skipped (--skip-models)"
-  echo "  7. model downloads                 $PLAN_MODELS"
-  echo "  8. hub ask                         \"Do you want to buckle up and connect to a belt hub? [y/N]\" — default standalone"
+  echo "  1. klh layers (klh-local, belt swarm, buckle, suspenders)  $([ -f "$HOME/.claude/hooks/suspenders/bin/work.ts" ] && echo "present — install-fleet.ts skips installed phases" || echo "install via bin/install-fleet.ts") — one fleet revision, tier: $LLM_FLAG$( [ "$SKIP_MODELS" -eq 1 ] && echo ", --skip-models" )"
+  echo "  2. speedy layer        skills → ~/.claude/skills (+ ~/.agents/skills), hooks + statusline sync, policy adapters"
+  echo "  3. toolchain           brew/cargo/qlty/npm packages"
+  echo "  4. apple silicon       mlx-lm$( [ "$LLM_FLAG" != "off" ] && echo " + swarm model downloads (tier: $LLM_FLAG)" )"
+  echo "  5. shell + git         zoxide init, delta pager — hub ask runs at fleet-chain end"
   exit 0
 fi
 
-# ─── .local services first (klh-local) ───────────────────
-# Installed FIRST so every later layer (suspenders, belt) can register its
-# dashboard as <name>.local as it goes — same optional-layer pattern as belt.
-if [ ! -x "$HOME/.local/bin/klh-local" ]; then
-  T="$(mktemp -d)"
-  info "installing .local services (klh/local)..."
-  if git clone --depth 1 https://github.com/klh/local "$T/local" 2>/dev/null; then
-    (cd "$T/local" && ./install.sh) || warn "klh-local install failed (optional) — continuing without it"
-  else
-    warn "klh/local clone failed (optional) — continuing without .local services"
-  fi
+# ─── Fleet layers: the klh chain from ONE fleet revision (W422.6) ────────
+# klh-local, the belt swarm, buckle and suspenders install via the umbrella
+# installer (bin/install-fleet.ts): one checkout acquisition — FLEET_CHECKOUT →
+# this checkout → clone of FLEET_REPO_URL at FLEET_REF — every phase from
+# packages/<name> in that same revision. --llm maps: off = suspenders
+# --no-llm (cloud-only), minimal = BELT_TIER=minimal, full = + belt
+# --tier full. Hub ask runs at fleet-chain end.
+if ! command -v bun >/dev/null 2>&1; then
+  brew install bun || warn "bun unavailable — klh layers will be skipped"
 fi
-
-# ─── Control plane: suspenders (dependency, not vendored) ──
-# speedy is a config layer on top of klh/suspenders (control-plane CLIs,
-# hook gates, fleet board, monitor). Install it first.
-if [ ! -f "$HOME/.claude/hooks/suspenders/bin/work.ts" ]; then
-  info "installing the suspenders control plane (klh/suspenders)..."
-  T=$(mktemp -d)
-  git clone --depth 1 https://github.com/klh/suspenders "$T/suspenders"
-  SUS_FLAGS=(--wire --with-launchd)
-  [ "$SKIP_MODELS" -eq 1 ] && SUS_FLAGS+=(--skip-models)
-  [ "$LLM_FLAG" = "off" ] && SUS_FLAGS+=(--no-llm)
-  (cd "$T/suspenders" && ./install.sh "${SUS_FLAGS[@]}")
-  rm -rf "$T"
-else
-  info "suspenders control plane already installed"
-fi
-
-# ─── Router plane: buckle (optional layer, not vendored) ─────
-# LLM transport + governance router (design: suspenders docs/design/buckle/).
-# Shadow-port phase 1: binds 127.0.0.1:4101, never :4100. No public repo yet —
-# BUCKLE_REPO_URL overrides; the default is a harmless guess until the clone
-# succeeds (optional-layer pattern: clone failure = warn + continue).
-if [ -d "$HOME/.claude/buckle" ]; then
-  info "buckle router plane already deployed"
-elif command -v bun >/dev/null 2>&1; then
-  info "deploying the buckle router plane..."
-  T=$(mktemp -d)
-  if git clone --depth 1 "$BUCKLE_REPO_URL" "$T/buckle" 2>/dev/null; then
-    (cd "$T/buckle" && bun install) || warn "buckle bun install failed (optional) — continuing"
-    mkdir -p "$HOME/.claude/buckle"
-    cp -R "$T/buckle/." "$HOME/.claude/buckle/" || warn "buckle deploy failed (optional) — continuing without it"
-    echo "  ✓ buckle in ~/.claude/buckle — start with: bun ~/.claude/buckle/src/server.ts (shadow :4101)"
-  else
-    warn "buckle clone failed (no public repo yet — set BUCKLE_REPO_URL) — continuing without it"
-  fi
-  rm -rf "$T"
-else
-  warn "bun not found yet — buckle deploy skipped (re-run to add it)"
-fi
-# ─── Local LLM fleet: belt (optional layer, not vendored) ────
-# klh/belt serves the MLX specialist swarm on localhost (:8901+) — the
-# endpoints suspenders' advice worker and keepwarm talk to. Deploying the
-# code is cheap; models (~40-60GB) and launchd agents are opt-in inside belt.
-if [ "$LLM_FLAG" != "off" ]; then
-  if [ ! -f "$HOME/.claude/local-llm/registry.ts" ]; then
-    info "deploying the local LLM fleet (klh/belt, tier: $LLM_FLAG)..."
-    T=$(mktemp -d)
-    if git clone --depth 1 https://github.com/klh/belt "$T/belt" 2>/dev/null; then
-      BELT_FLAGS=(--tier "$LLM_FLAG")
-      [ "$SKIP_MODELS" -eq 1 ] && BELT_FLAGS+=(--skip-download)
-      (cd "$T/belt" && ./install.sh "${BELT_FLAGS[@]}") || warn "belt install failed (optional) — continuing without it"
-    else
-      warn "belt clone failed (optional) — continuing without the fleet"
-    fi
-    rm -rf "$T"
-  else
-    info "belt (local LLM fleet) already deployed"
-  fi
-fi
-
-# ─── .local registration (klh-local) ─────────────────────
-if [ -x "$HOME/.local/bin/klh-local" ]; then
-  if "$HOME/.local/bin/klh-local" register suspenders --port 7799 --health /; then
-    echo "  ✓ suspenders.local (:7799) registered"
-  else
-    warn "klh-local: suspenders registration failed (optional)"
-  fi
-  if [ "$LLM_FLAG" != "off" ]; then
-    if "$HOME/.local/bin/klh-local" register belt --port 7791 --health /; then
-      echo "  ✓ belt.local (:7791) registered"
-    else
-      warn "klh-local: belt registration failed (optional)"
-    fi
+if command -v bun >/dev/null 2>&1 && [ -f "$FLEET_TS" ]; then
+  info "fleet layers (klh-local, belt swarm, buckle, suspenders) via bin/install-fleet.ts..."
+  FLEET_FLAGS=(--llm="$LLM_FLAG")
+  [ "$SKIP_MODELS" -eq 1 ] && FLEET_FLAGS+=(--skip-models)
+  if ! bun "$FLEET_TS" "${FLEET_FLAGS[@]}"; then
+    warn "fleet layers failed (optional) — continuing with speedy-only setup"
   fi
 else
-  echo "  · klh-local not found — .local registration skipped (optional: https://github.com/klh/local)"
+  warn "no fleet source for the klh layers (no bun or no install-fleet.ts) — skipped"
+fi
+
+# ─── Speedy-native steps (skills, tools, shell, models) ──
+# .local registration, .local service front and the hub federation ask live
+# in bin/install-fleet.ts (local + hub phases) — the umbrella runs them at
+# fleet-chain end.
+
+if command -v bun >/dev/null 2>&1; then
+  bun "$REPO_DIR/bin/install-policy-adapters.ts" || warn "session policy adapter wiring failed"
 fi
 
 # ─── Skills: speedy skills/ → ~/.claude/skills (idempotent copy), then
@@ -196,6 +143,34 @@ elif [ -L "$HOME/.agents/skills" ]; then
   echo "  ✓ ~/.agents/skills already symlinked ($(readlink "$HOME/.agents/skills"))"
 else
   warn "~/.agents/skills exists and is not a symlink — left untouched (non-Claude CLIs may miss new skills; remove it to adopt the zero-copy link)"
+fi
+
+# ─── Speedy runtime files → ~/.claude (hooks + statusline, never clobber) ──
+# settings.example.json references $HOME/.claude/hooks/*.ts + statusline.ts —
+# the old clone-into-~/.claude flow put them there; the checkout-based install
+# syncs them explicitly (keep-if-present, like the skills copy above).
+mkdir -p "$HOME/.claude/hooks/lib"
+for F in insight-recall.ts pa-prefix.ts subagent-statusline.ts; do
+  [ -f "$REPO_DIR/hooks/$F" ] || continue
+  if [ -e "$HOME/.claude/hooks/$F" ]; then
+    echo "  = hooks/$F (kept — already installed)"
+  else
+    cp "$REPO_DIR/hooks/$F" "$HOME/.claude/hooks/$F" && echo "  + hooks/$F"
+  fi
+done
+if [ -f "$REPO_DIR/hooks/lib/hookio.ts" ]; then
+  if [ -e "$HOME/.claude/hooks/lib/hookio.ts" ]; then
+    echo "  = hooks/lib/hookio.ts (kept — already installed)"
+  else
+    cp "$REPO_DIR/hooks/lib/hookio.ts" "$HOME/.claude/hooks/lib/hookio.ts" && echo "  + hooks/lib/hookio.ts"
+  fi
+fi
+if [ -f "$REPO_DIR/statusline.ts" ]; then
+  if [ -e "$HOME/.claude/statusline.ts" ]; then
+    echo "  = statusline.ts (kept — already installed)"
+  else
+    cp "$REPO_DIR/statusline.ts" "$HOME/.claude/statusline.ts" && echo "  + statusline.ts"
+  fi
 fi
 
 # ─── Brew packages ───────────────────────────────────────
@@ -476,8 +451,8 @@ process.stdout.write(residentSet().map((s) => s.model).join("\n"));
   fi
 
   # Install LaunchAgent for daily insights (headless analyst runs)
-  if [ -f "$HOME/.claude/hooks/launchd/com.klh.claude-insights.plist" ]; then
-    sed "s|__HOME__|$HOME|g" "$HOME/.claude/hooks/launchd/com.klh.claude-insights.plist" \
+  if [ -f "$REPO_DIR/hooks/launchd/com.klh.claude-insights.plist" ]; then
+    sed "s|__HOME__|$HOME|g" "$REPO_DIR/hooks/launchd/com.klh.claude-insights.plist" \
       > "$HOME/Library/LaunchAgents/com.klh.claude-insights.plist"
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.klh.claude-insights.plist" 2>/dev/null \
       || warn "LaunchAgent bootstrap failed"
@@ -487,101 +462,11 @@ else
   warn "Not Apple Silicon (arm64) — local LLM layer skipped"
 fi
 
-# ─── Hub federation (W173 enroll; standalone default) ────
-# The enrollment ask at install end. Default = standalone (empty hub roster);
-# yes exchanges the admin-minted enrollment code for a hub-issued spoke token
-# via /federation/enroll, stores the roster + DNS entries, pulls the first
-# policy (heartbeat-on-the-pull) and echoes the menu. Standalone revisits via
-# /console/settings. Re-runs never re-prompt and never wipe an enrollment.
-HUB_CONFIG="$HOME/.claude/local-llm/hubs.json"
-
-write_hub_config() {
-  # $1=url $2=spoke_id $3=spoke_token $4=dns_entries JSON array (atomic, 0600).
-  # W230-compatible shape: {hubs: [{name, url, token_env, dns_entries}]} — the
-  # token NEVER lands in config: it goes to hub.env (0600), and the roster
-  # references it by env name.
-  local TMP ENVF
-  ENVF="$(dirname "$HUB_CONFIG")/hub.env"
-  printf 'KLH_HUB_SPOKE_TOKEN=%s\n' "$3" > "$ENVF"
-  chmod 600 "$ENVF"
-  TMP="$HUB_CONFIG.tmp.$$"
-  jq -n --arg name "$(hostname -s)" --arg url "$1" --argjson dns "$4" \
-    '{hubs: [{name: $name, url: $url, token_env: "KLH_HUB_SPOKE_TOKEN", dns_entries: $dns}]}' > "$TMP"
-  chmod 600 "$TMP"
-  mv "$TMP" "$HUB_CONFIG"
-}
-
-write_standalone_config() {
-  # standalone = empty hub roster; never overwrites an existing enrollment
-  [ -s "$HUB_CONFIG" ] && return 0
-  printf '{\n  "hubs": []\n}\n' > "$HUB_CONFIG"
-  chmod 600 "$HUB_CONFIG"
-}
-hub_enroll() {
-  # $1 = hub base URL, $2 = enrollment code (admin-minted, W173)
-  local HUB CODE RESP ID TOKEN DNS PULL BODY
-  HUB="${1%/}"
-  CODE="${2:-}"
-  if [ -z "$HUB" ] || [ -z "$CODE" ] || ! command -v jq >/dev/null 2>&1; then
-    echo "  [WARN] hub url, code and jq are required — staying standalone" >&2
-    return 1
-  fi
-  BODY="$(jq -n --arg code "$CODE" --arg host "$(hostname -s)" '{code: $code, hostname: $host}')"
-  RESP="$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d "$BODY" "$HUB/federation/enroll" 2>/dev/null)" \
-    || { echo "  [WARN] enroll failed at $HUB — staying standalone (degradation law)" >&2; return 1; }
-  ID="$(printf '%s' "$RESP" | jq -er '.spoke_id // empty' 2>/dev/null)" \
-    || { echo "  [WARN] enroll response has no spoke_id — staying standalone" >&2; return 1; }
-  TOKEN="$(printf '%s' "$RESP" | jq -er '.spoke_token // empty' 2>/dev/null)" \
-    || { echo "  [WARN] enroll response has no spoke_token — staying standalone" >&2; return 1; }
-  DNS="$(printf '%s' "$RESP" | jq -c '.dns_entries // []' 2>/dev/null)" || DNS="[]"
-  write_hub_config "$HUB" "$ID" "$TOKEN" "$DNS" || { echo "  [WARN] could not write $HUB_CONFIG" >&2; return 1; }
-  echo "  ✓ enrolled: spoke $ID at $HUB"
-  # first policy pull (heartbeat-on-the-pull) — carries the echo menu
-  if PULL="$(curl -fsS --max-time 10 -H "Authorization: Bearer $TOKEN" "$HUB/federation/policy" 2>/dev/null)"; then
-    printf '%s' "$PULL" | jq . > "${HUB_CONFIG%/hubs.json}/last-policy-pull.json" 2>/dev/null || true
-    echo "  hub menu (what the hub lets this spoke use):"
-    printf '%s' "$PULL" | jq -r '(.menu // [])[] | if type == "string" then "    • " + . else "    • " + (.name // .id // tostring) end' 2>/dev/null
-  else
-    echo "  [WARN] first policy pull failed — hub config kept; retries at next belt start" >&2
-  fi
-}
-hub_ask() {
-  # ask only when no hub config exists — re-runs never re-prompt, never wipe
-  mkdir -p "$HOME/.claude/local-llm"
-  if [ -s "$HUB_CONFIG" ]; then
-    jq -r 'if (.hubs // [] | length) > 0 then "  ✓ enrolled to \(.hubs[0].url)" else "  · standalone (no hub)" end' "$HUB_CONFIG" 2>/dev/null \
-      || echo "  · hub config present — see /console/settings"
-    return 0
-  fi
-  if [ ! -t 0 ]; then
-    write_standalone_config
-    echo "  · non-interactive — standalone (revisit via /console/settings)"
-    return 0
-  fi
-  printf "%s" "Do you want to buckle up and connect to a belt hub? [y/N] "
-  local ANSWER HUB_URL ENROLL_CODE
-  read -r ANSWER
-  case "$ANSWER" in
-    y | Y | yes | Yes | YES)
-      printf "%s" "Hub URL: "
-      read -r HUB_URL
-      printf "%s" "Enrollment code: "
-      read -r ENROLL_CODE
-      if hub_enroll "$HUB_URL" "$ENROLL_CODE"; then
-        echo "  · connected — manage via /console/settings"
-      else
-        write_standalone_config
-        echo "  · staying standalone — revisit via /console/settings"
-      fi
-      ;;
-    *)
-      write_standalone_config
-      echo "  · standalone (default) — connect later via /console/settings"
-      ;;
-  esac
-}
-hub_ask
 # ─── Summary ─────────────────────────────────────────────
+
+echo ""
+echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"
+echo -e "${BOLD}${GREEN}  speedy installed!${RESET}"
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"

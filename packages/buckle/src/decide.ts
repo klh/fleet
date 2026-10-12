@@ -101,6 +101,10 @@ export interface DecideInput {
 	candidates: readonly CandidateRow[];
 	prefs: Prefs;
 	dialect: "openai" | "anthropic";
+	/** W426 native translation: bridgeable other-dialect candidates are
+	 *  eligible, ranked behind every same-dialect row. count_tokens opts
+	 *  out (openai wire has no count endpoint). */
+	allowCross?: boolean;
 }
 
 /** The decision (W136 §4). Prefs gate cloud delivery first (precedence 1);
@@ -108,11 +112,30 @@ export interface DecideInput {
  *  the router sends nothing upstream. */
 export function decideRoute(input: DecideInput): DecideResult {
 	const gateOpen = input.prefs.allow_cloud && input.prefs.cost_speed !== "cost";
+	const viable = (c: CandidateRow): boolean => gateOpen || c.kind !== "cloud";
 	const pool = input.candidates.filter(
-		(c) => c.dialect === input.dialect && (gateOpen || c.kind !== "cloud"),
+		(c) => c.dialect === input.dialect && viable(c),
 	);
+	if (input.allowCross)
+		pool.push(
+			...input.candidates.filter(
+				(c) => c.dialect !== input.dialect && viable(c),
+			),
+		);
 	if (input.hint?.verb === "must") return mustPath(input, pool, gateOpen);
 	return preferOr(input, pool);
+}
+
+/** Same-dialect rows first; the caller's comparator breaks ties. */
+function dialectThen(
+	dialect: "openai" | "anthropic",
+	tie: (a: CandidateRow, b: CandidateRow) => number,
+): (a: CandidateRow, b: CandidateRow) => number {
+	const rank = (c: CandidateRow): number => (c.dialect === dialect ? 0 : 1);
+	return (a, b) => {
+		const d = rank(a) - rank(b);
+		return d !== 0 ? d : tie(a, b);
+	};
 }
 
 const noFitErr = (raw: string, seen: number): HintError => ({
@@ -147,7 +170,7 @@ function mustPath(
 		};
 	const fits = pool
 		.filter((c) => c.healthy && fitOf(c, hint) === hintTotal(hint))
-		.sort(compareCandidates);
+		.sort(dialectThen(input.dialect, compareCandidates));
 	const head = fits[0];
 	if (!head) return { ok: false, err: noFitErr(input.hintRaw, pool.length) };
 	return okSel(input, pool, fits, head, hintTotal(hint));
@@ -198,7 +221,9 @@ function preferOr(input: DecideInput, pool: CandidateRow[]): DecideResult {
 		};
 	const hint = input.hint;
 	if (!hint) {
-		const ordered = [...pool].sort(compareCandidates);
+		const ordered = [...pool].sort(
+			dialectThen(input.dialect, compareCandidates),
+		);
 		const head = ordered[0];
 		if (!head)
 			return {
@@ -209,7 +234,13 @@ function preferOr(input: DecideInput, pool: CandidateRow[]): DecideResult {
 	}
 	const ordered = pool
 		.map((c) => ({ c, fit: fitOf(c, hint) }))
-		.sort((a, b) => b.fit - a.fit || compareCandidates(a.c, b.c))
+		.sort(
+			(a, b) =>
+				(a.c.dialect === input.dialect ? 0 : 1) -
+					(b.c.dialect === input.dialect ? 0 : 1) ||
+				b.fit - a.fit ||
+				compareCandidates(a.c, b.c),
+		)
 		.map((x) => x.c);
 	const head = ordered[0];
 	if (!head) return { ok: false, err: noFitErr(input.hintRaw, pool.length) };

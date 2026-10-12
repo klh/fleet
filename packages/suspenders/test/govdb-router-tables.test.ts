@@ -53,7 +53,15 @@ const NEW_TABLES: Record<string, string[]> = {
 		"revoked_at",
 		"created_at",
 	],
-	teams: ["team_id", "name", "department", "created_at"],
+	teams: [
+		"team_id",
+		"name",
+		"department",
+		"created_at",
+		"rpm_ceiling",
+		"tpm_ceiling",
+		"tok_ceiling",
+	],
 	route_audit: [
 		"rid",
 		"ts",
@@ -121,7 +129,7 @@ const DOC_AID_ROLLUP_SQL = `CREATE TABLE IF NOT EXISTS aid_rollup (
 );`;
 
 describe("v8 migration shape", () => {
-	test("user_version 10 (v10 W166 knowledge split rode on top), all seven router tables present with the designed columns", () => {
+	test("user_version >= 11 (v11 W243 activity meter rode on top), all seven router tables present with the designed columns", () => {
 		const db = freshDb();
 		db.close();
 		openGovernorDb();
@@ -129,7 +137,7 @@ describe("v8 migration shape", () => {
 		const uv = (
 			d.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBe(10);
+		expect(uv).toBeGreaterThanOrEqual(11);
 		for (const [tbl, cols] of Object.entries(NEW_TABLES)) {
 			const have = (
 				d.query(`PRAGMA table_info(${tbl})`).all() as { name: string }[]
@@ -139,7 +147,7 @@ describe("v8 migration shape", () => {
 		d.close();
 	});
 
-	test("deltas triggers cover every table: 12 × 3 = 36, bus tables still untracked", () => {
+	test("deltas triggers cover every table: 13 × 3 = 39, bus tables still untracked", () => {
 		const d = new Database(DB);
 		const n = (
 			d
@@ -148,7 +156,7 @@ describe("v8 migration shape", () => {
 				)
 				.get() as { n: number }
 		).n;
-		expect(n).toBe(36);
+		expect(n).toBe(39);
 		const bus = d
 			.query(
 				"SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_events_%'",
@@ -171,8 +179,8 @@ describe("v8 migration shape", () => {
 				)
 				.get() as { n: number }
 		).n;
-		expect(uv).toBe(10);
-		expect(n).toBe(36);
+		expect(uv).toBeGreaterThanOrEqual(11);
+		expect(n).toBe(39);
 		const legacy = d
 			.query(
 				"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_legacy_%'",
@@ -391,6 +399,86 @@ describe("deltas coverage — the audit win is the existing loop", () => {
 		expect(row.op).toBe("insert");
 		expect(row.pk).toBe("platform");
 		expect(JSON.parse(row.after).department).toBe("Infrastructure");
+		db2.close();
+	});
+
+	test("v13: teams ceilings — fresh shape, deltas images, ceiling change audited", () => {
+		const db = freshDb();
+		db.close();
+		const db2 = openGovernorDb();
+		db2
+			.query(
+				"INSERT INTO teams (team_id, name, department, rpm_ceiling, tpm_ceiling, tok_ceiling, created_at) VALUES ('platform', 'Platform', 'Infrastructure', 60, 100000, 5000000, 1)",
+			)
+			.run();
+		const row = db2
+			.query("SELECT op, pk, after FROM deltas WHERE tbl = 'teams'")
+			.get() as { op: string; pk: string; after: string };
+		expect(JSON.parse(row.after)).toMatchObject({
+			rpm_ceiling: 60,
+			tpm_ceiling: 100000,
+			tok_ceiling: 5000000,
+		});
+		db2
+			.query(
+				"UPDATE teams SET tok_ceiling = 6000000 WHERE team_id = 'platform'",
+			)
+			.run();
+		const upd = db2
+			.query(
+				"SELECT before, after FROM deltas WHERE tbl = 'teams' AND op = 'update'",
+			)
+			.get() as { before: string; after: string };
+		expect(JSON.parse(upd.before).tok_ceiling).toBe(5000000);
+		expect(JSON.parse(upd.after).tok_ceiling).toBe(6000000);
+		db2.close();
+	});
+
+	test("v13 heal: pre-v13 teams gains the ceilings and full-image triggers", () => {
+		const db = freshDb();
+		// pre-v13 shape: teams without ceilings + a stale 4-col-image trigger
+		db.exec(
+			"CREATE TABLE teams (team_id TEXT PRIMARY KEY, name TEXT, department TEXT, created_at INTEGER NOT NULL)",
+		);
+		db.exec(
+			"CREATE TABLE deltas (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, tbl TEXT NOT NULL, op TEXT NOT NULL, pk TEXT NOT NULL, before TEXT, after TEXT)",
+		);
+		db.exec(
+			"CREATE TRIGGER deltas_teams_update AFTER UPDATE ON teams BEGIN INSERT INTO deltas (ts, tbl, op, pk, before, after) VALUES (1, 'teams', 'update', NEW.team_id, json_object('team_id', OLD.team_id, 'name', OLD.name, 'department', OLD.department, 'created_at', OLD.created_at), json_object('team_id', NEW.team_id, 'name', NEW.name, 'department', NEW.department, 'created_at', NEW.created_at)); END",
+		);
+		db.run("PRAGMA user_version = 12");
+		db.close();
+		openGovernorDb();
+		// columns healed; stale trigger re-created with full images
+		const d = new Database(DB);
+		const cols = (
+			d.query("PRAGMA table_info(teams)").all() as { name: string }[]
+		).map((c) => c.name);
+		const trg = d
+			.query(
+				"SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'deltas_teams_update'",
+			)
+			.get() as { sql: string };
+		d.close();
+		expect(cols).toEqual(NEW_TABLES.teams);
+		expect(trg.sql).toContain("rpm_ceiling");
+		// a ceiling write images both sides
+		const db2 = openGovernorDb();
+		db2
+			.query(
+				"INSERT INTO teams (team_id, name, department, created_at) VALUES ('platform', 'Platform', 'Infrastructure', 1)",
+			)
+			.run();
+		db2
+			.query("UPDATE teams SET tpm_ceiling = 100000 WHERE team_id = 'platform'")
+			.run();
+		const upd = db2
+			.query(
+				"SELECT before, after FROM deltas WHERE tbl = 'teams' AND op = 'update'",
+			)
+			.get() as { before: string; after: string };
+		expect(JSON.parse(upd.before).tpm_ceiling).toBeNull();
+		expect(JSON.parse(upd.after).tpm_ceiling).toBe(100000);
 		db2.close();
 	});
 });

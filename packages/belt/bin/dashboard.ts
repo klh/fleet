@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { endpointPassed, livenessResponse } from "./health.ts";
+import { hubLlmsRows, readHubs } from "./hubs.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import {
@@ -27,8 +28,10 @@ import {
 	type RouteLogEntry,
 } from "./remotes.ts";
 import { metricsFor, metricsSnapshot } from "./metrics.ts";
+// W258: per-machine capability forecast rides the catalog surface
+import { capabilityPayload } from "./catalog-capability.ts";
 import { readStatus } from "./supervisor.ts";
-import { endpointState } from "./dashboard-state.ts";
+import { endpointState, supervisorSource } from "./dashboard-state.ts";
 import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
 import { bearerToken, handleRoute } from "./route-policy.ts";
 import {
@@ -42,6 +45,7 @@ import {
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
 	fleetNav,
+	displayLabel,
 	settingsBlock,
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
@@ -362,7 +366,7 @@ ${FLEET_NAV_CSS}
 ${THEME_SETTINGS_CSS}
 </style></head>
 <body>
-${fleetNav("belt")}
+${fleetNav("belt", "models")}
 
 <header><span class="mark">belt</span><span class="sub">local LLM fleet</span>
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
@@ -572,6 +576,10 @@ recent routes across locals and remotes, and the /api/route audit trail
 ~/.claude/local-llm/metrics.db (bun:sqlite), fed incrementally from the two
 JSONL route logs belt already writes.
 
+GET /api/supervisor returns the self-heal status doc: per-target probe
+state (up/degraded/down), last probe/ok, restart budgets. Rows with
+kind = hub are the remote buckle hubs from hubs.json.
+
 POST /api/route — the policy endpoint (bearer token required; tokens in
 ~/.claude/local-llm/belt-tokens.json). Body {role?, model?, messages?,
 max_tokens?, temperature?, execute?}. Advisory (no execute): picks the
@@ -605,6 +613,31 @@ default 120 rpm per token).
 - A Threads thing — http://www.threads.dk
 `;
 
+// W351: the hub rows are live state — labels/URLs from hubs.json, states
+// from the supervisor status doc — so /llms.txt rebuilds the section per
+// request and appends it after the static body (agents parse by heading).
+function llmsText(): string {
+	const targets = readStatus()?.targets ?? [];
+	const rows = hubLlmsRows(readHubs(), (h) => {
+		const t = targets.find(
+			(x) => x.kind === "hub" && x.name === h.label && x.port === h.port,
+		);
+		return t?.state ?? "unknown";
+	});
+	return `${LLMS}
+
+## Remote hubs
+
+Supervised probe-only rows for the buckle hubs registered in
+~/.claude/local-llm/hubs.json (the registry suspenders resolveHub walks;
+SUSPENDERS_HUBS_FILE overrides the path). Belt observes them from here — it
+never spawns on another host. TCP up + any HTTP answer on /api/health = up;
+live state rides GET /api/supervisor (targets where kind = hub).
+
+${rows.length ? rows.join("\n") : "none registered"}
+`;
+}
+
 // ─── server ───
 const json = (x: unknown, status = 200): Response =>
 	new Response(JSON.stringify(x, null, 2), {
@@ -618,6 +651,7 @@ const ROUTES: RouteMethods = {
 	"/": ["GET", "HEAD"],
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
+	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/supervisor": ["GET", "HEAD"],
 	"/observation.js": ["GET", "HEAD"],
@@ -672,6 +706,8 @@ Bun.serve({
 		if (preflight) return preflight;
 		if (path === "/api/status") return etagJson(req, await statusBody());
 		if (path === "/api/remotes") return json(await remotesSnapshot());
+		// W258 — the capability forecast: conservative per-machine rows
+		if (path === "/api/catalog") return json(capabilityPayload());
 		if (path === "/api/route") return serveRoute(req);
 		// W272 self-heal status (ports, last probe, restarts, since) written by
 		// `swarm.ts supervise`; null when no supervisor has ever run.
@@ -690,7 +726,7 @@ Bun.serve({
 					? {
 							...doc,
 							observation: observation(
-								"belt-supervisor",
+								supervisorSource(doc),
 								"supervised-targets",
 								"local-machine",
 								Date.parse(doc.updated),
@@ -716,14 +752,19 @@ Bun.serve({
 				headers: { "content-type": "text/html; charset=utf-8" },
 			});
 		if (path === "/llms.txt")
-			return new Response(LLMS, {
+			return new Response(llmsText(), {
 				headers: { "content-type": "text/plain; charset=utf-8" },
 			});
 		if (path === "/threads-mark.js")
 			return new Response(Bun.file(`${import.meta.dir}/threads-mark.js`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
-		if (path === "/dashboard-observability.js" || path === "/vendor/lit.js")
+		if (path === "/dashboard-observability.js")
+			return new Response(
+				`const displayLabel = ${displayLabel.toString()};\n${await Bun.file(new URL("./dashboard-observability.js", import.meta.url)).text()}`,
+				{ headers: { "content-type": "text/javascript; charset=utf-8" } },
+			);
+		if (path === "/vendor/lit.js")
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});

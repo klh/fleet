@@ -12,6 +12,7 @@
 // style <label>.local guess (the suspenders.local/belt.local precedent) →
 // null (callers degrade to local belt — never a silent wrong hub).
 import { readFileSync } from "node:fs";
+import { darkHubNow } from "./stack-config.ts";
 
 export interface HubLocation {
 	label: string;
@@ -22,11 +23,11 @@ export interface HubLocation {
 
 type HubRegistry = Record<string, { candidates?: string[]; token?: string }>;
 
-const REGISTRY_PATH = (): string =>
+export const REGISTRY_PATH = (): string =>
 	process.env.SUSPENDERS_HUBS_FILE ??
 	`${process.env.HOME}/.claude/local-llm/hubs.json`;
 
-function readRegistry(): HubRegistry {
+export function readRegistry(): HubRegistry {
 	try {
 		return JSON.parse(readFileSync(REGISTRY_PATH(), "utf8")) as HubRegistry;
 	} catch {
@@ -81,7 +82,7 @@ async function discoverHub(label: string): Promise<string | null> {
 
 // a server that answers AT ALL counts as present (even a 404) — belt-locate
 // precedent: we are locating a host, not a route.
-async function alive(base: string): Promise<boolean> {
+export async function alive(base: string): Promise<boolean> {
 	for (const path of ["/api/health", "/health/liveliness", "/"]) {
 		try {
 			await fetch(base.replace(/\/$/, "") + path, {
@@ -103,6 +104,10 @@ export async function resolveHub(
 ): Promise<HubLocation | null> {
 	const norm = label.trim();
 	if (!norm) return null;
+	// 0. W483 quiet hours — a hub inside its stack.yaml dark window is
+	// EXPECTED down (NAS nightly poweroff); resolving it would pin lanes to
+	// a host that vanishes mid-flight. Degrade like any unresolved label.
+	if (darkHubNow(norm)) return null;
 	// 1. explicit env override, per label (SUSPENDERS_HUB_IKEA_URL, etc.)
 	const envKey = `SUSPENDERS_HUB_${norm.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_URL`;
 	const envUrl = process.env[envKey];

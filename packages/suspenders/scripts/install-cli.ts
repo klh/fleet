@@ -19,6 +19,8 @@ export const meowFlags = {
 	yes: { type: "boolean" },
 	verbose: { type: "boolean" },
 	step: { type: "string" },
+	wireRepo: { type: "string" },
+	gatewayReview: { type: "string" },
 } as const;
 
 export interface ResolvedFlags {
@@ -27,6 +29,8 @@ export interface ResolvedFlags {
 	yes: boolean;
 	verbose: boolean;
 	step: string | null;
+	wireRepo: string | null;
+	gatewayReview?: string;
 }
 
 export function resolvePaths(): {
@@ -59,12 +63,20 @@ export function parseFlags(
 	const bool = (key: string): boolean => raw[key] === true;
 	const step =
 		typeof raw.step === "string" && raw.step.trim() !== "" ? raw.step : null;
+	const wireRepo =
+		typeof raw.wireRepo === "string" && raw.wireRepo.trim() !== ""
+			? raw.wireRepo
+			: null;
 	const flags: ResolvedFlags = {
 		dryRun: bool("dryRun"),
 		json: bool("json"),
 		yes: bool("yes"),
 		verbose: bool("verbose"),
 		step,
+		wireRepo,
+		...(typeof raw.gatewayReview === "string"
+			? { gatewayReview: raw.gatewayReview }
+			: {}),
 	};
 	const known = Object.keys(meowFlags);
 	const unknown = Object.keys(raw).filter((k) => !known.includes(k));
@@ -86,6 +98,22 @@ export function parseFlags(
 			flags,
 		};
 	}
+	if (wireRepo !== null && step !== "wireSettings") {
+		return {
+			error: "--wire-repo is only valid with --step wireSettings",
+			flags,
+		};
+	}
+	if (
+		raw.gatewayReview !== undefined &&
+		(typeof raw.gatewayReview !== "string" ||
+			!/^[a-f0-9]{64}$/.test(raw.gatewayReview) ||
+			step !== "upgradeGateway")
+	)
+		return {
+			error: "--gateway-review requires a SHA256 and --step upgradeGateway",
+			flags,
+		};
 	return { flags };
 }
 

@@ -7,12 +7,19 @@
 // streams record requests without token columns — honest omission, never
 // estimated.
 
+import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import type { RpcAdmission } from "./admission.ts";
+import {
+	affinityOn,
+	affKeyOf,
+	applyAffinity,
+	type PrefixAffinity,
+} from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
 import { aidsRoutes, applyWireAids } from "./aids-routes.ts";
-import type { RepoPolicyRow } from "./repo-policy.ts";
-import { repoPolicyRoutes } from "./repo-policy-routes.ts";
+import type { LaneTelemetryLog } from "./cache-boundary.ts";
+import { boundaryOfDeployment } from "./cache-boundary.ts";
 import type { CandidateRow, CandidateTable } from "./candidates.ts";
-import type { Expander } from "./expand.ts";
 import {
 	allowOf,
 	lanePrefixOf,
@@ -28,16 +35,31 @@ import {
 	latencyClass,
 	type RouteSelection,
 } from "./decide.ts";
+import { type DietStore, dietRoutes } from "./diet.ts";
+import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
-import { keyIdFromAuth, type Ledger } from "./ledger.ts";
+import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
+import type {
+	ObservationData,
+	ObservationOutbox,
+	ObservationType,
+} from "./observe.ts";
+import { type CondenseStore, pipelineRoutes } from "./pipeline.ts";
+import { condenseInbound } from "./pipeline-wire.ts";
 import type { AidsPolicy } from "./policy.ts";
 import type { Preseeder } from "./preseed.ts";
-import { pipelineRoutes, type CondenseStore } from "./pipeline.ts";
-import { condenseInbound } from "./pipeline-wire.ts";
+import type { RepoPolicyRow } from "./repo-policy.ts";
+import { repoPolicyRoutes } from "./repo-policy-routes.ts";
 import { type ExecuteResult, type Router, UpstreamError } from "./router.ts";
 import type { Servicemon } from "./servicemon.ts";
-import { SseSniffer } from "./sse.ts";
+import { SseSniffer, sseReframer } from "./sse.ts";
+import {
+	allowlistedBaggage,
+	newTraceparent,
+	parseTraceparent,
+	type TraceContext,
+} from "./trace.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
 
@@ -53,6 +75,7 @@ export interface AppDeps {
 		dialect: Dialect;
 		hint: RouteHint | null;
 		hintRaw: string;
+		allowCross: boolean;
 	}) => DecideResult;
 	table: CandidateTable;
 	// W142 knowledge aids: the metering ledger, the preseed builder, and the
@@ -66,12 +89,27 @@ export interface AppDeps {
 	// W5 prompt pipeline IN: the condense sidestore (pipeline.ts). Optional —
 	// bare deps (testDeps, dev) skip honestly and the routes 404 (AppDeps law).
 	pipeline?: CondenseStore;
+	// W207 trajectory pruning: the diet sidestore (diet.ts). Optional — bare
+	// deps (testDeps, dev) skip honestly and the routes 404 (AppDeps law).
+	diet?: DietStore;
 	// W154 federation surface — present on hub-shaped deps (buildDeps);
 	// optional so bare deps (testDeps, dev) 404 honestly.
 	federation?: Federation;
 	// W7 repo-policy gate: the loaded rows (absent/empty = engine inert);
 	// the route 404s honestly when unwired.
 	repoPolicy?: RepoPolicyRow[];
+	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
+	// deps (testDeps, dev) route without affinity and the seam no-ops.
+	affinity?: PrefixAffinity;
+	// W458.4 per-lane cache telemetry: the append-only NDJSON lane log.
+	// Optional — bare deps (testDeps, dev) skip lane rows honestly.
+	laneCache?: LaneTelemetryLog;
+	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
+	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
+	admission?: RpcAdmission;
+	// W461 stage 2: the bounded observation outbox. Optional — absent =
+	// observations inert (bare deps, or BUCKLE_OBSERVATIONS_PATH unset).
+	observations?: ObservationOutbox;
 }
 
 interface App {
@@ -174,6 +212,17 @@ interface Ctx {
 	sel?: RouteSelection;
 	/** W5: the request declared `condense-in` in its x-belt-aids stanza. */
 	condenseIn: boolean;
+	/** W237: packet-prefix key (null = no packet block, no affinity). */
+	affKey: string | null;
+	/** W450 bounded RPC admission: the slot release fn while this request's
+	 *  upstream RPC is in flight (set in runExecute, released at drain). */
+	slot?: () => void;
+	/** W461 stage 1: request trace context (inbound traceparent or a fresh
+	 *  root; baggage filtered to the fleet allowlist). */
+	trace: TraceContext;
+	/** W461 stage 2: set once the admitted observation is published —
+	 *  ended events only ride admitted requests. */
+	admitted?: boolean;
 }
 
 /** A refusal at the wire seam (bad hint, bad body): the denied audit row
@@ -206,7 +255,28 @@ function deny(
 		error_code: code,
 		why,
 	});
+	if (ctx.admitted)
+		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
 	return auditAndStamp(deps, ctx, status, why, code, decision);
+}
+
+/** W461 stage 2: publish one lane observation for this request. Inert
+ *  unless the outbox is wired (BUCKLE_OBSERVATIONS_PATH). */
+function observe(
+	deps: AppDeps,
+	ctx: Ctx,
+	type: ObservationType,
+	extra?: Partial<ObservationData>,
+): void {
+	deps.observations?.emit(type, {
+		rid: ctx.rid,
+		lane: ctx.lane,
+		actor: ctx.key,
+		dialect: ctx.dialect,
+		model: ctx.model,
+		traceparent: ctx.trace.traceparent,
+		...extra,
+	});
 }
 
 /** Outcome row + dialect envelope + stamped headers for a refusal. */
@@ -236,7 +306,7 @@ async function proxy(
 	lane = "",
 ): Promise<Response> {
 	const ctx: Ctx = {
-		key: keyIdFromAuth(req.headers.get("authorization")),
+		key: keyIdFromToken(tokenFromHeaders(req.headers)),
 		group: "",
 		model: "",
 		dialect,
@@ -247,6 +317,14 @@ async function proxy(
 		t0: 0,
 		tier: "",
 		condenseIn: false,
+		affKey: null,
+		// W461 stage 1: accept a caller traceparent, else root a fresh trace;
+		// baggage survives only in the fleet-allowlisted subset.
+		trace: {
+			traceparent:
+				parseTraceparent(req.headers.get("traceparent")) ?? newTraceparent(),
+			baggage: allowlistedBaggage(req.headers.get("baggage")),
+		},
 	};
 	ctx.t0 = Date.now();
 	const hint = hintFromHeaders(req.headers);
@@ -260,14 +338,19 @@ async function proxy(
 	const model = typeof body.model === "string" ? body.model : "";
 	if (model.length === 0)
 		return deny(deps, ctx, 400, "missing model", null, "denied");
+	// W461 stage 2: admitted — unsampled, published before any routing.
+	ctx.admitted = true;
+	observe(deps, ctx, "lane.request.admitted");
 	const wire = await applyWireAids(
 		deps,
 		req.headers.get("x-belt-aids"),
 		body,
 		dialect,
+		ctx.rid,
 	);
 	body = wire.body;
 	ctx.condenseIn = wire.condenseIn;
+	ctx.affKey = deps.affinity ? affKeyOf(body) : null;
 	ctx.group = model;
 	ctx.model = model;
 	ctx.hint = hint.hint;
@@ -278,6 +361,8 @@ async function proxy(
 		dialect,
 		hint: ctx.hint,
 		hintRaw: ctx.hintRaw,
+		// count_tokens never bridges (openai wire has no count endpoint)
+		allowCross: path !== "/v1/messages/count_tokens",
 	});
 	if (!sel.ok) {
 		deps.sm
@@ -296,8 +381,27 @@ async function runExecute(
 	body: Record<string, unknown>,
 	deps: AppDeps,
 ): Promise<Response> {
-	const sel = ctx.sel;
+	let sel = ctx.sel;
 	if (!sel) return deny(deps, ctx, 503, "no selection", "no_route", "errored");
+	// W237 prefix-affinity: a candidate bound to this packet prefix delivers
+	// first (same provider identity → provider KV cache hit). Reorders the
+	// selection only — never injects, never a must-hint, cooldown-benched
+	// rows skipped; off or bare deps → zero touch.
+	if (ctx.affKey && deps.affinity && affinityOn()) {
+		const bound = deps.affinity.probe(ctx.affKey);
+		const reordered = applyAffinity(sel, bound);
+		const applied = reordered !== sel;
+		ctx.sel = reordered;
+		sel = reordered;
+		deps.sm
+			.counter(
+				"buckle_route_affinity_total",
+				"Prefix-affinity dispatch outcomes.",
+			)
+			.inc({
+				outcome: bound === null ? "miss" : applied ? "hit" : "skip",
+			});
+	}
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
 		ts: new Date().toISOString(),
@@ -319,7 +423,33 @@ async function runExecute(
 		why: sel.why,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
+	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past
+	// the cap the gateway 429s + Retry-After (never queues blindly).
+	if (deps.admission) {
+		const release = deps.admission.tryAcquire(ctx.group);
+		if (release === null) {
+			deps.sm
+				.counter(
+					"buckle_admission_refusals_total",
+					"Proxy requests refused at the in-flight bound.",
+				)
+				.inc({ group: ctx.group });
+			const resp = deny(
+				deps,
+				ctx,
+				429,
+				`gateway at max in-flight for ${ctx.group} (${String(deps.admission.capOf(ctx.group))})`,
+				"overloaded",
+				"errored",
+			);
+			resp.headers.set("retry-after", String(deps.admission.retryAfterS));
+			return resp;
+		}
+		ctx.slot = release;
+	}
 	let result: ExecuteResult;
+	// W461 stage 2: started — the upstream dispatch begins.
+	observe(deps, ctx, "lane.request.started");
 	try {
 		result = await deps.router.execute({
 			group: ctx.model,
@@ -327,6 +457,7 @@ async function runExecute(
 			path,
 			body,
 			key: ctx.key,
+			trace: ctx.trace,
 			signal: req.signal,
 			sel,
 			tier: ctx.tier,
@@ -334,11 +465,18 @@ async function runExecute(
 		});
 	} catch (e) {
 		deps.table.inflight(sel.head.candidate_id, -1);
+		ctx.slot?.(); // no upstream body will own the slot — release now
 		if (e instanceof UpstreamError)
 			return deny(deps, ctx, 502, e.message, "no_route", "errored");
 		throw e;
 	}
-	const resp = await handleResult(deps, ctx, result);
+	let resp: Response;
+	try {
+		resp = await handleResult(deps, ctx, result);
+	} catch (e) {
+		ctx.slot?.(); // never leak a slot on a handler throw
+		throw e;
+	}
 	return finishResponse(deps, ctx, sel, result, resp);
 }
 
@@ -355,6 +493,7 @@ function finishResponse(
 	let decision: DecisionKind = sel.decision;
 	let row: CandidateRow | undefined = sel.head;
 	let code: string | null = null;
+	const rateLimited = result.kind === "client-error" && resp.status === 429;
 	if (result.kind === "upstream") {
 		row = deps.table.rowFor(result.candidateId) ?? sel.head;
 		if (result.candidateId !== sel.head.candidate_id) decision = "fallback";
@@ -364,21 +503,50 @@ function finishResponse(
 	} else if (result.kind === "aborted") {
 		decision = "errored";
 	}
+	if (rateLimited) {
+		decision = "errored";
+		code = "rate_limited";
+	}
 	const ms = Date.now() - ctx.t0;
-	const ok = result.kind === "upstream" || result.kind === "client-error";
+	const ok =
+		result.kind === "upstream" ||
+		(result.kind === "client-error" && !rateLimited);
 	deps.table.inflight(sel.head.candidate_id, -1);
+	if (result.kind === "upstream" && result.stream) {
+		// the slot rides the whole stream drain — streamResponse's finish
+		// releases it when the client branch settles (the RPC is still live)
+	} else {
+		ctx.slot?.();
+	}
 	const winner =
 		result.kind === "upstream" ? result.candidateId : sel.head.candidate_id;
 	deps.table.recordOutcome(winner, ms, result.kind === "upstream");
+	// W237: the delivered candidate owns this prefix for the TTL window.
+	if (result.kind === "upstream" && ctx.affKey && deps.affinity && affinityOn())
+		deps.affinity.bind(ctx.affKey, result.candidateId);
 	deps.ledger.auditOutcome(ctx.rid, {
 		status: resp.status,
 		duration_ms: ms,
 		ok,
-		err: result.kind === "exhausted" ? result.error : null,
+		err: rateLimited
+			? "rate_limited"
+			: result.kind === "exhausted"
+				? result.error
+				: null,
+		...(rateLimited ? { decision: "errored", error_code: "rate_limited" } : {}),
 	});
 	deps.sm
 		.counter("buckle_route_decisions_total", "Routing decisions.")
 		.inc({ decision, dialect: ctx.dialect });
+	// W461 stage 2: ended — the request settled (attempts/status on the
+	// delivered outcome; streams that outlive this stay open-ended until
+	// drain reconciliation, never faked as ended).
+	if (ctx.admitted)
+		observe(deps, ctx, "lane.request.ended", {
+			outcome: decision,
+			status: resp.status,
+			attempts: result.kind === "upstream" ? result.attempts : undefined,
+		});
 	return stamped(resp, ctx, { decision, row, code });
 }
 
@@ -447,8 +615,10 @@ async function jsonResponse(
 }
 
 /** SSE pass-through with the usage-only tee: one branch flows to the client
- *  through an identity TransformStream (byte identity), the other feeds the
- *  sniffer into a black hole. No re-route after first byte; an upstream
+ *  through the W616.1 sseReframer for anthropic clients (canonical frames,
+ *  pings dropped, corrupt events quarantined — byte identity is amended:
+ *  upstream framing defects must not reach lane clients), the other feeds
+ *  the sniffer into a black hole. No re-route after first byte; an upstream
  *  death mid-stream appends a dialect error event and closes. */
 function streamResponse(
 	deps: AppDeps,
@@ -463,11 +633,29 @@ function streamResponse(
 	const finish = once(() => {
 		sniffer.flush();
 		record(deps, ctx, sniffer.usage());
+		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
 		// the sniff branch failing must not affect the client branch
 	});
-	clientBranch.pipeTo(downstream.writable).then(finish, (err: unknown) => {
+	// W616.1: anthropic clients get the re-framer — canonical frames, pings
+	// dropped, corrupt events quarantined (litellm's keepalive ping splices
+	// mid-line under load; byte-identity forwarded the defect to the lane).
+	const sanitized =
+		ctx.dialect === "anthropic"
+			? clientBranch.pipeThrough(
+					sseReframer((reason, preview) => {
+						deps.sm
+							.counter(
+								"buckle_sse_reframe_dropped_total",
+								"SSE events dropped by the re-framer (ping keepalives, quarantined upstream framing defects).",
+							)
+							.inc({ reason });
+						console.warn(`buckle: sse reframe dropped (${reason}): ${preview}`);
+					}),
+				)
+			: clientBranch;
+	sanitized.pipeTo(downstream.writable).then(finish, (err: unknown) => {
 		finish();
 		writeErrorEvent(downstream.writable, ctx.dialect, err);
 	});
@@ -506,10 +694,14 @@ function writeErrorEvent(
 		err instanceof Error ? err.message : "upstream stream failed",
 	);
 	const w = writable.getWriter();
+	const envelope =
+		err instanceof RouterError
+			? routerErrorEnvelope(err, dialect, message)
+			: { error: { message, type: "api_error", code: "stream_failed" } };
 	const body =
 		dialect === "anthropic"
-			? `event: error\ndata: ${JSON.stringify({ type: "error", error: { type: "api_error", message } })}\n\n`
-			: `data: ${JSON.stringify({ error: { message, type: "api_error", code: "stream_failed" } })}\n\n`;
+			? `event: error\ndata: ${JSON.stringify({ type: "error", ...envelope })}\n\n`
+			: `data: ${JSON.stringify(envelope)}\n\n`;
 	void w
 		.write(enc.encode(body))
 		.then(() => w.close())
@@ -527,6 +719,26 @@ function writeErrorEvent(
 function record(deps: AppDeps, ctx: Ctx, usage: Usage | null): void {
 	// W457 cache telemetry: joined onto the route_audit row by rid.
 	deps.ledger.auditUsage(ctx.rid, usage);
+	// W458.4 per-lane cache telemetry: attributed lanes append the row with
+	// the boundary the request actually rode (the delivered head). Usage
+	// null = honest unknown — the request still counts, tokens stay zero.
+	const head = ctx.sel?.head;
+	if (ctx.lane && head && deps.laneCache) {
+		deps.laneCache.append({
+			lane: ctx.lane,
+			task: ctx.key,
+			boundary: boundaryOfDeployment(head.dep, head.model),
+			usage: usage ?? {
+				in_tok: 0,
+				out_tok: 0,
+				cache_r: 0,
+				cache_c: 0,
+			},
+			requests: 1,
+			wallMs: Date.now() - ctx.t0,
+			at: new Date().toISOString(),
+		});
+	}
 	if (usage === null) {
 		// honest unknown: count the request, contribute no token columns,
 		// flag it on servicemon — never estimated, never faked as real zeros
@@ -633,10 +845,32 @@ export function createApp(deps: AppDeps): App {
 				});
 			return deps.federation.handle(req, principalOf(req));
 		}
+		if (method === "GET" && path === "/v1/fleet/whoami") {
+			// W607: self-verify echo for GUI fleet readers — the presented
+			// bearer IS the credential (no admin needed). The gate already
+			// authenticated + scope-checked (proxy GET → buckle:proxy:READ_);
+			// 200 means the key is live, and the echo carries the identity
+			// (key_id, scopes) the fleet-mcp server audits + enforces.
+			const p = principalOf(req);
+			return Response.json(
+				p === null
+					? { authenticated: false, reason: "gate off or anonymous" }
+					: {
+							authenticated: true,
+							kind: p.kind,
+							key_id: p.keyId,
+							team: p.team,
+							actor: p.actor,
+							scopes: p.scopes,
+						},
+			);
+		}
 		const aidsRouted = await aidsRoutes(deps, req, path);
 		if (aidsRouted) return aidsRouted;
 		const pipeRouted = await pipelineRoutes(deps, req, path);
 		if (pipeRouted) return pipeRouted;
+		const dietRouted = await dietRoutes(deps, req, path);
+		if (dietRouted) return dietRouted;
 		const rpRouted = await repoPolicyRoutes(
 			{ rows: deps.repoPolicy ?? [], sm: deps.sm },
 			req,

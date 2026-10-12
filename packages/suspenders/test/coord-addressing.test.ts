@@ -1,13 +1,22 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const HOME = mkdtempSync(join(process.cwd(), ".coord-addressing-home-"));
-const REPO = mkdtempSync(join(process.cwd(), ".coord-addressing-repo-"));
+const HOME = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-home-"));
+const REPO = mkdtempSync(join(tmpdir(), "suspenders-coord-addressing-repo-"));
 const BIN = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
-const env = { ...process.env, HOME, NO_COLOR: "1" };
+// scrub lane identity — session-start's canonical-v1 guard refuses fixture
+// sids when a dispatched lane's own SUSPENDERS_* env leaks in (W383)
+const env: Record<string, string> = {
+	...(process.env as Record<string, string>),
+	HOME,
+	NO_COLOR: "1",
+};
+delete env.SUSPENDERS_SID;
+delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 mkdirSync(REPO, { recursive: true });
 Bun.spawnSync(["git", "init", "-q", REPO], {
 	stdout: "ignore",
@@ -154,6 +163,41 @@ describe("coord targets", () => {
 			"lane-claude-11111111",
 			"lane-copilot-22222222",
 		]);
+	});
+
+	// W619 capability-filtered discovery: --cap keeps only live targets whose
+	// sessions.capabilities advertise the capability; the vocabulary guard
+	// dies exactly like coord bootstrap --caps.
+	test("targets --cap filters on sessions.capabilities", () => {
+		seedSessions();
+		const db = new Database(DB);
+		db.query("UPDATE sessions SET capabilities = ? WHERE sid = ?").run(
+			"shell,vision",
+			"lane-copilot-22222222",
+		);
+		db.close();
+		const vision = run(["targets", "--cap", "vision"]);
+		expect(vision.code).toBe(0);
+		expect(vision.out).toContain("lane-copilot-22222222");
+		expect(vision.out).not.toContain("lane-claude-11111111");
+		const fsOnly = run(["targets", "--cap", "fs"]);
+		expect(fsOnly.code).toBe(0);
+		expect(fsOnly.out).toContain("lane-claude-11111111");
+		expect(fsOnly.out).not.toContain("lane-copilot-22222222");
+		const json = run(["targets", "--cap", "shell", "--json"]);
+		const parsed = JSON.parse(json.out) as Array<{ sid: string }>;
+		expect(parsed.map((row) => row.sid)).toEqual([
+			"lane-claude-11111111",
+			"lane-copilot-22222222",
+		]);
+	});
+
+	test("targets --cap dies on an unknown capability with the vocabulary", () => {
+		seedSessions();
+		const bad = run(["targets", "--cap", "telepathy"]);
+		expect(bad.code).toBe(2);
+		expect(bad.err).toContain("unknown capability: telepathy");
+		expect(bad.err).toContain("vocabulary:");
 	});
 
 	// W299: top-level sessions only get hb bumped at bootstrap

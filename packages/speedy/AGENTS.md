@@ -18,9 +18,11 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
 "child two title" --reason independent-scopes --keep 1`, work only the
    kept child, end with `SPLIT <id>` — the fleet refills the rest. A split
    beyond 2 children needs a registered plan item first (`work add "plan: …"`,
-   then `split --plan <id>`). Poll your inbox before starting and before
-   finishing — `coord inbox --as <sid>` carries coordinator/board messages
-   (drawer "send message" delivers there).
+   then `split --plan <id>`). Your inbox is WS-first (W303): bootstrap
+   opens `coord subscribe --as <sid>` at session start — one persistent
+   push connection; never poll it. `coord inbox --as <sid>` is the
+   catch-up read before starting and before finishing — coordinator/board
+   messages arrive there (drawer "send message" delivers there).
 2. Work in the worktree + branch your brief names. SMALL anchored edits;
    co-situated tests for new logic; never hand-edit files another live lane
    owns.
@@ -32,129 +34,74 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
 Final line: `DONE <sha>` | `SPLIT <id>` | `BLOCKED` (after 3 honest attempts,
 tree restored).
 
-Repo doctrine (quality bar, architecture) lives in CLAUDE.md.
+Repo doctrine (quality bar, architecture) lives in Package law below.
 The fleet law set is mirrored in-repo at docs/laws.md — read it before non-trivial work here.
 
 ---
 
 # Repo guide
 
-This file provides guidance to AI coding agents (Claude Code, Cursor, Copilot, Antigravity, etc.) when working with code in this repository.
+speedy is the config layer for the klh stack: skills/ (active set),
+skills-available/ (parked — restore with `git mv`), hooks/, commands/,
+agents/, bin/, statusline.ts, install.sh (the ONLY repo → harness sync),
+install-codex.ts (codex harness install).
 
-## Repository Overview
+- Creating or editing a skill: docs/skill-anatomy.md (SKILL.md format, naming, progressive disclosure).
+- Curation, packaging (zip), script requirements, installation, skills quick reference: docs/skill-curation.md.
+- Tooling detail (speed tools, benchmarks, inventory, MCP selection): docs/agent-doctrine.md.
 
-A collection of skills for Claude.ai and Claude Code for senior software engineers. Skills are packaged instructions and scripts that extend Claude and your coding agents capabilities.
-
-**Skill curation:** `skills/` holds the actively-maintained set. Skills that fell out of use live in `skills-available/` and are NOT auto-loaded — restore with `git mv skills-available/<name> skills/`. New skills go in `skills/` only if they'll be used; otherwise `skills-available/`. Use `incremental-implementation` for multi-file changes: implement a small slice, test, verify and commit before expanding.
-
-## Creating a New Skill
-
-### Directory Structure
-
-```
-skills/
-  {skill-name}/           # kebab-case directory name
-    SKILL.md              # Required: skill definition
-    scripts/              # Required: executable scripts
-      {script-name}.sh    # Bash scripts (preferred)
-  {skill-name}.zip        # Required: packaged for distribution
-```
-
-### Naming Conventions
-
-- **Skill directory**: `kebab-case` (e.g. `web-quality`)
-- **SKILL.md**: Always uppercase, always this exact filename
-- **Scripts**: `kebab-case.sh` (e.g., `deploy.sh`, `fetch-logs.sh`)
-- **Zip file**: Must match directory name exactly: `{skill-name}.zip`
-
-### SKILL.md Format
-
-````markdown
----
-name: { skill-name }
-description:
-  {
-    One sentence describing when to use this skill. Include trigger phrases like "Deploy my app",
-    "Check logs",
-    etc.,
-  }
 ---
 
-# {Skill Title}
+## Package law
 
-{Brief description of what the skill does.}
+Speedy is the config layer for the klh stack: skills/, hooks/, commands/,
+agents/, bin/ and install.sh (the repo → harness sync). The fleet law set
+is mirrored in-repo at docs/laws.md. This file is package law — the tables,
+benchmarks and reference detail live in docs/, not here.
 
-## How It Works
+## Operating style
 
-{Numbered list explaining the skill's workflow}
+- Think before acting; read files before writing. One focused pass — no write-delete-rewrite cycles.
+- Verify with real command output before claiming anything works — evidence before assertions.
+- Concise output, thorough reasoning; no sycophancy, no filler. Unsure = say so; never invent paths.
+- Autonomous on reversible steps; ask before publishing, deleting, or irreversible actions.
+- Third-party skills/plugins/MCP are prompt+code injectors — run `skill-security-review` before installing.
 
-## Usage
+## File editing (hook-enforced)
 
-```bash
-bash /mnt/skills/user/{skill-name}/scripts/{script}.sh [args]
-```
-````
+- NEVER create/modify files via shell (`cat >`, `echo >`, `sed -i`, heredocs) — edit-enforce denies; use Edit (unique anchor) / Write (new/whole).
+- Bulk mechanical: `sd`/`ambr`; structure-shaped: `ast-grep`; semantic multi-file: Edit per file.
+- Fix PostToolUse syntax errors before moving on; verify every 3rd edit by building/running the file.
+- More than 5 planned changes to one file: re-read once, whole-file Write; validate before moving on.
+- Markdown is prettier-formatted on save; write tables loosely and re-read after bulk writes.
 
-**Arguments:**
+## qlty quality doctrine
 
-- `arg1` - Description (defaults to X)
+- qlty is THE quality tool; `.qlty/` must exist or the on-write gate silently no-ops.
+- SPEC FIRST: read `.qlty/qlty.toml` + the biome rule set before the first write; never emit flagged patterns.
+- biome owns code formatting; prettier owns markdown only. `qlty check` is diff-aware (changed files only).
 
-**Examples:**
-{Show 2-3 common usage patterns}
+## Automation doctrine
 
-## Output
+- Logic/tooling in TypeScript run by Bun — typed, testable, real parsers; heavy ops via native CLIs with argument arrays, batched.
+- Shell scripts are BANNED (LaunchAgent pointers + one-line aliases only). Rust only when profiling proves a bottleneck.
 
-{Show example output users will see}
+## Skills
 
-## Present Results to User
+- `skills/` is the active set; `skills-available/` is parked and NOT auto-loaded — restore with `git mv`.
+- Author/edit skills per docs/skill-anatomy.md; curation and packaging in docs/skill-curation.md.
 
-{Template for how Claude should format results when presenting to users}
+## Code style
 
-## Troubleshooting
+- Modular, DRY on the second duplicate; composition/event mediator; Lit + native web components; platform APIs over wrappers.
+- React/Vue maintenance-only, never greenfield. Boring, inspectable, one obvious path.
 
-{Common issues and solutions, especially network/permissions errors}
+## Journalism (all agent work)
 
-````
+- LLM outputs are leads, not facts: first-tier sources, never publish unverified, right of reply, corrections documented. Full standard: docs/agent-doctrine.md.
 
-### Best Practices for Context Efficiency
+## Detail lives in docs/ (keep this file at budget)
 
-Skills are loaded on-demand — only the skill name and description are loaded at startup. The full `SKILL.md` loads into context only when the agent decides the skill is relevant. To minimize context usage:
-
-- **Keep SKILL.md under 500 lines** — put detailed reference material in separate files
-- **Write specific descriptions** — helps the agent know exactly when to activate the skill
-- **Use progressive disclosure** — reference supporting files that get read only when needed
-- **Prefer scripts over inline code** — script execution doesn't consume context (only output does)
-- **File references work one level deep** — link directly from SKILL.md to supporting files
-
-### Script Requirements
-
-- Use `#!/bin/bash` shebang
-- Use `set -e` for fail-fast behavior
-- Write status messages to stderr: `echo "Message" >&2`
-- Write machine-readable output (JSON) to stdout
-- Include a cleanup trap for temp files
-- Reference the script path as `/mnt/skills/user/{skill-name}/scripts/{script}.sh`
-
-### Creating the Zip Package
-
-After creating or updating a skill:
-
-```bash
-cd skills
-zip -r {skill-name}.zip {skill-name}/
-````
-
-### End-User Installation
-
-Document these two installation methods for users:
-
-**Claude Code:**
-
-```bash
-cp -r skills/{skill-name} ~/.claude/skills/
-```
-
-**claude.ai:**
-Add the skill to project knowledge or paste SKILL.md contents into the conversation.
-
-If the skill requires network access, instruct users to add required domains at `claude.ai/settings/capabilities`.
+- docs/agent-doctrine.md — speed-tool tables, benchmarks, workflow rules, tool inventory, MCP selection, LLM routing, journalism standard, CLI lessons.
+- docs/laws.md — fleet law mirror. docs/skill-anatomy.md + docs/skill-curation.md — skill authoring and curation.
+- docs/getting-started.md — install + first run.

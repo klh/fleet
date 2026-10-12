@@ -11,7 +11,7 @@ proved the shared client surface.
 ## Layout
 
 **Flat kit** — the package root mirrors the runtime home one-to-one: the
-four `.ts` files sit at the root (no `src/`, no `bin/`) because install.sh
+runtime modules sit at the root (no `src/`, no `bin/`) because install.sh
 copies them individually into a flat directory and they import each other
 relatively (`./registry.ts`, `./spawner.ts`).
 
@@ -20,6 +20,11 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)            |
 | `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
 | `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                  |
+| `gateway-supervision.ts` | LiteLLM adoption, revival and bounded retry backoff |
+| `serve-observation.ts` | Bounded network probes and atomic Belt-compatible evidence snapshot |
+| `litellm-target.ts` | Re-export of Belt's canonical LiteLLM target |
+| `memory-policy.ts` | Per-model Metal budget, bounded caches and concurrency |
+| `ikea-shim.ts` | anthropic→copilot gateway on `:4102` (W226) — `login`/`status`/`selftest` |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
 
@@ -35,7 +40,11 @@ runtime home from belt/bin (W465).
 | `:8902` | extract / menial                                 |
 | `:8903` | reason                                           |
 | `:8906` | general / Danish                                 |
+| `:8913` | reranker |
 | `:4000` | belt router-shim (anthropic seam over the swarm) |
+| `:4100` | LiteLLM engine, owned by the serving swarm |
+| `:4101` | Buckle authenticated front door, separate service |
+| `:4102` | ikea-shim (anthropic→copilot gateway, W226) |
 
 ## Runtime home
 
@@ -54,8 +63,83 @@ bun ~/.claude/local-llm/swarm.ts status   # swarm health (read-only)
 bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
 ```
 
-launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive) —
-`launchctl kickstart gui/$(id -u)/com.suspenders.local-llm` revives.
+launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive).
+
+The serving kit writes outside-process HTTP observations to
+`~/.claude-insights/belt-supervisor.json` every supervision cycle
+(`BELT_SUPERVISOR_STATUS` overrides the path). Belt reads this same contract;
+expired evidence stays unknown. External services are observed only, missing
+on-demand targets are idle only after a refused network connection, and probe
+errors remain unknown. Unrecorded gateway restart totals and breaker budgets
+stay explicitly unavailable. This observer never launches additional models.
+
+To explicitly replace kit supervision code while preserving machine registry,
+routing, tier, credentials and gateway configuration:
+
+```sh
+bash packages/suspenders/install.sh --refresh-supervisor --dry-run
+bash packages/suspenders/install.sh --refresh-supervisor
+bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
+```
+
+The installer validates staged code imports and saves changed code backups.
+It keeps the installed supervisor family: a kit refresh cannot enable the
+advanced Belt supervisor. Existing operator code customizations in the four
+refreshed kit modules are replaced explicitly and retained in `.serve-backup`
+files; ordinary installation continues to preserve existing runtime copies.
+
+Code refresh does **not** activate code or restart the supervisor. Active
+established connections on the router, LiteLLM or Buckle ports defer activation;
+an unavailable, incomplete or malformed connection inspection also defers it.
+The read-only activation check exits 75 when deferred. Established idle
+connections also count, so this deliberately errs toward preserving sessions.
+
+Activation requires owner-approved maintenance, paused downstream admission,
+and drained connections before restarting the existing service. An empty
+connection snapshot alone cannot prevent a new request from starting. A
+supervisor SIGTERM handler does not prove its children survive: launchd can
+terminate the job's process group, replacing the gateway and cutting streams.
+Admission pause and enforced drain integration remain open W560 acceptance;
+the current check never authorizes or performs an automatic restart. Dashboard
+adapter activation is similarly deferred while the owner is using the fleet;
+until then its displayed producer label can reflect the older running code.
+
+### Recover a legacy swarm missing gateway ownership
+
+```sh
+bash packages/suspenders/install.sh --refresh-gateway --dry-run
+bash packages/suspenders/install.sh --refresh-gateway
+bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
+```
+
+This code-only upgrade preserves runtime customizations, makes backups of
+changed modules, and keeps registry, routing policy and credentials intact.
+The advanced Belt supervisor already owns LiteLLM and uses
+`--refresh-supervisor` instead. Keep `com.belt.gateway` unloaded: there
+must be one restarter for port 4100.
+
+Rapid engines receive a model-sized Metal allocation budget (weights × 1.2
+plus 4 GiB, capped at 40 GiB), a 1 GiB prefix cache and concurrency of two.
+The allocation fraction is calculated against host RAM; Rapid applies it to
+its Metal working-set budget, so the effective limit can be lower. Native
+idle handling clears caches after 60 seconds and unloads model weights after
+15 minutes without inference. Health probes do not count as inference.
+Cold admission includes the prospective model budget in the 60 GiB wired-RAM
+guard, and a live loading PID is never replaced just because its deadline
+expired. These limits constrain each engine; they are not an OS-wide RSS cap
+or a transactional reservation across concurrent launchers.
+
+Buckle liveness alone cannot verify inference: recovery verification must
+include an authenticated request through its governed route, then revoke the
+temporary test key. On 2026-10-07, Buckle was listening while its LiteLLM
+backend was absent because the minimal legacy swarm did not supervise it.
+
+## ikea-shim (W226)
+
+Anthropic→copilot gateway so the INTERACTIVE claude CLI rides the IKEA
+Copilot seat's models (`login` → `status` → point `ANTHROPIC_BASE_URL` at
+`:4102`; dispatch lanes are untouched — their 0600 per-lane `--settings`
+files pin their own upstream). launchd: `com.suspenders.ikea-shim`.
 
 ## Config stubs
 

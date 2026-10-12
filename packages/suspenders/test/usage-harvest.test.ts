@@ -3,6 +3,10 @@
 // mapping, actor attribution via sessions.actor, and the govdb v7 migration
 // (sessions.actor/tags + usage_rollup) on a temp HOME — never the live hub.
 import { describe, test, expect, afterAll } from "bun:test";
+import {
+	runHarvestPipeline,
+	type HarvestAdapter,
+} from "../hooks/lib/harvest-engine.ts";
 import { Database } from "bun:sqlite";
 import {
 	mkdtempSync,
@@ -10,9 +14,11 @@ import {
 	writeFileSync,
 	appendFileSync,
 	rmSync,
+	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { prepareUsageRebuild } from "../hooks/lib/usage-rebuild.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-"));
 const REAL_HOME = process.env.HOME;
@@ -20,9 +26,10 @@ process.env.HOME = HOME;
 const { openGovernorDb } = await import(
 	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
 );
-const { harvestUsage, modelGroup } = await import(
-	`../hooks/bin/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
-);
+const { harvestUsage, modelGroup, harvestAll, usageAdapter, maybeHarvest } =
+	await import(
+		`../hooks/lib/usage-harvest.ts?home=${encodeURIComponent(HOME)}`
+	);
 // restore: REG was already captured at govdb module load; leaving the temp
 // HOME set leaks into later-loading suites (the gate-writes interference)
 process.env.HOME = REAL_HOME;
@@ -80,12 +87,19 @@ const FACTS_DDL =
 	"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)";
 const ROLLUP_DDL =
 	"CREATE TABLE usage_rollup (hour_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model TEXT NOT NULL, model_group TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour_bucket, actor, model))";
+// W466: harvest cursors live here, not in facts (govdb v12)
+const ACT_DDL =
+	"CREATE TABLE activity_rollup (week_bucket INTEGER NOT NULL, actor TEXT NOT NULL, model_group TEXT NOT NULL, activity TEXT NOT NULL, in_tok INTEGER NOT NULL DEFAULT 0, out_tok INTEGER NOT NULL DEFAULT 0, cache_r INTEGER NOT NULL DEFAULT 0, cache_c INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, searches INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (week_bucket, actor, model_group, activity))";
+const MACHINE_CURSORS_DDL =
+	"CREATE TABLE machine_cursors (key TEXT PRIMARY KEY, value TEXT NOT NULL, source TEXT NOT NULL, ts INTEGER NOT NULL)";
 
 function freshDb(): Database {
 	const db = new Database(":memory:");
 	db.run(SESSIONS_DDL);
 	db.run(FACTS_DDL);
 	db.run(ROLLUP_DDL);
+	db.run(MACHINE_CURSORS_DDL);
+	db.run(ACT_DDL);
 	return db;
 }
 
@@ -137,6 +151,126 @@ const rowOf = (db: Database, model: string): Record<string, string | number> =>
 		.get(model) as Record<string, string | number>;
 
 describe("harvestUsage", () => {
+	test("UTF-8 cursor resumes on byte boundary and legacy cursors fail closed", () => {
+		const db = freshDb();
+		const root = join(HOME, "unicode");
+		mkdirSync(root, { recursive: true });
+		const p = join(root, "session.jsonl");
+		writeFileSync(
+			p,
+			`{"type":"user","text":"æ中文"}\n${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`,
+		);
+		harvestFixture(db, root);
+		appendFileSync(p, `${al("gpt-5.2", 20, 2, "2026-10-01T10:31:00Z")}\n`);
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ requests: 2, in_tok: 120 });
+		// a cursor without the v2 provenance marker fails closed (W466: the
+		// cursor row lives in machine_cursors, not facts)
+		db.run(
+			"UPDATE machine_cursors SET value=json_remove(value,'$.v') WHERE key LIKE 'usage.tp.%'",
+		);
+		expect(() => harvestFixture(db, root)).toThrow(
+			"reviewed provenance rebuild",
+		);
+		db.close();
+	});
+
+	test("offline rebuild snapshots source and keeps unrelated aggregates untouched", () => {
+		const db = freshDb();
+		db.run(
+			"INSERT INTO usage_rollup VALUES (0,'external','other','other',99,1,0,0,1)",
+		);
+		const root = join(HOME, "rebuild-transcripts");
+		mkdirSync(root, { recursive: true });
+		const row = JSON.parse(al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z"));
+		row.message.id = "rebuild-message";
+		writeFileSync(
+			join(root, "session.jsonl"),
+			`${JSON.stringify(row)}\n${JSON.stringify(row)}\n`,
+		);
+		const path = join(HOME, "source.sqlite");
+		writeFileSync(path, db.serialize());
+		db.close();
+		const manifest = prepareUsageRebuild(
+			path,
+			root,
+			join(HOME, "rebuild-output"),
+		);
+		expect(manifest.automaticApplyAllowed).toBe(false);
+		const source = new Database(path, { readonly: true });
+		expect(
+			source
+				.query("SELECT in_tok FROM usage_rollup WHERE actor='external'")
+				.get(),
+		).toEqual({ in_tok: 99 });
+		source.close();
+		const rebuilt = new Database(manifest.report, { readonly: true });
+		expect(rowOf(rebuilt, "gpt-5.2")).toMatchObject({
+			requests: 1,
+			in_tok: 100,
+		});
+		rebuilt.close();
+	});
+	test("one request per message, growing blocks add only token deltas", () => {
+		const db = freshDb();
+		const root = join(HOME, "blocks");
+		mkdirSync(root, { recursive: true });
+		const p = join(root, "session.jsonl");
+		const block = (out: number) => {
+			const row = JSON.parse(
+				al("gpt-5.2", 100, out, "2026-10-01T10:30:00Z", 200),
+			);
+			row.message.id = "msg-one";
+			return JSON.stringify(row);
+		};
+		writeFileSync(p, `${block(5)}\n${block(5)}\n${block(8)}\n`);
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({
+			in_tok: 100,
+			out_tok: 8,
+			cache_r: 200,
+			requests: 1,
+		});
+		appendFileSync(p, `${block(12)}\n`);
+		const update = harvestFixture(db, root);
+		expect(update.requests).toBe(0);
+		expect(update.outTok).toBe(4);
+		// Replay after truncation/restart still refers to the same request.
+		writeFileSync(p, `${block(12)}\n`);
+		expect(harvestFixture(db, root).requests).toBe(0);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ out_tok: 12, requests: 1 });
+		db.close();
+	});
+
+	test("rollup failure rolls back ledger and transcript cursor", () => {
+		const db = freshDb();
+		const root = join(HOME, "rollback");
+		mkdirSync(root, { recursive: true });
+		writeFileSync(
+			join(root, "session.jsonl"),
+			`${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`,
+		);
+		db.run(
+			"CREATE TRIGGER fail_usage BEFORE INSERT ON usage_rollup BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
+		);
+		expect(() => harvestFixture(db, root)).toThrow("injected failure");
+		// W466: harvest cursors live in machine_cursors (facts is retired) —
+		// nothing survives the failed pass: no cursor advance, no ledger rows.
+		expect(
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM machine_cursors WHERE key LIKE 'usage.%'",
+				)
+				.get(),
+		).toEqual({ n: 0 });
+		expect(
+			db.query("SELECT COUNT(*) AS n FROM usage_message_ledger").get(),
+		).toEqual({ n: 0 });
+		db.run("DROP TRIGGER fail_usage");
+		expect(harvestFixture(db, root).requests).toBe(1);
+		expect(rowOf(db, "gpt-5.2")).toMatchObject({ requests: 1, in_tok: 100 });
+		db.close();
+	});
 	test("rollup math, actor attribution, idempotent re-harvest, append tail", () => {
 		const db = freshDb();
 		db.query(
@@ -235,5 +369,80 @@ describe("harvestUsage", () => {
 			db.close();
 			rmSync(configPath, { force: true });
 		}
+	});
+});
+
+// ─── W657 pipeline: one read pass serves both collectors ────────────────────
+describe("W657 pipeline", () => {
+	const PROOT = join(HOME, "pipe-root");
+	test("one pass, both rollups, per-slot cursors (byte-true)", () => {
+		const db = freshDb();
+		mkdirSync(join(PROOT, "p1"), { recursive: true });
+		const p = join(PROOT, "p1", "s.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 100, 5, "2026-10-01T10:30:00Z")}\n`);
+		const r = harvestAll(db, { root: PROOT });
+		expect(r.usage.requests).toBe(1);
+		expect(r.usage.files).toBe(1);
+		expect(r.activity.harvested).toBe(1);
+		expect(r.activity.files).toBe(1);
+		expect(
+			db.query("SELECT requests, in_tok FROM usage_rollup").get(),
+		).toMatchObject({ requests: 1, in_tok: 100 });
+		// per-slot cursors: two namespaces, one read, same byte offset
+		const cursors = db
+			.query(
+				"SELECT value FROM machine_cursors WHERE key LIKE 'usage.tp.%' OR key LIKE 'activity.tp.%'",
+			)
+			.all() as { value: string }[];
+		expect(cursors.length).toBe(2);
+		const offs = cursors.map((c) => JSON.parse(c.value).o as number);
+		expect(new Set(offs).size).toBe(1);
+		expect(offs[0]).toBe(statSync(p).size);
+		db.close();
+	});
+
+	test("flush failure rolls the whole pass back", () => {
+		const db = freshDb();
+		mkdirSync(join(PROOT, "p2"), { recursive: true });
+		const p = join(PROOT, "p2", "s2.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 10, 2, "2026-10-01T11:00:00Z")}\n`);
+		const boom: HarvestAdapter = {
+			name: "boom",
+			prefixes: ["w657boom.tp"],
+			onScan: () => {},
+			flush() {
+				throw new Error("boom");
+			},
+		};
+		expect(() =>
+			runHarvestPipeline(db, [usageAdapter(db), boom], { root: PROOT }),
+		).toThrow("boom");
+		// atomicity: usage cursor save + rollup upsert rolled back with it
+		expect(db.query("SELECT value FROM machine_cursors").all().length).toBe(0);
+		expect(
+			db.query("SELECT COUNT(*) AS n FROM usage_rollup").get(),
+		).toMatchObject({ n: 0 });
+		db.close();
+	});
+
+	test("maybeHarvest gates on the shared TTL face", () => {
+		const db = freshDb();
+		// maybeHarvest scans the DEFAULT root ($HOME/.claude/projects) — the
+		// fixture HOME is the transcript tree for this one
+		mkdirSync(join(HOME, ".claude", "projects", "p3"), { recursive: true });
+		const p = join(HOME, ".claude", "projects", "p3", "s.jsonl");
+		writeFileSync(p, `${al("gpt-5.2", 5, 1, "2026-10-01T12:00:00Z")}\n`);
+		let first: ReturnType<typeof maybeHarvest> = null;
+		process.env.HOME = HOME;
+		try {
+			first = maybeHarvest(db, 60_000);
+			// re-entrant fold: the second call inside the TTL is gated out
+			expect(maybeHarvest(db, 60_000)).toBeNull();
+		} finally {
+			process.env.HOME = REAL_HOME;
+		}
+		expect(first).not.toBeNull();
+		expect(first?.requests).toBe(1);
+		db.close();
 	});
 });

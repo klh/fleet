@@ -1,7 +1,7 @@
 # Project Memory Skill
 
 [![Agent Skill Standard](https://img.shields.io/badge/Agent%20Skill-Standard-blue)](https://agentskills.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
 [![Claude Code](https://img.shields.io/badge/Claude-Code-5A67D8)](https://claude.ai/code)
 [![SkillzWave Marketplace](https://img.shields.io/badge/SkillzWave-Marketplace-00C7B7)](https://skillzwave.ai/skill/SpillwaveSolutions__project-memory__project-memory__SKILL/)
 

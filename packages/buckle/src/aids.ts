@@ -7,13 +7,14 @@
 // fabricated per-request. An aid that cannot log does not fire.
 import { Database } from "bun:sqlite";
 
-/** The five declared keys; unknown keys are ignored (forward-compatible). */
+/** The declared keys; unknown keys are ignored (forward-compatible). */
 export type AidKey =
 	| "preseed"
 	| "cache-align"
 	| "compress"
 	| "expand"
 	| "condense-in"
+	| "prune"
 	| "off";
 
 export interface AidsStanza {
@@ -24,6 +25,9 @@ export interface AidsStanza {
 	/** W5 prompt pipeline IN: response-side condense (sideband, see
 	 *  pipeline.ts). Declared per request; the served bytes never change. */
 	"condense-in"?: boolean;
+	/** W207 trajectory pruning (diet.ts): the request body's stale tool
+	 *  results past the keep-window get tombstoned pre-routing. */
+	prune?: boolean;
 	off: boolean;
 	unknown: string[];
 }
@@ -72,6 +76,8 @@ export function parseAids(raw: string | null | undefined): AidsStanza {
 			case "condense-in":
 				out["condense-in"] = true;
 				break;
+			case "prune":
+				out.prune = true;
 				break;
 			default:
 				out.unknown.push(p);

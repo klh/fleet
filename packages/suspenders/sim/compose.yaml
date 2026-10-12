@@ -20,10 +20,24 @@
 
 name: suspenders-hub-sim
 
+# W451 hub longevity: bounded json-file logs + memory ceilings. Rotation caps
+# unbounded log growth on long-lived hubs; a leaking service degrades only
+# itself, never the device. Values are code-level defaults.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   buckle-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-buckle-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     network_mode: host
     restart: unless-stopped
     working_dir: /src/buckle
@@ -42,8 +56,13 @@ services:
       - hub-secrets:/state/secrets
 
   board-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-board-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     network_mode: host
     restart: unless-stopped
     command: bun /src/suspenders/hooks/bin/fleet-board.ts --port ${SIM_BOARD_PORT:-17002}
@@ -58,8 +77,13 @@ services:
         condition: service_healthy
 
   store-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-store-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     network_mode: host
     restart: unless-stopped
     command: bun /src/suspenders/hooks/bin/store-server.ts --port ${SIM_STORE_PORT:-17003}
@@ -70,8 +94,13 @@ services:
       - hub-state:/state/hub-home
 
   belt-hub:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-belt-hub
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     ports:
       - "127.0.0.1:${SIM_BELT_PORT:-17004}:7791"
     restart: unless-stopped
@@ -88,8 +117,13 @@ services:
   # the target over the wire and serves it on its own port; compose health
   # hits the sidecar's /healthz, never the server.
   buckle-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-buckle-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -110,8 +144,13 @@ services:
       start_period: 20s
 
   board-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-board-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -132,8 +171,13 @@ services:
       start_period: 20s
 
   store-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-store-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -154,8 +198,13 @@ services:
       start_period: 20s
 
   belt-health:
-    image: oven/bun:1
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: sim-belt-health
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     network_mode: host
     restart: unless-stopped
     depends_on:

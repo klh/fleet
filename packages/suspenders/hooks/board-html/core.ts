@@ -28,10 +28,24 @@ function applyHashFilter(){
 function byId(id){ return document.getElementById(id); }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function setText(el, v){ if (el && el.textContent !== v) el.textContent = v; }
+// W669.11: the last string sinks retired (UI law). Fragments parse
+// out-of-line (DOMParser content never executes scripts) and move in as
+// nodes; row fragments parse in table context so <tr> survives intact.
+// W658.3 landed the sink for sigSet; W669.11 opens it to stragglers.
+function setNodes(el, html){
+  var rows = el.tagName === 'TBODY' || el.tagName === 'THEAD';
+  var doc = new DOMParser().parseFromString(
+    rows ? '<table><tbody>' + html + '</tbody></table>' : '<div>' + html + '</div>',
+    'text/html');
+  var root = rows ? doc.body.firstElementChild.firstElementChild : doc.body.firstElementChild;
+  var nodes = [];
+  while (root.firstChild) nodes.push(root.removeChild(root.firstChild));
+  el.replaceChildren.apply(el, nodes);
+}
 function sigSet(el, sig, html){
   if (el.getAttribute('data-sig') === sig) return;
   el.setAttribute('data-sig', sig);
-  el.innerHTML = html;
+  setNodes(el, html);
 }
 // sig-guarded rebuild that keeps focus alive across row swaps (tasks table)
 function sigSetKeep(el, sig, html, attr){
@@ -63,6 +77,7 @@ function taskPill(state){
   var s = String(state || '').toLowerCase();
   if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + s + '</span>';
   if (state === 'DONE') return '<span class="pill done">done</span>';
+  if (state === 'CANCELLED') return '<span class="pill cancel">cancelled</span>';
   if (state === 'BLOCKED' || state === 'PAUSED' || state === 'FAILED') return '<span class="pill block">' + s + '</span>';
   return '<span class="pill ready">' + (s || '?') + '</span>';
 }
@@ -133,17 +148,19 @@ function pollData(){
 function pollDec(){
   if (decBusy) return;
   decBusy = true;
-  fetch('/api/decisions' + projQuery(), { signal: AbortSignal.timeout(8000) })
+  var scope = projQuery();
+  fetch('/api/decisions' + scope, { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
+      if (scope !== projQuery()) return;
       if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload');
       if (!lastDec || j.ts >= lastDec.ts) lastDec = j;
       decOkAt = Date.now(); decErr = null; decLoaded = true;
       noteProjects(j.projects);
       noteNew(j.decisions);
     })
-    .catch(function(e){ decErr = String((e && e.message) || e); })
-    .finally(function(){ decBusy = false; renderAll(); });
+    .catch(function(e){ if (scope === projQuery()) decErr = String((e && e.message) || e); })
+    .finally(function(){ decBusy = false; renderAll(); if (scope !== projQuery()) pollDec(); });
 }
 function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); if (task.id) { pollTask(false); pollTail(); } }
 function noteNew(list){
@@ -151,6 +168,7 @@ function noteNew(list){
   projBaseline = false;
   for (var i = 0; i < list.length; i++) {
     var d = list[i];
+    if (!decisionInProject(d)) continue;
     if (d.state && d.state !== 'OPEN') continue;
     if (base) { seen[d.id] = true; continue; } // baseline or fresh project filter, no toast storm
     if (seen[d.id]) continue;

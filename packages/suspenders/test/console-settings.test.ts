@@ -54,10 +54,15 @@ const env = {
 	BELT_POLICY: POLICY,
 	KLH_LOCAL_REGISTRY: REG,
 	SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
+	SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 	SUSPENDERS_MDNS: "0",
+	// W360: probes ride stub deps — DOWN tiles are deterministic and no real
+	// loopback port is touched (the live stack running here flipped them UP)
+	SUSPENDERS_PROBE_DEPS: "stub",
 };
 const bin = join(import.meta.dir, "..", "hooks", "bin");
-const PORT = 7891;
+// random port per run — a leaked board from a dead run must never answer
+const PORT = 20000 + Math.floor(Math.random() * 20000);
 const BASE = `http://127.0.0.1:${PORT}`;
 writeFileSync(
 	REG,
@@ -182,6 +187,25 @@ describe("policy config surface (board-config)", () => {
 		).toThrow(/changed since the preview/);
 		expect(readBoardSettings(p).settings.status_refresh_s).toBe(12);
 	});
+	test("W183.2 form coercion: default_executors comma-list parses to the chain", () => {
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "llm:local:8901, glm-5.3-flash ,, claude",
+			}).default_executors,
+		).toEqual(["llm:local:8901", "glm-5.3-flash", "claude"]);
+		// empty clears — dispatch falls back to bare claude
+		expect(
+			formToBoardSettings({
+				status_refresh_s: "",
+				harvest_ttl_s: "",
+				default_actor: "",
+				default_executors: "",
+			}).default_executors,
+		).toEqual([]);
+	});
 
 	test("resolvePolicy + policyWritePath walk env → runtime → default", () => {
 		const r = resolvePolicy({
@@ -209,20 +233,19 @@ describe("policy config surface (board-config)", () => {
 describe("console routes (real board, temp config)", () => {
 	test("shell on / and /usage; console sections render", async () => {
 		const home = await (await fetch(`${BASE}/`)).text();
-		expect(home).toContain('id="cbar"');
+		expect(home).toContain("<klh-topbar");
 		expect(home).toContain('href="/console/belt"');
 		expect(home).toContain('href="/console/local"');
-		expect(home).toContain('id="cavbtn"');
-		expect(home).toContain("/api/console/me");
+		expect(home).toContain('src="/vendor/klh-topbar.js"');
 		const usage = await (await fetch(`${BASE}/usage`)).text();
-		expect(usage).toContain('id="cbar"');
-		expect(usage).toContain("cavbtn");
+		expect(usage).toContain("<klh-topbar");
+		expect(usage).toContain('src="/vendor/klh-topbar.js"');
 		const belt = await (await fetch(`${BASE}/console/belt`)).text();
 		expect(belt).toContain("Routing policy");
 		expect(belt).toContain("glm-5.3-flash");
 		expect(belt).toContain("local-swarm");
 		expect(belt).toContain("aria-current"); // belt menu item active
-		// :4100/:4101 unreachable in the test env → honest DOWN tiles
+		// stub probes → every tile classifies DOWN, deterministically
 		expect(belt).toMatch(/DOWN/);
 		const local = await (await fetch(`${BASE}/console/local`)).text();
 		expect(local).toContain("bar");
@@ -340,5 +363,59 @@ describe("console routes (real board, temp config)", () => {
 		const st = readBoardSettings(boardSettingsPath(HOME));
 		expect(st.settings.status_refresh_s).toBe(9);
 		expect(st.settings.harvest_ttl_s).toBe(120);
+	});
+	test("W183.2: the executor-preference editor renders + the chain round-trips", async () => {
+		const page = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(page).toContain("executor preference order");
+		expect(page).toContain('id="exlist"');
+		expect(page).toContain('id="exadd"');
+		// the add-picker serves the merged catalog (bare executors at minimum)
+		expect(page).toContain('value="claude"');
+		// write a chain through the same preview → apply flow the editor posts
+		const pv = await postForm("/console/settings/preview", {
+			feature: "suspenders",
+			status_refresh_s: "",
+			harvest_ttl_s: "",
+			default_actor: "",
+			default_executors: "llm:desktop:glm-x,claude",
+		});
+		const page2 = await pv.text();
+		const values = page2.match(/name="values" value="([^"]*)"/)?.[1] ?? "";
+		const mtime = page2.match(/name="mtime" value="([^"]*)"/)?.[1] ?? "";
+		const ap = await postForm("/console/settings/apply", {
+			feature: "suspenders",
+			values,
+			mtime,
+		});
+		expect(ap.status).toBe(303);
+		expect(
+			readBoardSettings(boardSettingsPath(HOME)).settings.default_executors,
+		).toEqual(["llm:desktop:glm-x", "claude"]);
+		// the form now carries the saved chain in its hidden input
+		const after = await (
+			await fetch(`${BASE}/console/settings/suspenders`)
+		).text();
+		expect(after).toContain('value="llm:desktop:glm-x,claude"');
+	});
+
+	test("W174: applies land in the admin audit trail", async () => {
+		const d = (await (await fetch(`${BASE}/api/console/audit`)).json()) as {
+			ok: boolean;
+			audit: Record<string, unknown>[];
+		};
+		expect(d.ok).toBe(true);
+		const actions = d.audit.map((r) => String(r.action));
+		// the earlier round-trip tests applied policy + suspenders settings,
+		// and the invalid-apply test wrote a failure record
+		expect(actions).toContain("settings.apply");
+		expect(actions).toContain("policy.apply");
+		expect(
+			d.audit.some((r) => String(r.detail ?? "").startsWith("error:")),
+		).toBe(true);
+		const page = await (await fetch(`${BASE}/console/settings`)).text();
+		expect(page).toContain("admin audit");
+		expect(page).toContain("settings.apply");
 	});
 });

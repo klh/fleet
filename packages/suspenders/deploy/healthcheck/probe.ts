@@ -27,6 +27,19 @@
 //                (--misses, default 3)
 //   RING         bounded ring of recent results (--ring, default 20)
 //
+// Synthetic readiness (W467, openai-review reliability 3): a /status answer
+// proves the server responds — it does NOT prove the function works. When a
+// JSON body is declared the probe POSTs it and only a 2xx JSON answer whose
+// expect-path resolves counts as ready (the whole serving chain: auth →
+// routing → upstream → response):
+//   SYNTHETIC_JSON  request body to POST (--synthetic-json; presence flips
+//                   the probe from liveness to synthetic)
+//   AUTH_ENV        name of the env var holding the bearer token
+//                   (--auth-env; fail-closed — an unset credential is a
+//                   config error, never an "up")
+//   EXPECT_PATH     dot-path that must resolve in the answer body
+//                   (--expect-path, e.g. "choices.0" for chat completions)
+//
 //   server: bun probe.ts --target http://127.0.0.1:4111/status --listen 4112
 //           GET /healthz → 200 when up, 502 once degraded/down (compose
 //           health hits this) · GET /status → full JSON verdict
@@ -40,6 +53,19 @@ export interface ProbeArgs {
 	timeout: number;
 	misses: number;
 	ring: number;
+	synthetic?: string;
+	authEnv?: string;
+	expect?: string;
+}
+
+/** The wire request a probe carries: liveness is a bare GET; synthetic
+ *  readiness POSTs the declared body with its credential header. */
+export interface ProbeRequest {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	/** dot-path that must resolve in the answer for the probe to count */
+	expect?: string;
 }
 
 interface Sample {
@@ -59,6 +85,9 @@ interface FlagOverrides {
 	timeout?: number;
 	misses?: number;
 	ring?: number;
+	synthetic?: string;
+	authEnv?: string;
+	expect?: string;
 }
 
 function optNum(v: string | undefined): number | undefined {
@@ -97,6 +126,15 @@ function parseFlags(argv: string[]): FlagOverrides {
 			case "--ring":
 				flags.ring = optNum(val);
 				break;
+			case "--synthetic-json":
+				flags.synthetic = val;
+				break;
+			case "--auth-env":
+				flags.authEnv = val;
+				break;
+			case "--expect-path":
+				flags.expect = val;
+				break;
 			default:
 				continue;
 		}
@@ -118,6 +156,9 @@ function resolveArgs(argv: string[]): ProbeArgs {
 		timeout: f.timeout ?? optNum(env.TIMEOUT_MS) ?? 2000,
 		misses: f.misses ?? optNum(env.MISS_LIMIT) ?? 3,
 		ring: f.ring ?? optNum(env.RING) ?? 20,
+		synthetic: f.synthetic ?? env.SYNTHETIC_JSON,
+		authEnv: f.authEnv ?? env.AUTH_ENV,
+		expect: f.expect ?? env.EXPECT_PATH,
 	};
 }
 
@@ -129,18 +170,60 @@ function targetUrl(args: ProbeArgs): string {
 	return url.toString();
 }
 
+/** The synthetic wire request: POST the declared JSON body, bearer token
+ *  resolved from AUTH_ENV. Throws when the credential is declared but unset
+ *  — fail-closed, a synthetic probe without its credential is a config
+ *  error, never an "up". Undefined when no synthetic body is declared
+ *  (plain liveness GET). */
+export function syntheticRequest(args: ProbeArgs): ProbeRequest | undefined {
+	if (args.synthetic === undefined) return undefined;
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+	};
+	if (args.authEnv !== undefined) {
+		const token = process.env[args.authEnv];
+		if (token === undefined || token.trim().length === 0)
+			throw new Error(
+				`AUTH_ENV "${args.authEnv}" is not set — refusing to probe without the credential`,
+			);
+		headers.authorization = `Bearer ${token}`;
+	}
+	return { method: "POST", headers, body: args.synthetic, expect: args.expect };
+}
+
+/** Walk a dot-path ("choices.0.message") through objects/arrays; a missed
+ *  segment yields undefined. */
+export function pathValue(body: unknown, path: string): unknown {
+	let cur: unknown = body;
+	for (const seg of path.split(".")) {
+		if (cur === null || typeof cur !== "object") return undefined;
+		cur = (cur as Record<string, unknown>)[seg];
+	}
+	return cur;
+}
+
 export async function probeOnce(
 	url: string,
 	timeoutMs: number,
+	req: ProbeRequest = {},
 ): Promise<Sample> {
 	const t0 = Date.now();
 	try {
 		const r = await fetch(url, {
 			signal: AbortSignal.timeout(timeoutMs),
 			redirect: "manual",
+			method: req.method,
+			headers: req.headers,
+			body: req.body,
 		});
 		let ok = r.ok;
-		if (ok && r.headers.get("content-type")?.includes("json")) {
+		// synthetic: the expect-path must resolve, so parse even a body the
+		// upstream mislabeled — a non-JSON answer to a JSON request fails
+		if (
+			ok &&
+			(r.headers.get("content-type")?.includes("json") ||
+				req.expect !== undefined)
+		) {
 			const reader = r.body?.getReader();
 			let size = 0;
 			const chunks: Uint8Array[] = [];
@@ -174,6 +257,8 @@ export async function probeOnce(
 					"stopped",
 					"degraded",
 				].includes(body.status);
+			if (ok && req.expect !== undefined)
+				ok = pathValue(body, req.expect) !== undefined;
 		} else {
 			await r.body?.cancel();
 		}
@@ -197,6 +282,15 @@ export async function probeOnce(
  *  wire at a time; the down flip requires an active confirming re-probe. */
 export function createMonitor(args: ProbeArgs) {
 	const url = targetUrl(args);
+	// resolved once: a synthetic probe's credential is startup config, and
+	// an unset AUTH_ENV fails every poll closed instead of probing bare
+	let wire: ProbeRequest | undefined;
+	let wireError: string | null = null;
+	try {
+		wire = syntheticRequest(args);
+	} catch (e) {
+		wireError = e instanceof Error ? e.message : String(e);
+	}
 	const ring: Sample[] = [];
 	let state: VerdictState = "down";
 	let misses = 0;
@@ -223,7 +317,15 @@ export function createMonitor(args: ProbeArgs) {
 		if (inFlight) return;
 		inFlight = true;
 		try {
-			const s = await probeOnce(url, args.timeout);
+			const s =
+				wireError !== null
+					? {
+							ok: false,
+							status: 0,
+							ms: 0,
+							at: new Date().toISOString(),
+						}
+					: await probeOnce(url, args.timeout, wire);
 			apply(s);
 			// degrading: past the miss limit and not yet down — actively
 			// re-probe; the flip to down is earned only when the confirming
@@ -263,6 +365,8 @@ export function createMonitor(args: ProbeArgs) {
 				: state;
 		return {
 			target: url,
+			mode: args.synthetic !== undefined ? "synthetic" : "liveness",
+			error: wireError,
 			state: reportedState,
 			ok: reportedState === "up" && last?.ok === true,
 			misses,
@@ -282,13 +386,20 @@ async function main(): Promise<void> {
 	const args = resolveArgs(process.argv.slice(2));
 	if (args.target.length === 0) {
 		console.log(
-			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING)",
+			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
 		);
 		process.exit(2);
 	}
 	// CLI mode: one shot, exit code carries the verdict.
 	if (args.listen === undefined) {
-		const v = await probeOnce(targetUrl(args), args.timeout);
+		let req: ProbeRequest | undefined;
+		try {
+			req = syntheticRequest(args);
+		} catch (e) {
+			console.error(e instanceof Error ? e.message : String(e));
+			process.exit(2);
+		}
+		const v = await probeOnce(targetUrl(args), args.timeout, req);
 		console.log(JSON.stringify(v));
 		process.exit(v.ok ? 0 : 1);
 	}

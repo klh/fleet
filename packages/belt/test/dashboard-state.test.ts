@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { endpointState, supervisorFresh } from "../bin/dashboard-state.ts";
+import {
+	endpointState,
+	supervisorFresh,
+	supervisorSource,
+	restartEvidence,
+	targetStateLabel,
+} from "../bin/dashboard-state.ts";
 import type { StatusDoc, TargetStatus } from "../bin/supervisor.ts";
 
 const now = Date.parse("2026-10-06T06:00:00Z");
@@ -28,6 +34,21 @@ const doc: StatusDoc = {
 };
 
 describe("dashboard observability", () => {
+	test("advanced counts retain their meaning while kit missing accounting is explicit", () => {
+		expect(supervisorSource({})).toBe("belt-supervisor");
+		expect(supervisorSource({ source: "local-llm-serve" })).toBe(
+			"local-llm-serve",
+		);
+		expect(restartEvidence({ restarts: 2, restartsLastWindow: 0 })).toBe(
+			"0 restarts in budget window · 2 total",
+		);
+		expect(restartEvidence({ restarts: 2, restartsLastWindow: null })).toBe(
+			"not recorded restarts in budget window · 2 total",
+		);
+		expect(
+			restartEvidence({ restarts: null, restartsLastWindow: null }),
+		).toContain("not recorded total");
+	});
 	test("on-demand absence is idle rather than a failure", () => {
 		expect(endpointState(false, target, doc, now)).toBe("idle · on demand");
 	});
@@ -78,6 +99,21 @@ describe("dashboard observability", () => {
 		);
 		expect(endpointState(true, { ...target, state: "up" }, doc, now)).toBe(
 			"ready",
+		);
+	});
+	test("expired probe evidence renders unknown, never the stale state", () => {
+		expect(targetStateLabel(target, doc, now)).toBe("idle · on demand");
+		expect(targetStateLabel({ ...target, state: "up" }, doc, now)).toBe("up");
+		const expired = now - 16_000; // beyond max(15s, intervalMs*3)
+		expect(
+			targetStateLabel(
+				{ ...target, state: "up", lastProbe: new Date(expired).toISOString() },
+				doc,
+				now,
+			),
+		).toBe("unknown");
+		expect(targetStateLabel({ ...target, lastProbe: null }, doc, now)).toBe(
+			"unknown",
 		);
 	});
 });

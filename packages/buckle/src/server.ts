@@ -6,21 +6,35 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { RpcAdmission } from "./admission.ts";
+import { PrefixAffinity } from "./affinity.ts";
+import { LaneTelemetryLog } from "./cache-boundary.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
 import { Cooldowns } from "./cooldown.ts";
 import { decideRoute } from "./decide.ts";
-import { Expander, directCall, pickLocalDirect } from "./expand.ts";
+import { DietStore } from "./diet.ts";
+import { directCall, Expander, pickLocalDirect } from "./expand.ts";
 import { Federation } from "./gov/federation.ts";
 import { ManifestSigner } from "./gov/federation-signing.ts";
+import type {
+	HubEntitlementsFactory,
+	ManifestCrFactory,
+	SpokeEnrollmentFactory,
+	UsageIngestFactory,
+} from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
+import { loadOverlay, overlayModuleAdaptation } from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
+import { ObservationOutbox } from "./observe.ts";
 import { loadGatewayPolicy, loadPrefs } from "./policy.ts";
 import { poolWarm, prewarm } from "./pool-warm.ts";
 import { Preseeder } from "./preseed.ts";
+import { LaneProjection, OutboxTailer } from "./projection.ts";
 import { loadRepoPolicies } from "./repo-policy.ts";
+import { resolveResidency, residencyFromEnv } from "./gov/residency.ts";
 import { Router, type RouterMetrics } from "./router.ts";
 import { servicemon } from "./servicemon.ts";
 import type { Dialect } from "./upstreams.ts";
@@ -28,6 +42,16 @@ import { loadUpstreams } from "./upstreams.ts";
 
 export const SHADOW_PORT = 4101;
 export const FORBIDDEN_PORT = 4100;
+
+/** W450: Bun's connection idle timeout applies to quiet SSE streams — the
+ *  10s default can kill a slow-generation body mid-flight. 0-255s per Bun's
+ *  contract (0 disables); BUCKLE_IDLE_TIMEOUT_S overrides; default 120s. */
+export function resolveIdleTimeout(v?: string): number {
+	const raw = v ?? process.env.BUCKLE_IDLE_TIMEOUT_S;
+	const n = Number(raw);
+	if (raw === undefined || raw === "" || !Number.isFinite(n)) return 120;
+	return Math.min(255, Math.max(0, Math.floor(n)));
+}
 
 /** W199.2 request-body cap: Bun's silent default is 128 MiB — an unbounded
  *  LLM ingress invites memory-hangup abuse. 32 MiB bounds a request while
@@ -49,7 +73,18 @@ export interface ServerOpts {
 	 *  Defaults: BUCKLE_SECRETS_HOME env, else ~/.claude/local-llm. */
 	secretsHome?: string;
 	// W141 governance: root break-glass key + optional JWT validator config.
-	auth?: Pick<GovernanceOpts, "rootKey" | "jwt">;
+	// W468: slots overrides the env-resolved admission-control pool caps.
+	// W233: spokeEnrollment injects the enterprise overlay's enrollment
+	// provider (klh-remote buckle-remote); unset = solo posture. W233.1:
+	// hubEntitlements injects the entitlement-menu provider the same way.
+	// W233.2: usageIngest injects the usage-ingest provider the same way.
+	// W233.3: manifestCr injects the manifest + CR queue serving provider.
+	auth?: Pick<GovernanceOpts, "rootKey" | "jwt" | "slots" | "adaptation"> & {
+		spokeEnrollment?: SpokeEnrollmentFactory;
+		hubEntitlements?: HubEntitlementsFactory;
+		usageIngest?: UsageIngestFactory;
+		manifestCr?: ManifestCrFactory;
+	};
 }
 
 /** Port resolution with the 4100 guard; explicit arg wins over env. */
@@ -92,6 +127,13 @@ export function buildDeps(
 					.inc({ kind }, n),
 		},
 	);
+	// W458.4 per-lane cache telemetry: append-only NDJSON next to the ledger
+	// db (BUCKLE_LANE_CACHE_LOG overrides). Rows ride real lane-attributed
+	// requests only — bare ingress appends nothing.
+	const laneCache = new LaneTelemetryLog(
+		process.env.BUCKLE_LANE_CACHE_LOG ??
+			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
+	);
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
 	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
 	const aids = new AidsLedger(
@@ -107,7 +149,10 @@ export function buildDeps(
 		policy.allowed_fails ?? 3,
 		policy.cooldown_time ?? 30,
 	);
-	const table = new CandidateTable({ pool, policy, cooldowns });
+	// W235 locked residency floors: resolve once at boot (env + compiled
+	// floor, tighten-only); the candidate table benches outsiders.
+	const residency = resolveResidency(residencyFromEnv(process.env));
+	const table = new CandidateTable({ pool, policy, cooldowns, residency });
 	table.start();
 	// W4 intent expansion: the local direct tier (aids.expand.group, default
 	// local-swarm) serves the enhance digest — structurally local (never a
@@ -141,6 +186,9 @@ export function buildDeps(
 				.inc({ tier }),
 	};
 	const router = new Router(policy, { pool, metrics, cooldowns });
+	// W450 bounded RPC admission: explicit overload (429 + Retry-After) past
+	// the in-flight bound instead of uncontrolled memory growth.
+	const admission = new RpcAdmission();
 	// W143 speed pass: the warm-rate gate's servicemon counter + the boot
 	// pre-warm — one GET /v1/models per unique deployment origin (the
 	// gateway-config.ts precedent), so TLS/auth are established before the
@@ -160,6 +208,7 @@ export function buildDeps(
 		dialect: Dialect;
 		hint: RouteHint | null;
 		hintRaw: string;
+		allowCross: boolean;
 	}) =>
 		decideRoute({
 			...input,
@@ -177,13 +226,44 @@ export function buildDeps(
 				process.env.BUCKLE_SECRETS_HOME ??
 				join(process.env.HOME ?? homedir(), ".claude", "local-llm"),
 		),
+		spokeEnrollment: opts.auth?.spokeEnrollment,
+		usageIngest: opts.auth?.usageIngest,
+		hubEntitlements: opts.auth?.hubEntitlements,
+		manifestCr: opts.auth?.manifestCr,
 	});
 	// W7 repo-policy gate: the row file loads once at boot; absent file =
 	// zero rows = engine inert (a fresh spoke without rows is valid).
 	const repoPolicy = loadRepoPolicies(opts.repoPolicyPath);
+	// W207 trajectory pruning: the diet sidestore rides the shared buckle db
+	// (the AidsLedger wiring precedent); policy still gates the pass OFF.
+	const diet = new DietStore(dbPath);
+	const affinity = new PrefixAffinity();
+	// W461 stage 2: the lane-observation outbox. BUCKLE_OBSERVATIONS_PATH
+	// (config-over-code) enables it; unset = observations inert.
+	const obsPath = process.env.BUCKLE_OBSERVATIONS_PATH;
+	const observations = obsPath
+		? new ObservationOutbox({
+				path: obsPath,
+				hubId: process.env.BUCKLE_HUB_ID,
+			})
+		: undefined;
+	// W461 stage 3: the read model — ingest the outbox into the projected
+	// lane/route tables on a short poll (the board reads the same db).
+	let projection: LaneProjection | undefined;
+	if (obsPath) {
+		projection = new LaneProjection(
+			process.env.BUCKLE_OBSERVATIONS_DB ?? `${obsPath}.db`,
+		);
+		const tailer = new OutboxTailer(projection, obsPath);
+		const ingest = setInterval(() => {
+			void tailer.poll().catch(() => {});
+		}, 2000);
+		ingest.unref();
+	}
 	return {
 		router,
 		ledger,
+		admission,
 		aids,
 		preseeder,
 		aidsPolicy,
@@ -194,6 +274,10 @@ export function buildDeps(
 		decide,
 		table,
 		federation,
+		affinity,
+		laneCache,
+		diet,
+		observations,
 	};
 }
 
@@ -216,9 +300,10 @@ export function startServer(
 			rootKey: opts.auth?.rootKey,
 			jwt: opts.auth?.jwt,
 			federation: deps.federation,
+			slots: opts.auth?.slots,
+			adaptation: opts.auth?.adaptation,
 		},
 	);
-	gov.budgets.startFlushTimer();
 	const gated = authOn ? gov.gate(app.fetch) : app.fetch;
 	const inner = deps.sm.fetch(gated);
 	// W162.1 hub bind: a spoke (the common case) never leaves opts.hostname/
@@ -241,6 +326,9 @@ export function startServer(
 		// W199.2: the explicit body cap — over-cap requests get Bun's 413 and
 		// never reach the governance gate, the ledger or the pool.
 		maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+		// W450: quiet streams survive longer than Bun's 10s connection-idle
+		// default (see resolveIdleTimeout for the knob and the range law).
+		idleTimeout: resolveIdleTimeout(),
 		fetch: inner,
 	});
 	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {
@@ -248,8 +336,11 @@ export function startServer(
 	};
 }
 
-/** Entry: bind the shadow port, log the guard. */
-export function main(): void {
+/** W235 boot: overlay load (fail-closed) BEFORE the server starts; unset =
+ *  solo posture; what loaded is logged (log-at-startup law). */
+export async function boot(): Promise<
+	ReturnType<typeof Bun.serve> & { gov: ReturnType<typeof createGovernance> }
+> {
 	const port = resolvePort();
 	// break-glass root credential (2026-10-05): hub deploys run the governance
 	// gate ON; without a root key NOTHING can authenticate or mint — every
@@ -257,13 +348,40 @@ export function main(): void {
 	// BUCKLE_ROOT_KEY from runtime env seeds the bootstrap principal; mint
 	// real bksk_ keys via /v1/admin/keys and retire the root when done.
 	const rootKey = process.env.BUCKLE_ROOT_KEY;
-	const server = startServer({
-		port,
-		...(rootKey ? { auth: { rootKey } } : {}),
+	const overlay = await loadOverlay({
+		dir: process.env.KLH_OVERLAY_DIR,
+		expectSha256: process.env.KLH_OVERLAY_SHA256,
 	});
-	console.log(
-		`buckle: shadow router on http://${server.hostname}:${port}` +
-			` (4100 refused by design${rootKey ? ", root-keyed" : ", NO ROOT KEY — mint nothing"})`,
+	if (!overlay.ok && overlay.why !== "unset")
+		throw new Error(`overlay refused: ${overlay.why}`);
+	const adaptation = overlay.ok
+		? overlayModuleAdaptation(overlay.module)
+		: undefined;
+	if (overlay.ok)
+		console.log(
+			`buckle: overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
+				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)`,
+		);
+	return startServer({
+		port,
+		...(rootKey || adaptation
+			? {
+					auth: {
+						...(rootKey ? { rootKey } : {}),
+						...(adaptation ? { adaptation } : {}),
+					},
+				}
+			: {}),
+	});
+}
+
+/** Entry: bind the shadow port, log the guard. */
+export function main(): void {
+	void boot().then((server) =>
+		console.log(
+			`buckle: shadow router on http://${server.hostname}:${server.port}` +
+				` (4100 refused by design, root ${process.env.BUCKLE_ROOT_KEY ? "keyed" : "unset"})`,
+		),
 	);
 }
 

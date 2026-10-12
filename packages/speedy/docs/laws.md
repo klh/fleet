@@ -77,7 +77,8 @@ Work moves as item-scoped lane briefs: a sid per lane, work take before
 code work, capsule checkpoints at every work-unit boundary, coord inbox
 for interrupts, capability-aware take (refuses work its capabilities do
 not cover), DONE <sha> | SPLIT | BLOCKED endings, board deep-links
-#task=<id>. Between items, poll the inbox; if READY work matches your
+#task=<id>. Between items, `coord subscribe` (W303, opened at bootstrap)
+keeps your inbox PUSHED — never poll; if READY work matches your
 capabilities, take it yourself.
 
 Source: AGENTS.md lane protocol + suspenders coordination-protocol doc.

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	adminKey,
+	hubCredential,
 	laneKeyMetaPath,
 	laneSettingsPath,
 	LANE_KEY_TTL_S,
@@ -96,6 +97,37 @@ describe("mintLaneKey", () => {
 	});
 });
 
+// W615: the per-hub credential channel — env override, then the hubs.json
+// registry token (the same surfaces federation-peers pulls manifests with).
+describe("hubCredential (W615)", () => {
+	test("per-label env token wins, label normalized (dashes → underscores)", () => {
+		const env = {
+			SUSPENDERS_HUB_MY_HUB_TOKEN: "bksk_hubenv",
+		} as NodeJS.ProcessEnv;
+		expect(hubCredential("my-hub", env)).toBe("bksk_hubenv");
+	});
+
+	test("falls back to the hubs.json registry token for the label", () => {
+		const reg = mkdtempSync(join(tmpdir(), "w615-hubs-"));
+		const regFile = join(reg, "hubs.json");
+		writeFileSync(regFile, JSON.stringify({ REGHUB: { token: "bksk_reg" } }));
+		const saved = process.env.SUSPENDERS_HUBS_FILE;
+		process.env.SUSPENDERS_HUBS_FILE = regFile;
+		try {
+			expect(hubCredential("reghub")).toBe("bksk_reg");
+		} finally {
+			if (saved === undefined) delete process.env.SUSPENDERS_HUBS_FILE;
+			else process.env.SUSPENDERS_HUBS_FILE = saved;
+			rmSync(reg, { recursive: true, force: true });
+		}
+	});
+
+	test("null when neither surface has a token", () => {
+		const env = {} as NodeJS.ProcessEnv;
+		expect(hubCredential("ghosthub", env)).toBeNull();
+	});
+});
+
 describe("revokeLaneKey", () => {
 	test("POSTs the revoke route with bearer admin; true on ok", async () => {
 		let captured: { url: string; init: RequestInit } | null = null;
@@ -122,6 +154,31 @@ describe("revokeLaneKey", () => {
 		expect(await revokeLaneKey("abc123def456", "bksk_admin", stub)).toBe(false);
 	});
 });
+
+// W615 helper: pin a hub credential via env (registry file absent) and get
+// a restore thunk — keeps each hub-minted test to one env surface.
+const withHubTokenEnv = (): {
+	hubs: string | undefined;
+	desktop: string | undefined;
+} => {
+	const snap = {
+		hubs: process.env.SUSPENDERS_HUBS_FILE,
+		desktop: process.env.SUSPENDERS_HUB_DESKTOP_TOKEN,
+	};
+	process.env.SUSPENDERS_HUBS_FILE = "/nonexistent/w615.json";
+	process.env.SUSPENDERS_HUB_DESKTOP_TOKEN = "bksk_hubtok";
+	return snap;
+};
+const restoreHubTokenEnv = (snap: {
+	hubs: string | undefined;
+	desktop: string | undefined;
+}): void => {
+	if (snap.hubs === undefined) delete process.env.SUSPENDERS_HUBS_FILE;
+	else process.env.SUSPENDERS_HUBS_FILE = snap.hubs;
+	if (snap.desktop === undefined)
+		delete process.env.SUSPENDERS_HUB_DESKTOP_TOKEN;
+	else process.env.SUSPENDERS_HUB_DESKTOP_TOKEN = snap.desktop;
+};
 
 describe("retireLaneKey", () => {
 	const newFleet = (): string => {
@@ -177,6 +234,38 @@ describe("retireLaneKey", () => {
 		expect(rk.keyId).toBe("abc123def456");
 		expect(rk.revoked).toBe(false);
 		expect(rk.removed).toHaveLength(2);
+		rmSync(fleet, { recursive: true, force: true });
+	});
+
+	test("W615: hub-minted meta revokes at the meta front with the hub credential", async () => {
+		const fleet = newFleet();
+		writeFileSync(
+			laneKeyMetaPath(fleet, "autow123"),
+			JSON.stringify({
+				key_id: "hubkey123456",
+				front: "http://hub:4101",
+				hub: "DESKTOP",
+			}),
+		);
+		writeFileSync(laneSettingsPath(fleet, "autow123"), "{}");
+		let captured: { url: string; init: RequestInit } | null = null;
+		const stub = (async (url: string | URL, init?: RequestInit) => {
+			captured = { url: String(url), init: init ?? {} };
+			return new Response(JSON.stringify({ revoked: "hubkey123456" }));
+		}) as unknown as typeof fetch;
+		const env = withHubTokenEnv();
+		const rk = await retireLaneKey({
+			fleet,
+			sid: "autow123",
+			admin: "bksk_local_admin",
+			fetchFn: stub,
+		});
+		restoreHubTokenEnv(env);
+		expect(rk.revoked).toBe(true);
+		const c = captured as { url: string; init: RequestInit } | null;
+		expect(c?.url).toBe("http://hub:4101/v1/admin/keys/hubkey123456/revoke");
+		const headers = c?.init.headers as Record<string, string>;
+		expect(headers.authorization).toBe("Bearer bksk_hubtok");
 		rmSync(fleet, { recursive: true, force: true });
 	});
 

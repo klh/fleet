@@ -1,15 +1,16 @@
-// src/bridge.ts — cross-dialect failover (review #14 §1.3), OPT-IN behind
-// BUCKLE_CROSS_DIALECT=on (default off: buckle is dual-dialect
-// pass-through). When on, a ladder rung may hop to a deployment of the
-// OTHER dialect; the request/response are rewritten with the W134 §5
-// transforms in adapters/tools.ts. Supported hops:
+// src/bridge.ts — the NATIVE dialect-translation tier (W426): a request may
+// reach a deployment of the OTHER dialect; the request/response are
+// rewritten with the W134 §5 transforms in adapters/tools.ts. Pass-through
+// first: same-dialect hops stay byte-identical, cross hops rank behind
+// (decide sorts same-dialect first; router tierCandidates same-first too).
+// Supported hops (both streaming):
 //   anthropic client → openai upstream: JSON + streaming (OpenAIToAnthropicStream)
-//   openai client → anthropic upstream: JSON only (no anthropic→openai
-//     stream mirror exists yet — streaming requests never take this hop)
+//   openai client → anthropic upstream: JSON + streaming (AnthropicToOpenAIStream)
 // count_tokens never bridges. A transform that rejects (reject-verbose)
 // makes the hop ineligible — the walk skips it, nothing is mangled.
 import {
 	type AnthropicEvent,
+	AnthropicToOpenAIStream,
 	OpenAIToAnthropicStream,
 	requestAnthropicToOpenAI,
 	requestOpenAIToAnthropic,
@@ -20,10 +21,6 @@ import type { UpstreamRequest } from "./router.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
 
 type AnyRec = Record<string, unknown>;
-
-export function crossDialectOn(): boolean {
-	return process.env.BUCKLE_CROSS_DIALECT === "on";
-}
 
 const PATH: Record<Dialect, string> = {
 	openai: "/v1/chat/completions",
@@ -40,7 +37,6 @@ export function bridgeRequest(
 ): UpstreamRequest | null {
 	if (dep.dialect === req.dialect) return req;
 	if (req.path !== PATH[req.dialect]) return null; // count_tokens etc.
-	const stream = req.body.stream === true;
 	if (req.dialect === "anthropic") {
 		const t = requestAnthropicToOpenAI(req.body);
 		if (t.rejected) return null;
@@ -55,7 +51,6 @@ export function bridgeRequest(
 		};
 		return { ...req, dialect: "openai", path: PATH.openai, body };
 	}
-	if (stream) return null;
 	const pre: AnyRec = { ...req.body };
 	if (pre.max_tokens === undefined && pre.max_completion_tokens !== undefined)
 		pre.max_tokens = pre.max_completion_tokens;
@@ -79,6 +74,14 @@ export function bridgeResponse(
 	if (stream && client === "anthropic" && resp.body) {
 		headers.set("content-type", "text/event-stream");
 		return new Response(resp.body.pipeThrough(openAIToAnthropicSse()), {
+			status: resp.status,
+			headers,
+		});
+	}
+	if (stream && client === "openai" && resp.body) {
+		// anthropic SSE upstream → openai chunk frames (W426 mirror)
+		headers.set("content-type", "text/event-stream");
+		return new Response(resp.body.pipeThrough(anthropicToOpenAISse()), {
 			status: resp.status,
 			headers,
 		});
@@ -187,6 +190,79 @@ export function openAIToAnthropicSse(): TransformStream<
 			drain(c);
 			dispatch(c);
 			emit(tx.flush(), c);
+		},
+	});
+}
+
+/** Wire form of one openai chunk (the mirror's emit side). */
+function openaiFrame(chunk: AnyRec): string {
+	return `data: ${JSON.stringify(chunk)}\n\n`;
+}
+
+/** anthropic SSE bytes → openai chunk SSE bytes (streaming, one decoder).
+ *  The mirror of openAIToAnthropicSse: parses `event:`/`data:` pairs, feeds
+ *  AnthropicToOpenAIStream, emits `data: {...}` chunk frames and the final
+ *  `data: [DONE]` sentinel (openai include_usage semantics). */
+export function anthropicToOpenAISse(): TransformStream<
+	Uint8Array,
+	Uint8Array
+> {
+	const dec = new TextDecoder();
+	const enc = new TextEncoder();
+	const tx = new AnthropicToOpenAIStream();
+	let buf = "";
+	let event = "";
+	let data: string[] = [];
+	const emit = (
+		chunks: AnyRec[],
+		c: TransformStreamDefaultController<Uint8Array>,
+	): void => {
+		const text = chunks.map(openaiFrame).join("");
+		if (text.length > 0) c.enqueue(enc.encode(text));
+	};
+	const dispatch = (c: TransformStreamDefaultController<Uint8Array>): void => {
+		const payload = data.join("\n").trim();
+		data = [];
+		if (payload.length === 0) return;
+		try {
+			emit(tx.push({ event, data: JSON.parse(payload) }), c);
+		} catch {
+			// non-JSON frame: nothing to translate
+		}
+		event = "";
+	};
+	const line = (
+		l: string,
+		c: TransformStreamDefaultController<Uint8Array>,
+	): void => {
+		if (l.length === 0) dispatch(c);
+		else if (l.startsWith("event:")) {
+			const v = l.slice(6);
+			event = v.startsWith(" ") ? v.slice(1) : v;
+		} else if (l.startsWith("data:")) {
+			const v = l.slice(5);
+			data.push(v.startsWith(" ") ? v.slice(1) : v);
+		}
+	};
+	const drain = (c: TransformStreamDefaultController<Uint8Array>): void => {
+		let i = buf.indexOf("\n");
+		while (i >= 0) {
+			line(buf.slice(0, i).replace(/\r$/, ""), c);
+			buf = buf.slice(i + 1);
+			i = buf.indexOf("\n");
+		}
+	};
+	return new TransformStream({
+		transform(chunk, c) {
+			buf += dec.decode(chunk, { stream: true });
+			drain(c);
+		},
+		flush(c) {
+			buf += `${dec.decode()}\n`;
+			drain(c);
+			dispatch(c);
+			emit(tx.flush(), c);
+			c.enqueue(enc.encode("data: [DONE]\n\n"));
 		},
 	});
 }

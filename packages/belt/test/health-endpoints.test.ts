@@ -67,6 +67,37 @@ for (const [script, portEnv] of [
 				);
 			}
 			if (script.includes("dashboard")) {
+				if (script === "../bin/dashboard.ts") {
+					const asset = await fetch(`${base}/dashboard-observability.js`);
+					expect(asset.headers.get("content-type")).toContain("javascript");
+					const source = await asset.text();
+					expect(source).toContain("const displayLabel =");
+					expect(source).toContain("displayLabel(target.name)");
+					const built = await Bun.build({
+						entrypoints: ["observability.js"],
+						plugins: [
+							{
+								name: "served-asset",
+								setup(build) {
+									build.onResolve({ filter: /^observability\.js$/ }, () => ({
+										path: "observability.js",
+										namespace: "served",
+									}));
+									build.onLoad({ filter: /.*/, namespace: "served" }, () => ({
+										contents: source,
+										loader: "js",
+									}));
+								},
+							},
+						],
+						external: [
+							"/vendor/lit.js",
+							"/dashboard-state.js",
+							"/observation.js",
+						],
+					});
+					expect(built.success).toBe(true);
+				}
 				expect(
 					(await fetch(`${base}/api/status`, { method: "POST" })).status,
 				).toBe(405);

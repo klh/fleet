@@ -12,10 +12,16 @@
 // leaves the machine).
 
 import { appendFileSync } from "node:fs";
+import { createAdmission, overloaded, parsePortCaps } from "./admission.ts";
+import { audioSpeech, audioTranscribe } from "./audio.ts";
 import { livenessResponse } from "./health.ts";
-import { createAdmission, overloaded } from "./admission.ts";
 import { promptFingerprint } from "./prompt-fingerprint.ts";
-import { byPort, fallbackFor, type Specialist } from "./registry.ts";
+import {
+	byPort,
+	fallbackFor,
+	SPECIALISTS,
+	type Specialist,
+} from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
 import {
 	applyInboundCondense,
@@ -31,15 +37,28 @@ import {
 	classifierText,
 	kevEligible,
 	openLocalStream,
-	retryAfterMs,
+	type RequestTimings,
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
 	viaLocal,
 } from "./router-core.ts";
+// W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
+// out; this adds the import for the extracted escalation leg.
+import { escalate } from "./escalate.ts";
 import { ensureUp } from "./spawner.ts";
 
-const admission = createAdmission();
+// W504: per-provider request caps — registry rows carry maxInflight for the
+// big unified-memory backends (:8901/:8903); BELT_PORT_CAPS ("8903:1,8901:3")
+// overrides per port (operator knob wins over code default). A full port →
+// 429 + Retry-After: fall-through per the ladder, the router never queues.
+const REGISTRY_CAPS: Record<number, number> = {};
+for (const s of SPECIALISTS)
+	if (typeof s.maxInflight === "number") REGISTRY_CAPS[s.port] = s.maxInflight;
+const admission = createAdmission(undefined, undefined, {
+	...REGISTRY_CAPS,
+	...parsePortCaps(process.env.BELT_PORT_CAPS),
+});
 
 const HOME = process.env.HOME;
 const PREFS_FILE = `${HOME}/.claude/local-llm/prefs.json`;
@@ -187,66 +206,12 @@ function isDanish(text: string): boolean {
 	return strong >= 2 || (strong >= 1 && weak >= 1) || weak >= 3;
 }
 
-// ─── cloud escalation (z.ai, Anthropic format; creds read at request time,
-// never logged or cached). Budget policy applies (GLM always thinks); an
-// upstream 429 surfaces its Retry-After instead of an empty answer. ───
-async function viaCloud(
-	body: AnthropicBody,
-	maxTokens: number,
-	wantFast: boolean,
-): Promise<{
-	text: string;
-	model: string;
-	status?: number;
-	retryAfterMs?: number;
-	note?: string;
-}> {
-	const model = wantFast ? "glm-5.3-flash" : "glm-5.3";
-	const settings = JSON.parse(
-		await Bun.file(`${HOME}/.claude/settings.json`).text(),
-	);
-	const tok = settings.env?.ANTHROPIC_AUTH_TOKEN;
-	const base = settings.env?.ANTHROPIC_BASE_URL;
-	if (!tok || !base) return { text: "", model };
-	const budget = applyBudget(model, maxTokens);
-	const res = await fetch(`${base}/v1/messages`, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			"x-api-key": tok,
-			authorization: `Bearer ${tok}`,
-			"anthropic-version": "2023-06-01",
-		},
-		signal: AbortSignal.timeout(120_000),
-		body: JSON.stringify({
-			// litellm group names — the [1m] 1M-context ids exist in no litellm
-			// model_list; lanes 400'd on unrecognized_model through this path
-			model,
-			max_tokens: budget.maxTokens,
-			...(body.system === undefined ? {} : { system: body.system }),
-			messages: body.messages,
-		}),
-	});
-	if (res.status === 429) {
-		await res.body?.cancel();
-		return {
-			text: "",
-			model,
-			status: 429,
-			retryAfterMs: retryAfterMs(res.headers.get("retry-after")),
-		};
-	}
-	const j = (await res.json()) as { content?: Array<{ text?: string }> };
-	return {
-		text: (j.content ?? [])
-			.map((b) => b.text ?? "")
-			.join("")
-			.trim(),
-		model,
-		status: res.status,
-		note: budget.note,
-	};
-}
+// ─── cloud escalation ───
+// W422.17.3: the escalation leg lives in escalate.ts — gate mode
+// (BELT_ESCALATE_URL/KEY, operator-minted buckle:proxy:WRITE_ key,
+// route_audit row) with the legacy settings.json litellm leg as fallback.
+// The one call site passes body + budget + tier; creds live in machine
+// config, never code.
 
 // selftest: fire one request whose primary target is a dead port, asserting
 // the fallback branch answers. The path otherwise almost never runs — first
@@ -412,6 +377,15 @@ Bun.serve({
 		)
 			return registryResponse(req);
 
+		// ─── W440 audio tier: TTS/STT behind the router (OpenAI wire) ───
+		// Handlers live in bin/audio.ts (rows: registry.ts AUDIO_SERVICES);
+		// the vendor key is machine config — a missing key is a clean 503.
+		if (req.method === "POST" && url.pathname === "/v1/audio/speech")
+			return audioSpeech(req);
+
+		if (req.method === "POST" && url.pathname === "/v1/audio/transcriptions")
+			return audioTranscribe(req);
+
 		if (req.method !== "POST" || url.pathname !== "/v1/messages") {
 			return Response.json({ error: "not found" }, { status: 404 });
 		}
@@ -424,6 +398,7 @@ Bun.serve({
 		}
 
 		const startTime = Date.now();
+		const t0 = performance.now();
 		const text = classifierText(body);
 		const wantStream = body.stream === true;
 
@@ -437,9 +412,16 @@ Bun.serve({
 		if (arith !== null) {
 			const id = `msg_arith_${Date.now()}`;
 			const routing = { tier: "SIMPLE", category: "arithmetic" };
+			// no upstream leg — the lane answers in-process
+			const timings = { total_ms: Math.round(performance.now() - t0) };
 			if (wantStream)
 				return new Response(
-					anthropicSseFromText(arith, { id, model: body.model, routing }),
+					anthropicSseFromText(arith, {
+						id,
+						model: body.model,
+						routing,
+						timings,
+					}),
 					{ headers: sseHeaders(routing) },
 				);
 			return Response.json({
@@ -451,6 +433,7 @@ Bun.serve({
 				stop_reason: "end_turn",
 				usage: { input_tokens: 0, output_tokens: 0 },
 				_routing: routing,
+				_server_timings: timings,
 			});
 		}
 
@@ -537,6 +520,7 @@ Bun.serve({
 				port: route.port,
 				...promptFingerprint(text),
 				outcome: "overloaded",
+				cap: admission.capOf(route.port), // W504 per-provider cap
 			});
 			return overloaded(route.port, admission);
 		}
@@ -559,6 +543,7 @@ Bun.serve({
 			let finish: string | undefined;
 			let usedPort: number = route.port;
 			let usedModel = route.model;
+			let localTimings: RequestTimings | undefined;
 			const note: string[] = [
 				`complexity ${score.total.toFixed(2)} → ${score.tier}${isCode ? "+code" : ""}${classifier ? ` ${classifier}` : ""}`,
 			];
@@ -657,6 +642,7 @@ Bun.serve({
 						const b = budgetFor(t);
 						return openLocalStream(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							startedAt: t0,
 						});
 					},
 					note,
@@ -674,6 +660,8 @@ Bun.serve({
 							id: `msg_${route.role}_${Date.now()}`,
 							model: body.model,
 							routing,
+							startedAt: t0,
+							openedAt: opened.result.openedAt,
 						},
 						(r) => {
 							fbRelease?.();
@@ -685,6 +673,7 @@ Bun.serve({
 										? undefined
 										: "empty",
 								finish: r.finish,
+								...r.timings,
 							});
 						},
 					);
@@ -699,6 +688,7 @@ Bun.serve({
 						const b = budgetFor(t);
 						return viaLocal(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							startedAt: t0,
 						});
 					},
 					note,
@@ -708,6 +698,7 @@ Bun.serve({
 				usedPort = got.used.port;
 				usedModel = got.used.model;
 				retryAfter = got.retryAfterMs;
+				localTimings = got.result.timings;
 				if (got.result.ok) {
 					response = got.result.response;
 					finish = got.result.finish;
@@ -723,11 +714,10 @@ Bun.serve({
 				prefs.cost_speed === "quality";
 			if (!response && cloudAllowed && cloudWarranted) {
 				try {
-					const c = await viaCloud(
-						body,
-						clientMax,
-						score.tier !== "VERY_COMPLEX",
-					);
+					const c = await escalate(body, {
+						maxTokens: clientMax,
+						wantFast: score.tier !== "VERY_COMPLEX",
+					});
 					if (c.note) note.push(c.note);
 					if (c.status === 429)
 						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);
@@ -772,14 +762,27 @@ Bun.serve({
 				);
 			}
 
-			logDone({ escalated: usedPort === 0 ? "z.ai" : undefined, finish });
+			// W257 `_server_timings`: the used leg's prefill window when a local
+			// specialist answered; total always. Fields the leg couldn't observe
+			// (ttft/decode on buffered legs) stay absent.
+			const timings: RequestTimings = {
+				total_ms: Math.round(performance.now() - t0),
+				...(localTimings?.prefill_ms !== undefined
+					? { prefill_ms: localTimings.prefill_ms }
+					: {}),
+			};
+			logDone({
+				escalated: usedPort === 0 ? "z.ai" : undefined,
+				finish,
+				...timings,
+			});
 			const id = `msg_${route.role}_${Date.now()}`;
 			const routing = routingInfo();
 			if (wantStream)
 				return new Response(
 					anthropicSseFromText(
 						response,
-						{ id, model: body.model, routing },
+						{ id, model: body.model, routing, timings },
 						finish,
 					),
 					{ headers: sseHeaders(routing) },
@@ -794,6 +797,7 @@ Bun.serve({
 					stop_reason: stopReason(finish),
 					usage: { input_tokens: 0, output_tokens: 0 },
 					_routing: routing,
+					_server_timings: timings,
 				},
 				{ headers: condenseResponseHeaders(routing) },
 			);

@@ -1,19 +1,17 @@
-import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=>t.state??(t.up?"up":"down"),d=(t,o=Date.now())=>{let a=u(t),l=!!t.observation&&!i(t.observation,o),n=t.recovery,c=!l&&a!=="up"&&a!=="idle"&&n!==null;return{badge:l?"STALE":a==="idle"?"IDLE":a==="up"?"UP":a==="degraded"?"DEGRADED":"DOWN",tone:l?"dim":a==="idle"?"dim":a==="up"?"ok":a==="degraded"?"warn":"bad",where:n?.probe.kind==="launchd"?"launchd":n?.probe.kind==="http"?`:${n.probe.port}${n.probe.path}`:`:${t.port}`,showRecovery:c,open:!l&&a==="down",saw:l?`Last known ${a}: ${t.detail}. Current state unknown.`:t.detail,what:n?.what??"",causes:c&&n?n.causes:[],steps:c&&n?n.recovery:[]}};class p{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),a=await o.json();if(!o.ok||!a.ok||!a.service)throw Error(a.error??`HTTP ${o.status}`);this.probe=a.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var h=15000;class b extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
+import{r,e,s}from"./lit-sq0mv1by.js";import{c}from"./lit-bc0syz5r.js";import{a}from"./lit-8e31bhpw.js";var b=(t)=>t.state??(t.up?"up":"down"),h=(t,o=Date.now())=>{let i=b(t),l=!!t.observation&&!a(t.observation,o),n=t.recovery,p=!l&&i!=="up"&&i!=="idle"&&n!==null;return{badge:l?"STALE":i==="idle"?"IDLE":i==="up"?"UP":i==="degraded"?"DEGRADED":"DOWN",tone:l?"dim":i==="idle"?"dim":i==="up"?"ok":i==="degraded"?"warn":"bad",where:n?.probe.kind==="launchd"?"launchd":n?.probe.kind==="http"?`:${n.probe.port}${n.probe.path}`:`:${t.port}`,showRecovery:p,open:!l&&i==="down",saw:l?`Last known ${i}: ${t.detail}. Current state unknown.`:t.detail,what:n?.what??"",causes:p&&n?n.causes:[],steps:p&&n?n.recovery:[]}};class d{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),i=await o.json();if(!o.ok||!i.ok||!i.service)throw Error(i.error??`HTTP ${o.status}`);this.probe=i.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var v=15000;class u extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
 		:host {
 			display: block;
-			background: var(--klh-surface, #1c1b19);
-			border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.1));
-			border-radius: 3px;
-			padding: 8px 12px;
-			margin: 0 0 8px;
-			font: 12px/1.45 ui-sans-serif, system-ui;
+			background: transparent;
+			border-bottom: 1px solid var(--klh-edge);
+			padding: var(--klh-space-4) 0;
+			font: var(--klh-text-lg)/1.6 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e6e1);
 		}
 		.head {
-			display: flex;
-			gap: 10px;
-			align-items: baseline;
-			flex-wrap: wrap;
+			display: grid;
+			grid-template-columns: 92px minmax(180px, 2fr) minmax(150px, 1fr) auto;
+			gap: var(--klh-space-3) var(--klh-space-5);
+			align-items: start;
 		}
 		.badge {
 			font-weight: 700;
@@ -21,7 +19,7 @@ import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=
 			min-width: 76px;
 		}
 		.ok {
-			color: var(--klh-ok, #5c7a35);
+			color: var(--klh-ok-ink);
 		}
 		.warn {
 			color: var(--klh-accent, #d8900f);
@@ -31,7 +29,12 @@ import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=
 		}
 		.name {
 			font-weight: 600;
+			overflow-wrap: anywhere;
 		}
+		.identity .dim {display:block;font:var(--klh-text-sm)/1.5 var(--klh-font-mono);}
+		.tags {display:flex;gap:var(--klh-space-3);align-items:center;flex-wrap:wrap;margin:var(--klh-space-2) 0;}
+		.tag {border:1px solid var(--klh-edge);border-radius:var(--klh-radius);padding:0 var(--klh-space-3);font:var(--klh-text-xs)/1.8 var(--klh-font-mono);color:var(--klh-ink-3);}
+		@media(max-width:760px){.head{grid-template-columns:80px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
 		.dim {
 			color: var(--klh-dim, #98958e);
 		}
@@ -107,13 +110,12 @@ import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=
 			margin-top: 4px;
 			color: var(--klh-danger-ink, #c96a4f);
 		}
-	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},h)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new p(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let a=document.createElement("textarea");a.value=o,a.setAttribute("readonly",""),a.style.position="fixed",a.style.opacity="0",this.renderRoot.appendChild(a),a.select(),document.execCommand("copy"),a.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){let o=new Date(t);return Number.isNaN(o.getTime())?"":o.toLocaleTimeString()}render(){let t=this.probe;if(!t)return e``;let o=d(t,this.now);return e`
+	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},v)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new d(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let i=document.createElement("textarea");i.value=o,i.setAttribute("readonly",""),i.style.position="fixed",i.style.opacity="0",this.renderRoot.appendChild(i),i.select(),document.execCommand("copy"),i.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){let o=new Date(t);return Number.isNaN(o.getTime())?"":o.toLocaleTimeString()}render(){let t=this.probe;if(!t)return e``;let o=h(t,this.now);return e`
 			<div class="head">
 				<span class="badge ${o.tone}">${o.badge}</span>
-				<span class="name">${t.name}</span>
-				<span class="dim">${o.where}</span>
+				<div class="identity"><span class="name">${c(t.name)}</span><span class="dim">${o.where}</span><div class="tags"><span class="tag">${t.id.startsWith("swarm-")||t.id.startsWith("kev-")?"Model":t.id.includes("gateway")||t.id.startsWith("buckle-")||t.id.startsWith("litellm-")?"Gateway":"Service"}</span><span class="tag">${t.observation?.scope??"Local machine"}</span></div></div>
 				<span class="saw dim">${o.saw}</span>
-				<span class="dim">${this.when(t.probed_at)}</span>
+				<div class="actions">
 				<button
 					type="button"
 					?disabled=${this.busy}
@@ -121,6 +123,7 @@ import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=
 				>
 					${this.busy?"probing…":"re-probe"}
 				</button>
+				<div class="dim">${this.when(t.probed_at)}</div></div>
 			</div>
 			${t.observation?e`<div class="dim">Evidence: ${t.observation.source} · ${t.observation.kind} · ${t.observation.scope} · expires ${this.when(new Date(t.observation.expiresAt).toISOString())}</div>`:""}
 			${this.err?e`<output>re-probe failed: ${this.err}</output>`:""}
@@ -137,19 +140,19 @@ import{r,e,s}from"./lit-ca3y6nz3.js";import{i}from"./lit-rhcqwe98.js";var u=(t)=
 				</ul>
 				<h4>recover — run in order, then re-probe</h4>
 				<ol>
-					${t.steps.map((o,a)=>e`<li>
+					${t.steps.map((o,i)=>e`<li>
 							<div class="dim">${o.label}</div>
 							<div class="step">
 								<code>${o.cmd}</code>
 								<button
 									type="button"
 									aria-label="copy: ${o.cmd}"
-									@click=${()=>this.copy(a,o.cmd)}
+									@click=${()=>this.copy(i,o.cmd)}
 								>
-									${this.copied===a?"copied":"copy"}
+									${this.copied===i?"copied":"copy"}
 								</button>
 							</div>
 						</li>`)}
 				</ol>
 			</details>
-		`}}if(!customElements.get("klh-service-row"))customElements.define("klh-service-row",b);
+		`}}if(!customElements.get("klh-service-row"))customElements.define("klh-service-row",u);

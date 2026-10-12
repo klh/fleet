@@ -6,6 +6,7 @@
 // travels verbatim — pointers (fact:*) resolve only on the local
 // owner-report path (bin/repo-policy.ts), never on the wire.
 import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { RepoPolicyRow, RepoPolicyReport } from "./repo-policy.ts";
 import { runRepoPolicies } from "./repo-policy.ts";
 import { problem } from "./citizenship.ts";
@@ -66,6 +67,18 @@ export async function repoPolicyRoutes(
 	req: Request,
 	path: string,
 ): Promise<Response | null> {
+	if (req.method === "GET" && path === "/repo-policy/manifest") {
+		const rows = deps.rows;
+		return Response.json(
+			{
+				ok: true,
+				version: 1,
+				sha256: createHash("sha256").update(JSON.stringify(rows)).digest("hex"),
+				rows,
+			},
+			{ headers: { "cache-control": "no-store" } },
+		);
+	}
 	if (req.method !== "POST" || path !== "/repo-policy/check") return null;
 	let raw: AnyRec;
 	try {

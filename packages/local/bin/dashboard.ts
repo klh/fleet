@@ -166,7 +166,12 @@ async function status(): Promise<Snapshot> {
 			target: serviceTarget(s),
 			health_path: s.health_path ?? "/",
 			upstream: s.upstream,
-			health: await probeService(serviceTarget(s), s.health_path ?? "/"),
+			health: await probeService(
+				serviceTarget(s),
+				s.health_path ?? "/",
+				1500,
+				`${s.name}.local`,
+			),
 			dns: {
 				claimed: Boolean(s.dns?.claimed),
 				pid: s.dns?.pid ?? null,
@@ -207,7 +212,10 @@ const PAGE = (
 )
 	.replace("<!-- THEME_HEAD -->", THEME_HEAD)
 	.replace("/* THEME_CHROME_CSS */", `${FLEET_NAV_CSS}\n${THEME_SETTINGS_CSS}`)
-	.replace("<!-- FLEET_NAV -->", `${fleetNav("local")}${settingsBlock()}`)
+	.replace(
+		"<!-- FLEET_NAV -->",
+		`${fleetNav("local", "local")}${settingsBlock()}`,
+	)
 	.replace("/* THEME_SETTINGS_JS */", THEME_SETTINGS_JS);
 const LIT = Bun.file(new URL("./vendor/lit-shared.js", import.meta.url));
 

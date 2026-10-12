@@ -15,15 +15,18 @@ export const INSTALL_CONTRACT_VERSION = 1;
 export type StepName =
 	| "probeEnvironment"
 	| "syncHarness"
+	| "registerGitHooks"
 	| "refreshSupervisor"
 	| "ensureShims"
 	| "seedLocalLlm"
 	| "downloadModels"
 	| "wireSettings"
+	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
 	| "releaseNotify"
-	| "refreshDashboards";
+	| "refreshDashboards"
+	| "deployHub";
 
 export type StepV1 = "real" | "delegated" | "stub";
 
@@ -103,6 +106,7 @@ export interface InstallContract {
 		yes: ContractFlag;
 		verbose: ContractFlag;
 		step: ContractFlag;
+		wireRepo: ContractFlag;
 	};
 	/** environment knobs, PATH/default pointers only — never values */
 	env: {
@@ -164,7 +168,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"v1: not a flag yet — the wireSettings pause carries the bash --wire resume_command",
+					"repo wiring is native: --step wireSettings --wire-repo <path>; the user-level wire rides the bash --wire resume_command",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -215,10 +219,20 @@ export const INSTALL_CONTRACT = {
 			flag: "--verbose",
 			meaning: "include per-step detail and resolved paths in the outcome",
 		},
+		gatewayReview: {
+			flag: "--gateway-review",
+			meaning:
+				"approve the exact staged gateway candidate SHA256 for the explicit upgradeGateway step",
+		},
 		step: {
 			flag: "--step",
 			meaning:
 				"run one step by frozen name (see steps[].name); unknown name = exit 2",
+		},
+		wireRepo: {
+			flag: "--wire-repo",
+			meaning:
+				"with --step wireSettings: wire THIS repo checkout's project settings instead of pausing on the bash user-level wire",
 		},
 	},
 	env: {
@@ -269,15 +283,23 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "syncHarness",
 			oneLiner:
-				"copy harness dirs + local-llm kit + blam into the prefix, refresh package.json, bun install --production, import sanity check",
+				"stage committed harness code and offline dependencies, validate imports, publish with rollback receipt; no services restarted",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
+		},
+		{
+			name: "registerGitHooks",
+			oneLiner:
+				"set the source repo's core.hooksPath=.githooks so bare-git commits run the committed W236 scrub-gate stubs (fail-inert without the stack); stub publication rides syncHarness",
+			mutates: true,
+			optIn: false,
+			v1: "real",
 		},
 		{
 			name: "refreshSupervisor",
 			oneLiner:
-				"targeted belt supervisor.ts code upgrade with backup, import check and restore-on-failure",
+				"refresh the existing kit serve or advanced Belt supervisor code with backup and import validation; preserve machine config",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
@@ -308,10 +330,18 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge hook registrations into ~/.claude/settings.json per-event, never clobber",
+				"merge the hooks block into a repo's project settings via --wire-repo <path> (per-event merge, never clobber); the user-level wire rides the bash --wire resume",
 			mutates: true,
 			optIn: true,
-			v1: "stub",
+			v1: "real",
+		},
+		{
+			name: "upgradeGateway",
+			oneLiner:
+				"stage or explicitly activate a reviewed immutable gateway candidate, preserving machine database state",
+			mutates: true,
+			optIn: true,
+			v1: "real",
 		},
 		{
 			name: "registerLaunchd",
@@ -345,8 +375,22 @@ export const INSTALL_CONTRACT = {
 			optIn: true,
 			v1: "real",
 		},
+		{
+			name: "deployHub",
+			oneLiner:
+				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (bash flag --hub <name>)",
+			mutates: true,
+			optIn: true,
+			v1: "stub",
+		},
 	],
 	bashFlags: [
+		{
+			flag: "--refresh-gateway",
+			meaning:
+				"targeted minimal-swarm gateway supervision and model limits upgrade (early exit)",
+			mappedStep: "seedLocalLlm",
+		},
 		{
 			flag: "--wire",
 			meaning: "merge hooks into ~/.claude/settings.json",
@@ -360,7 +404,8 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			flag: "--refresh-supervisor",
-			meaning: "targeted belt supervisor code upgrade",
+			meaning:
+				"code-only refresh of the installed supervisor family; preserve machine configuration",
 			mappedStep: "refreshSupervisor",
 		},
 		{
@@ -377,6 +422,18 @@ export const INSTALL_CONTRACT = {
 			flag: "--no-llm",
 			meaning: "skip the local-llm baseline entirely (CI/containers)",
 			mappedStep: "seedLocalLlm",
+		},
+		{
+			flag: "--prune",
+			meaning:
+				"mirror-mode harness sync (W420) — drop unmanaged prefix entries outside the generated-files allowlist (governor.db, bun.lock, node_modules, .fleet) instead of preserving them",
+			mappedStep: "syncHarness",
+		},
+		{
+			flag: "--hub <name>",
+			meaning:
+				"install-grade hub deploy from ~/.config/klh/stack.yaml: deploy/hubctl.ts mint → push → up → status; --dry-run renders the hub .env only",
+			mappedStep: "deployHub",
 		},
 	],
 	agentNextSteps: {
@@ -452,6 +509,7 @@ export interface InstallOutcome {
 		yes: boolean;
 		verbose: boolean;
 		step: string | null;
+		wireRepo: string | null;
 	};
 	paths: {
 		repo: string;

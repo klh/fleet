@@ -41,6 +41,14 @@ const gitDir = new TextDecoder()
 	)
 	.trim();
 const PROJECT = realpathSync(resolve(process.cwd(), gitDir || "."));
+// the header name, derived exactly as fleet.ts cmdMetrics does (pop → strip
+// .git → fall back to the parent dir) — "fleet" on every monorepo checkout
+const NAME =
+	PROJECT.split("/")
+		.pop()
+		?.replace(/\.git$/, "") ||
+	PROJECT.split("/").slice(-2, -1).pop() ||
+	PROJECT;
 
 // seed one week of realistic bus traffic, then read W15 timings back — all in
 // one subprocess so nowMs is deterministic across the seeded events
@@ -137,7 +145,10 @@ describe("W3 — coord metrics", () => {
 
 	test("exits 0 and prints the terse table", () => {
 		expect(p.exitCode).toBe(0);
-		expect(out).toContain("METRICS suspenders (last 7d)");
+		// the header name is the project-identity basename (fleet.ts): the
+		// hardcoded pre-monorepo "suspenders" broke on every worktree of the
+		// fleet monorepo — derive it like the CLI does
+		expect(out).toContain(`METRICS ${NAME} (last 7d)`);
 		expect(out).toContain("runs: 3 (2 worker, 1 coordinator)");
 		expect(out).toContain(
 			"items: 2 done, 1 open — median done item: wall 40m, agent 40m",
@@ -175,11 +186,12 @@ describe("W3 — coord metrics", () => {
 	});
 });
 
-// W24 — tokenUsage: synthetic mini-transcript under cwd (never /tmp), windowed
-// summation, mtime-keyed cache hit/refresh, null handling for missing
-// transcripts. Whole-ms mtimes so the cache key round-trips exactly (utimes
-// stores ms; raw APFS mtimes carry ns).
-const TOKEN_DIR = join(process.cwd(), ".tmp-w24-tokens");
+// W24 — tokenUsage: synthetic mini-transcript, windowed summation, mtime-keyed
+// cache hit/refresh, null handling for missing transcripts. Whole-ms mtimes so
+// the cache key round-trips exactly (utimes stores ms; raw APFS mtimes carry
+// ns). tokenUsage resolves absolute transcript paths, so the fixture lives
+// under os.tmpdir() like every other scratch dir (W520).
+const TOKEN_DIR = mkdtempSync(join(tmpdir(), "suspenders-w24-tokens-"));
 const TOKKEY = [
 	"metrics.tokens",
 	PROJECT.replace(/[^A-Za-z0-9._-]/g, "-"),

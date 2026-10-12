@@ -2,7 +2,12 @@
 	"name": "fleet",
 	"version": "2.0.0",
 	"private": true,
+	"license": "PolyForm-Noncommercial-1.0.0",
 	"description": "the klh agent stack — one monorepo, one version, every service",
-	"workspaces": ["packages/*"],
-	"engines": { "bun": ">=1.1" }
+	"workspaces": [
+		"packages/*"
+	],
+	"engines": {
+		"bun": ">=1.2"
+	}
 }

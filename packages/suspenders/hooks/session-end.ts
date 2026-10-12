@@ -6,16 +6,38 @@
 // W159: the settle phase runs here too — provenance-sorted knowledge
 // write-back (hooks/lib/settle.ts). Degrade-honest: a settle failure logs to
 // stderr and NEVER blocks the session closing.
-import { openGovernorDb } from "./lib/govdb.ts";
+import { openStore } from "./lib/govdb.ts";
 import { settleSession } from "./lib/settle.ts";
+import { retireTopLevel } from "./lib/hook-scripts.ts";
+import { reapSubscribe } from "./lib/subscribe-attach.ts";
 
-const input = JSON.parse(await new Response(Bun.stdin.stream()).text()) as {
-	session_id?: string;
-};
+// W514 (claudecode research §1.8): the SessionEnd payload is tiny — race
+// the stdin read against 1 s so a detached or late-stdin invocation (async
+// wiring, dialect bridge) can never hang teardown.
+const raw = await Promise.race([
+	new Response(Bun.stdin.stream()).text(),
+	new Promise<string>((resolve) => setTimeout(() => resolve(""), 1_000)),
+]);
+let input: { session_id?: string } = {};
+try {
+	input = JSON.parse(raw) as { session_id?: string };
+} catch {
+	// empty/dead stdin: nothing to close — exit clean below
+}
 if (input.session_id) {
-	openGovernorDb()
+	openStore()
 		.query("UPDATE sessions SET state = 'CLOSED', hb = ? WHERE sid = ?")
 		.run(Date.now(), input.session_id);
+	// W418: the WS inbox connection is per-session — a closed session's
+	// subscribe is reaped here instead of idling into the W494 staleness
+	// exit. Degrade-honest: a reap failure never blocks the close.
+	try {
+		reapSubscribe(input.session_id);
+	} catch (e) {
+		console.error(
+			`[subscribe] reap degraded (session end proceeds): ${String(e)}`,
+		);
+	}
 	try {
 		const r = await settleSession(input.session_id);
 		if (r.queueMarked > 0 || r.rowsBackfilled > 0)
@@ -24,6 +46,22 @@ if (input.session_id) {
 			);
 	} catch (e) {
 		console.error(`[settle] degraded (session end proceeds): ${String(e)}`);
+	}
+	// W422.17.1: retire the session's enrolled buckle key — revoke + 0600
+	// file cleanup, the same lane lifecycle (retireLaneKey). Only fires when
+	// a meta file exists (subagents / never-enrolled sessions skip); the
+	// 24h TTL is the backstop for sessions that die un-ended. Degrade-honest:
+	// a retire failure logs to stderr, never blocks the close.
+	try {
+		await retireTopLevel({
+			hookDir: import.meta.dir,
+			sid: input.session_id,
+			cwd: process.cwd(),
+		});
+	} catch (e) {
+		console.error(
+			`[enroll] retire degraded (session end proceeds): ${String(e)}`,
+		);
 	}
 }
 process.exit(0);

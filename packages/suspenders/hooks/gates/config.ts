@@ -15,7 +15,7 @@ export function configGate(hook: HookInput): void {
 
 	if (F.startsWith("~")) F = HOME + F.slice(1);
 	F = F.replace(/["']/g, "");
-	const P = F.startsWith(HOME) ? "$HOME" + F.slice(HOME.length) : F;
+	const P = F.startsWith(HOME) ? `$HOME${F.slice(HOME.length)}` : F;
 
 	const PROTECTED = [
 		/^\$HOME\/\.claude\/(hooks|skills|skills-available|agents|commands|mcp-servers|plugins)(\/|$)/,
@@ -24,6 +24,9 @@ export function configGate(hook: HookInput): void {
 		/^\$HOME\/\.agents\//,
 		/^\$HOME\/\.z(shrc|profile|env)$/,
 		/^\$HOME\/Library\/LaunchAgents\//,
+		// W576.7.1: the activation receipt is the lifecycle authority record —
+		// silent edits would mint fake activations outside the installer.
+		/^\$HOME\/\.config\/klh\/service-activation\.json$/,
 	];
 
 	if (PROTECTED.some((re) => re.test(P)))

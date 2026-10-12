@@ -3,6 +3,12 @@ import { describe, expect, test } from "bun:test";
 import { retryAfterS, retryDelayS } from "../src/cooldown.ts";
 
 describe("retryDelayS", () => {
+	test("zero provider wait cannot collapse retries into an immediate burst", () => {
+		expect(retryDelayS(0, 0, () => 0, 8)).toBe(1);
+		expect(retryDelayS(3, 0.05, () => 0.5, 8)).toBe(8.5);
+		expect(retryDelayS(5, 20, () => 0.5, 8)).toBe(20.5);
+		expect(retryDelayS(0, null, () => -1, 0)).toBe(1);
+	});
 	test("upstream retry-after honored (+ jitter)", () => {
 		expect(retryDelayS(0, 3.5, () => 0, 8)).toBe(3.5);
 		expect(retryDelayS(0, 3.5, () => 0.5, 8)).toBe(4);

@@ -115,6 +115,23 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 		expect(k).toEqual({ Z_AI_API_KEY: "e1", LITELLM_KEY: "e2" });
 	});
 
+	test("anthropic key: env wins, file fallback, absent = omitted (optional)", () => {
+		const k = loadKeys(paths(), { Z_AI_API_KEY: "z", LITELLM_KEY: "m" });
+		expect(k.ANTHROPIC_API_KEY).toBeUndefined();
+		const f = loadKeys(paths(), {
+			Z_AI_API_KEY: "z",
+			LITELLM_KEY: "m",
+			ANTHROPIC_API_KEY: "env-a",
+		});
+		expect(f.ANTHROPIC_API_KEY).toBe("env-a");
+		writeFileSync(join(dir, "anthropic-test.key"), "file-a\n", { mode: 0o600 });
+		const g = loadKeys({
+			...paths(),
+			anthropicKeyFile: join(dir, "anthropic-test.key"),
+		});
+		expect(g.ANTHROPIC_API_KEY).toBe("file-a");
+	});
+
 	test("missing keys throw naming the source, not a value", () => {
 		const p = paths({
 			zaiConfig: join(dir, "nope.json"),

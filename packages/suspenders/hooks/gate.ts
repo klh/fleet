@@ -10,6 +10,8 @@
 //   bun gate.ts post-files  PostToolUse (Edit|Write: syntax gate + md-format)
 //   bun gate.ts governor    PreToolUse  (standalone lease check; pre-files chains it
 //                            in-process, so the separate registration is now redundant)
+//   bun gate.ts push        PostToolUse (W417.4: subscribe-log tail → context,
+//                            offset per lane)
 //   bun gate.ts stop        Stop        (claim-done gate)
 //   bun gate.ts session     SessionStart (optional operator motd)
 import { readHook, allow } from "./lib/hookio.ts";
@@ -18,6 +20,9 @@ import { filesGate } from "./gates/files.ts";
 import { governorGate } from "./gates/governor.ts";
 import { readGate } from "./gates/read.ts";
 import { stopGate } from "./gates/stop.ts";
+import { postFailGate } from "./gates/post-fail.ts";
+import { pushGate } from "./gates/push.ts";
+import { preCompactGate } from "./gates/precompact.ts";
 import { preFilesChain } from "./gates/chain.ts";
 
 const hook = await readHook();
@@ -33,6 +38,12 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: filesGate is `: never` — the call ends the case
 	case "post-files":
 		filesGate(hook);
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: postFailGate is `: never` — the call ends the case
+	case "post-fail":
+		postFailGate(hook); // W514: tool-failure counter + anti-thrash guidance
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: pushGate is `: never` — the call ends the case
+	case "push":
+		pushGate(hook); // W417.4: tail new subscribe-log lines into context
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow() is `: never` — the case always exits
 	case "pre-read":
 		readGate(hook); // W110: void — fat-read deny / re-read nudge, else falls through
@@ -44,6 +55,9 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: stopGate is `: never` — the call ends the case
 	case "stop":
 		stopGate(hook);
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preCompactGate is `: never` — the call ends the case
+	case "precompact":
+		preCompactGate(hook); // W642: flush lane state to .fleet/state-<sid>.md pre-compaction
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: codexGate never resolves — await parks the case
 	case "codex": {
 		// W73 codex adapter — dialect bound by argv (`gate.ts codex <mode>`):

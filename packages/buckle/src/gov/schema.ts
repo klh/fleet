@@ -42,6 +42,19 @@ CREATE TABLE IF NOT EXISTS budget_state (
   window_start INTEGER NOT NULL,
   PRIMARY KEY (key_id, window)
 );
+CREATE TABLE IF NOT EXISTS team_budget_state (
+  team_id TEXT NOT NULL,
+  window TEXT NOT NULL,
+  used_rpm INTEGER NOT NULL DEFAULT 0,
+  used_tpm INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL,
+  PRIMARY KEY (team_id, window)
+);
+CREATE TABLE IF NOT EXISTS admission_slots (
+  scope TEXT PRIMARY KEY,
+  held INTEGER NOT NULL DEFAULT 0,
+  touched INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,
@@ -50,46 +63,15 @@ CREATE TABLE IF NOT EXISTS auth_events (
   jti TEXT,
   via TEXT
 );
-CREATE TABLE IF NOT EXISTS federation_cr_queue (
-  id TEXT PRIMARY KEY,
-  action TEXT NOT NULL,
-  target TEXT NOT NULL,
-  declared_at TEXT NOT NULL,
-  state TEXT NOT NULL DEFAULT 'declared',
-  note TEXT,
-  updated_at INTEGER,
-  reported_at INTEGER,
-  payload TEXT,
-  origin TEXT,
-  verified_at INTEGER,
-  claimed_by TEXT,
-  claimed_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS federation_usage_rollup (
-  spoke TEXT NOT NULL,
-  team TEXT NOT NULL DEFAULT '',
-  bucket INTEGER NOT NULL,
-  model_class TEXT NOT NULL,
-  in_tok INTEGER NOT NULL DEFAULT 0,
-  out_tok INTEGER NOT NULL DEFAULT 0,
-  cache_r INTEGER NOT NULL DEFAULT 0,
-  cache_c INTEGER NOT NULL DEFAULT 0,
-  requests INTEGER NOT NULL DEFAULT 0,
-  received_at INTEGER NOT NULL,
-  PRIMARY KEY (spoke, bucket, model_class)
-);
-CREATE TABLE IF NOT EXISTS federation_aid_rollup (
-  spoke TEXT NOT NULL,
-  team TEXT NOT NULL DEFAULT '',
-  bucket INTEGER NOT NULL,
-  aid TEXT NOT NULL,
-  domain TEXT NOT NULL DEFAULT '',
-  injected INTEGER NOT NULL DEFAULT 0,
-  skipped INTEGER NOT NULL DEFAULT 0,
-  tok_injected INTEGER NOT NULL DEFAULT 0,
-  received_at INTEGER NOT NULL,
-  PRIMARY KEY (spoke, bucket, aid, domain)
-);
+-- W233: federation_spokes + federation_enrollment_codes DDL moved to the
+-- enterprise overlay (klh-remote buckle-remote hub schema) — solo posture
+-- never holds a fleet registry.
+-- W233.2: federation_usage_rollup + federation_aid_rollup DDL moved to the
+-- enterprise overlay (klh-remote buckle-remote hub schema) — solo posture
+-- never holds a fleet-wide rollup store.
+-- W233.3: the federation_cr_queue DDL moved to the enterprise overlay
+-- (klh-remote buckle-remote hub schema) — solo posture never holds a CR
+-- queue; the manifest/CR serving rides the ManifestCrProvider seam.
 `;
 
 /** (table, pk-expression, columns) — mirrors the govdb deltaTables entries. */
@@ -138,23 +120,8 @@ const DELTA_TABLES: Array<{ tbl: string; pk: string; cols: string[] }> = [
 		pk: "$.id",
 		cols: ["id", "ts", "actor", "event", "jti", "via"],
 	},
-	{
-		tbl: "federation_cr_queue",
-		pk: "$.id",
-		cols: [
-			"id",
-			"action",
-			"target",
-			"declared_at",
-			"state",
-			"note",
-			"updated_at",
-			"reported_at",
-			"payload",
-			"origin",
-			"verified_at",
-		],
-	},
+	// W233.3: the federation_cr_queue delta entry moved with the DDL —
+	// the overlay hub schema owns the CR queue deltas.
 ];
 
 /** One deltas trigger (same shape as govdb's loop emits). */
@@ -204,24 +171,8 @@ export function applyGovernanceSchema(db: Database): void {
 		db.run(
 			"ALTER TABLE budget_state ADD COLUMN cache_c INTEGER NOT NULL DEFAULT 0",
 		);
-	// W160 CR origination columns — same guarded ALTERs (W154-era DBs heal)
-	const crCols = (
-		db
-			.query("SELECT name FROM pragma_table_info('federation_cr_queue')")
-			.all() as Array<{
-			name: string;
-		}>
-	).map((r) => r.name);
-	if (!crCols.includes("payload"))
-		db.run("ALTER TABLE federation_cr_queue ADD COLUMN payload TEXT");
-	if (!crCols.includes("origin"))
-		db.run("ALTER TABLE federation_cr_queue ADD COLUMN origin TEXT");
-	if (!crCols.includes("verified_at"))
-		db.run("ALTER TABLE federation_cr_queue ADD COLUMN verified_at INTEGER");
-	if (!crCols.includes("claimed_by"))
-		db.run("ALTER TABLE federation_cr_queue ADD COLUMN claimed_by TEXT");
-	if (!crCols.includes("claimed_at"))
-		db.run("ALTER TABLE federation_cr_queue ADD COLUMN claimed_at INTEGER");
+	// W233.3: the W160 CR origination column migrations moved with the DDL —
+	// the overlay hub schema heals its own table.
 	// the deltas mirror — guarded CREATEs, self-healing on every open
 	for (const { tbl, pk, cols } of DELTA_TABLES)
 		for (const op of ["insert", "update", "delete"] as const)

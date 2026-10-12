@@ -6,7 +6,11 @@
 // Fixtures: mkdtemp under cwd (NOT /tmp — the governor exempts /tmp paths);
 // unique path per test, written BEFORE the spawn (raw fs writes take no lease).
 import { describe, test, expect, afterAll } from "bun:test";
-import { anchorDenyReason, anchorHint } from "../hooks/gates/anchor.ts";
+import {
+	anchorDenyReason,
+	anchorHint,
+	rgProbe,
+} from "../hooks/gates/anchor.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -126,6 +130,32 @@ describe("anchorHint (pure classification)", () => {
 		expect(anchorHint(TEXT, "zzqqxx wubbo blorp", false).kind).toBe("none");
 	});
 
+	test("W251: whitespace hit → numbered 3-line context + region key", () => {
+		const h = anchorHint(
+			"function f() {\n\t\treturn 1;\n\t}\n",
+			"    return 1;",
+			false,
+		);
+		expect(h.kind).toBe("whitespace");
+		if (h.kind === "whitespace") {
+			expect(h.text).toContain("2: \t\treturn 1;");
+			expect(h.key).toBe("return 1;");
+		}
+	});
+
+	test("W251: fuzzy hit → context + key from the matched region", () => {
+		const h = anchorHint(
+			"const value = computeTotal(input);\n",
+			"const val = computeTotal(input);\n",
+			false,
+		);
+		expect(h.kind).toBe("fuzzy");
+		if (h.kind === "fuzzy") {
+			expect(h.text).toContain("1: const value = computeTotal(input);");
+			expect(h.key).toBe("const value = computeTotal(input);");
+		}
+	});
+
 	test("empty anchor → ok (never our question)", () => {
 		expect(anchorHint(TEXT, "", false).kind).toBe("ok");
 	});
@@ -152,6 +182,19 @@ describe("anchorDenyReason (message shape)", () => {
 		expect(m).toContain("line 4");
 	});
 
+	test("W251: ambiguous denial carries the locate-all-sites probe", () => {
+		const m = anchorDenyReason(
+			{ kind: "ambiguous", count: 2, line: 4, text: "alpha", key: "alpha" },
+			"/f.ts",
+		);
+		expect(m).toContain("Locate all sites: rg -n -F 'alpha' '/f.ts'");
+	});
+
+	test("W251: none + anchor → absence probe with the longest anchor line", () => {
+		const m = anchorDenyReason({ kind: "none" }, "/f.ts", "zzqq wubbo line");
+		expect(m).toContain("Absence probe: rg -n -F 'zzqq wubbo line' '/f.ts'");
+	});
+
 	test("fuzzy → percent + line + window", () => {
 		const m = anchorDenyReason(
 			{ kind: "fuzzy", score: 0.82, line: 7, text: "const valeu = 1;" },
@@ -166,6 +209,11 @@ describe("anchorDenyReason (message shape)", () => {
 		const m = anchorDenyReason({ kind: "none" }, "/f.ts");
 		expect(m).toContain("no close match");
 		expect(m).toContain("anchor-gate:");
+	});
+
+	test("W251: probe quoting survives embedded single quotes; empty → null", () => {
+		expect(rgProbe("/f.ts", "it's")).toBe(`rg -n -F 'it'\\''s' '/f.ts'`);
+		expect(rgProbe("/f.ts", "")).toBeNull();
 	});
 });
 
@@ -239,5 +287,19 @@ process.stdout.write("OPEN");`;
 			stderr: "pipe",
 		});
 		expect(r.stdout.toString()).toBe("OPEN");
+	});
+
+	test("W251 pre-files: fuzzy miss → deny carries 3-line context + auto-rg", () => {
+		const f = fixture("line1\nline2\nline3\n");
+		const r = spawnGate(
+			hook({
+				file_path: f,
+				old_string: "line2 = fixed;",
+				new_string: "line2 = 2;",
+			}),
+		);
+		expect(decision(r)).toBe("deny");
+		expect(reason(r)).toContain("2: line2");
+		expect(reason(r)).toContain(`rg -n -F 'line2'`);
 	});
 });

@@ -1,0 +1,13 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "Preserve",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"types": ["node", "vscode"]
+	},
+	"include": ["src/**/*.ts", "scripts/**/*.ts"]
+}
