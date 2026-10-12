@@ -33,6 +33,18 @@ import {
 	THEME_HEAD,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
+// W669.11: the console data cards ride klh-console-cards (UI law) — pages
+// emit static card hosts + esc(JSON) data attributes (klh-service-row
+// pattern); the components render shadow DOM from the slices.
+import type {
+	AuditRow,
+	AuditListData,
+	PolicyCardData,
+	RegistryCardData,
+	RegistryRow,
+	UpstreamsCardData,
+	KnobsCardData,
+} from "../board-html/klh-console-cards.ts";
 import type { ExecutorEntry } from "../board/executor-catalog.ts";
 import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
 
@@ -96,15 +108,38 @@ export interface BeltView {
 	upstreamSource?: string;
 }
 
-const ladderHtml = (gw: PolicyGatewayParsed): string =>
-	`<table class="ct"><thead><tr><th>model</th><th>fallback ladder (order = priority)</th></tr></thead><tbody>${Object.entries(
-		gw.fallbacks,
-	)
-		.map(
-			([m, tiers]) =>
-				`<tr><td><b>${esc(m)}</b></td><td>${tiers.map((t, i) => `<span class="pill">${i + 1}. ${esc(t)}</span>`).join(" → ")}</td></tr>`,
-		)
-		.join("")}</tbody></table>`;
+// W669.11: the belt policy card's display slice — four states, rendered by
+// <klh-policy-card> from the esc(JSON) data attribute (UI law: the server
+// never builds the card DOM).
+const beltPolicySlice = (v: BeltView): PolicyCardData => {
+	if (!v.policy) return { kind: "missing" };
+	if (v.policyError)
+		return {
+			kind: "error",
+			path: scrub(v.policy.path),
+			error: v.policyError,
+		};
+	if (!v.gateway) return { kind: "no-gateway" };
+	return {
+		kind: "policy",
+		path: scrub(v.policy.path),
+		source: v.policy.source,
+		gateway: v.gateway,
+	};
+};
+
+// settings-index variant: PolicyCur folds "no gateway section" into a
+// gateway-null policy slice (the card shows the heading + shared-file foot)
+const indexPolicySlice = (pol: PolicyCur): PolicyCardData => {
+	if (pol.error)
+		return { kind: "error", path: scrub(pol.path), error: pol.error };
+	return {
+		kind: "policy",
+		path: scrub(pol.path),
+		source: pol.source,
+		gateway: pol.gateway,
+	};
+};
 
 // W273: one <klh-service-row> per monitored service. The Lit component
 // renders from the probe JSON attribute; the light-DOM children are the
@@ -136,30 +171,32 @@ const healthHtml = (h: HealthProbe[], title = "Fleet services"): string => {
 const PILL_CSS = `.tiles{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.tile{flex:1 1 180px;background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;padding:10px 14px}.tnum{font-size:16px;font-weight:600}.tkey{font-size:10px;color:var(--klh-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}.tsub{font-size:10.5px;color:var(--klh-dim);margin-top:3px}.srow{padding:4px 0}.rcmd{margin:2px 0 6px;background:var(--klh-surface);border:1px solid var(--klh-edge);border-radius:2px;padding:4px 8px;font:11px/1.5 var(--klh-font-mono);white-space:pre-wrap}.pill{display:inline-block;border:1px solid var(--klh-edge);border-radius:2px;padding:1px 7px;font-size:11px;color:var(--klh-ink-2);margin:1px 3px 1px 0}`;
 
 // ─── belt page body ───────────────────────────────────────────────────────
-const policyCard = (v: BeltView): string => {
-	if (!v.policy)
-		return `<div class="panel"><h2>Routing policy</h2><p class="dim">no routing-policy.yaml found on the belt chain (BELT_POLICY/BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)</p></div>`;
-	if (v.policyError)
-		return `<div class="panel"><h2>Routing policy</h2><div class="errbox">resolved ${esc(scrub(v.policy.path))} does not parse: ${esc(v.policyError)}</div></div>`;
-	const gw = v.gateway;
-	if (!gw)
-		return `<div class="panel"><h2>Routing policy</h2><p class="dim">policy resolved but no gateway section parsed</p></div>`;
-	return `<div class="panel"><h2>Routing policy · ${esc(scrub(v.policy.path))} · source: ${v.policy.source}</h2><div class="knobs"><span class="kchip">num_retries: <b>${gw.num_retries}</b></span><span class="kchip">allowed_fails: <b>${gw.allowed_fails}</b></span><span class="kchip">cooldown_time: <b>${gw.cooldown_time}s</b></span></div><div class="ladder">${ladderHtml(gw)}</div></div>`;
-};
+// the policy card host (heading + slice ride the esc(JSON) data attribute)
+const policyCard = (v: BeltView): string =>
+	`<klh-policy-card heading="Routing policy" data="${esc(JSON.stringify(beltPolicySlice(v)))}"></klh-policy-card>`;
 
-const upstreamsCard = (v: BeltView): string => {
-	if (!v.groups)
-		return `<div class="panel"><h2>Upstream pool</h2><p class="dimpl">upstreams.yaml unreadable — the ladder above still applies</p></div>`;
-	const rows = v.groups
-		.map(
-			(g) =>
-				`<tr><td><b>${esc(g.name)}</b></td><td class="num">${g.tiers}</td><td>${g.dormant ? `<span class="dim">dormant</span>` : `<span>configured</span>`}</td><td>${esc(g.source ?? "configured")}</td></tr>`,
-		)
-		.join("");
-	return `<div class="panel"><h2>Configured upstream pool · ${esc(v.upstreamSource ?? "configuration")}</h2><table class="ct"><thead><tr><th>group</th><th>deployments</th><th>state</th><th>source</th></tr></thead><tbody>${rows}</tbody></table><p class="cfoot">Deployment counts merge the fleet default with machine overrides. Reachability is shown by the endpoint checks above.</p></div>`;
-};
+const upstreamsCard = (v: BeltView): string =>
+	`<klh-upstreams-card data="${esc(JSON.stringify(upstreamsSlice(v)))}"></klh-upstreams-card>`;
+
+// the card slice for the belt view's configured upstream pool (null groups
+// = unreadable upstreams.yaml — the card shows the fallback dimpl)
+const upstreamsSlice = (v: BeltView): UpstreamsCardData => ({
+	source: v.upstreamSource ?? "configuration",
+	groups: v.groups
+		? v.groups.map((g) => ({
+				name: g.name,
+				tiers: g.tiers,
+				dormant: g.dormant,
+				source: g.source ?? "configured",
+			}))
+		: null,
+});
 
 const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
+
+// W669.11: the console cards bundle — every page emitting a klh-*-card host
+// loads it; the components upgrade the hosts from their data attributes
+const CARDS_SCRIPT = `<script type="module" src="/vendor/klh-console-cards.js"></script>`;
 
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
@@ -175,7 +212,8 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		upstreamsCard(v) +
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
-			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`);
+			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +
+		CARDS_SCRIPT;
 	return consolePage("Belt gateway", "belt", body, me);
 };
 
@@ -212,17 +250,23 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 			);
 		})
 		.join("");
-	const registryRows = v.services
-		.map(
-			(s) =>
-				`<tr><td><a href="https://${esc(s.name)}.local/">${esc(s.name)}.local</a></td><td><span class="pill">${registrationPort(s) === null ? "Remote upstream" : "Local upstream"}</span></td><td class="mono">${esc(s.upstream ?? String(s.port))}</td><td>${v.probes.some((p) => registrationPort(s) === p.port) ? "Monitored below" : "Not monitored here"}</td></tr>`,
-		)
-		.join("");
+	// the registry card's slice (scope = route kind; monitored = the local
+	// probe cross-check) — the card owns the table DOM
+	const registryRows: RegistryRow[] = v.services.map((s) => ({
+		name: s.name,
+		scope: registrationPort(s) === null ? "Remote upstream" : "Local upstream",
+		upstream: s.upstream ?? String(s.port),
+		monitored: v.probes.some((p) => registrationPort(s) === p.port)
+			? "Monitored below"
+			: "Not monitored here",
+	}));
+	const registryData: RegistryCardData = { rows: registryRows };
 	const body =
 		`<style>${PAGE_CSS}${PILL_CSS}</style><p class="dimpl">Registered .local routes, local model capacity and process observations.</p>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<div class="panel"><h2>Registered services · ${v.services.length}</h2><table class="ct"><thead><tr><th>Service</th><th>Scope</th><th>Upstream</th><th>Observation</th></tr></thead><tbody>${registryRows}</tbody></table><p class="cfoot">Route registration is configuration; local endpoint evidence is shown below. <a href="https://bar.local/">Inspect Caddy checks and mDNS claims</a></p></div>` +
-		`<div class="panel"><h2>Local machine · ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>${probeRows || '<p class="dimpl">No monitored services</p>'}<p class="cfoot">${esc(v.source)} · ${esc(scrub(v.regPath))}</p></div><script type="module" src="/vendor/klh-service-row.js"></script>`;
+		`<klh-registry-card heading="Registered services · ${v.services.length}" data="${esc(JSON.stringify(registryData))}"></klh-registry-card>` +
+		`<div class="panel"><h2>Local machine · ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>${probeRows || '<p class="dimpl">No monitored services</p>'}<p class="cfoot">${esc(v.source)} · ${esc(scrub(v.regPath))}</p></div><script type="module" src="/vendor/klh-service-row.js"></script>` +
+		CARDS_SCRIPT;
 
 	return consolePage("Local services", "local", body, me);
 };
@@ -446,46 +490,43 @@ export interface SettingsIndexArgs {
 export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 	const pol = a.pol;
 	const polCard = pol
-		? `<div class="panel"><h2>routing-policy.yaml · ${esc(scrub(pol.path))} · source: ${esc(pol.source)}</h2>` +
-			(pol.error
-				? `<div class="errbox">current file does not parse: ${esc(pol.error)}</div>`
-				: `<div class="knobs">${
-						pol.gateway
-							? `<span class="kchip">num_retries: <b>${pol.gateway.num_retries}</b></span><span class="kchip">allowed_fails: <b>${pol.gateway.allowed_fails}</b></span><span class="kchip">cooldown_time: <b>${pol.gateway.cooldown_time}s</b></span><span class="kchip">ladder: <b>${Object.entries(
-									pol.gateway.fallbacks,
-								)
-									.map(([m, t]) => `${esc(m)} → ${t.length} tiers`)
-									.join(" · ")}</b></span>`
-							: ""
-					}</div>`) +
-			`<p class="cfoot">belt + buckle share this file — edits apply to both (belt at the next gateway-config emit + kickstart, buckle at restart)</p></div>`
-		: `<div class="panel"><h2>routing-policy.yaml</h2><p class="dimpl">no policy file found on the belt chain</p></div>`;
+		? `<klh-policy-card heading="routing-policy.yaml" compact foot="belt + buckle share this file — edits apply to both (belt at the next gateway-config emit + kickstart, buckle at restart)" data="${esc(JSON.stringify(indexPolicySlice(pol)))}"></klh-policy-card>`
+		: `<klh-policy-card heading="routing-policy.yaml" data="${esc(JSON.stringify({ kind: "missing" as const }))}"></klh-policy-card>`;
 	const s = a.set;
-	const setCard =
-		`<div class="panel"><h2>suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}</h2>` +
-		(s.error
-			? `<div class="errbox">current file does not parse: ${esc(s.error)}</div>`
-			: `<div class="knobs"><span class="kchip">STATUS_REFRESH_S: <b>${s.settings.status_refresh_s ?? "default (5s)"}</b></span><span class="kchip">harvest TTL: <b>${s.settings.harvest_ttl_s ? `${s.settings.harvest_ttl_s}s` : "default (300s)"}</b></span><span class="kchip">default actor: <b>${s.settings.default_actor ? esc(s.settings.default_actor) : "unset"}</b></span><span class="kchip">executors: <b>${s.settings.default_executors?.length ? s.settings.default_executors.map((x) => esc(x)).join(" → ") : "claude (default)"}</b></span></div>`) +
-		`</div>`;
+	const knobs: KnobsCardData = {
+		error: s.error,
+		knobs: [
+			{
+				k: "STATUS_REFRESH_S",
+				v: String(s.settings.status_refresh_s ?? "default (5s)"),
+			},
+			{
+				k: "harvest TTL",
+				v: s.settings.harvest_ttl_s
+					? `${s.settings.harvest_ttl_s}s`
+					: "default (300s)",
+			},
+			{ k: "default actor", v: s.settings.default_actor ?? "unset" },
+			{
+				k: "executors",
+				v: s.settings.default_executors?.length
+					? s.settings.default_executors.join(" → ")
+					: "claude (default)",
+			},
+		],
+	};
+	const setCard = `<klh-knobs-card heading="suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}" data="${esc(JSON.stringify(knobs))}"></klh-knobs-card>`;
 	// W174: the who/when trail — settings/policy applies + key revocations,
-	// newest first, block-mode chips (no new CSS; palette classes only)
-	const auditCard =
-		a.audit.length > 0
-			? `<div class="panel"><h2>admin audit</h2>${a.audit
-					.map((r) => {
-						const when = new Date(r.ts)
-							.toISOString()
-							.replace("T", " ")
-							.slice(0, 19);
-						const detail = r.detail
-							? ` · <span class="dimpl">${esc(r.detail)}</span>`
-							: "";
-						return `<div class="kchip" style="display:block;margin:3px 0"><b>${esc(r.action)}</b> · ${esc(r.actor ?? "unknown")} · <span class="mono">${when}</span> · ${esc(r.target ?? "")}${detail}</div>`;
-					})
-					.join(
-						"",
-					)}<p class="cfoot">settings applies, policy edits, key revocations — archived to NDJSON + aged out at 365d by coord gc</p></div>`
-			: `<div class="panel"><h2>admin audit</h2><p class="dimpl">no admin actions recorded yet — settings/policy applies and key revocations land here</p></div>`;
+	// newest first, block-mode chips (the card's empty state covers zero rows)
+	const auditRows: AuditRow[] = a.audit.map((r) => ({
+		action: r.action,
+		actor: r.actor ?? "unknown",
+		when: new Date(r.ts).toISOString().replace("T", " ").slice(0, 19),
+		target: r.target ?? "",
+		detail: r.detail ?? "",
+	}));
+	const auditData: AuditListData = { rows: auditRows };
+	const auditCard = `<klh-audit-list heading="admin audit" data="${esc(JSON.stringify(auditData))}"></klh-audit-list>`;
 	return consolePage(
 		"SETTINGS",
 		"settings",
@@ -493,7 +534,8 @@ export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 			polCard +
 			`<div class="panel"><h2>edit</h2><div class="btnrow"><a class="btn2" href="/console/settings/belt">belt · budgets</a> <a class="btn2" href="/console/settings/buckle">buckle · ladder + cooldowns</a> <a class="btn2" href="/console/settings/suspenders">suspenders · board</a></div></div>` +
 			setCard +
-			auditCard,
+			auditCard +
+			CARDS_SCRIPT,
 		a.me,
 	);
 };

@@ -1,7 +1,6 @@
 // hooks/board-html/diff.ts — per-item diff + inline review comments (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
-// biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const DIFF = String.raw`// --- 4b: per-item diff + inline review comments (W55, /api/diff + /api/comment) ---
 // #taskDiff sits OUTSIDE the sigSet'd drawer body: the drawer rebuilds on every
 // good poll and would otherwise blow away the note input mid-typing. It keeps
@@ -114,7 +113,7 @@ function renderTaskDiff(){
         '<input class="diffnote" placeholder="line note — routes to the owning lane...">' +
         '<button type="button" class="diffsend">send</button></div>';
     }
-    el.innerHTML = h;
+    setNodes(el, h);
     var inp = el.querySelector('.diffnote');
     if (inp && diffView.draft) inp.value = diffView.draft;
   } else {

@@ -65,3 +65,101 @@ test("gateway has transports while local services starts with route registry", (
 	expect(local).toContain("Remote upstream");
 	expect(local).toContain('data-service="swarm-8901"');
 });
+
+test("console card hosts carry esc(JSON) slices the components upgrade (W669.11)", () => {
+	const probe = (id: string, up: boolean) => ({
+		id,
+		name: id,
+		port: 1,
+		state: up ? ("up" as const) : ("down" as const),
+		up,
+		detail: "HTTP200",
+		probed_at: new Date().toISOString(),
+		recovery: null,
+	});
+	const attr = (tag: string, page: string) =>
+		page.match(new RegExp(`<${tag}[^>]*data="([^"]*)"`))?.[1] ?? "";
+	const j = (s: string) => JSON.parse(s.replaceAll("&quot;", '"'));
+	// the belt policy card: full slice in the data attr + the cards bundle tag
+	const gw = {
+		num_retries: 2,
+		allowed_fails: 4,
+		cooldown_time: 45,
+		fallbacks: { "glm-5.3-flash": ["local-swarm", "gpt-5.2"] },
+	};
+	const gateway = beltPage({
+		policy: {
+			path: "/tmp/policy.yaml",
+			source: "env",
+			gateway: gw,
+		},
+		gateway: gw,
+		policyError: null,
+		beltApi: null,
+		health: [probe("buckle-4101", true)],
+		groups: [{ name: "flash", tiers: 3, dormant: false }],
+		upstreamSource: "fleet default + machine override",
+	});
+	const policy = j(attr("klh-policy-card", gateway)) as {
+		kind: string;
+		gateway: { fallbacks: Record<string, string[]> };
+	};
+	expect(policy.kind).toBe("policy");
+	expect(policy.gateway.fallbacks["glm-5.3-flash"]).toEqual([
+		"local-swarm",
+		"gpt-5.2",
+	]);
+	expect(gateway).toContain('heading="Routing policy"');
+	expect(gateway).toContain("/vendor/klh-console-cards.js");
+	const upstreams = j(attr("klh-upstreams-card", gateway)) as {
+		source: string;
+		groups: { name: string; tiers: number; dormant: boolean }[] | null;
+	};
+	expect(upstreams.source).toBe("fleet default + machine override");
+	expect(upstreams.groups?.[0]).toEqual({
+		name: "flash",
+		tiers: 3,
+		dormant: false,
+		source: "configured",
+	});
+	// null groups survives the JSON round-trip (the card shows the fallback)
+	const dead = beltPage({
+		policy: null,
+		gateway: null,
+		policyError: null,
+		beltApi: null,
+		health: [],
+		groups: null,
+	});
+	expect(
+		(j(attr("klh-upstreams-card", dead)) as { groups: unknown }).groups,
+	).toBeNull();
+	const local = localPage({
+		services: [
+			{
+				name: "nas-hub",
+				port: 7799,
+				upstream: "nas.example:7799",
+				created: "",
+			},
+		],
+		regPath: "registry.json",
+		error: null,
+		probes: [probe("swarm-8901", true)],
+		source: "probes+registry",
+	});
+	const registry = j(attr("klh-registry-card", local)) as {
+		rows: {
+			name: string;
+			scope: string;
+			upstream: string;
+			monitored: string;
+		}[];
+	};
+	expect(registry.rows[0]).toEqual({
+		name: "nas-hub",
+		scope: "Remote upstream",
+		upstream: "nas.example:7799",
+		monitored: "Not monitored here",
+	});
+});

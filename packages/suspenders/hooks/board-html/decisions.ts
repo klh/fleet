@@ -151,7 +151,7 @@ function decNode(d){
     q = document.createElement('div');
     q.className = 'dec';
     q.setAttribute('data-id', d.id);
-    q.innerHTML =
+    setNodes(q,
       '<div class="dhead"><span class="dproj mono"></span><span class="dwho"></span><span class="dage dim"></span></div>' +
       '<div class="dq"></div>' +
       '<div class="dblocks"></div>' +
@@ -161,7 +161,7 @@ function decNode(d){
       '<button class="send" type="button">Send</button>' +
       '<button class="getrec" type="button">Get recommendation</button>' +
       '<button class="dismiss" type="button">cancel</button></div>' +
-      '<div class="derr" role="alert"></div>';
+      '<div class="derr" role="alert"></div>');
     list.appendChild(q);
   }
   var inp = q.querySelector('input.ans');
@@ -228,7 +228,7 @@ function decNode(d){
   var osig = JSON.stringify(opts) + '|' + (selOpt[d.id] || '');
   if (optEl.getAttribute('data-sig') !== osig) {
     optEl.setAttribute('data-sig', osig);
-    optEl.innerHTML = '';
+    optEl.replaceChildren();
     for (var oi = 0; oi < opts.length; oi++) {
       var o = opts[oi] || {};
       var row = document.createElement('div');
@@ -257,28 +257,28 @@ function decNode(d){
   else asig = '';
   if (advEl.getAttribute('data-sig') !== asig) {
     advEl.setAttribute('data-sig', asig);
-    advEl.innerHTML = '';
+    advEl.replaceChildren();
     if (asig === '') {
       advEl.style.display = 'none';
     } else if (advising[d.id]) {
       advEl.style.display = 'block';
       var secs = Math.round((Date.now() - advising[d.id]) / 1000);
-      advEl.innerHTML = '<span class="dim">getting recommendation... ' + secs + 's' + (advRetry[d.id] ? ' (retrying)' : '') + '</span>';
+      setNodes(advEl, '<span class="dim">getting recommendation... ' + secs + 's' + (advRetry[d.id] ? ' (retrying)' : '') + '</span>');
     } else if (advErr[d.id]) {
       advEl.style.display = 'block';
-      advEl.innerHTML = '<span class="risk">advice request failed: ' + esc(advErr[d.id]) + '</span>' +
-        ' <button class="advretry" type="button">retry</button>';
+      setNodes(advEl, '<span class="risk">advice request failed: ' + esc(advErr[d.id]) + '</span>' +
+        ' <button class="advretry" type="button">retry</button>');
     } else if (a && a.adviceError) {
       advEl.style.display = 'block';
-      advEl.innerHTML = '<span class="risk">advice failed: ' + esc(a.adviceError) + '</span>' +
-        ' <button class="advretry" type="button">retry</button>';
+      setNodes(advEl, '<span class="risk">advice failed: ' + esc(a.adviceError) + '</span>' +
+        ' <button class="advretry" type="button">retry</button>');
     } else if (a && a.advice) {
       var ac = a.advice;
       var rhead = '<div class="rhead">RECOMMENDATION' + (ac.model ? ' <span class="dim">' + esc(ac.model) + '</span>' : '') + '</div>';
       var rbody = '<div class="rec">' + esc(ac.rec || '') + '</div>';
       if (ac.rationale) rbody += '<div class="why">' + esc(ac.rationale) + '</div>';
       if (ac.risk) rbody += '<div class="risk">risk: ' + esc(ac.risk) + '</div>';
-      advEl.innerHTML = rhead + rbody + ' <button class="use" type="button">use</button>';
+      setNodes(advEl, rhead + rbody + ' <button class="use" type="button">use</button>');
     }
   }
 }

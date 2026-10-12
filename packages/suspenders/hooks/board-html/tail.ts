@@ -64,7 +64,7 @@ function renderTaskTail(){
       var inp = el.querySelector('.lanemsg');
       if (inp && tailView.draft) inp.value = tailView.draft;
     }
-    el.innerHTML = h;
+    setNodes(el, h);
   } else if (tailView.open) {
     var keep = el.querySelector('.lanemsg');
     if (keep && document.activeElement !== keep && keep.value !== tailView.draft) keep.value = tailView.draft;
