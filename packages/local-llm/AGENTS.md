@@ -42,3 +42,15 @@ assertions in the SAME commit.
 belt owns the registry and the :4000 router; suspenders owns install +
 overlay tooling. The tier manifest (`tier.json`) is machine config,
 re-emitted per install — never committed.
+
+## Local cache laws (W458.4)
+
+- Warm workers when justified (keepwarm + the tier manifest resident set); a
+  cold worker must start correctly from the model artifact ALONE — weights on
+  disk, never a borrowed live cache.
+- KV-state transfer between workers only after engine compatibility is
+  verified; there is no correctness dependency on live GPU cache — every
+  worker recomputes from its artifact, so a cache miss degrades speed, never
+  answers.
+- Cache/reuse data is routing and accounting context only; it never gates a
+  request. Boundary definitions live in buckle `src/cache-boundary.ts`.

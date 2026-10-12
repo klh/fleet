@@ -231,3 +231,89 @@ import { createApp } from "../src/handlers.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 import { testDeps } from "./deps.ts";
 import { startMockUpstream } from "./mock.ts";
+
+// W458.4 anti-collapse: cache-motivated steering never changes the ride
+// boundary (account, region, family, model). Cross-account or cross-region
+// reordering is refused; same-account steering between origins stays legal
+// (the fleet-workers case — routing, not tenant collapse).
+describe("affinity ride gate (W458.4)", () => {
+	const selPair = (overA: object, overB: object): RouteSelection =>
+		selOf([
+			row(overA as Partial<CandidateRow>),
+			row(overB as Partial<CandidateRow>),
+		]);
+	const other = (sel: RouteSelection): CandidateRow => {
+		const r = sel.ordered[1];
+		if (!r) throw new Error("fixture needs two candidates");
+		return r;
+	};
+
+	test("cross-account steering is refused", () => {
+		const sel = selPair(
+			{
+				dep: {
+					group: "g",
+					url: "http://h:9001",
+					dialect: "anthropic",
+					api_key_env: "K1",
+				},
+			},
+			{
+				dep: {
+					group: "g",
+					url: "http://h:9002",
+					dialect: "anthropic",
+					api_key_env: "K2",
+				},
+			},
+		);
+		expect(applyAffinity(sel, other(sel).candidate_id)).toBe(sel);
+	});
+
+	test("cross-region steering is refused", () => {
+		const sel = selPair(
+			{
+				dep: {
+					group: "g",
+					url: "http://h:9001",
+					dialect: "anthropic",
+					adapter_config: { region: "us" },
+				},
+			},
+			{
+				dep: {
+					group: "g",
+					url: "http://h:9002",
+					dialect: "anthropic",
+					adapter_config: { region: "eu" },
+				},
+			},
+		);
+		expect(applyAffinity(sel, other(sel).candidate_id)).toBe(sel);
+	});
+
+	test("cross-family steering is refused", () => {
+		const sel = selPair(
+			{ dep: { group: "g", url: "http://h:9001", dialect: "anthropic" } },
+			{
+				dep: {
+					group: "g",
+					url: "http://h:9002",
+					dialect: "anthropic",
+					adapter: "vertex",
+				},
+			},
+		);
+		expect(applyAffinity(sel, other(sel).candidate_id)).toBe(sel);
+	});
+
+	test("same-account origin steering stays legal", () => {
+		const sel = selPair(
+			{ dep: { group: "g", url: "http://h:9001", dialect: "anthropic" } },
+			{ dep: { group: "g", url: "http://h:9002", dialect: "anthropic" } },
+		);
+		const out = applyAffinity(sel, other(sel).candidate_id);
+		expect(out).not.toBe(sel);
+		expect(out.ordered[0]?.candidate_id).toBe(other(sel).candidate_id);
+	});
+});

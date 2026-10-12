@@ -17,6 +17,8 @@ import {
 } from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
 import { aidsRoutes, applyWireAids } from "./aids-routes.ts";
+import type { LaneTelemetryLog } from "./cache-boundary.ts";
+import { boundaryOfDeployment } from "./cache-boundary.ts";
 import type { CandidateRow, CandidateTable } from "./candidates.ts";
 import {
 	allowOf,
@@ -99,6 +101,9 @@ export interface AppDeps {
 	// W237 prefix-affinity: the prefix → candidate memo. Optional — bare
 	// deps (testDeps, dev) route without affinity and the seam no-ops.
 	affinity?: PrefixAffinity;
+	// W458.4 per-lane cache telemetry: the append-only NDJSON lane log.
+	// Optional — bare deps (testDeps, dev) skip lane rows honestly.
+	laneCache?: LaneTelemetryLog;
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
@@ -714,6 +719,26 @@ function writeErrorEvent(
 function record(deps: AppDeps, ctx: Ctx, usage: Usage | null): void {
 	// W457 cache telemetry: joined onto the route_audit row by rid.
 	deps.ledger.auditUsage(ctx.rid, usage);
+	// W458.4 per-lane cache telemetry: attributed lanes append the row with
+	// the boundary the request actually rode (the delivered head). Usage
+	// null = honest unknown — the request still counts, tokens stay zero.
+	const head = ctx.sel?.head;
+	if (ctx.lane && head && deps.laneCache) {
+		deps.laneCache.append({
+			lane: ctx.lane,
+			task: ctx.key,
+			boundary: boundaryOfDeployment(head.dep, head.model),
+			usage: usage ?? {
+				in_tok: 0,
+				out_tok: 0,
+				cache_r: 0,
+				cache_c: 0,
+			},
+			requests: 1,
+			wallMs: Date.now() - ctx.t0,
+			at: new Date().toISOString(),
+		});
+	}
 	if (usage === null) {
 		// honest unknown: count the request, contribute no token columns,
 		// flag it on servicemon — never estimated, never faked as real zeros
