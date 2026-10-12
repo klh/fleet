@@ -98,6 +98,10 @@ const fitOf = (c: CandidateRow, h: RouteHint): number =>
 export interface DecideInput {
 	hint: RouteHint | null;
 	hintRaw: string;
+	/** The requested wire id's group (the model string clients send). When
+	 *  the pool carries rows for it, the request is a PIN — candidates
+	 *  scope to that group, never another group's rows. */
+	group: string;
 	candidates: readonly CandidateRow[];
 	prefs: Prefs;
 	dialect: "openai" | "anthropic";
@@ -113,14 +117,25 @@ export interface DecideInput {
 export function decideRoute(input: DecideInput): DecideResult {
 	const gateOpen = input.prefs.allow_cloud && input.prefs.cost_speed !== "cost";
 	const viable = (c: CandidateRow): boolean => gateOpen || c.kind !== "cloud";
-	const pool = input.candidates.filter(
-		(c) => c.dialect === input.dialect && viable(c),
-	);
+	// W690 explicit-model law: when the pool carries rows for the requested
+	// group, the model string is a PIN — scope candidates to that group's
+	// rows, never substitute another group behind the client's back. No
+	// matching rows → the old whole-pool walk (model was a preference).
+	const pinnedRows = input.candidates.filter((c) => c.group === input.group);
+	const scoped =
+		pinnedRows.length > 0
+			? pinnedRows
+			: input.candidates.filter(
+					(c) => c.dialect === input.dialect && viable(c),
+				);
+	const pool: CandidateRow[] = [...scoped];
 	if (input.allowCross)
 		pool.push(
-			...input.candidates.filter(
-				(c) => c.dialect !== input.dialect && viable(c),
-			),
+			...(pinnedRows.length > 0
+				? scoped.filter((c) => c.dialect !== input.dialect)
+				: input.candidates.filter(
+						(c) => c.dialect !== input.dialect && viable(c),
+					)),
 		);
 	if (input.hint?.verb === "must") return mustPath(input, pool, gateOpen);
 	return preferOr(input, pool);
