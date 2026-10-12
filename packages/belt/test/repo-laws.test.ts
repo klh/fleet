@@ -12,7 +12,6 @@ import {
 	lawExprToHint,
 	parseLlmDotfile,
 	resolveLawStack,
-	type CentralLaw,
 	type LawStack,
 } from "../bin/repo-laws.ts";
 import { hintFit, hintTotal, parseHint } from "../bin/route-policy.ts";
@@ -75,6 +74,7 @@ describe("resolution order (dotfile > user > central > default)", () => {
 		central: [],
 		company: false,
 		layers: [],
+		prefer: { prefer: null, must: null, source: null, errors: [] },
 		...over,
 	});
 
@@ -253,5 +253,181 @@ describe("resolveLawStack (file-backed)", () => {
 		const s = resolveLawStack(repo, ENV);
 		expect(s.company).toBe(false);
 		expect(s.central).toEqual([]);
+	});
+});
+
+// W598: the .prefer tree layer — quoted prefer=/must= fold in outermost
+describe("W598 .prefer ranking", () => {
+	const pool = [
+		CAND(
+			"local",
+			"box",
+			"mlx-community/Qwen3.5-35B-A3B-4bit",
+			"reasoning qwen35",
+		),
+		CAND("cloud", "hub", "glm-5.3", "reasoning glm"),
+	];
+
+	test("quoted prefer above the repo ranks EVERY repo-scoped call", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-tree-"));
+		const repo = join(tree, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(tree, ".prefer"), 'prefer = "cloud"\n');
+		const s = resolveLawStack(repo, ENV);
+		expect(s.prefer.prefer).not.toBeNull();
+		expect(s.prefer.source).toBe(join(tree, ".prefer"));
+		expect(s.layers).toEqual([".prefer"]);
+		const r = applyLawStack(pool, composeLawPlan(s, null), hintFit, hintTotal);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.candidates[0].machine).toBe("hub"); // cloud ranks first
+		expect(r.why).toContain(".prefer:prefer(cloud)");
+	});
+});
+
+// W598: .prefer plane split — the executor chain keeps unquoted single tokens
+describe("W598 .prefer plane split", () => {
+	const pool = [
+		CAND(
+			"local",
+			"box",
+			"mlx-community/Qwen3.5-35B-A3B-4bit",
+			"reasoning qwen35",
+		),
+		CAND("cloud", "hub", "glm-5.3", "reasoning glm"),
+	];
+
+	test("unquoted single tokens stay the executor plane (never routing)", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-exec-"));
+		writeFileSync(join(tree, ".prefer"), "must=opus\nprefer=glm-5.3\n");
+		const s = resolveLawStack(tree, ENV);
+		expect(s.prefer.prefer).toBeNull();
+		expect(s.prefer.must).toBeNull();
+		expect(s.layers).toEqual([]);
+	});
+
+	test("must= from .prefer is reserved — validated, surfaced, never a filter", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-must-"));
+		const repo = join(tree, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(tree, ".prefer"), 'must = "cloud"\n');
+		const s = resolveLawStack(repo, ENV);
+		expect(s.prefer.must).not.toBeNull();
+		expect(s.layers).toEqual([".prefer"]);
+		const plan = composeLawPlan(s, null);
+		expect(plan.musts).toHaveLength(0);
+		expect(plan.why).toContain("reserved");
+		const r = applyLawStack(pool, plan, hintFit, hintTotal);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.candidates).toHaveLength(2);
+	});
+});
+
+// W598: .prefer resolution order — nearest definition wins per key
+describe("W598 .prefer resolution order", () => {
+	const pool = [
+		CAND(
+			"local",
+			"box",
+			"mlx-community/Qwen3.5-35B-A3B-4bit",
+			"reasoning qwen35",
+		),
+		CAND("cloud", "hub", "glm-5.3", "reasoning glm"),
+	];
+
+	test("walk crosses repo boundaries; nearest definition wins per key", () => {
+		const outer = mkdtempSync(join(tmpdir(), "w598-outer-"));
+		const mid = join(outer, "mid");
+		const repo = join(mid, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(outer, ".prefer"), 'prefer = "cloud"\nmust = "local"\n');
+		writeFileSync(join(mid, ".prefer"), 'prefer = "local"\n');
+		const s = resolveLawStack(repo, ENV);
+		expect(s.prefer.prefer).not.toBeNull();
+		const r = applyLawStack(pool, composeLawPlan(s, null), hintFit, hintTotal);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.candidates[0].machine).toBe("box"); // mid's nearest local wins
+	});
+});
+
+// W598: the request hint keeps W96 nearness over the tree .prefer
+describe("W598 .prefer vs request hint", () => {
+	const pool = [
+		CAND(
+			"local",
+			"box",
+			"mlx-community/Qwen3.5-35B-A3B-4bit",
+			"reasoning qwen35",
+		),
+		CAND("cloud", "hub", "glm-5.3", "reasoning glm"),
+	];
+
+	test("request hint outranks the tree .prefer", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-req-"));
+		const repo = join(tree, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(tree, ".prefer"), 'prefer = "cloud"\n');
+		const s = resolveLawStack(repo, ENV);
+		const req = parseHint("prefer local");
+		expect(req.ok).toBe(true);
+		if (!req.ok) return;
+		const r = applyLawStack(
+			pool,
+			composeLawPlan(s, req.hint),
+			hintFit,
+			hintTotal,
+		);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.candidates[0].machine).toBe("box");
+	});
+});
+
+// W598: .prefer loud, non-fatal errors — the stack never blanks on junk
+describe("W598 .prefer loud errors", () => {
+	const pool = [
+		CAND(
+			"local",
+			"box",
+			"mlx-community/Qwen3.5-35B-A3B-4bit",
+			"reasoning qwen35",
+		),
+		CAND("cloud", "hub", "glm-5.3", "reasoning glm"),
+	];
+
+	test("first prefer wins; later duplicates are loud", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-dup-"));
+		writeFileSync(
+			join(tree, ".prefer"),
+			'prefer = "cloud"\nprefer = "local"\n',
+		);
+		const s = resolveLawStack(tree, ENV);
+		expect(s.prefer.errors.join(" ")).toContain("set more than once");
+		const r = applyLawStack(pool, composeLawPlan(s, null), hintFit, hintTotal);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.candidates[0].machine).toBe("hub"); // first (cloud) ranks
+	});
+
+	test("unknown keys are loud but non-fatal", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-keys-"));
+		writeFileSync(
+			join(tree, ".prefer"),
+			'tag = "w517"\ncolor = "#ff0000"\nnope = "x y"\n',
+		);
+		const s = resolveLawStack(tree, ENV);
+		expect(s.prefer.prefer).toBeNull();
+		expect(s.prefer.errors).toHaveLength(1); // tag/color silent, nope loud
+		expect(s.prefer.errors[0]).toContain("unknown key");
+	});
+
+	test("invalid routing expr is loud and never resolves", () => {
+		const tree = mkdtempSync(join(tmpdir(), "w598-bad-"));
+		writeFileSync(join(tree, ".prefer"), 'prefer = "model:"\n');
+		const s = resolveLawStack(tree, ENV);
+		expect(s.prefer.prefer).toBeNull();
+		expect(s.prefer.errors[0]).toContain("model: needs an id or glob");
 	});
 });

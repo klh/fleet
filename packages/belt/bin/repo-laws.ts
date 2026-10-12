@@ -4,14 +4,15 @@
 // hintFit/hintTotal/decide internals).
 //
 // Precedence (owner law): repo dotfile > user plane > central (W154
-// manifest rules[], kind "repo-law") > install default. Company repos:
+// manifest rules[], kind "repo-law") > tree .prefer (W598, outermost —
+// ranking only, never a must) > install default. Company repos:
 // central must beats user prefer (entitlements are ceilings); private
 // repos: hub not consulted (no matching rule = no central layer at all —
 // the local last-known cache is only read, the hub is never called).
 // must-no-fit errors honestly at every layer, naming the layer.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { hintFit, hintTotal, type RouteHint } from "./route-policy.ts";
+import type { RouteHint } from "./route-policy.ts";
 
 // ─── the .llm grammar (port — one grammar, belt is the enforcer) ───────────
 export type DotfileParse =
@@ -166,16 +167,167 @@ export function findLlmDotfile(startDir: string): string | null {
 	return null;
 }
 
-// ─── the resolution stack (dotfile > user > central > default) ─────────────
+// ─── the .prefer tree layer (W598: quoted prefer=/must= fold in outermost) ─
+/** Belt's view of the W519 tree-level .prefer: routing keys only, W96
+ *  grammar, quoted or multi-token values (unquoted single tokens stay the
+ *  executor chain's shape). tag/color belong to the W517/W518 planes. */
+export interface TreePreferLayer {
+	/** Ranking constraint — soft: the ladder prefers matching endpoints. */
+	prefer: RouteHint | null;
+	/** RESERVED (W519 owner law): validated, surfaced loud, never enforced. */
+	must: RouteHint | null;
+	/** File the ranking prefer came from (null = none). */
+	source: string | null;
+	/** "<file>:<line>: why" — loud, non-fatal; valid keys still resolve. */
+	errors: string[];
+}
+
+const PREFER_FILE = ".prefer";
+const PREFER_WALK_MAX = 64; // depth cap, W519 parity
+/** Other planes' keys — not a routing concern, never an error here. */
+const PREFER_FOREIGN_KEYS = new Set(["tag", "color"]);
+const PREFER_KEYS = new Set(["prefer", "must"]);
+
+/** Quoted value = between the quote pair (a trailing `# comment` outside
+ *  the quotes is ignored); unquoted multi-token values pass through. */
+function stripPreferQuotes(raw: string): string {
+	const open = raw.indexOf('"');
+	if (open < 0) return raw.trim();
+	const close = raw.indexOf('"', open + 1);
+	return close < 0 ? raw.slice(open + 1).trim() : raw.slice(open + 1, close);
+}
+
+/** Validate one routing value into a hint; error line when empty/invalid. */
+function oneRoutingValue(
+	at: string,
+	key: "prefer" | "must",
+	raw: string,
+): { hint: RouteHint } | { error: string } {
+	const val = stripPreferQuotes(raw);
+	if (val === "") return { error: `${at}: ${key}= needs a "value"` };
+	const h = lawExprToHint(key, val);
+	if (!h.ok) return { error: `${at}: ${key}=: ${h.why}` };
+	return { hint: h.hint };
+}
+
+/** One .prefer line's routing disposition — {slot, at, hint} when the line
+ *  defines a routing key, {error} when it should define one but fails
+ *  validation, null for lines outside the routing plane (blank, comment,
+ *  unquoted single token, tag/color). */
+function onePreferLine(
+	path: string,
+	i: number,
+	raw: string,
+):
+	| { slot: "prefer" | "must"; at: string; hint: RouteHint }
+	| { error: string }
+	| null {
+	const t = raw.trim();
+	if (!t || t.startsWith("#")) return null;
+	const eq = t.indexOf("=");
+	const key = (eq < 0 ? "" : t.slice(0, eq)).trim();
+	const val = eq < 0 ? "" : t.slice(eq + 1).trim();
+	if (!val.startsWith('"') && !/\s/.test(val)) return null; // executor plane
+	const at = `${path}:${String(i + 1)}`;
+	if (PREFER_FOREIGN_KEYS.has(key)) return null; // W517/W518 planes
+	if (!PREFER_KEYS.has(key)) {
+		return {
+			error: `${at}: unknown key '${t.slice(0, 24)}' — expected prefer, must (tag/color are other planes)`,
+		};
+	}
+	const v = oneRoutingValue(at, key as "prefer" | "must", val);
+	if ("error" in v) return v;
+	return { slot: key as "prefer" | "must", at, hint: v.hint };
+}
+
+/** Parse one .prefer for ROUTING keys — onePreferLine per line, first
+ *  definition per key wins, later duplicates are loud errors. */
+function parseTreePreferFile(
+	path: string,
+	text: string,
+): { prefer: RouteHint | null; must: RouteHint | null; errors: string[] } {
+	const out = {
+		prefer: null as RouteHint | null,
+		must: null as RouteHint | null,
+		errors: [] as string[],
+	};
+	for (const [i, raw] of text.split("\n").entries()) {
+		const d = onePreferLine(path, i, raw);
+		if (d === null) continue;
+		if ("error" in d) {
+			out.errors.push(d.error);
+			continue;
+		}
+		if (out[d.slot] !== null) {
+			out.errors.push(`${d.at}: ${d.slot}= set more than once (first wins)`);
+			continue;
+		}
+		out[d.slot] = d.hint;
+	}
+	return out;
+}
+
+/** Nearest .prefer routing definitions walking UP from the repo — the walk
+ *  crosses repo boundaries (tree-level: icomdev/.prefer covers every repo
+ *  below it), nearest definition wins per key, early stop once both keys
+ *  are known. Never throws: unreadable files are loud errors. */
+export function resolveTreePrefer(startDir: string): TreePreferLayer {
+	const out: TreePreferLayer = {
+		prefer: null,
+		must: null,
+		source: null,
+		errors: [],
+	};
+	let dir = startDir;
+	for (let i = 0; i < PREFER_WALK_MAX; i++) {
+		const f = join(dir, PREFER_FILE);
+		if (existsSync(f)) {
+			let text = "";
+			try {
+				text = readFileSync(f, "utf8");
+			} catch {
+				out.errors.push(`${f}: unreadable`);
+			}
+			const r = parseTreePreferFile(f, text);
+			out.errors.push(...r.errors);
+			if (out.prefer === null && r.prefer !== null) {
+				out.prefer = r.prefer;
+				out.source = f;
+			}
+			if (out.must === null && r.must !== null) out.must = r.must;
+		}
+		if (out.prefer !== null && out.must !== null) break;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return out;
+}
+
+// ─── the resolution stack (dotfile > user > central > tree .prefer) ────────
 export interface CentralLaw {
 	id: string;
 	laws: string[];
 }
 
+/** The full law stack for one repo — the W164 layers plus the W598 tree
+ *  .prefer outer layer (quoted prefer=/must= only, never a must filter). */
+export interface LawStack {
+	repo: string;
+	dotfile: DotfileParse | null;
+	user: DotfileParse | null;
+	central: CentralLaw[];
+	company: boolean;
+	layers: string[];
+	/** Outermost layer: the tree's .prefer routing keys. */
+	prefer: TreePreferLayer;
+}
+
 /** Resolve the full law stack for a repo — dotfile (git-like discovery),
  *  user config (repo-laws.json entry, exact root match), central (the W154
  *  manifest's kind=repo-law rules from the LAST-KNOWN cache; the hub is
- *  never called at route time). */
+ *  never called at route time), and the W598 tree .prefer outer layer
+ *  (walks up past the repo root — nearest quoted prefer=/must= wins). */
 export function resolveLawStack(
 	repo: string,
 	env: NodeJS.ProcessEnv = {},
@@ -184,10 +336,12 @@ export function resolveLawStack(
 	const dotText = dotPath === null ? null : readFileSync(dotPath, "utf8");
 	const user = readUserRepoLaws(repo, env);
 	const central = readCentralRepoLaws(repo, env);
+	const tree = resolveTreePrefer(repo);
 	const layers: string[] = [];
 	if (dotText !== null) layers.push("dotfile");
 	if (user !== null) layers.push("user");
 	if (central.length > 0) layers.push("central");
+	if (tree.prefer !== null || tree.must !== null) layers.push(".prefer");
 	return {
 		repo,
 		dotfile: dotText === null ? null : parseLlmDotfile(dotText),
@@ -195,6 +349,7 @@ export function resolveLawStack(
 		central,
 		company: central.length > 0,
 		layers,
+		prefer: tree,
 	};
 }
 
@@ -320,6 +475,8 @@ function firstPrefer(
 		if (p.ok && p.prefer !== null)
 			return { layer: `central:${c.id}`, hint: p.prefer };
 	}
+	if (stack.prefer.prefer !== null)
+		return { layer: ".prefer", hint: stack.prefer.prefer };
 	return null;
 }
 
@@ -329,10 +486,15 @@ function describePlan(
 	prefer: LawPlan["prefer"],
 	stack: LawStack,
 ): string {
+	const reserved = stack.prefer.must;
+	const note =
+		reserved === null
+			? ""
+			: `; ${exprOf(reserved)} reserved (must= never enforces from .prefer)`;
 	if (!musts.length && prefer === null)
 		return stack.layers.length
-			? `law stack [${stack.layers.join(",")}]: no binding laws — belt default ordering`
-			: "no law stack — belt default ordering";
+			? `law stack [${stack.layers.join(",")}]: no binding laws — belt default ordering${note}`
+			: `no law stack — belt default ordering${note}`;
 	const m = musts.length
 		? musts.map((x) => `${x.layer}:must(${exprOf(x.hint)})`).join(" AND ")
 		: "no musts";
@@ -340,7 +502,7 @@ function describePlan(
 		prefer === null
 			? "no prefer"
 			: `${prefer.layer}:prefer(${exprOf(prefer.hint)})`;
-	return `law stack [${stack.layers.join(",")}] — ${m}; ranking by ${p}`;
+	return `law stack [${stack.layers.join(",")}] — ${m}; ranking by ${p}${note}`;
 }
 
 function exprOf(h: RouteHint): string {
