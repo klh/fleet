@@ -1,9 +1,10 @@
 // hooks/bin/usage-page-html.ts — W152: /usage rebuilt Grafana-grade on
 // vendored uPlot (the time-series engine behind Grafana's charts, MIT).
 // Server-rendered chrome + embedded uPlot-ready JSON payload; the client
-// renderer (usage-charts.ts) draws the panels. NO CDN — uPlot's IIFE + css
-// are vendored under hooks/bin/vendor/ (license headers preserved) and
-// inlined, so the LAN-only board renders with the network down.
+// renderer (<klh-usage-charts> in board-html/usage-panels.ts) draws the
+// panels. NO CDN — uPlot's IIFE + css are vendored under hooks/bin/vendor/
+// (license headers preserved) and inlined, so the LAN-only board renders
+// with the network down.
 //
 // Panels: stat tiles row → stacked-area timeline by model group with a
 // 7/28d timeframe selector → hour-of-day histogram → per-actor table with
@@ -30,7 +31,6 @@ import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
 import {
 	esc,
 	fmtTok,
-	legendHtml,
 	SLOT,
 	type UsageActivityCell,
 	type UsageActivityPanel,
@@ -250,15 +250,16 @@ export function usagePage(
 			opts.includeDemo ?? r.demo?.included ?? false,
 		) +
 		`<klh-usage-tiles></klh-usage-tiles>`;
-	const timeline = `<div class="upanel"><div class="uhead"><h2>TOKENS · STACKED BY MODEL GROUP</h2><p class="ufoot">hover = values · drag = zoom · double-click = reset</p></div>${legendHtml()}<div id="u-timeline" class="uchart"></div></div>`;
-	const hours = `<div class="upanel"><h2>WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)</h2><div id="u-hours" class="uchart"></div></div>`;
+	// W658.4: the chart panels ride <klh-usage-charts> (default titles) —
+	// the emitters stopped string-building the uPlot chrome per request
+	const timeline = `<klh-usage-charts></klh-usage-charts>`;
 	const tbl = `<klh-usage-actors></klh-usage-actors>`;
 	const activity = `<klh-usage-activity></klh-usage-activity>`;
 	const aids = `<klh-usage-aids></klh-usage-aids>`;
 	const back = `<div class="uback"><a href="/">&larr; fleet board</a><span class="uwin">${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view</span></div>`;
 	return usagePageShell({
 		title: "FLEET USAGE",
-		body: `${back}${head}${timeline}${hours}${tbl}${activity}${aids}`,
+		body: `${back}${head}${timeline}${tbl}${activity}${aids}`,
 		payload: chartPayload(r, opts.activity),
 	});
 }

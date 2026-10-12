@@ -11,7 +11,6 @@ import { GROUPS } from "../lib/usage.ts";
 import {
 	esc,
 	fmtTok,
-	legendHtml,
 	SLOT,
 	type UsageAidsPanel,
 	type UsageSeg,
@@ -232,8 +231,9 @@ export function federationUsagePage(
 	opts: { degraded?: string | null } = {},
 ): string {
 	const degraded = opts.degraded ?? null;
-	const timeline = `<div class="upanel"><div class="uhead"><h2>GLOBAL TOKENS · STACKED BY MODEL CLASS</h2><p class="ufoot">hover = values · drag = zoom · double-click = reset</p></div>${legendHtml()}<div id="u-timeline" class="uchart"></div></div>`;
-	const hours = `<div class="upanel"><h2>WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)</h2><div id="u-hours" class="uchart"></div></div>`;
+	// W658.4: the chart panels ride <klh-usage-charts> (the fed timeline
+	// title differs — passed through); no more per-request panel HTML strings
+	const timeline = `<klh-usage-charts tl="GLOBAL TOKENS · STACKED BY MODEL CLASS"></klh-usage-charts>`;
 	const note =
 		degraded === null
 			? `<span class="uwin">aggregate self-report, opt-in per team — the hub stores model-CLASS buckets only; private-domain aggregates never arrive</span>`
@@ -256,7 +256,7 @@ export function federationUsagePage(
 	});
 	return usagePageShell({
 		title: "FEDERATED USAGE",
-		body: `${head}${timeline}${hours}<klh-usage-spokes></klh-usage-spokes><klh-usage-aids></klh-usage-aids>`,
+		body: `${head}${timeline}<klh-usage-spokes></klh-usage-spokes><klh-usage-aids></klh-usage-aids>`,
 		payload,
 	});
 }
