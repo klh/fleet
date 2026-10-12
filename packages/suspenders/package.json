@@ -11,7 +11,7 @@
 		"test": "bun test test/",
 		"test:e2e": "playwright test --config e2e/playwright.config.ts",
 		"ci": "bun install && bun test test/",
-		"build:vendor": "bun build hooks/board-html/klh-components.ts hooks/board-html/klh-service-row.ts hooks/board-html/klh-recovery.ts hooks/board-html/klh-hub-admin.ts hooks/board-html/klh-topbar.ts hooks/board-html/klh-board-tabs.ts hooks/board-html/usage-panels.ts hooks/board-html/klh-console-cards.ts --minify --production --splitting --chunk-naming lit-[hash].[ext] --outdir hooks/board-html/vendor"
+		"build:vendor": "bun build hooks/board-html/klh-components.ts hooks/board-html/klh-service-row.ts hooks/board-html/klh-recovery.ts hooks/board-html/klh-hub-admin.ts hooks/board-html/klh-topbar.ts hooks/board-html/klh-board-tabs.ts hooks/board-html/usage-panels.ts hooks/board-html/klh-console-cards.ts hooks/board-html/klh-console-forms.ts --root hooks/board-html --minify --production --splitting --chunk-naming lit-[hash].[ext] --outdir hooks/board-html/vendor"
 	},
 	"dependencies": {
 		"@clack/prompts": "^1.8.1",
