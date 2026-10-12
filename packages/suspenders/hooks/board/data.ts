@@ -14,9 +14,7 @@ import {
 import {
 	projOf,
 	syncDecisions,
-	failNote,
 	ago,
-	label,
 	labelMaps,
 	labelFrom,
 	laneModelMaps,
@@ -29,6 +27,7 @@ import {
 	laneModelOf,
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { chunked } from "./helpers.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
@@ -348,26 +347,68 @@ export function sessions(): SessionView[] {
 	}));
 }
 
+// W685: batched failNote — newest work.failed payload note per item, one
+// IN(...) read for the whole board instead of a store RPC per FAILED row.
+function failNoteMaps(works: string[]): Map<string, string | null> {
+	const out = new Map<string, string | null>();
+	chunked(works, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(
+				`SELECT work, payload FROM events WHERE kind = 'work.failed' AND work IN (${ph}) ORDER BY id DESC`,
+			)
+			.all(...chunk) as { work: string; payload: string | null }[]) {
+			if (!out.has(r.work)) {
+				const note = payloadOf(r.payload).note;
+				out.set(r.work, note ? String(note).slice(0, 300) : null);
+			}
+		}
+	});
+	return out;
+}
+
 export function board(): Record<string, unknown>[] {
 	const projects = db
 		.query(
 			"SELECT DISTINCT project FROM work_items WHERE state NOT IN ('DONE','SUPERSEDED') OR state = 'DONE'",
 		)
 		.all() as { project: string }[];
+	// W685: the per-project N+1 (items + deps + failNote per FAILED item)
+	// batches into three all-project reads — 136 store RPCs → 4 per compute.
+	const items = db
+		.query(
+			"SELECT project, id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items ORDER BY project, priority DESC, id",
+		)
+		.all() as (WorkItemRow & { project: string })[];
+	const depRows = db
+		.query(
+			"SELECT project, work_id, depends_on FROM work_deps WHERE depends_on IS NOT NULL AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.project = work_deps.project AND w.id = work_deps.depends_on AND w.state = 'DONE')",
+		)
+		.all() as { project: string; work_id: string; depends_on: string }[];
+	const byProject = new Map<string, WorkItemRow[]>();
+	for (const w of items) {
+		const list = byProject.get(w.project);
+		if (list) list.push(w);
+		else byProject.set(w.project, [w]);
+	}
+	const depsByProject = new Map<
+		string,
+		{ work_id: string; depends_on: string }[]
+	>();
+	for (const r of depRows) {
+		const list = depsByProject.get(r.project);
+		if (list) list.push(r);
+		else depsByProject.set(r.project, [r]);
+	}
+	const failNotes = failNoteMaps(
+		items.filter((w) => w.state === "FAILED").map((w) => w.id),
+	);
 	return projects.map(({ project }) => {
-		const items = db
-			.query(
-				"SELECT id, state, owner_sid, origin, title, priority, result_sha, requires, updated_at FROM work_items WHERE project = ? ORDER BY priority DESC, id",
-			)
-			.all(project) as WorkItemRow[];
+		const items = byProject.get(project) ?? [];
 		const doneIds = new Set(
 			items.filter((w) => w.state === "DONE").map((w) => w.id),
 		);
-		const depRows = db
-			.query(
-				"SELECT work_id, depends_on FROM work_deps WHERE project = ? AND depends_on NOT IN (SELECT id FROM work_items WHERE project = ? AND state = 'DONE')",
-			)
-			.all(project, project) as { work_id: string; depends_on: string }[];
+		const depRows = depsByProject.get(project) ?? [];
 		const blocked = new Set(depRows.map((r) => r.work_id));
 		const openDeps: Record<string, string[]> = {};
 		for (const r of depRows) {
@@ -385,7 +426,7 @@ export function board(): Record<string, unknown>[] {
 			requires: w.requires,
 			blocked: blocked.has(w.id),
 			deps: openDeps[w.id] ?? null,
-			note: w.state === "FAILED" ? failNote(w.id) : null,
+			note: w.state === "FAILED" ? (failNotes.get(w.id) ?? null) : null,
 			updatedAgo: ago(w.updated_at),
 		});
 		return {
@@ -522,6 +563,44 @@ export function inbox(sid: string): unknown[] {
 	}));
 }
 
+// W685 batched read faces — one IN(...) statement per chunk replaces the
+// per-row store RPCs that made a cold payload compute 684 curls ≈ 3.7s.
+function factsByKeys(keys: string[]): Map<string, string> {
+	const out = new Map<string, string>();
+	chunked(keys, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT key, value FROM facts WHERE key IN (${ph})`)
+			.all(...chunk) as { key: string; value: string }[])
+			out.set(r.key, r.value);
+	});
+	return out;
+}
+
+function sessionsRoles(sids: string[]): Map<string, string> {
+	const out = new Map<string, string>();
+	chunked(sids.filter(Boolean), (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT sid, role FROM sessions WHERE sid IN (${ph})`)
+			.all(...chunk) as { sid: string; role: string | null }[])
+			out.set(r.sid, r.role ?? "");
+	});
+	return out;
+}
+
+function eventPayloads(ids: number[]): Map<number, string | null> {
+	const out = new Map<number, string | null>();
+	chunked(ids, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(`SELECT id, payload FROM events WHERE id IN (${ph})`)
+			.all(...chunk) as { id: number; payload: string | null }[])
+			out.set(r.id, r.payload);
+	});
+	return out;
+}
+
 // records per docs/decisions-api.md — legacy column names (event_id/target/
 // answered_at/created_at) surface under their contract names at the API.
 // OPEN decisions first, then newest resolved; advice (hooks/bin/advise.ts,
@@ -561,6 +640,15 @@ export function decisionRecords(
 	const verdicts = decisionVerdicts(
 		rows.map((d) => ({ sid: d.target, project: d.project })),
 	);
+	// W685: the four per-row reads — advice fact, advice error, session role,
+	// source-event payload — batch into four IN(...) reads (the profile's
+	// 3.7s whale: 684 store RPCs per cold compute → ~7).
+	const adviceRows = factsByKeys(
+		rows.flatMap((d) => [`advice.${d.event_id}`, `advice.${d.event_id}.error`]),
+	);
+	const roles = sessionsRoles(rows.map((d) => d.target));
+	const evPayloads = eventPayloads(rows.map((d) => d.event_id));
+	const lm = labelMaps();
 	return rows.map((d) => {
 		let options: { label: string; tradeoff?: string | null }[] = [];
 		try {
@@ -568,37 +656,22 @@ export function decisionRecords(
 		} catch {}
 		let advice: unknown;
 		let adviceError: string | undefined;
-		const a = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`advice.${d.event_id}`) as { value: string } | null;
+		const a = adviceRows.get(`advice.${d.event_id}`) ?? null;
 		if (a) {
 			try {
-				advice = JSON.parse(a.value);
+				advice = JSON.parse(a);
 			} catch {}
 		} else {
-			const err = db
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(`advice.${d.event_id}.error`) as { value: string } | null;
-			if (err) adviceError = err.value.slice(0, 200);
+			const err = adviceRows.get(`advice.${d.event_id}.error`);
+			if (err) adviceError = err.slice(0, 200);
 		}
-		const role =
-			(
-				db.query("SELECT role FROM sessions WHERE sid = ?").get(d.target) as {
-					role: string | null;
-				} | null
-			)?.role ?? "worker";
+		const role = roles.get(d.target ?? "") ?? "worker";
 		// W487 owner-actionable: a fork classified owner-needed, or one whose
 		// target session is not RUNNING, must not dead-end on Send-to-lane —
 		// the board renders it as an owner ruling and /api/answer resolves it
 		// without a lane ack (same accept-set as routes-actions.ts).
 		const classification = String(
-			payloadOf(
-				(
-					db
-						.query("SELECT payload FROM events WHERE id = ?")
-						.get(d.event_id) as { payload: string | null } | null
-				)?.payload,
-			).classification ?? "",
+			payloadOf(evPayloads.get(d.event_id) ?? null).classification ?? "",
 		);
 		const ownerNeeded =
 			classification === "owner-needed" || classification === "owner_needed";
@@ -609,7 +682,7 @@ export function decisionRecords(
 			task_id: d.task_id,
 			task_title: d.task_title ?? null,
 			asked_by: d.asked_by || d.target,
-			asked_by_label: label(d.asked_by || d.target, role),
+			asked_by_label: labelFrom(lm, d.asked_by || d.target, role),
 			target: d.target,
 			question: d.question ?? "",
 			options,
@@ -724,8 +797,28 @@ export function payload() {
 	return feedMemo().data;
 }
 
+// W685 payload bounds: /api/data served EVERY session ever (1898 rows /
+// 423KB) and a labels map mirroring it; the fleet view renders current +
+// recent lanes in full and pages history, so the deep CLOSED tail rode the
+// wire for nothing. Non-CLOSED always ride; CLOSED keeps the newest cap.
+const SESSION_HISTORY_CAP = 400;
+function boundSessions(ss: SessionView[]): SessionView[] {
+	if (ss.length <= SESSION_HISTORY_CAP) return ss;
+	const live = ss.filter((s) => s.state !== "CLOSED");
+	const closed = ss
+		.filter((s) => s.state === "CLOSED")
+		.sort((a, b) => b.hbAgo - a.hbAgo)
+		.slice(0, SESSION_HISTORY_CAP - Math.min(live.length, SESSION_HISTORY_CAP));
+	return [...live, ...closed];
+}
+
 function buildPayload(): unknown {
-	const ss = sessions();
+	// W685: sessions ride bounded (see boundSessions) and zombies are cut to
+	// the shown-session prefixes — the client zombieFor matches on the same
+	// 10-char prefix, so nothing it can render is lost.
+	const allSessions = sessions();
+	const ss = boundSessions(allSessions);
+	const zombiePrefixes = new Set(ss.map((s) => s.sid.slice(0, 10)));
 	const labels: Record<string, string> = {};
 	for (const s of ss) labels[s.sid] = s.label;
 	const lm = labelMaps();
@@ -738,11 +831,13 @@ function buildPayload(): unknown {
 		db
 			.query("SELECT key, value FROM facts WHERE key LIKE 'zombie.%'")
 			.all() as { key: string; value: string }[]
-	).map((z) => ({
-		item: z.key.slice("zombie.".length),
-		// old monitor versions wrote a leading article — strip it at the boundary
-		label: z.value.replace(/^an? /, ""),
-	}));
+	)
+		.map((z) => ({
+			item: z.key.slice("zombie.".length),
+			// old monitor versions wrote a leading article — strip it at the boundary
+			label: z.value.replace(/^an? /, ""),
+		}))
+		.filter((z) => zombiePrefixes.has(z.label.slice(0, 10)));
 	// consult diagnostics: where inter-agent latency hides; the kb answers
 	// repeat questions without spending an expert round-trip
 	const byState = db
@@ -775,6 +870,7 @@ function buildPayload(): unknown {
 		laneObservations: laneObservationSnapshot(db, null),
 		observationRelay: getObservationRelayStatus(),
 		sessions: ss,
+		sessionsTotal: allSessions.length,
 		labels,
 		projects: board(),
 		claims: claims(),

@@ -26,6 +26,9 @@ frontend consumes in `hooks/bin/fleet-board-html.ts`. All endpoints return JSON 
   needs to populate the global filter, sorted.
 - Times are epoch ms; ages precomputed as `*_s` seconds.
 - Labels: the UI never renders raw sids when a label exists — responses include both.
+- `/api/data` session history is capped (W685): the feed serves the most recent
+  400 sessions; CLOSED lanes beyond the cap are summarized by `sessionsTotal`
+  (the fleet view shows an "oldest not served" note when the two diverge).
 
 ## GET /api/tasks?project=
 

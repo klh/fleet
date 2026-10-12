@@ -105,6 +105,17 @@ export async function readJsonCapped(
 	}
 }
 
+// W685 chunked IN(...) runner: SQLite's bind-variable ceiling is remote but
+// the store round-trip is not free — batches of this size keep one statement
+// per N keys without hard-coding the driver's limit.
+export function chunked<T>(
+	values: T[],
+	fn: (chunk: T[]) => void,
+	size = 400,
+): void {
+	for (let i = 0; i < values.length; i += size) fn(values.slice(i, i + size));
+}
+
 // failure notes ride the work.failed event payload ($.work = item id) — the
 // board shows why a lane died, not just that it died
 // W64 ship-trigger helpers — merging a lane branch is safe only when no live

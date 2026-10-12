@@ -14,6 +14,8 @@ import {
 	verdictBySid,
 } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { chunked } from "./helpers.ts";
+import { transcriptsAliveBatch } from "../lib/lane-liveness.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import {
 	closeSync,
@@ -262,26 +264,61 @@ export const transcriptWarm = (sid: string): boolean => {
 	return transcriptAlive(sid);
 };
 
+// W685: the liveness chain evaluated from a pre-fetched row — the batched
+// verdict face (decisionVerdicts) feeds every fallback target through ONE
+// sessions read instead of a curl round-trip per sid.
+interface LaneSessionRow {
+	state: string;
+	role: string | null;
+	hb: number;
+	transcript_path: string | null;
+}
+
+const aliveFromRow = (
+	sid: string,
+	s:
+		| {
+				state: string;
+				role: string | null;
+				hb: number;
+				transcript_path: string | null;
+		  }
+		| undefined,
+	coordSid: string | null,
+	deadMs: number,
+	liveTerm?: (sid: string) => boolean,
+): boolean => {
+	if (!s) return false;
+	if (s.state !== "RUNNING") return false;
+	if (s.role === "coordinator") return true;
+	if (sid === coordSid) return true;
+	if (Date.now() - s.hb <= deadMs) return true;
+	if (s.transcript_path) {
+		try {
+			return statSync(s.transcript_path).mtimeMs > Date.now() - 15 * 60_000;
+		} catch {}
+	}
+	return (liveTerm ?? transcriptAlive)(sid);
+};
+
 // live = RUNNING row + (fresh hb or warm transcript); coordinators are exempt
 // (they sleep between waves — same doctrine as targetAlive)
-export const sessionAlive = (sid: string): boolean => {
-	const s = db
-		.query("SELECT state, role, hb FROM sessions WHERE sid = ?")
-		.get(sid) as { state: string; role: string | null; hb: number } | null;
-	if (s?.state !== "RUNNING") return false;
-	if (s.role === "coordinator") return true;
-	if (
-		sid ===
-		(
-			db
-				.query("SELECT value FROM facts WHERE key = 'coordinator.sid'")
-				.get() as { value: string } | null
-		)?.value
-	)
-		return true;
-	if (Date.now() - s.hb <= deadAfterMs()) return true;
-	return transcriptWarm(sid);
-};
+export const sessionAlive = (sid: string): boolean =>
+	aliveFromRow(
+		sid,
+		db
+			.query(
+				"SELECT state, role, hb, transcript_path FROM sessions WHERE sid = ?",
+			)
+			.get(sid) as {
+			state: string;
+			role: string | null;
+			hb: number;
+			transcript_path: string | null;
+		} | null,
+		coordinatorSid(),
+		deadAfterMs(),
+	);
 
 // W667 decision staleness: a decision's target is judged by the
 // process-backed lane registry (the `work lanes` surface — lib/
@@ -291,6 +328,34 @@ export const sessionAlive = (sid: string): boolean => {
 // verdictBySid uses) is authoritative; unregistered targets keep the
 // sessions+transcript verdict; `unknown` never reads dead (monitor
 // doctrine: lookup failure is not death).
+const coordinatorSid = (): string | null =>
+	(
+		db.query("SELECT value FROM facts WHERE key = 'coordinator.sid'").get() as {
+			value: string;
+		} | null
+	)?.value ?? null;
+
+// one batched sessions read for a set of fallback targets
+const sessionRows = (sids: string[]): Map<string, LaneSessionRow> => {
+	const out = new Map<string, LaneSessionRow>();
+	chunked(sids, (chunk) => {
+		const ph = chunk.map(() => "?").join(",");
+		for (const r of db
+			.query(
+				`SELECT sid, state, role, hb, transcript_path FROM sessions WHERE sid IN (${ph})`,
+			)
+			.all(...chunk) as {
+			sid: string;
+			state: string;
+			role: string | null;
+			hb: number;
+			transcript_path: string | null;
+		}[])
+			out.set(r.sid, r);
+	});
+	return out;
+};
+
 const laneRegistryCache = new Map<string, { until: number; rows: LaneRef[] }>();
 const psCache: { until: number; snap: ProcessInspection | null } = {
 	until: 0,
@@ -334,12 +399,30 @@ export function decisionVerdicts(
 		byProject.set(key, lanes);
 	}
 	for (const [project, lanes] of byProject) {
-		const reg = verdictBySid(lanes, registryRows(project || null), () =>
-			boardProcessInspector(),
-		);
-		for (const sid of lanes) {
-			const v = reg.get(sid);
-			out.set(sid, v ?? (sessionAlive(sid) ? "alive" : "dead"));
+		const rows = registryRows(project || null);
+		const fresh = transcriptsAliveBatch([...lanes, ...rows.map((r) => r.sid)]);
+		const reg = verdictBySid(lanes, rows, () => boardProcessInspector(), fresh);
+		const missing = lanes.filter((sid) => !reg.has(sid));
+		if (missing.length) {
+			// W685: the sessions fallback evaluates from ONE batched read —
+			// per-sid sessionAlive() was a curl round-trip per sid, and the
+			// transcript term re-walked ~/.claude/projects per stale sid.
+			const sessionMap = sessionRows(missing);
+			const coordSid = coordinatorSid();
+			const deadMs = deadAfterMs();
+			for (const sid of missing)
+				out.set(
+					sid,
+					aliveFromRow(
+						sid,
+						sessionMap.get(sid),
+						coordSid,
+						deadMs,
+						(s) => fresh.get(s) === true,
+					)
+						? "alive"
+						: "dead",
+				);
 		}
 	}
 	return out;
