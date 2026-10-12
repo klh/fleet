@@ -57,6 +57,9 @@ export interface HubProfile {
 		dir: string;
 		docker?: string;
 		compose?: string;
+		/** W701: seconds ssh/scp wait to connect (-o ConnectTimeout) before
+		 *  an unreachable hub fails fast; unset = 10. BatchMode is always on. */
+		connect_timeout?: number;
 	};
 	/** W688.7.1: the hub's REAL upstream ladder (config-over-code) — inline
 	 *  `groups:` in buckle's upstreams.yaml shape, materialized by hubctl

@@ -59,6 +59,7 @@ hubs:
       src: /src/fleet/node_modules/fleet/packages
     deploy:
       ssh: user@nas.example
+      connect_timeout: 10 # seconds; ssh/scp ConnectTimeout (BatchMode always on)
       dir: /volume1/docker/hub
       docker: /usr/local/bin/docker
     secrets:
