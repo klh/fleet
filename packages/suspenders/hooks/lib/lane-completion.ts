@@ -126,6 +126,10 @@ export function laneContext(wt: string): Context | undefined {
 	}
 }
 
+/** W516: the lane-context resolution shared by laneCompletion and the
+ *  stop-gate turn-boundary drain — one resolution, two spellings. */
+export const resolveLaneContext = laneContext;
+
 /** Claimed lane completion is separate from formatter/knowledge loop guards. */
 export function laneCompletion(
 	hook: HookInput & { last_assistant_message?: string },

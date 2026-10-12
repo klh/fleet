@@ -147,6 +147,7 @@ const briefLanding = (o: BriefOpts): string[] => [
 	``,
 	`IDENTITY: prefix progress notes, inbox replies and final reports with [${o.item}] (+ locality tag when it aids scanning — [${o.item}·local|remote|sim|buckle]); humans deep-link your item on the fleet board as #task=${o.item}${process.env.FLEET_BOARD_URL ? ` (full URL: ${process.env.FLEET_BOARD_URL}/#task=${o.item})` : ""}; include the link in your final report.`,
 	`CRAFT: ≤25-line anchored edits per write (content gate parse-checks; splice via /tmp chunks for larger); build verify every ~3rd edit; GUI deliverables get a headless-Chrome render-and-look pass against the LIVE surface with real data — report what you saw; evidence before claims, always.`,
+	`ORACLE: need a review or hard analysis? bun ${BIN}/oracle.ts review | bugs | analyze (--in FILE, else the working-tree diff; --cloud = the stronger route) — the named stateless escalation on the pinned strong route; never ad-hoc "please review" phrasing.`,
 	`VOICE (owner law 2026-10-03): terse — no preamble, no restating the task, no filler; minimal prose in commits, progress notes, questions and .klh-done.md. Tokens spent on prose are tokens not spent on work.`,
 	``,
 	`Final: DONE <sha> | SPLIT ${o.item} | BLOCKED (after 3 honest attempts, tree restored).`,

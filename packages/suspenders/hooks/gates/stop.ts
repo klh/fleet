@@ -18,6 +18,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { filesCheck } from "./files.ts";
 import { laneCompletion } from "../lib/lane-completion.ts";
+import { openStore } from "../lib/govdb.ts";
+import {
+	pendingTurnMessages,
+	turnBoundaryFeedback,
+	turnBoundarySid,
+} from "../lib/turn-boundary.ts";
 
 const CODE_EXT =
 	/\.(json|py|sh|bash|zsh|dash|ts|tsx|js|jsx|mjs|cjs|mts|cts|yaml|yml|toml)$/i;
@@ -109,6 +115,27 @@ export function stopGate(hook: HookInput): never {
 	touchSessionHeartbeat(hook.session_id, hook.transcript_path);
 	const incomplete = laneCompletion(hook);
 	if (incomplete) feedback(incomplete);
+
+	// W516 turn-boundary drain (the amp M3 lift): operator direct-messages
+	// queue while the lane works and are processed HERE, at the turn
+	// boundary, instead of injected mid-turn. laneCompletion stays first —
+	// completion enforcement outranks inbox draining. No lane context or no
+	// control plane → nothing to drain, the gate allows.
+	const drainCwd = hook.cwd ?? "";
+	if (drainCwd && existsSync(drainCwd)) {
+		const laneSid = turnBoundarySid(hook);
+		if (laneSid) {
+			try {
+				const f = turnBoundaryFeedback(
+					pendingTurnMessages(openStore(), laneSid),
+					laneSid,
+				);
+				if (f) feedback(f);
+			} catch {
+				// no control plane reachable — the drain is a lane concern only
+			}
+		}
+	}
 
 	// W642: context-pressure guard — capacity check after the claim checks;
 	// fires only when the stop was otherwise allowed.

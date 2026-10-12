@@ -24,7 +24,7 @@ export const itemCapsuleKey = (project: string, item: string): string =>
 export const CAPSULE_MAX_BYTES = 2048;
 
 export function assertCapsuleBounds(
-	extra: Record<string, string>,
+	extra: Record<string, unknown>,
 	ts: number,
 ): string {
 	const json = JSON.stringify({ ...extra, ts });
