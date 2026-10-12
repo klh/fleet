@@ -3,6 +3,7 @@
 // already uses for route_audit.actor / router_usage.key — audit joins with
 // zero handler changes. Raw material exists exactly once: the issue response.
 import type { Database } from "bun:sqlite";
+import { appendAuthEvent } from "./audit-chain.ts";
 import { scopesToStorage } from "./scopes.ts";
 
 export interface KeyRow {
@@ -126,11 +127,8 @@ export class KeyStore {
 		jti: string | null,
 		via: "api_key" | "jwt" | "root",
 	): void {
-		this.db
-			.query(
-				"INSERT INTO auth_events (ts, actor, event, jti, via) VALUES (?, ?, ?, ?, ?)",
-			)
-			.run(Date.now(), actor, event, jti, via);
+		// W703: hash-chained append (prev_hash/row_hash) — see audit-chain.ts
+		appendAuthEvent(this.db, { ts: Date.now(), actor, event, jti, via });
 	}
 
 	/** Listing for the admin API — never exposes key_hash. */
