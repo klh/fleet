@@ -20,6 +20,15 @@ import {
 	writeToken,
 } from "../lib/host-guard.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
+// W165: the hub-admin plane is an auth_issuance surface — a spoke profile
+// never loads it. The specifier rides a variable so the staged bundle check
+// passes on spokes, where routes-hub-admin.ts is excluded from the payload.
+const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
+import {
+	CAP_AUTH_ISSUANCE,
+	hasCapability,
+	readCapabilities,
+} from "../lib/profile.ts";
 import { handleData } from "../board/routes-data.ts";
 import { handleUsage } from "../board/routes-usage.ts";
 import { handleFederationUsage } from "../board/routes-federation.ts";
@@ -27,7 +36,6 @@ import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleActions } from "../board/routes-actions.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleConsole } from "../board/routes-console.ts";
-import { handleHubAdmin } from "../board/routes-hub-admin.ts";
 import { handleMeta } from "../board/routes-meta.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleObservations } from "../board/routes-observations.ts";
@@ -96,7 +104,12 @@ const base = {
 			handleOrch,
 			handleSuggest,
 			handleConsole,
-			(req2, url2) => handleHubAdmin(req2, url2, db),
+			(req2, url2) =>
+				hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE)
+					? import(HUB_ADMIN_MODULE).then((m) =>
+							m.handleHubAdmin(req2, url2, db),
+						)
+					: null,
 			handleMeta,
 		]) {
 			const r = await h(req, url);

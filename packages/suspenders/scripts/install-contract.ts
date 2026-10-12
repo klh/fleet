@@ -107,6 +107,7 @@ export interface InstallContract {
 		verbose: ContractFlag;
 		step: ContractFlag;
 		wireRepo: ContractFlag;
+		profile: ContractFlag;
 	};
 	/** environment knobs, PATH/default pointers only — never values */
 	env: {
@@ -233,6 +234,11 @@ export const INSTALL_CONTRACT = {
 			flag: "--wire-repo",
 			meaning:
 				"with --step wireSettings: wire THIS repo checkout's project settings instead of pausing on the bash user-level wire",
+		},
+		profile: {
+			flag: "--profile",
+			meaning:
+				"W165 capability split: hub (default) = full (identity, issuance, admin); spoke ships no auth-issuance/identity/key-custody code — hub-only modules are excluded from the payload and capabilities.json records the flags",
 		},
 	},
 	env: {

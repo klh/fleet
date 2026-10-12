@@ -24,6 +24,9 @@ export interface HubManifestShape {
 	version: string;
 	rules: unknown[];
 	cr_queue: Array<Record<string, unknown>>;
+	/** W165 capability flags — the hub's variant, same names as the installed
+	 *  capabilities.json (hooks/lib/profile.ts grammar). */
+	capabilities?: Record<string, boolean>;
 }
 
 export interface LastKnown {
@@ -31,6 +34,28 @@ export interface LastKnown {
 	hub_url: string;
 	manifest: HubManifestShape | null;
 	entitlements: { models: HubModel[] } | null;
+}
+
+// ─── W165 capability flags off the pull ─────────────────────────────────────
+// The grammar lives in profile.ts; this reads the HUB's variant off the
+// manifest. A manifest WITHOUT the field (legacy hub) reads as hub = full
+// (identity, issuance, admin — the hub law). A malformed entry fails safe to
+// "never expect hub-only surfaces" (false for the hub-only trio).
+import {
+	hubCapabilities,
+	resolveCapabilities,
+	type CapabilityFlags,
+} from "./profile.ts";
+
+/** The hub's capability flags, per the last-known manifest. */
+export function manifestCapabilities(
+	manifest: HubManifestShape | null,
+): CapabilityFlags {
+	if (manifest?.capabilities === undefined) return hubCapabilities();
+	return resolveCapabilities({
+		...hubCapabilities(),
+		...manifest.capabilities,
+	});
 }
 
 export interface FederationEnv {

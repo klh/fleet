@@ -418,4 +418,43 @@ describe("manifest/CR seam — injected provider", () => {
 			stop();
 		}
 	});
+
+	test("W165: the manifest pull carries the hub's capability flags", async () => {
+		const stub: ManifestCrProvider = {
+			manifest: () => ({
+				version: "w165-stub",
+				rules: [{ id: "gateway.knobs" }],
+				cr_queue: [],
+			}),
+			declare: () => ({
+				ok: false,
+				status: 422,
+				code: "buckle.cr_private_domain",
+				why: "stub",
+			}),
+			list: () => [],
+			transition: () => ({
+				ok: false,
+				status: 409,
+				code: "buckle.cr_state",
+				why: "stub",
+			}),
+			registerProbe: () => {},
+		};
+		const { base, stop } = await startFed({ manifestCr: () => stub });
+		try {
+			const spoke = await issueSpokeKey(base);
+			const res = await fetch(`${base}/federation/policy-manifest`, {
+				headers: { authorization: `Bearer ${spoke}` },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				capabilities?: Record<string, boolean>;
+			};
+			expect(body.capabilities?.auth_issuance).toBe(true);
+			expect(body.capabilities?.routing).toBe(true);
+		} finally {
+			stop();
+		}
+	});
 });

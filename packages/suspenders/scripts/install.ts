@@ -38,6 +38,7 @@ Options
   --verbose       Per-step detail and resolved paths
   --gateway-review <sha>  Approve the staged gateway upgrade candidate
   --step <name>   Run one step by frozen name (contract.steps[].name)
+  --profile <p>   hub (default) = full; spoke ships no auth issuance/identity/key-custody code (W165)
 
 Exit codes
   0 ok/pause   1 failure   2 usage
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
 		verbose: false,
 		step: null,
 		wireRepo: null,
+		profile: "hub",
 	};
 	if (parsed.error !== undefined) {
 		const doc = usageOutcome(parsed.error, flags);
@@ -77,6 +79,7 @@ async function main(): Promise<void> {
 		verbose: flags.verbose,
 		wireRepo: flags.wireRepo,
 		gatewayReview: flags.gatewayReview,
+		profile: flags.profile,
 		...resolvePaths(),
 	};
 	const mode: "plan" | "step" = flags.step === null ? "plan" : "step";

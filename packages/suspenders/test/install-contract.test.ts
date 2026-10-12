@@ -227,9 +227,14 @@ describe("contract ⇔ CLI drift checks (W490.1)", () => {
 		}
 	});
 
-	test("flag types: exactly three string flags (--step, --wire-repo, --gateway-review), rest boolean", () => {
+	test("flag types: exactly four string flags (--step, --wire-repo, --gateway-review, --profile), rest boolean", () => {
 		for (const key of Object.keys(meowFlags)) {
-			const expected = ["step", "wireRepo", "gatewayReview"].includes(key)
+			const expected = [
+				"step",
+				"wireRepo",
+				"gatewayReview",
+				"profile",
+			].includes(key)
 				? "string"
 				: "boolean";
 			expect(meowFlags[key].type).toBe(expected);

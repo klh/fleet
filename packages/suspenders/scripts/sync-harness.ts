@@ -20,6 +20,7 @@ import {
 	payloadChecksum,
 } from "../hooks/lib/harness-manifest.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
 
 const SOURCE_PATHS = [
 	".githooks",
@@ -258,6 +259,28 @@ export async function syncHarness(
 			delete item.workspaces;
 			writeFileSync(path, JSON.stringify(item));
 		}
+		// W165: the spoke profile ships no hub-only code — the modules are
+		// removed from the payload and capabilities.json records the variant
+		// (grammar: hooks/lib/profile.ts; absent file = hub = dev exemption).
+		if (ctx.profile === "spoke") {
+			for (const rel of [
+				"hooks/lib/auth.ts",
+				"hooks/lib/auth-server.ts",
+				"hooks/bin/auth.ts",
+				"hooks/lib/hub-tokens.ts",
+				"hooks/board/routes-hub-admin.ts",
+			]) {
+				rmSync(join(payload, "packages/suspenders", rel), { force: true });
+			}
+		}
+		writeFileSync(
+			join(stage, "capabilities.json"),
+			JSON.stringify(
+				ctx.profile === "spoke" ? spokeCapabilities() : hubCapabilities(),
+				null,
+				"\t",
+			),
+		);
 		writeFileSync(
 			join(stage, "package.json"),
 			JSON.stringify({
