@@ -118,7 +118,25 @@ export interface UsageSpokesPanel {
 		rq: number;
 	}[];
 }
+// W695.3.4: the page header (back bar + title + filter chips) as a slice —
+// hrefs are computed server-side (the query string IS the view state), the
+// <klh-usage-header> component only lays them out.
+export interface UsageChip {
+	label: string;
+	href: string;
+	on: boolean;
+}
+export interface UsageHeaderPanel {
+	back: string;
+	windows: UsageChip[];
+	teams: UsageChip[];
+	depts: UsageChip[];
+	filtered?: string;
+	demoToggle?: UsageChip;
+	status: string;
+}
 export interface UsagePanels {
+	header?: UsageHeaderPanel;
 	tiles?: UsageTile[];
 	actors?: UsageActorsPanel;
 	aids?: UsageAidsPanel;

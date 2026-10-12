@@ -29,9 +29,10 @@ import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
 import {
-	esc,
 	fmtTok,
 	SLOT,
+	type UsageChip,
+	type UsageHeaderPanel,
 	type UsageActivityCell,
 	type UsageActivityPanel,
 	type UsageActorsPanel,
@@ -47,7 +48,11 @@ import {
 // client renderer mounts them directly — zero reshaping in browser JS.
 // W652.3.1: the `panels` key carries the display-shaped slices the Lit
 // components (board-html/usage-panels.ts) render client-side.
-const chartPayload = (r: UsageReport, activity?: ActivityReport): string =>
+const chartPayload = (
+	r: UsageReport,
+	header: UsageHeaderPanel,
+	activity?: ActivityReport,
+): string =>
 	JSON.stringify({
 		groups: GROUPS,
 		slot: SLOT,
@@ -57,6 +62,7 @@ const chartPayload = (r: UsageReport, activity?: ActivityReport): string =>
 		],
 		byHour: [r.byHour.map((h) => h.hour), r.byHour.map((h) => h.tokens)],
 		panels: {
+			header,
 			tiles: tilesData(r),
 			actors: actorsData(r),
 			aids: aidsData(r),
@@ -67,7 +73,7 @@ const chartPayload = (r: UsageReport, activity?: ActivityReport): string =>
 							"meter not wired on this route — pass activity report to usagePage",
 					},
 		},
-	});
+	}).replaceAll("<", "\\u003c");
 
 // ─── stat tiles → display-shaped slice for <klh-usage-tiles> ──────────────
 const tilesData = (r: UsageReport): UsageTile[] => {
@@ -85,20 +91,19 @@ const tilesData = (r: UsageReport): UsageTile[] => {
 	];
 };
 
-// ─── filter row: timeframe + team/department chips (server-side) ──────────
+// ─── header slice: timeframe + team/department chips (server-side) ────────
 // State is the query string itself — chips toggle by rewriting only their
 // own param, so any dashboard view is a shareable URL. Facet lists come
 // from the UNFILTERED tag universe (report.facets) so chips stay switchable
-// while a filter is active.
-function filterHtml(
+// while a filter is active. W695.3.4: the links are native <a href> inside
+// <klh-usage-header>; this module only shapes the slice.
+function headerData(
 	r: UsageReport,
 	days: number,
 	team: string,
 	dept: string,
 	includeDemo: boolean,
-): string {
-	const teams = r.facets.teams;
-	const depts = r.facets.depts;
+): UsageHeaderPanel {
 	const href = (over: {
 		days?: number;
 		team?: string | null;
@@ -114,35 +119,50 @@ function filterHtml(
 		if (over.includeDemo ?? includeDemo) p.set("includeDemo", "true");
 		return `/usage?${p.toString()}`;
 	};
-	const tLinks = [7, 28]
-		.map(
-			(dd) =>
-				`<a class="ufilter${dd === days ? " on" : ""}" href="${esc(href({ days: dd }))}">${dd}d</a>`,
-		)
-		.join("");
-	const chip = (v: string, cur: string, key: "team" | "dept"): string =>
-		`<a class="ufchip${v && v === cur ? " on" : ""}" href="${esc(href({ [key]: v || null }))}">${v ? esc(v) : "all"}</a>`;
-	const group = (label: string, inner: string): string =>
-		`<span class="ufgroup" data-label="${label}">${inner}</span>`;
-	const teamChips = group(
-		"team",
-		["", ...teams].map((v) => chip(v, team, "team")).join(""),
-	);
-	const deptChips = group(
-		"dept",
-		["", ...depts].map((v) => chip(v, dept, "dept")).join(""),
-	);
+	const chips = (
+		vals: string[],
+		cur: string,
+		key: "team" | "dept",
+	): UsageChip[] =>
+		["", ...vals].map((v) => ({
+			label: v || "all",
+			href: href({ [key]: v || null }),
+			on: !!v && v === cur,
+		}));
 	const active = [
 		team ? `team=${team}` : "",
 		dept ? `dept=${dept}` : "",
 	].filter(Boolean);
-	const labels = active.length
-		? ` <span class="uon">dashboard filtered: ${esc(active.join(", "))}</span>`
+	const v2 = r.provenance?.source === "transcript-v2";
+	const legacy = r.provenance?.legacy
+		? ` · Legacy aggregate retained separately (${fmtTok(r.provenance.legacy.tok)} tokens)`
 		: "";
-	return `<div class="ufilters">${group(
-		"window",
-		tLinks,
-	)}${teamChips}${deptChips}${labels}${r.provenance?.source === "transcript-v2" ? "" : `<a class="ufilter${includeDemo ? " on" : ""}" href="${esc(href({ includeDemo: !includeDemo }))}">${includeDemo ? "Hide synthetic demo usage" : "Include synthetic demo usage"}</a>`}<span class="uon">${includeDemo && r.provenance?.source !== "transcript-v2" ? "Synthetic demo usage included" : `${r.provenance?.source === "transcript-v2" ? "Verified transcript usage" : "Legacy aggregate usage"} · ${r.demo?.excludedActors ?? 0} synthetic actors excluded${r.provenance?.legacy ? ` · Legacy aggregate retained separately (${fmtTok(r.provenance.legacy.tok)} tokens)` : ""}`}</span></div>`;
+	return {
+		back: `${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view`,
+		windows: [7, 28].map((dd) => ({
+			label: `${dd}d`,
+			href: href({ days: dd }),
+			on: dd === days,
+		})),
+		teams: chips(r.facets.teams, team, "team"),
+		depts: chips(r.facets.depts, dept, "dept"),
+		filtered: active.length
+			? `dashboard filtered: ${active.join(", ")}`
+			: undefined,
+		demoToggle: v2
+			? undefined
+			: {
+					label: includeDemo
+						? "Hide synthetic demo usage"
+						: "Include synthetic demo usage",
+					href: href({ includeDemo: !includeDemo }),
+					on: includeDemo,
+				},
+		status:
+			includeDemo && !v2
+				? "Synthetic demo usage included"
+				: `${v2 ? "Verified transcript usage" : "Legacy aggregate usage"} · ${r.demo?.excludedActors ?? 0} synthetic actors excluded${legacy}`,
+	};
 }
 
 // ─── per-actor slice (the report arrives pre-filtered) ────────────────────
@@ -240,26 +260,28 @@ export function usagePage(
 ): string {
 	const team = opts.team ?? "";
 	const dept = opts.dept ?? "";
-	const head =
-		`<h1 class="utitle">USAGE</h1>` +
-		filterHtml(
-			r,
-			r.days,
-			team,
-			dept,
-			opts.includeDemo ?? r.demo?.included ?? false,
-		) +
-		`<klh-usage-tiles></klh-usage-tiles>`;
-	// W658.4: the chart panels ride <klh-usage-charts> (default titles) —
-	// the emitters stopped string-building the uPlot chrome per request
-	const timeline = `<klh-usage-charts></klh-usage-charts>`;
-	const tbl = `<klh-usage-actors></klh-usage-actors>`;
-	const activity = `<klh-usage-activity></klh-usage-activity>`;
-	const aids = `<klh-usage-aids></klh-usage-aids>`;
-	const back = `<div class="uback"><a href="/">&larr; fleet board</a><span class="uwin">${r.days}d window · buckets UTC-hourly · charts read usage_rollup · filter state lives in the URL — copy the address bar to share this exact view</span></div>`;
+	// W695.3.4: header (back bar, title, chips) is <klh-usage-header>; the
+	// chip links ride the payload `header` slice, still native <a href>.
+	const header = headerData(
+		r,
+		r.days,
+		team,
+		dept,
+		opts.includeDemo ?? r.demo?.included ?? false,
+	);
+	const hosts = [
+		"klh-usage-header",
+		"klh-usage-tiles",
+		"klh-usage-charts",
+		"klh-usage-actors",
+		"klh-usage-activity",
+		"klh-usage-aids",
+	]
+		.map((t) => `<${t}></${t}>`)
+		.join("");
 	return usagePageShell({
 		title: "FLEET USAGE",
-		body: `${back}${head}${timeline}${tbl}${activity}${aids}`,
-		payload: chartPayload(r, opts.activity),
+		body: hosts,
+		payload: chartPayload(r, header, opts.activity),
 	});
 }
