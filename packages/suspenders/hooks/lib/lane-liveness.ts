@@ -96,6 +96,68 @@ export const transcriptPath = (sid: string): string | null => {
 export const transcriptAlive = (sid: string): boolean =>
 	transcriptPath(sid) !== null;
 
+// W685 board face: ONE bounded walk answers every queried sid — the
+// per-sid walk re-read the same directory tree N times (50 stale targets
+// ≈ 600ms inside decisionVerdicts). Same 15-min floor, depth ≤4, budget
+// 50k as transcriptPath.
+export const transcriptsAliveBatch = (sids: string[]): Map<string, boolean> => {
+	const want = [...new Set(sids.filter(Boolean))];
+	const out = new Map(want.map((s) => [s, false]));
+	if (!want.length) return out;
+	const floor = Date.now() - 15 * 60_000;
+	const stack: [string, number][] = [
+		[`${process.env.HOME}/.claude/projects`, 0],
+	];
+	let budget = 50_000;
+	try {
+		budget = walkFresh(stack, want, out, floor, budget);
+	} catch {}
+	return out;
+};
+
+function listDir(dir: string): Dirent[] {
+	try {
+		return readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+}
+
+// pops ONE directory per call; subdirs at depth < 4 re-queue. Filenames carry the sid.
+function walkFresh(
+	stack: [string, number][],
+	want: string[],
+	out: Map<string, boolean>,
+	floor: number,
+	budget: number,
+): number {
+	const top = stack.pop() as [string, number];
+	for (const e of listDir(top[0])) {
+		if (budget-- <= 0) return budget;
+		const p = `${top[0]}/${e.name}`;
+		if (e.isDirectory()) {
+			if (top[1] < 4) stack.push([p, top[1] + 1]);
+			continue;
+		}
+		if (!e.name.endsWith(".jsonl")) continue;
+		let mention: string | null = null;
+		for (const sid of want) {
+			if (out.get(sid)) continue;
+			if (e.name.includes(sid)) {
+				mention = sid;
+				break;
+			}
+		}
+		if (!mention) continue;
+		try {
+			if (statSync(p).mtimeMs > floor) out.set(mention, true);
+		} catch {}
+	}
+	return budget;
+}
+
+// W422: the harness roster is ADAPTER registry data now (a new agent lands
+
 // W422: the harness roster is ADAPTER registry data now (a new agent lands
 // in liveness by adding its adapter file + registry row — never an edit
 // here). HARNESS_ARG_RE builds from the union so both stay in lockstep.
@@ -332,11 +394,22 @@ export interface LaneAuditRow {
 export const laneVerdict = (
 	l: LaneRef,
 	inspect: ProcessInspector = inspectProcesses,
+	transcripts?: Map<string, boolean>,
 ): LaneVerdict => {
 	if (l.host !== undefined && l.host !== THIS_HOST)
-		return transcriptAlive(l.sid) ? "alive" : "unknown";
+		return (
+			transcripts
+				? transcripts.get(l.sid) === true
+				: transcriptAlive(l.sid)
+		)
+			? "alive"
+			: "unknown";
 	const identity = laneProcessIdentity(l, inspect);
-	if (identity === true || transcriptAlive(l.sid)) return "alive";
+	if (
+		identity === true ||
+		(transcripts ? transcripts.get(l.sid) === true : transcriptAlive(l.sid))
+	)
+		return "alive";
 	if (identity === false) return "dead";
 	return "unknown";
 };
@@ -363,6 +436,7 @@ export const verdictBySid = (
 	lanes: readonly string[],
 	registry: readonly LaneRef[],
 	inspect: ProcessInspector = inspectProcesses,
+	transcripts?: Map<string, boolean>,
 ): Map<string, LaneVerdict> => {
 	const rows = new Map(registry.map((r) => [r.sid, r]));
 	const join = (sid: string): LaneRef | undefined => {
@@ -375,7 +449,7 @@ export const verdictBySid = (
 	const out = new Map<string, LaneVerdict>();
 	for (const sid of lanes) {
 		const row = join(sid);
-		if (row) out.set(sid, laneVerdict(row, inspect));
+		if (row) out.set(sid, laneVerdict(row, inspect, transcripts));
 	}
 	return out;
 };

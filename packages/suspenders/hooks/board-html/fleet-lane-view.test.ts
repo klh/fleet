@@ -251,6 +251,75 @@ test("served overview bounds history and filters it without inserting HTML", () 
 	expect(byId("fleetHistoryRange")?.textContent).toBe("51–100 of 120");
 	expect(byId("fleetHistoryPrev")?.disabled).toBe(false);
 });
+test("history cap note reports sessionsTotal beyond the served cap (W685)", () => {
+	const roots = Object.fromEntries(
+		["fleetBody", "fleetLine", "stamp", "blockedn"].map((id) => [
+			id,
+			new Element(),
+		]),
+	);
+	const byId = (id: string): Element | undefined => {
+		const visit = (el: Element): Element | undefined => {
+			if (id === el.id) return el;
+			for (const child of el.children) {
+				const found = visit(child);
+				if (found) return found;
+			}
+		};
+		return roots[id] || Object.values(roots).map(visit).find(Boolean);
+	};
+	const document = {
+		createElement: (tag: string) => new Element(tag),
+		createDocumentFragment: () => new Element("fragment"),
+		createTextNode: (text: string) =>
+			Object.assign(new Element("text"), { textContent: text }),
+	};
+	const data: Record<string, unknown> = {
+		ts: Date.now(),
+		sessionsTotal: 500,
+		projects: [],
+		sessions: [
+			lane("fresh", 1),
+			...Array.from({ length: 120 }, (_, i) => lane(`old-${i}`, 5000 + i)),
+		],
+	};
+	const render = new Function(
+		"document",
+		"byId",
+		"lastData",
+		"sel",
+		"setText",
+		"openDecs",
+		"ago",
+		"stateLabel",
+		"zombieFor",
+		`${RENDERS}; return renderFleet;`,
+	)(
+		document,
+		byId,
+		data,
+		{ value: "all" },
+		(el: Element, text: string) => {
+			el.textContent = text;
+		},
+		() => [],
+		String,
+		String,
+		() => false,
+	);
+	render();
+	const history = byId("fleetHistory");
+	if (!history) throw new Error("Missing native history details");
+	history.open = true;
+	history.listeners.toggle();
+	expect(byId("fleetHistoryRange")?.textContent).toBe("1–50 of 120");
+	expect(byId("fleetHistoryNote")?.textContent).toBe(
+		"Oldest 380 not served — the board caps history at 120 lanes per feed.",
+	);
+	delete data.sessionsTotal;
+	render();
+	expect(byId("fleetHistoryNote")?.textContent).toBe("");
+});
 
 test("Governor claims and event rows use the same hub and project scope", () => {
 	const roots = Object.fromEntries(
