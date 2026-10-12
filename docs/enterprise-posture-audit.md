@@ -109,3 +109,8 @@ surface, never a 500).
   as belt-remote `bin/federation-cr.ts` + `test/federation-cr.test.ts`
   (code verbatim from `export interface CrArgs` on, header re-homed),
   overlay suite 2/2 green against the family base 7628c84.
+- W688.1.1.3: buckle-remote serving half landed — `createManifestCr`
+  (`src/gov/cr-provider.ts`, klh-remote fa88b16e) implements the
+  ManifestCrProvider seam: manifest content, CR lifecycle, probe registry,
+  federation_cr_queue DDL + deltas mirror. Re-homed e2es wire
+  `startServer({auth: {manifestCr}})`; overlay suite 17/17 at pin ba5cad86.
