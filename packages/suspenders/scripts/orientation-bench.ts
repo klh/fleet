@@ -241,11 +241,17 @@ if (import.meta.main) {
 	const wantFork =
 		PHASE === "post" &&
 		(starterEnabled(process.env) || arg("starter") === "on");
-	const fork = wantFork
+	const starterOutcome = wantFork
 		? ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env, {
 				log: (l) => console.log(`[starter] ${l}`),
 			})
 		: null;
+	const fork =
+		starterOutcome?.kind === "fork" ? starterOutcome.fork : null;
+	if (starterOutcome?.kind === "failure")
+		console.log(
+			`[starter] seed failed (code ${starterOutcome.failure.code}, phase ${starterOutcome.failure.phase}): ${starterOutcome.failure.stderrTail}`,
+		);
 	const mode: "cold" | "fork" = fork ? "fork" : "cold";
 	const outFile = join(OUT, `${PHASE}-${HARNESS}.ndjson`);
 	if (fork)

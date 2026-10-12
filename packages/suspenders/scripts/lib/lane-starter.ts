@@ -16,7 +16,12 @@
 // starter session is bounded by construction: one seed turn, forks append
 // to their OWN session (--fork-session leaves the original untouched).
 import { createHash } from "node:crypto";
-import { applyLaneAttribution, laneEnv, probeBuckleFront } from "./lane.ts";
+import {
+	applyLaneAttribution,
+	BUCKLE_FRONT,
+	laneEnv,
+	probeBuckleFront,
+} from "./lane.ts";
 import {
 	existsSync,
 	mkdirSync,
@@ -47,6 +52,34 @@ export type StarterFork = {
 export type StarterRecord = StarterFork & {
 	createdAt: number;
 	seedPromptSha: string;
+};
+
+// W695.1: a seed failure is DATA, not a dropped one-liner — exit code,
+// bounded stderr tail, phase marker, and the belt-front preflight verdict
+// travel into dispatch output and the lane registry row, so a cold-start
+// fallback is explainable from the dispatch log alone.
+export type StarterSeedFailure = {
+	/** Which phase produced the failure. */
+	phase: "starter-seed";
+	/** The seed run's exit code. */
+	code: number;
+	/** Bounded, newline-flattened tail of the seed run's stderr. */
+	stderrTail: string;
+	/** Verdict of the belt-front health probe taken BEFORE the seed ran
+	 *  (undefined when the probe was skipped — --no-belt). */
+	preflight?: string;
+};
+
+export type StarterSeedOutcome =
+	| { kind: "fork"; fork: StarterFork }
+	| { kind: "failure"; failure: StarterSeedFailure };
+
+/** Bounded, newline-flattened tail — the shape dispatch output and the
+ *  registry row carry. Tail (not head): the CLI's final diagnostics are the
+ *  verdict; the early chatter is noise. */
+export const flattenTail = (s: string, cap = 220): string => {
+	const flat = s.replaceAll(/\s+/g, " ").trim();
+	return flat.length <= cap ? flat : `…${flat.slice(-cap + 1)}`;
 };
 
 export const starterEnabled = (
@@ -133,8 +166,9 @@ const pruneRegistry = (fleet: string): void => {
 
 /** Seed a starter session ONCE per (harness, seed-prompt version) and persist
  *  its session id. The seed run is synchronous and short-lived: one turn,
- *  JSON output so the session id is parseable. Returns null when the harness
- *  has no fork support or the seed fails (dispatch falls back to cold start). */
+ *  one JSON result. Returns null when the harness has no fork support (cold
+ *  start, nothing attempted); a FAILED seed attempt returns the failure
+ *  record instead of a fork. */
 export const ensureStarter = (
 	fleet: string,
 	harness: string,
@@ -150,9 +184,10 @@ export const ensureStarter = (
 		) => {
 			code: number;
 			out: string;
+			err?: string;
 		};
 	} = {},
-): StarterFork | null => {
+): StarterSeedOutcome | null => {
 	const forkArgsOf = forkArgsFor(harness, "SEED");
 	if (forkArgsOf === null) return null;
 	const seed = starterSeedPrompt();
@@ -161,10 +196,13 @@ export const ensureStarter = (
 	const cached = readStarter(fleet, harness, version);
 	if (cached) {
 		return {
-			harness,
-			version,
-			sessionId: cached.sessionId,
-			forkArgs: forkArgsFor(harness, cached.sessionId) ?? [],
+			kind: "fork",
+			fork: {
+				harness,
+				version,
+				sessionId: cached.sessionId,
+				forkArgs: forkArgsFor(harness, cached.sessionId) ?? [],
+			},
 		};
 	}
 	const run =
@@ -179,7 +217,8 @@ export const ensureStarter = (
 			});
 			return {
 				code: p.exitCode ?? 1,
-				out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""} ${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`,
+				out: p.stdout ? new TextDecoder().decode(p.stdout) : "",
+				err: p.stderr ? new TextDecoder().decode(p.stderr) : "",
 			};
 		});
 	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
@@ -187,12 +226,17 @@ export const ensureStarter = (
 	// Session-id presence is the success criterion, NOT the exit code: the CLI
 	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
 	// unrecognized_model line) while the session + usage are perfectly valid.
-	const sessionId = parseSessionId(res.out);
+	const sessionId = parseSessionId(`${res.out} ${res.err ?? ""}`);
 	if (!sessionId) {
+		const failure: StarterSeedFailure = {
+			phase: "starter-seed",
+			code: res.code,
+			stderrTail: flattenTail(res.err || res.out),
+		};
 		options.log?.(
-			`starter seed failed (${harness}, code ${res.code}): ${res.out.replaceAll("\n", " ").slice(0, 220)}`,
+			`starter seed failed (${harness}, phase ${failure.phase}, code ${failure.code}): ${failure.stderrTail}`,
 		);
-		return null;
+		return { kind: "failure", failure };
 	}
 	mkdirSync(startersDir(fleet), { recursive: true });
 	const record: StarterRecord = {
@@ -207,7 +251,7 @@ export const ensureStarter = (
 		mode: 0o600,
 	});
 	pruneRegistry(fleet);
-	return record;
+	return { kind: "fork", fork: record };
 };
 
 /** Pull the session id out of a `--output-format json` result. Tolerant of
@@ -247,7 +291,8 @@ export const parseSessionId = (out: string): string | null => {
  *  version) and return fork args + lane prompt. The SEED rides a fleet
  *  identity (fleet-starter attribution slug), never the lane's minted key:
  *  the lane's ANTHROPIC_AUTH_TOKEN/BASE_URL are stripped from the seed env.
- *  Seed failure = cold-start fallback (surfaced in the dispatch log). */
+ *  Seed failure = cold-start fallback + a structured seedError (exit code,
+ *  stderr tail, phase marker, belt-front preflight verdict) on the result. */
 export const dispatchStarterFork = async (o: {
 	env: Record<string, string>;
 	noBelt: boolean;
@@ -261,7 +306,14 @@ export const dispatchStarterFork = async (o: {
 	log: (line: string) => void;
 	/** Test seam: forwarded to ensureStarter (run stub + log capture). */
 	ensureOpts?: Parameters<typeof ensureStarter>[4];
-}): Promise<{ forkArgs: string[]; prompt: string }> => {
+	/** W695.1 test seam: the preflight probe (default: the W454 buckle-front
+	 *  probe). Injecting `async () => null` pins the "belt-front down" verdict. */
+	probe?: () => Promise<string | null>;
+}): Promise<{
+	forkArgs: string[];
+	prompt: string;
+	seedError?: StarterSeedFailure;
+}> => {
 	if (!starterEnabled(o.env) || o.harness !== "claude")
 		return { forkArgs: [], prompt: o.coldPrompt };
 	const seedEnv = laneEnv({ ...o.env }, o.noBelt);
@@ -269,8 +321,17 @@ export const dispatchStarterFork = async (o: {
 	// attribution block in dispatch set ANTHROPIC_* for THIS lane only).
 	for (const k of ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"])
 		delete seedEnv[k];
-	if (!o.noBelt && (await probeBuckleFront()))
-		applyLaneAttribution(seedEnv, "fleet-starter");
+	// W695.1: the belt-front probe reused as SEED PREFLIGHT — its verdict
+	// rides every seed failure (a seed is a belt-shaped HTTP call; a down
+	// front is the first suspect). One probe answers both attribution and
+	// the failure marker.
+	const front = o.noBelt ? null : await (o.probe ?? probeBuckleFront)();
+	const preflight = o.noBelt
+		? undefined
+		: front
+			? `belt-front up: ${front}`
+			: `belt-front down: ${BUCKLE_FRONT} did not answer /status`;
+	if (front) applyLaneAttribution(seedEnv, "fleet-starter", front);
 	const starter = ensureStarter(
 		o.fleet,
 		o.harness,
@@ -278,13 +339,24 @@ export const dispatchStarterFork = async (o: {
 		seedEnv,
 		o.ensureOpts,
 	);
+	if (starter?.kind === "fork") {
+		o.log(
+			`STARTER ${o.item} — forked ${starter.fork.version} (${starter.fork.sessionId})`,
+		);
+		return {
+			forkArgs: starter.fork.forkArgs,
+			prompt: laneIdentityPrompt(o.sid, o.wt),
+		};
+	}
 	if (!starter) {
-		o.log(`STARTER ${o.item} — seed failed, cold start`);
+		o.log(`STARTER ${o.item} — no fork adapter for ${o.harness}, cold start`);
 		return { forkArgs: [], prompt: o.coldPrompt };
 	}
-	o.log(`STARTER ${o.item} — forked ${starter.version} (${starter.sessionId})`);
-	return {
-		forkArgs: starter.forkArgs,
-		prompt: laneIdentityPrompt(o.sid, o.wt),
-	};
+	const seedError: StarterSeedFailure = preflight
+		? { ...starter.failure, preflight }
+		: starter.failure;
+	o.log(
+		`STARTER ${o.item} — seed failed (${seedError.phase}, code ${seedError.code}${preflight ? `, ${preflight}` : ""}): ${seedError.stderrTail}`,
+	);
+	return { forkArgs: [], prompt: o.coldPrompt, seedError };
 };
