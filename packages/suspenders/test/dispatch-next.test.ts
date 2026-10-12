@@ -6,17 +6,18 @@
 
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
-	realpathSync,
+	readFileSync,
+	writeFileSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { projectIdentity } from "../hooks/lib/govdb.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
@@ -32,95 +33,26 @@ import {
 	probeFrontDecision,
 } from "../scripts/dispatch-next.ts";
 import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
+import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "claude-w145-dispatch-home-"));
-const REPO = realpathSync(
-	mkdtempSync(join(tmpdir(), "suspenders-w145-dispatch-repo-")),
-);
-const BIN = join(import.meta.dir, "..", "hooks", "bin");
-// W463: pin the buckle front to a dead port for the legacy cases — probe
-// misses = belt-direct note path (pre-W463 behavior), deterministic even on
-// a machine with a live spoke on :4101. Fail-closed refusal/override get
-// their own stub-front cases below.
-const testExecutor = join(HOME, "test-claude");
-writeFileSync(testExecutor, "#!/bin/sh\nexit 0\n");
-chmodSync(testExecutor, 0o700);
-const env = {
-	SUSPENDERS_CLAUDE_BIN: testExecutor,
-	...process.env,
+const {
 	HOME,
-	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
-	// W670: the resume-budget fixtures assume the default attempt cap — pin
-	// it so an ambient SUSPENDERS_LANE_MAX_ATTEMPTS (the operator quarantine
-	// unblock knob) cannot leak through ...process.env and move the threshold.
-	SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
-};
-
-mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
-symlinkSync(BIN, join(HOME, ".claude", "hooks", "suspenders", "bin"), "dir");
-
-afterAll(() => {
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	REPO,
+	BIN,
+	executor,
+	env,
+	g,
+	toolWith,
+	dispatchWith,
+	toolA,
+	dispatchA,
+	addItem,
+} = dispatchHarness(afterAll, {
+	tag: "w145-dispatch",
+	beltEnv: true,
 });
 
-// scratch repo: one commit so worktree ops would have a base
-import { spawnSync } from "node:child_process";
-
-const g = (args: string[]): void => {
-	const p = spawnSync("/usr/bin/git", args, { cwd: REPO, encoding: "utf8" });
-	if (p.status !== 0)
-		throw new Error(`git ${args.join(" ")} failed: ${p.stderr}`);
-};
-g(["init", "-b", "main"]);
-g(["config", "user.email", "t@threads.dk"]);
-g(["config", "user.name", "t"]);
-
-import { readFileSync, writeFileSync } from "node:fs";
-
-writeFileSync(join(REPO, "README.md"), "x");
-g(["add", "-A"]);
-g(["commit", "-m", "base"]);
-
-const toolWith = (
-	extra: Record<string, string | undefined>,
-	bin: string,
-	...args: string[]
-) => {
-	const p = Bun.spawnSync([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env: { ...env, ...extra },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return {
-		out: p.stdout.toString(),
-		err: p.stderr.toString(),
-		code: p.exitCode ?? 1,
-	};
-};
 const tool = (bin: string, ...args: string[]) => toolWith({}, bin, ...args);
-const dispatchWith = (
-	extra: Record<string, string | undefined>,
-	...args: string[]
-) => {
-	// dispatch-next lives in scripts/, not hooks/bin — spawn it directly
-	const p = Bun.spawnSync(
-		[
-			process.execPath,
-			join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-			"--repo",
-			REPO,
-			...args,
-		],
-		{ cwd: REPO, env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe" },
-	);
-	return {
-		out: p.stdout.toString(),
-		err: p.stderr.toString(),
-		code: p.exitCode ?? 1,
-	};
-};
 const dispatch = (...args: string[]) => dispatchWith({}, ...args);
 
 describe("CLI help is read-only", () => {
@@ -757,88 +689,6 @@ describe("crash resume budget", () => {
 // spawnSync): a sync spawn blocks this process' event loop, which would stall
 // the stub buckle front and make the child's 600ms front probe time out.
 
-const stubBuckle = (
-	mint = false,
-): {
-	port: number;
-	calls: string[];
-	stop: () => void;
-} => {
-	const calls: string[] = [];
-	const server = Bun.serve({
-		port: 0,
-		fetch: (req) => {
-			const path = new URL(req.url).pathname;
-			calls.push(`${req.method} ${path}`);
-			if (path === "/status") return new Response("ok");
-			if (path === "/v1/admin/keys" && mint)
-				return Response.json({ key: "bksk_fixture_only", key_id: "owned-key" });
-			if (path === "/v1/admin/keys")
-				return new Response(JSON.stringify({ error: "stub-mint-fail" }), {
-					status: 500,
-				});
-			if (path.endsWith("/revoke"))
-				return new Response(JSON.stringify({ revoked: "ok" }));
-			return new Response("not found", { status: 404 });
-		},
-	});
-	return { port: server.port, calls, stop: () => server.stop(true) };
-};
-
-// scratch belt.env with an admin key — the mint CALL fails at the stub, which
-// is the W463 defect scenario (front up, governance mint broken)
-writeFileSync(join(HOME, "belt.env"), "BUCKLE_ADMIN_KEY=bksk_admin_scratch\n");
-
-const toolA = async (
-	extra: Record<string, string | undefined>,
-	bin: string,
-	...args: string[]
-): Promise<{ out: string; err: string; code: number }> => {
-	const p = Bun.spawn([process.execPath, join(BIN, bin), ...args], {
-		cwd: REPO,
-		env: { ...env, ...extra },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [out, err] = await Promise.all([
-		new Response(p.stdout).text(),
-		new Response(p.stderr).text(),
-	]);
-	const code = await p.exited;
-	return { out, err, code };
-};
-
-const dispatchA = async (
-	extra: Record<string, string | undefined>,
-	...args: string[]
-): Promise<{ out: string; err: string; code: number }> => {
-	const cmd = [
-		process.execPath,
-		join(import.meta.dir, "..", "scripts", "dispatch-next.ts"),
-		"--repo",
-		REPO,
-		...args,
-	];
-	const p = Bun.spawn(cmd, {
-		cwd: REPO,
-		env: { ...env, ...extra },
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [out, err] = await Promise.all([
-		new Response(p.stdout).text(),
-		new Response(p.stderr).text(),
-	]);
-	const code = await p.exited;
-	return { out, err, code };
-};
-
-const addItem = async (title: string): Promise<string> => {
-	const added = await toolA({}, "work.ts", "add", title);
-	const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
-	expect(id).toBeTruthy();
-	return id;
-};
 describe("fail-closed governance (W463)", () => {
 	test("laneKeyDecision: mint ok → governed", () => {
 		const d = laneKeyDecision({ key: "bksk_x", keyId: "abc123def45" }, false);
@@ -1374,7 +1224,7 @@ test("explicit fresh item respects uncertain occupied target capacity", async ()
 		"held-lane",
 		"held-nonce",
 		1,
-		testExecutor,
+		executor,
 		hostname(),
 		0,
 		"PREPARING",
