@@ -103,7 +103,9 @@ const take = (repo: string, item: string) =>
 
 // close via the plane itself so result_sha lands exactly as production writes it
 const close = (repo: string, item: string, sha: string) => {
-	expect(take(repo, item).code).toBe(0);
+	const t = take(repo, item);
+	expect(t.code).toBe(0);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
 	const done = run(repo, [
 		WORK,
 		"done",
@@ -114,6 +116,7 @@ const close = (repo: string, item: string, sha: string) => {
 		sha,
 		"--summary",
 		"seed closure paragraph for the flush ladder test: the plane itself records the completion evidence, long enough for the summary validator.",
+		...(tok ? ["--token", tok] : []),
 	]);
 	if (done.code !== 0) throw new Error(`work done failed: ${done.out}`);
 };

@@ -23,12 +23,14 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
+	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
+import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 export { composeBrief };
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
@@ -533,6 +535,13 @@ const dispatchItem = async (
 			}
 			// claimed by this sid from a previous dispatch attempt — resume
 		}
+		// W643: capture the take-minted claim token — the env pin below and the
+		// lane-context claimToken carry it to the closing work done. A resume
+		// (no fresh take) has no token here; the context keeps the original.
+		const takeToken =
+			take.code === 0
+				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
+				: null;
 		const claimedRow = store
 			.query(
 				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
@@ -569,6 +578,14 @@ const dispatchItem = async (
 			sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
 		const show = run(workCli("show", item));
 		const capsule = capsuleGet(sid);
+		// W643: dispatch output shows the capsule's reconciliation verdict —
+		// operator + resumed lane see fresh/behind/diverged before the spawn.
+		const capVerdict = capsule
+			? capsuleValidity(capsule as Record<string, unknown>, {
+					repoDir: wt,
+					headSha: sh(["git", "-C", wt, "rev-parse", "HEAD"]) || null,
+				}).verdict
+			: "none";
 		// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
 		// attempt N having died is exactly the signal to try chain[N+1] next
 		// (owner directive 2026-10-03: sequential must/prefer, CLI-agnostic).
@@ -645,7 +662,10 @@ const dispatchItem = async (
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
 		// env + spawn recipe shared with supervise.ts per executor (W223):
 		// copilot takes --allow-all-tools, claude keeps the allowedTools recipe
-		const env = laneEnv({ ...process.env }, NO_BELT);
+		const env = laneEnv(
+			{ ...process.env, ...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}) },
+			NO_BELT,
+		);
 		env.SUSPENDERS_SID = sid;
 		env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
 		// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)
@@ -859,7 +879,31 @@ const dispatchItem = async (
 		// Immutable evidence base survives resumes and later main-branch merges.
 		const completionContext = `${wt}/.fleet/lane-context.json`;
 		mkdirSync(`${wt}/.fleet`, { recursive: true });
-		if (!existsSync(completionContext))
+		if (takeToken) {
+			// W643: merge the fresh take token into the activation context —
+			// create-with-baseline when absent, token-only merge when it exists
+			// (a re-take after a reclaim refreshes the token, never the baseline).
+			const prior = existsSync(completionContext)
+				? (JSON.parse(readFileSync(completionContext, "utf8")) as Record<
+						string,
+						unknown
+					>)
+				: null;
+			writeFileSync(
+				completionContext,
+				JSON.stringify(
+					prior
+						? { ...prior, claimToken: takeToken }
+						: {
+								sid,
+								item,
+								baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+								launchedAt: Date.now(),
+								claimToken: takeToken,
+							},
+				),
+			);
+		} else if (!existsSync(completionContext))
 			writeFileSync(
 				completionContext,
 				JSON.stringify({
@@ -939,7 +983,7 @@ const dispatchItem = async (
 			`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch}, slab ${jobslabTag(slab, js)})${hubNote}`,
 		);
 		console.log(
-			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? " — resumed from capsule" : ""}${hubNote}`,
+			`dispatched ${item} → ${sid} (pid ${proc.pid})${capsule ? ` — resumed from capsule (${capVerdict})` : ""}${hubNote}`,
 		);
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {

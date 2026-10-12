@@ -8,6 +8,7 @@
 // scripts/lib/brief-weight.ts and surfaced in `coord metrics`.
 import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
 import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
+import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
 import { validationCommand } from "./validation-cmd.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
@@ -105,12 +106,43 @@ const briefResume = (o: BriefOpts): string[] => [
 	`RESUME PATH: while your process is alive you are reachable via your sid — it is the item's owner_sid on the graph, and coord inbox --as ${o.sid} reaches you. If you die mid-item, the fleet loop re-dispatches the SAME sid, reads your latest capsule, and returns it below as RESUME CONTEXT. Reconcile with it and the worktree state — never restart blind.`,
 ];
 
+// W643: the reconciliation check is COMPUTED, not prose — real git evidence
+// for the resumed lane: where the worktree head stands vs the capsule's
+// checkpoint (fresh / behind / diverged verdict + staleness lines).
+const gitIn = (dir: string, args: string[]): string =>
+	new TextDecoder()
+		.decode(
+			Bun.spawnSync(["git", "-C", dir, ...args], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}).stdout ?? new Uint8Array(),
+		)
+		.trim();
+
+export const resumeCheckLines = (o: {
+	capsule?: Record<string, string> | null;
+	itemCapsule?: Record<string, string> | null;
+	worktree: string;
+}): string[] => {
+	const capsule = o.capsule ?? o.itemCapsule;
+	if (!capsule) return [];
+	const v = capsuleValidity(capsule as Record<string, unknown>, {
+		repoDir: o.worktree,
+		headSha: gitIn(o.worktree, ["rev-parse", "HEAD"]) || null,
+		dirty: gitIn(o.worktree, ["status", "--porcelain"])
+			.split("\n")
+			.filter(Boolean).length,
+	});
+	return v.lines.length ? [``, ...v.lines] : [];
+};
+
 const briefLanding = (o: BriefOpts): string[] => [
 	``,
 	`LANDING CHAIN (all three, in order):`,
 	`1. commit on ${o.branch} (subject starts with the item id) — land a checkpoint commit early (zero-commit branches get reaped).`,
 	...(o.landing ? [o.landing] : []),
 	`2. bun ${BIN}/work.ts done ${o.item} --sha <branch-head> --as ${o.sid}`,
+	`   (claim-token gated, W643: your token rides KLH_CLAIM_TOKEN + .fleet/lane-context.json — only manual closes need --token, printed once at take)`,
 	`3. bun ${BIN}/coord.ts fact set finding.${o.item.toLowerCase()} --text "<one-line headline + how to verify>" --source ${o.sid}`,
 	``,
 	`IDENTITY: prefix progress notes, inbox replies and final reports with [${o.item}] (+ locality tag when it aids scanning — [${o.item}·local|remote|sim|buckle]); humans deep-link your item on the fleet board as #task=${o.item}${process.env.FLEET_BOARD_URL ? ` (full URL: ${process.env.FLEET_BOARD_URL}/#task=${o.item})` : ""}; include the link in your final report.`,
@@ -125,6 +157,7 @@ export const composeBrief = (o: BriefOpts): string => {
 	parts.push(...briefValidation(o));
 	parts.push(...briefInboxCollab(o));
 	parts.push(...briefResume(o));
+	parts.push(...resumeCheckLines(o));
 	parts.push(...briefLanding(o));
 	// W146 interfaces: aids = knowledge-interface lines for the child lane;
 	// extra = supervisor context lines appended verbatim.

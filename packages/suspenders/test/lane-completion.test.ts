@@ -51,7 +51,8 @@ function fixture(priority?: number) {
 	const id =
 		work("add", "completion test", ...priorityFlag).out.match(/W\d+/)?.[0] ??
 		"";
-	expect(work("take", id, "--as", "dispatch-owner").code).toBe(0);
+	const takeOut = work("take", id, "--as", "dispatch-owner");
+	expect(takeOut.code).toBe(0);
 	mkdirSync(join(cwd, ".fleet"));
 	writeFileSync(join(cwd, ".klh-brief.md"), "generated mission");
 	writeFileSync(
@@ -61,6 +62,8 @@ function fixture(priority?: number) {
 			item: id,
 			baseline: git("rev-parse", "HEAD").out.trim(),
 			launchedAt: 123,
+			// W643: the take-minted claim token rides the durable context channel
+			claimToken: /claim token: ([0-9a-f]{48})/.exec(takeOut.out)?.[1],
 		}),
 	);
 	const stop = (message?: string) =>
@@ -181,9 +184,16 @@ test("a legacy manual DONE without lane context remains outside the lane gate", 
 	const f = fixture();
 	rmSync(join(f.cwd, ".fleet/lane-context.json"));
 	f.work("release", f.id, "--as", "dispatch-owner");
-	f.work("take", f.id, "--as", "manual-owner");
+	const tk = f.work("take", f.id, "--as", "manual-owner");
+	const mtok = /claim token: ([0-9a-f]{48})/.exec(tk.out)?.[1];
 	expect(
-		f.work("done", f.id, "--sha", f.git("rev-parse", "HEAD").out.trim()).code,
+		f.work(
+			"done",
+			f.id,
+			"--sha",
+			f.git("rev-parse", "HEAD").out.trim(),
+			...(mtok ? ["--token", mtok] : []),
+		).code,
 	).toBe(0);
 	expect(f.stop().code).toBe(0);
 });

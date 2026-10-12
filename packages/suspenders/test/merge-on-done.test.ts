@@ -10,12 +10,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(30_000);
 import { Database } from "bun:sqlite";
-import {
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -133,9 +128,9 @@ const mint = (repo: string): string => {
 // close via the plane itself so the detached flush trigger runs exactly as
 // production invokes it (work done → triggerMergeOnDone → flush child)
 const close = (repo: string, item: string, sha: string) => {
-	expect(
-		run(repo, [WORK, "take", item, "--as", "w249lane"]).code,
-	).toBe(0);
+	const take = run(repo, [WORK, "take", item, "--as", "w249lane"]);
+	expect(take.code).toBe(0);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(take.out)?.[1];
 	const done = run(repo, [
 		WORK,
 		"done",
@@ -146,12 +141,21 @@ const close = (repo: string, item: string, sha: string) => {
 		sha,
 		"--summary",
 		SUMMARY,
+		...(tok ? ["--token", tok] : []),
 	]);
 	if (done.code !== 0) throw new Error(`work done failed: ${done.out}`);
 };
 
 const flush = (repo: string, extra: string[] = []) =>
-	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*", ...extra]);
+	run(repo, [
+		LOOP,
+		"flush",
+		"--repo",
+		repo,
+		"--glob",
+		"suspenders/*",
+		...extra,
+	]);
 
 const events = (repo: string, kind: string): number => {
 	const db = new Database(
@@ -171,8 +175,9 @@ const events = (repo: string, kind: string): number => {
 };
 
 const branchGone = (repo: string, item: string) =>
-	g(repo, ["branch", "--list", `suspenders/${item}`]).stdout.toString().trim() ===
-	"";
+	g(repo, ["branch", "--list", `suspenders/${item}`])
+		.stdout.toString()
+		.trim() === "";
 
 describe("merge-on-done trigger (W249)", () => {
 	test("a dispatched lane's close fires the ladder: merged + retired seconds after done", async () => {
@@ -188,9 +193,9 @@ describe("merge-on-done trigger (W249)", () => {
 			),
 		).toBe(true);
 		expect(branchGone(repo, item)).toBe(true);
-		expect(
-			g(repo, ["log", "--format=%s", "-1"]).stdout.toString(),
-		).toContain(`Merge suspenders/${item}`);
+		expect(g(repo, ["log", "--format=%s", "-1"]).stdout.toString()).toContain(
+			`Merge suspenders/${item}`,
+		);
 		rmSync(repo, { recursive: true, force: true });
 	});
 
@@ -229,12 +234,14 @@ describe("flush --item gate (W249)", () => {
 		const repo = await base();
 		const item = mint(repo);
 		const wt = join(repo, ".worktrees", item);
-		expect(
-			g(repo, ["worktree", "add", "-b", `odd/${item}`, wt]).exitCode,
-		).toBe(0);
+		expect(g(repo, ["worktree", "add", "-b", `odd/${item}`, wt]).exitCode).toBe(
+			0,
+		);
 		await Bun.write(Bun.file(join(wt, "f.txt")), "one\ntwo\n");
 		g(repo, ["add", "-A"], wt);
-		expect(g(repo, ["commit", "-m", `lane change ${item}`], wt).exitCode).toBe(0);
+		expect(g(repo, ["commit", "-m", `lane change ${item}`], wt).exitCode).toBe(
+			0,
+		);
 		mkdirSync(join(repo, ".fleet"), { recursive: true });
 		writeFileSync(join(repo, ".fleet", "lanes.json"), "[]");
 		const head = g(repo, ["rev-parse", "HEAD"], wt).stdout.toString().trim();
@@ -316,13 +323,7 @@ describe("merge-on-done units (W249)", () => {
 			await awaitLaneExit(repo, `suspenders/${item}`, 5_000, () => false),
 		).toBe("ready");
 		expect(
-			await awaitLaneExit(
-				repo,
-				`suspenders/${item}`,
-				60,
-				() => true,
-				20,
-			),
+			await awaitLaneExit(repo, `suspenders/${item}`, 60, () => true, 20),
 		).toBe("timeout");
 		setTimeout(() => {
 			g(repo, ["worktree", "remove", "--force", wt]);

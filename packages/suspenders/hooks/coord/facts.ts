@@ -17,6 +17,7 @@ import {
 import type { Database } from "./shared.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import { run } from "../lib/run.ts";
+import { assertCapsuleBounds } from "../lib/capsule-fence.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
@@ -195,6 +196,15 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 				die(
 					`capsule: --checkpoint ${extra.checkpoint} is not a commit in this repo`,
 				);
+			// W643: freshness rides the payload — the checkpoint's commit epoch,
+			// so resume briefs age the hand-off without re-proving git.
+			const ckptTs = run("git", [
+				"log",
+				"-1",
+				"--format=%ct",
+				extra.checkpoint,
+			]);
+			if (ckptTs.ok) extra.checkpoint_ts = ckptTs.out.trim();
 		}
 		// arg() fallback covers the two-token form --if-version N
 		const expected = parseIfVersion(iv ?? arg("--if-version"));
@@ -205,7 +215,7 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 				)
 				.run(
 					key,
-					JSON.stringify({ ...extra, ts: Date.now() }),
+					assertCapsuleBounds(extra, Date.now()),
 					arg("--as") ?? as,
 					Date.now(),
 				);

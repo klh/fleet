@@ -18,6 +18,7 @@
 import { unmergedDeps, type DepRow } from "./dep-merge-gate.ts";
 import { laneAlive, transcriptPath, type LaneRef } from "./lane-liveness.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { claimTokenHash, claimTokenMint } from "./work-fence.ts";
 
 // the verified oh-my-codex weights (W515 brief description)
 export const ROLE_BONUS = 18; // +18 role-grouping
@@ -317,7 +318,13 @@ export function planAllocation(
 	return decisions;
 }
 
-export type AssignOutcome = { ok: boolean; why?: string };
+export type AssignOutcome = {
+	ok: boolean;
+	why?: string;
+	/** W643: the raw claim token, minted fresh at every successful take —
+	 *  printed once by work take; only its sha256 rides the item row. */
+	token?: string;
+};
 
 // assignTask — the SOLE assignment gateway (oh-my-codex lift): CAS
 // READY→CLAIMED + claim coupling + post-lock readiness recheck (deps all DONE
@@ -364,6 +371,15 @@ export function assignTask(
 				args.id,
 			);
 		if (r.changes === 0) return { ok: false, why: "race lost" };
+		// W643 claim-token fence: every successful take mints a fresh token —
+		// a re-take after reclaim invalidates the previous claimant's token, so
+		// a stale writer mismatches at done instead of clobbering the row.
+		const token = claimTokenMint();
+		store
+			.query(
+				"UPDATE work_items SET claim_token_hash = ? WHERE project = ? AND id = ?",
+			)
+			.run(claimTokenHash(token), project, args.id);
 		if (it.scope)
 			store
 				.query(
@@ -385,7 +401,7 @@ export function assignTask(
 				project,
 				args.id,
 			);
-		return { ok: true };
+		return { ok: true, token };
 	})();
 	return claim;
 }

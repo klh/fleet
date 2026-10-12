@@ -137,6 +137,9 @@ const main = async (): Promise<void> => {
 		if (!argv[i].startsWith("--")) pos.push(argv[i]);
 	}
 	const PARENT = pos[0];
+	// W643: the claim token of the parent claim this supervisor opened —
+	// captured at take, presented at the parent close (work done --token).
+	let parentToken: string | null = null;
 	const TITLES = pos.slice(1);
 	const die = (msg: string, code = 1): never => {
 		console.error(msg);
@@ -378,6 +381,13 @@ const main = async (): Promise<void> => {
 				}
 				// claimed by this sid from a previous dispatch attempt — resume
 			}
+			// W643: capture the take-minted claim token (env pin + context bank
+			// below; a resume has none here — the context keeps the original).
+			const takeToken =
+				take.code === 0
+					? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
+					: null;
+			parentToken = takeToken ?? parentToken;
 			const claimedRow = store
 				.query(
 					"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
@@ -415,7 +425,30 @@ const main = async (): Promise<void> => {
 			// launch — work done refuses a dispatched lane without its context
 			const contextFile = `${wt}/.fleet/lane-context.json`;
 			mkdirSync(`${wt}/.fleet`, { recursive: true });
-			if (!existsSync(contextFile))
+			if (takeToken) {
+				// W643: merge the fresh take token into the context (create-with-
+				// baseline when absent; token-only merge when it exists).
+				const prior = existsSync(contextFile)
+					? (JSON.parse(readFileSync(contextFile, "utf8")) as Record<
+							string,
+							unknown
+						>)
+					: null;
+				writeFileSync(
+					contextFile,
+					JSON.stringify(
+						prior
+							? { ...prior, claimToken: takeToken }
+							: {
+									sid,
+									item,
+									baseline: sh(["git", "-C", wt, "rev-parse", "HEAD"]),
+									launchedAt: Date.now(),
+									claimToken: takeToken,
+								},
+					),
+				);
+			} else if (!existsSync(contextFile))
 				writeFileSync(
 					contextFile,
 					JSON.stringify({
@@ -448,7 +481,13 @@ const main = async (): Promise<void> => {
 			const briefFile = `${FLEET}/brief-${sid}.md`;
 			mkdirSync(FLEET, { recursive: true });
 			writeFileSync(briefFile, brief);
-			const env = laneEnv({ ...process.env }, false);
+			const env = laneEnv(
+				{
+					...process.env,
+					...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}),
+				},
+				false,
+			);
 			env.SUSPENDERS_SID = sid;
 			if (
 				!store
@@ -790,6 +829,7 @@ const main = async (): Promise<void> => {
 					headSha(),
 					"--as",
 					SUP,
+					...(parentToken ? (["--token", parentToken] as const) : []),
 				);
 				if (r.code === 0)
 					return finish("parent marked DONE with integration evidence");

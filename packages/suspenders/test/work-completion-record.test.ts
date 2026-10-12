@@ -49,7 +49,8 @@ function fixture() {
 	};
 	const id =
 		work("add", "durable completion evidence").out.match(/W\d+/)?.[0] ?? "";
-	expect(work("take", id, "--as", "completion-lane").code).toBe(0);
+	const takeOut = work("take", id, "--as", "completion-lane");
+	expect(takeOut.code).toBe(0);
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
 	writeFileSync(
 		join(repo, ".fleet", "lane-context.json"),
@@ -58,6 +59,8 @@ function fixture() {
 			item: id,
 			baseline,
 			launchedAt: Date.now(),
+			// W643: the take-minted claim token rides the durable context channel
+			claimToken: /claim token: ([0-9a-f]{48})/.exec(takeOut.out)?.[1],
 		}),
 	);
 	writeFileSync(join(repo, "product.ts"), "export const repaired = true;\n");
@@ -114,7 +117,8 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 			...(opts.scope === false ? [] : ["--scope", "gaps"]),
 		).out.match(/W\d+/)?.[0] ?? "";
 	expect(id).toMatch(/^W\d+$/);
-	expect(work("take", id, "--as", "cross-lane").code).toBe(0);
+	const takeOut = work("take", id, "--as", "cross-lane");
+	expect(takeOut.code).toBe(0);
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
 	writeFileSync(
 		join(repo, ".fleet", "lane-context.json"),
@@ -123,6 +127,8 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 			item: id,
 			baseline: gitIn(repo, "rev-parse", "HEAD"),
 			launchedAt: Date.now(),
+			// W643: the take-minted claim token rides the durable context channel
+			claimToken: /claim token: ([0-9a-f]{48})/.exec(takeOut.out)?.[1],
 		}),
 	);
 	gitIn(scopeRepoPath, "checkout", "-b", `suspenders/${id}`);

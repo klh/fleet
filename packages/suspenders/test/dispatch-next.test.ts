@@ -289,9 +289,9 @@ describe("dry-run dispatch", () => {
 		expect(r.exitCode).toBe(0);
 		expect(r.stdout.toString()).toContain(`repo ${REPO}`);
 		expect(r.stdout.toString()).not.toContain("repo .\n");
-		expect(
-			tool("work.ts", "take", item, "--as", "relative-repo-test").code,
-		).toBe(0);
+		const relTake = tool("work.ts", "take", item, "--as", "relative-repo-test");
+		expect(relTake.code).toBe(0);
+		const relTok = /claim token: ([0-9a-f]{48})/.exec(relTake.out)?.[1];
 		expect(
 			tool(
 				"work.ts",
@@ -301,6 +301,7 @@ describe("dry-run dispatch", () => {
 				"deadbeef",
 				"--as",
 				"relative-repo-test",
+				...(relTok ? ["--token", relTok] : []),
 			).code,
 		).toBe(0);
 	});
@@ -332,7 +333,9 @@ describe("dry-run dispatch", () => {
 			"ambiguous sid prefix",
 		);
 		const namespaced = laneSid(item, projectIdentity(REPO));
-		expect(tool("work.ts", "take", item, "--as", namespaced).code).toBe(0);
+		const nsTake = tool("work.ts", "take", item, "--as", namespaced);
+		expect(nsTake.code).toBe(0);
+		const nsTok = /claim token: ([0-9a-f]{48})/.exec(nsTake.out)?.[1];
 		expect(
 			JSON.parse(tool("work.ts", "show", item, "--json").out).owner_sid,
 		).toBe(namespaced);
@@ -349,7 +352,15 @@ describe("dry-run dispatch", () => {
 		}).stdout.trim();
 		mkdirSync(join(REPO, ".fleet"), { recursive: true });
 		const context = join(REPO, ".fleet/lane-context.json");
-		writeFileSync(context, JSON.stringify({ sid: namespaced, item, baseline }));
+		writeFileSync(
+			context,
+			JSON.stringify({
+				sid: namespaced,
+				item,
+				baseline,
+				claimToken: nsTok,
+			}),
+		);
 		try {
 			expect(
 				tool(

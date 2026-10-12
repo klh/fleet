@@ -154,12 +154,15 @@ describe("HTTP transport (store-server.ts)", () => {
 		expect(
 			work(["add", "http item", "--by", "lane-h"], hdr(url)).out,
 		).toContain("✓ W1 READY");
-		expect(work(["take", "W1", "--as", "lane-h"], hdr(url)).out).toContain(
-			"✓ W1 claimed by lane-h",
-		);
-		expect(work(["done", "W1", "--sha", "f00dfeed"], hdr(url)).out).toBe(
-			"✓ W1 DONE @f00dfeed\n",
-		);
+		const takeOut = work(["take", "W1", "--as", "lane-h"], hdr(url)).out;
+		expect(takeOut).toContain("✓ W1 claimed by lane-h");
+		const tok = /claim token: ([0-9a-f]{48})/.exec(takeOut)?.[1];
+		expect(
+			work(
+				["done", "W1", "--sha", "f00dfeed", ...(tok ? ["--token", tok] : [])],
+				hdr(url),
+			).out,
+		).toBe("✓ W1 DONE @f00dfeed\n");
 		expect(work(["list"], hdr(url)).out).toBe("(none)\n");
 	});
 	test("fact + event verbs byte-identical over HTTP", () => {
@@ -200,20 +203,17 @@ describe("HTTP transport (store-server.ts)", () => {
 			port: 0,
 			fetch: () => new Response("boom", { status: 500 }),
 		});
-		const p = Bun.spawn(
-			["bun", join(BIN, "coord.ts"), "fact", "get", "k.h"],
-			{
-				cwd: repo,
-				env: {
-					...process.env,
-					HOME: home,
-					NO_COLOR: "1",
-					GOVERNOR_STORE_URL: `http://127.0.0.1:${s.port}`,
-				},
-				stdout: "pipe",
-				stderr: "pipe",
+		const p = Bun.spawn(["bun", join(BIN, "coord.ts"), "fact", "get", "k.h"], {
+			cwd: repo,
+			env: {
+				...process.env,
+				HOME: home,
+				NO_COLOR: "1",
+				GOVERNOR_STORE_URL: `http://127.0.0.1:${s.port}`,
 			},
-		);
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		await p.exited;
 		const err = await new Response(p.stderr).text();
 		s.stop(true);
