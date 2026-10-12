@@ -77,11 +77,15 @@
 			"position:fixed;inset:0;z-index:99999;display:flex;" +
 			"align-items:center;justify-content:center;padding:2rem;text-align:center;" +
 			"background:rgba(20,20,22,0.92);color:#f5f5f7;font-family:system-ui,sans-serif";
-		el.innerHTML =
-			'<div style="max-width:480px">' +
-			'<h2 style="margin:0 0 .5rem;font-weight:600">Companion paused</h2>' +
-			'<p style="margin:0;opacity:.85">This brainstorm companion has stopped. ' +
-			"Ask your coding agent to bring it back — this page reconnects automatically.</p></div>";
+		el.append(
+			new DOMParser().parseFromString(
+				'<div style="max-width:480px">' +
+					'<h2 style="margin:0 0 .5rem;font-weight:600">Companion paused</h2>' +
+					'<p style="margin:0;opacity:.85">This brainstorm companion has stopped. ' +
+					"Ask your coding agent to bring it back — this page reconnects automatically.</p></div>",
+				"text/html",
+			).body.firstElementChild,
+		);
 		if (document.body) document.body.appendChild(el);
 	}
 
