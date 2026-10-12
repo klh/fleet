@@ -16,10 +16,17 @@ import {
 	addedDiffLines,
 	findingsText,
 	scrubAddedLines,
+	scrubBuffer,
 	scrubRules,
-	scrubText,
 	type ScrubFinding,
 } from "../lib/scrub.ts";
+import {
+	commitRangeFindings,
+	firstPushBase,
+	stagedBinaryFindings,
+} from "../lib/scrub-git.ts";
+
+const REPO = process.cwd();
 
 const git = (args: string[]): { ok: boolean; out: string } => {
 	const r = Bun.spawnSync(["git", ...args], {
@@ -32,15 +39,19 @@ const git = (args: string[]): { ok: boolean; out: string } => {
 	};
 };
 
-// staged added lines (cwd repo); fail-inert → empty findings
+// staged added lines + staged binary blobs (cwd repo); fail-inert → empty
 const stagedFindings = (): ScrubFinding[] => {
 	const d = git(["diff", "--cached", "-U0", "--no-color"]);
 	if (!d.ok) return [];
-	return scrubAddedLines(addedDiffLines(d.out), scrubRules());
+	return [
+		...scrubAddedLines(addedDiffLines(d.out), scrubRules()),
+		...stagedBinaryFindings(REPO),
+	];
 };
 
-// upstream…worktree added lines; no upstream → nothing (the commit
-// surface already gated that content)
+// upstream…worktree added lines; no upstream → the first-push scan from the
+// merge-base with the default branch (a new branch's first push used to
+// scan nothing at all — W708)
 const pushFindings = (): ScrubFinding[] => {
 	const up = git([
 		"rev-parse",
@@ -48,16 +59,20 @@ const pushFindings = (): ScrubFinding[] => {
 		"--symbolic-full-name",
 		"@{upstream}",
 	]);
-	if (!up.ok || !up.out.trim()) return [];
-	const d = git(["diff", `${up.out.trim()}...`, "-U0", "--no-color"]);
-	if (!d.ok) return [];
-	return scrubAddedLines(addedDiffLines(d.out), scrubRules());
+	if (up.ok && up.out.trim()) {
+		const d = git(["diff", `${up.out.trim()}...`, "-U0", "--no-color"]);
+		if (!d.ok) return [];
+		return scrubAddedLines(addedDiffLines(d.out), scrubRules());
+	}
+	return commitRangeFindings(REPO, firstPushBase(REPO, "HEAD"), "HEAD");
 };
 
 // .githooks/pre-push leg: stdin carries `local_ref local_sha remote_ref
-// remote_sha` lines; a zeros remote sha (new remote branch) falls back to
-// the upstream view, deletions skip, plumbing failure falls back too.
-// No ref lines at all → the staged check still runs.
+// remote_sha` lines; the pushed range scans PER COMMIT (W708: the net
+// remote..local tree-diff is blind to an add-then-remove — the leak ships
+// in history). A zeros remote sha (new remote branch) scans from the
+// first-push base; deletions skip. No ref lines at all → the staged check
+// still runs.
 const hookPushFindings = (): ScrubFinding[] => {
 	let refs = "";
 	try {
@@ -74,31 +89,23 @@ const hookPushFindings = (): ScrubFinding[] => {
 		const remoteSha = parts[3] ?? "";
 		if (!localRef || localRef === "(delete)") continue;
 		sawRef = true;
-		const d =
+		const base =
 			/^0+$/.test(remoteSha) || !remoteSha
-				? pushFindings()
-				: scrubDiffRange(localSha, remoteSha);
-		out.push(...d);
+				? firstPushBase(REPO, localSha)
+				: remoteSha;
+		out.push(...commitRangeFindings(REPO, base, localSha));
 	}
 	return sawRef ? out : stagedFindings();
 };
 
-const scrubDiffRange = (
-	localSha: string,
-	remoteSha: string,
-): ScrubFinding[] => {
-	const d = git(["diff", `${remoteSha}..${localSha}`, "-U0", "--no-color"]);
-	if (!d.ok) return pushFindings(); // plumbing failure → upstream view
-	return scrubAddedLines(addedDiffLines(d.out), scrubRules());
-};
-
-// whole-file scan (--files mode): unreadable paths skip silently.
+// whole-file scan (--files mode): byte-faithful (latin1) so NUL-laced
+// files scan; unreadable paths skip silently.
 const fileFindings = (paths: string[]): ScrubFinding[] => {
 	const rules = scrubRules();
 	const out: ScrubFinding[] = [];
 	for (const p of paths) {
 		try {
-			out.push(...scrubText(readFileSync(p, "utf8"), rules, p));
+			out.push(...scrubBuffer(readFileSync(p), rules, p));
 		} catch {
 			// unreadable → skip
 		}

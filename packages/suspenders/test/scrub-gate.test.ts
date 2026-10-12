@@ -12,9 +12,11 @@ import {
 	findingsText,
 	scanLine,
 	scrubAddedLines,
+	scrubBuffer,
 	scrubRules,
 	scrubText,
 } from "../hooks/lib/scrub.ts";
+import { firstPushBase } from "../hooks/lib/scrub-git.ts";
 
 setDefaultTimeout(30_000);
 
@@ -221,6 +223,94 @@ describe("scrub gate e2e (gate.ts pre-bash)", () => {
 	});
 });
 
+describe("scrub gate e2e: W708 range/binary holes", () => {
+	test("push leg: first push (no upstream) scans from the default-branch base", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "fresh"]);
+		writeFileSync(join(REPO, "fp.md"), `host ${HOME_LEAK_DIR}\n`);
+		sh(["add", "fp.md"]);
+		sh(["commit", "-m", "fresh"]);
+		const r = gate("git push");
+		expect(r.out).toContain("fp.md:1");
+		expect(r.out).toContain("home-path");
+		sh(["checkout", "main"]);
+	});
+
+	test("push leg: add-then-remove in the range is caught per-commit", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "atr"]);
+		writeFileSync(join(REPO, "atr.md"), `secret ${HOME_LEAK_DIR}\n`);
+		sh(["add", "atr.md"]);
+		sh(["commit", "-m", "add"]);
+		writeFileSync(join(REPO, "atr.md"), "clean now\n");
+		sh(["add", "atr.md"]);
+		sh(["commit", "-m", "remove"]);
+		const r = gate("git push");
+		expect(r.out).toContain("atr.md:1");
+		sh(["checkout", "main"]);
+	});
+
+	test("commit leg: staged binary blob is scanned (W708)", () => {
+		sh(["reset"]);
+		sh(["checkout", "-q", "main"]);
+		writeFileSync(
+			join(REPO, "blob.bin"),
+			Buffer.from(`data\x00${HOME_LEAK_DIR}\x00end`, "latin1"),
+		);
+		sh(["add", "blob.bin"]);
+		const r = gate("git commit -m bin");
+		expect(r.out).toContain("blob.bin:1");
+		sh(["reset"]);
+	});
+});
+
+describe("scrub-gate bin: hook push (W708)", () => {
+	const hookPush = (refLine: string): { code: number; out: string } => {
+		const refFile = join(HOME, `refs-${n++}.txt`);
+		writeFileSync(refFile, refLine);
+		const p = Bun.spawnSync(
+			[
+				process.execPath,
+				join(HOOKS, "bin", "scrub-gate.ts"),
+				"hook",
+				"push",
+			],
+			{
+				cwd: REPO,
+				env: { ...process.env, HOME },
+				stdin: Bun.file(refFile),
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		return {
+			code: p.exitCode ?? 1,
+			out: `${p.stdout.toString()}${p.stderr.toString()}`,
+		};
+	};
+
+	test("zeros remote sha → first-push base scan", () => {
+		sh(["checkout", "-q", "fresh"]);
+		const tip = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		const r = hookPush(
+			`refs/heads/fresh ${tip} refs/heads/fresh ${"0".repeat(40)}\n`,
+		);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("fp.md:1");
+		sh(["checkout", "main"]);
+	});
+
+	test("nonzero remote sha → per-commit scan catches add-then-remove", () => {
+		sh(["checkout", "-q", "atr"]);
+		const tip = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		const fork = sh(["rev-parse", "main"]).stdout.toString().trim();
+		const r = hookPush(`refs/heads/atr ${tip} refs/heads/atr ${fork}\n`);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("atr.md:1");
+		sh(["checkout", "main"]);
+	});
+});
+
 describe("scrub gate: kill switch", () => {
 	test("SUSPENDERS_SCRUB=0 disables the gate", () => {
 		writeFileSync(join(REPO, "off.md"), `x ${HOME_LEAK}\n`);
@@ -283,6 +373,59 @@ describe("scrub lib: diff parser", () => {
 		const found = scrubAddedLines(lines, scrubRules());
 		expect(found).toEqual([
 			{ file: "y.md", line: 1, rule: "home-path", match: HOME_LEAK },
+		]);
+	});
+
+	test("in-hunk +++ line is content, not a header (W708)", () => {
+		const lines = addedDiffLines(
+			[
+				"diff --git a/z.md b/z.md",
+				"index 111..222 100644",
+				"--- a/z.md",
+				"+++ b/z.md",
+				"@@ -1 +1 @@",
+				"-old",
+				`+++ ${HOME_LEAK_DIR}/x`, // scrub:allow
+				"\\ No newline at end of file",
+			].join("\n"),
+		);
+		expect(lines).toEqual([
+			{ file: "z.md", line: 1, text: `++ ${HOME_LEAK_DIR}/x` },
+		]);
+	});
+
+	test("pre-hunk metadata still skips after a new file header", () => {
+		const lines = addedDiffLines(
+			[
+				"diff --git a/a.md b/a.md",
+				"--- a/a.md",
+				"+++ b/a.md",
+				"@@ -0,0 +1,1 @@",
+				"+one",
+				"diff --git a/b.md b/b.md",
+				"index 333..444 100644",
+				"--- a/b.md",
+				"+++ b/b.md",
+				"@@ -0,0 +1,1 @@",
+				"+two",
+			].join("\n"),
+		);
+		expect(lines.map((l) => [l.file, l.line])).toEqual([
+			["a.md", 1],
+			["b.md", 1],
+		]);
+	});
+
+	test("scrubBuffer scans NUL-laced content (W708)", () => {
+		const leak = `token sk-${"a".repeat(26)}`;
+		const buf = Buffer.from(`bin\x00data\x00${leak}\x00end`, "latin1");
+		expect(scrubBuffer(buf, scrubRules(), "b.bin")).toEqual([
+			{
+				file: "b.bin",
+				line: 1,
+				rule: "sk-key",
+				match: `sk-${"a".repeat(5)}…`,
+			},
 		]);
 	});
 });

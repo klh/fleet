@@ -6,6 +6,7 @@ import {
 	scrubAddedLines,
 	scrubRules,
 } from "./scrub.ts";
+import { binaryPaths, blobFindings } from "./scrub-git.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -91,6 +92,23 @@ function validateTree(repo: string, before: string, tree: string): Result {
 		if (found.length > 0)
 			return fail(
 				`merge guard: scrub findings in candidate merge tree:\n${findingsText(found)}`,
+			);
+		// binary candidates: numstat names them (`- -` rows), the candidate
+		// tree's blob scans whole (W708 — NUL-laced leaks previously sailed)
+		const nd = command(repo, [
+			"git",
+			"diff",
+			"--numstat",
+			`${before}..${tree}`,
+		]);
+		if (nd.code !== 0)
+			return fail("merge guard: candidate binary scan failed");
+		const bin = binaryPaths(nd.out).flatMap((p) =>
+			blobFindings(repo, `${tree}:${p}`, p),
+		);
+		if (bin.length > 0)
+			return fail(
+				`merge guard: scrub findings in candidate binary files:\n${findingsText(bin)}`,
 			);
 	}
 	for (const path of paths.filter(
