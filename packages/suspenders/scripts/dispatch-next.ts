@@ -172,20 +172,42 @@ const val = (flag: string): string | undefined => {
 // machine (python fleet 91GB of 128GB, jetsam 2026-10-06 22:14). The
 // fanout-rate-budget lesson's cap is 6 — default follows it.
 const TARGET = Number(val("--target") ?? 6);
+// W629 DRY: the shared spawn helpers hoist above gitToplevel so the
+// toplevel probe delegates instead of re-inlining Bun.spawnSync a third
+// time (W494 TDZ note retired: REPO is only a call-time default param).
+const sh = (cmd: string[], cwd = REPO): string => {
+	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
+};
+const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
+	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+	return {
+		code: p.exitCode ?? 1,
+		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
+	};
+};
+// W629 DRY: the execPath+CLI prefix was composed inline 16× across this
+// file — one builder per CLI; call sites pass the verb tail (rest params
+// fold the conditional spreads several sites carry).
+const workCli = (...args: string[]): string[] => [
+	process.execPath,
+	`${BIN}/work.ts`,
+	...args,
+];
+const coordCli = (...args: string[]): string[] => [
+	process.execPath,
+	`${BIN}/coord.ts`,
+	...args,
+];
 // W494: REPO is the repo ROOT, never cwd — the loop runs from
 // packages/<name> in the monorepo, and worktrees/briefs live at
 // <root>/.worktrees (worktree.ts derives toplevel from the project
 // identity). cwd-as-root ENOENT'd the brief write mid-dispatch and
-// stranded half-born claims. (sh/run live further down — inline the
-// spawn here, const bindings don't hoist.)
-const gitToplevel = (): string => {
-	const p = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const out = p.stdout ? new TextDecoder().decode(p.stdout).trim() : "";
-	return out || process.cwd();
-};
+// stranded half-born claims. (sh/run hoist above this so the toplevel
+// probe delegates to the shared spawn helper instead of re-inlining it —
+// REPO's default param is call-time-safe.)
+const gitToplevel = (): string =>
+	sh(["git", "rev-parse", "--show-toplevel"], process.cwd()) || process.cwd();
 const CALLER_REPO = resolve(val("--repo") ?? gitToplevel());
 const REPO = canonicalProjectRoot(CALLER_REPO);
 const DRY = argv.includes("--dry-run");
@@ -246,17 +268,6 @@ type Lane = {
 	attempt?: number;
 };
 
-const sh = (cmd: string[], cwd = REPO): string => {
-	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
-};
-const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
-	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-	return {
-		code: p.exitCode ?? 1,
-		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
-	};
-};
 // lane liveness is THE plane's verdict (2026-10-05): work lanes --json
 // (hooks/lib/lane-liveness.ts) is the one source dispatch-next, fleet-loop
 // and humans share — recycled pids and permanently-trusted host lanes both
@@ -264,14 +275,7 @@ const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 // a failed identity probe conservatively retains the occupied slot.
 const laneAudit = (): Map<string, boolean> => {
 	try {
-		const raw = sh([
-			process.execPath,
-			`${BIN}/work.ts`,
-			"lanes",
-			"--json",
-			"--fleet",
-			FLEET,
-		]);
+		const raw = sh(workCli("lanes", "--json", "--fleet", FLEET));
 		return new Map(
 			(JSON.parse(raw) as Array<{ sid: string; live: boolean }>).map((a) => [
 				a.sid,
@@ -303,28 +307,36 @@ let governanceModeCache: "strict" | "solo" | null = null;
 const governanceMode = (): "strict" | "solo" => {
 	if (governanceModeCache) return governanceModeCache;
 	governanceModeCache = parseGovernanceMode(
-		run([
-			process.execPath,
-			`${BIN}/coord.ts`,
-			"fact",
-			"get",
-			"fleet.governance",
-		]).out,
+		run(coordCli("fact", "get", "fleet.governance")).out,
 	);
 	return governanceModeCache;
 };
 
 const capsuleGet = (sid: string): Record<string, string> | null =>
-	parseCapsuleGet(
-		sh([process.execPath, `${BIN}/coord.ts`, "capsule", "get", "--as", sid]),
-	);
+	parseCapsuleGet(sh(coordCli("capsule", "get", "--as", sid)));
 
 /** W617: the item-scoped capsule (work.<id>.capsule) — travels with the
  *  item across reclaim/re-take, so any fresh claimer resumes informed. */
 export const itemCapsuleGet = (item: string): Record<string, string> | null =>
-	parseCapsuleGet(
-		sh([process.execPath, `${BIN}/coord.ts`, "capsule", "get", "--item", item]),
-	);
+	parseCapsuleGet(sh(coordCli("capsule", "get", "--item", item)));
+
+/** W629 DRY: the attempt-advance read — launch-attempt fact counter and
+ *  reserved-ladder reservation composed identically at both dispatchItem
+ *  budget checkpoints (pre-lease and in-try re-read). */
+const advanceAttempt = (
+	store: ReturnType<typeof openStore>,
+	project: string,
+	item: string,
+	sid: string,
+	attempt: number,
+): number => {
+	const row = store
+		.query("SELECT value FROM facts WHERE key=?")
+		.get(`lane.${sid}.launch-attempt`) as { value: string } | null;
+	const fromFact =
+		row && /^\d+$/.test(row.value) ? Number(row.value) + 1 : attempt;
+	return nextReservedAttempt(store, project, item, Math.max(attempt, fromFact));
+};
 
 /** the mission brief. Everything a headless lane needs: full item spec,
  *  capsule protocol, landing chain, sid + how it gets resumed. Resume runs
@@ -360,37 +372,28 @@ const dispatchItem = async (
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
 		console.log(`${DRY ? "DRY" : "STOP"} ${note}`);
 		if (!DRY) {
-			const failed = run([
-				process.execPath,
-				`${BIN}/work.ts`,
-				"fail",
-				item,
-				"--as",
-				sid,
-				"--note",
-				note,
-			]);
+			const failed = run(workCli("fail", item, "--as", sid, "--note", note));
 			if (failed.code !== 0) throw new Error(failed.out);
 			log(`lane.retry-exhausted ${item} ${sid}`);
-			run([
-				process.execPath,
-				`${BIN}/coord.ts`,
-				"emit",
-				"NEED_DECISION",
-				"--as",
-				sid,
-				"--scope",
-				"suspenders",
-				"--note",
-				note,
-			]);
+			run(
+				coordCli(
+					"emit",
+					"NEED_DECISION",
+					"--as",
+					sid,
+					"--scope",
+					"suspenders",
+					"--note",
+					note,
+				),
+			);
 		}
 		return null;
 	}
 	const wt = `${REPO}/.worktrees/${item}`;
 	if (DRY) {
 		// read-only end to end: no claim, no worktree, no brief file, no spawn
-		const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
+		const show = run(workCli("show", item));
 		const capsule = capsuleGet(sid);
 		const branch = existsSync(wt)
 			? sh(["git", "-C", wt, "branch", "--show-current"]) ||
@@ -440,28 +443,23 @@ const dispatchItem = async (
 	const cv = cvMap(store, hostname());
 	const project = projectIdentity(REPO);
 	const attemptKey = `lane.${sid}.launch-attempt`;
-	const prior = store
-		.query("SELECT value FROM facts WHERE key=?")
-		.get(attemptKey) as { value: string } | null;
-	if (prior && /^\d+$/.test(prior.value))
-		attempt = Math.max(attempt, Number(prior.value) + 1);
-	attempt = nextReservedAttempt(store, project, item, attempt);
+	attempt = advanceAttempt(store, project, item, sid, attempt);
 	if (attempt >= limit) {
 		governanceRefusals.push(item);
 		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
 		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
-		run([
-			process.execPath,
-			`${BIN}/coord.ts`,
-			"emit",
-			"NEED_DECISION",
-			"--as",
-			sid,
-			"--scope",
-			"suspenders",
-			"--note",
-			note,
-		]);
+		run(
+			coordCli(
+				"emit",
+				"NEED_DECISION",
+				"--as",
+				sid,
+				"--scope",
+				"suspenders",
+				"--note",
+				note,
+			),
+		);
 		store.close();
 		return null;
 	}
@@ -505,12 +503,7 @@ const dispatchItem = async (
 		const pending = launchIntent(store, project, item);
 		if (pending && inspectLaunchIntent(pending) !== "dead")
 			throw new Error("durable launch intent alive or uncertain");
-		const latestAttempt = store
-			.query("SELECT value FROM facts WHERE key=?")
-			.get(attemptKey) as { value: string } | null;
-		if (latestAttempt && /^\d+$/.test(latestAttempt.value))
-			attempt = Math.max(attempt, Number(latestAttempt.value) + 1);
-		attempt = nextReservedAttempt(store, project, item, attempt);
+		attempt = advanceAttempt(store, project, item, sid, attempt);
 		if (attempt >= limit) {
 			governanceRefusals.push(item);
 			console.log(
@@ -527,24 +520,11 @@ const dispatchItem = async (
 			);
 			return null;
 		}
-		const take = run([
-			process.execPath,
-			`${BIN}/work.ts`,
-			"take",
-			item,
-			"--as",
-			sid,
-			"--origin",
-			`${hostname()}:claude`,
-		]);
+		const take = run(
+			workCli("take", item, "--as", sid, "--origin", `${hostname()}:claude`),
+		);
 		if (take.code !== 0) {
-			const show = run([
-				process.execPath,
-				`${BIN}/work.ts`,
-				"show",
-				item,
-				"--json",
-			]);
+			const show = run(workCli("show", item, "--json"));
 			if (show.code !== 0 || !isResumableClaim(show.out, item, sid)) {
 				console.log(
 					`SKIP ${item} — claimed elsewhere: ${take.out.split("\n")[0]}`,
@@ -587,7 +567,7 @@ const dispatchItem = async (
 		}
 		const branch =
 			sh(["git", "-C", wt, "branch", "--show-current"]) || `suspenders/${item}`;
-		const show = run([process.execPath, `${BIN}/work.ts`, "show", item]);
+		const show = run(workCli("show", item));
 		const capsule = capsuleGet(sid);
 		// a resumed (dead, re-dispatched) lane advances the must/prefer chain —
 		// attempt N having died is exactly the signal to try chain[N+1] next
@@ -602,18 +582,18 @@ const dispatchItem = async (
 		// can switch executor between attempts). The lane's own session-start
 		// upsert never touches the tags column, so the name survives registration.
 		const parentSid = launchParent(store, project, item);
-		const registered = run([
-			process.execPath,
-			`${BIN}/coord.ts`,
-			"bootstrap",
-			"--as",
-			sid,
-			"--name",
-			`${pick.agent} ${item}`,
-			"--worktree",
-			wt,
-			...(parentSid ? ["--parent", parentSid] : []),
-		]);
+		const registered = run(
+			coordCli(
+				"bootstrap",
+				"--as",
+				sid,
+				"--name",
+				`${pick.agent} ${item}`,
+				"--worktree",
+				wt,
+				...(parentSid ? ["--parent", parentSid] : []),
+			),
+		);
 		if (registered.code !== 0)
 			throw new Error("lane session metadata registration failed");
 		// W519: .prefer routing constraints ride the brief — prefer= soft,
@@ -989,16 +969,7 @@ const dispatchItem = async (
 
 const main = async (): Promise<void> => {
 	if (SHOW_CAPSULE) {
-		console.log(
-			sh([
-				process.execPath,
-				`${BIN}/coord.ts`,
-				"capsule",
-				"get",
-				"--as",
-				SHOW_CAPSULE,
-			]),
-		);
+		console.log(sh(coordCli("capsule", "get", "--as", SHOW_CAPSULE)));
 		return;
 	}
 	if (RESUME_FROM && !ITEM) {
@@ -1021,13 +992,7 @@ const main = async (): Promise<void> => {
 	let orphaned: Record<string, unknown>[];
 	try {
 		orphaned = await captureClaimFeed(
-			[
-				process.execPath,
-				`${BIN}/work.ts`,
-				"orphaned",
-				"--json",
-				...(ITEM ? ["--item", ITEM] : []),
-			],
+			workCli("orphaned", "--json", ...(ITEM ? ["--item", ITEM] : [])),
 			REPO,
 		);
 	} catch (error) {
@@ -1089,13 +1054,7 @@ const main = async (): Promise<void> => {
 		(x) => !live.includes(x) && (!ITEM || x.item === ITEM),
 	)) {
 		if (worktreeLive(l.worktree)) continue; // raced between filter and here
-		const show = run([
-			process.execPath,
-			`${BIN}/work.ts`,
-			"show",
-			l.item,
-			"--json",
-		]);
+		const show = run(workCli("show", l.item, "--json"));
 		if (show.code !== 0 || !isResumableClaim(show.out, l.item, l.sid)) continue;
 		resumeOf.set(l.item, l);
 	}
@@ -1134,7 +1093,7 @@ const main = async (): Promise<void> => {
 	// own priority analysis and must not be drowned out by the FIFO pool.
 	const ready = ITEM
 		? []
-		: parseReady(run([process.execPath, `${BIN}/work.ts`, "ready"]).out).filter(
+		: parseReady(run(workCli("ready")).out).filter(
 				(r) =>
 					!live.some((l) => l.item === r.id) &&
 					!held.has(r.id) &&
