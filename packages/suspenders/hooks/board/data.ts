@@ -634,12 +634,37 @@ export function decisionRecords(
 	});
 }
 
+// W663 follow-up (2026-10-12): the UI polls /api/data + /api/decisions every
+// ~1s while one compute costs ~2s (spawnSync-heavy store hops) — stacked
+// recomputes pushed wire TTFB to 5-7s. One shared memo: the first request
+// after expiry computes decisions+data once; the poll storm rides the cache.
+let _feed: {
+	at: number;
+	records: Record<string, unknown>[];
+	data: unknown;
+} | null = null;
+const FEED_TTL_MS = 1_500;
+
+function feedMemo(): {
+	at: number;
+	records: Record<string, unknown>[];
+	data: unknown;
+} {
+	if (_feed && Date.now() - _feed.at < FEED_TTL_MS) return _feed;
+	syncDecisions();
+	const records = decisionRecords(null);
+	_feed = { at: Date.now(), records, data: buildPayload() };
+	return _feed;
+}
+
 export function decisionsPayload(
 	history: boolean,
 	project: string | null = null,
 ): unknown {
-	syncDecisions();
-	const recs = decisionRecords(project);
+	const selected = project && project !== "all" ? project : null;
+	const recs = feedMemo().records.filter(
+		(r) => !selected || r.project === selected,
+	);
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];
@@ -696,7 +721,10 @@ export function llm(): unknown {
 }
 
 export function payload() {
-	syncDecisions();
+	return feedMemo().data;
+}
+
+function buildPayload(): unknown {
 	const ss = sessions();
 	const labels: Record<string, string> = {};
 	for (const s of ss) labels[s.sid] = s.label;
