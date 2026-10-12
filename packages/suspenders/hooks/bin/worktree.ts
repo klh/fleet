@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync, appendFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { openGovernorDb, resolveProject } from "../lib/govdb.ts";
+import { openStore, resolveProject } from "../lib/govdb.ts";
 import { symlinkBuildDirs } from "../lib/builddirs.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
@@ -106,7 +106,7 @@ const emit = (
 	extra: Record<string, string>,
 ): void => {
 	try {
-		openGovernorDb()
+		openStore()
 			.query(
 				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'worktree', ?, ?, ?, NULL)",
 			)
@@ -126,7 +126,7 @@ const create = async (p: Parsed): Promise<number> => {
 	const id = p.pos[0];
 	const wtDir = resolveItemWorktree(ROOT, id);
 	const branch = `suspenders/${id}`;
-	const db = openGovernorDb();
+	const db = openStore();
 	const it = db
 		.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
 		.get(PROJECT, id) as { state: string } | null;
@@ -251,7 +251,7 @@ const sweep = async (p: Parsed): Promise<number> => {
 	let unmerged = 0;
 	let considered = 0;
 	let would = 0;
-	const db = openGovernorDb();
+	const db = openStore();
 	// porcelain is ground truth — registryWorktrees, the W211 lib (one parser)
 	const entries = registryWorktrees(ROOT);
 	for (const e of entries) {

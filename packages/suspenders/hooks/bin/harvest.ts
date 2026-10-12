@@ -8,7 +8,7 @@
 // keys (harvest.seen.*) live in the facts table; one HARVEST event per run.
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
-import { openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb.ts";
 import {
 	clusterSignals,
 	discoverTranscripts,
@@ -40,7 +40,7 @@ if (mode !== "scan" && mode !== "run")
 if (!Number.isInteger(days) || days < 1 || days > 60)
 	die("--days must be 1..60");
 
-const db = openGovernorDb();
+const db = openStore();
 // kb rows join the fleet's project identity — git-common-dir, the same value
 // consult-reply writes, so consult lookups stay project-scoped as usual.
 // W460: canonical resolver, absolute even when git prints a RELATIVE gitdir

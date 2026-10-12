@@ -16,8 +16,7 @@
 // A trailing /** or /* is accepted and stripped — prefer the bare prefix so
 // shells never see glob characters to expand. Relative scopes are worktree-
 // portable: the governor matches them as path-segment suffixes.
-import type { Database } from "bun:sqlite";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openStore, type GovernorStore } from "../lib/govdb.ts";
 import { transcriptPath } from "../lib/lane-liveness.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
@@ -49,7 +48,7 @@ const amber = paint("33");
 
 // one shared connection shape with the gates — WAL/schema/bootstrap fixes live
 // in ONE module (hooks/lib/govdb.ts), not per-tool copies
-const db: Database = openGovernorDb();
+const db: GovernorStore = openStore();
 
 // Runtime-side validation: a claim target must be a REAL live session —
 // fabricated ids are rejected here, not discovered by the governor later.
