@@ -66,6 +66,7 @@ const curl = (port: number, path: string): RecoveryStep => ({
 });
 
 const LOCAL_LLM = "com.suspenders.local-llm";
+const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
 const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
 const swarm = (port: number): RecoveryEntry => ({
@@ -168,19 +169,20 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		},
 		what: "The litellm engine on :4100 is not answering, so routed model calls fail.",
 		causes: [
-			// W277: litellm joined the swarm supervisor's respawn/circuit-breaker
-			// set; the old standalone com.belt.gateway restarter was retired
-			// (it was a second :4100 restarter — a fork-bomb hazard).
-			`the swarm supervisor (${LOCAL_LLM}) that revives litellm is not running`,
+			// W277 retired the standalone com.belt.gateway restarter (a second
+			// :4100 restarter — a fork-bomb hazard). W307 truth pass: litellm's
+			// ONE restarter today is com.suspenders.cloud-gateway — the swarm
+			// only observes :4100 (owned: false, packages/local-llm/swarm.ts).
+			`the cloud transport supervisor (${CLOUD_GATEWAY}) that revives litellm is not running`,
 			"an orphaned litellm still holds :4100",
 			"litellm failed to start (bad generated config or missing key file) — the log says which",
 		],
 		recovery: [
 			holder(4100),
 			killOrphan(4100),
-			kick(LOCAL_LLM),
-			bootstrap(LOCAL_LLM),
-			tail("~/.claude/local-llm/litellm-gateway.log"),
+			kick(CLOUD_GATEWAY),
+			bootstrap(CLOUD_GATEWAY),
+			tail("~/.claude-insights/cloud-gateway.log"),
 			curl(4100, "/health/liveliness"),
 		],
 	},
@@ -285,10 +287,10 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		],
 	},
 	// W277 retired the standalone com.belt.gateway launchd agent (it was a
-	// second :4100 restarter racing the swarm supervisor — a fork-bomb
-	// hazard); litellm now lives solely under launchd-local-llm's
-	// respawn/circuit-breaker set, so there is no longer a separate
-	// launchd entry to probe here.
+	// second :4100 restarter — a fork-bomb hazard); there is deliberately no
+	// launchd entry for it in this map. W307 truth pass: litellm's one
+	// restarter is com.suspenders.cloud-gateway (the swarm observes :4100,
+	// owned: false — packages/local-llm/swarm.ts).
 ];
 
 export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =
