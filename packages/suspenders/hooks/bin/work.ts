@@ -240,7 +240,7 @@ const VERBS: VerbSpec[] = [
 	}),
 ];
 
-// LAZY DB open with per-command routing (was a module-top openGovernorDb()):
+// LAZY DB open with per-command routing (was a module-top direct DB open):
 // mutators need the real DB — die with a hint when it is unreachable; readers
 // may fall back to the committed .workgraph.jsonl mirror. An empty project
 // partition counts as unreachable for readers: items are never deleted, so

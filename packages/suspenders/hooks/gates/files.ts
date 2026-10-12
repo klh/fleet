@@ -15,7 +15,7 @@ import { allow, context, feedback, type HookInput } from "../lib/hookio.ts";
 import { oncePerSession } from "../lib/advisory-cooldown.ts";
 import { bumpPathCount } from "../lib/gatestate.ts";
 import { have, lines, run } from "../lib/run.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openStore } from "../lib/govdb.ts";
 import { drainLaneInbox } from "../lib/lane-inbox.ts";
 import { basename, dirname } from "node:path";
 import {
@@ -142,6 +142,19 @@ export function filesCheck(hook: HookInput): FilesExit {
 		}
 	}
 
+	// ---- W92.4 govdb-import rule: openGovernorDb is store-owner-only. Gates
+	// ride openStore() (this item retired the gates from the grandfather list);
+	// grandfathered consumers soft-note, NEW direct imports hard-block. ----
+	if (isCode && F.includes("/hooks/") && existsSync(F)) {
+		const violation = govdbImportViolation(F, readFileSync(F, "utf8"));
+		if (violation) {
+			refreshLeaseHash(F);
+			const err = `W92 govdb-import rule: ${F} ${violation.msg}\nConsumers bind via openStore() (hooks/lib/govdb.ts) — in-process SQLite by default, the store port when GOVERNOR_STORE_URL/store.url is set. Store owners are listed in govdbImportViolation().\n`;
+			if (violation.soft) return { kind: "context", msg: err };
+			return { kind: "block", err };
+		}
+	}
+
 	// ---- settings.json guard (the ONE exception to qlty-only — qlty has no
 	// JSON plugin, and a broken settings.json silently disables all settings;
 	// user-approved 2026-09-15). jq, ~3ms; basename match covers project copies.
@@ -189,6 +202,72 @@ export function filesCheck(hook: HookInput): FilesExit {
 	if (steer) notes.push(steer);
 	if (notes.length) return { kind: "context", msg: notes.join("\n") };
 	return { kind: "ok" };
+}
+
+// ---- W92.4: who may open governor.db directly ------------------------------
+// Store owners: the schema module (lib/govdb.ts), the HTTP face
+// (bin/store-server.ts), the W91 knowledge adapter (its declared only-place).
+// GRANDFATHERED names consumers whose port migration is a separate child's
+// scope — each migrates to openStore() and LEAVES this list; the rule bans
+// NEW direct imports the moment a file is written. The original list (W92
+// first attempt, d4ba6478) died with that implementation; this one starts
+// with the gates already retired off it.
+const STORE_OWNERS = [
+	"/lib/govdb.ts",
+	"/bin/store-server.ts",
+	"/lib/knowledge-ports.ts",
+];
+const GRANDFATHERED = [
+	// W92.3's in-flight scope — these leave the list when that child lands.
+	"/bin/fleet-loop.ts",
+	"/bin/monitor.ts",
+	"/bin/harvest.ts",
+	"/bin/claim.ts",
+	"/bin/worktree.ts",
+	// consumers outside the W92 children's scopes — one line each when their
+	// migration child lands
+	"/bin/activity-harvest.ts",
+	"/bin/aid-harvest.ts",
+	"/bin/console-repo-law.ts",
+	"/bin/consult-relay.ts",
+	"/bin/federation-pull.ts",
+	"/bin/fleet-mcp.ts",
+	"/bin/lifecycle-authority.ts",
+	"/bin/metrics-alert.ts",
+	"/bin/policy-workflow.ts",
+	"/bin/quota-sweep.ts",
+	"/bin/session-policy.ts",
+	"/lib/decomposition.ts",
+	"/lib/lane-completion.ts",
+	"/lib/lane-inbox.ts",
+	"/lib/settle.ts",
+];
+
+/** Null = fine; otherwise the verdict. Owners pass silently, grandfathered
+ * consumers pass with a soft note (migrate, don't extend), ANY other hooks/
+ * module with a direct DB import hard-blocks: that is a NEW direct import,
+ * exactly what W92 bans. */
+export function govdbImportViolation(
+	F: string,
+	content: string,
+): { msg: string; soft: boolean } | null {
+	if (F.includes("/test/") || F.includes("/spikes/") || F.includes("/sim/"))
+		return null;
+	const path = `/${F.split("/hooks/").pop() ?? ""}`; // repo + installed prefix share the /hooks/ layout
+	const usesDb =
+		/import\s*\{[^}]*openGovernorDb[^}]*\}\s*from/.test(content) ||
+		/\bopenGovernorDb\s*\(/.test(content);
+	if (!usesDb) return null;
+	if (STORE_OWNERS.some((s) => path.endsWith(s))) return null;
+	if (GRANDFATHERED.some((s) => path.endsWith(s)))
+		return {
+			msg: "still imports the DB directly (grandfathered — migrate to the store port; do not ADD call sites)",
+			soft: true,
+		};
+	return {
+		msg: "imports the DB directly — store owners only",
+		soft: false,
+	};
 }
 
 /** `qlty fmt` in place. Returns a note when the file changed, null otherwise.
@@ -281,7 +360,7 @@ function editStreak(hook: HookInput, F: string): FilesExit | null {
  * (SQLite/WAL) — busy_timeout arbitrates against concurrent gate processes. */
 function refreshLeaseHash(F: string): void {
 	try {
-		const db = openGovernorDb();
+		const db = openStore();
 		const rp = existsSync(F) ? realpathSync(F) : F;
 		const row = db
 			.query("SELECT path, seen FROM locks WHERE path = ? OR path = ?")

@@ -20,7 +20,7 @@ import {
 	isLedgerFile,
 	MARKER,
 } from "../hooks/gates/ledger.ts";
-import { filesCheck } from "../hooks/gates/files.ts";
+import { filesCheck, govdbImportViolation } from "../hooks/gates/files.ts";
 import { pushMainTarget } from "../hooks/gates/bash.ts";
 import type { HookInput } from "../hooks/lib/hookio.ts";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
@@ -523,5 +523,25 @@ describe("push-guard lane resolution (gate-level, real spawn)", () => {
 			),
 		);
 		expect(decision(r)).toBe("deny");
+	});
+});
+
+// ---- W92.4 govdb-import rule: openGovernorDb is store-owner-only ----
+describe("govdbImportViolation (W92.4)", () => {
+	const IMPORT = 'import { openGovernorDb } from "../lib/govdb.ts";';
+	const HOOKS = `${process.cwd()}/packages/suspenders/hooks`;
+
+	test("store owners pass silently", () => {
+		expect(govdbImportViolation(`${HOOKS}/lib/govdb.ts`, IMPORT)).toBeNull();
+	});
+
+	test("grandfathered consumers soft-note, never block", () => {
+		const v = govdbImportViolation(`${HOOKS}/bin/monitor.ts`, IMPORT);
+		expect(v?.soft).toBe(true);
+	});
+
+	test("any other hooks/ module hard-blocks", () => {
+		const v = govdbImportViolation(`${HOOKS}/bin/new-thing.ts`, IMPORT);
+		expect(v?.soft).toBe(false);
 	});
 });

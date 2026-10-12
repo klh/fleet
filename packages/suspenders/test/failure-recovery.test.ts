@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { openMemoryStore } from "../hooks/lib/govdb.ts";
 import {
 	failureFingerprint,
 	recordFailure,
@@ -7,12 +7,12 @@ import {
 	type FailureContext,
 } from "../hooks/lib/failure-recovery.ts";
 
-const dbs: Database[] = [];
+const dbs: ReturnType<typeof openMemoryStore>[] = [];
 afterEach(() => {
 	for (const db of dbs.splice(0)) db.close();
 });
-function database(): Database {
-	const db = new Database(":memory:");
+function database(): ReturnType<typeof openMemoryStore> {
+	const db = openMemoryStore();
 	dbs.push(db);
 	db.run("CREATE TABLE sessions (sid TEXT, project TEXT, state TEXT)");
 	db.run(

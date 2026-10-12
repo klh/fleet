@@ -685,7 +685,7 @@ export async function cmdDiff(rest: string[]): Promise<void> {
 			.get()
 	)
 		die(
-			"no delta log in governor.db — open the DB once via openGovernorDb() to install the v5 triggers",
+			"no delta log in governor.db — open the DB once via the govdb module to install the v5 triggers",
 		);
 	const sinceArg = arg("--since");
 	const tbl = arg("--table");

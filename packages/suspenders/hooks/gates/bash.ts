@@ -6,7 +6,6 @@
 // W513: shell-syntax primitives + hardening denies live in bash-hardening.ts
 // (oh-my-claudecode lift; scope decisions in that module's header).
 
-import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -16,7 +15,11 @@ import {
 } from "../lib/approvals.ts";
 import { credScopeDeny, loadCredScope } from "../lib/credscope.ts";
 import { lanesFileFor, resolveFleetLane } from "../lib/fleetlane.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import {
+	openStore,
+	resolveStoreHttpBase,
+	type GovernorStore,
+} from "../lib/govdb.ts";
 import {
 	allow,
 	auditApproval,
@@ -314,10 +317,10 @@ export function bashGate(hook: HookInput): never {
 	// governor.db (SQLite) — the legacy locks.json read is gone. Lane identity,
 	// canonical paths, TTL/liveness, and exemptions match gates/governor.ts.
 	{
-		let db: Database | null = null;
-		if (existsSync(`${GOV}/governor.db`)) {
+		let db: GovernorStore | null = null;
+		if (resolveStoreHttpBase() || existsSync(`${GOV}/governor.db`)) {
 			try {
-				db = openGovernorDb();
+				db = openStore();
 			} catch {
 				db = null; // fail open: a dead registry never blocks a shell command
 			}

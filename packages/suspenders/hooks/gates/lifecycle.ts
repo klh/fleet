@@ -20,7 +20,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { resolveFleetLane } from "../lib/fleetlane.ts";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openStore, type GovernorStore } from "../lib/govdb.ts";
 import { deny } from "../lib/hookio.ts";
 
 // ─── protected surface ───────────────────────────────────────────────────────
@@ -250,9 +250,9 @@ export function lifecycleGate(SEGS: string[][], CWD: string): boolean {
 	const lane = resolveFleetLane(CWD);
 	if (!lane) return false; // owner-class session — the established exemption
 
-	let db: ReturnType<typeof openGovernorDb> | null = null;
+	let db: GovernorStore | null = null;
 	try {
-		db = openGovernorDb();
+		db = openStore();
 	} catch {
 		db = null; // store outage → fail-closed below (typed refusal)
 	}
