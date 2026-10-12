@@ -81,4 +81,17 @@ done
 # option A: skip the archive line, add `git branch -D "$b"` instead
 ```
 
-GO record: _(none yet — owner decision pending)_
+GO record: owner ruling #24844 (2026-10-12) — option C, executed by W695.8.
+Archived 10 refs to `refs/archive/parked/` at their survey shas: W224, W226,
+W233.2, W248, W461.2, W493.2, W624, W624.1, W650, W657 (the mission's 9
+NOOP-landed minus W643, plus W248/W461.2 which the 2026-10-12 triage marks
+superseded-landed: W655 ed86e37c / 7b63f942). Dropped 14 worktrees (8
+archive-set + the 6 option-C trees; every tree's dirt was lane residue:
+briefs, node_modules, test homes, one-shot scripts — verified per tree
+before `worktree remove --force`). HELD: parked/W643 + `.worktrees/W643` —
+live processes run from that tree (3 coord subscribe sessions + 7
+fleet-board instances); killing them is an owner call. Re-integration:
+7 children minted under W695.8 via `work split` (W424 eval harness, W503
+posture, W510 pre-compact, W512 model-pin, W516 turn-boundary, W165 profile
+split, W349 dispatch verify); those 7 parked refs and the rest of the
+conflict group stay parked.
