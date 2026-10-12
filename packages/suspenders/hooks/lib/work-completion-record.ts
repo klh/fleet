@@ -237,6 +237,28 @@ export function prepareCompletion(
 			contextRepo = wt;
 		}
 	}
+	// W628: when the W652.1 parent binding carried this closure, warn — the
+	// kept lane's context should have been rebound by split (W628) but still
+	// names the SHATTERED parent. Closure proceeds; the warning tells the lane
+	// the binding is stale.
+	if (context && context.item !== o.item) {
+		const parent = String(context.item);
+		const parentRow = db
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(o.project, parent) as { state?: string } | undefined;
+		const kept =
+			parentRow?.state === "SHATTERED"
+				? db
+						.query(
+							"SELECT id FROM work_items WHERE project = ? AND parent_id = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING') LIMIT 1",
+						)
+						.get(o.project, parent, o.sid)
+				: undefined;
+		if (kept)
+			console.error(
+				`warning: lane context still names ${parent} (SHATTERED; kept child ${o.item} owned by ${o.sid}) — split --keep rebinds the context itself (W628); closure proceeds via the W652.1 parent binding`,
+			);
+	}
 	if (/^autow/.test(o.sid) && !context)
 		throw new Error(
 			"Dispatched completion requires its original lane context and baseline",
