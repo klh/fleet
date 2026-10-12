@@ -30,13 +30,87 @@ x-default-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# W697 container hardening (toto-gpt gap 8). Two profiles, pinned by
+# test/hub-compose-hardening.test.ts:
+#   - RUNTIME (every long-lived service): non-root uid, read-only rootfs,
+#     tmpfs /tmp as the ONLY scratch, all capabilities dropped,
+#     no-new-privileges, init (forwards SIGTERM + reaps), pids cap, and a
+#     stop_grace_period sized to the service. Writable surface = its named
+#     state volume only (mounted explicitly, re-owned by hub-init below).
+#   - BUILD one-shots (fleet-repo, fleet-deps): root inside the container
+#     (they own the code volume), still cap_drop ALL + no-new-privileges; NOT
+#     read-only — git/bun write caches under $HOME — and never a serving
+#     surface (they exit).
+# Uid/gid are config-over-code: HUB_RUN_UID/HUB_RUN_GID (default 1000 = the
+# oven/bun image's `bun` user).
+#
+# Liveness vs readiness vs drain:
+#   - LIVENESS = compose healthcheck on the *-health sidecars (outside-process
+#     probes; a wedged service cannot paint itself healthy).
+#   - READINESS = buckle-ready's synthetic completion (informational; a dead
+#     upstream degrades the verdict, never restart-loops the gate).
+#   - DRAIN = SIGTERM -> stop_grace_period -> SIGKILL. buckle-hub's grace
+#     covers the ledger ring (flushMs 5s + bounded close() drain passes) so
+#     queued audit/usage rows land before the kill; sidecars hold no state.
+x-run-as: &run-as "${HUB_RUN_UID:-1000}:${HUB_RUN_GID:-1000}"
+x-cap-drop: &cap-drop [ALL]
+x-no-new-privs: &no-new-privs ["no-new-privileges:true"]
+x-tmp: &tmp-tmpfs ["/tmp:size=64m,mode=1777"]
+
+# Runtime profile as one merge-key fragment: non-root, read-only rootfs,
+# no caps, no privilege gain, init for signal forwarding + zombie reaping.
+x-runtime-hardening: &runtime-hardening
+  user: *run-as
+  read_only: true
+  tmpfs: *tmp-tmpfs
+  cap_drop: *cap-drop
+  security_opt: *no-new-privs
+  init: true
+  pids_limit: 256
+  stop_grace_period: 10s
+
 services:
+  # State-volume ownership: runtime services run non-root, but docker creates
+  # fresh volumes root-owned and earlier hubs wrote them as root. This
+  # one-shot re-owns ONLY entries not already the runtime uid (cheap per up);
+  # stateful runtime services wait on it. Minimal caps: CHOWN to re-own,
+  # DAC_OVERRIDE/FOWNER to traverse 0600/0700 entries owned by another uid.
+  hub-init:
+    image: alpine/git@sha256:a4bb51f1a3553df194ce679fc1db721d8bfba2046fa1a88fe9d4ac551ffbce25
+    container_name: ${HUB_NAME:-desktop}-hub-init
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+    entrypoint: ["sh", "-c"]
+    command:
+      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done
+    environment:
+      HUB_RUN_UID: ${HUB_RUN_UID:-1000}
+      HUB_RUN_GID: ${HUB_RUN_GID:-1000}
+    cap_drop: *cap-drop
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: *no-new-privs
+    read_only: true
+    pids_limit: 64
+    volumes:
+      - buckle-state:/state/buckle
+      - hub-state:/state/hub-home
+      - hub-secrets:/state/secrets
+      - belt-state:/state/belt-home
+
   # One pinned Fleet checkout shared by every package. Existing state and
   # secret volumes retain their names; only the code volume is replaced.
+  # BUILD profile (W697): root, but no caps / no privilege gain.
   fleet-repo:
     image: alpine/git@sha256:a4bb51f1a3553df194ce679fc1db721d8bfba2046fa1a88fe9d4ac551ffbce25
     container_name: ${HUB_NAME:-desktop}-fleet-repo
     logging: *default-logging
+    cap_drop: *cap-drop
+    security_opt: *no-new-privs
+    pids_limit: 128
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -58,6 +132,10 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-fleet-deps
     logging: *default-logging
+    cap_drop: *cap-drop
+    security_opt: *no-new-privs
+    pids_limit: 256
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -88,6 +166,9 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-buckle-hub
     logging: *default-logging
+    <<: *runtime-hardening
+    # ledger ring flush (5s cadence) + bounded close() drain: 30s covers it
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
@@ -98,6 +179,8 @@ services:
     command: bun run src/server.ts
     depends_on:
       fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
         condition: service_completed_successfully
     env_file:
       # break-glass root credential (drift-never + secrets law): generated
@@ -130,6 +213,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-buckle-health
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -141,6 +225,7 @@ services:
         condition: service_started
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/status --listen ${HUB_BUCKLE_HEALTH_PORT:-4112}
     environment:
+      HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BUCKLE_HEALTH_PORT: ${HUB_BUCKLE_HEALTH_PORT:-4112}
     volumes:
@@ -167,6 +252,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-buckle-ready
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -200,6 +286,7 @@ services:
       # the gate (buckle.env, 0600, never transported)
       - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
     environment:
+      HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BUCKLE_READY_PORT: ${HUB_BUCKLE_READY_PORT:-4113}
     volumes:
@@ -209,6 +296,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-hub
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -233,6 +321,8 @@ services:
     depends_on:
       fleet-deps:
         condition: service_completed_successfully
+      hub-init:
+        condition: service_completed_successfully
       store-health:
         condition: service_healthy
 
@@ -240,6 +330,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-health
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -251,6 +342,7 @@ services:
         condition: service_started
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BOARD_PORT:-7809}/status --listen ${HUB_BOARD_HEALTH_PORT:-7800}
     environment:
+      HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BOARD_HEALTH_PORT: ${HUB_BOARD_HEALTH_PORT:-7800}
     volumes:
@@ -268,6 +360,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME}-store-hub
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -277,6 +370,8 @@ services:
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
     depends_on:
       fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
         condition: service_completed_successfully
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
@@ -291,6 +386,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-store-health
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -302,6 +398,7 @@ services:
         condition: service_started
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_STORE_PORT:-7796}/status --listen ${HUB_STORE_HEALTH_PORT:-7794}
     environment:
+      HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_STORE_HEALTH_PORT: ${HUB_STORE_HEALTH_PORT:-7794}
     volumes:
@@ -319,6 +416,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-hub
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -329,6 +427,8 @@ services:
     command: sh -c 'mkdir -p /state/belt-home/.claude/local-llm /state/belt-home/.claude-insights && exec bun ${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/dashboard.ts'
     depends_on:
       fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
         condition: service_completed_successfully
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
@@ -342,6 +442,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-health
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -353,6 +454,7 @@ services:
         condition: service_started
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_BELT_PORT:-7792}/api/status --listen ${HUB_BELT_HEALTH_PORT:-7790}
     environment:
+      HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HUB_BELT_HEALTH_PORT: ${HUB_BELT_HEALTH_PORT:-7790}
     volumes:
@@ -376,6 +478,7 @@ services:
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-peer-pull
     logging: *default-logging
+    <<: *runtime-hardening
     deploy:
       resources:
         limits:
@@ -385,6 +488,8 @@ services:
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/federation-peers.ts
     depends_on:
       fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
         condition: service_completed_successfully
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}

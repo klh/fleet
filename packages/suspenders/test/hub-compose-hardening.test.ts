@@ -1,0 +1,111 @@
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse } from "yaml";
+
+// W697 (toto-gpt gap 8): container hardening profiles for hub-compose.yaml.
+type Svc = Record<string, unknown> & {
+	volumes?: unknown[];
+	depends_on?: Record<string, { condition: string }>;
+	environment?: Record<string, string>;
+};
+const compose = parse(
+	readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
+	{ merge: true },
+) as { services: Record<string, Svc> };
+const svcs = compose.services;
+
+const RUNTIME = [
+	"buckle-hub",
+	"buckle-health",
+	"buckle-ready",
+	"board-hub",
+	"board-health",
+	"store-hub",
+	"store-health",
+	"belt-hub",
+	"belt-health",
+	"peer-pull",
+];
+const BUILD = ["fleet-repo", "fleet-deps"];
+const STATEFUL = [
+	"buckle-hub",
+	"board-hub",
+	"store-hub",
+	"belt-hub",
+	"peer-pull",
+];
+
+test("every service drops all caps and forbids privilege gain", () => {
+	for (const [name, s] of Object.entries(svcs)) {
+		expect(s.cap_drop, name).toEqual(["ALL"]);
+		expect(s.security_opt, name).toContain("no-new-privileges:true");
+		expect(s.pids_limit, name).toBeGreaterThan(0);
+	}
+});
+
+test("runtime services: non-root, read-only rootfs, tmpfs scratch, init, grace", () => {
+	for (const name of RUNTIME) {
+		const s = svcs[name] as Svc;
+		expect(s.user, name).toBe("${HUB_RUN_UID:-1000}:${HUB_RUN_GID:-1000}");
+		expect(s.read_only, name).toBe(true);
+		expect(s.tmpfs, name).toEqual(["/tmp:size=64m,mode=1777"]);
+		expect(s.init, name).toBe(true);
+		expect(s.stop_grace_period, name).toMatch(/^\d+s$/);
+		expect(s.cap_add, name).toBeUndefined();
+	}
+});
+
+test("build one-shots keep root + writable rootfs but are capless", () => {
+	for (const name of BUILD) {
+		const s = svcs[name] as Svc;
+		expect(s.user, name).toBeUndefined();
+		expect(s.read_only, name).toBeUndefined();
+		expect(s.stop_grace_period, name).toBeDefined();
+	}
+});
+
+test("only hub-init holds capabilities, and only chown-class ones", () => {
+	const holders = Object.entries(svcs).filter(([, s]) => s.cap_add);
+	expect(holders.map(([n]) => n)).toEqual(["hub-init"]);
+	expect(svcs["hub-init"]?.cap_add).toEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER"]);
+});
+
+test("stateful runtime services wait on hub-init; sidecars never hold state", () => {
+	for (const name of STATEFUL)
+		expect(
+			svcs[name]?.depends_on?.["hub-init"]?.condition,
+			name,
+		).toBe("service_completed_successfully");
+	for (const name of RUNTIME.filter((n) => n.endsWith("-health") || n.endsWith("-ready")))
+		expect(
+			(svcs[name]?.volumes ?? []).some((v) => String(v).includes("-state")),
+			name,
+		).toBe(false);
+});
+
+test("writable surface = explicit state mounts; code mounts stay :ro", () => {
+	for (const name of RUNTIME) {
+		for (const v of svcs[name]?.volumes ?? []) {
+			const m = String(v);
+			if (m.startsWith("fleet-repo:")) expect(m, name).toEndWith(":ro");
+		}
+	}
+	// hub-init owns exactly the four state volumes it re-owns
+	expect(svcs["hub-init"]?.volumes).toEqual([
+		"buckle-state:/state/buckle",
+		"hub-state:/state/hub-home",
+		"hub-secrets:/state/secrets",
+		"belt-state:/state/belt-home",
+	]);
+});
+
+test("sidecars get a scratch HOME on tmpfs (rootfs is read-only)", () => {
+	for (const name of RUNTIME.filter((n) => n.endsWith("-health") || n.endsWith("-ready")))
+		expect(svcs[name]?.environment?.HOME, name).toBe("/tmp");
+});
+
+test("buckle-hub grace covers the ledger flush cadence (5s) with headroom", () => {
+	const g = Number.parseInt(String(svcs["buckle-hub"]?.stop_grace_period), 10);
+	expect(g).toBeGreaterThanOrEqual(20);
+});
