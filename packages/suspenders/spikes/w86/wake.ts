@@ -7,8 +7,9 @@
  */
 import dgram from "node:dgram";
 
-const NAS = "192.168.1.73";
-const MAC = "90:09:d0:5a:ff:8f";
+const NAS = process.env.W86_NAS_HOST ?? "nas.example.invalid";
+const MAC = process.env.W86_WOL_MAC ?? "00:00:00:00:00:00";
+const BROADCAST = process.env.W86_WOL_BROADCAST_IP ?? "255.255.255.255";
 
 function magicPacket(mac: string): Buffer {
 	const clean = mac.replace(/[:\-]/g, "").toLowerCase();
@@ -24,7 +25,7 @@ function sendWoL(): Promise<void> {
 		const sock = dgram.createSocket("udp4");
 		sock.bind(() => {
 			sock.setBroadcast(true);
-			sock.send(magicPacket(MAC), 9, "192.168.1.255", (err) => {
+			sock.send(magicPacket(MAC), 9, BROADCAST, (err) => {
 				sock.close();
 				if (err) reject(err);
 				else resolve();
@@ -45,7 +46,7 @@ async function probePort(port: number, path = "/"): Promise<number | null> {
 }
 
 await sendWoL();
-console.log(`[w86] WoL magic packet sent to ${MAC} via 192.168.1.255:9`);
+console.log(`[w86] WoL magic packet sent to ${MAC} via ${BROADCAST}:9`);
 
 const deadline = Date.now() + 120_000;
 let firstLive: string | null = null;
