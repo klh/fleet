@@ -63,14 +63,42 @@ function withDb(fn: (db: Database) => void): void {
 	db.close();
 }
 
-/** take → done: the disciplined completion path. */
+/** take → done: the disciplined completion path (W643: carries the
+ * take-minted claim token — `work done` refuses a gated claim without it). */
 function finish(
 	id: string,
 	sid: string,
 ): { code: number; out: string; err: string } {
 	const t = work("take", id, "--as", sid);
 	if (t.code !== 0) return t;
-	return work("done", id, "--sha", `sha-${sid}`);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	return work(
+		"done",
+		id,
+		"--sha",
+		`sha-${sid}`,
+		...(tok ? ["--token", tok] : []),
+	);
+}
+
+/** W643: claim-and-close in one — take mints the token, done must carry it. */
+function finishAs(
+	id: string,
+	sid: string,
+	sha: string,
+): { code: number; out: string; err: string } {
+	const t = work("take", id, "--as", sid);
+	if (t.code !== 0) return t;
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	return work(
+		"done",
+		id,
+		"--as",
+		sid,
+		"--sha",
+		sha,
+		...(tok ? ["--token", tok] : []),
+	);
 }
 
 afterAll(() => {
@@ -274,11 +302,9 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", p, "c1", "c2", "--reason", "independent-scopes").code,
 		).toBe(0);
 		expect(work("done", `${p}.1`, "--sha", "s1").code).not.toBe(0); // this repo: READY work cannot be marked done...
-		expect(work("take", `${p}.1`, "--as", "lane-r1").code).toBe(0); // ...claim it first
-		expect(work("done", `${p}.1`, "--sha", "s1").code).toBe(0);
+		expect(finishAs(`${p}.1`, "lane-r1", "s1").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("SHATTERED");
-		expect(work("take", `${p}.2`, "--as", "lane-r2").code).toBe(0);
-		expect(work("done", `${p}.2`, "--sha", "s2").code).toBe(0);
+		expect(finishAs(`${p}.2`, "lane-r2", "s2").code).toBe(0);
 		expect(firstLine(work("show", p).out)).toContain("DONE");
 	});
 
@@ -291,14 +317,11 @@ describe("done — roll-up for shattered parents", () => {
 			work("split", `${q}.1`, "x1", "x2", "--reason", "independent-scopes")
 				.code,
 		).toBe(0);
-		expect(work("take", `${q}.2`, "--as", "lane-n2").code).toBe(0);
-		expect(work("done", `${q}.2`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.2`, "lane-n2", "s").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(work("take", `${q}.1.1`, "--as", "lane-n11").code).toBe(0);
-		expect(work("done", `${q}.1.1`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.1`, "lane-n11", "s").code).toBe(0);
 		expect(firstLine(work("show", q).out)).toContain("SHATTERED");
-		expect(work("take", `${q}.1.2`, "--as", "lane-n12").code).toBe(0);
-		expect(work("done", `${q}.1.2`, "--sha", "s").code).toBe(0);
+		expect(finishAs(`${q}.1.2`, "lane-n12", "s").code).toBe(0);
 		expect(firstLine(work("show", `${q}.1`).out)).toContain("DONE");
 		expect(firstLine(work("show", q).out)).toContain("DONE");
 	});
@@ -343,8 +366,7 @@ describe("cancel — W182 CANCELLED terminal state", () => {
 
 	test("terminal states refuse cancel; list/mine hide CANCELLED", () => {
 		const t = idOf(work("add", "already closed").out);
-		expect(work("take", t, "--as", "lane-t1").code).toBe(0);
-		expect(work("done", t, "--sha", "s").code).toBe(0);
+		expect(finishAs(t, "lane-t1", "s").code).toBe(0);
 		const again = work("cancel", t, "--note", "x");
 		expect(again.code).toBe(2);
 		expect(again.err).toContain("already closed");
@@ -374,8 +396,7 @@ describe("ready — dependency gating", () => {
 		expect(ready).toContain(a);
 		expect(ready).not.toContain(b);
 		expect(work("show", b).out).toContain(`depends on: ${a}(READY)`);
-		expect(work("take", a, "--as", "lane-gate").code).toBe(0); // claim before done (transition guard)
-		expect(work("done", a, "--sha", "s").code).toBe(0);
+		expect(finishAs(a, "lane-gate", "s").code).toBe(0); // claim before done (transition guard)
 		ready = work("ready").out;
 		expect(ready).toContain(b);
 	});
@@ -694,8 +715,7 @@ describe("dep-merge ancestor gate (W60)", () => {
 		expect(work("block", depOn, "--on", dep).code).toBe(0);
 
 		// dep lands DONE with the unmerged sha — done output names the gated dependent
-		expect(work("take", dep, "--as", "lane-w60").code).toBe(0);
-		const d = work("done", dep, "--sha", sha);
+		const d = finishAs(dep, "lane-w60", sha);
 		expect(d.code).toBe(0);
 		expect(d.out).toContain(`dep ${dep} done but unmerged (sha not on main)`);
 		expect(d.out).toContain(`${depOn} stays gated`);
@@ -714,8 +734,7 @@ describe("dep-merge ancestor gate (W60)", () => {
 		const dep2 = idOf(work("add", "failopen dep lane").out);
 		const depOn2 = idOf(work("add", "failopen dependent lane").out);
 		expect(work("block", depOn2, "--on", dep2).code).toBe(0);
-		expect(work("take", dep2, "--as", "lane-w60c").code).toBe(0);
-		const d2 = work("done", dep2, "--sha", "0123456789abcdef0123456987654321");
+		const d2 = finishAs(dep2, "lane-w60c", "0123456789abcdef0123456987654321");
 		expect(d2.out).toContain("startable now");
 		expect(work("take", depOn2, "--as", "lane-w60d").code).toBe(0);
 

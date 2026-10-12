@@ -326,7 +326,10 @@ async function dispatchStart(
 				title: w.title,
 				desc: w.description ?? "",
 			});
-			return json({ ok: true, item: id, sid, executor: agent });
+			const claimToken = /claim token: ([0-9a-f]{48})/.exec(
+				String(take.out),
+			)?.[1];
+			return json({ ok: true, item: id, sid, executor: agent, claimToken });
 		}
 		// W224 — machine+tail resolves through executor-catalog's one
 		// reader: a port or default-model pick matches the row directly,
@@ -353,9 +356,9 @@ async function dispatchStart(
 				WORK_CLI,
 				"take",
 				id,
-				--as,
+				"--as",
 				sid,
-				--origin,
+				"--origin",
 				`${hostname()}:llm:${machine}`,
 			],
 			repo,
@@ -377,7 +380,10 @@ async function dispatchStart(
 			title: w.title,
 			desc: w.description ?? "",
 		});
-		return json({ ok: true, item: id, sid, executor: agent });
+		const claimToken = /claim token: ([0-9a-f]{48})/.exec(
+			String(take.out),
+		)?.[1];
+		return json({ ok: true, item: id, sid, executor: agent, claimToken });
 	}
 	const sid = laneSid(id, projectIdentity(repo));
 	laneExecFacts(sid, agent, agent, "remote");

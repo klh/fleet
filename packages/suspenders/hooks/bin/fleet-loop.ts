@@ -960,6 +960,12 @@ if (MODE === "dispatch") {
 				throw new Error("direct launch preparation failed");
 			} // claimed by us from a previous dispatch attempt — resume
 		}
+		// W643: capture the take-minted claim token; rides the lane env (the
+		// direct-launch brief has no context bank — env is the channel here).
+		const takeToken =
+			take.code === 0
+				? (/claim token: ([0-9a-f]{48})/.exec(take.out)?.[1] ?? null)
+				: null;
 		const claim = store
 			.query(
 				"SELECT updated_at FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
@@ -1060,6 +1066,7 @@ if (MODE === "dispatch") {
 		// canonical for the coordinator/board.
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
 		const env = { ...process.env };
+		if (takeToken) env.KLH_CLAIM_TOKEN = takeToken;
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 		if (AGENT !== "codex") {
 			env.SUSPENDERS_SID = sid;

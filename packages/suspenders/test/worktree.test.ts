@@ -207,7 +207,9 @@ describe("worktree registry resolution (W211)", () => {
 				"worker",
 			).code,
 		).toBe(0);
-		expect(work("take", id, "--as", "wt-parked").code).toBe(0);
+		const pt = work("take", id, "--as", "wt-parked");
+		expect(pt.code).toBe(0);
+		const ptok = /claim token: ([0-9a-f]{48})/.exec(pt.out)?.[1];
 		// park the tree outside the convention, as registry lanes do
 		const parked = join(REPO, "..", "w211-parked", id);
 		mkdirSync(join(REPO, "..", "w211-parked"), { recursive: true });
@@ -230,6 +232,7 @@ describe("worktree registry resolution (W211)", () => {
 				tip,
 				"--summary",
 				"W211 registry parked-tree closure: done must resolve the tree from the registry and retire it even outside .worktrees",
+				...(ptok ? ["--token", ptok] : []),
 			).code,
 		).toBe(0);
 		expect(existsSync(parked)).toBe(false);
@@ -270,7 +273,9 @@ describe("worktree sweep (W494.2.2)", () => {
 		};
 	};
 	// mint an item + session + worktree; returns the ids the sweep reads
-	const mintTree = (title: string): { id: string; dir: string } => {
+	const mintTree = (
+		title: string,
+	): { id: string; dir: string; tok?: string } => {
 		const added = work("add", title);
 		expect(added.code).toBe(0);
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
@@ -279,12 +284,14 @@ describe("worktree sweep (W494.2.2)", () => {
 		expect(
 			run(REPO, "coord.ts", "bootstrap", "--as", sid, "--role", "worker").code,
 		).toBe(0);
-		expect(work("take", id, "--as", sid).code).toBe(0);
+		const t = work("take", id, "--as", sid);
+		expect(t.code).toBe(0);
+		const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
 		expect(sweep("create", id).code).toBe(0);
 		// fresh trees read clean — node_modules is ignored (above), so no
 		// typechange dirt; a --allow-empty commit would ADD a patch-id main
 		// lacks and read unmerged in cherry
-		return { id, dir: join(REPO, ".worktrees", id) };
+		return { id, dir: join(REPO, ".worktrees", id), tok };
 	};
 	// lazy: HEAD is unborn at module load — the init commit lands in test 1
 	const MAIN = (): string => gc(["rev-parse", "--abbrev-ref", "HEAD"]).out;
@@ -293,7 +300,7 @@ describe("worktree sweep (W494.2.2)", () => {
 	// symlink hygiene symlinkBuildDirs assumes
 	appendFileSync(join(REPO, ".gitignore"), "node_modules\n");
 	test("patch-equiv DONE worktree is swept: patch-id cherry vs main, -D after -d refuses, recovery ref pinned", () => {
-		const { id, dir } = mintTree("sweep equiv");
+		const { id, dir, tok } = mintTree("sweep equiv");
 		// one commit on the branch: feat.ts ONLY (a bare `add -A` would stage
 		// the node_modules typechange and conflict the cherry-pick)
 		writeFileSync(join(dir, "feat.ts"), "export const x = 1;\n");
@@ -309,7 +316,8 @@ describe("worktree sweep (W494.2.2)", () => {
 		// the tree; item lands DONE with its worktree still standing (the
 		// 2026-10-06 incident state this sweep exists for)
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		expect(work("done", id, "--sha", tip).code).toBe(0);
+		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		expect(dt.code).toBe(0);
 		expect(existsSync(dir)).toBe(true);
 		rmSync(join(dir, "junk.txt")); // clean again — only debris ever blocked retire
 		const s = sweep("sweep", "--main", MAIN());
@@ -336,14 +344,15 @@ describe("worktree sweep (W494.2.2)", () => {
 		db.close();
 	});
 	test("unmerged DONE worktree stays with a NEED_DECISION; live claim keeps even a patch-equiv tree", () => {
-		const { id, dir } = mintTree("sweep unmerged");
+		const { id, dir, tok } = mintTree("sweep unmerged");
 		writeFileSync(join(dir, "orphan.ts"), "export const y = 2;\n");
 		expect(gc(["-C", dir, "add", "-A"]).code).toBe(0);
 		expect(gc(["-C", dir, "commit", "-m", "orphan"]).code).toBe(0);
 		const tip = gc(["-C", dir, "rev-parse", "HEAD"]).out;
 		// dirty-keep trick again: item lands DONE, tree stays standing
 		writeFileSync(join(dir, "junk.txt"), "junk");
-		expect(work("done", id, "--sha", tip).code).toBe(0);
+		const dt = work("done", id, "--sha", tip, ...(tok ? ["--token", tok] : []));
+		expect(dt.code).toBe(0);
 		rmSync(join(dir, "junk.txt"));
 		const s = sweep("sweep", "--main", MAIN());
 		expect(s.code).toBe(0);

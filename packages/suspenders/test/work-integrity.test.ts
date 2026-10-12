@@ -49,7 +49,16 @@ function finish(
 	if (t.code !== 0) return t;
 	const s = work("start", id, "--as", sid);
 	if (s.code !== 0) return s;
-	return work("done", id, "--as", sid, "--sha", `sha-${sid}`);
+	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	return work(
+		"done",
+		id,
+		"--as",
+		sid,
+		"--sha",
+		`sha-${sid}`,
+		...(tok ? ["--token", tok] : []),
+	);
 }
 
 afterAll(() => {
@@ -150,7 +159,9 @@ describe("transition + ownership validation (finding 12)", () => {
 		expect(work("release", w5, "--as", "w5-owner").err).toContain(
 			"only CLAIMED/RUNNING",
 		);
-		expect(work("take", w5, "--as", "w5-owner").code).toBe(0);
+		const w5take = work("take", w5, "--as", "w5-owner");
+		expect(w5take.code).toBe(0);
+		const tok = /claim token: ([0-9a-f]{48})/.exec(w5take.out)?.[1];
 		// wrong caller cannot start/done/release
 		expect(work("start", w5, "--as", "intruder").err).toContain(
 			"cannot start it",
@@ -163,9 +174,17 @@ describe("transition + ownership validation (finding 12)", () => {
 		);
 		// the owner can
 		expect(work("start", w5, "--as", "w5-owner").code).toBe(0);
-		expect(work("done", w5, "--as", "w5-owner", "--sha", "abc1234").code).toBe(
-			0,
-		);
+		expect(
+			work(
+				"done",
+				w5,
+				"--as",
+				"w5-owner",
+				"--sha",
+				"abc1234",
+				...(tok ? ["--token", tok] : []),
+			).code,
+		).toBe(0);
 		// terminal states are frozen for these transitions
 		expect(work("start", w5).err).toContain("only CLAIMED/RUNNING");
 		expect(work("done", w5, "--sha", "x").err).toContain(

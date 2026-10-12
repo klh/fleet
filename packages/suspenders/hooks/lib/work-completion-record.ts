@@ -3,6 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { projectRootOf, type GovernorStore } from "./govdb.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
+import {
+	claimTokenVerdict,
+	evidenceCheck,
+	evidencePatternsOf,
+} from "./work-fence.ts";
 
 type CompletionStore = Pick<GovernorStore, "query" | "run">;
 
@@ -76,7 +81,13 @@ const productPath = (path: string): boolean =>
 	!/^((\.fleet|\.claude|\.agents|node_modules)(\/|$)|\.klh-(brief|done)\.md$|\.workgraph\.jsonl$)/.test(
 		path,
 	);
-type LaneContext = { sid?: string; item?: string; baseline?: string };
+type LaneContext = {
+	sid?: string;
+	item?: string;
+	baseline?: string;
+	/** W643: the claim token dispatch banked at take — durable channel. */
+	claimToken?: string;
+};
 /** Lane identity is absolute: missing → null, corrupt → hard error, and a
  * context bound to another item or owner is rejected, never ignored —
  * except the graph-proven kept-child case (W652.1): `work split --keep`
@@ -199,6 +210,8 @@ export function prepareCompletion(
 		cwd: string;
 		sha: string | null;
 		summary: string | null;
+		/** W643: --token / KLH_CLAIM_TOKEN as passed by work done. */
+		token?: string | null;
 	},
 ): CompletionRecord | null {
 	let context: LaneContext | null = null;
@@ -267,6 +280,24 @@ export function prepareCompletion(
 		throw new Error(
 			"Dispatched completion requires immutable baseline evidence; restore the original lane context",
 		);
+	// W643 claim-token fence: the row hash must match a presented token —
+	// flag/env via o.token, or the lane context claimToken (the durable
+	// channel — env pins can be lost to settings-env merges; the file is not).
+	const hashRow = db
+		.query(
+			"SELECT claim_token_hash, evidence FROM work_items WHERE project = ? AND id = ?",
+		)
+		.get(o.project, o.item) as
+		| {
+				claim_token_hash: string | null;
+				evidence: string | null;
+		  }
+		| undefined;
+	const verdict = claimTokenVerdict(
+		hashRow ?? {},
+		o.token ?? context?.claimToken ?? null,
+	);
+	if (!verdict.ok) throw new Error(verdict.why);
 	const fact = db
 		.query("SELECT value, source FROM facts WHERE key = ?")
 		.get(`lane.${o.sid}.capsule`) as
@@ -397,6 +428,25 @@ export function prepareCompletion(
 					"\n",
 				)}${hits.length > 10 ? `\n  … ${hits.length - 10} more` : ""}`,
 		);
+	// W643 evidence-gated transition: declared patterns must EACH match the
+	// summary, a product path, or the added diff lines — absence rejects the
+	// transition itself.
+	const declared = (() => {
+		try {
+			return evidencePatternsOf(hashRow?.evidence ?? null);
+		} catch (e) {
+			throw new Error(
+				`evidence: ${e instanceof Error ? e.message : String(e)}`,
+			);
+		}
+	})();
+	if (declared?.length) {
+		const missing = evidenceCheck(declared, { summary, paths, diffText });
+		if (missing.length)
+			throw new Error(
+				`Completion evidence missing required patterns (${missing.length}/${declared.length} unsatisfied): ${missing.map((m) => `/${m}/`).join(", ")} — matched none of summary / product paths / added diff lines`,
+			);
+	}
 	const completedAt = Date.now();
 	const finalCapsule = {
 		...capsule,

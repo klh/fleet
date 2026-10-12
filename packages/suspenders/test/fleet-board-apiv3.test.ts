@@ -123,10 +123,19 @@ describe("board api v3 (docs/board-api.md)", () => {
 		const w2 = addWork("auto-start dependent", ["--scope", "asd"]);
 		run("work.ts", ["block", w2, "--on", w1]);
 		// done emits work.ready; the flag rides the newest unblock event
-		expect(run("work.ts", ["take", w1, "--as", "w50-tester"]).code).toBe(0);
+		const tw = run("work.ts", ["take", w1, "--as", "w50-tester"]);
+		expect(tw.code).toBe(0);
+		const tok = /claim token: ([0-9a-f]{48})/.exec(tw.out)?.[1];
 		expect(
-			run("work.ts", ["done", w1, "--as", "w50-tester", "--sha", "abc1234"])
-				.code,
+			run("work.ts", [
+				"done",
+				w1,
+				"--as",
+				"w50-tester",
+				"--sha",
+				"abc1234",
+				...(tok ? ["--token", tok] : []),
+			]).code,
 		).toBe(0);
 		const feed = await (
 			await fetch(`${BASE}/api/tasks?project=${q(proj)}`)

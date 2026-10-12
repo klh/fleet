@@ -34,7 +34,7 @@ function fixture(file = ":memory:"): Database {
 	const db = new Database(file);
 	databases.push(db);
 	db.run(
-		"CREATE TABLE work_items (project TEXT, id TEXT, parent_id TEXT, title TEXT, description TEXT, state TEXT DEFAULT 'READY', priority INTEGER DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER DEFAULT 1, requires TEXT, tags TEXT, origin TEXT, alloc_reason TEXT, created_at INTEGER, updated_at INTEGER, PRIMARY KEY(project,id))",
+		"CREATE TABLE work_items (project TEXT, id TEXT, parent_id TEXT, title TEXT, description TEXT, state TEXT DEFAULT 'READY', priority INTEGER DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER DEFAULT 1, requires TEXT, tags TEXT, origin TEXT, alloc_reason TEXT, evidence TEXT, claim_token_hash TEXT, created_at INTEGER, updated_at INTEGER, PRIMARY KEY(project,id))",
 	);
 	db.run(
 		"CREATE TABLE work_deps (project TEXT, work_id TEXT, depends_on TEXT, PRIMARY KEY(project,work_id,depends_on))",

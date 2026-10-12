@@ -12,7 +12,6 @@
 // workgraph mirror (beads-inspired): mutations re-export <repo>/.workgraph.jsonl
 // (atomic, best-effort); reads fall back to the committed mirror when
 // governor.db cannot serve the project — fresh clone / DB unreachable.
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import {
 	CAPABILITIES,
 	type GovernorStore,
@@ -54,6 +53,8 @@ import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
+import { evidencePatternsOf } from "../lib/work-fence.ts";
+import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import {
@@ -69,6 +70,8 @@ const die = dieFor("work");
 // vocabulary shared by the item commands: option-looking tokens are never
 // content — a known flag consumes its value, unknown ones die
 const ITEM_FLAGS = [
+	"--token",
+	"--evidence",
 	"--scope",
 	"--parent",
 	"--priority",
@@ -518,10 +521,11 @@ function insertItem(
 	requires: string | null = null,
 	description: string | null = null,
 	effort: string | null = null,
+	evidence: string | null = null,
 ): void {
 	db()
 		.query(
-			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, effort, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO work_items (id, parent_id, title, state, priority, created_by, scope, why_parallel, project, required, requires, tags, effort, evidence, created_at, updated_at, description) VALUES (?, ?, ?, 'READY', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
 		)
 		.run(
 			id,
@@ -535,6 +539,7 @@ function insertItem(
 			requires,
 			preferTagFor(projectRootOf(PROJECT)),
 			effort,
+			evidence,
 			Date.now(),
 			Date.now(),
 			description,
@@ -664,6 +669,20 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		const effort = flag("--effort");
 		if (effort && !(EFFORTS as readonly string[]).includes(effort))
 			die(`unknown effort: ${effort} — vocabulary: ${EFFORTS.join(" | ")}`);
+		// W643 evidence gate input: one regex, or a JSON array of them — every
+		// pattern must match the closing evidence at done, else it refuses.
+		let evidence: string | null = null;
+		const evRaw = flag("--evidence");
+		if (evRaw) {
+			try {
+				evidencePatternsOf(evRaw);
+			} catch (error) {
+				die(
+					`evidence: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+			evidence = evRaw;
+		}
 		const id = parent ? nextChildId(parent) : nextRootId();
 		if (parent) get(parent);
 		insertItem(
@@ -682,6 +701,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				: null,
 			flag("--desc"),
 			effort,
+			evidence,
 		);
 		emit("work.added", id, { scope: scope ?? "" });
 		console.log(
@@ -778,6 +798,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			"requires",
 			"tags",
 			"effort",
+			"evidence",
 			"alloc_reason",
 			"description",
 		] as const) {
@@ -862,6 +883,12 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					: `${id} claim refused: ${claimed.why}`,
 			);
 		console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
+		// W643: the raw token prints ONCE — channels for lanes: KLH_CLAIM_TOKEN
+		// env (dispatch/supervise pin it) + .fleet/lane-context.json claimToken.
+		if (claimed.token)
+			console.log(
+				`claim token: ${claimed.token}  (present it to work done via --token; re-take after a reclaim mints a new one)`,
+			);
 	} else if (name === "release") {
 		const id = pos[0];
 		const as = flag("--as");
@@ -920,6 +947,11 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
 			);
+		// W643 claim-token fence: present the token minted at take (--token,
+		// KLH_CLAIM_TOKEN env, or the lane context) — the verdict runs inside
+		// prepareCompletion so the durable lane-context channel is consulted
+		// before anything is refused; the CAS UPDATE then closes the race.
+		const tok = flag("--token") ?? process.env.KLH_CLAIM_TOKEN ?? null;
 		let record: CompletionRecord | null;
 		try {
 			record = prepareCompletion(db(), {
@@ -929,13 +961,32 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				cwd: process.cwd(),
 				sha,
 				summary: flag("--summary"),
+				token: tok,
 			});
 		} catch (error) {
 			die(error instanceof Error ? error.message : String(error));
 		}
 		const tx = db().transaction(() => {
 			if (record) persistCompletion(db(), record);
-			setState(id, "DONE", null, record?.commit_sha ?? sha);
+			// W643 CAS: the write lands ONLY on the exact claim the token opened
+			// — state + owner + token-hash in the WHERE; a reclaim+re-take in
+			// flight changes the hash → 0 rows → refused (never clobber).
+			const cas = db()
+				.query(
+					"UPDATE work_items SET state = 'DONE', owner_sid = NULL, result_sha = ?, updated_at = ? WHERE project = ? AND id = ? AND state IN ('CLAIMED','RUNNING') AND owner_sid IS ? AND claim_token_hash IS ?",
+				)
+				.run(
+					record?.commit_sha ?? sha ?? null,
+					Date.now(),
+					PROJECT,
+					id,
+					it.owner_sid ?? null,
+					it.claim_token_hash ?? null,
+				);
+			if (cas.changes === 0)
+				throw new Error(
+					`${id} claim changed — stale writer refused (never clobber)`,
+				);
 			emit("work.done", id, {
 				sha: record?.commit_sha ?? sha ?? "",
 				verified: !!record,
@@ -1102,6 +1153,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					(it.requires as string | null) ?? null,
 					null,
 					it.effort as string | null,
+					(it.evidence as string | null) ?? null,
 				);
 				if (++n === keep) {
 					setState(cid, "CLAIMED", it.owner_sid as string);
@@ -1357,106 +1409,13 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			);
 		}
 	} else if (name === "migrate-ledger") {
-		// Markdown ledger → Work Graph: unresolved status-marker lines (the
-		// MARKER vocabulary below) or unchecked tasks become graph items.
-		// Deduped by exact title — within the file and against anything already in
-		// the graph — then a tombstone section points the ledger at the graph.
-		// Import creates; a human closes. Idempotent: re-running adds nothing.
-		const path = pos[0];
-		if (!existsSync(path)) die(`no such ledger: ${path}`);
-		const ledger = readFileSync(path, "utf8");
-		const TOMBSTONE = "<!-- work-migrate-tombstone -->";
-		// status-marker vocabulary, assembled so the W511 completion scan never
-		// flags references to its own words (fake-completion.ts doctrine)
-		const MARKER_SRC = `${["TO", "DO"].join("")}|IN-FLIGHT|BLOCKED|PAUSED|OWNER-GATED`;
-		const MARKER = new RegExp(`\\b(?:${MARKER_SRC})\\b`);
-		const titleOf = (s: string): string =>
-			s
-				.replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*/, "") // task checkbox
-				.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "") // bullet / numbering
-				.replace(new RegExp(`\\b(?:${MARKER_SRC})\\b\\s*[:\\-—]?\\s*`, "g"), "") // status markers
-				.replace(/^[\s:\-—]+|[\s:\-—]+$/g, "")
-				.trim();
-		const titles: string[] = [];
-		let fence = false;
-		for (const line of ledger.split("\n")) {
-			if (/^\s*```/.test(line)) fence = !fence;
-			else if (fence) continue;
-			else if (line.includes(TOMBSTONE)) break;
-			else if (/^\s*#/.test(line)) continue;
-			else if (MARKER.test(line) || /^\s*[-*+]\s+\[ \]/.test(line)) {
-				const t = titleOf(line);
-				if (t) titles.push(t);
-			}
-		}
-		if (!titles.length) {
-			console.log(dim(`(nothing to migrate in ${path})`));
-		} else {
-			const byTitle = new Map(
-				(
-					db()
-						.query("SELECT id, title FROM work_items WHERE project = ?")
-						.all(PROJECT) as Item[]
-				).map((r) => [String(r.title), String(r.id)]),
-			);
-			const seen = new Set<string>();
-			const rows: { title: string; id: string; fresh: boolean }[] = [];
-			for (const t of titles) {
-				if (seen.has(t)) continue; // exact-title dedupe within the ledger
-				seen.add(t);
-				const known = byTitle.get(t);
-				rows.push(
-					known
-						? { title: t, id: known, fresh: false }
-						: { title: t, id: "", fresh: true },
-				);
-			}
-			const fresh = rows.filter((r) => r.fresh);
-			for (const r of fresh) r.id = nextRootId(); // allocate ids before the tx — no nested transactions
-			db().transaction(() => {
-				for (const r of fresh) {
-					insertItem(r.id, null, r.title, null, 0, "migrate-ledger", null);
-					emit("work.added", r.id, { scope: "" });
-				}
-			})();
-			for (const r of rows) {
-				console.log(
-					r.fresh
-						? `${green("✓")} ${cyan(r.id)} ${dim("READY")} — ${r.title}`
-						: `${cyan("·")} ${cyan(r.id)} ${dim("already in the graph — skipped")} — ${r.title}`,
-				);
-			}
-			console.log(
-				`${green("✓")} migrated ${fresh.length} — ${rows.length - fresh.length} already in the graph`,
-			);
-			if (!ledger.includes(TOMBSTONE) && fresh.length) {
-				const note = [
-					"",
-					"---",
-					"",
-					`## Migrated to the Work Graph — this ledger is HISTORICAL ${TOMBSTONE}`,
-					"",
-					"<!-- `work migrate-ledger` imported the unresolved items above into the Work Graph",
-					"(governor.db, work CLI) on " +
-						new Date().toISOString().slice(0, 10) +
-						". Import creates — a human closes:",
-					"`work done <id> --sha <sha>`. Re-running migrate-ledger adds nothing new. -->",
-					"",
-					"| ledger line | work item |",
-					"| --- | --- |",
-					...rows.map(
-						(r) =>
-							`| ${r.title.replaceAll("|", "\\|")} | ` +
-							"`" +
-							r.id +
-							"`" +
-							(r.fresh ? "" : " (already in graph)") +
-							" |",
-					),
-				].join("\n");
-				appendFileSync(path, `${note}\n`);
-			}
-		}
+		runMigrateLedger(db(), PROJECT, pos[0], {
+			die,
+			nextRootId,
+			insertItem: (id, parentId, title, by) =>
+				insertItem(id, parentId, title, null, 0, by, null),
+			emit: (kind, id) => emit(kind, id),
+		});
 	}
 };
 
