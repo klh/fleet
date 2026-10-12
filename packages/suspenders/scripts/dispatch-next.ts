@@ -71,6 +71,13 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
+import {
+	parsePosture,
+	postureWidth,
+	readPosture,
+	POSTURES,
+	type Posture,
+} from "./lib/posture.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
 // verdict itself lives in hooks/lib/lane-liveness.ts (pid/heartbeat, never cwd)
 import {
@@ -144,6 +151,8 @@ Refill agent lanes from READY work and resume unfinished claims.
 
   --repo <dir>             Project checkout (default: Git root)
   --target <N>             Desired live lane count (default: 6)
+  --posture <steady|plaid> Override the .fleet/posture file for this run
+                           (plaid = work-driven width, keyword fan-out)
   --dry-run                Preview without launching or changing claims
   --item <Wn>              Dispatch one specific work item
   --no-belt                Skip belt executor selection
@@ -239,6 +248,19 @@ if (import.meta.main && argv[0] === "registry") {
 	process.exit(await registryMain(argv.slice(1), { fleet: FLEET }));
 }
 const LOOP_LOG = `${FLEET}/loop.log`;
+
+// W503 keyword fan-out posture: `.fleet/posture` says how wide the fleet
+// runs — steady caps at --target; plaid drives EVERY ready/resumable item
+// (owner keywords ultrawork/plaid/rw) until flipped back. The flag
+// overrides the file; an invalid flag is a usage error, a junk FILE reads
+// steady (fail-safe narrow — see lib/posture.ts).
+const POSTURE_FLAG = parsePosture(val("--posture"));
+if (val("--posture") !== undefined && !POSTURE_FLAG) {
+	console.error(`--posture must be one of: ${POSTURES.join(", ")}`);
+	process.exit(1);
+}
+const POSTURE: Posture = POSTURE_FLAG ?? readPosture(FLEET);
+const WIDTH = postureWidth(POSTURE, TARGET);
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
 const governanceRefusals: string[] = [];
@@ -1056,7 +1078,7 @@ const main = async (): Promise<void> => {
 		);
 		const slots = Math.max(
 			0,
-			TARGET - Math.max(held.size, [...audit.values()].filter(Boolean).length),
+			WIDTH - Math.max(held.size, [...audit.values()].filter(Boolean).length),
 		);
 		for (const row of candidates
 			.filter((r) => !ITEM || r.id === ITEM)
@@ -1104,13 +1126,13 @@ const main = async (): Promise<void> => {
 	}
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
-		if (live.length + heldSlots + dispatched.length >= TARGET) break;
+		if (live.length + heldSlots + dispatched.length >= WIDTH) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
 		if (
-			live.length + heldSlots + dispatched.length >= TARGET &&
+			live.length + heldSlots + dispatched.length >= WIDTH &&
 			!held.has(ITEM)
 		) {
 			console.log(
@@ -1169,7 +1191,7 @@ const main = async (): Promise<void> => {
 	for (const s of skips) console.log(s);
 	capStore?.close();
 	for (const r of dispatchable) {
-		if (live.length + heldSlots + dispatched.length >= TARGET) break;
+		if (live.length + heldSlots + dispatched.length >= WIDTH) break;
 		const out = await dispatchItem(r.id, live);
 		if (out) dispatched.push(out);
 	}
@@ -1251,7 +1273,7 @@ const main = async (): Promise<void> => {
 		}
 	}
 	console.log(
-		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
+		`lanes live: ${live.length}/${WIDTH === Number.POSITIVE_INFINITY ? `∞ (plaid, target ${TARGET} ignored)` : TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}`,
 	);
 	// W463: a governance refusal is an ERROR the caller must see — the run
 	// never reads as a clean "pool drained" exit.

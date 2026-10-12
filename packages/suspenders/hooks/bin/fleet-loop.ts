@@ -68,6 +68,8 @@ import {
 	transcriptAlive,
 } from "../lib/lane-liveness.ts";
 import { condensePrompt } from "../board/prompt-transform.ts";
+import { readPosture } from "../../scripts/lib/posture.ts";
+import { postureVerb } from "../../scripts/lib/posture-verb.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagIntegratedCode } from "../lib/decomposition.ts";
 import {
@@ -104,17 +106,18 @@ const argv = process.argv.slice(2);
 const MODE = argv[0];
 if (
 	!MODE ||
-	!["once", "watch", "lanes", "dispatch", "flush", "ship"].includes(MODE) ||
+	!["once", "watch", "lanes", "dispatch", "flush", "ship", "posture"].includes(MODE) ||
 	!argv.includes("--repo")
 ) {
 	console.error(
-		`usage: fleet-loop once|watch|lanes|dispatch|ship --repo <dir> [--glob lane/autow*] [--main main]\n` +
+		`usage: fleet-loop once|watch|lanes|dispatch|ship|posture --repo <dir> [--glob lane/autow*] [--main main]\n` +
 			`          [--ladder <cmd template with {branch}>]  default: plain git merge --no-ff\n` +
 			`          [--ladder-timeout 10]                    minutes; watchdog-kills a hung ladder\n` +
 			`          [--dispatch-cmd <template>]              optional policy script\n` +
-			`          [--agent claude|codex]                   dispatch backend (default claude)\n` +
+			`          [--agent claude|supported agent]         dispatch backend (default claude)\n` +
 			`          ship --branch <branch>                   one branch through the ladder (board ship trigger)\n` +
 			`          flush --repo <dir> [--item <id>] [--await <secs>]   merge DONE+verified branches (W641); --item waits out the closing lane first (W249)\n` +
+			`          posture [steady|plaid]                   show/set dispatch posture (W503: plaid = keyword fan-out, work-driven width — read per cycle by --dispatch-cmd, no restart needed)\n` +
 			`          [--every 120] [--cycle-timeout 15] [--log <file>]   (watch mode)\n`,
 	);
 	process.exit(MODE ? 1 : 0);
@@ -1411,6 +1414,8 @@ if (MODE === "lanes") {
 	process.exit(0);
 }
 
+if (MODE === "posture") postureVerb({ argv, repo: REPO, log });
+
 if (MODE === "once") {
 	await cycle();
 	process.exit(0);
@@ -1424,7 +1429,7 @@ if (MODE === "once") {
 // idle cycle boundary when the owner requested a handoff (launchd KeepAlive
 // respawns the successor; lanes are separate processes, never touched).
 log(
-	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min`,
+	`fleet-loop start pid=${process.pid} repo=${REPO} glob=${GLOB} every=${EVERY_MS / 1000}s watchdog=${CYCLE_TIMEOUT_MS / 60000}min posture=${readPosture(`${REPO}/.fleet`)}`,
 );
 const CONTROLLER_NONCE = crypto.randomUUID();
 let controllerIdentity: ReturnType<typeof currentControllerIdentity> | null =
