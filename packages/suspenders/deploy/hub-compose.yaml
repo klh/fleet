@@ -63,7 +63,12 @@ services:
         limits:
           memory: 1g
     working_dir: /src/fleet
-    command: bun install --frozen-lockfile --ignore-scripts
+    # W689: boot script installs the pinned checkout AND links the base
+    # monorepo's workspaces under their package names — overlay hubs run
+    # base code from node_modules/fleet/packages where bun's git-dep
+    # install creates no workspace links (cross-package @klh/* imports
+    # would die at boot). No-op for plain fleet checkouts.
+    command: bun packages/suspenders/deploy/hub-deps.ts
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
     depends_on:
