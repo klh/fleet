@@ -118,6 +118,7 @@ export async function handleData(
 				vf === "usage-panels.js" ||
 				vf === "klh-topbar.js" ||
 				vf === "klh-console-cards.js" ||
+				vf === "klh-console-forms.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
