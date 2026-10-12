@@ -1,6 +1,5 @@
-import type { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { openGovernorDb, projectIdentity } from "./govdb.ts";
+import { openStore, projectIdentity, type GovernorStore } from "./govdb.ts";
 
 export const CODE_LINE_SOFT_CAP = 1500;
 const codePath =
@@ -65,7 +64,7 @@ export function flagIntegratedCode(options: {
 	source: string;
 	dryRun?: boolean;
 	changedThrough?: string;
-	db?: Database;
+	db?: GovernorStore;
 	enqueue?: (title: string, description: string) => string;
 }): OversizedFile[] {
 	const findings = oversizedMergedFiles(
@@ -75,7 +74,7 @@ export function flagIntegratedCode(options: {
 		options.changedThrough,
 	);
 	if (options.dryRun || !findings.length) return findings;
-	const db = options.db ?? openGovernorDb();
+	const db = options.db ?? openStore();
 	const project = projectIdentity(options.repo);
 	for (const file of findings) {
 		const title = `DRY and decompose ${file.path}`;

@@ -29,14 +29,15 @@ import {
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
 } from "../lib/harness-manifest.ts";
+import type { Database } from "bun:sqlite";
 import {
-	openGovernorDb,
+	openStore,
 	projectIdentity,
 	projectRootOf,
 	sweepStaleSessions,
 } from "../lib/govdb.ts";
 
-const db = openGovernorDb();
+const db = openStore();
 const now = Date.now();
 const fix = process.argv.includes("--fix");
 // published coordinator identity (coord fact set coordinator.sid) — the
@@ -103,7 +104,9 @@ for (const s of db
 					`COORDINATOR ${s.sid.slice(0, 8)} hb stale ${ageH}h — left RUNNING (sleeping between waves)`,
 				);
 			}
-		} else if (fix) {
+		} else if (fix && db.local) {
+			// W92 seam: transcript-derived writes sweep THIS host only — a remote
+			// binding's transcript view would close live sessions (govdb law)
 			db.query(
 				"UPDATE sessions SET state = 'CLOSED' WHERE sid = ? AND state = 'RUNNING'",
 			).run(s.sid);
@@ -723,8 +726,10 @@ try {
 // automagic hygiene: the shared liveness sweep rides along with --fix only —
 // a read-only pass closes nothing (monitor doctrine: alerts first). The
 // always-on sweep points are session-start, coord bootstrap, and coord gc.
-if (fix) {
-	const swept = sweepStaleSessions(db);
+if (fix && db.local) {
+	// W92 seam: the liveness sweep reads THIS host's transcripts — remote
+	// bindings degrade to an alert-only pass (monitor doctrine: alerts first)
+	const swept = sweepStaleSessions(db as Database);
 	if (swept)
 		fixed.push(
 			`swept ${swept} stale session(s) (hb-stale + transcript-dead; coordinator/waiting kept)`,

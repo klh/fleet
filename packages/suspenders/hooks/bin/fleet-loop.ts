@@ -42,7 +42,7 @@ import {
 	safeToRetire,
 	retirementProcessLive,
 } from "../lib/lane-registry.ts";
-import { openStore, openGovernorDb, projectIdentity } from "../lib/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import { itemClaimOf } from "../lib/ladder-lease.ts";
 import { flushOnDoneWait } from "../lib/merge-on-done.ts";
@@ -424,7 +424,7 @@ function mergeFail(b: string, tail: string): void {
 		`FAIL ${b} — isolated ladder rejected, shared checkout preserved, branch left for inspection${tail ? `: ${tail}` : ""}`,
 	);
 	try {
-		openGovernorDb()
+		openStore()
 			.query(
 				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'NEED_DECISION', ?, ?, NULL)",
 			)
@@ -535,7 +535,7 @@ function mergeOne(b: string): void {
 		// work.landed on the bus: waiting lanes use `coord wait --kinds
 		// work.landed --scope <item>` instead of /tmp poll scripts
 		try {
-			openGovernorDb()
+			openStore()
 				.query(
 					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'work.landed', ?, ?, NULL)",
 				)

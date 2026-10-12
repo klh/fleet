@@ -9,8 +9,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
+const SERVER = join(ROOT, "hooks", "bin", "store-server.ts");
 const home = mkdtempSync(join(process.cwd(), ".store-port-consumers-"));
+const procs: ReturnType<typeof Bun.spawn>[] = [];
 afterAll(() => {
+	for (const p of procs) p.kill();
 	rmSync(home, { recursive: true, force: true });
 });
 
@@ -30,12 +33,13 @@ const run = (
 	rel: string,
 	args: string[] = [],
 	stdin = "",
+	env: Record<string, string> = {},
 ): { code: number; out: string; err: string } => {
 	const payload = join(home, `payload-${Math.random().toString(36).slice(2)}`);
 	if (stdin) writeFileSync(payload, stdin);
 	const p = Bun.spawnSync(["bun", join(ROOT, rel), ...args], {
 		cwd: ROOT,
-		env: childEnv(),
+		env: { ...childEnv(), ...env },
 		stdin: stdin ? Bun.file(payload) : "ignore",
 		stdout: "pipe",
 		stderr: "pipe",
@@ -45,6 +49,33 @@ const run = (
 		out: p.stdout.toString(),
 		err: p.stderr.toString(),
 	};
+};
+
+// W92.3: HTTP-transport proof — the store server under this temp HOME, so the
+// consumer children can bind GOVERNOR_STORE_URL to a live wire binding.
+const freePort = async (): Promise<number> => {
+	const s = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+	const p = s.port;
+	s.stop(true);
+	return p;
+};
+const startServer = async (port: number): Promise<string> => {
+	const p = Bun.spawn(["bun", SERVER, "--port", String(port)], {
+		env: childEnv(),
+		stdin: "ignore",
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	procs.push(p);
+	const url = `http://127.0.0.1:${port}`;
+	for (let i = 0; i < 50; i++) {
+		try {
+			const r = await fetch(`${url}/health`);
+			if (r.ok) return url;
+		} catch {}
+		await new Promise((r) => setTimeout(r, 100));
+	}
+	throw new Error("store server did not come up");
 };
 
 describe("W102 store-port consumers", () => {
@@ -129,5 +160,54 @@ describe("W102 store-port consumers", () => {
 		} finally {
 			rmSync(fresh, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("W92.3 store-port consumers (monitor/harvest/claim/worktree/fleet-loop)", () => {
+	test("claim rides the port (list/doctor on a fresh registry)", () => {
+		const l = run("hooks/bin/claim.ts", ["list", "--json"]);
+		expect(l.code).toBe(0);
+		expect(JSON.parse(l.out)).toEqual([]);
+		const d = run("hooks/bin/claim.ts", ["doctor"]);
+		expect(d.code).toBe(0);
+		expect(d.out).toContain("registry clean");
+	});
+
+	test("monitor passes read-only through the port", () => {
+		const r = run("hooks/bin/monitor.ts");
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("health clean");
+	});
+
+	test("worktree sweep --dry-run reads the graph through the port", () => {
+		const r = run("hooks/bin/worktree.ts", ["sweep", "--dry-run"]);
+		expect(r.code).toBe(0);
+		expect(r.out).toMatch(/sweep: would-sweep=\d+ unmerged=\d+ kept=\d+/);
+	});
+
+	test("harvest scan reads transcripts through the port (writes nothing)", () => {
+		const r = run("hooks/bin/harvest.ts", ["scan", "--repo", ROOT]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("0 transcripts");
+	});
+
+	test("fleet-loop lanes smoke through the port", () => {
+		const r = run("hooks/bin/fleet-loop.ts", ["lanes", "--repo", ROOT]);
+		expect(r.code).toBe(0);
+	});
+
+	test("the consumers bind the HTTP transport (store over the wire)", async () => {
+		const port = await freePort();
+		const url = await startServer(port);
+		const claim = run("hooks/bin/claim.ts", ["list", "--json"], "", {
+			GOVERNOR_STORE_URL: url,
+		});
+		expect(claim.code).toBe(0);
+		expect(JSON.parse(claim.out)).toEqual([]);
+		const mon = run("hooks/bin/monitor.ts", [], "", {
+			GOVERNOR_STORE_URL: url,
+		});
+		expect(mon.code).toBe(0);
+		expect(mon.out).toContain("health clean");
 	});
 });
