@@ -3,7 +3,23 @@
 // record the checkpoint's commit time (freshness/age ride the payload), and
 // resume briefs carry a COMPUTED reconciliation verdict from real git
 // evidence instead of a "reconcile with the worktree" admonition.
+// W687: the item capsule facts key is PROJECT-SCOPED — item ids are
+// per-project sequences, so the old global work.<id>.capsule made two
+// projects' same-numbered items share one capsule.
+import { createHash } from "node:crypto";
 import { run } from "./run.ts";
+
+// W687: the item capsule key's project tag — a short sha256 of the graph
+// identity (projectIdentity(): the string work_items.project carries), so
+// every accessor resolving the identity from its own cwd lands on one key.
+export const capsuleProjectTag = (project: string): string =>
+	createHash("sha256").update(project).digest("hex").slice(0, 16);
+
+// The one key builder for item capsules — writers (coord capsule set) and
+// readers (work show, capsuleEvidence, rekey) share it; never inline the
+// literal anywhere.
+export const itemCapsuleKey = (project: string, item: string): string =>
+	`work.capsule.${capsuleProjectTag(project)}.${item}`;
 
 export const CAPSULE_MAX_BYTES = 2048;
 

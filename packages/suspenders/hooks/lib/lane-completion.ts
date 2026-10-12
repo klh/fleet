@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { run } from "./run.ts";
 import { openGovernorDb } from "./govdb.ts";
+import { projectIdentity } from "./govdb-project.ts";
+import { itemCapsuleKey } from "./capsule-fence.ts";
 import type { HookInput } from "./hookio.ts";
 
 type Context = {
@@ -19,7 +21,8 @@ type Context = {
 // stop_hook_active (true on every stop after the first of an episode), after
 // which the existing 2-re-ask → FAILED bound runs unchanged. W577: parking is
 // EVIDENCE, not declaration — the ONLY capsule that may park a stop is the
-// item-authoritative one (work.<item>.capsule, source column = the owner sid)
+// item-authoritative one (the project-scoped itemCapsuleKey, source column =
+// the owner sid)
 // whose checkpoint is a real commit strictly ahead of the lane's dispatch
 // baseline and reachable from HEAD, banked fresh (row ts). A legacy
 // lane-scoped, other-item, other-owner, baseline-equal or stale capsule must
@@ -34,18 +37,20 @@ function clip(s: string, n: number): string {
 	return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
 
-/** The item-authoritative capsule, parsed: work.<item>.capsule, written by
- * the owner sid (facts source column), with a row ts proving the evidence is
- * fresh. Anything else — legacy lane-scoped, other-owner, stale — is null. */
+/** The item-authoritative capsule, parsed: the project-scoped itemCapsuleKey
+ * (W687), written by the owner sid (facts source column), with a row ts
+ * proving the evidence is fresh. Anything else — legacy lane-scoped,
+ * other-owner, stale — is null. */
 export function capsuleEvidence(
 	item: string,
 	sid: string,
+	project: string,
 ): { checkpoint?: unknown; done?: unknown; next?: unknown } | null {
 	let row: { value?: unknown; source?: unknown; ts?: unknown } | undefined;
 	try {
 		row = openGovernorDb()
 			.query("SELECT value, source, ts FROM facts WHERE key = ?")
-			.get(`work.${item}.capsule`);
+			.get(itemCapsuleKey(project, item));
 	} catch {
 		return null;
 	}
@@ -70,7 +75,11 @@ export function capsuleEvidence(
 /** The one capsule checkpoint allowed to park: fresh, owner-banked on the
  * item key, and git-proven strictly-new progress over the dispatch baseline. */
 function parkedCheckpoint(wt: string, context: Context): string | null {
-	const cap = capsuleEvidence(context.item, context.sid);
+	const cap = capsuleEvidence(
+		context.item,
+		context.sid,
+		projectIdentity(wt),
+	);
 	if (!cap) return null;
 	const sha =
 		typeof cap.checkpoint === "string" && CAPSULE_SHA.test(cap.checkpoint)

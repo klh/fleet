@@ -3,6 +3,8 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import { projectIdentity } from "../hooks/lib/govdb-project.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fleet-capsule-"));
 const home = join(root, "home");
@@ -99,7 +101,8 @@ test("a real commit banks with the owner as the facts source", () => {
 			`--checkpoint=${sha}`,
 		).code,
 	).toBe(0);
-	const cap = JSON.parse(row("work.W999.capsule")?.value ?? "{}");
+	const capKey = itemCapsuleKey(projectIdentity(repo), "W999");
+	const cap = JSON.parse(row(capKey)?.value ?? "{}");
 	expect(cap.checkpoint).toBe(sha);
-	expect(row("work.W999.capsule")?.source).toBe("lane-y");
+	expect(row(capKey)?.source).toBe("lane-y");
 });
