@@ -119,6 +119,17 @@ function runOnHub(hub: HubProfile, script: string): string {
 	return execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
 }
 
+/** runOnHub with the exec leg bounded (W671): null when the hub cannot be
+ *  reached (ssh down, local exec failed) — callers degrade to unreachable
+ *  verdicts instead of dying on the throw. */
+function tryRunOnHub(hub: HubProfile, script: string): string | null {
+	try {
+		return runOnHub(hub, script);
+	} catch {
+		return null;
+	}
+}
+
 /** Copy a file to the hub host (scp legacy protocol — Synology sshd has no
  *  SFTP subsystem; the hub's deploy.dir must exist). */
 function copyToHub(hub: HubProfile, src: string, dest: string): void {
@@ -273,27 +284,35 @@ function upHub(
 function status(hub: HubProfile): number {
 	const docker = hub.deploy?.docker ?? "docker";
 	const dir = requireDir(hub);
-	const ps = runOnHub(
+	const ps = tryRunOnHub(
 		hub,
 		`${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} ps --format json`,
-	).trim();
+	);
 	let failed = 0;
-	for (const line of ps.split("\n").filter((l) => l.startsWith("{"))) {
-		try {
-			const row = JSON.parse(line) as {
-				Service?: string;
-				State?: string;
-				Health?: string;
-			};
-			const svc = row.Service ?? "?";
-			const ok =
-				row.State === "running" && (!row.Health || row.Health === "healthy");
-			if (!ok) failed++;
-			console.log(
-				`${ok ? "✓" : "✗"} ${svc}: ${row.State ?? "?"}${row.Health ? ` (${row.Health})` : ""}`,
-			);
-		} catch {
-			failed++;
+	if (ps === null) {
+		// W671: hub exec leg dead — a bounded verdict per leg, never a crash
+		failed++;
+		console.log(
+			`✗ containers: hub unreachable (${hub.deploy?.ssh ?? "local exec"})`,
+		);
+	} else {
+		for (const line of ps.split("\n").filter((l) => l.startsWith("{"))) {
+			try {
+				const row = JSON.parse(line) as {
+					Service?: string;
+					State?: string;
+					Health?: string;
+				};
+				const svc = row.Service ?? "?";
+				const ok =
+					row.State === "running" && (!row.Health || row.Health === "healthy");
+				if (!ok) failed++;
+				console.log(
+					`${ok ? "✓" : "✗"} ${svc}: ${row.State ?? "?"}${row.Health ? ` (${row.Health})` : ""}`,
+				);
+			} catch {
+				failed++;
+			}
 		}
 	}
 	const probes: Array<[string, number, string]> = [
@@ -305,10 +324,16 @@ function status(hub: HubProfile): number {
 	];
 	for (const [svc, port, path] of probes) {
 		if (!port) continue;
-		const code = runOnHub(
+		const out = tryRunOnHub(
 			hub,
 			`curl --max-time 5 -so /dev/null -w '%{http_code}' http://127.0.0.1:${port}${path} || true`,
-		).trim();
+		);
+		if (out === null) {
+			failed++;
+			console.log(`✗ ${svc} :${port}${path} → unreachable`);
+			continue;
+		}
+		const code = out.trim();
 		const ok = code === "200";
 		if (!ok) failed++;
 		console.log(
