@@ -27,7 +27,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { openGovernorDb } from "../lib/govdb.ts";
+import { openGovernorDb, openStore } from "../lib/govdb.ts";
 import { urlInQuietHours } from "../lib/stack-config.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
@@ -350,6 +350,32 @@ export function emitAlerts(alerts: Alert[]): void {
 	appendFileSync(NDJSON_PATH, `${rows.join("\n")}\n`, { mode: 0o600 });
 }
 
+// W695.2: a DROP (scrapes failing past the miss threshold) is the fleet's
+// hub-down signal — put it on the bus so the notify daemon can fan it out.
+export function emitHubDown(
+	alerts: Alert[],
+	insert: (kind: string, scope: string, payload: string) => void = (
+		kind,
+		scope,
+		payload,
+	) =>
+		void openStore()
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'metrics-alert', ?, ?, ?, NULL)",
+			)
+			.run(Date.now(), kind, scope, payload),
+): number {
+	let n = 0;
+	for (const a of alerts) {
+		if (a.kind !== "DROP") continue;
+		try {
+			insert("hub.down", a.target, JSON.stringify({ note: a.detail }));
+			n++;
+		} catch {}
+	}
+	return n;
+}
+
 // ---- main (guarded: importable by tests) ----------------------------------
 
 // W483: a quiet-hours hub is EXPECTED dark — skip the scrape (no DROP
@@ -382,6 +408,7 @@ export async function runPass(
 		: (a: Alert) => console.log(formatAlert(a));
 	for (const a of alerts) emit(a);
 	emitAlerts(alerts);
+	emitHubDown(alerts);
 	saveState(s);
 	return alerts.length;
 }
