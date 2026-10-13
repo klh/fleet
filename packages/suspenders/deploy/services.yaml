@@ -257,6 +257,8 @@ services:
   - name: local-llm
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["serve"]
+    env:
+      BELT_WIRED_GUARD_GB: "90"
     schedule: { keepalive: true }
     logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
     placeholders: ["__BUN__", "__HOME__"]
