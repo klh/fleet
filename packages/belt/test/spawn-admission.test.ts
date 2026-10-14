@@ -95,3 +95,15 @@ test("persistence failure cancels the newly spawned process", () => {
 	).toThrow();
 	expect(cancelled).toBe(true);
 });
+
+test("BELT_WIRED_GUARD_GB clamp: empty/garbage env falls back to 60", async () => {
+	process.env.BELT_WIRED_GUARD_GB = "";
+	expect((await import("../bin/spawner.ts")).WIRED_GUARD_GB).toBe(60);
+	process.env.BELT_WIRED_GUARD_GB = "garbage";
+	const garbage = await import("../bin/spawner.ts?clamp=garbage");
+	expect(
+		Number.isFinite(garbage.WIRED_GUARD_GB) && garbage.WIRED_GUARD_GB > 0,
+	).toBe(true);
+	expect(garbage.WIRED_GUARD_GB).toBe(60);
+	delete process.env.BELT_WIRED_GUARD_GB;
+});

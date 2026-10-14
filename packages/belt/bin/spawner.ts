@@ -136,7 +136,12 @@ const pidAlive = (pid: number): boolean =>
 // vm_stat wired pages × 16KB (arm64 page size). A cold load of a 22GB model
 // on a wired-heavy machine is the OOM mechanism itself — refuse it and the
 // ladder falls through to the next route.
-export const WIRED_GUARD_GB = Number(process.env.BELT_WIRED_GUARD_GB ?? 60);
+// clamp: empty env → Number("") = 0 (refuse every load); garbage → NaN
+// (comparisons false, guard never trips — fail-open OOM). glm-5.3 review
+// of f4aad15c: env knobs validate or fall back to the default.
+const rawWiredGb = Number(process.env.BELT_WIRED_GUARD_GB ?? 60);
+export const WIRED_GUARD_GB =
+	Number.isFinite(rawWiredGb) && rawWiredGb > 0 ? rawWiredGb : 60;
 export const wiredGb = (): number => {
 	const out = Bun.spawnSync(["/usr/bin/vm_stat"]).stdout.toString();
 	const m = /Pages wired down:\s+(\d+)/.exec(out);
