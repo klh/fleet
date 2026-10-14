@@ -16,7 +16,6 @@ import {
 	scrubRules,
 	scrubText,
 } from "../hooks/lib/scrub.ts";
-import { firstPushBase } from "../hooks/lib/scrub-git.ts";
 
 setDefaultTimeout(30_000);
 
@@ -269,12 +268,7 @@ describe("scrub-gate bin: hook push (W708)", () => {
 		const refFile = join(HOME, `refs-${n++}.txt`);
 		writeFileSync(refFile, refLine);
 		const p = Bun.spawnSync(
-			[
-				process.execPath,
-				join(HOOKS, "bin", "scrub-gate.ts"),
-				"hook",
-				"push",
-			],
+			[process.execPath, join(HOOKS, "bin", "scrub-gate.ts"), "hook", "push"],
 			{
 				cwd: REPO,
 				env: { ...process.env, HOME },
@@ -404,8 +398,11 @@ describe("scrub lib: diff parser", () => {
 				"+one",
 				"diff --git a/b.md b/b.md",
 				"index 333..444 100644",
-				"--- a/b.md",
-				"+++ b/b.md",
+				"old mode 100644",
+				"new mode 100755",
+				"similarity index 90%",
+				"rename from a/old.md",
+				"rename to b/new.md",
 				"@@ -0,0 +1,1 @@",
 				"+two",
 			].join("\n"),
@@ -413,6 +410,26 @@ describe("scrub lib: diff parser", () => {
 		expect(lines.map((l) => [l.file, l.line])).toEqual([
 			["a.md", 1],
 			["b.md", 1],
+		]);
+	});
+
+	test("header-lookalike content scans; added @@-lookalike is content (opus-review refutation)", () => {
+		const lines = addedDiffLines(
+			[
+				"diff --git a/c.md b/c.md",
+				"index 555..666 100644",
+				"@@ -1,2 +1,4 @@",
+				" ctx",
+				"+diff --git a/fake b/fake", // header-lookalike CONTENT — must scan
+				"+@@ not a hunk header", // @@-lookalike CONTENT — must scan
+				"-removed",
+				"+fourth",
+			].join("\n"),
+		);
+		expect(lines.map((l) => l.text)).toEqual([
+			"diff --git a/fake b/fake",
+			"@@ not a hunk header",
+			"fourth",
 		]);
 	});
 
