@@ -39,6 +39,7 @@ import {
 } from "../../../scripts/lib/launch-fencing.ts";
 import { launchParent } from "../../../scripts/lib/launch-parent.ts";
 import { laneAttemptLimit } from "../../../scripts/lib/lane-retry-budget.ts";
+import { reproGateForItem } from "../repro-gate.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
 import { flagFns, type LoopConfig } from "./config.ts";
 import type { LoopDeps } from "./runtime.ts";
@@ -97,6 +98,13 @@ if (!bin) {
 const store = openStore(),
 	project = projectIdentity(REPO),
 	nonce = crypto.randomUUID();
+// W743 repro-first gate: a re-mint of a FAILED item re-dispatches only with
+// evidence of record (repro artifact / no-repro reason / death-log exemption).
+const refusal = reproGateForItem(store, project, item);
+if (refusal) {
+	console.error(`REFUSED ${item} — ${refusal}`);
+	process.exit(1);
+}
 let revision: number | undefined,
 	intent: LaunchIntent | undefined,
 	proc: Bun.Subprocess | undefined,

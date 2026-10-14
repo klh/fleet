@@ -58,6 +58,7 @@ import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import { reproGateRefusal } from "../lib/repro-gate.ts";
 import {
 	defineVerb,
 	dieFor,
@@ -166,6 +167,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "fail",
+		usage:
+			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid]',
 		flags: [...ITEM_FLAGS],
 	}),
 	defineVerb({
@@ -684,8 +687,15 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			}
 			evidence = evRaw;
 		}
-		const id = parent ? nextChildId(parent) : nextRootId();
 		if (parent) get(parent);
+		// W743 repro-first gate: a re-mint of a FAILED item must carry evidence
+		const remintRefusal = reproGateRefusal(
+			db(),
+			PROJECT,
+			`${title} ${flag("--desc") ?? ""}`,
+		);
+		if (remintRefusal) die(remintRefusal);
+		const id = parent ? nextChildId(parent) : nextRootId();
 		insertItem(
 			id,
 			parent,
