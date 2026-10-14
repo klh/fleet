@@ -21,12 +21,7 @@ import {
 // no-default-branch diffs diff against it
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-const DEFAULT_BRANCHES = [
-	"origin/main",
-	"origin/master",
-	"main",
-	"master",
-];
+const DEFAULT_BRANCHES = ["origin/main", "origin/master", "main", "master"];
 
 const git = (args: string[], repoDir: string) =>
 	run("git", args, { cwd: repoDir });
@@ -70,9 +65,7 @@ export const binaryPaths = (numstat: string): string[] =>
 export function stagedBinaryFindings(repoDir: string): ScrubFinding[] {
 	const d = git(["diff", "--cached", "--numstat"], repoDir);
 	if (!d.ok) return [];
-	return binaryPaths(d.out).flatMap((p) =>
-		blobFindings(repoDir, `:${p}`, p),
-	);
+	return binaryPaths(d.out).flatMap((p) => blobFindings(repoDir, `:${p}`, p));
 }
 
 // per-commit scan of base..tip: each commit's own -U0 diff (an
@@ -84,7 +77,10 @@ export function commitRangeFindings(
 	base: string,
 	tip: string,
 ): ScrubFinding[] {
-	const rl = git(["rev-list", `${base}..${tip}`], repoDir);
+	// EMPTY_TREE is a tree-ish — rev-list only walks commits, so a degenerate
+	// base lists every reachable commit from the tip instead.
+	const range = base === EMPTY_TREE ? tip : `${base}..${tip}`;
+	const rl = git(["rev-list", range], repoDir);
 	if (!rl.ok) return [];
 	const out: ScrubFinding[] = [];
 	for (const raw of rl.out.split("\n")) {
@@ -94,14 +90,7 @@ export function commitRangeFindings(
 		if (!d.ok) d = git(["diff", EMPTY_TREE, sha, "-U0", "--no-color"], repoDir); // root commit
 		if (d.ok) out.push(...scrubAddedLines(addedDiffLines(d.out), scrubRules()));
 		const nd = git(
-			[
-				"diff-tree",
-				"-r",
-				"--root",
-				"--no-commit-id",
-				"--numstat",
-				sha,
-			],
+			["diff-tree", "-r", "--root", "--no-commit-id", "--numstat", sha],
 			repoDir,
 		);
 		if (nd.ok)
@@ -122,7 +111,12 @@ export function firstPushBase(repoDir: string, tip: string): string {
 		);
 		if (!c.ok) continue;
 		const mb = git(["merge-base", ref, tip], repoDir);
-		if (mb.ok && mb.out.trim()) return mb.out.trim();
+		if (!mb.ok || !mb.out.trim()) continue;
+		// pushed branch IS this default branch: merge-base == tip empties the
+		// base..tip range (glm-5.3 review) — fall through so a default-branch
+		// first push scans the whole tip via the EMPTY_TREE leg.
+		if (mb.out.trim() === tip.trim()) continue;
+		return mb.out.trim();
 	}
 	return EMPTY_TREE;
 }

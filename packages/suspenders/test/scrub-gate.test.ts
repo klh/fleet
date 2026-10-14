@@ -303,6 +303,19 @@ describe("scrub-gate bin: hook push (W708)", () => {
 		expect(r.out).toContain("atr.md:1");
 		sh(["checkout", "main"]);
 	});
+
+	test("default-branch first push (zeros sha) scans the whole tip", () => {
+		sh(["checkout", "-q", "main"]);
+		writeFileSync(join(REPO, "mainleak.md"), `dir ${HOME_LEAK_DIR}\n`);
+		sh(["add", "mainleak.md"]);
+		sh(["commit", "-m", "mainleak"]);
+		const tip = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		const r = hookPush(
+			`refs/heads/main ${tip} refs/heads/main ${"0".repeat(40)}\n`,
+		);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("mainleak.md:1");
+	});
 });
 
 describe("scrub gate: kill switch", () => {
