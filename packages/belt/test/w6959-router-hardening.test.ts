@@ -64,6 +64,52 @@ describe("enqueue-after-cancel guard", () => {
 		// pre-W278 this was an unhandled rejection (enqueue on cancelled stream)
 		expect(upstreamCancelled).toBe(true);
 	});
+
+	test("cancel mid-stream: onDone fires exactly once (double-done guard)", async () => {
+		let onDoneCalls = 0;
+		const upstream = new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(enc.encode(sseChunk("a")));
+			},
+		});
+		const reader = anthropicSseFromOpenAi(
+			upstream,
+			{ id: "msg_t", model: "x", routing: { port: 8901 } },
+			() => {
+				onDoneCalls++;
+			},
+		).getReader();
+		await reader.read(); // head + first delta
+		await reader.cancel("bye");
+		await Bun.sleep(20);
+		// cancel's done('client cancelled') and the eof-wake's done() must not
+		// double-fire — the finished latch is the W278 invariant
+		expect(onDoneCalls).toBe(1);
+	});
+
+	test("upstream error mid-stream: error event, close, onDone once", async () => {
+		const upstream = new ReadableStream<Uint8Array>({
+			start(c) {
+				c.error(new Error("upstream blew up"));
+			},
+		});
+		let finished: { chars: number; error?: string } | undefined;
+		const r = anthropicSseFromOpenAi(
+			upstream,
+			{ id: "msg_t", model: "x", routing: { port: 8901 } },
+			(r) => (finished = r),
+		).getReader();
+		const chunks: string[] = [];
+		for (;;) {
+			const { value, done } = await r.read();
+			if (done) break;
+			chunks.push(new TextDecoder().decode(value));
+		}
+		// the catch branch owns the error path while the client is still
+		// reading — the W278 guard must not suppress a legitimate error event
+		expect(chunks.join("").includes("upstream blew up")).toBe(true);
+		expect(finished?.error).toBe("upstream blew up");
+	});
 });
 
 // ─── TTFB-only timeout ───

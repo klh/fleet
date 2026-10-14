@@ -454,13 +454,17 @@ export async function openLocalStream(
 	temperature: number,
 	opts: CallOpts = {},
 ): Promise<StreamOpen> {
+	// W739 (opus-review f2f5602a): the TTFB timer was only disarmed on the
+	// open-success path — a failed open (ECONNREFUSED) left it armed for the
+	// full window. Self-expiring, but ref'd; clear on every exit path.
+	let ttfb: ReturnType<typeof setTimeout> | undefined;
 	try {
 		// W278: connect/TTFB-only timeout — AbortSignal.timeout stayed armed
 		// through the body and cut healthy streams >120s mid-generation. Once
 		// headers land the pump + client cancel() own the body; a stale one-shot
 		// fire after a failed open only aborts an orphaned controller (no-op).
 		const ctrl = new AbortController();
-		const ttfb = setTimeout(
+		ttfb = setTimeout(
 			() => ctrl.abort(new Error("ttfb timeout")),
 			opts.timeoutMs ?? 120_000,
 		);
@@ -498,14 +502,12 @@ export async function openLocalStream(
 		// forever. Cap it at the same open window; the abort frees the
 		// still-bound body.
 		const raw = await new Promise<string>((resolve) => {
-			const t = setTimeout(
-				() => {
-					ctrl.abort(new Error("error-body stall"));
-					resolve("");
-				},
-				opts.timeoutMs ?? 120_000,
-			);
-			res.text()
+			const t = setTimeout(() => {
+				ctrl.abort(new Error("error-body stall"));
+				resolve("");
+			}, opts.timeoutMs ?? 120_000);
+			res
+				.text()
 				.catch(() => "")
 				.then((s) => {
 					clearTimeout(t);
@@ -522,6 +524,7 @@ export async function openLocalStream(
 			error: `${res.status} ${ct || "no content-type"}${raw ? ` | raw: ${raw.slice(0, 120)}` : ""}`,
 		};
 	} catch (e) {
+		if (ttfb) clearTimeout(ttfb);
 		return { ok: false, error: e instanceof Error ? e.message : String(e) };
 	}
 }

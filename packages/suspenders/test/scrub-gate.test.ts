@@ -16,10 +16,7 @@ import {
 	scrubRules,
 	scrubText,
 } from "../hooks/lib/scrub.ts";
-import {
-	commitRangeFindings,
-	EMPTY_TREE,
-} from "../hooks/lib/scrub-git.ts";
+import { commitRangeFindings, EMPTY_TREE } from "../hooks/lib/scrub-git.ts";
 
 setDefaultTimeout(30_000);
 
@@ -484,5 +481,53 @@ describe("scrub lib: diff parser", () => {
 				match: `sk-${"a".repeat(5)}…`,
 			},
 		]);
+	});
+
+	test("real git -U0 diffs scan fully: metadata, rename, no-eol (W739)", () => {
+		const repo = mkdtempSync(join(tmpdir(), "scrub-realgit-"));
+		const g = (args: string[]) => {
+			const p = Bun.spawnSync(["git", ...args], {
+				cwd: repo,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			if (p.exitCode !== 0)
+				throw new Error(`git ${args[0]}: ${p.stderr.toString()}`);
+			return p.stdout.toString();
+		};
+		g(["init", "-b", "main"]);
+		g(["config", "user.email", "t@t.invalid"]);
+		g(["config", "user.name", "t"]);
+		g(["config", "commit.gpgsign", "false"]);
+		writeFileSync(join(repo, "base.txt"), "clean\nmore\n");
+		g(["add", "."]);
+		g(["commit", "-m", "base"]);
+		writeFileSync(
+			join(repo, "leaky.txt"),
+			`dir /Users/kk/dev/x\n+++ /Users/kk/dev/y\n`, // scrub:allow
+		);
+		writeFileSync(join(repo, "nn.txt"), "tail /Users/kk/dev/q"); // scrub:allow
+		g(["add", "."]);
+		g(["commit", "-m", "c1"]);
+		// the exact per-commit command scrub-git.ts feeds the parser
+		const d1 = g(["diff", "HEAD^", "HEAD", "-U0", "--no-color"]);
+		expect(
+			scrubAddedLines(addedDiffLines(d1), scrubRules()).map(
+				(f) => `${f.file}:${f.line}`,
+			),
+		).toEqual(["leaky.txt:1", "leaky.txt:2", "nn.txt:1"]);
+		g(["mv", "base.txt", "moved.txt"]);
+		writeFileSync(
+			join(repo, "moved.txt"),
+			"clean\nmore\nleak /Users/kk/dev/z\n", // scrub:allow
+		);
+		g(["add", "."]);
+		g(["commit", "-m", "c2"]);
+		const d2 = g(["diff", "HEAD^", "HEAD", "-U0", "--no-color"]);
+		expect(
+			scrubAddedLines(addedDiffLines(d2), scrubRules()).map(
+				(f) => `${f.file}:${f.line}`,
+			),
+		).toEqual(["moved.txt:3"]);
 	});
 });
