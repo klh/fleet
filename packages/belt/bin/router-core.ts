@@ -493,7 +493,25 @@ export async function openLocalStream(
 					? { openedAt: performance.now() }
 					: {}),
 			};
-		const raw = await res.text().catch(() => "");
+		// W732: post-header non-SSE bodies have no pump/client-cancel owner —
+		// a header-then-stall upstream hung this drain (and the request)
+		// forever. Cap it at the same open window; the abort frees the
+		// still-bound body.
+		const raw = await new Promise<string>((resolve) => {
+			const t = setTimeout(
+				() => {
+					ctrl.abort(new Error("error-body stall"));
+					resolve("");
+				},
+				opts.timeoutMs ?? 120_000,
+			);
+			res.text()
+				.catch(() => "")
+				.then((s) => {
+					clearTimeout(t);
+					resolve(s);
+				});
+		});
 		return {
 			ok: false,
 			status: res.status,
