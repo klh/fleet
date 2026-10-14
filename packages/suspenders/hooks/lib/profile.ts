@@ -4,8 +4,10 @@
 // key custody — toward the hub a spoke presents the enrollment token as a
 // client credential and never verifies anyone; local trust is the loopback.
 // install.sh --profile spoke writes capabilities.json with the hub-only flags
-// off AND excludes the hub-only modules (lib/auth.ts, lib/auth-server.ts,
-// bin/auth.ts) from the copied harness; hub (default) = full profile — the
+// off AND excludes the hub-only modules (hooks/lib/auth.ts,
+// hooks/lib/auth-server.ts, hooks/bin/auth.ts, hooks/lib/hub-tokens.ts,
+// hooks/board/routes-hub-admin.ts) from the copied harness; hub (default) =
+// full profile — the
 // single-machine dev case (hub==spoke, this box) runs the default install.
 // Missing capabilities.json = no profile was chosen = hub (backward compat).
 // A PRESENT but unreadable file fails SAFE: hub-only capabilities stay OFF
@@ -13,7 +15,7 @@
 // unparseable). The same names ride the federation policy pull
 // (buckle FedManifest.capabilities — pinned together by test/profile.test.ts)
 // so a spoke never expects hub-only surfaces.
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // ─── canonical names (the shared grammar — buckle mirrors these) ────────────
@@ -125,18 +127,36 @@ export function resolveCapabilities(raw: unknown): CapabilityFlags {
 	};
 }
 
+// per-request reads (fleet-board, store-server) repeat stat+parse on a file
+// that changes at most once per install — mtime-keyed cache, one stat per
+// read (glm-5.3 review low).
+const capCache = new Map<string, { mtimeMs: number; flags: CapabilityFlags }>();
+
 /** Read the installed capabilities.json. Absent = hub (dev exemption).
- *  Present-but-unreadable = fail safe (hub-only flags OFF). */
+ *  Present-but-unreadable = fail safe (hub-only flags OFF). Mtime-keyed
+ *  cached: a file rewrite invalidates via stat, same-ms writes are not a
+ *  case in practice. */
 export function readCapabilities(
 	file: string = capabilitiesFile(),
 ): CapabilityFlags {
-	if (!existsSync(file)) return hubCapabilities();
+	let mtimeMs = -1;
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		return resolveCapabilities(parsed);
+		mtimeMs = statSync(file).mtimeMs;
 	} catch {
-		return resolveCapabilities({}); // fail safe: hub-only OFF
+		// absent → hub below
 	}
+	const hit = capCache.get(file);
+	if (hit && hit.mtimeMs === mtimeMs) return hit.flags;
+	const flags = (() => {
+		if (mtimeMs < 0) return hubCapabilities();
+		try {
+			return resolveCapabilities(JSON.parse(readFileSync(file, "utf8")));
+		} catch {
+			return resolveCapabilities({}); // fail safe: hub-only OFF
+		}
+	})();
+	capCache.set(file, { mtimeMs, flags });
+	return flags;
 }
 
 export function hasCapability(

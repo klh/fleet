@@ -62,9 +62,11 @@ docs/codex-setup.md there); user-level copilot instructions in
 
 Spoke installs ship NO auth issuance / identity administration / key custody
 (toward the hub a spoke presents the enrollment token as a client credential;
-local trust is the loopback). `install.sh --profile spoke` excludes the
-hub-only modules (`lib/auth.ts`, `lib/auth-server.ts`, `bin/auth.ts`) from
-`$PREFIX` and writes `capabilities.json`; the store server mounts `/auth/*`
+local trust is the loopback). `install.sh --profile spoke` (the sync-harness.ts
+spoke payload) omits the hub-only modules (`hooks/lib/auth.ts`,
+`hooks/lib/auth-server.ts`, `hooks/bin/auth.ts`, `hooks/lib/hub-tokens.ts`,
+`hooks/board/routes-hub-admin.ts`) from `$PREFIX` and writes
+`capabilities.json`; the store server mounts `/auth/*`
 only under the `auth_issuance` flag (absent file = hub = the single-machine
 dev exemption; a present-but-unreadable file fails safe with hub-only OFF).
 The grammar (`hooks/lib/profile.ts`) is pinned to buckle's manifest builder
