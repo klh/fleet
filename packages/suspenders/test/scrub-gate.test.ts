@@ -16,6 +16,10 @@ import {
 	scrubRules,
 	scrubText,
 } from "../hooks/lib/scrub.ts";
+import {
+	commitRangeFindings,
+	EMPTY_TREE,
+} from "../hooks/lib/scrub-git.ts";
 
 setDefaultTimeout(30_000);
 
@@ -260,6 +264,29 @@ describe("scrub gate e2e: W708 range/binary holes", () => {
 		const r = gate("git commit -m bin");
 		expect(r.out).toContain("blob.bin:1");
 		sh(["reset"]);
+	});
+});
+
+describe("scrub lib: bounded range walk (glm-5.3 review)", () => {
+	test("newest-first cap: commits beyond the cap go unscanned", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "bounded"]);
+		for (let i = 0; i < 4; i++) {
+			// leaks only in the two OLDEST commits — the cap must skip them
+			writeFileSync(
+				join(REPO, `b${i}.md`),
+				i < 2 ? `dir ${HOME_LEAK_DIR}\n` : "clean\n",
+			);
+			sh(["add", `b${i}.md`]);
+			sh(["commit", "-m", `c${i}`]);
+		}
+		const head = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		const found = commitRangeFindings(REPO, EMPTY_TREE, head, 2);
+		expect(found).toHaveLength(0);
+		// the unbounded (default-cap) walk still catches the skipped leaks
+		const full = commitRangeFindings(REPO, EMPTY_TREE, head);
+		expect(full.length).toBeGreaterThan(0);
+		sh(["checkout", "main"]);
 	});
 });
 

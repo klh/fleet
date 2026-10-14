@@ -5,7 +5,6 @@
 // `git config core.hooksPath .githooks`). Exit 0 clean, 1 findings,
 // 2 usage. SUSPENDERS_SCRUB=0 disables everything.
 //   scrub-gate                     staged added lines (cwd repo)
-//   scrub-gate --push              upstream…worktree added lines
 //   scrub-gate --files <path…>     whole files, 1-based lines
 //   scrub-gate hook commit         .githooks/pre-commit entry
 //   scrub-gate hook push           .githooks/pre-push entry (stdin ref lines)
@@ -47,24 +46,6 @@ const stagedFindings = (): ScrubFinding[] => {
 		...scrubAddedLines(addedDiffLines(d.out), scrubRules()),
 		...stagedBinaryFindings(REPO),
 	];
-};
-
-// upstream…worktree added lines; no upstream → the first-push scan from the
-// merge-base with the default branch (a new branch's first push used to
-// scan nothing at all — W708)
-const pushFindings = (): ScrubFinding[] => {
-	const up = git([
-		"rev-parse",
-		"--abbrev-ref",
-		"--symbolic-full-name",
-		"@{upstream}",
-	]);
-	if (up.ok && up.out.trim()) {
-		const d = git(["diff", `${up.out.trim()}...`, "-U0", "--no-color"]);
-		if (!d.ok) return [];
-		return scrubAddedLines(addedDiffLines(d.out), scrubRules());
-	}
-	return commitRangeFindings(REPO, firstPushBase(REPO, "HEAD"), "HEAD");
 };
 
 // .githooks/pre-push leg: stdin carries `local_ref local_sha remote_ref
@@ -134,11 +115,6 @@ const VERBS: VerbSpec[] = [
 		switches: ["--json"],
 	}),
 	defineVerb({
-		name: "push",
-		usage: "usage: scrub-gate push — upstream…worktree added lines",
-		switches: ["--json"],
-	}),
-	defineVerb({
 		name: "files",
 		usage: "usage: scrub-gate files <path…> — whole files, 1-based lines",
 		minPos: 1,
@@ -160,7 +136,6 @@ await runCli({
 	dispatch: (name, p) => {
 		const json = p.rest.includes("--json");
 		if (name === "staged") process.exitCode = emit(stagedFindings(), json);
-		else if (name === "push") process.exitCode = emit(pushFindings(), json);
 		else if (name === "files")
 			process.exitCode = emit(fileFindings(p.pos), json);
 		else {

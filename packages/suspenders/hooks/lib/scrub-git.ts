@@ -21,6 +21,12 @@ import {
 // no-default-branch diffs diff against it
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+// newest-first cap on any base..tip range walk. A first push with no
+// resolvable default branch rev-lists everything reachable from the tip —
+// unbounded gate latency on a long-lived repo (glm-5.3 review). Deep audits
+// run scrub-gate files on explicit paths instead.
+export const SCRUB_RANGE_MAX_COMMITS = 200;
+
 const DEFAULT_BRANCHES = ["origin/main", "origin/master", "main", "master"];
 
 const git = (args: string[], repoDir: string) =>
@@ -76,16 +82,25 @@ export function commitRangeFindings(
 	repoDir: string,
 	base: string,
 	tip: string,
+	maxCommits: number = SCRUB_RANGE_MAX_COMMITS,
 ): ScrubFinding[] {
 	// EMPTY_TREE is a tree-ish — rev-list only walks commits, so a degenerate
-	// base lists every reachable commit from the tip instead.
+	// base lists every reachable commit from the tip instead. The walk is
+	// newest-first and capped (SCRUB_RANGE_MAX_COMMITS) so a first push on a
+	// long-lived repo stays bounded.
 	const range = base === EMPTY_TREE ? tip : `${base}..${tip}`;
-	const rl = git(["rev-list", range], repoDir);
+	const rl = git(["rev-list", `--max-count=${maxCommits}`, range], repoDir);
 	if (!rl.ok) return [];
+	const shas = rl.out
+		.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean);
+	if (shas.length >= maxCommits)
+		console.error(
+			`scrub-gate: scan bounded at ${maxCommits} newest commits — older history unscanned`,
+		);
 	const out: ScrubFinding[] = [];
-	for (const raw of rl.out.split("\n")) {
-		const sha = raw.trim();
-		if (!sha) continue;
+	for (const sha of shas) {
 		let d = git(["diff", `${sha}^`, sha, "-U0", "--no-color"], repoDir);
 		if (!d.ok) d = git(["diff", EMPTY_TREE, sha, "-U0", "--no-color"], repoDir); // root commit
 		if (d.ok) out.push(...scrubAddedLines(addedDiffLines(d.out), scrubRules()));

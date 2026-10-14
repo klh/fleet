@@ -110,6 +110,34 @@ describe("W165 file: capabilities.json resolution", () => {
 		}
 		rmSync(dir, { recursive: true, force: true });
 	});
+
+	test("rewrite invalidates the mtime cache (per-request reads)", () => {
+		const dir = mkdtempSync(join(process.cwd(), ".profile-test-"));
+		const file = join(dir, "capabilities.json");
+		writeFileSync(
+			file,
+			JSON.stringify({
+				auth_issuance: true,
+				identity_admin: true,
+				key_custody: true,
+			}),
+		);
+		expect(hasCapability(readCapabilities(file), CAP_AUTH_ISSUANCE)).toBe(
+			true,
+		);
+		writeFileSync(
+			file,
+			JSON.stringify({
+				auth_issuance: false,
+				identity_admin: false,
+				key_custody: false,
+			}),
+		);
+		expect(hasCapability(readCapabilities(file), CAP_AUTH_ISSUANCE)).toBe(
+			false,
+		);
+		rmSync(dir, { recursive: true, force: true });
+	});
 });
 
 describe("W165 grammar pin: suspenders ⇔ buckle", () => {
