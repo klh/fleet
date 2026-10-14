@@ -1,13 +1,18 @@
 // W661: closure walk + never-clobber overlay + scratch-port router smoke.
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	beltBinClosure,
+	flatHomeSource,
+	normalizeSource,
 	overlayBeltBin,
+	refreshFlatHome,
 	relativeImports,
+	shimRealSource,
 	smokeRouter,
+	verifyFlatHome,
 } from "./belt-bin-overlay.ts";
 
 const ROOT = join(import.meta.dir, "../../belt/bin");
@@ -72,6 +77,28 @@ test("overlay seeds an empty runtime with the full closure", async () => {
 	}
 });
 
+test("normalizeSource strips comments and blank lines", () => {
+	expect(
+		normalizeSource(
+			"// header\nconst a = 1; // trailing\n\nconst b = 2;\n",
+		),
+	).toBe("const a = 1;\nconst b = 2;");
+});
+
+test("shimRealSource maps the memory-policy shim to the real module", async () => {
+	expect(await shimRealSource(ROOT, "memory-policy.ts")).toBe(
+		join(import.meta.dir, "../../local-llm/memory-policy.ts"),
+	);
+	expect(await shimRealSource(ROOT, "health.ts")).toBeNull();
+});
+
+test("flatHomeSource resolves real modules over shims", async () => {
+	expect(await flatHomeSource(ROOT, "memory-policy.ts")).toBe(
+		join(import.meta.dir, "../../local-llm/memory-policy.ts"),
+	);
+	expect(await flatHomeSource(ROOT, "health.ts")).toBe(join(ROOT, "health.ts"));
+});
+
 test("overlay never clobbers a present runtime copy", async () => {
 	const runtime = await mkdtemp(join(tmpdir(), "fleet-overlay-kept-"));
 	try {
@@ -82,6 +109,52 @@ test("overlay never clobbers a present runtime copy", async () => {
 		expect(await readFile(join(runtime, "registry.ts"), "utf8")).toBe(
 			"// operator sentinel\n",
 		);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("refresh heals missing, diverged and shim-broken flat homes", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-heal-"));
+	try {
+		// the hazard state: raw shim where the flat home needs the real module
+		await writeFile(
+			join(runtime, "memory-policy.ts"),
+			await readFile(join(ROOT, "memory-policy.ts"), "utf8"),
+		);
+		await writeFile(join(runtime, "registry.ts"), "// operator sentinel\n");
+		const report = await refreshFlatHome(runtime, ENTRY, ROOT);
+		expect(report.healed).toContain("registry.ts");
+		expect(report.healed).toContain("memory-policy.ts");
+		expect(await readFile(join(runtime, "memory-policy.ts"), "utf8")).toBe(
+			await readFile(
+				join(import.meta.dir, "../../local-llm/memory-policy.ts"),
+				"utf8",
+			),
+		);
+		// a second pass agrees everywhere — nothing left to heal
+		const again = await refreshFlatHome(runtime, ENTRY, ROOT);
+		expect(again.healed).toEqual([]);
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("refresh fails closed while another refresh holds the lock", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-refresh-lock-"));
+	try {
+		await mkdir(join(runtime, ".belt-overlay.lock"));
+		await expect(refreshFlatHome(runtime, ENTRY, ROOT)).rejects.toThrow();
+	} finally {
+		await rm(runtime, { recursive: true, force: true });
+	}
+});
+
+test("verifyFlatHome rejects an unresolvable flat graph", async () => {
+	const runtime = await mkdtemp(join(tmpdir(), "fleet-verify-flat-"));
+	try {
+		await writeFile(join(runtime, "router-shim.ts"), 'import "./nope.ts";\n');
+		await expect(verifyFlatHome(runtime)).rejects.toThrow("nope");
 	} finally {
 		await rm(runtime, { recursive: true, force: true });
 	}

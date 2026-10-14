@@ -107,9 +107,12 @@ if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   # registry.ts and router-shim.ts come from belt/bin, and since W661 the
   # overlay ships router-shim's FULL import closure (the old hardcoded list
   # shipped router-shim.ts without ./audio.ts + ./escalate.ts — :4000 died on
-  # every spawn, ~95 launchd revives over 4h). Copies never clobber the
-  # runtime home (kept = the live fleet's possibly-customized source of truth).
-  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" overlay \
+  # every spawn, ~95 launchd revives over 4h). Since W741 the install runs the
+  # refresh verb: missing AND diverged closure files heal from the repo (the
+  # W741 drift tripwire's sanctioned remediation), re-export shims install
+  # their real module (lesson.flat-home-overlay-hazard), and the flattened
+  # import graph is resolution-proved (bun build) before the lock releases.
+  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" refresh \
     --runtime "$LLM_HOME" --entry "$SCRIPT_DIR/../belt/bin/router-shim.ts"
   # W661 self-check: the flattened runtime must actually serve. A spawn that
   # dies on a missing module fails the install loudly here instead of looping

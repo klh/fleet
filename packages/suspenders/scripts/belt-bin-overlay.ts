@@ -7,8 +7,8 @@
 //   smoke    spawn the FLATTENED runtime on a scratch port and require
 //            /health 200 — a missing module fails the install loudly here
 //            instead of looping the launchd revive on :4000
-import { copyFile, mkdir } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { copyFile, mkdir, rm } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 
 /** `./`-relative specifiers from static/dynamic import + re-export lines. */
 export function relativeImports(source: string): string[] {
@@ -76,6 +76,117 @@ export async function overlayBeltBin(
 		log(`+ ${target} (from belt/bin)`);
 	}
 	return report;
+}
+
+/** Strip comments and blank lines — the drift-tripwire normalization. */
+export function normalizeSource(src: string): string {
+	return src
+		.split("\n")
+		.map((line) => line.replace(/(^|[^:])\/\/.*$/, "$1").trimEnd())
+		.filter((line) => line.trim().length > 0)
+		.join("\n");
+}
+
+/**
+ * A belt/bin closure file that imports from OUTSIDE the package is a shim for
+ * the flat runtime home: the home needs the REAL module (e.g. memory-policy.ts
+ * -> ../../local-llm/memory-policy.ts), never the raw shim — a flat copy of
+ * the shim strands the supervisor import graph
+ * (lesson.flat-home-overlay-hazard). Returns the repo-real path or null.
+ */
+export async function shimRealSource(
+	root: string,
+	rel: string,
+): Promise<string | null> {
+	const file = join(root, rel);
+	const source = await Bun.file(file).text();
+	for (const match of source.matchAll(/["'](\.\.[^"']+)["']/g)) {
+		const resolved = resolve(dirname(file), match[1]);
+		if (relative(root, resolved).startsWith("..")) return resolved;
+	}
+	return null;
+}
+
+/** The flat-home source of truth for a closure file: real module over shim. */
+export async function flatHomeSource(
+	root: string,
+	rel: string,
+): Promise<string> {
+	return (await shimRealSource(root, rel)) ?? join(root, rel);
+}
+
+/** The W741 refresh report: which home files healed, which already agreed. */
+export interface RefreshReport {
+	healed: string[];
+	kept: string[];
+}
+
+/**
+ * The drift-tripwire remediation verb (W741): heal the flat runtime home's
+ * belt closure — missing AND diverged files, real modules for re-export
+ * shims, resolution proved before the lock releases.
+ */
+export async function refreshFlatHome(
+	runtime: string,
+	entry: string,
+	root = dirname(entry),
+	log: (line: string) => void = console.log,
+): Promise<RefreshReport> {
+	const lock = join(runtime, ".belt-overlay.lock");
+	await mkdir(lock); // fail closed while another refresh owns the runtime
+	const report: RefreshReport = { healed: [], kept: [] };
+	try {
+		const closure = await beltBinClosure(entry, root);
+		for (const rel of [relative(root, entry), ...closure]) {
+			const source = await flatHomeSource(root, rel);
+			const want = normalizeSource(await Bun.file(source).text());
+			const target = join(runtime, rel);
+			const have = (await Bun.file(target).exists())
+				? normalizeSource(await Bun.file(target).text())
+				: null;
+			if (have === want) {
+				report.kept.push(rel);
+				continue;
+			}
+			await copyFile(source, target);
+			report.healed.push(rel);
+			log(`${have === null ? "+" : "~"} ${target} (from ${source})`);
+		}
+		await verifyFlatHome(runtime, relative(root, entry));
+	} finally {
+		await rm(lock, { recursive: true, force: true });
+	}
+	return report;
+}
+
+/**
+ * Prove the FLAT home's import graph resolves WITHOUT executing any module
+ * code — bun build resolves the closure at build time, while import-exec
+ * would run router top-levels (and could bind ports). `--no-bundle` cannot
+ * stand in: it transpiles without resolving, so a broken graph still passes.
+ */
+export async function verifyFlatHome(
+	runtime: string,
+	entry = "router-shim.ts",
+): Promise<void> {
+	const child = Bun.spawn(
+		[process.execPath, "build", "--target=bun", join(runtime, entry)],
+		{
+			stdout: "ignore",
+			stderr: "pipe",
+		},
+	);
+	const stderrText = new Response(child.stderr).text();
+	const timer = setTimeout(() => child.kill(), 30_000);
+	try {
+		const code = await child.exited;
+		if (code !== 0) {
+			const tail = (await stderrText).trim().split("\n").slice(-8).join("\n");
+			throw new Error(`flat-home resolution failed (exit ${code}): ${tail}`);
+		}
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 export interface SmokeOptions {
@@ -157,7 +268,21 @@ if (import.meta.main) {
 	const runtime = flag("--runtime") ?? `${process.env.HOME}/.claude/local-llm`;
 	const entry =
 		flag("--entry") ?? join(import.meta.dir, "../../belt/bin/router-shim.ts");
-	if (verb === "closure") {
+	if (verb === "refresh") {
+		try {
+			const report = await refreshFlatHome(runtime, entry);
+			console.log(
+				`belt closure refresh: ${report.healed.length} healed, ${report.kept.length} kept, resolution verified`,
+			);
+		} catch (error) {
+			console.error(
+				`✗ ${error instanceof Error ? error.message : String(error)}`,
+			);
+			console.error("  install aborted — the flat runtime home is unusable;");
+			console.error("  fix the belt/bin closure or the real-module shims above.");
+			process.exit(1);
+		}
+	} else if (verb === "closure") {
 		for (const rel of await beltBinClosure(entry)) console.log(rel);
 	} else if (verb === "overlay") {
 		await overlayBeltBin(runtime, entry);
@@ -175,7 +300,7 @@ if (import.meta.main) {
 		}
 	} else {
 		console.error(
-			`usage: bun belt-bin-overlay.ts <closure|overlay|smoke> [--runtime <dir>] [--entry <file>]`,
+			`usage: bun belt-bin-overlay.ts <closure|overlay|refresh|smoke> [--runtime <dir>] [--entry <file>]`,
 		);
 		process.exit(2);
 	}
