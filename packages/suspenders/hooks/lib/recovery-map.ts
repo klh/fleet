@@ -65,29 +65,25 @@ const curl = (port: number, path: string): RecoveryStep => ({
 	cmd: `curl -sS -m 3 -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${port}${path}`,
 });
 
-const LOCAL_LLM = "com.suspenders.local-llm";
+const BELT_SWARM = "com.belt.swarm";
 const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
-const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
+const SWARM_LOG = "~/.claude-insights/mlx-swarm.log";
 
-const swarm = (
-	port: number,
-	label: string = LOCAL_LLM,
-	log: string = SWARM_LOG,
-): RecoveryEntry => ({
+const swarm = (port: number): RecoveryEntry => ({
 	id: `swarm-${port}`,
 	name: `local LLM swarm :${port}`,
 	probe: { kind: "http", port, path: "/v1/models" },
 	what: `The local model server on :${port} is not answering, so lanes and advice routed to it fall back or stall.`,
 	causes: [
 		"the model process crashed or was killed (out of memory is the usual one)",
-		`the swarm supervisor (${label}) is not running, so nothing revives it`,
+		`the swarm supervisor (${BELT_SWARM}) is not running, so nothing revives it`,
 		"the model is still loading after a restart — give it a minute",
 	],
 	recovery: [
 		holder(port),
-		kick(label),
-		bootstrap(label),
-		tail(log),
+		kick(BELT_SWARM),
+		bootstrap(BELT_SWARM),
+		tail(SWARM_LOG),
 		curl(port, "/v1/models"),
 	],
 });
@@ -150,14 +146,14 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		what: "The :4000 Anthropic-API shim is dark, so claude CLI lanes pointed at the local fleet cannot reach a model.",
 		causes: [
 			"an orphaned process still holds :4000 but no longer answers (seen 2026-10-03)",
-			`the swarm supervisor (${LOCAL_LLM}) that revives the shim is not running`,
+			`the swarm supervisor (${BELT_SWARM}) that revives the shim is not running`,
 			"the shim crashed on start — the log says why",
 		],
 		recovery: [
 			holder(4000),
 			killOrphan(4000),
-			kick(LOCAL_LLM),
-			bootstrap(LOCAL_LLM),
+			kick(BELT_SWARM),
+			bootstrap(BELT_SWARM),
 			tail(SWARM_LOG),
 			curl(4000, "/health/liveliness"),
 		],
@@ -176,7 +172,7 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 			// W277 retired the standalone com.belt.gateway restarter (a second
 			// :4100 restarter — a fork-bomb hazard). W307 truth pass: litellm's
 			// ONE restarter today is com.suspenders.cloud-gateway — the swarm
-			// only observes :4100 (owned: false, packages/local-llm/swarm.ts).
+			// only observes :4100 (owned: false — the belt kit supervises it).
 			`the cloud transport supervisor (${CLOUD_GATEWAY}) that revives litellm is not running`,
 			"an orphaned litellm still holds :4100",
 			"litellm failed to start (bad generated config or missing key file) — the log says which",
@@ -214,12 +210,12 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		],
 	},
 	...MODEL_INVENTORY.filter((s) => !s.external).map((s) => ({
-		...swarm(s.port, s.launchdLabel, s.logPath),
+		...swarm(s.port),
 		name: `${s.label} · ${s.model} :${s.port}`,
 		probe: { kind: "http" as const, port: s.port, path: probePathFor(s) },
 	})),
 	...MODEL_INVENTORY.filter((s) => s.external).map((s) => ({
-		...swarm(s.port, s.launchdLabel, s.logPath),
+		...swarm(s.port),
 		probe: {
 			kind: "http" as const,
 			port: s.port,
@@ -272,20 +268,20 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		],
 	},
 	{
-		id: "launchd-local-llm",
-		name: `launchd ${LOCAL_LLM}`,
-		probe: { kind: "launchd", label: LOCAL_LLM },
+		id: "launchd-belt-swarm",
+		name: `launchd ${BELT_SWARM}`,
+		probe: { kind: "launchd", label: BELT_SWARM },
 		what: "The swarm supervisor is not running, so a crashed local model or the :4000 shim stays dead instead of being revived.",
 		causes: [
 			"the agent was unloaded (bootout) or never installed",
 			"bun or the swarm script moved, so launchd cannot exec it",
 		],
 		recovery: [
-			kick(LOCAL_LLM),
-			bootstrap(LOCAL_LLM),
+			kick(BELT_SWARM),
+			bootstrap(BELT_SWARM),
 			{
 				label: "inspect the agent's state and last exit",
-				cmd: `launchctl print gui/$(id -u)/${LOCAL_LLM}`,
+				cmd: `launchctl print gui/$(id -u)/${BELT_SWARM}`,
 			},
 			tail(SWARM_LOG),
 		],
@@ -294,7 +290,8 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 	// second :4100 restarter — a fork-bomb hazard); there is deliberately no
 	// launchd entry for it in this map. W307 truth pass: litellm's one
 	// restarter is com.suspenders.cloud-gateway (the swarm observes :4100,
-	// owned: false — packages/local-llm/swarm.ts).
+	// owned: false). W284: the swarm supervisor label is com.belt.swarm —
+	// the suspenders local-llm serve fork is retired.
 ];
 
 export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =

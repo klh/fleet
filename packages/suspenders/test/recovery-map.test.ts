@@ -68,11 +68,11 @@ describe("recovery map completeness", () => {
 		const labels = Object.values(RECOVERY_MAP).flatMap((e) =>
 			e.probe.kind === "launchd" ? [e.probe.label] : [],
 		);
-		expect(labels).toContain("com.suspenders.local-llm");
+		expect(labels).toContain("com.belt.swarm");
 		// W277: the standalone com.belt.gateway restarter was retired (it was
 		// a second :4100 restarter — a fork-bomb hazard). W307 truth pass:
 		// litellm's ONE restarter is com.suspenders.cloud-gateway — the swarm
-		// only observes :4100 (owned: false, packages/local-llm/swarm.ts).
+		// only observes :4100 (owned: false; W284: the belt kit supervises).
 		expect(labels).not.toContain("com.belt.gateway");
 		expect(RECOVERY_MAP.caddy).toBeDefined();
 	});
@@ -82,7 +82,7 @@ describe("recovery map completeness", () => {
 			e.recovery.map((s) => s.cmd),
 		);
 		expect(cmds).toContain(
-			"launchctl kickstart -k gui/$(id -u)/com.suspenders.local-llm",
+			"launchctl kickstart -k gui/$(id -u)/com.belt.swarm",
 		);
 		// W307: a dark :4100 is revived by the cloud transport supervisor —
 		// kick the swarm and litellm stays dark.
@@ -90,9 +90,7 @@ describe("recovery map completeness", () => {
 		expect(litellmCmds).toContain(
 			"launchctl kickstart -k gui/$(id -u)/com.suspenders.cloud-gateway",
 		);
-		expect(
-			litellmCmds.some((c) => c.includes("com.suspenders.local-llm")),
-		).toBe(false);
+		expect(litellmCmds.some((c) => c.includes("com.belt.swarm"))).toBe(false);
 		// the orphaned-:4000 case (2026-10-03) has a kill-the-orphan step
 		expect(
 			RECOVERY_MAP["belt-gateway-4000"].recovery.map((s) => s.cmd),
@@ -143,21 +141,21 @@ describe("probes (stub results)", () => {
 		const deps = stubDeps(
 			{},
 			{
-				"com.suspenders.local-llm": {
+				"com.belt.swarm": {
 					code: 0,
 					out: "\tstate = running\n\tpid = 4242\n",
 				},
 			},
 		);
-		const sw = await probeService("launchd-local-llm", deps);
+		const sw = await probeService("launchd-belt-swarm", deps);
 		expect(sw?.state).toBe("up");
 		expect(sw?.detail).toContain("pid 4242");
 		const degraded = await probeService(
-			"launchd-local-llm",
+			"launchd-belt-swarm",
 			stubDeps(
 				{},
 				{
-					"com.suspenders.local-llm": {
+					"com.belt.swarm": {
 						code: 0,
 						out: "\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n",
 					},
@@ -166,7 +164,7 @@ describe("probes (stub results)", () => {
 		);
 		expect(degraded?.state).toBe("degraded");
 		expect(degraded?.detail).toContain("EX_CONFIG");
-		const none = await probeService("launchd-local-llm", stubDeps({}));
+		const none = await probeService("launchd-belt-swarm", stubDeps({}));
 		expect(none?.state).toBe("down");
 		// W277: com.belt.gateway is retired — no recovery entry for it anymore
 		expect(recoveryFor("launchd-belt-gateway")).toBeNull();

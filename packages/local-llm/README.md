@@ -17,13 +17,11 @@ relatively (`./registry.ts`, `./spawner.ts`).
 
 | File                  | Role                                                          |
 | --------------------- | ------------------------------------------------------------- |
-| `swarm.ts`            | serve supervisor + status CLI (launchd entrypoint)            |
+| `swarm.ts`            | RETIRED W284 — belt/bin/swarm.ts (`supervise`) is the ONE supervisor; installs heal the home from belt/bin |
 | `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
-| `spawner.ts`          | mlx-lm process launcher (uv tools, log dirs)                  |
-| `gateway-supervision.ts` | LiteLLM adoption, revival and bounded retry backoff |
-| `serve-observation.ts` | Bounded network probes and atomic Belt-compatible evidence snapshot |
-| `litellm-target.ts` | Re-export of Belt's canonical LiteLLM target |
-| `memory-policy.ts` | Per-model Metal budget, bounded caches and concurrency |
+| `spawner.ts`          | RE-EXPORT of belt/bin/spawner.ts (the one lifecycle)          |
+| `litellm-target.ts`   | RE-EXPORT of belt/bin/litellm-target.ts (the one :4100 target) |
+| `memory-policy.ts`    | real module — belt/bin/memory-policy.ts is a shim to this     |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
 
@@ -41,27 +39,33 @@ runtime home from belt/bin (W465).
 | `:8906` | general / Danish                                 |
 | `:8913` | reranker |
 | `:4000` | belt router-shim (anthropic seam over the swarm) |
-| `:4100` | LiteLLM engine, owned by the serving swarm |
+| `:4100` | LiteLLM engine, owned by the belt supervisor |
 | `:4101` | Buckle authenticated front door, separate service |
 
 ## Runtime home
 
+W284 (2026-10-15): the belt kit (packages/belt/bin) is the ONLY supervisor
+source — the serve supervisor here is retired. Installs heal the runtime
+home's belt closure from `packages/belt/bin` (swarm.ts `supervise` + full
+import graph); the launchd label is `com.belt.swarm`. The kit keeps the
+real modules belt resolves through shims (e.g. memory-policy.ts) and the
+config stubs (`belt.env`).
+
 The kit RUNS from `~/.claude/local-llm/`, never from this repo.
-`packages/suspenders/install.sh` copies the kit there (registry/spawner/
-router-shim only when absent, swarm.ts refreshed when the copy lacks
-`serve`, config stubs never clobbered — the runtime copy is the live
-fleet's possibly-customized source of truth). Machine config lives ONLY in
+`packages/suspenders/install.sh` heals the home's belt closure there
+(missing AND diverged files — the belt kit is the source); config stubs
+are seeded only when absent. Machine config lives ONLY in
 that home (mode 600): filled `belt.env`, operator-edited
 `routing-policy.yaml`, `prefs.json`. Repos carry placeholders only.
 
 Operate:
 
 ```sh
-bun ~/.claude/local-llm/swarm.ts status   # swarm health (read-only)
-bun ~/.claude/local-llm/swarm.ts serve    # resident supervisor
+bun ~/.claude/local-llm/swarm.ts status     # swarm health (read-only)
+bun ~/.claude/local-llm/swarm.ts supervise  # resident supervisor
 ```
 
-launchd label: `com.suspenders.local-llm` (`serve`, KeepAlive).
+launchd label: `com.belt.swarm` (`supervise`, KeepAlive).
 
 The serving kit writes outside-process HTTP observations to
 `~/.claude-insights/belt-supervisor.json` every supervision cycle
@@ -75,46 +79,13 @@ To explicitly replace kit supervision code while preserving machine registry,
 routing, tier, credentials and gateway configuration:
 
 ```sh
-bash packages/suspenders/install.sh --refresh-supervisor --dry-run
 bash packages/suspenders/install.sh --refresh-supervisor
-bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
 ```
 
-The installer validates staged code imports and saves changed code backups.
-It keeps the installed supervisor family: a kit refresh cannot enable the
-advanced Belt supervisor. Existing operator code customizations in the four
-refreshed kit modules are replaced explicitly and retained in `.serve-backup`
-files; ordinary installation continues to preserve existing runtime copies.
-
-Code refresh does **not** activate code or restart the supervisor. Active
-established connections on the router, LiteLLM or Buckle ports defer activation;
-an unavailable, incomplete or malformed connection inspection also defers it.
-The read-only activation check exits 75 when deferred. Established idle
-connections also count, so this deliberately errs toward preserving sessions.
-
-Activation requires owner-approved maintenance, paused downstream admission,
-and drained connections before restarting the existing service. An empty
-connection snapshot alone cannot prevent a new request from starting. A
-supervisor SIGTERM handler does not prove its children survive: launchd can
-terminate the job's process group, replacing the gateway and cutting streams.
-Admission pause and enforced drain integration remain open W560 acceptance;
-the current check never authorizes or performs an automatic restart. Dashboard
-adapter activation is similarly deferred while the owner is using the fleet;
-until then its displayed producer label can reflect the older running code.
-
-### Recover a legacy swarm missing gateway ownership
-
-```sh
-bash packages/suspenders/install.sh --refresh-gateway --dry-run
-bash packages/suspenders/install.sh --refresh-gateway
-bun packages/suspenders/scripts/refresh-swarm.ts --check-activation
-```
-
-This code-only upgrade preserves runtime customizations, makes backups of
-changed modules, and keeps registry, routing policy and credentials intact.
-The advanced Belt supervisor already owns LiteLLM and uses
-`--refresh-supervisor` instead. Keep `com.belt.gateway` unloaded: there
-must be one restarter for port 4100.
+The installer heals the home's belt closure from the belt kit (backup,
+refresh, import validation; a failed validation restores the previous
+code). W284 retired the serve-era refresh verbs (`--refresh-gateway` and
+refresh-swarm.ts) together with the fork they patched.
 
 Rapid engines receive a model-sized Metal allocation budget (weights × 1.2
 plus 4 GiB, capped at 40 GiB), a 1 GiB prefix cache and concurrency of two.

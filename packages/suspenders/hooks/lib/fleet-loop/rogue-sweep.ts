@@ -71,7 +71,7 @@ export function parseLaunchctlList(out: string): Map<string, number> {
 }
 
 // supervised = the label-held pids plus every transitive descendant — the
-// swarm serve supervisor's model children and the fleet-loop watch's
+// belt swarm supervisor's model children and the fleet-loop watch's
 // --once cycle children are supervised THROUGH their label parent.
 export function supervisedPids(
 	rows: PsRow[],

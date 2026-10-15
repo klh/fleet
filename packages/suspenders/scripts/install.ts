@@ -47,7 +47,6 @@ Options
   --no-llm        Skip the local-llm baseline (CI/containers)
   --with-launchd  Full plan, then registerLaunchd
   --hub <name>    Hub deploy from ~/.config/klh/stack.yaml (--dry-run renders the .env)
-  --refresh-gateway  Gateway supervision + model limits refresh (early exit)
   --re-bless-activation [--confirm <sha>]  Owner-gated receipt re-bless (W640)
 
 Exit codes
@@ -79,7 +78,6 @@ async function main(): Promise<void> {
 		skipModels: false,
 		noLlm: false,
 		hub: null,
-		refreshGateway: false,
 		withLaunchd: false,
 		reBlessActivation: false,
 		confirm: null,
@@ -106,7 +104,8 @@ async function main(): Promise<void> {
 		...paths,
 	};
 	// W771.3: the bash front's targeted routes absorbed as early exits —
-	// --hub, --refresh-gateway, --re-bless-activation (exec exit code propagates)
+	// --hub and --re-bless-activation (exec exit code propagates).
+	// W284: --refresh-gateway retired with the local-llm serve fork it patched.
 	const childRun = async (args: string[]): Promise<number> => {
 		const child = Bun.spawn([process.execPath, ...args], {
 			stdin: "inherit",
@@ -120,13 +119,6 @@ async function main(): Promise<void> {
 			join(paths.repo, "deploy/hubctl.ts"),
 			flags.dryRun ? "render" : "deploy",
 			flags.hub,
-		]);
-		return;
-	}
-	if (flags.refreshGateway) {
-		process.exitCode = await childRun([
-			join(paths.repo, "scripts/refresh-gateway.ts"),
-			...(flags.dryRun ? ["--dry-run"] : []),
 		]);
 		return;
 	}

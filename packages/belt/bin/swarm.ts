@@ -12,7 +12,8 @@
 //                              respawns the :4000 shim, resident specialists
 //                              and the :4100 litellm engine with backoff +
 //                              circuit breaker (supervisor.ts). `serve` is an
-//                              alias (com.suspenders.local-llm runs `serve`).
+//                              alias (W284: kept for compatibility only —
+//                              com.suspenders.local-llm is retired).
 
 import { spawn, execSync } from "node:child_process";
 import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";

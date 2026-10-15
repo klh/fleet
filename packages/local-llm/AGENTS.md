@@ -5,19 +5,20 @@ Dual-homed kit: source = `packages/local-llm`, runtime home =
 subtree's canonical law; the fleet-wide shape rules live in
 `docs/layout-convention.md`.
 
-## The flat overlay contract (W556 — documented, never changed)
+## The flat overlay contract (W284)
 
 - Files stay FLAT in the package root: no `bin/`, `src/`, or `test/` dirs.
   The runtime home overlays these files verbatim, so any rename here forks
   every deployed host (Mac spoke + hubs). A rename is a deploy-surface move
   needing owner GO — never a refactor wave.
-- The installer never clobbers a present runtime copy (W556). `swarm.ts` is
-  the one kit file that may refresh a present copy (serve-supervisor
-  bootstrap). belt-owned sources survive here only as re-export shims
-  (`registry.ts`, `spawner.ts` → `packages/belt/bin/`): the port↔model
-  registry and the spawner lifecycle have ONE home, belt's.
+- The belt kit is the ONLY supervisor source (W284): installs heal the
+  runtime home's belt closure from `packages/belt/bin` (missing AND
+  diverged — the W556 never-clobber keep-rule retired with the serve fork).
+  belt-owned sources survive here only as re-export shims
+  (`registry.ts`, `spawner.ts`, `litellm-target.ts` → `packages/belt/bin/`):
+  the port↔model registry and the spawner lifecycle have ONE home, belt's.
 - Shipping is an explicit allowlist + closure walk, never a copy-all:
-  `packages/suspenders/install.sh` copies named kit files when absent, and
+  `packages/suspenders/install.sh` seeds the config stubs when absent, and
   `scripts/belt-bin-overlay.ts overlay` ships the router-shim import
   closure from `belt/bin` (W661) with a `smoke` verb that spawns the
   flattened home on a scratch port and requires /health 200. `*.test.ts`
@@ -31,11 +32,10 @@ subtree's canonical law; the fleet-wide shape rules live in
 
 Co-located beside their modules (`*.test.ts`, flat — W669 wave-5 audit
 verdict: the co-location already holds, no test/ mirror). Run:
-`bun test packages/local-llm/`. Two are source-contract tests that read
+`bun test packages/local-llm/`. One is a source-contract test that reads
 source as text: `spawner.test.ts` pins the kit↔belt re-export shape plus
-the install.sh flatten contract; `swarm-ownership.test.ts` pins swarm.ts
-ownership. When install.sh or belt/bin changes shape, update the contract
-assertions in the SAME commit.
+the install.sh flatten contract. When install.sh or belt/bin changes
+shape, update the contract assertions in the SAME commit.
 
 ## Neighbors
 

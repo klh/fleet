@@ -46,6 +46,13 @@ export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
 export const TEMPLATE_DIR = join(PACKAGE_ROOT, "hooks", "launchd");
 export const LABEL_PREFIX = "com.suspenders";
 
+/** The unit label: the per-service override or com.suspenders.<name>. */
+export function serviceLabel(
+	spec: Pick<ServiceSpec, "name" | "label">,
+): string {
+	return spec.label ?? `${LABEL_PREFIX}.${spec.name}`;
+}
+
 export interface Schedule {
 	runAtLoad: boolean;
 	keepalive?: boolean;
@@ -56,6 +63,12 @@ export interface Schedule {
 
 export interface ServiceSpec {
 	name: string;
+	/** Fully-qualified launchd label override (W284); darwin only — the unit
+	 *  file name and the Label key ride it. Default com.suspenders.<name>. */
+	label?: string;
+	/** W284: children are services — launchd must not kill the process group
+	 *  when the supervisor restarts (darwin only; linux/win32 ignore it). */
+	abandonProcessGroup?: boolean;
 	bunEntry: string;
 	args: string[];
 	cwd?: string;
@@ -105,6 +118,8 @@ const KNOWN_SCHEDULE_KEYS = new Set([
 const KNOWN_MANIFEST_KEYS = new Set(["labelPrefix", "defaults", "services"]);
 const KNOWN_SERVICE_KEYS = new Set([
 	"name",
+	"label",
+	"abandonProcessGroup",
 	"bunEntry",
 	"args",
 	"cwd",
@@ -186,6 +201,13 @@ export function usedPlaceholders(spec: ServiceSpec): string[] {
 export function validateSpec(spec: ServiceSpec): void {
 	const problems: string[] = [];
 	if (!/^[a-z0-9-]+$/.test(spec.name)) problems.push(`bad name "${spec.name}"`);
+	if (spec.label !== undefined && !/^[a-z0-9][a-z0-9.-]*$/.test(spec.label))
+		problems.push(`bad label "${spec.label}"`);
+	if (
+		spec.abandonProcessGroup !== undefined &&
+		typeof spec.abandonProcessGroup !== "boolean"
+	)
+		problems.push("abandonProcessGroup must be a boolean");
 	if (typeof spec.bunEntry !== "string" || spec.bunEntry.length === 0) {
 		problems.push("bunEntry must be a non-empty string");
 	}
@@ -285,6 +307,9 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
+		if (entry.label !== undefined) spec.label = entry.label as string;
+		if (entry.abandonProcessGroup !== undefined)
+			spec.abandonProcessGroup = entry.abandonProcessGroup as boolean;
 		if (entry.envFile !== undefined)
 			spec.envFile = entry.envFile as string | string[];
 		if (entry.nice !== undefined) spec.nice = entry.nice as number;
@@ -337,7 +362,7 @@ function xmlInt(key: string, value: number, indent: string): string {
 export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	const s = (text: string): string => substitute(text, values);
 	const body: string[] = [];
-	body.push(xmlStr("Label", `${LABEL_PREFIX}.${spec.name}`, "\t"));
+	body.push(xmlStr("Label", serviceLabel(spec), "\t"));
 	body.push("\t<key>ProgramArguments</key>\n\t<array>\n");
 	const directArgs = [
 		values.bun,
@@ -386,6 +411,8 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	}
 	if (spec.schedule.keepalive === true)
 		body.push("\t<key>KeepAlive</key>\n\t<true/>\n");
+	if (spec.abandonProcessGroup === true)
+		body.push("\t<key>AbandonProcessGroup</key>\n\t<true/>\n");
 	if (spec.schedule.runAtLoad) body.push("\t<key>RunAtLoad</key>\n\t<true/>\n");
 	if (spec.nice !== undefined) body.push(xmlInt("Nice", spec.nice, "\t"));
 	body.push(xmlStr("StandardOutPath", s(spec.logs.out), "\t"));
@@ -542,7 +569,7 @@ export function renderUnits(
 	if (target === "darwin") {
 		return [
 			{
-				file: `${LABEL_PREFIX}.${spec.name}.plist`,
+				file: `${serviceLabel(spec)}.plist`,
 				body: renderDarwin(spec, values),
 			},
 		];
