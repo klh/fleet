@@ -23,8 +23,8 @@ setDefaultTimeout(120_000);
 
 const REPO = join(import.meta.dir, ".."); // packages/suspenders
 const dirs: string[] = [];
-// Spawned fixtures (seed's router smoke, refreshSwarm's import validation)
-// only bind/serve when the flat home lives under $HOME — homes under
+// Spawned fixtures (seed's router smoke) only bind/serve when the flat
+// home lives under $HOME — homes under
 // /var/folders hang the bun runtime pre-bind (observed 2026-10-15, same
 // failure via the legacy belt-bin-overlay smoke CLI on an identical home).
 const tmp = (label: string): string => {
@@ -75,33 +75,34 @@ describe("W771.2 contract flips", () => {
 });
 
 describe("seedLocalLlm", () => {
-	test("seeds a fresh home: kit files, closure heal, tier manifest, stubs", async () => {
+	test("seeds a fresh home: belt closure, tier manifest, stubs", async () => {
 		const home = tmpHome("seed-fresh");
 		const res = await seedLocalLlm(ctxFor(home));
 		expect(res.status).toBe("ok");
 		for (const file of [
-			"gateway-supervision.ts",
-			"memory-policy.ts",
-			"serve-observation.ts",
-			"observation.ts",
-			"models.catalog.ts",
-			"models.catalog.json",
+			"swarm.ts",
+			"supervisor.ts",
+			"registry.ts",
+			"spawner.ts",
 			"litellm-target.ts",
 			"health.ts",
-			"swarm.ts",
 			"router-shim.ts",
-			"registry-emit.ts",
+			"memory-policy.ts",
 			"belt.env",
 			"routing-policy.yaml",
 		]) {
 			expect(existsSync(join(home, file))).toBe(true);
 		}
 		expect(existsSync(join(home, "tier.json"))).toBe(true);
+		// W284: serve-family kit files are retired — never seeded fresh.
+		for (const retired of ["gateway-supervision.ts", "serve-observation.ts"]) {
+			expect(existsSync(join(home, retired))).toBe(false);
+		}
 	});
 });
 
 describe("seedLocalLlm never clobbers", () => {
-	test("sentinel belt.env and serve-swarm survive the seed", async () => {
+	test("sentinel belt.env survives; belt swarm replaces a kit-serve copy", async () => {
 		const home = tmpHome("seed-keep");
 		mkdirSync(home, { recursive: true });
 		writeFileSync(join(home, "belt.env"), "OPERATOR=belt\n");
@@ -114,9 +115,11 @@ describe("seedLocalLlm never clobbers", () => {
 		expect(readFileSync(join(home, "belt.env"), "utf8")).toBe(
 			"OPERATOR=belt\n",
 		);
-		expect(readFileSync(join(home, "swarm.ts"), "utf8")).toBe(
-			'export const swarm = "x";\ncase "serve":\n',
-		);
+		const swarm = readFileSync(join(home, "swarm.ts"), "utf8");
+		expect(swarm).toContain('from "./supervisor.ts"');
+		expect(swarm).toContain('case "supervise"');
+		// the serve FORK is retired — its observer import never appears
+		expect(swarm).not.toContain("serve-observation");
 	});
 });
 
@@ -191,13 +194,18 @@ describe("refreshSupervisor", () => {
 		expect(res.note).toContain("requires an existing belt supervisor runtime");
 	});
 
-	test("kit serve family routes to refreshSwarm (no-op on a seeded home)", async () => {
+	test("belt family on a freshly seeded home: backup, refresh, validate", async () => {
 		const home = tmpHome("sv-kit");
 		const seeded = await seedLocalLlm(ctxFor(home));
 		expect(seeded.status).toBe("ok");
-		const res = await refreshSupervisor(ctxFor(home));
+		let validated = "";
+		const res = await refreshSupervisor(ctxFor(home), {
+			validate: async (file: string) => {
+				validated = file;
+			},
+		});
 		expect(res.status).toBe("ok");
-		expect(res.note).toContain("kit serve runtime refreshed");
+		expect(validated).toBe(join(home, "supervisor.ts"));
 	});
 
 	test("belt family: backup, refresh, health copy, validate target", async () => {

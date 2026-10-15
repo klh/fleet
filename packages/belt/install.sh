@@ -48,15 +48,9 @@ fi
 echo "→ installing to $PREFIX"
 mkdir -p "$PREFIX"
 for item in "$REPO_DIR"/bin/*; do
-  # W556: never clobber the kit serve supervisor the launchd label runs
-  # (com.suspenders.local-llm → swarm.ts serve). Copying belt's swarm.ts
-  # over it would flip the producer's semantics silently — observation-only
-  # serve → self-heal supervise — behind the same argv. Owner law
-  # 2026-10-01: the runtime home's kit runtime is its own source of truth.
-  if [ "$(basename "$item")" = "swarm.ts" ] && [ -f "$PREFIX/swarm.ts" ] && grep -q 'serve-observation' "$PREFIX/swarm.ts"; then
-    echo "= $PREFIX/swarm.ts kept (kit serve runtime is the producer)"
-    continue
-  fi
+  # W284: belt kit is the source — swarm.ts (supervise) refreshes the home
+  # copy unconditionally; the W556 keep-rule retired with the suspenders
+  # local-llm serve fork.
   cp -R "$item" "$PREFIX/"
 done
 cp "$REPO_DIR/../local-llm/observation.ts" "$PREFIX/observation.ts"
@@ -99,8 +93,9 @@ if $WITH_LAUNCHD; then
       echo "→ loaded $name"
     done
     # supersede the pre-belt agent labels so old and new never run side by side
-    # (same jobs on stale script paths, double swarm starts)
-    for legacy in com.klh.local-llm com.klh.kev; do
+    # (same jobs on stale script paths, double swarm starts). W284: the
+    # suspenders local-llm serve label joins the boot-out list.
+    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm; do
       launchctl bootout "gui/$bUid/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"

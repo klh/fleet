@@ -251,18 +251,24 @@ services:
     logs: { out: /tmp/suspenders-knowledge-worker.log }
     placeholders: ["__BUN__", "__PREFIX__", "__REPO__"]
 
-  # local-llm swarm supervisor (W158) — runs `swarm.ts serve` from the
-  # runtime HOME copy (not the harness prefix): children revive with
-  # backoff; KeepAlive restarts only the supervisor, which adopts live
-  # children on relaunch. Tier rides the emitted tier manifest
+  # belt swarm supervisor (W284: belt kit is the only supervisor; the
+  # suspenders local-llm serve fork is retired and com.suspenders.local-llm
+  # rides the LEGACY_LABELS boot-out). `supervise` self-heals: children
+  # revive with backoff + circuit breaker; KeepAlive restarts only the
+  # supervisor, which adopts live ports on relaunch. AbandonProcessGroup
+  # keeps the specialist children service-owned across supervisor
+  # restarts. Tier rides the emitted tier manifest
   # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
-  - name: local-llm
+  - name: belt-swarm
+    label: com.belt.swarm
+    abandonProcessGroup: true
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
-    args: ["serve"]
+    args: ["supervise"]
     env:
       BELT_WIRED_GUARD_GB: "90"
+      PATH: "__HOME__/.local/bin:__HOME__/.local/share/uv/tools/mlx-lm/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     schedule: { keepalive: true }
-    logs: { out: "__HOME__/.claude-insights/swarm-serve-launchd.log" }
+    logs: { out: "__HOME__/.claude-insights/mlx-swarm.log" }
     placeholders: ["__BUN__", "__HOME__"]
 
   # consult-relay (W480) — resident relay with a 10s relaunch throttle

@@ -159,8 +159,10 @@ Machines and processes:
   SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
 - launchd labels (port/process map; `launchctl kickstart
 gui/$(id -u)/<label>` revives):
-  - `com.suspenders.local-llm` — the swarm kit's `serve` supervisor
-    (KeepAlive): spawns :4000 + the MLX specialists below
+  - `com.belt.swarm` — the belt kit's `supervise` supervisor (KeepAlive):
+    spawns :4000 + the MLX specialists below (W284: the ONLY swarm
+    supervisor — `com.suspenders.local-llm` is retired and rides the
+    LEGACY boot-out list)
   - `com.suspenders.cloud-gateway` — cloud transport lifecycle
     (belt/bin/cloud-gateway.ts → litellm :4100); never starts
     router/swarm
@@ -175,17 +177,18 @@ gui/$(id -u)/<label>` revives):
     `com.klh.fleet-monitor` (superseded — installers boot them out and
     rm the plists) and `com.belt.gateway` (retired W277 — was the :4100
     litellm wrapper; a plist may linger on disk but must stay UNLOADED)
-- local-llm swarm: `bun ~/.claude/local-llm/swarm.ts status|serve` —
-  dual home since W422.4: source = packages/local-llm (the kit) with the
-  belt bin/* overlay, runtime home = ~/.claude/local-llm (W556: the
-  runtime swarm.ts is its own source of truth — install refuses to
-  clobber it). Specialists (belt registry.ts): :8901 coder · :8902
+    and `com.suspenders.local-llm` (retired W284 — the suspenders
+    local-llm serve fork; both installers boot it out and rm the plist)
+- local-llm swarm: `bun ~/.claude/local-llm/swarm.ts status|supervise` —
+  belt kit is the source (W284: the suspenders local-llm serve fork is
+  retired; installs heal the runtime home's belt closure from
+  packages/belt/bin). Specialists (belt registry.ts): :8901 coder · :8902
   extract · :8903 reason · :8906 danish/general · :8907 embeddings ·
   :8912 kev · :8913 rerank — the tier manifest `tier.json` scopes the
   RESIDENT set (BELT_TIER=minimal = :8902 + :8913; the rest load on
   demand). :4000 = belt/bin/router-shim.ts — the Anthropic-format API
-  (complexity-v3 router) that is the seam lanes ride; `serve` spawns it
-  from the runtime-home copy
+  (complexity-v3 router) that is the seam lanes ride; `supervise` spawns
+  it from the runtime-home copy
 - belt router :4000 (= router-shim, see above) · litellm :4100
   (com.suspenders.cloud-gateway) · buckle spoke :4101 (Mac), hubs
   :4101 (NAS) / :4111 (desktop) · board :7799 · store :7795 (NAS) / :7796

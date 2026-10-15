@@ -251,7 +251,7 @@ const reapHeaviestMlx = (): ResourceAction => {
 	rows.sort((a, b) => b.rss - a.rss);
 	const h = rows[0];
 	return actOnResource(
-		"com.suspenders.local-llm",
+		"com.belt.swarm",
 		h.pid,
 		h.port,
 		`wired memory guard; listener RSS ${h.rss.toFixed(1)}GB`,

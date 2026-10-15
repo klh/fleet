@@ -28,7 +28,6 @@ export const meowFlags = {
 	skipModels: { type: "boolean" },
 	noLlm: { type: "boolean" },
 	hub: { type: "string" },
-	refreshGateway: { type: "boolean" },
 	withLaunchd: { type: "boolean" },
 	reBlessActivation: { type: "boolean" },
 	confirm: { type: "string" },
@@ -48,7 +47,6 @@ export interface ResolvedFlags {
 	skipModels: boolean;
 	noLlm: boolean;
 	hub: string | null;
-	refreshGateway: boolean;
 	withLaunchd: boolean;
 	reBlessActivation: boolean;
 	confirm: string | null;
@@ -114,7 +112,6 @@ export function parseFlags(
 		skipModels: bool("skipModels"),
 		noLlm: bool("noLlm"),
 		hub,
-		refreshGateway: bool("refreshGateway"),
 		withLaunchd: bool("withLaunchd"),
 		reBlessActivation: bool("reBlessActivation"),
 		confirm,

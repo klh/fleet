@@ -249,11 +249,6 @@ export const INSTALL_CONTRACT = {
 			meaning:
 				"hub deploy from ~/.config/klh/stack.yaml (hubctl mint → push → up → status); --dry-run renders the hub .env only",
 		},
-		refreshGateway: {
-			flag: "--refresh-gateway",
-			meaning:
-				"targeted minimal-swarm gateway supervision and model limits refresh (early exit); --dry-run plans it",
-		},
 		withLaunchd: {
 			flag: "--with-launchd",
 			meaning:
@@ -334,7 +329,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "refreshSupervisor",
 			oneLiner:
-				"refresh the existing kit serve or advanced Belt supervisor code with backup and import validation; preserve machine config",
+				"refresh the belt supervisor code with backup and import validation (belt kit is the only supervisor, W284); preserve machine config",
 			mutates: true,
 			optIn: true,
 			v1: "real",

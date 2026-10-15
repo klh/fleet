@@ -28,11 +28,14 @@ import {
 import type { StepContext, StepResult } from "./install-run.ts";
 
 // supersede the pre-namespacing agent labels so old and new never run side by
-// side (same jobs, stale script paths, double keepwarm/monitor pings)
+// side (same jobs, stale script paths, double keepwarm/monitor pings).
+// W284: the suspenders local-llm serve fork is retired — its label joins the
+// boot-out list; com.belt.swarm (the belt kit) is the one swarm supervisor.
 export const LEGACY_LABELS = [
 	"com.klh.llm-keepwarm",
 	"com.klh.fleet-monitor",
 	"com.klh.local-llm",
+	"com.suspenders.local-llm",
 ] as const;
 
 // W631: registerLaunchd must render units only from a STABLE tree — the pinned
@@ -208,7 +211,11 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	// just the PID. A machine-level env override wins over the declaration.
 	const declaredPorts = new Map(
 		rendered.services.flatMap((s) =>
-			s.port === undefined ? [] : [[`com.suspenders.${s.service}`, s.port]],
+			s.port === undefined
+				? []
+				: s.files
+						.filter((f) => f.endsWith(".plist"))
+						.map((f) => [f.replace(/\.plist$/, ""), s.port as number]),
 		),
 	);
 	if (
