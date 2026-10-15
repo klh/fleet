@@ -25,7 +25,8 @@ import {
 	withSpawnLedger,
 	type SpawnRow,
 } from "./spawn-admission.ts";
-import type { Specialist } from "./registry.ts";
+import type { Platform, PlatformDefinition, Specialist } from "./registry.ts";
+import { platformDefinitions, runtimeFor, thisPlatform } from "./registry.ts";
 import { modelBudgetGb, rapidMemoryArgs } from "./memory-policy.ts";
 import { serverKvArgs } from "./kv-prefix.ts";
 
@@ -37,12 +38,42 @@ const MLX_PYTHON = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
 const RAPID = `${HOME}/.local/share/uv/tools/rapid-mlx/bin/rapid-mlx`;
 const LOG_DIR = process.env.LOCAL_LLM_LOG_DIR ?? `${HOME}/.claude-insights`;
 
+// llama.cpp backend (win32/linux, W765): env override for the binary; PATH
+// default — no launchd there, hub installs put llama-server on PATH.
+const LLAMA_SERVER = process.env.BELT_LLAMA_SERVER ?? "llama-server";
+
+// accel argv straight from the platformDefinitions table
+const ACCEL_ARGS: Record<PlatformDefinition["accel"], string[]> = {
+	metal: [], // MLX owns metal acceleration; no extra flags
+	vulkan: ["-ngl", "99"], // offload every layer to the GPU
+	cpu: [],
+};
+
 export const mlxLogPath = (port: number): string =>
 	`${LOG_DIR}/mlx-${port}.log`;
 
-// Full argv for one specialist server (binary first) — consumed by both the
-// direct Bun.spawn here and swarm.ts's nohup boot path.
-export function spawnArgs(s: Specialist): string[] {
+// Full argv for one specialist server (binary llama-server first) — consumed by
+// both the direct Bun.spawn here and swarm.ts's nohup boot path. The serving
+// runtime (platform table or the row's own attr) picks the backend; flags ride
+// the chosen engine's dialect.
+export function spawnArgs(
+	s: Specialist,
+	platform: Platform = thisPlatform(),
+): string[] {
+	if (runtimeFor(s, platform) === "llama.cpp") {
+		return [
+			LLAMA_SERVER,
+			"--host",
+			"127.0.0.1",
+			"--port",
+			String(s.port),
+			"--model",
+			s.model,
+			...ACCEL_ARGS[platformDefinitions[platform].accel],
+			...(s.flags ?? []),
+			"--jinja",
+		];
+	}
 	if (s.engine === "rapid") {
 		return [
 			RAPID,

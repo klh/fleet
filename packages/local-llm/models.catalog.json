@@ -41,7 +41,7 @@
 			"runtime": "gguf",
 			"specialist": 8902,
 			"tier": "always",
-			"note": "cross-platform variant — runtime rows land with W751.1"
+			"note": "cross-platform variant — lights up on win32/linux rows (W765)"
 		}
 	]
 }
