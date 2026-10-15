@@ -665,6 +665,18 @@ function winRuntime(spec: ServiceSpec, values: RenderValues): string[] {
 	const s = (t: string): string => substitute(t, values);
 	const l: string[] = [];
 	for (const [k, v] of Object.entries(spec.env)) {
+		if (k.toUpperCase() === "PATH") {
+			// manifest PATH values are darwin-shaped (colon-separated, /opt/
+			// homebrew dirs) — emitted as a live <env> they would clobber the
+			// host PATH the service children need. Host PATH applies instead
+			// (config-over-code: machine PATH is host config, never manifest
+			// data); the operator sets it per README-windows.md.
+			l.push(
+				"  <!-- manifest env PATH is darwin-scoped — host PATH applies;",
+				"       set machine/user PATH on the host per README-windows.md -->",
+			);
+			continue;
+		}
 		l.push(`  <env name="${escXmlAttr(k)}" value="${escXmlAttr(s(v))}"/>`);
 	}
 	for (const path of envFilePaths(spec)) {

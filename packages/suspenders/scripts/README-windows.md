@@ -45,7 +45,12 @@ suspenders-<name> AppDirectory <cwd>`; restart-on-crash is NSSM's default.
 NSSM has no config file — everything is registry-backed, so the WinSW XML
 remains the only rendered artifact for auditing.
 
-## Path caveat
+## PATH env and path caveats
+
+Manifest `env` PATH values are darwin-shaped (colon-separated homebrew
+dirs). The win32 emitter NEVER emits PATH as a live `<env>` — the host
+machine/user PATH applies (W767): set it once per host (`setx PATH ...` or
+systemsettings). Non-PATH env values still render as live `<env>` entries.
 
 Manifest log/env paths are POSIX-shaped (`/tmp/...`, `__HOME__/...`). On a
 real Windows host the render substitutes the native home; `/tmp` entries

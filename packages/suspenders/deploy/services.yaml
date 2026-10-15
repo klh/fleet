@@ -27,7 +27,9 @@
 #                refuse, W631) ·
 #                BELT_URL (belt front; default http://127.0.0.1:4100) ·
 #                BELT_TOKEN (belt auth token; default empty). Values come
-#                from flags / process env at render time.
+#                from flags / process env at render time. PATH values are
+#                darwin-scoped: win32 units never emit them as live <env>
+#                (host PATH applies, W767).
 #   envFile      PATH or ordered list of machine-level env PATHS. Darwin
 #                sources them with export enabled before exec; systemd gets
 #                one EnvironmentFile directive per path. Later files override

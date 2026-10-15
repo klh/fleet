@@ -9,6 +9,11 @@
 		<string>__HOME__/.claude/local-llm/swarm.ts</string>
 		<string>serve</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>BELT_WIRED_GUARD_GB</key>
+		<string>90</string>
+	</dict>
 	<key>KeepAlive</key>
 	<true/>
 	<!-- W278: children are services — launchd must not kill the process group
