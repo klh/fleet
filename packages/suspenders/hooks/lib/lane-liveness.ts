@@ -96,6 +96,22 @@ export const transcriptPath = (sid: string): string | null => {
 export const transcriptAlive = (sid: string): boolean =>
 	transcriptPath(sid) !== null;
 
+// W777: kill -0 existence probe for a recorded pid — true = a process
+// exists, false = ESRCH (nothing there), undefined = unprobeable (no/invalid
+// pid or an alien error). Existence, never identity: a recycled pid reads
+// alive and keeps full protection — only absence is death evidence.
+export const pidAlive = (pid: number | undefined): boolean | undefined => {
+	if (!pid || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ESRCH"
+			? false
+			: undefined;
+	}
+};
+
 // W685 board face: ONE bounded walk answers every queried sid — the
 // per-sid walk re-read the same directory tree N times (50 stale targets
 // ≈ 600ms inside decisionVerdicts). Same 15-min floor, depth ≤4, budget

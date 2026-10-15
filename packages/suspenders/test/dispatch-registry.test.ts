@@ -94,12 +94,40 @@ describe("classifyPrune", () => {
 			["aged-pidless", "young-pidless", "aged-pid"],
 			verdictOf,
 			now,
+			() => true,
 		);
 		expect(plan.get("aged-pidless")?.class).toBe("prunable");
 		expect(plan.get("aged-pidless")?.warrant).toBe("age-trusted");
 		expect(plan.get("young-pidless")?.class).toBe("refused-unknown");
 		// a recorded pid means the probe may still find the process — protected
 		expect(plan.get("aged-pid")?.class).toBe("refused-unknown");
+	});
+
+	test("W777 pid-dead warrant: unknown + probed-dead pid + lease → prunable", () => {
+		const now = Date.now();
+		const verdictOf = (): "unknown" => "unknown";
+		const probes = new Map<number, boolean | undefined>([
+			[42, false], // probed dead (ESRCH)
+			[43, true], // recycled pid reads alive — protected
+			[44, undefined], // unprobeable — protected
+		]);
+		const plan = classifyPrune(
+			[
+				row("pd", { launchedAt: 1, pid: 42 }),
+				row("pa", { launchedAt: 1, pid: 43 }),
+				row("pu", { launchedAt: 1, pid: 44 }),
+				row("py", { launchedAt: now, pid: 42 }),
+			],
+			["pd", "pa", "pu", "py"],
+			verdictOf,
+			now,
+			(pid) => probes.get(pid),
+		);
+		expect(plan.get("pd")?.class).toBe("prunable");
+		expect(plan.get("pd")?.warrant).toBe("pid-dead");
+		expect(plan.get("pa")?.class).toBe("refused-unknown");
+		expect(plan.get("pu")?.class).toBe("refused-unknown");
+		expect(plan.get("py")?.class).toBe("refused-unknown");
 	});
 });
 
@@ -190,6 +218,39 @@ describe("registry CLI (real liveness verdict)", () => {
 		);
 		expect(out.code).toBe(0);
 		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+	});
+
+	test("prunes a foreign-host row whose recorded pid probes dead (W777)", async () => {
+		const fleet = fleetOf();
+		const sid = `autow777-remote-${Math.random().toString(36).slice(2, 8)}`;
+		const dead = Bun.spawnSync(["sleep", "0"]).pid;
+		mergeLaneRegistry(fleet, [
+			row(sid, { host: "elsewhere.example", launchedAt: 1, pid: dead }),
+		]);
+		const out = await capture(() =>
+			registryMain(["prune", "--sid", sid], { fleet }),
+		);
+		expect(out.lines.join("\n")).toContain(
+			`PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item W636)`,
+		);
+		expect(out.code).toBe(0);
+		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(0);
+	});
+
+	test("retains a foreign-host row whose recorded pid probes alive", async () => {
+		const fleet = fleetOf();
+		const sid = `autow777-live-${Math.random().toString(36).slice(2, 8)}`;
+		mergeLaneRegistry(fleet, [
+			row(sid, { host: "elsewhere.example", launchedAt: 1, pid: process.pid }),
+		]);
+		const r = await capture(() =>
+			registryMain(["prune", "--sid", sid], { fleet }),
+		);
+		expect(r.code).toBe(1);
+		expect(r.lines.join("\n")).toContain(
+			`RETAINED ${sid} — unknown liveness (probe uncertain; never force-pruned)`,
+		);
+		expect(readLaneRegistry<Lane>(fleet).lanes).toHaveLength(1);
 	});
 
 	test("dry-run reports without writing; forget is a prune alias", async () => {
