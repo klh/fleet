@@ -1,0 +1,4 @@
+# arena run artifacts — machine-local bench output, never committed (W275 law, restored post-move)
+results/
+cache/
+local-reason-overnight/
