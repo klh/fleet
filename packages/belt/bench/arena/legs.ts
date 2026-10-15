@@ -609,6 +609,9 @@ export function routedTier(routed: Routing | null | undefined): string | null {
 	if (!routed) return null;
 	const port = Number(routed.port);
 	const cat = String(routed.category ?? "").toLowerCase();
+	// W279: the category carries the serving-tier DECISION (e-label); the port
+	// only records best-effort placement after fallback. Explicit labels win.
+	if ((Object.keys(TIERS) as string[]).includes(cat)) return cat;
 	if (port === 8901 || cat === "code") return "coder";
 	if (port === 8902 || cat === "extract") return "extract";
 	if (port === 8903 || cat === "reason") return "reason";

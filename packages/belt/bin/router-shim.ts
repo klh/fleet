@@ -35,6 +35,7 @@ import {
 	applyBudget,
 	callHonoringRetryAfter,
 	classifierText,
+	classifyELabel,
 	kevEligible,
 	openLocalStream,
 	type RequestTimings,
@@ -86,6 +87,10 @@ async function loadPrefs(): Promise<Prefs> {
 		return {};
 	}
 }
+
+// cloud gate: operator cost law — only prefs can authorize the cloud leg
+const cloudAllowed = (p: Prefs): boolean =>
+	p.allow_cloud === true && p.cost_speed !== "cost";
 
 // arithmetic lane: a pure-math ask is evaluated directly, never sent to an
 // LLM — Qwen3-4B deterministically answers 17*23 -> "401" at temp 0 (verified
@@ -191,20 +196,6 @@ const TIER_ROUTES: Record<string, Specialist> = {
 	COMPLEX: REASON,
 	VERY_COMPLEX: REASON,
 };
-
-// Danish/multilingual detection — deterministic word list + æøå, no model
-// calls (routing rule 3). Two strong hits, or one strong + weak, or three
-// weak; æøå shares with Norwegian, but :8906 covers 201 langs either way.
-const DA_STRONG =
-	/\b(jeg|ikke|hvad|hvordan|hvorfor|hvilken|hvilket|hvilke|også|måske|dansk|danmark|hygge|mig|dig)\b/gi;
-const DA_WEAK =
-	/\b(og|er|det|som|på|til|af|med|der|hun|han|vi|har|skal|år)\b/gi;
-function isDanish(text: string): boolean {
-	const strong = (text.match(DA_STRONG) ?? []).length;
-	const weak = (text.match(DA_WEAK) ?? []).length;
-	if ((text.match(/[æøå]/gi) ?? []).length >= 2) return true;
-	return strong >= 2 || (strong >= 1 && weak >= 1) || weak >= 3;
-}
 
 // ─── cloud escalation ───
 // W422.17.3: the escalation leg lives in escalate.ts — gate mode
@@ -444,11 +435,18 @@ Bun.serve({
 		}
 
 		const isCode = score.dimensions.codePresence > 0.5;
+		// W279: serving-tier decision (e-label) — the label rides _routing.category
+		const el = classifyELabel(text, score);
 		let route = isCode
 			? TIER_ROUTES.MEDIUM
 			: score.tier === "SIMPLE"
 				? TIER_ROUTES.SIMPLE
 				: TIER_ROUTES.COMPLEX;
+		if (el.label === "general") route = DANISH;
+		if (el.label === "none") route = REASON; // best effort; note explains
+		if (el.label === "cloud") route = REASON; // escalate-first when allowed; else local best-effort
+		if (el.label === "reason") route = REASON; // W279: label decides placement
+		if (el.label === "extract") route = TIER_ROUTES.SIMPLE;
 
 		// ambiguity band → Kev typed-question classifier decides by use case
 		// (routing table from prefs); kev down/slow ⇒ regex result stands.
@@ -458,7 +456,7 @@ Bun.serve({
 		const inBand = score.total >= band[0] && score.total <= band[1];
 		const kevWanted =
 			prefs.kev?.enabled &&
-			!isCode &&
+			(el.label === "extract" || el.label === "reason") &&
 			(inBand || score.tier === "VERY_COMPLEX");
 		if (kevWanted && !kevEligible(text)) classifier = "kev-skipped:long";
 		else if (kevWanted) {
@@ -510,19 +508,16 @@ Bun.serve({
 			}
 		}
 
-		// Danish/multilingual → the on-demand generalist :8906 (routing rule 5);
-		// overrides use-case pins — language beats task class for the 9B specialist.
-		if (!isCode && DANISH && route.port !== DANISH.port && isDanish(text)) {
-			route = DANISH;
-			classifier = classifier ? `${classifier}+danish` : "danish";
-		}
+		// W279: Danish/multilingual → the on-demand generalist :8906 (routing
+		// rule 5) — classifyELabel owns it via the general label; language beats
+		// task class. The kev pin applies only to fallback-label prose below.
 
 		// admission control: bound in-flight per routed port; overflow → 429 +
 		// Retry-After so the gateway ladder takes its next hop
 		const release = admission.tryAcquire(route.port);
 		if (!release) {
 			logRouting({
-				category: route.role,
+				category: el.label,
 				port: route.port,
 				...promptFingerprint(text),
 				outcome: "overloaded",
@@ -552,6 +547,7 @@ Bun.serve({
 			let localTimings: RequestTimings | undefined;
 			const note: string[] = [
 				`complexity ${score.total.toFixed(2)} → ${score.tier}${isCode ? "+code" : ""}${classifier ? ` ${classifier}` : ""}`,
+				`e-label ${el.label} (${el.why})`,
 			];
 			const errors: string[] = [];
 			if (condenseMeta)
@@ -561,7 +557,7 @@ Bun.serve({
 			const routingInfo = () => ({
 				tier: score.tier,
 				complexity: score.total.toFixed(3),
-				category: route.role,
+				category: el.label,
 				port: usedPort,
 				model: usedModel,
 				note: note.join("; "),
@@ -585,7 +581,7 @@ Bun.serve({
 			});
 			const logDone = (extra: Record<string, unknown>) =>
 				logRouting({
-					category: route.role,
+					category: el.label,
 					model: usedModel,
 					port: usedPort,
 					duration_ms: Date.now() - startTime,
@@ -644,7 +640,32 @@ Bun.serve({
 			};
 
 			let retryAfter: number | undefined;
-			if (wantStream) {
+			// W279: cloud-first serving — a cloud serving-tier decision escalates
+			// BEFORE the local ladder (a stated >32k-token request on the small
+			// local tiers is broken placement); on failure the ladder runs on the
+			// best-effort route (REASON). One cloud attempt per request.
+			let triedCloud = false;
+			const tryCloud = async (wantFast: boolean): Promise<boolean> => {
+				triedCloud = true;
+				try {
+					const c = await escalate(body, { maxTokens: clientMax, wantFast });
+					if (c.note) note.push(c.note);
+					if (c.status === 429)
+						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);
+					if (!c.text) return false;
+					response = c.text;
+					usedPort = 0;
+					usedModel = `z.ai:${c.model}`;
+					note.push("escalated → cloud(z.ai)");
+					return true;
+				} catch {
+					note.push("cloud escalation failed");
+					return false;
+				}
+			};
+			// cloud gate + tier decision: only prefs authorize the cloud leg
+			if (el.label === "cloud" && cloudAllowed(prefs)) await tryCloud(true);
+			if (wantStream && !response) {
 				// streamed: TTFT = the specialist's first token, not the full answer
 				const opened = await ladder(
 					route,
@@ -691,7 +712,7 @@ Bun.serve({
 					handedOff = true;
 					return new Response(stream, { headers: sseHeaders(routing) });
 				}
-			} else {
+			} else if (!response && !wantStream) {
 				const got = await ladder(
 					route,
 					primary,
@@ -716,31 +737,17 @@ Bun.serve({
 				}
 			}
 
-			// cloud escalation — prefs-gated, COMPLEX+ only, never in cost mode
-			const cloudAllowed =
-				prefs.allow_cloud === true && prefs.cost_speed !== "cost";
+			// cloud escalation — prefs-gated, never in cost mode; warranted by
+			// COMPLEX+ or a cloud serving-tier decision. W279: cloud-decided
+			// requests escalated FIRST (tryCloud above); this tail hop covers the
+			// COMPLEX+ fallback when the local ladder fails.
 			const cloudWarranted =
 				score.tier === "COMPLEX" ||
 				score.tier === "VERY_COMPLEX" ||
-				prefs.cost_speed === "quality";
-			if (!response && cloudAllowed && cloudWarranted) {
-				try {
-					const c = await escalate(body, {
-						maxTokens: clientMax,
-						wantFast: score.tier !== "VERY_COMPLEX",
-					});
-					if (c.note) note.push(c.note);
-					if (c.status === 429)
-						retryAfter = Math.max(retryAfter ?? 0, c.retryAfterMs ?? 0);
-					if (c.text) {
-						response = c.text;
-						usedPort = 0;
-						usedModel = `z.ai:${c.model}`;
-						note.push("escalated → cloud(z.ai)");
-					}
-				} catch {
-					note.push("cloud escalation failed");
-				}
+				prefs.cost_speed === "quality" ||
+				el.label === "cloud";
+			if (!response && cloudAllowed(prefs) && cloudWarranted && !triedCloud) {
+				await tryCloud(score.tier !== "VERY_COMPLEX");
 			}
 
 			if (!response) {
