@@ -165,9 +165,9 @@ export type EnterpriseFactory = (db: Database) => EnterpriseProvider;
 
 let slot: EnterpriseProvider | null = null;
 
-/** Register the overlay's provider (idempotent; last registration wins —
- *  the overlay owns exactly one). */
-export function setEnterpriseProvider(p: EnterpriseProvider): void {
+/** Register (or clear, null) the overlay's provider — the overlay owns
+ *  exactly one; tests clear it to keep the slot process-local clean. */
+export function setEnterpriseProvider(p: EnterpriseProvider | null): void {
 	slot = p;
 }
 

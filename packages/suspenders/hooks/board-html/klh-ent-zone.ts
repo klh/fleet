@@ -26,6 +26,9 @@ const PANELS: ReadonlyArray<EntPanelKey> = ENT_PANEL_KEYS;
 export class KlhEntZone extends LitElement {
 	static properties = {
 		active: { type: Boolean, reflect: true },
+		ent: { state: true },
+		slices: { state: true },
+		stamp: { state: true },
 	};
 
 	static styles = css`
@@ -103,6 +106,7 @@ export class KlhEntZone extends LitElement {
 		this.dispatchEvent(
 			new CustomEvent("ent-entitled", { bubbles: true, composed: true }),
 		);
+		this.#refresh();
 		this.#timer = setInterval(() => {
 			this.#refresh();
 		}, 60000);
@@ -169,3 +173,6 @@ export class KlhEntZone extends LitElement {
 		`;
 	}
 }
+
+if (!customElements.get("klh-ent-zone"))
+	customElements.define("klh-ent-zone", KlhEntZone);

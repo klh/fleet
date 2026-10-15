@@ -166,7 +166,7 @@ import{r,e,s}from"./lit-9bpcreb0.js";var u=["identity","federation","audit","usa
 						revoked:
 						${n.revocations.map((t)=>`${t.id} (${t.dept})`).join(", ")}
 					</div>`}
-		`}}if(!customElements.get("klh-ent-ma"))customElements.define("klh-ent-ma",k);var v=u;class E extends s{static properties={active:{type:Boolean,reflect:!0}};static styles=r`
+		`}}if(!customElements.get("klh-ent-ma"))customElements.define("klh-ent-ma",k);var E=u;class b extends s{static properties={active:{type:Boolean,reflect:!0},ent:{state:!0},slices:{state:!0},stamp:{state:!0}};static styles=r`
 		:host {
 			display: block;
 		}
@@ -207,15 +207,15 @@ import{r,e,s}from"./lit-9bpcreb0.js";var u=["identity","federation","audit","usa
 			gap: var(--klh-space-4);
 			padding: var(--klh-space-4);
 		}
-	`;#e=null;constructor(){super();this.active=!1,this.ent=null,this.slices=null,this.stamp=null}#t(){fetch("/api/enterprise").then((n)=>n.status===200?n.json():null).then((n)=>{if(n===null||n.ok!==!0)return;this.slices=n.panels,this.stamp=Date.now()}).catch(()=>{})}#n(n){if(n===null||n.ok!==!0)return;this.ent=n,this.active=!0,this.dispatchEvent(new CustomEvent("ent-entitled",{bubbles:!0,composed:!0})),this.#e=setInterval(()=>{this.#t()},60000)}#r(){fetch("/api/entitlements").then((n)=>n.status===200?n.json():null).then((n)=>this.#n(n)).catch(()=>{})}connectedCallback(){super.connectedCallback(),this.#r()}disconnectedCallback(){if(super.disconnectedCallback(),this.#e!==null)clearInterval(this.#e),this.#e=null}#l(n,t){let l=t??{ok:!1,why:"waiting for first refresh…"};switch(n){case"identity":return e`<klh-ent-identity .data=${l}></klh-ent-identity>`;case"federation":return e`<klh-ent-federation .data=${l}></klh-ent-federation>`;case"audit":return e`<klh-ent-audit .data=${l}></klh-ent-audit>`;case"usage":return e`<klh-ent-usage .data=${l}></klh-ent-usage>`;case"policy":return e`<klh-ent-policy .data=${l}></klh-ent-policy>`;case"vault":return e`<klh-ent-vault .data=${l}></klh-ent-vault>`;case"ma":return e`<klh-ent-ma .data=${l}></klh-ent-ma>`}}render(){if(!this.active)return e``;let n=new Set(this.ent?.panels??[]),t=v.filter((d)=>n.has(d)),l=this.ent?.tenant??"",b=this.stamp===null?"":o(this.stamp);return e`
+	`;#e=null;constructor(){super();this.active=!1,this.ent=null,this.slices=null,this.stamp=null}#t(){fetch("/api/enterprise").then((n)=>n.status===200?n.json():null).then((n)=>{if(n===null||n.ok!==!0)return;this.slices=n.panels,this.stamp=Date.now()}).catch(()=>{})}#n(n){if(n===null||n.ok!==!0)return;this.ent=n,this.active=!0,this.dispatchEvent(new CustomEvent("ent-entitled",{bubbles:!0,composed:!0})),this.#t(),this.#e=setInterval(()=>{this.#t()},60000)}#l(){fetch("/api/entitlements").then((n)=>n.status===200?n.json():null).then((n)=>this.#n(n)).catch(()=>{})}connectedCallback(){super.connectedCallback(),this.#l()}disconnectedCallback(){if(super.disconnectedCallback(),this.#e!==null)clearInterval(this.#e),this.#e=null}#r(n,t){let l=t??{ok:!1,why:"waiting for first refresh…"};switch(n){case"identity":return e`<klh-ent-identity .data=${l}></klh-ent-identity>`;case"federation":return e`<klh-ent-federation .data=${l}></klh-ent-federation>`;case"audit":return e`<klh-ent-audit .data=${l}></klh-ent-audit>`;case"usage":return e`<klh-ent-usage .data=${l}></klh-ent-usage>`;case"policy":return e`<klh-ent-policy .data=${l}></klh-ent-policy>`;case"vault":return e`<klh-ent-vault .data=${l}></klh-ent-vault>`;case"ma":return e`<klh-ent-ma .data=${l}></klh-ent-ma>`}}render(){if(!this.active)return e``;let n=new Set(this.ent?.panels??[]),t=E.filter((d)=>n.has(d)),l=this.ent?.tenant??"",v=this.stamp===null?"":o(this.stamp);return e`
 			<div class="zone">
 				<div class="zhead">
 					<span class="badge">ENTERPRISE</span>
 					<span class="tenant">${l}</span>
-					<div class="stamp">${b}</div>
+					<div class="stamp">${v}</div>
 				</div>
 			</div>
 			<div class="grid">
-				${t.map((d)=>this.#l(d,this.slices?.[d]))}
+				${t.map((d)=>this.#r(d,this.slices?.[d]))}
 			</div>
-		`}}export{E as KlhEntZone};
+		`}}if(!customElements.get("klh-ent-zone"))customElements.define("klh-ent-zone",b);export{b as KlhEntZone};
