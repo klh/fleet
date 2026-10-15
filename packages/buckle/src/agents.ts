@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { StackExecutor } from "./stack-config.ts";
 
 /** One coding agent, fully described as data (W227-A3 interface — stable;
  *  the A2 draft table grows against exactly this shape). */
@@ -82,10 +83,37 @@ export const laneEnv = (
 	};
 };
 
+/** W230: the executors row for `id` — the default row is the base layer,
+ *  the id row's fields win over it. */
+const stackRow = (
+	exec: Record<string, StackExecutor>,
+	id: string,
+): StackExecutor => ({ ...exec.default, ...exec[id] });
+
+const claudeBaseOf = (
+	baseUrl: string,
+	exec: Record<string, StackExecutor>,
+): string =>
+	stackRow(exec, "claude").anthropic_base ??
+	anthropicRoot(stackRow(exec, "claude").openai_base ?? baseUrl);
+
+const codexBaseOf = (
+	baseUrl: string,
+	exec: Record<string, StackExecutor>,
+): string => stackRow(exec, "codex").openai_base ?? baseUrl;
+
+const copilotBaseOf = (
+	baseUrl: string,
+	exec: Record<string, StackExecutor>,
+): string => stackRow(exec, "copilot").openai_base ?? baseUrl;
+
 /** The seed table. `baseUrl` is the openai-dialect base (…/v1); anthropic
- *  entries derive their root from it. */
+ *  entries derive their root from it. W230: `exec` = the stack.yaml
+ *  executors rows — exec[id] ?? exec.default override a row's base/model;
+ *  flags and env stay the override layer. */
 export const agentRecipes = (
 	baseUrl: string = DEFAULT_BASE_URL,
+	exec: Record<string, StackExecutor> = {},
 ): AgentRecipe[] => [
 	{
 		id: "claude",
@@ -94,11 +122,14 @@ export const agentRecipes = (
 		wire: "anthropic",
 		reroute: {
 			env: {
-				ANTHROPIC_BASE_URL: anthropicRoot(baseUrl),
-				ANTHROPIC_MODEL: DEFAULT_MODEL,
+				ANTHROPIC_BASE_URL: claudeBaseOf(baseUrl, exec),
+				ANTHROPIC_MODEL: stackRow(exec, "claude").model ?? DEFAULT_MODEL,
 			},
 		},
-		probe: { kind: "http", url: `${anthropicRoot(baseUrl)}/v1/messages` },
+		probe: {
+			kind: "http",
+			url: `${claudeBaseOf(baseUrl, exec)}/v1/messages`,
+		},
 		notes: "pure env reroute — unset ANTHROPIC_BASE_URL to return to the cloud",
 	},
 	{
@@ -111,7 +142,7 @@ export const agentRecipes = (
 		},
 		wire: "openai",
 		reroute: {
-			env: { OPENAI_BASE_URL: baseUrl },
+			env: { OPENAI_BASE_URL: codexBaseOf(baseUrl, exec) },
 			configEdit: {
 				file: "~/.codex/config.toml",
 				kind: "toml",
@@ -119,7 +150,7 @@ export const agentRecipes = (
 				value: `${[
 					"[model_providers.buckle]",
 					`name = "buckle"`,
-					`base_url = "${baseUrl}"`,
+					`base_url = "${codexBaseOf(baseUrl, exec)}"`,
 					`env_key = "LITELLM_KEY"`,
 					`wire_api = "responses"`,
 				].join("\n")}\n`,
@@ -131,19 +162,22 @@ export const agentRecipes = (
 		ephemeral: {
 			configHomeEnv: "CODEX_HOME",
 			file: "config.toml",
-			render: (baseUrl, model) =>
+			render: (_baseUrl, model) =>
 				`${[
 					`model = "${model}"`,
 					`model_provider = "buckle"`,
 					"",
 					"[model_providers.buckle]",
 					`name = "buckle"`,
-					`base_url = "${baseUrl}"`,
+					`base_url = "${codexBaseOf(baseUrl, exec)}"`,
 					`env_key = "LITELLM_KEY"`,
 					`wire_api = "responses"`,
 				].join("\n")}\n`,
 		},
-		probe: { kind: "http", url: `${baseUrl}/models` },
+		probe: {
+			kind: "http",
+			url: `${codexBaseOf(baseUrl, exec)}/models`,
+		},
 		notes:
 			"ephemeral lane path = temp CODEX_HOME (bin/lane-wrap.ts); persistent enable = the configEdit block (responses wire only since codex 0.158)",
 	},
@@ -154,12 +188,16 @@ export const agentRecipes = (
 		wire: "openai",
 		reroute: {
 			env: {
-				COPILOT_PROVIDER_BASE_URL: baseUrl,
+				COPILOT_PROVIDER_BASE_URL: copilotBaseOf(baseUrl, exec),
 				COPILOT_PROVIDER_TYPE: "openai",
-				COPILOT_MODEL: DEFAULT_MODEL,
+				COPILOT_MODEL:
+					stackRow(exec, "copilot").model ?? DEFAULT_MODEL,
 			},
 		},
-		probe: { kind: "http", url: `${baseUrl}/models` },
+		probe: {
+			kind: "http",
+			url: `${copilotBaseOf(baseUrl, exec)}/models`,
+		},
 		notes: "pure env reroute — nothing on disk",
 	},
 ];

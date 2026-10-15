@@ -16,6 +16,7 @@ import {
 	DEFAULT_MODEL,
 	agentRecipes,
 } from "../src/agents.ts";
+import { loadExecutors } from "../src/stack-config.ts";
 import {
 	buildWrap,
 	materializeWrap,
@@ -45,7 +46,8 @@ const planFor = (
 		);
 		process.exit(1);
 	}
-	const model = arg("model") ?? DEFAULT_MODEL;
+	const row = EXEC[id] ?? EXEC.default;
+	const model = arg("model") ?? row?.model ?? DEFAULT_MODEL;
 	const plan = buildWrap(recipe, baseUrl, model);
 	if (!plan) {
 		err(
@@ -59,7 +61,11 @@ const planFor = (
 	return { recipe, plan };
 };
 
-const BASE_URL = (arg("base-url") ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+// W230: the ONE stack config is the base layer; --base-url is the CLI
+// override — flag wins, the file is skipped entirely.
+const FLAG_BASE = arg("base-url");
+const EXEC = FLAG_BASE ? {} : loadExecutors();
+const BASE_URL = (FLAG_BASE ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
 
 const usage = (): void => {
 	out(
