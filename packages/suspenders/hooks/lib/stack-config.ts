@@ -2,9 +2,9 @@
 // real hosts, ports, secret PATHS live only in ~/.config/klh/stack.yaml,
 // mode 600). deploy/hubctl.ts renders deploys from it; coord hubs (W356)
 // projects the topology from it. KLH_STACK overrides the path (tests).
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parse } from "yaml";
 
 export interface HubProfile {
@@ -42,6 +42,10 @@ export interface HubProfile {
 	allowed_hosts?: string[];
 	services_json?: string;
 	peers?: string[];
+	/** W230: the buckle front URL this hub serves — resolveHub consults it
+	 *  (before the hubs.json registry) — plus an optional front token. */
+	url?: string;
+	token?: string;
 	/** Deploy source: `ref` pins the git ref for all three repos; the named
 	 *  entries override origins (forks/mirrors) — never host paths, the hub
 	 *  pulls its code from the git origins into volumes. */
@@ -90,18 +94,157 @@ export interface StackConfig {
 	version?: string;
 	hubs: Record<string, HubProfile>;
 	auth?: { required?: boolean };
+	/** W230: providers — where upstream API keys live (inline on the
+	 *  machine file, an env var NAME, or a 0600 secret file). Values never
+	 *  live in repos; the committed template carries placeholders only. */
+	providers?: Record<string, ProviderEntry>;
+	/** W230: executors — per-executor gateway base(s) + model pin. The
+	 *  insertion engine (scripts/lib/insertion.ts, buckle onboard +
+	 *  lane-wrap) consumes these; env and CLI flags stay the override
+	 *  layer. The `default` row is the fallback for any id without its own. */
+	executors?: Record<string, ExecutorConfig>;
+	/** W230: policies — per-repo routing policy (must/prefer law
+	 *  expressions, hub label, residency regions). */
+	policies?: Record<string, RepoPolicy>;
 }
 
 export const STACK_PATH = (): string =>
 	process.env.KLH_STACK ?? join(homedir(), ".config", "klh", "stack.yaml");
 
-/** Parse the machine-level stack config; `hubs:` is mandatory. */
+// ---- W230: providers / executors / policies --------------------------------
+
+/** One provider key declaration — the user-facing surface for where an
+ *  upstream API key lives. Values never live in repos; the machine file
+ *  itself is mode 600. */
+export interface ProviderEntry {
+	/** env var NAME the key rides at runtime. */
+	env?: string;
+	/** 0600 dotenv-style file (KEY=VALUE lines); machine-local values. */
+	key_file?: string;
+	/** var to read from key_file (default: <PROVIDER>_API_KEY). */
+	key_name?: string;
+	/** inline value — machine file only; never commit real values. */
+	key?: string;
+	/** provider-native base URL override (custom gateways). */
+	base_url?: string;
+}
+
+/** One executor row: per-executor gateway base(s) + model pin. */
+export interface ExecutorConfig {
+	anthropic_base?: string;
+	openai_base?: string;
+	/** model pin for this executor — routed by id behind belt. */
+	model?: string;
+}
+
+/** Per-repo routing policy — the machine-level home for what a repo's
+ *  .prefer dotfile expresses (dotfiles still win). */
+export interface RepoPolicy {
+	/** W96 law expression (belt router vocabulary) — hard law. */
+	must?: string;
+	/** W96 law expression — soft law; must beats prefer. */
+	prefer?: string;
+	/** default hub label for dispatch from this repo. */
+	hub?: string;
+	/** allowed regions (buckle gov residency vocabulary). */
+	residency?: string[];
+}
+
+/** Parse the machine-level stack config — W230: the ONE user-editable
+ *  surface (providers/executors/policies join hubs; every section is
+ *  optional, an empty file is a valid empty config). */
 export function loadStack(): StackConfig {
-	const raw = parse(readFileSync(STACK_PATH(), "utf8")) as StackConfig;
-	if (!raw?.hubs || typeof raw.hubs !== "object") {
-		throw new Error(`no hubs: section in ${STACK_PATH()}`);
+	const raw = parse(readFileSync(STACK_PATH(), "utf8")) as StackConfig | null;
+	return { ...(raw ?? {}), hubs: raw?.hubs ?? {} };
+}
+
+/** loadStack() with every failure (missing file, malformed YAML) → null —
+ *  the tier every optional-section helper reads through. */
+export function tryLoadStack(): StackConfig | null {
+	try {
+		return loadStack();
+	} catch {
+		return null;
 	}
-	return raw;
+}
+
+/** W230 executors: the row for `id`, falling through to the `default` row
+ *  when the id has none of its own. `id` omitted = the default row. */
+export function executorConfig(
+	id?: string,
+	stack?: StackConfig | null,
+): ExecutorConfig | undefined {
+	const ex = (stack === undefined ? tryLoadStack() : stack)?.executors;
+	if (!ex) return undefined;
+	return id ? (ex[id] ?? ex.default) : ex.default;
+}
+
+/** W230 policies: the per-repo row — exact basename match first (case-
+ *  insensitive), then the `"*"` wildcard row; nothing → undefined. */
+export function policyForRepo(
+	repo: string,
+	stack?: StackConfig | null,
+): RepoPolicy | undefined {
+	const pol = (stack === undefined ? tryLoadStack() : stack)?.policies;
+	if (!pol) return undefined;
+	const base = basename(repo).toLowerCase();
+	for (const [key, row] of Object.entries(pol)) {
+		if (key.toLowerCase() === base) return row;
+	}
+	return pol["*"];
+}
+
+const unquote = (v: string): string => {
+	const t = v.trim();
+	if (
+		(t.startsWith('"') && t.endsWith('"')) ||
+		(t.startsWith("'") && t.endsWith("'"))
+	) {
+		return t.slice(1, -1);
+	}
+	return t;
+};
+
+/** W230 providers: resolve a provider's key — inline `key` → env var named
+ *  by `env` → `key_file` (dotenv-style, mode-600 enforced, 1 MiB cap),
+ *  variable `key_name ?? <PROVIDER>_API_KEY`. Nothing resolvable → null. */
+export function providerKey(
+	name: string,
+	stack?: StackConfig | null,
+): string | null {
+	const entry = (
+		stack === undefined ? tryLoadStack() : stack
+	)?.providers?.[name];
+	if (!entry) return null;
+	if (entry.key) return entry.key;
+	if (entry.env) {
+		const v = process.env[entry.env];
+		if (v) return v;
+	}
+	if (entry.key_file) {
+		const raw = entry.key_file;
+		const path =
+			raw === "~" || raw.startsWith("~/")
+				? join(homedir(), raw.slice(1))
+				: raw;
+		const st = statSync(path);
+		if ((st.mode & 0o777) !== 0o600) {
+			throw new Error(
+				`provider ${name}: key_file ${raw} must be mode 600 (got ${(st.mode & 0o777).toString(8)})`,
+			);
+		}
+		if (st.size > 1024 * 1024) {
+			throw new Error(`provider ${name}: key_file over the 1 MiB cap`);
+		}
+		const want =
+			entry.key_name ??
+			`${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`;
+		for (const line of readFileSync(path, "utf8").split("\n")) {
+			const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+			if (m && m[1] === want) return unquote(m[2]);
+		}
+	}
+	return null;
 }
 
 // ---- quiet hours (W483) ----------------------------------------------------
