@@ -103,10 +103,12 @@ test("item budget survives SID changes, reclaim and process restart", () => {
 test("claim revision and nonce fence registration and older cleanup", () => {
 	const { db, store, input } = fixture();
 	const first = reserveLaunchIntent(store, input, 3);
+	// a heartbeat (updated_at bump, same owner + state) must NOT kill the
+	// registration — exact-updated_at here made every real-world lane death
+	// silent: fence exit 125 before claude ever ran (W761, 2026-10-15)
 	db.run("UPDATE work_items SET updated_at=101");
-	expect(() => registerLaunch(store, first, process.pid)).toThrow(
-		"claim replaced",
-	);
+	registerLaunch(store, first, process.pid);
+	expect(launchIntent(store, "project", "W1")?.pid).toBe(process.pid);
 	finishFailedLaunch(store, first);
 	const second = reserveLaunchIntent(store, { ...input, revision: 101 }, 3);
 	finishFailedLaunch(store, { ...first, nonce: "older" });

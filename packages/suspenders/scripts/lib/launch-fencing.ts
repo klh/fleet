@@ -316,12 +316,16 @@ export function registerLaunch(
 				.get(intent.project, intent.sid, intent.nonce, Date.now())
 		)
 			throw new Error("launch lease replaced; executor refused");
+		// Identity = owner + live state, NOT updated_at: the revision was
+		// snapshotted at reservation and any heartbeat/audit touch in the
+		// seconds-to-register window fails this check — the executor then
+		// exits 125 before claude runs (2026-10-15 mass lane death, W761).
 		if (
 			!store
 				.query(
-					"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND updated_at=? AND state IN ('CLAIMED','RUNNING')",
+					"SELECT 1 FROM work_items WHERE project=? AND id=? AND owner_sid=? AND state IN ('CLAIMED','RUNNING')",
 				)
-				.get(intent.project, intent.item, intent.sid, intent.revision)
+				.get(intent.project, intent.item, intent.sid)
 		)
 			throw new Error("claim replaced; executor refused");
 		const changed = store
