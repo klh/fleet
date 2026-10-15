@@ -30,7 +30,12 @@ export const CODE_STRONG: Array<{ name: string; re: RegExp }> = [
 	},
 	{
 		name: "write-code",
-		re: /\b(write|implement|create|code|fix|refactor|debug|complete)\s+(an?\s+|the\s+|this\s+|my\s+)?(\w+\s+){0,2}(function|method|class|script|program|snippet|module|unit\s+tests?|regex|query|algorithm|component|endpoint)\b/i,
+		re: /\b(write|implement|create|code|fix|refactor|debug|complete)\s+(an?\s+|the\s+|this\s+|my\s+)?(\w+\s+){0,2}(function|method|class|script|program|snippet|module|tests?|regex|query|algorithm|component|endpoint)\b/i,
+	},
+	{
+		// W279: fixing code — defect nouns the write-code verb list misses
+		name: "defect-fix",
+		re: /\b(remove|patch|fix|add|address)\b[^.?!]{0,40}\b(memory\s+leak|race\s+condition|deadlock|type\s+annotations?|regression|failing\s+tests?)\b/i,
 	},
 	{
 		name: "signature",
@@ -51,7 +56,7 @@ export const CODE_STRONG: Array<{ name: string; re: RegExp }> = [
 // Weak code signals: generic engineering vocabulary that also fills logs,
 // tickets, and prose. They count only in short prompts and only in numbers.
 export const CODE_WEAK =
-	/\b(function|class|interface|async|await|return|refactor|debug|compile|lint|api|endpoint|component|hook|docker|kubernetes|algorithm|implement|optimize|typescript|javascript|python)\b/gi;
+	/\b(function|class|interface|async|await|return|refactor|debug|compile|lint|api|endpoint|component|hook|docker|kubernetes|algorithm|implement|optimize|typescript|javascript|python|middleware|module|handler|cron)\b/gi;
 export const CODE_WEAK_MIN = 2; // distinct weak hits needed
 export const LONG_PROMPT_WORDS = 1500; // above this, weak hits never count
 
@@ -123,6 +128,108 @@ export function scoreComplexity(text: string): ComplexityScore {
 	else if (total < TIER_THRESHOLDS.COMPLEX) tier = "COMPLEX";
 	else tier = "VERY_COMPLEX";
 	return { total, tier, dimensions };
+}
+
+// ─── W279: serving-tier (e-label) mapping ───
+// scoreComplexity chooses a PLACEMENT (SIMPLE→extract, MEDIUM→coder,
+// COMPLEX→reason) but cannot express the serving-tier vocabulary the bench
+// decision class seals as TIERS (bench/arena/core.ts): coder/extract/reason/
+// general/cloud/none. These detectors implement that criteria text
+// deterministically — same spirit as the Danish word-list rule — and the
+// label rides _routing.category so the arena's routedTier() scores the
+// DECISION, not the best-effort placement after fallback. Order = the
+// criteria are disjoint by construction: none → cloud → code → danish →
+// general → reason → complexity fallback.
+export type ELabel =
+	| "coder"
+	| "extract"
+	| "reason"
+	| "general"
+	| "cloud"
+	| "none";
+export interface ELabelDecision {
+	label: ELabel;
+	why: string;
+}
+
+// TIERS.none — needs a capability no text model has.
+const NONE_RES: RegExp[] = [
+	/\b(generate|create|produce|make|draw|render|paint)\b[^.?!]{0,80}\b(image|photo|picture|illustration|drawing|rendering)\b/i,
+	/\b(generate|create|produce|make|record|edit|trim)\b[^.?!]{0,80}\b(video|clip)\b/i,
+	/\btranscrib\w*\b[^.?!]{0,80}\b(audio|recording)\b/i,
+	/\bbrowse the (live )?web\b/i,
+	/\b(phone|call|ring)\b[^.?!]{0,40}\band (ask|book|order)\b/i,
+];
+// TIERS.cloud — input stated >32k tokens, or explicit frontier-model demand.
+export const CLOUD_TOKEN_THRESHOLD = 32_000;
+const CLOUD_SIZE_RE = /\b(\d[\d,.]*)\s*(k)?\s*-?\s*tokens?\b/i;
+const CLOUD_DEMAND_RE = /\bfrontier (cloud )?model\b|\bnothing local\b/i;
+
+/** Danish/multilingual detection — deterministic word list + æøå (moved from
+ *  router-shim with W279; classifyELabel owns it). Two strong hits, or one
+ *  strong + weak, or three weak; æøå shares with Norwegian, but :8906 covers
+ *  201 langs either way. */
+const DA_STRONG =
+	/\b(jeg|ikke|hvad|hvordan|hvorfor|hvilken|hvilket|hvilke|også|måske|dansk|danmark|hygge|mig|dig)\b/gi;
+const DA_WEAK =
+	/\b(og|er|det|som|på|til|af|med|der|hun|han|vi|har|skal|år)\b/gi;
+export function isDanish(text: string): boolean {
+	const strong = (text.match(DA_STRONG) ?? []).length;
+	const weak = (text.match(DA_WEAK) ?? []).length;
+	if ((text.match(/[æøå]/gi) ?? []).length >= 2) return true;
+	return strong >= 2 || (strong >= 1 && weak >= 1) || weak >= 3;
+}
+
+// TIERS.general — writing in a language other than English; translation.
+const LANGS =
+	"danish|french|german|spanish|swedish|norwegian|icelandic|dutch|italian|polish|portuguese|finnish|czech|greek|turkish|japanese|chinese|korean|arabic|hindi|russian|ukrainian|hungarian|romanian|bulgarian|serbian|croatian|hebrew|thai|vietnamese|indonesian";
+const GENERAL_LANG_RE = new RegExp(`\\b(?:in|to|into)\\s+(${LANGS})\\b`, "i");
+const TRANSLATE_RE = /\btranslat\w*\b/i;
+
+// TIERS.reason — multi-step analysis/planning/maths/trade-offs, without code.
+const REASON_RES: RegExp[] = [
+	/\bwithout (?:writing any |any )?code\b/i,
+	/\b(analyz\w*|analys\w*|estimat\w*|trade.?offs?|risks of|work out|step by step|cheaper)\b/i,
+];
+
+/** The special serving tiers the complexity score cannot express; null = fall
+ *  through to the complexity fallback in classifyELabel. First hit wins. */
+export function eLabelSpecial(text: string): ELabelDecision | null {
+	if (NONE_RES.some((re) => re.test(text)))
+		return { label: "none", why: "non-text capability" };
+	const size = CLOUD_SIZE_RE.exec(text);
+	if (
+		(size &&
+			Number(size[1].replace(/,/g, "")) * (size[2] ? 1000 : 1) >
+				CLOUD_TOKEN_THRESHOLD) ||
+		CLOUD_DEMAND_RE.test(text)
+	)
+		return {
+			label: "cloud",
+			why: "stated >32k input or explicit frontier demand",
+		};
+	if (codeSignal(text).isCode) return { label: "coder", why: "code signal" };
+	if (GENERAL_LANG_RE.test(text) || TRANSLATE_RE.test(text))
+		return { label: "general", why: "non-English output or translation" };
+	if (REASON_RES.some((re) => re.test(text)))
+		return { label: "reason", why: "prose analysis, no code" };
+	return null;
+}
+
+/** Total serving-tier decision: special detectors in priority order (none →
+ *  cloud → code → general-language/translation → reason), then the Danish
+ *  word-list rule (language beats task class), then the complexity fallback —
+ *  the pre-W279 shim placement (SIMPLE→extract, else reason) preserved. */
+export function classifyELabel(
+	text: string,
+	score: ComplexityScore,
+): ELabelDecision {
+	const special = eLabelSpecial(text);
+	if (special) return special;
+	if (isDanish(text)) return { label: "general", why: "danish word list" };
+	if (score.tier === "SIMPLE")
+		return { label: "extract", why: "complexity SIMPLE" };
+	return { label: "reason", why: `complexity ${score.tier}` };
 }
 
 // ─── Anthropic request shape → classifier text + OpenAI messages ───
