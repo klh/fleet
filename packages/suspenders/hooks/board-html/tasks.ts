@@ -45,6 +45,8 @@ function buildOwnerDisp(ts){ // seven lanes all claiming "work-graph" must stay 
 function taskSortVal(t, k){
   if (k === 'age') return Number(t.age_s || 0);
   if (k === 'decisions') return Number(t.open_decisions || 0);
+  if (k === 'tok') return Number(t.spend ? t.spend.fresh + t.spend.cached + t.spend.out : 0);
+  if (k === 'wall') return Number(t.spend ? t.spend.wall_ms : 0);
   if (k === 'owner') return ownerName(t).toLowerCase();
   if (k === 'proj') return projShort(t.project).toLowerCase();
   var s2 = String(k === 'title' ? t.title : k === 'state' ? t.state : t.id || '');
@@ -146,6 +148,30 @@ function preferStyle(t){
   var p = preferOf(t);
   return p ? ' style="--prefer:' + esc(p.color) + '"' : '';
 }
+// W776 — per-item attribution (spend.fresh/cached/out, spend.wall_ms) rendered
+// compact; '-' when the item has no attribution at all.
+function spendTotal(t){
+  var sp = t && t.spend ? t.spend : null;
+  return sp ? (sp.fresh + sp.cached + sp.out) : 0;
+}
+function fmtTokShort(n){
+  if (!n) return '-';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return Math.round(n / 1e3) + 'k';
+  return String(n);
+}
+function fmtWall(ms){
+  if (!ms) return '-';
+  var m = Math.round(ms / 60000);
+  if (m >= 60) return Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') + 'm';
+  return m + 'm';
+}
+function spendCell(t){
+  return fmtTokShort(spendTotal(t));
+}
+function wallCell(t){
+  return fmtWall(t && t.spend ? t.spend.wall_ms : 0);
+}
 function taskRow(t, parentId){
   var owner = ownerName(t);
   var prefer = preferOf(t);
@@ -159,6 +185,8 @@ function taskRow(t, parentId){
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
     '<td>' + taskPill(t.state) + '</td>' +
     '<td>' + esc(owner) + '</td>' +
+    '<td class="num">' + esc(spendCell(t)) + '</td>' +
+    '<td class="num">' + esc(wallCell(t)) + '</td>' +
     '<td class="num">' + agoShort(t.age_s) + '</td>' +
     '<td class="num' + (od ? ' rq' : '') + '">' + (od || '-') + '</td></tr>';
 }
@@ -167,7 +195,7 @@ function renderTasks(){
   var body = byId('tasksBody');
   if (!tasksLoaded && !tasksErr) {
     clearErr(errEl);
-    sigSet(body, 'loading', '<tr><td colspan="6" class="dim">loading tasks...</td></tr>');
+    sigSet(body, 'loading', '<tr><td colspan="9" class="dim">loading tasks...</td></tr>');
     return;
   }
   if (tasksErr) {
@@ -349,6 +377,8 @@ function kanbanCard(t){
     '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   html += '<div class="klane dim">lane ' + esc(t.owner_label || t.owner_sid || 'unclaimed') + (t.origin ? ' · ' + esc(String(t.origin)) : '') + '</div>';
+  var sp = t.spend;
+  if (sp) html += '<div class="kspend dim">' + esc(fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + fmtWall(sp.wall_ms)) + '</div>';
   if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (startable) {

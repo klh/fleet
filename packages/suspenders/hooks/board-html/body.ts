@@ -60,10 +60,12 @@ export const BODY = String.raw`
       <th scope="col" data-k="title"><button type="button" class="thsort" data-label="task">task</button></th>
       <th scope="col" data-k="state"><button type="button" class="thsort" data-label="state">state</button></th>
       <th scope="col" data-k="owner"><button type="button" class="thsort" data-label="owner">owner</button></th>
+      <th scope="col" data-k="tok"><button type="button" class="thsort" data-label="tok">tok</button></th>
+      <th scope="col" data-k="wall"><button type="button" class="thsort" data-label="wall">wall</button></th>
       <th scope="col" data-k="age"><button type="button" class="thsort" data-label="age">age</button></th>
       <th scope="col" data-k="decisions"><button type="button" class="thsort" data-label="decisions">decisions</button></th>
     </tr></thead>
-    <tbody id="tasksBody"><tr><td colspan="7" class="dim">loading tasks...</td></tr></tbody>
+    <tbody id="tasksBody"><tr><td colspan="9" class="dim">loading tasks...</td></tr></tbody>
   </table>
 </section>
 <section id="tab-lanes" hidden>

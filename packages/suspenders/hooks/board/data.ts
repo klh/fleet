@@ -32,6 +32,8 @@ import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
+import { itemAttribution, type ItemAttribution } from "../lib/lane-spend.ts";
+import type { Database } from "bun:sqlite";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -41,6 +43,7 @@ export function taskShape(
 		blocked_by: [],
 		waiting_on: [],
 	},
+	attribution: ItemAttribution | null = null,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -75,6 +78,19 @@ export function taskShape(
 				: null,
 		blocked_by: edges.blocked_by,
 		waiting_on: edges.waiting_on,
+		// W776 per-item attribution (buckle spend ⋈ claim windows + wall):
+		// raw numbers — the client formats; null when nothing to attribute.
+		spend: attribution
+			? {
+					fresh: attribution.fresh,
+					cached: attribution.cached,
+					out: attribution.out,
+					requests: attribution.requests,
+					wall_ms: attribution.wallMs,
+					agent_ms: attribution.agentMs,
+					model_groups: attribution.groups,
+				}
+			: null,
 	};
 }
 
@@ -108,6 +124,25 @@ export function depEdges(): Map<
 		out.set(k, e);
 	}
 	return out;
+}
+
+// W776 — per-item attribution (spend + wall) for the tasks feed, memoized
+// 5s: the /api/tasks poll storm rides the cache (W663 doctrine), one ledger
+// read per TTL window. Keys are project\0id — W318 id collision.
+let _wAttr: { at: number; m: Map<string, ItemAttribution> } | null = null;
+const ATTR_TTL_MS = 5_000;
+function workAttribution(): Map<string, ItemAttribution> {
+	if (_wAttr && Date.now() - _wAttr.at < ATTR_TTL_MS) return _wAttr.m;
+	const m = new Map<string, ItemAttribution>();
+	for (const { project } of db
+		.query("SELECT DISTINCT project FROM work_items")
+		.all() as { project: string }[]) {
+		for (const [id, a] of itemAttribution(db as unknown as Database, project)) {
+			m.set(`${project}\u0000${id}`, a);
+		}
+	}
+	_wAttr = { at: Date.now(), m };
+	return m;
 }
 
 // the tasks feed: everything not SUPERSEDED (or DONE still holding an owner —
@@ -147,6 +182,7 @@ export function tasks(p: string | null): unknown[] {
 			openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
 			unblocked,
 			edges.get(`${w.project}\u0000${w.id}`),
+			workAttribution().get(`${w.project}\u0000${w.id}`) ?? null,
 		),
 	);
 }
