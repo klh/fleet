@@ -1,10 +1,11 @@
-# klh fleet laws — in-repo mirror (2026-10-02)
+# klh fleet laws — in-repo mirror (refreshed 2026-10-15, W266.3)
 
 Coord facts are fleet-local: a fresh install has no coord history, so the
-law set ships in-repo. Each law cites its source. Keep this file in sync
-when a law changes — an out-of-date mirror is worse than none.
+law set ships in-repo. Each law cites its source; `tests/laws-mirror.test.ts`
+verifies every citation resolves and every fleet-wide law is covered. Keep
+this file in sync when a law changes — an out-of-date mirror is worse than none.
 
-## UI: never innerHTML
+## UI engineering law
 
 NEVER `innerHTML` / `document.write` — anywhere, ever, including migrations
 of legacy chunks (they are REWRITTEN to lit-html templates, not ported).
@@ -13,7 +14,7 @@ CSS design tokens, native elements first (`<select>`, `<dialog>`,
 `<details>` before custom). Lit is vendored (offline LAN — never CDN).
 Enforced by the suspenders write-gate.
 
-Source: suspenders CLAUDE.md §UI Engineering Law.
+Source: AGENTS.md §UI engineering law; packages/suspenders/AGENTS.md §UI Engineering Law.
 
 ## 1500-line hard limit
 
@@ -22,7 +23,7 @@ responsibility, DRY the second duplicate, ast-grep for shareable patterns
 before adding code near the limit — one source of truth per pattern.
 Enforced: the on-write gate blocks any .ts past 1500 lines.
 
-Source: suspenders CLAUDE.md §1500-Line Hard Limit.
+Source: AGENTS.md §1500-line hard limit; packages/suspenders/AGENTS.md §1500-Line Hard Limit.
 
 ## Streams over buffers
 
@@ -31,7 +32,7 @@ necessary: streams for HTTP/SSE pass-through, NDJSON/line streams for logs
 and feeds, bounded rings with backpressure for async writes.
 `law.streams-over-buffers`.
 
-Source: suspenders CLAUDE.md §Streams Over Buffers.
+Source: AGENTS.md §Streams over buffers; packages/suspenders/AGENTS.md §Streams Over Buffers.
 
 ## Domain separation (data-egress law)
 
@@ -41,7 +42,7 @@ provenance (hub | private label; sessions touching both domains take the
 most restrictive domain). The hub sees what transits it, nothing else —
 spoke-local LLMs are invisible to the hub.
 
-Source: suspenders docs/design/buckle/federation design doc (2026-10-01).
+Source: external — hub/spoke federation design 2026-10-01 (not in-repo).
 
 ## dotfiles-win
 
@@ -49,7 +50,7 @@ klh/.dotfiles is the source of truth for machine config; machine-local
 edits are drift. A config change is not done until it lands in the
 dotfiles repo (dotfiles win over drift).
 
-Source: owner convention (2026-10-01), klh/.dotfiles.
+Source: external — owner convention 2026-10-01 (the dotfiles repo wins).
 
 ## PQC wire
 
@@ -60,7 +61,7 @@ services run plain HTTP on 127.0.0.1 (no wire, no exposure). ML-DSA
 signatures are deliberately deferred (draft-track); symmetric AES-256
 unchanged.
 
-Source: federation doc §Wire crypto posture (verified 2026-10-01).
+Source: external — federation wire-crypto posture (verified 2026-10-01).
 
 ## Centralized ledger
 
@@ -68,8 +69,7 @@ ONE ledger: the work graph (governor.db) carries todos and work; repo docs
 carry architecture and decisions only — never `- [ ]` lists. Operational
 state lives in the plane, never in Markdown ledgers.
 
-Source: suspenders docs/coordination-protocol.md + CLAUDE.md multi-agent
-law.
+Source: packages/speedy/docs/coordination-protocol.md §Work Graph (operational state lives here — never in Markdown)
 
 ## Lane-dispatch convention
 
@@ -81,7 +81,7 @@ not cover), DONE <sha> | SPLIT | BLOCKED endings, board deep-links
 keeps your inbox PUSHED — never poll; if READY work matches your
 capabilities, take it yourself.
 
-Source: AGENTS.md lane protocol + suspenders coordination-protocol doc.
+Source: packages/suspenders/AGENTS.md §Protocol.
 
 ## Installer laws (they shape the umbrella installer)
 
@@ -97,5 +97,76 @@ Source: AGENTS.md lane protocol + suspenders coordination-protocol doc.
 - Hub CR channel: change requests ride the policy pull (spoke-pulled,
   never hub-pushed).
 
-Source: federation doc §Spoke install baseline, §Degradation law,
-§Capability split, §Hub change-request channel.
+Source: external — federation spoke-install design (2026-10-01).
+
+## One version
+
+`version:` in `~/.config/klh/stack.yaml` pins buckle + suspenders + belt;
+hubctl renders it as the git ref every hub pulls. One monorepo, one
+version, every service.
+
+Source: AGENTS.md §One version.
+
+## Config-over-code
+
+Real hosts, keys, OIDC values live ONLY in machine-level runtime config
+(`~/.config/klh/stack.yaml`, mode 600) — repos carry placeholders only.
+
+Source: AGENTS.md §Config-over-code.
+
+## Health is outside-process
+
+A server cannot paint itself healthy. Every hub service gets a
+`*-health` probe sidecar that polls the real target over the network,
+degrades on consecutive misses, and re-probes before flipping to down;
+compose health hits the SIDECAR, never the served process.
+
+Source: AGENTS.md §Health is outside-process.
+
+## Secrets are minted, never typed
+
+Root keys are generated ON the target device (0600, idempotent, never
+printed); admin + per-lane `bksk_` keys are minted via the gate's admin
+API — revocable and audited.
+
+Source: AGENTS.md §Secrets are minted, never typed.
+
+## Scrub gate (W236)
+
+git commit/push runs staged/unpushed ADDED lines through the scrub rule
+set: `/Users/<user>` paths, local-denylist hosts/IPs/MACs, key material,
+corporate-internal markers. Denies with file:line + redacted match; the
+explicit `scrub:allow` marker on the offending line is the only escape.
+
+Source: AGENTS.md §Scrub gate (W236).
+
+## No host-path deploys
+
+Hub containers mount git-pulled volumes — no host paths inside compose.
+
+Source: AGENTS.md §No host-path deploys.
+
+## qlty is THE quality tool
+
+`.qlty/` must exist or the on-write gate silently no-ops. SPEC FIRST:
+read `.qlty/qlty.toml` + the biome rule set before the first write;
+never emit flagged patterns. biome owns code formatting; prettier owns
+markdown only.
+
+Source: AGENTS.md §qlty is THE quality tool; packages/suspenders/AGENTS.md §qlty Quality Doctrine.
+
+## Shell scripts are banned
+
+TypeScript run by Bun is the automation surface (LaunchAgent→bun entry
+points and one-line aliases only). The tracked .sh set is the pinned
+legacy exception, guarded by tests/law-guards.test.ts.
+
+Source: AGENTS.md §Shell scripts are banned.
+
+## Old repos are push-dead
+
+All 9 original repos (suspenders, belt, buckle, local, speedy, blam + the
+3 -remotes) are ARCHIVED with redirect stubs (verified 2026-10-07 via
+gh). Every commit lands in THIS repo at `packages/<name>/*`.
+
+Source: AGENTS.md §Old repos are push-dead.

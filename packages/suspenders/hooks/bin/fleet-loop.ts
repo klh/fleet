@@ -21,11 +21,13 @@
 // MERGE_HEAD abort, never reset --hard on a shared checkout.
 
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
 import { createRuntime } from "../lib/fleet-loop/runtime.ts";
 import { createRetire } from "../lib/fleet-loop/retire.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
+import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
@@ -65,6 +67,10 @@ const { mergeOne, mergeRunnerAlive, healCrashedMerge } = createMergeLadder({
 const { stallWatch } = createStallWatch({
 	...runtime,
 	STALL_WARN_MS: config.STALL_WARN_MS,
+});
+const { rogueSweep } = createRogueSweep({
+	...runtime,
+	manifestPath: join(import.meta.dir, "..", "..", "deploy", "services.yaml"),
 });
 
 // the ladder and dispatch commands are repo-OWNER config (same trust class as
@@ -132,6 +138,17 @@ async function cycle(): Promise<void> {
 	} catch (e) {
 		log(
 			`WISDOM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+
+	// 6. rogue sweep (W266.3): plane processes outside launchd supervision —
+	// spot-only, darwin-only; fail-isolated so a sweep bug can never take
+	// down the merge/dispatch loop (the wisdom-sweep rule).
+	try {
+		rogueSweep();
+	} catch (e) {
+		log(
+			`ROGUE sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 }
