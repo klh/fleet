@@ -18,6 +18,11 @@ import {
 	adapterFor,
 	isSpawnableExecutor,
 } from "../../hooks/lib/executors/registry.ts";
+// W374: the per-provider quota measure — providerOf keys a chain slot to its
+// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
+// chain is owner intent, W228 parity with the W620 cv reorder).
+import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/exec-quota.ts";
 
 /** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
  * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
@@ -118,11 +123,18 @@ const slotOf = (e: string): { model: string | null; bin: string } | null => {
  * `--fallback-model` (comma list, retries in order, confirmed 2026-10-03
  * to recover even from a flat invalid-model-name 400 — not just overload)
  * — so a single process already tries several models before a re-dispatch
- * cycle is ever needed. */
+ * cycle is ever needed.
+ *
+ * `quota` (W374) is the per-provider penalty map (hooks/lib/exec-quota.ts):
+ * slots riding a provider with POSITIVE exhaustion evidence demote below
+ * healthy ones — quota health outranks trust, an exhausted provider strands
+ * the lane (429 death → W366 reclaim dance) while trust only ranks among
+ * usable slots. Applies to the DEFAULT ladder ONLY. */
 export const execPick = (
 	attempt = 0,
 	repo: string,
 	cvOf?: Map<string, number>,
+	quota?: ProviderPenalty,
 ): {
 	name: string;
 	agent: string;
@@ -150,6 +162,15 @@ export const execPick = (
 			console.log(
 				`NOTE — .prefer chain[${idx}]=${e} not in enabled_executors; MUST WINS (W228)`,
 			);
+		// W374: a MUST riding an exhausted provider is surfaced, never rerouted
+		// (same law as the allow-list collision above)
+		if (quota) {
+			const why = quota.get(providerOf(modelOf(e) ?? e));
+			if (why)
+				console.log(
+					`NOTE — quota: .prefer chain[${idx}]=${e} rides an exhausted provider (${why}); MUST WINS (W228)`,
+				);
+		}
 		const bin = binOf(e);
 		// same-bin tail after idx: natively chained via --fallback-model so
 		// one process tries all of them before a dead-lane re-dispatch is
@@ -187,14 +208,33 @@ export const execPick = (
 		if (slot) chain.push({ name, ...slot });
 	}
 	// W620: the trust tally reorders the DEFAULT ladder only — stable sort by
-	// consecutive-valid desc (missing = 0; no cvOf or all-missing = order
-	// preserved, claude stays the appended last resort). A .prefer MUST chain
-	// is NEVER reordered (W228 owner law).
-	if (cvOf)
-		chain.sort(
-			(a, b) =>
-				(cvOf.get(b.model ?? b.name) ?? 0) -
-				(cvOf.get(a.model ?? a.name) ?? 0),
+	// consecutive-valid desc (missing = 0; no cvOf AND no quota penalty
+	// anywhere = order preserved, claude stays the appended last resort). A
+	// .prefer MUST chain is NEVER reordered (W228 owner law).
+	// W374: quota health outranks trust — slots riding a provider with
+	// positive exhaustion evidence sort below healthy slots (an exhausted
+	// provider strands the lane, 429 death → W366 reclaim dance; trust only
+	// ranks among usable slots). The pre-sort head at the attempt index is
+	// what quota reshuffles, and the reshuffle is loud (NOTE, admission
+	// NOTE precedent).
+	const quotaWhy = (slot: { name: string; model: string | null }): string | null =>
+		quota?.get(providerOf(slot.model ?? slot.name)) ?? null;
+	const penaltyOf = (slot: { name: string; model: string | null }): number =>
+		quotaWhy(slot) ? 1 : 0;
+	const wouldBe = chain[Math.min(attempt, chain.length - 1)];
+	if (cvOf || quota)
+		chain.sort((a, b) => {
+			const dq = penaltyOf(a) - penaltyOf(b);
+			if (dq !== 0) return dq;
+			return (
+				(cvOf?.get(b.model ?? b.name) ?? 0) -
+				(cvOf?.get(a.model ?? a.name) ?? 0)
+			);
+		});
+	// W374: loud, never silent — name what quota routed around and where
+	if (quota && wouldBe && penaltyOf(wouldBe) === 1)
+		console.log(
+			`NOTE — quota: ${wouldBe.name} demoted (${quotaWhy(wouldBe)}) — pick routes to ${chain[0]?.name ?? "claude"}`,
 		);
 	if (chain.length > 0) {
 		const idx = Math.min(attempt, chain.length - 1);
