@@ -20,6 +20,7 @@ import { endpointPassed, livenessResponse } from "./health.ts";
 import { hubLlmsRows, readHubs } from "./hubs.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
+import { registryResponse } from "./registry-emit.ts";
 import {
 	checkAll,
 	discover,
@@ -659,6 +660,7 @@ const ROUTES: RouteMethods = {
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/supervisor": ["GET", "HEAD"],
+	"/registry.json": ["GET", "HEAD"],
 	"/observation.js": ["GET", "HEAD"],
 	"/api/route": ["POST"],
 	"/llms.txt": ["GET", "HEAD"],
@@ -710,6 +712,7 @@ Bun.serve({
 		const preflight = citizenshipGate(req, ROUTES);
 		if (preflight) return preflight;
 		if (path === "/api/status") return etagJson(req, await statusBody());
+		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
 		// W258 — the capability forecast: conservative per-machine rows
 		if (path === "/api/catalog") return json(capabilityPayload());

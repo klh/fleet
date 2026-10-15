@@ -83,12 +83,20 @@ export const ROUTER_PROTOCOL = "anthropic-shim";
 // The :4000 router is not a Specialist (no model of its own — it fronts the
 // fleet and, when allowed, the cloud), but LLM-facing manifests list it
 // alongside them.
+// W289 operational fields: which launchd agent revives it and which log to
+// tail — ONE source, so the recovery map (suspenders W273) drops its literals.
+export const SWARM_AGENT = "com.suspenders.local-llm";
+export const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
+
 export const ROUTER = {
 	port: 4000,
 	label: "router",
 	role: "router",
 	protocol: ROUTER_PROTOCOL,
 	model_served: null,
+	healthPath: "/health/liveness",
+	launchdLabel: SWARM_AGENT,
+	logPath: SWARM_LOG,
 	good_at:
 		"anthropic-protocol clients, deterministic role routing, fleet-wide access, cloud fallback",
 } as const;
@@ -378,7 +386,12 @@ export type RegistrySource = "local" | `hub:${string}`;
 export type ModelClass = "chat" | "embed" | "rerank" | "classify";
 
 export interface RegistryEntry {
-	probePath?: string;
+	// W289: path the health probe rides (probePathFor defaults /v1/models);
+	// launchd agent that revives the row (absent = nothing does, e.g. the
+	// on-demand embed server) and the log to tail when it stays dark.
+	healthPath?: string;
+	launchdLabel?: string;
+	logPath?: string;
 	port: number;
 	alias: string;
 	model: string;
@@ -435,6 +448,9 @@ export function registryEntries(
 			engine: s.engine ?? "mlx_lm",
 			runtime: runtimeFor(s),
 			spec_dec: s.spec_dec,
+			healthPath: "/v1/models",
+			launchdLabel: SWARM_AGENT,
+			logPath: SWARM_LOG,
 			protocol: SPECIALIST_PROTOCOL,
 			external: false,
 			owner: "belt swarm",
@@ -454,6 +470,8 @@ export function registryEntries(
 			ram_gb: e.ram_gb,
 			tier: e.tier,
 			engine: "external",
+			healthPath: "/health",
+			launchdLabel: e.port === 8912 ? "com.belt.kev" : undefined,
 			protocol: e.protocol,
 			external: true,
 			owner: e.owner,

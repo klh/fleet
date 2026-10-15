@@ -19,6 +19,7 @@
 // Owner directives: never flashx; operators edit the YAML, never code.
 import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
+import { chatEntries } from "./registry.ts";
 
 export interface GatewayPolicy {
 	/** Buckle's outer retry budget; independent of the engine below it. */
@@ -140,33 +141,65 @@ export function emitFallbackSettings(p: GatewayPolicy): string {
 	return `litellm_settings:\n  fallbacks:\n${fallbackLines}\n`;
 }
 
-// ─── direct-tier bypass (W270) ───
+// ─── direct-tier bypass (W270, completed W289) ───
 // Bench 2026-10-02 (REPORT.md, n=12, speed STRONG): stack-engine-local vs
 // local-direct = 1.35-3.92× wall, +0.5-2.2 s TTFT per call — the LiteLLM
 // proxy hop itself (Python request path + latency-based-routing bookkeeping),
 // not belt code. Hot local classes therefore skip :4100 and hit the
 // specialist port directly; the gateway keeps cloud ladders + fallbacks.
-// Policy data lives in routing-policy.yaml `direct:` (alias → base URL).
+// The `direct:` tier map is EMITTED-ONLY (W289): routing-policy.yaml no
+// longer carries a hand-written section — registry-emit `direct` writes the
+// object-shaped rows (bin/registry.ts is the one source); parseDirect still
+// reads the legacy `alias: <url>` shape so operator YAML survives.
 
 export type DirectTiers = Record<string, string>;
 
 const LOOPBACK =
 	/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(\/v1)?\/?$/;
 
+/** Pull the loopback base out of a direct row — the legacy `alias: <url>`
+ *  string shape or the emitted object shape (`url:` plus descriptive
+ *  fields); anything else parses to null. */
+const directBaseOf = (spec: unknown): string | null => {
+	if (typeof spec === "string") return spec;
+	if (typeof spec === "object" && spec !== null && !Array.isArray(spec)) {
+		const url = (spec as { url?: unknown }).url;
+		if (typeof url === "string") return url;
+	}
+	return null;
+};
+
 /** Parse the `direct:` section. Only loopback http bases are accepted — a
- *  bypass skips the gateway's auth + accounting, so it must stay on-box. */
+ *  bypass skips the gateway's auth + accounting, so it must stay on-box.
+ *  Rows may be the legacy `alias: <url>` strings or the emitted object
+ *  shape; both normalize to alias → loopback /v1 base. */
 export function parseDirect(text: string): DirectTiers {
 	const doc = YAML.parse(text) as { direct?: Record<string, unknown> };
 	const out: DirectTiers = {};
-	for (const [alias, base] of Object.entries(doc.direct ?? {})) {
-		if (typeof base !== "string" || !LOOPBACK.test(base))
+	for (const [alias, spec] of Object.entries(doc.direct ?? {})) {
+		const base = directBaseOf(spec);
+		if (base === null || !LOOPBACK.test(base))
 			throw new Error(
-				`router-policy: direct.${alias} must be a loopback http base, got ${JSON.stringify(base)}`,
+				`router-policy: direct.${alias} must be a loopback http base (alias: <url> or {url: ...}), got ${JSON.stringify(spec)}`,
 			);
 		out[alias] = base.replace(/\/$/, "").replace(/(\/v1)?$/, "/v1");
 	}
 	return out;
 }
+
+/** Registry-derived tiers (W289 emitted-only): the hot local chat classes a
+ *  client may address without the gateway hop — resident, OpenAI-protocol
+ *  rows only (on-demand rows may be cold; the gateway owns spawn+fallback,
+ *  rerank/embed/classify speak other API shapes). */
+export const directTiersFromRegistry = (): DirectTiers =>
+	Object.fromEntries(
+		chatEntries()
+			.filter((e) => e.tier === "resident")
+			.map((e) => [
+				e.alias,
+				`http://127.0.0.1:${e.port}${e.protocol === "openai" ? "/v1" : ""}`,
+			]),
+	);
 
 /** The W280 emitted artifact (gateway-config.ts writes direct-tiers.json in
  *  the SAME regen as litellm.yaml): what the LIVE engine actually serves, so
@@ -226,9 +259,10 @@ export function loadDirectTiers(
 	].filter((p) => p.length > 0);
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		return parseDirect(readFileSync(p, "utf8"));
+		const rows = parseDirect(readFileSync(p, "utf8"));
+		if (Object.keys(rows).length > 0) return rows;
 	}
-	return {};
+	return directTiersFromRegistry();
 }
 
 /** Where an OpenAI-wire client should send `model`: the specialist port for

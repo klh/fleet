@@ -3,7 +3,13 @@
 // Retry-After, SSE streaming, direct-tier bypass policy. Stub servers only —
 // never the live :890x fleet.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { byPort } from "../bin/registry.ts";
@@ -22,11 +28,7 @@ import {
 	toOpenAiMessages,
 	viaLocal,
 } from "../bin/router-core.ts";
-import {
-	loadDirectTiers,
-	parseDirect,
-	resolveTarget,
-} from "../bin/router-policy.ts";
+import { parseDirect, resolveTarget } from "../bin/router-policy.ts";
 
 // bench class b shapes: 22 JS function families, sealed in bench-arena
 const CODE_GEN = [
@@ -582,16 +584,14 @@ describe("router-shim end-to-end (stub upstream)", () => {
 });
 
 describe("direct-tier bypass policy (engine hop)", () => {
-	test("committed policy bypasses the hot local tiers, not on-demand general", () => {
-		const d = loadDirectTiers(
-			new URL("../bin/routing-policy.yaml", import.meta.url).pathname,
+	test("committed policy no longer carries a hand-written direct: section", () => {
+		const d = parseDirect(
+			readFileSync(
+				new URL("../bin/routing-policy.yaml", import.meta.url).pathname,
+				"utf8",
+			),
 		);
-		expect(d).toEqual({
-			"local-coder": "http://127.0.0.1:8901/v1",
-			"local-extract": "http://127.0.0.1:8902/v1",
-			"local-reason": "http://127.0.0.1:8903/v1",
-		});
-		expect(d["local-general"]).toBeUndefined();
+		expect(d).toEqual({});
 	});
 
 	test("resolveTarget: direct alias → port, everything else → gateway", () => {
