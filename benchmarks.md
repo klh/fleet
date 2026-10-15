@@ -148,6 +148,49 @@ bypass map was taken from W270 commit `2d003cc`. Log: bench/RESULTS.md.
 Gap: REPORT-postw270.md (post-W270-fix rerun) was not available at compile
 time — the router/engine-local rows above are pre-W270.
 
+## Prompt transforms — bench local swarm (W368, 2026-10-16)
+
+Which specialist should serve the board's prompt transforms — the
+deterministic blam `caveman` condenser (incumbent compress), `local-extract`
+(:8902, W288 incumbent enhance head), `local-coder` (:8901),
+`local-reason` (:8903)? n=130 seeded prompt pairs (seed 20261016,
+`packages/suspenders/scripts/lib/prompt-bench-corpus.ts` — verbose/terse
+pair per seed, protected tokens known by construction), nonce-cold legs,
+deterministic scorer (retention 5/6 + key words 1/6, identifier-addition
+guard, transform secondary), no LLM judge. Production client semantics
+(max_tokens 400, verbatim ENHANCE_SYS, `<think>` strip). Direct legs on
+the :890x OpenAI wire (the path `resolveEnhanceTarget` takes) + one :4000
+router lane (router's own placement; it placed all 130 enhance legs on
+:8902). AC power. Manifest: `packages/belt/bench/benchmarks.jsonl` (suite
+`prompt-transform`); per-leg NDJSON in `.fleet/prompt-bench/` (untracked).
+
+Quality rows at n=130 → ±7 pts per fleet law; gaps below that are NOT
+separable. Walls are CROSS-CONTAMINATED (the three direct lanes ran
+concurrently on one GPU; the router lane ran solo afterwards) — speed
+shape only.
+
+| Transform | Target       | n   | score mean | ret p50 | ratio p50 | add p50 | wall p50 | Verdict                                           |
+| --------- | ------------ | --- | ---------: | -------: | --------: | ------: | -------: | ------------------------------------------------- |
+| compress  | blam caveman | 130 |       94.0 |    1.000 |     0.689 |       0 | 0 ms     | incumbent; deterministic, offline, zero latency    |
+| compress  | coder :8901  | 129 |   **96.5** |    1.000 |     0.555 |       0 | 1,599 ms | best LLM compressor; ≤±7 of blam = not separable   |
+| compress  | extract :8902| 129 |       94.8 |    1.000 |     0.520 |       0 | 900 ms   | reformats tokens (`--trace=` style), invents flags |
+| compress  | reason :8903 | 129 |       92.6 |    1.000 |     0.589 |       1 | 2,032 ms | add p50=1: invents identifiers per leg             |
+| enhance   | extract :8902| 130 |   **99.6** |    1.000 |     1.354 |       0 | 842 ms   | **best enhancer** — fastest direct + top score     |
+| enhance   | reason :8903 | 130 |       99.3 |    1.000 |     1.421 |       0 | 1,092 ms | tie with extract within ±7                         |
+| enhance   | coder :8901  | 130 |       95.9 |    1.000 |     1.392 |       0 | 1,151 ms | occasional token-dropping rewrites (score-42 tail) |
+| enhance   | router :4000 | 130 |       99.1 |    1.000 |     1.351 |       0 | 478 ms   | placed 130/130 on :8902; solo-run wall, see note   |
+
+Picks: **best compressor = local-coder :8901 (as LLM leg) — but the
+deterministic blam caveman stays the production condense** (no separation
+within ±7 that justifies a per-prompt model call + residency); **best
+enhancer = local-extract :8902 — the W288 default alias order is
+CONFIRMED**, no knob change. Operator override pins (gateway mode, verified
+live): a quality leg = `SUSPENDERS_PROMPT_MODEL=local-reason` (buckle group
+→ litellm → :8903; a raw `mlx-community/...` id does NOT pin — unknown ids
+ladder to the extract tier via the default ladder) or router placement =
+`SUSPENDERS_PROMPT_ENHANCE_URL=http://127.0.0.1:4000/v1/messages` —
+documented in packages/suspenders/docs/board-api.md (`prompt.enhance` row).
+
 ## Chat tiers — M5 Max 128GB (fleet medians, 2026-09-23)
 
 | Port | Role           | Model                       | GB  | tok/s (median) | Verdict                                                     |
