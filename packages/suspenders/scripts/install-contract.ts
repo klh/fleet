@@ -315,7 +315,7 @@ export const INSTALL_CONTRACT = {
 				"refresh the existing kit serve or advanced Belt supervisor code with backup and import validation; preserve machine config",
 			mutates: true,
 			optIn: true,
-			v1: "stub",
+			v1: "real",
 		},
 		{
 			name: "ensureShims",
@@ -331,7 +331,7 @@ export const INSTALL_CONTRACT = {
 				"seed the local-llm baseline into the runtime home — kit files and config stubs only when absent, never clobber",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "downloadModels",
@@ -339,7 +339,7 @@ export const INSTALL_CONTRACT = {
 				"download the BELT_TIER=minimal resident models via mlx-lm, resumable",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "wireSettings",
@@ -432,12 +432,14 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			flag: "--skip-models",
-			meaning: "skip model download (offline installs)",
+			meaning:
+				"skip model download (offline installs) — rides SUSPENDERS_LEGACY_SKIP_MODELS into the native step until the front-flip",
 			mappedStep: "downloadModels",
 		},
 		{
 			flag: "--no-llm",
-			meaning: "skip the local-llm baseline entirely (CI/containers)",
+			meaning:
+				"skip the local-llm baseline entirely (CI/containers) — rides SUSPENDERS_LEGACY_NO_LLM into the native seed step until the front-flip",
 			mappedStep: "seedLocalLlm",
 		},
 		{
@@ -475,8 +477,7 @@ export const INSTALL_CONTRACT = {
 	v1Delegation: {
 		command: "bash <repo>/install.sh __legacy full",
 		when: "a full run (no --step) with --yes",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the remaining legacy blocks (harness copy, shims, llm seed, models) that have no native step yet; W771.3 retired the wire/caddy/skills/release blocks",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the bash-owned blocks (llm seed, models, caddy, release) that have no native step yet (W771.1: syncHarness + ensureShims run native)",
+		note: "W771.1/.2/.3: every legacy block has a native step; the delegation remains only until the W771.3 front-flip reduces install.sh to a one-line wrapper",
 	},
 } as const satisfies InstallContract;
 

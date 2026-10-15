@@ -32,6 +32,11 @@ import {
 	releaseNotify,
 } from "./install-wire-steps.ts";
 import { ensureShims } from "./ensure-shims.ts";
+import {
+	downloadModels,
+	refreshSupervisor,
+	seedLocalLlm,
+} from "./install-llm-steps.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -383,7 +388,8 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;
 	switch (step.name) {
 		case "refreshSupervisor":
-			return `${bash} --refresh-supervisor`;
+			// native since W771.2 — family-detecting step (kit serve vs Belt)
+			return `bun ${join(ctx.repo, "scripts/install.ts")} --step refreshSupervisor --yes`;
 		case "wireSettings":
 			return `bun ${join(ctx.repo, "scripts/install.ts")} --step wireSettings --yes`;
 		default:
@@ -416,6 +422,9 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	registerCaddy,
 	registerSkills,
 	releaseNotify,
+	seedLocalLlm,
+	downloadModels,
+	refreshSupervisor,
 };
 
 // ─── plan runner ───
