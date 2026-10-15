@@ -22,13 +22,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 LLM_HOME="$HOME/.claude/local-llm"
-# kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
-KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/local-llm"
 
-# ─── legacy body (TODO(install.ts): syncHarness, ensureShims, seedLocalLlm,
-# downloadModels, wireSettings, refreshSupervisor, registerCaddy, registerSkills
-# and releaseNotify still live here — install.ts's delegation runs THIS function,
-# never the wrapper front, which would re-enter install.ts) ───
+# ─── legacy body (install.ts gap: syncHarness, ensureShims, wireSettings,
+# registerCaddy, registerSkills and releaseNotify still live here — seedLocalLlm,
+# downloadModels and refreshSupervisor are native since W771.2. install.ts's
+# delegation runs THIS function, never the wrapper front, which would re-enter
+# install.ts) ───
 legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
@@ -70,113 +69,7 @@ else
   report_step registerGitHooks failed "committed .githooks stubs missing; scrub gate stays harness-only"
 fi
 
-# Targeted code upgrade for the advanced installed belt supervisor. The kit's
-# older swarm implementation and operator-owned config must remain untouched.
-if [[ "${SUSPENDERS_LEGACY_SUPERVISOR:-0}" -eq 1 ]]; then
-  SUPERVISOR_SOURCE="$SCRIPT_DIR/../belt/bin/supervisor.ts"
-  SUPERVISOR_TARGET="$LLM_HOME/supervisor.ts"
-  if [[ ! -f "$SUPERVISOR_TARGET" ]] || ! grep -q './supervisor.ts' "$LLM_HOME/swarm.ts"; then
-    echo "→ --refresh-supervisor requires an existing belt supervisor runtime" >&2
-    exit 1
-  fi
-  cp -p "$SUPERVISOR_TARGET" "$SUPERVISOR_TARGET.before-refresh"
-  cp "$SUPERVISOR_SOURCE" "$SUPERVISOR_TARGET"
-  cp "$SCRIPT_DIR/../belt/bin/health.ts" "$LLM_HOME/health.ts"
-  if ! bun -e 'await import(process.argv[1])' "$SUPERVISOR_TARGET"; then
-    cp -p "$SUPERVISOR_TARGET.before-refresh" "$SUPERVISOR_TARGET"
-    echo "→ supervisor import failed; previous code restored" >&2
-    exit 1
-  fi
-  echo "→ refreshed supervisor code (restart com.suspenders.local-llm to activate)"
-fi
-
 # PATH shims are published transactionally by sync-harness.ts above.
-
-# ─── local-llm baseline (owner law 2026-10-01) ───
-# Installing suspenders ALWAYS installs the local-llm swarm — smallest models
-# that fit the bill (registry BELT_TIER=minimal residents). The kit lands in
-# $LLM_HOME; copies never clobber the runtime home (it is the live fleet's
-# possibly-customized source of truth). --no-llm skips for CI/containers.
-if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
-  mkdir -p "$LLM_HOME"
-  for f in gateway-supervision.ts memory-policy.ts serve-observation.ts observation.ts models.catalog.ts models.catalog.json; do
-    if [[ ! -f "$LLM_HOME/$f" ]]; then
-      cp "$KIT_DIR/$f" "$LLM_HOME/$f"
-    fi
-  done
-  if [[ ! -f "$LLM_HOME/litellm-target.ts" ]]; then
-    cp "$SCRIPT_DIR/../belt/bin/litellm-target.ts" "$LLM_HOME/litellm-target.ts"
-  fi
-  # W465 one-source: the registry and the :4000 router are BELT-owned now —
-  # registry.ts and router-shim.ts come from belt/bin, and since W661 the
-  # overlay ships router-shim's FULL import closure (the old hardcoded list
-  # shipped router-shim.ts without ./audio.ts + ./escalate.ts — :4000 died on
-  # every spawn, ~95 launchd revives over 4h). Since W741 the install runs the
-  # refresh verb: missing AND diverged closure files heal from the repo (the
-  # W741 drift tripwire's sanctioned remediation), re-export shims install
-  # their real module (lesson.flat-home-overlay-hazard), and the flattened
-  # import graph is resolution-proved (bun build) before the lock releases.
-  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" refresh \
-    --runtime "$LLM_HOME" --entry "$SCRIPT_DIR/../belt/bin/router-shim.ts"
-  # W661 self-check: the flattened runtime must actually serve. A spawn that
-  # dies on a missing module fails the install loudly here instead of looping
-  # the launchd revive on :4000 (the smoke rides a scratch port).
-  bun "$SCRIPT_DIR/scripts/belt-bin-overlay.ts" smoke --runtime "$LLM_HOME"
-  if [ ! -f "$LLM_HOME/health.ts" ]; then
-    cp "$KIT_DIR/health.ts" "$LLM_HOME/health.ts"
-  fi
-  # W507: the tier choice is machine config, not launchd env — every install
-  # re-emits the tier manifest the swarm supervisor and llm-keepwarm both
-  # read (smallest-fit law = minimal). A stale kit copy (no `tier` kind)
-  # degrades to a note, never a failed install.
-  if [ -f "$LLM_HOME/registry-emit.ts" ]; then
-    BELT_TIER=minimal bun "$LLM_HOME/registry-emit.ts" tier --out "$LLM_HOME/tier.json" \
-      || echo "→ tier manifest emission skipped (stale kit registry-emit.ts)"
-  fi
-  # swarm.ts is the one kit file that MAY refresh a present copy: an older
-  # installed swarm.ts lacks the serve supervisor, and a serve-less swarm.ts
-  # under launchd KeepAlive is exactly the busy-loop flaw this fixes.
-  if [ ! -f "$LLM_HOME/swarm.ts" ] || ! grep -q 'case "serve"' "$LLM_HOME/swarm.ts" 2>/dev/null; then
-    cp "$KIT_DIR/swarm.ts" "$LLM_HOME/swarm.ts"
-    echo "+ $LLM_HOME/swarm.ts (serve supervisor)"
-  else
-    echo "= $LLM_HOME/swarm.ts kept (serve already present)"
-  fi
-  # config stubs — belt.env + routing-policy.yaml, only when absent
-  for f in belt.env routing-policy.yaml; do
-    if [ -f "$LLM_HOME/$f" ]; then
-      echo "= $LLM_HOME/$f kept (operator-owned runtime copy)"
-    else
-      cp "$KIT_DIR/$f" "$LLM_HOME/$f"
-      echo "+ $LLM_HOME/$f (stub — fill/verify at activation)"
-    fi
-  done
-  # smallest-fit models: derived FROM the registry (same source of truth the
-  # swarm reads) — BELT_TIER=minimal residents. huggingface_hub snapshot_
-  # download resumes partial downloads; --skip-models skips for offline boxes.
-  if [[ "${SUSPENDERS_LEGACY_SKIP_MODELS:-0}" -eq 0 ]]; then
-    MLX_PYTHON="$HOME/.local/share/uv/tools/mlx-lm/bin/python"
-    if [ ! -x "$MLX_PYTHON" ] && command -v uv >/dev/null 2>&1; then
-      uv tool install mlx-lm >/dev/null 2>&1 || true
-    fi
-    if [ -x "$MLX_PYTHON" ]; then
-      MODELS="$(BELT_TIER=minimal LOCAL_LLM_HOME="$LLM_HOME" bun -e '
-const { residentSet } = await import(process.env.LOCAL_LLM_HOME + "/registry.ts");
-process.stdout.write(residentSet().map((s) => s.model).join("\n"));
-')"
-      printf '%s\n' "$MODELS" | while IFS= read -r model; do
-        [ -z "$model" ] && continue
-        echo "→ downloading $model (resumes if partial)"
-        "$MLX_PYTHON" -c 'from huggingface_hub import snapshot_download; import sys; snapshot_download(sys.argv[1])' "$model" \
-          || echo "  ✗ $model failed — re-run install to resume"
-      done
-    else
-      echo "→ mlx-lm missing — skipping model download (re-run install to fetch)"
-    fi
-  else
-    echo "→ --skip-models: skipping model download (offline install)"
-  fi
-fi
 
 # --wire: merge the example hooks block into ~/.claude/settings.json — per-event
 # array concat, existing entries untouched; paths rewritten to the real prefix
@@ -390,10 +283,11 @@ if [[ $LEG_REBLESS -eq 1 ]]; then
   exec bun "$SCRIPT_DIR/scripts/rebless-activation.ts" --re-bless-activation ${CONFIRM_ARGS[@]+"${CONFIRM_ARGS[@]}"}
 fi
 
-# Upgrade the existing kit code explicitly, never switch supervisor families.
-# Advanced Belt runtimes retain the legacy supervisor.ts refresh below.
-if [[ $LEG_SUPERVISOR -eq 1 ]] && ! grep -q 'from "./supervisor.ts"' "$LLM_HOME/swarm.ts" 2>/dev/null; then
-  exec bun "$SCRIPT_DIR/scripts/refresh-swarm.ts" ${NATIVE[@]+"${NATIVE[@]}"}
+# --refresh-supervisor is native since W771.2: the step detects the installed
+# family itself (kit serve → refresh-swarm; advanced Belt → backup + import-
+# validated refresh), so the front routes it unconditionally to install.ts.
+if [[ $LEG_SUPERVISOR -eq 1 ]]; then
+  exec bun "$SCRIPT_DIR/scripts/install.ts" --step refreshSupervisor --yes ${NATIVE[@]+"${NATIVE[@]}"}
 fi
 
 # --refresh-dashboards: safe GUI-only early exit (native step; --dry-run plans)
@@ -412,7 +306,6 @@ export SUSPENDERS_LEGACY_PRUNE="$LEG_PRUNE"
 export SUSPENDERS_LEGACY_WIRE="$LEG_WIRE"
 export SUSPENDERS_LEGACY_SKIP_MODELS="$LEG_SKIP_MODELS"
 export SUSPENDERS_LEGACY_NO_LLM="$LEG_NO_LLM"
-export SUSPENDERS_LEGACY_SUPERVISOR="$LEG_SUPERVISOR"
 
 rc=0
 bun "$SCRIPT_DIR/scripts/install.ts" --yes ${NATIVE[@]+"${NATIVE[@]}"} || rc=$?
