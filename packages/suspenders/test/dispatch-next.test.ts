@@ -226,6 +226,9 @@ describe("dry-run dispatch", () => {
 		expect(r.exitCode).toBe(0);
 		expect(r.stdout.toString()).toContain(`repo ${REPO}`);
 		expect(r.stdout.toString()).not.toContain("repo .\n");
+		// W254: the scratch repo is under the W113 small-repo gate — no
+		// derived FILE MAP ever rides a brief composed for it
+		expect(r.stdout.toString()).not.toContain("FILE MAP");
 		const relTake = tool("work.ts", "take", item, "--as", "relative-repo-test");
 		expect(relTake.code).toBe(0);
 		const relTok = /claim token: ([0-9a-f]{48})/.exec(relTake.out)?.[1];
@@ -449,6 +452,35 @@ describe("resume-rebrief composition", () => {
 			"EFFORT BUDGET: simple",
 		);
 		expect(composeBrief({ ...opts })).not.toContain("EFFORT BUDGET");
+	});
+});
+
+// W254: pointer-grade injection — composeBrief renders intel sections only
+// when an intel object rides; headers never pad an empty map (pointer
+// discipline, hooks/lib/brief-intel.ts renderIntel).
+describe("brief intel (W254 pointer-grade injection)", () => {
+	const base = {
+		item: "W140",
+		showOut: "◐ W140 READY  sample item",
+		sid: "autow140",
+		branch: "suspenders/W140",
+		worktree: "/tmp/nowhere/.worktrees/W140",
+		capsule: null,
+	};
+	test("composeBrief renders intel sections, omits without", () => {
+		const fresh = composeBrief(base);
+		expect(fresh).not.toContain("FILE MAP");
+		expect(fresh).not.toContain("DONE DEFINITION");
+		const withIntel = composeBrief({
+			...base,
+			intel: {
+				fileMap: ["- src/x.ts:1 — matched: foo"],
+				doneDigest: ["Done when gates pass green."],
+			},
+		});
+		expect(withIntel).toContain("FILE MAP (pointer-grade");
+		expect(withIntel).toContain("- src/x.ts:1 — matched: foo");
+		expect(withIntel).toContain("DONE DEFINITION (digest");
 	});
 });
 

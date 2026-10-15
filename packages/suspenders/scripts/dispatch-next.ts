@@ -29,6 +29,9 @@ import {
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
+import { briefIntel } from "../hooks/lib/brief-intel.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 export { composeBrief };
@@ -464,6 +467,7 @@ const dispatchItem = async (
 			console.log(
 				`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 			);
+		const intel = briefIntel(REPO, `${item} ${show.out}`);
 		const brief = composeBrief({
 			item,
 			showOut: show.out,
@@ -475,6 +479,7 @@ const dispatchItem = async (
 			agent: pick.agent,
 			effort: effortFromShow(show.out),
 			landing: await landingRedirect(REPO, branch),
+			intel,
 			extra: [
 				...routingExtra(),
 				...resumeBriefLine(
@@ -707,6 +712,8 @@ const dispatchItem = async (
 			resume?.sid,
 			pick.bin ?? "claude",
 		);
+		const intel = briefIntel(REPO, `${item} ${show.out}`);
+		if (intel.skip) log(`BRIEF-INTEL skip ${item}: ${intel.skip}`);
 		const brief = composeBrief({
 			item,
 			showOut: show.out,
@@ -717,6 +724,7 @@ const dispatchItem = async (
 			itemCapsule: itemCapsuleGet(item),
 			agent: pick.agent,
 			effort: effortFromShow(show.out),
+			intel,
 			extra: [...routingExtra(), ...resumeBriefLine(resumeDecision)],
 		});
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
@@ -770,13 +778,11 @@ const dispatchItem = async (
 		// off mid-flight (surfaced, never silent).
 		// W230: stack.yaml policies.<repo>.hub feeds the pick when the repo's
 		// own .prefer carries no hub= line (dotfiles-win: the dotfile wins).
-		const hubPick = pick.hub ?? (policyForRepo(CALLER_REPO)?.hub ?? null);
+		const hubPick = pick.hub ?? policyForRepo(CALLER_REPO)?.hub ?? null;
 		const hubDark = hubPick ? darkHubNow(hubPick) : false;
 		if (hubDark) {
 			hubNote = ` — NOTE hub=${hubPick} in quiet hours, using local belt`;
-			console.log(
-				`NOTE — hub=${hubPick} in quiet hours; using local belt`,
-			);
+			console.log(`NOTE — hub=${hubPick} in quiet hours; using local belt`);
 		}
 		let resolvedHub: string | undefined;
 		// W615: the hub URL rides alongside the label — attribution mints at it.
@@ -803,9 +809,7 @@ const dispatchItem = async (
 					resolvedHubUrl = hub.url;
 				} else {
 					hubNote = ` — NOTE hub=${hubPick} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
-					console.log(
-						`NOTE — hub=${hubPick} unreachable; using local belt`,
-					);
+					console.log(`NOTE — hub=${hubPick} unreachable; using local belt`);
 				}
 			}
 			applyInsertion(env, pick.bin, ctx);
