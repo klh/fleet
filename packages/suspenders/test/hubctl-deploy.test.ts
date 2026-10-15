@@ -255,7 +255,9 @@ test("install.sh --hub without a name exits 2", () => {
 		{ stdout: "pipe", stderr: "pipe", env: { ...baseEnv } },
 	);
 	expect(r.exitCode).toBe(2);
-	expect(r.stderr.toString()).toContain("needs a hub name");
+	// the W490 door prints plain usage errors on stdout (JSON outcomes share
+	// the channel); stderr stays empty by design
+	expect(r.stdout.toString()).toContain("needs a hub name");
 });
 
 test("W372: auth.oidc/auth.tokens blocks materialize to the .env", () => {
