@@ -114,6 +114,9 @@ function renderEnv(
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
 	kv("HUB_STORE_HEALTH_PORT", hub.store_health_port);
 	kv("HUB_BELT_HEALTH_PORT", hub.belt_health_port);
+	// W763 hub model store — face + health sidecar ports
+	kv("HUB_MODEL_STORE_PORT", hub.model_store_port);
+	kv("HUB_MODEL_STORE_HEALTH_PORT", hub.model_store_health_port);
 	// synthetic readiness (W467) — the completion leg's verdict port + model
 	kv("HUB_BUCKLE_READY_PORT", hub.buckle_ready_port);
 	kv("HUB_READY_MODEL", hub.ready_model);
@@ -138,9 +141,10 @@ const UPSTREAM_ENV_SCRIPT = [
 	'OUT="$1"; shift',
 	': > "$OUT.tmp"',
 	'for pair in "$@"; do',
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: sh parameter expansion in a generated sh script
 	'  name="${pair%%=*}"; path="${pair#*=}"',
 	'  [ -s "$path" ] || { echo "missing key file for $name" >&2; rm -f "$OUT.tmp"; exit 1; }',
-	"  printf '%s=%s\\n' \"$name\" \"$(tr -d '\\r\\n' < \"$path\")\" >> \"$OUT.tmp\"",
+	'  printf \'%s=%s\\n\' "$name" "$(tr -d \'\\r\\n\' < "$path")" >> "$OUT.tmp"',
 	"done",
 	'mv "$OUT.tmp" "$OUT"',
 ].join("\n");
@@ -409,6 +413,7 @@ function status(hub: HubProfile): number {
 		["board-health", hub.board_health_port ?? 7800, "/healthz"],
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
+		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
 	];
 	for (const [svc, port, path] of probes) {
 		if (!port) continue;
@@ -436,7 +441,11 @@ function status(hub: HubProfile): number {
 }
 
 /** Exec deploy/runtime-info.ts inside buckle-hub and print the verdict. */
-function runtimeReport(hub: HubProfile, docker: string, dir: string): void {
+function runtimeReport(
+	hub: HubProfile,
+	_docker: string | undefined,
+	dir: string,
+): void {
 	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
 	try {
 		const out = runOnHub(

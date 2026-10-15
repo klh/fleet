@@ -42,6 +42,7 @@ writeFileSync(
 				board_health_port: 0,
 				store_health_port: 0,
 				belt_health_port: 0,
+				model_store_health_port: 0,
 			},
 		},
 	}),
