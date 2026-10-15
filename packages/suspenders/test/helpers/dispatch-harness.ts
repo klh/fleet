@@ -113,6 +113,9 @@ export const dispatchHarness = (
 		// W670: pin the attempt cap so an ambient SUSPENDERS_LANE_MAX_ATTEMPTS
 		// (the operator quarantine knob) cannot move the resume thresholds.
 		SUSPENDERS_LANE_MAX_ATTEMPTS: "3",
+		// W768: the starter flag is default-ON in production — stub executors
+		// can't seed, so fixture dispatches pin it off; starter suites opt in.
+		SUSPENDERS_LANE_STARTER: "off",
 		...(opts.envOverrides?.({ HOME, REPO }) ?? {}),
 	};
 

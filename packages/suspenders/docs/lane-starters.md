@@ -5,8 +5,10 @@ orientation prefix (repo law + fleet protocol). Lanes **fork** it instead of
 orienting from cold context; the lane-specific identity (sid, worktree, brief
 path) is appended AFTER the fork so the shared prefix stays cache-stable.
 
-- Flag: `SUSPENDERS_LANE_STARTER=on` (default off — adopt per harness only on
-  measured wins, see the benchmark below).
+- Flag: `SUSPENDERS_LANE_STARTER` — default ON for the claude executor since
+  W768 (seed once, fork every lane; the W454 bench measured the win). Operators
+  opt OUT with `=off` or `=0`; non-claude harnesses stay catalog-only
+  (cold-start) until their fork grammar verifies.
 - Wiring: `scripts/lib/lane-starter.ts` (`dispatchStarterFork`), called from
   `scripts/dispatch-next.ts` before spawn.
 - The seed ride a fleet identity (`fleet-starter` attribution slug), never a
@@ -41,6 +43,22 @@ provider cache, probe child rode the measuring lane's attribution. Seed
 success criterion is session-id presence, NOT exit code (the CLI exits 1 on
 trailing `unrecognized_model` diagnostics while the session is valid —
 observed live).
+
+## W768 adoption run (2026-10-15, this host, n=3, live lane route)
+
+POST re-measured at activation: starter `f4dae8ae032c` seeded once (session
+`5117dbe1…`), three forks took three NEW session ids. Fork mode mean wall
+15.8 s (13.5/16.3/17.5), fresh input mean 1 659 tok (4 447/371/159), cache
+share 97% — matches the 2026-10-07 shape. Same-day cold re-measure was
+heavily skewed by one multi-turn wander (504 s wall, 17 k output tok);
+cold medians vs fork medians: wall 76.6 s → 16.3 s (−79%), fresh input
+49 752 → 371 tok (−99%). This is the measured win the default-ON flip is
+wired on; `SUSPENDERS_LANE_STARTER=off` opts out.
+
+The same fork grammar IS the warm-resume mechanism (W622 resume-from):
+within the 10-min transcript-TTL fence, a warm resume costs fork-class
+tokens; past it, fresh-lane doctrine stands. The W768 default covers the
+general orientation case; transcript resume stays policy-gated.
 
 ## Benchmark protocol (Phase 1 PRE / Phase 3 POST)
 

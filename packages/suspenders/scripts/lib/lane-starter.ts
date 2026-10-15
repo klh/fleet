@@ -84,7 +84,12 @@ export const flattenTail = (s: string, cap = 220): string => {
 
 export const starterEnabled = (
 	env: Record<string, string | undefined>,
-): boolean => env[STARTER_FLAG] === "on" || env[STARTER_FLAG] === "1";
+): boolean => {
+	// W768: default ON (the W454 bench measured the fork win — 90%→98% cache
+	// share, 10.4k→1.1k fresh input) — an operator opts OUT explicitly.
+	const v = env[STARTER_FLAG];
+	return v !== "off" && v !== "0";
+};
 
 // The STABLE shared prefix. Repo-local protocol only — no sid, no item, no
 // branch, no worktree path, no credentials (the credential guard below

@@ -4,7 +4,7 @@
 // dispatch-facing dispatchStarterFork wiring (flag off / claude fork /
 // unsupported harness / seed failure fallback).
 import { describe, expect, test, afterEach } from "bun:test";
-import { mkdirSync, existsSync, rmSync, readdirSync } from "node:fs";
+import { mkdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -144,9 +144,9 @@ describe("lane-starter", () => {
 		expect(p).toContain("/wt/x/.klh-brief.md");
 	});
 
-	test("dispatchStarterFork: flag off = cold prompt, no fork args", async () => {
+	test("dispatchStarterFork: explicit off = cold prompt, no fork args", async () => {
 		const r = await dispatchStarterFork({
-			env: {},
+			env: { [STARTER_FLAG]: "off" },
 			noBelt: true,
 			harness: "claude",
 			fleet,
@@ -158,6 +158,33 @@ describe("lane-starter", () => {
 			log: () => {},
 		});
 		expect(r).toEqual({ forkArgs: [], prompt: "COLD" });
+	});
+
+	test("W768: default-on — bare env forks the claude executor", async () => {
+		const logs: string[] = [];
+		const r = await dispatchStarterFork({
+			env: {},
+			noBelt: true,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W768",
+			sid: "s768",
+			wt: "/wt768",
+			coldPrompt: "COLD",
+			log: (l) => logs.push(l),
+			ensureOpts: {
+				run: () => ({
+					code: 0,
+					out: `${JSON.stringify({ session_id: "seed-768" })}\n`,
+				}),
+			},
+		});
+		expect(r.forkArgs).toEqual(["--resume", "seed-768", "--fork-session"]);
+		expect(r.prompt).toContain("s768");
+		expect(logs.join(" ")).toMatch(/forked/);
+		expect(starterEnabled({})).toBe(true);
+		expect(starterEnabled({ [STARTER_FLAG]: "0" })).toBe(false);
 	});
 
 	test("dispatchStarterFork: codex = catalog-only, cold start", async () => {

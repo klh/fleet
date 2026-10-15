@@ -3,7 +3,12 @@
 // byte-stable renders, est_tok_saved NULL at event time.
 import { describe, expect, test } from "bun:test";
 import { AidsLedger, parseAids, tokensEstimate } from "../src/aids.ts";
-import { alignBody, PACKET_MARKER } from "../src/align.ts";
+import {
+	alignBody,
+	alignForUpstream,
+	hasClientCacheControl,
+	PACKET_MARKER,
+} from "../src/align.ts";
 import {
 	capPacket,
 	packetId,
@@ -13,7 +18,11 @@ import {
 	type KnowledgeApiHit,
 } from "../src/preseed.ts";
 import { distinctTerms, substitutionCheck } from "../src/doc-skip.ts";
-import { aidsRoutes, applyWireAids } from "../src/aids-routes.ts";
+import {
+	aidsRoutes,
+	applyWireAids,
+	gateCacheAlign,
+} from "../src/aids-routes.ts";
 import type { AidsDeps } from "../src/aids-routes.ts";
 import { servicemon } from "../src/servicemon.ts";
 import type { AidsPolicy } from "../src/policy.ts";
@@ -253,6 +262,62 @@ describe("cache-align", () => {
 
 	test("openai dialect is a no-op", () => {
 		expect(alignBody({ system: "s" }, "openai")).toBeNull();
+	});
+});
+
+describe("W768 gate-side cache emission", () => {
+	const MARK = { cache_control: { type: "ephemeral" } };
+
+	test("alignForUpstream marks an unmarked prefix, respects client markers", () => {
+		const unmarked = { model: "m", system: "preamble", messages: [] };
+		const r = alignForUpstream(unmarked);
+		expect(r?.placed).toBe("system");
+		const marked = {
+			model: "m",
+			system: [{ type: "text", text: "s", ...MARK }],
+			messages: [],
+		};
+		expect(alignForUpstream(marked)).toBeNull();
+		expect(
+			hasClientCacheControl({
+				model: "m",
+				messages: [
+					{ role: "user", content: [{ type: "text", text: "x", ...MARK }] },
+				],
+			}),
+		).toBe(true);
+	});
+
+	test("belt packet realigns even alongside client markers", () => {
+		const packet = `${PACKET_MARKER} · domain gaps · packet x]\nk`;
+		const body = {
+			model: "m",
+			system: [{ type: "text", text: "s", ...MARK }],
+			messages: [{ role: "user", content: [{ type: "text", text: packet }] }],
+		};
+		const r = alignForUpstream(body);
+		expect(r?.placed).toBe("packet");
+	});
+
+	test("gateCacheAlign: honoring-only, policy kill switch, metered", () => {
+		const deps = mkDeps({});
+		const body = { model: "m", system: "preamble", messages: [] };
+		expect(gateCacheAlign(deps, body, false)).toBeNull();
+		const off = mkDeps({ "cache-align": { default: "off" } });
+		expect(gateCacheAlign(off, body, true)).toBeNull();
+		const out = gateCacheAlign(deps, body, true);
+		expect(out).not.toBeNull();
+		const row = deps.aids.eventsSince(0)[0] as Record<string, unknown>;
+		expect(row.aid).toBe("cache-align");
+		expect(row.decision).toBe("injected");
+	});
+
+	test("gateCacheAlign: body untouched when the family does not honor", () => {
+		const deps = mkDeps({});
+		const body = { model: "m", system: "preamble", messages: [] };
+		const snapshot = JSON.stringify(body);
+		expect(gateCacheAlign(deps, body, false)).toBeNull();
+		expect(JSON.stringify(body)).toBe(snapshot);
 	});
 });
 
