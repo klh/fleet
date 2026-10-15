@@ -58,6 +58,7 @@ import {
 	cmdProject,
 } from "../coord/fleet.ts";
 import { cmdHubs } from "../coord/hubs.ts";
+import { cmdSupervisor } from "../coord/supervisor.ts";
 
 // W157/W651: handler bodies live verbatim in hooks/coord/*.ts; the kit
 // resolves the verb, intercepts --help, parses (lax — handlers own their
@@ -262,6 +263,12 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: hubs [--label name] [--json]",
 		lax: true,
 		run: (p) => cmdHubs(p.rest),
+	}),
+	defineVerb({
+		name: "supervisor",
+		usage: "usage: supervisor ensure [service...] | status [--json]",
+		lax: true,
+		run: (p) => cmdSupervisor(p.rest),
 	}),
 	defineVerb({
 		name: "project",

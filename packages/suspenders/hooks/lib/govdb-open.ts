@@ -397,6 +397,16 @@ export function openGovernorDb(): Database {
 	// v15 (W459.5) — identity registry: additive DDL after the shred (nothing
 	// order-dependent; the registry mints rows, never rewrites existing ones).
 	migrateIdentityRegistry(db);
+	// v16 (W266.1 via W276 re-land) — the supervision plane: one row per
+	// ensured launchd agent. repo = realpath of the repo's COMMON git dir
+	// (the projectIdentity derivation), so any worktree of one repo converges
+	// onto the same row; plist records where the rendered agent installed.
+	if (uv < 16) {
+		db.run(
+			"CREATE TABLE IF NOT EXISTS supervisors (label TEXT PRIMARY KEY, repo TEXT NOT NULL, plist TEXT NOT NULL, service TEXT NOT NULL, ts INTEGER NOT NULL)",
+		);
+		db.run("PRAGMA user_version = 16");
+	}
 	migrateJSON(db);
 	return db;
 }
