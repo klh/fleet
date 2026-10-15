@@ -7,10 +7,9 @@
 // supervisor refresh detects the installed family (kit serve vs advanced
 // Belt) with backup + import validation + restore-on-failure.
 //
-// Transitional contract: install.sh's bash flags --no-llm/--skip-models
-// reach these steps via the SUSPENDERS_LEGACY_NO_LLM / SUSPENDERS_LEGACY_
-// SKIP_MODELS env knobs the front exports; W771.3's front-flip replaces
-// the env handoff with real CLI flags.
+// W771.3 front-flip: --no-llm/--skip-models are native CLI flags
+// (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
+// retired with the bash front.
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
@@ -41,7 +40,7 @@ const KIT_FILES = [
 ];
 
 export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
-	if (process.env.SUSPENDERS_LEGACY_NO_LLM === "1") {
+	if (ctx.noLlm === true) {
 		return {
 			status: "skipped",
 			note: "--no-llm: local-llm baseline skipped (CI/containers)",
@@ -185,13 +184,13 @@ export async function downloadModels(
 	ctx: StepContext,
 	deps: DownloadDeps = {},
 ): Promise<StepResult> {
-	if (process.env.SUSPENDERS_LEGACY_NO_LLM === "1") {
+	if (ctx.noLlm === true) {
 		return {
 			status: "skipped",
 			note: "--no-llm: model download skipped (CI/containers)",
 		};
 	}
-	if (process.env.SUSPENDERS_LEGACY_SKIP_MODELS === "1") {
+	if (ctx.skipModels === true) {
 		return {
 			status: "skipped",
 			note: "--skip-models: skipping model download (offline install)",

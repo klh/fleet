@@ -66,7 +66,7 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(code).toBe(0);
 		const doc = JSON.parse(stdout);
 		expect(doc.schema).toBe("suspenders.install.v1");
-		expect(doc.contractVersion).toBe(1);
+		expect(doc.contractVersion).toBe(2);
 		expect(doc.ok).toBe(true);
 		expect(Array.isArray(doc.agent_next_steps)).toBe(true);
 		expect(doc.agent_next_steps.length).toBeGreaterThan(0);
@@ -86,8 +86,8 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(doc.ok).toBe(true);
 		expect(doc.pauses.length).toBeGreaterThan(0);
 		for (const pause of doc.pauses) {
-			// native steps resume via install.ts; bash-owned blocks keep install.sh
-			expect(pause.resume_command).toMatch(/install\.(sh|ts)/);
+			// every step resumes through the TS door (W771.3)
+			expect(pause.resume_command).toMatch(/install\.ts/);
 		}
 	});
 
@@ -232,13 +232,15 @@ describe("contract ⇔ CLI drift checks (W490.1)", () => {
 		}
 	});
 
-	test("flag types: exactly four string flags (--step, --wire-repo, --gateway-review, --profile), rest boolean", () => {
+	test("flag types: exactly six string flags (--step, --wire-repo, --gateway-review, --profile, --hub, --confirm), rest boolean", () => {
 		for (const key of Object.keys(meowFlags)) {
 			const expected = [
 				"step",
 				"wireRepo",
 				"gatewayReview",
 				"profile",
+				"hub",
+				"confirm",
 			].includes(key)
 				? "string"
 				: "boolean";

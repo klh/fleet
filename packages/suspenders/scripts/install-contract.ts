@@ -9,7 +9,7 @@
  * Version of this contract document. Bump on any rename/removal of a
  * documented field; additive fields keep the version.
  */
-export const INSTALL_CONTRACT_VERSION = 1;
+export const INSTALL_CONTRACT_VERSION = 2;
 
 /** --step names are frozen — agents script against them. */
 export type StepName =
@@ -29,7 +29,7 @@ export type StepName =
 	| "refreshDashboards"
 	| "deployHub";
 
-export type StepV1 = "real" | "delegated" | "stub";
+export type StepV1 = "real" | "stub";
 
 export interface ContractStep {
 	/** frozen --step token */
@@ -41,9 +41,8 @@ export interface ContractStep {
 	/** optIn steps sit outside the default plan, reachable only via --step */
 	optIn: boolean;
 	/**
-	 * v1 execution class: "real" = implemented here; "delegated" = covered by
-	 * the single bash install.sh delegation on a consented full run; "stub" =
-	 * not executable alone (pauses with the bash resume_command).
+	 * v1 execution class: "real" = implemented natively; "stub" = not
+	 * executable alone (pauses with the resume_command).
 	 */
 	v1: StepV1;
 }
@@ -60,14 +59,6 @@ export interface ContractEnv {
 	meaning: string;
 	/** default applied when unset (a PATH or a static, non-secret default) */
 	default: string;
-}
-
-export interface ContractBashFlag {
-	/** literal install.sh token — the working escape hatch until W488.1/W490.2 */
-	flag: string;
-	meaning: string;
-	/** step of this installer that will absorb it */
-	mappedStep: StepName;
 }
 
 export interface InstallContract {
@@ -124,8 +115,6 @@ export interface InstallContract {
 	};
 	/** every install step, in plan order */
 	steps: ContractStep[];
-	/** install.sh flags the .ts installer does not re-expose yet */
-	bashFlags: ContractBashFlag[];
 	/**
 	 * Hypermedia returned on every JSON outcome. Rules: field names are frozen
 	 * (action/command/note); each command is SINGLE-USE — run it once per
@@ -146,12 +135,6 @@ export interface InstallContract {
 		claudeSettings: string;
 		insightsDir: string;
 		launchAgentsDir: string;
-	};
-	/** the v1 delegation that keeps this installer useful before W488.1/W490.2 */
-	v1Delegation: {
-		command: string;
-		when: string;
-		note: string;
 	};
 }
 
@@ -181,12 +164,12 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "download resident local-llm models?",
 				unattended:
-					"default plan delegates (models download); the bash --skip-models flag skips (see bashFlags)",
+					"native: the default plan downloads them; --skip-models skips (offline), --no-llm skips the whole baseline",
 			},
 			{
 				prompt: "restart Claude Code so hooks register?",
 				unattended:
-					"surfaced as agent_next_steps after a delegated run — an agent reports it, a human does it",
+					"surfaced as agent_next_steps after a consented run — an agent reports it, a human does it",
 			},
 		],
 	},
@@ -199,7 +182,7 @@ export const INSTALL_CONTRACT = {
 	},
 	exitCodes: {
 		"0": "ok — plan, step, pause (need_user_action) or contract emitted cleanly",
-		"1": "runtime failure — a step or the delegated installer failed",
+		"1": "runtime failure — a step failed",
 		"2": "usage error — unknown flag, unknown --step name, or unexpected positional",
 	},
 	flags: {
@@ -216,7 +199,7 @@ export const INSTALL_CONTRACT = {
 		yes: {
 			flag: "--yes",
 			meaning:
-				"unattended consent — mutating steps run (native steps execute directly; the remaining bash-owned blocks ride the v1 delegation); without it mutating steps pause with a resume_command",
+				"unattended consent — mutating steps run natively; without it mutating steps pause with a resume_command",
 		},
 		verbose: {
 			flag: "--verbose",
@@ -240,12 +223,51 @@ export const INSTALL_CONTRACT = {
 		wireRepo: {
 			flag: "--wire-repo",
 			meaning:
-				"with --step wireSettings: wire THIS repo checkout's project settings instead of pausing on the bash user-level wire",
+				"with --step wireSettings: wire THIS repo checkout's project settings instead of the user-level wire",
 		},
 		profile: {
 			flag: "--profile",
 			meaning:
 				"W165 capability split: hub (default) = full (identity, issuance, admin); spoke ships no auth-issuance/identity/key-custody code — hub-only modules are excluded from the payload and capabilities.json records the flags",
+		},
+		prune: {
+			flag: "--prune",
+			meaning:
+				"mirror-mode harness sync (W420) — syncHarness drops unmanaged prefix entries outside the generated-files allowlist instead of preserving them",
+		},
+		skipModels: {
+			flag: "--skip-models",
+			meaning: "skip the model download step (offline installs)",
+		},
+		noLlm: {
+			flag: "--no-llm",
+			meaning:
+				"skip the local-llm baseline entirely (seed + download; CI/containers)",
+		},
+		hub: {
+			flag: "--hub",
+			meaning:
+				"hub deploy from ~/.config/klh/stack.yaml (hubctl mint → push → up → status); --dry-run renders the hub .env only",
+		},
+		refreshGateway: {
+			flag: "--refresh-gateway",
+			meaning:
+				"targeted minimal-swarm gateway supervision and model limits refresh (early exit); --dry-run plans it",
+		},
+		withLaunchd: {
+			flag: "--with-launchd",
+			meaning:
+				"run the full plan, then registerLaunchd — launchd runs only when the plan outcome is not failed",
+		},
+		reBlessActivation: {
+			flag: "--re-bless-activation",
+			meaning:
+				"owner-gated activation-receipt re-bless (W640) — early exit to rebless-activation.ts; confirm-less runs dry-render",
+		},
+		confirm: {
+			flag: "--confirm",
+			meaning:
+				"with --re-bless-activation: >=12 hex of the NEW candidate manifest sha — without it nothing is written",
 		},
 	},
 	env: {
@@ -400,61 +422,13 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "deployHub",
 			oneLiner:
-				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (bash flag --hub <name>)",
+				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
 		},
 	],
-	bashFlags: [
-		{
-			flag: "--refresh-gateway",
-			meaning:
-				"targeted minimal-swarm gateway supervision and model limits upgrade (early exit)",
-			mappedStep: "seedLocalLlm",
-		},
-		{
-			flag: "--with-launchd",
-			meaning:
-				"install the macOS launchd agents — native since W490.2: --step registerLaunchd --yes",
-			mappedStep: "registerLaunchd",
-		},
-		{
-			flag: "--refresh-supervisor",
-			meaning:
-				"code-only refresh of the installed supervisor family; preserve machine configuration",
-			mappedStep: "refreshSupervisor",
-		},
-		{
-			flag: "--refresh-dashboards",
-			meaning: "safe GUI-only dashboard refresh (early exit)",
-			mappedStep: "refreshDashboards",
-		},
-		{
-			flag: "--skip-models",
-			meaning:
-				"skip model download (offline installs) — rides SUSPENDERS_LEGACY_SKIP_MODELS into the native step until the front-flip",
-			mappedStep: "downloadModels",
-		},
-		{
-			flag: "--no-llm",
-			meaning:
-				"skip the local-llm baseline entirely (CI/containers) — rides SUSPENDERS_LEGACY_NO_LLM into the native seed step until the front-flip",
-			mappedStep: "seedLocalLlm",
-		},
-		{
-			flag: "--prune",
-			meaning:
-				"mirror-mode harness sync (W420) — drop unmanaged prefix entries outside the generated-files allowlist (governor.db, bun.lock, node_modules, .fleet) instead of preserving them",
-			mappedStep: "syncHarness",
-		},
-		{
-			flag: "--hub <name>",
-			meaning:
-				"install-grade hub deploy from ~/.config/klh/stack.yaml: deploy/hubctl.ts mint → push → up → status; --dry-run renders the hub .env only",
-			mappedStep: "deployHub",
-		},
-	],
+
 	agentNextSteps: {
 		fields: ["action", "command", "note"],
 		rules: [
@@ -474,17 +448,11 @@ export const INSTALL_CONTRACT = {
 		insightsDir: "~/.claude-insights",
 		launchAgentsDir: "~/Library/LaunchAgents",
 	},
-	v1Delegation: {
-		command: "bash <repo>/install.sh __legacy full",
-		when: "a full run (no --step) with --yes",
-		note: "W771.1/.2/.3: every legacy block has a native step; the delegation remains only until the W771.3 front-flip reduces install.sh to a one-line wrapper",
-	},
 } as const satisfies InstallContract;
 
 export type StepStatus =
 	| "ok"
 	| "planned"
-	| "delegated"
 	| "skipped"
 	| "need_user_action"
 	| "failed";

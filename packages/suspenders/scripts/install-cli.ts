@@ -24,6 +24,14 @@ export const meowFlags = {
 	wireRepo: { type: "string" },
 	gatewayReview: { type: "string" },
 	profile: { type: "string" },
+	prune: { type: "boolean" },
+	skipModels: { type: "boolean" },
+	noLlm: { type: "boolean" },
+	hub: { type: "string" },
+	refreshGateway: { type: "boolean" },
+	withLaunchd: { type: "boolean" },
+	reBlessActivation: { type: "boolean" },
+	confirm: { type: "string" },
 } as const;
 
 export interface ResolvedFlags {
@@ -36,6 +44,14 @@ export interface ResolvedFlags {
 	wireRepo: string | null;
 	gatewayReview?: string;
 	profile: "hub" | "spoke";
+	prune: boolean;
+	skipModels: boolean;
+	noLlm: boolean;
+	hub: string | null;
+	refreshGateway: boolean;
+	withLaunchd: boolean;
+	reBlessActivation: boolean;
+	confirm: string | null;
 }
 
 export function resolvePaths(): {
@@ -79,6 +95,12 @@ export function parseFlags(
 	const profile =
 		rawProfile === "spoke" || rawProfile === "hub" ? rawProfile : undefined;
 	const effectiveStep = wire && step === null ? "wireSettings" : step;
+	const hub =
+		typeof raw.hub === "string" && raw.hub.trim() !== "" ? raw.hub : null;
+	const confirm =
+		typeof raw.confirm === "string" && raw.confirm.trim() !== ""
+			? raw.confirm
+			: null;
 	const flags: ResolvedFlags = {
 		dryRun: bool("dryRun"),
 		json: bool("json"),
@@ -88,6 +110,14 @@ export function parseFlags(
 		step: effectiveStep,
 		wireRepo,
 		profile: profile ?? "hub",
+		prune: bool("prune"),
+		skipModels: bool("skipModels"),
+		noLlm: bool("noLlm"),
+		hub,
+		refreshGateway: bool("refreshGateway"),
+		withLaunchd: bool("withLaunchd"),
+		reBlessActivation: bool("reBlessActivation"),
+		confirm,
 		...(typeof raw.gatewayReview === "string"
 			? { gatewayReview: raw.gatewayReview }
 			: {}),
@@ -103,6 +133,25 @@ export function parseFlags(
 		rawProfile !== "spoke"
 	) {
 		return { error: "--profile requires hub|spoke", flags };
+	}
+	if (raw.hub !== undefined && hub === null) {
+		return {
+			error: "--hub needs a hub name from ~/.config/klh/stack.yaml",
+			flags,
+		};
+	}
+	if (raw.confirm !== undefined && confirm === null) {
+		return {
+			error:
+				"--confirm needs a manifest sha prefix (>=12 hex of the NEW candidate)",
+			flags,
+		};
+	}
+	if (confirm !== null && !flags.reBlessActivation) {
+		return {
+			error: "--confirm is only valid with --re-bless-activation",
+			flags,
+		};
 	}
 	if (input.length > 0) {
 		return {
@@ -183,7 +232,7 @@ export function nextSteps(
 		steps.push({
 			action: "execute",
 			command: `${invoker} --json --yes`,
-			note: "the consented run (legacy blocks run via install.sh __legacy full)",
+			note: "the consented run",
 		});
 	}
 	if (!dryRun && outcome === "ok" && pauses.length === 0 && mode === "plan") {
@@ -210,7 +259,6 @@ export function outcomeGlyph(outcome: OutcomeStatus): string {
 export function stepGlyph(status: StepStatus): string {
 	switch (status) {
 		case "ok":
-		case "delegated":
 			return "✓";
 		case "failed":
 			return "✗";

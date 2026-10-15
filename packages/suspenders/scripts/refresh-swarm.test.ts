@@ -210,16 +210,21 @@ test("advanced supervisor cannot be converted into a second kit supervisor", asy
 
 test("canonical installer selects kit refresh without running a full install", async () => {
 	const { runtime, code } = await fixture();
-	const home = await mkdtemp(join(tmpdir(), "fleet-refresh-home-"));
+	// spawned children only bind/serve when the flat home lives under $HOME
+	// (homes under /var/folders hang the bun runtime pre-bind, W771.2 lesson)
+	const cacheHome = join(process.env.HOME ?? tmpdir(), ".cache", "w7713-tests");
+	await mkdir(cacheHome, { recursive: true });
+	const home = await mkdtemp(join(cacheHome, "fleet-refresh-home-"));
 	try {
 		await mkdir(join(home, ".claude"));
 		await symlink(runtime, join(home, ".claude/local-llm"));
 		const child = Bun.spawn(
 			[
-				"bash",
-				join(import.meta.dir, "../install.sh"),
-				"--refresh-supervisor",
-				"--dry-run",
+				"bun",
+				join(import.meta.dir, "../scripts/install.ts"),
+				"--step",
+				"refreshSupervisor",
+				"--yes",
 			],
 			{
 				env: { ...process.env, HOME: home },

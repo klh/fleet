@@ -8,11 +8,12 @@
 //   bun scripts/install.ts --json --dry-run     # plan, zero side effects
 //   bun scripts/install.ts --json               # outcome + contract (stdout)
 //   bun scripts/install.ts --step <name>        # one step (frozen names)
-//   bun scripts/install.ts --yes                # consented run (legacy blocks via install.sh __legacy full)
+//   bun scripts/install.ts --yes                # consented run (every step native since W771.3)
 //
 // Exit codes: 0 ok/pause (need_user_action), 1 failure, 2 usage error.
 import meow from "meow";
 import ora, { type Ora } from "ora";
+import { join } from "node:path";
 import { INSTALL_CONTRACT, type InstallOutcome } from "./install-contract.ts";
 import {
 	exitFor,
@@ -34,16 +35,25 @@ Usage
 Options
   --dry-run       Print the plan, zero side effects
   --json          Machine output: one JSON outcome document on stdout
-  --yes           Unattended consent (legacy blocks run via install.sh __legacy full)
+  --yes           Unattended consent (every step native since W771.3)
   --verbose       Per-step detail and resolved paths
   --gateway-review <sha>  Approve the staged gateway upgrade candidate
   --step <name>   Run one step by frozen name (contract.steps[].name)
   --profile <p>   hub (default) = full; spoke ships no auth issuance/identity/key-custody code (W165)
+  --wire          Merge hooks into ~/.claude/settings.json (+ adapters, gate wires)
+  --wire-repo <path>  With --step wireSettings: wire a repo's project settings
+  --prune         Mirror-mode sync — drop unmanaged prefix entries (W420)
+  --skip-models   Skip the model download (offline installs)
+  --no-llm        Skip the local-llm baseline (CI/containers)
+  --with-launchd  Full plan, then registerLaunchd
+  --hub <name>    Hub deploy from ~/.config/klh/stack.yaml (--dry-run renders the .env)
+  --refresh-gateway  Gateway supervision + model limits refresh (early exit)
+  --re-bless-activation [--confirm <sha>]  Owner-gated receipt re-bless (W640)
 
 Exit codes
   0 ok/pause   1 failure   2 usage
 
-The machine-readable contract (contractVersion 1) is embedded in every --json outcome.
+The machine-readable contract (contractVersion 2) is embedded in every --json outcome.
 `;
 
 async function main(): Promise<void> {
@@ -61,9 +71,18 @@ async function main(): Promise<void> {
 		json: false,
 		yes: false,
 		verbose: false,
+		wire: false,
 		step: null,
 		wireRepo: null,
 		profile: "hub",
+		prune: false,
+		skipModels: false,
+		noLlm: false,
+		hub: null,
+		refreshGateway: false,
+		withLaunchd: false,
+		reBlessActivation: false,
+		confirm: null,
 	};
 	if (parsed.error !== undefined) {
 		const doc = usageOutcome(parsed.error, flags);
@@ -72,6 +91,7 @@ async function main(): Promise<void> {
 		process.exitCode = 2;
 		return;
 	}
+	const paths = resolvePaths();
 	const ctx: StepContext = {
 		dryRun: flags.dryRun,
 		yes: flags.yes,
@@ -80,13 +100,56 @@ async function main(): Promise<void> {
 		wireRepo: flags.wireRepo,
 		gatewayReview: flags.gatewayReview,
 		profile: flags.profile,
-		prune: process.env.SUSPENDERS_LEGACY_PRUNE === "1",
-		...resolvePaths(),
+		prune: flags.prune,
+		skipModels: flags.skipModels,
+		noLlm: flags.noLlm,
+		...paths,
 	};
+	// W771.3: the bash front's targeted routes absorbed as early exits —
+	// --hub, --refresh-gateway, --re-bless-activation (exec exit code propagates)
+	const childRun = async (args: string[]): Promise<number> => {
+		const child = Bun.spawn([process.execPath, ...args], {
+			stdin: "inherit",
+			stdout: "inherit",
+			stderr: "inherit",
+		});
+		return await child.exited;
+	};
+	if (flags.hub !== null) {
+		process.exitCode = await childRun([
+			join(paths.repo, "deploy/hubctl.ts"),
+			flags.dryRun ? "render" : "deploy",
+			flags.hub,
+		]);
+		return;
+	}
+	if (flags.refreshGateway) {
+		process.exitCode = await childRun([
+			join(paths.repo, "scripts/refresh-gateway.ts"),
+			...(flags.dryRun ? ["--dry-run"] : []),
+		]);
+		return;
+	}
+	if (flags.reBlessActivation) {
+		process.exitCode = await childRun([
+			join(paths.repo, "scripts/rebless-activation.ts"),
+			"--re-bless-activation",
+			...(flags.confirm !== null ? ["--confirm", flags.confirm] : []),
+		]);
+		return;
+	}
 	const mode: "plan" | "step" = flags.step === null ? "plan" : "step";
 	let spinner: Ora | null = null;
 	if (!flags.json) spinner = ora("suspenders install").start();
 	const executed = await executePlan(mode, flags.step, ctx, () => {});
+	// --with-launchd: the bash front's posture — full plan, then registerLaunchd
+	// (bash parity: launchd only ran when the plan outcome wasn't failed)
+	if (flags.withLaunchd && mode === "plan" && executed.outcome !== "failed") {
+		const launchd = await executePlan("step", "registerLaunchd", ctx, () => {});
+		executed.rows.push(...launchd.rows);
+		executed.pauses.push(...launchd.pauses);
+		if (launchd.outcome === "failed") executed.outcome = "failed";
+	}
 	spinner?.stopAndPersist({
 		symbol: outcomeGlyph(executed.outcome),
 		text: `done — ${executed.outcome}`,

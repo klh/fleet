@@ -6,13 +6,10 @@ import { join } from "node:path";
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { execa } from "execa";
 import {
 	type ContractStep,
@@ -55,8 +52,12 @@ export interface StepContext {
 	/** W165: with --step syncHarness — spoke excludes hub-only modules from the
 	 *  payload and capabilities.json records the variant (absent = hub). */
 	profile?: "hub" | "spoke";
-	/** W420 mirror mode rides SUSPENDERS_LEGACY_PRUNE until the front flip (W771.3). */
+	/** W420 mirror mode — drops unmanaged prefix entries outside the allowlist. */
 	prune?: boolean;
+	/** --skip-models: downloadModels skips (offline installs) */
+	skipModels?: boolean;
+	/** --no-llm: the local-llm baseline skips entirely (CI/containers) */
+	noLlm?: boolean;
 }
 
 export interface StepResult {
@@ -74,13 +75,6 @@ export interface Executed {
 export type RowSink = (row: StepOutcomeRow) => void;
 
 type StepImpl = (ctx: StepContext) => Promise<StepResult>;
-
-interface DelegatedResult {
-	ok: boolean;
-	note: string;
-	detail: string;
-	steps: Partial<Record<StepName, StepResult>>;
-}
 
 // ─── v1 step implementations (only "real" steps live here; the rest delegate) ───
 
@@ -287,114 +281,19 @@ export async function registerGitHooks(ctx: StepContext): Promise<StepResult> {
 	};
 }
 
-/**
- * The v1 delegation: one bash install.sh invocation covers every mutating
- * "delegated" step on a consented full run. W490.2: install.sh's public face
- * is the TS installer wrapper, so the delegation targets the wrapper's
- * __legacy full entrypoint (the legacy body blocks install.ts has no step
- * for yet) — never the wrapper front, which would recurse.
- */
-async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
-	const script = join(ctx.repo, "install.sh");
-	const reportDir = mkdtempSync(join(tmpdir(), "fleet-install-report-"));
-	const report = join(reportDir, "steps.ndjson");
-	try {
-		const res = await execa("bash", [script, "__legacy", "full"], {
-			cwd: ctx.repo,
-			stdout: ctx.json ? "pipe" : "inherit",
-			stderr: "inherit",
-			env: {
-				SUSPENDERS_LEGACY_REPORT: report,
-				// the plan runs syncHarness natively — the legacy body must not re-sync
-				SUSPENDERS_LEGACY_SYNC: "0",
-			},
-			reject: false,
-		});
-		if (res.exitCode !== 0) {
-			return {
-				ok: false,
-				note: `bash delegation failed (exit ${res.exitCode ?? "signal"})`,
-				detail: "",
-				steps: {},
-			};
-		}
-		const text = typeof res.stdout === "string" ? res.stdout : "";
-		const tail = text.trim().split("\n").at(-1) ?? "";
-		const steps: DelegatedResult["steps"] = {};
-		try {
-			for (const line of readFileSync(report, "utf8")
-				.split("\n")
-				.filter(Boolean)) {
-				const row = JSON.parse(line) as {
-					name: unknown;
-					status: unknown;
-					note: unknown;
-				};
-				if (
-					typeof row.name !== "string" ||
-					row.name !== "registerGitHooks" ||
-					typeof row.status !== "string" ||
-					!["ok", "failed", "skipped"].includes(row.status) ||
-					typeof row.note !== "string"
-				)
-					throw new Error("invalid legacy step report");
-				// registerGitHooks is native ("real") — a legacy-body row for it is
-				// tolerated here, never consumed: the plan's own run reported it.
-			}
-		} catch (err) {
-			if (!(err instanceof Error && "code" in err && err.code === "ENOENT"))
-				throw new Error("invalid legacy step report");
-		}
-		return {
-			ok: true,
-			note: "executed via the v1 bash delegation (install.sh __legacy full)",
-			detail: tail,
-			steps,
-		};
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		return {
-			ok: false,
-			note: `bash delegation failed — ${msg}`,
-			detail: "",
-			steps: {},
-		};
-	} finally {
-		rmSync(reportDir, { recursive: true, force: true });
-	}
-}
-
 // ─── pause states (first-class: resume_command, never a blocking prompt) ───
 
 function resumeCommand(step: ContractStep, ctx: StepContext): string {
 	if (step.name === "refreshDashboards") {
 		return `bun ${join(ctx.repo, "scripts/refresh-dashboards.ts")}`;
 	}
-	if (step.name === "registerLaunchd") {
-		// native since W490.2 — renders deploy/services.yaml via install-services.ts
-		return `bun ${join(ctx.repo, "scripts/install.ts")} --step registerLaunchd --yes`;
-	}
 	if (step.name === "deployHub") {
-		// v1 stub: hub deploys ride the bash flag (deploy/hubctl.ts); the hub
-		// name is operator data from stack.yaml, filled in before running
-		return `bash ${join(ctx.repo, "install.sh")} --hub <hub>`;
+		// v1 stub: hub deploys ride the --hub early exit; the hub name is
+		// operator data from stack.yaml, filled in before running
+		return `bun ${join(ctx.repo, "scripts/install.ts")} --hub <hub>`;
 	}
-	// native steps resume through the TS door; bash-owned blocks keep the wrapper
-	if (step.name === "syncHarness" || step.name === "ensureShims") {
-		return `bun ${join(ctx.repo, "scripts/install.ts")} --step ${step.name} --yes`;
-	}
-	// the wrapper front is consented-by-design (bash surface semantics), and
-	// --yes makes the resume self-sufficient through the TS plan runner
-	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;
-	switch (step.name) {
-		case "refreshSupervisor":
-			// native since W771.2 — family-detecting step (kit serve vs Belt)
-			return `bun ${join(ctx.repo, "scripts/install.ts")} --step refreshSupervisor --yes`;
-		case "wireSettings":
-			return `bun ${join(ctx.repo, "scripts/install.ts")} --step wireSettings --yes`;
-		default:
-			return bash;
-	}
+	// every native step resumes through the TS door (W771.3: wrapper is a pure exec)
+	return `bun ${join(ctx.repo, "scripts/install.ts")} --step ${step.name} --yes`;
 }
 
 function pauseFor(
@@ -442,8 +341,6 @@ export async function executePlan(
 		onRow(row);
 	};
 	let outcome: OutcomeStatus = "ok";
-	let delegated: DelegatedResult | undefined;
-	let delegationFailed = false;
 	const selected: ReadonlySet<StepName> = new Set<StepName>(
 		mode === "step" && stepName !== null
 			? INSTALL_CONTRACT.steps
@@ -488,35 +385,10 @@ export async function executePlan(
 			const p = pauseFor(
 				step,
 				ctx,
-				"the bash installer has no per-step entry point — the resume command runs the full bash flow for this concern",
+				"this stub points at the --hub early exit — the resume command names the door",
 			);
 			emit(p.row);
 			pauses.push(p.pause);
-			continue;
-		}
-		// consented full run: one bash delegation covers the delegated steps
-		if (step.v1 === "delegated" && mode === "plan") {
-			if (delegationFailed) {
-				emit({
-					name: step.name,
-					status: "failed",
-					note: "bash delegation failed — see the failing step above",
-				});
-				continue;
-			}
-			if (delegated === undefined) {
-				delegated = await delegateBash(ctx);
-				delegationFailed = !delegated.ok;
-			}
-			const row: StepOutcomeRow = {
-				name: step.name,
-				status: delegated.ok ? "delegated" : "failed",
-				note: delegated.note,
-				detail: ctx.verbose ? delegated.detail : undefined,
-				...(delegated.ok ? delegated.steps[step.name] : undefined),
-			};
-			emit(row);
-			if (row.status === "failed") outcome = "failed";
 			continue;
 		}
 		// real implementation
@@ -533,8 +405,8 @@ export async function executePlan(
 		try {
 			const r = await impl(ctx);
 			emit({ ...r, name: step.name });
-			// W637: an impl can fold to a pause (wireSettings without
-			// --wire-repo — the user-level wire stays bash-owned)
+			// W637: an impl can fold to a pause (wireSettings without a wire
+			// target pauses for the operator to choose user-level vs repo)
 			if (r.status === "need_user_action") {
 				const p = pauseFor(step, ctx, r.note);
 				pauses.push(p.pause);
