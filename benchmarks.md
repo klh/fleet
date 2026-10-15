@@ -386,3 +386,101 @@ Findings (as measured, n=12 smoke-level):
    enable the enhance pass on the local swarm for task prompts, and keep the
    buckle outbound sideband (politeness) default OFF pending a quality bench
    on real responses. W368 re-benches all three blam tiers per model.
+
+## Prompt-variant matrix × model set (W282, 2026-10-15)
+
+Owner-directive 2026-10-05 matrix re-run across the model-set dimension
+(glm | local | kev | mixed × none | condense-in | condense-out | enhance).
+Arena sealed manifest `6253f5092545542e`, nonce-cold, temp 0, AC power
+throughout, sequential rounds, n=12/class. Baseline none×glm (pure-api
+reference); every leg pairs per task against it; δ=0.10 non-inferiority with
+n<33 ⇒ no claims. Baseline deltas mix TRANSFORM and BACKEND capability for
+local/kev/mixed legs (no same-day none×local baseline) — transform-isolated
+local reads need the W367.3 same-day local rows. 1,332 measured rows cited
+across 13 runs; enhance×local class b has NO data (coder-tier :8901 starved
+all three attempts — see honesty notes).
+
+### Run-ids (ts 20261015T153116Z prefix elided; results gitignored)
+
+| variant | glm | local | kev | mixed |
+| ------- | --- | ----- | --- | ----- |
+| none | `0ec075cc` | — | — | — |
+| condense-in | `5e959eb0` | `421c943e` | `6fd25423` | `cf74f174` |
+| condense-out | `c08ff583` | `9d583bd1` | `09ed4b81` | `80fa0b10` |
+| enhance | `7c68aa82` | `84037d00` | `b65ced01` | `6aa7ab90` |
+
+enhance×local assembled from TWO partial runs (both EXIT 0, classes
+e/d/a/c/f clean in both): `153116Z-84037d00` + `183005Z-84037d00`; class-b
+attempt `190500Z-84037d00b` served 1/24 rows. The three broken class-b
+blocks (24+24+23 error rows, "Internal error during streaming" on :8901
+direct and via :4100) are excluded from tables.
+
+### pass% per class (n=12/class/leg; stack-router e-leg is a placement probe, excluded)
+
+| transform | set | a | b | c | d | e | f |
+| --------- | --- | - | - | - | - | - | - |
+| none | glm | 33 | 100 | 100 | 100 | 100 | 100 |
+| condense-in | glm | 33 | 100 | 100 | 96 | 100 | 100 |
+| condense-in | local | 100 | 71 | 100 | 92 | 75 | 100 |
+| condense-in | kev | — | — | — | — | 83 | — |
+| condense-in | mixed | 100 | 58 | 100 | 83 | 83 | 100 |
+| condense-out | glm | 42 | 96 | 100 | 96 | 100 | 100 |
+| condense-out | local | 92 | 71 | 100 | 92 | 75 | 100 |
+| condense-out | kev | — | — | — | — | 83 | — |
+| condense-out | mixed | 100 | 58 | 100 | 83 | 92 | 100 |
+| enhance | glm | 4 | 54 | 0 | 71 | 100 | 92 |
+| enhance | local | 0 | — | 2 | 75 | 75 | 100 |
+| enhance | kev | — | — | — | — | 83 | — |
+| enhance | mixed | 8 | 0 | 0 | 67 | 75 | 100 |
+
+Cells pool both legs per class (err rows counted as fail; stack-router
+e-probe excluded; kev legs are class-e-only). Baseline a=33% is the hardest
+cell (glm cloud, cold, n=12 — noise floor).
+
+### Deltas vs none×glm baseline (pooled cells; Δq CIs leg-level from the variant report)
+
+- **condense-in / condense-out: quality-neutral everywhere measured.** Every
+  Δq 95% CI straddles 0 on every leg of every class except noise-band dips
+  (d −0.083…−0.333 at n=12; b −0.135…−0.313 on local-scale cells).
+  Deterministic chars deltas: d −0.3%, c −0.6%, e/f 0.0% — caveman and
+  politeness stay near-neutral on these sealed texts, matching W367.3.
+- **enhance on c is a TRANSFORM failure, not a backend failure.** 0–2% pass
+  on EVERY backend including cloud (glm pure-api 0%, stack-anthropic
+  claude-sonnet-5 0%, local tiers 2%) with Δq ≈ −1.000 — the rewrite takes
+  the extract schema 573→193 chars (−66%) and the contract is gone.
+  W367.3's local-only 100→38% understated it: the rewrite itself destroys
+  the task.
+- **enhance collapse generalizes beyond the local swarm.** glm a 33→4%,
+  b 100→54%, d 100→71% (7 truncated-fallback prompts) — with prompt
+  INFLATION (a 179→616 chars +244%, b 303→457 +50%, e 92→151 +64%).
+  W367.3 blamed the small swarm models; today's data shows cloud models
+  fail the same way.
+- **enhance on f is the one clean win**: the rewrite SHRINKS q1/q2
+  83→14 chars (−83%) and quality HOLDS (92–100% pass on every backend,
+  Δq −0.083…0.000) — tiny-field rewrites are the only measured-safe
+  enhance surface.
+- **Speed**: local legs run 0.04–0.19× the glm-cloud walls on a/b/c/e
+  (5–25× faster, all CIs exclude 1.0); class f long-context is the
+  exception — local 1.19–1.28× SLOWER than glm cloud (3.9s vs 2.8s p50).
+  kev-direct e-walls 288–509ms (0.10–0.20×). Contention inflates local
+  walls (honesty notes) — treat wall ratios as ceiling estimates.
+- **stack-anthropic (claude-sonnet-5 via :4100)** holds 100% on a/f,
+  83–92% on d/e, but 58% on b code-gen — behind glm cloud (100%) at these
+  settings; stack-router e-leg 8% is the by-design max_tokens-1 placement
+  probe.
+
+### Honesty notes
+
+- Load confound: the coder tier :8901 was saturated ~2h by concurrent fleet
+  lanes (Metal 33.3GB vs 23.5GB D-METAL-CAP, max_concurrent 2, no queue) —
+  local walls carry contention; quality cells unaffected except the missing
+  enhance×local b. 1 transient err row (enhance×glm pure-api socket drop)
+  counted as fail, W367.3 precedent. 8 enhance-cache truncation prompts
+  (e008 + 7×d) fell back to sealed prompts, flagged per row — 16 fb rows in
+  EVERY enhance round (8 prompts × 2 legs), 4 rounds + 2 partials.
+- enhance×local b: 3 attempts, 71/72 requests errored — "Internal error
+  during streaming" (:8901 direct and via :4100). NEED_DECISION #42040
+  (bd6947f) carries the capacity question: a 2-slot, no-queue coder tier
+  starves under any concurrent lane load; bench-grade runs need a quiet
+  window or a reserved slot.
+- Judge pass (W748) not run — quality signal is mechanical-only at n=12.
