@@ -32,13 +32,17 @@ const EXTRA_PLANE_SERVICES: ServiceRow[] = [
 ];
 
 // marker = the trailing literal path of the manifest bunEntry — placeholder
-// tokens and .. are install-machine substitution, so the last ≤3 literal
-// segments match BOTH the installed-prefix run and a checkout run of the
-// same entry ("__REPO__/../buckle/src/server.ts" -> "buckle/src/server.ts").
+// tokens, .. and dot-dirs (.claude/.local home fragments) are install-machine
+// substitution, so the last ≤3 literal segments match BOTH the
+// installed-prefix run and a checkout run of the same entry
+// ("__REPO__/../buckle/src/server.ts" -> "buckle/src/server.ts").
 export function markerOf(bunEntry: string): string {
 	const segs = bunEntry
 		.split("/")
-		.filter((s) => s.length > 0 && !s.startsWith("__") && s !== "..");
+		.filter(
+			(s) =>
+				s.length > 0 && !s.startsWith("__") && s !== ".." && !s.startsWith("."),
+		);
 	return segs.slice(-3).join("/");
 }
 
@@ -158,7 +162,7 @@ function sweepTick(ctx: SweepCtx): void {
 	const lc = ctx.launchctlList?.() ?? spawnOut(["launchctl", "list"]);
 	const ps = ctx.psOut?.() ?? spawnOut(["ps", "-axo", "pid=,ppid=,command="]);
 	if (lc === "" && ps === "") {
-		log("ROGUE-SWEEP-EMPTY — launchctl/ps produced nothing, sweep skipped");
+		ctx.log("ROGUE-SWEEP-EMPTY — launchctl/ps produced nothing, sweep skipped");
 		return;
 	}
 	const labelPids = parseLaunchctlList(lc);
@@ -182,13 +186,14 @@ function sweepVerdict(
 	if (sameRogueSet(prev, next)) return;
 	writeFileSync(ctx.statePath, JSON.stringify(next), { mode: 0o600 });
 	if (rogues.length > 0) {
-		for (const r of rogues) log(`ROGUE pid=${r.pid} ${r.cmd.slice(0, 120)}`);
+		for (const r of rogues)
+			ctx.log(`ROGUE pid=${r.pid} ${r.cmd.slice(0, 120)}`);
 		emitLoopEvent("plane.rogue", "plane", {
 			pids: rogues.map((r) => r.pid),
 			cmds: rogues.map((r) => r.cmd),
 		});
 	} else {
-		log("ROGUE-CLEAR — no plane processes outside launchd supervision");
+		ctx.log("ROGUE-CLEAR — no plane processes outside launchd supervision");
 		emitLoopEvent("plane.rogue.clear", "plane", {});
 	}
 }
