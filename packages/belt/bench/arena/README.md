@@ -80,6 +80,28 @@ every file exactly, and `seal.test.ts` enforces this. Neither `--design` nor
 - `--run` and `--prepare` refuse to start without `/tmp/bench-ac-ok` (exit 3).
 - `results/` and `cache/` are gitignored.
 
+## Judge pass (W748)
+
+LLM-as-judge quality signal on existing runs — the qvac run-judge lift:
+a SEPARATE pass after any round, reusing the overnight run's rows instead
+of re-running them. Every ok cold/replay/warm answer is graded 0–1 by the
+local-reason tier (default `:8903`, env `ARENA_JUDGE_PORT`/`ARENA_JUDGE_MODEL`),
+with the sealed task prompt (ref-stripped, middle-elided at 16k chars) as
+the rubric context. Verdicts append as `type:"judge"` rows to the run file
+(resumable — `judge_error` rows retry next pass) and surface as a
+`judge [boot 95%]` column per leg, a `Δjudge [95% CI] · δ=0.10` column in
+the paired comparisons, and `judge mean` + `Δjudge vs base` columns in the
+variant report.
+
+    bun bench/arena/run.ts --judge --run-id <id> [--judge-limit K] [--res-dir <dir>]
+
+Framing law (benchmarks.md): judge scores are quality SIGNAL, never
+absolute verdicts — decisions come from paired route A − route B deltas
+with CIs and the same δ=0.10 non-inferiority + honesty labels as the
+mechanical Δq (n≥130 moderate, 33–129 weak, <33 no claims). Judging rides
+the reason tier sequentially (one row at a time); the tier is
+ping-preflighted and the pass refuses fast if it is down.
+
 The variant report pairs every leg by task against the baseline's `pure-api` leg. The baseline is the latest
 `none` run that contains `pure-api`. For each leg the report gives:
 
