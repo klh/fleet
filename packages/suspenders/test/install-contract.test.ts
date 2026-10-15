@@ -86,7 +86,8 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(doc.ok).toBe(true);
 		expect(doc.pauses.length).toBeGreaterThan(0);
 		for (const pause of doc.pauses) {
-			expect(pause.resume_command).toContain("install.sh");
+			// native steps resume via install.ts; bash-owned blocks keep install.sh
+			expect(pause.resume_command).toMatch(/install\.(sh|ts)/);
 		}
 	});
 

@@ -21,6 +21,12 @@ import {
 } from "../hooks/lib/harness-manifest.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
+import {
+	planShims,
+	restoreShims,
+	writeShims,
+	type PlannedShim,
+} from "./ensure-shims.ts";
 
 const SOURCE_PATHS = [
 	".githooks",
@@ -54,7 +60,6 @@ const ENTRYPOINTS = [
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 function git(repo: string, args: string[]): string {
 	const result = Bun.spawnSync(["git", "-C", repo, ...args], {
@@ -210,10 +215,10 @@ export async function syncHarness(
 	let oldLink: string | null = null;
 	let backedUp = false,
 		published = false;
+	// declared outside the try: the catch's rollback leg restores these
+	let shims: PlannedShim[] = [];
 	const pruned = new Set<string>(); // W420: unmanaged entries prune drops
-	const shims: { path: string; old: string | null }[] = [];
 	const pointer = `${prefix}.next-${crypto.randomUUID()}`;
-	const temporaryShims: string[] = [];
 	mkdirSync(lock); // Exclusive directory lock; all subsequent setup is covered by finally.
 	try {
 		stage = mkdtempSync(join(parent, `.${basename(prefix)}-stage-`));
@@ -374,22 +379,7 @@ export async function syncHarness(
 			JSON.stringify(receipt, null, 2),
 			{ mode: 0o600 },
 		);
-		mkdirSync(ctx.shimBin, { recursive: true });
-		for (const name of [
-			"coord",
-			"work",
-			"dispatch",
-			"fleet-tracker",
-			"oracle",
-		]) {
-			const path = join(ctx.shimBin, name);
-			if (existsSync(path) && lstatSync(path).isSymbolicLink())
-				throw new Error(`Refusing symlink shim: ${name}`);
-			shims.push({
-				path,
-				old: existsSync(path) ? readFileSync(path, "utf8") : null,
-			});
-		}
+		shims = planShims(ctx.shimBin);
 		renameSync(stage, generation);
 		// Existing symlink replacement is atomic. First directory migration has a
 		// short rename gap; every publication error restores the original directory.
@@ -400,21 +390,7 @@ export async function syncHarness(
 		symlinkSync(generation, pointer);
 		publish(pointer, prefix);
 		published = true;
-		for (const shim of shims) {
-			const name = basename(shim.path);
-			const target =
-				name === "dispatch"
-					? join(prefix, "scripts/dispatch-next.ts")
-					: join(prefix, "bin", `${name}.ts`);
-			const temp = `${shim.path}.${crypto.randomUUID()}.tmp`;
-			temporaryShims.push(temp);
-			writeFileSync(
-				temp,
-				`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(target)} "$@"\n`,
-				{ mode: 0o755 },
-			);
-			publish(temp, shim.path);
-		}
+		writeShims(prefix, shims, publish);
 		const pruneNote = !ctx.prune
 			? ""
 			: pruned.size
@@ -430,17 +406,13 @@ export async function syncHarness(
 			rmSync(prefix, { force: true });
 			if (oldLink) symlinkSync(oldLink, prefix);
 			else if (backedUp) renameSync(backup, prefix);
-			for (const shim of shims) {
-				if (shim.old === null) rmSync(shim.path, { force: true });
-				else writeFileSync(shim.path, shim.old, { mode: 0o755 });
-			}
+			restoreShims(shims);
 		} else if (backedUp) renameSync(backup, prefix);
 		if (stage) rmSync(stage, { recursive: true, force: true });
 		rmSync(generation, { recursive: true, force: true });
 		throw error;
 	} finally {
 		rmSync(pointer, { force: true });
-		for (const temp of temporaryShims) rmSync(temp, { force: true });
 		rmSync(lock, { recursive: true, force: true });
 	}
 }

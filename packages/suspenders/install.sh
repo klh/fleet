@@ -50,7 +50,11 @@ report_step() {
     printf '{"name":"%s","status":"%s","note":"%s"}\n' "$1" "$2" "$3" >> "$SUSPENDERS_LEGACY_REPORT"
   fi
 }
-bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"}
+# W771.1: the TS plan runs syncHarness natively (SUSPENDERS_LEGACY_SYNC=0 tells
+# this body to skip the re-sync); direct __legacy full callers still sync here.
+if [[ "${SUSPENDERS_LEGACY_SYNC:-1}" -eq 1 ]]; then
+  bun "$SCRIPT_DIR/scripts/sync-harness.ts" --repo "$SCRIPT_DIR" --prefix "$PREFIX" --shim-bin "${SUSPENDERS_SHIM_BIN:-$HOME/.local/bin}" ${PRUNE_ARGS[@]+"${PRUNE_ARGS[@]}"}
+fi
 
 # registerGitHooks (W650): repo-level scrub-gate enforcement — the committed
 # .githooks stubs (W236) exec hooks/bin/scrub-gate.ts from the prefix
