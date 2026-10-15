@@ -26,6 +26,11 @@ import {
 import { upgradeGateway } from "./upgrade-gateway.ts";
 import { registerLaunchd } from "./install-launchd.ts";
 import { syncHarness } from "./sync-harness.ts";
+import {
+	registerCaddy,
+	registerSkills,
+	releaseNotify,
+} from "./install-wire-steps.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -37,6 +42,8 @@ export interface StepContext {
 	prefix: string;
 	shimBin: string;
 	llmHome: string;
+	/** W771.3: the user home — the user-level wireSettings target root */
+	home: string;
 	/** W637: with --step wireSettings — the repo whose project settings get wired */
 	wireRepo: string | null;
 	/** W165: with --step syncHarness — spoke excludes hub-only modules from the
@@ -100,16 +107,54 @@ async function refreshDashboards(ctx: StepContext): Promise<StepResult> {
 	};
 }
 
-// W637: real wireSettings — merges the settings.example.json hooks block into
-// <wireRepo>/.claude/settings.json: per-event array concat, dedupe on JSON
-// form, $HOME placeholder rewritten to the real prefix. No --wire-repo: the
-// user-level wire stays bash-owned (the step pauses with the bash resume).
+// loadSettingsDoc — read a settings.json doc; missing/corrupt starts from {}.
+function loadSettingsDoc(settingsPath: string): {
+	hooks?: Record<string, unknown>;
+} {
+	try {
+		return JSON.parse(readFileSync(settingsPath, "utf8")) as {
+			hooks?: Record<string, unknown>;
+		};
+	} catch {
+		return {};
+	}
+}
+
+// mergeHooksInto — per-event hooks merge: array concat, dedupe on JSON form,
+// $HOME placeholder → real prefix. Returns the newly added entry count.
+function mergeHooksInto(
+	settingsPath: string,
+	ex: { hooks: Record<string, unknown> },
+	prefix: string,
+): number {
+	const doc = loadSettingsDoc(settingsPath);
+	doc.hooks ??= {};
+	let added = 0;
+	for (const [event, entries] of Object.entries(ex.hooks)) {
+		const rewritten = JSON.parse(
+			JSON.stringify(entries).replaceAll(
+				"$HOME/.claude/hooks/suspenders",
+				prefix,
+			),
+		) as unknown[];
+		const cur = (
+			Array.isArray(doc.hooks[event]) ? doc.hooks[event] : []
+		) as unknown[];
+		doc.hooks[event] = cur;
+		const seen = new Set(cur.map((m) => JSON.stringify(m)));
+		for (const e of rewritten) {
+			if (seen.has(JSON.stringify(e))) continue;
+			cur.push(e);
+			added++;
+		}
+	}
+	writeFileSync(settingsPath, `${JSON.stringify(doc, null, 2)}\n`);
+	return added;
+}
+
 export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 	if (ctx.wireRepo === null) {
-		return {
-			status: "need_user_action",
-			note: "user-level wire is under install.sh --wire — pass --wire-repo <path> to wire a repo's project settings",
-		};
+		return userLevelWire(ctx);
 	}
 	const repo = realpathSync(ctx.wireRepo);
 	const settingsPath = join(repo, ".claude", "settings.json");
@@ -124,41 +169,66 @@ export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 			note: `settings.example.json unreadable at ${ctx.repo} — the wire step runs from a fleet checkout`,
 		};
 	}
-	const doc = (() => {
-		try {
-			return JSON.parse(readFileSync(settingsPath, "utf8")) as {
-				hooks?: Record<string, unknown>;
-			};
-		} catch {
-			return {} as { hooks?: Record<string, unknown> };
-		}
-	})();
-	doc.hooks ??= {};
-	let added = 0;
-	for (const [event, entries] of Object.entries(ex.hooks)) {
-		const rewritten = JSON.parse(
-			JSON.stringify(entries).replaceAll(
-				"$HOME/.claude/hooks/suspenders",
-				ctx.prefix,
-			),
-		) as unknown[];
-		const cur = (
-			Array.isArray(doc.hooks[event]) ? doc.hooks[event] : []
-		) as unknown[];
-		doc.hooks[event] = cur;
-		const seen = new Set(cur.map((m) => JSON.stringify(m)));
-		for (const e of rewritten) {
-			if (!seen.has(JSON.stringify(e))) {
-				cur.push(e);
-				added++;
-			}
-		}
-	}
 	mkdirSync(join(repo, ".claude"), { recursive: true });
-	writeFileSync(settingsPath, `${JSON.stringify(doc, null, 2)}\n`);
+	const added = mergeHooksInto(settingsPath, ex, ctx.prefix);
 	return {
 		status: "ok",
 		note: `wired ${settingsPath} (per-event merge, ${added} new hook entries)`,
+	};
+}
+
+// runWireExtras — the user-level wire's companions: policy adapters (fatal on
+// failure) and the W294 gate wires (merge-not-clobber, non-fatal). Returns a
+// note suffix describing degraded surfaces; "" when everything ran clean.
+async function runWireExtras(ctx: StepContext): Promise<string> {
+	const adapters = await execa(
+		process.execPath,
+		[join(ctx.repo, "scripts/install-policy-adapters.ts")],
+		{ cwd: ctx.repo, env: { SUSPENDERS_PREFIX: ctx.prefix }, reject: false },
+	);
+	if (adapters.exitCode !== 0) {
+		return " — policy adapters failed (non-fatal)";
+	}
+	let extras = "";
+	for (const wire of ["gate-wire-codex.ts", "gate-wire-copilot.ts"]) {
+		const script = join(ctx.prefix, "bin", wire);
+		if (!existsSync(script)) {
+			extras += ` — ${wire} missing at the prefix (re-run the install sync)`;
+			continue;
+		}
+		const res = await execa(process.execPath, [script], {
+			cwd: ctx.repo,
+			reject: false,
+		});
+		if (res.exitCode !== 0) {
+			extras += ` — ${wire} merge failed (non-fatal)`;
+		}
+	}
+	return extras;
+}
+
+// userLevelWire — the ~/.claude/settings.json wire: merge hooks, then policy
+// adapters + gate wires. Missing settings file starts from {}.
+async function userLevelWire(ctx: StepContext): Promise<StepResult> {
+	const settingsPath = join(ctx.home, ".claude", "settings.json");
+	let ex: { hooks: Record<string, unknown> };
+	try {
+		ex = JSON.parse(
+			readFileSync(join(ctx.repo, "settings.example.json"), "utf8"),
+		);
+	} catch {
+		return {
+			status: "failed",
+			note: `settings.example.json unreadable at ${ctx.repo} — the wire step runs from a fleet checkout`,
+		};
+	}
+	mkdirSync(join(ctx.home, ".claude"), { recursive: true });
+	if (!existsSync(settingsPath)) writeFileSync(settingsPath, "{}\n");
+	const added = mergeHooksInto(settingsPath, ex, ctx.prefix);
+	const extras = await runWireExtras(ctx);
+	return {
+		status: "ok",
+		note: `wired ${settingsPath} (per-event merge, ${added} new hook entries)${extras}`,
 	};
 }
 
@@ -238,12 +308,7 @@ async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 		}
 		const text = typeof res.stdout === "string" ? res.stdout : "";
 		const tail = text.trim().split("\n").at(-1) ?? "";
-		const steps: DelegatedResult["steps"] = {
-			registerCaddy: {
-				status: "failed",
-				note: "Caddy registration outcome was not reported; installation cannot be verified",
-			},
-		};
+		const steps: DelegatedResult["steps"] = {};
 		try {
 			for (const line of readFileSync(report, "utf8")
 				.split("\n")
@@ -255,7 +320,7 @@ async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 				};
 				if (
 					typeof row.name !== "string" ||
-					!["registerCaddy", "registerGitHooks"].includes(row.name) ||
+					row.name !== "registerGitHooks" ||
 					typeof row.status !== "string" ||
 					!["ok", "failed", "skipped"].includes(row.status) ||
 					typeof row.note !== "string"
@@ -263,11 +328,6 @@ async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 					throw new Error("invalid legacy step report");
 				// registerGitHooks is native ("real") — a legacy-body row for it is
 				// tolerated here, never consumed: the plan's own run reported it.
-				if (row.name === "registerGitHooks") continue;
-				steps.registerCaddy = {
-					status: row.status as StepStatus,
-					note: row.note,
-				};
 			}
 		} catch (err) {
 			if (!(err instanceof Error && "code" in err && err.code === "ENOENT"))
@@ -316,7 +376,7 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 		case "refreshSupervisor":
 			return `${bash} --refresh-supervisor`;
 		case "wireSettings":
-			return `${bash} --wire`;
+			return `bun ${join(ctx.repo, "scripts/install.ts")} --step wireSettings --yes`;
 		default:
 			return bash;
 	}
@@ -343,6 +403,9 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	upgradeGateway,
 	syncHarness,
 	wireSettings,
+	registerCaddy,
+	registerSkills,
+	releaseNotify,
 };
 
 // ─── plan runner ───

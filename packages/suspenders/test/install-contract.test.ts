@@ -75,7 +75,7 @@ describe("install --json outcomes (W490.1)", () => {
 			expect(doc.contract.flags[key].flag).toBe(kebab(key));
 		}
 		expect(doc.contract.name).toBe("suspenders-install");
-		expect(doc.contract.steps).toHaveLength(14);
+		expect(doc.contract.steps).toHaveLength(15);
 	});
 
 	test("plan without consent pauses (exit 0, never blocks)", async () => {
@@ -169,17 +169,21 @@ describe("install --json outcomes (W490.1)", () => {
 		expect(loudDoc.steps[0].detail).toContain("bun");
 	});
 
-	test("stub step pauses even with --yes (bash flow not per-step addressable)", async () => {
-		const { code, stdout } = await run([
-			"--step",
-			"wireSettings",
-			"--yes",
-			"--json",
-		]);
+	test("user-level wireSettings --wire wires a temp HOME's settings.json", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "w7713-wire-"));
+		const { code, stdout } = await run(["--wire", "--json"], { HOME: dir });
 		expect(code).toBe(0);
 		const doc = JSON.parse(stdout);
-		expect(doc.steps[0].status).toBe("need_user_action");
-		expect(doc.pauses[0].resume_command).toContain("--wire");
+		expect(doc.mode).toBe("step");
+		// --wire implies consent and selects the wireSettings step
+		expect(doc.flags.wire).toBe(true);
+		expect(doc.flags.step).toBe("wireSettings");
+		expect(doc.steps[0].status).toBe("ok");
+		const settings = JSON.parse(
+			readFileSync(join(dir, ".claude", "settings.json"), "utf8"),
+		);
+		expect(Array.isArray(settings.hooks.SessionStart)).toBe(true);
+		rmSync(dir, { recursive: true, force: true });
 	});
 
 	test("wireSettings --wire-repo merges into project settings, idempotent", async () => {

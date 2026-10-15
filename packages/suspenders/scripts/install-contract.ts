@@ -24,6 +24,7 @@ export type StepName =
 	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
+	| "registerSkills"
 	| "releaseNotify"
 	| "refreshDashboards"
 	| "deployHub";
@@ -105,6 +106,7 @@ export interface InstallContract {
 		json: ContractFlag;
 		yes: ContractFlag;
 		verbose: ContractFlag;
+		wire: ContractFlag;
 		step: ContractFlag;
 		wireRepo: ContractFlag;
 		profile: ContractFlag;
@@ -169,7 +171,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"repo wiring is native: --step wireSettings --wire-repo <path>; the user-level wire rides the bash --wire resume_command",
+					"native: --wire (or --step wireSettings --yes) merges user-level settings; --wire-repo <path> wires a repo's project settings",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -219,6 +221,11 @@ export const INSTALL_CONTRACT = {
 		verbose: {
 			flag: "--verbose",
 			meaning: "include per-step detail and resolved paths in the outcome",
+		},
+		wire: {
+			flag: "--wire",
+			meaning:
+				"user-level wire — merge the hooks block into ~/.claude/settings.json (policy adapters + gate wires ride along); consented on its own, implies --step wireSettings",
 		},
 		gatewayReview: {
 			flag: "--gateway-review",
@@ -336,7 +343,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge the hooks block into a repo's project settings via --wire-repo <path> (per-event merge, never clobber); the user-level wire rides the bash --wire resume",
+				"merge the hooks block into ~/.claude/settings.json (--wire, policy adapters + gate wires ride along) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
 			mutates: true,
 			optIn: true,
 			v1: "real",
@@ -360,18 +367,26 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "registerCaddy",
 			oneLiner:
-				"optionally register the board with klh-local/Caddy for suspenders.local — non-fatal",
+				"optionally register the board with klh-local/Caddy for suspenders.local — W631 posture guard, W549 truthful degraded outcome, never aborts the plan",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
+		},
+		{
+			name: "registerSkills",
+			oneLiner:
+				"register every skills/ package with the skills CLI (bunx skills add -g -y -a claude-code) — best-effort, failure names the manual command",
+			mutates: true,
+			optIn: false,
+			v1: "real",
 		},
 		{
 			name: "releaseNotify",
 			oneLiner:
-				"emit the RELEASE event on the coord bus — the distributed changelog, non-fatal",
+				"emit the RELEASE event on the coord bus — the distributed changelog; fresh machines skip, emit failure is a truthful failed row",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "refreshDashboards",
@@ -396,11 +411,6 @@ export const INSTALL_CONTRACT = {
 			meaning:
 				"targeted minimal-swarm gateway supervision and model limits upgrade (early exit)",
 			mappedStep: "seedLocalLlm",
-		},
-		{
-			flag: "--wire",
-			meaning: "merge hooks into ~/.claude/settings.json",
-			mappedStep: "wireSettings",
 		},
 		{
 			flag: "--with-launchd",
@@ -464,7 +474,7 @@ export const INSTALL_CONTRACT = {
 	v1Delegation: {
 		command: "bash <repo>/install.sh __legacy full",
 		when: "a full run (no --step) with --yes",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (harness copy, shims, llm seed, models, caddy, release) that have no native step yet",
+		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the remaining legacy blocks (harness copy, shims, llm seed, models) that have no native step yet; W771.3 retired the wire/caddy/skills/release blocks",
 	},
 } as const satisfies InstallContract;
 

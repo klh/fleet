@@ -25,10 +25,11 @@ LLM_HOME="$HOME/.claude/local-llm"
 # kit source: packages/local-llm (W422.4) — a sibling package, not hooks/
 KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/local-llm"
 
-# ─── legacy body (TODO(install.ts): syncHarness, ensureShims, seedLocalLlm,
-# downloadModels, wireSettings, refreshSupervisor, registerCaddy, registerSkills
-# and releaseNotify still live here — install.ts's delegation runs THIS function,
-# never the wrapper front, which would re-enter install.ts) ───
+# ─── legacy body (TODO(install.ts): syncHarness/ensureShims + seedLocalLlm/
+# downloadModels/refreshSupervisor still live here (W771.1/W771.2 scopes) —
+# install.ts's delegation runs THIS function, never the wrapper front, which
+# would re-enter install.ts. W771.3 retired the wire/caddy/skills/release
+# blocks; their native steps live in scripts/install-wire-steps.ts) ───
 legacy_full() {
 command -v bun >/dev/null || { echo "suspenders needs bun — https://bun.sh first"; exit 1; }
 
@@ -174,90 +175,13 @@ process.stdout.write(residentSet().map((s) => s.model).join("\n"));
   fi
 fi
 
-# --wire: merge the example hooks block into ~/.claude/settings.json — per-event
-# array concat, existing entries untouched; paths rewritten to the real prefix
-if [[ "${SUSPENDERS_LEGACY_WIRE:-0}" -eq 1 ]]; then
-  SETTINGS="$HOME/.claude/settings.json"
-  [ -f "$SETTINGS" ] || echo "{}" >"$SETTINGS"
-  # The $HOME string below is a literal hook placeholder, expanded by JS.
-  # shellcheck disable=SC2016
-  SUSPENDERS_EXAMPLE="$SCRIPT_DIR/settings.example.json" SUSPENDERS_PREFIX="$PREFIX" bun -e '
-    const fs = require("node:fs");
-    const settingsPath = process.env.HOME + "/.claude/settings.json";
-    const prefix = process.env.SUSPENDERS_PREFIX;
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    const ex = JSON.parse(fs.readFileSync(process.env.SUSPENDERS_EXAMPLE, "utf8")).hooks;
-    settings.hooks ??= {};
-    for (const [event, entries] of Object.entries(ex)) {
-      const rewritten = JSON.parse(JSON.stringify(entries).replaceAll("$HOME/.claude/hooks/suspenders", prefix));
-      const cur = (settings.hooks[event] ??= []);
-      const seen = new Set(cur.map((m) => JSON.stringify(m)));
-      for (const e of rewritten) if (!seen.has(JSON.stringify(e))) cur.push(e);
-    }
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    console.log("→ wired " + settingsPath);
-  '
-  SUSPENDERS_PREFIX="$PREFIX" bun "$SCRIPT_DIR/scripts/install-policy-adapters.ts"
-  # W294: dialect gate wiring — the codex/copilot hook registrations must
-  # point at THIS install's gate. Stale checkouts decay the wiring (the
-  # machine's copilot config still points at the archived klh/suspenders
-  # path — sessions went invisible on the plane). The gate-wire scripts are
-  # MARK-based merge-not-clobber: re-running repairs stale paths, preserves
-  # user entries, converges on the prefix. Runs the PREFIX copy so the gate
-  # path resolves to the installed gate; non-fatal.
-  for wire in gate-wire-codex.ts gate-wire-copilot.ts; do
-    if [ -f "$PREFIX/bin/$wire" ]; then
-      bun "$PREFIX/bin/$wire" || echo "→ $wire merge failed (non-fatal)"
-    else
-      echo "→ $PREFIX/bin/$wire missing — skipped (re-run the install sync)"
-    fi
-  done
-fi
-
 # --with-launchd is native since W490.2: install.ts --step registerLaunchd
 # renders deploy/services.yaml via install-services.ts (see install-launchd.ts)
 
-# optional: register the board with klh-local's user-level Caddy so the LAN
-# gets http://suspenders.local:7799. Idempotent (converges on re-run) and
-# optional absence is skipped; attempted registration failure is reported as
-# a degraded install without aborting the remaining harness/release work.
-KLH_LOCAL_BIN="$HOME/.local/bin/klh-local"
-if [[ -x "$KLH_LOCAL_BIN" ]] && command -v caddy >/dev/null 2>&1; then
-  # W631: an installed klh-local predating W602 emits the unloadable loopback
-  # `bind 127.0.0.1 ::1` posture — caddy validate passes (specific-address
-  # binds fail only at LOAD time on macOS), the reload wedges the install and
-  # a landed fragment crash-loops com.klh-local.caddy. Probe the installed
-  # klh-local for the W602 request-level posture and degrade with the
-  # remediation command instead of attempting a reload that cannot load.
-  if ! grep -q "abort @external" "$KLH_LOCAL_BIN"; then
-    echo "→ degraded install: installed klh-local predates W602 (unloadable loopback bind posture) — refresh it: bash packages/local/install.sh from the fleet checkout"
-    report_step registerCaddy failed "installed klh-local predates W602 — refresh via packages/local/install.sh before registering"
-  elif "$KLH_LOCAL_BIN" register suspenders --port 7799 --health /; then
-    echo "→ suspenders.local → 127.0.0.1:7799 (klh-local / Caddy)"
-    report_step registerCaddy ok "board registered with klh-local/Caddy"
-  else
-    echo "→ degraded install: klh-local register failed — loopback board URL: http://127.0.0.1:7799"
-    report_step registerCaddy failed "optional Caddy registration failed; harness installed, use the loopback board URL and inspect Caddy reload/rollback"
-  fi
-else
-  echo "optional: install klh-local + caddy to also serve this board at http://suspenders.local:7799"
-  report_step registerCaddy skipped "optional klh-local/Caddy tools unavailable; registration was not attempted"
-fi
-
-# ─── agent skills (TODO(install.ts): registerSkills) — register every skill
-# package under skills/ with the skills CLI (owner hard rule 2026-10-07:
-# agent surfaces distribute as SKILL.md packages, never cp'd into one CLI's
-# dir). Flags are load-bearing: -g global, -y unattended, -a explicit agent —
-# a bare add hits the interactive agent-picker and exits 1 in a non-TTY. One
-# parent-dir add discovers every skills/*/ subpackage (verified: "Found 10").
-# Best-effort: failure prints the manual command, never aborts the install.
-if [ -d "$SCRIPT_DIR/skills" ]; then
-  if bunx skills add "$SCRIPT_DIR/skills" -g -y -a claude-code </dev/null; then
-    echo "→ skills: registered all packages under $SCRIPT_DIR/skills"
-  else
-    echo "  (skills: registration failed — run manually: bunx skills add $SCRIPT_DIR/skills -g -y -a claude-code)"
-  fi
-fi
+# registerCaddy + registerSkills (W771.3): native — install.ts --step
+# registerCaddy (W631 posture guard, W549 truthful outcome) and --step
+# registerSkills (bunx skills add, best-effort). The sync + hooks blocks
+# stay bash until W771.1's port folds them into the native plan run.
 
 echo
 echo "done. restart Claude Code so the hooks register, then:"
@@ -269,17 +193,6 @@ echo "env knobs: SUSPENDERS_LLM_URL / SUSPENDERS_LLM_MODEL / SUSPENDERS_LLM_KEY 
 echo "local-llm: $LLM_HOME (swarm serve supervisor; BELT_TIER=minimal residents + :4000 router)"
 echo "  bun $LLM_HOME/swarm.ts status   # swarm health"
 echo "  bun $LLM_HOME/swarm.ts serve    # resident supervisor (launchd label com.suspenders.local-llm)"
-
-# ─── release notify: the distributed changelog (2026-09-30) ───
-# every deploy announces the live version on the coord bus; every session
-# sees it at next poll or SessionStart. Fresh machines (no coord) skip.
-COORD="$HOME/.claude/hooks/suspenders/bin/coord.ts"
-if [ -f "$COORD" ]; then
-  REL_VER=$(git -C "$(cd "$(dirname "$0")" && pwd)" describe --tags --abbrev=0 2>/dev/null || echo unknown)
-  REL_NOTE=$(git -C "$(cd "$(dirname "$0")" && pwd)" tag -l --format='%(contents:subject)' "$REL_VER" 2>/dev/null | head -1)
-  bun "$COORD" emit RELEASE --scope suspenders --version "$REL_VER" \
-    --note "${REL_NOTE:-deployed}" --as installer >/dev/null 2>&1 || true
-fi
 }
 
 # ─── internal: install.ts's v1 delegation entry (W490.2). The body's flag
@@ -372,6 +285,12 @@ if [[ -n "$LEG_WIRE_REPO" ]]; then
   exec bun "$SCRIPT_DIR/scripts/install.ts" --step wireSettings --yes --wire-repo "$LEG_WIRE_REPO" ${NATIVE[@]+"${NATIVE[@]}"}
 fi
 
+# --wire (W771.3): the user-level wire is native — the TS step merges hooks
+# into ~/.claude/settings.json, then runs policy adapters + gate wires.
+if [[ $LEG_WIRE -eq 1 ]]; then
+  exec bun "$SCRIPT_DIR/scripts/install.ts" --step wireSettings --yes ${NATIVE[@]+"${NATIVE[@]}"}
+fi
+
 # --re-bless-activation (W640): owner-gated activation-receipt re-bless — the
 # W639 hand-run bun script as a supported verb. Requires BOTH the intent flag
 # and --confirm <manifest-sha-prefix> (>=12 hex of the NEW candidate sha; a
@@ -398,14 +317,13 @@ if [[ $LEG_DASHBOARDS -eq 1 ]]; then
 fi
 
 # dry-run + legacy flags: name the gap (the native plan shows native steps only)
-if [[ $LEG_DRY_RUN -eq 1 && $((LEG_WIRE + LEG_WITH_LAUNCHD + LEG_SKIP_MODELS + LEG_NO_LLM + LEG_SUPERVISOR)) -gt 0 ]]; then
+if [[ $LEG_DRY_RUN -eq 1 && $((LEG_WITH_LAUNCHD + LEG_SKIP_MODELS + LEG_NO_LLM + LEG_SUPERVISOR)) -gt 0 ]]; then
   echo "note: legacy flags gate the legacy blocks — the dry-run plan shows native steps only"
 fi
 
 # legacy-only flags ride env knobs into the delegated legacy body
 # (TODO(install.ts): no native flags yet — contract.bashFlags documents these)
 export SUSPENDERS_LEGACY_PRUNE="$LEG_PRUNE"
-export SUSPENDERS_LEGACY_WIRE="$LEG_WIRE"
 export SUSPENDERS_LEGACY_SKIP_MODELS="$LEG_SKIP_MODELS"
 export SUSPENDERS_LEGACY_NO_LLM="$LEG_NO_LLM"
 export SUSPENDERS_LEGACY_SUPERVISOR="$LEG_SUPERVISOR"

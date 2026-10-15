@@ -2,6 +2,7 @@
 // W490.1 installer CLI (scripts/install.ts). The contract
 // (scripts/install-contract.ts) is the frozen surface; this module owns the
 // CLI-side seams the drift tests check (meowFlags, step names).
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	type AgentNextStep,
@@ -18,6 +19,7 @@ export const meowFlags = {
 	json: { type: "boolean" },
 	yes: { type: "boolean" },
 	verbose: { type: "boolean" },
+	wire: { type: "boolean" },
 	step: { type: "string" },
 	wireRepo: { type: "string" },
 	gatewayReview: { type: "string" },
@@ -29,6 +31,7 @@ export interface ResolvedFlags {
 	json: boolean;
 	yes: boolean;
 	verbose: boolean;
+	wire: boolean;
 	step: string | null;
 	wireRepo: string | null;
 	gatewayReview?: string;
@@ -40,13 +43,15 @@ export function resolvePaths(): {
 	prefix: string;
 	shimBin: string;
 	llmHome: string;
+	home: string;
 } {
-	const home = process.env.HOME ?? "";
+	const home = process.env.HOME ?? homedir();
 	return {
 		repo: join(import.meta.dir, ".."),
 		prefix: process.env.SUSPENDERS_PREFIX ?? `${home}/.claude/hooks/suspenders`,
 		shimBin: process.env.SUSPENDERS_SHIM_BIN ?? `${home}/.local/bin`,
 		llmHome: `${home}/.claude/local-llm`,
+		home,
 	};
 }
 
@@ -65,6 +70,7 @@ export function parseFlags(
 	const bool = (key: string): boolean => raw[key] === true;
 	const step =
 		typeof raw.step === "string" && raw.step.trim() !== "" ? raw.step : null;
+	const wire = bool("wire");
 	const wireRepo =
 		typeof raw.wireRepo === "string" && raw.wireRepo.trim() !== ""
 			? raw.wireRepo
@@ -72,12 +78,14 @@ export function parseFlags(
 	const rawProfile = raw.profile;
 	const profile =
 		rawProfile === "spoke" || rawProfile === "hub" ? rawProfile : undefined;
+	const effectiveStep = wire && step === null ? "wireSettings" : step;
 	const flags: ResolvedFlags = {
 		dryRun: bool("dryRun"),
 		json: bool("json"),
-		yes: bool("yes"),
+		yes: bool("yes") || wire,
 		verbose: bool("verbose"),
-		step,
+		wire,
+		step: effectiveStep,
 		wireRepo,
 		profile: profile ?? "hub",
 		...(typeof raw.gatewayReview === "string"
@@ -111,7 +119,13 @@ export function parseFlags(
 			flags,
 		};
 	}
-	if (wireRepo !== null && step !== "wireSettings") {
+	if (wire && step !== null && step !== "wireSettings") {
+		return {
+			error: "--wire is only valid with --step wireSettings",
+			flags,
+		};
+	}
+	if (wireRepo !== null && effectiveStep !== "wireSettings") {
 		return {
 			error: "--wire-repo is only valid with --step wireSettings",
 			flags,
