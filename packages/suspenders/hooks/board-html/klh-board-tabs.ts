@@ -17,7 +17,10 @@ export const BOARD_TABS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 class KlhBoardTabs extends LitElement {
-	static properties = { current: { type: String, reflect: true } };
+	static properties = {
+		current: { type: String, reflect: true },
+		extraTabs: { type: Array, attribute: false },
+	};
 
 	static styles = css`
 		:host {
@@ -59,6 +62,13 @@ class KlhBoardTabs extends LitElement {
 			color: var(--klh-ink);
 			border-bottom-color: var(--klh-accent);
 		}
+		button.ent[aria-current] {
+			border-bottom-color: var(--klh-ent-accent, var(--klh-accent));
+			color: var(--klh-ink);
+		}
+		button.ent:hover {
+			color: var(--klh-ent-accent, var(--klh-accent));
+		}
 		@media (max-width: 700px) {
 			nav {
 				flex-wrap: wrap;
@@ -70,10 +80,14 @@ class KlhBoardTabs extends LitElement {
 	`;
 
 	declare current: string;
+	declare extraTabs: ReadonlyArray<readonly [string, string]>;
 
 	constructor() {
 		super();
 		this.current = "decisions";
+		// overlay tabs (W775.1) — appended after the core set, styled with
+		// the enterprise accent; empty = core SKU look, unchanged
+		this.extraTabs = [];
 	}
 
 	private select(id: string): void {
@@ -93,6 +107,19 @@ class KlhBoardTabs extends LitElement {
 					([id, label]) => html`
 						<button
 							type="button"
+							data-tab=${id}
+							aria-current=${this.current === id ? "true" : nothing}
+							@click=${() => this.select(id)}
+						>
+							${label}
+						</button>
+					`,
+				)}
+				${this.extraTabs.map(
+					([id, label]) => html`
+						<button
+							type="button"
+							class="ent"
 							data-tab=${id}
 							aria-current=${this.current === id ? "true" : nothing}
 							@click=${() => this.select(id)}

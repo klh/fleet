@@ -49,7 +49,10 @@ export function unusedPort(): number {
 	return port;
 }
 
-export async function startBoard(label: string): Promise<Board> {
+export async function startBoard(
+	label: string,
+	opts: { env?: NodeJS.ProcessEnv } = {},
+): Promise<Board> {
 	const HOME = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-repo-`));
 	mkdirSync(join(REPO, ".git"), { recursive: true });
@@ -63,6 +66,7 @@ export async function startBoard(label: string): Promise<Board> {
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
+		...opts.env,
 	};
 	const bin = join(import.meta.dir, "..", "hooks", "bin");
 	const BASE = `http://127.0.0.1:${String(PORT)}`;

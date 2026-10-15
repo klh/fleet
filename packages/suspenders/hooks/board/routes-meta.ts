@@ -35,6 +35,8 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/console/me avatar data: {ok, actor, tags, actors[], default_actor} — board host's latest session actor, "unassigned" until coord bootstrap --actor stamps one
 - GET /api/fleet-tree W530 fleet tree, hub-grouped like a directory tree, from the local belt registry + hubs.json candidates, bounded parallel leaf probes; ?refresh=1 bypasses the TTL (single-flight coalescing); snapshot = {roots, generated_at, stale}
 - GET /fleet-tree     the same tree as a GUI-disconnected demo page (native DOM only)
+- GET /api/entitlements  W775.1 enterprise posture: {ok, sku:"enterprise", tenant, panels[]} when the overlay provider is registered (KLH_OVERLAY_MODULE), else honest 501 {code:"board.no_enterprise_overlay"} — the board GUI gates the enterprise zone on this route
+- GET /api/enterprise   W775.1 enterprise panel slices (identity, federation, audit, usage, policy, vault, ma) when entitled, else honest 501
 - GET /llms.txt       this file
 
 ## Write endpoints (human at the board; origin/host guarded)

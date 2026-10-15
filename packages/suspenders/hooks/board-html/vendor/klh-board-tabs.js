@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["governor","Governor"],["setup","Setup"]];class n extends s{static properties={current:{type:String,reflect:!0}};static styles=r`
+import{r,e,t,s}from"./lit-9bpcreb0.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["governor","Governor"],["setup","Setup"]];class o extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
 		:host {
 			display: block;
 		}
@@ -38,6 +38,13 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var i=[["decisions","Decisions"],["tasks"
 			color: var(--klh-ink);
 			border-bottom-color: var(--klh-accent);
 		}
+		button.ent[aria-current] {
+			border-bottom-color: var(--klh-ent-accent, var(--klh-accent));
+			color: var(--klh-ink);
+		}
+		button.ent:hover {
+			color: var(--klh-ent-accent, var(--klh-accent));
+		}
 		@media (max-width: 700px) {
 			nav {
 				flex-wrap: wrap;
@@ -46,18 +53,29 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var i=[["decisions","Decisions"],["tasks"
 				padding: 7px 9px;
 			}
 		}
-	`;constructor(){super();this.current="decisions"}select(o){this.dispatchEvent(new CustomEvent("tab-select",{detail:o,bubbles:!0,composed:!0}))}render(){return e`
+	`;constructor(){super();this.current="decisions",this.extraTabs=[]}select(a){this.dispatchEvent(new CustomEvent("tab-select",{detail:a,bubbles:!0,composed:!0}))}render(){return e`
 			<nav aria-label="board sections">
-				${i.map(([o,a])=>e`
+				${i.map(([a,n])=>e`
 						<button
 							type="button"
-							data-tab=${o}
-							aria-current=${this.current===o?"true":t}
-							@click=${()=>this.select(o)}
+							data-tab=${a}
+							aria-current=${this.current===a?"true":t}
+							@click=${()=>this.select(a)}
 						>
-							${a}
+							${n}
+						</button>
+					`)}
+				${this.extraTabs.map(([a,n])=>e`
+						<button
+							type="button"
+							class="ent"
+							data-tab=${a}
+							aria-current=${this.current===a?"true":t}
+							@click=${()=>this.select(a)}
+						>
+							${n}
 						</button>
 					`)}
 				<a href="/usage">Usage</a>
 			</nav>
-		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",n);export{i as BOARD_TABS};
+		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",o);export{i as BOARD_TABS};

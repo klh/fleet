@@ -1,5 +1,5 @@
-import{o,r,e,s}from"./lit-sq0mv1by.js";import{n,l,c}from"./lit-jvtb1jmq.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${o(c)}
+import{i,r,e,s}from"./lit-9bpcreb0.js";import{o,l,c}from"./lit-ke1w0fw8.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${i(c)}
 		:host {
 			display: block;
 		}
@@ -124,7 +124,7 @@ import{o,r,e,s}from"./lit-sq0mv1by.js";import{n,l,c}from"./lit-jvtb1jmq.js";var 
 			font-size: 10.5px;
 			color: var(--klh-dim);
 		}
-	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",i=t.actors.slice();if(a&&!i.includes(a))i.unshift(a);return i.length?i:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",i=t.defaultActor??t.default_actor??"";return e`
+	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",n=t.actors.slice();if(a&&!n.includes(a))n.unshift(a);return n.length?n:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",n=t.defaultActor??t.default_actor??"";return e`
 			<div class="cavhead">
 				<span class="cavbig">${p(a)}</span>
 				<span>
@@ -134,7 +134,7 @@ import{o,r,e,s}from"./lit-sq0mv1by.js";import{n,l,c}from"./lit-jvtb1jmq.js";var 
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
 			<select aria-label="switch actor (demo preview)">
-				${this.actorOptions().map((d)=>e`<option value=${d} ?selected=${d===i}>
+				${this.actorOptions().map((d)=>e`<option value=${d} ?selected=${d===n}>
 							${d}
 						</option>`)}
 			</select>
@@ -153,7 +153,7 @@ import{o,r,e,s}from"./lit-sq0mv1by.js";import{n,l,c}from"./lit-jvtb1jmq.js";var 
 								<label>
 									<input
 										type="radio"
-										name=${n}
+										name=${o}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}
