@@ -10,16 +10,32 @@ import {
 	recordRecoveryResult,
 } from "../hooks/lib/dead-claim-recovery.ts";
 
-test("automatic watchdog cannot invoke bulk reclaim or publish unverified reclaim success", () => {
-	const source = readFileSync(
+test("automatic loop paths cannot bulk-reclaim outside the verified core", () => {
+	const loop = readFileSync(
 		new URL("../hooks/bin/fleet-loop.ts", import.meta.url),
 		"utf8",
 	);
-	const watchdog = source.slice(
-		source.indexOf("function stallWatch()"),
-		source.indexOf("// per-lane episode"),
+	// W740 moved stallWatch into lib/fleet-loop/ — the guard now covers the
+	// WHOLE loop shell: no literal bulk-reclaim spawn anywhere in fleet-loop.ts
+	expect(loop).not.toMatch(/"reclaim",\s*"all"/);
+	// the W376 per-cycle sweep may only release through the verified reclaim
+	// machinery — the shared core with the W339 verb (lib/reclaim-all.ts)
+	const sweep = readFileSync(
+		new URL("../hooks/lib/fleet-loop/reclaim-sweep.ts", import.meta.url),
+		"utf8",
 	);
-	expect(watchdog).not.toMatch(/"reclaim",\s*"all"/);
+	expect(sweep).toContain("reclaimAll(");
+	const core = readFileSync(
+		new URL("../hooks/lib/reclaim-all.ts", import.meta.url),
+		"utf8",
+	);
+	expect(core).toContain("observeReclaim");
+	expect(core).toContain("releaseWorkClaim");
+	// stall-watch recovery stays receipt-verified (the W339-chain intent)
+	const watchdog = readFileSync(
+		new URL("../hooks/lib/fleet-loop/stall-watch.ts", import.meta.url),
+		"utf8",
+	);
 	expect(watchdog).toContain('recovery === "released"');
 });
 
