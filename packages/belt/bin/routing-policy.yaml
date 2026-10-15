@@ -62,8 +62,11 @@ direct:
 # any role or lane name drops to the cheap lane with NO registry edit; the
 # explicit `roles:` map wins over the suffix. Reasoning effort is a
 # SEPARATE, model-independent axis: role row > class row > default (low..
-# xhigh), passed through buckle as reasoning_effort (z.ai honors it via
-# allowed_openai_params; MLX effort = the router budget policy).
+# xhigh), passed through buckle as reasoning_effort (W770: buckle forwards
+# it verbatim on translated hops and belt escalate pins it — Z.AI-verified
+# values only, low|high clamp, GLM-5.3 always thinks, medium/disable 400;
+# zai rows forward via allowed_openai_params; MLX effort = the router
+# budget policy).
 classes:
   frontier: [glm-5.3]
   standard: [glm-5.3-flash]
