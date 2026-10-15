@@ -173,6 +173,67 @@ export async function cmdKnowledgeCurate(_rest: string[]): Promise<void> {
 	);
 }
 
+export async function cmdKnowledgePropose(_rest: string[]): Promise<void> {
+	// W381 (from parked/W208) decay sweep: score every non-retired row
+	// (exponential half-life; candidates weighted down), upsert open retire
+	// proposals under the threshold. Never retires anything by itself — the
+	// human disposes.
+	const num = (f: string): number | undefined => {
+		const v = arg(f);
+		return v ? Number(v) : undefined;
+	};
+	const res = await makeStore().proposeDecay({
+		halfLifeDays: num("--half-life"),
+		threshold: num("--threshold"),
+		cooldownDays: num("--cooldown-days"),
+		by: arg("--as") ?? "decay-sweep",
+	});
+	for (const p of res.proposed)
+		console.log(
+			`${amber("⚠")} k#${p.knowledgeId} "${p.topic.slice(0, 48)}" — ${p.reason}`,
+		);
+	console.log(
+		`${green("✓")} propose: ${res.proposed.length} new, ${res.refreshed} refreshed, ${res.stale} stale-closed (checked ${res.checked})`,
+	);
+}
+
+// W381 (from parked/W208): the dispose queue — proposals by state (default open).
+export async function cmdKnowledgeProposals(rest: string[]): Promise<void> {
+	const state = rest[0] ?? "open";
+	const rows = await makeStore().listProposals(state);
+	if (!rows.length) {
+		console.log(dim(`(no ${state} proposals)`));
+		return;
+	}
+	for (const p of rows)
+		console.log(
+			`p#${p.id} k#${p.knowledgeId} "${p.topic.slice(0, 48)}" [${p.state} · score ${p.score.toFixed(3)} · age ${p.ageDays}d]${p.decidedBy ? ` — decided by ${p.decidedBy}` : ""}\n  ${p.reason}`,
+		);
+}
+
+// W381 (from parked/W208): the human decision. approve = the knowledge row
+// retires; dismiss = keep, and the sweep cools down (30d default) before
+// re-proposing.
+export async function cmdKnowledgeDispose(rest: string[]): Promise<void> {
+	const id = Number(rest[0]);
+	const decision = rest[1];
+	if (!id || (decision !== "approve" && decision !== "dismiss"))
+		die(
+			'usage: knowledge-dispose <proposalId> approve|dismiss [--as sid] [--note "why"] [--superseded-by <id>]',
+		);
+	const res = await makeStore().disposeProposal(id, decision, {
+		by: arg("--as") ?? "human",
+		note: arg("--note"),
+		supersededBy: arg("--superseded-by")
+			? Number(arg("--superseded-by"))
+			: null,
+	});
+	if (!res.ok) die(`no open proposal #${id} (or already disposed)`);
+	console.log(
+		`${green("✓")} proposal #${id} → ${decision === "approve" ? "approved" : "dismissed"}${res.retired ? ", knowledge row retired" : ""}`,
+	);
+}
+
 // W244 — parser-change reprocess checkpoint: default is a dry-run reporting
 // what WOULD requeue under the active prompt hash; --apply executes the
 // exactly-once requeue transaction (marks the archive, copies the sources,

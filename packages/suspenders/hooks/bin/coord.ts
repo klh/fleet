@@ -47,6 +47,9 @@ import {
 	cmdKnowledgeNote,
 	cmdKnowledgeVerify,
 	cmdKnowledgeCurate,
+	cmdKnowledgePropose,
+	cmdKnowledgeProposals,
+	cmdKnowledgeDispose,
 } from "../coord/knowledge.ts";
 import {
 	cmdBootstrap,
@@ -245,6 +248,25 @@ const VERBS: VerbSpec[] = [
 		name: "knowledge-curate",
 		lax: true,
 		run: (p) => cmdKnowledgeCurate(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-propose",
+		usage:
+			"usage: knowledge-propose [--half-life n] [--threshold n] [--cooldown-days n] [--as sid]",
+		flags: ["--half-life", "--threshold", "--cooldown-days", "--as"],
+		run: (p) => cmdKnowledgePropose(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-proposals",
+		usage: "usage: knowledge-proposals [state]",
+		run: (p) => cmdKnowledgeProposals(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-dispose",
+		usage:
+			'usage: knowledge-dispose <proposalId> approve|dismiss [--as sid] [--note "why"] [--superseded-by <id>]',
+		flags: ["--as", "--note", "--superseded-by"],
+		run: (p) => cmdKnowledgeDispose(p.rest),
 	}),
 	defineVerb({
 		name: "bootstrap",
