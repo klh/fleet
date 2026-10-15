@@ -101,7 +101,12 @@ function renderFleetLanes(el, lanes, zombies, needs){
     name.textContent = s.label || s.sid;
     chip.appendChild(name);
     var flagged = !!(needs && needs[s.sid] && needs[s.sid].length);
-    chip.appendChild(document.createTextNode(' · ' + stateLabel(s.state, flagged) + ' · heartbeat ' + (ago(s.hbAgo) || 'unknown')));
+    var claimed = s.state === 'RUNNING' || s.state === 'CLAIMED';
+    // W378 fleet honesty: a claimed state with a non-alive verdict reads
+    // 'stale'/'unverified', never 'working'.
+    var label = stateLabel(s.state, flagged);
+    if (!flagged && claimed && s.verdict && s.verdict !== 'alive') label = s.verdict === 'dead' ? 'stale' : 'unverified';
+    chip.appendChild(document.createTextNode(' · ' + label + ' · heartbeat ' + (ago(s.hbAgo) || 'unknown')));
     if (s.project) chip.appendChild(document.createTextNode(' · ' + s.project));
     if (s.model) {
       var badge = document.createElement('span');
@@ -175,7 +180,9 @@ function renderFleet(){
   var view = selectGovernorLanes(d.sessions || [], sel.value, hubScope());
   var ss = view.current;
   var working = 0;
-  for (var i = 0; i < ss.length; i++) if (ss[i].state === 'RUNNING') working++;
+  // W378 fleet honesty: only rows the shared verdict calls alive count as
+  // working — a stale RUNNING row never paints a running marker again.
+  for (var i = 0; i < ss.length; i++) if (ss[i].state === 'RUNNING' && ss[i].live === true) working++;
   var zombies = d.zombies || [];
   var zN = view.recent.filter(function(s){ return s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies); }).length;
   var blocked = 0;

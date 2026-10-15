@@ -31,7 +31,8 @@ import {
 import type { Database, Ev } from "./shared.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
 import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
-import { verdictBySid } from "../lib/lane-liveness.ts";
+import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
+import { hbFresh } from "../lib/reclaim-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
 import {
@@ -234,6 +235,13 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 	// positive death evidence flips the glyph to ×. Unknown keeps the state
 	// glyph (lookup failure is never death — monitor doctrine W51).
 	const verdicts = verdictBySid(lanes, loadLaneRegistry(process.cwd()));
+	// W378 fleet honesty: a claimant the registry can't join (manual takes,
+	// pruned rows) carries no process evidence — the W610 claimant probe
+	// vouches from the governor heartbeat alone, everything else reads
+	// unknown. An unevidenced claim never paints ▶ again (the W378 board
+	// lie: 30 running-markers, 1 real lane).
+	const verdictOf = (sid: string): LaneVerdict =>
+		verdicts.get(sid) ?? (hbFresh(db, sid) ? "alive" : "unknown");
 	const states = db
 		.query("SELECT key, value FROM facts WHERE key LIKE 'lane.%.state'")
 		.all() as { key: string; value: string }[];
@@ -279,29 +287,32 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 					name: sessionNames.get(l) ?? null,
 					intent: names.get(l) ?? null,
 					state: byKey.get(`lane.${l}.state`) ?? "RUNNING",
-					verdict: verdicts.get(l) ?? null,
-					live: verdicts.get(l) === "alive",
+					verdict: verdictOf(l),
+					live: verdictOf(l) === "alive",
 				})),
 			}),
 		);
 		return;
 	}
 	const parts = lanes.map((l) => {
-		const st = byKey.get(`lane.${l.sid}.state`);
-		// W652.1: confirmed death outranks the claim-state glyph; unknown
-		// never does (lookup failure is never death — monitor doctrine W51)
-		const dead = verdicts.get(l) === "dead";
-		const g = dead
+		const st = byKey.get(`lane.${l}.state`);
+		// W652.1: positive death flips ×. W378: unknown is its own glyph — an
+		// unevidenced claimant reads ? (never a running marker); only evidence
+		// (registry verdict or fresh heartbeat) paints ▶.
+		const v = verdictOf(l);
+		const g = v === "dead"
 			? red("×")
-			: st === "PAUSE_REQUESTED"
-				? amber("◐")
-				: st === "PAUSED"
-					? amber("⏸")
-					: st === "RESUME_READY"
-						? cyan("↻")
-						: st === "BLOCKED"
-							? red("⚠")
-							: green("▶");
+			: v === "unknown"
+				? dim("?")
+				: st === "PAUSE_REQUESTED"
+					? amber("◐")
+					: st === "PAUSED"
+						? amber("⏸")
+						: st === "RESUME_READY"
+							? cyan("↻")
+							: st === "BLOCKED"
+								? red("⚠")
+								: green("▶");
 		const nm = sessionNames.get(l);
 		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
 	});

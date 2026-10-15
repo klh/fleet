@@ -400,18 +400,26 @@ export interface SessionView {
 	executor: string | null;
 	model: string | null;
 	locality: string | null;
+	// W378 fleet honesty: the shared lane-liveness verdict (board/lanes.ts
+	// decisionVerdicts — registry-first `work lanes` truth with the sessions
+	// face as fallback) rides every row, so a stale RUNNING session can never
+	// paint as working. `live` is the collapsed boolean the UI counts.
+	verdict: "alive" | "dead" | "unknown";
+	live: boolean;
 }
 
 export function sessions(): SessionView[] {
 	const lm = labelMaps();
 	const laneModel = laneModelMaps();
-	return (
-		db
-			.query(
-				"SELECT sid, role, state, parent_sid, project, hb FROM sessions ORDER BY state, sid",
-			)
-			.all() as SessionRow[]
-	).map((s) => ({
+	const rows = db
+		.query(
+			"SELECT sid, role, state, parent_sid, project, hb FROM sessions ORDER BY state, sid",
+		)
+		.all() as SessionRow[];
+	const verdicts = decisionVerdicts(
+		rows.map((s) => ({ sid: s.sid, project: s.project })),
+	);
+	return rows.map((s) => ({
 		sid: s.sid,
 		label: labelFrom(lm, s.sid, s.role),
 		role: s.role,
@@ -424,6 +432,8 @@ export function sessions(): SessionView[] {
 			model: null,
 			locality: null,
 		}),
+		verdict: verdicts.get(s.sid) ?? "unknown",
+		live: verdicts.get(s.sid) === "alive",
 	}));
 }
 
