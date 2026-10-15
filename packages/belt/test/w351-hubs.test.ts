@@ -61,6 +61,9 @@ describe("readHubs", () => {
 describe("hubTargets", () => {
 	test("probe-only rows with parsed host/port + scheme for TLS", () => {
 		process.env.SUSPENDERS_HUBS_FILE = regFile(REGISTRY);
+		// W371: pin the stack away so no real deploy profile joins the rows —
+		// this test pins the PROBE-ONLY baseline shape.
+		process.env.KLH_STACK = join(dir, "absent-stack.yaml");
 		try {
 			expect(hubTargets()).toEqual([
 				{
@@ -83,6 +86,7 @@ describe("hubTargets", () => {
 			]);
 		} finally {
 			delete process.env.SUSPENDERS_HUBS_FILE;
+			delete process.env.KLH_STACK;
 		}
 	});
 

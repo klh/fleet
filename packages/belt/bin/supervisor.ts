@@ -94,6 +94,13 @@ export interface Target {
 	preflight?: () => string | null;
 	/** Non-secret config revision; changed revisions receive their own budget. */
 	generation?: string | (() => string);
+	/** W371 hub heal: restart action for a down remote hub (compose up over
+	 *  ssh or local docker). Presence routes the target into the hub loop.
+	 *  Null = clean run; string = bounded failure note. */
+	heal?: () => Promise<string | null>;
+	/** W371: true while the hub's quiet-hours window covers now (W483 — the
+	 *  hub is EXPECTED down there: no heal attempts, no circuit churn). */
+	quietHours?: () => boolean;
 }
 
 export interface ProbeResult {
@@ -221,6 +228,9 @@ const ALERT_EXTERNAL: State[] = ["down", "degraded"];
 export const isAlert = (kind: Kind, owned: boolean, state: State): boolean => {
 	if (owned) return ALERT_OWNED.includes(state);
 	if (kind === "external") return ALERT_EXTERNAL.includes(state);
+	// W371: hub rows alert ONLY when the heal circuit is open — probe-only
+	// rows never reach that state, and quiet-hours darkness is expected.
+	if (kind === "hub") return state === "unhealthy";
 	return false; // on-demand specialists are allowed to be idle
 };
 
@@ -498,7 +508,7 @@ export class Supervisor {
 			if (entry.stamps.length === 0) delete targets[key];
 		}
 		for (const t of this.targets) {
-			if (!t.owned) continue;
+			if (!t.owned && !t.heal) continue; // W371: heal budgets persist too
 			const r = this.rt.get(t.port) as Runtime;
 			const s = this.status.get(t.port) as TargetStatus;
 			targets[r.identity] = {
@@ -600,8 +610,110 @@ export class Supervisor {
 	}
 
 	private loop(t: Target): Promise<void> {
-		return t.owned && t.spawn ? this.loopOwned(t) : this.loopReport(t);
+		return t.owned && t.spawn
+			? this.loopOwned(t)
+			: t.heal
+				? this.loopHub(t)
+				: this.loopReport(t);
 	}
+
+	/** W371 hub-heal loop: probe-driven remote restart. Down for failThreshold
+	 *  probes → quiet-hours hold → breaker → backoff → heal (compose up) →
+	 *  poll for bind within bindTimeoutMs. No local child: re-probing is the
+	 *  only liveness. */
+	private async loopHub(t: Target): Promise<void> {
+		const r = this.rt.get(t.port) as Runtime;
+		const s = this.status.get(t.port) as TargetStatus;
+		while (!this.stopped) {
+			this.preflight(t);
+			const p = await this.probe(t);
+			const now = this.opts.now();
+			const quiet = t.quietHours?.() === true;
+			if (p.tcp) {
+				r.fails = 0;
+				r.upSince ??= now;
+				if (r.attempt > 0 && now - r.upSince >= this.opts.stableMs) {
+					r.attempt = 0;
+					this.persistBudget();
+				}
+				this.transition(t, p.http ? "up" : "degraded", {
+					lastError: null,
+					nextRetryAt: null,
+				});
+				await this.sleep(this.opts.intervalMs);
+				continue;
+			}
+			r.upSince = null;
+			r.fails++;
+			if (r.fails < this.opts.failThreshold || quiet) {
+				const why = quiet
+					? "expected down (quiet hours)"
+					: `no TCP on :${t.port} (${r.fails}/${this.opts.failThreshold})`;
+				this.transition(t, "down", { lastError: why, nextRetryAt: null });
+				await this.sleep(this.opts.intervalMs);
+				continue;
+			}
+			if (!r.breaker.allow(now)) {
+				this.transition(t, "unhealthy", {
+					lastError: `circuit open: ${this.opts.maxRestarts} heals within ${Math.round(this.opts.windowMs / 60_000)}min — not retrying`,
+				});
+				await this.sleep(this.opts.intervalMs);
+				continue;
+			}
+			const delay = jitteredBackoffMs(
+				r.attempt,
+				this.opts.backoffBaseMs,
+				this.opts.backoffCapMs,
+				this.opts.random(),
+			);
+			r.attempt++;
+			this.transition(t, "backoff", {
+				lastError: `heal armed: attempt ${r.attempt}`,
+				nextRetryAt: iso(now + delay),
+			});
+			await this.sleep(delay);
+			if (this.stopped) return;
+			const before = await this.probe(t);
+			if (before.tcp) continue;
+			r.breaker.record(this.opts.now());
+			s.restarts++;
+			this.persistBudget();
+			this.transition(t, "starting", {
+				lastError: "heal in flight",
+				nextRetryAt: null,
+			});
+			let healErr: string | null;
+			try {
+				healErr = await t.heal();
+			} catch (e) {
+				healErr = `heal threw: ${String(e)}`;
+			}
+			if (healErr) {
+				this.transition(t, "down", { lastError: `heal failed: ${healErr}` });
+				await this.sleep(this.opts.intervalMs);
+				continue;
+			}
+			const deadline = this.opts.now() + (t.bindTimeoutMs ?? 90_000);
+			let bound = false;
+			while (!this.stopped && this.opts.now() < deadline) {
+				if ((await this.opts.probe(t)).tcp) {
+					bound = true;
+					break;
+				}
+				await this.sleep(this.opts.bindPollMs);
+			}
+			if (bound) {
+				r.fails = 0;
+				r.upSince = this.opts.now();
+				this.transition(t, "up", { lastError: null, nextRetryAt: null });
+			} else {
+				this.transition(t, "down", {
+					lastError: `heal: no TCP on :${t.port} within ${Math.round((t.bindTimeoutMs ?? 90_000) / 1000)}s`,
+				});
+			}
+		}
+	}
+
 
 	private async loopReport(t: Target): Promise<void> {
 		while (!this.stopped) {

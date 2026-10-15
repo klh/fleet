@@ -1,15 +1,26 @@
-// hubs.ts — remote buckle hubs as supervised probe-only rows (W351).
+// hubs.ts — remote buckle hubs as supervised rows (W351 probe-only, W371
+// self-healing).
 //
 // ~/.claude/local-llm/hubs.json is the label → candidate-URLs registry
 // suspenders' resolveHub() walks (hooks/lib/hub-locate.ts). Belt reads the
 // SAME file (env SUSPENDERS_HUBS_FILE overrides, same key) and turns each
 // label into a supervisor Target so the dashboard's Supervisor section and
-// /llms.txt can surface the hubs visibly. Belt never spawns on another
-// host — hub rows are probe-only (owned: false): TCP connect + any HTTP
-// answer on the health path = up; port bound, no HTTP = degraded; no TCP
-// = down.
+// /llms.txt can surface the hubs visibly.
+//
+// W371: a hub whose stack.yaml profile declares deploy.dir is RESTARTABLE —
+// belt runs docker compose up on the hub when it is down (ssh-wrapped for a
+// remote deploy.ssh target, local /bin/sh for a local-docker hub). Labels
+// join case-insensitively (coord hubs precedent); a hub without a profile
+// stays probe-only. Belt still never spawns ON another host — the restart
+// is one compose-up command the hub executes.
 
 import { readFileSync } from "node:fs";
+import { composeUpArgv } from "../../suspenders/deploy/hub-remote.ts";
+import {
+	inQuietHours,
+	tryLoadStack,
+	type HubProfile,
+} from "../../suspenders/hooks/lib/stack-config.ts";
 import type { Target } from "./supervisor.ts";
 
 const HUBS_PATH = () =>
@@ -66,17 +77,83 @@ export function readHubs(file = HUBS_PATH()): HubRow[] {
 	return rows;
 }
 
-/** Supervisor targets for the registry — probe-only rows, never spawned. */
+/** W371: stack.yaml profiles that declare deploy.dir, keyed by lowercased
+ *  hub label — the restartable set. Missing/unparseable stack.yaml = no
+ *  restartable hubs (belt runs heal-less, same tolerance as coord hubs). */
+function healProfiles(): Map<string, HubProfile> {
+	const out = new Map<string, HubProfile>();
+	for (const [label, hub] of Object.entries(tryLoadStack()?.hubs ?? {})) {
+		if (hub.deploy?.dir) out.set(label.toLowerCase(), hub);
+	}
+	return out;
+}
+
+/** One whole-heal budget: compose up may pull images / start cold containers.
+ *  The supervisor polls the port for this long after a clean compose exit. */
+export const HUB_BIND_TIMEOUT_MS = 90_000;
+
+const HEAL_CMD_TIMEOUT_MS = 120_000;
+
+/** W371 heal closure: docker compose up on the hub. Null = clean run; a
+ *  string is a bounded failure note (last stderr/out lines). */
+export function hubHeal(profile: HubProfile): () => Promise<string | null> {
+	return async () => {
+		let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
+		try {
+			proc = Bun.spawn(composeUpArgv(profile), {
+				stdin: "ignore",
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+		} catch (e) {
+			return `heal spawn failure: ${String(e)}`;
+		}
+		const timer = setTimeout(() => {
+			try {
+				proc.kill();
+			} catch {}
+		}, HEAL_CMD_TIMEOUT_MS);
+		try {
+			const [out, err, code] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text(),
+				proc.exited,
+			]);
+			if (code === 0) return null;
+			const note = `${err}${out}`.trim();
+			const lines = note.split("\n").slice(-3).join(" | ");
+			return `compose up exit ${code}: ${lines.slice(0, 300)}`;
+		} finally {
+			clearTimeout(timer);
+		}
+	};
+}
+
+/** Supervisor targets for the registry. Probe-only by default; rows whose
+ *  stack.yaml profile declares deploy.dir carry a heal closure + quiet-hours
+ *  hold (W483: a hub is EXPECTED down in its window — no restart attempts,
+ *  no paging). */
 export function hubTargets(): Target[] {
-	return readHubs().map((h) => ({
-		name: h.label,
-		port: h.port,
-		kind: "hub" as const,
-		owned: false,
-		host: h.host,
-		...(h.tls ? { scheme: "https" as const } : {}),
-		healthPath: "/api/health",
-	}));
+	const profiles = healProfiles();
+	return readHubs().map((h) => {
+		const row: Target = {
+			name: h.label,
+			port: h.port,
+			kind: "hub",
+			owned: false,
+			host: h.host,
+			...(h.tls ? { scheme: "https" as const } : {}),
+			healthPath: "/api/health",
+		};
+		const profile = profiles.get(h.label.toLowerCase());
+		if (!profile) return row;
+		return {
+			...row,
+			heal: hubHeal(profile),
+			quietHours: () => inQuietHours(profile),
+			bindTimeoutMs: HUB_BIND_TIMEOUT_MS,
+		};
+	});
 }
 
 /** One llms.txt row per hub: `- LABEL base — state`. */
