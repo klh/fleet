@@ -18,6 +18,7 @@ import {
 	type AgentRecipe,
 	type DetectedAgent,
 } from "../src/agents.ts";
+import { loadExecutors } from "../src/stack-config.ts";
 import {
 	appendFileSync,
 	copyFileSync,
@@ -43,7 +44,11 @@ const DRY = has("dry-run");
 const VERIFY = has("verify");
 const ALL = has("all");
 const FORCE = has("force");
-const BASE_URL = (arg("base-url") ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+// W230: the ONE stack config is the base layer; --base-url is the CLI
+// override — flag wins, the file is skipped entirely.
+const FLAG_BASE = arg("base-url");
+const EXEC = FLAG_BASE ? {} : loadExecutors();
+const BASE_URL = (FLAG_BASE ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
 const RC_PATH = join(homedir(), ".zshrc");
 const RC_MARKER_PREFIX = "# >>> buckle reroute";
 const PROBE_TIMEOUT_MS = 10_000;
@@ -404,7 +409,7 @@ const usage = (): void => {
   --dry-run       print the plan for ALL recipes, write nothing
   --verify        run each recipe's local probe (never a paid endpoint)
   --all           skip the picker (select every recipe)
-  --base-url URL  gateway base (default ${DEFAULT_BASE_URL})
+  --base-url URL  gateway base (override; default from stack.yaml executors, else ${DEFAULT_BASE_URL})
   --force         allow appending into a non-empty config (.bak made first)
 
   picker keys: number toggle · a all · e all + everywhere (env → ~/.zshrc)
@@ -432,7 +437,7 @@ const main = async (): Promise<number> => {
 		return 1;
 	}
 
-	const recipes = agentRecipes(BASE_URL);
+	const recipes = agentRecipes(BASE_URL, EXEC);
 
 	if (VERIFY) {
 		const rows = detectAgents(recipes);

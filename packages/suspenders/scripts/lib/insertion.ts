@@ -3,7 +3,10 @@
 // code. Unknown executors fall back to the base-URL union — whatever var
 // the executor honors, it lands on the stack. Config over code:
 // KLH_ENGINE_BASE / KLH_DEFAULT_MODEL override the constants; pre-set env
-// always wins (the applicator only fills unset vars).
+// always wins (the applicator only fills unset vars). W230: the executors
+// rows of the ONE stack config (~/.config/klh/stack.yaml) are the base
+// layer the constants fall back to; env stays the override layer.
+import type { StackConfig } from "../../hooks/lib/stack-config.ts";
 
 export interface InsertionCtx {
 	anthropicBase: string;
@@ -48,13 +51,23 @@ export const INSERTION_RECIPES: Record<string, InsertionVars> = {
 export const insertionCtx = (
 	env: Record<string, string>,
 	model: string | null = null,
-): InsertionCtx => ({
-	anthropicBase: env.ANTHROPIC_BASE_URL ?? "http://127.0.0.1:4000",
-	openaiBase: process.env.KLH_ENGINE_BASE ?? "http://127.0.0.1:4100/v1",
-	model,
-	defaultModel:
-		process.env.KLH_DEFAULT_MODEL ?? "mlx-community/Qwen3.5-35B-A3B-4bit",
-});
+	executorId?: string,
+	stack: StackConfig | null = null,
+): InsertionCtx => {
+	// the default row is the base layer; the id row's fields win over it
+	const ex = stack?.executors;
+	const row = executorId
+		? { ...ex?.default, ...ex?.[executorId] }
+		: ex?.default;
+	return {
+		anthropicBase: env.ANTHROPIC_BASE_URL ?? row?.anthropic_base ?? "http://127.0.0.1:4000",
+		openaiBase:
+			process.env.KLH_ENGINE_BASE ?? row?.openai_base ?? "http://127.0.0.1:4100/v1",
+		model,
+		defaultModel:
+			process.env.KLH_DEFAULT_MODEL ?? row?.model ?? "mlx-community/Qwen3.5-35B-A3B-4bit",
+	};
+};
 
 // Apply the recipe for `id` onto env in place.
 export const applyInsertion = (

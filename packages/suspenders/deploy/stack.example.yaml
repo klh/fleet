@@ -84,3 +84,43 @@ admin:
 # registry → mDNS <label>.local); this stack.yaml holds the values behind
 # those labels. Keep the two consistent — hubs.json is the lookup,
 # stack.yaml the truth.
+
+# ── providers (W230) ──────────────────────────────────────────────────────
+# The user-facing declaration of where upstream API keys live. Values NEVER
+# land in committed files — this template carries placeholders only; real
+# values live in the machine file (~/.config/klh/stack.yaml, mode 600) or
+# the 0600 secret files it names. Resolve order: key → env → key_file.
+providers:
+  openai:
+    env: OPENAI_API_KEY # env var NAME (resolve-time check)
+  anthropic:
+    key_file: ~/.claude/local-llm/belt.env # 0600 dotenv-style file
+    key_name: ANTHROPIC_API_KEY # var to read (default: <PROVIDER>_API_KEY)
+  example-inline:
+    key: REPLACE_ME # inline — machine file only, never commit real values
+
+# ── executors section ─────────────────────────────────────────────────────
+# Per-executor gateway base + model pin. Consumed by the insertion engine
+# (suspenders lib/insertion.ts, buckle onboard + lane-wrap); env (and CLI
+# flags) stay the override layer. `default` = fallback row for any id
+# without its own.
+executors:
+  default:
+    anthropic_base: http://127.0.0.1:4000 # anthropic dialect root
+    openai_base: http://127.0.0.1:4100/v1 # openai dialect base incl. /v1
+    model: REPLACE_ME_MODEL # pin routed by id behind belt
+  claude:
+    anthropic_base: http://127.0.0.1:4000
+    model: REPLACE_ME_MODEL
+
+# ── policies (W230) ───────────────────────────────────────────────────────
+# Per-repo routing policy — the machine-level home for what a repo's
+# .prefer dotfile expresses (dotfiles still win). `hub` only feeds dispatch
+# when the repo dotfile carries no hub= line; must/prefer are W96 law
+# expressions (belt router vocabulary); residency lists allowed regions
+# (buckle gov vocabulary).
+policies:
+  fleet:
+    hub: nas # dispatch fallback hub for this repo
+  "*":
+    prefer: local # fleet-wide default soft law

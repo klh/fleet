@@ -207,7 +207,7 @@ describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () => {
 		expect(out).toContain("dispatched ");
 		// surfaced, never silent — the NOTE names the label and the fallback
 		expect(out).toContain(
-			"NOTE — .prefer hub=GHOST unreachable; using local belt",
+			"NOTE — hub=GHOST unreachable; using local belt",
 		);
 		// the dead-front probe ride is disclosed (--allow-ungoverned path)
 		expect(out).toContain("UNGOVERNED DISPATCH — operator override");

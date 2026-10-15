@@ -85,7 +85,11 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
-import { darkHubNow } from "../hooks/lib/stack-config.ts";
+import {
+	darkHubNow,
+	policyForRepo,
+	tryLoadStack,
+} from "../hooks/lib/stack-config.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
@@ -756,11 +760,14 @@ const dispatchItem = async (
 		// W483: a hub inside its stack.yaml quiet-hours window is EXPECTED to
 		// vanish — place the lane on local belt instead of a host that powers
 		// off mid-flight (surfaced, never silent).
-		const hubDark = pick.hub ? darkHubNow(pick.hub) : false;
+		// W230: stack.yaml policies.<repo>.hub feeds the pick when the repo's
+		// own .prefer carries no hub= line (dotfiles-win: the dotfile wins).
+		const hubPick = pick.hub ?? (policyForRepo(CALLER_REPO)?.hub ?? null);
+		const hubDark = hubPick ? darkHubNow(hubPick) : false;
 		if (hubDark) {
-			hubNote = ` — NOTE hub=${pick.hub} in quiet hours, using local belt`;
+			hubNote = ` — NOTE hub=${hubPick} in quiet hours, using local belt`;
 			console.log(
-				`NOTE — .prefer hub=${pick.hub} in quiet hours; using local belt`,
+				`NOTE — hub=${hubPick} in quiet hours; using local belt`,
 			);
 		}
 		let resolvedHub: string | undefined;
@@ -770,9 +777,14 @@ const dispatchItem = async (
 			// always pin a model — an unpinned lane inherits the owner's global
 			// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
 			// client-side unrecognized_model before its first wire call
-			const ctx = insertionCtx(env, pick.model ?? "glm-5.3-flash");
-			if (pick.hub && !hubDark) {
-				const hub = await resolveHub(pick.hub, pick.hubUrls);
+			const ctx = insertionCtx(
+				env,
+				pick.model ?? "glm-5.3-flash",
+				pick.bin,
+				tryLoadStack(),
+			);
+			if (hubPick && !hubDark) {
+				const hub = await resolveHub(hubPick, pick.hubUrls);
 				if (hub) {
 					ctx.anthropicBase = hub.url;
 					ctx.openaiBase = `${hub.url}/v1`;
@@ -782,9 +794,9 @@ const dispatchItem = async (
 					resolvedHub = hub.label;
 					resolvedHubUrl = hub.url;
 				} else {
-					hubNote = ` — NOTE hub=${pick.hub} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
+					hubNote = ` — NOTE hub=${hubPick} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
 					console.log(
-						`NOTE — .prefer hub=${pick.hub} unreachable; using local belt`,
+						`NOTE — hub=${hubPick} unreachable; using local belt`,
 					);
 				}
 			}
@@ -810,7 +822,7 @@ const dispatchItem = async (
 				// W463 disclosure machinery, hub-worded.
 				const hub = await attributeHubLane({
 					sid,
-					hubLabel: pick.hub ?? resolvedHub,
+					hubLabel: hubPick ?? resolvedHub,
 					hubUrl: resolvedHubUrl ?? resolvedHub,
 					allowUngoverned: ALLOW_UNGOVERNED,
 					env,
