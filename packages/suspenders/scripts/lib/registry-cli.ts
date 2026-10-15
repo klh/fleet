@@ -5,9 +5,9 @@
 // lane". Deletion is liveness-guarded end to end: an entry leaves ONLY on a
 // prune warrant (W636.1) — the shared tri-state verdict "dead" (anchored
 // process identity false AND claimant transcript stale — the same verdict
-// the dispatch refusal check and `work lanes` trust), or the age-based trust
-// below — re-verified under the registry lock. Live and young-unknown reads
-// are REFUSALS, never silent skips.
+// the dispatch refusal check and `work lanes` trust), or the age/pid-dead
+// trust below — re-verified under the registry lock. Live and young-unknown
+// reads are REFUSALS, never silent skips.
 import {
 	defineVerb,
 	parseVerb,
@@ -17,7 +17,11 @@ import {
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
 import { pruneLaneRegistry } from "../../hooks/lib/lane-registry.ts";
-import { laneVerdict, type LaneRef } from "../../hooks/lib/lane-liveness.ts";
+import {
+	laneVerdict,
+	pidAlive,
+	type LaneRef,
+} from "../../hooks/lib/lane-liveness.ts";
 import { loadLanes, type Lane } from "./lane.ts";
 
 // W651: the verb registry owns the surface — help is generated, parsing rides
@@ -65,22 +69,37 @@ export type PrunePlan = Map<
  * the entry. Live and young-unknown entries keep full protection. */
 export const UNKNOWN_PRUNE_AGE_MS = 24 * 60 * 60 * 1000;
 
+/** W777 reclaim-lease floor for the pid-dead warrant: verdict "unknown"
+ * already proves the claimant transcript cold past this lease; the probed
+ * dead pid closes the escape hatch the age trust reserved for recorded pids. */
+export const RECLAIM_LEASE_MS = 15 * 60_000;
+
 /** Why a row may leave the registry: "dead" = shared verdict dead;
- * "age-trusted" = unknown + pid-less + >24h. Null = protected. */
-export type PruneWarrant = "dead" | "age-trusted";
+ * "age-trusted" = W636.1: unknown + pid-less + >24h; "pid-dead" = W777:
+ * unknown + recorded pid probed dead (kill -0 → ESRCH) + past the reclaim
+ * lease. The unknown verdict already proves the transcript cold; the probed
+ * dead pid proves the recorded process is gone — the last escape hatch rows
+ * whose host stamp drifted (hostname rename reads foreign-host, so the
+ * process term never consults the pid) needed to wedge dispatch forever.
+ * Null = protected. */
+export type PruneWarrant = "dead" | "age-trusted" | "pid-dead";
 export const pruneWarrant = (
 	row: Lane,
 	v: "alive" | "dead" | "unknown",
 	now: number,
+	/** W777: injected kill -0 probe result for row.pid — undefined = unprobed. */
+	pidLive?: boolean,
 ): PruneWarrant | null => {
 	if (v === "dead") return "dead";
-	if (
-		v === "unknown" &&
-		!row.pid &&
-		now - (row.launchedAt ?? 0) >= UNKNOWN_PRUNE_AGE_MS
-	)
-		return "age-trusted";
-	return null;
+	if (v !== "unknown") return null;
+	if (!row.pid)
+		return now - (row.launchedAt ?? 0) >= UNKNOWN_PRUNE_AGE_MS
+			? "age-trusted"
+			: null;
+	// unknown + recorded pid: prune only on probed death past the lease.
+	return pidLive === false && now - (row.launchedAt ?? 0) >= RECLAIM_LEASE_MS
+		? "pid-dead"
+		: null;
 };
 
 /** Pure prune classification — verdictOf injects the shared liveness surface
@@ -91,6 +110,7 @@ export const classifyPrune = (
 	sids: string[],
 	verdictOf: (l: LaneRef) => "alive" | "dead" | "unknown",
 	now: number = Date.now(),
+	pidAliveOf: (pid: number | undefined) => boolean | undefined = pidAlive,
 ): PrunePlan => {
 	const plan: PrunePlan = new Map();
 	const bySid = new Map(rows.map((r) => [r.sid, r]));
@@ -101,7 +121,7 @@ export const classifyPrune = (
 			continue;
 		}
 		const v = verdictOf(row);
-		const warrant = pruneWarrant(row, v, now);
+		const warrant = pruneWarrant(row, v, now, pidAliveOf(row.pid));
 		if (warrant) {
 			plan.set(sid, { row, warrant, class: "prunable" });
 			continue;
@@ -128,7 +148,7 @@ const listVerb = (parsed: Parsed, fleet: string): number => {
 					return {
 						...r,
 						verdict,
-						prunable: pruneWarrant(r, verdict, now) !== null,
+						prunable: pruneWarrant(r, verdict, now, pidAlive(r.pid)) !== null,
 					};
 				}),
 				null,
@@ -163,7 +183,9 @@ const printPruneVerdict = (
 		console.log(
 			c.warrant === "age-trusted"
 				? `PRUNED ${sid} — age-trusted unknown: no pid ever recorded, >24h (item ${c.row?.item})`
-				: `PRUNED ${sid} — dead lane entry (item ${c.row?.item})`,
+				: c.warrant === "pid-dead"
+					? `PRUNED ${sid} — recorded pid probed dead, past reclaim lease (item ${c.row?.item})`
+					: `PRUNED ${sid} — dead lane entry (item ${c.row?.item})`,
 		);
 	else if (c.class === "refused-live")
 		console.log(`RETAINED ${sid} — live lane (probe confirmed); entry stays`);
@@ -211,7 +233,8 @@ const pruneVerb = (parsed: Parsed, fleet: string): number => {
 	const result = pruneLaneRegistry(
 		fleet,
 		requested,
-		(row) => pruneWarrant(row, laneVerdict(row), now) !== null,
+		(row) =>
+			pruneWarrant(row, laneVerdict(row), now, pidAlive(row.pid)) !== null,
 	);
 	const removed = new Set(result.removed.map((r) => r.sid));
 	for (const sid of requested)
@@ -230,13 +253,15 @@ const pruneVerb = (parsed: Parsed, fleet: string): number => {
 };
 
 // generated help: about + registry verbs + the W636.1 warrant prose
-const EPILOG = `An entry is prunable on a prune warrant (W636.1): the shared liveness
+const EPILOG = `An entry is prunable on a warrant (W636.1 + W777): the shared liveness
 verdict "dead" — recorded pid gone (or never recorded) with anchored
 harness args absent AND the claimant transcript stale past the 15-min
 reclaim lease — OR age-based trust: verdict "unknown" AND no pid ever
-recorded (pid=0/absent) AND the entry launched >24h ago. Live entries and
-young-unknown entries RETAIN — age trust never overrides a live verdict or
-a recorded pid.
+recorded (pid=0/absent) AND the entry launched >24h ago — OR W777
+pid-dead trust: verdict "unknown" WITH a recorded pid probed dead (kill -0
+→ ESRCH) AND the entry launched past the 15-min reclaim lease. Live
+entries, young-unknown entries, and rows whose pid probes ALIVE retain —
+a recycled pid reads alive and keeps full protection.
 Exit codes: 0 pruned/clean, 1 refused (live/young-unknown retained), 2 usage.`;
 
 const HELP = renderRegistryHelp(
