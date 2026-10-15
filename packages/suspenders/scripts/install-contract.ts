@@ -308,7 +308,7 @@ export const INSTALL_CONTRACT = {
 				"refresh the existing kit serve or advanced Belt supervisor code with backup and import validation; preserve machine config",
 			mutates: true,
 			optIn: true,
-			v1: "stub",
+			v1: "real",
 		},
 		{
 			name: "ensureShims",
@@ -323,7 +323,7 @@ export const INSTALL_CONTRACT = {
 				"seed the local-llm baseline into the runtime home — kit files and config stubs only when absent, never clobber",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "downloadModels",
@@ -331,7 +331,7 @@ export const INSTALL_CONTRACT = {
 				"download the BELT_TIER=minimal resident models via mlx-lm, resumable",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "wireSettings",
@@ -421,12 +421,14 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			flag: "--skip-models",
-			meaning: "skip model download (offline installs)",
+			meaning:
+				"skip model download (offline installs) — rides SUSPENDERS_LEGACY_SKIP_MODELS into the native step until the front-flip",
 			mappedStep: "downloadModels",
 		},
 		{
 			flag: "--no-llm",
-			meaning: "skip the local-llm baseline entirely (CI/containers)",
+			meaning:
+				"skip the local-llm baseline entirely (CI/containers) — rides SUSPENDERS_LEGACY_NO_LLM into the native seed step until the front-flip",
 			mappedStep: "seedLocalLlm",
 		},
 		{
@@ -464,7 +466,7 @@ export const INSTALL_CONTRACT = {
 	v1Delegation: {
 		command: "bash <repo>/install.sh __legacy full",
 		when: "a full run (no --step) with --yes",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (harness copy, shims, llm seed, models, caddy, release) that have no native step yet",
+		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (harness copy, shims, caddy, release) that have no native step yet; seedLocalLlm, downloadModels and refreshSupervisor are native since W771.2",
 	},
 } as const satisfies InstallContract;
 
