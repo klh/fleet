@@ -48,6 +48,7 @@ import {
 	setReclaimHold,
 } from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { retryFailedItem } from "../lib/work-retry.ts";
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
@@ -170,6 +171,13 @@ const VERBS: VerbSpec[] = [
 		usage:
 			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid]',
 		flags: [...ITEM_FLAGS],
+	}),
+	defineVerb({
+		name: "retry",
+		usage:
+			"usage: retry <id> — FAILED → READY, stale claim released, launch budget reset (W761)",
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
 	}),
 	defineVerb({
 		name: "cancel",
@@ -1057,6 +1065,14 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			emit("work.failed", id, { note });
 		})();
 		console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
+	} else if (name === "retry") {
+		const id = pos[0];
+		const r = retryFailedItem(db(), PROJECT, id ?? "");
+		if (!r.ok) die(r.error ?? "retry refused");
+		emit("work.retried", id, { note: flag("--note") ?? "" });
+		console.log(
+			`${green("✓")} ${id} READY — stale claim released, launch budget reset`,
+		);
 	} else if (name === "cancel") {
 		// W182 — CANCELLED terminal state: close completely with a required
 		// reason; claim + worktree released safely. Deliberately NOT in rollUp's
