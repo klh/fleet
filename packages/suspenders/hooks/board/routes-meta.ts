@@ -18,7 +18,7 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /               this board (HTML; polls /api/* every second)
 - GET /api/data       full control-plane state: sessions, projects, claims, events, zombies, consults, llm usage; ?session=<sid> adds lane focus (inbox, lane facts)
 - GET /api/decisions  decision forks; default OPEN only, ?history=1 adds resolved rows
-- GET /api/tasks      every work item, newest activity first (?project=<path> or all)
+- GET /api/tasks      every work item, newest activity first (?project=<path> or all; <path> = the repo's git-common-dir — the work graph identity, e.g. /repo/.git — the bare repo root 404s)
 - GET /api/task       one work item + its bus events + its decisions (?project=<path>&id=<id>)
 - GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300; ?before=<id> keyset-drains older pages — a partial page means the end)
 - GET /api/events     W451 bounded event deltas — the WS cursor contract over HTTP: ?since=<id>&limit=<n> (strict id > since, ascending, cap 300); response {events[], cursor} — cursor = last shown id, drain with ?since=<cursor>
