@@ -9,7 +9,7 @@
  * Version of this contract document. Bump on any rename/removal of a
  * documented field; additive fields keep the version.
  */
-export const INSTALL_CONTRACT_VERSION = 1;
+export const INSTALL_CONTRACT_VERSION = 2;
 
 /** --step names are frozen — agents script against them. */
 export type StepName =
@@ -24,11 +24,12 @@ export type StepName =
 	| "upgradeGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
+	| "registerSkills"
 	| "releaseNotify"
 	| "refreshDashboards"
 	| "deployHub";
 
-export type StepV1 = "real" | "delegated" | "stub";
+export type StepV1 = "real" | "stub";
 
 export interface ContractStep {
 	/** frozen --step token */
@@ -40,9 +41,8 @@ export interface ContractStep {
 	/** optIn steps sit outside the default plan, reachable only via --step */
 	optIn: boolean;
 	/**
-	 * v1 execution class: "real" = implemented here; "delegated" = covered by
-	 * the single bash install.sh delegation on a consented full run; "stub" =
-	 * not executable alone (pauses with the bash resume_command).
+	 * v1 execution class: "real" = implemented natively; "stub" = not
+	 * executable alone (pauses with the resume_command).
 	 */
 	v1: StepV1;
 }
@@ -59,14 +59,6 @@ export interface ContractEnv {
 	meaning: string;
 	/** default applied when unset (a PATH or a static, non-secret default) */
 	default: string;
-}
-
-export interface ContractBashFlag {
-	/** literal install.sh token — the working escape hatch until W488.1/W490.2 */
-	flag: string;
-	meaning: string;
-	/** step of this installer that will absorb it */
-	mappedStep: StepName;
 }
 
 export interface InstallContract {
@@ -105,6 +97,7 @@ export interface InstallContract {
 		json: ContractFlag;
 		yes: ContractFlag;
 		verbose: ContractFlag;
+		wire: ContractFlag;
 		step: ContractFlag;
 		wireRepo: ContractFlag;
 		profile: ContractFlag;
@@ -122,8 +115,6 @@ export interface InstallContract {
 	};
 	/** every install step, in plan order */
 	steps: ContractStep[];
-	/** install.sh flags the .ts installer does not re-expose yet */
-	bashFlags: ContractBashFlag[];
 	/**
 	 * Hypermedia returned on every JSON outcome. Rules: field names are frozen
 	 * (action/command/note); each command is SINGLE-USE — run it once per
@@ -145,12 +136,6 @@ export interface InstallContract {
 		insightsDir: string;
 		launchAgentsDir: string;
 	};
-	/** the v1 delegation that keeps this installer useful before W488.1/W490.2 */
-	v1Delegation: {
-		command: string;
-		when: string;
-		note: string;
-	};
 }
 
 export const INSTALL_CONTRACT = {
@@ -169,7 +154,7 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "wire hooks into ~/.claude/settings.json?",
 				unattended:
-					"repo wiring is native: --step wireSettings --wire-repo <path>; the user-level wire rides the bash --wire resume_command",
+					"native: --wire (or --step wireSettings --yes) merges user-level settings; --wire-repo <path> wires a repo's project settings",
 			},
 			{
 				prompt: "install the macOS launchd agents?",
@@ -179,12 +164,12 @@ export const INSTALL_CONTRACT = {
 			{
 				prompt: "download resident local-llm models?",
 				unattended:
-					"default plan delegates (models download); the bash --skip-models flag skips (see bashFlags)",
+					"native: the default plan downloads them; --skip-models skips (offline), --no-llm skips the whole baseline",
 			},
 			{
 				prompt: "restart Claude Code so hooks register?",
 				unattended:
-					"surfaced as agent_next_steps after a delegated run — an agent reports it, a human does it",
+					"surfaced as agent_next_steps after a consented run — an agent reports it, a human does it",
 			},
 		],
 	},
@@ -197,7 +182,7 @@ export const INSTALL_CONTRACT = {
 	},
 	exitCodes: {
 		"0": "ok — plan, step, pause (need_user_action) or contract emitted cleanly",
-		"1": "runtime failure — a step or the delegated installer failed",
+		"1": "runtime failure — a step failed",
 		"2": "usage error — unknown flag, unknown --step name, or unexpected positional",
 	},
 	flags: {
@@ -214,11 +199,16 @@ export const INSTALL_CONTRACT = {
 		yes: {
 			flag: "--yes",
 			meaning:
-				"unattended consent — mutating steps run (native steps execute directly; the remaining bash-owned blocks ride the v1 delegation); without it mutating steps pause with a resume_command",
+				"unattended consent — mutating steps run natively; without it mutating steps pause with a resume_command",
 		},
 		verbose: {
 			flag: "--verbose",
 			meaning: "include per-step detail and resolved paths in the outcome",
+		},
+		wire: {
+			flag: "--wire",
+			meaning:
+				"user-level wire — merge the hooks block into ~/.claude/settings.json (policy adapters + gate wires ride along); consented on its own, implies --step wireSettings",
 		},
 		gatewayReview: {
 			flag: "--gateway-review",
@@ -233,12 +223,51 @@ export const INSTALL_CONTRACT = {
 		wireRepo: {
 			flag: "--wire-repo",
 			meaning:
-				"with --step wireSettings: wire THIS repo checkout's project settings instead of pausing on the bash user-level wire",
+				"with --step wireSettings: wire THIS repo checkout's project settings instead of the user-level wire",
 		},
 		profile: {
 			flag: "--profile",
 			meaning:
 				"W165 capability split: hub (default) = full (identity, issuance, admin); spoke ships no auth-issuance/identity/key-custody code — hub-only modules are excluded from the payload and capabilities.json records the flags",
+		},
+		prune: {
+			flag: "--prune",
+			meaning:
+				"mirror-mode harness sync (W420) — syncHarness drops unmanaged prefix entries outside the generated-files allowlist instead of preserving them",
+		},
+		skipModels: {
+			flag: "--skip-models",
+			meaning: "skip the model download step (offline installs)",
+		},
+		noLlm: {
+			flag: "--no-llm",
+			meaning:
+				"skip the local-llm baseline entirely (seed + download; CI/containers)",
+		},
+		hub: {
+			flag: "--hub",
+			meaning:
+				"hub deploy from ~/.config/klh/stack.yaml (hubctl mint → push → up → status); --dry-run renders the hub .env only",
+		},
+		refreshGateway: {
+			flag: "--refresh-gateway",
+			meaning:
+				"targeted minimal-swarm gateway supervision and model limits refresh (early exit); --dry-run plans it",
+		},
+		withLaunchd: {
+			flag: "--with-launchd",
+			meaning:
+				"run the full plan, then registerLaunchd — launchd runs only when the plan outcome is not failed",
+		},
+		reBlessActivation: {
+			flag: "--re-bless-activation",
+			meaning:
+				"owner-gated activation-receipt re-bless (W640) — early exit to rebless-activation.ts; confirm-less runs dry-render",
+		},
+		confirm: {
+			flag: "--confirm",
+			meaning:
+				"with --re-bless-activation: >=12 hex of the NEW candidate manifest sha — without it nothing is written",
 		},
 	},
 	env: {
@@ -337,7 +366,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "wireSettings",
 			oneLiner:
-				"merge the hooks block into a repo's project settings via --wire-repo <path> (per-event merge, never clobber); the user-level wire rides the bash --wire resume",
+				"merge the hooks block into ~/.claude/settings.json (--wire, policy adapters + gate wires ride along) or a repo's project settings (--wire-repo <path>) — per-event merge, never clobber",
 			mutates: true,
 			optIn: true,
 			v1: "real",
@@ -361,18 +390,26 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "registerCaddy",
 			oneLiner:
-				"optionally register the board with klh-local/Caddy for suspenders.local — non-fatal",
+				"optionally register the board with klh-local/Caddy for suspenders.local — W631 posture guard, W549 truthful degraded outcome, never aborts the plan",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
+		},
+		{
+			name: "registerSkills",
+			oneLiner:
+				"register every skills/ package with the skills CLI (bunx skills add -g -y -a claude-code) — best-effort, failure names the manual command",
+			mutates: true,
+			optIn: false,
+			v1: "real",
 		},
 		{
 			name: "releaseNotify",
 			oneLiner:
-				"emit the RELEASE event on the coord bus — the distributed changelog, non-fatal",
+				"emit the RELEASE event on the coord bus — the distributed changelog; fresh machines skip, emit failure is a truthful failed row",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "refreshDashboards",
@@ -385,66 +422,13 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "deployHub",
 			oneLiner:
-				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (bash flag --hub <name>)",
+				"deploy one hub from the machine stack.yaml — mint secrets, push compose+env, docker compose up, probe-gated status (early exit --hub <name>)",
 			mutates: true,
 			optIn: true,
 			v1: "stub",
 		},
 	],
-	bashFlags: [
-		{
-			flag: "--refresh-gateway",
-			meaning:
-				"targeted minimal-swarm gateway supervision and model limits upgrade (early exit)",
-			mappedStep: "seedLocalLlm",
-		},
-		{
-			flag: "--wire",
-			meaning: "merge hooks into ~/.claude/settings.json",
-			mappedStep: "wireSettings",
-		},
-		{
-			flag: "--with-launchd",
-			meaning:
-				"install the macOS launchd agents — native since W490.2: --step registerLaunchd --yes",
-			mappedStep: "registerLaunchd",
-		},
-		{
-			flag: "--refresh-supervisor",
-			meaning:
-				"code-only refresh of the installed supervisor family; preserve machine configuration",
-			mappedStep: "refreshSupervisor",
-		},
-		{
-			flag: "--refresh-dashboards",
-			meaning: "safe GUI-only dashboard refresh (early exit)",
-			mappedStep: "refreshDashboards",
-		},
-		{
-			flag: "--skip-models",
-			meaning:
-				"skip model download (offline installs) — rides SUSPENDERS_LEGACY_SKIP_MODELS into the native step until the front-flip",
-			mappedStep: "downloadModels",
-		},
-		{
-			flag: "--no-llm",
-			meaning:
-				"skip the local-llm baseline entirely (CI/containers) — rides SUSPENDERS_LEGACY_NO_LLM into the native seed step until the front-flip",
-			mappedStep: "seedLocalLlm",
-		},
-		{
-			flag: "--prune",
-			meaning:
-				"mirror-mode harness sync (W420) — drop unmanaged prefix entries outside the generated-files allowlist (governor.db, bun.lock, node_modules, .fleet) instead of preserving them",
-			mappedStep: "syncHarness",
-		},
-		{
-			flag: "--hub <name>",
-			meaning:
-				"install-grade hub deploy from ~/.config/klh/stack.yaml: deploy/hubctl.ts mint → push → up → status; --dry-run renders the hub .env only",
-			mappedStep: "deployHub",
-		},
-	],
+
 	agentNextSteps: {
 		fields: ["action", "command", "note"],
 		rules: [
@@ -464,17 +448,11 @@ export const INSTALL_CONTRACT = {
 		insightsDir: "~/.claude-insights",
 		launchAgentsDir: "~/Library/LaunchAgents",
 	},
-	v1Delegation: {
-		command: "bash <repo>/install.sh __legacy full",
-		when: "a full run (no --step) with --yes",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (caddy, release) that have no native step yet; syncHarness + ensureShims native since W771.1; seedLocalLlm, downloadModels and refreshSupervisor native since W771.2",
-	},
 } as const satisfies InstallContract;
 
 export type StepStatus =
 	| "ok"
 	| "planned"
-	| "delegated"
 	| "skipped"
 	| "need_user_action"
 	| "failed";

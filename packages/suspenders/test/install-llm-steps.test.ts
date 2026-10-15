@@ -57,17 +57,6 @@ function ctxFor(llmHome: string, repo = REPO): StepContext {
 const step = (name: string) =>
 	INSTALL_CONTRACT.steps.find((s) => s.name === name);
 
-const ENV_KEYS = [
-	"SUSPENDERS_LEGACY_NO_LLM",
-	"SUSPENDERS_LEGACY_SKIP_MODELS",
-] as const;
-const savedEnv = ENV_KEYS.map((k) => process.env[k]);
-afterAll(() => {
-	for (const [i, key] of ENV_KEYS.entries()) {
-		if (savedEnv[i] === undefined) delete process.env[key];
-		else process.env[key] = savedEnv[i];
-	}
-});
 afterAll(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -132,15 +121,27 @@ describe("seedLocalLlm never clobbers", () => {
 });
 
 describe("downloadModels", () => {
-	test("env knobs skip before any discovery", async () => {
-		process.env.SUSPENDERS_LEGACY_SKIP_MODELS = "1";
-		try {
-			const res = await downloadModels(ctxFor(tmp("dl-skip")));
-			expect(res.status).toBe("skipped");
-			expect(res.note).toContain("--skip-models");
-		} finally {
-			delete process.env.SUSPENDERS_LEGACY_SKIP_MODELS;
-		}
+	test("flag skips before any discovery", async () => {
+		const res = await downloadModels({
+			...ctxFor(tmp("dl-skip")),
+			skipModels: true,
+		});
+		expect(res.status).toBe("skipped");
+		expect(res.note).toContain("--skip-models");
+	});
+
+	test("--no-llm skips seed and download entirely", async () => {
+		const seedRes = await seedLocalLlm({
+			...ctxFor(tmp("nl-seed")),
+			noLlm: true,
+		});
+		expect(seedRes.status).toBe("skipped");
+		const dlRes = await downloadModels({
+			...ctxFor(tmp("nl-dl")),
+			noLlm: true,
+		});
+		expect(dlRes.status).toBe("skipped");
+		expect(dlRes.note).toContain("--no-llm");
 	});
 
 	test("not a fleet checkout → skipped", async () => {

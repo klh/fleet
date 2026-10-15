@@ -137,6 +137,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		prefix: join(root, "state/harness"),
 		shimBin: join(root, "shims"),
 		llmHome: join(root, "models"),
+		home: join(root, "home"),
 		dryRun: false,
 		yes: true,
 		json: true,

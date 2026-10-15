@@ -80,10 +80,19 @@ test("wrapper forwards approval as one literal argument and rejects missing valu
 		).toBe(0);
 		expect(readFileSync(record, "utf8").split("\n")).toContain(malicious);
 		expect(existsSync(marker)).toBe(false);
+		// W771.3: the wrapper is a pure exec — value validation lives in the
+		// native CLI's parseFlags (usage_error exit 2)
+		const installCli = join(import.meta.dir, "../scripts/install.ts");
 		for (const args of [["--gateway-review"], ["--gateway-review", "--yes"]]) {
-			rmSync(record, { force: true });
-			expect(run(args).exitCode).toBe(2);
-			expect(existsSync(record)).toBe(false);
+			const res = Bun.spawnSync(
+				["bun", installCli, "--step", "upgradeGateway", ...args],
+				{
+					env: { ...process.env, HOME: home },
+					stdout: "ignore",
+					stderr: "ignore",
+				},
+			);
+			expect(res.exitCode).toBe(2);
 		}
 	} finally {
 		rmSync(home, { recursive: true, force: true });
