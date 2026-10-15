@@ -89,8 +89,16 @@ export async function cmdFact(rest: string[]): Promise<void> {
 		if (txt != null) value = txt;
 		// a flag-shaped value was the fact-set corruption bug (2026-09-30):
 		// `fact set k --text "…"` swallowed "--text" as the value and the real
-		// text vanished into an ignored positional — three A/B findings lost
-		if (!key || value === undefined || value.startsWith("--"))
+		// text vanished into an ignored positional — three A/B findings lost.
+		// W773: the key has the same trap — `fact set --text "…"` (key
+		// omitted) landed a junk row keyed "--text" (cmdFact guarded the
+		// value's shape but not the key's)
+		if (
+			!key ||
+			key.startsWith("--") ||
+			value === undefined ||
+			value.startsWith("--")
+		)
 			die(
 				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
 			);
@@ -151,9 +159,19 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				? rows.map((r) => `${r.key} = ${r.value}  (v${r.version})`).join("\n")
 				: "(no facts)",
 		);
+	} else if (sub === "rm") {
+		// W773: the purge path for junk rows — the legacy parse trap minted
+		// FLAG-SHAPED keys (the live "--text" row), so the key argument
+		// deliberately accepts any shape: `fact rm --text` is the exact call
+		// that cleans the W773 row
+		const key = rest[1];
+		if (!key) die("usage: fact rm <key>");
+		const n = db.query("DELETE FROM facts WHERE key = ?").run(key).changes;
+		if (!n) die(`fact rm: no such key "${key}"`);
+		console.log(`${green("✓")} fact ${key} removed`);
 	} else
 		die(
-			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact rm <key> | fact list [--prefix p] [--limit n] [--all]",
 		);
 }
 

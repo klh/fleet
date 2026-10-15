@@ -143,7 +143,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "fact",
 		usage:
-			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact list [--prefix p] [--limit n] [--all]",
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact rm <key> | fact list [--prefix p] [--limit n] [--all]",
 		lax: true,
 		run: (p) => cmdFact(p.rest),
 	}),
