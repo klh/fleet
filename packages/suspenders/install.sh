@@ -142,17 +142,20 @@ else
 fi
 
 # ─── agent skills (TODO(install.ts): registerSkills) — register every skill
-# package under skills/ with the skills CLI (owner hard rule 2026-10-07:
-# agent surfaces distribute as SKILL.md packages, never cp'd into one CLI's
-# dir). Flags are load-bearing: -g global, -y unattended, -a explicit agent —
-# a bare add hits the interactive agent-picker and exits 1 in a non-TTY. One
-# parent-dir add discovers every skills/*/ subpackage (verified: "Found 10").
+# in the repo-root skills/ catalog with the skills CLI (owner hard rule
+# 2026-10-07: agent surfaces distribute as SKILL.md packages, never cp'd
+# into one CLI's dir). Flags are load-bearing: -g global, -y unattended,
+# -a explicit agent — a bare add hits the interactive agent-picker and exits
+# 1 in a non-TTY. One parent-dir add discovers every skills/*/ subpackage
+# (verified: "Found 12", W772.1). Root placement makes the same catalog
+# discoverable by `npx skills add <owner/repo>` (W772).
 # Best-effort: failure prints the manual command, never aborts the install.
-if [ -d "$SCRIPT_DIR/skills" ]; then
-  if bunx skills add "$SCRIPT_DIR/skills" -g -y -a claude-code </dev/null; then
-    echo "→ skills: registered all packages under $SCRIPT_DIR/skills"
+CATALOG="$SCRIPT_DIR/../../skills"
+if [ -d "$CATALOG" ]; then
+  if bunx skills add "$CATALOG" -g -y -a claude-code </dev/null; then
+    echo "→ skills: registered all packages under $CATALOG"
   else
-    echo "  (skills: registration failed — run manually: bunx skills add $SCRIPT_DIR/skills -g -y -a claude-code)"
+    echo "  (skills: registration failed — run manually: bunx skills add $CATALOG -g -y -a claude-code)"
   fi
 fi
 
