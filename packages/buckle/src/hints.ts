@@ -4,7 +4,9 @@
 // chars), and a duplicate header is refused, not resolved silently.
 //
 // hint := VERB LOCATION? MODEL? TAGS*
-//   VERB     := prefer | must
+//   VERB     := auto | prefer | must
+//               (W228: auto = bare verb, belt/buckle's own measured policy
+//               decides — carries no constraint tokens)
 //   LOCATION := local | cloud | host:<server>
 //   MODEL    := model:<id-or-glob>   ('*' wildcard, case-insensitive)
 //   TAGS     := tag+                 (each tag is a regexp)
@@ -14,7 +16,7 @@
 // first fault (belt's messages kept verbatim).
 
 export interface RouteHint {
-	verb: "prefer" | "must";
+	verb: "prefer" | "must" | "auto";
 	// local/cloud or a set host — absent = every machine qualifies
 	location?: { kind: "local" | "cloud" } | { host: string };
 	model?: string; // glob: '*' wildcard, case-insensitive
@@ -29,7 +31,7 @@ export type ParsedHint =
 	| { ok: true; hint: RouteHint }
 	| { ok: false; why: string };
 
-/** Parse 'must cloud', 'prefer local distill reasoning',
+/** Parse 'auto', 'must cloud', 'prefer local distill reasoning',
  *  'prefer host:nas model:qwen*' — malformed input is a rejection with the
  *  reason, never a guess. */
 export function parseHint(raw: string): ParsedHint {
@@ -41,10 +43,16 @@ export function parseHint(raw: string): ParsedHint {
 		};
 	const [verb, ...rest] = tokens;
 	if (!verb) return { ok: false, why: "hint: no tokens" }; // unreachable (length checked)
-	if (verb !== "prefer" && verb !== "must")
+	if (verb !== "prefer" && verb !== "must" && verb !== "auto")
 		return {
 			ok: false,
-			why: `hint must start with 'prefer' or 'must', got '${verb.slice(0, 24)}'`,
+			why: `hint must start with 'prefer', 'auto' or 'must', got '${verb.slice(0, 24)}'`,
+		};
+	// W228: auto is bare — constraints ride 'prefer'/'must' or repo laws.
+	if (verb === "auto" && rest.length)
+		return {
+			ok: false,
+			why: "hint: 'auto' takes no constraint tokens — belt decides (use 'prefer'/'must' to constrain)",
 		};
 	const hint: RouteHint = { verb, tags: [] };
 	return finishHint(hint, rest);
@@ -165,10 +173,10 @@ export const hintTotal = (h: RouteHint): number =>
 const HINT_HEADER = "x-belt-hint";
 // Bun joins duplicate request headers with ', ' — a second verb after a
 // comma is the duplicate-header signature. A single hint can only hit this
-// if it embeds ', prefer/must …' — itself two glued hints, i.e. genuinely
+// if it embeds ', prefer/must/auto …' — itself two glued hints, i.e. genuinely
 // ambiguous input; refusing ambiguity is the same trust class as the
 // duplicate-location rejection.
-const DUP_HEADER = /,\s*(?:prefer|must)\b/;
+const DUP_HEADER = /,\s*(?:prefer|must|auto)\b/;
 
 export type HintRead =
 	| { ok: true; raw: string; hint: RouteHint | null }

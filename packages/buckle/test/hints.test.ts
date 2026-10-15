@@ -37,6 +37,9 @@ describe("grammar", () => {
 		expect(h.model).toBe("qwen*");
 		expect(h.tags).toEqual(["vision"]);
 	});
+	test("bare auto (W228)", () => {
+		expect(OK("auto")).toEqual({ verb: "auto", tags: [] });
+	});
 });
 
 describe("rejections", () => {
@@ -45,7 +48,7 @@ describe("rejections", () => {
 		expect(r.ok).toBe(false);
 		if (!r.ok)
 			expect(r.why).toBe(
-				"hint must start with 'prefer' or 'must', got 'maybe'",
+				"hint must start with 'prefer', 'auto' or 'must', got 'maybe'",
 			);
 	});
 	test(">12 tokens", () => {
@@ -67,6 +70,14 @@ describe("rejections", () => {
 	test("empty host:/model:", () => {
 		expect(parseHint("prefer host:").ok).toBe(false);
 		expect(parseHint("prefer model:").ok).toBe(false);
+	});
+	test("auto takes no constraint tokens (W228)", () => {
+		const r = parseHint("auto local reasoning");
+		expect(r.ok).toBe(false);
+		if (!r.ok)
+			expect(r.why).toBe(
+				"hint: 'auto' takes no constraint tokens — belt decides (use 'prefer'/'must' to constrain)",
+			);
 	});
 });
 
@@ -101,6 +112,20 @@ describe("header seam", () => {
 		);
 		expect(r.ok).toBe(true);
 		if (r.ok) expect(r.hint?.verb).toBe("must");
+	});
+	test("auto rides the header (W228)", () => {
+		const r = hintFromHeaders(new Headers({ "x-belt-hint": "auto" }));
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.raw).toBe("auto");
+			expect(r.hint?.verb).toBe("auto");
+		}
+	});
+	test("duplicate with auto verb also refused", () => {
+		const h = new Headers([["x-belt-hint", "auto, prefer local"]]);
+		const r = hintFromHeaders(h);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.why).toBe("exactly one x-belt-hint header allowed");
 	});
 });
 

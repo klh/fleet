@@ -117,9 +117,12 @@ function checkAuth(
 	return { ok: true, label };
 }
 
-// ─── hint grammar (W96, owner FINAL 2026-09-30) ───
+// ─── hint grammar (W96, owner FINAL 2026-09-30; W228 adds `auto`) ───
 // hint := VERB LOCATION? MODEL? TAGS* — deterministic, zero LLM:
-//   VERB     prefer (soft: full fits rank first, degrade by policy)
+//   VERB     auto   (bare: belt's own measured policy decides — the
+//                  fastest-and-best default, addressable; carries no
+//                  constraint tokens, never degrades, never 503s on fit)
+//            prefer (soft: full fits rank first, degrade by policy)
 //            must   (hard: no healthy full fit → machine-readable error,
 //                    NEVER a silent substitute)
 //   LOCATION local | cloud | host:<server>
@@ -129,7 +132,7 @@ function checkAuth(
 //            matching = the tag group fits; all present groups AND together.
 // No hint = default policy (healthy → proven avg_ms → load).
 export interface RouteHint {
-	verb: "prefer" | "must";
+	verb: "prefer" | "must" | "auto";
 	// local/cloud box or a set host — absent = every machine qualifies
 	location?: { kind: "local" | "cloud" } | { host: string };
 	model?: string; // glob: '*' wildcard
@@ -139,7 +142,7 @@ export interface RouteHint {
 const HINT_TOKENS_MAX = 12;
 const HINT_TOKEN_MAX = 64;
 
-/** Parse 'must cloud', 'prefer local distill reasoning',
+/** Parse 'auto', 'must cloud', 'prefer local distill reasoning',
  *  'prefer host:nas model:qwen*' — malformed input is a 400-grade rejection
  *  with the reason, never a guess. */
 export function parseHint(
@@ -152,10 +155,17 @@ export function parseHint(
 			why: `hint: 1–${HINT_TOKENS_MAX} whitespace-separated tokens, e.g. 'prefer local reasoning'`,
 		};
 	const [verb, ...rest] = tokens;
-	if (verb !== "prefer" && verb !== "must")
+	if (verb !== "prefer" && verb !== "must" && verb !== "auto")
 		return {
 			ok: false,
-			why: `hint must start with 'prefer' or 'must', got '${verb.slice(0, 24)}'`,
+			why: `hint must start with 'prefer', 'auto' or 'must', got '${verb.slice(0, 24)}'`,
+		};
+	// W228: auto is the bare verb — the request carries no preference, belt's
+	// measured policy decides; constraints ride 'prefer'/'must' or repo laws.
+	if (verb === "auto" && rest.length)
+		return {
+			ok: false,
+			why: "hint: 'auto' takes no constraint tokens — belt decides (use 'prefer'/'must' to constrain)",
 		};
 	const hint: RouteHint = { verb, tags: [] };
 	return finishHint(hint, rest);

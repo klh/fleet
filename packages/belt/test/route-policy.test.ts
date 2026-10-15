@@ -63,6 +63,15 @@ describe("parseHint", () => {
 		expect(parseHint("must model:a model:b").ok).toBe(false);
 		expect(parseHint("prefer a b c d e f g h i j k l").ok).toBe(false);
 	});
+
+	test("rejections — the no-verb why names all three verbs", () => {
+		const r = parseHint("gimme fast");
+		expect(r.ok).toBe(false);
+		if (!r.ok)
+			expect(r.why).toBe(
+				"hint must start with 'prefer', 'auto' or 'must', got 'gimme'",
+			);
+	});
 });
 
 describe("hintFit + hintTotal — verb semantics", () => {
@@ -103,5 +112,27 @@ describe("hintFit + hintTotal — verb semantics", () => {
 		const p = parseHint("prefer host:M5Max");
 		if (!p.ok) throw new Error("parse failed");
 		expect(hintFit(LOCAL_REASON, p.hint)).toBe(1);
+	});
+});
+
+describe("auto verb (W228) — the addressable default", () => {
+	test("bare 'auto' parses; carries no constraint groups", () => {
+		const p = parseHint("auto");
+		expect(p.ok).toBe(true);
+		if (p.ok) {
+			expect(p.hint.verb).toBe("auto");
+			expect(p.hint.location).toBeUndefined();
+			expect(p.hint.model).toBeUndefined();
+			expect(p.hint.tags).toEqual([]);
+		}
+	});
+	test("'auto' + constraint tokens → rejected", () => {
+		expect(parseHint("auto local reasoning").ok).toBe(false);
+	});
+	test("auto fits everything at 0 — hintFit/hintTotal stay inert", () => {
+		const p = parseHint("auto");
+		if (!p.ok) throw new Error("parse failed");
+		expect(hintFit(LOCAL_REASON, p.hint)).toBe(0);
+		expect(hintTotal(p.hint)).toBe(0);
 	});
 });
