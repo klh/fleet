@@ -164,16 +164,66 @@ const pidAlive = (pid: number): boolean =>
 	Bun.spawnSync(["/bin/kill", "-0", String(pid)]).exitCode === 0;
 
 // ─── W500: wired-RAM budget gate ───
-// vm_stat wired pages × 16KB (arm64 page size). A cold load of a 22GB model
-// on a wired-heavy machine is the OOM mechanism itself — refuse it and the
-// ladder falls through to the next route.
+// Per-OS memory-pressure probe behind ONE interface (W766): macOS keeps
+// vm_stat (wired pages × 16KB arm64 page), Linux reads /proc/meminfo
+// (MemTotal − MemAvailable, MemFree fallback), Windows takes max(working
+// set, commit charge) via Get-CimInstance. A cold load of a 22GB model on
+// a wired-heavy machine is the OOM mechanism itself — refuse it and the
+// ladder falls through to the next route. Probe failure → Infinity → the
+// guard refuses (fail-closed, same as a vm_stat parse miss on macOS).
 // clamp: empty env → Number("") = 0 (refuse every load); garbage → NaN
 // (comparisons false, guard never trips — fail-open OOM). glm-5.3 review
 // of f4aad15c: env knobs validate or fall back to the default.
 const rawWiredGb = Number(process.env.BELT_WIRED_GUARD_GB ?? 60);
 export const WIRED_GUARD_GB =
 	Number.isFinite(rawWiredGb) && rawWiredGb > 0 ? rawWiredGb : 60;
+
+// Get-CimInstance one-liner: physical used (working set) vs commit charge,
+// the larger wins — both are OOM precursors on Windows.
+const CIM_PROBE =
+	"$o=Get-CimInstance Win32_OperatingSystem; [math]::Max($o.TotalVisibleMemorySize-$o.FreePhysicalMemory, $o.TotalVirtualMemorySize-$o.FreeVirtualMemory)";
+
+/** /proc/meminfo pressure (MemTotal − MemAvailable, MemFree fallback) → GB. */
+export const meminfoUsedGb = (out: string): number => {
+	const kb = (key: string): number | undefined => {
+		const m = new RegExp(`^${key}:\\s+(\\d+) kB`, "m").exec(out);
+		return m ? Number(m[1]) : undefined;
+	};
+	const total = kb("MemTotal");
+	const avail = kb("MemAvailable") ?? kb("MemFree");
+	return total === undefined || avail === undefined
+		? Number.POSITIVE_INFINITY
+		: (total - avail) / 2 ** 20;
+};
+
+/** max(working set, commit charge) in kB (Get-CimInstance output) → GB. */
+export const cimUsedGb = (out: string): number => {
+	const m = /^\s*(\d+)\s*$/.exec(out);
+	return m ? (Number(m[1]) * 1024) / 2 ** 30 : Number.POSITIVE_INFINITY;
+};
 export const wiredGb = (): number => {
+	if (process.platform === "linux") {
+		try {
+			return meminfoUsedGb(readFileSync("/proc/meminfo", "utf8"));
+		} catch {
+			return Number.POSITIVE_INFINITY;
+		}
+	}
+	if (process.platform === "win32") {
+		try {
+			return cimUsedGb(
+				Bun.spawnSync([
+					"powershell.exe",
+					"-NoProfile",
+					"-NonInteractive",
+					"-Command",
+					CIM_PROBE,
+				]).stdout.toString(),
+			);
+		} catch {
+			return Number.POSITIVE_INFINITY;
+		}
+	}
 	const out = Bun.spawnSync(["/usr/bin/vm_stat"]).stdout.toString();
 	const m = /Pages wired down:\s+(\d+)/.exec(out);
 	return m ? (Number(m[1]) * 16384) / 2 ** 30 : Number.POSITIVE_INFINITY;
