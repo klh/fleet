@@ -69,21 +69,25 @@ const LOCAL_LLM = "com.suspenders.local-llm";
 const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
 const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
-const swarm = (port: number): RecoveryEntry => ({
+const swarm = (
+	port: number,
+	label: string = LOCAL_LLM,
+	log: string = SWARM_LOG,
+): RecoveryEntry => ({
 	id: `swarm-${port}`,
 	name: `local LLM swarm :${port}`,
 	probe: { kind: "http", port, path: "/v1/models" },
 	what: `The local model server on :${port} is not answering, so lanes and advice routed to it fall back or stall.`,
 	causes: [
 		"the model process crashed or was killed (out of memory is the usual one)",
-		`the swarm supervisor (${LOCAL_LLM}) is not running, so nothing revives it`,
+		`the swarm supervisor (${label}) is not running, so nothing revives it`,
 		"the model is still loading after a restart — give it a minute",
 	],
 	recovery: [
 		holder(port),
-		kick(LOCAL_LLM),
-		bootstrap(LOCAL_LLM),
-		tail(SWARM_LOG),
+		kick(label),
+		bootstrap(label),
+		tail(log),
 		curl(port, "/v1/models"),
 	],
 });
@@ -210,12 +214,12 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 		],
 	},
 	...MODEL_INVENTORY.filter((s) => !s.external).map((s) => ({
-		...swarm(s.port),
+		...swarm(s.port, s.launchdLabel, s.logPath),
 		name: `${s.label} · ${s.model} :${s.port}`,
 		probe: { kind: "http" as const, port: s.port, path: probePathFor(s) },
 	})),
 	...MODEL_INVENTORY.filter((s) => s.external).map((s) => ({
-		...swarm(s.port),
+		...swarm(s.port, s.launchdLabel, s.logPath),
 		probe: {
 			kind: "http" as const,
 			port: s.port,

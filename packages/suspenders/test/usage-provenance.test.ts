@@ -50,5 +50,5 @@ test("a real session overrides matching legacy seed actor provenance", () => {
 });
 test("canonical configured model check uses declared path or OpenAPI model route", () => {
 	expect(probePathFor({})).toBe("/v1/models");
-	expect(probePathFor({ probePath: "/health" })).toBe("/health");
+	expect(probePathFor({ healthPath: "/health" })).toBe("/health");
 });

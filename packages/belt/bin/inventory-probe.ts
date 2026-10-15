@@ -1,7 +1,7 @@
 /** Model endpoints advertise their loaded models on this read-only route.
  * Kev's OpenAPI declares /v1/models; / is explicitly not its health API. */
-export function probePathFor(entry: { probePath?: string }): string {
-	return entry.probePath ?? "/v1/models";
+export function probePathFor(entry: { healthPath?: string }): string {
+	return entry.healthPath ?? "/v1/models";
 }
 
 /** Process metadata is optional; launchd's sparse PATH must never break status. */
