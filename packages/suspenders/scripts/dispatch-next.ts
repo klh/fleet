@@ -93,6 +93,7 @@ import {
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
+import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
@@ -134,7 +135,11 @@ import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 export { capabilityGate, isOwnerGated, parseReady };
 import { landingRedirect } from "./lib/landing-redirect.ts";
 import { effortFromShow } from "../hooks/lib/work-effort.ts";
-import { cvSnapshot, parseCapsuleGet } from "./lib/dispatch-admission.ts";
+import {
+	cvSnapshot,
+	parseCapsuleGet,
+	quotaSnapshot,
+} from "./lib/dispatch-admission.ts";
 // parseCapsuleGet is re-exported so supervise.ts and the test suites keep
 // their dispatch-next import path (W576.1.1 decomposition).
 export { parseCapsuleGet };
@@ -450,7 +455,7 @@ const dispatchItem = async (
 			console.log(
 				`NOTE — DRY: leftover worktree ${wt} sits on ${cur || "(detached)"} (expected ${expected}) — live dispatch recreates it before spawn (W349)`,
 			);
-		const pick = execPick(attempt, CALLER_REPO, cvSnapshot());
+		const pick = execPick(attempt, CALLER_REPO, cvSnapshot(), quotaSnapshot());
 		// W422: the brief-verify harness + enforcement ride the executor
 		// adapter — the if copilot/else-claude ternary is registry data now.
 		const adapter = adapterFor(pick.bin);
@@ -492,6 +497,9 @@ const dispatchItem = async (
 	// them — the measure-gate that lets execPick act on real skew only.
 	writeExecutorCvFacts(store, executorCv(store));
 	const cv = cvMap(store, hostname());
+	// W374: the per-provider quota penalty the pick routes around — read once
+	// per dispatch cycle, next to the cv ladder it outranks.
+	const quota = quotaProviderPenalty(store);
 	const project = projectIdentity(REPO);
 	const attemptKey = `lane.${sid}.launch-attempt`;
 	attempt = advanceAttempt(store, project, item, sid, attempt);
@@ -514,7 +522,7 @@ const dispatchItem = async (
 		store.close();
 		return null;
 	}
-	let pick = execPick(attempt, CALLER_REPO, cv);
+	let pick = execPick(attempt, CALLER_REPO, cv, quota);
 	let bin = resolveLaneExecutor(pick.bin);
 	if (!bin) {
 		governanceRefusals.push(item);
@@ -562,7 +570,7 @@ const dispatchItem = async (
 			);
 			return null;
 		}
-		pick = execPick(attempt, CALLER_REPO, cv);
+		pick = execPick(attempt, CALLER_REPO, cv, quota);
 		bin = resolveLaneExecutor(pick.bin);
 		if (!bin) {
 			governanceRefusals.push(item);

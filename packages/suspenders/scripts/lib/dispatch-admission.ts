@@ -5,6 +5,7 @@
 // the entry: they bind argv-derived BIN/sh.
 import { hostname } from "node:os";
 import { cvMap } from "../../hooks/lib/executor-cv.ts";
+import { quotaProviderPenalty } from "../../hooks/lib/exec-quota.ts";
 import { openStore } from "../../hooks/lib/govdb.ts";
 import { ANSI } from "./ready-pool.ts";
 
@@ -30,6 +31,18 @@ export const cvSnapshot = (): Map<string, number> => {
 	const s = openStore();
 	try {
 		return cvMap(s, hostname());
+	} finally {
+		s.close();
+	}
+};
+
+// W374: dry-run quota snapshot — facts + window-state read only (the pick
+// path never harvests or writes); the dry brief shows the same
+// quota-reordered default ladder the spawn path would pick.
+export const quotaSnapshot = (): Map<string, string> => {
+	const s = openStore();
+	try {
+		return quotaProviderPenalty(s);
 	} finally {
 		s.close();
 	}
