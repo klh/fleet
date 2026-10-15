@@ -1,17 +1,21 @@
 // prompt-transform.test.ts — W270 orchestrate prompt transforms: condense
 // determinism, enhance fallback, injection disclosure, secret redaction,
 // preview→dispatch handoff.
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
 	condensePrompt,
+	ENHANCE_DIRECT_ALIASES,
+	ENHANCE_SYS,
 	ENHANCE_URL,
 	enhancePrompt,
+	type EnhanceTarget,
 	type Fetcher,
 	holdPlan,
 	PROMPT_DEFAULTS,
 	preparePrompt,
 	previewView,
 	redactSecrets,
+	resolveEnhanceTarget,
 	resolvePromptSettings,
 	takePlan,
 } from "../hooks/board/prompt-transform.ts";
@@ -155,6 +159,135 @@ describe("enhance (belt router, Anthropic wire)", () => {
 		expect(r.ok).toBe(false);
 		expect(r.text).toBe("add csv");
 		expect(r.note).toContain("HTTP 401");
+	});
+});
+
+describe("enhancePrompt (openai wire, W288)", () => {
+	test("posts system+user messages, parses choices[].message", async () => {
+		let seen: Record<string, unknown> = {};
+		const fetcher: Fetcher = async (_url, init) => {
+			seen = JSON.parse(String(init?.body));
+			return Response.json({
+				choices: [
+					{
+						message: {
+							content: "<think>x</think>Add CSV export.",
+						},
+					},
+				],
+			});
+		};
+		const r = await enhancePrompt("add csv", {
+			model: "local-extract",
+			url: "http://127.0.0.1:8902/v1/chat/completions",
+			wire: "openai",
+			fetcher,
+		});
+		expect(r.ok).toBe(true);
+		expect(r.text).toBe("Add CSV export.");
+		expect(seen.model).toBe("local-extract");
+		expect(seen.max_tokens).toBe(400);
+		expect(seen.system).toBeUndefined();
+		expect(seen.messages).toEqual([
+			{ role: "system", content: ENHANCE_SYS },
+			{ role: "user", content: "add csv" },
+		]);
+	});
+	test("same degrade notes as the anthropic wire", async () => {
+		const e500: Fetcher = async () => new Response("boom", { status: 500 });
+		expect(
+			(
+				await enhancePrompt("g", {
+					model: "m",
+					wire: "openai",
+					fetcher: e500,
+				})
+			).note,
+		).toContain("HTTP 500");
+		const dead: Fetcher = async () => {
+			throw new Error("ECONNREFUSED");
+		};
+		const r = await enhancePrompt("g", {
+			model: "m",
+			wire: "openai",
+			fetcher: dead,
+		});
+		expect(r.note).toContain("unreachable");
+	});
+});
+
+describe("enhance target resolution (W288)", () => {
+	const setPins = (m?: string, u?: string) => {
+		delete process.env.SUSPENDERS_PROMPT_MODEL;
+		delete process.env.SUSPENDERS_PROMPT_ENHANCE_URL;
+		if (m) process.env.SUSPENDERS_PROMPT_MODEL = m;
+		if (u) process.env.SUSPENDERS_PROMPT_ENHANCE_URL = u;
+	};
+	afterEach(() => setPins());
+	test("model pin → gateway with the pinned id", async () => {
+		setPins("glm-5.3-flash");
+		const t = await resolveEnhanceTarget({ readFile: () => "{}" });
+		expect(t.mode).toBe("gateway");
+		expect(t.model).toBe("glm-5.3-flash");
+		expect(t.url).toBe(ENHANCE_URL);
+		expect(t.wire).toBe("anthropic");
+	});
+	test("url pin → gateway on the pin, alias id", async () => {
+		setPins(undefined, "http://127.0.0.1:9999/v1/messages");
+		expect(await resolveEnhanceTarget({ readFile: () => "{}" })).toEqual({
+			mode: "gateway",
+			alias: "",
+			model: ENHANCE_DIRECT_ALIASES[0],
+			url: "http://127.0.0.1:9999/v1/messages",
+			wire: "anthropic",
+		} satisfies EnhanceTarget);
+	});
+	test("direct map: extract row wins, /v1 normalized, endpoint appended", async () => {
+		const t = await resolveEnhanceTarget({
+			readFile: () =>
+				JSON.stringify({
+					"local-coder": "http://127.0.0.1:8901/v1",
+					"local-extract": "http://127.0.0.1:8902",
+				}),
+			probe: async () => "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+		});
+		expect(t.mode).toBe("direct");
+		expect(t.alias).toBe("local-extract");
+		expect(t.model).toBe("mlx-community/Qwen3-4B-Instruct-2507-4bit");
+		expect(t.url).toBe("http://127.0.0.1:8902/v1/chat/completions");
+		expect(t.wire).toBe("openai");
+	});
+	test("no extract row falls to reason; non-loopback rows ignored", async () => {
+		const t = await resolveEnhanceTarget({
+			readFile: () =>
+				JSON.stringify({
+					"local-extract": "https://api.example.com/v1",
+					"local-reason": "http://localhost:8903/v1",
+				}),
+			probe: async (base) =>
+				base.includes("8903")
+					? "mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit"
+					: null,
+		});
+		expect(t.alias).toBe("local-reason");
+		expect(t.model).toBe("mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit");
+		expect(t.url).toBe("http://localhost:8903/v1/chat/completions");
+	});
+	test("no map / unreadable / no match → gateway default with alias id", async () => {
+		for (const read of [
+			() => "{}",
+			(): string => {
+				throw new Error("ENOENT");
+			},
+		]) {
+			expect(await resolveEnhanceTarget({ readFile: read })).toEqual({
+				mode: "gateway",
+				alias: "",
+				model: ENHANCE_DIRECT_ALIASES[0],
+				url: ENHANCE_URL,
+				wire: "anthropic",
+			} satisfies EnhanceTarget);
+		}
 	});
 });
 
