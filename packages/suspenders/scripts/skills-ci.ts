@@ -52,7 +52,6 @@ export async function runLeg(
 ): Promise<LegResult> {
 	// spawnSync does not PATH-resolve: pin the absolute bun (setup-bun puts
 	// it on PATH in CI; missing bun = loud failure, which is correct there).
-	// realpath: posix_spawn ENOENTs on symlinked binaries (macOS 26).
 	const bunPath = Bun.which("bun") ?? process.execPath;
 	if (!existsSync(bunPath)) throw new Error("bun not found");
 	const bun = realpathSync(bunPath);
