@@ -100,6 +100,10 @@ The private `*-remote` overlays (buckle-remote, belt-remote,
 suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
 the base), admin.gui. Entra ID tenant/app values live only in stack.yaml.
+W372: the deploy path consumes the whole auth block — hubctl render
+materializes auth.oidc/auth.tokens into the .env (fail-closed on a partial
+oidc block) and the buckle gate builds its JWT validator from the
+materialized env (`BUCKLE_OIDC_*`), so Entra is config-only end to end.
 
 A hub rides the private tier purely by config (W493): the profile's
 `repos` entries carry the overlay monorepo's origin and — because an

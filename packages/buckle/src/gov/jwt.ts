@@ -17,6 +17,10 @@ export interface JwtOpts {
 	issuers: IssuerSpec[];
 	audience: string;
 	clockSkewS?: number;
+	/** W372: post-signature scope gate — the api:// scope an Entra delegated
+	 *  token must carry (`scp` string, or app-only `roles`). Absent = no
+	 *  claim-level scope requirement. */
+	requiredScope?: string;
 }
 
 export interface JwtClaims {
@@ -29,6 +33,8 @@ export interface JwtClaims {
 	jti?: string;
 	roles?: string[];
 	scope?: string;
+	/** W372: Entra delegated-scope claim (passthrough, IdP-shaped). */
+	scp?: string | string[];
 }
 
 export interface JwtResult {
@@ -157,6 +163,7 @@ export function createJwtValidator(opts: JwtOpts): {
 				skewMs,
 				jwks,
 				audience: opts.audience,
+				requiredScope: opts.requiredScope,
 			});
 		},
 	};
@@ -172,6 +179,7 @@ interface SigArgs {
 	skewMs: number;
 	jwks: JwksCache;
 	audience: string;
+	requiredScope?: string;
 }
 
 async function verifySignature(args: SigArgs): Promise<JwtResult> {
@@ -217,6 +225,18 @@ function checkClaims(args: SigArgs, kid: string | null): JwtResult {
 	const aud = Array.isArray(c.aud) ? c.aud : [c.aud];
 	if (!aud.includes(args.audience))
 		return { ok: false, code: "buckle.jwt_bad_audience", why: "aud mismatch" };
+	// W372: stack.yaml auth.oidc.requiredScope — enforced post-signature:
+	// delegated Entra tokens carry the api:// scope in `scp` (space-joined
+	// string); app-only tokens in `roles`. Miss = fixed-shape rejection.
+	if (
+		args.requiredScope !== undefined &&
+		!claimSatisfiesScope(c, args.requiredScope)
+	)
+		return {
+			ok: false,
+			code: "buckle.jwt_scope",
+			why: `required scope missing: ${args.requiredScope}`,
+		};
 	const scopes = rolesToScopes(c);
 	return {
 		ok: true,
@@ -227,6 +247,21 @@ function checkClaims(args: SigArgs, kid: string | null): JwtResult {
 		sub: c.sub,
 		jti: c.jti ?? kid,
 	};
+}
+
+/** W372: does the token carry the required api:// scope? Delegated Entra
+ *  tokens carry it in `scp` (space-joined string), app-only tokens in
+ *  `roles` (array). Neither claim present = not satisfied. */
+export function claimSatisfiesScope(
+	c: JwtClaims,
+	requiredScope: string,
+): boolean {
+	const scp: unknown = c.scp;
+	if (typeof scp === "string") return scp.split(/\s+/).includes(requiredScope);
+	if (Array.isArray(scp)) return scp.includes(requiredScope);
+	const roles: unknown = c.roles;
+	if (Array.isArray(roles)) return roles.includes(requiredScope);
+	return false;
 }
 
 /** IdP-neutral claims → buckle scopes: the `roles` array holds scope-shaped

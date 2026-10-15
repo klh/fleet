@@ -208,6 +208,15 @@ services:
       BUCKLE_HTTP_UPSTREAM_HOSTS: ${HUB_HTTP_UPSTREAM_HOSTS:-}
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
+      # W372: stack.yaml auth.oidc/auth.tokens → env (Entra-ready, config-only
+      # — the gate builds its JWT validator from these when present; empty =
+      # base posture unchanged). Issuer/jwksUri/audience are the validator
+      # contract; requiredScope + TTL ride for the identity-plane consumers.
+      BUCKLE_OIDC_ISSUER: ${HUB_BUCKLE_OIDC_ISSUER:-}
+      BUCKLE_OIDC_JWKS_URI: ${HUB_BUCKLE_OIDC_JWKS_URI:-}
+      BUCKLE_OIDC_AUDIENCE: ${HUB_BUCKLE_OIDC_AUDIENCE:-}
+      BUCKLE_OIDC_REQUIRED_SCOPE: ${HUB_BUCKLE_OIDC_REQUIRED_SCOPE:-}
+      BUCKLE_AUTH_TTL_HOURS: ${HUB_BUCKLE_AUTH_TTL_HOURS:-}
       # W688.3: overlay code-loader knobs (config-over-code; empty = unset =
       # solo posture — the loader treats unset/empty exactly as before). The
       # overlay code arrives via the fleet-repo volume (an overlay hub pulls

@@ -101,7 +101,22 @@ export interface StackConfig {
 	 *  every repo sidecar pulls. Absent = main (dev posture). */
 	version?: string;
 	hubs: Record<string, HubProfile>;
-	auth?: { required?: boolean };
+	auth?: {
+		required?: boolean;
+		/** W372: scoped-token posture (W231) — issuance TTL in hours. */
+		tokens?: { ttlHours?: number };
+		/** W372: Entra/OIDC posture — full-URL issuer + audience; Entra
+		 *  values live ONLY in the machine stack.yaml (placeholders in the
+		 *  committed example). `jwksUri` overrides the Entra v2.0 derivation
+		 *  for non-Entra IdPs. */
+		oidc?: {
+			enforced?: boolean;
+			issuer?: string;
+			jwksUri?: string;
+			audience?: string;
+			requiredScope?: string;
+		};
+	};
 	/** W230: providers — where upstream API keys live (inline on the
 	 *  machine file, an env var NAME, or a 0600 secret file). Values never
 	 *  live in repos; the committed template carries placeholders only. */
