@@ -208,6 +208,13 @@ services:
       BUCKLE_HTTP_UPSTREAM_HOSTS: ${HUB_HTTP_UPSTREAM_HOSTS:-}
       BUCKLE_SECRETS_HOME: /state/secrets
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
+      # W688.3: overlay code-loader knobs (config-over-code; empty = unset =
+      # solo posture — the loader treats unset/empty exactly as before). The
+      # overlay code arrives via the fleet-repo volume (an overlay hub pulls
+      # its own repo); allow admits that checkout root to the loader.
+      KLH_OVERLAY_DIR: ${HUB_KLH_OVERLAY_DIR:-}
+      KLH_OVERLAY_SHA256: ${HUB_KLH_OVERLAY_SHA256:-}
+      KLH_OVERLAY_ALLOW: ${HUB_KLH_OVERLAY_ALLOW:-}
     volumes:
       - fleet-repo:/src/fleet:ro
       # W688.7.1: the hub's real upstream ladder, rendered by hubctl from

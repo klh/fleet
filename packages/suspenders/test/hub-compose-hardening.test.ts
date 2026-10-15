@@ -140,3 +140,15 @@ test("W689 boot comment is stated once", () => {
 		1,
 	);
 });
+
+// W688.3: overlay code-loader knobs ride the .env into the buckle-hub
+// container env; empty default = unset = solo posture unchanged.
+test("buckle-hub carries the KLH_OVERLAY_* env passthrough", () => {
+	const env = svcs["buckle-hub"]?.environment ?? {};
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
+	expect(env.KLH_OVERLAY_DIR).toBe("${HUB_KLH_OVERLAY_DIR:-}");
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
+	expect(env.KLH_OVERLAY_SHA256).toBe("${HUB_KLH_OVERLAY_SHA256:-}");
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
+	expect(env.KLH_OVERLAY_ALLOW).toBe("${HUB_KLH_OVERLAY_ALLOW:-}");
+});

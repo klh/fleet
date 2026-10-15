@@ -123,6 +123,11 @@ function renderEnv(
 	// W688.7.1: enterprise entrypoint + private-network ladder egress hosts
 	kv("HUB_BUCKLE_ENTRY", hub.buckle_entry);
 	kv("HUB_HTTP_UPSTREAM_HOSTS", hub.http_upstream_hosts?.join(","));
+	// W688.3: overlay code-loader knobs (env plumbing only, config-over-code;
+	// unset = solo posture — the loader treats unset exactly as before)
+	kv("HUB_KLH_OVERLAY_DIR", hub.overlay?.dir);
+	kv("HUB_KLH_OVERLAY_SHA256", hub.overlay?.sha256);
+	kv("HUB_KLH_OVERLAY_ALLOW", hub.overlay?.allow);
 	return `${lines.join("\n")}\n`;
 }
 

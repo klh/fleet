@@ -24,7 +24,11 @@ import type {
 	UsageIngestFactory,
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
-import { loadOverlay, overlayModuleAdaptation } from "./gov/overlay-loader.ts";
+import {
+	loadOverlay,
+	overlayModuleAdaptation,
+	overlayModuleGovSeam,
+} from "./gov/overlay-loader.ts";
 import { type AppDeps, createApp } from "./handlers.ts";
 import type { RouteHint } from "./hints.ts";
 import { Ledger } from "./ledger.ts";
@@ -358,18 +362,24 @@ export async function boot(): Promise<
 	const adaptation = overlay.ok
 		? overlayModuleAdaptation(overlay.module)
 		: undefined;
+	// W688.3: the gov factories the overlay module supplies — boot() hands
+	// them to startServer auth opts (provider-less solo unchanged: absent
+	// export = no factories = honest 501s on the federation routes).
+	const gov = overlay.ok ? overlayModuleGovSeam(overlay.module) : undefined;
 	if (overlay.ok)
 		console.log(
 			`buckle: overlay ${overlay.manifest.name} protocol ${overlay.manifest.protocol} ` +
-				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)`,
+				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)` +
+				(gov ? ` gov seam: ${Object.keys(gov).join(", ")}` : " gov seam: none"),
 		);
 	return startServer({
 		port,
-		...(rootKey || adaptation
+		...(rootKey || adaptation || gov
 			? {
 					auth: {
 						...(rootKey ? { rootKey } : {}),
 						...(adaptation ? { adaptation } : {}),
+						...(gov ?? {}),
 					},
 				}
 			: {}),

@@ -12,6 +12,28 @@ import { isAbsolute, join } from "node:path";
 import { OVERLAY_PROTOCOL_VERSION, validateAdaptation } from "./adaptation.ts";
 import type { AdaptationConfig } from "./adaptation.ts";
 import { validatePeerEndpoint } from "../adapters/egress.ts";
+import type {
+	HubEntitlementsFactory,
+	ManifestCrFactory,
+	SpokeEnrollmentFactory,
+	UsageIngestFactory,
+} from "./hub-seam.ts";
+
+/** W688.3: the gov-seam factories an overlay module hands to startServer
+ *  auth opts — each optional; present members must be functions. */
+export interface GovSeamFactories {
+	spokeEnrollment?: SpokeEnrollmentFactory;
+	hubEntitlements?: HubEntitlementsFactory;
+	usageIngest?: UsageIngestFactory;
+	manifestCr?: ManifestCrFactory;
+}
+
+const GOV_SEAM_KEYS = [
+	"spokeEnrollment",
+	"hubEntitlements",
+	"usageIngest",
+	"manifestCr",
+] as const;
 
 /** Validated overlay manifest (manifest.json in the overlay dir). */
 export interface OverlayManifest {
@@ -41,13 +63,13 @@ export function parseOverlayManifest(raw: unknown): OverlayManifest {
 	if (typeof raw !== "object" || raw === null)
 		throw new Error("overlay: manifest must be an object");
 	const r = raw as Record<string, unknown>;
-	const name = r["name"];
+	const name = r.name;
 	if (typeof name !== "string" || name.length === 0 || name.length > NAME_MAX)
 		throw new Error("overlay: manifest.name must be 1..64 chars");
-	const protocol = r["protocol"];
+	const protocol = r.protocol;
 	if (typeof protocol !== "number" || !Number.isInteger(protocol))
 		throw new Error("overlay: manifest.protocol must be an integer");
-	const entry = r["entry"];
+	const entry = r.entry;
 	if (
 		typeof entry !== "string" ||
 		entry.length === 0 ||
@@ -55,10 +77,10 @@ export function parseOverlayManifest(raw: unknown): OverlayManifest {
 		entry.includes("..")
 	)
 		throw new Error("overlay: manifest.entry must be a relative path");
-	const sha = r["sha256"];
+	const sha = r.sha256;
 	if (typeof sha !== "string" || !SHA_RE.test(sha))
 		throw new Error("overlay: manifest.sha256 must be 64 hex chars");
-	const endpoints = r["endpoints"];
+	const endpoints = r.endpoints;
 	if (
 		endpoints !== undefined &&
 		(!Array.isArray(endpoints) ||
@@ -89,7 +111,7 @@ export async function overlayDirAllowed(
 	for (const root of allowRoots) {
 		try {
 			const realRoot = await realpath(root);
-			if (real === realRoot || real.startsWith(realRoot + "/")) return true;
+			if (real === realRoot || real.startsWith(`${realRoot}/`)) return true;
 		} catch {
 			// a missing allow-root is skipped, not fatal
 		}
@@ -103,7 +125,7 @@ export type OverlayLoad =
 
 /** KLH_OVERLAY_ALLOW: operator roots, colon-separated (config-over-code). */
 export function envRoots(): string[] {
-	const raw = process.env["KLH_OVERLAY_ALLOW"] ?? "";
+	const raw = process.env.KLH_OVERLAY_ALLOW ?? "";
 	return raw
 		.split(":")
 		.map((s) => s.trim())
@@ -126,6 +148,31 @@ export function overlayModuleAdaptation(
 	if (typeof m.createAdaptation !== "function")
 		throw new Error("overlay: createAdaptation must be a function");
 	return validateAdaptation(m.createAdaptation() as AdaptationConfig);
+}
+
+/** W688.3 gov seam: the optional createGovSeam export returns hub-seam
+ *  factories (spokeEnrollment / hubEntitlements / usageIngest /
+ *  manifestCr). Absent export = solo posture (undefined). Fail-closed: a
+ *  malformed surface throws (refuse at boot, never degrade). */
+export function overlayModuleGovSeam(
+	mod: unknown,
+): GovSeamFactories | undefined {
+	const m = mod as { createGovSeam?: unknown } | null;
+	if (m?.createGovSeam === undefined) return undefined;
+	if (typeof m.createGovSeam !== "function")
+		throw new Error("overlay: createGovSeam must be a function");
+	const raw: unknown = m.createGovSeam();
+	if (typeof raw !== "object" || raw === null)
+		throw new Error("overlay: createGovSeam must return an object");
+	const r = raw as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const k of GOV_SEAM_KEYS) {
+		if (r[k] === undefined) continue;
+		if (typeof r[k] !== "function")
+			throw new Error(`overlay: gov seam ${k} must be a function`);
+		out[k] = r[k];
+	}
+	return out as GovSeamFactories;
 }
 
 /** Load the overlay at `dir` under the allowlist + digest + handshake laws.
