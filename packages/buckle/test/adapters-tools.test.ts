@@ -114,6 +114,24 @@ describe("requestAnthropicToOpenAI", () => {
 		expect(r.warnings[0]?.field).toBe("thinking");
 		expect(r.rejected?.field).toBe("frobnicate");
 	});
+
+	test("reasoning_effort forwards when known, degrades unknown (W770)", () => {
+		const r = requestAnthropicToOpenAI({
+			model: "g",
+			reasoning_effort: "high",
+			messages: [],
+		});
+		expect(r.rejected).toBe(null);
+		expect(r.body.reasoning_effort).toBe("high");
+		const bad = requestAnthropicToOpenAI({
+			model: "g",
+			reasoning_effort: "ultra",
+			messages: [],
+		});
+		expect(bad.rejected).toBe(null);
+		expect(bad.body.reasoning_effort).toBe(undefined);
+		expect(bad.warnings.some((w) => w.field === "reasoning_effort")).toBe(true);
+	});
 });
 
 describe("responseOpenAIToAnthropic", () => {

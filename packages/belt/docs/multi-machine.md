@@ -113,6 +113,51 @@ reference Container Manager project (compose + announcer script) — copy it,
 swap the placeholder host/IP/MAC for the real values in the local
 `remotes.json`, and `bun bin/remotes.ts check` should show the endpoint green.
 
+## Provider API levers (W770)
+
+Per-tier LLM cost/quality levers on the carrier wires, config-over-code.
+
+**Reasoning pin (GLM).** Belt escalation resolves the routing-policy
+reasoning axis (roles `escalate` / `escalate-fast` > class > default) and
+clamps to the Z.AI-verified set: **GLM-5.3 always thinks** — efforts
+low|high|max, no medium, disable → 400 (docs.z.ai GLM-5.3 page, verified
+2026-10-15). The clamp maps low/medium→low, high/xhigh→high. Belt sends
+`thinking {enabled, budget 1024|4096}` (anthropic carrier) +
+`reasoning_effort` (gate carrier — buckle W770 forwards it verbatim;
+litellm zai rows forward via `allowed_openai_params: [reasoning_effort]`,
+already emitted by `buildRemoteEntries`). Chain activation (coordinator
+step, between fan-outs): `bash install.sh` → `bun bin/gateway-config.ts` →
+restart :4100/:4101. Until then the pin drops silently = status quo. Live
+A/B (2026-10-15, legacy leg, glm-5.3, the W770-diff review brief,
+max_tokens 3000): unpinned = stop=max_tokens, thinking-only content,
+3000/3000 output tokens, 49 s — the oracle empty-review failure class,
+reproduced; pinned-vs-unpinned identical on the un-activated machine
+(canary: effort-max ≈ effort-low ≈ unpinned, 773/976/963 output tokens).
+Operator rows: `reasoning.roles.escalate: high` in the runtime
+routing-policy for harder reviews.
+
+**Prompt caching.** Buckle W142 cache-align already stamps cache_control
+breakpoints (opt-in `x-belt-aids`, anthropic dialect); Z.AI caches
+implicitly (no control knob). For non-gate rides litellm supports
+`litellm_settings.cache_control_injection_points` (≤4 breakpoints, shape
+`{location: message, role: system, index: -1, control: {type: ephemeral}}`
+on both wires) — operator row in the machine litellm.yaml; belt/buckle do
+not emit it (double-injection risk with align).
+
+**Batch (offline legs only).** litellm `/v1/batches` translates natively
+to anthropic message-batches (source: llms/anthropic/batches) — ~50% cost
+for oracle reviews / arena sweeps / distill; never interactive lanes. No
+consumer yet — ride it per-job against :4100.
+
+**Anthropic betas.** token-efficient tool use is GA on current models, no
+header (docs page retired into the migration guide). fine-grained tool
+streaming: beta header `anthropic-beta: fine-grained-tool-streaming-2025-05-14`
+rides litellm rows via `extra_headers` — operator row; verify currency at
+activation.
+
+**Copilot seat.** proxy — no caching control, premium-request metered;
+overflow-only policy already correct (no action).
+
 ## Design sketch: suspenders target
 
 No code in this section — direction only. suspenders'

@@ -168,6 +168,7 @@ time — the router/engine-local rows above are pre-W270.
 | rapid-mlx vs mlx_lm.server (reason, dense 27B)      | 29.5 vs 24.8 tok/s (+19%)  | rapid-mlx runner wins       |
 | Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)   | 107.2 vs 86.0 tok/s (+25%) | OptiQ takes the :8903 slot  |
 | Engine swap (Coder-30B, mlx_lm → rapid-mlx)         | 97.4 → 123.7 tok/s         | biggest single lever so far |
+| GLM-5.3 reasoning pin vs unpinned (W770, legacy leg, 9.3k-char diff-review brief, 3k budget) | unpinned = 3000/3000 output tokens burned thinking-only, stop=max_tokens, 49 s; canary effort-max≈low≈unpinned (773/976/963 out) = pin dropped pre-activation | pin the escalate legs — bites at activation (buckle + litellm rows live) |
 
 ## Installer cutover — bash vs TS full-install wall-time (W490.2, 2026-10-06)
 
