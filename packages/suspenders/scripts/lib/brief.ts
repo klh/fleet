@@ -10,6 +10,9 @@ import { condensePrompt } from "../../hooks/board/prompt-transform.ts";
 import { effortBudgetLine } from "../../hooks/lib/work-effort.ts";
 import { capsuleValidity } from "../../hooks/lib/capsule-fence.ts";
 import { validationCommand } from "./validation-cmd.ts";
+// W254: pointer-grade injection — file-map + done-definition digest for the
+// brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
+import { renderIntel, type BriefIntel } from "../../hooks/lib/brief-intel.ts";
 
 /** hooks bin dir (env-overridable — the shims ride the same path). */
 export const BIN = `${process.env.SUSPENDERS_PREFIX ?? `${process.env.HOME}/.claude/hooks/suspenders`}/bin`;
@@ -51,6 +54,9 @@ export interface BriefOpts {
 	/** W645: explicit validation command (tests); undefined = detect from
 	 *  qlty/package metadata, null = drop the line entirely. */
 	validation?: string | null;
+	/** W254: pointer-grade brief intel — file-map + done-definition digest,
+	 *  derived at dispatch from the mission text; absent/null = no sections. */
+	intel?: BriefIntel | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => {
@@ -68,6 +74,9 @@ const briefOpening = (o: BriefOpts): string[] => {
 		// the condense pass (filler/meta/dedupe, technical surface masked).
 		condensePrompt(o.showOut.replace(ANSI, "").trim()),
 		...(budget ? [budget] : []),
+		// W254: pointer-grade injection — file-map + done-definition digest
+		// right after the mission; gates log their skips (never silent).
+		...(renderIntel(o.intel).length ? ["", ...renderIntel(o.intel)] : []),
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
 		`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
