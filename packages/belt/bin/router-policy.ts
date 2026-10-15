@@ -168,13 +168,62 @@ export function parseDirect(text: string): DirectTiers {
 	return out;
 }
 
-export function loadDirectTiers(explicitPath?: string): DirectTiers {
+/** The W280 emitted artifact (gateway-config.ts writes direct-tiers.json in
+ *  the SAME regen as litellm.yaml): what the LIVE engine actually serves, so
+ *  "may I skip it" is decided against engine truth, not next-regen YAML. */
+export const directTiersArtifactPath = (): string =>
+	`${process.env.HOME}/.claude/local-llm/direct-tiers.json`;
+
+/** Read the emitted artifact: only mapping bodies count, rows must pass the
+ *  same loopback grammar as parseDirect (a hand-edited row fails alone —
+ *  belt emission never writes bad rows). Missing/corrupt → null so the
+ *  caller falls back to the YAML chain. */
+export function readDirectTiersArtifact(
+	path = directTiersArtifactPath(),
+): DirectTiers | null {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+	} catch {
+		return null;
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+		return null;
+	const out: DirectTiers = {};
+	let sawRow = false;
+	for (const [alias, base] of Object.entries(raw as Record<string, unknown>)) {
+		sawRow = true;
+		if (typeof base === "string" && LOOPBACK.test(base))
+			out[alias] = base.replace(/\/$/, "").replace(/(\/v1)?$/, "/v1");
+	}
+	// an empty mapping falls through to the YAML chain too — the YAML is the
+	// source, so fresh (un-regenerated) rows must not be masked by a stale {}
+	if (!sawRow) return null;
+	return out;
+}
+
+export function loadDirectTiers(
+	explicitPath?: string,
+	home?: string,
+): DirectTiers {
+	const h = home ?? process.env.HOME ?? "";
+	// operator pin (explicit path / BELT_POLICY) keeps YAML semantics and
+	// overrides everything — tests pin fixtures through it
+	const pinned = [explicitPath, process.env.BELT_POLICY].filter(
+		(p): p is string => typeof p === "string" && p.length > 0,
+	);
+	for (const p of pinned) {
+		if (!existsSync(p)) continue;
+		return parseDirect(readFileSync(p, "utf8"));
+	}
+	const artifact = readDirectTiersArtifact(
+		`${h}/.claude/local-llm/direct-tiers.json`,
+	);
+	if (artifact) return artifact;
 	const candidates = [
-		explicitPath,
-		process.env.BELT_POLICY,
-		`${process.env.HOME}/.claude/local-llm/routing-policy.yaml`,
+		`${h}/.claude/local-llm/routing-policy.yaml`,
 		new URL("./routing-policy.yaml", import.meta.url).pathname,
-	].filter((p): p is string => typeof p === "string" && p.length > 0);
+	].filter((p) => p.length > 0);
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
 		return parseDirect(readFileSync(p, "utf8"));

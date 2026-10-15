@@ -47,7 +47,12 @@ reasons per row there.
   on the same specialist; longer → fallback; all hops 429 → router answers 429
   with the longest Retry-After.
 - **Direct tiers**: `routing-policy.yaml` `direct:` lists hot local aliases that
-  skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS clients).
+  skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS
+  clients). TS clients adopt it one-call: `directChat()` (`bin/direct-client.ts`,
+  W280) resolves through the emitted artifact first (what the live engine was
+  built from), sends the registry model id (a raw alias 404s — W274 probe),
+  applies the router budget policy client-side, and falls back to the gateway
+  (kill switch `BELT_DIRECT_TIERS=0`).
 
 ## Role classes + reasoning effort (W648)
 `routing-policy.yaml` gains declarative class rows (oh-my-codex §1 lift):
