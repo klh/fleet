@@ -43,7 +43,7 @@ function chunkSandbox(): {
 		"window",
 		`${TASKS}\nreturn { taskRow, kanbanCard, preferOf };`,
 	);
-	return fn(esc, taskPill, agoShort, { __execPrefs: [] });
+	return fn(esc, taskPill, agoShort, { __execPrefs: [], addEventListener: () => {} });
 }
 
 const IKEA = {

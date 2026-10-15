@@ -37,6 +37,10 @@ export function taskShape(
 	w: WorkItemRow,
 	openDecisions: number,
 	unblocked: Map<string, string | null> = new Map(),
+	edges: { blocked_by: string[]; waiting_on: string[] } = {
+		blocked_by: [],
+		waiting_on: [],
+	},
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -69,7 +73,41 @@ export function taskShape(
 			w.state === "READY"
 				? (unblocked.get(`${String(w.project)}\u0000${String(w.id)}`) ?? null)
 				: null,
+		blocked_by: edges.blocked_by,
+		waiting_on: edges.waiting_on,
 	};
+}
+
+// W214 dependency splines: per-item unmet work_deps edges (dep state IS NOT
+// DONE — NULL-safe so an orphaned dep row still reads blocked) plus
+// SHATTERED parents' unfinished required children (rollUp's wait set).
+// Keyed project\0id — /api/tasks feeds collide ids across projects (W318).
+export function depEdges(): Map<
+	string,
+	{ blocked_by: string[]; waiting_on: string[] }
+> {
+	const out = new Map<string, { blocked_by: string[]; waiting_on: string[] }>();
+	for (const r of db
+		.query(
+			"SELECT d.project, d.work_id, d.depends_on FROM work_deps d LEFT JOIN work_items w ON w.id = d.depends_on AND w.project = d.project WHERE w.state IS NOT 'DONE'",
+		)
+		.all() as { project: string; work_id: string; depends_on: string }[]) {
+		const k = `${r.project}\u0000${r.work_id}`;
+		const e = out.get(k) ?? { blocked_by: [], waiting_on: [] };
+		e.blocked_by.push(r.depends_on);
+		out.set(k, e);
+	}
+	for (const r of db
+		.query(
+			"SELECT c.project, c.parent_id, c.id FROM work_items c JOIN work_items p ON p.project = c.project AND p.id = c.parent_id WHERE p.state = 'SHATTERED' AND c.parent_id IS NOT NULL AND (c.required IS NULL OR c.required = 1) AND c.state NOT IN ('DONE','SUPERSEDED')",
+		)
+		.all() as { project: string; parent_id: string; id: string }[]) {
+		const k = `${r.project}\u0000${r.parent_id}`;
+		const e = out.get(k) ?? { blocked_by: [], waiting_on: [] };
+		e.waiting_on.push(r.id);
+		out.set(k, e);
+	}
+	return out;
 }
 
 // the tasks feed: everything not SUPERSEDED (or DONE still holding an owner —
@@ -102,8 +140,14 @@ export function tasks(p: string | null): unknown[] {
 	}[])
 		openByTask.set(`${r.project}\u0000${r.task_id}`, r.n);
 	const unblocked = unblockedBy();
+	const edges = depEdges();
 	return rows.map((w) =>
-		taskShape(w, openByTask.get(`${w.project}\u0000${w.id}`) ?? 0, unblocked),
+		taskShape(
+			w,
+			openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
+			unblocked,
+			edges.get(`${w.project}\u0000${w.id}`),
+		),
 	);
 }
 
