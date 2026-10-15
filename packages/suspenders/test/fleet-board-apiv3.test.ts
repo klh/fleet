@@ -69,6 +69,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 			expect(t.project).toBe(proj);
 			expect(Object.keys(t).sort()).toEqual([
 				"age_s",
+				"blocked_by",
 				"executor",
 				"id",
 				"locality",
@@ -87,6 +88,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"tail",
 				"title",
 				"unblocked_by",
+				"waiting_on",
 			]);
 		}
 		const alpha = feed.tasks.find((t: Row) => t.id === w1);
@@ -154,6 +156,43 @@ describe("board api v3 (docs/board-api.md)", () => {
 			await fetch(`${BASE}/api/tasks?project=${q(proj)}`)
 		).json();
 		expect(later.tasks.find((t: Row) => t.id === w2).unblocked_by).toBeNull();
+	});
+
+	test("/api/tasks: dependency splines — blocked_by (unmet deps) + waiting_on (SHATTERED wait set)", async () => {
+		const wA = addWork("splines dep", ["--scope", "splA"]);
+		const wB = addWork("splines dependent", ["--scope", "splB"]);
+		expect(run("work.ts", ["block", wB, "--on", wA]).code).toBe(0);
+		const wP = addWork("splines parent", ["--scope", "splP"]);
+		expect(
+			run("work.ts", [
+				"split",
+				wP,
+				"spline child one",
+				"spline child two",
+				"--reason",
+				"independent-scopes",
+			]).code,
+		).toBe(0);
+		const feed = await (
+			await fetch(`${BASE}/api/tasks?project=${q(proj)}`)
+		).json();
+		const dep = feed.tasks.find((t: Row) => t.id === wB);
+		expect(dep.blocked_by).toEqual([wA]);
+		const parent = feed.tasks.find((t: Row) => t.id === wP);
+		expect(parent.state).toBe("SHATTERED");
+		const kids = feed.tasks
+			.filter((t: Row) => t.parent_id === wP)
+			.map((t: Row) => t.id)
+			.sort();
+		expect(kids).toEqual([...parent.waiting_on].sort());
+		expect(kids.length).toBe(2);
+		// a dep row removed → the blocked edge drops out of the feed
+		expect(run("work.ts", ["unblock", wB, "--on", wA]).code).toBe(0);
+		const feed2 = await (
+			await fetch(`${BASE}/api/tasks?project=${q(proj)}`)
+		).json();
+		const dep2 = feed2.tasks.find((t: Row) => t.id === wB);
+		expect(dep2.blocked_by).toEqual([]);
 	});
 
 	test("/api/task: 404 shape for a missing id; events + decisions linkage, newest first", async () => {

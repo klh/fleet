@@ -41,6 +41,8 @@ newest activity first:
   "owner_sid": "…|null", "owner_label": "lane-name|null", "requires": "shell,git|null",
   "scope": "src/x|null", "parent_id": "W6|null", "age_s": 4210,
   "tag": "ikea|null", "tag_color": "#0058A3|null",
+  "blocked_by": ["W6"],
+  "waiting_on": ["W6.1"],
   "open_decisions": 1,
   "tail": { "text": "→ Bash: bun test test/", "ts": "2026-09-28T07:19:35.016Z" } | null,
   "unblocked_by": "W6|null"
@@ -59,6 +61,10 @@ assistant text or tool call, read from the last 32KB of its `sessions.transcript
 JSONL (null when the session has no transcript on this disk — remote or reaped).
 `unblocked_by` = the id of the item whose completion freed this one (newest `work.ready`
 bus event), non-null only while the item is still READY — the UI flags it ▶ startable.
+`blocked_by` = ids of unmet `work_deps` prerequisites (dep not DONE; an orphaned dep row
+also reads blocked) — the kanban draws thin orange dep→dependent splines and orders each
+column provider-first. `waiting_on` = unfinished required children of a SHATTERED parent
+(the roll-up wait set) — thin green child→parent splines.
 
 ## GET /api/task?project=&id=
 

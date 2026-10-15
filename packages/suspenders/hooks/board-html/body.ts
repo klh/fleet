@@ -69,6 +69,7 @@ export const BODY = String.raw`
 <section id="tab-lanes" hidden>
   <div id="kanbanErr" class="taberr"></div>
   <div class="kwrap"><div id="kanban"><div class="state dim">loading lanes...</div></div></div>
+  <div class="dim" id="splinesLegend">— <span class="spl-key spl-block">blocked by</span> · <span class="spl-key spl-wait">shattered parent waiting on children</span></div>
 </section>
 <section id="tab-activity" hidden>
   <div id="actErr" class="taberr"></div>

@@ -211,6 +211,7 @@ function renderTasks(){
 var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
   { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
+  { key: 'WAITING', label: 'waiting', states: ['SHATTERED'], cap: 12 },
   { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
@@ -372,6 +373,43 @@ function kanbanCard(t){
   }
   return html + '</div>';
 }
+// --- W214 dependency splines — blocked edges (thin orange) + shattered-parent
+// waiting edges (thin green). depOrder() reorders each column provider-first
+// (Kahn topological on in-column edges, age tie-break) so splines read
+// top-down; drawSplines() routes card-edge-to-card-edge beziers in an
+// overlay SVG riding the kanban scroll container (scroll-invariant: the
+// overlay scrolls with the content). Server: blocked_by = unmet work_deps,
+// waiting_on = SHATTERED roll-up wait set.
+var tkey = function(t){ return (t.project || '') + '\u0000' + t.id; };
+function depOrder(items){
+  var byId = {}, indeg = {}, outs = {}, i, d;
+  for (i = 0; i < items.length; i++) byId[tkey(items[i])] = items[i];
+  for (i = 0; i < items.length; i++){ indeg[tkey(items[i])] = 0; outs[tkey(items[i])] = []; }
+  var edge = function(a, b){
+    if (byId[a] && byId[b] && a !== b){ outs[a].push(b); indeg[b]++; }
+  };
+  for (i = 0; i < items.length; i++){
+    var t = items[i];
+    var bb = t.blocked_by || [];
+    for (d = 0; d < bb.length; d++) edge(tkey({project: t.project, id: bb[d]}), tkey(t));
+    var wo = t.waiting_on || [];
+    for (d = 0; d < wo.length; d++) edge(tkey({project: t.project, id: wo[d]}), tkey(t));
+  }
+  var order = [], q = [];
+  for (i = 0; i < items.length; i++) if (!indeg[tkey(items[i])]) q.push(tkey(items[i]));
+  while (q.length){
+    var id = q.shift(); order.push(id);
+    var o = outs[id];
+    if (o) for (var k = 0; k < o.length; k++) if (--indeg[o[k]] === 0) q.push(o[k]);
+  }
+  // cycle fallback: unprocessed nodes keep the incoming (age) order
+  if (order.length < items.length){
+    for (i = 0; i < items.length; i++) if (indeg[tkey(items[i])] > 0) order.push(tkey(items[i]));
+  }
+  var pos = {};
+  for (i = 0; i < order.length; i++) pos[order[i]] = i;
+  return items.slice().sort(function(a, b){ return pos[tkey(a)] - pos[tkey(b)]; });
+}
 function renderKanban(){
   if (curTab !== 'lanes') return;
   var el = byId('kanban');
@@ -393,6 +431,7 @@ function renderKanban(){
     var col = KCOLS[c];
     var items = ts.filter(function(t){ return col.states.indexOf(t.state) >= 0; });
     items.sort(function(a, b){ return (a.age_s || 0) - (b.age_s || 0); }); // newest activity first
+    items = depOrder(items); // W214: provider above dependent, splines flow top-down
     var shown = col.cap ? items.slice(0, col.cap) : items;
     shownAll = shownAll.concat(shown);
     html += '<div class="kcol"><h3>' + esc(col.label) + '<span class="kcount">' + items.length + '</span></h3>';
@@ -407,11 +446,12 @@ function renderKanban(){
   // only when the STRUCTURE changed; refresh ages + tails in place otherwise.
   var kstruct = html.replace(/<span class="kage dim">[^<]*<\/span>/g, '').replace(/<div class="ktail">[^<]*<\/div>/g, '');
   var prevStructural = el.getAttribute('data-ksig') || '';
-  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); return; }
+  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); drawSplines(); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
   el.setAttribute('data-ksig', kstruct);
   sigSet(el, kstruct, html);
   updateKanbanVolatile(el, shownAll);
+  drawSplines();
 }
 function updateKanbanVolatile(el, shownAll){
   var cards = el.querySelectorAll('.kcard');
@@ -422,6 +462,100 @@ function updateKanbanVolatile(el, shownAll){
     if (ageEl) ageEl.textContent = agoShort(t.age_s);
     var tailEl = c.querySelector('.ktail');
     if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
+  }
+}
+// visible-card edge list: [{cls, from, to}] — blocked (orange): dep card →
+// dependent card; waiting (green): child card → SHATTERED parent card. Both
+// point at the waiter. Pairs whose cards are filtered/capped off the board
+// drop out silently.
+function splineEdges(ts, vis){
+  var out = [], seen = {}, i, j, t;
+  for (i = 0; i < ts.length; i++){
+    t = ts[i];
+    var bb = t.blocked_by || [];
+    for (j = 0; j < bb.length; j++){
+      var f1 = tkey({project: t.project, id: bb[j]}), k1 = f1 + '>' + tkey(t);
+      if (vis[f1] && vis[tkey(t)] && !seen[k1]){ seen[k1] = 1; out.push({cls: 'spl-block', from: f1, to: tkey(t)}); }
+    }
+    var wo = t.waiting_on || [];
+    for (j = 0; j < wo.length; j++){
+      var f2 = tkey({project: t.project, id: wo[j]}), k2 = tkey(t) + '>' + f2;
+      if (vis[f2] && vis[tkey(t)] && !seen[k2]){ seen[k2] = 1; out.push({cls: 'spl-wait', from: f2, to: tkey(t)}); }
+    }
+  }
+  return out;
+}
+var SVGNS = 'http://www.w3.org/2000/svg';
+function splineSvg(){
+  var el = byId('kanban');
+  var wrap = el ? el.parentNode : null;
+  if (!wrap) return null;
+  var svg = byId('ksplines');
+  if (!svg){
+    svg = document.createElementNS(SVGNS, 'svg');
+    svg.id = 'ksplines';
+    svg.setAttribute('aria-hidden', 'true');
+    var defs = document.createElementNS(SVGNS, 'defs');
+    var mk = function(id2, cls){
+      var m = document.createElementNS(SVGNS, 'marker');
+      m.setAttribute('id', id2);
+      m.setAttribute('viewBox', '0 0 10 10');
+      m.setAttribute('refX', 9); m.setAttribute('refY', 5);
+      m.setAttribute('markerWidth', 6); m.setAttribute('markerHeight', 6);
+      m.setAttribute('orient', 'auto');
+      var p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('d', 'M0 0 L10 5 L0 10 z');
+      p.setAttribute('class', cls);
+      m.appendChild(p); defs.appendChild(m);
+    };
+    mk('spl-arrow-block', 'spl-block');
+    mk('spl-arrow-wait', 'spl-wait');
+    svg.appendChild(defs);
+    wrap.appendChild(svg);
+  }
+  return svg;
+}
+function drawSplines(){
+  var el = byId('kanban');
+  if (!el || !tasksData || curTab !== 'lanes') return;
+  var svg = splineSvg();
+  if (!svg) return;
+  var krect = el.getBoundingClientRect();
+  var pos = {}, vis = {}, i;
+  var cards = el.querySelectorAll('.kcard');
+  for (i = 0; i < cards.length; i++){
+    var r = cards[i].getBoundingClientRect();
+    var k = (cards[i].getAttribute('data-kproj') || '') + '\u0000' + cards[i].getAttribute('data-kid');
+    pos[k] = { x: r.left - krect.left, y: r.top - krect.top, w: r.width, h: r.height };
+    vis[k] = 1;
+  }
+  svg.setAttribute('width', el.offsetWidth);
+  svg.setAttribute('height', el.offsetHeight);
+  while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+  var edges = splineEdges(tasksData.tasks, vis);
+  for (i = 0; i < edges.length; i++){
+    var a = pos[edges[i].from], b = pos[edges[i].to];
+    if (!a || !b) continue;
+    var sameCol = Math.abs(a.x - b.x) < a.w / 2;
+    var x1, y1, x2, y2, d;
+    if (sameCol){
+      x1 = a.x + a.w / 2; y1 = a.y < b.y ? a.y + a.h : a.y;
+      x2 = b.x + b.w / 2; y2 = a.y < b.y ? b.y : b.y + b.h;
+      var my = (y1 + y2) / 2;
+      d = 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + my + ', ' + x2 + ' ' + my + ', ' + x2 + ' ' + y2;
+    } else {
+      x1 = a.x < b.x ? a.x + a.w : a.x;
+      y1 = a.y + a.h / 2;
+      x2 = a.x < b.x ? b.x : b.x + b.w;
+      y2 = b.y + b.h / 2;
+      var mx = (x1 + x2) / 2;
+      d = 'M' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2;
+    }
+    var path = document.createElementNS(SVGNS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', edges[i].cls);
+    path.setAttribute('marker-end', 'url(#' + (edges[i].cls === 'spl-block' ? 'spl-arrow-block' : 'spl-arrow-wait') + ')');
+    svg.appendChild(path);
   }
 }
 function openTask(id, proj, trigger){
@@ -529,4 +663,5 @@ function renderDrawer(){
   renderTaskDiff();
   renderTaskTail();
 }
+window.addEventListener('resize', function(){ drawSplines(); });
 `;
