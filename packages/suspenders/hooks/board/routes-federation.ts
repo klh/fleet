@@ -4,8 +4,16 @@
 // operator env — the browser never sees the key). Honest degradation:
 // unset env → explanatory page; hub down → same page with the reason;
 // both truthful about default-OFF.
+
+import { createHash, timingSafeEqual } from "node:crypto";
 import { federationUsagePage } from "../bin/federation-usage-html.ts";
+import { federationWorkPage } from "../bin/federation-work-html.ts";
 import { readCapped } from "../lib/federation.ts";
+import {
+	federatedWorkView,
+	type GovernorStore,
+	localWorkFeed,
+} from "../lib/federation-work.ts";
 
 type ClassCell = {
 	in_tok: number;
@@ -95,4 +103,71 @@ export async function handleFederationUsage(
 	const out = await fetchHubReport(hubUrl, token, days);
 	if (!out.ok) return page({ days, spokes: 0, windows: [], aids: [] }, out.why);
 	return page(out.report, null);
+}
+
+// ─── W370 federated work view ────────────────────────────────────────────────
+// Serve leg: GET /federation/work emits THIS hub's own open work on the
+// minimal wire (localWorkFeed — never descriptions, never spoke items).
+// Edge auth: SUSPENDERS_FEDERATION_WORK_TOKEN required-bearer when set
+// (timing-safe compare); unset = the board perimeter posture (reads open
+// within the host guard, like every other console read).
+function shaEqual(a: string, b: string): boolean {
+	const da = createHash("sha256").update(a).digest();
+	const db = createHash("sha256").update(b).digest();
+	return timingSafeEqual(da, db);
+}
+
+function workFeedAuthorized(req: Request): boolean {
+	const expected = process.env.SUSPENDERS_FEDERATION_WORK_TOKEN;
+	if (expected === undefined || expected.length === 0) return true;
+	const got = (req.headers.get("authorization") ?? "").replace(
+		/^Bearer\s+/i,
+		"",
+	);
+	if (got.length === 0) return false;
+	return shaEqual(got, expected);
+}
+
+export async function handleFederationWork(
+	req: Request,
+	url: URL,
+	store?: GovernorStore,
+): Promise<Response | null> {
+	if (req.method !== "GET") return null;
+	if (url.pathname === "/federation/work") {
+		if (!workFeedAuthorized(req))
+			return Response.json(
+				{ error: { code: "unauthorized", message: "belt: bearer required" } },
+				{ status: 401 },
+			);
+		try {
+			return Response.json(localWorkFeed({ store }));
+		} catch (e) {
+			return Response.json(
+				{ error: { code: "feed_failed", message: String(e) } },
+				{ status: 500 },
+			);
+		}
+	}
+	if (url.pathname === "/api/federation-work") {
+		try {
+			return Response.json(await federatedWorkView({ store }));
+		} catch (e) {
+			return Response.json(
+				{ error: { code: "view_failed", message: String(e) } },
+				{ status: 500 },
+			);
+		}
+	}
+	if (url.pathname === "/federation-work")
+		return new Response(
+			federationWorkPage(await federatedWorkView({ store })),
+			{
+				headers: {
+					"content-type": "text/html; charset=utf-8",
+					"cache-control": "no-store",
+				},
+			},
+		);
+	return null;
 }
