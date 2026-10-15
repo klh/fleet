@@ -74,8 +74,13 @@ auth:
     enforced: true # W191 requiredScope + audience enforcement (base code)
     # Entra ID values live ONLY in the real stack.yaml, never here:
     #   issuer: https://login.microsoftonline.com/$TENANT_ID/v2.0
+    #   jwksUri: https://login.microsoftonline.com/$TENANT_ID/discovery/v2.0/keys
     #   audience: $APP_CLIENT_ID
     #   requiredScope: api://$APP_CLIENT_ID/access_as_user
+    # W372: the whole block materializes into the hub .env (hubctl render) —
+    # issuer + jwksUri + audience are REQUIRED together; a partial block
+    # fails closed at render, and the buckle gate builds its JWT validator
+    # from the materialized env (Entra-ready with zero code edits).
 admin:
   gui: true # hub admin plane (W231)
 

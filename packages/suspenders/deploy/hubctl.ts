@@ -54,7 +54,7 @@ function requireHub(stack: StackConfig, name: string): HubProfile {
 function renderEnv(
 	hub: HubProfile,
 	name: string,
-	authRequired?: boolean,
+	auth?: StackConfig["auth"],
 	version?: string,
 ): string {
 	const ref = version;
@@ -97,8 +97,25 @@ function renderEnv(
 	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
-	if (authRequired !== undefined)
-		kv("HUB_BUCKLE_AUTH", authRequired ? "on" : "off");
+	if (auth?.required !== undefined)
+		kv("HUB_BUCKLE_AUTH", auth.required ? "on" : "off");
+	// W372: the auth.oidc/auth.tokens blocks materialize as env — Entra-ready
+	// by config (values live ONLY in the machine stack.yaml; partial blocks
+	// fail closed at render, a hub never ships a half-declared posture).
+	if (auth?.tokens?.ttlHours !== undefined)
+		kv("HUB_BUCKLE_AUTH_TTL_HOURS", auth.tokens.ttlHours);
+	if (auth?.oidc) {
+		const o = auth.oidc;
+		if (!o.issuer || !o.audience)
+			throw new Error(
+				"auth.oidc requires issuer + audience (Entra values live in the machine stack.yaml, never in the repo)",
+			);
+		kv("HUB_BUCKLE_OIDC_ENFORCED", o.enforced === false ? "off" : "on");
+		kv("HUB_BUCKLE_OIDC_ISSUER", o.issuer);
+		kv("HUB_BUCKLE_OIDC_JWKS_URI", o.jwksUri);
+		kv("HUB_BUCKLE_OIDC_AUDIENCE", o.audience);
+		kv("HUB_BUCKLE_OIDC_REQUIRED_SCOPE", o.requiredScope);
+	}
 	kv("HUB_BOARD_PORT", hub.board_port);
 	kv("HUB_BOARD_BIND", hub.board_bind);
 	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
@@ -251,13 +268,13 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 function pushConfig(
 	hub: HubProfile,
 	name: string,
-	authRequired?: boolean,
+	auth?: StackConfig["auth"],
 	version?: string,
 ): void {
 	if (!existsSync(COMPOSE_TEMPLATE)) {
 		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
 	}
-	const envText = renderEnv(hub, name, authRequired, version);
+	const envText = renderEnv(hub, name, auth, version);
 	const dir = requireDir(hub);
 	const envPath = `${dir}/.env`;
 	// ensure the deploy dir on both paths before any file lands
@@ -482,13 +499,13 @@ function runtimeReport(
 function deployHub(
 	hub: HubProfile,
 	name: string,
-	authRequired?: boolean,
+	auth?: StackConfig["auth"],
 	version?: string,
 ): void {
 	// Validate the immutable source before minting or copying anything.
-	renderEnv(hub, name, authRequired, version);
+	renderEnv(hub, name, auth, version);
 	mintRootKey(hub);
-	pushConfig(hub, name, authRequired, version);
+	pushConfig(hub, name, auth, version);
 	composeUp(hub);
 	const failed = status(hub);
 	if (failed > 0) {
@@ -517,7 +534,7 @@ function main(): void {
 	const [verb, hubName, ...flags] = process.argv.slice(2);
 	const force = flags.includes("--force");
 	const stack = loadStack();
-	const authRequired = stack.auth?.required;
+	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
 			"usage: hubctl <render|mint|push|up|status|deploy|manifest> <hub> — config: ~/.config/klh/stack.yaml\n" +
@@ -541,19 +558,19 @@ function main(): void {
 	}
 	switch (verb) {
 		case "render":
-			console.log(renderEnv(hub, hubName, authRequired, stack.version));
+			console.log(renderEnv(hub, hubName, auth, stack.version));
 			return;
 		case "mint":
 			mintRootKey(hub);
 			return;
 		case "push":
-			pushConfig(hub, hubName, authRequired, stack.version);
+			pushConfig(hub, hubName, auth, stack.version);
 			return;
 		case "up":
 			upHub(hub, hubName, stack.version, force);
 			return;
 		case "deploy":
-			deployHub(hub, hubName, authRequired, stack.version);
+			deployHub(hub, hubName, auth, stack.version);
 			return;
 		case "manifest":
 			emitManifest(stack.version, flags);

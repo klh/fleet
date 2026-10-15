@@ -257,3 +257,89 @@ test("install.sh --hub without a name exits 2", () => {
 	expect(r.exitCode).toBe(2);
 	expect(r.stderr.toString()).toContain("needs a hub name");
 });
+
+test("W372: auth.oidc/auth.tokens blocks materialize to the .env", () => {
+	const base = JSON.parse(readFileSync(stack, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	const f = join(dir, "stack-372.json");
+	writeFileSync(
+		f,
+		JSON.stringify({
+			...base,
+			auth: {
+				required: true,
+				tokens: { ttlHours: 720 },
+				oidc: {
+					enforced: true,
+					issuer: "https://login.microsoftonline.com/t372/v2.0",
+					jwksUri: "https://login.microsoftonline.com/t372/discovery/v2.0/keys",
+					audience: "app-372",
+					requiredScope: "api://app-372/access_as_user",
+				},
+			},
+		}),
+	);
+	const r = hubctl(["render", "w363"], { KLH_STACK: f });
+	expect(r.code).toBe(0);
+	expect(r.out).toContain("HUB_BUCKLE_AUTH=on");
+	expect(r.out).toContain("HUB_BUCKLE_AUTH_TTL_HOURS=720");
+	expect(r.out).toContain("HUB_BUCKLE_OIDC_ENFORCED=on");
+	expect(r.out).toContain(
+		"HUB_BUCKLE_OIDC_ISSUER=https://login.microsoftonline.com/t372/v2.0",
+	);
+	expect(r.out).toContain(
+		"HUB_BUCKLE_OIDC_JWKS_URI=https://login.microsoftonline.com/t372/discovery/v2.0/keys",
+	);
+	expect(r.out).toContain("HUB_BUCKLE_OIDC_AUDIENCE=app-372");
+	expect(r.out).toContain(
+		"HUB_BUCKLE_OIDC_REQUIRED_SCOPE=api://app-372/access_as_user",
+	);
+});
+
+test("W372: partial auth.oidc fails closed at render", () => {
+	const base = JSON.parse(readFileSync(stack, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	const f = (i: number): string => join(dir, `stack-372-partial-${i}.json`);
+	const variants = [
+		{ issuer: "https://idp.test/v2.0" }, // audience + jwksUri missing
+		{
+			issuer: "https://idp.test/v2.0",
+			jwksUri: "https://idp.test/jwks",
+		}, // audience missing
+	];
+	variants.forEach((oidc, i) => {
+		writeFileSync(f(i), JSON.stringify({ ...base, auth: { oidc } }));
+		const r = hubctl(["render", "w363"], { KLH_STACK: f(i) });
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("auth.oidc requires issuer + audience");
+	});
+});
+
+test("W372: oidc enforced:false renders ENFORCED=off", () => {
+	const base = JSON.parse(readFileSync(stack, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	const f = join(dir, "stack-372-off.json");
+	writeFileSync(
+		f,
+		JSON.stringify({
+			...base,
+			auth: {
+				oidc: {
+					enforced: false,
+					issuer: "https://idp.test/v2.0",
+					jwksUri: "https://idp.test/jwks",
+					audience: "app-x",
+				},
+			},
+		}),
+	);
+	const r = hubctl(["render", "w363"], { KLH_STACK: f });
+	expect(r.code).toBe(0);
+	expect(r.out).toContain("HUB_BUCKLE_OIDC_ENFORCED=off");
+});

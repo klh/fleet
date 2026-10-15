@@ -24,6 +24,7 @@ import type {
 	UsageIngestFactory,
 } from "./gov/hub-seam.ts";
 import { createGovernance, type GovernanceOpts } from "./gov/middleware.ts";
+import { oidcGateOptsFromEnv } from "./gov/oidc-env.ts";
 import {
 	loadOverlay,
 	overlayModuleAdaptation,
@@ -303,7 +304,9 @@ export function startServer(
 		{
 			dbPath: opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db",
 			rootKey: opts.auth?.rootKey,
-			jwt: opts.auth?.jwt,
+			// W372: env-driven OIDC gate (stack.yaml auth.oidc materialized by
+			// hubctl) — programmatic opts win, env next, base posture last.
+			jwt: opts.auth?.jwt ?? oidcGateOptsFromEnv() ?? undefined,
 			federation: deps.federation,
 			slots: opts.auth?.slots,
 			adaptation: opts.auth?.adaptation,
