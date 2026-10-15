@@ -81,9 +81,15 @@ const PASS_THROUGH = new Set([
 	"stream",
 ]);
 
+/** Reasoning efforts forwarded verbatim on the openai wire (W770): litellm
+ *  zai rows forward them to Z.AI via allowed_openai_params — GLM-5.3
+ *  accepts low|high|max natively (always-thinks; disable 400s). */
+const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
 /** Anthropic ingress body → openai wire body. tool_result blocks lift into
  *  role:"tool" messages (in block order) ahead of the residual user text
- *  message; thinking/top_k degrade honestly (drop + warning). */
+ *  message; thinking/top_k degrade honestly (drop + warning);
+ *  reasoning_effort forwards verbatim when it names a known effort. */
 export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 	const warnings: TransformWarning[] = [];
 	let rejected: TransformWarning | null = null;
@@ -109,6 +115,16 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 				};
 			} else {
 				out.tool_choice = choice;
+			}
+		} else if (key === "reasoning_effort") {
+			const effort = str(value);
+			if (REASONING_EFFORTS.has(effort)) {
+				out.reasoning_effort = effort;
+			} else {
+				warnings.push({
+					field: key,
+					message: `unknown effort ${JSON.stringify(effort)} — honest degrade (dropped)`,
+				});
 			}
 		} else if (key === "thinking" || key === "top_k") {
 			warnings.push({

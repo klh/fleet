@@ -11,6 +11,31 @@
 // names, never a code change.
 import type { AnthropicBody } from "./router-core.ts";
 import { applyBudget, retryAfterMs } from "./router-core.ts";
+import {
+	loadGatewayPolicy,
+	resolveReasoningEffort,
+	type ReasoningEffort,
+} from "./router-policy.ts";
+
+/** Z.AI GLM-5.3 doc-verified efforts: low|high|max — the model ALWAYS
+ *  thinks (disable → 400; medium is not in the 5.3 set). The fleet axis
+ *  clamps to the two verified values; leaving the pin OFF is what burned
+ *  whole max_tokens budgets on reasoning_content (oracle glm-5.3 review,
+ *  3 attempts, empty visible content). */
+const ZAI_EFFORT: Record<ReasoningEffort, "low" | "high"> = {
+	low: "low",
+	medium: "low",
+	high: "high",
+	xhigh: "high",
+};
+
+/** thinking budget per pinned effort — litellm's anthropic adapter buckets
+ *  ≥4096→high and ≥1024→low, so the legacy litellm-direct hop reproduces
+ *  the same effort from the thinking field alone. */
+const THINKING_BUDGET: Record<"low" | "high", number> = {
+	low: 1024,
+	high: 4096,
+};
 
 export interface EscalateResult {
 	text: string;
@@ -91,6 +116,7 @@ export async function escalate(
 		env?: Env;
 		settings?: SettingsLoader;
 		fetcher?: typeof fetch;
+		policyPath?: string;
 	},
 ): Promise<EscalateResult> {
 	const wantFastModel = opts.wantFast ? "glm-5.3-flash" : "glm-5.3";
@@ -101,6 +127,11 @@ export async function escalate(
 	if (!leg) return { text: "", model: wantFastModel };
 	const model = leg.modelOverride ?? wantFastModel;
 	const budget = applyBudget(model, opts.maxTokens);
+	const effort = resolveReasoningEffort(
+		loadGatewayPolicy(opts.policyPath),
+		opts.wantFast ? "escalate-fast" : "escalate",
+	);
+	const pinned = ZAI_EFFORT[effort];
 	const res = await (opts.fetcher ?? fetch)(`${leg.url}/v1/messages`, {
 		method: "POST",
 		headers: {
@@ -115,6 +146,13 @@ export async function escalate(
 			// model_list; lanes 400'd on unrecognized_model through this path
 			model,
 			max_tokens: budget.maxTokens,
+			// W770 reasoning pin on both carriers: thinking rides the anthropic
+			// wire (legacy litellm-direct hop buckets it to the same effort);
+			// reasoning_effort rides top-level (gate hop — buckle forwards
+			// verbatim). Both drop harmlessly until the operator's litellm.yaml
+			// zai rows carry allowed_openai_params: [reasoning_effort].
+			thinking: { type: "enabled", budget_tokens: THINKING_BUDGET[pinned] },
+			reasoning_effort: pinned,
 			...(body.system === undefined ? {} : { system: body.system }),
 			messages: body.messages,
 		}),
