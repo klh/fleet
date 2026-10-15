@@ -8,7 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import {
 	resolveLaneExecutor,
 	releaseFailedLaunch,
@@ -67,6 +67,18 @@ test("missing executor never guesses an unbounded installation tree", () => {
 	expect(
 		resolveLaneExecutor("copilot", { HOME: home(), PATH: "/nonexistent" }),
 	).toBeNull();
+});
+test("PATH splits on the platform delimiter (win32 ';' readiness, W767)", () => {
+	const h = home();
+	mkdirSync(join(h, "bin"), { recursive: true });
+	const p = executable(join(h, "bin", "claude"));
+	// a wrong delimiter would fuse the entries and miss the binary
+	expect(
+		resolveLaneExecutor("claude", {
+			HOME: "",
+			PATH: join("/nonexistent", "x") + delimiter + join(h, "bin"),
+		}),
+	).toBe(p);
 });
 test("codex configured executor uses the same authoritative bounded resolution", () => {
 	const h = home(),

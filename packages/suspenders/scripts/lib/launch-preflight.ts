@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { releaseWorkClaim } from "../../hooks/lib/work-release.ts";
 import type { GovernorStore } from "../../hooks/lib/govdb.ts";
 // W422: which executor tokens may resolve to a binary is registry data —
@@ -19,7 +19,7 @@ export function resolveLaneExecutor(
 		: [
 				env.HOME ? join(env.HOME, ".local/bin", name) : "",
 				...(env.PATH ?? "")
-					.split(":")
+					.split(delimiter)
 					.filter(isAbsolute)
 					.slice(0, 64)
 					.map((dir) => join(dir, name)),

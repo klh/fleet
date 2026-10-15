@@ -51,6 +51,7 @@ Manifest `env` PATH values are darwin-shaped (colon-separated homebrew
 dirs). The win32 emitter NEVER emits PATH as a live `<env>` — the host
 machine/user PATH applies (W767): set it once per host (`setx PATH ...` or
 systemsettings). Non-PATH env values still render as live `<env>` entries.
+Full cross-platform path findings: `docs/windows-spoke-path-audit.md`.
 
 Manifest log/env paths are POSIX-shaped (`/tmp/...`, `__HOME__/...`). On a
 real Windows host the render substitutes the native home; `/tmp` entries
