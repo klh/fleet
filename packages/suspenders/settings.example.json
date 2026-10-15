@@ -113,6 +113,14 @@
 						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts precompact"
 					}
 				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/pre-compact.ts"
+					}
+				]
 			}
 		]
 	},
