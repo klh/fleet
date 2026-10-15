@@ -36,6 +36,14 @@ export interface HubProfile {
 	/** W688.7.1: private-network hosts the ladder may reach over plain http
 	 *  (BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlist), e.g. the engine host. */
 	http_upstream_hosts?: string[];
+	/** W688.3: the overlay code-loader knobs the buckle container receives
+	 *  (KLH_OVERLAY_* env, config-over-code). dir = the overlay dir path
+	 *  INSIDE the container (the code arrives via the fleet-repo volume on
+	 *  an overlay hub); sha256 pins the entry digest (refuse-on-mismatch);
+	 *  allow adds operator allow-roots beyond the compiled defaults — on an
+	 *  overlay hub that is the pinned checkout root (e.g. /src/fleet/packages).
+	 *  Unset = solo posture, unchanged. */
+	overlay?: { dir?: string; sha256?: string; allow?: string };
 	bind?: string;
 	board_bind?: string;
 	belt_bind?: string;
@@ -212,9 +220,9 @@ export function providerKey(
 	name: string,
 	stack?: StackConfig | null,
 ): string | null {
-	const entry = (
-		stack === undefined ? tryLoadStack() : stack
-	)?.providers?.[name];
+	const entry = (stack === undefined ? tryLoadStack() : stack)?.providers?.[
+		name
+	];
 	if (!entry) return null;
 	if (entry.key) return entry.key;
 	if (entry.env) {
@@ -224,9 +232,7 @@ export function providerKey(
 	if (entry.key_file) {
 		const raw = entry.key_file;
 		const path =
-			raw === "~" || raw.startsWith("~/")
-				? join(homedir(), raw.slice(1))
-				: raw;
+			raw === "~" || raw.startsWith("~/") ? join(homedir(), raw.slice(1)) : raw;
 		const st = statSync(path);
 		if ((st.mode & 0o777) !== 0o600) {
 			throw new Error(
