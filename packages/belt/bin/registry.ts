@@ -5,9 +5,44 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// ─── per-platform serving runtime (W765) ───
+// The qvac platformDefinitions pattern: ONE table maps platform → the
+// backend that serves the fleet there. Registry rows carry a runtime attr
+// (default derived from the platform) and the spawner derives argv from it.
+export type Platform = "darwin" | "win32" | "linux";
+export type RuntimeBackend = "mlx" | "llama.cpp";
+
+export interface PlatformDefinition {
+	runtime: RuntimeBackend;
+	accel: "metal" | "vulkan" | "cpu";
+}
+
+// darwin = MLX (metal); win32/linux = llama.cpp on GGUF (vulkan/cpu)
+export const platformDefinitions: Record<Platform, PlatformDefinition> = {
+	darwin: { runtime: "mlx", accel: "metal" },
+	win32: { runtime: "llama.cpp", accel: "vulkan" },
+	linux: { runtime: "llama.cpp", accel: "cpu" },
+};
+
+export const thisPlatform = (): Platform =>
+	process.platform === "darwin"
+		? "darwin"
+		: process.platform === "win32"
+			? "win32"
+			: "linux";
+
+/** Row override wins; otherwise the platform table decides. */
+export const runtimeFor = (
+	s: Pick<Specialist, "runtime">,
+	platform: Platform = thisPlatform(),
+): RuntimeBackend => s.runtime ?? platformDefinitions[platform].runtime;
+
 export interface Specialist {
 	port: SPECIALIST_PORTS;
-	model: string; // exact mlx-community id — mlx_lm validates it
+	// mlx rows: exact mlx-community id — mlx_lm validates it.
+	// llama.cpp rows: local GGUF file path (acquisition binds repo+quant in
+	// the model catalog; see local-llm/models.catalog.ts)
+	model: string;
 	label: string; // display + routing role
 	// belt-facing gateway alias (litellm model_name, buckle group, direct
 	// tier key) — emitters derive every downstream config from this
@@ -25,6 +60,9 @@ export interface Specialist {
 	maxInflight?: number;
 	engine?: "mlx_lm" | "rapid"; // default mlx_lm; rapid = rapid-mlx (MTP, prefix cache, batching)
 	flags?: string[]; // extra server args for the chosen engine
+	// W765: serving runtime — default from platformDefinitions (darwin=mlx,
+	// win32/linux=llama.cpp-GGUF); an explicit row value pins it cross-platform
+	runtime?: RuntimeBackend;
 	// W242 catalog dimension: speculative decoding lives in the CHECKPOINT —
 	// rapid-mlx auto-detects `mtp.*` weights and uses them; mlx_lm strips them
 	// at load. "mtp" = the checkpoint ships MTP heads. Absent = plain
@@ -351,6 +389,9 @@ export interface RegistryEntry {
 	ram_gb: number;
 	tier: "resident" | "ondemand";
 	engine: "mlx_lm" | "rapid" | "external";
+	// W765 mirror of Specialist.runtime — absent on external rows (their
+	// process is owned elsewhere, the platform table doesn't decide for them)
+	runtime?: RuntimeBackend;
 	// W242 catalog dimension — mirror of Specialist.spec_dec (external rows
 	// have no MLX checkpoint, so never set it there)
 	spec_dec?: "mtp";
@@ -392,6 +433,7 @@ export function registryEntries(
 			ram_gb: s.ram_gb,
 			tier: s.tier,
 			engine: s.engine ?? "mlx_lm",
+			runtime: runtimeFor(s),
 			spec_dec: s.spec_dec,
 			protocol: SPECIALIST_PROTOCOL,
 			external: false,

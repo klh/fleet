@@ -6,8 +6,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	catalogForPlatform,
 	catalogPaths,
+	entryPlatforms,
 	loadCatalog,
+	platformsForRuntime,
 	validateCatalog,
 	type CatalogEntry,
 } from "./models.catalog.ts";
@@ -61,7 +64,7 @@ test("machine-level override wins id collisions and still validates", () => {
 			version: 1,
 			models: [
 				entry({
-					id: "qwen3-extract-4b",
+					id: "qwen3-extract-4b-gguf",
 					repo: "hub://nas.threads.dk/models/extract-4b",
 					runtime: "gguf",
 				}),
@@ -69,7 +72,37 @@ test("machine-level override wins id collisions and still validates", () => {
 		}),
 	);
 	const cat = loadCatalog(catalogPaths(machine));
-	const e = cat.models.find((m) => m.id === "qwen3-extract-4b");
+	const e = cat.models.find((m) => m.id === "qwen3-extract-4b-gguf");
 	expect(e?.runtime).toBe("gguf");
 	expect(e?.repo.startsWith("hub://")).toBe(true);
+});
+
+test("platforms default to the runtime-implied set", () => {
+	expect(platformsForRuntime("mlx")).toEqual(["darwin"]);
+	expect(platformsForRuntime("gguf")).toEqual(["win32", "linux"]);
+	expect(entryPlatforms(entry({ runtime: "gguf" }))).toEqual([
+		"win32",
+		"linux",
+	]);
+});
+
+test("shipped catalog: gguf lights up on win32/linux, mlx rows on darwin", () => {
+	const doc = JSON.parse(readFileSync(catalogPaths().repo, "utf8")) as {
+		models: CatalogEntry[];
+	};
+	expect(catalogForPlatform(doc.models, "win32").map((m) => m.id)).toEqual([
+		"qwen3-extract-4b-gguf",
+	]);
+});
+
+test("validation: gguf-on-darwin and per-platform port collisions rejected", () => {
+	const v = validateCatalog([
+		entry({ runtime: "gguf", platforms: ["darwin"] }),
+		entry({ id: "t2", runtime: "gguf", platforms: ["win32"] }),
+		entry({ id: "t3", runtime: "gguf", platforms: ["win32"] }),
+	]);
+	expect(v.errors.some((e) => e.includes("invalid on darwin"))).toBe(true);
+	expect(
+		v.errors.some((e) => e.includes("duplicate win32 row for :8902")),
+	).toBe(true);
 });
