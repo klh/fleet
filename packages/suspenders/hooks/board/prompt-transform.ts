@@ -4,6 +4,7 @@
 // injected-context disclosure and secret redaction for the debug/log
 // preview. Pure module: no db, no board context — deps are injected so the
 // unit tests drive every branch without a live board.
+import { readFileSync } from "node:fs";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import { scrub } from "../lib/servicemon.ts";
 
@@ -53,13 +54,18 @@ export function condensePrompt(text: string): string {
 }
 
 // ─── enhance (opt-in local LLM rewrite) ──────────────────────────────────
-// W422.17.3: the default target is the BUCKLE FRONT (:4101), not the belt
-// router :4000 — every LLM egress rides the gate and lands in route_audit.
-// SUSPENDERS_PROMPT_ENHANCE_URL still overrides (solo machines pin :4000
-// there); SUSPENDERS_PROMPT_ENHANCE_KEY carries the operator-minted scoped
-// key (buckle:proxy:WRITE_ — never the admin key). Buckle down / key absent
-// → the enhance pass honestly skips (same graceful fallback as any router
-// error); the goal text is never lost to an enhancement outage.
+// W288: the default target is a belt DIRECT TIER by registry alias —
+// local-extract (:8902), local-reason (:8903) as the heavier fallback —
+// resolved from belt's EMITTED direct-tiers.json (the gateway-config
+// emission; never a YAML re-parse). Loopback-validated + OpenAI wire + no
+// complexity router: the goal text cannot escalate off-box, and telemetry
+// records the alias that actually served. Operator pins keep gateway mode
+// (buckle front, Anthropic wire): SUSPENDERS_PROMPT_ENHANCE_URL /
+// SUSPENDERS_PROMPT_MODEL; SUSPENDERS_PROMPT_ENHANCE_KEY carries the
+// operator-minted scoped key (buckle:proxy:WRITE_ — never the admin key).
+// A down specialist / closed gate / absent key → the enhance pass honestly
+// skips (same graceful fallback as any router error); the goal text is
+// never lost to an enhancement outage.
 export const ENHANCE_URL =
 	process.env.SUSPENDERS_PROMPT_ENHANCE_URL ??
 	"http://127.0.0.1:4101/v1/messages";
@@ -68,6 +74,106 @@ export const ENHANCE_MAX_TOKENS = 400;
 export const ENHANCE_TIMEOUT_MS = 15_000;
 export const ENHANCE_SYS =
 	"Rewrite the user's task prompt for a coding-agent fleet so it is clearer and unambiguous. Keep every technical term, identifier, path and constraint exactly. Keep imperative voice. Do not add requirements, do not answer the task. Output ONLY the rewritten prompt.";
+
+// W288 — default alias preference: extract first (registry good_at: "fast
+// cheap drafting"; the 2.5 GB row stays resident even on minimal-tier
+// machines), reason only as the heavier fallback.
+export const ENHANCE_DIRECT_ALIASES = ["local-extract", "local-reason"];
+
+// belt's emitted alias → loopback base map (gateway-config.ts emission)
+const DIRECT_TIERS_PATH = () =>
+	`${
+		process.env.SUSPENDERS_HOME ?? process.env.HOME
+	}/.claude/local-llm/direct-tiers.json`;
+
+// parseDirect (belt bin/router-policy.ts) only ever emits loopback http
+// bases — re-validate on read: the file is data, trust nothing.
+const LOOPBACK =
+	/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(\/v1)?\/?$/;
+
+export interface EnhanceTarget {
+	mode: "direct" | "gateway";
+	alias: string;
+	/** the real serving model id (live-probed for direct tiers — the alias
+	 *  is the POLICY key, the id is what the specialist serves) */
+	model: string;
+	url: string;
+	wire: "openai" | "anthropic";
+}
+
+/** W288 — the enhance target, resolved once per call:
+ *  SUSPENDERS_PROMPT_MODEL pin → gateway with the pinned model;
+ *  SUSPENDERS_PROMPT_ENHANCE_URL pin → gateway on the pinned endpoint
+ *  (model = the direct alias, an honest id); else the first direct-tier
+ *  alias whose specialist answers /v1/models (OpenAI wire, loopback) —
+ *  the live id rides the wire and the result records it; nothing
+ *  resolvable → the buckle-front default with the alias as the id. */
+export async function resolveEnhanceTarget(deps?: {
+	readFile?: (path: string) => string;
+	probe?: (base: string) => Promise<string | null>;
+}): Promise<EnhanceTarget> {
+	const modelPin = process.env.SUSPENDERS_PROMPT_MODEL;
+	const urlPin = process.env.SUSPENDERS_PROMPT_ENHANCE_URL;
+	const read = deps?.readFile ?? ((p: string) => readFileSync(p, "utf8"));
+	const probe =
+		deps?.probe ??
+		(async (base: string): Promise<string | null> => {
+			try {
+				const r = await fetch(`${base}/models`, {
+					signal: AbortSignal.timeout(3000),
+				});
+				if (!r.ok) return null;
+				const j = (await r.json()) as { data?: { id?: string }[] };
+				return j.data?.[0]?.id ?? null;
+			} catch {
+				return null;
+			}
+		});
+	if (modelPin)
+		return {
+			mode: "gateway",
+			alias: "",
+			model: modelPin,
+			url: urlPin ?? ENHANCE_URL,
+			wire: "anthropic",
+		};
+	if (urlPin)
+		return {
+			mode: "gateway",
+			alias: "",
+			model: ENHANCE_DIRECT_ALIASES[0],
+			url: urlPin,
+			wire: "anthropic",
+		};
+	try {
+		const doc = JSON.parse(read(DIRECT_TIERS_PATH())) as Record<
+			string,
+			unknown
+		>;
+		for (const alias of ENHANCE_DIRECT_ALIASES) {
+			const base = doc[alias];
+			if (typeof base !== "string" || !LOOPBACK.test(base)) continue;
+			const id = await probe(base);
+			if (!id) continue;
+			return {
+				mode: "direct",
+				alias,
+				model: id,
+				url: `${base.replace(/\/$/, "").replace(/(\/v1)?$/, "/v1")}/chat/completions`,
+				wire: "openai",
+			};
+		}
+	} catch {
+		// no map / unreadable → the gateway default below
+	}
+	return {
+		mode: "gateway",
+		alias: "",
+		model: ENHANCE_DIRECT_ALIASES[0],
+		url: ENHANCE_URL,
+		wire: "anthropic",
+	};
+}
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -85,6 +191,7 @@ export async function enhancePrompt(
 		model: string;
 		url?: string;
 		key?: string;
+		wire?: "openai" | "anthropic";
 		fetcher?: Fetcher;
 		timeoutMs?: number;
 	},
@@ -99,33 +206,56 @@ export async function enhancePrompt(
 		ms: Date.now() - t0,
 	});
 	const key = opts.key ?? ENHANCE_KEY;
+	const endpoint = opts.url ?? ENHANCE_URL;
+	const openai = (opts.wire ?? "anthropic") === "openai";
 	try {
-		const r = await f(opts.url ?? ENHANCE_URL, {
+		const r = await f(endpoint, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
-				"anthropic-version": "2023-06-01",
+				// anthropic-version rides the anthropic wire only; direct tiers
+				// are loopback + keyless (no credential on the openai wire)
+				...(openai ? {} : { "anthropic-version": "2023-06-01" }),
 				// gate credentials: the scoped bksk_ key, both wire forms (belt
 				// :4000 ignores them; buckle accepts either)
-				...(key ? { "x-api-key": key, authorization: `Bearer ${key}` } : {}),
+				...(openai || !key
+					? {}
+					: { "x-api-key": key, authorization: `Bearer ${key}` }),
 			},
-			body: JSON.stringify({
-				model: opts.model,
-				max_tokens: ENHANCE_MAX_TOKENS,
-				system: ENHANCE_SYS,
-				messages: [{ role: "user", content: text }],
-			}),
+			body: openai
+				? JSON.stringify({
+						model: opts.model,
+						max_tokens: ENHANCE_MAX_TOKENS,
+						messages: [
+							{ role: "system", content: ENHANCE_SYS },
+							{ role: "user", content: text },
+						],
+					})
+				: JSON.stringify({
+						model: opts.model,
+						max_tokens: ENHANCE_MAX_TOKENS,
+						system: ENHANCE_SYS,
+						messages: [{ role: "user", content: text }],
+					}),
 			signal: AbortSignal.timeout(opts.timeoutMs ?? ENHANCE_TIMEOUT_MS),
 		});
 		if (!r.ok)
 			return done(false, text, `enhance skipped: router HTTP ${r.status}`);
-		const j = (await r.json()) as {
-			content?: { type?: string; text?: string }[];
-		};
-		const out = (j.content ?? [])
-			.filter((c) => c.type === "text" && typeof c.text === "string")
-			.map((c) => c.text)
-			.join("")
+		const j = await r.json();
+		const raw = openai
+			? String(
+					(j as { choices?: { message?: { content?: string } }[] }).choices?.[0]
+						?.message?.content ?? "",
+				)
+			: ((j as { content?: { type?: string; text?: string }[] }).content ?? []);
+		const out = (
+			openai
+				? raw
+				: (raw as { type?: string; text?: string }[])
+						.filter((c) => c.type === "text" && typeof c.text === "string")
+						.map((c) => c.text)
+						.join("")
+		)
 			.replace(/<think>[\s\S]*?<\/think>/gi, "")
 			.trim();
 		if (!out)

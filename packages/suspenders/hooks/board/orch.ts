@@ -4,16 +4,12 @@
 
 import { CLI, db } from "./context.ts";
 import { existsSync, readdirSync } from "node:fs";
+import { readBoardSettings } from "../lib/board-config.ts";
 import {
-	parsePolicy,
-	readBoardSettings,
-	resolvePolicy,
-} from "../lib/board-config.ts";
-import {
-	ENHANCE_URL,
 	enhancePrompt,
 	type PromptPlan,
 	preparePrompt,
+	resolveEnhanceTarget,
 	resolvePromptSettings,
 } from "./prompt-transform.ts";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
@@ -147,20 +143,6 @@ export function orchTelemetry(payload: Record<string, unknown>): void {
 export const orchUserMessage = (goal: string, ctx: string): string =>
 	`GOAL:\n${goal}\n\nREPO CONTEXT:\n${ctx}`;
 
-// W270 — enhance model = the fleet default: explicit env pin, else the head
-// of the routing-policy ladder (the :4000 router routes by complexity; the
-// id is the label it accounts the call under)
-export function enhanceModel(): string {
-	if (process.env.SUSPENDERS_PROMPT_MODEL)
-		return process.env.SUSPENDERS_PROMPT_MODEL;
-	try {
-		const pol = resolvePolicy();
-		const head = pol ? Object.keys(parsePolicy(pol.text).fallbacks)[0] : "";
-		if (head) return head;
-	} catch {}
-	return "glm-5.3-flash";
-}
-
 // W270 — run the prompt transforms for one orchestrate goal; the plan's
 // ctx is pinned so dispatch sends exactly what the preview disclosed
 export async function orchPrepare(
@@ -179,14 +161,20 @@ export async function orchPrepare(
 		};
 	const ctx = orchContext(project, repo);
 	const settings = resolvePromptSettings(readBoardSettings().settings);
-	const model = enhanceModel();
+	const target = await resolveEnhanceTarget();
 	const plan = await preparePrompt(goal, settings, {
 		enhance: async (text) => {
-			const r = await enhancePrompt(text, { model });
+			const r = await enhancePrompt(text, {
+				model: target.model,
+				url: target.url,
+				wire: target.wire,
+			});
 			orchTelemetry({
 				for: "prompt.enhance",
-				model,
-				host: new URL(ENHANCE_URL).host,
+				model: r.model,
+				...(target.alias ? { alias: target.alias } : {}),
+				host: new URL(target.url).host,
+				...(target.mode === "direct" ? { direct: true } : {}),
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
