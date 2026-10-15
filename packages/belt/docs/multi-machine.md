@@ -125,14 +125,19 @@ low|high|max, no medium, disable → 400 (docs.z.ai GLM-5.3 page, verified
 `thinking {enabled, budget 1024|4096}` (anthropic carrier) +
 `reasoning_effort` (gate carrier — buckle W770 forwards it verbatim;
 litellm zai rows forward via `allowed_openai_params: [reasoning_effort]`,
-already emitted by `buildRemoteEntries`). Chain activation (coordinator
-step, between fan-outs): `bash install.sh` → `bun bin/gateway-config.ts` →
-restart :4100/:4101. Until then the pin drops silently = status quo. Live
-A/B (2026-10-15, legacy leg, glm-5.3, the W770-diff review brief,
-max_tokens 3000): unpinned = stop=max_tokens, thinking-only content,
-3000/3000 output tokens, 49 s — the oracle empty-review failure class,
-reproduced; pinned-vs-unpinned identical on the un-activated machine
-(canary: effort-max ≈ effort-low ≈ unpinned, 773/976/963 output tokens).
+already emitted by `buildRemoteEntries`). The anthropic-carrier alias rows
+(`glm-5.3`) REJECT the param (litellm UnsupportedParamsError 400) — the
+forward lives on the zai openai-wire rows only. Chain activation
+(coordinator step, between fan-outs): `bash install.sh` → `bun
+bin/gateway-config.ts` → restart :4100/:4101. Live A/B (2026-10-15,
+legacy leg :4100, zai-glm-5.3, the W770-diff review brief, 9528 chars,
+max_tokens 3000): unpinned = stop=length, thinking-only, 3000/3000 output
+tokens, content 0 chars, 46.1 s — the oracle empty-review failure class;
+effort-low = stop=stop, 2559 out (1305 reasoning), 4990-char review,
+40.1 s — the pin converts the burn into a bounded review; pin observed
+LIVE on :4100 zai rows same day. Pre-activation canary (earlier
+2026-10-15, un-activated machine): effort-max ≈ effort-low ≈ unpinned,
+773/976/963 output tokens — pin dropped silently.
 Operator rows: `reasoning.roles.escalate: high` in the runtime
 routing-policy for harder reviews.
 
