@@ -5,9 +5,11 @@
 // GET  /aids/status   — meter totals for dashboards
 // GET  /aids/rollup   — hourly govdb-shaped rollup rows (harvest seam)
 // Wire path (LLM requests): the x-belt-aids header declares aids per
-// request; cache-align runs ONLY when declared (pass-through doctrine).
+// request; cache-align runs when declared, AND (W768) the gate emits it
+// post-selection for upstreams that honor cache_control — anthropic-family
+// rows only; `aids.cache-align.default: "off"` is the operator kill switch.
 import { type AidsLedger, parseAids, tokensEstimate } from "./aids.ts";
-import { alignBody } from "./align.ts";
+import { alignBody, alignForUpstream } from "./align.ts";
 import { type DietStore, pruneOptsOf, pruneTrajectory } from "./diet.ts";
 import type { Expander } from "./expand.ts";
 import type { AidsPolicy } from "./policy.ts";
@@ -301,6 +303,30 @@ export async function applyWireAids(
 		}
 	}
 	return { body, aligned: false, condenseIn: stanza["condense-in"] === true };
+}
+
+/** W768 gate-side cache emission: when the SELECTED upstream honors
+ *  cache_control (anthropic-native rows — native prompt caching), the gate
+ *  aligns the body without a client declaration; pass-through doctrine yields
+ *  exactly where the carrier pays for the markers. openai-compat rows never
+ *  receive markers (ZAI context caching is prefix-implicit; copilot unknown);
+ *  bridged hops strip them in the body rebuild. `aids.cache-align.default:
+ *  "off"` is the operator kill switch; client-declared alignment above still
+ *  runs pre-routing. */
+export function gateCacheAlign(
+	deps: AidsDeps,
+	body: AnyRec,
+	honors: boolean,
+): AnyRec | null {
+	if (!honors) return null;
+	if (deps.aidsPolicy["cache-align"]?.default === "off") return null;
+	const aligned = alignForUpstream(body);
+	meter(deps, {
+		aid: "cache-align",
+		decision: aligned ? "injected" : "skipped",
+		skip_reason: aligned ? null : "unsupported",
+	});
+	return aligned?.body ?? null;
 }
 
 /** The aids route table, dispatched from createApp. Unknown /aids/* paths

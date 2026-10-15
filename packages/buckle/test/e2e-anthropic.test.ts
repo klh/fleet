@@ -89,4 +89,65 @@ describe("anthropic e2e", () => {
 		expect(audit.cache_c).toBe(2);
 		upstream.close();
 	});
+
+	test("W768: gate emits cache_control on the honoring upstream, no declaration", async () => {
+		const upstream = await startMockUpstream(() =>
+			Response.json({
+				id: "msg_w768",
+				usage: { input_tokens: 6, output_tokens: 3 },
+			}),
+		);
+		const d = deps(poolOf(upstream.url));
+		const app = createApp(d);
+		const res = await app.fetch(
+			new Request(`${upstream.url}/v1/messages`, {
+				method: "POST",
+				body: JSON.stringify({
+					model: "claude-sonnet-5",
+					system: "stable shared prefix",
+					messages: [{ role: "user", content: "hi" }],
+				}),
+			}),
+		);
+		expect(res.status).toBe(200);
+		await Bun.sleep(10);
+		const sys = (upstream.calls[0]?.body?.system ?? null) as Array<{
+			cache_control?: unknown;
+		}> | null;
+		expect(Array.isArray(sys)).toBe(true);
+		expect(sys?.at(-1)?.cache_control).toEqual({ type: "ephemeral" });
+		upstream.close();
+	});
+
+	test("W768: client-placed markers ride untouched (no gate rewrite)", async () => {
+		const upstream = await startMockUpstream(() =>
+			Response.json({
+				id: "msg_w768b",
+				usage: { input_tokens: 6, output_tokens: 3 },
+			}),
+		);
+		const d = deps(poolOf(upstream.url));
+		const app = createApp(d);
+		const res = await app.fetch(
+			new Request(`${upstream.url}/v1/messages`, {
+				method: "POST",
+				body: JSON.stringify({
+					model: "claude-sonnet-5",
+					system: [
+						{ type: "text", text: "s", cache_control: { type: "ephemeral" } },
+					],
+					messages: [{ role: "user", content: "hi" }],
+				}),
+			}),
+		);
+		expect(res.status).toBe(200);
+		await Bun.sleep(10);
+		const sys = (upstream.calls[0]?.body?.system ?? null) as Array<{
+			cache_control?: unknown;
+		}> | null;
+		expect(sys).toEqual([
+			{ type: "text", text: "s", cache_control: { type: "ephemeral" } },
+		]);
+		upstream.close();
+	});
 });

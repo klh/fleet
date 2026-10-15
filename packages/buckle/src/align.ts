@@ -1,6 +1,7 @@
-// src/align.ts — W142 cache-align (W137 §3b, cloud half): opt-in prompt-cache
-// alignment on EXPLICITLY declared requests only. Pass-through doctrine:
-// without the x-belt-aids declaration the body is never touched. W237 layout
+// src/align.ts — W142 cache-align (W137 §3b, cloud half): prompt-cache
+// alignment on EXPLICITLY declared requests (x-belt-aids cache-align), plus
+// the W768 gate-side emission for upstreams that honor cache_control
+// (alignForUpstream — see gateCacheAlign in aids-routes.ts). W237 layout
 // law: system → packet → volatile — the packet block relocates to the head
 // of the message sequence (first block of the first message, directly after
 // the system prefix), so the cache_control breakpoint after it covers a
@@ -118,6 +119,43 @@ function splitPacketPrefix(body: AnyRec, ref: PacketBlockRef): PacketBlockRef {
 	};
 	content.splice(ref.idx, 1, pre, packet);
 	return { ...ref, idx: ref.idx + 1, block: packet };
+}
+
+/** True when the CLIENT placed any cache_control breakpoint in the body —
+ *  system blocks, tools entries, or message content blocks. Deliberate client
+ *  placement is respected byte for byte: the gate never rewrites it (anthropic
+ *  caps breakpoints at 4; gate-added markers on top of four client markers
+ *  would 400 the request). */
+export function hasClientCacheControl(body: AnyRec): boolean {
+	const sys = body.system;
+	if (Array.isArray(sys)) {
+		for (const b of sys as AnyRec[])
+			if (b && typeof b === "object" && "cache_control" in b) return true;
+	}
+	const tools = body.tools;
+	if (Array.isArray(tools)) {
+		for (const t of tools as AnyRec[])
+			if (t && typeof t === "object" && "cache_control" in t) return true;
+	}
+	const messages = body.messages;
+	if (!Array.isArray(messages)) return false;
+	for (const m of messages as AnyRec[]) {
+		const content = (m as AnyRec)?.content;
+		if (!Array.isArray(content)) continue;
+		for (const b of content as AnyRec[])
+			if (b && typeof b === "object" && "cache_control" in b) return true;
+	}
+	return false;
+}
+
+/** W768 gate-side emission for upstreams that honor cache_control: realign a
+ *  belt packet (fleet-added content — the W237 prefix layout always applies),
+ *  otherwise mark the stable prefix only when the client placed NO markers of
+ *  its own. Returns null when the body must ride untouched. */
+export function alignForUpstream(body: AnyRec): AlignResult | null {
+	if (packetBlockOf(body)) return alignBody(body, "anthropic");
+	if (hasClientCacheControl(body)) return null;
+	return alignBody(body, "anthropic");
 }
 
 /** Align one request body (anthropic dialect): relocate the packet block to

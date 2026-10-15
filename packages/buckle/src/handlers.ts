@@ -8,6 +8,7 @@
 // estimated.
 
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
+import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
 import {
 	affinityOn,
@@ -16,7 +17,7 @@ import {
 	type PrefixAffinity,
 } from "./affinity.ts";
 import type { AidsLedger } from "./aids.ts";
-import { aidsRoutes, applyWireAids } from "./aids-routes.ts";
+import { aidsRoutes, applyWireAids, gateCacheAlign } from "./aids-routes.ts";
 import type { LaneTelemetryLog } from "./cache-boundary.ts";
 import { boundaryOfDeployment } from "./cache-boundary.ts";
 import type { CandidateRow, CandidateTable } from "./candidates.ts";
@@ -39,7 +40,12 @@ import { type DietStore, dietRoutes } from "./diet.ts";
 import type { Expander } from "./expand.ts";
 import { type Federation, principalOf } from "./gov/federation.ts";
 import { hintFromHeaders, type RouteHint } from "./hints.ts";
-import { hopBaggageOf, hopFromBaggage, hopKindOf, type HopContext } from "./hop.ts";
+import {
+	hopBaggageOf,
+	hopFromBaggage,
+	hopKindOf,
+	type HopContext,
+} from "./hop.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
 import type {
 	ObservationData,
@@ -465,6 +471,18 @@ async function runExecute(
 		}
 		ctx.slot = release;
 	}
+	// W768 gate-side cache emission: anthropic-native rows honor cache_control
+	// (native prompt caching) — the gate aligns the stable prefix with no
+	// client declaration. openai-compat rows (litellm/ZAI implicit caching,
+	// copilot unknown) never receive markers; bridged hops strip them in the
+	// body rebuild (adapters/tools.ts). count_tokens is never touched.
+	const alignedBody = gateCacheAlign(
+		deps,
+		body,
+		path !== "/v1/messages/count_tokens" &&
+			resolveAdapter(sel.head.dep).family === "anthropic",
+	);
+	if (alignedBody) body = alignedBody;
 	let result: ExecuteResult;
 	// W461 stage 2: started — the upstream dispatch begins.
 	observe(deps, ctx, "lane.request.started");
