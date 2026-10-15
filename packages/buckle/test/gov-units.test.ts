@@ -44,9 +44,11 @@ describe("scopes", () => {
 				"junk",
 			]),
 		).toBe("buckle:admin:WRITE_ buckle:proxy:WRITE_");
-		expect(ALL_SCOPES).toHaveLength(6);
+		expect(ALL_SCOPES).toHaveLength(8);
 		expect(ALL_SCOPES).toContain("buckle:spoke:READ_");
 		expect(ALL_SCOPES).toContain("buckle:spoke:WRITE_");
+		expect(ALL_SCOPES).toContain("buckle:store:READ_");
+		expect(ALL_SCOPES).toContain("buckle:store:WRITE_");
 	});
 });
 
