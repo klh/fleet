@@ -39,15 +39,14 @@ import {
 	persistCompletion,
 	type CompletionRecord,
 } from "../lib/work-completion-record.ts";
-import { laneAlive, type LaneRef } from "../lib/lane-liveness.ts";
+import { laneAlive } from "../lib/lane-liveness.ts";
 import {
-	clearReclaimStrikes,
-	observeReclaim,
 	parseDuration,
 	probeClaim,
 	setReclaimHold,
 } from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
+import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
@@ -619,30 +618,8 @@ function releaseObserved(
 
 // W610: claimant LaneRefs by sid — registry rows feed laneProcessIdentity;
 // a claimant with no registry entry (manual takes, reaped rows) probes from
-// heartbeat + transcript alone and reads unknown, never dead.
-type RegistryLaneRow = {
-	sid: string;
-	item: string;
-	pid?: number;
-	worktree?: string;
-	host?: string;
-	launchedAt?: number;
-};
-function claimantLanes(): Map<string, LaneRef> {
-	return new Map(
-		loadLaneRegistry(process.cwd()).map((l: RegistryLaneRow) => [
-			l.sid,
-			{
-				sid: l.sid,
-				item: l.item,
-				pid: l.pid,
-				worktree: l.worktree,
-				host: l.host,
-				launchedAt: l.launchedAt,
-			},
-		]),
-	);
-}
+// heartbeat + transcript alone and reads unknown, never dead. W376: built by
+// lib/reclaim-all.ts claimantLanes (shared with the fleet-loop reclaim sweep).
 
 // truncated-sid guard (shared by take/start/done/release): a display slice
 // (e.g. 'visual-c') must not become the owner of record — expand a unique
@@ -1255,7 +1232,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// bulk reaper uses (W610: verdict !== alive lists dead AND unknown so the
 		// operator inspects before per-item reclaim; alive lanes stay out)
 		const item = flag("--item");
-		const lanesBySid = claimantLanes();
+		const lanesBySid = claimantLanes(process.cwd());
 		const rows = db()
 			.query(
 				`SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING')${item ? " AND id = ?" : ""} ORDER BY id`,
@@ -1388,34 +1365,20 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			// registry process identity + claimant transcript + governor heartbeat
 			// (sessions.hb) — with unknown never releasing, an extend lease as a
 			// pause, and death needing 3 consecutive dead passes (fact-counted).
-			const lanesBySid = claimantLanes();
-			const rows = db()
-				.query(
-					"SELECT * FROM work_items WHERE project = ? AND state IN ('CLAIMED','RUNNING') ORDER BY id",
-				)
-				.all(PROJECT) as Item[];
+			// W376: the pass itself is lib/reclaim-all.ts — the ONE core the
+			// fleet-loop reclaim sweep runs per cycle (no second implementation).
+			const rows = reclaimAll(db(), PROJECT, process.cwd());
 			let n = 0;
-			for (const r of rows) {
-				const owner = String(r.owner_sid ?? "");
-				const d = observeReclaim(db(), PROJECT, {
-					id: String(r.id),
-					owner,
-					revision: Number(r.updated_at),
-					lane: lanesBySid.get(owner),
-				});
-				if (d.action !== "release") {
-					console.log(`${dim(String(r.id))} held — ${d.why}`);
-					continue;
+			for (const x of rows) {
+				if (x.action === "held") console.log(`${dim(x.id)} held — ${x.why}`);
+				else if (x.action === "changed")
+					console.log(`${dim(x.id)} claim changed — skipped`);
+				else {
+					console.log(
+						`${cyan("·")} ${x.id} reclaimed → READY (was ${x.was}) — ${x.why}`,
+					);
+					n++;
 				}
-				if (!releaseObserved(r, "reclaim-all", "reclaim-all")) {
-					console.log(`${dim(String(r.id))} claim changed — skipped`);
-					continue;
-				}
-				clearReclaimStrikes(db(), PROJECT, String(r.id));
-				console.log(
-					`${cyan("·")} ${r.id} reclaimed → READY (was ${owner.slice(0, 8)}) — ${d.why}`,
-				);
-				n++;
 			}
 			console.log(
 				n === 0

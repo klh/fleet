@@ -13,6 +13,8 @@
 //      git merge --no-ff)
 //   --dispatch-cmd <template> runs once per cycle after merges (policy lives there)
 //   3. retire merged branches' worktree + branch (pid-guarded, honest RETIRE-BLOCKED)
+//   4. stall watchdog · 5. wisdom sweep · 6. rogue sweep · 7. reclaim sweep
+//      (W376) — fail-isolated cycle steps after the merge/dispatch core
 //
 // Hardened per the gaps incidents (2026-09-28): cycles run as killable --once
 // children under a watchdog (a hung spawnSync froze the gaps daemon 26h);
@@ -28,6 +30,7 @@ import { createRetire } from "../lib/fleet-loop/retire.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
 import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
+import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
@@ -35,6 +38,7 @@ import { itemClaimOf } from "../lib/ladder-lease.ts";
 import { flushOnDoneWait } from "../lib/merge-on-done.ts";
 import { laneProcessIdentity } from "../lib/lane-liveness.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
+import { broadcastNote } from "../coord/bus.ts";
 import {
 	controllerWatchBoundary,
 	currentControllerIdentity,
@@ -71,6 +75,13 @@ const { stallWatch } = createStallWatch({
 const { rogueSweep } = createRogueSweep({
 	...runtime,
 	manifestPath: join(import.meta.dir, "..", "..", "deploy", "services.yaml"),
+});
+// W376: the per-cycle reclaim pass rides the ONE `work reclaim all` core
+// (lib/reclaim-all.ts); releases broadcast on the coord bus (24h note-dedupe).
+const { reclaimSweep } = createReclaimSweep({
+	...runtime,
+	store: openStore,
+	broadcast: (note: string) => broadcastNote(note, "fleet-loop"),
 });
 
 // the ladder and dispatch commands are repo-OWNER config (same trust class as
@@ -149,6 +160,20 @@ async function cycle(): Promise<void> {
 	} catch (e) {
 		log(
 			`ROGUE sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+
+	// 7. reclaim sweep (W376): the `work reclaim all` core per cycle — claims
+	// whose claimant is verifiably dead (3 consecutive dead passes, extend
+	// lease honored, unknown never releases) release to READY without an
+	// operator pass; releases broadcast fleet-wide so dispatch refills them
+	// same-cycle. Fail-isolated: a sweep bug can never take down the
+	// merge/dispatch loop (the wisdom-sweep rule).
+	try {
+		reclaimSweep();
+	} catch (e) {
+		log(
+			`RECLAIM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 }
