@@ -26,6 +26,7 @@ import {
 import { upgradeGateway } from "./upgrade-gateway.ts";
 import { registerLaunchd } from "./install-launchd.ts";
 import { syncHarness } from "./sync-harness.ts";
+import { ensureShims } from "./ensure-shims.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -42,6 +43,8 @@ export interface StepContext {
 	/** W165: with --step syncHarness — spoke excludes hub-only modules from the
 	 *  payload and capabilities.json records the variant (absent = hub). */
 	profile?: "hub" | "spoke";
+	/** W420 mirror mode rides SUSPENDERS_LEGACY_PRUNE until the front flip (W771.3). */
+	prune?: boolean;
 }
 
 export interface StepResult {
@@ -225,7 +228,11 @@ async function delegateBash(ctx: StepContext): Promise<DelegatedResult> {
 			cwd: ctx.repo,
 			stdout: ctx.json ? "pipe" : "inherit",
 			stderr: "inherit",
-			env: { SUSPENDERS_LEGACY_REPORT: report },
+			env: {
+				SUSPENDERS_LEGACY_REPORT: report,
+				// the plan runs syncHarness natively — the legacy body must not re-sync
+				SUSPENDERS_LEGACY_SYNC: "0",
+			},
 			reject: false,
 		});
 		if (res.exitCode !== 0) {
@@ -307,12 +314,14 @@ function resumeCommand(step: ContractStep, ctx: StepContext): string {
 		// name is operator data from stack.yaml, filled in before running
 		return `bash ${join(ctx.repo, "install.sh")} --hub <hub>`;
 	}
+	// native steps resume through the TS door; bash-owned blocks keep the wrapper
+	if (step.name === "syncHarness" || step.name === "ensureShims") {
+		return `bun ${join(ctx.repo, "scripts/install.ts")} --step ${step.name} --yes`;
+	}
 	// the wrapper front is consented-by-design (bash surface semantics), and
 	// --yes makes the resume self-sufficient through the TS plan runner
 	const bash = `bash ${join(ctx.repo, "install.sh")} --yes`;
 	switch (step.name) {
-		case "syncHarness":
-			return `${bash} --step syncHarness`;
 		case "refreshSupervisor":
 			return `${bash} --refresh-supervisor`;
 		case "wireSettings":
@@ -342,6 +351,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	registerLaunchd,
 	upgradeGateway,
 	syncHarness,
+	ensureShims,
 	wireSettings,
 };
 
@@ -413,10 +423,7 @@ export async function executePlan(
 			continue;
 		}
 		// consented full run: one bash delegation covers the delegated steps
-		if (
-			(step.v1 === "delegated" || step.name === "syncHarness") &&
-			mode === "plan"
-		) {
+		if (step.v1 === "delegated" && mode === "plan") {
 			if (delegationFailed) {
 				emit({
 					name: step.name,

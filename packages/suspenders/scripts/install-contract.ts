@@ -214,7 +214,7 @@ export const INSTALL_CONTRACT = {
 		yes: {
 			flag: "--yes",
 			meaning:
-				"unattended consent — mutating steps run (v1: via the bash delegation); without it mutating steps pause with a resume_command",
+				"unattended consent — mutating steps run (native steps execute directly; the remaining bash-owned blocks ride the v1 delegation); without it mutating steps pause with a resume_command",
 		},
 		verbose: {
 			flag: "--verbose",
@@ -312,10 +312,11 @@ export const INSTALL_CONTRACT = {
 		},
 		{
 			name: "ensureShims",
-			oneLiner: "write the coord/work/dispatch PATH shims into the shim bin",
+			oneLiner:
+				"write the coord/work/dispatch/fleet-tracker/oracle PATH shims into the shim bin (transactional; refuses symlink shims)",
 			mutates: true,
 			optIn: false,
-			v1: "delegated",
+			v1: "real",
 		},
 		{
 			name: "seedLocalLlm",
@@ -464,7 +465,7 @@ export const INSTALL_CONTRACT = {
 	v1Delegation: {
 		command: "bash <repo>/install.sh __legacy full",
 		when: "a full run (no --step) with --yes",
-		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the legacy blocks (harness copy, shims, llm seed, models, caddy, release) that have no native step yet",
+		note: "since W490.2 install.sh's public face is the TS installer wrapper; the delegation targets the wrapper's __legacy full body — the bash-owned blocks (llm seed, models, caddy, release) that have no native step yet (W771.1: syncHarness + ensureShims run native)",
 	},
 } as const satisfies InstallContract;
 

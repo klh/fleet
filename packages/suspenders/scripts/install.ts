@@ -80,6 +80,7 @@ async function main(): Promise<void> {
 		wireRepo: flags.wireRepo,
 		gatewayReview: flags.gatewayReview,
 		profile: flags.profile,
+		prune: process.env.SUSPENDERS_LEGACY_PRUNE === "1",
 		...resolvePaths(),
 	};
 	const mode: "plan" | "step" = flags.step === null ? "plan" : "step";
