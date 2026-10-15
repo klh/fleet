@@ -20,6 +20,7 @@ import {
 	renderUnits,
 	renderWin32,
 	type ServiceSpec,
+	serviceLabel,
 	substitute,
 	TEMPLATE_DIR,
 	usedPlaceholders,
@@ -46,19 +47,17 @@ const byName = (name: string): ServiceSpec => {
 
 describe("services manifest (W488.1)", () => {
 	test("manifest covers exactly the templated plists on disk", () => {
-		const onDisk = readdirSync(TEMPLATE_DIR)
-			.filter((f) => f.endsWith(".plist"))
-			.map((f) => f.replace("com.suspenders.", "").replace(".plist", ""))
-			.sort();
-		expect(services.map((s) => s.name).sort()).toEqual(onDisk);
+		const onDisk = readdirSync(TEMPLATE_DIR).filter((f) =>
+			f.endsWith(".plist"),
+		);
+		expect(services.map((s) => `${serviceLabel(s)}.plist`).sort()).toEqual(
+			onDisk.sort(),
+		);
 	});
 
 	for (const spec of services) {
 		test(`${spec.name}: manifest render is field-equivalent to the template plist`, () => {
-			const templatePath = join(
-				TEMPLATE_DIR,
-				`com.suspenders.${spec.name}.plist`,
-			);
+			const templatePath = join(TEMPLATE_DIR, `${serviceLabel(spec)}.plist`);
 			const templateXml = substitute(
 				readFileSync(templatePath, "utf8"),
 				FIXTURE,
@@ -96,6 +95,20 @@ describe("services manifest (W488.1)", () => {
 		expect(d.WorkingDirectory as string).toBe(FIXTURE.repo);
 	});
 
+	test("belt-swarm: label override renders the belt label; AbandonProcessGroup true", () => {
+		const spec = byName("belt-swarm");
+		expect(serviceLabel(spec)).toBe("com.belt.swarm");
+		const rendered = renderDarwin(spec, FIXTURE);
+		const d = parsePlistXml(rendered);
+		expect(d.Label).toBe("com.belt.swarm");
+		expect(d.AbandonProcessGroup).toBe(true);
+		const args = d.ProgramArguments as string[];
+		expect(args[2]).toBe("supervise");
+		expect(args[1]).toEndWith(".claude/local-llm/swarm.ts");
+		const env = d.EnvironmentVariables as { [k: string]: string };
+		expect(env.BELT_WIRED_GUARD_GB).toBe("90");
+		expect(env.PATH).toContain("mlx-lm");
+	});
 	test("belt defaults match install.sh ($BELT_URL / $BELT_TOKEN with fallbacks)", () => {
 		const prevUrl = process.env.BELT_URL;
 		const prevToken = process.env.BELT_TOKEN;

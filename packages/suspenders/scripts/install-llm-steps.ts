@@ -1,11 +1,13 @@
-// scripts/install-llm-steps.ts — native local-llm kit installer steps
+// scripts/install-llm-steps.ts — native local-llm installer steps
 // (W771.2): seedLocalLlm, downloadModels and refreshSupervisor as contract
-// v1 "real" steps, ported from install.sh's legacy body with parity
-// semantics — seeding never clobbers the runtime home (W556: the home is
-// the live fleet's source of truth), per-model download failures stay
-// non-fatal (snapshot_download resumes; re-run install to fetch), and the
-// supervisor refresh detects the installed family (kit serve vs advanced
-// Belt) with backup + import validation + restore-on-failure.
+// v1 "real" steps. W284: the belt kit (packages/belt/bin) is the ONLY
+// supervisor source — the suspenders local-llm serve fork is retired.
+// Seeding heals the flat home's belt closure for the supervisor (swarm.ts
+// supervise) AND router entries, so the home copy of swarm.ts always
+// matches the belt kit; the W556 keep-rule retired with the serve fork.
+// Per-model download failures stay non-fatal (snapshot_download resumes;
+// re-run install to fetch); the supervisor refresh is belt-family-only
+// with backup + import validation + restore-on-failure.
 //
 // W771.3 front-flip: --no-llm/--skip-models are native CLI flags
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
@@ -13,7 +15,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
-import { refreshSwarm } from "./refresh-swarm.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
 const kitDir = (ctx: StepContext): string => join(ctx.repo, "..", "local-llm");
@@ -29,16 +30,6 @@ const logFor = (ctx: StepContext): ((line: string) => void) => {
 
 // ─── seedLocalLlm ───
 
-const KIT_FILES = [
-	"gateway-supervision.ts",
-	"kill-listeners.ts",
-	"memory-policy.ts",
-	"serve-observation.ts",
-	"observation.ts",
-	"models.catalog.ts",
-	"models.catalog.json",
-];
-
 export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 	if (ctx.noLlm === true) {
 		return {
@@ -46,48 +37,38 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 			note: "--no-llm: local-llm baseline skipped (CI/containers)",
 		};
 	}
-	const kit = kitDir(ctx);
-	if (!existsSync(join(kit, "swarm.ts"))) {
+	const swarmEntry = join(beltBin(ctx), "swarm.ts");
+	if (!existsSync(swarmEntry)) {
 		return {
 			status: "skipped",
-			note: "not a fleet checkout — no local-llm kit sibling to seed from",
+			note: "not a fleet checkout — no belt/bin kit sibling to seed from",
 		};
 	}
 	const log = logFor(ctx);
 	mkdirSync(ctx.llmHome, { recursive: true });
-	for (const file of KIT_FILES) {
-		const target = join(ctx.llmHome, file);
-		if (!existsSync(target)) {
-			copyFileSync(join(kit, file), target);
-			log(`+ ${target}`);
-		}
-	}
-	const litellmTarget = join(ctx.llmHome, "litellm-target.ts");
-	if (!existsSync(litellmTarget)) {
-		copyFileSync(join(beltBin(ctx), "litellm-target.ts"), litellmTarget);
-		log(`+ ${litellmTarget}`);
-	}
-	// W741: heal the flat home's belt closure (missing AND diverged), then
-	// W661: prove the flattened runtime actually serves on a scratch port.
+	// W284: heal the belt closure for BOTH entries — the supervisor
+	// (swarm.ts supervise) and the :4000 router — so the home copy of
+	// swarm.ts always matches the belt kit; the W556 keep-rule retired
+	// with the serve fork. W661: prove the flattened runtime actually
+	// serves on a scratch port.
 	try {
+		const sup = await refreshFlatHome(
+			ctx.llmHome,
+			join(beltBin(ctx), "swarm.ts"),
+		);
 		const report = await refreshFlatHome(
 			ctx.llmHome,
 			join(beltBin(ctx), "router-shim.ts"),
 		);
 		await smokeRouter(ctx.llmHome);
 		log(
-			`belt closure: ${report.healed.length} healed, ${report.kept.length} kept; router smoke ok`,
+			`belt closure: supervisor ${sup.healed.length} healed, ${sup.kept.length} kept; router ${report.healed.length} healed, ${report.kept.length} kept; router smoke ok`,
 		);
 	} catch (err) {
 		return {
 			status: "failed",
 			note: `belt closure refresh or router smoke failed — ${err instanceof Error ? err.message : String(err)}`,
 		};
-	}
-	const health = join(ctx.llmHome, "health.ts");
-	if (!existsSync(health)) {
-		copyFileSync(join(kit, "health.ts"), health);
-		log(`+ ${health}`);
 	}
 	// W507: the tier choice is machine config — every install re-emits the
 	// manifest the swarm supervisor and llm-keepwarm read. Absent emitter or
@@ -108,29 +89,24 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 			log("tier manifest emission skipped (stale kit registry-emit.ts)");
 		}
 	}
-	// swarm.ts is the one kit file that MAY refresh a present copy: a
-	// serve-less swarm.ts under launchd KeepAlive is exactly the busy-loop
-	// flaw the serve-supervisor copy fixes (legacy parity).
-	const swarm = join(ctx.llmHome, "swarm.ts");
-	const swarmSource = existsSync(swarm) ? readFileSync(swarm, "utf8") : null;
-	if (swarmSource === null || !swarmSource.includes('case "serve"')) {
-		copyFileSync(join(kit, "swarm.ts"), swarm);
-		log(`+ ${swarm} (serve supervisor)`);
-	} else {
-		log(`= ${swarm} kept (serve already present)`);
-	}
-	for (const stub of ["belt.env", "routing-policy.yaml"]) {
+	// W284: operator stubs — belt.env stays kit-sourced; the routing-policy
+	// default now rides the belt kit.
+	const stubs: Array<[string, string]> = [
+		["belt.env", join(kitDir(ctx), "belt.env")],
+		["routing-policy.yaml", join(beltBin(ctx), "routing-policy.yaml")],
+	];
+	for (const [stub, source] of stubs) {
 		const target = join(ctx.llmHome, stub);
 		if (existsSync(target)) {
 			log(`= ${target} kept (operator-owned runtime copy)`);
 		} else {
-			copyFileSync(join(kit, stub), target);
+			copyFileSync(source, target);
 			log(`+ ${target} (stub — fill/verify at activation)`);
 		}
 	}
 	return {
 		status: "ok",
-		note: `local-llm baseline seeded at ${ctx.llmHome} (never clobber; belt closure verified)`,
+		note: `belt kit seeded at ${ctx.llmHome} (supervise closure healed; router smoke ok)`,
 	};
 }
 
@@ -163,10 +139,10 @@ async function defaultDownloadRunner(
 	return await child.exited;
 }
 
-/** BELT_TIER=minimal resident set from the home registry, kit fallback. */
+/** BELT_TIER=minimal resident set from the home registry, belt kit fallback. */
 async function residentModels(ctx: StepContext): Promise<string[]> {
 	const home = join(ctx.llmHome, "registry.ts");
-	const source = existsSync(home) ? home : join(kitDir(ctx), "registry.ts");
+	const source = existsSync(home) ? home : join(beltBin(ctx), "registry.ts");
 	const prior = process.env.BELT_TIER;
 	process.env.BELT_TIER = "minimal";
 	try {
@@ -196,10 +172,10 @@ export async function downloadModels(
 			note: "--skip-models: skipping model download (offline install)",
 		};
 	}
-	if (!existsSync(join(kitDir(ctx), "swarm.ts"))) {
+	if (!existsSync(join(beltBin(ctx), "swarm.ts"))) {
 		return {
 			status: "skipped",
-			note: "not a fleet checkout — no local-llm kit sibling to derive models from",
+			note: "not a fleet checkout — no belt/bin kit sibling to derive models from",
 		};
 	}
 	const log = logFor(ctx);
@@ -290,24 +266,16 @@ export async function refreshSupervisor(
 			note: "--refresh-supervisor requires an existing belt supervisor runtime",
 		};
 	}
+	// W284: the belt family is the only family (the kit-serve branch and
+	// refresh-swarm.ts retired with the serve fork). Backup, refresh,
+	// import-validate, restore on failure.
 	const swarmSource = readFileSync(swarm, "utf8");
 	if (!swarmSource.includes('from "./supervisor.ts"')) {
-		// kit serve family — refreshSwarm owns lock/stage/backup/rollback.
-		try {
-			await refreshSwarm(ctx.llmHome, undefined, false, deps.validate);
-		} catch (err) {
-			return {
-				status: "failed",
-				note: `kit serve refresh failed — ${err instanceof Error ? err.message : String(err)}`,
-			};
-		}
 		return {
-			status: "ok",
-			note: "kit serve runtime refreshed (activation is a separate maintenance action)",
+			status: "failed",
+			note: "not a belt supervisor runtime (swarm.ts lacks the supervisor import) — run seedLocalLlm first",
 		};
 	}
-	// advanced Belt supervisor family (legacy parity: backup, refresh,
-	// import-validate, restore on failure)
 	const source = deps.supervisorSource ?? join(beltBin(ctx), "supervisor.ts");
 	const target = join(ctx.llmHome, "supervisor.ts");
 	if (!existsSync(target)) {
@@ -334,6 +302,6 @@ export async function refreshSupervisor(
 	}
 	return {
 		status: "ok",
-		note: "refreshed supervisor code (restart com.suspenders.local-llm to activate)",
+		note: "refreshed supervisor code (restart com.belt.swarm to activate)",
 	};
 }

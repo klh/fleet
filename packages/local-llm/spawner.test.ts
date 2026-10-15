@@ -7,12 +7,11 @@ import { readFileSync } from "node:fs";
 
 const kitSpawner = new URL("./spawner.ts", import.meta.url).pathname;
 const beltSpawner = new URL("../belt/bin/spawner.ts", import.meta.url).pathname;
-const installSh = new URL("../suspenders/install.sh", import.meta.url).pathname;
 
 test("kit spawner.ts is the belt re-export, not a twin", () => {
 	const src = readFileSync(kitSpawner, "utf8");
-	// refresh-gateway.ts keys on this exact shape when upgrading the
-	// runtime home — drift here breaks the flatten upgrade path.
+	// the flat runtime home imports the spawner relatively — drift here
+	// breaks the flatten upgrade path.
 	expect(src).toContain('export * from "../belt/bin/spawner.ts"');
 	// a resurrected twin would show up as re-grown source
 	expect(src.split("\n").length).toBeLessThanOrEqual(10);
@@ -24,13 +23,17 @@ test("belt/bin/spawner.ts is the single source of the lifecycle", () => {
 	expect(src).toContain("export function spawnReserved");
 });
 
-test("install.sh flattens belt's spawner into the runtime home", () => {
-	const sh = readFileSync(installSh, "utf8");
-	// W661: the flatten is the belt-bin-overlay closure walk (never a
-	// hardcoded list) + a smoke self-check that proves the flattened home
-	// serves — else the flat home keeps a stale twin or an unresolvable
-	// re-export and :4000 loops on launchd revives.
-	expect(sh).toMatch(/belt-bin-overlay\.ts" refresh \\$/m);
-	expect(sh).toContain('--runtime "$LLM_HOME" --entry');
-	expect(sh).toContain('belt-bin-overlay.ts" smoke --runtime "$LLM_HOME"');
+test("install heals the runtime home's belt closure (native flags)", () => {
+	// W771.3: install.sh is a pure exec wrapper — the W661 flatten (closure
+	// walk + smoke self-check) lives in install-llm-steps.ts. Without it the
+	// flat home keeps a stale twin or an unresolvable re-export and :4000
+	// loops on launchd revives.
+	const steps = readFileSync(
+		new URL("../suspenders/scripts/install-llm-steps.ts", import.meta.url)
+			.pathname,
+		"utf8",
+	);
+	expect(steps).toContain('join(beltBin(ctx), "swarm.ts")');
+	expect(steps).toContain('join(beltBin(ctx), "router-shim.ts")');
+	expect(steps).toContain("smokeRouter(ctx.llmHome)");
 });

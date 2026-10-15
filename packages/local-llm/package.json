@@ -1,15 +1,11 @@
 {
 	"name": "@klh/local-llm",
 	"version": "2.0.0",
-	"description": "MLX local swarm kit — resident specialist lifecycle (spawner + supervisor); registry re-exports belt/bin/registry.ts, the :4000 router is belt-owned",
+	"description": "MLX local swarm kit — real modules belt resolves through shims (memory-policy, observation) + config stubs; the supervisor and registry are belt-owned (W284)",
 	"type": "module",
 	"private": true,
 	"engines": {
 		"bun": ">=1.2"
-	},
-	"scripts": {
-		"status": "bun swarm.ts status",
-		"serve": "bun swarm.ts serve"
 	},
 	"license": "PolyForm-Noncommercial-1.0.0"
 }
