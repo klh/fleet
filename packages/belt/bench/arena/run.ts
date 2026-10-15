@@ -10,6 +10,7 @@ import {
 	TASK_DIR,
 } from "./core.ts";
 import { dryRun } from "./dryrun.ts";
+import { judgeRun } from "./judge.ts";
 import { isModelSet, type Leg, type ModelSet, selectLegs } from "./legs.ts";
 import { latestRun, report } from "./report.ts";
 import { variantReport } from "./report-variant.ts";
@@ -36,6 +37,7 @@ modes
   --run                 (AC-gated) real round, one run per variant
   --report              per-run report (--run-id, default latest)
   --report --variant    compare variants (--runs a,b  --baseline <run-id>)
+  --judge               LLM-judge pass over an existing run (--run-id, default latest; appends type:"judge" rows, resumable; rides the :8903 reason tier)
 
 options
   --transform none|condense|condense-in|condense-out|enhance|both|condense-in+enhance|condense-out+enhance[,…]   default none
@@ -45,6 +47,9 @@ options
   --condenser <path>    module whose default export is a Transform or (id, prompt) => prompt
   --refresh-cache       regenerate stale/mismatched enhance cache entries
   --allow-fallback      on transform failure send the sealed prompt (flagged per row)
+  --judge-port N        judge tier port (default 8903, env ARENA_JUDGE_PORT)
+  --judge-limit K       per class×leg cap for a smoke pass
+  --res-dir <dir>       results dir override (judge a run outside this checkout)
   --no-ping             dry-run: skip endpoint pings
   --out <file>          dry-run: also write markdown to <file>`;
 
@@ -145,6 +150,19 @@ async function main(argv: string[]): Promise<number> {
 		const id = str(a, "run-id") ?? latestRun();
 		if (!id) throw new Refused("no results/*.jsonl — nothing to report");
 		console.log(await report(id));
+		return 0;
+	}
+	if (a.judge) {
+		const id = str(a, "run-id") ?? latestRun();
+		if (!id) throw new Refused("no results/*.jsonl — nothing to judge");
+		await judgeRun({
+			runId: id,
+			resDir: str(a, "res-dir"),
+			port: Number(str(a, "judge-port") ?? 0) || undefined,
+			classes: selClasses(a),
+			limit: Number(str(a, "judge-limit") ?? 0) || undefined,
+			log: (s) => console.error(s),
+		});
 		return 0;
 	}
 	const classes = selClasses(a);

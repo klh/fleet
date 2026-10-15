@@ -83,6 +83,8 @@ export interface Row {
 	score: number;
 	conf: number | null;
 	load: number;
+	judge: number | null;
+	judgeVerdict: string | null;
 	tier?: string | null;
 	kevConf?: number | null;
 	label?: string;
@@ -150,6 +152,8 @@ export function toRow(r: RawRow): Row {
 		score: r.score ?? 0,
 		conf: r.conf,
 		load: r.load1,
+		judge: null,
+		judgeVerdict: null,
 		tier: tierOfRow(r),
 		kevConf: r.kev?.confidence ?? null,
 		label: r.cls === "e" ? labelOf(r.task) : undefined,
@@ -175,10 +179,23 @@ export async function loadRun(
 	let meta: RunMeta | null = null;
 	let ended: string | null = null;
 	const rows: Row[] = [];
-	for await (const r of jsonl<RawRow & RunMeta & { ended?: string }>(file)) {
+	const judged = new Map<string, { score: number; verdict: string }>();
+	for await (const r of jsonl<RawRow & RunMeta & { ended?: string; type: string }>(file)) {
 		if (r.type === "meta") meta = r;
 		else if (r.type === "end") ended = r.ended ?? null;
-		else if (r.type === "row" && r.phase !== "warmup") rows.push(toRow(r));
+		else if (r.type === "judge" && !r.judge_error && typeof r.judge_score === "number") {
+			judged.set(`${r.cls}|${r.task}|${r.leg}|${r.phase}`, {
+				score: r.judge_score,
+				verdict: r.judge_verdict ?? "",
+			});
+		} else if (r.type === "row" && r.phase !== "warmup") rows.push(toRow(r));
+	}
+	for (const x of rows) {
+		const j = judged.get(`${x.cls}|${x.task}|${x.leg}|${x.phase}`);
+		if (j) {
+			x.judge = j.score;
+			x.judgeVerdict = j.verdict || null;
+		}
 	}
 	return { id, meta, ended, rows };
 }
@@ -191,6 +208,7 @@ function legLine(runId: string, cls: ClassId, lg: string, R: Row[]): string {
 	const ok = R.filter((r) => r.ok);
 	const w = ok.map((r) => r.wall);
 	const sc = R.map((r) => r.score);
+	const J = R.flatMap((r) => (r.judge === null ? [] : [r.judge]));
 	const p50 = quant(w, 0.5);
 	const p95 = quant(w, 0.95);
 	const inS = ok.reduce((s, r) => s + r.inT, 0);
@@ -214,6 +232,9 @@ function legLine(runId: string, cls: ClassId, lg: string, R: Row[]): string {
 		.join(" ");
 	const pass = R.filter((r) => r.score === 1).length;
 	const wl = wilson(pass, R.length);
+	const jCell = J.length
+		? `${f2(mean(J))} ${ci(boot(J, mean, `${runId}|${cls}|${lg}|j`))}`
+		: "—";
 	const ttfts = ok.flatMap((r) => (r.ttft === null ? [] : [r.ttft]));
 	const ttfcs = ok.flatMap((r) => (r.ttfc === null ? [] : [r.ttfc]));
 	const cin = mean(R.flatMap((r) => (r.charsIn === null ? [] : [r.charsIn])));
@@ -234,6 +255,7 @@ function legLine(runId: string, cls: ClassId, lg: string, R: Row[]): string {
 		`${f0(cin)}→${f0(cout)}`,
 		`${f2((100 * pass) / R.length, 0)} ${ci(wl ? [wl[0] * 100, wl[1] * 100] : null, 0)}`,
 		`${f2(mean(sc))} ${ci(boot(sc, mean, `${runId}|${cls}|${lg}`))}`,
+		jCell,
 		qualLabel(R.length),
 		`${usd(cost === null ? null : cost * 1000)}${priced.includes("electricity") ? " electricity" : ""}`,
 		f0(tps),
@@ -255,17 +277,32 @@ export function pairedLine(
 	});
 	if (!P.length) return null;
 	const dq = P.map(([x, y]) => x.score - y.score);
+	const Pj = P.filter(([x, y]) => x.judge !== null && y.judge !== null);
+	const dj = Pj.map(([x, y]) => (x.judge ?? 0) - (y.judge ?? 0));
 	const rt = P.filter(([x, y]) => x.ok && y.ok && y.wall > 0).map(
 		([x, y]) => x.wall / y.wall,
 	);
 	const dc = P.map(([x, y]) => (x.cost - y.cost) * 1000);
 	const dqCI = boot(dq, mean, `${seed}|q`);
+	const djCI = boot(dj, mean, `${seed}|j`);
 	const rtCI = boot(rt, (s) => quant(s, 0.5), `${seed}|t`);
 	const nonInf = dqCI !== null && dqCI[0] >= -DELTA && P.length >= NONINF_MIN_N;
+	const jNonInf =
+		djCI !== null && djCI[0] >= -DELTA && Pj.length >= NONINF_MIN_N;
+	const djCell = Pj.length
+		? `${f2(mean(dj), 3)} ${ci(djCI, 3)} ${
+				jNonInf
+					? "**non-inferior**"
+					: Pj.length < NONINF_MIN_N
+						? `n<${NONINF_MIN_N} — no claim`
+						: "not shown"
+			}`
+		: "—";
 	return row([
 		title,
 		P.length,
 		`${f2(mean(dq), 3)} ${ci(dqCI, 3)}`,
+		djCell,
 		nonInf
 			? "**non-inferior**"
 			: P.length < NONINF_MIN_N
@@ -290,9 +327,9 @@ function classSection(
 	p(`## ${cls} — ${CLASSES[cls].name}`);
 	p();
 	p(
-		"| leg | n | err% | trunc% | wall p50 | wall p95 | TTFT p50 | TTFC p50 | in/out tok (mean) | cache% | prompt chars in→out | pass% [Wilson 95%] | mean score [boot 95%] | label | $/1k tasks | out tok/s | load1 | flags |",
+		"| leg | n | err% | trunc% | wall p50 | wall p95 | TTFT p50 | TTFC p50 | in/out tok (mean) | cache% | prompt chars in→out | pass% [Wilson 95%] | mean score [boot 95%] | judge [boot 95%] | label | $/1k tasks | out tok/s | load1 | flags |",
 	);
-	p(sep(18));
+	p(sep(19));
 	for (const lg of legs)
 		p(
 			legLine(
@@ -337,9 +374,9 @@ function classSection(
 	});
 	if (lines.length) {
 		p(
-			"| comparison (A − B, paired by task) | n | Δquality [95% CI] | δ=0.10 | wall ratio A/B median [CI] | Δ$/1k | verdict |",
+			"| comparison (A − B, paired by task) | n | Δquality [95% CI] | Δjudge [95% CI] · δ=0.10 | δ=0.10 | wall ratio A/B median [CI] | Δ$/1k | verdict |",
 		);
-		p(sep(7));
+		p(sep(8));
 		for (const l of lines) p(l);
 		p();
 	}

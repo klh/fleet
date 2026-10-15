@@ -109,9 +109,9 @@ export function variantClassTable(
 	const hasPureApi = (base?.rows ?? []).some((r) => r.leg === "pure-api");
 	out.push(`## ${cls} — ${CLASSES[cls].name}`, "");
 	out.push(
-		"| variant | leg | n | wall p50 | speed vs base pure-api (median ratio [CI]) | speed label | quality mean | pass% | Δq vs base [95% CI] | δ=0.10 | $/1k | prompt chars in→out | Δchars | est Δin-tok/task | est Δ$/1k from compression | fb | flags |",
+		"| variant | leg | n | wall p50 | speed vs base pure-api (median ratio [CI]) | speed label | quality mean | pass% | Δq vs base [95% CI] | δ=0.10 | judge mean [boot 95%] | Δjudge vs base [95% CI] · δ=0.10 | $/1k | prompt chars in→out | Δchars | est Δin-tok/task | est Δ$/1k from compression | fb | flags |",
 	);
-	out.push(sep(17));
+	out.push(sep(19));
 	for (const run of runs) {
 		const vlabel = run.meta?.variant ?? run.id;
 		const cold = run.rows.filter((r) => r.cls === cls && r.phase === "cold");
@@ -134,12 +134,18 @@ export function variantClassTable(
 				([x, y]) => x.wall / y.wall,
 			);
 			const dq = P.map(([x, y]) => x.score - y.score);
+			const Rj = R.flatMap((r) => (r.judge === null ? [] : [r.judge]));
+			const Pj = P.filter(([x, y]) => x.judge !== null && y.judge !== null);
+			const dj = Pj.map(([x, y]) => (x.judge ?? 0) - (y.judge ?? 0));
 			const seed = `${run.id}|${base?.id}|${cls}|${lg}`;
 			const dqCI = boot(dq, mean, `${seed}|q`);
+			const djCI = boot(dj, mean, `${seed}|jd`);
 			const rtCI = boot(rt, median, `${seed}|t`);
 			const isBase = run.id === base?.id && (lg === "pure-api" || !hasPureApi);
 			const nonInf =
 				dqCI !== null && dqCI[0] >= -DELTA && P.length >= NONINF_MIN_N;
+			const jNonInf =
+				djCI !== null && djCI[0] >= -DELTA && Pj.length >= NONINF_MIN_N;
 			const cm = compression(cls, R, lg);
 			const cost = mean(R.map((r) => r.cost));
 			const p50 = quant(
@@ -160,6 +166,20 @@ export function variantClassTable(
 			]
 				.filter(Boolean)
 				.join(" ");
+			const jMeanCell = Rj.length
+				? `${f2(mean(Rj))} ${ci(boot(Rj, mean, `${seed}|jm`))}`
+				: "—";
+			const jDeltaCell = isBase
+				? "0 (ref)"
+				: Pj.length
+					? `${f2(mean(dj), 3)} ${ci(djCI, 3)} ${
+							jNonInf
+								? "**non-inferior**"
+								: Pj.length < NONINF_MIN_N
+									? `n<${NONINF_MIN_N} — no claim`
+									: "not shown"
+						}`
+					: "—";
 			out.push(
 				row([
 					vlabel,
@@ -185,6 +205,8 @@ export function variantClassTable(
 							: P.length < NONINF_MIN_N
 								? `n<${NONINF_MIN_N} — no claim (${qualLabel(P.length)})`
 								: "not shown",
+					jMeanCell,
+					jDeltaCell,
 					`${usd(cost === null ? null : cost * 1000)}`,
 					`${f0(cm.cin)}→${f0(cm.cout)}`,
 					pct(cm.dPct),
