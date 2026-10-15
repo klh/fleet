@@ -28,6 +28,7 @@ import {
 	type HubProfile,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
+import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 
 import {
 	buildRelease,
@@ -154,19 +155,9 @@ const UPSTREAM_ENV_SCRIPT = [
 	'mv "$OUT.tmp" "$OUT"',
 ].join("\n");
 
-const DEFAULT_CONNECT_TIMEOUT = 10;
-
-/** W701: ssh/scp -o flags — an unreachable hub fails in seconds (not ~75s of
- *  TCP retries) and never blocks on a password prompt. Timeout is the
- *  stack.yaml `deploy.connect_timeout` knob (seconds). */
-function sshOpts(hub: HubProfile): string[] {
-	const t = hub.deploy?.connect_timeout;
-	const secs =
-		typeof t === "number" && Number.isFinite(t) && t > 0
-			? Math.ceil(t)
-			: DEFAULT_CONNECT_TIMEOUT;
-	return ["-o", `ConnectTimeout=${secs}`, "-o", "BatchMode=yes"];
-}
+// W371: ssh flags + the compose-up argv now live in deploy/hub-remote.ts —
+// shared with belt's hub heal, which spawns the same argv (no duplicate
+// quoting/flag logic across packages).
 
 /** Run a script on the hub (or locally when the hub has no ssh target). */
 function runOnHub(hub: HubProfile, script: string): string {
@@ -311,16 +302,12 @@ function requireDir(hub: HubProfile): string {
 	return dir;
 }
 
-/** docker compose up -d on the hub. */
+/** docker compose up -d on the hub — the argv lives in hub-remote.ts so
+ *  belt's hub heal spawns byte-identical commands. */
 function composeUp(hub: HubProfile): void {
-	const dir = requireDir(hub);
-	const docker = hub.deploy?.docker ?? "docker";
-	console.log(
-		runOnHub(
-			hub,
-			`${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d`,
-		).trim(),
-	);
+	requireDir(hub); // the declared-dir gate + its stack-path error
+	const [bin, ...rest] = composeUpArgv(hub);
+	console.log(execFileSync(bin, rest, { encoding: "utf8" }).trim());
 }
 
 /** The HUB_FLEET_REF a hub's deployed .env pins — null when there is none
