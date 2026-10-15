@@ -43,6 +43,20 @@ export const HTML = unesc(String.raw`<!doctype html>
 ${THEME_HEAD}
 <style>${FLEET_NAV_CSS}</style>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root, :root[data-theme="dark"] {
+  --klh-ent-accent: #a08ed8;
+  --klh-ent-accent-bg: #1d1a26;
+  --klh-ent-accent-wash: rgba(160,142,216,.12);
+  --klh-ent-edge: rgba(160,142,216,.38);
+}
+:root[data-theme="light"] {
+  --klh-ent-accent: #6b5ca5;
+  --klh-ent-accent-wash: rgba(107,92,165,.10);
+  --klh-ent-edge: rgba(107,92,165,.35);
+  --klh-ent-accent-bg: #efecf6;
+}
+</style>
 <script type="module" src="/vendor/klh-recovery.js"></script>
 <style>
 * { box-sizing: border-box; }
@@ -297,4 +311,5 @@ ${fleetNav("suspenders", "suspenders")}
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
-<script type="module" src="/vendor/klh-board-tabs.js"></script>`);
+<script type="module" src="/vendor/klh-board-tabs.js"></script>
+<script type="module" src="/vendor/klh-ent-zone.js"></script>`);

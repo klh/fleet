@@ -120,6 +120,7 @@ export async function handleData(
 				vf === "klh-board-tabs.js" ||
 				vf === "klh-console-cards.js" ||
 				vf === "klh-console-forms.js" ||
+				vf === "klh-ent-zone.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;

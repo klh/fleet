@@ -99,6 +99,9 @@ export const BODY = String.raw`
   <div id="setupErr" class="taberr"></div>
   <div class="grid" id="setupBody"><div class="state dim">loading setup checks...</div></div>
 </section>
+<section id="tab-enterprise" hidden>
+  <klh-ent-zone id="entZone"></klh-ent-zone>
+</section>
 </main>
 <aside id="drawer" role="dialog" aria-modal="false" aria-labelledby="drawerTitle" hidden>
   <div class="dwhead"><h2 id="drawerTitle">Task</h2><button id="drawerClose" type="button" aria-label="close task details">&times;</button></div>

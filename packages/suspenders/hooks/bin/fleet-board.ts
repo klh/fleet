@@ -42,6 +42,8 @@ import { handleObservations } from "../board/routes-observations.ts";
 import { handleLaneModel } from "../board/routes-lane-model.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
+import { handleEnterprise } from "../board/routes-enterprise.ts";
+import { setEnterpriseProvider } from "../board/ent-seam.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
@@ -53,6 +55,23 @@ ensureLaneObservations(db);
 ensureLaneReadModel(db);
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
+
+// W775.1: the enterprise overlay injects its provider at boot — the module
+// specifier is runtime config (KLH_OVERLAY_MODULE), never code. A module
+// that fails to load answers honestly on the console but never fakes the
+// entitlements surface.
+const entModule = process.env.KLH_OVERLAY_MODULE;
+if (entModule)
+	await import(entModule)
+		.then((m) => {
+			if (typeof m.enterpriseProvider !== "function")
+				throw new Error("no enterpriseProvider export");
+			setEnterpriseProvider(m.enterpriseProvider(db));
+			console.log("enterprise overlay provider registered");
+		})
+		.catch((e) =>
+			console.error(`enterprise overlay module failed: ${String(e)}`),
+		);
 
 let tokAggAt = 0;
 function feedTokens(): void {
@@ -110,6 +129,7 @@ const base = {
 							m.handleHubAdmin(req2, url2, db),
 						)
 					: null,
+			handleEnterprise,
 			handleMeta,
 		]) {
 			const r = await h(req, url);

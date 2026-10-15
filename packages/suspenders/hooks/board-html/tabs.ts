@@ -28,6 +28,16 @@ function setTab(id, fromHash){
 }
 // --- wiring ---
 nav.addEventListener('tab-select', function(e){ setTab(e.detail); });
+// W775.1: the enterprise zone registers its tab when the overlay is
+// entitled (the zone probes /api/entitlements; a core SKU never fires
+// this, so the core page is byte-stable). #enterprise deep-links once
+// the tab exists; before that the setTab coercion lands on Decisions.
+window.addEventListener('ent-entitled', function(){
+  if (TABS.enterprise) return;
+  TABS.enterprise = 1;
+  nav.extraTabs = [['enterprise', 'Enterprise']];
+  if (location.hash === '#enterprise') setTab('enterprise', true);
+});
 window.addEventListener('hashchange', function(){
   var h = (location.hash || '').replace(/^#/, '');
   if (TABS[h]) setTab(h, true);
