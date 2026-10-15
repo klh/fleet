@@ -385,3 +385,60 @@ Findings (as measured, n=12 smoke-level):
    enable the enhance pass on the local swarm for task prompts, and keep the
    buckle outbound sideband (politeness) default OFF pending a quality bench
    on real responses. W368 re-benches all three blam tiers per model.
+
+## Specialist cold-trace + cloud→local shift (W762, 2026-10-15, telemetry AS-IS)
+
+Surfaces (read-only): belt router NDJSON (`swarm-routing.log`, 5,217 rows,
+2026-09-04→10-15) · buckle spoke ledger (`router_usage` 2026-10-06→10-15 +
+lane-cache 11.1k rows) · board `/api/usage` (harvested Claude sessions, 28d) ·
+arena `benchmarks.jsonl`. Telemetry — volumes, not quality claims.
+
+### Specialist census (belt router rows, 14d window)
+
+| Specialist       | Rows 14d | Probe share          | Real work                                            | Status                    | Verdict                                                 |
+| ---------------- | -------: | -------------------- | ---------------------------------------------------- | ------------------------- | ------------------------------------------------------- |
+| :8902 extract    |    2,802 | 1,638 (58%) ≤32-char | 677 router-visible; direct-port calls bypass logging | resident + keepwarm       | keep — but fold probes into health sidecars             |
+| :8901 code       |    1,237 | —                    | 61M chars (~15M tok), avg 17.4s                      | resident                  | keep — carries real lane work                           |
+| :8903 reason     |    1,106 | —                    | 40M chars (~10M tok) code + 285 extract + 80 reason  | resident                  | keep — also absorbs MEDIUM/COMPLEX extract              |
+| :8907 embeddings |        0 | —                    | 0 requests in ALL logs, never resident               | on-demand, never demanded | structural cold loop — un-gate insight-recall or accept |
+| :8913 rerank     |        0 | —                    | 0 requests; warmed every 240s since tier=minimal     | resident-warm, NO caller  | stop warming until a caller lands                       |
+| :8906 danish     |        3 | —                    | —                                                    | down (on demand)          | fine                                                    |
+
+:8902 "cold" is a MEASUREMENT artifact: board suggest + belt enhance POST the
+port URL directly (`packages/suspenders/hooks/board/suggest.ts:44`,
+`packages/belt/bin/enhance.ts:50`), bypassing `:4000` router and both ledgers;
+the router-visible rows are 58% probe-shaped (`Reply: ok`, out≈2 tok). The
+router's own dispatch brief condense is deterministic (`condensePrompt`,
+W270 ruleset) — zero model calls, nothing to bypass.
+
+### Cloud-group census (buckle ledger 9d + harvested sessions 28d)
+
+| Group            | Buckle rq 9d | In tok 9d | Out tok 9d | Sessions 28d (board face)                     |
+| ---------------- | -----------: | --------: | ---------: | --------------------------------------------- |
+| glm-5.3-flash    |       50,872 |     66.3M |      19.2M | 615k rq; 1.69B in; 288M out; 64.8B cache-read |
+| glm-5.3          |        2,736 |      0.4M |        921 | 9.2k rq; 22.5M in                             |
+| claude-sonnet-5  |        1,771 |     99.4M |       1.0M | 99.37M of it landed 10-12 alone (W768)        |
+| claude-opus-5-5  |          267 |      6.2M |        68k | 244 rq                                        |
+| claude-haiku-4-5 |          130 |      0.3M |        10k | 34 rq                                         |
+| local-swarm      |           47 |      140k |        43k | 304k tok/28d = 0.014% of flash                |
+
+The cloud bill IS lane sessions: cache-read-dominated, ~60M in + 10M out +
+2.3B cache-read tok/day on flash. Auxiliary legs are already local by design
+(condense deterministic, enhance/oracle on :890x); local adoption in sessions
+is effectively zero.
+
+### Shift rows (decision-grade; spend-shift = second driver after speed-first-local-first 2026-09-27)
+
+| Lever                                    | Moves tok/day         | Cost                                         | Verdict                                                    |
+| ---------------------------------------- | --------------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| Stop warming :8913 (tier manifest)       | 0 cloud               | −RAM −keepwarm cycles; 22ms when needed      | DO — zero callers today; re-warm when one lands            |
+| Un-gate insight-recall (:8907 semantic)  | 0 cloud (never spent) | 1 specialist load on session start           | PILOT — recall quality upside, spend unchanged             |
+| Probe diet (fold into *-health sidecars) | 0 cloud               | small belt/board change                      | DO — 58% of :8902 router rows are probes                   |
+| Short-lane carriers → local-reason       | ≤5% of flash in-tok   | quality risk (Qwen3.5-35B ≪ GLM-5.3 agentic) | PILOT on consult-relay/distill lanes only                  |
+| Lane-carrier sessions → local            | ~60M in/day ceiling   | quality-UNBENCHED at n≥130 (fleet law)       | NO-GO today; only a paired ≥130-question bench can flip it |
+
+Honest bottom line: there is no 10× cloud-flash cut hiding in aux legs —
+they are already local; the billable volume is lane sessions themselves, and
+shifting those is a quality-gated pilot, not a config flip. The measurable
+waste is elsewhere: :8913 warmed with no caller, :8907 structurally cold,
+and probe traffic riding the model plane.
