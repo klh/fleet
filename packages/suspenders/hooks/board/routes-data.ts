@@ -2,6 +2,8 @@
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { db } from "./context.ts";
+import { itemAttribution } from "../lib/lane-spend.ts";
+import type { Database } from "bun:sqlite";
 import { recoverySnapshot } from "./recovery.ts";
 import { beltRegistry } from "./belt.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
@@ -180,7 +182,13 @@ export async function handleData(
 		return json({
 			ok: true,
 			projects: projectList(),
-			task: taskShape(w, openN, unblockedBy()),
+			task: taskShape(
+				w,
+				openN,
+				unblockedBy(),
+				undefined,
+				itemAttribution(db as unknown as Database, p).get(id) ?? null,
+			),
 			events: workEvents(p, id),
 			decisions: taskDecisions(p, id),
 		});

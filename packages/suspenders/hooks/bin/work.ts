@@ -53,6 +53,8 @@ import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
+import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
+import type { Database } from "bun:sqlite";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
@@ -803,6 +805,10 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					...it,
 					completion: completionRecord(db(), PROJECT, String(it.id)),
 					capsule: capRow ? JSON.parse(capRow.value) : null,
+					attribution:
+						itemAttribution(db() as unknown as Database, PROJECT).get(
+							String(it.id),
+						) ?? null,
 				}),
 			);
 			process.exit(0);
@@ -831,6 +837,16 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			.query("SELECT value FROM facts WHERE key = ?")
 			.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
 		if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
+		// W776 per-item attribution (lib/lane-spend.ts): buckle-ledger spend
+		// ⋈ claim windows, plus event-bus wall/agent time. Silent when the
+		// item has no attribution at all (never claimed + zero spend).
+		const at = itemAttribution(db() as unknown as Database, PROJECT).get(
+			String(id),
+		);
+		if (at) {
+			const line = renderAttribution(at);
+			if (line) console.log(`  ${dim("spend:")} ${line}`);
+		}
 		const kids = db()
 			.query(
 				"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",

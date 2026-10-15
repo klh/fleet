@@ -4,6 +4,7 @@ import { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import {
+	itemAttribution,
 	itemSpend,
 	laneSpendRows,
 	resolveBuckleDb,
@@ -120,5 +121,75 @@ describe("laneSpendRows + resolveBuckleDb", () => {
 		expect(resolveBuckleDb("/nonexistent-home")).toBeNull();
 		delete process.env.SUSPENDERS_BUCKLE_DB;
 		expect(resolveBuckleDb("/nonexistent-home")).toBeNull();
+	});
+});
+
+// W776 — itemAttribution fixtures: governor-shaped events db + ledger-shaped
+// spend db, both in-memory; the full join verified end-to-end.
+const WT0 = 1_700_000_000_000;
+
+function attrGovDb(): Database {
+	const d = new Database(":memory:");
+	d.run(
+		"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, project TEXT, payload TEXT)",
+	);
+	d.run(
+		"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.claimed', 'proj', ?)",
+		[WT0, JSON.stringify({ work: "W1", by: "s1" })],
+	);
+	d.run(
+		"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.done', 'proj', ?)",
+		[WT0 + 30 * 60_000, JSON.stringify({ work: "W1" })],
+	);
+	d.run(
+		"INSERT INTO events (ts, kind, project, payload) VALUES (?, 'work.claimed', 'proj', ?)",
+		[WT0 + 40 * 60_000, JSON.stringify({ work: "W2", by: "s1" })],
+	);
+	return d;
+}
+
+function attrLedgerDb(path = ":memory:"): Database {
+	const d = new Database(path);
+	d.run("CREATE TABLE api_keys (key_id TEXT PRIMARY KEY, name TEXT)");
+	d.run(
+		"CREATE TABLE router_usage (hour_bucket TEXT, key TEXT, model_group TEXT, model TEXT DEFAULT '', in_tok INTEGER DEFAULT 0, out_tok INTEGER DEFAULT 0, cache_r INTEGER DEFAULT 0, cache_c INTEGER DEFAULT 0, requests INTEGER DEFAULT 0)",
+	);
+	d.run("INSERT INTO api_keys VALUES ('k1', 's1')");
+	d.run(
+		"INSERT INTO router_usage VALUES ('2023-11-14T22:00','k1','glm-5.3-flash','glm-5.3-flash',120,40,20,10,3)",
+	);
+	d.run(
+		"INSERT INTO router_usage VALUES ('2023-11-14T20:00','k1','glm-5.5','glm-5.5',999,0,0,0,1)",
+	);
+	return d;
+}
+
+describe("itemAttribution", () => {
+	test("joins spend + wall end-to-end from real dbs", () => {
+		const lp = `${import.meta.dir}/w776-ledger-probe.db`;
+		try {
+			unlinkSync(lp);
+		} catch {}
+		attrLedgerDb(lp).close();
+		const now = WT0 + 45 * 60_000;
+		const m = itemAttribution(attrGovDb(), "proj", now, lp);
+		const a1 = m.get("W1");
+		expect(a1?.fresh).toBe(120);
+		expect(a1?.cached).toBe(30);
+		expect(a1?.out).toBe(40);
+		expect(a1?.requests).toBe(3);
+		expect(a1?.wallMs).toBe(30 * 60_000);
+		expect(a1?.agentMs).toBe(30 * 60_000);
+		expect(a1?.groups["glm-5.3-flash"]?.in).toBe(120);
+		const a2 = m.get("W2");
+		expect(a2?.fresh ?? 0).toBe(0);
+		expect(a2?.agentMs).toBe(5 * 60_000);
+	});
+
+	test("missing ledger fails soft: zero spend, real wall", () => {
+		const m = itemAttribution(attrGovDb(), "proj", WT0 + 45 * 60_000, null);
+		const a1 = m.get("W1");
+		expect(a1?.fresh).toBe(0);
+		expect(a1?.wallMs).toBe(30 * 60_000);
 	});
 });

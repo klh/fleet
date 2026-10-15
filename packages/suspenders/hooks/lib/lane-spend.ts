@@ -8,7 +8,16 @@
 // ledger fails soft (no cost section — metrics never blocks on the gateway).
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import type { ClaimWindow } from "./work-timing.ts";
+import { claimWindows, workTiming, type ClaimWindow } from "./work-timing.ts";
+
+/** Per model_class (model_group) spend split (W776: the class dimension). */
+export interface GroupSpend {
+	in: number;
+	out: number;
+	cacheR: number;
+	cacheC: number;
+	requests: number;
+}
 
 /** One hour-bucket spend row from the buckle ledger. */
 export interface LaneSpendRow {
@@ -30,16 +39,7 @@ export interface ItemSpend {
 	cacheR: number;
 	cacheC: number;
 	requests: number;
-	groups: Map<
-		string,
-		{
-			in: number;
-			out: number;
-			cacheR: number;
-			cacheC: number;
-			requests: number;
-		}
-	>;
+	groups: Map<string, GroupSpend>;
 }
 
 /** Resolve the buckle ledger path: SUSPENDERS_BUCKLE_DB env pin, then the
@@ -154,4 +154,91 @@ export function itemSpend(
 		out.set(work, t);
 	}
 	return out;
+}
+
+/** W776 attribution lookback: laneSpendRows never scans the whole ledger —
+ *  spend older than this never matches a live claim window (a claim older
+ *  than the lookback still attributes from its window onward; tokens before
+ *  the cut are unattributed by design, the ledger is not a replay surface). */
+export const ATTRIBUTION_LOOKBACK_MS = 30 * 86_400_000;
+
+/** W776 — per-item attribution bundle: buckle spend (fresh/cached/output
+ *  tokens + requests per model class) joined to event-bus wall/agent time.
+ *  Composes the W635 join (itemSpend ⋈ claimWindows) with the W15 timing
+ *  replay (workTiming). Fails soft: a missing/unreadable ledger yields zero
+ *  spend with real wall time — metrics never blocks on the gateway. */
+export interface ItemAttribution {
+	work: string;
+	fresh: number; // non-cache prompt tokens (in)
+	cached: number; // cacheR + cacheC
+	out: number;
+	requests: number;
+	wallMs: number; // first claim → last event (W15)
+	agentMs: number; // Σ closed claim segments (W15)
+	groups: Record<string, GroupSpend>;
+}
+
+/** The W776 attribution for one project's items, keyed by item id. */
+export function itemAttribution(
+	db: Database,
+	project: string,
+	nowMs = Date.now(),
+	ledger: string | null = resolveBuckleDb(),
+): Map<string, ItemAttribution> {
+	const { windows } = claimWindows(db, project, nowMs);
+	const timing = new Map(
+		workTiming(db, project, nowMs).map((t) => [t.work, t]),
+	);
+	const fromBucket = `${new Date(nowMs - ATTRIBUTION_LOOKBACK_MS).toISOString().slice(0, 13)}:00`;
+	let rows: LaneSpendRow[] = [];
+	try {
+		rows = ledger ? laneSpendRows(ledger, fromBucket) : [];
+	} catch {
+		rows = []; // unreadable ledger — fail-soft (coord fleet parity)
+	}
+	const spend = itemSpend(rows, windows);
+	const out = new Map<string, ItemAttribution>();
+	const works = new Set<string>([...windows.keys(), ...timing.keys()]);
+	for (const work of works) {
+		const t = timing.get(work);
+		const s = spend.get(work);
+		out.set(work, {
+			work,
+			fresh: s?.in ?? 0,
+			cached: (s?.cacheR ?? 0) + (s?.cacheC ?? 0),
+			out: s?.out ?? 0,
+			requests: s?.requests ?? 0,
+			wallMs: t?.wallMs ?? 0,
+			agentMs: t?.agentMs ?? 0,
+			groups: Object.fromEntries(s?.groups ?? []),
+		});
+	}
+	return out;
+}
+
+/** W776 — one-line human render for one item's attribution (work show).
+ *  Empty string for an all-zero attribution: no noise on clean items. */
+export function renderAttribution(a: ItemAttribution): string {
+	if (a.fresh + a.cached + a.out === 0 && a.requests === 0 && !a.wallMs)
+		return "";
+	const total = (g: GroupSpend): number => g.in + g.out + g.cacheR + g.cacheC;
+	const k = (n: number): string =>
+		n >= 1e6
+			? `${(n / 1e6).toFixed(1)}M`
+			: n >= 1e4
+				? `${Math.round(n / 1e3)}k`
+				: `${n}`;
+	const dur = (ms: number): string => {
+		const m = Math.round(ms / 60_000);
+		return m >= 60
+			? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`
+			: `${m}m`;
+	};
+	const groups = Object.entries(a.groups)
+		.filter(([, g]) => total(g) > 0)
+		.sort((x, y) => total(y[1]) - total(x[1]))
+		.slice(0, 3)
+		.map(([g, v]) => `${g} ${k(total(v))}`)
+		.join(", ");
+	return `fresh ${k(a.fresh)} · cached ${k(a.cached)} · out ${k(a.out)} · ${a.requests} req · wall ${dur(a.wallMs)} (agent ${dur(a.agentMs)})${groups ? ` · ${groups}` : ""}`;
 }
