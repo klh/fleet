@@ -366,8 +366,18 @@ describe("services manifest win32 (W488.3)", () => {
 		]);
 	});
 
-	test("fleet-loop env rides render-time substitution (belt URL, non-secret parity)", () => {
+	test("fleet-loop env rides render-time substitution (belt URL, non-PATH env parity)", () => {
 		const xml = winByName("fleet-loop");
 		expect(xml).toContain(`value="${FIXTURE.beltUrl}"`);
+	});
+
+	test("manifest PATH env never renders as a live <env> (host PATH applies, W767)", () => {
+		for (const name of ["board", "fleet-loop", "federation-pull"]) {
+			const xml = winByName(name);
+			expect(xml).not.toMatch(/<env name="PATH"/i);
+			expect(xml).toContain("host PATH applies");
+		}
+		// non-PATH env still renders as live <env> entries
+		expect(winByName("board")).toContain('value="local"');
 	});
 });
