@@ -7,12 +7,19 @@ import { json } from "./helpers.ts";
 import { maybeHarvest } from "../lib/usage-harvest.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
 import { buildUsageReport } from "../lib/usage.ts";
+import {
+	type CrossHubReport,
+	crossHubRollup,
+} from "../lib/cross-hub-usage.ts";
 import { usagePage } from "../bin/usage-page-html.ts";
 
 export async function handleUsage(
 	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
+	// W365: cross-hub rollup rides both usage routes (TTL-cached per hub,
+	// per-hub degrade — a down hub never blocks the local report).
+	const crossHub = await crossHubUsageSafe(url);
 	if (url.pathname === "/usage") {
 		// W127 phase 3: the server-rendered analytics page (same data path
 		// as /api/usage: TTL-gated harvest then buildUsageReport). W243: the
@@ -39,6 +46,7 @@ export async function handleUsage(
 					activity: activityReport(db, {
 						weeks: Math.min(26, Math.max(1, w)),
 					}),
+					crossHub,
 				},
 			),
 			{
@@ -63,6 +71,7 @@ export async function handleUsage(
 				dept: url.searchParams.get("dept") ?? "",
 				includeDemo: url.searchParams.get("includeDemo") === "true",
 			}),
+			crossHub,
 		});
 	}
 	if (url.pathname === "/api/activity-meter") {
@@ -78,4 +87,16 @@ export async function handleUsage(
 		});
 	}
 	return null;
+}
+
+/** W365: the per-hub rollup, never fatal — any failure degrades to
+ *  undefined and the views omit the panel honestly. days rides the query
+ *  string (clamped in crossHubRollup). */
+async function crossHubUsageSafe(url: URL): Promise<CrossHubReport | undefined> {
+	try {
+		const d = Number(url.searchParams.get("days") ?? 28) || 28;
+		return await crossHubRollup({ days: Math.min(90, Math.max(1, d)) });
+	} catch {
+		return undefined;
+	}
 }

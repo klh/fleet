@@ -118,6 +118,24 @@ export interface UsageSpokesPanel {
 		rq: number;
 	}[];
 }
+// W365: the cross-hub rollup slice — one row per hub (ok rows carry sums,
+// degraded/unresolved rows carry the honest reason). Via/url stay server-
+// side; the browser sees labels + sums only.
+export interface UsageCrossHubRow {
+	hub: string;
+	via: string;
+	spokes: number;
+	segs: UsageSeg[];
+	total: number;
+	rq: number;
+	degraded: boolean;
+	reason?: string;
+}
+export interface UsageCrossHubPanel {
+	foot?: string;
+	empty?: string;
+	rows: UsageCrossHubRow[];
+}
 // W695.3.4: the page header (back bar + title + filter chips) as a slice —
 // hrefs are computed server-side (the query string IS the view state), the
 // <klh-usage-header> component only lays them out.
@@ -142,6 +160,7 @@ export interface UsagePanels {
 	aids?: UsageAidsPanel;
 	activity?: UsageActivityPanel | { empty: string };
 	spokes?: UsageSpokesPanel;
+	crosshub?: UsageCrossHubPanel;
 }
 
 // the light-DOM u* chrome the two dashboards still render server-side or in

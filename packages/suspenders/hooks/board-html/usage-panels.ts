@@ -783,6 +783,108 @@ KlhUsageSpokes.styles = [
 	`,
 ];
 
+// ─── <klh-usage-crosshub> — W365 per-hub rollup table ─────────────────────
+const CROSSHUB_EMPTY =
+	"no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";
+
+export class KlhUsageCrossHub extends LitElement {
+	static properties = { panel: { type: Object, state: true } };
+
+	declare panel: UsagePanels["crosshub"] | null;
+	private slot: Record<string, string> = {};
+
+	constructor() {
+		super();
+		this.panel = null;
+	}
+
+	protected connectedCallback(): void {
+		super.connectedCallback();
+		this.panel = readPanels()?.crosshub ?? null;
+		this.slot = readSlot();
+	}
+
+	protected render(): TemplateResult {
+		const p = readPanels()?.crosshub;
+		if (!p) return html``;
+		if (!p.rows.length) return this.empty();
+		return this.body(p.rows);
+	}
+
+	private empty(): TemplateResult {
+		return html`<div class="upanel">
+			<h2>CROSS-HUB</h2>
+			<p class="uempty">${CROSSHUB_EMPTY}</p>
+		</div>`;
+	}
+
+	private row(
+		r: NonNullable<UsagePanels["crosshub"]>["rows"][number],
+	): TemplateResult {
+		if (r.degraded)
+			return html`<tr>
+				<td>
+					<b>${r.hub}</b>
+					<span class="uchip">degraded</span>
+				</td>
+				<td colspan="3">${r.reason ?? "hub down"}</td>
+			</tr>`;
+		const barW = Math.max(
+			2,
+			(r.total / Math.max(1, ...this.rowTotals)) * 100,
+		);
+		return html`<tr>
+			<td>
+				<b>${r.hub}</b>
+				<span class="uchip">${r.via}</span>
+				<span class="uchip">${String(r.spokes)} spokes</span>
+			</td>
+			<td>
+				<div class="ubar" style=${`width:${String(barW)}%`}>
+					${r.segs.map((seg) => segT(seg, r.total, this.slot))}
+				</div>
+			</td>
+			<td class="unum">${fmtTok(r.total)}</td>
+			<td class="unum">${fmtTok(r.rq)}</td>
+		</tr>`;
+	}
+
+	private get rowTotals(): number[] {
+		return (readPanels()?.crosshub?.rows ?? []).map((x) => x.total);
+	}
+
+	private body(
+		rows: NonNullable<UsagePanels["crosshub"]>["rows"],
+	): TemplateResult {
+		return html`<div class="upanel">
+			<h2>CROSS-HUB</h2>
+			<table class="uacts">
+				<thead>
+					<tr>
+						<th>hub</th>
+						<th style="width:38%">tokens by model class</th>
+						<th class="unum">total</th>
+						<th class="unum">req</th>
+					</tr>
+				</thead>
+				<tbody>
+					${rows.map((row) => this.row(row))}
+				</tbody>
+			</table>
+		</div>`;
+	}
+}
+
+// crosshub chrome — panel + shared table/bar/chip css
+KlhUsageCrossHub.styles = [
+	panelCss,
+	css`
+		:host {
+			display: block;
+		}
+	`,
+];
+
 // ─── <klh-usage-charts> — the uPlot panels (timeline + hour histogram) ─────
 // Light DOM by exception: uPlot builds its own canvas DOM inside the mount
 // divs and the document-level uPlot chrome CSS must reach it —
@@ -1010,6 +1112,7 @@ customElements.define("klh-usage-actors", KlhUsageActors);
 customElements.define("klh-usage-aids", KlhUsageAids);
 customElements.define("klh-usage-activity", KlhUsageActivity);
 customElements.define("klh-usage-spokes", KlhUsageSpokes);
+customElements.define("klh-usage-crosshub", KlhUsageCrossHub);
 customElements.define("klh-usage-charts", KlhUsageCharts);
 
 declare global {
@@ -1020,6 +1123,7 @@ declare global {
 		"klh-usage-aids": KlhUsageAids;
 		"klh-usage-activity": KlhUsageActivity;
 		"klh-usage-spokes": KlhUsageSpokes;
+		"klh-usage-crosshub": KlhUsageCrossHub;
 		"klh-usage-charts": KlhUsageCharts;
 	}
 }

@@ -25,6 +25,7 @@
 // no more per-request panel HTML strings. Filters stay server-side native
 // links (URL state must work without JS).
 import { GROUPS, type UsageReport } from "../lib/usage.ts";
+import type { CrossHubReport } from "../lib/cross-hub-usage.ts";
 import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
@@ -37,6 +38,7 @@ import {
 	type UsageActivityPanel,
 	type UsageActorsPanel,
 	type UsageAidsPanel,
+	type UsageCrossHubPanel,
 	type UsageSeg,
 	type UsageTile,
 	usagePageShell,
@@ -52,6 +54,7 @@ const chartPayload = (
 	r: UsageReport,
 	header: UsageHeaderPanel,
 	activity?: ActivityReport,
+	crosshub?: UsageCrossHubPanel,
 ): string =>
 	JSON.stringify({
 		groups: GROUPS,
@@ -72,6 +75,7 @@ const chartPayload = (
 						empty:
 							"meter not wired on this route — pass activity report to usagePage",
 					},
+			crosshub,
 		},
 	}).replaceAll("<", "\\u003c");
 
@@ -247,6 +251,41 @@ const activityData = (a: ActivityReport): UsageActivityPanel => {
 	};
 };
 
+// ─── W365 cross-hub slice: per-hub class sums + honest degrade rows ───────
+const crossHubData = (x: CrossHubReport | undefined): UsageCrossHubPanel => {
+	if (x === undefined || x.rows.length === 0)
+		return {
+			empty:
+				"no hubs enumerated — stack.yaml hubs and hubs.json registry are both empty (or the route did not wire the rollup) on this board host",
+		};
+	const rows = x.rows.map((r) => {
+		const segs: UsageSeg[] = [];
+		for (const g of GROUPS) {
+			const s = r.classes[g];
+			if (s !== undefined) segs.push({ g, tok: s.tok });
+		}
+		for (const [g, s] of Object.entries(r.classes)) {
+			if (!(GROUPS as string[]).includes(g)) segs.push({ g, tok: s.tok });
+		}
+		return {
+			hub: r.label,
+			via: r.via ?? "",
+			spokes: r.spokes,
+			segs,
+			total: Object.values(r.classes).reduce((a, s) => a + s.tok, 0),
+			rq: Object.values(r.classes).reduce((a, s) => a + s.requests, 0),
+			degraded: !r.ok,
+			reason: r.reason ?? undefined,
+		};
+	});
+	const okN = x.summary.ok;
+	const downN = x.summary.degraded + x.summary.unresolved;
+	return {
+		foot: `${String(okN)} reporting · ${String(downN)} down/unresolved · ${String(x.summary.hubs)} enumerated · ${String(x.days)}d window · TTL-cached per hub`,
+		rows,
+	};
+};
+
 // ─── page assembly ───────────────────────────────────────────────────────
 export function usagePage(
 	r: UsageReport,
@@ -256,6 +295,7 @@ export function usagePage(
 		dept?: string;
 		includeDemo?: boolean;
 		activity?: ActivityReport;
+		crossHub?: CrossHubReport;
 	} = { days: r.days },
 ): string {
 	const team = opts.team ?? "";
@@ -276,12 +316,13 @@ export function usagePage(
 		"klh-usage-actors",
 		"klh-usage-activity",
 		"klh-usage-aids",
+		"klh-usage-crosshub",
 	]
 		.map((t) => `<${t}></${t}>`)
 		.join("");
 	return usagePageShell({
 		title: "FLEET USAGE",
 		body: hosts,
-		payload: chartPayload(r, header, opts.activity),
+		payload: chartPayload(r, header, opts.activity, crossHubData(opts.crossHub)),
 	});
 }
