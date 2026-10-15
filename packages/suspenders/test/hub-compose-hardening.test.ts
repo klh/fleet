@@ -25,6 +25,8 @@ const RUNTIME = [
 	"store-health",
 	"belt-hub",
 	"belt-health",
+	"model-store-hub",
+	"model-store-health",
 	"peer-pull",
 ];
 const BUILD = ["fleet-repo", "fleet-deps"];
@@ -33,6 +35,7 @@ const STATEFUL = [
 	"board-hub",
 	"store-hub",
 	"belt-hub",
+	"model-store-hub",
 	"peer-pull",
 ];
 
@@ -97,12 +100,13 @@ test("writable surface = explicit state mounts; code mounts stay :ro", () => {
 			if (m.startsWith("fleet-repo:")) expect(m, name).toEndWith(":ro");
 		}
 	}
-	// hub-init owns exactly the four state volumes it re-owns
+	// hub-init owns exactly the five state volumes it re-owns
 	expect(svcs["hub-init"]?.volumes).toEqual([
 		"buckle-state:/state/buckle",
 		"hub-state:/state/hub-home",
 		"hub-secrets:/state/secrets",
 		"belt-state:/state/belt-home",
+		"model-store:/state/model-store",
 	]);
 });
 

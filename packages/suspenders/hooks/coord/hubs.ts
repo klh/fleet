@@ -37,6 +37,8 @@ const PORT_FIELDS: Array<[keyof HubProfile, string]> = [
 	["board_health_port", "board-health"],
 	["store_health_port", "store-health"],
 	["belt_health_port", "belt-health"],
+	["model_store_port", "model-store"],
+	["model_store_health_port", "model-store-health"],
 ];
 
 // stack host fields may carry an ssh user (kk@nas.example) — the contact

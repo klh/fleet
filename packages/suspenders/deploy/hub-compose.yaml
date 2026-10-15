@@ -85,7 +85,7 @@ services:
           memory: 64m
     entrypoint: ["sh", "-c"]
     command:
-      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done
+      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done
     environment:
       HUB_RUN_UID: ${HUB_RUN_UID:-1000}
       HUB_RUN_GID: ${HUB_RUN_GID:-1000}
@@ -99,6 +99,7 @@ services:
       - hub-state:/state/hub-home
       - hub-secrets:/state/secrets
       - belt-state:/state/belt-home
+      - model-store:/state/model-store
 
   # One pinned Fleet checkout shared by every package. Existing state and
   # secret volumes retain their names; only the code volume is replaced.
@@ -479,6 +480,75 @@ services:
       retries: 3
       start_period: 15s
 
+  # W763 hub model store: content-addressed blobs + catalog sync
+  # (belt/bin/model-store.ts). Pull auth = the hub's OWN buckle ledger
+  # (shared buckle.db WAL — the face mints nothing, fails closed 503
+  # without it); sync-on-boot: peer first (owned links beat origin egress),
+  # then the public origin. Peer URL/token are operator knobs appended to
+  # the hub's 0600 .env by hand (render stays no-secrets).
+  model-store-hub:
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-model-store-hub
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    network_mode: host
+    restart: unless-stopped
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/model-store.ts serve
+    depends_on:
+      fleet-deps:
+        condition: service_completed_successfully
+      hub-init:
+        condition: service_completed_successfully
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HOME: /state/hub-home
+      MODEL_STORE_ROOT: /state/model-store
+      MODEL_STORE_PORT: ${HUB_MODEL_STORE_PORT:-7797}
+      MODEL_STORE_BIND: ${HUB_MODEL_STORE_BIND:-127.0.0.1}
+      BUCKLE_DB: /state/buckle/buckle.db
+      MODEL_STORE_PEER_URL: ${HUB_MODEL_STORE_PEER_URL:-}
+      MODEL_STORE_PEER_TOKEN: ${HUB_MODEL_STORE_PEER_TOKEN:-}
+      MODEL_STORE_HF_TOKEN: ${HUB_MODEL_STORE_HF_TOKEN:-}
+      MODEL_STORE_SYNC_ON_BOOT: "1"
+    volumes:
+      - fleet-repo:/src/fleet:ro
+      - model-store:/state/model-store
+      - buckle-state:/state/buckle
+
+  model-store-health:
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-model-store-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      model-store-hub:
+        condition: service_started
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_MODEL_STORE_PORT:-7797}/status --listen ${HUB_MODEL_STORE_HEALTH_PORT:-7793}
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_MODEL_STORE_HEALTH_PORT: ${HUB_MODEL_STORE_HEALTH_PORT:-7793}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_MODEL_STORE_HEALTH_PORT ?? "7793") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # W362 peer policy propagation — the hub pulls each declared peer's
   # /federation/policy-manifest (labels from HUB_PEERS, hosts/ports/keys
   # resolved over the network at runtime). The content-addressed manifest
@@ -518,3 +588,4 @@ volumes:
   hub-state:
   hub-secrets:
   belt-state:
+  model-store:
