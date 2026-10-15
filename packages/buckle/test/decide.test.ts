@@ -423,3 +423,52 @@ describe("W709 pin cloud gate (W694 H3)", () => {
 		}
 	});
 });
+
+describe("auto (W228) — the addressable default", () => {
+	test("auto = law-4 ordering: proven candidate heads over unproven, decision policy", () => {
+		const proven = row({ estimate_ms: 120, calls: 9 });
+		const unproven = row({ estimate_ms: null });
+		const r = decide("auto", [unproven, proven]);
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.sel.head.candidate_id).toBe(proven.candidate_id);
+			expect(r.sel.decision).toBe("policy");
+			expect(r.sel.fit).toBe(0);
+			expect(r.sel.total).toBe(0);
+			expect(r.sel.verb).toBe("auto");
+		}
+	});
+
+	test("gate-closed: auto never heads cloud, policy still answers", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example", estimate_ms: 300, calls: 4 });
+		const localProven = row({ estimate_ms: 150, calls: 7 });
+		const r = decide("auto", [cloud, localProven], {
+			cost_speed: "balanced",
+			allow_cloud: false,
+		});
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.sel.head.kind).toBe("local");
+	});
+
+	test("the three-way distinction on one pool: must local refuses, prefer local degrades, auto delivers", () => {
+		const cloud = row({ kind: "cloud", host: "cloud.example", estimate_ms: 300, calls: 4 });
+		const must = decide("must local", [cloud]);
+		expect(must.ok).toBe(false);
+		if (!must.ok) expect(must.err.code).toBe("no_healthy_fit");
+
+		const prefer = decide("prefer local", [cloud]);
+		expect(prefer.ok).toBe(true);
+		if (prefer.ok) {
+			expect(prefer.sel.head.kind).toBe("cloud");
+			expect(prefer.sel.decision).toBe("degraded");
+		}
+
+		const auto = decide("auto", [cloud]);
+		expect(auto.ok).toBe(true);
+		if (auto.ok) {
+			expect(auto.sel.head.kind).toBe("cloud");
+			expect(auto.sel.decision).toBe("policy");
+			expect(auto.sel.fit).toBe(0);
+		}
+	});
+});

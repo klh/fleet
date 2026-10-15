@@ -37,7 +37,7 @@ export interface RouteSelection {
 	fit: number; // head's fit at decision time
 	total: number; // hint groups the hint carries
 	decision: Exclude<DecisionKind, "fallback" | "errored">;
-	verb: "prefer" | "must" | null; // drives the must-domain closure in the walk
+	verb: "prefer" | "must" | "auto" | null; // drives the must-domain closure in the walk
 	cloudGroups: Set<string>;
 	prefs: Prefs; // prefs state at decision time (audit + gate)
 	why: string;
