@@ -90,7 +90,7 @@ describe("govdb entrypoint surface (W624 facade)", () => {
 		const uv = (
 			db.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBe(15); // W459.5 identity registry rides the decomposed ladder
+		expect(uv).toBe(16); // W266.1/W276 supervisors rung rides the decomposed ladder
 		// re-exported helpers operate on the real handle
 		expect(govdb.tagNameOf('{"name":"autow624"}')).toBe("autow624"); // W293 tags-JSON bridge
 		expect(govdb.tagNameOf("autow624-p98b319584008df14")).toBeNull(); // malformed tags → null, never throws
