@@ -16,6 +16,7 @@ import {
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
+import { checkpointPath } from "./lib/checkpoint.ts";
 import { run } from "./lib/run.ts";
 import {
 	canonicalRepo,
@@ -70,6 +71,7 @@ const cli = (name: string): string => {
 };
 const WORK = cli("work.ts");
 const COORD = cli("coord.ts");
+const CKPT = cli("checkpoint.ts");
 
 const RULES =
 	`RULES: Work Graph (bun ${WORK}) is authoritative — ` +
@@ -102,7 +104,10 @@ const RULES =
 	"get no commentary; a consult addressed to you is `consult: [C##] " +
 	"<asker> asks ...` / `consult: [C##] replying ...`; a fleet-wide " +
 	"consult is `consult: fleet asks, ...` / `consult: fleet, no " +
-	"knowledge, didn't reply` or `...details forwarded` — see AGENTS.md.";
+	"knowledge, didn't reply` or `...details forwarded` — see AGENTS.md. " +
+	"Compaction wipes working detail — bank it as you go (bun " +
+	`${CKPT} set --as <sid> --note "…") and after a compaction your ` +
+	"first action is reading the checkpoint the bootstrap names.";
 
 // top-level sessions are full agent runtimes — advertise the complete
 // capability set so capability-gated work stays takeable by them (lanes
@@ -210,6 +215,19 @@ const out = [
 		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`
 		: `SESSION ${sid.slice(0, 8)}  project=${pname(project)}`,
 ];
+
+// W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an
+// explicit `checkpoint set` banks working state to a rolling file; after a
+// compaction the summary loses operational detail, so the FIRST action the
+// recovered session takes is reading the checkpoint back.
+const ckpt = checkpointPath(project, lane);
+if (existsSync(ckpt)) {
+	out.unshift(
+		src === "compact"
+			? `CHECKPOINT ${ckpt} — pre-compact working state banked; FIRST ACTION: read this file before anything else (the compaction summary lost operational detail).`
+			: `CHECKPOINT ${ckpt} — checkpoint from earlier in this session; read it first to restore working state.`,
+	);
+}
 
 // WS-first inbox (W303, owner directive 2026-10-05): bootstrap opens the
 // live subscribe ONCE per session — agents never poll the plane. The
