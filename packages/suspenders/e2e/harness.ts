@@ -5,13 +5,7 @@
 // The hub world and the local world share NOTHING — separate scratch HOMEs
 // are the structural scope isolation the GUI test proves.
 import { expect } from "@playwright/test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +18,8 @@ export interface WorkResult {
 export interface Board {
 	/** e.g. http://127.0.0.1:PORT */
 	BASE: string;
+	/** the board's scratch HOME — its governor.db and identity live here */
+	HOME: string;
 	/** the board's one project = the scratch repo realpath */
 	MY_PROJ: string;
 	/** what the board's project column shortens it to */
@@ -129,6 +125,7 @@ export async function startBoard(
 
 	return {
 		BASE,
+		HOME: realpathSync(HOME),
 		MY_PROJ: realpathSync(REPO),
 		projShort: realpathSync(REPO).split("/").pop() ?? REPO,
 		work,
