@@ -95,7 +95,7 @@ fi
 # possibly-customized source of truth). --no-llm skips for CI/containers.
 if [[ "${SUSPENDERS_LEGACY_NO_LLM:-0}" -eq 0 ]]; then
   mkdir -p "$LLM_HOME"
-  for f in gateway-supervision.ts memory-policy.ts serve-observation.ts observation.ts; do
+  for f in gateway-supervision.ts memory-policy.ts serve-observation.ts observation.ts models.catalog.ts models.catalog.json; do
     if [[ ! -f "$LLM_HOME/$f" ]]; then
       cp "$KIT_DIR/$f" "$LLM_HOME/$f"
     fi

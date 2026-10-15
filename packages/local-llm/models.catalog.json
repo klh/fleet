@@ -1,0 +1,47 @@
+{
+	"version": 1,
+	"models": [
+		{
+			"id": "qwen3-extract-4b",
+			"repo": "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+			"revision": "50d427756c6b",
+			"license": "apache-2.0",
+			"runtime": "mlx",
+			"specialist": 8902,
+			"tier": "always",
+			"sizeGb": 2.5,
+			"note": "extract specialist — macOS accelerator lane"
+		},
+		{
+			"id": "qwen3-rerank-0.6b",
+			"repo": "mlx-community/Qwen3-Reranker-0.6B-4bit",
+			"revision": "5f324548f1d2",
+			"license": "apache-2.0",
+			"runtime": "mlx",
+			"specialist": 8913,
+			"tier": "always",
+			"sizeGb": 0.5
+		},
+		{
+			"id": "qwen3-embed-0.6b",
+			"repo": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+			"revision": "6c3ae7085851",
+			"license": "apache-2.0",
+			"runtime": "mlx",
+			"specialist": 8907,
+			"tier": "always",
+			"sizeGb": 0.5
+		},
+		{
+			"id": "qwen3-extract-4b-gguf",
+			"repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+			"revision": "a06e946bb6b6",
+			"quant": "Q4_K_M",
+			"license": "apache-2.0",
+			"runtime": "gguf",
+			"specialist": 8902,
+			"tier": "always",
+			"note": "cross-platform variant — runtime rows land with W751.1"
+		}
+	]
+}

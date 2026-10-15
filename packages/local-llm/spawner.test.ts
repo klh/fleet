@@ -30,7 +30,7 @@ test("install.sh flattens belt's spawner into the runtime home", () => {
 	// hardcoded list) + a smoke self-check that proves the flattened home
 	// serves — else the flat home keeps a stale twin or an unresolvable
 	// re-export and :4000 loops on launchd revives.
-	expect(sh).toMatch(/belt-bin-overlay\.ts" overlay \\$/m);
+	expect(sh).toMatch(/belt-bin-overlay\.ts" refresh \\$/m);
 	expect(sh).toContain('--runtime "$LLM_HOME" --entry');
 	expect(sh).toContain('belt-bin-overlay.ts" smoke --runtime "$LLM_HOME"');
 });
