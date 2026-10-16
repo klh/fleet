@@ -159,7 +159,8 @@ Machines and processes:
   SUSPENDERS_SHIM_BIN override); old checkouts are push-dead (archived)
 - launchd labels (port/process map; `launchctl kickstart
 gui/$(id -u)/<label>` revives):
-  - `com.belt.swarm` — the belt kit's `supervise` supervisor (KeepAlive):
+  - `com.suspenders.belt-swarm` — the belt kit's `supervise` supervisor
+    (KeepAlive; renamed from com.belt.swarm for the W640 receipt namespace):
     spawns :4000 + the MLX specialists below (W284: the ONLY swarm
     supervisor — `com.suspenders.local-llm` is retired and rides the
     LEGACY boot-out list)

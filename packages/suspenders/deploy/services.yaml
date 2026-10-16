@@ -260,7 +260,6 @@ services:
   # restarts. Tier rides the emitted tier manifest
   # (~/.claude/local-llm/tier.json) — no tier env in the unit (W507).
   - name: belt-swarm
-    label: com.belt.swarm
     abandonProcessGroup: true
     bunEntry: "__HOME__/.claude/local-llm/swarm.ts"
     args: ["supervise"]
