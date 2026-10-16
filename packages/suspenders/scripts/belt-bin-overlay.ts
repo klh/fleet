@@ -81,17 +81,6 @@ function noteExternal(
 	externals.set(resolved, base);
 }
 
-function assertNoFlatCollision(
-	memberBase: Set<string>,
-	externals: Map<string, string>,
-): void {
-	for (const base of memberBase) {
-		if ([...externals.values()].includes(base))
-			throw new Error(
-				`flat home basename collision: a closure member shares the basename ${base} with a cross-package external`,
-			);
-	}
-}
 // splice chunk-B1 before `export interface OverlayReport {` — belt-bin-overlay.ts
 export async function flatExternals(
 	entry: string,
@@ -99,7 +88,9 @@ export async function flatExternals(
 ): Promise<Map<string, string>> {
 	const repoRoot = resolve(root, "..", "..");
 	const externals = new Map<string, string>(); // resolved abs → flat basename
-	const memberBase = new Set<string>([basename(entry)]);
+	const memberBase = new Map<string, string>([
+		[basename(entry), resolve(entry)],
+	]);
 	const seen = new Set<string>();
 	const queue = [resolve(entry)];
 	while (queue.length > 0) {
@@ -112,13 +103,26 @@ export async function flatExternals(
 		if (text === "") continue;
 		for (const spec of relativeSpecs(text, dirname(current))) {
 			if (!(await Bun.file(spec).exists())) continue;
-			if (isWithin(spec, root)) memberBase.add(basename(spec));
+			if (isWithin(spec, root)) memberBase.set(basename(spec), spec);
 			else if (isWithin(spec, repoRoot))
 				noteExternal(spec, repoRoot, externals);
 			if (!seen.has(spec)) queue.push(spec);
 		}
 	}
-	assertNoFlatCollision(memberBase, externals);
+	// member↔external sharing a basename is legal ONLY for the pure-shim
+	// pair (the shim's real module collapses into one home file); anything
+	// else collides and fails closed
+	for (const [base, member] of memberBase) {
+		const extPath = [...externals.keys()].find((p) => basename(p) === base);
+		if (extPath === undefined) continue;
+		const memberText = await Bun.file(member)
+			.text()
+			.catch(() => "");
+		if (isPureReexportShim(memberText)) continue;
+		throw new Error(
+			`flat home basename collision: a closure member shares the basename ${base} with a cross-package external`,
+		);
+	}
 	return externals;
 }
 
