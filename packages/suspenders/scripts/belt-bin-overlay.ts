@@ -8,7 +8,7 @@
 //            /health 200 — a missing module fails the install loudly here
 //            instead of looping the launchd revive on :4000
 import { copyFile, mkdir, rm } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 /** `./`-relative specifiers from static/dynamic import + re-export lines. */
 export function relativeImports(source: string): string[] {
@@ -50,6 +50,92 @@ export async function beltBinClosure(
 	return [...seen].sort().map((file) => relative(root, file));
 }
 
+/** True when child sits at or below dir (no `..` in the relative path). */
+function isWithin(child: string, dir: string): boolean {
+	return !relative(dir, child).startsWith("..");
+}
+
+/** All relative `./`+`../` specifiers of a text, resolved against fromDir. */
+export function relativeSpecs(text: string, fromDir: string): string[] {
+	const out: string[] = [];
+	for (const m of text.matchAll(/(["'])((?:\.\.?\/)[^"']+)\1/g)) {
+		out.push(resolve(fromDir, m[2].split("?")[0]));
+	}
+	return out;
+}
+
+// splice chunk-A before `export interface OverlayReport {` — belt-bin-overlay.ts
+function noteExternal(
+	resolved: string,
+	repoRoot: string,
+	externals: Map<string, string>,
+): void {
+	const base = basename(resolved);
+	if (externals.has(resolved)) return;
+	for (const [prevPath, prevBase] of externals) {
+		if (prevBase === base)
+			throw new Error(
+				`flat home basename collision: ${relative(repoRoot, prevPath)} and ${relative(repoRoot, resolved)} both map to ${base}`,
+			);
+	}
+	externals.set(resolved, base);
+}
+
+function assertNoFlatCollision(
+	memberBase: Set<string>,
+	externals: Map<string, string>,
+): void {
+	for (const base of memberBase) {
+		if ([...externals.values()].includes(base))
+			throw new Error(
+				`flat home basename collision: a closure member shares the basename ${base} with a cross-package external`,
+			);
+	}
+}
+// splice chunk-B1 before `export interface OverlayReport {` — belt-bin-overlay.ts
+export async function flatExternals(
+	entry: string,
+	root = dirname(entry),
+): Promise<Map<string, string>> {
+	const repoRoot = resolve(root, "..", "..");
+	const externals = new Map<string, string>(); // resolved abs → flat basename
+	const memberBase = new Set<string>([basename(entry)]);
+	const seen = new Set<string>();
+	const queue = [resolve(entry)];
+	while (queue.length > 0) {
+		const current = queue.pop() as string;
+		if (seen.has(current)) continue;
+		seen.add(current);
+		const text = await Bun.file(current)
+			.text()
+			.catch(() => "");
+		if (text === "") continue;
+		for (const spec of relativeSpecs(text, dirname(current))) {
+			if (!(await Bun.file(spec).exists())) continue;
+			if (isWithin(spec, root)) memberBase.add(basename(spec));
+			else if (isWithin(spec, repoRoot))
+				noteExternal(spec, repoRoot, externals);
+			if (!seen.has(spec)) queue.push(spec);
+		}
+	}
+	assertNoFlatCollision(memberBase, externals);
+	return externals;
+}
+
+// splice chunk-B2 before `export interface OverlayReport {` — belt-bin-overlay.ts
+/** Rewrite mapped cross-package `../` specifiers to flat `./<basename>`. */
+export function rewriteExternalSpecs(
+	text: string,
+	fromDir: string,
+	externals: Map<string, string>,
+): string {
+	return text.replace(/(["'])((?:\.\.?\/)[^"']+)\1/g, (full, q, spec) => {
+		const resolved = resolve(fromDir, spec.split("?")[0]);
+		const base = externals.get(resolved);
+		return base === undefined ? full : `${q}./${base}${q}`;
+	});
+}
+
 export interface OverlayReport {
 	copied: string[];
 	kept: string[];
@@ -88,18 +174,44 @@ export function normalizeSource(src: string): string {
 }
 
 /**
- * A belt/bin closure file that imports from OUTSIDE the package is a shim for
- * the flat runtime home: the home needs the REAL module (e.g. memory-policy.ts
- * -> ../../local-llm/memory-policy.ts), never the raw shim — a flat copy of
- * the shim strands the supervisor import graph
- * (lesson.flat-home-overlay-hazard). Returns the repo-real path or null.
+ * A belt/bin closure file that is a PURE RE-EXPORT shim for the flat runtime
+ * home is swapped for its REAL module (e.g. memory-policy.ts ->
+ * ../../local-llm/memory-policy.ts) — a flat copy of the shim strands the
+ * supervisor import graph (lesson.flat-home-overlay-hazard). Real code that
+ * merely imports cross-package (hubs.ts -> ../../suspenders/... since
+ * W351/W371) is NOT a shim: the old any-`..`-import test copied the
+ * dependency OVER the runtime file and stranded the home.
  */
+export function isPureReexportShim(source: string): boolean {
+	const body = normalizeSource(source);
+	if (body === "") return false;
+	if (
+		/(^|\n)\s*(?:export\s+)?(?:default\s+|async\s+)*(?:function|const|let|var|class|enum)\b/.test(
+			body,
+		)
+	)
+		return false;
+	// `export type X =` / `export interface X` declare; `export type { X }`
+	// re-exports and stays shim-legal
+	if (/(^|\n)\s*export\s+(?:type|interface)\s+[A-Za-z_$]/.test(body))
+		return false;
+	// a shim re-exports from OUTSIDE only — any `./` specifier means the file
+	// is real code with kit siblings (entries with side effects included)
+	const specs = [...source.matchAll(/(["'])((?:\.\.?\/)[^"']+)\1/g)].map(
+		(m) => m[2],
+	);
+	if (specs.length === 0 || specs.some((s) => !s.startsWith("..")))
+		return false;
+	return true;
+}
+
 export async function shimRealSource(
 	root: string,
 	rel: string,
 ): Promise<string | null> {
 	const file = join(root, rel);
 	const source = await Bun.file(file).text();
+	if (!isPureReexportShim(source)) return null;
 	for (const match of source.matchAll(/["'](\.\.[^"']+)["']/g)) {
 		const resolved = resolve(dirname(file), match[1]);
 		if (relative(root, resolved).startsWith("..")) return resolved;
@@ -124,7 +236,9 @@ export interface RefreshReport {
 /**
  * The drift-tripwire remediation verb (W741): heal the flat runtime home's
  * belt closure — missing AND diverged files, real modules for re-export
- * shims, resolution proved before the lock releases.
+ * shims (pure re-exports only), and cross-package externals flattened to
+ * sibling basenames with their specifiers rewritten (`../suspenders/...` →
+ * `./hub-remote.ts`), resolution proved before the lock releases.
  */
 export async function refreshFlatHome(
 	runtime: string,
@@ -137,9 +251,15 @@ export async function refreshFlatHome(
 	const report: RefreshReport = { healed: [], kept: [] };
 	try {
 		const closure = await beltBinClosure(entry, root);
+		const externals = await flatExternals(entry, root);
 		for (const rel of [relative(root, entry), ...closure]) {
 			const source = await flatHomeSource(root, rel);
-			const want = normalizeSource(await Bun.file(source).text());
+			const wantText = rewriteExternalSpecs(
+				await Bun.file(source).text(),
+				dirname(source),
+				externals,
+			);
+			const want = normalizeSource(wantText);
 			const target = join(runtime, rel);
 			const have = (await Bun.file(target).exists())
 				? normalizeSource(await Bun.file(target).text())
@@ -148,9 +268,30 @@ export async function refreshFlatHome(
 				report.kept.push(rel);
 				continue;
 			}
-			await copyFile(source, target);
+			await mkdir(dirname(target), { recursive: true });
+			await Bun.write(target, wantText);
 			report.healed.push(rel);
 			log(`${have === null ? "+" : "~"} ${target} (from ${source})`);
+		}
+		for (const [file, base] of externals) {
+			const target = join(runtime, base);
+			const wantText = rewriteExternalSpecs(
+				await Bun.file(file).text(),
+				dirname(file),
+				externals,
+			);
+			const want = normalizeSource(wantText);
+			const have = (await Bun.file(target).exists())
+				? normalizeSource(await Bun.file(target).text())
+				: null;
+			if (have === want) {
+				report.kept.push(`${base} (external)`);
+				continue;
+			}
+			await mkdir(dirname(target), { recursive: true });
+			await Bun.write(target, wantText);
+			report.healed.push(`${base} (external)`);
+			log(`${have === null ? "+" : "~"} ${target} (from ${file})`);
 		}
 		await verifyFlatHome(runtime, relative(root, entry));
 	} finally {
@@ -279,7 +420,9 @@ if (import.meta.main) {
 				`✗ ${error instanceof Error ? error.message : String(error)}`,
 			);
 			console.error("  install aborted — the flat runtime home is unusable;");
-			console.error("  fix the belt/bin closure or the real-module shims above.");
+			console.error(
+				"  fix the belt/bin closure or the real-module shims above.",
+			);
 			process.exit(1);
 		}
 	} else if (verb === "closure") {

@@ -192,10 +192,15 @@ async function runWireExtras(ctx: StepContext): Promise<string> {
 		return " — policy adapters failed (non-fatal)";
 	}
 	let extras = "";
-	for (const wire of ["gate-wire-codex.ts", "gate-wire-copilot.ts"]) {
-		const script = join(ctx.prefix, "bin", wire);
+	// W778: the W73 gate wires live at hooks/dialects/<x>/wire.ts (their
+	// header even says so) — the W771.3 port pointed at a bin/ path that no
+	// publisher ever filled, so the wires silently never ran. The wire step
+	// already requires a fleet checkout (settings.example.json), so resolve
+	// them from ctx.repo.
+	for (const dialect of ["codex", "copilot"]) {
+		const script = join(ctx.repo, "hooks", "dialects", dialect, "wire.ts");
 		if (!existsSync(script)) {
-			extras += ` — ${wire} missing at the prefix (re-run the install sync)`;
+			extras += ` — ${dialect} gate wire missing in checkout (skipped)`;
 			continue;
 		}
 		const res = await execa(process.execPath, [script], {
@@ -203,7 +208,7 @@ async function runWireExtras(ctx: StepContext): Promise<string> {
 			reject: false,
 		});
 		if (res.exitCode !== 0) {
-			extras += ` — ${wire} merge failed (non-fatal)`;
+			extras += ` — ${dialect} gate wire merge failed (non-fatal)`;
 		}
 	}
 	return extras;
