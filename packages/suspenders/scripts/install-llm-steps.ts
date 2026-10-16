@@ -12,7 +12,13 @@
 // W771.3 front-flip: --no-llm/--skip-models are native CLI flags
 // (ctx.noLlm / ctx.skipModels) — the SUSPENDERS_LEGACY_* env handoff is
 // retired with the bash front.
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { refreshFlatHome, smokeRouter } from "./belt-bin-overlay.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
@@ -46,6 +52,15 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 	}
 	const log = logFor(ctx);
 	mkdirSync(ctx.llmHome, { recursive: true });
+	// W778: the flattened kit now imports npm deps (stack-config.ts → yaml)
+	// and the home has no manifest of its own — ride the prefix's offline
+	// node_modules (idempotent; a real operator dir is left alone).
+	const nm = join(ctx.llmHome, "node_modules");
+	const wantNm = join(ctx.prefix, "node_modules");
+	if (existsSync(wantNm) && !existsSync(nm)) {
+		symlinkSync(wantNm, nm);
+		log(`~ ${nm} → ${wantNm} (flat-home npm resolution)`);
+	}
 	// W284: heal the belt closure for BOTH entries — the supervisor
 	// (swarm.ts supervise) and the :4000 router — so the home copy of
 	// swarm.ts always matches the belt kit; the W556 keep-rule retired
