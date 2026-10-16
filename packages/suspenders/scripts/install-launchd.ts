@@ -30,11 +30,17 @@ import type { StepContext, StepResult } from "./install-run.ts";
 // supersede the pre-namespacing agent labels so old and new never run side by
 // side (same jobs, stale script paths, double keepwarm/monitor pings).
 // W284: the suspenders local-llm serve fork is retired — its label joins the
-// boot-out list; com.belt.swarm (the belt kit) is the one swarm supervisor.
+// boot-out list. W640 cutover (2026-10-16): the swarm supervisor rides the
+// com.suspenders.belt-swarm receipt namespace, so the old com.belt.swarm
+// hand-written unit is legacy too — two supervisors would fight over :4000
+// and the specialist ports. com.klh.watchdog (old-namespace watchdog found
+// loaded 2026-10-16) predates the com.suspenders.* rename.
 export const LEGACY_LABELS = [
+	"com.belt.swarm",
 	"com.klh.llm-keepwarm",
 	"com.klh.fleet-monitor",
 	"com.klh.local-llm",
+	"com.klh.watchdog",
 	"com.suspenders.local-llm",
 ] as const;
 

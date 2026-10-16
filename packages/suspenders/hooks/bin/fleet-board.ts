@@ -12,7 +12,7 @@ import type { Database } from "bun:sqlite";
 import { BIND, db, PORT } from "../board/context.ts";
 import { projectList } from "../board/lanes.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
-import { tokenUsage } from "../lib/govdb.ts";
+import { openIdentity, tokenUsage } from "../lib/govdb.ts";
 import {
 	hostGuard,
 	isWriteMethod,
