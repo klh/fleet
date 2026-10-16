@@ -89,42 +89,10 @@ const deltaTables: { tbl: string; pk: string; cols: string[] }[] = [
 		],
 	},
 	// W132 router governance tables — deltas coverage is the audit win:
-	// adding entries here is the whole mechanism (v8 block below creates
-	// the tables these triggers mirror).
-	{
-		tbl: "api_keys",
-		pk: "$.key_id",
-		cols: [
-			"key_id",
-			"key_hash",
-			"jti",
-			"name",
-			"team",
-			"actor",
-			"token_type",
-			"parent_key_id",
-			"scopes",
-			"rpm_limit",
-			"tpm_limit",
-			"expires_at",
-			"rotated_at",
-			"revoked_at",
-			"created_at",
-		],
-	},
-	{
-		tbl: "teams",
-		pk: "$.team_id",
-		cols: [
-			"team_id",
-			"name",
-			"department",
-			"rpm_ceiling",
-			"tpm_ceiling",
-			"tok_ceiling",
-			"created_at",
-		],
-	},
+	// adding entries here is the whole mechanism. W156: api_keys/teams/
+	// auth_events left deltaTables with the identity split — their triggers
+	// died with the moved tables, and identity's audit trail is auth_events,
+	// resident in identity.db itself.
 	{
 		tbl: "route_audit",
 		pk: "$.rid",
@@ -174,11 +142,6 @@ const deltaTables: { tbl: string; pk: string; cols: string[] }[] = [
 		tbl: "budget_state",
 		pk: "$.key_id || '/' || $.window",
 		cols: ["key_id", "window", "used_rpm", "used_tpm", "window_start"],
-	},
-	{
-		tbl: "auth_events",
-		pk: "$.id",
-		cols: ["id", "ts", "actor", "event", "jti", "via"],
 	},
 	{
 		tbl: "admin_audit",

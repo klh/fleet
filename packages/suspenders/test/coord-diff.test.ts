@@ -3,7 +3,7 @@
 // (never /tmp). All DB access and CLI runs happen in bun subprocesses so the
 // parent test process never opens the real governor.db (metrics.test.ts
 // recipe), and every open of the temp DB re-runs the migration idempotently.
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +85,7 @@ db.close();
 ).seq as number;
 
 describe("v5 migration — deltas table + row-image triggers", () => {
-	test("user_version >= 11 (v11 W243 activity meter rode on top), deltas table, 39 deltas triggers (W174 admin_audit x3 rides the create loop), bus tables untracked", () => {
+	test("user_version >= 11 (v11 W243 activity meter rode on top; v17 moved the identity set out), deltas table, 30 deltas triggers (the identity set left the deltas loop), bus tables untracked", () => {
 		expect(
 			(
 				sql<{ user_version: number }>(
@@ -99,7 +99,7 @@ describe("v5 migration — deltas table + row-image triggers", () => {
 					"SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_%'",
 				)[0] as { n: number }
 			).n,
-		).toBe(39);
+		).toBe(30);
 		expect(
 			sql(
 				"SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_events_%'",

@@ -47,31 +47,38 @@ export function isDecisionKind(kind: string): boolean {
 	return kind.toUpperCase().startsWith("NEED");
 }
 
-// W15/W24 metrics (workTiming/tokenUsage) live in work-timing.ts since W603
-// (1500-line law; the shredded project column) — re-exported, so consumer
-// import surfaces (fleet.ts, shared.ts, fleet-board.ts, metrics.test.ts)
-// never change.
-export { workTiming, tokenUsage } from "./work-timing.ts";
-export type { ItemTiming, ItemTokens } from "./work-timing.ts";
+export { pruneDeltas } from "./govdb-deltas.ts";
+export { migrateKnowledgeSplit, openKnowledgeDb } from "./govdb-knowledge.ts";
+export { openGovernorDb } from "./govdb-open.ts";
+export type { ResolvedProject } from "./govdb-project.ts";
 export {
 	projectIdentity,
 	projectRootOf,
 	resolveProject,
 } from "./govdb-project.ts";
-export type { ResolvedProject } from "./govdb-project.ts";
-export { migrateKnowledgeSplit, openKnowledgeDb } from "./govdb-knowledge.ts";
-export { openGovernorDb } from "./govdb-open.ts";
-export { pruneDeltas } from "./govdb-deltas.ts";
+export { sweepStaleSessions, tagNameOf } from "./govdb-sessions.ts";
+export type {
+	GovernorStatement,
+	GovernorStore,
+	IdentityStore,
+	StoreResult,
+} from "./govdb-store.ts";
 export {
 	HttpGovernorStore,
 	knowledgeSqlViolation,
+	openIdentity,
 	openMemoryStore,
 	openStore,
 	resolveStoreHttpBase,
 } from "./govdb-store.ts";
-export type {
-	GovernorStatement,
-	GovernorStore,
-	StoreResult,
-} from "./govdb-store.ts";
-export { sweepStaleSessions, tagNameOf } from "./govdb-sessions.ts";
+export {
+	identitySqlViolation,
+	migrateIdentitySplit,
+	openIdentityDb,
+} from "./identity-db.ts";
+export type { ItemTiming, ItemTokens } from "./work-timing.ts";
+// W15/W24 metrics (workTiming/tokenUsage) live in work-timing.ts since W603
+// (1500-line law; the shredded project column) — re-exported, so consumer
+// import surfaces (fleet.ts, shared.ts, fleet-board.ts, metrics.test.ts)
+// never change.
+export { tokenUsage, workTiming } from "./work-timing.ts";

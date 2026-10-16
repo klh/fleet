@@ -4,8 +4,8 @@
 // (store injected — the route module itself never opens the live db).
 // HOME is a temp dir set BEFORE the dynamic imports — govdb binds REG at
 // module load (the auth.test.ts pattern).
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,9 @@ const fed = await import("../hooks/lib/hub-federation-status.ts");
 const routes = await import("../hooks/board/routes-hub-admin.ts");
 
 const store = govdb.openStore();
+// W156: the identity plane (api_keys/auth_events) rides its own binding —
+// the hub-token plane reads/writes identity, admin_audit stays governor
+const idb = govdb.openIdentity();
 
 const req = (path: string, method = "GET", body?: unknown): Request =>
 	new Request(`http://127.0.0.1:7799${path}`, {
@@ -53,7 +56,12 @@ const call = async (
 	body?: unknown,
 ): Promise<Response> => {
 	const url = new URL(`http://127.0.0.1:7799${path}`);
-	const r = await routes.handleHubAdmin(req(path, method, body), url, store);
+	const r = await routes.handleHubAdmin(
+		req(path, method, body),
+		url,
+		store,
+		idb,
+	);
 	expect(r).not.toBeNull();
 	return r as Response;
 };
@@ -61,6 +69,7 @@ const call = async (
 describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 	test("issue mints raw material once + lands audit rows", async () => {
 		const pair = hubTokens.issueHubToken(
+			idb,
 			store,
 			{
 				actor: "lane-w231",
@@ -75,7 +84,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 		expect(pair.access.startsWith("")).toBe(true);
 		expect(pair.access.length).toBeGreaterThan(40);
 		// raw material never lands in the masked listing
-		const rows = hubTokens.listTokens(store);
+		const rows = hubTokens.listTokens(idb);
 		const mine = rows.find((r) => r.actor === "lane-w231");
 		expect(mine).toBeDefined();
 		expect(mine?.state).toBe("active");
@@ -94,7 +103,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 		}[];
 		expect(audit.some((a) => a.action === "hub.token.issue")).toBe(true);
 		// auth_events carry the identity-plane trail
-		const events = store
+		const events = idb
 			.query(
 				"SELECT event FROM auth_events WHERE actor = 'lane-w231' ORDER BY ts DESC",
 			)
@@ -103,7 +112,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 	});
 
 	test("list decodes class from the name JSON and masks ids", () => {
-		const rows = hubTokens.listTokens(store, { actor: "lane-w231" });
+		const rows = hubTokens.listTokens(idb, { actor: "lane-w231" });
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows[0]?.class).toBe("app-role");
 		expect(rows[0]?.label).toBe("w231 test");
@@ -112,6 +121,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 
 	test("revoke by actor kills the pair + audits twice", async () => {
 		const _pair = hubTokens.issueHubToken(
+			idb,
 			store,
 			{
 				actor: "lane-revoke",
@@ -121,6 +131,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 			"tester",
 		);
 		const out = hubTokens.revokeHubToken(
+			idb,
 			store,
 			{ actor: "lane-revoke" },
 			"tester",
@@ -128,7 +139,7 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 		// ≥: bun:sqlite changes over-counts under the transaction (the auth
 		// suite's own convention is GreaterThanOrEqual for this reason)
 		expect(out.changes).toBeGreaterThanOrEqual(2); // access + refresh rows
-		const rows = hubTokens.listTokens(store, { actor: "lane-revoke" });
+		const rows = hubTokens.listTokens(idb, { actor: "lane-revoke" });
 		expect(rows.every((r) => r.state === "revoked")).toBe(true);
 		const audit = store
 			.query("SELECT action FROM admin_audit ORDER BY id DESC LIMIT 3")
@@ -138,10 +149,10 @@ describe("hub-tokens (masked inventory + audited issue/revoke)", () => {
 	});
 
 	test("list includes expired + revoked in the trail", () => {
-		const rows = hubTokens.listTokens(store);
+		const rows = hubTokens.listTokens(idb);
 		const states = new Set(rows.map((r) => r.state));
 		expect(states.has("revoked")).toBe(true);
-		expect(hubTokens.listTokens(store, { limit: 1 })).toHaveLength(1);
+		expect(hubTokens.listTokens(idb, { limit: 1 })).toHaveLength(1);
 	});
 });
 
@@ -233,6 +244,7 @@ describe("routes-hub-admin", () => {
 				req("/api/other"),
 				new URL("http://x/api/other"),
 				store,
+				idb,
 			),
 		).toBeNull();
 	});

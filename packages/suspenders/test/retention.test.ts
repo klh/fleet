@@ -2,13 +2,13 @@
 // admin_audit trail helpers + revoke initiator attribution. HOME is a temp
 // dir set BEFORE the dynamic imports (the auth.test.ts pattern — govdb binds
 // REG at module load).
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdtempSync,
-	rmSync,
-	utimesSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +35,9 @@ const auth = await import("../hooks/lib/auth.ts");
 const DAY = 86_400_000;
 const now = Date.now();
 const db = govdb.openGovernorDb();
+// W156: api_keys/auth_events live in identity.db post-split — identity ops
+// ride the identity binding, admin_audit stays with the governor handle
+const idb = govdb.openIdentity();
 // pinned archive target — HOME races between bun test files must not move it
 const ARCHIVE = join(HOME, ".cache", "claude-governor", "archive");
 
@@ -136,11 +139,9 @@ describe("retention: per-table windows", () => {
 		db.query(
 			"INSERT INTO usage_rollup (hour_bucket, actor, model, model_group) VALUES (?, ?, ?, ?)",
 		).run(now - 200 * DAY, "u", "m", "g");
-		db.query("INSERT INTO auth_events (ts, actor, event) VALUES (?, ?, ?)").run(
-			now - 200 * DAY,
-			"v",
-			"issued",
-		);
+		idb
+			.query("INSERT INTO auth_events (ts, actor, event) VALUES (?, ?, ?)")
+			.run(now - 200 * DAY, "v", "issued");
 		db.query(
 			"INSERT INTO admin_audit (ts, actor, action) VALUES (?, ?, ?)",
 		).run(now - 400 * DAY, "x", "settings.apply");
@@ -169,7 +170,7 @@ describe("retention: per-table windows", () => {
 				}
 			).n,
 		).toBe(0);
-		const ae = retention.archiveAndPrune(db, {
+		const ae = retention.archiveAndPrune(idb, {
 			table: "auth_events",
 			tsCol: "ts",
 			cut: now - 180 * DAY,
@@ -202,16 +203,18 @@ describe("admin audit trail", () => {
 		expect(hit?.ts).toBeGreaterThan(now - 60_000);
 	});
 	test("revoke records the driver, not just the subject", () => {
-		db.query(
-			"INSERT INTO api_keys (key_id, key_hash, jti, actor, token_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		).run("k1", "h1", "jti-w", "victim", "access", now);
-		const out = auth.revoke(db, { actor: "victim" }, "test", "admin1");
+		idb
+			.query(
+				"INSERT INTO api_keys (key_id, key_hash, jti, actor, token_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+			)
+			.run("k1", "h1", "jti-w", "victim", "access", now);
+		const out = auth.revoke(idb, { actor: "victim" }, "test", "admin1", db);
 		// changes double-counts via the deltas trigger (bun sqlite counts
 		// trigger effects) — the honest check is the row state itself
 		expect(out.changes).toBeGreaterThanOrEqual(1);
 		expect(
 			(
-				db
+				idb
 					.query(
 						"SELECT COUNT(*) AS n FROM api_keys WHERE actor = 'victim' AND revoked_at IS NOT NULL",
 					)
@@ -219,7 +222,7 @@ describe("admin audit trail", () => {
 			).n,
 		).toBe(1);
 		const via = (
-			db
+			idb
 				.query(
 					"SELECT via FROM auth_events WHERE event = 'revoked' ORDER BY id DESC LIMIT 1",
 				)

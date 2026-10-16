@@ -1,5 +1,7 @@
 // hooks/lib/auth.ts — W149 identity layer: HS256 JWT issue/verify over the
-// v8 api_keys + auth_events tables (finding.w132-router-tables conventions).
+// identity-plane api_keys + auth_events tables (v8 shapes, W156 home: the
+// identity.db split — every store param here is an IdentityStore, the
+// openIdentity() port, never the control-plane store).
 //
 // Two token classes (the adopted convention):
 //   app-role   — machines (lanes, local LLM services); the client-credentials
@@ -25,10 +27,10 @@ import {
 	createHash,
 	createHmac,
 	createPublicKey,
+	verify as cryptoVerify,
 	randomBytes,
 	randomUUID,
 	timingSafeEqual,
-	verify as cryptoVerify,
 } from "node:crypto";
 import {
 	chmodSync,
@@ -38,12 +40,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { GovernorStore } from "./govdb.ts";
 import { adminAudit } from "./admin-audit.ts";
+import type { GovernorStore, IdentityStore } from "./govdb.ts";
 import {
-	mapIdpClaims,
 	type ClaimsMapConfig,
 	type MappedClaims,
+	mapIdpClaims,
 } from "./identity-federation.ts";
 import { secretsHome } from "./secrets-home.ts";
 
@@ -305,7 +307,7 @@ interface KeyRow {
 }
 
 function authEvent(
-	store: GovernorStore,
+	store: IdentityStore,
 	ts: number,
 	actor: string | null,
 	event: string,
@@ -378,7 +380,7 @@ function buildClaims(p: IssueParams, nowS: number, jti: string): JwtClaims {
 	};
 }
 function mintRows(
-	store: GovernorStore,
+	store: IdentityStore,
 	p: IssueParams,
 	now: number,
 	via: string,
@@ -429,14 +431,14 @@ function mintRows(
 	authEvent(store, now, p.actor, "issued", jtiA, via);
 	authEvent(store, now, p.actor, "issued", jtiR, via);
 }
-const runTx = <T>(store: GovernorStore, fn: () => T): T =>
+const runTx = <T>(store: IdentityStore, fn: () => T): T =>
 	store.transaction(fn)();
 
 // fresh pair: rows + events inside one transaction
 // the shared minter: sign + rows + events, optionally parented on the old
 // refresh (rotation). issueTokens is the fresh-pair wrapper.
 function mintPair(
-	store: GovernorStore,
+	store: IdentityStore,
 	p: IssueParams,
 	now: number,
 	via: string,
@@ -473,7 +475,7 @@ function mintPair(
 	};
 }
 
-export function issueTokens(store: GovernorStore, p: IssueParams): IssuedPair {
+export function issueTokens(store: IdentityStore, p: IssueParams): IssuedPair {
 	return runTx(store, () => mintPair(store, p, Date.now(), p.via ?? "issue"));
 }
 export type RotateResult =
@@ -484,7 +486,7 @@ export type RotateResult =
 // revoked/rotated/expired (each a 'rejected' auth_event), then mint the next
 // pair (new refresh parented on the old) and stamp the old rotated_at.
 export function rotateRefresh(
-	store: GovernorStore,
+	store: IdentityStore,
 	rawRefresh: string,
 	via = "api",
 	opts: { denyClasses?: TokenClass[] } = {},
@@ -541,10 +543,14 @@ export function rotateRefresh(
 export type RevokeSelector = { jti?: string; actor?: string; team?: string };
 
 export function revoke(
-	store: GovernorStore,
+	store: IdentityStore,
 	sel: RevokeSelector,
 	via = "api",
 	by?: string,
+	// W156: admin_audit stays with the control plane (W174, governor.db) —
+	// the who-lens row rides a separate store. Absent = the auth_events
+	// lens alone (tests, spokes); hub callers always pass it.
+	audit?: GovernorStore,
 ): { changes: number; selector: RevokeSelector } {
 	const now = Date.now();
 	if (!sel.jti && !sel.actor && !sel.team)
@@ -575,12 +581,13 @@ export function revoke(
 			sel.jti ?? null,
 			`${via}: ${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""} by=${by ?? "unknown"}`,
 		);
-		adminAudit(store, {
-			actor: by ?? null,
-			action: "keys.revoke",
-			target: `${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""}`,
-			detail: `${changes} token row(s) revoked via ${via}`,
-		});
+		if (audit)
+			adminAudit(audit, {
+				actor: by ?? null,
+				action: "keys.revoke",
+				target: `${kind}=${sel.jti ?? sel.actor ?? sel.team ?? ""}`,
+				detail: `${changes} token row(s) revoked via ${via}`,
+			});
 		return { changes, selector: sel };
 	});
 }
@@ -595,7 +602,7 @@ export interface VerifyOpts {
 	requiredScope?: string | string[];
 	// local-issuer tokens check the api_keys denylist through this store;
 	// external IdP tokens skip it (signature+allowlist+roles is the trust)
-	store?: GovernorStore;
+	store?: IdentityStore;
 	config?: AuthConfig | null;
 	fetchImpl?: typeof fetch;
 	now?: () => number;
@@ -770,7 +777,7 @@ function checkExpiry(claims: JwtClaims, nowS: number): AuthFailure | null {
 }
 
 function checkDenylist(
-	store: GovernorStore | undefined,
+	store: IdentityStore | undefined,
 	jti: string,
 ): AuthFailure | null {
 	if (!store)

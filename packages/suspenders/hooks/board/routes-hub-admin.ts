@@ -5,27 +5,28 @@
 // tests); fleet-board.ts passes the live store, tests pass a fixture.
 import type { ConsoleMe } from "../bin/console-html.ts";
 import { hubPage } from "../bin/hub-admin-html.ts";
+import type { GovernorStore, IdentityStore } from "../lib/govdb.ts";
 import { federationStatus } from "../lib/hub-federation-status.ts";
 import {
+	presentEnvFiles,
 	providerConfigHome,
 	providerKeyInventory,
-	presentEnvFiles,
 } from "../lib/hub-provider-keys.ts";
-import type { GovernorStore } from "../lib/govdb.ts";
 import {
+	type IssueHubTokenSpec,
 	issueHubToken,
 	listTokens,
 	revokeHubToken,
-	type IssueHubTokenSpec,
 } from "../lib/hub-tokens.ts";
+import { scrub } from "../lib/servicemon.ts";
 import { consoleMe } from "./console-view.ts";
 import { json, readJson, writeGuard } from "./helpers.ts";
-import { scrub } from "../lib/servicemon.ts";
 
 export async function handleHubAdmin(
 	req: Request,
 	url: URL,
 	store: GovernorStore,
+	idb: IdentityStore,
 ): Promise<Response | null> {
 	const path = url.pathname;
 	if (path === "/console/hub") {
@@ -46,14 +47,14 @@ export async function handleHubAdmin(
 		if (guard) return guard;
 	}
 	if (path === "/api/hub/tokens" && req.method === "GET")
-		return json({ ok: true, tokens: listTokens(store) });
+		return json({ ok: true, tokens: listTokens(idb) });
 	if (path === "/api/hub/tokens" && req.method === "POST") {
 		const parsed = await readJson(req);
 		if (!parsed.ok) return parsed.resp;
-		return issueRoute(store, parsed.body);
+		return issueRoute(store, idb, parsed.body);
 	}
 	if (path === "/api/hub/tokens/revoke" && req.method === "POST")
-		return revokeRoute(store, req);
+		return revokeRoute(store, idb, req);
 	if (path === "/api/hub/provider-keys" && req.method === "GET")
 		return json(providerKeysPayload());
 	if (path === "/api/hub/federation" && req.method === "GET")
@@ -66,6 +67,7 @@ const str = (v: unknown): string | null =>
 
 function issueRoute(
 	store: GovernorStore,
+	idb: IdentityStore,
 	body: Record<string, unknown>,
 ): Response {
 	const actor = str(body.actor);
@@ -103,7 +105,7 @@ function issueRoute(
 		accessTtlMs: ttlDays(body.access_ttl_days),
 		refreshTtlMs: ttlDays(body.refresh_ttl_days),
 	};
-	const pair = issueHubToken(store, spec, boardActor());
+	const pair = issueHubToken(idb, store, spec, boardActor());
 	return json(
 		{
 			ok: true,
@@ -122,6 +124,7 @@ function issueRoute(
 
 async function revokeRoute(
 	store: GovernorStore,
+	idb: IdentityStore,
 	req: Request,
 ): Promise<Response> {
 	const parsed = await readJson(req);
@@ -135,6 +138,7 @@ async function revokeRoute(
 			400,
 		);
 	const out = revokeHubToken(
+		idb,
 		store,
 		{
 			jti: jti ?? undefined,

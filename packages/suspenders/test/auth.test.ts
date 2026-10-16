@@ -7,10 +7,10 @@
 // HOME is a temp dir set BEFORE the dynamic imports — govdb binds REG at
 // module load (the govdb-router-tables.test.ts pattern), and the auth libs
 // resolve the secrets home from homedir() per call.
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { generateKeyPairSync, createSign } from "node:crypto";
 import { join } from "node:path";
 
 const REAL_HOME = process.env.HOME;
@@ -67,7 +67,9 @@ const auth = await import("../hooks/lib/auth.ts");
 const govdb = await import("../hooks/lib/govdb.ts");
 const client = await import("../hooks/lib/auth-client.ts");
 
-const store = new govdb.HttpGovernorStore(URL0, null); // the canonical db
+// W156/W359: every auth call rides the identity plane — the canonical
+// binding points at the store server's /identity port.
+const store = new govdb.HttpGovernorStore(URL0, null, "/identity");
 const req = (
 	tok: string | null,
 ): { headers: { get(n: string): string | null } } => ({

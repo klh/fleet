@@ -1,4 +1,4 @@
-// db-backup.ts — rolling backups of governor.db AND knowledge.db: daily
+// db-backup.ts — rolling backups of governor.db, knowledge.db AND identity.db: daily
 // generations for 1-7 days, plus the 14-day, 1-month, and 3-month
 // generations. Snapshots via `VACUUM INTO` — a consistent SQLite read that
 // includes WAL contents, safe against concurrent fleet writers. Every run
@@ -103,9 +103,49 @@ if (existsSync(KB)) {
 	}
 }
 
-// ---- W178: the hub identity secrets ride along — signing key, rotation ring
-// and issued token files, 0600 into identity-<stamp>/ (dir 0700). governor.db
-// snapshots already carry api_keys/auth_events; without THESE files a restore
+// ---- W359: identity.db rides the SAME snapshot discipline — the v17 split
+// moved api_keys/auth_events/teams out of governor.db, so the W178 secrets
+// files alone no longer make a restorable identity plane.
+const IDB = join(HOME, ".cache", "claude-governor", "identity.db");
+if (existsSync(IDB)) {
+	const iout = join(DEST, `identity-${stamp}.db`);
+	const isrc = new Database(IDB, { readonly: true });
+	isrc.exec(`VACUUM INTO '${iout}'`);
+	isrc.close();
+	const icheck = new Database(iout, { readonly: true });
+	const iint =
+		(
+			icheck.query("PRAGMA integrity_check").get() as
+				| { integrity_check?: string }
+				| undefined
+		)?.integrity_check ?? "missing";
+	const hasApiKeys =
+		(
+			icheck
+				.query(
+					"SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'",
+				)
+				.get() as { n: number }
+		).n > 0;
+	const irows = hasApiKeys
+		? (
+				icheck.query("SELECT COUNT(*) AS n FROM api_keys").get() as {
+					n: number;
+				}
+			).n
+		: 0;
+	icheck.close();
+	console.log(`db-backup: ${iout} (integrity ${iint}, ${irows} identity rows)`);
+	if (iint !== "ok") {
+		console.error(
+			`db-backup: identity SNAPSHOT FAILED INTEGRITY — investigate before rotation`,
+		);
+		process.exit(2);
+	}
+}
+// and issued token files, 0600 into identity-<stamp>/ (dir 0700). identity.db
+// snapshots now carry api_keys/auth_events (the W359 v17 split); without THESE
+// files a restore
 // means whole-fleet re-enrollment. Two generations kept — restoring yesterday's
 // key beats re-minting every lane's trust after a same-day loss.
 const ID_SRC =
@@ -179,6 +219,29 @@ for (const [lo, hi] of slots) {
 }
 for (const s of ksnaps) {
 	if (!kkeep.has(s.ts)) {
+		unlinkSync(join(DEST, s.file));
+		if (existsSync(join(DEST, `${s.file}-wal`)))
+			unlinkSync(join(DEST, `${s.file}-wal`));
+		removed++;
+	}
+}
+
+// W359 — identity.db snapshots rotate on the SAME slots (the W166 pattern)
+const isnaps: Snap[] = readdirSync(DEST)
+	.filter((f) => /^identity-\d+\.db$/.test(f))
+	.map((f) => ({
+		ts: Number(f.slice(9, -3)),
+		file: f,
+		ageD: (stamp - Number(f.slice(9, -3))) / DAY,
+	}))
+	.sort((a, b) => b.ts - a.ts);
+const ikeep = new Set<number>();
+for (const [lo, hi] of slots) {
+	const s = isnaps.find((x) => x.ageD >= lo && x.ageD < hi);
+	if (s) ikeep.add(s.ts);
+}
+for (const s of isnaps) {
+	if (!ikeep.has(s.ts)) {
 		unlinkSync(join(DEST, s.file));
 		if (existsSync(join(DEST, `${s.file}-wal`)))
 			unlinkSync(join(DEST, `${s.file}-wal`));

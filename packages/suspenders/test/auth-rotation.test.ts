@@ -3,8 +3,8 @@
 // the emergency grace-0 kill, rotation-proof opaque refresh tokens, and ring
 // file hygiene (0600/0700). HOME is a temp dir set BEFORE the dynamic imports
 // (the auth.test.ts pattern).
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, statSync, readFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const REAL_HOME = process.env.HOME;
@@ -31,9 +31,12 @@ afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
-const store = govdb.openStore();
+// W156/W359: api_keys/auth_events ride the identity plane — issueTokens,
+// rotateRefresh and verifyJwt's denylist check all take the identity binding
+void govdb.openStore(); // the governor open runs the ladder — v17 mints the idb tables
+const idb = govdb.openIdentity();
 const issue = (actor: string) =>
-	auth.issueTokens(store, {
+	auth.issueTokens(idb, {
 		actor,
 		token_class: "app-role",
 		scopes: ["buckle:admin"],
@@ -70,10 +73,10 @@ describe("grace windows", () => {
 		const pair = issue("lane:grace");
 		auth.rotateSigningKey(2000); // 2s grace
 		expect(
-			(await auth.verifyJwt(req(pair.access), undefined, { store })).ok,
+			(await auth.verifyJwt(req(pair.access), undefined, { store: idb })).ok,
 		).toBe(true);
 		const post = await auth.verifyJwt(req(pair.access), undefined, {
-			store,
+			store: idb,
 			now: () => Date.now() + 5000,
 		});
 		expect(post.ok).toBe(false);
@@ -86,15 +89,17 @@ describe("emergency kill + refresh flow", () => {
 		const pair = issue("lane:kill");
 		const r = auth.rotateSigningKey(0);
 		expect(r.graceUntil).toBeNull();
-		const dead = await auth.verifyJwt(req(pair.access), undefined, { store });
+		const dead = await auth.verifyJwt(req(pair.access), undefined, {
+			store: idb,
+		});
 		expect(dead.ok).toBe(false);
 		if (!dead.ok) expect(dead.code).toBe("bad_signature");
 		// refresh tokens are opaque — rotation-proof, self-heals under the new key
-		const rr = auth.rotateRefresh(store, pair.refresh);
+		const rr = auth.rotateRefresh(idb, pair.refresh);
 		expect(rr.ok).toBe(true);
 		if (!rr.ok) return;
 		expect(
-			(await auth.verifyJwt(req(rr.access), undefined, { store })).ok,
+			(await auth.verifyJwt(req(rr.access), undefined, { store: idb })).ok,
 		).toBe(true);
 	});
 

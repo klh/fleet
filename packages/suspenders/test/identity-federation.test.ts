@@ -4,10 +4,10 @@
 // delegated-plane refusals under federation at the lib (rotateRefresh) and
 // route (handleAuthRoutes) level. HOME is a temp dir set BEFORE the dynamic
 // imports (the auth-rotation.test.ts pattern).
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { generateKeyPairSync, createSign } from "node:crypto";
 
 const REAL_HOME = process.env.HOME;
 const REAL_SECRETS = process.env.BUCKLE_SECRETS_HOME;
@@ -22,7 +22,10 @@ const auth = await import("../hooks/lib/auth.ts");
 const govdb = await import("../hooks/lib/govdb.ts");
 const fed = await import("../hooks/lib/identity-federation.ts");
 
-const store = govdb.openStore();
+void govdb.openStore(); // the governor open runs the ladder — v17 mints the idb tables
+// W156/W359: the token plane rides identity.db — issueTokens/rotateRefresh
+// and verifyJwt's denylist all take the identity binding
+const idb = govdb.openIdentity();
 
 afterAll(() => {
 	auth.resetAuthCache();
@@ -207,7 +210,7 @@ describe("verifyJwt federation (RS256 via injected fetch)", () => {
 
 describe("rotateRefresh denyClasses (lib gate)", () => {
 	const issue = (actor: string, cls: auth.TokenClass) =>
-		auth.issueTokens(store, {
+		auth.issueTokens(idb, {
 			actor,
 			token_class: cls,
 			scopes: ["buckle:admin"],
@@ -216,7 +219,7 @@ describe("rotateRefresh denyClasses (lib gate)", () => {
 
 	test("delegated pair + federation gate → rejected delegated_federated", () => {
 		const p = issue("fed-user", "delegated");
-		const r = auth.rotateRefresh(store, p.refresh, "test", {
+		const r = auth.rotateRefresh(idb, p.refresh, "test", {
 			denyClasses: ["delegated"],
 		});
 		expect(r.ok).toBe(false);
@@ -224,14 +227,14 @@ describe("rotateRefresh denyClasses (lib gate)", () => {
 	});
 	test("app-role pair rotates fine under the same gate", () => {
 		const p = issue("fed-machine", "app-role");
-		const r = auth.rotateRefresh(store, p.refresh, "test", {
+		const r = auth.rotateRefresh(idb, p.refresh, "test", {
 			denyClasses: ["delegated"],
 		});
 		expect(r.ok).toBe(true);
 	});
 	test("no gate (default) → delegated rotates fine (legacy deployments)", () => {
 		const p = issue("legacy-user", "delegated");
-		const r = auth.rotateRefresh(store, p.refresh, "test");
+		const r = auth.rotateRefresh(idb, p.refresh, "test");
 		expect(r.ok).toBe(true);
 	});
 });
@@ -261,12 +264,12 @@ describe("/auth/* federation gates (routes)", () => {
 				body: JSON.stringify(body),
 			}),
 			new URL(`http://127.0.0.1:7794${path}`),
-			{ store },
+			{ store: idb },
 		);
 
 	test("federated /auth/token refuses delegated, admits app-role", async () => {
 		process.env.BUCKLE_AUTH_CONFIG = CFG_FILE;
-		const admin = auth.issueTokens(store, {
+		const admin = auth.issueTokens(idb, {
 			actor: "route-admin",
 			token_class: "app-role",
 			scopes: ["write_auth"],
@@ -303,7 +306,7 @@ describe("/auth/* federation gates (routes)", () => {
 			CFG_FILE,
 			JSON.stringify({ issuers: [{ type: "local", iss: "buckle" }] }),
 		);
-		const admin = auth.issueTokens(store, {
+		const admin = auth.issueTokens(idb, {
 			actor: "route-admin-2",
 			token_class: "app-role",
 			scopes: ["write_auth"],

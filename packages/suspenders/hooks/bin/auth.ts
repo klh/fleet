@@ -22,11 +22,11 @@ import {
 	rotateSigningKey,
 } from "../lib/auth.ts";
 import { saveTokenFiles } from "../lib/auth-client.ts";
-import { openStore } from "../lib/govdb.ts";
+import { openIdentity, openStore } from "../lib/govdb.ts";
 import {
 	defineVerb,
-	runCli,
 	type Parsed,
+	runCli,
 	type VerbSpec,
 } from "../lib/verb-kit.ts";
 
@@ -52,7 +52,7 @@ function cmdIssue(p: Parsed): number {
 		.filter(Boolean);
 	const aTtl = days(p.flag("--access-ttl-days"));
 	const rTtl = days(p.flag("--refresh-ttl-days"));
-	const pair = issueTokens(openStore(), {
+	const pair = issueTokens(openIdentity(), {
 		actor,
 		team: p.flag("--team") ?? null,
 		token_class: cls as "app-role" | "delegated",
@@ -93,10 +93,11 @@ function cmdRevoke(p: Parsed): number {
 		return 2;
 	}
 	const out = revoke(
-		openStore(),
+		openIdentity(),
 		sel,
 		"cli:auth.ts",
 		`cli:${process.env.USER ?? "unknown"}`,
+		openStore(),
 	);
 	console.log(
 		`revoked ${out.changes} token row(s) (${sel.jti ? `jti=${sel.jti}` : sel.actor ? `actor=${sel.actor}` : `team=${sel.team}`})`,
@@ -106,7 +107,7 @@ function cmdRevoke(p: Parsed): number {
 
 function cmdList(p: Parsed): number {
 	void p;
-	const store = openStore();
+	const store = openIdentity();
 	const actor = p.flag("--actor");
 	const where = actor ? "WHERE actor = ?" : "";
 	const rows = store

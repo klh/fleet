@@ -56,6 +56,8 @@ import {
 // timing (nothing else imports the demo module)
 import "../board/demo.ts";
 
+const idb = openIdentity(); // W156/W359: /console/hub token plane rides identity.db
+
 ensureLaneObservations(db);
 ensureLaneReadModel(db);
 const observationRelay = startObservationRelay(db);
@@ -132,7 +134,7 @@ const base = {
 			(req2, url2) =>
 				hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE)
 					? import(HUB_ADMIN_MODULE).then((m) =>
-							m.handleHubAdmin(req2, url2, db),
+							m.handleHubAdmin(req2, url2, db, idb),
 						)
 					: null,
 			handleEnterprise,

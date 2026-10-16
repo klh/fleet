@@ -1,29 +1,31 @@
 // hooks/coord/facts.ts — facts, capsules, kb lookup + retention (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
+
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { assertCapsuleBounds, itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { expireConsults } from "../lib/consult-expiry.ts";
+import { openIdentity } from "../lib/govdb.ts";
+import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
+import { run } from "../lib/run.ts";
+import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import { isLiveSession, type LivenessRow } from "./bus.ts";
+import { ensureConsultTrust } from "./consult-trust.ts";
+import type { Database } from "./shared.ts";
 import {
-	die,
 	arg,
-	db,
-	green,
-	dim,
 	cyan,
+	db,
+	die,
+	dim,
+	green,
 	kbLookup,
 	projectIdentity,
 	pruneDeltas,
-	sweepStaleSessions,
 	realpathSync,
+	sweepStaleSessions,
 } from "./shared.ts";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import type { Database } from "./shared.ts";
-import { ensureConsultTrust } from "./consult-trust.ts";
-import { run } from "../lib/run.ts";
-import { assertCapsuleBounds, itemCapsuleKey } from "../lib/capsule-fence.ts";
-import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
-import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
-import { isLiveSession, type LivenessRow } from "./bus.ts";
-import { expireConsults } from "../lib/consult-expiry.ts";
 
 // W606 — compare-and-set guard for fact/capsule upserts: the blind upsert
 // (facts.version incremented but never checked) races successive writers to
@@ -485,7 +487,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 			f: number | null;
 		}
 	).f;
-	const e = pruneSafe({
+	const e = pruneSafe(db, {
 		table: "events",
 		tsCol: "ts",
 		cut,
@@ -498,9 +500,12 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const ms = (d: number): number => d * 86_400_000;
 	// archive failure must never kill gc — skip that prune (rows survive to
 	// the next pass); archive-before-delete is the contract
-	function pruneSafe(spec: Parameters<typeof archiveAndPrune>[1]): number {
+	function pruneSafe(
+		store: Parameters<typeof archiveAndPrune>[0],
+		spec: Parameters<typeof archiveAndPrune>[1],
+	): number {
 		try {
-			return archiveAndPrune(db, spec);
+			return archiveAndPrune(store, spec);
 		} catch (e) {
 			console.error(
 				`gc: ${spec.table} archive failed — prune skipped: ${e instanceof Error ? e.message : String(e)}`,
@@ -508,7 +513,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 			return 0;
 		}
 	}
-	const ra = pruneSafe({
+	const ra = pruneSafe(db, {
 		table: "route_audit",
 		tsCol: "ts",
 		cut: Date.now() - ms(auditDays),
@@ -525,13 +530,16 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 			"error_code",
 		],
 	});
-	const ae = pruneSafe({
+	// W156: auth_events ride identity.db post-split — the prune opens the
+	// same identity binding openIdentity() hands every other consumer
+	const idb = openIdentity();
+	const ae = pruneSafe(idb, {
 		table: "auth_events",
 		tsCol: "ts",
 		cut: Date.now() - ms(usageDays),
 		cols: ["id", "ts", "actor", "event", "jti", "via"],
 	});
-	const ur = pruneSafe({
+	const ur = pruneSafe(db, {
 		table: "usage_rollup",
 		tsCol: "hour_bucket",
 		cut: Date.now() - ms(usageDays),
@@ -547,7 +555,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 			"requests",
 		],
 	});
-	const aa = pruneSafe({
+	const aa = pruneSafe(db, {
 		table: "admin_audit",
 		tsCol: "ts",
 		cut: Date.now() - ms(365),
