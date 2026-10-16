@@ -9,47 +9,51 @@
 // its claims, inbox, lane state, and the event tail.
 
 import type { Database } from "bun:sqlite";
-import { db, PORT, BIND } from "../board/context.ts";
+import { BIND, db, PORT } from "../board/context.ts";
 import { projectList } from "../board/lanes.ts";
-import { tokenUsage } from "../lib/govdb.ts";
-import { scrub, servicemon } from "../lib/servicemon.ts";
+import { readBoardSettings } from "../lib/board-config.ts";
+import { openIdentity, tokenUsage } from "../lib/govdb.ts";
 import {
 	hostGuard,
 	isWriteMethod,
 	withWriteCookie,
 	writeToken,
 } from "../lib/host-guard.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
+import { scrub, servicemon } from "../lib/servicemon.ts";
+
 // W165: the hub-admin plane is an auth_issuance surface — a spoke profile
 // never loads it. The specifier rides a variable so the staged bundle check
 // passes on spokes, where routes-hub-admin.ts is excluded from the payload.
 const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
+
+import { setEnterpriseProvider } from "../board/ent-seam.ts";
+import { ensureLaneObservations } from "../board/lane-observations.ts";
+import { ensureLaneReadModel } from "../board/lane-read-model.ts";
+import { startObservationRelay } from "../board/observation-relay.ts";
+import { handleActions } from "../board/routes-actions.ts";
+import { handleConsole } from "../board/routes-console.ts";
+import { handleData } from "../board/routes-data.ts";
+import { handleDrawer } from "../board/routes-drawer.ts";
+import { handleEnterprise } from "../board/routes-enterprise.ts";
+import { handleFederationUsage } from "../board/routes-federation.ts";
+import { handleFleetTree } from "../board/routes-fleet-tree.ts";
+import { handleLaneModel } from "../board/routes-lane-model.ts";
+import { handleMeta } from "../board/routes-meta.ts";
+import { handleObservations } from "../board/routes-observations.ts";
+import { handleOrch } from "../board/routes-orch.ts";
+import { handleSuggest } from "../board/routes-suggest.ts";
+import { handleUsage } from "../board/routes-usage.ts";
 import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
 	readCapabilities,
 } from "../lib/profile.ts";
-import { handleData } from "../board/routes-data.ts";
-import { handleUsage } from "../board/routes-usage.ts";
-import { handleFederationUsage } from "../board/routes-federation.ts";
-import { handleDrawer } from "../board/routes-drawer.ts";
-import { handleActions } from "../board/routes-actions.ts";
-import { handleOrch } from "../board/routes-orch.ts";
-import { handleConsole } from "../board/routes-console.ts";
-import { handleMeta } from "../board/routes-meta.ts";
-import { handleSuggest } from "../board/routes-suggest.ts";
-import { handleObservations } from "../board/routes-observations.ts";
-import { handleLaneModel } from "../board/routes-lane-model.ts";
-import { ensureLaneReadModel } from "../board/lane-read-model.ts";
-import { handleFleetTree } from "../board/routes-fleet-tree.ts";
-import { handleEnterprise } from "../board/routes-enterprise.ts";
-import { setEnterpriseProvider } from "../board/ent-seam.ts";
-import { ensureLaneObservations } from "../board/lane-observations.ts";
-import { startObservationRelay } from "../board/observation-relay.ts";
 // W157: seedDemo() self-invokes at demo.ts module load — the monolith
 // executed it inline before Bun.serve; the side-effect import keeps that
 // timing (nothing else imports the demo module)
 import "../board/demo.ts";
+
+const idb = openIdentity(); // W156/W359: /console/hub token plane rides identity.db
 
 ensureLaneObservations(db);
 ensureLaneReadModel(db);
@@ -126,7 +130,7 @@ const base = {
 			(req2, url2) =>
 				hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE)
 					? import(HUB_ADMIN_MODULE).then((m) =>
-							m.handleHubAdmin(req2, url2, db),
+							m.handleHubAdmin(req2, url2, db, idb),
 						)
 					: null,
 			handleEnterprise,

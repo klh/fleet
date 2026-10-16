@@ -42,10 +42,11 @@ process.env.GOVERNOR_STORE_URL = "local";
 const DEST = join(HOME, "backups");
 
 // ---- seed: a real identity in the sandbox ----------------------------------
-const { openStore } = await import("../hooks/lib/govdb.ts");
+const { openIdentity, openStore } = await import("../hooks/lib/govdb.ts");
 const auth = await import("../hooks/lib/auth.ts");
 const { saveTokenFiles } = await import("../hooks/lib/auth-client.ts");
-const store = openStore();
+void openStore(); // governor open runs the ladder — v17 creates identity.db + its tables
+const store = openIdentity(); // identity rows live in identity.db post-split (W359)
 const req = (tok: string) => ({
 	headers: {
 		get: (n: string) =>
@@ -86,6 +87,7 @@ console.log(
 ok(p.exitCode === 0, "db-backup exited 0");
 ok(backupOut.includes("integrity ok"), "governor snapshot integrity ok");
 ok(backupOut.includes("identity file(s)"), "identity secrets rode along");
+ok(backupOut.includes("identity rows"), "identity.db snapshot rode along");
 
 const idDirs = readdirSync(DEST)
 	.filter((f) => /^identity-\d+$/.test(f))
@@ -101,14 +103,27 @@ ok(
 );
 
 // ---- [3] destroy: the disaster ----------------------------------------------
-console.log("\n[3] destroy — secrets home AND governor.db, gone");
+console.log(
+	"\n[3] destroy — secrets home AND governor.db AND identity.db, gone",
+);
 rmSync(join(HOME, "secrets"), { recursive: true });
-for (const f of ["governor.db", "governor.db-wal", "governor.db-shm"])
+for (const f of [
+	"governor.db",
+	"governor.db-wal",
+	"governor.db-shm",
+	"identity.db",
+	"identity.db-wal",
+	"identity.db-shm",
+])
 	rmSync(join(HOME, ".cache", "claude-governor", f), { force: true });
 ok(!existsSync(join(HOME, "secrets")), "secrets home gone");
 ok(
 	!existsSync(join(HOME, ".cache", "claude-governor", "governor.db")),
 	"governor.db gone",
+);
+ok(
+	!existsSync(join(HOME, ".cache", "claude-governor", "identity.db")),
+	"identity.db gone",
 );
 
 // ---- [4] restore from the backup --------------------------------------------
@@ -121,8 +136,15 @@ cpSync(
 	join(DEST, govSnap ?? "x"),
 	join(HOME, ".cache", "claude-governor", "governor.db"),
 );
-auth.resetAuthCache(); // next key read comes from the RESTORED files
-const restored = openStore(); // fresh handle on the restored db
+const idbSnap = readdirSync(DEST).find((f) => /^identity-\d+\.db$/.test(f));
+ok(idbSnap !== undefined, "identity snapshot present for restore");
+cpSync(
+	join(DEST, idbSnap ?? "x"),
+	join(HOME, ".cache", "claude-governor", "identity.db"),
+);
+auth.resetAuthCache(); // next key read from the RESTORED files
+void openStore(); // the restored governor opens (ladder no-ops at uv 17)
+const restored = openIdentity(); // identity rows live in identity.db post-split
 const restoredCount = (
 	restored.query("SELECT COUNT(*) AS n FROM api_keys").get() as { n: number }
 ).n;

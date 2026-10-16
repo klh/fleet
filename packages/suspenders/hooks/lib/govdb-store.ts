@@ -5,6 +5,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { openGovernorDb } from "./govdb-open.ts";
 import { REG } from "./govdb-util.ts";
+import { openIdentityDb } from "./identity-db.ts";
 
 // ─── W92 store port ──────────────────────────────────────────────────────────
 // The control-plane seam: consumers bind to GovernorStore, never to the DB
@@ -72,6 +73,7 @@ export class HttpGovernorStore implements GovernorStore {
 	constructor(
 		private base: string,
 		private token: string | null,
+		private path = "/rpc",
 	) {
 		// eager probe: a dead server fails AT OPEN — work.ts's mirror fallback
 		// and coord's module-top open both expect today's throw timing
@@ -115,7 +117,7 @@ export class HttpGovernorStore implements GovernorStore {
 			"\n%{http_code}",
 			"-X",
 			"POST",
-			`${this.base}/rpc`,
+			`${this.base}${this.path}`,
 			"-H",
 			"content-type: application/json",
 		];
@@ -239,12 +241,37 @@ function resolveStoreToken(): string | null {
 	return token;
 }
 
-function storeUrlFile(): string | null {
+function storeUrlFile(name = "store.url"): string | null {
 	try {
-		return readFileSync(`${REG()}/store.url`, "utf8") || null;
+		return readFileSync(`${REG()}/${name}`, "utf8") || null;
 	} catch {
 		return null;
 	}
+}
+
+// W156 identity port — the store-port pattern on identity.db (federation doc:
+// openIdentity(), served beside /rpc on :7794). Same resolver chain as
+// openStore(): IDENTITY_STORE_URL → ${REG}/identity.url → in-process; the
+// token header is the store server's ONE loopback token (GOVERNOR_STORE_TOKEN)
+// since both planes ride the same listener. `local` = transcript-derived
+// behavior exclusion, same meaning as GovernorStore.local.
+export type IdentityStore = GovernorStore;
+
+export function openIdentity(): IdentityStore {
+	const raw = (
+		process.env.IDENTITY_STORE_URL ??
+		storeUrlFile("identity.url") ??
+		""
+	).trim();
+	if (raw && raw !== "local")
+		return new HttpGovernorStore(
+			raw.replace(/\/+$/, ""),
+			process.env.GOVERNOR_STORE_TOKEN ?? null,
+			"/identity",
+		);
+	const d = openIdentityDb() as unknown as IdentityStore;
+	d.local = true;
+	return d;
 }
 
 // in-memory store for work.ts's mirror fallback — the port surface with zero

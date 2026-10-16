@@ -14,15 +14,18 @@ import type { AuthFailure } from "./auth.ts";
 import {
 	issueTokens,
 	loadAuthConfig,
-	rotateRefresh,
 	revoke,
+	rotateRefresh,
 	verifyJwt,
 } from "./auth.ts";
-import type { GovernorStore } from "./govdb.ts";
+import type { GovernorStore, IdentityStore } from "./govdb.ts";
 import { hasFederation } from "./identity-federation.ts";
 
 export interface AuthServerOpts {
-	store: GovernorStore;
+	store: IdentityStore;
+	// W156: the admin_audit who-lens stays in governor.db (W174) — hub
+	// callers pass the control-plane store; absent = auth_events lens only.
+	auditStore?: GovernorStore;
 }
 
 export function authFailureResponse(r: AuthFailure): Response {
@@ -83,7 +86,7 @@ function validateIssueBody(body: IssueBody): Response | null {
 }
 async function handleToken(
 	req: Request,
-	store: GovernorStore,
+	store: IdentityStore,
 ): Promise<Response> {
 	const auth = await verifyJwt(req, "write_auth", { store });
 	if (!auth.ok) return authFailureResponse(auth);
@@ -138,7 +141,7 @@ async function handleToken(
 }
 async function handleRefresh(
 	req: Request,
-	store: GovernorStore,
+	store: IdentityStore,
 ): Promise<Response> {
 	const body = (await req.json().catch(() => ({}))) as {
 		refresh_token?: string;
@@ -173,14 +176,15 @@ interface RevokeBody {
 
 async function handleRevoke(
 	req: Request,
-	store: GovernorStore,
+	store: IdentityStore,
+	audit?: GovernorStore,
 ): Promise<Response> {
 	const auth = await verifyJwt(req, "write_auth", { store });
 	if (!auth.ok) return authFailureResponse(auth);
 	const sel = (await req.json().catch(() => ({}))) as RevokeBody;
 	if (!sel.jti && !sel.actor && !sel.team)
 		return bad("one of jti, actor, or team is required");
-	const out = revoke(store, sel, "api:/auth/revoke", auth.claims.sub);
+	const out = revoke(store, sel, "api:/auth/revoke", auth.claims.sub, audit);
 	return Response.json({
 		...out,
 		agent_next_steps: "Revoked tokens fail verification immediately.",
@@ -189,7 +193,7 @@ async function handleRevoke(
 
 async function handleWhoami(
 	req: Request,
-	store: GovernorStore,
+	store: IdentityStore,
 ): Promise<Response> {
 	const auth = await verifyJwt(req, undefined, { store });
 	if (!auth.ok) return authFailureResponse(auth);
@@ -211,7 +215,7 @@ export async function handleAuthRoutes(
 	url: URL,
 	opts: AuthServerOpts,
 ): Promise<Response> {
-	const { store } = opts;
+	const { store, auditStore } = opts;
 	const path = url.pathname;
 	const method = req.method;
 	if (path === "/auth/token" && method === "POST")
@@ -219,7 +223,7 @@ export async function handleAuthRoutes(
 	if (path === "/auth/refresh" && method === "POST")
 		return handleRefresh(req, store);
 	if (path === "/auth/revoke" && method === "POST")
-		return handleRevoke(req, store);
+		return handleRevoke(req, store, auditStore);
 	if (path === "/auth/whoami" && method === "GET")
 		return handleWhoami(req, store);
 	return new Response("not found", { status: 404 });

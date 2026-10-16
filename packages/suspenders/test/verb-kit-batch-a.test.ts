@@ -12,10 +12,14 @@ setDefaultTimeout(30_000); // spawn-heavy suite (memory: 5s default is the flake
 
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const CWD = join(import.meta.dir, "..", "..", "..");
+// HOME-isolated temp dir: the spawned CLIs open the registry, and an
+// un-isolated child would run the migration ladder against the live HOME
+const tmp = mkdtempSync(join(tmpdir(), "w656-1-smoke-"));
 
 const run = (file: string, args: string[], cwd = CWD) => {
 	const p = Bun.spawnSync(["bun", join(BIN, file), ...args], {
 		cwd,
+		env: { ...process.env, HOME: tmp },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -42,7 +46,6 @@ const BATCH_A = [
 const LANE_REFUSERS = ["approve-destructive.ts", "lifecycle-authority.ts"];
 
 describe("verb-kit batch A (W656.1)", () => {
-	const tmp = mkdtempSync(join(tmpdir(), "w656-1-smoke-"));
 	afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 	for (const file of BATCH_A) {

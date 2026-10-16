@@ -6,14 +6,14 @@
 // mutation lands in admin_audit (governor.db).
 import { adminAudit } from "./admin-audit.ts";
 import {
+	type IssuedPair,
 	issueTokens,
 	metaOf,
-	revoke,
-	type IssuedPair,
 	type RevokeSelector,
+	revoke,
 	type TokenClass,
 } from "./auth.ts";
-import type { GovernorStore } from "./govdb.ts";
+import type { GovernorStore, IdentityStore } from "./govdb.ts";
 
 export type HubTokenState = "active" | "rotated" | "revoked" | "expired";
 
@@ -50,12 +50,12 @@ interface RawKeyRow {
 /** Masked token inventory, newest first. Includes revoked/rotated/expired
  *  rows so the GUI can show the full trail; `state` is derived. */
 export function listTokens(
-	store: GovernorStore,
+	idb: IdentityStore,
 	opts: { actor?: string; limit?: number } = {},
 ): HubTokenRow[] {
 	const actor = opts.actor?.trim();
 	const where = actor ? "WHERE actor = ?" : "";
-	const rows = store
+	const rows = idb
 		.query(
 			`SELECT key_id, jti, actor, team, token_type, scopes, name, expires_at, rotated_at, revoked_at, created_at FROM api_keys ${where} ORDER BY created_at DESC LIMIT ?`,
 		)
@@ -111,11 +111,12 @@ export interface IssueHubTokenSpec {
  *  once, in this response) and lands an admin_audit row — the who/when
  *  trail the console audit section reads back. */
 export function issueHubToken(
-	store: GovernorStore,
+	idb: IdentityStore,
+	gov: GovernorStore,
 	spec: IssueHubTokenSpec,
 	by: string,
 ): IssuedPair {
-	const pair = issueTokens(store, {
+	const pair = issueTokens(idb, {
 		actor: spec.actor,
 		team: spec.team ?? null,
 		token_class: spec.token_class,
@@ -125,7 +126,7 @@ export function issueHubToken(
 		refreshTtlMs: spec.refreshTtlMs ?? null,
 		via: "board:/console/hub",
 	});
-	adminAudit(store, {
+	adminAudit(gov, {
 		actor: by,
 		action: "hub.token.issue",
 		target: `jti=${pair.jti}`,
@@ -139,12 +140,13 @@ export function issueHubToken(
  *  hub-plane audit row. The GUI selects by actor (the listing is masked —
  *  a per-row id would revoke one row of a pair and strand its sibling). */
 export function revokeHubToken(
-	store: GovernorStore,
+	idb: IdentityStore,
+	gov: GovernorStore,
 	sel: RevokeSelector,
 	by: string,
 ): { changes: number; selector: RevokeSelector } {
-	const out = revoke(store, sel, "board:/console/hub", by);
-	adminAudit(store, {
+	const out = revoke(idb, sel, "board:/console/hub", by, gov);
+	adminAudit(gov, {
 		actor: by,
 		action: "hub.token.revoke",
 		target: `${sel.jti ? `jti=${sel.jti}` : sel.actor ? `actor=${sel.actor}` : `team=${sel.team ?? ""}`}`,

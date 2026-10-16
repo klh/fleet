@@ -10,9 +10,10 @@
 // so this file's govdb instance binds the temp HOME, never the real
 // governor.db. HOME is restored right after import — REG is captured at
 // module load, so later imports in other files rebind to the real HOME.
-import { describe, test, expect, afterAll } from "bun:test";
+
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -23,13 +24,21 @@ const { openGovernorDb } = await import(
 	`../hooks/lib/govdb.ts?w132=${encodeURIComponent(HOME)}`
 );
 process.env.HOME = REAL_HOME;
+// W359: v8 shipped api_keys/auth_events — a pre-split fixture must carry
+// them; post-split their DDL lives in identity-db.ts (strip its idb. prefix)
+const { IDENTITY_DDL } = await import("../hooks/lib/identity-db.ts");
 
 const DB = `${HOME}/.cache/claude-governor/governor.db`;
+const IDB = `${HOME}/.cache/claude-governor/identity.db`;
 
 function freshDb(): Database {
 	mkdirSync(dirname(DB), { recursive: true });
-	for (const suffix of ["", "-wal", "-shm"])
+	// W156: the identity file splits from governor.db — a fresh fixture
+	// resets BOTH planes so the v17 copy path starts from a clean idb
+	for (const suffix of ["", "-wal", "-shm"]) {
 		rmSync(DB + suffix, { force: true });
+		rmSync(IDB + suffix, { force: true });
+	}
 	return new Database(DB, { create: true });
 }
 
@@ -99,6 +108,21 @@ const NEW_TABLES: Record<string, string[]> = {
 	auth_events: ["id", "ts", "actor", "event", "jti", "via"],
 };
 
+// W359 (W156): the identity set (api_keys/teams/auth_events) moved to
+// identity.db at v17 — the file-split assertion set. users/ceilings stay
+// reserved names with no schema ever shipped.
+const IDENTITY_MOVED = ["api_keys", "teams", "auth_events"] as const;
+const GOV_TABLES: Record<string, string[]> = Object.fromEntries(
+	Object.entries(NEW_TABLES).filter(
+		([t]) => !(IDENTITY_MOVED as readonly string[]).includes(t),
+	),
+);
+const IDB_TABLES: Record<string, string[]> = Object.fromEntries(
+	Object.entries(NEW_TABLES).filter(([t]) =>
+		(IDENTITY_MOVED as readonly string[]).includes(t),
+	),
+);
+
 const DML = {
 	rollupAdd: `INSERT INTO aid_rollup (hour_bucket, aid, domain, model_group, injected, skipped, tok_injected, est_tok_saved, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (hour_bucket, aid, domain, model_group) DO UPDATE SET
@@ -129,7 +153,7 @@ const DOC_AID_ROLLUP_SQL = `CREATE TABLE IF NOT EXISTS aid_rollup (
 );`;
 
 describe("v8 migration shape", () => {
-	test("user_version >= 11 (v11 W243 activity meter rode on top), all seven router tables present with the designed columns", () => {
+	test("user_version >= 17 (the identity split rides the ladder tail), the four control-plane router tables present, the identity set moved to identity.db with the designed columns", () => {
 		const db = freshDb();
 		db.close();
 		openGovernorDb();
@@ -137,17 +161,35 @@ describe("v8 migration shape", () => {
 		const uv = (
 			d.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBeGreaterThanOrEqual(11);
-		for (const [tbl, cols] of Object.entries(NEW_TABLES)) {
+		expect(uv).toBeGreaterThanOrEqual(17);
+		for (const [tbl, cols] of Object.entries(GOV_TABLES)) {
 			const have = (
 				d.query(`PRAGMA table_info(${tbl})`).all() as { name: string }[]
 			).map((c) => c.name);
 			expect(have).toEqual(cols);
 		}
+		for (const tbl of [...IDENTITY_MOVED, "users", "ceilings"]) {
+			const n = (
+				d
+					.query(
+						`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = '${tbl}'`,
+					)
+					.get() as { n: number }
+			).n;
+			expect(n).toBe(0);
+		}
+		const idb = new Database(IDB);
+		for (const [tbl, cols] of Object.entries(IDB_TABLES)) {
+			const have = (
+				idb.query(`PRAGMA table_info(${tbl})`).all() as { name: string }[]
+			).map((c) => c.name);
+			expect(have).toEqual(cols);
+		}
 		d.close();
+		idb.close();
 	});
 
-	test("deltas triggers cover every table: 13 × 3 = 39, bus tables still untracked", () => {
+	test("deltas triggers cover every table: 10 × 3 = 30 (the identity set left the loop at v17), bus tables still untracked", () => {
 		const d = new Database(DB);
 		const n = (
 			d
@@ -156,7 +198,7 @@ describe("v8 migration shape", () => {
 				)
 				.get() as { n: number }
 		).n;
-		expect(n).toBe(39);
+		expect(n).toBe(30);
 		const bus = d
 			.query(
 				"SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'deltas_events_%'",
@@ -179,8 +221,8 @@ describe("v8 migration shape", () => {
 				)
 				.get() as { n: number }
 		).n;
-		expect(uv).toBeGreaterThanOrEqual(11);
-		expect(n).toBe(39);
+		expect(uv).toBeGreaterThanOrEqual(17);
+		expect(n).toBe(30);
 		const legacy = d
 			.query(
 				"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_legacy_%'",
@@ -190,31 +232,35 @@ describe("v8 migration shape", () => {
 		d.close();
 	});
 
-	test("api_keys integrity: hash required, key_id PK, jti unique, no raw-key column", () => {
-		const db = openGovernorDb();
+	test("api_keys integrity: hash required, key_id PK, jti unique, no raw-key column — on identity.db", () => {
+		const idb = new Database(IDB);
 		// key_hash NOT NULL — a key without a hash is unauthenticatable
 		expect(() =>
-			db
+			idb
 				.query("INSERT INTO api_keys (key_id, created_at) VALUES ('bad', 1)")
 				.run(),
 		).toThrow();
 		// key_id is the PK
-		db.query(
-			"INSERT INTO api_keys (key_id, key_hash, created_at) VALUES ('dup', 'h', 1)",
-		).run();
+		idb
+			.query(
+				"INSERT INTO api_keys (key_id, key_hash, created_at) VALUES ('dup', 'h', 1)",
+			)
+			.run();
 		expect(() =>
-			db
+			idb
 				.query(
 					"INSERT INTO api_keys (key_id, key_hash, created_at) VALUES ('dup', 'h2', 1)",
 				)
 				.run(),
 		).toThrow();
 		// jti carries a UNIQUE index — the denylist check is one indexed lookup
-		db.query(
-			"INSERT INTO api_keys (key_id, key_hash, jti, created_at) VALUES ('j1', 'h1', 'jti-x', 1)",
-		).run();
+		idb
+			.query(
+				"INSERT INTO api_keys (key_id, key_hash, jti, created_at) VALUES ('j1', 'h1', 'jti-x', 1)",
+			)
+			.run();
 		expect(() =>
-			db
+			idb
 				.query(
 					"INSERT INTO api_keys (key_id, key_hash, jti, created_at) VALUES ('j2', 'h2', 'jti-x', 1)",
 				)
@@ -222,86 +268,37 @@ describe("v8 migration shape", () => {
 		).toThrow();
 		// the column set is exactly the designed one — nothing that could hold
 		// a raw secret
-		const d = new Database(DB);
 		const cols = (
-			d.query("PRAGMA table_info(api_keys)").all() as { name: string }[]
+			idb.query("PRAGMA table_info(api_keys)").all() as { name: string }[]
 		).map((c) => c.name);
-		d.close();
+		idb.close();
 		expect(cols).toEqual(NEW_TABLES.api_keys);
 	});
 });
 
 describe("deltas coverage — the audit win is the existing loop", () => {
-	test("api_keys: insert, rotation chain, per-token and per-actor revocation", () => {
+	test("identity plane is deltas-silent: rows land in identity.db, the governor log never sees them", () => {
 		const db = freshDb();
 		db.close();
 		const db2 = openGovernorDb();
-		const w = db2.query.bind(db2);
-		const now = Date.now();
-		// owner's forever pair: access + refresh, expires_at NULL = forever
-		w(
-			"INSERT INTO api_keys (key_id, key_hash, jti, name, actor, token_type, created_at) VALUES ('k-acc', 'sha256:aa', 'jti-acc', 'owner', 'klh', 'access', ?)",
-		).run(now);
-		w(
-			"INSERT INTO api_keys (key_id, key_hash, jti, name, actor, token_type, parent_key_id, created_at) VALUES ('k-ref1', 'sha256:bb', 'jti-ref1', 'owner', 'klh', 'refresh', 'k-acc', ?)",
-		).run(now);
-		// rotation: new refresh row + old row stamped rotated_at
-		w(
-			"INSERT INTO api_keys (key_id, key_hash, jti, actor, token_type, parent_key_id, created_at) VALUES ('k-ref2', 'sha256:cc', 'jti-ref2', 'klh', 'refresh', 'k-ref1', ?)",
-		).run(now + 1);
-		w("UPDATE api_keys SET rotated_at = ? WHERE key_id = 'k-ref1'").run(
-			now + 2,
-		);
-		// per-actor revocation: every row of the actor, one UPDATE
-		w(
-			"UPDATE api_keys SET revoked_at = ? WHERE actor = 'klh' AND revoked_at IS NULL",
-		).run(now + 3);
-		const rows = db2
+		const idb = new Database(IDB);
+		idb
 			.query(
-				"SELECT op, pk, before, after FROM deltas WHERE tbl = 'api_keys' ORDER BY seq",
+				"INSERT INTO api_keys (key_id, key_hash, jti, name, actor, token_type, created_at) VALUES ('k-acc', 'sha256:aa', 'jti-acc', 'owner', 'klh', 'access', ?)",
 			)
-			.all() as {
-			op: string;
-			pk: string;
-			before: string | null;
-			after: string | null;
-		}[];
-		expect(rows.map((r) => r.op)).toEqual([
-			"insert",
-			"insert",
-			"insert",
-			"update",
-			"update",
-			"update",
-			"update",
-		]);
-		// the per-actor revocation UPDATE fires per-row in scan order — assert
-		// as a multiset so the test doesn't pin SQLite's internal scan order
-		expect([...rows.map((r) => r.pk)].sort()).toEqual([
-			"k-acc",
-			"k-acc",
-			"k-ref1",
-			"k-ref1",
-			"k-ref1",
-			"k-ref2",
-			"k-ref2",
-		]);
-		expect(rows.slice(0, 3).map((r) => r.pk)).toEqual([
-			"k-acc",
-			"k-ref1",
-			"k-ref2",
-		]);
-		const ins = rows[0];
-		expect(ins.before).toBeNull();
-		expect(JSON.parse(ins.after ?? "{}").expires_at).toBeNull(); // forever
-		const rot = rows.find((r) => r.pk === "k-ref1" && r.op === "update");
-		expect(JSON.parse(rot?.before ?? "{}").rotated_at).toBeNull();
-		expect(JSON.parse(rot?.after ?? "{}").rotated_at).toBe(now + 2);
-		const rev = rows.find(
-			(r) => r.pk === "k-acc" && r.op === "update",
-		) as (typeof rows)[number];
-		expect(JSON.parse(rev.before ?? "{}").revoked_at).toBeNull();
-		expect(JSON.parse(rev.after ?? "{}").revoked_at).toBe(now + 3);
+			.run(Date.now());
+		const tbls = (
+			db2.query("SELECT DISTINCT tbl FROM deltas").all() as { tbl: string }[]
+		).map((r) => r.tbl);
+		expect(
+			tbls.some((t) => (IDENTITY_MOVED as readonly string[]).includes(t)),
+		).toBe(false);
+		const got = idb
+			.query("SELECT actor, expires_at FROM api_keys WHERE key_id = 'k-acc'")
+			.get() as { actor: string; expires_at: number | null };
+		expect(got.actor).toBe("klh");
+		expect(got.expires_at).toBeNull(); // forever
+		idb.close();
 		db2.close();
 	});
 
@@ -342,7 +339,7 @@ describe("deltas coverage — the audit win is the existing loop", () => {
 		db2.close();
 	});
 
-	test("aid_events and auth_events: event rows land with pk = id, full images", () => {
+	test("aid_events: event rows land with pk = id, full images", () => {
 		const db = freshDb();
 		db.close();
 		const db2 = openGovernorDb();
@@ -352,16 +349,12 @@ describe("deltas coverage — the audit win is the existing loop", () => {
 				"INSERT INTO aid_events (ts, sid, work_item, aid, packet_id, tokens_injected, est_tok_saved) VALUES (?, 'w137-aids', 'W137', 'preseed', '9f3a21', 612, NULL)",
 			)
 			.run(now);
-		db2
-			.query(
-				"INSERT INTO auth_events (ts, actor, event, jti, via) VALUES (?, 'klh', 'issued', 'jti-acc', '/key/generate')",
-			)
-			.run(now);
-		// est_tok_saved NULL at event time — the W137 honesty rule
+		// W156: auth_events ride identity.db — the identity plane keeps no
+		// deltas log; its writes never image into the governor trail
 		const ev = db2.query("SELECT id FROM aid_events").get() as { id: number };
 		const rows = db2
 			.query(
-				"SELECT tbl, op, pk, before, after FROM deltas WHERE tbl IN ('aid_events', 'auth_events') ORDER BY seq",
+				"SELECT tbl, op, pk, before, after FROM deltas WHERE tbl = 'aid_events' ORDER BY seq",
 			)
 			.all() as {
 			tbl: string;
@@ -370,116 +363,93 @@ describe("deltas coverage — the audit win is the existing loop", () => {
 			before: string | null;
 			after: string | null;
 		}[];
-		expect(rows.map((r) => [r.tbl, r.op])).toEqual([
-			["aid_events", "insert"],
-			["auth_events", "insert"],
-		]);
+		expect(rows.map((r) => [r.tbl, r.op])).toEqual([["aid_events", "insert"]]);
 		expect(rows[0].pk).toBe(String(ev.id));
 		expect(rows[0].before).toBeNull();
 		const afterEv = JSON.parse(rows[0].after ?? "{}");
 		expect(afterEv.est_tok_saved).toBeNull();
 		expect(afterEv.tokens_injected).toBe(612);
-		expect(rows[1].pk).toBe("1");
-		expect(JSON.parse(rows[1].after ?? "{}").event).toBe("issued");
 		db2.close();
 	});
 
-	test("teams: insert lands with composite-free pk and department for the /usage filter", () => {
+	test("teams ride identity.db with the W210 ceilings (no deltas story post-split)", () => {
 		const db = freshDb();
 		db.close();
 		const db2 = openGovernorDb();
-		db2
+		const idb = new Database(IDB);
+		idb
 			.query(
-				"INSERT INTO teams (team_id, name, department, created_at) VALUES ('platform', 'Platform', 'Infrastructure', 1)",
+				"INSERT INTO teams (team_id, name, department, created_at, rpm_ceiling, tpm_ceiling, tok_ceiling) VALUES ('platform', 'Platform', 'Infrastructure', 1, 60, 100000, 5000000)",
 			)
 			.run();
-		const row = db2
-			.query("SELECT op, pk, after FROM deltas WHERE tbl = 'teams'")
-			.get() as { op: string; pk: string; after: string };
-		expect(row.op).toBe("insert");
-		expect(row.pk).toBe("platform");
-		expect(JSON.parse(row.after).department).toBe("Infrastructure");
-		db2.close();
-	});
-
-	test("v13: teams ceilings — fresh shape, deltas images, ceiling change audited", () => {
-		const db = freshDb();
-		db.close();
-		const db2 = openGovernorDb();
-		db2
-			.query(
-				"INSERT INTO teams (team_id, name, department, rpm_ceiling, tpm_ceiling, tok_ceiling, created_at) VALUES ('platform', 'Platform', 'Infrastructure', 60, 100000, 5000000, 1)",
-			)
-			.run();
-		const row = db2
-			.query("SELECT op, pk, after FROM deltas WHERE tbl = 'teams'")
-			.get() as { op: string; pk: string; after: string };
-		expect(JSON.parse(row.after)).toMatchObject({
+		// the deltas loop never sees identity rows (v17 moved the set)
+		const n = db2
+			.query("SELECT COUNT(*) AS n FROM deltas" + " WHERE tbl = 'teams'")
+			.get() as { n: number };
+		expect(n.n).toBe(0);
+		const got = idb
+			.query("SELECT * FROM teams WHERE team_id = 'platform'")
+			.get() as { rpm_ceiling: number | null };
+		expect(got).toMatchObject({
 			rpm_ceiling: 60,
 			tpm_ceiling: 100000,
 			tok_ceiling: 5000000,
 		});
-		db2
-			.query(
-				"UPDATE teams SET tok_ceiling = 6000000 WHERE team_id = 'platform'",
-			)
-			.run();
-		const upd = db2
-			.query(
-				"SELECT before, after FROM deltas WHERE tbl = 'teams' AND op = 'update'",
-			)
-			.get() as { before: string; after: string };
-		expect(JSON.parse(upd.before).tok_ceiling).toBe(5000000);
-		expect(JSON.parse(upd.after).tok_ceiling).toBe(6000000);
+		idb.close();
 		db2.close();
 	});
 
-	test("v13 heal: pre-v13 teams gains the ceilings and full-image triggers", () => {
+	test("v13 heal feeds the v17 split: pre-v13 teams heals, then rides to identity.db whole", () => {
 		const db = freshDb();
-		// pre-v13 shape: teams without ceilings + a stale 4-col-image trigger
+		// a real pre-split uv-12 DB carries the v8 identity tables (empty);
+		// post-split their DDL lives in identity-db.ts — strip its idb. prefix
+		for (const [t, stmts] of Object.entries(IDENTITY_DDL))
+			if (t !== "teams")
+				for (const s of stmts) db.exec(s.replaceAll("idb.", ""));
+		// pre-v13 fixture: teams without ceilings + empty deltas
 		db.exec(
-			"CREATE TABLE teams (team_id TEXT PRIMARY KEY, name TEXT, department TEXT, created_at INTEGER NOT NULL)",
+			"CREATE TABLE teams (team_id TEXT PRIMARY KEY, name TEXT, " +
+				"department TEXT, created_at INTEGER NOT NULL)",
 		);
 		db.exec(
-			"CREATE TABLE deltas (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, tbl TEXT NOT NULL, op TEXT NOT NULL, pk TEXT NOT NULL, before TEXT, after TEXT)",
+			"CREATE TABLE deltas (seq INTEGER PRIMARY KEY AUTOINCREMENT, ts " +
+				"INTEGER NOT NULL, tbl TEXT NOT NULL, op TEXT NOT NULL, pk TEXT " +
+				"NOT NULL, before TEXT, after TEXT)",
 		);
-		db.exec(
-			"CREATE TRIGGER deltas_teams_update AFTER UPDATE ON teams BEGIN INSERT INTO deltas (ts, tbl, op, pk, before, after) VALUES (1, 'teams', 'update', NEW.team_id, json_object('team_id', OLD.team_id, 'name', OLD.name, 'department', OLD.department, 'created_at', OLD.created_at), json_object('team_id', NEW.team_id, 'name', NEW.name, 'department', NEW.department, 'created_at', NEW.created_at)); END",
-		);
+		db.exec("INSERT INTO teams VALUES ('platform', 'Platform', 'Infra', 7)");
 		db.run("PRAGMA user_version = 12");
 		db.close();
 		openGovernorDb();
-		// columns healed; stale trigger re-created with full images
+		// main.teams dropped by the split; healed shape rides identity.db
 		const d = new Database(DB);
-		const cols = (
-			d.query("PRAGMA table_info(teams)").all() as { name: string }[]
-		).map((c) => c.name);
-		const trg = d
-			.query(
-				"SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'deltas_teams_update'",
-			)
-			.get() as { sql: string };
+		const gone = (
+			d
+				.query(
+					"SELECT COUNT(*) AS n FROM sqlite_master" +
+						" WHERE type = 'table' AND name = 'teams'",
+				)
+				.get() as { n: number }
+		).n;
+		expect(gone).toBe(0);
 		d.close();
+		const idb = new Database(IDB);
+		const cols = (
+			idb.query("PRAGMA table_info(teams)").all() as { name: string }[]
+		).map((c) => c.name);
 		expect(cols).toEqual(NEW_TABLES.teams);
-		expect(trg.sql).toContain("rpm_ceiling");
-		// a ceiling write images both sides
-		const db2 = openGovernorDb();
-		db2
-			.query(
-				"INSERT INTO teams (team_id, name, department, created_at) VALUES ('platform', 'Platform', 'Infrastructure', 1)",
-			)
-			.run();
-		db2
-			.query("UPDATE teams SET tpm_ceiling = 100000 WHERE team_id = 'platform'")
-			.run();
-		const upd = db2
-			.query(
-				"SELECT before, after FROM deltas WHERE tbl = 'teams' AND op = 'update'",
-			)
-			.get() as { before: string; after: string };
-		expect(JSON.parse(upd.before).tpm_ceiling).toBeNull();
-		expect(JSON.parse(upd.after).tpm_ceiling).toBe(100000);
-		db2.close();
+		const row = idb
+			.query("SELECT * FROM teams WHERE team_id = 'platform'")
+			.get() as { rpm_ceiling: number | null };
+		expect(row).toEqual({
+			team_id: "platform",
+			name: "Platform",
+			department: "Infra",
+			created_at: 7,
+			rpm_ceiling: null,
+			tpm_ceiling: null,
+			tok_ceiling: null,
+		});
+		idb.close();
 	});
 });
 

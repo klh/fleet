@@ -4,7 +4,7 @@
 // same identity, and a fresh openGovernorDb still migrates + serves the
 // re-exported helpers. Behavior suites (migration, split, store, sessions)
 // cover the semantics; this covers the CONTRACT.
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +39,10 @@ const VALUE_SYMBOLS = [
 	"pruneDeltas",
 	"HttpGovernorStore",
 	"knowledgeSqlViolation",
+	"identitySqlViolation",
+	"migrateIdentitySplit",
+	"openIdentityDb",
+	"openIdentity",
 	"openMemoryStore",
 	"openStore",
 	"resolveStoreHttpBase",
@@ -90,7 +94,7 @@ describe("govdb entrypoint surface (W624 facade)", () => {
 		const uv = (
 			db.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBe(16); // W266.1/W276 supervisors rung rides the decomposed ladder
+		expect(uv).toBeGreaterThanOrEqual(17); // W359 v17 identity split rides the ladder tail
 		// re-exported helpers operate on the real handle
 		expect(govdb.tagNameOf('{"name":"autow624"}')).toBe("autow624"); // W293 tags-JSON bridge
 		expect(govdb.tagNameOf("autow624-p98b319584008df14")).toBeNull(); // malformed tags → null, never throws

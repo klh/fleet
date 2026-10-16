@@ -5,13 +5,14 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { migrateEventsShred } from "./events-shred.ts";
-import { migrateIdentityRegistry } from "./identity-registry.ts";
 import { createDeltasTriggers } from "./govdb-deltas.ts";
 import {
 	migrateKnowledgeLayer,
 	migrateKnowledgeSplit,
 } from "./govdb-knowledge.ts";
 import { columnNames, openWALDb, REG } from "./govdb-util.ts";
+import { migrateIdentitySplit } from "./identity-db.ts";
+import { migrateIdentityRegistry } from "./identity-registry.ts";
 
 export function openGovernorDb(): Database {
 	mkdirSync(REG(), { recursive: true });
@@ -237,27 +238,10 @@ export function openGovernorDb(): Database {
 	// audit trail IS the deltas log: one mechanism, zero per-table wiring.
 	// All-new tables, no backfill, so plain guarded CREATEs every open (the
 	// idempotent house pattern).
-	// api_keys: HASHES only — a raw key is shown once at creation, never
-	// persisted. Token mechanics (owner amendment): token_type access|refresh;
-	// rotation = new row + parent_key_id chain + old row stamped rotated_at;
-	// expires_at NULL = forever (the owner's forever pair; users: access 30d,
-	// refresh NULL = rotate-until-infinity); jti = unique denylist key;
-	// revocation is per-token (revoked_at) and per-actor (every row of the
-	// actor) — both plain UPDATEs the deltas triggers already see.
-	// auth_events: the issued|refreshed|rotated|revoked|rejected ledger.
-	db.run(
-		"CREATE TABLE IF NOT EXISTS api_keys (key_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, jti TEXT, name TEXT, team TEXT, actor TEXT, token_type TEXT NOT NULL DEFAULT 'access', parent_key_id TEXT, scopes TEXT, rpm_limit INTEGER, tpm_limit INTEGER, expires_at INTEGER, rotated_at INTEGER, revoked_at INTEGER, created_at INTEGER NOT NULL)",
-	);
-	db.run(
-		"CREATE UNIQUE INDEX IF NOT EXISTS api_keys_hash ON api_keys(key_hash)",
-	); // auth = one hash lookup
-	db.run("CREATE UNIQUE INDEX IF NOT EXISTS api_keys_jti ON api_keys(jti)"); // denylist checks
-	// W210: team entitlement ceilings — rpm/tpm per-minute (the W141 buckle
-	// teams shape verbatim) + tok_ceiling = the team's lifetime token budget
-	// (the api_keys max_tokens budget at team grain). NULL = no ceiling.
-	db.run(
-		"CREATE TABLE IF NOT EXISTS teams (team_id TEXT PRIMARY KEY, name TEXT, department TEXT, created_at INTEGER NOT NULL, rpm_ceiling INTEGER, tpm_ceiling INTEGER, tok_ceiling INTEGER)",
-	);
+	// api_keys/teams/auth_events are NOT created here anymore — W156 moved the
+	// identity plane to identity.db (v17, hooks/lib/identity-db.ts): hub-plane
+	// data out of the spoke-plane file. The schemas live in IDENTITY_DDL
+	// (single source); token mechanics documentation stays with it there.
 	// route_audit (W136 §6): one row per request — INSERTed at dispatch
 	// (target already known), UPDATEd in place with the outcome joined by
 	// rid; the deltas insert+update trigger pair captures both writes.
@@ -289,10 +273,6 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS budget_state (key_id TEXT NOT NULL, window TEXT NOT NULL, used_rpm INTEGER NOT NULL DEFAULT 0, used_tpm INTEGER NOT NULL DEFAULT 0, window_start INTEGER NOT NULL, PRIMARY KEY (key_id, window))",
 	);
-	db.run(
-		"CREATE TABLE IF NOT EXISTS auth_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT, event TEXT NOT NULL, jti TEXT, via TEXT)",
-	);
-	db.run("CREATE INDEX IF NOT EXISTS auth_events_ts ON auth_events(ts)"); // W451: retention window DELETEs
 	// admin_audit (W174): the who/when trail for admin mutations the deltas
 	// log alone cannot attribute — console settings applies, policy edits,
 	// key revocations. actor = the human/lane that DROVE the action (the
@@ -374,17 +354,23 @@ export function openGovernorDb(): Database {
 	// carry the ceilings (the audit trail IS the deltas log — an entitlement
 	// change is exactly what it must show).
 	if (uv < 13) {
+		// W156: a fresh post-split DB never holds teams (the v8 CREATEs left
+		// with the identity split) — the heal only applies to pre-W210 files
+		// that still carry the table. PRAGMA table_info returns [] for a
+		// missing table, so the probe doubles as the existence check.
 		const teamCols13 = columnNames(db, "teams");
-		let healed = false;
-		for (const col of ["rpm_ceiling", "tpm_ceiling", "tok_ceiling"])
-			if (!teamCols13.includes(col)) {
-				db.run(`ALTER TABLE teams ADD COLUMN ${col} INTEGER`);
-				healed = true;
+		if (teamCols13.length > 0) {
+			let healed = false;
+			for (const col of ["rpm_ceiling", "tpm_ceiling", "tok_ceiling"])
+				if (!teamCols13.includes(col)) {
+					db.run(`ALTER TABLE teams ADD COLUMN ${col} INTEGER`);
+					healed = true;
+				}
+			if (healed) {
+				for (const op of ["insert", "update", "delete"] as const)
+					db.run(`DROP TRIGGER IF EXISTS deltas_teams_${op}`);
+				createDeltasTriggers(db);
 			}
-		if (healed) {
-			for (const op of ["insert", "update", "delete"] as const)
-				db.run(`DROP TRIGGER IF EXISTS deltas_teams_${op}`);
-			createDeltasTriggers(db);
 		}
 		db.run("PRAGMA user_version = 13");
 	}
@@ -407,6 +393,12 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 16");
 	}
+	// v17 (W156 via W359) — identity.db split; see migrateIdentitySplit
+	// (identity-db.ts): the v8 identity tables leave governor.db per the
+	// federation doc's Identity plane separation (hub-plane data out of the
+	// spoke-plane file). LAST, so every step above runs on the pre-split
+	// shapes it was written against (the v13 teams heal reads teams).
+	if (uv < 17) migrateIdentitySplit(db, REG());
 	migrateJSON(db);
 	return db;
 }

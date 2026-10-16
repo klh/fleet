@@ -3,9 +3,10 @@
 // on other machines bind via openStore() (GOVERNOR_STORE_URL / ${REG}/store.url)
 // and hit these routes instead of the file; on the store host nothing changes.
 //
-// wire:  GET  /health  → { ok, store, user_version }
-//        POST /rpc     → { mode: "get"|"all"|"run", sql, params }
-//                        ← { row } | { rows } | { changes, lastInsertRowid }
+// wire:  GET  /health    → { ok, store, user_version, identity_user_version }
+//        POST /rpc       → { mode, sql, params } statement RPC (control plane)
+//        POST /identity  → the same protocol against identity.db (W156)
+//        /auth/*         issue / refresh / revoke / whoami (auth-server.ts)
 // auth:  loopback bind only + optional shared token (GOVERNOR_STORE_TOKEN;
 //        requests must then carry x-governor-token). Statement-shaped by
 //        design: the port executes the exact SQL the CLIs run today, which is
@@ -15,25 +16,27 @@
 // run:   bun hooks/bin/store-server.ts [--port 7794]
 //        (port: --port > GOVERNOR_STORE_PORT > 7794; 7791 belt, 7795
 //        knowledge-api, 7799 board — 7794 was free)
-import {
-	openGovernorDb,
-	knowledgeSqlViolation,
-	type GovernorStore,
-} from "../lib/govdb.ts";
-import { beginWithHeal } from "../lib/store-tx.ts";
-import { servicemon } from "../lib/servicemon.ts";
+
 import { readFileSync, statSync } from "node:fs";
-import { consultStoreId } from "../lib/consult-outbox.ts";
 import { expireConsults } from "../lib/consult-expiry.ts";
+import { consultStoreId } from "../lib/consult-outbox.ts";
 import {
 	ensureConsultRelayReceipts,
 	handleConsultRelay,
 } from "../lib/consult-relay-receiver.ts";
 import {
+	type GovernorStore,
+	knowledgeSqlViolation,
+	openGovernorDb,
+} from "../lib/govdb.ts";
+import { identitySqlViolation, openIdentityDb } from "../lib/identity-db.ts";
+import {
 	CAP_AUTH_ISSUANCE,
 	hasCapability,
 	readCapabilities,
 } from "../lib/profile.ts";
+import { servicemon } from "../lib/servicemon.ts";
+import { beginWithHeal } from "../lib/store-tx.ts";
 
 const PORT =
 	Number(process.argv[process.argv.indexOf("--port") + 1] ?? "") ||
@@ -73,8 +76,36 @@ const db = openGovernorDb();
 const INSTANCE_ID = consultStoreId(db);
 ensureConsultRelayReceipts(db as unknown as GovernorStore);
 const txDb = openGovernorDb() as unknown as GovernorStore;
-let tx: { id: string; last: number } | null = null;
 const TX_IDLE_MS = 10_000;
+
+// W156 — the identity plane rides the SAME listener, served beside /rpc:
+// POST /identity speaks the identical statement protocol against identity.db
+// (openIdentity()'s HTTP binding), and /auth/* runs on the identity file too.
+// Two plane connections + one tx connection each (WAL keeps outside reads
+// flowing, outside writes wait on busy_timeout — a remote tx window is a few
+// serialized round trips, well inside the 2s budget). /rpc execs against the
+// governor pair, /identity + /auth/* against the identity pair.
+const idb = openIdentityDb() as unknown as GovernorStore;
+const txIdb = openIdentityDb() as unknown as GovernorStore;
+
+// one serialization chain PER PLANE — different SQLite files, so governor and
+// identity statements need not serialize against each other; within a plane,
+// INSERT → last_insert_rowid() must never interleave.
+const perPlaneSerial = (): (<T>(fn: () => T) => Promise<T>) => {
+	let chain: Promise<unknown> = Promise.resolve();
+	return <T>(fn: () => T): Promise<T> => {
+		const p = chain.then(fn);
+		chain = p.catch(() => {});
+		return p;
+	};
+};
+const serialGov = perPlaneSerial();
+const serialIdb = perPlaneSerial();
+
+// a plane's open-transaction cell — private to its route closure
+type TxCell = { v: { id: string; last: number } | null };
+const govCell: TxCell = { v: null };
+const idbCell: TxCell = { v: null };
 
 // W303 — WS push for coord subscribe: real-time replacement for the
 // relaunch-a-long-poll pattern. Sockets are tracked here (not Bun pub/sub
@@ -157,13 +188,6 @@ function maybeBroadcastInsert(sql: string, rowid: number): void {
 	}
 }
 
-let chain: Promise<unknown> = Promise.resolve();
-const serial = <T>(fn: () => T): Promise<T> => {
-	const p = chain.then(fn);
-	chain = p.catch(() => {});
-	return p;
-};
-
 interface RpcBody {
 	id?: string;
 	mode?: string;
@@ -181,10 +205,15 @@ function validateRpcBody(body: RpcBody): string | null {
 		return "bad request";
 	// W166 — structural rejection: knowledge lives in knowledge.db; a
 	// knowledge statement must ride the knowledge port (makeStore), never
-	// the control-plane store (the design's W92 interaction).
+	// the control-plane store (the design's W92 interaction). W156 — the
+	// identity plane gets the same structural treatment: a statement over
+	// the identity tables must ride /identity (openIdentity()), never /rpc.
 	const kbHit = knowledgeSqlViolation(body.sql);
 	if (kbHit)
 		return `knowledge statements are rejected on the control-plane store ('${kbHit}' is not resident in governor.db) — bind the knowledge port (makeStore())`;
+	const idHit = identitySqlViolation(body.sql);
+	if (idHit)
+		return `identity statements are rejected on the control-plane store ('${idHit}' is not resident in governor.db) — bind the identity port (openIdentity())`;
 	return null;
 }
 
@@ -203,75 +232,132 @@ const exec = (
 	return { changes: r.changes, lastInsertRowid };
 };
 
-// shared body: both /rpc and the WS message() channel run the exact same
-// validated statement through it — one wire contract, two transports, no
-// drift between what a lane can do over HTTP vs. over its open socket.
-async function handleRpc(body: RpcBody): Promise<Record<string, unknown>> {
-	if (body.mode === "tx") {
-		// op rides the sql field: begin | commit | rollback
-		const op = body.sql;
-		return serial(() => {
-			if (tx && Date.now() - tx.last > TX_IDLE_MS) {
-				try {
-					txDb.run("ROLLBACK");
-				} catch {}
-				tx = null;
-			}
-			if (op === "begin") {
-				if (tx) return { err: "transaction already open" };
-				// W662 — a null marker with the connection actually inside a
-				// transaction (swallowed rollback-failure desync) made BEGIN
-				// throw "within a transaction" → unhandled → HTTP 500 → every
-				// tx-mode write dead until restart. beginWithHeal kills the
-				// orphan and re-begins; any other begin failure surfaces as
-				// {err}, never a 500.
-				const began = beginWithHeal(txDb);
-				if ("err" in began) return began;
-				tx = { id: body.txid ?? "?", last: Date.now() };
-				return { ok: true };
-			}
-			if (!tx || tx.id !== (body.txid ?? "?"))
-				return { err: "no such transaction" };
-			tx = null;
-			try {
-				if (op === "commit") txDb.run("COMMIT");
-				else txDb.run("ROLLBACK");
-				return { ok: true };
-			} catch (e) {
-				try {
-					txDb.run("ROLLBACK");
-				} catch {}
-				return { err: `${op} failed: ${String(e)}` };
-			}
-		});
+// plane-generic tx ops (W156): op rides the sql field — begin | commit |
+// rollback. beginWithHeal (W662) covers the marker/conn desync on BOTH
+// planes; per-plane cells keep tx windows private per file.
+const rollIdle = (cell: TxCell, txConn: GovernorStore): void => {
+	if (!cell.v || Date.now() - cell.v.last <= TX_IDLE_MS) return;
+	try {
+		txConn.run("ROLLBACK");
+	} catch {}
+	cell.v = null;
+};
+
+const beginOp = (
+	txid: string | null,
+	cell: TxCell,
+	txConn: GovernorStore,
+): Record<string, unknown> => {
+	if (cell.v) return { err: "transaction already open" };
+	// W662 — beginWithHeal probes the real connection state, kills an orphan
+	// and re-begins; failures surface as {err}, never a 500.
+	const began = beginWithHeal(txConn);
+	if ("err" in began) return began;
+	cell.v = { id: txid ?? "?", last: Date.now() };
+	return { ok: true };
+};
+
+const endOp = (
+	op: "commit" | "rollback",
+	txid: string | null,
+	cell: TxCell,
+	txConn: GovernorStore,
+): Record<string, unknown> => {
+	if (!cell.v || cell.v.id !== (txid ?? "?"))
+		return { err: "no such transaction" };
+	cell.v = null;
+	try {
+		txConn.run(op === "commit" ? "COMMIT" : "ROLLBACK");
+		return { ok: true };
+	} catch (e) {
+		try {
+			txConn.run("ROLLBACK");
+		} catch {}
+		return { err: `${op} failed: ${String(e)}` };
 	}
-	const payload = {
-		mode: body.mode as "get" | "all" | "run",
-		sql: body.sql as string,
-		params: body.params ?? [],
-		txid: body.txid ?? null,
+};
+
+const txOp = (
+	op: string,
+	txid: string | null,
+	cell: TxCell,
+	txConn: GovernorStore,
+): Record<string, unknown> => {
+	rollIdle(cell, txConn);
+	if (op === "begin") return beginOp(txid, cell, txConn);
+	if (op === "commit" || op === "rollback")
+		return endOp(op, txid, cell, txConn);
+	return { err: "no such tx op" };
+};
+
+// one statement-plane handler: guards → tx ops → serialized exec. /rpc and
+// /identity ride this factory against their plane's connections (W156: one
+// protocol, two files, byte-identical semantics with the old /rpc body).
+const makePlaneRpc =
+	(
+		conn: GovernorStore,
+		txConn: GovernorStore,
+		serial: <T>(fn: () => T) => Promise<T>,
+		reject: (sql: string) => string | null,
+		cell: TxCell,
+	) =>
+	async (body: RpcBody): Promise<Record<string, unknown>> => {
+		if (body.mode === "tx")
+			return serial(() =>
+				txOp(body.sql ?? "", body.txid ?? null, cell, txConn),
+			);
+		const payload = {
+			mode: body.mode as "get" | "all" | "run",
+			sql: body.sql as string,
+			params: body.params ?? [],
+			txid: body.txid ?? null,
+		};
+		return serial(() => {
+			rollIdle(cell, txConn);
+			const t = cell.v;
+			if (t) {
+				if (!payload.txid) return { err: "a transaction is open — retry" };
+				if (payload.txid !== t.id) return { err: "no such transaction" };
+				t.last = Date.now();
+			}
+			return exec(payload.mode, payload.sql, payload.params, t ? txConn : conn);
+		});
 	};
-	return serial(() => {
-		if (tx && Date.now() - tx.last > TX_IDLE_MS) {
-			try {
-				txDb.run("ROLLBACK");
-			} catch {}
-			tx = null;
-		}
-		if (tx) {
-			if (!payload.txid) return { err: "a transaction is open — retry" };
-			if (payload.txid !== tx.id) return { err: "no such transaction" };
-			tx.last = Date.now();
-			return exec(payload.mode, payload.sql, payload.params, txDb);
-		}
-		return exec(
-			payload.mode,
-			payload.sql,
-			payload.params,
-			db as unknown as GovernorStore,
-		);
-	});
-}
+
+// /rpc guard messages keep the W166 wire text byte-identical; identity gets
+// the analogous one (same shape, its own port named).
+const kbOnRpc = (hit: string): string =>
+	`knowledge statements are rejected on the control-plane store ('${hit}' is not resident in governor.db) — bind the knowledge port (makeStore())`;
+const idOnRpc = (hit: string): string =>
+	`identity statements are rejected on the control-plane store ('${hit}' is not resident in governor.db) — bind the identity port (openIdentity())`;
+const kbOnIdb = (hit: string): string =>
+	`knowledge statements are rejected on the identity port ('${hit}' is not resident in identity.db) — bind the knowledge port (makeStore())`;
+
+// the two planes: /rpc rejects knowledge AND identity statements (W166 +
+// W156 wire text); /identity rejects knowledge only — it IS the identity port.
+const rpcReject = (sql: string): string | null => {
+	const kb = knowledgeSqlViolation(sql);
+	if (kb) return kbOnRpc(kb);
+	const id = identitySqlViolation(sql);
+	return id ? idOnRpc(id) : null;
+};
+const idbReject = (sql: string): string | null => {
+	const kb = knowledgeSqlViolation(sql);
+	return kb ? kbOnIdb(kb) : null;
+};
+
+const rpcHandler = makePlaneRpc(
+	db as unknown as GovernorStore,
+	txDb,
+	serialGov,
+	rpcReject,
+	govCell,
+);
+const idbHandler = makePlaneRpc(idb, txIdb, serialIdb, idbReject, idbCell);
+
+// W156 — /rpc and the WS message() channel run the exact same validated
+// statement through rpcHandler (the governor plane handler); the socket IS
+// the control-plane binding — one wire contract, two transports, no drift.
 
 // set right after Bun.serve() returns below; fetch closes over this instead
 // of the (req, server) param, which servicemon's wrapped() fetch drops.
@@ -316,6 +402,9 @@ const base = {
 				user_version: (
 					db.query("PRAGMA user_version").get() as { user_version: number }
 				).user_version,
+				identity_user_version: (
+					idb.query("PRAGMA user_version").get() as { user_version: number }
+				).user_version,
 			};
 			return req.method === "HEAD"
 				? new Response(null, { headers })
@@ -334,9 +423,11 @@ const base = {
 			if (!hasCapability(readCapabilities(), CAP_AUTH_ISSUANCE))
 				return new Response("not found", { status: 404 });
 			const { handleAuthRoutes } = await import("../lib/auth-server.ts");
-			return serial(() =>
+			// W156 — /auth/* serializes on the identity chain and execs on the
+			// identity connection now (the token tables left governor.db).
+			return serialIdb(() =>
 				handleAuthRoutes(req, url, {
-					store: db as unknown as GovernorStore,
+					store: idb,
 				}),
 			);
 		}
@@ -351,14 +442,9 @@ const base = {
 				);
 			if (req.headers.get("x-governor-token") !== RELAY_TOKEN)
 				return new Response("forbidden", { status: 403 });
-			return serial(() => {
-				if (tx && Date.now() - tx.last > TX_IDLE_MS) {
-					try {
-						txDb.run("ROLLBACK");
-					} catch {}
-					tx = null;
-				}
-				if (tx)
+			return serialGov(() => {
+				rollIdle(govCell, txDb);
+				if (govCell.v)
 					return Response.json(
 						{ error: "Store transaction is active" },
 						{ status: 503 },
@@ -371,6 +457,26 @@ const base = {
 				);
 			});
 		}
+		// W156 — /identity: the identity plane's statement RPC. Same shape and
+		// token gate as /rpc; the knowledge guard stays, the identity guard
+		// does NOT (this IS the identity port — openIdentity() rides here).
+		if (url.pathname === "/identity") {
+			if (req.method !== "POST")
+				return new Response("not found", { status: 404 });
+			if (AUTH_CONFIGURED && !TOKEN)
+				return new Response("Store authority unavailable", { status: 503 });
+			if (TOKEN && req.headers.get("x-governor-token") !== TOKEN)
+				return new Response("forbidden", { status: 403 });
+			const idbBody = (await req.json()) as RpcBody;
+			const idbModeOk = ["get", "all", "run", "tx"].includes(
+				idbBody.mode ?? "",
+			);
+			if (!idbBody.sql || !idbModeOk || !Array.isArray(idbBody.params ?? []))
+				return new Response("bad request", { status: 400 });
+			const idbKbHit = knowledgeSqlViolation(idbBody.sql);
+			if (idbKbHit) return Response.json({ err: kbOnIdb(idbKbHit) });
+			return Response.json(await idbHandler(idbBody));
+		}
 		if (req.method !== "POST" || url.pathname !== "/rpc")
 			return new Response("not found", { status: 404 });
 		if (AUTH_CONFIGURED && !TOKEN)
@@ -382,7 +488,7 @@ const base = {
 		if (invalid === "bad request")
 			return new Response("bad request", { status: 400 });
 		if (invalid) return Response.json({ err: invalid });
-		return Response.json(await handleRpc(body));
+		return Response.json(await rpcHandler(body));
 	},
 	websocket: {
 		open(ws: Sock) {
@@ -407,7 +513,7 @@ const base = {
 				return;
 			}
 			try {
-				ws.send(JSON.stringify({ id: body.id, ...(await handleRpc(body)) }));
+				ws.send(JSON.stringify({ id: body.id, ...(await rpcHandler(body)) }));
 			} catch (e) {
 				ws.send(JSON.stringify({ id: body.id, err: String(e) }));
 			}
