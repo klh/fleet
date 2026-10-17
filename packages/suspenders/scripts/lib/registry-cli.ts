@@ -17,6 +17,8 @@ import {
 	type VerbSpec,
 } from "../../hooks/lib/verb-kit.ts";
 import { pruneLaneRegistry } from "../../hooks/lib/lane-registry.ts";
+import { openStore } from "../../hooks/lib/govdb.ts";
+import { captureLaneDeaths } from "./lane-death-capture.ts";
 import {
 	laneVerdict,
 	pidAlive,
@@ -236,6 +238,20 @@ const pruneVerb = (parsed: Parsed, fleet: string): number => {
 		(row) =>
 			pruneWarrant(row, laneVerdict(row), now, pidAlive(row.pid)) !== null,
 	);
+	// W761: bank the death evidence before the row vanishes — log tail +
+	// lifetime feed the intent verb, the breaker, and humans. Best-effort:
+	// a dark store never blocks a prune.
+	if (result.removed.length > 0) {
+		try {
+			const store = openStore();
+			captureLaneDeaths(store, fleet, result.removed, now);
+			store.close();
+		} catch (e) {
+			console.log(
+				`registry prune: death capture skipped (${e instanceof Error ? e.message : String(e)})`,
+			);
+		}
+	}
 	const removed = new Set(result.removed.map((r) => r.sid));
 	for (const sid of requested)
 		if (!removed.has(sid))

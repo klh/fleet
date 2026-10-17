@@ -45,6 +45,7 @@ import {
 import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
+import { grinderGate } from "./lib/lane-death-capture.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
 	preferRoutingBriefLines,
@@ -1207,6 +1208,37 @@ const main = async (): Promise<void> => {
 	const heldSlots = [...held].filter(
 		(item) => !live.some((l) => l.item === item),
 	).length;
+	// W761: the grinder breaker — most-recent lane deaths sub-minute means
+	// the environment kills lanes faster than work progresses; relaunching
+	// just burns budgets. Fail-open: a dark store never blocks dispatch.
+	if (!DRY && !ITEM) {
+		try {
+			const bstore = openStore();
+			const g = grinderGate(bstore, (note) =>
+				run(
+					coordCli(
+						"emit",
+						"NEED_DECISION",
+						"--as",
+						"dispatch",
+						"--scope",
+						"suspenders",
+						"--note",
+						note,
+					),
+				),
+			);
+			bstore.close();
+			if (g.tripped) {
+				console.log(
+					`GRINDER ${g.subMinute}/${g.samples} recent lane deaths sub-minute — launches refused (W761 breaker)`,
+				);
+				return;
+			}
+		} catch {
+			// fail-open
+		}
+	}
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
