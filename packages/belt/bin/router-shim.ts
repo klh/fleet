@@ -31,6 +31,7 @@ import {
 import {
 	type AnthropicBody,
 	anthropicSseFromOpenAi,
+	type OpenAiToolCall,
 	anthropicSseFromText,
 	applyBudget,
 	callHonoringRetryAfter,
@@ -43,8 +44,11 @@ import {
 	scoreComplexity,
 	stopReason,
 	toOpenAiMessages,
+	toolChoiceToOpenAi,
+	toOpenAiTools,
 	viaLocal,
 } from "./router-core.ts";
+import { parseToolArgs } from "./router-tools.ts";
 // W422.17.3 governor note: re-read after the /tmp splice that moved viaCloud
 // out; this adds the import for the extracted escalation leg.
 import { escalate } from "./escalate.ts";
@@ -560,12 +564,21 @@ Bun.serve({
 			// identical with the knob on or off — only the upstream payload
 			// shrinks. User messages only: system = harness, assistant = history.
 			const rawMessages = toOpenAiMessages(body);
+			// W789: tools bridge — anthropic defs → OpenAI; threaded to the
+			// local ladder so tool-bearing lane requests keep tool_use on the
+			// swarm legs during cloud walls.
+			const oaTools = toOpenAiTools(body.tools);
+			const oaToolChoice = oaTools
+				? toolChoiceToOpenAi(body.tool_choice)
+				: undefined;
 			const inbound = applyInboundCondense(rawMessages, prefs.condense);
 			const messages = inbound.messages;
 			const condenseMeta: CondenseMeta | null = inbound.meta;
 
 			let response = "";
 			let finish: string | undefined;
+			/** W789: tool calls captured from the local ladder's answer. */
+			let resultToolCalls: OpenAiToolCall[] | undefined;
 			let usedPort: number = route.port;
 			let usedModel = route.model;
 			let localTimings: RequestTimings | undefined;
@@ -704,6 +717,8 @@ Bun.serve({
 						const b = budgetFor(t);
 						return openLocalStream(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							tools: oaTools,
+							toolChoice: oaToolChoice,
 							startedAt: t0,
 						});
 					},
@@ -750,6 +765,8 @@ Bun.serve({
 						const b = budgetFor(t);
 						return viaLocal(t, messages, b.maxTokens, temperature, {
 							extra: b.extra,
+							tools: oaTools,
+							toolChoice: oaToolChoice,
 							startedAt: t0,
 						});
 					},
@@ -764,6 +781,7 @@ Bun.serve({
 				if (got.result.ok) {
 					response = got.result.response;
 					finish = got.result.finish;
+					resultToolCalls = got.result.toolCalls;
 				}
 			}
 
@@ -835,14 +853,27 @@ Bun.serve({
 					),
 					{ headers: sseHeaders(routing) },
 				);
+			// W789: tool_use blocks after any text; stop_reason tool_use wins.
+			const content: Array<Record<string, unknown>> = [
+				...(response ? [{ type: "text", text: response }] : []),
+				...(resultToolCalls ?? []).map((c) => ({
+					type: "tool_use",
+					id: c.id,
+					name: c.function.name,
+					input: parseToolArgs(c.function.arguments),
+				})),
+			];
 			return Response.json(
 				{
 					id,
 					type: "message",
 					role: "assistant",
 					model: body.model,
-					content: [{ type: "text", text: response }],
-					stop_reason: stopReason(finish),
+					content,
+					stop_reason:
+						resultToolCalls && resultToolCalls.length > 0
+							? "tool_use"
+							: stopReason(finish),
 					usage: { input_tokens: 0, output_tokens: 0 },
 					_routing: routing,
 					_server_timings: timings,

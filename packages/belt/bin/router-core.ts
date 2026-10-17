@@ -10,6 +10,7 @@
 
 import { envInt } from "./admission.ts";
 import { EXTERNAL, type Specialist } from "./registry.ts";
+import { anthropicMessagesToOpenAi } from "./router-tools.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
 export interface ComplexityScore {
@@ -240,6 +241,9 @@ export interface AnthropicBody {
 	stream?: boolean;
 	system?: unknown;
 	messages?: Array<{ role: unknown; content: unknown }>;
+	/** W789: passthrough request fields for the tools bridge. */
+	tools?: unknown;
+	tool_choice?: unknown;
 	_force_dead_port?: number;
 }
 
@@ -281,10 +285,7 @@ export type ChatMessage = {
  *  before W270) and Qwen3's `/no_think` appended to it. */
 export function toOpenAiMessages(body: AnthropicBody): ChatMessage[] {
 	const sys = blockText(body.system).trim();
-	const messages: ChatMessage[] = (body.messages ?? []).map((m) => ({
-		role: m.role === "assistant" ? "assistant" : "user",
-		content: blockText(m.content),
-	}));
+	const messages: ChatMessage[] = anthropicMessagesToOpenAi(body);
 	messages.unshift({
 		role: "system",
 		content: sys ? `${sys} /no_think` : "/no_think",
@@ -492,6 +493,9 @@ export interface LocalResult {
 export interface CallOpts {
 	base?: string; // default http://localhost:<port>
 	extra?: Record<string, unknown>;
+	/** W789: converted OpenAI tool defs + tool_choice forwarded upstream. */
+	tools?: OpenAiToolDef[];
+	toolChoice?: unknown;
 	timeoutMs?: number;
 	/** W257: performance.now() at request receipt — enables per-attempt
 	 *  timings on the used hop. */
@@ -525,6 +529,10 @@ export async function viaLocal(
 					max_tokens: maxTokens,
 					temperature,
 					stream: false,
+					...(opts.tools ? { tools: opts.tools } : {}),
+					...(opts.toolChoice !== undefined
+						? { tool_choice: opts.toolChoice }
+						: {}),
 					...(opts.extra ?? {}),
 				}),
 			},
@@ -568,9 +576,10 @@ export async function viaLocal(
 		}
 		const choice = j.choices?.[0];
 		const msg = choice?.message ?? {};
+		const toolCalls = toolCallsOf(msg);
 		const response =
 			strip(msg.content || "") || strip(msg.reasoning_content || "");
-		if (!response) {
+		if (!response && toolCalls.length === 0) {
 			return {
 				ok: false,
 				response: "",
@@ -583,6 +592,7 @@ export async function viaLocal(
 			response,
 			status: res.status,
 			finish: choice?.finish_reason,
+			...(toolCalls.length > 0 ? { toolCalls } : {}),
 			...(t0 !== undefined
 				? { timings: openWindow(t0, tOpen, performance.now()) }
 				: {}),
@@ -658,6 +668,10 @@ export async function openLocalStream(
 					max_tokens: maxTokens,
 					temperature,
 					stream: true,
+					...(opts.tools ? { tools: opts.tools } : {}),
+					...(opts.toolChoice !== undefined
+						? { tool_choice: opts.toolChoice }
+						: {}),
 					...(opts.extra ?? {}),
 				}),
 			},
@@ -785,6 +799,24 @@ function anthropicHead(meta: StreamMeta): string {
 	);
 }
 
+/** message_delta + message_stop (the tail after the last content block). */
+function messageTail(
+	stop: string | undefined,
+	outTokens: number,
+	timings?: RequestTimings,
+): string {
+	return (
+		sseEvent("message_delta", {
+			type: "message_delta",
+			delta: { stop_reason: stop ?? "end_turn", stop_sequence: null },
+			usage: {
+				output_tokens: outTokens,
+				...(timings ? { _server_timings: timings } : {}),
+			},
+		}) + sseEvent("message_stop", { type: "message_stop" })
+	);
+}
+
 function anthropicTail(
 	finish: string | undefined,
 	outTokens: number,
@@ -792,15 +824,7 @@ function anthropicTail(
 ): string {
 	return (
 		sseEvent("content_block_stop", { type: "content_block_stop", index: 0 }) +
-		sseEvent("message_delta", {
-			type: "message_delta",
-			delta: { stop_reason: stopReason(finish), stop_sequence: null },
-			usage: {
-				output_tokens: outTokens,
-				...(timings ? { _server_timings: timings } : {}),
-			},
-		}) +
-		sseEvent("message_stop", { type: "message_stop" })
+		messageTail(stopReason(finish), outTokens, timings)
 	);
 }
 
@@ -835,7 +859,15 @@ export function anthropicSseFromText(
 
 interface OpenAiChunk {
 	choices?: Array<{
-		delta?: { content?: string | null };
+		delta?: {
+			content?: string | null;
+			/** W789: streaming tool calls — accumulated per OpenAI index. */
+			tool_calls?: Array<{
+				index?: number;
+				id?: string;
+				function?: { name?: string; arguments?: string };
+			}>;
+		};
 		finish_reason?: string | null;
 	}>;
 	usage?: { completion_tokens?: number };
@@ -862,6 +894,14 @@ export function anthropicSseFromOpenAi(
 	let outTokens = 0;
 	let finished = false;
 	let ttftAt: number | undefined;
+	// W789: anthropic block indices — 0 is the text block opened by the head;
+	// each OpenAI tool index gets its own tool_use block from 1 up.
+	const toolAcc = new Map<
+		number,
+		{ id: string; name: string; started: boolean }
+	>();
+	let blockIndex = 0;
+	let textClosed = false;
 	/** W257: `_server_timings` from t0/openedAt + the first-token mark; absent
 	 *  (not zero) when the meta carries no t0. */
 	const composeTimings = (): RequestTimings | undefined => {
@@ -893,8 +933,65 @@ export function anthropicSseFromOpenAi(
 		if (j.usage?.completion_tokens) outTokens = j.usage.completion_tokens;
 		const ch = j.choices?.[0];
 		if (ch?.finish_reason) finish = ch.finish_reason;
+		const tcs = ch?.delta?.tool_calls;
+		if (tcs && tcs.length > 0) {
+			const out: string[] = [];
+			for (const tc of tcs) {
+				const idx = tc.index ?? 0;
+				let acc = toolAcc.get(idx);
+				if (!acc) {
+					acc = {
+						id: tc.id ?? `call_${idx}`,
+						name: tc.function?.name ?? "",
+						started: false,
+					};
+					toolAcc.set(idx, acc);
+				}
+				if (tc.id) acc.id = tc.id;
+				if (tc.function?.name) acc.name = tc.function.name;
+				if (!acc.started) {
+					if (!textClosed) {
+						out.push(
+							sseEvent("content_block_stop", {
+								type: "content_block_stop",
+								index: 0,
+							}),
+						);
+						textClosed = true;
+					}
+					blockIndex += 1;
+					acc.started = true;
+					out.push(
+						sseEvent("content_block_start", {
+							type: "content_block_start",
+							index: blockIndex,
+							content_block: {
+								type: "tool_use",
+								id: acc.id,
+								name: acc.name,
+								input: {},
+							},
+						}),
+					);
+				}
+				if (tc.function?.arguments) {
+					out.push(
+						sseEvent("content_block_delta", {
+							type: "content_block_delta",
+							index: blockIndex,
+							delta: {
+								type: "input_json_delta",
+								partial_json: tc.function.arguments,
+							},
+						}),
+					);
+				}
+			}
+			return out.join("");
+		}
 		const text = filter(ch?.delta?.content ?? "");
 		if (!text) return "";
+		if (textClosed) return ""; // text after tool blocks: dropped (wire order)
 		if (ttftAt === undefined) ttftAt = performance.now();
 		chars += text.length;
 		return textDelta(text);
@@ -917,8 +1014,22 @@ export function anthropicSseFromOpenAi(
 						const { value, done: eof } = await reader.read();
 						if (eof) {
 							const timings = composeTimings();
-							const out =
-								handleLine(buf) + anthropicTail(finish, outTokens, timings);
+							let tail = anthropicTail(finish, outTokens, timings);
+							if (toolAcc.size > 0) {
+								if (!textClosed)
+									tail =
+										sseEvent("content_block_stop", {
+											type: "content_block_stop",
+											index: 0,
+										}) + tail;
+								// close the last tool block before the message tail
+								tail =
+									sseEvent("content_block_stop", {
+										type: "content_block_stop",
+										index: blockIndex,
+									}) + tail;
+							}
+							const out = handleLine(buf) + tail;
 							if (!clientGone) {
 								c.enqueue(enc.encode(out));
 								c.close();
