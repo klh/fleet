@@ -27,7 +27,7 @@ function makeStub(content: string, status = 200) {
 			seen.push({
 				path: url.pathname,
 				key: req.headers.get("x-api-key"),
-				body: (await req.json()) as Record<string, unknown>,
+				body: (await req.json().catch(() => ({}))) as Record<string, unknown>,
 			});
 			const reply = url.pathname.endsWith("/v1/messages")
 				? { content: [{ text: content }] }
@@ -340,5 +340,31 @@ test("unknown verb and bare analyze both exit 1 with usage on stderr", async () 
 		expect(s.seen).toHaveLength(0);
 	} finally {
 		s.stop();
+	}
+});
+
+test("W742.1 panel fans to both legs and marks agreement", async () => {
+	const local = makeStub("Local read.\nVERDICT: approve");
+	const cloud = makeStub("Cloud read.\nVERDICT: hold - quota risk");
+	const dir = mkdtempSync(join(tmpdir(), "oracle-panel-"));
+	keep.push(dir);
+	const q = join(dir, "q.md");
+	await Bun.write(q, "Fork: retry verb placement?");
+	try {
+		const r = await run(["panel", "--in", q, "--timeout-secs", "10"], {
+			env: {
+				ORACLE_ROUTE_URL: local.chat,
+				BELT_ESCALATE_URL: `${cloud.base}/v1/messages`,
+				BELT_ESCALATE_KEY: "k",
+			},
+		});
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("APPROVE");
+		expect(r.out).toContain("HOLD");
+		expect(r.out).toContain("split");
+		expect(r.out).toContain("panel: split");
+	} finally {
+		local.stop();
+		cloud.stop();
 	}
 });

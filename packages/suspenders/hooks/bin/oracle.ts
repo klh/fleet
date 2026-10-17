@@ -29,8 +29,8 @@ const arg = (name: string): string | null => {
 	return i >= 0 ? (argv[i + 1] ?? null) : null;
 };
 
-type Verb = "review" | "bugs" | "analyze";
-const VERBS: Verb[] = ["review", "bugs", "analyze"];
+type Verb = "review" | "bugs" | "analyze" | "panel";
+const VERBS: Verb[] = ["review", "bugs", "analyze", "panel"];
 const verb: Verb | null = VERBS.includes(argv[0] as Verb)
 	? (argv[0] as Verb)
 	: null;
@@ -73,6 +73,12 @@ const FRAMES: Record<Verb, string> = {
 	analyze: [
 		"You are a read-only analyst (oracle fixed contract). Analyze this.",
 		"Structured and terse — WHAT: one line · HOW: bullets · RISKS: bullets · OPEN QUESTIONS: bullets.",
+	].join("\n"),
+	panel: [
+		"You are a read-only decision advisor (oracle fixed contract). A NEED_DECISION fork needs an independent read.",
+		"Weigh the options, name your recommendation and the strongest counter-argument, then decide.",
+		"End your reply with ONE machine-parseable final line:",
+		"VERDICT: approve | VERDICT: hold - <what would change it> | VERDICT: reject - <why>",
 	].join("\n"),
 };
 
@@ -215,6 +221,7 @@ function usage(): never {
 			"  review  review this diff — findings + final line VERDICT: PASS | VERDICT: FAIL - <reason>",
 			"  bugs    find bugs — one line each + final line BUGS: none | BUGS: <n> found",
 			"  analyze analyze this — WHAT/HOW/RISKS/OPEN QUESTIONS; bare topic words become FOCUS",
+			"  panel   decision advisory — fans the fork to BOTH legs, marks AGREE/DISAGREE on the VERDICT lines; --audit meters route_audit",
 			"input:  --in FILE | piped stdin | (review/bugs) --repo DIR working-tree diff (default cwd)",
 			"flags:  --cloud (stronger cloud route, glm-5.3) · --max-tokens N (default 1500) · --timeout-secs N (default 300)",
 			"env:    ORACLE_ROUTE_URL | ORACLE_ROUTE_KEY | ORACLE_ROUTE_MODEL (pinned leg, default :8903 local-reason)",
@@ -223,6 +230,77 @@ function usage(): never {
 	);
 	process.exit(1);
 }
+
+// ---- W742.1: the advisory panel ---------------------------------------------
+type PanelRow = {
+	name: string;
+	ok: boolean;
+	model: string;
+	ms: number;
+	verdict: string | null;
+	text: string;
+	error?: string;
+};
+
+const verdictOf = (text: string): string | null => {
+	const m = text.match(/^VERDICT:\s*([a-z]+)/im);
+	return m?.[1]?.toLowerCase() ?? null;
+};
+
+// best-effort route_audit metering — --audit opts in; the panel answers
+// regardless of store health (stateless contract preserved).
+const auditPanel = async (rows: PanelRow[]): Promise<void> => {
+	if (!argv.includes("--audit")) return;
+	try {
+		const { openStore } = await import("../lib/govdb.ts");
+		const store = openStore();
+		for (const r of rows) {
+			store
+				.query(
+					"INSERT INTO route_audit(rid, ts, actor, dialect, hint, resolved_target, decision, latency_class, error_code) VALUES (?,?,?,?,?,?,?,?,?)",
+				)
+				.run(
+					crypto.randomUUID(),
+					Date.now(),
+					"oracle-panel",
+					r.name === "cloud" ? "anthropic" : "openai",
+					"panel",
+					r.model,
+					r.ok ? (r.verdict ?? "no-verdict") : "leg-failed",
+					String(r.ms),
+					r.error ?? null,
+				);
+		}
+		store.close();
+	} catch {
+		// metering never breaks the answer
+	}
+};
+
+const buildPanelRows = (
+	settled: PromiseSettledResult<LegResult>[],
+): PanelRow[] =>
+	settled.map((s, i) => {
+		const name = i === 0 ? "local-reason" : "cloud";
+		if (s.status === "fulfilled")
+			return {
+				name,
+				ok: true,
+				model: s.value.model,
+				ms: s.value.ms,
+				verdict: verdictOf(s.value.text),
+				text: s.value.text,
+			};
+		return {
+			name,
+			ok: false,
+			model: name,
+			ms: 0,
+			verdict: null,
+			text: "",
+			error: s.reason instanceof Error ? s.reason.message : String(s.reason),
+		};
+	});
 
 // ---- main -------------------------------------------------------------------
 if (verb === null) usage();
@@ -242,6 +320,41 @@ if (input.trim() === "" && !(verb === "analyze" && topic.length > 0)) {
 		`oracle: no input for ${verb} — pipe a payload, pass --in FILE, or run inside a git repo`,
 	);
 	process.exit(1);
+}
+
+// W742.1: fan the fork question to both legs in parallel; mark agreement
+// on the machine-parseable VERDICT lines; --audit meters route_audit.
+if (verb === "panel") {
+	const prompt = promptFor("panel", input);
+	const settled = await Promise.allSettled([
+		pinnedLeg(prompt, maxTokens, timeoutMs),
+		cloudLeg(prompt, maxTokens),
+	]);
+	const rows = buildPanelRows(settled);
+	const verdicts = rows.flatMap((r) => (r.ok && r.verdict ? [r.verdict] : []));
+	const unique = [...new Set(verdicts)];
+	const consensus =
+		verdicts.length === 0
+			? "no verdicts"
+			: unique.length === 1
+				? `consensus ${unique[0]}`
+				: `split ${verdicts.join(" vs ")}`;
+	for (const r of rows) {
+		console.log(
+			`— ${r.name} (${r.model}) ${r.ok ? `${r.ms}ms` : "FAILED"} — ${
+				r.ok
+					? r.verdict
+						? r.verdict.toUpperCase()
+						: "NO VERDICT"
+					: "UNAVAILABLE"
+			}${r.ok ? "" : `: ${r.error ?? ""}`}`,
+		);
+		if (r.text)
+			console.log(r.text.length > 600 ? `${r.text.slice(0, 600)}\n…` : r.text);
+	}
+	console.log(`panel: ${consensus}`);
+	await auditPanel(rows);
+	process.exit(rows.some((r) => r.ok) ? 0 : 2);
 }
 
 try {
