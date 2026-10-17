@@ -36,10 +36,23 @@ export function retryFailedItem(
 			.get(project, id) as Row | undefined;
 		if (!it) return { ok: false, error: `no such work item: ${id}` };
 		if (it.state !== "FAILED") {
-			return {
-				ok: false,
-				error: `${id} is ${it.state} — only FAILED items retry`,
-			};
+			// W787: a READY item with a launch-budget reservation is the same
+			// environment-killed class — dispatch refuses it every cycle (and
+			// that refusal was the NEED_DECISION flood). Retry resets it too.
+			launchSchema(store);
+			const quarantined = store
+				.query("SELECT 1 FROM lane_launch_budgets WHERE project=? AND item=?")
+				.get(project, id);
+			if (it.state !== "READY")
+				return {
+					ok: false,
+					error: `${id} is ${it.state} — only FAILED items (or budget-quarantined READY) retry`,
+				};
+			if (!quarantined)
+				return {
+					ok: false,
+					error: `${id} is READY with no launch-budget reservation — nothing to retry`,
+				};
 		}
 		releaseStaleClaims(store, it, id);
 		store.run(
@@ -54,6 +67,9 @@ export function retryFailedItem(
 			project,
 			id,
 		);
+		// W787: clear the dispatch-side dedup flag so a future exhaustion
+		// re-flags (one NEED_DECISION per exhaustion episode, not per cycle).
+		store.run("DELETE FROM facts WHERE key=?", `lane.budget-flagged.${id}`);
 		return { ok: true };
 	})();
 }

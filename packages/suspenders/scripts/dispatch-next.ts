@@ -511,6 +511,24 @@ const dispatchItem = async (
 	if (attempt >= limit) {
 		governanceRefusals.push(item);
 		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
+		// W787: one NEED_DECISION per exhaustion episode — the flagged fact
+		// gates the emit; `work retry` clears it (and resets the budget).
+		const flagKey = `lane.budget-flagged.${item}`;
+		const flagged = store
+			.query("SELECT value FROM facts WHERE key=?")
+			.get(flagKey) as { value: string } | undefined;
+		if (flagged) {
+			console.log(
+				`REFUSED ${item} — budget exhausted (flagged ${flagged.value}); NEED_DECISION suppressed (W787 dedup)`,
+			);
+			store.close();
+			return null;
+		}
+		store
+			.query(
+				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'dispatch',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,version=version+1,ts=excluded.ts",
+			)
+			.run(flagKey, new Date().toISOString());
 		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
 		run(
 			coordCli(

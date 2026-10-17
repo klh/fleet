@@ -11,6 +11,9 @@ function fixture() {
 	);
 	db.run("CREATE TABLE claims(sid TEXT, scope TEXT, intent TEXT)");
 	db.run(
+		"CREATE TABLE facts(key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER, ts INTEGER)",
+	);
+	db.run(
 		"INSERT INTO work_items VALUES ('project','W1','FAILED','lane','s',100)",
 	);
 	db.run("INSERT INTO claims VALUES ('lane','s','W1 anything')");
@@ -39,8 +42,37 @@ test("non-FAILED and missing items are refused", () => {
 	store.run("UPDATE work_items SET state='DONE' WHERE id='W1'");
 	const r = retryFailedItem(store, "project", "W1");
 	expect(r.ok).toBe(false);
-	expect(r.error).toContain("only FAILED items retry");
+	expect(r.error).toContain(
+		"only FAILED items (or budget-quarantined READY) retry",
+	);
 	expect(retryFailedItem(store, "project", "W9").error).toContain(
 		"no such work item",
 	);
+});
+
+test("budget-quarantined READY items retry (W787): budget + dedup flag reset", () => {
+	const store = fixture();
+	store.run("UPDATE work_items SET state='READY' WHERE id='W1'");
+	store.run("INSERT INTO lane_launch_budgets VALUES ('project','W1',3)");
+	store.run(
+		"INSERT INTO facts VALUES ('lane.budget-flagged.W1','2026-10-17T00:00:00Z','dispatch',1,0)",
+	);
+	const r = retryFailedItem(store, "project", "W1");
+	expect(r.ok).toBe(true);
+	expect(
+		store.query("SELECT COUNT(*) c FROM lane_launch_budgets").get(),
+	).toEqual({ c: 0 });
+	expect(
+		store
+			.query("SELECT COUNT(*) c FROM facts WHERE key='lane.budget-flagged.W1'")
+			.get(),
+	).toEqual({ c: 0 });
+});
+
+test("READY without a budget reservation is refused (nothing to retry)", () => {
+	const store = fixture();
+	store.run("UPDATE work_items SET state='READY' WHERE id='W1'");
+	const r = retryFailedItem(store, "project", "W1");
+	expect(r.ok).toBe(false);
+	expect(r.error).toContain("nothing to retry");
 });
