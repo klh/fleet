@@ -442,6 +442,13 @@ Bun.serve({
 		const isCode = score.dimensions.codePresence > 0.5;
 		// W279: serving-tier decision (e-label) — the label rides _routing.category
 		const el = classifyELabel(text, score);
+		// W789: tools bridge — anthropic defs → OpenAI; threaded to the local
+		// ladder so tool-bearing lane requests keep tool_use on the swarm legs
+		// during cloud walls. Declared here: the route selection below uses it.
+		const oaTools = toOpenAiTools(body.tools);
+		const oaToolChoice = oaTools
+			? toolChoiceToOpenAi(body.tool_choice)
+			: undefined;
 		let route = isCode
 			? TIER_ROUTES.MEDIUM
 			: score.tier === "SIMPLE"
@@ -452,6 +459,9 @@ Bun.serve({
 		if (el.label === "cloud") route = REASON; // escalate-first when allowed; else local best-effort
 		if (el.label === "reason") route = REASON; // W279: label decides placement
 		if (el.label === "extract") route = TIER_ROUTES.SIMPLE;
+		// W789: tool-bearing requests need a tool-capable leg — the extract
+		// specialist can't emit tool_calls; the reason tier can (verified).
+		if (oaTools) route = REASON;
 
 		// ambiguity band → Kev typed-question classifier decides by use case
 		// (routing table from prefs); kev down/slow ⇒ regex result stands.
@@ -564,13 +574,6 @@ Bun.serve({
 			// identical with the knob on or off — only the upstream payload
 			// shrinks. User messages only: system = harness, assistant = history.
 			const rawMessages = toOpenAiMessages(body);
-			// W789: tools bridge — anthropic defs → OpenAI; threaded to the
-			// local ladder so tool-bearing lane requests keep tool_use on the
-			// swarm legs during cloud walls.
-			const oaTools = toOpenAiTools(body.tools);
-			const oaToolChoice = oaTools
-				? toolChoiceToOpenAi(body.tool_choice)
-				: undefined;
 			const inbound = applyInboundCondense(rawMessages, prefs.condense);
 			const messages = inbound.messages;
 			const condenseMeta: CondenseMeta | null = inbound.meta;
@@ -794,11 +797,17 @@ Bun.serve({
 				score.tier === "VERY_COMPLEX" ||
 				prefs.cost_speed === "quality" ||
 				el.label === "cloud";
-			if (!response && cloudAllowed(prefs) && cloudWarranted && !triedCloud) {
+			if (
+				!response &&
+				!(resultToolCalls && resultToolCalls.length > 0) &&
+				cloudAllowed(prefs) &&
+				cloudWarranted &&
+				!triedCloud
+			) {
 				await tryCloud(score.tier !== "VERY_COMPLEX");
 			}
 
-			if (!response) {
+			if (!response && !(resultToolCalls && resultToolCalls.length > 0)) {
 				// every hop saturated → 429 with the longest upstream Retry-After so
 				// the caller's ladder backs off instead of retrying a 502
 				if (retryAfter !== undefined) {
