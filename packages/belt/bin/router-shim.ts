@@ -37,6 +37,7 @@ import {
 	classifierText,
 	classifyELabel,
 	kevEligible,
+	kevEscalateVeto,
 	openLocalStream,
 	type RequestTimings,
 	scoreComplexity,
@@ -452,11 +453,14 @@ Bun.serve({
 		// (routing table from prefs); kev down/slow ⇒ regex result stands.
 		// Prompts past Kev's context window skip the serial hop (W270).
 		let classifier = "";
+		let kevEscalate: string | undefined;
 		const band: [number, number] = prefs.kev?.ambiguity_band ?? [0.25, 0.45];
 		const inBand = score.total >= band[0] && score.total <= band[1];
 		const kevWanted =
 			prefs.kev?.enabled &&
-			(el.label === "extract" || el.label === "reason") &&
+			(el.label === "extract" ||
+				el.label === "reason" ||
+				el.label === "cloud") &&
 			(inBand || score.tier === "VERY_COMPLEX");
 		if (kevWanted && !kevEligible(text)) classifier = "kev-skipped:long";
 		else if (kevWanted) {
@@ -471,6 +475,24 @@ Bun.serve({
 							model: "kev-latest",
 							state: text.slice(0, 4000),
 							questions: {
+								// W786: one serial hop, two decisions — the escalate
+								// question rides the same kev call and prices the
+								// cloud leg (operator gate: prefs.kev.escalate_gate)
+								...(prefs.kev?.escalate_gate && el.label === "cloud"
+									? {
+											escalate: {
+												type: "choice",
+												instructions:
+													"Does answering this well require a frontier cloud model, or is a competent local model adequate?",
+												criteria: {
+													cloud_worthy:
+														"Deep multi-step reasoning, novel architecture, or large-context synthesis where a small local model would lose correctness",
+													local_adequate:
+														"Routine implementation, known patterns, mechanical work, or short-context tasks a competent local model handles",
+												},
+											},
+										}
+									: {}),
 								use_case: {
 									type: "choice",
 									instructions: "Which use-case class is this request?",
@@ -493,6 +515,8 @@ Bun.serve({
 					answers?: { use_case?: { choice?: string } };
 				};
 				const uc = kj.answers?.use_case?.choice;
+				// W786: capture the escalate verdict for the cloud gate below
+				kevEscalate = kj.answers?.escalate?.choice;
 				const pin = uc ? prefs.routing_table?.[uc] : undefined;
 				if (pin) {
 					route =
@@ -663,8 +687,14 @@ Bun.serve({
 					return false;
 				}
 			};
-			// cloud gate + tier decision: only prefs authorize the cloud leg
-			if (el.label === "cloud" && cloudAllowed(prefs)) await tryCloud(true);
+			// cloud gate + tier decision: only prefs authorize the cloud leg;
+			// W786: kev's escalate verdict can keep it local (fail-open — no
+			// verdict, kev down, or escalate_gate off ⇒ today's behavior)
+			if (el.label === "cloud" && cloudAllowed(prefs)) {
+				if (kevEscalateVeto(el.label, kevEscalate))
+					note.push("kev escalate-gate: kept local");
+				else await tryCloud(true);
+			}
 			if (wantStream && !response) {
 				// streamed: TTFT = the specialist's first token, not the full answer
 				const opened = await ladder(

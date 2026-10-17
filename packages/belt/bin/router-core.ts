@@ -268,8 +268,13 @@ export function classifierText(body: AnthropicBody): string {
 }
 
 export type ChatMessage = {
-	role: "system" | "user" | "assistant";
+	role: "system" | "user" | "assistant" | "tool";
 	content: string;
+	/** OpenAI function-calling protocol (W761.1): assistant tool_calls and
+	 *  tool-role results ride history so multi-turn tool loops survive the
+	 *  Anthropic→OpenAI translation. */
+	tool_calls?: OpenAiToolCall[];
+	tool_call_id?: string;
 };
 
 /** OpenAI messages with the Anthropic `system` forwarded (it was dropped
@@ -287,6 +292,59 @@ export function toOpenAiMessages(body: AnthropicBody): ChatMessage[] {
 	return messages;
 }
 
+// ─── tool calling (W761.1): anthropic tools ⇄ OpenAI function calling ───
+export interface OpenAiToolCall {
+	id: string;
+	type: "function";
+	function: { name: string; arguments: string };
+}
+
+export interface OpenAiToolDef {
+	type: "function";
+	function: { name: string; description?: string; parameters: unknown };
+}
+
+/** Anthropic tools[] → OpenAI tools[]; nameless entries are skipped. */
+export function toOpenAiTools(tools: unknown): OpenAiToolDef[] | undefined {
+	if (!Array.isArray(tools) || tools.length === 0) return undefined;
+	const out: OpenAiToolDef[] = [];
+	for (const t of tools as Array<{
+		name?: unknown;
+		description?: unknown;
+		input_schema?: unknown;
+	}>) {
+		if (typeof t?.name !== "string") continue;
+		out.push({
+			type: "function",
+			function: {
+				name: t.name,
+				parameters: t.input_schema ?? { type: "object", properties: {} },
+			},
+		});
+	}
+	return out.length > 0 ? out : undefined;
+}
+
+/** Anthropic tool_choice → OpenAI tool_choice (auto | required | named). */
+export function toolChoiceToOpenAi(tc: unknown): unknown {
+	if (typeof tc !== "object" || tc === null) return undefined;
+	const j = tc as { type?: unknown; name?: unknown };
+	if (j.type === "tool" && typeof j.name === "string")
+		return { type: "function", function: { name: j.name } };
+	if (j.type === "auto") return "auto";
+	if (j.type === "any") return "required";
+	return undefined;
+}
+
+/** Tool calls on an OpenAI chat message, name-bearing entries only. */
+export const toolCallsOf = (msg: unknown): OpenAiToolCall[] => {
+	const j = msg as { tool_calls?: unknown } | undefined;
+	if (!Array.isArray(j?.tool_calls)) return [];
+	return (j.tool_calls as OpenAiToolCall[]).filter(
+		(c) => typeof c?.function?.name === "string",
+	);
+};
+
 // ─── Kev pre-hop eligibility ───
 const KEV_CONTEXT_TOKENS =
 	EXTERNAL.find((e) => e.role === "classify")?.contextTokens ?? 384;
@@ -297,6 +355,17 @@ export const estTokens = (text: string): number => Math.ceil(text.length / 4);
  *  (stack-anthropic f-class TTFT 8.8 s vs 2.5-3.5 s elsewhere). */
 export const kevEligible = (text: string, ctx = KEV_CONTEXT_TOKENS): boolean =>
 	estTokens(text) <= ctx;
+
+/**
+ * W786: kev escalate-gate verdict — a cloud-labeled request stays on the best
+ * local tier when kev's typed escalate question answers local_adequate.
+ * Fail-open by construction: any other label, missing answer, or kev outage
+ * keeps today's cloud-first behavior untouched.
+ */
+export const kevEscalateVeto = (
+	label: string,
+	choice: string | undefined,
+): boolean => label === "cloud" && choice === "local_adequate";
 
 // ─── budget policy: per-model thinking control (data, not branches) ───
 export interface BudgetRule {
@@ -415,6 +484,8 @@ export interface LocalResult {
 	status?: number;
 	retryAfterMs?: number;
 	finish?: string;
+	/** W761.1: OpenAI-wire tool calls translated back to tool_use blocks. */
+	toolCalls?: OpenAiToolCall[];
 	timings?: RequestTimings;
 }
 
@@ -674,6 +745,7 @@ const sseEvent = (event: string, data: unknown) =>
 const STOP_REASON: Record<string, string> = {
 	length: "max_tokens",
 	stop: "end_turn",
+	tool_calls: "tool_use",
 };
 export const stopReason = (finish?: string): string =>
 	(finish && STOP_REASON[finish]) || "end_turn";
