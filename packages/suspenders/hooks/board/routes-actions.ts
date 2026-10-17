@@ -632,11 +632,16 @@ export async function handleActions(
 		db.query(
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'fleet-board', 1, ?)",
 		).run(stamp, "in-flight", Date.now());
-		const child = Bun.spawn([process.execPath, CLI("advise.ts"), String(id)], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		});
+		// W742.2: the advisory card renders panel verdicts + agreement — the
+		// detached child fans both oracle legs (advise.ts --panel)
+		const child = Bun.spawn(
+			[process.execPath, CLI("advise.ts"), String(id), "--panel"],
+			{
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+			},
+		);
 		child.unref();
 		return json({ ok: true, started: true });
 	}

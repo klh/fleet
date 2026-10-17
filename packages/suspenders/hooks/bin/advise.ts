@@ -27,6 +27,13 @@ import {
 	parseOptions,
 } from "../lib/kev.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
+import {
+	buildPanelRows,
+	cloudLeg,
+	consensusOf,
+	PANEL_FRAME,
+	pinnedLeg,
+} from "../lib/oracle-legs.ts";
 
 // W656.2: kit-owned parse — the board's routes-actions spawns
 // `advise.ts <event-id>`; the surface is one positional, help is new
@@ -36,6 +43,7 @@ const SPEC = defineVerb({
 	usage: USAGE,
 	minPos: 1,
 	lax: true,
+	switches: ["--panel"],
 });
 const argv = process.argv.slice(2);
 if (argv.includes("--help") || argv.includes("-h")) {
@@ -161,6 +169,77 @@ const ctx = [
 	.filter(Boolean)
 	.join("\n");
 
+// W742.2: --panel fans the SAME fork to BOTH oracle legs (W742.1 panel
+// contract); fact carries per-leg verdicts + consensus; no fallback chain
+// blurs the agreement semantics. Two named legs, honest failures.
+if (argv.includes("--panel")) {
+	const prompt = [
+		PANEL_FRAME,
+		`DECISION FORK:\n${question}`,
+		`CONTROL-PLANE CONTEXT:\n${ctx}`,
+	].join("\n\n");
+	const settled = await Promise.allSettled([
+		pinnedLeg(prompt, 1500, 120_000),
+		cloudLeg(prompt, 1500),
+	]);
+	const rows = buildPanelRows(settled);
+	for (const r of rows) {
+		db.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
+		).run(
+			Date.now(),
+			JSON.stringify({
+				for: id,
+				model: r.model,
+				host: `panel:${r.name}`,
+				pt: 0,
+				ct: 0,
+				tt: 0,
+				ms: r.ms,
+				...(r.error ? { error: r.error.slice(0, 200) } : {}),
+			}),
+		);
+	}
+	const ok = rows.find((r) => r.ok && r.text);
+	// total miss keeps the W667 contract: error fact + requested stamp cleared
+	if (!ok) {
+		const msg = rows
+			.map((r) => `${r.name}: ${r.error ?? "no text"}`)
+			.join(" | ")
+			.slice(0, 300);
+		// provider rejections are failures (exit 2); connection-class misses
+		// degrade — same unavailable split as the single-leg path
+		const unavailable = rows.every(
+			(r) => !/^route \d|^cloud leg/.test(r.error ?? ""),
+		);
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
+		).run(`${fk}.error`, msg, Date.now());
+		db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
+		console.error(`advise #${id} panel failed: ${msg}`);
+		process.exit(unavailable ? 0 : 2);
+	}
+	if (ok) {
+		storeAdvice(
+			ok.text,
+			{ model: ok.model, host: `panel:${ok.name}` },
+			{
+				consensus: consensusOf(rows),
+				legs: rows.map((r) => ({
+					name: r.name,
+					ok: r.ok,
+					model: r.model,
+					verdict: r.verdict,
+					ms: r.ms,
+					...(r.error ? { error: r.error.slice(0, 200) } : {}),
+				})),
+			},
+		);
+		console.log(`advised #${id} panel: ${consensusOf(rows)}`);
+		process.exit(0);
+	}
+}
+
 const sys = `You advise the human operator of a multi-agent coding fleet (governor.db control plane: work graph, event bus, claims, zombies). A lane raised a decision fork. Analyze the context and answer with EXACTLY this shape:
 RECOMMENDATION: <the decision, one concrete sentence — pick an option if options are implied>
 RATIONALE: <2-4 short bullets, grounded in the context>
@@ -197,7 +276,25 @@ let text = "";
 /** Parse the RECOMMENDATION/RATIONALE/RISK shape, persist the advice fact,
  *  and emit the ADVICE event — shared by the local and remote-fallback
  *  paths (W90). */
-function storeAdvice(text: string, meta: { model: string; host: string }) {
+/** W742.2: the panel verdict ride-along — per-leg verdicts + the consensus,
+ *  rendered by the board card under the recommendation. */
+type PanelMeta = {
+	consensus: string;
+	legs: {
+		name: string;
+		ok: boolean;
+		model: string;
+		verdict: string | null;
+		ms: number;
+		error?: string;
+	}[];
+};
+
+function storeAdvice(
+	text: string,
+	meta: { model: string; host: string },
+	panel?: PanelMeta,
+) {
 	const grab = (m: string) =>
 		text
 			.split(new RegExp(`^${m}:`, "m"))[1]
@@ -213,6 +310,7 @@ function storeAdvice(text: string, meta: { model: string; host: string }) {
 		risk: risk.slice(0, 300),
 		model: meta.model,
 		ts: now,
+		...(panel ? { panel } : {}),
 	});
 	db.query(
 		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
@@ -226,7 +324,11 @@ function storeAdvice(text: string, meta: { model: string; host: string }) {
 	).run(
 		Date.now(),
 		ev.scope,
-		JSON.stringify({ for: id, rec: rec.slice(0, 160) }),
+		JSON.stringify({
+			for: id,
+			rec: rec.slice(0, 160),
+			...(panel ? { consensus: panel.consensus } : {}),
+		}),
 		ev.source, // back to the asker: their fork has advice waiting
 	);
 	console.log(`advised #${id}: ${rec.slice(0, 100)}`);

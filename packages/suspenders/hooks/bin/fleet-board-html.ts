@@ -123,6 +123,12 @@ button.opt:hover { border-color:var(--klh-accent); color:var(--klh-accent); }
 .dadv .rhead { color:var(--klh-accent); font-weight:600; font-size:10px; letter-spacing:.06em; margin-bottom:2px; }
 .dadv .why { color:var(--klh-dim); margin-top:3px; white-space:pre-wrap; }
 .dadv .risk { color:var(--klh-danger-ink); margin-top:3px; }
+.dadv .pconsensus { margin-top:4px; font-weight:600; font-size:11px; }
+.dadv .pconsensus.pagree { color:var(--klh-ok-ink); }
+.dadv .pconsensus.psplit { color:var(--klh-danger-ink); }
+.dadv .pconsensus.pnone { color:var(--klh-dim); }
+.dadv .pleg { color:var(--klh-dim); }
+.dadv .plegerr { word-break:break-all; }
 .dans { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; align-items:center; }
 .dans input { flex:1; min-width:220px; background:var(--klh-bg); color:var(--klh-ink); border:1px solid var(--klh-edge); border-radius:2px; padding:5px 9px; font:inherit; font-size:12px; }
 .dans input:focus { outline:1px solid var(--klh-accent); }

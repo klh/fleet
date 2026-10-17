@@ -20,8 +20,14 @@
 //   ORACLE_ROUTE_KEY   optional bearer for the pinned leg
 //   ORACLE_ROUTE_MODEL optional model id (else GET /models probe, else "local")
 // exit: 0 answer · 1 usage/input · 2 leg failure
-import { escalate, resolveEscalationLeg } from "../../../belt/bin/escalate.ts";
-import type { AnthropicBody } from "../../../belt/bin/router-core.ts";
+import {
+	buildPanelRows,
+	cloudLeg,
+	consensusOf,
+	PANEL_FRAME,
+	pinnedLeg,
+} from "../lib/oracle-legs.ts";
+import type { PanelRow } from "../lib/oracle-legs.ts";
 
 const argv = process.argv.slice(2);
 const arg = (name: string): string | null => {
@@ -74,12 +80,7 @@ const FRAMES: Record<Verb, string> = {
 		"You are a read-only analyst (oracle fixed contract). Analyze this.",
 		"Structured and terse — WHAT: one line · HOW: bullets · RISKS: bullets · OPEN QUESTIONS: bullets.",
 	].join("\n"),
-	panel: [
-		"You are a read-only decision advisor (oracle fixed contract). A NEED_DECISION fork needs an independent read.",
-		"Weigh the options, name your recommendation and the strongest counter-argument, then decide.",
-		"End your reply with ONE machine-parseable final line:",
-		"VERDICT: approve | VERDICT: hold - <what would change it> | VERDICT: reject - <why>",
-	].join("\n"),
+	panel: PANEL_FRAME,
 };
 
 const INPUT_CAP = 60_000;
@@ -92,94 +93,6 @@ function promptFor(what: Verb, input: string): string {
 		parts.push(`${what === "review" ? "DIFF" : "INPUT"}:\n${input}`);
 	return parts.join("\n\n");
 }
-
-// ---- the pinned route (default) --------------------------------------------
-const ROUTE_URL =
-	process.env.ORACLE_ROUTE_URL ?? "http://127.0.0.1:8903/v1/chat/completions";
-const ROUTE_KEY = process.env.ORACLE_ROUTE_KEY;
-const ROUTE_MODEL = process.env.ORACLE_ROUTE_MODEL;
-
-// no model configured → ask the endpoint what it serves (first entry); works
-// for the MLX server, llama.cpp, vLLM, or any OpenAI-compatible shim
-const legModel = async (): Promise<string> => {
-	if (ROUTE_MODEL) return ROUTE_MODEL;
-	try {
-		const r = await fetch(
-			ROUTE_URL.replace(/\/chat\/completions$/, "/models"),
-			{
-				headers: ROUTE_KEY ? { authorization: `Bearer ${ROUTE_KEY}` } : {},
-				signal: AbortSignal.timeout(5000),
-			},
-		);
-		const j = (await r.json()) as { data?: { id: string }[] };
-		return j.data?.[0]?.id ?? "local";
-	} catch {
-		return "local";
-	}
-};
-
-type LegResult = { text: string; model: string; ms: number };
-
-const pinnedLeg = async (
-	prompt: string,
-	maxTokens: number,
-	timeoutMs: number,
-): Promise<LegResult> => {
-	const model = await legModel();
-	const t0 = Date.now();
-	const r = await fetch(ROUTE_URL, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			...(ROUTE_KEY ? { authorization: `Bearer ${ROUTE_KEY}` } : {}),
-		},
-		body: JSON.stringify({
-			model,
-			messages: [
-				{
-					role: "system",
-					content:
-						"You are oracle — a stateless escalation surface. One request, one answer.",
-				},
-				{ role: "user", content: prompt },
-			],
-			max_tokens: maxTokens,
-			temperature: 0.2,
-		}),
-		signal: AbortSignal.timeout(timeoutMs),
-	});
-	if (!r.ok)
-		throw new Error(`route ${r.status}: ${(await r.text()).slice(0, 200)}`);
-	const j = (await r.json()) as {
-		choices?: { message?: { content?: string } }[];
-	};
-	const text = (j.choices?.[0]?.message?.content ?? "").trim();
-	if (text === "") throw new Error("route answered with no content");
-	return { text, model, ms: Date.now() - t0 };
-};
-
-// ---- the cloud escalation leg (--cloud) — the :4000 router's own leg -------
-const cloudLeg = async (
-	prompt: string,
-	maxTokens: number,
-): Promise<LegResult> => {
-	const leg = await resolveEscalationLeg(process.env);
-	if (!leg)
-		throw new Error(
-			"no cloud leg configured — set BELT_ESCALATE_URL/KEY (or legacy settings.json creds)",
-		);
-	const body: AnthropicBody = { messages: [{ role: "user", content: prompt }] };
-	const t0 = Date.now();
-	const r = await escalate(body, { maxTokens, wantFast: false });
-	const text = r.text.trim();
-	if (text === "")
-		throw new Error(
-			`cloud leg ${leg.mode} returned no text (status ${r.status ?? "?"})${
-				r.retryAfterMs ? ` — retry-after ${r.retryAfterMs}ms` : ""
-			}`,
-		);
-	return { text, model: r.model, ms: Date.now() - t0 };
-};
 
 // ---- input: --in | stdin (non-TTY) | working-tree diff ----------------------
 const readStdin = async (): Promise<string> => {
@@ -231,22 +144,6 @@ function usage(): never {
 	process.exit(1);
 }
 
-// ---- W742.1: the advisory panel ---------------------------------------------
-type PanelRow = {
-	name: string;
-	ok: boolean;
-	model: string;
-	ms: number;
-	verdict: string | null;
-	text: string;
-	error?: string;
-};
-
-const verdictOf = (text: string): string | null => {
-	const m = text.match(/^VERDICT:\s*([a-z]+)/im);
-	return m?.[1]?.toLowerCase() ?? null;
-};
-
 // best-effort route_audit metering — --audit opts in; the panel answers
 // regardless of store health (stateless contract preserved).
 const auditPanel = async (rows: PanelRow[]): Promise<void> => {
@@ -277,31 +174,6 @@ const auditPanel = async (rows: PanelRow[]): Promise<void> => {
 	}
 };
 
-const buildPanelRows = (
-	settled: PromiseSettledResult<LegResult>[],
-): PanelRow[] =>
-	settled.map((s, i) => {
-		const name = i === 0 ? "local-reason" : "cloud";
-		if (s.status === "fulfilled")
-			return {
-				name,
-				ok: true,
-				model: s.value.model,
-				ms: s.value.ms,
-				verdict: verdictOf(s.value.text),
-				text: s.value.text,
-			};
-		return {
-			name,
-			ok: false,
-			model: name,
-			ms: 0,
-			verdict: null,
-			text: "",
-			error: s.reason instanceof Error ? s.reason.message : String(s.reason),
-		};
-	});
-
 // ---- main -------------------------------------------------------------------
 if (verb === null) usage();
 const cloud = argv.includes("--cloud");
@@ -331,14 +203,7 @@ if (verb === "panel") {
 		cloudLeg(prompt, maxTokens),
 	]);
 	const rows = buildPanelRows(settled);
-	const verdicts = rows.flatMap((r) => (r.ok && r.verdict ? [r.verdict] : []));
-	const unique = [...new Set(verdicts)];
-	const consensus =
-		verdicts.length === 0
-			? "no verdicts"
-			: unique.length === 1
-				? `consensus ${unique[0]}`
-				: `split ${verdicts.join(" vs ")}`;
+	const consensus = consensusOf(rows);
 	for (const r of rows) {
 		console.log(
 			`— ${r.name} (${r.model}) ${r.ok ? `${r.ms}ms` : "FAILED"} — ${

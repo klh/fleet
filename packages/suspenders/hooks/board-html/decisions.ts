@@ -144,6 +144,21 @@ function renderDecisionsInner(){
     if (dq) dq.style.display = hashMatch([all[di].id, all[di].asked_by, all[di].asked_by_label]) ? '' : 'none';
   }
 }
+// W742.2 panel verdicts + agreement — esc-assembled, mirrors the oracle
+// panel stdout; unknown shapes degrade to the consensus line only
+function panelHtml(p){
+  var c = String(p.consensus || '');
+  var cls = c.indexOf('split') === 0 ? ' psplit' : (c.indexOf('consensus ') === 0 ? ' pagree' : '');
+  var out = '<div class="pconsensus' + cls + '">' + esc(c) + '</div>';
+  var legs = Array.isArray(p.legs) ? p.legs : [];
+  for (var i = 0; i < legs.length; i++) {
+    var l = legs[i] || {};
+    var line = '— ' + (l.name || 'leg') + ' (' + (l.model || '?') + ') ' + (l.ok ? (l.ms + 'ms') : 'FAILED') + ' — ' + (l.ok ? (l.verdict ? String(l.verdict).toUpperCase() : 'NO VERDICT') : 'UNAVAILABLE');
+    out += '<div class="pleg">' + esc(line) + '</div>';
+    if (!l.ok && l.error) out += '<div class="plegerr dim">' + esc(l.error) + '</div>';
+  }
+  return out;
+}
 function decNode(d){
   var list = byId('decList');
   var q = decNodeEl(d.id);
@@ -278,6 +293,7 @@ function decNode(d){
       var rbody = '<div class="rec">' + esc(ac.rec || '') + '</div>';
       if (ac.rationale) rbody += '<div class="why">' + esc(ac.rationale) + '</div>';
       if (ac.risk) rbody += '<div class="risk">risk: ' + esc(ac.risk) + '</div>';
+      if (ac.panel) rbody += panelHtml(ac.panel);
       setNodes(advEl, rhead + rbody + ' <button class="use" type="button">use</button>');
     }
   }
