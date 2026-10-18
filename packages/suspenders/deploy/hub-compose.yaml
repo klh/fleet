@@ -153,7 +153,7 @@ services:
     # overlay checkouts carry no packages/suspenders, so the
     # copy rides the installed base dep. if/else (not `&& … ||`): a
     # failing in-tree boot must NOT fall through to the dep copy (W714).
-    command: sh -c "if test -f packages/suspenders/deploy/hub-deps.ts; then exec bun packages/suspenders/deploy/hub-deps.ts; else exec bun node_modules/fleet/packages/suspenders/deploy/hub-deps.ts; fi"
+    command: sh -c "if test -f packages/suspenders/deploy/hub-deps.ts; then exec bun packages/suspenders/deploy/hub-deps.ts; else bun install --frozen-lockfile && exec bun node_modules/fleet/packages/suspenders/deploy/hub-deps.ts; fi"
     environment:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
     depends_on:
