@@ -65,3 +65,42 @@ deploy nas` + `status nas`.
 
 Both flips must land before the next strip-carrying stack version bump.
 - **Executed (desktop) 2026-10-18**: owner GO given; stack.yaml hubs.desktop repos block verified present (overlay origin + stack-6161cb2); Docker 29 compose pids fix (W800) unblocked the deploy; hubctl deploy desktop → buckle/board/store/belt health 200 (model-store rides the W688.6 stack bump — the pinned overlay tag predates belt/bin/model-store.ts).
+
+## Correction 2026-10-19 (W688.6 — stack bump + federation e2e executed)
+
+- **Pin**: fleet `5aad6420` (suspenders/W688.6 head = main + W746 + the
+  hub-deps boot-root fix). W714 had dropped `const ROOT` from
+  hub-deps.ts — every post-W714 boot main() died `ReferenceError` before
+  the install; restored + regression-guarded (hub-deps.test.ts "main
+  block"). Overlay tag `stack-3a33f87f` (enterprise pin@5aad642 +
+  manifest.json + createGovSeam; intermediates stack-5aad642 /
+  stack-dfc06a1f pushed, superseded). conf: version=5aad6420,
+  repos.ref stack-3a33f87f both hubs.
+- **W688.4 carried by this lane**: buckle-remote manifest.json +
+  deploy/refresh-overlay-digest.ts (drift guard) — the item row FAILED
+  when its lane died; requeue decision requested.
+- **Desktop boot crashes found + fixed by conf**: (1) the OIDC gate is
+  trio-presence (issuer+JWKS+audience, fail-closed) and conf carried
+  `audience: $APP_CLIENT_ID` — compose nested-interpolates the
+  placeholder to blank → throw. auth.oidc removed from conf until the
+  owner supplies the Entra client id (base posture = root-key auth);
+  NEED_DECISION. (2) KLH_OVERLAY_DIR must be the RESOLVED repo path
+  (`/src/fleet/packages/buckle-remote`) — the node_modules symlink path
+  fails overlayDirAllowed. Live boot log: "overlay buckle-remote
+  protocol 1 loaded … gov seam: spokeEnrollment, hubEntitlements,
+  usageIngest, manifestCr".
+- **Verify**: hubctl status desktop — buckle/board/store/belt 200;
+  buckle-ready 502 (synthetic completion needs a served model),
+  model-store-health 404 (no /healthz route yet — follow-up item).
+  status nas: ssh transport RESTORED (#30282 blocker gone) — belt 200
+  on the old pin, buckle dark; NAS deploy unblocked for W632.
+- **Enrollment walk GREEN** (live desktop hub): POST /v1/admin/spokes/
+  enroll → 201 `benrl_…` (ttl 600) · POST /federation/enroll → 201
+  spoke key `bksk_…` scopes READ_+WRITE_ · GET /federation/
+  policy-manifest → 200 · GET /v1/admin/spokes → row `desktop-walk`
+  policy_version `fed-6553a53e8ddf`, last_seen set; walk key revoked
+  post-verify. Federation routes stopped 501ing — the gate's
+  completion condition is met.
+- **Tooling**: hubctl gained `logs [service] [--tail N]`
+  (composeLogsArgv, hub-remote.ts) — the boot-evidence verb status
+  lacked; container logs were unreachable from lanes before it.

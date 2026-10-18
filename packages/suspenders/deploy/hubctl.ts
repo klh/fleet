@@ -28,7 +28,7 @@ import {
 	type HubProfile,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
-import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import { composeLogsArgv, composeUpArgv, sshOpts } from "./hub-remote.ts";
 
 import {
 	buildRelease,
@@ -327,6 +327,14 @@ function composeUp(hub: HubProfile): void {
 	console.log(execFileSync(bin, rest, { encoding: "utf8" }).trim());
 }
 
+/** Container logs for one hub service — the boot-evidence channel behind
+ *  `status` (W688.6): a down service's why lives in its log, not in a
+ *  probe verdict. */
+function composeLogs(hub: HubProfile, service: string | undefined, tail: number): void {
+	const [bin, ...rest] = composeLogsArgv(hub, service, tail);
+	console.log(execFileSync(bin, rest, { encoding: "utf8" }).trim());
+}
+
 /** The HUB_FLEET_REF a hub's deployed .env pins — null when there is none
  *  (never-pushed hub, or a stale pre-pin env like the W422.6 poison). */
 function hubEnvRef(hub: HubProfile, dir: string): string | null {
@@ -524,8 +532,9 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|manifest> <hub> — config: ~/.config/klh/stack.yaml\n" +
-				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)",
+			"usage: hubctl <render|mint|push|up|status|logs|deploy|manifest> <hub> — config: ~/.config/klh/stack.yaml\n" +
+				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
+				"       logs [service] [--tail N]: container logs for one service (default 80 lines, all services)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -555,6 +564,13 @@ function main(): void {
 			return;
 		case "up":
 			upHub(hub, hubName, stack.version, force);
+			return;
+		case "logs":
+			composeLogs(
+				hub,
+				flags.find((f) => !f.startsWith("--")),
+				Number(flags[flags.indexOf("--tail") + 1] ?? 80) || 80,
+			);
 			return;
 		case "deploy":
 			deployHub(hub, hubName, auth, stack.version);

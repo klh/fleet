@@ -34,3 +34,23 @@ export function composeUpArgv(hub: HubProfile): string[] {
 	if (hub.deploy?.ssh) return ["ssh", ...sshOpts(hub), hub.deploy.ssh, script];
 	return ["/bin/sh", "-c", script];
 }
+
+/** docker compose logs argv — the boot-evidence channel (W688.6): status
+ *  names the down service, the why lives in its container log. Same shape
+ *  law as composeUpArgv (ssh-wrapped remote / sh -c local). */
+export function composeLogsArgv(
+	hub: HubProfile,
+	service: string | undefined,
+	tail: number,
+): string[] {
+	const dir = hub.deploy?.dir;
+	if (!dir)
+		throw new Error(
+			"hub has no deploy.dir in stack.yaml — declare where hub-compose.yaml + .env live on the stack",
+		);
+	const docker = hub.deploy?.docker ?? "docker";
+	const svc = service ? ` ${JSON.stringify(service)}` : "";
+	const script = `${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} logs --tail ${tail}${svc}`;
+	if (hub.deploy?.ssh) return ["ssh", ...sshOpts(hub), hub.deploy.ssh, script];
+	return ["/bin/sh", "-c", script];
+}
