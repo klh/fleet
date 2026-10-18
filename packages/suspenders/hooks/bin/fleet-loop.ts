@@ -32,6 +32,7 @@ import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
 import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
 import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
+import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
@@ -94,13 +95,20 @@ const runMaintenanceSweep = (): void => {
 	try {
 		const r = maintenanceSweep();
 		if (r.ran.length > 0 || r.failed.length > 0)
-			log(`MAINT swept ran=${r.ran.length} fail=${r.failed.length} skip=${r.skipped}`);
+			log(
+				`MAINT swept ran=${r.ran.length} fail=${r.failed.length} skip=${r.skipped}`,
+			);
 	} catch (e) {
 		log(
 			`MAINT sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 };
+
+// W821 post-merge runtime sync: merged main must reach the serve surfaces —
+// syncHarness the installed prefix and kickstart the touched labels, else
+// the fleet serves stale code all day (2026-10-19 root cause).
+const { runtimeSync } = createRuntimeSync({ ...runtime, MAIN: config.MAIN });
 
 // the ladder and dispatch commands are repo-OWNER config (same trust class as
 // a Makefile): {branch} is substituted, then the template runs via sh -c in
@@ -149,6 +157,17 @@ async function cycle(): Promise<void> {
 		.split("\n")
 		.filter(Boolean);
 	for (const b of branches) mergeOne(b);
+
+	// 2.5 runtime sync (W821): merged main reaches the serve surfaces —
+	// fail-isolated (the wisdom-sweep rule): a sync bug can never take down
+	// the merge/dispatch loop.
+	try {
+		runtimeSync();
+	} catch (e) {
+		log(
+			`RUNTIME-SYNC failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
 
 	// 3. refill the fleet — policy lives in the repo's dispatch script
 	if (DISPATCH) runTemplate(DISPATCH, "", LADDER_TIMEOUT_MS);
