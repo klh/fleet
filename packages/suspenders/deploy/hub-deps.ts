@@ -14,6 +14,11 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
+/** Boot root: the compose volume overlay hubs install + link into (W689).
+ *  W714 dropped the const — every post-W714 boot main() died with
+ *  ReferenceError before the install ran; restored for the W688.6 bump. */
+export const HUB_FLEET_ROOT = "/src/fleet";
+
 export interface BaseLink {
 	name: string;
 	dir: string;
@@ -69,6 +74,32 @@ export function linkBaseWorkspaces(root: string): BaseLink[] {
 	return planned;
 }
 
+/** W816: bun's git-dep install covers only the dep's ROOT manifest — the
+ *  fleet root carries no dependencies, so hub services running from
+ *  node_modules/fleet (the board imports zod) die with "Cannot find
+ *  package". A frozen production install inside the copy resolves the
+ *  copy's own workspaces (packages/*) and installs every workspace dep
+ *  into node_modules/fleet/node_modules; the copy's bun.lock already
+ *  covers them, so the tracked state the fleet-repo git-reset rewrites
+ *  every boot stays untouched. Returns the install's exit code. */
+export function installBaseClosure(root: string): number {
+	const install = Bun.spawnSync(
+		[
+			"bun",
+			"install",
+			"--production",
+			"--frozen-lockfile",
+			"--ignore-scripts",
+		],
+		{
+			cwd: `${root}/node_modules/fleet`,
+			stdout: "inherit",
+			stderr: "inherit",
+		},
+	);
+	return install.exitCode ?? 1;
+}
+
 if (import.meta.main) {
 	const install = Bun.spawnSync(
 		["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
@@ -78,12 +109,17 @@ if (import.meta.main) {
 
 	// public hub posture: absent base-monorepo dep is correct, but the skip
 	// must be visible in the boot log (W714)
-	const basePkgs = `${ROOT}/node_modules/fleet/packages`;
+	const basePkgs = `${HUB_FLEET_ROOT}/node_modules/fleet/packages`;
 	if (!existsSync(basePkgs)) {
 		console.log(`no ${basePkgs} — plain fleet checkout, linking skipped`);
 		process.exit(0);
 	}
-	for (const { name, dir } of linkBaseWorkspaces(ROOT)) {
+	// W816: the git-dep copy needs its own workspace closure (zod et al.)
+	// before anything boots from it; a failed closure install must fail the
+	// one-shot — not crash-loop a half-provisioned board.
+	const closure = installBaseClosure(HUB_FLEET_ROOT);
+	if (closure !== 0) process.exit(closure);
+	for (const { name, dir } of linkBaseWorkspaces(HUB_FLEET_ROOT)) {
 		console.log(`linked ${name} -> fleet/packages/${dir}`);
 	}
 }
