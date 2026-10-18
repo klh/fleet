@@ -28,12 +28,10 @@ import {
 	pinnedLeg,
 } from "../lib/oracle-legs.ts";
 import type { PanelRow } from "../lib/oracle-legs.ts";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
+import type { VerbSpec } from "../lib/verb-kit.ts";
 
 const argv = process.argv.slice(2);
-const arg = (name: string): string | null => {
-	const i = argv.indexOf(name);
-	return i >= 0 ? (argv[i + 1] ?? null) : null;
-};
 
 type Verb = "review" | "bugs" | "analyze" | "panel";
 const VERBS: Verb[] = ["review", "bugs", "analyze", "panel"];
@@ -41,25 +39,34 @@ const verb: Verb | null = VERBS.includes(argv[0] as Verb)
 	? (argv[0] as Verb)
 	: null;
 
-// positionals = non-flag args minus flag-value pairs (analyze topic words)
-const VALUE_FLAGS = new Set([
+// W820: parse rides verb-kit (W651) — kit owns flag consumption + the
+// Bun-strips-`--` reality; lax keeps legacy unknown-flag tolerance. The
+// embedded door keeps oracle's exit contract (0 answer · 1 usage · 2 leg).
+const VALUE_FLAGS = [
 	"--in",
 	"--repo",
 	"--base",
 	"--max-tokens",
 	"--timeout-secs",
-]);
-const topic: string[] = [];
-for (let i = 1; i < argv.length; i++) {
-	const a = argv[i];
-	if (a === undefined) break;
-	if (VALUE_FLAGS.has(a)) {
-		i++;
-		continue;
-	}
-	if (a.startsWith("--")) continue;
-	topic.push(a);
+];
+const specFor = (v: Verb): VerbSpec =>
+	defineVerb({
+		name: v,
+		usage: "usage: oracle <verb> [flags] [topic words] — try `oracle --help`",
+		flags: VALUE_FLAGS,
+		switches: ["--cloud", "--audit"],
+		lax: true,
+	});
+const rest = verb ? argv.slice(1) : [];
+if (rest.includes("--help") || rest.includes("-h")) {
+	console.log(usageText());
+	process.exit(0);
 }
+const outcome = verb ? parseVerb(specFor(verb), rest) : null;
+if (outcome && !outcome.ok) usage();
+const arg = (name: string): string | null =>
+	outcome?.ok ? (outcome.parsed.flag(name) ?? null) : null;
+const topic: string[] = outcome?.ok ? outcome.parsed.pos : [];
 
 // the FIXED contract — three frames, never free-form; the final lines are
 // machine-parseable (review's VERDICT matches review-lane.ts's parse)
@@ -127,20 +134,22 @@ async function collectInput(): Promise<string> {
 	return gitDiffIn(repo, arg("--base"));
 }
 
+function usageText(): string {
+	return [
+		"usage: oracle <verb> [flags] [topic words]",
+		"  review  review this diff — findings + final line VERDICT: PASS | VERDICT: FAIL - <reason>",
+		"  bugs    find bugs — one line each + final line BUGS: none | BUGS: <n> found",
+		"  analyze analyze this — WHAT/HOW/RISKS/OPEN QUESTIONS; bare topic words become FOCUS",
+		"  panel   decision advisory — fans the fork to BOTH legs, marks AGREE/DISAGREE on the VERDICT lines; --audit meters route_audit",
+		"input:  --in FILE | piped stdin | (review/bugs) --repo DIR working-tree diff (default cwd)",
+		"flags:  --cloud (stronger cloud route, glm-5.3) · --max-tokens N (default 1500) · --timeout-secs N (default 300)",
+		"env:    ORACLE_ROUTE_URL | ORACLE_ROUTE_KEY | ORACLE_ROUTE_MODEL (pinned leg, default :8903 local-reason)",
+		"stateless: one request, one answer; no threads, no history, no auto-routing.",
+	].join("\n");
+}
+
 function usage(): never {
-	console.error(
-		[
-			"usage: oracle <verb> [flags] [topic words]",
-			"  review  review this diff — findings + final line VERDICT: PASS | VERDICT: FAIL - <reason>",
-			"  bugs    find bugs — one line each + final line BUGS: none | BUGS: <n> found",
-			"  analyze analyze this — WHAT/HOW/RISKS/OPEN QUESTIONS; bare topic words become FOCUS",
-			"  panel   decision advisory — fans the fork to BOTH legs, marks AGREE/DISAGREE on the VERDICT lines; --audit meters route_audit",
-			"input:  --in FILE | piped stdin | (review/bugs) --repo DIR working-tree diff (default cwd)",
-			"flags:  --cloud (stronger cloud route, glm-5.3) · --max-tokens N (default 1500) · --timeout-secs N (default 300)",
-			"env:    ORACLE_ROUTE_URL | ORACLE_ROUTE_KEY | ORACLE_ROUTE_MODEL (pinned leg, default :8903 local-reason)",
-			"stateless: one request, one answer; no threads, no history, no auto-routing.",
-		].join("\n"),
-	);
+	console.error(usageText());
 	process.exit(1);
 }
 

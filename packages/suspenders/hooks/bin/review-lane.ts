@@ -13,16 +13,30 @@ import { resolveBelt } from "../lib/belt-locate.ts";
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
-// ---- args ------------------------------------------------------------------
-const argv = process.argv.slice(2);
-const arg = (name: string): string | null => {
-	const i = argv.indexOf(name);
-	return i >= 0 ? (argv[i + 1] ?? null) : null;
-};
-const item = arg("--item");
-const project = arg("--project");
-const executor = arg("--executor") ?? "claude";
+// ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
+// W820: verb-kit owns parsing (W651 law) — reqFlags --item/--project; the
+// kit usage line prints + exit 1 on violation; --help renders per-verb help.
+const spec = defineVerb({
+	name: "review",
+	usage: "usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+	flags: ["--item", "--project", "--executor", "--bin", "--belt", "--llm-url", "--llm-model"],
+	reqFlags: ["--item", "--project"],
+});
+const args = process.argv.slice(2);
+if (args.some((a) => a === "--help" || a === "-h")) {
+	console.log(renderVerbHelp(spec));
+	process.exit(0);
+}
+const parsedArgs = parseVerb(spec, args);
+if (!parsedArgs.ok) {
+	console.error(parsedArgs.message);
+	process.exit(1);
+}
+const item = parsedArgs.parsed.flag("--item");
+const project = parsedArgs.parsed.flag("--project");
+const executor = parsedArgs.parsed.flag("--executor") ?? "claude";
 if (!item || !project) {
 	console.error(
 		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
@@ -108,16 +122,19 @@ type Leg =
 	| { kind: "belt"; target: string }
 	| { kind: "llm"; url: string; model: string };
 const leg: Leg | null = (() => {
-	const bin = arg("--bin");
+	const bin = parsedArgs.parsed.flag("--bin");
 	if (bin) return { kind: "bin", bin };
-	const belt = arg("--belt");
+	const belt = parsedArgs.parsed.flag("--belt");
 	if (belt) return { kind: "belt", target: belt };
-	const url = arg("--llm-url");
+	const url = parsedArgs.parsed.flag("--llm-url");
 	if (url)
 		return {
 			kind: "llm",
 			url,
-			model: arg("--llm-model") ?? process.env.SUSPENDERS_LLM_MODEL ?? "local",
+			model:
+				parsedArgs.parsed.flag("--llm-model") ??
+				process.env.SUSPENDERS_LLM_MODEL ??
+				"local",
 		};
 	return null;
 })();
