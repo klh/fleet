@@ -12,7 +12,8 @@ Activate local-only mode. Do each step, in order:
 3. For the rest of this session:
    - Route all LLM inference to the local swarm: `http://127.0.0.1:4000`
      (Anthropic-compatible router) or direct ports — 8901 code · 8902
-     extract/simple · 8903 reason/architecture · 8912 classifier.
+     extract · 8903 reason · 8906 danish/general · 8907 embed · 8912
+     kev (typed classifier) · 8913 rerank.
    - NEVER call cloud LLM services (z.ai, GLM, or any remote model API) —
      not for inference, not as a fallback, not "just this once". The router
      will not escalate; do not bypass it by calling cloud endpoints directly.
