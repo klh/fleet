@@ -563,11 +563,11 @@ services:
     depends_on:
       model-store-hub:
         condition: service_started
-    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_MODEL_STORE_PORT:-7797}/health --listen ${HUB_MODEL_STORE_HEALTH_PORT:-7793}
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_MODEL_STORE_PORT:-7797}/health --listen ${HUB_MODEL_STORE_HEALTH_PORT:-7801}
     environment:
       HOME: /tmp
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
-      HUB_MODEL_STORE_HEALTH_PORT: ${HUB_MODEL_STORE_HEALTH_PORT:-7793}
+      HUB_MODEL_STORE_HEALTH_PORT: ${HUB_MODEL_STORE_HEALTH_PORT:-7801}
     volumes:
       - fleet-repo:/src/fleet:ro
     healthcheck:
