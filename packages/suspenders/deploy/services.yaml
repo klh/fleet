@@ -244,6 +244,9 @@ legacyLabels:
   - com.klh.local-llm
   - com.klh.watchdog
   - com.suspenders.local-llm
+  # W277 — retired :4100 litellm wrapper; a lingering loaded plist would run
+  # retired code (the supervisor's litellm target owns the engine now)
+  - com.belt.gateway
   # W779 heartbeat fold — the no-port maintenance agents are fleet-loop
   # typed tasks now; their launchd units retire (W779)
   - com.suspenders.fleet-monitor

@@ -1,27 +1,21 @@
-# LiteLLM proxy config — Anthropic-compatible front for local MLX models.
-# Serves /v1/messages (Anthropic shape) so `claude -p` can run fully local.
-# Backends: mlx_lm.server (Metal) on :8901. Start order:
-#   mlx_lm.server --port 8901 --model mlx-community/Qwen3-4B-4bit
-#   litellm --config ~/.claude/local-llm/litellm-config.yaml --port 4000
+# LiteLLM proxy config TEMPLATE — the :4100 cloud gateway engine.
+# The engine is supervisor-OWNED: belt/bin/litellm-target.ts spawns
+#   litellm --host 127.0.0.1 --config ~/.claude/local-llm/litellm.yaml --port 4100
+# (LITELLM_PORT, litellm-target.ts:22). The real config is machine-level
+# (config-over-code); this file only shows the shape. The model_list is
+# GENERATED — never hand-maintain it:
+#   bun bin/registry-emit.ts litellm   # from bin/registry.ts (chat rows)
 model_list:
-  - model_name: glm-5.2* # maps the env's "haiku"
+  - model_name: local-coder # registry alias (bin/registry.ts)
     litellm_params:
-      model: openai/mlx-community/Qwen3-4B-4bit
-      api_base: http://localhost:8901/v1
-      api_key: dummy
-      use_responses_api: false
-  - model_name: glm-5.3-flash* # maps "sonnet"
+      model: openai/<mlx-community-model-id>
+      api_base: http://127.0.0.1:8901/v1
+      api_key: local
+  - model_name: local-reason
     litellm_params:
-      model: openai/mlx-community/Qwen3-4B-4bit
-      api_base: http://localhost:8901/v1
-      api_key: dummy
-      use_responses_api: false
-  - model_name: glm-5.3* # maps "opus"
-    litellm_params:
-      model: openai/mlx-community/Qwen3-4B-4bit
-      api_base: http://localhost:8901/v1
-      api_key: dummy
-      use_responses_api: false
+      model: openai/<mlx-community-model-id>
+      api_base: http://127.0.0.1:8903/v1
+      api_key: local
 
 litellm_settings:
-  drop_params: true # tolerate Anthropic-only params MLX ignores
+  drop_params: true # tolerate Anthropic-only params the fleet ignores
