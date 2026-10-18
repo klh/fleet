@@ -50,6 +50,8 @@ exclude_patterns = [
   "packages/blam/paper/**",
   # W749: byte-sealed arena tasks — hashes pinned in MANIFEST.json, never reformat
   "packages/belt/bench/arena/tasks/**",
+  # W792: byte-sealed review-arena tasks — same law
+  "packages/belt/bench/arena/review-seal/**",
 ]
 
 test_patterns = [
