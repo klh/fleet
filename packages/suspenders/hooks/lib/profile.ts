@@ -3,8 +3,8 @@
 // section): spoke machines ship NO auth issuance / identity administration /
 // key custody — toward the hub a spoke presents the enrollment token as a
 // client credential and never verifies anyone; local trust is the loopback.
-// install.sh --profile spoke writes capabilities.json with the hub-only flags
-// off AND excludes the hub-only modules (hooks/lib/auth.ts,
+// sync-harness.ts writes capabilities.json at the prefix root with the
+// hub-only flags off AND excludes the hub-only modules (hooks/lib/auth.ts,
 // hooks/lib/auth-server.ts, hooks/bin/auth.ts, hooks/lib/hub-tokens.ts,
 // hooks/board/routes-hub-admin.ts) from the copied harness; hub (default) =
 // full profile — the
@@ -15,7 +15,7 @@
 // unparseable). The same names ride the federation policy pull
 // (buckle FedManifest.capabilities — pinned together by test/profile.test.ts)
 // so a spoke never expects hub-only surfaces.
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // ─── canonical names (the shared grammar — buckle mirrors these) ────────────
@@ -86,14 +86,22 @@ export function spokeCapabilities(): CapabilityFlags {
 
 // ─── resolution ──────────────────────────────────────────────────────────────
 
-// the harness root (bin/lib/… live one level under it): the installed prefix
-// and the repo checkout agree — hooks/ is the root in both. LIVE env read
-// (the auth.ts secretsHome pattern); KLH_CAPABILITIES_FILE overrides for
-// tests and nonstandard homes.
+// LIVE env read (the auth.ts secretsHome pattern); KLH_CAPABILITIES_FILE
+// overrides for tests and nonstandard homes. Default: installed prefix =
+// Bun realpaths import.meta.path, so the payload copy (reached via the
+// lib/ symlink) reports .harness/…/hooks/lib — walk up to the dir that
+// owns .harness, where sync-harness.ts writes the file (W736). No .harness
+// ancestor (repo checkout, tests) keeps the hooks-beside-lib fallback.
 export function capabilitiesFile(): string {
 	const override = process.env.KLH_CAPABILITIES_FILE?.trim();
 	if (override !== undefined && override.length > 0) return override;
 	const lib = dirname(import.meta.path);
+	let dir = dirname(lib);
+	while (dir !== dirname(dir)) {
+		if (existsSync(join(dir, ".harness")))
+			return join(dir, "capabilities.json");
+		dir = dirname(dir);
+	}
 	return join(dirname(lib), "capabilities.json");
 }
 
