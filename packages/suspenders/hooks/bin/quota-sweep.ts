@@ -11,14 +11,32 @@
 // verdict is reported without --act (a cron or a human should notice).
 import { openGovernorDb } from "../lib/govdb.ts";
 import { quotaSweep } from "../lib/quota-sweep.ts";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderVerbHelp,
+} from "../lib/verb-kit.ts";
+
+const SPEC = defineVerb({
+	name: "quota-sweep",
+	usage:
+		"usage: bun quota-sweep.ts [--act] [--json] [--sid <sid>] [--lookback-min 90] [--buckle-db <path>]",
+	flags: ["--sid", "--lookback-min", "--buckle-db"],
+	switches: ["--act", "--json"],
+});
 
 const argv = process.argv.slice(2);
-const val = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
-const act = argv.includes("--act");
-const json = argv.includes("--json");
+if (argv.includes("--help") || argv.includes("-h")) {
+	console.log(renderVerbHelp(SPEC));
+	process.exit(0);
+}
+const outcome = parseVerb(SPEC, argv);
+if (!outcome.ok) dieFor("quota-sweep")(outcome.message || (SPEC.usage ?? ""));
+const act = outcome.parsed.flag("--act") === "true";
+const json = outcome.parsed.flag("--json") === "true";
+const val = (flag: string): string | undefined =>
+	outcome.parsed.flag(flag) ?? undefined;
 
 const db = openGovernorDb();
 // sids holding an OPEN decision stay claimed even when dead (paired-lane
