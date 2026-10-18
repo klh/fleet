@@ -70,6 +70,23 @@ services:
     logs: { out: "__HOME__/.local/state/klh-local/dns.log" }
     placeholders: ["__BUN__", "__HOME__"]
 
+  # W801 — the klh-local bar :7792, re-owned here (W784 finding 1: the
+  # hand-installed com.klh-local.dashboard sat on the legacy boot-out list
+  # while nothing in this manifest served :7792 — the next install darked
+  # bar.local). Same runtime entry and log path as the old hand-installed
+  # unit; the legacy boot-out runs after activation, so the throttled
+  # retry absorbs the one-time port hand-off.
+  - name: local-bar
+    bunEntry: "__HOME__/.local/klh-local/bin/dashboard.ts"
+    args: []
+    port: 7792
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { keepalive: true, throttleSeconds: 10 }
+    logs: { out: "__HOME__/.local/state/klh-local/dashboard.log" }
+    placeholders: ["__BUN__", "__HOME__"]
+
   # Cloud transport remains available while the local model swarm is paused.
   # Only LiteLLM is owned here; model/router startup is never part of this unit.
   - name: cloud-gateway
@@ -255,6 +272,7 @@ legacyLabels:
   - com.suspenders.coord-worker
   - com.suspenders.auto-install
   - com.suspenders.soak
-  # old-namespace agents found loaded on machines (W779)
+  # old-namespace agents found loaded on machines (W779); the dashboard is
+  # the hand-installed bar agent — superseded by the local-bar unit (W801)
   - com.klh.kev
   - com.klh-local.dashboard

@@ -95,7 +95,7 @@ The registry, rendered live: [http://bar.local/](http://bar.local/) — one hair
 - [http://bar.local/api/status](http://bar.local/api/status) — the same snapshot as JSON, health results included
 - [http://bar.local/llms.txt](http://bar.local/llms.txt) — what klh-local is, in plain text
 
-The board runs as a user LaunchAgent (`com.klh-local.dashboard`, `127.0.0.1:7792` — loopback only, Host-checked, no absolute paths in `/api/status`, `KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override; logs to `~/.local/state/klh-local/dashboard.log`). `install.sh` sets it up and registers the board itself as a service — the bar is just another row in its own table:
+The board runs as a user LaunchAgent (`com.suspenders.local-bar`, rendered from the fleet manifest `packages/suspenders/deploy/services.yaml` (W801) — `127.0.0.1:7792` — loopback only, Host-checked, no absolute paths in `/api/status`, `KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override; logs to `~/.local/state/klh-local/dashboard.log`). `install.sh` deploys the code and registers the board as a service; the suspenders installer owns the unit — the bar is just another row in its own table:
 
 ```bash
 klh-local register bar --port 7792 --health /

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # klh-local installer — deploys bin/ to ~/.local/klh-local (the stable runtime
-# path; ~/.local/bin/klh-local symlinks into it), bootstraps the bar dashboard
-# LaunchAgent (com.klh-local.dashboard), and registers the dashboard itself as
-# a klh-local service: bar → :7792, served by caddy at http://bar.local/.
+# path; ~/.local/bin/klh-local symlinks into it) and registers the dashboard
+# itself as a klh-local service: bar → :7792, served by caddy at
+# http://bar.local/. The bar's LaunchAgent is manifest-owned (W801):
+# packages/suspenders/deploy/services.yaml renders com.suspenders.local-bar.
 # Idempotent: re-running converges (register converges by design; the agent is
 # bootout+bootstrap'd; bin/ files are refreshed in place).
 #   ./install.sh
@@ -29,22 +30,12 @@ echo "→ bin/ in place (klh-local → $PREFIX/bin/klh-local.ts)"
 echo "→ klh-local install (caddy + user LaunchAgent + Caddyfile — no-ops when already present)"
 bun "$PREFIX/bin/klh-local.ts" install
 
-# bar — the status dashboard, fronted by caddy at http://bar.local/
-if [[ "$(uname)" == "Darwin" ]]; then
-  echo "→ bar LaunchAgent (com.klh-local.dashboard)"
-  uid="$(id -u)"
-  out="$HOME/Library/LaunchAgents/com.klh-local.dashboard.plist"
-  # launchd has no login PATH — bake in the bun this shell resolves (Homebrew
-  # on either arch, or the default ~/.bun/bin install).
-  bun_bin="$(command -v bun)"
-  sed -e "s|__HOME__|$HOME|g" -e "s|__BUN__|$bun_bin|g" "$REPO_DIR/launchd/com.klh-local.dashboard.plist" >"$out"
-  plutil -lint "$out" >/dev/null
-  launchctl bootout "gui/$uid/com.klh-local.dashboard" 2>/dev/null || true
-  if ! launchctl bootstrap "gui/$uid" "$out"; then
-    sleep 1
-    launchctl bootstrap "gui/$uid" "$out"
-  fi
-fi
+# bar — the status dashboard, fronted by caddy at http://bar.local/. The
+# LaunchAgent is NOT installed here: the fleet manifest owns the unit
+# (com.suspenders.local-bar, rendered by the suspenders install with
+# launchd). Bootstrapping a second unit would double-own :7792 and flap
+# on EADDRINUSE.
+echo "→ bar unit: com.suspenders.local-bar (fleet manifest — not installed here)"
 
 echo "→ registering bar (bar.local → 127.0.0.1:7792)"
 bun "$PREFIX/bin/klh-local.ts" register bar --port 7792 --health /
@@ -53,7 +44,7 @@ echo
 echo "done. next:"
 echo "  board    http://bar.local/            (json: /api/status · intro: /llms.txt)"
 echo "  status   klh-local status"
-echo "  agent    launchctl print gui/$(id -u)/com.klh-local.dashboard"
+echo "  agent    launchctl print gui/$(id -u)/com.suspenders.local-bar"
 
 # ─── release notify: the distributed changelog (2026-09-30) ───
 # every deploy announces the live version on the coord bus; every session
