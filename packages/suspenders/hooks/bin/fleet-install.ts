@@ -22,9 +22,15 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import {
 	detectFleetTargets,
-	listTargets,
 	type FleetTarget,
+	listTargets,
 } from "../lib/targets.ts";
+import {
+	defineVerb,
+	dieFor,
+	parseVerb,
+	renderVerbHelp,
+} from "../lib/verb-kit.ts";
 
 const REPO = `${import.meta.dir}/../..`;
 
@@ -34,18 +40,33 @@ interface Flags {
 	dryRun: boolean;
 }
 
-function parseFlags(argv: string[]): Flags {
-	const flags: Flags = { yes: false, dryRun: false };
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a === "--yes" || a === "-y") flags.yes = true;
-		else if (a === "--dry-run") flags.dryRun = true;
-		else if (a === "--agent") {
-			const next = argv[++i] ?? "";
-			flags.agent = next === "*" ? ["*"] : next.split(",").map((s) => s.trim());
-		}
+// W820.2: argv rides verb-kit (W651) — embedded door. -y folds to --yes
+// pre-parse (the kit's vocabulary is long flags only); --agent keeps its
+// comma-list shape. Unknown flags die (was: silently ignored).
+function flagsOf(argv: string[]): Flags {
+	const norm = argv.map((a) => (a === "-y" ? "--yes" : a));
+	const SPEC = defineVerb({
+		name: "fleet-install",
+		usage: "usage: bun fleet-install.ts [--agent <name|*>] [--yes] [--dry-run]",
+		flags: ["--agent"],
+		switches: ["--yes", "--dry-run"],
+	});
+	if (norm.includes("--help") || norm.includes("-h")) {
+		console.log(renderVerbHelp(SPEC));
+		process.exit(0);
 	}
-	return flags;
+	const outcome = parseVerb(SPEC, norm);
+	if (!outcome.ok)
+		dieFor("fleet-install")(outcome.message || (SPEC.usage ?? ""));
+	const parsed = outcome.parsed;
+	return {
+		agent: parsed
+			.flag("--agent")
+			?.split(",")
+			.map((s) => s.trim()),
+		yes: parsed.flag("--yes") === "true",
+		dryRun: parsed.flag("--dry-run") === "true",
+	};
 }
 
 function exitCancelled(): never {
@@ -78,7 +99,7 @@ async function wireTarget(
 }
 
 async function main(): Promise<void> {
-	const flags = parseFlags(process.argv.slice(2));
+	const flags = flagsOf(process.argv.slice(2));
 	p.intro("suspenders fleet-install — wire hook gates across CLI targets");
 
 	const spinner = p.spinner();

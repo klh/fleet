@@ -10,18 +10,24 @@
 // usage: bun ~/.claude/bin/fleet-tracker.ts [--project p] [--history N]
 //        [--poll-ms N] [--once] [--no-color] [--help]
 import { openStore } from "../lib/govdb.ts";
+import { defineVerb, dieFor, parseVerb } from "../lib/verb-kit.ts";
 import { TrackerFeed } from "../tracker/feed.ts";
 import { renderFrame } from "../tracker/render.ts";
 import { type Detail, itemDetail, takeSnapshot } from "../tracker/snapshot.ts";
 
-const argv = process.argv.slice(2);
-const argOf = (name: string): string | null => {
-	const i = argv.indexOf(name);
-	return i >= 0 ? (argv[i + 1] ?? null) : null;
-};
-const has = (name: string): boolean => argv.includes(name);
+// W820.2: argv rides verb-kit (W651) — embedded door. The rich glyph legend
+// below stays hand-rolled (kit help is usage+flags; this TUI's help explains
+// the cells); the kit still owns parse + strict unknown-flag rejection.
+const SPEC = defineVerb({
+	name: "fleet-tracker",
+	usage:
+		"usage: bun fleet-tracker.ts [--project p] [--history N] [--poll-ms N] [--once] [--no-color]",
+	flags: ["--project", "--history", "--poll-ms"],
+	switches: ["--once", "--no-color"],
+});
 
-if (has("--help")) {
+const argv = process.argv.slice(2);
+if (argv.includes("--help") || argv.includes("-h")) {
 	console.log(`fleet-tracker — read-only terminal sidecar for live fleet lanes
 
   lanes are columns; transitions flow top→bottom; cells show work-item ids
@@ -40,12 +46,17 @@ usage: bun fleet-tracker.ts [--project p] [--history N] [--poll-ms N] [--once] [
 	process.exit(0);
 }
 
-const project = argOf("--project");
-const history = Math.max(1, Number(argOf("--history") ?? 400) || 400);
-const pollMs = Math.max(1000, Number(argOf("--poll-ms") ?? 5000) || 5000);
-const once = has("--once");
+const outcome = parseVerb(SPEC, argv);
+if (!outcome.ok) dieFor("fleet-tracker")(outcome.message || (SPEC.usage ?? ""));
+const parsed = outcome.parsed;
+const project = parsed.flag("--project");
+const history = Math.max(1, Number(parsed.flag("--history") ?? 400) || 400);
+const pollMs = Math.max(1000, Number(parsed.flag("--poll-ms") ?? 5000) || 5000);
+const once = parsed.flag("--once") === "true";
 const useColor =
-	!has("--no-color") && process.stdout.isTTY && !process.env.NO_COLOR;
+	parsed.flag("--no-color") !== "true" &&
+	process.stdout.isTTY &&
+	!process.env.NO_COLOR;
 // piped frames get a wide canvas — the TUI follows the real terminal
 const defaultWidth = once ? 240 : 100;
 

@@ -24,10 +24,11 @@
 //   --root-map override → origin_sid's session → contributors' sessions →
 //   domain-basename match.
 import { Database } from "bun:sqlite";
-import { basename } from "node:path";
 import { realpathSync } from "node:fs";
-import { extractDocPaths, pointerFromText } from "../lib/knowledge.ts";
+import { basename } from "node:path";
 import { projectRootOf } from "../lib/govdb.ts";
+import { extractDocPaths, pointerFromText } from "../lib/knowledge.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 export interface ResweepRow {
 	id: number;
@@ -271,13 +272,29 @@ function parseRootMap(spec: string | undefined): Map<string, string[]> {
 }
 
 function main(): void {
+	// W820.2: argv rides verb-kit (W651) — embedded door; strict parse (an
+	// unknown flag was silently ignored before).
+	const SPEC = defineVerb({
+		name: "knowledge-resweep",
+		usage:
+			"usage: bun knowledge-resweep.ts [--write] [--verbose] [--db <path>] [--root-map dom=path,...]",
+		flags: ["--db", "--root-map"],
+		switches: ["--write", "--verbose"],
+	});
 	const args = process.argv.slice(2);
-	const write = args.includes("--write");
-	const verbose = args.includes("--verbose");
-	const dbFlag = args.indexOf("--db");
-	const dbPath = dbFlag >= 0 ? (args[dbFlag + 1] ?? DEFAULT_DB) : DEFAULT_DB;
-	const rmFlag = args.indexOf("--root-map");
-	const rootMap = parseRootMap(rmFlag >= 0 ? args[rmFlag + 1] : undefined);
+	if (args.includes("--help") || args.includes("-h")) {
+		console.log(renderVerbHelp(SPEC));
+		process.exit(0);
+	}
+	const outcome = parseVerb(SPEC, args);
+	if (!outcome.ok) {
+		console.error(outcome.message || (SPEC.usage ?? ""));
+		process.exit(2);
+	}
+	const write = outcome.parsed.flag("--write") === "true";
+	const verbose = outcome.parsed.flag("--verbose") === "true";
+	const dbPath = outcome.parsed.flag("--db") ?? DEFAULT_DB;
+	const rootMap = parseRootMap(outcome.parsed.flag("--root-map") ?? undefined);
 	// bun:sqlite: readonly must be true or OMITTED — { readonly: false } is
 	// SQLITE_MISUSE ("flags must include SQLITE_OPEN_READONLY or READWRITE")
 	const db = write
