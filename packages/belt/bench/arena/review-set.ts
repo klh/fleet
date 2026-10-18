@@ -68,11 +68,19 @@ function buildTask(
 		...site.bug,
 		...base.slice(site.at + site.bug.length),
 	];
+	// ground-truth line = the first spliced line that actually differs
+	let at = site.at;
+	for (let k = 0; k < site.bug.length; k++) {
+		if ((site.bug[k] ?? "") !== (base[site.at + k] ?? "")) {
+			at = site.at + k;
+			break;
+		}
+	}
 	const defect: Defect = {
 		id: `d-${site.cls}`,
 		cls: site.cls,
 		file,
-		line: site.at + 1,
+		line: at + 1,
 		desc: site.desc,
 	};
 	return {
@@ -82,6 +90,7 @@ function buildTask(
 		mission: "Land this utility — behavior must match the file-header contract.",
 		diff: unifiedDiff(file, base, buggy),
 		defects: [defect],
+		files: { buggy: { [file]: buggy.join("\n") }, fixed: { [file]: base.join("\n") } },
 	};
 }
 
@@ -106,6 +115,7 @@ export function cleanTasks(nClean = 12): ReviewTask[] {
 			mission: "Land this addition — the helper is unused until a follow-up item wires it in.",
 			diff: unifiedDiff(f.file, base, full),
 			defects: [],
+			files: { buggy: { [f.file]: full.join("\n") }, fixed: { [f.file]: base.join("\n") } },
 		});
 	}
 	return out;

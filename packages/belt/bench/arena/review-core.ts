@@ -42,6 +42,9 @@ export interface ReviewTask {
 	mission: string; // the stated intent a reviewer checks the diff against
 	diff: string; // unified diff, fixed → buggy (the + lines carry the defect)
 	defects: Defect[]; // empty for clean tasks
+	/** Full buggy/fixed file content for the defected file(s) — the arm-B
+	 *  fixer leg edits the real file, rounds re-diff against `fixed`. */
+	files?: { buggy: Record<string, string>; fixed: Record<string, string> };
 }
 
 // ---------------------------------------------------------------- findings
@@ -70,7 +73,10 @@ export const REVIEW_LEGS = {
 	reviewer: { port: envPort("REVIEW_REVIEWER_PORT", 8903), tier: "reason" },
 	verifier: { port: envPort("REVIEW_VERIFIER_PORT", 8903), tier: "reason" },
 	fixer: { port: envPort("REVIEW_FIXER_PORT", 8901), tier: "coder" },
-	triage: { port: envPort("REVIEW_TRIAGE_PORT", 8912), tier: "kev" },
+	/** v1 deviation: :8912 kev speaks its SystemOne wire (state+questions),
+	 *  not the openai chat wire the arena legs share — the kev ROLE (severity/
+	 *  class triage) rides the extract tier; REVIEW_TRIAGE_PORT re-points. */
+	triage: { port: envPort("REVIEW_TRIAGE_PORT", 8902), tier: "extract (kev-role)" },
 } as const;
 export type LegName = keyof typeof REVIEW_LEGS;
 

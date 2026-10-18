@@ -95,7 +95,10 @@ export function incidentTask(def: IncidentDef, repo: string): ReviewTask {
 		.filter(Boolean)
 		.join("\n");
 	if (!diff.trim())
-		throw new Error(`incident ${def.id}: empty diff for ${def.sha} (${def.paths.join(", ")})`);
+		throw new Error(`incident def ${def.id}: empty diff for ${def.sha} (${def.paths.join(", ")})`);
+	const defectFile = def.defects[0]?.file;
+	const buggy = defectFile ? git(["show", `${parent}:${defectFile}`], repo) : "";
+	const fixed = defectFile ? git(["show", `${def.sha}:${defectFile}`], repo) : "";
 	return {
 		id: def.id,
 		src: "incident",
@@ -103,6 +106,9 @@ export function incidentTask(def: IncidentDef, repo: string): ReviewTask {
 		mission: def.mission,
 		diff,
 		defects: incidentDefects(def, repo),
+		files: defectFile
+			? { buggy: { [defectFile]: buggy }, fixed: { [defectFile]: fixed } }
+			: undefined,
 	};
 }
 
