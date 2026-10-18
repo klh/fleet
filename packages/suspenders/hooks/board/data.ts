@@ -28,6 +28,7 @@ import {
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chunked } from "./helpers.ts";
+import { collapseDups } from "./decision-dups.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
@@ -798,25 +799,21 @@ export function decisionRecords(
 }
 
 // W663 follow-up (2026-10-12): the UI polls /api/data + /api/decisions every
-// ~1s while one compute costs ~2s (spawnSync-heavy store hops) — stacked
-// recomputes pushed wire TTFB to 5-7s. One shared memo: the first request
-// after expiry computes decisions+data once; the poll storm rides the cache.
-let _feed: {
-	at: number;
-	records: Record<string, unknown>[];
-	data: unknown;
-} | null = null;
+// ~1s while one compute costs ~2s (store round-trips on hub bindings) —
+// stacked recomputes pushed wire TTFB to 5-7s. One shared memo for the
+// /api/data half; the poll storm rides the cache.
+// W798: the memo now covers /api/data only — /api/decisions recomputes every
+// call. The decisions contract ("fork counts must reflect events the poll
+// hasn't seen", routes-data.ts /api/tasks comment) is a freshness contract:
+// a 1.5s memo made new forks invisible after emit and answered rows stale
+// after POST /api/answer (fixture suite red since the memo landed; W798
+// probe: new forks invisible for up to 1.5s).
+let _feed: { at: number; data: unknown } | null = null;
 const FEED_TTL_MS = 1_500;
 
-function feedMemo(): {
-	at: number;
-	records: Record<string, unknown>[];
-	data: unknown;
-} {
+function feedMemo(): { at: number; data: unknown } {
 	if (_feed && Date.now() - _feed.at < FEED_TTL_MS) return _feed;
-	syncDecisions();
-	const records = decisionRecords(null);
-	_feed = { at: Date.now(), records, data: buildPayload() };
+	_feed = { at: Date.now(), data: buildPayload() };
 	return _feed;
 }
 
@@ -825,9 +822,10 @@ export function decisionsPayload(
 	project: string | null = null,
 ): unknown {
 	const selected = project && project !== "all" ? project : null;
-	const recs = feedMemo().records.filter(
-		(r) => !selected || r.project === selected,
-	);
+	// W798: always-fresh — sync + records recompute per call; only /api/data
+	// rides the memo (feedMemo).
+	syncDecisions();
+	const recs = collapseDups(decisionRecords(selected));
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];

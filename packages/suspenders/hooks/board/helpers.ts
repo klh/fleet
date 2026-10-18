@@ -116,6 +116,22 @@ export function chunked<T>(
 	for (let i = 0; i < values.length; i += size) fn(values.slice(i, i + size));
 }
 
+// W798: a handler throw must never surface as an empty-body error (the
+// client sees "Unexpected end of JSON input" and the failure is invisible
+// server-side) — the outer fetch wraps EVERY response; a rejection lands a
+// JSON 500 + console.error instead.
+export async function withBoardErrors(
+	req: Request,
+	inner: () => Promise<Response>,
+): Promise<Response> {
+	try {
+		return await inner();
+	} catch (err) {
+		console.error(`[board] ${req.method} ${new URL(req.url).pathname}:`, err);
+		return json({ ok: false, error: "internal error" }, 500);
+	}
+}
+
 // failure notes ride the work.failed event payload ($.work = item id) — the
 // board shows why a lane died, not just that it died
 // W64 ship-trigger helpers — merging a lane branch is safe only when no live

@@ -11,6 +11,7 @@
 import type { Database } from "bun:sqlite";
 import { BIND, db, PORT } from "../board/context.ts";
 import { projectList } from "../board/lanes.ts";
+import { withBoardErrors } from "../board/helpers.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { openIdentity, tokenUsage } from "../lib/govdb.ts";
 import {
@@ -162,10 +163,12 @@ Bun.serve({
 			write: isWriteMethod(req.method),
 		});
 		if (denied) return denied;
-		return withWriteCookie(
-			await inner(req),
-			req,
-			server.requestIP(req)?.address ?? null,
+		return withBoardErrors(req, async () =>
+			withWriteCookie(
+				await inner(req),
+				req,
+				server.requestIP(req)?.address ?? null,
+			),
 		);
 	},
 });
