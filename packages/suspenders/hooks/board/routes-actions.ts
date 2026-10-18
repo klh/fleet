@@ -447,6 +447,10 @@ export async function handleActions(
 			.trim()
 			.slice(0, 2000);
 		const token = String(parsed.body?.token ?? "");
+		// W798 class ruling: ids = [primary, …members] resolves the whole
+		// class in one POST (docs/decisions-api.md)
+		if (parsed.body?.ids !== undefined)
+			return classRuling(parsed.body.ids, note);
 		if (!id || !to || !note || !token)
 			return json({ ok: false, error: "missing id, to, note or token" }, 400);
 		syncDecisions();
@@ -1150,4 +1154,46 @@ export async function handleActions(
 		return json({ ok: true, item: id, executor, started: true });
 	}
 	return null;
+}
+
+// W798 class ruling (docs/decisions-api.md): ids = [primary, …members] —
+// one POST resolves the class: every OPEN member gets an owner ruling via
+// recordOwnerRuling (own ANSWER bus event, token rotated) without per-member
+// tokens — the write token guards the route; answer_token is stale-
+// protection for the single-card path.
+function classRuling(ids: unknown, note: string): Response {
+	const classIds = Array.isArray(ids)
+		? (ids as unknown[])
+				.map(Number)
+				.filter((n) => Number.isInteger(n) && n > 0)
+				.slice(0, 50)
+		: [];
+	if (!classIds.length || !note)
+		return json({ ok: false, error: "missing note or valid ids" }, 400);
+	syncDecisions();
+	const applied: number[] = [];
+	const skipped: number[] = [];
+	for (const cid of classIds) {
+		const r = db
+			.query(
+				"SELECT target, answer_token FROM decisions WHERE event_id = ? and state = 'OPEN'",
+			)
+			.get(cid) as {
+			target: string | null;
+			answer_token: string | null;
+		} | null;
+		if (!r) {
+			skipped.push(cid);
+			continue;
+		}
+		const verdict = recordOwnerRuling(
+			cid,
+			r.target ?? "",
+			note,
+			r.answer_token ?? "",
+		);
+		if (verdict.status === 200) applied.push(cid);
+		else skipped.push(cid);
+	}
+	return json({ ok: true, ruling: true, applied, skipped }, 200);
 }

@@ -443,4 +443,95 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		expect(second.json.started).toBe(false);
 		sdb.close();
 	});
+
+	test("W798: same-anchor OPEN forks collapse — primary dup_count, member dup_of", async () => {
+		run("coord.ts", [
+			"emit",
+			"NEED_DECISION",
+			"--to",
+			"board-lane",
+			"--note",
+			"scrub rule for /p/a/wake.ts:42?",
+			"--as",
+			"board-lane",
+		]);
+		run("coord.ts", [
+			"emit",
+			"NEED_DECISION",
+			"--to",
+			"board-lane",
+			"--note",
+			"scrub rule for /p/a/wake.ts:99?",
+			"--as",
+			"board-lane",
+		]);
+		const feed = await getDecisions();
+		const all = feed.decisions.filter((d: Row) =>
+			String(d.question).includes("wake.ts"),
+		);
+		expect(all.length).toBe(2);
+		const primary = all.find((d: Row) => d.dup_count);
+		const member = all.find((d: Row) => d.dup_of);
+		expect(primary?.dup_count).toBe(2);
+		expect(member?.dup_of).toBe(primary?.id);
+	});
+
+	test("W798: OPEN fork on a DONE task ages out to CANCELLED on sync", async () => {
+		const wid = addWork("done-task fork");
+		run("coord.ts", [
+			"emit",
+			"NEED_DECISION",
+			"--to",
+			"board-lane",
+			"--note",
+			"still needed?",
+			`--work=${wid}`,
+			"--as",
+			"board-lane",
+		]);
+		const rec = fork(await getDecisions(), "still needed?");
+		expect(rec).toBeDefined();
+		const wdb = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		wdb.run("PRAGMA busy_timeout = 4000");
+		wdb.run(
+			"UPDATE work_items SET state = 'DONE', updated_at = ? WHERE id = ?",
+			[Date.now(), wid],
+		);
+		wdb.close();
+		const after = fork(await getDecisions(), "still needed?");
+		expect(after.state).toBe("CANCELLED");
+	});
+
+	test("W798: one POST with ids[] resolves the class per-member", async () => {
+		for (const ln of ["1", "7"]) {
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"board-lane",
+				"--note",
+				`scrub rule for /q/b/paths.ts:${ln}?`,
+				"--as",
+				"board-lane",
+			]);
+		}
+		const feed = await getDecisions();
+		const pair = feed.decisions.filter((d: Row) =>
+			String(d.question).includes("paths.ts"),
+		);
+		expect(pair.length).toBe(2);
+		const primary = pair.find((d: Row) => d.dup_count);
+		const member = pair.find((d: Row) => d.dup_of);
+		expect(primary && member).toBeTruthy();
+		const res = await post("/api/answer", {
+			ids: [primary.id, member.id],
+			note: "one ruling covers the class",
+		});
+		expect(res.status).toBe(200);
+		expect(res.json.ruling).toBe(true);
+		expect(res.json.applied.length).toBe(2);
+		const h = await getDecisions();
+		expect(fork(h, "scrub rule for /q/b/paths.ts:1?").state).toBe("ANSWERED");
+		expect(fork(h, "scrub rule for /q/b/paths.ts:7?").state).toBe("ANSWERED");
+	});
 });

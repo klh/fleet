@@ -199,6 +199,17 @@ export function syncDecisions(): void {
 		db.query(
 			"UPDATE decisions SET state = 'CANCELLED', closed_at = ?, answer_token = ? WHERE event_id = ? AND state = 'OPEN'",
 		).run(now, crypto.randomUUID(), d.id);
+	// OPEN → CANCELLED (W798): the linked task landed DONE — the work graph
+	// already decided; the fork ages out on the next sync
+	for (const d of db
+		.query(
+			`SELECT d.event_id AS id FROM decisions d WHERE d.state = 'OPEN' AND d.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM work_items w
+			WHERE w.id = d.task_id AND w.state = 'DONE')`,
+		)
+		.all() as { id: number }[])
+		db.query(
+			"UPDATE decisions SET state = 'CANCELLED', closed_at = ?, answer_token = ? WHERE event_id = ? AND state = 'OPEN'",
+		).run(now, crypto.randomUUID(), d.id);
 	// ANSWERED → ACKNOWLEDGED (best-effort heuristic, monotonic): the lane the
 	// answer was addressed to produced a checkpoint/message after answered_ts —
 	// it read the answer and moved on

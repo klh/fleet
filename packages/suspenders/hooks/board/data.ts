@@ -28,6 +28,7 @@ import {
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chunked } from "./helpers.ts";
+import { collapseDups } from "./decision-dups.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
@@ -824,7 +825,7 @@ export function decisionsPayload(
 	// W798: always-fresh — sync + records recompute per call; only /api/data
 	// rides the memo (feedMemo).
 	syncDecisions();
-	const recs = decisionRecords(selected);
+	const recs = collapseDups(decisionRecords(selected));
 	const open = recs.filter((r) => r.state === "OPEN") as {
 		project?: string | null;
 	}[];

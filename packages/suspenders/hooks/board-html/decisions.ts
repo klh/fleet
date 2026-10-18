@@ -9,7 +9,9 @@ function openDecs(){
   var ds = (lastDec && lastDec.decisions) || [];
   var out = [];
   for (var i = 0; i < ds.length; i++) {
-    if (decisionInProject(ds[i]) && (!ds[i].state || ds[i].state === 'OPEN')) out.push(ds[i]);
+    var d = ds[i];
+    if (d.dup_of) continue; // W798: members render under the primary's "+N like this" badge
+    if (decisionInProject(d) && (!d.state || d.state === 'OPEN')) out.push(d);
   }
   return out;
 }
@@ -222,6 +224,17 @@ function decNode(d){
   staleEl.textContent = staleTxt;
   staleEl.className = 'dstale pill' + (staleTxt ? ' block' : '');
   staleEl.style.display = staleTxt ? '' : 'none';
+  var dupEl = q.querySelector('.ddup');
+  if (!dupEl) {
+    dupEl = document.createElement('span');
+    dupEl.className = 'ddup pill';
+    var dh = q.querySelector('.dhead');
+    var ageEl = q.querySelector('.dage');
+    if (ageEl) dh.insertBefore(dupEl, ageEl); else dh.appendChild(dupEl);
+  }
+  var dupTxt = d.dup_count > 1 ? '+' + (d.dup_count - 1) + ' like this' : '';
+  dupEl.textContent = dupTxt;
+  dupEl.style.display = dupTxt ? '' : 'none';
   setText(q.querySelector('.dage'), ago(decAge(d)));
   setText(q.querySelector('.dq'), d.question || '(no question text)');
   var blocks = 'blocks: ' + (d.task_title || (d.task_id ? 'task ' + d.task_id : 'no linked task'));
@@ -333,9 +346,15 @@ function sendAns(id){
   answering[id] = true;
   delete ansErr[id];
   q.querySelector('.send').disabled = true;
-  // contract POST /api/answer: token the client read + note; to/forEvent kept
-  // for backward compatibility with the pre-contract backend
-  postJSON('/api/answer', { id: id, token: d.answer_token, note: note, to: d.asked_by, forEvent: id })
+  // W798 class ruling: a primary with dup_count resolves the whole class —
+  // members (dup_of === id) ride the same POST as ids[]
+  var members = [];
+  var ds2 = (lastDec && lastDec.decisions) || [];
+  for (var mi = 0; mi < ds2.length; mi++) if (ds2[mi].dup_of === id) members.push(ds2[mi].id);
+  var payload = d.dup_count > 1
+    ? { ids: [id].concat(members), note: note }
+    : { id: id, token: d.answer_token, note: note, to: d.asked_by, forEvent: id };
+  postJSON('/api/answer', payload)
     .then(function(res){
       delete answering[id];
       if (res && res.ok) {
