@@ -131,6 +131,41 @@ test("show --json gives dispatcher state and exact owner in either flag order", 
 	expect(work("show", "--json").code).not.toBe(0);
 });
 
+test("show takes comma- or space-separated id lists (W795)", () => {
+	const a = idOf(work("add", "showlist a", "--by", "t").out);
+	const b = idOf(work("add", "showlist b", "--by", "t").out);
+	// comma-separated: one rendered item per line
+	const comma = work("show", `${a},${b}`);
+	expect(comma.code).toBe(0);
+	const lines = comma.out.trim().split("\n");
+	expect(lines).toHaveLength(2);
+	expect(lines[0]).toContain(a);
+	expect(lines[1]).toContain(b);
+	// space-separated: identical result
+	const spaced = work("show", a, b);
+	expect(spaced.code).toBe(0);
+	expect(firstLine(spaced.out)).toContain(a);
+	expect(spaced.out).toContain(b);
+	// --json: NDJSON, one object per id
+	const json = work("show", "--json", `${a},${b}`);
+	expect(json.code).toBe(0);
+	const rows = json.out.trim().split("\n").map((l) => JSON.parse(l));
+	expect(rows.map((r) => (r as { id: string }).id)).toEqual([a, b]);
+	// a bad id in the list still dies with the standard refusal
+	expect(work("show", `${a},W99999999`).code).not.toBe(0);
+});
+
+test("retry takes comma-separated id lists (W795)", () => {
+	const fa = idOf(work("add", "retrylist a", "--by", "t").out);
+	const fb = idOf(work("add", "retrylist b", "--by", "t").out);
+	expect(work("fail", fa, "--note", "x").code).toBe(0);
+	expect(work("fail", fb, "--note", "x").code).toBe(0);
+	const r = work("retry", `${fa},${fb}`);
+	expect(r.code).toBe(0);
+	expect(r.out).toContain(`${fa} READY`);
+	expect(r.out).toContain(`${fb} READY`);
+});
+
 test("stats reports project graph counts as structured data", () => {
 	const result = work("stats");
 	expect(result.code).toBe(0);
