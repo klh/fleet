@@ -45,7 +45,7 @@ git clone https://github.com/klh/fleet && cd fleet/packages/belt
 ./install.sh                      # deploy bin/ to ~/.claude/local-llm/ (full tier)
 ./install.sh --tier minimal       # small machines: resident fleet ≤4GB (:8902 extract + :8913 rerank)
 ./install.sh --with-models        # + deps (uv/mlx-lm/rapid-mlx) + model weights (~40-60 GB)
-./install.sh --with-launchd       # + KeepAlive agents (com.belt.swarm, com.belt.kev, per-port rapid servers)
+./install.sh --with-launchd       # + KeepAlive agents (com.suspenders.belt-swarm, com.belt.dashboard, com.belt.kev, com.belt.mcp)
 ```
 
 **Tiers.** `BELT_TIER` (or `--tier minimal|full` at install time) scopes the

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.belt.swarm</string>
+    <string>com.suspenders.belt-swarm</string>
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/bun</string>
@@ -24,6 +24,8 @@
     <dict>
         <key>PATH</key>
         <string>__HOME__/.local/bin:__HOME__/.local/share/uv/tools/mlx-lm/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>BELT_WIRED_GUARD_GB</key>
+        <string>90</string>
     </dict>
     <!-- Swarm: resident specialists (see bin/registry.ts, ~41GB) + router.
          `supervise` is long-running: it respawns a dead :4000 shim, resident
