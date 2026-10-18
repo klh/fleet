@@ -366,12 +366,18 @@ function execOptions(pick){
   }
   return opts;
 }
-function kanbanCard(t){
+function kanbanCard(t, fam){
   var od = t.open_decisions || 0;
   var startable = t.state === 'READY' && !t.owner_sid;
   var active = (t.state === 'CLAIMED' || t.state === 'RUNNING') && t.owner_sid;
-  var html = '<div class="kcard"' + preferStyle(t) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
-  html += '<div class="krow">' + taskPill(t.state) +
+  var kid = fam && fam.nested[String(t.id)];
+  var kidStyle = '';
+  if (kid) {
+    if (kid.c) kidStyle += '--prefer:' + esc(kid.c) + ';';
+    kidStyle += 'margin-left:' + (Math.min(kid.d, 2) * 14) + 'px';
+  }
+  var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
+  html += '<div class="krow">' + (kid ? '<span class="kidmark">↳</span>' : '') + taskPill(t.state) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
     '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
@@ -440,6 +446,67 @@ function depOrder(items){
   for (i = 0; i < order.length; i++) pos[order[i]] = i;
   return items.slice().sort(function(a, b){ return pos[tkey(a)] - pos[tkey(b)]; });
 }
+// W819 — shattered-family grouping: non-terminal children of a SHATTERED
+// parent render directly beneath the parent card (dashed border in the
+// parent's --prefer color) instead of as scattered state-column siblings.
+// Terminal children (DONE/CANCELLED) stay in their state columns; a child
+// whose parent is absent from the pool stays put. kanbanFamIndex() finds the
+// anchors (SHATTERED items whose parent is absent or not SHATTERED — the
+// WAITING residents family subtrees hang from).
+function kanbanFamIndex(pool){
+  var byId = {}, anch = {}, i, id;
+  for (i = 0; i < pool.length; i++) byId[String(pool[i].id)] = pool[i];
+  for (id in byId){
+    var s = byId[id];
+    if (s.state !== 'SHATTERED') continue;
+    var dot = id.lastIndexOf('.'), pid = dot > 0 ? id.slice(0, dot) : null;
+    var par = pid ? byId[pid] : null;
+    if (!par || par.state !== 'SHATTERED') anch[id] = s;
+  }
+  return {byId: byId, anch: anch};
+}
+// kanbanFamilies() resolves the nested-shattered-family layout: nested maps
+// childId → {a: anchorId, d: depth, c: color} (the nearest SHATTERED
+// ancestor carries the color); under maps anchorId → depth-first subtree.
+function kanbanFamilies(pool){
+  var idx = kanbanFamIndex(pool), byId = idx.byId, anch = idx.anch;
+  var nested = {}, kidsOf = {};
+  function resolve(t){
+    if (t.state === 'DONE' || t.state === 'CANCELLED') return null;
+    var id2 = String(t.id), dot = id2.lastIndexOf('.'), pid = dot > 0 ? id2.slice(0, dot) : null;
+    if (!pid) return null;
+    var par = byId[pid];
+    if (!par) return null;
+    if (anch[pid]) return {a: pid, d: 1};
+    var up = resolve(par);
+    return up ? {a: up.a, d: up.d + 1} : null;
+  }
+  var id;
+  for (id in byId){
+    var x = byId[id], n = resolve(x);
+    if (!n) continue;
+    n.c = byId[n.a].tag_color ? String(byId[n.a].tag_color) : '';
+    nested[id] = n;
+    var kdot = id.lastIndexOf('.'), kpid = kdot > 0 ? id.slice(0, kdot) : null;
+    (kidsOf[kpid] || (kidsOf[kpid] = [])).push(x);
+  }
+  // depth-first subtree render order per anchor: kids by age, grandchildren
+  // following their parent
+  var under = {};
+  function walk(pid, out){
+    var ks = (kidsOf[pid] || []).slice().sort(function(x, y){ return (x.age_s || 0) - (y.age_s || 0); });
+    for (var k = 0; k < ks.length; k++){
+      out.push(ks[k]);
+      walk(String(ks[k].id), out);
+    }
+  }
+  for (var a in anch){
+    var out = [];
+    walk(a, out);
+    if (out.length) under[a] = out;
+  }
+  return {nested: nested, under: under};
+}
 function renderKanban(){
   if (curTab !== 'lanes') return;
   var el = byId('kanban');
@@ -457,17 +524,24 @@ function renderKanban(){
   if (hashFilter) ts = ts.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
   var html = '<div class="kanban">';
   var shownAll = [];
+  var fam = kanbanFamilies(ts);
   for (var c = 0; c < KCOLS.length; c++) {
     var col = KCOLS[c];
     var items = ts.filter(function(t){ return col.states.indexOf(t.state) >= 0; });
     items.sort(function(a, b){ return (a.age_s || 0) - (b.age_s || 0); }); // newest activity first
     items = depOrder(items); // W214: provider above dependent, splines flow top-down
-    var shown = col.cap ? items.slice(0, col.cap) : items;
-    shownAll = shownAll.concat(shown);
-    html += '<div class="kcol"><h3>' + esc(col.label) + '<span class="kcount">' + items.length + '</span></h3>';
-    for (var i = 0; i < shown.length; i++) html += kanbanCard(shown[i]);
-    if (!items.length) html += '<div class="kempty dim">(empty)</div>';
-    else if (col.cap && items.length > col.cap) html += '<div class="kempty dim">+' + (items.length - col.cap) + ' older — the table has all</div>';
+    var resid = [];
+    for (var r = 0; r < items.length; r++) if (!fam.nested[String(items[r].id)]) resid.push(items[r]);
+    var shown = col.cap ? resid.slice(0, col.cap) : resid;
+    html += '<div class="kcol"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
+    for (var i = 0; i < shown.length; i++){
+      shownAll.push(shown[i]);
+      html += kanbanCard(shown[i], fam);
+      var sub = fam.under[String(shown[i].id)];
+      if (sub) for (var k = 0; k < sub.length; k++){ shownAll.push(sub[k]); html += kanbanCard(sub[k], fam); }
+    }
+    if (!resid.length) html += '<div class="kempty dim">(empty)</div>';
+    else if (col.cap && resid.length > col.cap) html += '<div class="kempty dim">+' + (resid.length - col.cap) + ' older — the table has all</div>';
     html += '</div>';
   }
   html += '</div>';
