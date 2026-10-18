@@ -87,6 +87,10 @@ interface ManifestFile {
 	labelPrefix: string;
 	defaults?: { schedule?: Partial<Schedule> };
 	services: unknown[];
+	/** W779: retired launchd labels — boot-out + plist removal at the next
+	 *  install --with-launchd. Config-over-code: install-launchd reads THIS
+	 *  list (loadLegacyLabels); the TS const is gone. */
+	legacyLabels?: unknown;
 }
 
 export interface RenderValues {
@@ -115,7 +119,12 @@ const KNOWN_SCHEDULE_KEYS = new Set([
 	"calendar",
 	"throttleSeconds",
 ]);
-const KNOWN_MANIFEST_KEYS = new Set(["labelPrefix", "defaults", "services"]);
+const KNOWN_MANIFEST_KEYS = new Set([
+	"labelPrefix",
+	"defaults",
+	"services",
+	"legacyLabels",
+]);
 const KNOWN_SERVICE_KEYS = new Set([
 	"name",
 	"label",
@@ -265,6 +274,19 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 		if (!KNOWN_SCHEDULE_KEYS.has(k))
 			throw new Error(`${path}: unknown schedule key "${k}" in defaults`);
 	}
+	// W779: validate the boot-out list alongside the services — a label
+	// that is not a non-empty string would silently degrade the boot-out
+	const labels = raw.legacyLabels;
+	if (labels !== undefined) {
+		if (!Array.isArray(labels))
+			throw new Error(`${path}: legacyLabels must be an array`);
+		labels.forEach((l, i) => {
+			if (typeof l !== "string" || l.trim() === "")
+				throw new Error(
+					`${path}: legacyLabels[${i}] must be a non-empty string`,
+				);
+		});
+	}
 	const out: ServiceSpec[] = [];
 	for (const entry of raw.services) {
 		if (!isPlainObject(entry))
@@ -326,6 +348,21 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 	if (out.length === 0)
 		throw new Error(`${path}: manifest declares no services`);
 	return out;
+}
+
+// W779: the boot-out list reads from the manifest — the retired-labels
+// const in install-launchd.ts is gone (one source, config-over-code).
+export function loadLegacyLabels(path = MANIFEST_PATH): string[] {
+	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
+	const labels = raw.legacyLabels;
+	if (labels === undefined) return [];
+	if (!Array.isArray(labels))
+		throw new Error(`${path}: legacyLabels must be an array`);
+	return labels.map((l, i) => {
+		if (typeof l !== "string" || l.trim() === "")
+			throw new Error(`${path}: legacyLabels[${i}] must be a non-empty string`);
+		return l;
+	});
 }
 
 // shared post-render guard (all three emitters): a placeholder that survived

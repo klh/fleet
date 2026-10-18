@@ -26,23 +26,13 @@ import {
 	type ActivationService,
 } from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { loadLegacyLabels } from "./install-services.ts";
 
 // supersede the pre-namespacing agent labels so old and new never run side by
 // side (same jobs, stale script paths, double keepwarm/monitor pings).
-// W284: the suspenders local-llm serve fork is retired — its label joins the
-// boot-out list. W640 cutover (2026-10-16): the swarm supervisor rides the
-// com.suspenders.belt-swarm receipt namespace, so the old com.belt.swarm
-// hand-written unit is legacy too — two supervisors would fight over :4000
-// and the specialist ports. com.klh.watchdog (old-namespace watchdog found
-// loaded 2026-10-16) predates the com.suspenders.* rename.
-export const LEGACY_LABELS = [
-	"com.belt.swarm",
-	"com.klh.llm-keepwarm",
-	"com.klh.fleet-monitor",
-	"com.klh.local-llm",
-	"com.klh.watchdog",
-	"com.suspenders.local-llm",
-] as const;
+// W284/W640/W779 history: the retired set is DATA now — deploy/services.yaml
+// `legacyLabels` (loadLegacyLabels below), read at registration time from
+// the same manifest the units render from. One source, config-over-code.
 
 // W631: registerLaunchd must render units only from a STABLE tree — the pinned
 // checkout. A snapshot harness copy (no .git — the generation dirs under
@@ -305,7 +295,8 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 	}
 	writeActivation(receiptPath, retainActivation(receipt, previous));
 	const superseded: string[] = [];
-	for (const legacy of LEGACY_LABELS) {
+	const legacyLabels = loadLegacyLabels(join(repo, "deploy/services.yaml"));
+	for (const legacy of legacyLabels) {
 		await execa("launchctl", ["bootout", `gui/${process.getuid()}/${legacy}`], {
 			reject: false,
 			stdout: "pipe",

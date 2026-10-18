@@ -53,6 +53,23 @@ labels absent from the candidate render. Generation-pinned receipts are
 refused (those belong to the reviewed gateway upgrade path). A successful
 install --with-launchd afterwards rewrites the receipt wholesale.
 
+## W779 heartbeat fold — bless ONCE for the whole folded manifest
+
+The W779 fold retires nine no-port maintenance units (fleet-monitor,
+db-backup, harvest, quota-sweep, dispatch-watchdog, llm-keepwarm,
+coord-worker, auto-install, soak) into fleet-loop typed tasks. The
+manifest sha changes in ONE step, so the cutover is ONE re-bless, not
+per-service blessings — the "bless once via the W640 fence" step:
+
+    ./install.sh --re-bless-activation --confirm <manifest-sha-prefix>
+
+then `bash install.sh --with-launchd` rewrites the receipt wholesale,
+renders the 12 resident units, and boot-out+rm's every label on the
+services.yaml legacyLabels list (the nine folded labels + the legacy
+com.klh.kev / com.klh.watchdog / com.klh-local.dashboard agents) in the
+same registration pass. retainActivation keeps prior intent for labels
+absent from the candidate render, so nothing else re-blesses.
+
 ## Approval fence — serialization among supported writers
 
 As of W576.7.2 the approval boundary additionally holds an expiry-bounded

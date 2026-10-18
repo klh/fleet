@@ -167,13 +167,18 @@ gui/$(id -u)/<label>` revives):
   - `com.suspenders.cloud-gateway` — cloud transport lifecycle
     (belt/bin/cloud-gateway.ts → litellm :4100); never starts
     router/swarm
-  - `com.suspenders.llm-keepwarm` — llm-keepwarm.ts every 240s, no port
+  - W779 heartbeat (2026-10-18): the no-port maintenance agents (fleet-
+    monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
+    keepwarm, coord-worker, auto-install, soak) are NOT launchd units —
+    they are typed tasks fired by the ONE fleet-loop cycle, each task
+    owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
+    retired labels ride the services.yaml legacyLabels boot-out list)
   - `com.belt.dashboard` — fleet dashboard :7791 (LAN:
     belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
   - `com.klh-local.caddy` — the Caddy .local front
-  - same namespace, no ports: fleet-monitor, knowledge-worker, db-backup
+  - same namespace, no ports: knowledge-worker
   - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
     `com.klh.fleet-monitor` (superseded — installers boot them out and
     rm the plists) and `com.belt.gateway` (retired W277 — was the :4100

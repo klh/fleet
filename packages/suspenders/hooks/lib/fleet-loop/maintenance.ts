@@ -1,0 +1,280 @@
+// fleet-loop/maintenance.ts — W779: ONE scheduled heartbeat. The no-port
+// launchd maintenance agents (monitor, db-backup, harvest, quota-sweep,
+// dispatch-watchdog, llm-keepwarm, coord-worker, auto-install, soak) fold
+// into this typed task registry, run by the ONE fleet-loop cycle: each cycle
+// fires every DUE task — the heartbeat owns the tick, the task owns its own
+// cadence and fan-out (callee decides what a fire actually does). Server
+// residents (ports/KeepAlive) stay launchd units; they are never listed
+// here. Duplicates of today's StartInterval/StartCalendarInterval units are
+// impossible by construction: the retired labels ride the services.yaml
+// legacyLabels boot-out list, so install --with-launchd unloads them.
+//
+// Semantics kept from the launchd era:
+//   everySeconds ≥ cadence spacing (fire when now-last ≥ every, launchd
+//   StartInterval only ever fired ≥ interval too); calendar = first fire
+//   at/after the local HH:MM instant, catching up once if the machine slept
+//   through it (launchd StartCalendarInterval coalesced misses the same
+//   way). Stamps are ATTEMPT-stamped at fire time: a cycle killed by the
+//   watchdog never re-fires the same task, and a failing task retries at
+//   its next cadence, never hot. SUSPENDERS_MAINTENANCE=0 disables the
+//   sweep (ops escape hatch); SUSPENDERS_MAINTENANCE_STAMPS relocates the
+//   stamp file (tests).
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import type { LoopDeps } from "./runtime.ts";
+
+export interface MaintenanceTask {
+	/** registry name — also the stamp key and the log tag */
+	name: string;
+	/** minimum spacing between fires, seconds (heartbeat ticks ~120s) */
+	everySeconds?: number;
+	/** daily local fire instant {hour, minute} — first tick at/after it */
+	calendar?: { hour: number; minute: number };
+	/** darwin/linux nice(1) prefix for heavy children (unit parity) */
+	nice?: number;
+	/** hard child timeout — the cycle watchdog stays the outer bound */
+	timeoutMs: number;
+	/** child argv after the bun binary; root = the suspenders package root
+	 *  (hooks/bin + scripts runners, identical repo and installed-generation
+	 *  layout), repo = the repo the heartbeat serves */
+	argv: (root: string, repo: string) => string[];
+	/** child cwd; undefined inherits the loop's (REPO) */
+	cwd?: (repo: string) => string;
+}
+
+export const MAINTENANCE_TASKS: MaintenanceTask[] = [
+	{
+		name: "fleet-monitor",
+		everySeconds: 900,
+		timeoutMs: 240_000,
+		argv: (root) => [join(root, "hooks/bin/monitor.ts"), "--fix"],
+	},
+	{
+		name: "db-backup",
+		calendar: { hour: 10, minute: 0 },
+		timeoutMs: 240_000,
+		argv: (root) => [join(root, "hooks/bin/db-backup.ts")],
+	},
+	{
+		name: "harvest",
+		everySeconds: 900,
+		timeoutMs: 240_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/harvest.ts"),
+			"run",
+			"--repo",
+			repo,
+		],
+	},
+	{
+		name: "quota-sweep",
+		everySeconds: 900,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/quota-sweep.ts"), "--act"],
+	},
+	{
+		name: "dispatch-watchdog",
+		everySeconds: 300,
+		timeoutMs: 300_000,
+		argv: (root) => [join(root, "scripts/dispatch-watchdog.ts")],
+	},
+	{
+		name: "llm-keepwarm",
+		everySeconds: 240,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/llm-keepwarm.ts")],
+	},
+	{
+		name: "coord-worker",
+		everySeconds: 900,
+		nice: 10,
+		timeoutMs: 600_000,
+		argv: (root, repo) => [
+			join(root, "scripts/coord-worker.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
+		name: "auto-install",
+		everySeconds: 300,
+		timeoutMs: 300_000,
+		argv: (root, repo) => [
+			join(root, "scripts/auto-install.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
+		name: "soak",
+		calendar: { hour: 3, minute: 15 },
+		nice: 10,
+		timeoutMs: 1_200_000,
+		argv: (root) => [join(root, "hooks/bin/soak.ts")],
+	},
+];
+
+// the suspenders package root, identical in the repo worktree
+// (packages/suspenders) and the installed generation
+// (.harness/packages/suspenders) — hooks/lib/fleet-loop is 3 deep.
+export function suspendersRoot(): string {
+	return resolve(import.meta.dir, "../../..");
+}
+
+export function maintenanceStampsPath(): string {
+	const override = process.env.SUSPENDERS_MAINTENANCE_STAMPS;
+	if (override !== undefined && override.trim() !== "") return override;
+	return join(homedir(), ".claude-insights", "maintenance-stamps.json");
+}
+
+export function readStamps(path: string): Record<string, number> {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+			return {};
+		const out: Record<string, number> = {};
+		for (const [k, v] of Object.entries(parsed))
+			if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+		return out;
+	} catch {
+		return {};
+	}
+}
+
+export function writeStamps(path: string, stamps: Record<string, number>): void {
+	try {
+		writeFileSync(path, `${JSON.stringify(stamps, null, "\t")}\n`);
+	} catch {}
+}
+
+/** interval: due when now-last ≥ everySeconds (never-ran is due);
+ *  calendar: due when now ≥ today's local fire instant and the last fire
+ *  was strictly before it (the catch-up-once rule). */
+export function isDue(
+	task: MaintenanceTask,
+	lastMs: number | undefined,
+	nowMs: number,
+): boolean {
+	if (task.everySeconds !== undefined) {
+		if (lastMs === undefined) return true;
+		return nowMs - lastMs >= task.everySeconds * 1000;
+	}
+	if (task.calendar !== undefined) {
+		const now = new Date(nowMs);
+		const fire = new Date(
+			now.getFullYear(),
+			now.getMonth(),
+			now.getDate(),
+			task.calendar.hour,
+			task.calendar.minute,
+			0,
+			0,
+		);
+		return nowMs >= fire.getTime() && (lastMs === undefined || lastMs < fire.getTime());
+	}
+	// a task with neither cadence field is malformed — never fire it
+	return false;
+}
+
+export interface SweepResult {
+	ran: string[];
+	failed: string[];
+	skipped: number;
+}
+
+type SpawnFn = (
+	cmd: string[],
+	opts: { cwd?: string; timeoutMs: number },
+) => { code: number; out: string };
+
+const defaultSpawn: SpawnFn = (cmd, opts) => {
+	const p = Bun.spawnSync(cmd, {
+		cwd: opts.cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+		timeout: opts.timeoutMs,
+	});
+	const out =
+		`${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.slice(-3)
+			.join(" | ");
+	return { code: p.exitCode ?? 1, out };
+};
+
+export function createMaintenanceSweep(
+	deps: LoopDeps,
+	overrides?: {
+		tasks?: MaintenanceTask[];
+		stampsPath?: string;
+		spawn?: SpawnFn;
+		now?: () => number;
+	},
+): () => SweepResult {
+	const tasks = overrides?.tasks ?? MAINTENANCE_TASKS;
+	const stampsPath = overrides?.stampsPath ?? maintenanceStampsPath();
+	const spawn = overrides?.spawn ?? defaultSpawn;
+	const now = overrides?.now ?? (() => Date.now());
+	const root = suspendersRoot();
+	return (): SweepResult => {
+		if (process.env.SUSPENDERS_MAINTENANCE === "0")
+			return { ran: [], failed: [], skipped: tasks.length };
+		const stamps = readStamps(stampsPath);
+		const nowMs = now();
+		const result: SweepResult = { ran: [], failed: [], skipped: 0 };
+		for (const task of tasks) {
+			if (!isDue(task, stamps[task.name], nowMs)) {
+				result.skipped++;
+				continue;
+			}
+			// attempt-stamp BEFORE the child runs: a watchdog-killed cycle
+			// never re-fires the same task within its cadence
+			stamps[task.name] = nowMs;
+			writeStamps(stampsPath, stamps);
+			const bun = process.execPath;
+			const argv = task.argv(root, deps.REPO);
+			const cmd =
+				task.nice !== undefined
+					? ["/usr/bin/nice", "-n", String(task.nice), bun, ...argv]
+					: [bun, ...argv];
+			const cwd = task.cwd?.(deps.REPO);
+			try {
+				const r = spawn(cmd, { cwd, timeoutMs: task.timeoutMs });
+				if (r.code === 0) {
+					deps.log(`MAINT ${task.name} ok${r.out !== "" ? ` ${r.out}` : ""}`);
+					result.ran.push(task.name);
+				} else {
+					deps.log(
+						`MAINT ${task.name} fail(${r.code})${r.out !== "" ? ` ${r.out}` : ""}`,
+					);
+					result.failed.push(task.name);
+				}
+			} catch (e) {
+				deps.log(
+					`MAINT ${task.name} fail(spawn) ${e instanceof Error ? e.message : String(e)}`,
+				);
+				result.failed.push(task.name);
+			}
+		}
+		return result;
+	};
+}
+
+// task-runner existence check — a folded runner must resolve at the root,
+// else the fold silently degraded to a no-op heartbeat; used by the
+// registry guard test, not the sweep itself (the sweep fail-logs instead).
+export function missingRunners(
+	tasks: MaintenanceTask[] = MAINTENANCE_TASKS,
+): string[] {
+	const root = suspendersRoot();
+	return tasks
+		.map((t) => t.argv(root, "/"))
+		.filter((argv) => !existsSync(argv[0]))
+		.map((argv) => argv[0]);
+}
