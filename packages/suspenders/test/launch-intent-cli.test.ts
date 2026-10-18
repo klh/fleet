@@ -4,7 +4,7 @@
 // evidence, idempotent on already-FAILED), the wedge fix (unknown + evidence
 // → FAILED + evidence banked as a bus event), and the CLI door (exit codes).
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,25 +17,25 @@ import {
 	intentMain,
 	inspectIntents,
 } from "../scripts/lib/launch-intent-cli.ts";
-import { openStore } from "../hooks/lib/govdb.ts";
+// W723: govdb pins REG_ROOT from HOME at module load — a static import
+// resolves the LIVE machine store. Fixture HOME set BEFORE the cache-busted
+// import (?home= idiom) keeps every openStore() on the fixture.
 
 const dirs: string[] = [];
-const saved = { home: "", url: "" };
+const HOME = mkdtempSync(join(tmpdir(), "fleet-intent-cli-home-"));
+process.env.HOME = HOME;
+const govdb = await import(
+	`../hooks/lib/govdb.ts?home=${encodeURIComponent(HOME)}`
+);
+const { openStore, projectIdentity } = govdb;
 
 afterEach(() => {
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-	if (saved.home) process.env.HOME = saved.home;
-	if (saved.url) process.env.GOVERNOR_STORE_URL = saved.url;
 });
 
-/** Isolated store: HOME → temp dir so REG() (and openStore's in-process
- * binding) lands in the fixture, never the live machine store. */
+/** Fixture store: the module-scope ?home= import pinned REG to the fixture
+ * HOME, so openStore() lands in the fixture, never the live machine store. */
 function isolatedStore() {
-	saved.home ||= process.env.HOME ?? "";
-	saved.url ||= process.env.GOVERNOR_STORE_URL ?? "";
-	const home = mkdtempSync(join(tmpdir(), "fleet-intent-cli-"));
-	dirs.push(home);
-	process.env.HOME = home;
 	process.env.GOVERNOR_STORE_URL = "local";
 	const store = openStore();
 	expect(store.local).toBe(true);
@@ -45,11 +45,12 @@ function isolatedStore() {
 function seedIntent(
 	store: Parameters<typeof launchIntent>[0],
 	over: Partial<LaunchIntent> & { item: string },
+	project = "p1",
 ): void {
 	launchSchema(store);
 	store.run(
 		`INSERT OR REPLACE INTO lane_launch_intents (project,item,sid,nonce,revision,executor,host,attempt,state,pid,birth) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		"p1",
+		project,
 		over.item,
 		over.sid ?? `auto-${over.item}`,
 		over.nonce ?? "n1",
@@ -99,17 +100,15 @@ test("CLI door: exit codes + JSON listing against an isolated store", () => {
 	dirs.push(repo);
 	mkdirSync(join(repo, ".git"));
 	const store = isolatedStore();
-	seedIntent(store, { item: "W9", state: "REGISTERED", pid: null });
-	const project = realpathSync(repo);
-	store.run(
-		"UPDATE lane_launch_intents SET project=? WHERE item='W9'",
-		project,
-	);
-	expect(intentMain(["inspect", "--item", "W9", "--json"], { repo })).toBe(0);
+	const project = projectIdentity(repo);
+	seedIntent(store, { item: "W9", state: "REGISTERED", pid: null }, project);
+	expect(
+		intentMain(["inspect", "--item", "W9", "--json"], { repo, store }),
+	).toBe(0);
 	expect(
 		intentMain(
 			["fail", "--item", "W9", "--evidence", "dead lane autow9, claim held"],
-			{ repo },
+			{ repo, store },
 		),
 	).toBe(0);
 	expect(launchIntent(store, project, "W9")?.state).toBe("FAILED");
