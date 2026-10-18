@@ -12,6 +12,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -63,6 +64,12 @@ export async function boardFixture(
 	setDemoProc;
 }> {
 	const HOME = mkdtempSync(join(tmpdir(), "suspenders-board-"));
+	// W810 hermetic agent resolution: /api/start's fallback is $HOME/.local/bin/
+	// <agent> — on PATH-starved runners the binary guard 409s before the item
+	// guards. The stub never spawns (validation tests exit before dispatch).
+	const agentBin = join(HOME, ".local", "bin");
+	mkdirSync(agentBin, { recursive: true });
+	writeFileSync(join(agentBin, "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 	const REPO = mkdtempSync(join(tmpdir(), "suspenders-boardrepo-"));
 	mkdirSync(join(REPO, ".git"), { recursive: true });
 	// W55: a REAL git repo for the diff endpoint (REPO's .git is an empty dir)
@@ -75,6 +82,10 @@ export async function boardFixture(
 		...process.env,
 		HOME,
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
+		// W810: the advise panel's pinned oracle leg defaults to :8903 — on a
+		// machine with the local-reason specialist resident it ANSWERS, the
+		// panel succeeds, and the dead-LLM error-fact contracts never run
+		ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
 		SUSPENDERS_KEV_URL: "http://127.0.0.1:1",

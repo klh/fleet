@@ -241,19 +241,9 @@ async function dispatchStart(
 ): Promise<Response> {
 	if (DEMO)
 		return json({ ok: false, error: "demo board — no real lanes" }, 409);
-	let claude = "";
-	if (!agent.startsWith("llm:")) {
-		claude =
-			Bun.which(agent) ??
-			(agent === "codex"
-				? "/opt/homebrew/bin/codex"
-				: `${process.env.HOME}/.local/bin/claude`);
-		if (!existsSync(claude))
-			return json(
-				{ ok: false, error: `${agent} binary not found on the board's PATH` },
-				409,
-			);
-	}
+	// W810: item existence gates FIRST — an unknown id 404s even when the
+	// agent binary is unresolvable (the 409 is about the executor, not the
+	// item; the reverse order made 404 unreachable on PATH-starved boards)
 	const w = db
 		.query(
 			"SELECT state, owner_sid, project, title, description FROM work_items WHERE project = ? AND id = ?",
@@ -267,6 +257,19 @@ async function dispatchStart(
 	} | null;
 	if (!w)
 		return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+	let claude = "";
+	if (!agent.startsWith("llm:")) {
+		claude =
+			Bun.which(agent) ??
+			(agent === "codex"
+				? "/opt/homebrew/bin/codex"
+				: `${process.env.HOME}/.local/bin/claude`);
+		if (!existsSync(claude))
+			return json(
+				{ ok: false, error: `${agent} binary not found on the board's PATH` },
+				409,
+			);
+	}
 	if (w.owner_sid)
 		return json(
 			{ ok: false, error: `${id} already claimed by ${w.owner_sid}` },
