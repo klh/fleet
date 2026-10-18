@@ -110,8 +110,12 @@ export function scoreOutcome(o: {
 	const humanRequired = important.length;
 	// clean task: every finding is human noise (nothing seeded to find)
 	const humanNoise = truthHasDefects ? 0 : matches.length;
-	const verdictCorrect =
-		truthHasDefects ? o.verdict === "FAIL" : o.verdict === "PASS";
+	// outcome-correct verdict: on defect tasks, FAIL is correct AND so is a
+	// PASS reached after a recall>0 fix (found-and-fixed is the pipeline's
+	// success path); the only wrong verdict is PASS with zero detection.
+	const verdictCorrect = truthHasDefects
+		? o.verdict === "FAIL" || (o.verdict === "PASS" && recall > 0)
+		: o.verdict === "PASS";
 	return {
 		arm: o.arm,
 		taskId: o.taskId,
@@ -156,7 +160,7 @@ export function aggregate(arm: "a" | "b", outs: ArmOutcome[]): ArmAggregate {
 			? clean.reduce((a, o) => a + o.humanNoise, 0) / clean.length
 			: 0,
 		converged: outs.filter((o) => o.roundsToPass <= 3).length,
-		medianRounds: medianOf(outs.map((o) => o.roundsToPass)),
+		medianRounds: median(outs.map((o) => o.roundsToPass)),
 		verdictAccuracy: outs.length
 			? outs.filter((o) => o.verdictCorrect).length / outs.length
 			: 0,

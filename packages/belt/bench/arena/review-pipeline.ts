@@ -37,20 +37,18 @@ const DIFF_CAP = 60_000; // oracle.ts INPUT_CAP — arm parity
 // the arm-B reviewer brief: the how-to-review.md reviewer checklist + the
 // package REVIEW.md analog (what failure looks like in belt/suspenders code,
 // capped nits, evidence = file:line). This IS the pipeline's review profile.
-const BENCH_REVIEW_MD = [
-	"You are a fresh-context code reviewer for the klh fleet monorepo.",
-	"Package REVIEW.md analog: this code is agent-produced; failures here look like",
-	"silent contract drift (parse-pass ≠ intent-pass), per-item loops where a batch",
-	"query belongs (store-RPC storms), dropped error guards, and unit drift between",
-	"a constant and its schema. Evidence is file:line, always. Cap style nits at zero",
-	"unless they mask a real defect. Convergence: flag the CLASS, not one instance.",
-	"",
-	"Reviewer checklist (how-to-review.md):",
-	"- Intent: does it do what the mission says, only that, nothing hidden?",
-	"- Evidence: what verification exists, what would the checks miss?",
-	"- Blast radius: what imports this, what breaks downstream?",
-	"- Every finding: severity(high|medium|low): file:line — issue",
-	"- End with ONE final line: VERDICT: PASS | VERDICT: FAIL - <reason>",
+const BENCH_REVIEW_CONTRACT = [
+	"You are a fresh-context code reviewer. Review the DIFF below against the MISSION.",
+	"Findings as terse bullets — severity(high|medium|low): file:line — issue. No style nits.",
+].join("\n");
+
+// treatment suffix: the how-to-review.md checklist rides AFTER the diff —
+// the local reviewer leg complies with the machine format only when the
+// contract sits up top and the checklist trails the diff (recency).
+const BENCH_REVIEW_SUFFIX = [
+	"Reviewer checklist (how-to-review.md): Intent — does it do what the mission says, only that, nothing hidden? Evidence — what verification exists, what would the checks miss? Blast radius — what imports this, what breaks downstream?",
+	"Hunt list (agent-produced code): contract drift, store-RPC storms, dropped guards, constant/schema drift. Cap style nits at zero unless they mask a real defect. Flag the CLASS, not one instance.",
+	"End with ONE machine-parseable final line: VERDICT: PASS | VERDICT: FAIL - <reason>",
 ].join("\n");
 
 const VERIFIER_FRAME = [
@@ -179,16 +177,38 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 		const postedBlock = postedKeys.size
 			? `ALREADY POSTED (never repeat; report only NEW findings):\n${[...postedKeys].map((k) => `- ${k}`).join("\n")}\n\n`
 			: "";
-		const rev = await callLocal(
-			acc,
-			`${BENCH_REVIEW_MD}\n\nMISSION: ${task.mission}\n\n${postedBlock}DIFF:\n${curDiff}`,
-			REVIEW_LEGS.reviewer.port,
-			"reviewer",
-			round,
-		);
+		const prompt = `${BENCH_REVIEW_CONTRACT}\n\nMISSION: ${task.mission}\n\n${postedBlock}DIFF:\n${curDiff}\n\n${BENCH_REVIEW_SUFFIX}`;
+		// the local reviewer leg format-flakes at temp 0 (server-side sampling
+		// nondeterminism) — re-ask until parseable, max 3 attempts; every
+		// attempt is token-attributed through acc
+		let rev = await callLocal(acc, prompt, REVIEW_LEGS.reviewer.port, "reviewer", round);
+		let attempts = 1;
+		while (
+			rev.ok &&
+			rev.text.length > 0 &&
+			parseFindings(rev.text).length === 0 &&
+			parseVerdictLine(rev.text).verdict === "FAIL" &&
+			attempts < 3
+		) {
+			rev = await callLocal(acc, prompt, REVIEW_LEGS.reviewer.port, "reviewer", round);
+			attempts++;
+		}
 		if (!rev.ok)
 			return { arm: "b", findings: posted, verdict: "FAIL", roundsToPass: MAX_ROUNDS + 1, ...acc, ok: false, err: rev.err };
 		const rf = parseFindings(rev.text);
+		// format-miss guard: a FAIL verdict with zero parseable findings is an
+		// honest FAIL (never auto-PASS through the convergence gate)
+		const rv = parseVerdictLine(rev.text);
+		if (rf.length === 0 && rv.verdict === "FAIL")
+			return {
+				arm: "b",
+				findings: posted,
+				verdict: "FAIL",
+				roundsToPass: MAX_ROUNDS + 1,
+				...acc,
+				ok: true,
+				err: "reviewer FAILed with 0 parseable findings",
+			};
 		let confirmed = rf;
 
 		if (rf.length) {

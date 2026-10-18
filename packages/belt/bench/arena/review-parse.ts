@@ -3,21 +3,38 @@
 // extracted fields; everything unparsable is dropped and counted.
 import type { Finding, Severity } from "./review-core.ts";
 
-const SEVERITIES: Severity[] = ["high", "medium", "low"];
-const isSev = (s: string): s is Severity => SEVERITIES.includes(s as Severity);
 
 /** Finding line contract (matches the oracle.ts review/bugs frame):
  *  `severity(high|medium|low): path:line — issue` or
  *  `file:line — issue — severity` variants; prose lines are dropped. */
+/** severity aliases the reviewer tiers actually emit → canonical Finding. */
+const SEV_ALIAS: Record<string, "high" | "medium" | "low"> = {
+	critical: "high",
+	high: "high",
+	major: "high",
+	medium: "medium",
+	med: "medium",
+	moderate: "medium",
+	low: "low",
+	minor: "low",
+};
+
+/** Finding-line shape: [bullet][bold][severity-prefix](sev)[:space/(] file:line — issue */
+const FINDING_RE =
+	/^(?:[-*•]\s*)?(?:\*\*)?(?:severity\s*)?\(?(critical|high|major|medium|med|moderate|low|minor)\)?[:\s(]+([^\s:(]+):(\d+)\s*[—–-]+\s*(.+)$/i;
+
 export function parseFindings(text: string, cap = 30): Finding[] {
 	const out: Finding[] = [];
 	for (const raw of text.split("\n")) {
-		const line = raw.trim();
+		const line = raw
+			.trim()
+			.replace(/^[-*•]\s*/, "") // markdown bullets
+			.replace(/\*\*/g, ""); // bold
 		if (!line || line.startsWith("```")) continue;
-		let m = /^(high|medium|low)[:\s]+([^\s:]+):(\d+)\s*[—–-]+\s*(.+)$/i.exec(line);
+		let m = FINDING_RE.exec(line);
 		if (!m) {
 			// fallback: `path:line — issue` (severity inferred low → medium)
-			m = /^([^\s:]+):(\d+)\s*[—–-]+\s*(.+)$/.exec(line);
+			m = /^([^\s:(]+):(\d+)\s*[—–-]+\s*(.+)$/.exec(line);
 			if (!m) continue;
 			const issue = m[3] ?? "";
 			if (issue.length < 8) continue; // too short to be a real finding
@@ -34,7 +51,7 @@ export function parseFindings(text: string, cap = 30): Finding[] {
 		const issue = m[4] ?? "";
 		if (issue.length < 8) continue;
 		out.push({
-			severity: isSev(sev) ? sev : "medium",
+			severity: SEV_ALIAS[sev] ?? "medium",
 			file: m[2] ?? "",
 			line: Number(m[3]),
 			issue: issue.slice(0, 200),

@@ -179,6 +179,47 @@ placement latency (:4000) vs 5.1 s cloud. $-claims stay gated: the ledger
 carries no operator price table — abstain ($-n4) until
 `~/.claude/local-llm/route-prices.json` (`--prices`) exists.
 
+## Review pipeline — single-pass vs how-to-review pipeline (W792, 2026-10-18)
+
+Seeded-defect A/B on the local reason tier (:8903, GLM-5.3-Flash). 39
+sealed tasks: 24 seeded across 13 defect classes × 10 generator families +
+3 real fleet incidents (reverse-of-fix diffs, ca301352/95cbc90f/fd7025d) +
+12 clean files; ground truth = seeded defect lines ±5. Harness:
+`bun packages/belt/bench/arena/review-run.ts --design/--run/--report`
+(seal sha16 `05578c7b2a3391ed`). Both arms 39/39 calls ok, AC power,
+2026-10-18. n=39 → **weak** band (33–129); local-only, no cloud leg.
+
+| Arm | recall | FP/task | human noise/clean | converged ≤3 | verdict acc* | tok-in p50 | calls p50 | wall p50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| A: single-pass oracle | 100% | 0.49 | 1.58 | 1/39 | 67% | 190 | 1 | 1.3 s |
+| B: review pipeline | 94% | 1.03 | 3.08 | 20/39 | 74% | 2,673 | 7 | 14.3 s |
+
+\* outcome-corrected: on defect tasks a PASS after a recall>0 fix counts
+correct (found-and-fixed); the only wrong verdict is PASS with zero
+detection (A: inc-w663 false-PASS; B: inc-w663 + seed-06).
+
+Read: recall at par (100% vs 94%); the pipeline's fixer leg CLOSED 14/27
+defect tasks (found → confirmed → triaged → fixed → re-review clean) —
+closure arm A has no mechanic for — at ~14× tok-in (p50 2,673 vs 190), 7×
+calls (p50 7 vs 1) and 11× wall. The pipeline also DOUBLES human noise on
+clean files (3.08 vs 1.58 findings/task the human must read). 6/39 arm-B
+tasks ended in honest reviewer format-miss FAILs: the local tier's finding
+vocabulary drifts per request (high:file:line / CRITICAL( / severity(high):
+/ prose), and ~50% of reviewer rounds miss the machine-parseable format;
+retry ×3 often returns byte-identical output (temp-0 determinism is
+per-process, not per-boot).
+
+**Verdict: keep single-pass as the review gate** — recall par at ~1/14th the
+cost and half the noise. The pipeline's unique value is CLOSURE (fixer +
+verified re-review) — adopt it as a post-detection repair loop, not a
+pre-merge reviewer; it needs a format-compliant reviewer tier before its
+recall/FP numbers mean anything on small local models.
+
+Deviation notes: triage rides the extract tier (kev :8912 speaks the
+SystemOne wire, not openai chat); fixer rode :8903 via REVIEW_FIXER_PORT
+(coder tier down at run time). Per-task rows + call traces:
+results/rev-w792-final-{a,b}.jsonl (gitignored, machine-local).
+
 ## Prompt transforms — bench local swarm (W368, 2026-10-16)
 
 Which specialist should serve the board's prompt transforms — the

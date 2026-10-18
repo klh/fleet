@@ -121,6 +121,15 @@ describe("matchFindings/scoreOutcome", () => {
 		expect(wrongFile.recall).toBe(0);
 		expect(wrongFile.fp).toBe(1);
 	});
+	test("found-and-fixed PASS counts as correct outcome", () => {
+		const fixed = scoreOutcome({
+			...BASE,
+			defects: DEF,
+			findings: [FIND("src/ring.ts", 9)],
+			verdict: "PASS",
+		});
+		expect(fixed.verdictCorrect).toBe(true);
+	});
 	test("clean task: all findings are noise, PASS is correct", () => {
 		const clean = scoreOutcome({
 			...BASE,
