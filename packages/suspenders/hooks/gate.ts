@@ -105,6 +105,13 @@ switch (event) {
 			process.exit(0);
 		}
 	}
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: askGate exits the process on every path — the await parks the case like the dialect gates
+	case "ask": {
+		// W817 ask-in-session: UserPromptSubmit fleet-meta triage (kev-gated)
+		// — routes owner questions to the coordinator via the consult plane
+		const { askGate } = await import("./gates/ask.ts");
+		await askGate(hook);
+	}
 	default:
 		process.stdout.write("{}");
 		process.exit(0);
