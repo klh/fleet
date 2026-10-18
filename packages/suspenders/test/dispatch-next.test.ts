@@ -546,8 +546,8 @@ describe("W619 capability gate", () => {
 	});
 });
 
-describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnostic)", () => {
-	test("multiple must=/prefer= lines: attempt 0 picks the first must, trailing same-bin entries ride --fallback-model", () => {
+describe("must/prefer chain (W813 position law: later directives win, CLI-agnostic)", () => {
+	test("multiple must=/prefer= lines: attempt 0 rides the LAST directive, same-bin tail rides --fallback-model", () => {
 		writeFileSync(
 			join(REPO, ".prefer"),
 			["must=opus", "must=sonnet", "prefer=fable", ""].join("\n"),
@@ -556,8 +556,8 @@ describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnosti
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		expect(id).toBeTruthy();
 		const out = dispatch("--dry-run", "--item", id);
-		expect(out.out).toContain("DRY chain attempt 0/2 -> opus");
-		expect(out.out).toContain("(+fallback-model sonnet,fable)");
+		expect(out.out).toContain("DRY chain attempt 0/2 -> fable");
+		expect(out.out).toContain("(+fallback-model sonnet,opus)");
 	});
 
 	test("a dead/resumed lane advances to the next chain entry, including across a bin switch", () => {
@@ -568,10 +568,11 @@ describe("must/prefer chain (owner directive 2026-10-03: sequential, CLI-agnosti
 		const added = tool("work.ts", "add", "chain resume item");
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		expect(id).toBeTruthy();
-		// attempt 0: opus, no same-bin tail to fall back on (copilot is a
-		// different bin — only reachable by the NEXT dispatch, same sid)
+		// W813: the later must (copilot, line 2) outranks opus — attempt 0
+		// rides copilot; opus (a different bin) is only reachable by the NEXT
+		// dispatch, same sid
 		const first = dispatch("--dry-run", "--item", id);
-		expect(first.out).toContain("DRY chain attempt 0/1 -> opus");
+		expect(first.out).toContain("DRY chain attempt 0/1 -> copilot");
 		expect(first.out).not.toContain("fallback-model");
 		rmSync(join(REPO, ".prefer"));
 	});

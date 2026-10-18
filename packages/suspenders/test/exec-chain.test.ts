@@ -131,3 +131,143 @@ describe("W620 trust tally reorders the DEFAULT ladder only", () => {
 		rmSync(join(REPO, ".prefer"));
 	});
 });
+
+describe("W813 chain semantics: comma-lists, hub targets, position law, can=", () => {
+	test("must comma-list expands; left target tried first within the line", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash,glm-flash2\n");
+		const p = execPick(0, REPO);
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.chainLen).toBe(2);
+		expect(p.fallbackModels).toEqual(["glm-flash2"]);
+		expect(execPick(1, REPO).name).toBe("glm-flash2");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("comma-list alongside repeated must lines: later line wins, in-line order kept", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash,glm-flash2\nmust=fable\n",
+		);
+		const p = execPick(0, REPO);
+		expect(p.name).toBe("fable");
+		// tail order: line-1 entries keep left-first within the line
+		expect(p.fallbackModels).toEqual(["glm-5.3-flash", "glm-flash2"]);
+		expect(execPick(1, REPO).name).toBe("glm-5.3-flash");
+		expect(execPick(9, REPO).name).toBe("glm-flash2");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("W813 position law: prefer= BELOW must= genuinely overrides", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\nprefer=glm-flash2\n",
+		);
+		expect(execPick(0, REPO).name).toBe("glm-flash2");
+		expect(execPick(1, REPO).name).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("must naming a known hub rides that hub, default executor, no model pin", () => {
+		const hubsFile = join(HOME, "hubs.json");
+		writeFileSync(
+			hubsFile,
+			JSON.stringify({ NAS: { candidates: ["https://nas.example:4101"] } }),
+		);
+		process.env.SUSPENDERS_HUBS_FILE = hubsFile;
+		try {
+			writeFileSync(join(REPO, ".prefer"), "must=nas\n");
+			const p = execPick(0, REPO);
+			expect(p.name).toBe("nas");
+			expect(p.model).toBeNull();
+			expect(p.bin).toBe("claude");
+			expect(p.hub).toBe("nas");
+			expect(p.agent).toBe("[NAS] nas");
+		} finally {
+			rmSync(join(REPO, ".prefer"));
+			delete process.env.SUSPENDERS_HUBS_FILE;
+		}
+	});
+
+	test("unknown token is still a model pin, never a hub", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=nosuchhub-xyz\n");
+		const p = execPick(0, REPO);
+		expect(p.model).toBe("nosuchhub-xyz");
+		expect(p.hub).toBeNull();
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("doable can= (cv-proven model) invalidates the must lines", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\ncan=glm-flash2\n",
+		);
+		const cv = new Map([["glm-flash2", 5]]);
+		const p = execPick(0, REPO, cv);
+		expect(p.name).toBe("glm-flash2");
+		expect(p.chainLen).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("can= invalidates musts regardless of line order", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"can=glm-flash2\nmust=glm-5.3-flash\n",
+		);
+		const p = execPick(0, REPO, new Map([["glm-flash2", 5]]));
+		expect(p.name).toBe("glm-flash2");
+		expect(p.chainLen).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("unproven can= (no cv) vanishes and MUST stands unchanged", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\ncan=glm-flash2\n",
+		);
+		const p = execPick(0, REPO, new Map());
+		expect(p.name).toBe("glm-5.3-flash");
+		expect(p.chainLen).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("quota-exhausted can= is not doable, MUST stands", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=fable\ncan=glm-5.3-flash\n");
+		const cv = new Map([["glm-5.3-flash", 5]]);
+		const quota = new Map([["zai", "quota exceeded"]]);
+		const p = execPick(0, REPO, cv, quota);
+		expect(p.name).toBe("fable");
+		expect(p.chainLen).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("doable can= hub target invalidates must and heads the chain", () => {
+		const hubsFile = join(HOME, "hubs.json");
+		writeFileSync(
+			hubsFile,
+			JSON.stringify({ NAS: { candidates: ["https://nas.example:4101"] } }),
+		);
+		process.env.SUSPENDERS_HUBS_FILE = hubsFile;
+		try {
+			writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\ncan=nas\n");
+			const p = execPick(0, REPO);
+			expect(p.name).toBe("nas");
+			expect(p.hub).toBe("nas");
+			expect(p.model).toBeNull();
+			expect(p.chainLen).toBe(1);
+		} finally {
+			rmSync(join(REPO, ".prefer"));
+			delete process.env.SUSPENDERS_HUBS_FILE;
+		}
+	});
+
+	test("can= + prefer interplay: kept directives still order by position", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\ncan=glm-flash2\nprefer=fable\n",
+		);
+		const p = execPick(0, REPO, new Map([["glm-flash2", 5]]));
+		expect(p.name).toBe("fable");
+		expect(p.fallbackModels).toEqual(["glm-flash2"]);
+		rmSync(join(REPO, ".prefer"));
+	});
+});

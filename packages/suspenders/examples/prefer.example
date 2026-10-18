@@ -1,0 +1,49 @@
+# prefer.example — the repo .prefer executor-chain file, fully documented.
+# Copy the lines you want to <repo>/.prefer (dotfiles-win: the nearest
+# .prefer wins). Parsed by packages/suspenders/scripts/lib/exec-chain.ts
+# (W183.2 chain + W813 semantics). One directive per line, '#' comments.
+# Values are single tokens: quoted or spaced values belong to the W519
+# ROUTING plane (scripts/lib/prefer-routing.ts), never the chain.
+#
+# ── W813 ordering law ────────────────────────────────────────────────────
+# Later directives win per position: a directive on a later line outranks
+# one above it, so the chain head = the LAST directive. Within a
+# comma-list the left target is tried first. The attempt walk (dispatch
+# retry) advances head-first: a dead lane re-dispatch tries the next
+# entry, overrun parks on the last.
+#
+# ── must= — owner intent ─────────────────────────────────────────────────
+# Protected: never silently rerouted by the allow-list or quota health
+# (W228: surfaced with a loud NOTE, never rerouted).
+must=glm-5.3-flash
+# Comma-list form (W813) — one line, several targets, left tried first;
+# the line ranks as ONE directive in the position law:
+# must=glm-5.3-flash,copilot
+# A must may name a HUB label (W813): the lane rides that hub's gateway
+# with the default executor (no model pin — the hub routes the model):
+# must=nas
+#
+# ── prefer= — soft directive ─────────────────────────────────────────────
+# Same chain grammar as must=. Because later lines win, a prefer= line
+# BELOW a must= line is genuinely tried FIRST (the must becomes the
+# fallback). The W228 protection rides whatever directive is picked.
+# prefer=glm-flash2
+#
+# ── can= — the developer override (W813) ────────────────────────────────
+# When <target> is doable on THIS machine the must= lines are INVALIDATED
+# (one-shot — no must edit needed); unavailable, the line vanishes and
+# the must stands unchanged. Doability probes, all sync:
+#   executor → its binary resolves (SUSPENDERS_<NAME>_BIN or install paths)
+#   hub      → label known in stack.yaml / hubs.json, not in quiet hours
+#   model    → proven on this machine (cv tally) with no quota exhaustion
+# A later can= line wins. Target = a single model or hub token.
+# can=copilot
+# can=nas
+#
+# ── hub= / hub-url= — whole-chain hub pinning ────────────────────────────
+# hub=Label resolves to a real endpoint (hub-locate.ts: env override →
+# hub-url candidates → stack.yaml → hubs.json → mDNS); unreachable hub
+# degrades to local belt, loud, never silent. hub-url= adds repo-declared
+# one-off candidates tried first.
+# hub=desktop
+# hub-url=https://hub.example.local:4101
