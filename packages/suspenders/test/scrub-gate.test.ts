@@ -4,7 +4,7 @@
 // scratch repo the way a lane's git commit/push arrives (the harness of
 // secrets-gate.test.ts). Skipped legs: none — no external tool needed.
 import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -49,6 +49,18 @@ beforeAll(() => {
 		].join("\n"),
 	);
 });
+
+// scratch-repo git runner (W734): throws on plumbing failure, returns stdout
+const gitIn = (repo: string) => (args: string[]) => {
+	const p = Bun.spawnSync(["git", ...args], {
+		cwd: repo,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (p.exitCode !== 0)
+		throw new Error(`git ${args[0]}: ${p.stderr.toString()}`);
+	return p.stdout.toString();
+};
 
 describe("scrub lib: builtin rules", () => {
 	const line = (s: string) => scanLine(s, scrubRules());
@@ -541,16 +553,7 @@ describe("scrub lib: diff parser", () => {
 
 	test("real git -U0 diffs scan fully: metadata, rename, no-eol (W739)", () => {
 		const repo = mkdtempSync(join(tmpdir(), "scrub-realgit-"));
-		const g = (args: string[]) => {
-			const p = Bun.spawnSync(["git", ...args], {
-				cwd: repo,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			if (p.exitCode !== 0)
-				throw new Error(`git ${args[0]}: ${p.stderr.toString()}`);
-			return p.stdout.toString();
-		};
+		const g = gitIn(repo);
 		g(["init", "-b", "main"]);
 		g(["config", "user.email", "t@t.invalid"]);
 		g(["config", "user.name", "t"]);
@@ -585,5 +588,42 @@ describe("scrub lib: diff parser", () => {
 				(f) => `${f.file}:${f.line}`,
 			),
 		).toEqual(["moved.txt:3"]);
+	});
+
+	test("mode-change + edit entry scans; binary rides the range face (W734)", () => {
+		const repo = mkdtempSync(join(tmpdir(), "scrub-w734-"));
+		const g = gitIn(repo);
+		g(["init", "-q", "-b", "main"]);
+		g(["config", "user.email", "t@t.invalid"]);
+		g(["config", "user.name", "t"]);
+		g(["config", "commit.gpgsign", "false"]);
+		g(["config", "core.filemode", "true"]);
+		writeFileSync(join(repo, "mode.sh"), "#!/bin/sh\n");
+		g(["add", "."]);
+		g(["commit", "-q", "-m", "base"]);
+		chmodSync(join(repo, "mode.sh"), 0o755); // old/new mode pre-hunk metadata
+		writeFileSync(
+			join(repo, "mode.sh"),
+			`#!/bin/sh\nleak ${HOME_LEAK_DIR}/w\n`,
+		); // scrub:allow
+		writeFileSync(
+			join(repo, "bin.dat"),
+			Buffer.from(`bin\x00sk-${"a".repeat(26)}\x00`),
+		);
+		g(["add", "-A"]);
+		g(["commit", "-q", "-m", "c1"]);
+		// mode entry hunks scan like any other; binary emits no hunks at all
+		const d = g(["diff", "HEAD^", "HEAD", "-U0", "--no-color"]);
+		expect(
+			scrubAddedLines(addedDiffLines(d), scrubRules()).map(
+				(f) => `${f.file}:${f.line}`,
+			),
+		).toEqual(["mode.sh:2"]);
+		const range = commitRangeFindings(repo, "HEAD^", "HEAD");
+		expect(range.map((f) => [f.file, f.rule])).toContainEqual([
+			"bin.dat",
+			"sk-key",
+		]);
+		expect(range.map((f) => `${f.file}:${f.line}`)).toContain("mode.sh:2");
 	});
 });
