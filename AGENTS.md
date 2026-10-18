@@ -64,6 +64,10 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
   the package-level truth; this root file is the stack-wide law.
+- Agent skills: the repo-root `skills/` catalog installs into any agent CLI
+  via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
+  "Install the skills as agent tools"). ChatGPT is not a CLI target — paste
+  the `SKILL.md` into the conversation.
 
 ## Operations — every verb and what it is for
 
