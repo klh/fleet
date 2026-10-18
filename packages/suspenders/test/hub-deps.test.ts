@@ -11,7 +11,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { linkBaseWorkspaces, planBaseWorkspaces } from "../deploy/hub-deps.ts";
+import {
+	HUB_FLEET_ROOT,
+	installBaseClosure,
+	linkBaseWorkspaces,
+	planBaseWorkspaces,
+} from "../deploy/hub-deps.ts";
 
 const roots: string[] = [];
 
@@ -101,5 +106,39 @@ describe("linkBaseWorkspaces", () => {
 		expect(lstatSync(join(root, "node_modules/gamma")).isSymbolicLink()).toBe(
 			false,
 		);
+	});
+});
+
+describe("HUB_FLEET_ROOT", () => {
+	test("is the compose volume root (W714 regression tripwire)", () => {
+		expect(HUB_FLEET_ROOT).toBe("/src/fleet");
+	});
+});
+
+describe("installBaseClosure", () => {
+	test("frozen closure install of the dep copy exits 0 (W816)", () => {
+		const root = makeRoot();
+		const copy = join(root, "node_modules/fleet");
+		mkdirSync(join(copy, "pkgs/a"), { recursive: true });
+		writeFileSync(
+			join(copy, "package.json"),
+			JSON.stringify({
+				name: "fleet-sim",
+				version: "1.0.0",
+				private: true,
+				workspaces: ["pkgs/*"],
+			}),
+		);
+		writeFileSync(
+			join(copy, "pkgs/a/package.json"),
+			JSON.stringify({ name: "a", version: "1.0.0" }),
+		);
+		// seed the lock the frozen install validates against
+		Bun.spawnSync(["bun", "install"], {
+			cwd: copy,
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		expect(installBaseClosure(root)).toBe(0);
 	});
 });
