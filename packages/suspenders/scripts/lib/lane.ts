@@ -47,11 +47,24 @@ export interface ExecutorAdapter {
 	briefHardGate: boolean;
 	/** Post-prompt spawn arg tail (order-stable). */
 	spawnArgs(spec: SpawnArgsSpec): string[];
+	/** W808: args BEFORE the prompt slot — codex's subcommand grammar
+	 *  (`--sandbox X exec [fork <id>]`) must precede its positional prompt.
+	 *  Omitted = the prompt slot opens the line (claude/copilot order). */
+	headArgs?(spec: SpawnArgsSpec): string[];
 	/** The args that carry the prompt (`-p <p>` for the claude dialects,
 	 *  ["exec", <p>] for codex). */
 	promptArgs(prompt: string): string[];
-	/** W454 starter-session fork args; null = no fork support (cold start). */
+	/** W454 starter-session fork args; null = no fork/resume surface (cold
+	 *  start). Codex rows carry the `fork <id>` tail that rides its `exec`
+	 *  subcommand line (headArgs owns the subcommand placement). */
 	forkArgs(sessionId: string): string[] | null;
+	/** W808: the starter-SEED recipe — one non-interactive turn answering
+	 *  with a session/thread id. Absent = the harness cannot seed → cold. */
+	seedArgs?(seed: string): string[];
+	/** W768/W808: is the starter fork DEFAULT-on for this harness (measured
+	 *  win)? `SUSPENDERS_LANE_STARTER=on` forces every capable harness;
+	 *  `off`/`0` kills all. */
+	starterDefault?: boolean;
 	/** Process-table names this executor answers to (liveness matcher). */
 	processNames: string[];
 	/** PATH-independent install locations probed when `which` misses —
@@ -162,6 +175,11 @@ export const spawnClaude = (o: {
 	/** The composed spawn tail — callers take it from the executor adapter
 	 *  (hooks/lib/executors/registry.ts, W422); omitted = the claude recipe. */
 	cliArgs?: string[];
+	/** W808: pre-prompt head args (codex subcommand grammar) — registry-fed. */
+	headArgs?: string[];
+	/** W808: the prompt-carrying slot (default `-p <prompt>`); codex passes
+	 *  its positional prompt here. */
+	promptArgs?: string[];
 	agent?: string;
 	fleetDir?: string;
 	/** W417.1: when set, the lane's W303 coord subscribe is attached at
@@ -176,14 +194,21 @@ export const spawnClaude = (o: {
 	// the exec — a runaway lane dies at the rlimit instead of forkbombing
 	// the user machine. Zero-cap classes (llm) keep the bare recipe.
 	const js = jobslabFor(o.agent ?? "claude", o.fleetDir);
-	const tail = (
-		o.cliArgs ?? [
+	// W808: the spawn line is three adapter-owned slots — head (codex's
+	// `exec [fork <id>]` subcommand line), the prompt slot (claude/copilot
+	// `-p <prompt>` grammar; codex positional), and the tail. The defaults
+	// keep every pre-W808 caller's line byte-identical.
+	const line = [
+		o.bin,
+		...(o.headArgs ?? []),
+		...(o.promptArgs ?? ["-p", o.prompt]),
+		...(o.cliArgs ?? [
 			"--allowedTools",
 			o.allowedTools ?? CLAUDE_ALLOWED_TOOLS,
 			"--permission-mode",
 			"acceptEdits",
-		]
-	)
+		]),
+	]
 		.map((a) => (a.includes(" ") ? sq(a) : a))
 		.join(" ");
 	// A detached child has its own process group, so dispatcher group teardown
@@ -194,7 +219,7 @@ export const spawnClaude = (o: {
 		[
 			"/bin/sh",
 			"-c",
-			`${jobslabPrefix(js)}${sq(o.bin)} -p ${sq(o.prompt)} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
+			`${jobslabPrefix(js)}${line} < /dev/null >> ${sq(o.logFile)} 2>&1`,
 		],
 		{
 			detached: true,

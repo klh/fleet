@@ -6,11 +6,11 @@
 //   claude   — seed once (`-p <seed> --output-format json` → session_id),
 //              fork with `--resume <id> --fork-session` (binary-verified
 //              flags on the installed 2.1.283 executor)
-//   codex    — `exec resume <id>` chaining (resume verb + forked_from_id
-//              thread fields verified in the 0.158 binary; wiring waits on
-//              the spawn-recipe question — the recipe hardcodes `-p`)
-//   copilot  — session fork/resume semantics UNVERIFIED (no local binary);
-//              catalog row only, no fork args
+//   codex    — seed via `exec --json -s read-only`, fork via `exec fork
+//              <id>` (binary-verified 0.158; MEASURED NOT ADOPTED — the
+//              fork replays the full seed history, fresh input +42%)
+//   copilot  — headless resume exists (`-p --resume=ID`, docs 2026-10-18)
+//              but fork is a slash command only; catalog row, no fork args
 //
 // Versioning: the version IS the content — sha256 of the seed prompt. A
 // starter session is bounded by construction: one seed turn, forks append
@@ -84,11 +84,19 @@ export const flattenTail = (s: string, cap = 220): string => {
 
 export const starterEnabled = (
 	env: Record<string, string | undefined>,
+): boolean => starterEnabledFor(env, "claude");
+
+/** W808: per-harness starter enablement — the W768 default-ON is a MEASURED
+ *  verdict that belongs to claude alone; `SUSPENDERS_LANE_STARTER=on` forces
+ *  every capable harness (bench use), `off`/`0` kills all. */
+export const starterEnabledFor = (
+	env: Record<string, string | undefined>,
+	harness: string,
 ): boolean => {
-	// W768: default ON (the W454 bench measured the fork win — 90%→98% cache
-	// share, 10.4k→1.1k fresh input) — an operator opts OUT explicitly.
 	const v = env[STARTER_FLAG];
-	return v !== "off" && v !== "0";
+	if (v === "off" || v === "0") return false;
+	if (v === "on") return true;
+	return adapterForExact(harness)?.starterDefault === true;
 };
 
 // The STABLE shared prefix. Repo-local protocol only — no sid, no item, no
@@ -141,9 +149,10 @@ export const readStarter = (
 };
 
 /** Fork args per harness — the W422 executor-adapter registry owns the
- *  grammar now (claude row carries ["--resume", id, "--fork-session"];
- *  codex/copilot/grok/cline rows are catalog-only → cold start). Exact
- *  lookup only: an unknown harness must cold-start, never fork like claude. */
+ *  grammar (claude `["--resume", id, "--fork-session"]` + codex
+ *  `["fork", id]` wired; copilot/gemini/grok have no headless fork →
+ *  cold start). Exact lookup only: an unknown harness must cold-start,
+ *  never fork like claude. */
 export const forkArgsFor = (
 	harness: string,
 	sessionId: string,
@@ -193,8 +202,10 @@ export const ensureStarter = (
 		};
 	} = {},
 ): StarterSeedOutcome | null => {
-	const forkArgsOf = forkArgsFor(harness, "SEED");
-	if (forkArgsOf === null) return null;
+	const adapter = adapterForExact(harness);
+	// W808: capability = a fork grammar AND a seed recipe, both adapter data
+	// (the W454-era forkArgsFor probe stays for the claude path's shape).
+	if (!adapter?.seedArgs || adapter.forkArgs("SEED") === null) return null;
 	const seed = starterSeedPrompt();
 	assertNoSecrets(seed);
 	const version = starterVersion(seed);
@@ -202,11 +213,11 @@ export const ensureStarter = (
 	if (cached) {
 		return {
 			kind: "fork",
-			fork: {
+				fork: {
 				harness,
 				version,
 				sessionId: cached.sessionId,
-				forkArgs: forkArgsFor(harness, cached.sessionId) ?? [],
+				forkArgs: adapter.forkArgs(cached.sessionId) ?? [],
 			},
 		};
 	}
@@ -226,8 +237,7 @@ export const ensureStarter = (
 				err: p.stderr ? new TextDecoder().decode(p.stderr) : "",
 			};
 		});
-	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
-	const res = run(executorBin, seedArgs, env);
+	const res = run(executorBin, adapter.seedArgs(seed), env);
 	// Session-id presence is the success criterion, NOT the exit code: the CLI
 	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
 	// unrecognized_model line) while the session + usage are perfectly valid.
@@ -248,7 +258,7 @@ export const ensureStarter = (
 		harness,
 		version,
 		sessionId,
-		forkArgs: forkArgsFor(harness, sessionId) ?? [],
+		forkArgs: adapter.forkArgs(sessionId) ?? [],
 		createdAt: Date.now(),
 		seedPromptSha: version,
 	};
@@ -277,12 +287,12 @@ export const parseSessionId = (out: string): string | null => {
 			try {
 				const parsed = JSON.parse(out.slice(start, end + 1)) as {
 					session_id?: unknown;
+					thread_id?: unknown;
 				};
-				if (
-					typeof parsed.session_id === "string" &&
-					parsed.session_id.length > 0
-				)
-					return parsed.session_id;
+				// W808: codex threads answer with thread_id (exec --json JSONL);
+				// claude results answer with session_id.
+				for (const id of [parsed.session_id, parsed.thread_id])
+					if (typeof id === "string" && id.length > 0) return id;
 			} catch {
 				// try the next (shorter) window
 			}
@@ -319,7 +329,9 @@ export const dispatchStarterFork = async (o: {
 	prompt: string;
 	seedError?: StarterSeedFailure;
 }> => {
-	if (!starterEnabled(o.env) || o.harness !== "claude")
+	// W808: the harness gate is per-harness measured adoption (adapter data),
+	// not a claude string compare — codex rides only if the bench adopts it.
+	if (!starterEnabledFor(o.env, o.harness))
 		return { forkArgs: [], prompt: o.coldPrompt };
 	const seedEnv = laneEnv({ ...o.env }, o.noBelt);
 	// Strip the per-lane identity so the seed never rides the lane key (the

@@ -39,6 +39,11 @@ export const claudeAdapter: ExecutorAdapter = {
 	promptArgs: (prompt) => ["-p", prompt],
 	// W454 starter-session fork — binary-verified on the installed executor.
 	forkArgs: (sessionId) => ["--resume", sessionId, "--fork-session"],
+	// W808: extracted from lane-starter's hardcode — the seed turn rides the
+	// plain `-p` grammar + JSON result.
+	seedArgs: (seed) => ["-p", seed, "--output-format", "json", "--max-turns", "1"],
+	// W768: default-on — the W454/W768 benches measured the fork win.
+	starterDefault: true,
 	processNames: ["claude"],
 	// W626: launchd's bare PATH hides the native install — which() misses and
 	// every versioned claude row degraded to the unknown compatibility branch.

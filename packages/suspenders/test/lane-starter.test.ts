@@ -121,13 +121,16 @@ describe("lane-starter", () => {
 		expect(t.startsWith("…")).toBe(true);
 	});
 
-	test("forkArgsFor: claude only, others catalog-only", () => {
+	test("forkArgsFor: claude + codex wired, others catalog-only", () => {
 		expect(forkArgsFor("claude", "s1")).toEqual([
 			"--resume",
 			"s1",
 			"--fork-session",
 		]);
-		for (const h of ["copilot", "codex", "gemini", "grok"]) {
+		// W808: codex fork verified live on 0.158 (`exec fork <id>` → NEW
+		// thread id, parent untouched); rides the exec subcommand line.
+		expect(forkArgsFor("codex", "s1")).toEqual(["fork", "s1"]);
+		for (const h of ["copilot", "gemini", "grok"]) {
 			expect(forkArgsFor(h, "s1")).toBeNull();
 		}
 	});
@@ -187,16 +190,47 @@ describe("lane-starter", () => {
 		expect(starterEnabled({ [STARTER_FLAG]: "0" })).toBe(false);
 	});
 
-	test("dispatchStarterFork: codex = catalog-only, cold start", async () => {
+	test("dispatchStarterFork: codex + flag on = seeded codex fork", async () => {
+		const seen: string[][] = [];
+		const codexJsonl = `${JSON.stringify({ type: "thread.started", thread_id: "codex-seed-1" })}\n`;
 		const r = await dispatchStarterFork({
 			env: { [STARTER_FLAG]: "on" },
 			noBelt: true,
 			harness: "codex",
 			fleet,
 			bin: "/bin/true",
-			item: "W454",
+			item: "W808",
 			sid: "s1",
 			wt: "/wt",
+			coldPrompt: "COLD",
+			log: () => {},
+			ensureOpts: {
+				run: (_bin, args) => {
+					seen.push(args);
+					return { code: 0, out: codexJsonl };
+				},
+			},
+		});
+		expect(r.forkArgs).toEqual(["fork", "codex-seed-1"]);
+		expect(r.prompt).toContain("s1");
+		expect(seen[0]?.slice(0, 4)).toEqual([
+			"exec",
+			"--json",
+			"-s",
+			"read-only",
+		]);
+	});
+
+	test("dispatchStarterFork: codex without adoption = cold start", async () => {
+		const r = await dispatchStarterFork({
+			env: {},
+			noBelt: true,
+			harness: "codex",
+			fleet,
+			bin: "/bin/true",
+			item: "W808",
+			sid: "s9",
+			wt: "/wt9",
 			coldPrompt: "COLD",
 			log: () => {},
 		});

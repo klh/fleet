@@ -7,8 +7,11 @@ path) is appended AFTER the fork so the shared prefix stays cache-stable.
 
 - Flag: `SUSPENDERS_LANE_STARTER` — default ON for the claude executor since
   W768 (seed once, fork every lane; the W454 bench measured the win). Operators
-  opt OUT with `=off` or `=0`; non-claude harnesses stay catalog-only
-  (cold-start) until their fork grammar verifies.
+  opt OUT with `=off` or `=0`. Per harness, enablement is adapter data
+  (`starterDefault`) gated by the flag: `=on` forces every fork-capable
+  harness (bench use), otherwise only measured adoptions default on. W808:
+  codex verified + measured NOT adopted; copilot/gemini/grok verified with
+  NO headless fork (2026-10-18 doc pass) and stay catalog-only.
 - Wiring: `scripts/lib/lane-starter.ts` (`dispatchStarterFork`), called from
   `scripts/dispatch-next.ts` before spawn.
 - The seed ride a fleet identity (`fleet-starter` attribution slug), never a
@@ -25,10 +28,10 @@ any wiring; **unavailable** = no local binary.
 | Harness | Fork/resume surface | Token/usage surface | Fork wiring | Tier |
 | --- | --- | --- | --- | --- |
 | claude | `--resume <id> --fork-session` (also `--resume-session-at`, `--resume-drops-turn`, `--resume-from`, `--session-id`) | `-p --output-format json` → `usage.{input,output_tokens}`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `duration_ms` | **wired** (seed → fork per lane) | binary |
-| codex | `resume` verb, `forked_from_id`/`parent_thread_id` thread fields, `previous_response_id`, `resume_thread_from_history` | `cached_input_tokens` / `cache_write_input_tokens` / `total_tokens` usage records exist | catalog-only — the dispatch spawn recipe hardcodes `-p`, codex takes a positional prompt; needs a wrapper (or recipe change) first | binary (flags), doc-pending (exec-resume arg order) |
-| copilot | session resume/fork semantics UNVERIFIED — no local binary; BYOK proven separately (finding.copilot-byok) | usage fields unknown | catalog-only | doc-pending |
-| gemini | not in the executor ladder (`resolveLaneExecutor`: claude/copilot/codex) | — | not supported | unavailable |
-| grok | hook adapter exists (hook-adapter-grok); session fork surface unverified | — | catalog-only | doc-pending |
+| codex | `exec fork <id>` — binary-verified live on 0.158 (2026-10-18): each fork answers a NEW thread id, parent thread untouched; seed via `exec --json -s read-only <seed>` | JSONL `thread.started`/`turn.completed`: `usage.input_tokens` INCLUDES `cached_input_tokens` (OpenAI semantics), `cache_write_input_tokens` exists | **wired** (adapter `seedArgs`/`forkArgs` + head/prompt spawn slots) — measured NOT adopted, opt-in `SUSPENDERS_LANE_STARTER=on` | binary (0.158 live) |
+| copilot | docs 2026-10-18: `-p --resume=SESSION-ID` is the headless resume (bare `--resume` needs a TTY picker); `/fork`/`/branch` are interactive SLASH commands only — no CLI fork flag, resume is in-place | usage fields unknown; no local binary on this host | catalog-only (fork gate unmet: resume would append every lane to the SAME starter session) | doc (resume), doc-pending (usage) |
+| gemini | docs 2026-10-18: `--resume <uuid>` in-place + `/chat save\|resume <tag>` interactive; no fork semantics; not in the executor ladder (`resolveLaneExecutor`: claude/copilot/codex) | — | not supported | unavailable (no host binary) |
+| grok | community grok-cli docs 2026-10-18: `--session latest`/`-s` in-place continue + `--prompt`/`--format json` headless; no fork; hook adapter exists (hook-adapter-grok) | — | catalog-only (fork gate unmet) | doc (continue), no host binary |
 
 ## Measured results (2026-10-07, this host, n=3, belt-front routing)
 
@@ -60,14 +63,35 @@ within the 10-min transcript-TTL fence, a warm resume costs fork-class
 tokens; past it, fresh-lane doctrine stands. The W768 default covers the
 general orientation case; transcript resume stays policy-gated.
 
+## W808 codex fork leg (2026-10-18, this host, n=3, codex 0.158)
+
+Fork grammar verified live before wiring (`exec fork <id>` → new thread id
+per fork, parent intact). Bench: `bun scripts/orientation-bench.ts --harness
+codex --runs 3 --phase pre|post --starter on` (starter forced — codex is
+not default-adopted).
+
+| Phase | mode | wall mean | input mean (incl cached) | fresh input mean | cache share |
+| --- | --- | --- | --- | --- | --- |
+| PRE | cold | 8.3 s | 63 239 tok | 20 017 tok | 41% |
+| POST | fork | 7.7 s | 106 244 tok | 28 379 tok | 40% |
+
+VERDICT: NOT ADOPTED. The fork replays the FULL seed history each turn and
+OpenAI usage counts input inclusive of cached tokens, so fresh input rose
++42% (20.0k → 28.4k) while the wall delta (−7%) sits inside run variance
+and cache share stayed flat. Codex keeps the cold-start default; the fork
+path stays reachable via `SUSPENDERS_LANE_STARTER=on`. The codex dispatch
+spawn is functional regardless (adapter head/prompt slots — positional
+prompt LAST, `-p` is `--profile` on this CLI).
+
 ## Benchmark protocol (Phase 1 PRE / Phase 3 POST)
 
 `bun scripts/orientation-bench.ts --harness claude --runs 3 --phase pre|post`
 spawns the real harness per run with a deterministic first productive action
 (`git rev-parse HEAD`) and records NDJSON rows (wall ms, input/output/cache
 split, session id) to `.fleet/orientation-bench/<phase>-<harness>.ndjson`.
-PRE = cold starts; POST = `SUSPENDERS_LANE_STARTER=on` forked starts. ADOPT
-per harness only on measured wins (wall, input tokens, cache-read share).
+PRE = cold starts; POST = forked starts (for a harness without default
+adoption, pass `--starter on` to force fork mode). ADOPT per harness only
+on measured wins (wall, input tokens, cache-read share).
 
 Missing executor bin → exit 3 `UNAVAILABLE` (honest); all-runs-failed →
 exit 4. Usage fields a harness does not expose stay `null` — never guessed.
@@ -77,5 +101,6 @@ exit 4. Usage fields a harness does not expose stay `null` — never guessed.
 - claude `--resume-session-at` / `--resume-from` / `--resume-drops-turn`:
   partial-history resume — candidate knob for bounded-history resumes (not
   wired; catalog row).
-- codex `previous_response_id` chaining + fork thread fields: the Responses
-  API route for forked lane starts without CLI support.
+- codex `previous_response_id` chaining: the Responses-API route for forked
+  lane starts without CLI support — moot for the CLI now that `exec fork`
+  verifies, relevant if codex ever rides a raw API lane.

@@ -1040,6 +1040,13 @@ const dispatchItem = async (
 			throw new Error("claim changed before executor spawn");
 		if (!renewLaunchLease(store, project, sid, nonce))
 			throw new Error("launch lease replaced before spawn");
+		// W808: one adapter spec feeds all three spawn slots (head/prompt/
+		// tail) — composed once, consumed by the registry's grammar.
+		const spawnSpec = {
+			fallbackModels: pick.fallbackModels,
+			settingsArgs,
+			forkArgs: laneForkArgs,
+		};
 		const proc = spawnClaude({
 			bin: fencedExecutor(FLEET, intent),
 			prompt: lanePrompt,
@@ -1049,11 +1056,12 @@ const dispatchItem = async (
 			// W422: the spawn tail is the executor adapter's recipe (registry) —
 			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
 			// settings/fork composition; dispatch carries no executor branches.
-			cliArgs: adapter.spawnArgs({
-				fallbackModels: pick.fallbackModels,
-				settingsArgs,
-				forkArgs: laneForkArgs,
-			}),
+			cliArgs: adapter.spawnArgs(spawnSpec),
+			// W808: the head + prompt slots are registry data too — codex's
+			// subcommand grammar (headArgs) and positional prompt ride them;
+			// claude/copilot omit headArgs and keep the -p prompt slot.
+			headArgs: adapter.headArgs?.(spawnSpec),
+			promptArgs: adapter.promptArgs(lanePrompt),
 			fleetDir: FLEET,
 			sid,
 		});

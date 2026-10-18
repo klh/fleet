@@ -21,10 +21,10 @@ primitives. Compiled 2026-10-07.
 | Executor | Prompt caching | Session resume/fork | Batch | Structured outputs | Background mode | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude (Anthropic) | Explicit `cache_control` breakpoints + TTL knob (VERIFIED) | CLI `--resume --fork-session` (VERIFIED) | Message Batches API, −50% (VERIFIED) | `output_config.format` json_schema GA; CLI `--json-schema` (VERIFIED) | CLI `--bg` background sessions (VERIFIED) | complete |
-| Codex / OpenAI | Auto prefix caching ≥1024 tokens, 1024-token increments; `prompt_cache_key` routing; no explicit control (SNIPPET) | Responses `previous_response_id` chaining, 30-day retention, `store: false` opt-out (SNIPPET); `codex resume` / `exec resume` (LEAD) | Batch API −50% (LEAD) | `text.format` json_schema, strict mode (LEAD) | `background: true` + polling/webhooks (LEAD) | partial |
-| Copilot CLI | No user-facing cache control documented; premium-request multipliers instead (LEAD) | `copilot --resume=SESSION-ID`, `--plan` (SNIPPET) | none known (LEAD) | none known (LEAD) | n/a (LEAD) | partial |
-| Gemini | Explicit `cachedContents` resource + TTL; storage billed/h (LEAD) | CLI session storage, no documented fork (LEAD) | `batches.create` −50% (LEAD) | `responseSchema` + `responseMimeType` (LEAD) | Batch-as-background (LEAD) | LEAD-only |
-| Grok / x.ai | Automatic prefix caching, discount on cached input tokens (LEAD) | Official CLI absent; community `grok-dev` (VERIFIED community, W296) | none known (LEAD) | OpenAI-shape `response_format` (LEAD) | n/a (LEAD) | LEAD-only |
+| Codex / OpenAI | Auto prefix caching ≥1024 tokens, 1024-token increments; `prompt_cache_key` routing; no explicit control (SNIPPET) | Responses `previous_response_id` chaining, 30-day retention, `store: false` opt-out (SNIPPET); `exec fork <id>` → NEW thread id, parent intact; seed `exec --json -s read-only` (VERIFIED live 0.158, W808) | Batch API −50% (LEAD) | `text.format` json_schema, strict mode (LEAD) | `background: true` + polling/webhooks (LEAD) | partial |
+| Copilot CLI | No user-facing cache control documented; premium-request multipliers instead (LEAD) | `-p --resume=SESSION-ID` headless (VERIFIED docs 2026-10-18; bare `--resume` needs a TTY); `/fork` slash-only, resume in-place; `--plan` (SNIPPET) | none known (LEAD) | none known (LEAD) | n/a (LEAD) | partial |
+| Gemini | Explicit `cachedContents` resource + TTL; storage billed/h (LEAD) | `--resume <uuid>` in-place, `/chat save\|resume` interactive, no fork (VERIFIED docs 2026-10-18) | `batches.create` −50% (LEAD) | `responseSchema` + `responseMimeType` (LEAD) | Batch-as-background (LEAD) | LEAD-only |
+| Grok / x.ai | Automatic prefix caching, discount on cached input tokens (LEAD) | Official CLI absent; community grok-cli `--session latest` in-place, no fork (VERIFIED community docs 2026-10-18) | none known (LEAD) | OpenAI-shape `response_format` (LEAD) | n/a (LEAD) | LEAD-only |
 
 ## Claude executor — verified detail
 
@@ -130,6 +130,11 @@ developers.openai.com/codex and platform.openai.com docs.
 - Background mode: `background: true` → poll `GET /responses/{id}`,
   webhooks on completion, cancel verb.
 - Structured outputs: `text.format: {type:"json_schema", strict:true}`.
+- **VERIFIED** CLI (W808, live 0.158): `exec --json` JSONL contract —
+  `thread.started` (thread_id) + `turn.completed` usage split (input
+  INCLUDES cached_input_tokens); `exec fork <id>` → NEW thread id,
+  parent intact; `-s` refused post-`fork` (sandbox rides config on
+  forked lines); seed via `exec --json -s read-only <seed>`.
 - CLI: `codex exec` headless, `codex resume`, `--json`, config.toml
   `model_providers` with custom `base_url` + `wire_api`
   ("responses"|"chat") — the gateway seam for buckle.
@@ -139,10 +144,11 @@ developers.openai.com/codex and platform.openai.com docs.
 
 Verify against docs.github.com Copilot CLI pages.
 
-- **SNIPPET** session resume: `copilot --resume=SESSION-ID` (from the
-  CLI command reference); `--plan` enters plan mode. Headless
-  programmatic mode exists ("Running GitHub Copilot CLI
-  programmatically" page; exact flag not captured).
+- **VERIFIED** session resume (docs.github.com CLI command reference,
+  2026-10-18): `-p PROMPT --resume=SESSION-ID` is the documented headless
+  path — bare `--resume` shows a TTY picker and under `-p` exits with an
+  error; `/fork`/`/branch` are interactive slash commands only, resume is
+  in-place (no `--fork-session` analog). `--plan` enters plan mode.
 - **SNIPPET** config: user settings in `~/.copilot/settings.json`
   (written by `/settings` / `/config`).
 - **SNIPPET** BYOK: a "Use your own model provider" how-to subpage
@@ -238,7 +244,11 @@ Verify against docs.x.ai.
 
 ## Open decision
 
-NEED_DECISION #25436: SNIPPET gaps and every LEAD row still need a
-lane with a broader web allowlist or owner-pasted docs. Until then
-W454 phase 1 benchmarks should proceed Claude-only (all its
-primitives are verified) and treat the rest as survey rows.
+NEED_DECISION #25436: the W808 doc pass (2026-10-18) verified the codex
+CLI fork/seed/usage grammar (live 0.158 binary) and the copilot/gemini/
+grok session surfaces (primary docs — no headless fork on any of the
+three). Remaining SNIPPET/LEAD rows still need owner-pasted docs or a
+broader web allowlist. Phase 3 adoption state: claude adopted (W768),
+codex measured NOT adopted (fork replays the seed history, fresh input
++42%); copilot/gemini/grok not benchable (no host binary). Adapter
+`starterDefault` remains the only adoption surface.

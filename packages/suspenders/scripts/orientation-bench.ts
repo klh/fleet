@@ -15,7 +15,7 @@
 // usable result parsed.
 import { mkdirSync, appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { ensureStarter, starterEnabled } from "./lib/lane-starter.ts";
+import { ensureStarter, starterEnabledFor } from "./lib/lane-starter.ts";
 
 type BenchRecord = {
 	ts: number;
@@ -113,11 +113,65 @@ export const parseClaude = (out: string): ProbeReading => {
 	return reading(false);
 };
 
-// Recipe table: verified surfaces only. codex/copilot rows are catalog
-// placeholders (parse = presence + wall clock) until their JSON usage
-// surfaces are verified against live output.
+// codex result parse: `exec --json` JSONL events. thread.started carries the
+// thread id; turn.completed carries per-turn usage, SUMMED across turns (a
+// probe that runs a command burns more than one). Codex input_tokens INCLUDE
+// cached_input_tokens (OpenAI semantics) — fresh = input − cached, computed
+// downstream, never in the record.
+export const parseCodex = (out: string): ProbeReading => {
+	const r = reading(false);
+	for (const line of out.split("\n")) {
+		const t = line.trim();
+		if (!t.startsWith("{")) continue;
+		try {
+			const j = JSON.parse(t) as {
+				type?: string;
+				thread_id?: string;
+				usage?: Record<string, number>;
+			};
+			applyCodexEvent(r, j);
+		} catch {
+			continue;
+		}
+	}
+	return r;
+};
+
+// One codex event mutates the running ProbeReading (parseCodex helper).
+const applyCodexEvent = (
+	r: ProbeReading,
+	j: { type?: string; thread_id?: string; usage?: Record<string, number> },
+): void => {
+	if (j.type === "thread.started" && typeof j.thread_id === "string") {
+		r.ok = true;
+		r.session_id = j.thread_id;
+	}
+	if (j.type === "turn.completed" && j.usage) {
+		r.input_tokens = (r.input_tokens ?? 0) + (j.usage.input_tokens ?? 0);
+		r.output_tokens = (r.output_tokens ?? 0) + (j.usage.output_tokens ?? 0);
+		r.cache_read = (r.cache_read ?? 0) + (j.usage.cached_input_tokens ?? 0);
+		r.cache_creation =
+			(r.cache_creation ?? 0) + (j.usage.cache_write_input_tokens ?? 0);
+	}
+};
+
+// Recipe table: verified surfaces only. copilot stays a catalog placeholder
+// (parse = presence + wall clock) until its JSON usage surface verifies
+// against a live binary; codex rides the verified JSONL contract.
 const recipeFor = (harness: string) => {
 	switch (harness) {
+		case "codex":
+			return {
+				probeArgs: (fork: ForkLike | null): string[] => [
+					"--sandbox",
+					"danger-full-access",
+					"exec",
+					...(fork ? ["fork", fork.sessionId] : []),
+					TASK,
+					"--json",
+				],
+				parse: parseCodex,
+			};
 		case "claude":
 			return {
 				probeArgs: (fork: ForkLike | null): string[] => [
@@ -202,7 +256,9 @@ const runOne = (
 			error: `exit ${spawned.code}; len ${flat.length}; head: ${snippet} … tail: ${tail}`,
 		};
 	}
-	return { ...base, ...parsed, error: undefined };
+	// parsed first, base second: a parse WITHOUT a wall reading (codex events
+	// carry no duration) must not stomp the spawn-elapsed fallback.
+	return { ...parsed, ...base, wall_ms: wall, error: undefined };
 };
 
 const summarize = (records: BenchRecord[]): string => {
@@ -240,7 +296,7 @@ if (import.meta.main) {
 	mkdirSync(OUT, { recursive: true });
 	const wantFork =
 		PHASE === "post" &&
-		(starterEnabled(process.env) || arg("starter") === "on");
+		(starterEnabledFor(process.env, HARNESS) || arg("starter") === "on");
 	const starterOutcome = wantFork
 		? ensureStarter(join(REPO, ".fleet"), HARNESS, bin, process.env, {
 				log: (l) => console.log(`[starter] ${l}`),
