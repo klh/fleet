@@ -13,6 +13,12 @@
 //   bun deploy/hubctl.ts status <hub>   # per-service health probes
 //   bun deploy/hubctl.ts deploy <hub>   # install-grade one-shot: mint → push → up → status
 //   bun deploy/hubctl.ts manifest <hub> [--out <dir>]  # W698: release manifest + SBOM
+//   bun deploy/hubctl.ts exec <hub> <cmd...>   # W484.1.1: allowlisted read-only
+//                                             #   probes over the ssh path
+//   bun deploy/hubctl.ts mint-lane-key <hub> --sid <sid> [--ttl <s>]
+//                                     # W484.1.1: mint a short-lived bksk_ lane
+//                                     #   key ON the hub — the root credential
+//                                     #   never leaves the device
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
@@ -176,14 +182,23 @@ const UPSTREAM_ENV_SCRIPT = [
 // shared with belt's hub heal, which spawns the same argv (no duplicate
 // quoting/flag logic across packages).
 
-/** Run a script on the hub (or locally when the hub has no ssh target). */
-function runOnHub(hub: HubProfile, script: string): string {
+/** Run a script on the hub (or locally when the hub has no ssh target).
+ *  Extra execFileSync opts (e.g. a bounded timeout) ride through. */
+function runOnHub(
+	hub: HubProfile,
+	script: string,
+	opts?: Parameters<typeof execFileSync>[2],
+): string {
 	if (hub.deploy?.ssh) {
 		return execFileSync("ssh", [...sshOpts(hub), hub.deploy.ssh, script], {
 			encoding: "utf8",
+			...opts,
 		});
 	}
-	return execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
+	return execFileSync("/bin/sh", ["-c", script], {
+		encoding: "utf8",
+		...opts,
+	});
 }
 
 /** runOnHub with the exec leg bounded (W671): null when the hub cannot be
@@ -517,6 +532,152 @@ function emitManifest(pinned: string | undefined, flags: string[]): void {
 	else console.log(JSON.stringify(r.manifest, null, 2));
 }
 
+// W484.1.1: allowlisted READ-ONLY hub exec — post-flight probes (restart
+// counts, package repair state, DSM build) without pulling hub secrets.
+// The binary and every argument gate here; arguments also ride a
+// metacharacter-free charset so the ssh command string cannot grow a
+// second command.
+const EXEC_ALLOWLIST: Record<string, { args: RegExp; why: string }> = {
+	docker: {
+		args:
+			/^(ps(\s+-a\b)?(\s+--format\s+\S+)?|inspect(\s+\S+)+|version|images|stats(\s+--no-stream)?|compose\s+ps(\s+-a\b)?)$/,
+		why: "ps|inspect|version|images|stats|compose ps",
+	},
+	synopkg: {
+		args: /^(status(\s+\S+)*|list(\s+\S+)*|checkupdate|version)$/,
+		why: "status|list|checkupdate|version (read subcommands only)",
+	},
+	synoinfo: { args: /^$|^--?[\w-]+$/, why: "info flags only" },
+	uname: { args: /^$|^-[ars]$/, why: "flags only" },
+	uptime: { args: /^$/, why: "no args" },
+	df: { args: /^(-h|-k)?(\s+\/volume\d)?$/, why: "-h|-k [volume]" },
+};
+
+/** Every argv element must be a bare safe-shell word — no quotes, no
+ *  $/backticks, no separators, no globs. */
+function safeWord(a: string): boolean {
+	return /^[\w@%+=:,./-]+$/.test(a);
+}
+
+/** The denial message's one-line allowlist summary. */
+function allowSummary(): string {
+	return Object.entries(EXEC_ALLOWLIST)
+		.map(([b, e]) => `${b} [${e.why}]`)
+		.join(" · ");
+}
+
+/** W484.1.1: run an allowlisted read-only command on the hub. The command
+ *  rides the existing ssh path (one argv element, BatchMode); output
+ *  streams back verbatim for the caller. */
+function execHub(hub: HubProfile, name: string, cmd: string[]): void {
+	const deny = (why: string): never => {
+		console.log(`hubctl exec ${name}: ${why}`);
+		process.exit(2);
+	};
+	if (cmd.length === 0)
+		deny(
+			`usage: hubctl exec ${name} <cmd...> — allowlisted: ${Object.keys(EXEC_ALLOWLIST).join(", ")}`,
+		);
+	const [bin, ...args] = cmd;
+	const entry = EXEC_ALLOWLIST[bin];
+	if (!entry) deny(`"${bin}" not allowlisted (allowed: ${allowSummary()})`);
+	if (args.some((a) => !safeWord(a)))
+		deny(
+			"argument has unsafe characters — bare words only (no quotes/$/;/|/globs)",
+		);
+	const shape = args.join(" ");
+	if (!entry.args.test(shape))
+		deny(
+			`${bin} ${shape} is not an allowlisted read-only shape (allowed: ${bin} ${entry.why})`,
+		);
+	try {
+		// post-flight probes are quick — bound the exec leg
+		process.stdout.write(runOnHub(hub, cmd.join(" "), { timeout: 60_000 }));
+	} catch (e) {
+		console.log(
+			`hubctl exec: hub unreachable or command failed (${e instanceof Error ? e.message : String(e)})`,
+		);
+		process.exit(1);
+	}
+}
+
+// W484.1.1: script run ON the hub — reads the declared root-key file where
+// it lives, POSTs the hub's own admin API from inside the device, and
+// prints the mint response + http code. The root credential is used in a
+// header variable and never printed or transported off the hub.
+const MINT_LANE_KEY_SCRIPT = [
+	"umask 077",
+	'K=$(sed -n \'s/^BUCKLE_ROOT_KEY=//p\' "$1" | head -n1 | tr -d \'\\r\\n\')',
+	'[ -n "$K" ] || { echo "hub root key missing at $1" >&2; exit 3; }',
+	'curl --max-time 15 -sS -X POST \\',
+	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
+	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/keys"',
+].join("\n");
+
+/** sid charset: sids ride a JSON body key name + the ssh string — bare
+ *  word, no separators, ≥3 chars. */
+function validSid(s: string | undefined): s is string {
+	return s !== undefined && /^[A-Za-z0-9][\w.-]{2,}$/.test(s);
+}
+
+/** Probe-key TTL: short-lived by law; 60s..24h, default 3600. */
+function validTtl(raw: string): number | null {
+	const n = Number(raw);
+	return Number.isInteger(n) && n >= 60 && n <= 86_400 ? n : null;
+}
+
+/** The value after --flag in flags, or undefined when absent/last. */
+function flagVal(flags: string[], f: string): string | undefined {
+	const i = flags.indexOf(f);
+	return i >= 0 ? flags[i + 1] : undefined;
+}
+
+function mintLaneKey(
+	hub: HubProfile,
+	name: string,
+	sid: string,
+	ttl: number,
+): void {
+	const port = hub.buckle_port;
+	const root = hub.secrets?.buckle_root_key;
+	if (!port || !root)
+		throw new Error(
+			`hub ${name} needs buckle_port + secrets.buckle_root_key in stack.yaml`,
+		);
+	const body = JSON.stringify({
+		name: sid,
+		scopes: ["buckle:proxy:WRITE_"],
+		expires_in_s: ttl,
+	});
+	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+	let out: string;
+	try {
+		out = runOnHub(
+			hub,
+			`/bin/sh -c ${quote(MINT_LANE_KEY_SCRIPT)} sh ${quote(root)} ${quote(String(port))} ${quote(body)}`,
+		);
+	} catch (e) {
+		// the hub-side script's diagnostic (e.g. root key missing) rides stderr
+		const err = e as { stderr?: unknown; message?: unknown };
+		const hint =
+			typeof err.stderr === "string" && err.stderr.trim().length > 0
+				? err.stderr.trim()
+				: typeof err.message === "string"
+					? err.message
+					: String(e);
+		console.log(`hubctl mint-lane-key: ${hint}`);
+		process.exit(1);
+	}
+	const lines = out.trimEnd().split("\n");
+	const status = Number(lines.at(-1));
+	const payload = lines.slice(0, -1).join("\n");
+	if (!(status >= 200 && status < 300)) {
+		console.log(payload || `hub gate answered ${status} — key not minted`);
+		process.exit(1);
+	}
+	console.log(payload);
+}
+
 function main(): void {
 	const [verb, hubName, ...flags] = process.argv.slice(2);
 	const force = flags.includes("--force");
@@ -524,8 +685,10 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|manifest> <hub> — config: ~/.config/klh/stack.yaml\n" +
-				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)",
+			"usage: hubctl <render|mint|push|up|status|deploy|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
+				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
+				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
+				"       short-lived lane key ON the hub (root credential never leaves it)",
 		);
 		process.exit(hubName ? 0 : 2);
 	}
@@ -562,9 +725,24 @@ function main(): void {
 		case "manifest":
 			emitManifest(stack.version, flags);
 			return;
+		case "exec":
+			execHub(hub, hubName, flags);
+			return;
+		case "mint-lane-key": {
+			const sid = flagVal(flags, "--sid");
+			const ttl = validTtl(flagVal(flags, "--ttl") ?? "3600");
+			if (!validSid(sid) || ttl === null) {
+				console.log(
+					"usage: hubctl mint-lane-key <hub> --sid <sid> [--ttl 60..86400, default 3600]",
+				);
+				process.exit(2);
+			}
+			mintLaneKey(hub, hubName, sid, ttl);
+			return;
+		}
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|manifest`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|manifest|exec|mint-lane-key`,
 			);
 			process.exit(2);
 	}
