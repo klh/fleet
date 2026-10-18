@@ -7,7 +7,7 @@ LLM gateway: multi-provider serving + governance in one Bun/TypeScript
 process. Two client wire dialects (OpenAI, Anthropic) in front of the
 LiteLLM-internal engine (W219.1) and the 100+ provider catalog
 (W150) — the serving layer of the
-[klh agent stack](https://github.com/klh/suspenders) — belt routes,
+[klh agent stack](https://github.com/klh/fleet/tree/main/packages/suspenders) — belt routes,
 buckle serves.
 
 ```mermaid

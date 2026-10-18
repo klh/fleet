@@ -5,7 +5,7 @@ description: Orients a fresh agent session on the klh fleet (suspenders, buckle,
 
 # KLH Ecosystem Map
 
-> Part of speedy (https://github.com/klh/speedy) — installed to
+> Part of speedy (https://github.com/klh/fleet/tree/main/packages/speedy) — installed to
 > `~/.claude/skills/klh-ecosystem-map` by `install.sh`, symlinked to
 > `~/.agents/skills` for every CLI (Claude, Copilot, Codex, cline, grok).
 

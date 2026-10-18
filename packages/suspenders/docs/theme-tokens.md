@@ -57,8 +57,8 @@ shared look plus one shared row of links at the top of every dashboard:
 <nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet">
   <span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>
   <a href="https://belt.local" aria-current="page">belt</a>
-  <a href="https://suspenders.local" data-repo="https://github.com/klh/suspenders">suspenders</a>
-  <a href="https://bar.local" data-repo="https://github.com/klh/local">local</a>
+  <a href="https://suspenders.local" data-repo="https://github.com/klh/fleet/tree/main/packages/suspenders">suspenders</a>
+  <a href="https://bar.local" data-repo="https://github.com/klh/fleet/tree/main/packages/local">local</a>
 </nav>
 ```
 

@@ -10,7 +10,7 @@
 **The local LLM fleet for your agent fleet.** A swarm of MLX specialists on
 localhost — code, extract, reason, rerank — behind a deterministic keyword
 router, with a benchmark rig that logs every measurement to `benchmarks.jsonl`.
-Wear with [suspenders](https://github.com/klh/suspenders).
+Wear with [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders).
 
 Five parallel Claude Code lanes hit `:8901` at once. Nobody waits on a remote
 round-trip for a 4-line extraction, and nobody notices the cloud is down.
@@ -41,7 +41,7 @@ memory headroom for the resident tier (M5 Max 128 GB measured). Small machines
 take the minimal tier instead — see below.
 
 ```bash
-git clone https://github.com/klh/belt && cd belt
+git clone https://github.com/klh/fleet && cd fleet/packages/belt
 ./install.sh                      # deploy bin/ to ~/.claude/local-llm/ (full tier)
 ./install.sh --tier minimal       # small machines: resident fleet ≤4GB (:8902 extract + :8913 rerank)
 ./install.sh --with-models        # + deps (uv/mlx-lm/rapid-mlx) + model weights (~40-60 GB)
@@ -57,8 +57,8 @@ under 32 GB the installer prints a recommendation to use `--tier minimal`.
 
 The installer is idempotent. Deploys the fleet code to `~/.claude/local-llm/`
 — that path is the stable runtime location shared with
-[suspenders](https://github.com/klh/suspenders) and
-[speedy](https://github.com/klh/speedy). Then:
+[suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) and
+[speedy](https://github.com/klh/fleet/tree/main/packages/speedy). Then:
 
 ```bash
 bun ~/.claude/local-llm/coordinator.ts status    # every port, up/down, model, RAM
@@ -70,9 +70,9 @@ bun ~/.claude/local-llm/set-cloud.ts off         # router: local-only mode
 
 | Repo                                                | Layer                                                           | Depends on                                             |
 | --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
-| [klh/suspenders](https://github.com/klh/suspenders) | control plane — SQLite sessions/claims/work graph, fleet board  | any OpenAI-compatible endpoint (default `:8901`)       |
+| [klh/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | control plane — SQLite sessions/claims/work graph, fleet board  | any OpenAI-compatible endpoint (default `:8901`)       |
 | **klh/belt**                                        | local LLM fleet — MLX specialists, router, benchmark rig        | suspenders (optional, for warm weights + board advice) |
-| [klh/speedy](https://github.com/klh/speedy)         | speed + safety config layer — skills, hooks, personas, settings | installs both                                          |
+| [klh/speedy](https://github.com/klh/fleet/tree/main/packages/speedy)         | speed + safety config layer — skills, hooks, personas, settings | installs both                                          |
 
 suspenders' advice worker (`advise.ts`) reads `SUSPENDERS_LLM_URL`
 (default `http://127.0.0.1:8901`) — belt's code specialist answers board

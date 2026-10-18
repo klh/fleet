@@ -14,7 +14,7 @@
 Requires [Bun](https://bun.sh). Caddy, the Caddyfile, and the user LaunchAgent are bootstrapped by the tool itself:
 
 ```bash
-git clone https://github.com/klh/local && cd local
+git clone https://github.com/klh/fleet && cd fleet/packages/local
 echo 'alias klh-local="bun /Volumes/Sensitive/github/klh/local/bin/klh-local.ts"' >> ~/.zshrc
 klh-local install          # brew install caddy (if missing) + LaunchAgent + Caddyfile
 ```
@@ -115,9 +115,9 @@ Read-only by design: the bar probes and renders; it never registers, reloads, or
 
 | Repo                                            | Role in the fleet                                                     |
 | ----------------------------------------------- | --------------------------------------------------------------------- |
-| [suspenders](https://github.com/klh/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
-| [belt](https://github.com/klh/belt)             | Local LLM fleet and OpenAI-compatible endpoints                       |
-| [speedy](https://github.com/klh/speedy)         | Speed and safety config layer: skills, hooks, personas, settings      |
+| [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | Agent control plane: hooks, work graph, coordination bus, fleet board |
+| [belt](https://github.com/klh/fleet/tree/main/packages/belt)             | Local LLM fleet and OpenAI-compatible endpoints                       |
+| [speedy](https://github.com/klh/fleet/tree/main/packages/speedy)         | Speed and safety config layer: skills, hooks, personas, settings      |
 
 ## Licensing
 

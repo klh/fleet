@@ -166,7 +166,7 @@ overflow-only policy already correct (no action).
 ## Design sketch: suspenders target
 
 No code in this section — direction only. suspenders'
-[fleet-loop](https://github.com/klh/suspenders) dispatches work items to
+[fleet-loop](https://github.com/klh/fleet/tree/main/packages/suspenders) dispatches work items to
 headless lanes on this machine; every dispatch carries an
 `origin` (`<hostname>:<agent>`), which is the recorded multi-machine seam.
 The target: **a work item whose leaf task is "answer this prompt" can be
