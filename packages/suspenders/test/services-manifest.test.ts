@@ -11,6 +11,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	defaultRenderValues,
+	loadLegacyLabels,
 	loadManifest,
 	type RenderValues,
 	renderDarwin,
@@ -44,6 +45,19 @@ const byName = (name: string): ServiceSpec => {
 		throw new Error(`service ${name} missing from manifest`);
 	return spec;
 };
+
+// W779: the interval/calendar services folded into the heartbeat — the
+// timer/nice emitters keep coverage via synthetic specs, no manifest entry.
+const synth = (over: Partial<ServiceSpec>): ServiceSpec => ({
+	name: "synth",
+	bunEntry: "__PREFIX__/bin/synth.ts",
+	args: [],
+	env: {},
+	schedule: { runAtLoad: false },
+	logs: { out: "/tmp/synth.log", err: "/tmp/synth.err.log" },
+	placeholders: ["__BUN__", "__PREFIX__"],
+	...over,
+});
 
 describe("services manifest (W488.1)", () => {
 	test("manifest covers exactly the templated plists on disk", () => {
@@ -237,32 +251,43 @@ describe("services manifest linux (W488.2)", () => {
 	});
 
 	test("intervalSeconds renders a timer with OnBootSec + OnUnitActiveSec", () => {
-		const timer = renderLinuxTimer(byName("fleet-monitor"));
-		if (timer === null) throw new Error("fleet-monitor timer missing");
+		const timer = renderLinuxTimer(
+			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+		);
+		if (timer === null) throw new Error("every15 timer missing");
 		const ini = parseIni(timer);
 		expect(ini.Timer?.OnBootSec).toBe("900s");
 		expect(ini.Timer?.OnUnitActiveSec).toBe("900s");
-		expect(ini.Timer?.Unit).toBe("suspenders-fleet-monitor.service");
+		expect(ini.Timer?.Unit).toBe("suspenders-every15.service");
 		expect(ini.Install?.WantedBy).toBe("timers.target");
 	});
 
-	test("calendar maps to OnCalendar + Persistent (db-backup daily 10:00)", () => {
-		const timer = renderLinuxTimer(byName("db-backup"));
-		if (timer === null) throw new Error("db-backup timer missing");
+	test("calendar maps to OnCalendar + Persistent (daily 10:00)", () => {
+		const timer = renderLinuxTimer(
+			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+		);
+		if (timer === null) throw new Error("daily10 timer missing");
 		const ini = parseIni(timer);
 		expect(ini.Timer?.OnCalendar).toBe("*-*-* 10:00:00");
 		expect(ini.Timer?.Persistent).toBe("true");
 	});
 
 	test("timer-backed services are Type=oneshot; residents Restart, never both", () => {
-		expect(iniByName("db-backup").Service?.Type).toBe("oneshot");
-		expect(iniByName("fleet-monitor").Service?.Type).toBe("oneshot");
-		expect(iniByName("db-backup").Service?.Restart).toBeUndefined();
-		expect(iniByName("harvest").Service?.Restart).toBeUndefined();
+		const timerSvcs = [
+			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+		].map((s) => parseIni(renderLinux(s, FIXTURE)).Service);
+		for (const svc of timerSvcs) {
+			expect(svc?.Type).toBe("oneshot");
+			expect(svc?.Restart).toBeUndefined();
+		}
+		// a resident (keepalive) never renders a timer
+		expect(renderLinuxTimer(byName("board"))).toBeNull();
 	});
 
-	test("Nice maps to Nice= (llm-keepwarm 10)", () => {
-		expect(iniByName("llm-keepwarm").Service?.Nice).toBe("10");
+	test("Nice maps to Nice= (belownormal heavy tasks)", () => {
+		const ini = parseIni(renderLinux(synth({ name: "heavy", nice: 10 }), FIXTURE));
+		expect(ini.Service?.Nice).toBe("10");
 	});
 
 	test("envFile renders EnvironmentFile (PATH only)", () => {
@@ -347,27 +372,33 @@ describe("services manifest win32 (W488.3)", () => {
 		expect(board).toContain('<onfailure action="restart" delay="5 sec"/>');
 		const relay = winByName("consult-relay");
 		expect(relay).toContain('<onfailure action="restart" delay="10 sec"/>');
-		const backup = winByName("db-backup");
-		expect(backup).not.toMatch(/^\s*<onfailure/m);
-		expect(backup).toContain("/SC DAILY");
-		expect(backup).toContain("/ST 10:00");
-		expect(backup).toContain("/TN suspenders-db-backup");
-		const monitor = winByName("fleet-monitor");
-		expect(monitor).toContain("/SC MINUTE /MO 15");
-		expect(monitor).toContain("/TN suspenders-fleet-monitor");
+		const daily = renderWin32(
+			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			FIXTURE,
+		);
+		expect(daily).not.toMatch(/^\s*<onfailure/m);
+		expect(daily).toContain("/SC DAILY");
+		expect(daily).toContain("/ST 10:00");
+		expect(daily).toContain("/TN suspenders-daily10");
+		const every = renderWin32(
+			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			FIXTURE,
+		);
+		expect(every).toContain("/SC MINUTE /MO 15");
+		expect(every).toContain("/TN suspenders-every15");
 	});
 
-	test("nice maps to <priority> (llm-keepwarm belownormal)", () => {
-		expect(winByName("llm-keepwarm")).toContain(
-			"<priority>belownormal</priority>",
-		);
+	test("nice maps to <priority> (heavy tasks belownormal)", () => {
+		const heavy = renderWin32(synth({ name: "heavy", nice: 10 }), FIXTURE);
+		expect(heavy).toContain("<priority>belownormal</priority>");
 	});
 
 	test("renderUnits file contract: primary + timer naming, all three targets", () => {
-		const backupUnits = renderUnits("linux", byName("db-backup"), FIXTURE);
+		const daily = synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } });
+		const backupUnits = renderUnits("linux", daily, FIXTURE);
 		expect(backupUnits.map((u) => u.file)).toEqual([
-			"suspenders-db-backup.service",
-			"suspenders-db-backup.timer",
+			"suspenders-daily10.service",
+			"suspenders-daily10.timer",
 		]);
 		const boardUnits = renderUnits("linux", byName("board"), FIXTURE);
 		expect(boardUnits.map((u) => u.file)).toEqual(["suspenders-board.service"]);
@@ -392,5 +423,18 @@ describe("services manifest win32 (W488.3)", () => {
 		}
 		// non-PATH env still renders as live <env> entries
 		expect(winByName("board")).toContain('value="local"');
+	});
+
+	test("legacyLabels: loader returns the manifest list, strings only", () => {
+		expect(loadLegacyLabels()).toContain("com.klh.kev");
+		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
+		for (const l of loadLegacyLabels())
+			expect(typeof l).toBe("string");
+	});
+
+	test("legacyLabels: never a live service name", () => {
+		const names = new Set(services.map((s) => s.name));
+		for (const l of loadLegacyLabels())
+			expect(names.has(l.replace("com.suspenders.", ""))).toBe(false);
 	});
 });

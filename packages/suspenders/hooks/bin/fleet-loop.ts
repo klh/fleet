@@ -31,6 +31,7 @@ import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
 import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
+import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
@@ -83,6 +84,23 @@ const { reclaimSweep } = createReclaimSweep({
 	store: openStore,
 	broadcast: (note: string) => broadcastNote(note, "fleet-loop"),
 });
+
+// W779 heartbeat: the no-port launchd maintenance agents as typed tasks —
+// the cycle fires every due task, the task owns its cadence and fan-out.
+// Fail-isolated (the wisdom-sweep rule): a registry bug can never take
+// down the merge/dispatch core.
+const { maintenanceSweep } = createMaintenanceSweep(runtime);
+const runMaintenanceSweep = (): void => {
+	try {
+		const r = maintenanceSweep();
+		if (r.ran.length > 0 || r.failed.length > 0)
+			log(`MAINT swept ran=${r.ran.length} fail=${r.failed.length} skip=${r.skipped}`);
+	} catch (e) {
+		log(
+			`MAINT sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+};
 
 // the ladder and dispatch commands are repo-OWNER config (same trust class as
 // a Makefile): {branch} is substituted, then the template runs via sh -c in
@@ -176,6 +194,12 @@ async function cycle(): Promise<void> {
 			`RECLAIM sweep failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
+
+	// 8. maintenance sweep (W779): the folded no-port launchd agents as
+	// typed-task registry — each due task fire is attempt-stamped then
+	// spawned as a child (callee decides fan-out); a watchdog-killed cycle
+	// never re-fires the same task. Fail-isolated inside runMaintenanceSweep.
+	runMaintenanceSweep();
 }
 
 // dispatch: one Work Graph item → claimed, worktree, briefed headless lane.
