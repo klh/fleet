@@ -529,7 +529,7 @@ const dispatchItem = async (
 			.query(
 				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'dispatch',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,version=version+1,ts=excluded.ts",
 			)
-			.run(flagKey, new Date().toISOString());
+			.run(flagKey, new Date().toISOString(), Date.now());
 		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
 		run(
 			coordCli(
