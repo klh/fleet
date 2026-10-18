@@ -61,18 +61,15 @@ export const inspectIntents = (
 	}));
 };
 
-const listJson = (project: string): number => {
-	const store = openStore();
-	const rows = inspectIntents(store, project);
-	store.close();
-	console.log(JSON.stringify(rows));
+type Store = Parameters<typeof launchSchema>[0];
+
+const listJson = (store: Store, project: string): number => {
+	console.log(JSON.stringify(inspectIntents(store, project)));
 	return 0;
 };
 
-const listPlain = (project: string): number => {
-	const store = openStore();
+const listPlain = (store: Store, project: string): number => {
 	const rows = inspectIntents(store, project);
-	store.close();
 	if (rows.length === 0) {
 		console.log(`no launch intents for ${project}`);
 		return 0;
@@ -134,20 +131,23 @@ export const failIntent = (
 	};
 };
 
-const failVerb = (project: string, parsed: Parsed): number => {
+const failVerb = (store: Store, project: string, parsed: Parsed): number => {
 	const item = parsed.flag("--item");
 	if (!item) {
 		console.log(HELP);
 		return 2;
 	}
-	const store = openStore();
 	const out = failIntent(store, project, item, parsed.flag("--evidence") ?? "");
-	store.close();
 	console.log(out.line);
 	return out.ok ? 0 : 1;
 };
 
-export const intentMain = (args: string[], ctx: { repo: string }): number => {
+/** The `dispatch intent` door. Opens the machine store unless one is
+ * injected (ctx.store — the test seam); closes only what it opened. */
+export const intentMain = (
+	args: string[],
+	ctx: { repo: string; store?: Store },
+): number => {
 	const project = projectIdentity(ctx.repo);
 	const [verb = "", ...rest] = args;
 	if (!verb || verb === "help") {
@@ -168,9 +168,14 @@ export const intentMain = (args: string[], ctx: { repo: string }): number => {
 		console.log(HELP);
 		return 2;
 	}
+	const store = ctx.store ?? openStore();
+	let code: number;
 	if (spec.name === "inspect") {
 		const json = outcome.parsed.all("--json").length > 0;
-		return json ? listJson(project) : listPlain(project);
+		code = json ? listJson(store, project) : listPlain(store, project);
+	} else {
+		code = failVerb(store, project, outcome.parsed);
 	}
-	return failVerb(project, outcome.parsed);
+	if (!ctx.store) store.close();
+	return code;
 };
