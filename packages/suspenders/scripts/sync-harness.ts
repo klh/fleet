@@ -186,17 +186,19 @@ export async function syncHarness(
 		throw new Error(
 			"Source revision changed during dashboard refresh; rerun from a consistent capture",
 		);
-	if (
-		git(repo, [
-			"status",
-			"--porcelain",
-			"--untracked-files=no",
-			"--",
-			...SOURCE_PATHS,
-		])
-	)
+	// W780: name the offending files — the bare "working payload is dirty"
+	// verdict forced a stash-dance to find them. diff --name-only: one path
+	// per line, no porcelain status columns to mis-slice.
+	const dirty = git(repo, [
+		"diff",
+		"--name-only",
+		"HEAD",
+		"--",
+		...SOURCE_PATHS,
+	]);
+	if (dirty)
 		throw new Error(
-			"Commit reviewed harness changes before code-only sync; working payload is dirty",
+			`Commit reviewed harness changes before code-only sync; working payload is dirty: ${dirty.split("\n").join(", ")}`,
 		);
 	const prefix = resolve(ctx.prefix),
 		parent = dirname(prefix);

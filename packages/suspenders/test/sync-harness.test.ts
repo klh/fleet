@@ -288,7 +288,15 @@ test("repeat sync preserves private config permissions without nesting previous 
 test("dirty reviewed payload is refused before prefix changes", async () => {
 	const f = fixture();
 	f.put("packages/suspenders/hooks/gate.ts", "export const unreviewed = 2;");
-	await expect(syncHarness(f.ctx)).rejects.toThrow("working payload is dirty");
+	// W780: the verdict names the offending files — no stash-dance to find them.
+	const error = await syncHarness(f.ctx).then(
+		() => {
+			throw new Error("expected dirty-guard rejection");
+		},
+		(e: Error) => e,
+	);
+	expect(error.message).toContain("working payload is dirty");
+	expect(error.message).toContain("packages/suspenders/hooks/gate.ts");
 	expect(lstatSync(f.ctx.prefix).isDirectory()).toBe(true);
 });
 
