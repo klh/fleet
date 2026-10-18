@@ -14,6 +14,7 @@ import {
 export type HookInput = {
 	tool_name?: string;
 	session_id?: string;
+	prompt?: string; // UserPromptSubmit (W817 ask gate)
 	tool_input?: {
 		command?: string;
 		file_path?: string;

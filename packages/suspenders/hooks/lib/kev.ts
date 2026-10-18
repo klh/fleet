@@ -71,11 +71,14 @@ export function parseOptions(v: unknown): KevOption[] {
 }
 
 /** One typed decision pass: a choice question over the caller's options.
- *  Null on any failure — the caller's fallback chain is the contract. */
+ *  Null on any failure — the caller's fallback chain is the contract.
+ *  timeoutMs tightens the kev-cold ceiling for latency-bound callers (W817
+ *  ask gate: 5s in a prompt-submit path). */
 export async function kevTypedDecision(input: {
 	state: string;
 	question: string;
 	options: KevOption[];
+	timeoutMs?: number;
 }): Promise<KevDecision | null> {
 	const options = input.options.filter((o) => o.label?.trim());
 	if (options.length < 2) return null; // a choice needs a choice
@@ -96,7 +99,7 @@ export async function kevTypedDecision(input: {
 					},
 				},
 			}),
-			signal: AbortSignal.timeout(KEV_TIMEOUT_MS),
+			signal: AbortSignal.timeout(input.timeoutMs ?? KEV_TIMEOUT_MS),
 		});
 		if (!r.ok) return null;
 		const j = (await r.json()) as {
