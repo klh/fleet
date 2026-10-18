@@ -13,6 +13,7 @@ import {
 	directTiersFromRegistry,
 	loadDirectTiers,
 	parseDirect,
+	parseDirectTiersArtifact,
 } from "../bin/router-policy.ts";
 import { probePathFor } from "../bin/inventory-probe.ts";
 
@@ -21,6 +22,31 @@ describe("direct tiers are emitted-only (W289)", () => {
 		const parsed = parseDirect(EMITTERS.direct());
 		expect(Object.keys(parsed)).toEqual(registryEntries().map((e) => e.alias));
 		expect(parsed["local-coder"]).toBe("http://127.0.0.1:8901/v1");
+	});
+
+	test("parseDirectTiersArtifact: rows pass, /v1 normalized (W726)", () => {
+		expect(
+			parseDirectTiersArtifact(
+				JSON.stringify({
+					"local-extract": "http://127.0.0.1:8902",
+					"local-reason": "http://localhost:8903/v1/",
+				}),
+			),
+		).toEqual({
+			"local-extract": "http://127.0.0.1:8902/v1",
+			"local-reason": "http://localhost:8903/v1",
+		});
+	});
+
+	test("parseDirectTiersArtifact: bad row fails alone; empty/corrupt → null", () => {
+		expect(
+			parseDirectTiersArtifact(
+				'{"a": "https://evil.example", "b": "http://127.0.0.1:8902"}',
+			),
+		).toEqual({ b: "http://127.0.0.1:8902/v1" });
+		expect(parseDirectTiersArtifact("{}")).toBeNull();
+		expect(parseDirectTiersArtifact("not json")).toBeNull();
+		expect(parseDirectTiersArtifact("[]")).toBeNull();
 	});
 
 	test("legacy string rows still parse", () => {

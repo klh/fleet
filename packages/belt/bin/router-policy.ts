@@ -207,16 +207,16 @@ export const directTiersFromRegistry = (): DirectTiers =>
 export const directTiersArtifactPath = (): string =>
 	`${process.env.HOME}/.claude/local-llm/direct-tiers.json`;
 
-/** Read the emitted artifact: only mapping bodies count, rows must pass the
- *  same loopback grammar as parseDirect (a hand-edited row fails alone —
- *  belt emission never writes bad rows). Missing/corrupt → null so the
- *  caller falls back to the YAML chain. */
-export function readDirectTiersArtifact(
-	path = directTiersArtifactPath(),
-): DirectTiers | null {
+/** The emitted artifact's row grammar as a PURE parse (W726: the one
+ *  reader for direct-tiers.json — board enhance + the prompt bench read
+ *  the map through this, not hand-rolled copies): only mapping bodies
+ *  count, rows must pass the same loopback grammar as parseDirect (a
+ *  hand-edited row fails alone — belt emission never writes bad rows),
+ *  /v1-normalized. Bad body → null so the caller falls back. */
+export function parseDirectTiersArtifact(text: string): DirectTiers | null {
 	let raw: unknown;
 	try {
-		raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+		raw = JSON.parse(text) as unknown;
 	} catch {
 		return null;
 	}
@@ -233,6 +233,18 @@ export function readDirectTiersArtifact(
 	// source, so fresh (un-regenerated) rows must not be masked by a stale {}
 	if (!sawRow) return null;
 	return out;
+}
+
+/** Read the emitted artifact: parseDirectTiersArtifact on the file bytes.
+ *  Missing/corrupt → null so the caller falls back to the YAML chain. */
+export function readDirectTiersArtifact(
+	path = directTiersArtifactPath(),
+): DirectTiers | null {
+	try {
+		return parseDirectTiersArtifact(readFileSync(path, "utf8"));
+	} catch {
+		return null;
+	}
 }
 
 export function loadDirectTiers(

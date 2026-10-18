@@ -6,6 +6,10 @@
 // unit tests drive every branch without a live board.
 import { readFileSync } from "node:fs";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
+import {
+	parseDirectTiersArtifact,
+	resolveTarget,
+} from "../../../belt/bin/router-policy.ts";
 import { scrub } from "../lib/servicemon.ts";
 
 // ─── settings (persisted in suspenders-board.json, W269-compatible keys) ──
@@ -87,9 +91,8 @@ const DIRECT_TIERS_PATH = () =>
 	}/.claude/local-llm/direct-tiers.json`;
 
 // parseDirect (belt bin/router-policy.ts) only ever emits loopback http
-// bases — re-validate on read: the file is data, trust nothing.
-const LOOPBACK =
-	/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(\/v1)?\/?$/;
+// bases — parseDirectTiersArtifact re-validates on read: the file is data,
+// trust nothing.
 
 export interface EnhanceTarget {
 	mode: "direct" | "gateway";
@@ -146,23 +149,24 @@ export async function resolveEnhanceTarget(deps?: {
 			wire: "anthropic",
 		};
 	try {
-		const doc = JSON.parse(read(DIRECT_TIERS_PATH())) as Record<
-			string,
-			unknown
-		>;
-		for (const alias of ENHANCE_DIRECT_ALIASES) {
-			const base = doc[alias];
-			if (typeof base !== "string" || !LOOPBACK.test(base)) continue;
-			const id = await probe(base);
-			if (!id) continue;
-			return {
-				mode: "direct",
-				alias,
-				model: id,
-				url: `${base.replace(/\/$/, "").replace(/(\/v1)?$/, "/v1")}/chat/completions`,
-				wire: "openai",
-			};
-		}
+		const tiers = parseDirectTiersArtifact(read(DIRECT_TIERS_PATH()));
+		if (tiers)
+			for (const alias of ENHANCE_DIRECT_ALIASES) {
+				// resolveTarget IS the W726 adoption: the board client picks the
+				// specialist leg through the belt resolver, not a hand-rolled
+				// row lookup — the parser already validated the base.
+				const { base, direct } = resolveTarget(alias, ENHANCE_URL, tiers);
+				if (!direct) continue;
+				const id = await probe(base);
+				if (!id) continue;
+				return {
+					mode: "direct",
+					alias,
+					model: id,
+					url: `${base}/chat/completions`,
+					wire: "openai",
+				};
+			}
 	} catch {
 		// no map / unreadable → the gateway default below
 	}
