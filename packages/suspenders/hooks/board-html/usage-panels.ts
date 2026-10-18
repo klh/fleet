@@ -807,6 +807,11 @@ export class KlhUsageCrossHub extends LitElement {
 	protected render(): TemplateResult {
 		const p = readPanels()?.crosshub;
 		if (!p) return html``;
+		if ("empty" in p)
+			return html`<div class="upanel">
+				<h2>CROSS-HUB</h2>
+				<p class="uempty">${p.empty}</p>
+			</div>`;
 		if (!p.rows.length) return this.empty();
 		return this.body(p.rows);
 	}
