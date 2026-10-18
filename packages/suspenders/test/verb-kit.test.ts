@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
 	defineVerb,
+	idList,
 	parseVerb,
 	renderRegistryHelp,
 	renderVerbHelp,
@@ -22,6 +23,20 @@ const spec = (over: Partial<VerbSpec> = {}): VerbSpec =>
 		reqFlags: ["--on"],
 		...over,
 	});
+
+describe("idList — W795 multi-positional id lists", () => {
+	test("comma, space, and mixed forms parse identically", () => {
+		expect(idList(["W791,W792"])).toEqual(["W791", "W792"]);
+		expect(idList(["W791", "W792"])).toEqual(["W791", "W792"]);
+		expect(idList(["W791", "W792,W793"])).toEqual(["W791", "W792", "W793"]);
+	});
+
+	test("empties drop; duplicates dedupe; order preserved", () => {
+		expect(idList(["W791,", ",W792"])).toEqual(["W791", "W792"]);
+		expect(idList(["W791", "W791,W792"])).toEqual(["W791", "W792"]);
+		expect(idList(["W793,W791"])).toEqual(["W793", "W791"]);
+	});
+});
 
 describe("parseVerb — the one parser", () => {
 	test("flags consume the next token; first occurrence wins; all() collects", () => {

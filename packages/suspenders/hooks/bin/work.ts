@@ -64,6 +64,7 @@ import { reproGateRefusal } from "../lib/repro-gate.ts";
 import {
 	defineVerb,
 	dieFor,
+	idList,
 	runCli,
 	type Parsed,
 	type VerbSpec,
@@ -127,7 +128,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "show",
-		usage: "usage: show <id> [--json]",
+		usage: "usage: show <id...> [--json] — ids space- or comma-separated",
 		flags: [...ITEM_FLAGS, "--json"],
 		switches: ["--json"],
 		minPos: 1,
@@ -176,7 +177,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "retry",
 		usage:
-			"usage: retry <id> — FAILED → READY, stale claim released, launch budget reset (W761)",
+			"usage: retry <id...> — FAILED → READY, stale claim released, launch budget reset (W761); ids space- or comma-separated (W795)",
 		flags: [...ITEM_FLAGS],
 		minPos: 1,
 	}),
@@ -638,6 +639,75 @@ function resolveSid(as: string): string {
 	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
 	return as;
 }
+
+// W795: show's renderer extracted from the dispatch chain — the multi-id
+// loop calls it once per id instead of growing the chain (patch-first
+// near-cap contract, W744).
+const showOne = (id: string, json: boolean): void => {
+	const it = get(id);
+	if (json) {
+		const capRow = db()
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
+		console.log(
+			JSON.stringify({
+				...it,
+				completion: completionRecord(db(), PROJECT, String(it.id)),
+				capsule: capRow ? JSON.parse(capRow.value) : null,
+				attribution:
+					itemAttribution(db() as unknown as Database, PROJECT).get(
+						String(it.id),
+					) ?? null,
+			}),
+		);
+		return;
+	}
+	const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
+	console.log(`${col(g)} ${it.id} ${col(it.state as string)}  ${it.title}`);
+	for (const k of [
+		"scope",
+		"owner_sid",
+		"result_sha",
+		"why_parallel",
+		"requires",
+		"tags",
+		"effort",
+		"evidence",
+		"alloc_reason",
+		"description",
+	] as const) {
+		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
+	}
+	// W617/W687: the item capsule + W776 attribution travel with the item
+	const cap = db()
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
+	if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
+	const at = itemAttribution(db() as unknown as Database, PROJECT).get(
+		String(id),
+	);
+	if (at) {
+		const line = renderAttribution(at);
+		if (line) console.log(`  ${dim("spend:")} ${line}`);
+	}
+	const kids = db()
+		.query(
+			"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
+		)
+		.all(PROJECT, id) as Item[];
+	if (kids.length) {
+		console.log(dim("  children:"));
+		console.log(kids.map(renderRow).join("\n"));
+	}
+	const d = deps(id);
+	if (d.length)
+		console.log(
+			dim(
+				`  depends on: ${d.map((x) => `${x.depends_on}(${x.state ?? "?"})`).join(", ")}`,
+			),
+		);
+};
+
 const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 	if (name === "add") {
 		const title = pos[0];
@@ -771,75 +841,9 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			}),
 		);
 	} else if (name === "show") {
-		const id = pos[0];
-		const it = get(id ?? "");
-		if (flag("--json")) {
-			const capRow = db()
-				.query("SELECT value FROM facts WHERE key = ?")
-				.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
-			console.log(
-				JSON.stringify({
-					...it,
-					completion: completionRecord(db(), PROJECT, String(it.id)),
-					capsule: capRow ? JSON.parse(capRow.value) : null,
-					attribution:
-						itemAttribution(db() as unknown as Database, PROJECT).get(
-							String(it.id),
-						) ?? null,
-				}),
-			);
-			process.exit(0);
-		}
-		const [g, col] = GLYPH[it.state as string] ?? ["?", dim];
-		console.log(`${col(g)} ${it.id} ${col(it.state as string)}  ${it.title}`);
-		for (const k of [
-			"scope",
-			"owner_sid",
-			"result_sha",
-			"why_parallel",
-			"requires",
-			"tags",
-			"effort",
-			"evidence",
-			"alloc_reason",
-			"description",
-		] as const) {
-			if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
-		}
-		// W617: the item capsule travels with the item, not the lane — printed
-		// here (and injected by composeBrief) so any claimer resumes informed.
-		// W687: the key is project-scoped (itemCapsuleKey) — item ids are
-		// per-project sequences; a global key served another project's capsule.
-		const cap = db()
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(itemCapsuleKey(PROJECT, String(id))) as { value: string } | null;
-		if (cap) console.log(`  ${dim("capsule:")} ${cap.value}`);
-		// W776 per-item attribution (lib/lane-spend.ts): buckle-ledger spend
-		// ⋈ claim windows, plus event-bus wall/agent time. Silent when the
-		// item has no attribution at all (never claimed + zero spend).
-		const at = itemAttribution(db() as unknown as Database, PROJECT).get(
-			String(id),
-		);
-		if (at) {
-			const line = renderAttribution(at);
-			if (line) console.log(`  ${dim("spend:")} ${line}`);
-		}
-		const kids = db()
-			.query(
-				"SELECT * FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
-			)
-			.all(PROJECT, id) as Item[];
-		if (kids.length) {
-			console.log(dim("  children:"));
-			console.log(kids.map(renderRow).join("\n"));
-		}
-		const d = deps(id ?? "");
-		if (d.length)
-			console.log(
-				dim(
-					`  depends on: ${d.map((x) => `${x.depends_on}(${x.state ?? "?"})`).join(", ")}`,
-				),
-			);
+		const json = flag("--json");
+		for (const id of idList(pos)) showOne(id, Boolean(json));
+		if (json) process.exit(0);
 	} else if (name === "take") {
 		const id = pos[0];
 		let as = flag("--as");
@@ -1059,13 +1063,14 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		})();
 		console.log(`${red("✗")} ${id} FAILED${note ? dim(` — ${note}`) : ""}`);
 	} else if (name === "retry") {
-		const id = pos[0];
-		const r = retryFailedItem(db(), PROJECT, id ?? "");
-		if (!r.ok) die(r.error ?? "retry refused");
-		emit("work.retried", id, { note: flag("--note") ?? "" });
-		console.log(
-			`${green("✓")} ${id} READY — stale claim released, launch budget reset`,
-		);
+		for (const id of idList(pos)) {
+			const r = retryFailedItem(db(), PROJECT, id);
+			if (!r.ok) die(r.error ?? "retry refused");
+			emit("work.retried", id, { note: flag("--note") ?? "" });
+			console.log(
+				`${green("✓")} ${id} READY — stale claim released, launch budget reset`,
+			);
+		}
 	} else if (name === "cancel") {
 		// W182 — CANCELLED terminal state: close completely with a required
 		// reason; claim + worktree released safely. Deliberately NOT in rollUp's

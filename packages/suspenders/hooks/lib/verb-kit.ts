@@ -66,6 +66,12 @@ export const defineVerb = (spec: VerbSpec): VerbSpec => {
 	return spec;
 };
 
+// W795 multi-positional id lists: `show W791,W792` and `show W791 W792`
+// parse identically — each positional splits on commas, empties drop,
+// duplicates dedupe (first wins), order preserved.
+export const idList = (pos: string[]): string[] =>
+	[...new Set(pos.flatMap((p) => p.split(",")))].filter(Boolean);
+
 // generic parse + validate: known flags consume their value (first occurrence
 // wins, a trailing flag yields null), everything non-flag is a positional,
 // every occurrence lands in all(). Violations return an error carrying the
