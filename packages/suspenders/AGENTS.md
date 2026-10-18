@@ -113,6 +113,13 @@ and every klh repo. The on-write gate **blocks** any .ts past 1500 lines
 cleared; fleet-board, coord, board-html and the fleet-board suite all live
 under the limit).
 
+**Patch-first near-cap contract (W744)**: a .ts above ~1200 lines is near-cap —
+dispatch briefs for file maps that surface one carry a patch-only directive
+(hooks/lib/patch-first.ts), and `work done` verifies the diff shape: churn
+beyond 300 added+removed lines on that file refuses closure unless the item IS
+a decomposition (title/description declares it). `SUSPENDERS_PATCH_FIRST=0`
+disables the done-gate check; the benchmark is `bun scripts/edit-precision.ts`.
+
 Integration supervisors also apply a **soft post-merge cap**: changed code files
 above 1500 physical lines create a deduplicated `DRY and decompose <path>` work
 item and a `code.decomposition-needed` event with merged blob evidence. This

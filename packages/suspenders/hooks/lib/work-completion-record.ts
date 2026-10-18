@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { projectRootOf, type GovernorStore } from "./govdb.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
+import { patchFirstVerdict } from "./patch-first.ts";
 import {
 	claimTokenVerdict,
 	evidenceCheck,
@@ -413,6 +414,25 @@ export function prepareCompletion(
 		throw new Error(
 			"Completion has no product commit evidence; retain the claim and record a blocked decision instead",
 		);
+	// W744 patch-first: near-cap .ts files in the closing diff must be patched,
+	// not rewritten — churn beyond the budget refuses closure unless the item
+	// IS a decomposition (title/description declares it).
+	const pfRow = db
+		.query(
+			"SELECT title, description FROM work_items WHERE project = ? AND id = ?",
+		)
+		.get(o.project, o.item) as
+		| { title: string; description: string | null }
+		| undefined;
+	const pf = patchFirstVerdict({
+		repo: shaRepo,
+		paths,
+		baseline,
+		sha,
+		title: pfRow?.title,
+		desc: pfRow?.description,
+	});
+	if (!pf.ok) throw new Error(pf.why ?? "patch-first refusal");
 	// W511: fake-completion integrity scan on the closing diff's added lines —
 	// the gate refuses closure while gated tests, stub notes or
 	// placeholder-error throws ride the sha being claimed as done

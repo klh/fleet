@@ -5,12 +5,17 @@
 // small self-contained surfaces are a pure tax (+7.6–26.7%) — so the map is
 // GATED on repo size and on coverage the mission text already carries.
 // Read-only at dispatch: git ls-files + ripgrep, no repo writes.
+import { readFileSync } from "node:fs";
+import { briefPatchFirstLines, countLinesOf } from "./patch-first.ts";
 
 export type BriefIntel = {
 	/** rendered `- path:line — matched: <terms>` pointers, relevance-ranked */
 	fileMap: string[];
 	/** rendered `- <criterion>` lines extracted from the mission text */
 	doneDigest: string[];
+	/** W744: rendered patch-first directive lines for near-cap .ts files the
+	 *  file map surfaced ([] when none) */
+	patchFirst?: string[];
 	/** set when the file map was gated off — log it, never inject silently */
 	skip?: string;
 };
@@ -98,6 +103,15 @@ const run = (cmd: string[], cwd: string): { code: number; out: string } => {
 	};
 };
 
+/** working-tree line count for a repo-relative path; null when unreadable. */
+const workingTreeLines = (repoRoot: string, path: string): number | null => {
+	try {
+		return countLinesOf(readFileSync(`${repoRoot}/${path}`, "utf8"));
+	} catch {
+		return null;
+	}
+};
+
 const trackedFiles = (repoRoot: string): number | null => {
 	const r = run(["git", "ls-files"], repoRoot);
 	return r.code === 0 ? (r.out ? r.out.split("\n").length : 0) : null;
@@ -172,13 +186,26 @@ export const briefIntel = (
 			([f, v]) =>
 				`- ${f}:${v.line} — matched: ${[...v.terms].sort().join(", ")}`,
 		);
+	// W744: the map's .ts files get a working-tree line count; near-cap ones
+	// carry the patch-only directive (anchored edits, no whole-file Write).
+	intel.patchFirst = briefPatchFirstLines(
+		[...byFile.keys()]
+			.filter((f) => f.endsWith(".ts"))
+			.map((f) => ({ path: f, lines: workingTreeLines(repoRoot, f) })),
+	);
 	return intel;
 };
 
 /** brief lines for the intel sections; [] when there is nothing to say —
  *  pointer discipline: never pad the brief with headers without content. */
 export const renderIntel = (intel: BriefIntel | null | undefined): string[] => {
-	if (!intel || (!intel.fileMap.length && !intel.doneDigest.length)) return [];
+	if (
+		!intel ||
+		(!intel.fileMap.length &&
+			!intel.doneDigest.length &&
+			!intel.patchFirst?.length)
+	)
+		return [];
 	const lines: string[] = [];
 	if (intel.fileMap.length) {
 		lines.push(
@@ -190,5 +217,6 @@ export const renderIntel = (intel: BriefIntel | null | undefined): string[] => {
 		lines.push(`DONE DEFINITION (digest — the lane's stop condition):`);
 		for (const s of intel.doneDigest) lines.push(`  - ${s}`);
 	}
+	if (intel.patchFirst?.length) lines.push(...intel.patchFirst);
 	return lines;
 };
