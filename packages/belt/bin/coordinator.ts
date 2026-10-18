@@ -3,7 +3,8 @@
 // One command to see (and drive) the whole stack:
 //   bun coordinator.ts status | start | stop | restart | prefs [json]
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { mergeWritePrefs } from "./prefs-lib.ts";
 import { residentSet } from "./registry.ts";
 import { httpProbe } from "./supervisor.ts";
 import { endpointPassed } from "./health.ts";
@@ -165,9 +166,9 @@ else if (cmd === "restart") {
 }
 
 function writePrefs(json: string): void {
+	// W791: load-fresh deep merge + atomic write — never rewrite the file
+	// from this process's (possibly stale) memory.
 	const f = `${HOME}/.claude/local-llm/prefs.json`;
-	const cur = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : {};
-	const next = { ...cur, ...JSON.parse(json) };
-	writeFileSync(f, JSON.stringify(next, null, 2));
+	mergeWritePrefs(f, JSON.parse(json) as Record<string, unknown>);
 	console.log("✓ prefs updated");
 }
