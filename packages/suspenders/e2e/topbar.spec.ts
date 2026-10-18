@@ -27,9 +27,21 @@ function mustBoard(): Board {
 	return board;
 }
 
+/** Render-and-look guards: an uncaught page exception or a console error is
+ *  a GUI defect, not test noise — collect and assert empty at each test end.
+ *  The W775.1 ent-zone probes /api/entitlements + /api/enterprise at connect
+ *  and polls them for the life of the page — provider-less those answer the
+ *  DESIGNED honest 501 (the GUI probe keys on the status), so the
+ *  resource-load console noise those two endpoints provoke is exempted, with
+ *  the response listener proving every 501 is one of them. */
 function watch(page: Page): { clean(): void } {
 	const pageErrors: string[] = [];
 	const consoleErrors: string[] = [];
+	const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
+	const seen501: string[] = [];
+	page.on("response", (r) => {
+		if (r.status() === 501) seen501.push(r.url());
+	});
 	page.on("pageerror", (e) => pageErrors.push(String(e)));
 	page.on("console", (m) => {
 		if (m.type() === "error") consoleErrors.push(m.text());
@@ -37,7 +49,17 @@ function watch(page: Page): { clean(): void } {
 	return {
 		clean(): void {
 			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			expect(consoleErrors, "console errors").toEqual([]);
+			const rogue = consoleErrors.filter(
+				(t) =>
+					!(
+						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
+					),
+			);
+			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
+			expect(
+				seen501.filter((u) => !entProbe.test(u)),
+				"501s outside the ent-zone probe endpoints",
+			).toEqual([]);
 		},
 	};
 }

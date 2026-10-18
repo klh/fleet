@@ -41,10 +41,20 @@ function mustLocal(): Board {
 }
 
 /** Render-and-look guards: an uncaught page exception or a console error is
- *  a GUI defect, not test noise — collect and assert empty at each test end. */
+ *  a GUI defect, not test noise — collect and assert empty at each test end.
+ *  The W775.1 ent-zone probes /api/entitlements + /api/enterprise at connect
+ *  and polls them for the life of the page — provider-less those answer the
+ *  DESIGNED honest 501 (the GUI probe keys on the status), so the
+ *  resource-load console noise those two endpoints provoke is exempted, with
+ *  the response listener proving every 501 is one of them. */
 function watch(page: Page): { clean(): void } {
 	const pageErrors: string[] = [];
 	const consoleErrors: string[] = [];
+	const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
+	const seen501: string[] = [];
+	page.on("response", (r) => {
+		if (r.status() === 501) seen501.push(r.url());
+	});
 	page.on("pageerror", (e) => pageErrors.push(String(e)));
 	page.on("console", (m) => {
 		if (m.type() === "error") consoleErrors.push(m.text());
@@ -52,7 +62,17 @@ function watch(page: Page): { clean(): void } {
 	return {
 		clean(): void {
 			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			expect(consoleErrors, "console errors").toEqual([]);
+			const rogue = consoleErrors.filter(
+				(t) =>
+					!(
+						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
+					),
+			);
+			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
+			expect(
+				seen501.filter((u) => !entProbe.test(u)),
+				"501s outside the ent-zone probe endpoints",
+			).toEqual([]);
 		},
 	};
 }
@@ -97,10 +117,13 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 
 	// RECONCILE — the spoke claims it (status reports back as a hub-side
 	// claim with the spoke's origin stamp)
-	H.workOk(
+	const hubTake = H.workOk(
 		["take", id, "--as", "spoke-lane", "--origin", ORIGIN],
 		"spoke reconciles the item into a lane",
 	);
+	// W643: the raw claim token prints once at take — present it to done
+	const token = (hubTake.match(/claim token: (\S+)/) ?? [])[1] ?? "";
+	expect(token, "no claim token in take output").not.toBe("");
 	await expect(row.locator(".pill.run")).toHaveText("claimed");
 	await page.getByRole("button", { name: "Lanes" }).click();
 	const card = page.locator(`#kanban .kcard[data-kid="${id}"]`);
@@ -115,7 +138,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	// DONE — the spoke closes it; the hub GUI moves it to done
 	const SHA = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
 	H.workOk(
-		["done", id, "--as", "spoke-lane", "--sha", SHA],
+		["done", id, "--as", "spoke-lane", "--sha", SHA, "--token", token],
 		"spoke reports done up to the hub graph",
 	);
 	await openTasks(page);
