@@ -278,6 +278,7 @@ const readState = (): ProgressState & {
 	loopPid: number | null;
 	serviceFingerprints?: Record<string, string>;
 	serviceCheckAt?: number;
+	decisionEmits?: Record<string, number>;
 } => {
 	try {
 		return JSON.parse(readFileSync(statePath, "utf8"));
@@ -290,17 +291,30 @@ const run = async (): Promise<number> => {
 	const verdicts: string[] = [];
 	let repaired = false;
 
+	// W797: the watchdog runs every 5 minutes; unconditioned NEED_DECISIONs
+	// flooded the owner's feed with the same card for hours (graph-stalled
+	// repeated every pass). State-repeat reasons re-emit at most once per 6h;
+	// the verdict still lands in the log every pass.
+	const previous = readState();
+	const DECISION_TTL_MS = 6 * 60 * 60 * 1000;
+	const decisionEmits = { ...(previous.decisionEmits ?? {}) };
+	const emitDecision = (key: string, note: string): void => {
+		const last = decisionEmits[key] ?? 0;
+		if (Date.now() - last < DECISION_TTL_MS) return;
+		decisionEmits[key] = Date.now();
+		emit("NEED_DECISION", note);
+	};
+
 	// 1. Immutable activation integrity. Deployment belongs to the installer owner.
 	const parity = libParity();
 	verdicts.push(`activation integrity ${parity.state}`);
 	if (!parity.ok)
-		emit(
-			"NEED_DECISION",
+		emitDecision(
+			"activation-degraded",
 			`dispatch activation ${parity.state}: ${parity.missing.join(", ")}; observation only, no installer or restart invoked`,
 		);
 
 	// 2. Service drift is read-only. Legitimate PID changes are not restart requests.
-	const previous = readState();
 	const services = effectiveServices();
 	const drift = driftNotices(
 		services,
@@ -352,14 +366,14 @@ const run = async (): Promise<number> => {
 			`work flow ${flow.stalled ? "STALLED" : flow.unknown > 0 ? "UNKNOWN" : flow.pending === 0 ? "idle" : "active/watching"} (pending=${flow.pending}, live=${flow.live}, unknown=${flow.unknown}, done=${flow.state.done})`,
 		);
 		if (flow.stalled)
-			emit(
-				"NEED_DECISION",
+			emitDecision(
+				"graph-stalled",
 				"Fleet graph stalled; inspect dead claims and service activation before an owner-authorized recovery. No automatic restart performed.",
 			);
 	} catch {
 		verdicts.push("work flow UNKNOWN: structured graph/liveness unavailable");
-		emit(
-			"NEED_DECISION",
+		emitDecision(
+			"graph-unavailable",
 			"Watchdog cannot verify graph progress; restore structured work stats/liveness.",
 		);
 	}
@@ -434,8 +448,8 @@ const run = async (): Promise<number> => {
 		}
 	}
 	if (!probe.ok) {
-		emit(
-			"NEED_DECISION",
+		emitDecision(
+			"lane-path-failing",
 			`dispatch-watchdog: governed lane path FAILING — ${probe.detail}. Lanes will die on first inference; check buckle :4101 + the ladder locals.`,
 		);
 	}
@@ -466,6 +480,7 @@ const run = async (): Promise<number> => {
 			loopPid: pid,
 			serviceFingerprints: drift.fingerprints,
 			serviceCheckAt: drift.notifiedAt,
+			decisionEmits,
 			at: health.at,
 			health,
 			resourceActions,
