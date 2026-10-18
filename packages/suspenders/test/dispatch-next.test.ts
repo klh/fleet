@@ -1290,13 +1290,17 @@ test("explicit fresh item respects uncertain occupied target capacity", async ()
 });
 test("poisoned preparation consumes durable item budget before any fork", async () => {
 	const item = await addItem("poison preparation fixture");
-	const blocked = join(REPO, ".worktrees", item);
-	mkdirSync(join(REPO, ".worktrees"), { recursive: true });
+	// W720: W349 recreation heals a poisoned .worktrees/<item> (retire+create
+	// succeeds, dispatch exits 0) — poison the .worktrees parent itself so
+	// worktree create fails and the SKIP consumes the durable budget pre-fork.
+	const blocked = join(REPO, ".worktrees");
+	rmSync(blocked, { recursive: true, force: true });
 	writeFileSync(blocked, "not a directory");
 	try {
 		const settings = { SUSPENDERS_LANE_MAX_ATTEMPTS: "1" };
 		const first = await dispatchA(settings, "--item", item, "--no-belt");
-		expect(first.code).not.toBe(0);
+		expect(first.out).toContain(`SKIP ${item} — worktree create failed`);
+		expect(first.out).not.toContain("dispatched: ");
 		const db = new Database(join(HOME, ".cache/claude-governor/governor.db"));
 		expect(
 			db
