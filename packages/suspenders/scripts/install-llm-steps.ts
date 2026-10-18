@@ -317,6 +317,6 @@ export async function refreshSupervisor(
 	}
 	return {
 		status: "ok",
-		note: "refreshed supervisor code (restart com.belt.swarm to activate)",
+		note: "refreshed supervisor code (restart com.suspenders.belt-swarm to activate)",
 	};
 }

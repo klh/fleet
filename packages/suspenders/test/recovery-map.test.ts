@@ -68,7 +68,7 @@ describe("recovery map completeness", () => {
 		const labels = Object.values(RECOVERY_MAP).flatMap((e) =>
 			e.probe.kind === "launchd" ? [e.probe.label] : [],
 		);
-		expect(labels).toContain("com.belt.swarm");
+		expect(labels).toContain("com.suspenders.belt-swarm");
 		// W277: the standalone com.belt.gateway restarter was retired (it was
 		// a second :4100 restarter — a fork-bomb hazard). W307 truth pass:
 		// litellm's ONE restarter is com.suspenders.cloud-gateway — the swarm
@@ -82,7 +82,7 @@ describe("recovery map completeness", () => {
 			e.recovery.map((s) => s.cmd),
 		);
 		expect(cmds).toContain(
-			"launchctl kickstart -k gui/$(id -u)/com.belt.swarm",
+			"launchctl kickstart -k gui/$(id -u)/com.suspenders.belt-swarm",
 		);
 		// W307: a dark :4100 is revived by the cloud transport supervisor —
 		// kick the swarm and litellm stays dark.
@@ -90,7 +90,7 @@ describe("recovery map completeness", () => {
 		expect(litellmCmds).toContain(
 			"launchctl kickstart -k gui/$(id -u)/com.suspenders.cloud-gateway",
 		);
-		expect(litellmCmds.some((c) => c.includes("com.belt.swarm"))).toBe(false);
+		expect(litellmCmds.some((c) => c.includes("com.suspenders.belt-swarm"))).toBe(false);
 		// the orphaned-:4000 case (2026-10-03) has a kill-the-orphan step
 		expect(
 			RECOVERY_MAP["belt-gateway-4000"].recovery.map((s) => s.cmd),
@@ -141,7 +141,7 @@ describe("probes (stub results)", () => {
 		const deps = stubDeps(
 			{},
 			{
-				"com.belt.swarm": {
+				"com.suspenders.belt-swarm": {
 					code: 0,
 					out: "\tstate = running\n\tpid = 4242\n",
 				},
@@ -155,7 +155,7 @@ describe("probes (stub results)", () => {
 			stubDeps(
 				{},
 				{
-					"com.belt.swarm": {
+					"com.suspenders.belt-swarm": {
 						code: 0,
 						out: "\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n",
 					},
