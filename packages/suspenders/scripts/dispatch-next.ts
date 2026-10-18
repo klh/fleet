@@ -101,6 +101,7 @@ import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
+	starterStartLine,
 	type StarterSeedFailure,
 } from "./lib/lane-starter.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
@@ -946,6 +947,7 @@ const dispatchItem = async (
 			forkArgs: starterFork,
 			prompt: lanePrompt,
 			seedError,
+			starter,
 		} = await dispatchStarterFork({
 			env,
 			noBelt: NO_BELT,
@@ -979,6 +981,13 @@ const dispatchItem = async (
 				`NOTE — --resume-from refused: ${resumeDecision.why}; fresh lane + capsule`,
 			);
 		const laneLog = `${FLEET}/lane-${sid}.log`;
+		// W818: the lane's start mode rides BOTH surfaces — dispatch output and
+		// the lane log — so a forked or cold start is explainable from either.
+		if (starter) {
+			const starterLine = starterStartLine(item, starter);
+			console.log(starterLine);
+			appendFileSync(laneLog, `${starterLine}\n`);
+		}
 		// settings.json env CLOBBERS the process env at CLI startup (probed live
 		// 2026-10-05: a lane pinned to glm-5.3-flash still resolved glm-5.3[1m]).
 		// --settings outranks user settings: write the lane-critical vars and pass

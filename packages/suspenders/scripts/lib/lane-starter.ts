@@ -52,6 +52,10 @@ export type StarterFork = {
 export type StarterRecord = StarterFork & {
 	createdAt: number;
 	seedPromptSha: string;
+	/** W818: one-time seed wall cost in ms — the start-observability line
+	 *  reports it so a fork's "saved" figure has a paid-once anchor. Absent on
+	 *  records written before W818. */
+	seedMs?: number;
 };
 
 // W695.1: a seed failure is DATA, not a dropped one-liner — exit code,
@@ -71,8 +75,45 @@ export type StarterSeedFailure = {
 };
 
 export type StarterSeedOutcome =
-	| { kind: "fork"; fork: StarterFork }
+	| {
+			kind: "fork";
+			/** W818: whether the fork reuses a registry record or this call seeded. */
+			source: "cached" | "seeded";
+			fork: StarterFork;
+			/** One-time seed wall cost in ms (source=seeded only). */
+			seedMs?: number;
+	  }
 	| { kind: "failure"; failure: StarterSeedFailure };
+
+// W818 observability: the per-fork "saved" figure dispatch reports is the
+// W768 adoption bench median delta (docs/lane-starters.md, 2026-10-15) —
+// cold 76.6 s vs fork 16.3 s wall per lane. A doc-sourced estimate, not a
+// live per-lane measurement.
+export const STARTER_SAVED_S = 60.3;
+
+// W818: what a lane start actually did, structured so dispatch output and
+// the lane log render the same line — fork (source + saved seconds) or
+// cold start + reason.
+export type StarterStartOutcome =
+	| {
+			mode: "fork";
+			/** Where the fork came from: the registry record or this call's seed. */
+			source: "cached" | "seeded";
+			version: string;
+			session: string;
+			/** One-time seed wall cost in ms (source=seeded only). */
+			seedMs?: number;
+			savedS: number;
+	  }
+	| { mode: "cold"; reason: string };
+
+export const starterStartLine = (
+	item: string,
+	s: StarterStartOutcome,
+): string =>
+	s.mode === "fork"
+		? `STARTER ${item} — forked starter ${s.version} (${s.source}, session ${s.session}${s.seedMs === undefined ? "" : `, seed ${Math.round(s.seedMs / 1000)}s`}; saved ≈${s.savedS}s vs cold, W768 bench)`
+		: `STARTER ${item} — cold start (${s.reason})`;
 
 /** Bounded, newline-flattened tail — the shape dispatch output and the
  *  registry row carry. Tail (not head): the CLI's final diagnostics are the
@@ -202,6 +243,7 @@ export const ensureStarter = (
 	if (cached) {
 		return {
 			kind: "fork",
+			source: "cached",
 			fork: {
 				harness,
 				version,
@@ -227,7 +269,9 @@ export const ensureStarter = (
 			};
 		});
 	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
+	const seedStartedAt = Date.now();
 	const res = run(executorBin, seedArgs, env);
+	const seedMs = Date.now() - seedStartedAt;
 	// Session-id presence is the success criterion, NOT the exit code: the CLI
 	// can exit 1 on trailing diagnostics (observed live 2026-10-07: the
 	// unrecognized_model line) while the session + usage are perfectly valid.
@@ -251,12 +295,13 @@ export const ensureStarter = (
 		forkArgs: forkArgsFor(harness, sessionId) ?? [],
 		createdAt: Date.now(),
 		seedPromptSha: version,
+		seedMs,
 	};
 	writeFileSync(starterFile(fleet, harness, version), JSON.stringify(record), {
 		mode: 0o600,
 	});
 	pruneRegistry(fleet);
-	return { kind: "fork", fork: record };
+	return { kind: "fork", source: "seeded", seedMs, fork: record };
 };
 
 /** Pull the session id out of a `--output-format json` result. Tolerant of
@@ -318,9 +363,25 @@ export const dispatchStarterFork = async (o: {
 	forkArgs: string[];
 	prompt: string;
 	seedError?: StarterSeedFailure;
+	/** W818: the structured start outcome — dispatch output and the lane log
+	 *  render it via starterStartLine. */
+	starter?: StarterStartOutcome;
 }> => {
-	if (!starterEnabled(o.env) || o.harness !== "claude")
-		return { forkArgs: [], prompt: o.coldPrompt };
+	const coldStart = (
+		reason: string,
+	): {
+		forkArgs: string[];
+		prompt: string;
+		starter: StarterStartOutcome;
+	} => ({
+		forkArgs: [],
+		prompt: o.coldPrompt,
+		starter: { mode: "cold", reason },
+	});
+	if (!starterEnabled(o.env))
+		return coldStart(`${STARTER_FLAG}=${o.env[STARTER_FLAG]}`);
+	if (o.harness !== "claude")
+		return coldStart(`no fork adapter for ${o.harness}`);
 	const seedEnv = laneEnv({ ...o.env }, o.noBelt);
 	// Strip the per-lane identity so the seed never rides the lane key (the
 	// attribution block in dispatch set ANTHROPIC_* for THIS lane only).
@@ -345,17 +406,28 @@ export const dispatchStarterFork = async (o: {
 		o.ensureOpts,
 	);
 	if (starter?.kind === "fork") {
-		o.log(
-			`STARTER ${o.item} — forked ${starter.fork.version} (${starter.fork.sessionId})`,
-		);
+		const outcome: StarterStartOutcome = {
+			mode: "fork",
+			source: starter.source,
+			version: starter.fork.version,
+			session: starter.fork.sessionId,
+			...(starter.seedMs === undefined ? {} : { seedMs: starter.seedMs }),
+			savedS: STARTER_SAVED_S,
+		};
+		o.log(starterStartLine(o.item, outcome));
 		return {
 			forkArgs: starter.fork.forkArgs,
 			prompt: laneIdentityPrompt(o.sid, o.wt),
+			starter: outcome,
 		};
 	}
 	if (!starter) {
-		o.log(`STARTER ${o.item} — no fork adapter for ${o.harness}, cold start`);
-		return { forkArgs: [], prompt: o.coldPrompt };
+		const outcome: StarterStartOutcome = {
+			mode: "cold",
+			reason: `no fork adapter for ${o.harness}`,
+		};
+		o.log(starterStartLine(o.item, outcome));
+		return { forkArgs: [], prompt: o.coldPrompt, starter: outcome };
 	}
 	const seedError: StarterSeedFailure = preflight
 		? { ...starter.failure, preflight }
@@ -363,5 +435,10 @@ export const dispatchStarterFork = async (o: {
 	o.log(
 		`STARTER ${o.item} — seed failed (${seedError.phase}, code ${seedError.code}${preflight ? `, ${preflight}` : ""}): ${seedError.stderrTail}`,
 	);
-	return { forkArgs: [], prompt: o.coldPrompt, seedError };
+	return {
+		forkArgs: [],
+		prompt: o.coldPrompt,
+		seedError,
+		starter: { mode: "cold", reason: "starter seed failed" },
+	};
 };
