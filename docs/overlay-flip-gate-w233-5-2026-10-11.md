@@ -64,3 +64,5 @@ left as written for the 2026-10-11 audit trail.
 deploy nas` + `status nas`.
 
 Both flips must land before the next strip-carrying stack version bump.
+-
+- **Executed (desktop) 2026-10-18**: owner GO given; stack.yaml hubs.desktop repos block verified present (overlay origin + stack-6161cb2); Docker 29 compose pids fix (W800) unblocked the deploy; hubctl deploy desktop → buckle/board/store/belt health 200 (model-store rides the W688.6 stack bump — the pinned overlay tag predates belt/bin/model-store.ts).
