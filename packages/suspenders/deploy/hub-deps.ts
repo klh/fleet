@@ -14,6 +14,11 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
+/** Boot root: the compose volume overlay hubs install + link into (W689).
+ *  W714 dropped the const — every post-W714 boot main() died with
+ *  ReferenceError before the install ran; restored for the W688.6 bump. */
+export const HUB_FLEET_ROOT = "/src/fleet";
+
 export interface BaseLink {
 	name: string;
 	dir: string;
@@ -72,18 +77,18 @@ export function linkBaseWorkspaces(root: string): BaseLink[] {
 if (import.meta.main) {
 	const install = Bun.spawnSync(
 		["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
-		{ cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+		{ cwd: HUB_FLEET_ROOT, stdout: "inherit", stderr: "inherit" },
 	);
 	if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
 
 	// public hub posture: absent base-monorepo dep is correct, but the skip
 	// must be visible in the boot log (W714)
-	const basePkgs = `${ROOT}/node_modules/fleet/packages`;
+	const basePkgs = `${HUB_FLEET_ROOT}/node_modules/fleet/packages`;
 	if (!existsSync(basePkgs)) {
 		console.log(`no ${basePkgs} — plain fleet checkout, linking skipped`);
 		process.exit(0);
 	}
-	for (const { name, dir } of linkBaseWorkspaces(ROOT)) {
+	for (const { name, dir } of linkBaseWorkspaces(HUB_FLEET_ROOT)) {
 		console.log(`linked ${name} -> fleet/packages/${dir}`);
 	}
 }

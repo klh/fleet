@@ -4,6 +4,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	readlinkSync,
 	rmSync,
 	symlinkSync,
@@ -101,5 +102,16 @@ describe("linkBaseWorkspaces", () => {
 		expect(lstatSync(join(root, "node_modules/gamma")).isSymbolicLink()).toBe(
 			false,
 		);
+	});
+});
+
+describe("main block", () => {
+	test("boot root const is defined + used (W714 dropped it — ReferenceError at boot)", () => {
+		const src = readFileSync(
+			new URL("../deploy/hub-deps.ts", import.meta.url),
+			"utf8",
+		);
+		expect(src).toContain('export const HUB_FLEET_ROOT = "/src/fleet"');
+		expect(src).not.toMatch(/\bROOT\b/);
 	});
 });
