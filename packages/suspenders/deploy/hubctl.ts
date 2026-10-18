@@ -338,8 +338,22 @@ function requireDir(hub: HubProfile): string {
  *  belt's hub heal spawns byte-identical commands. */
 function composeUp(hub: HubProfile): void {
 	requireDir(hub); // the declared-dir gate + its stack-path error
-	const [bin, ...rest] = composeUpArgv(hub);
-	console.log(execFileSync(bin, rest, { encoding: "utf8" }).trim());
+	const [bin, ... rest] = composeUpArgv(hub);
+	// W820: the NAS daemon lags bulk-recreate removals — "removal of
+	// container ... is already in progress" clears in seconds; bounded retry.
+	for (let attempt = 1; ; attempt++) {
+		try {
+			console.log(execFileSync(bin, rest, { encoding: "utf8" }).trim());
+			return;
+		} catch (e) {
+			const out = String(
+				(e as { output?: unknown[] }).output?.map(String).join("") ?? e,
+			);
+			if (attempt >= 3 || !out.includes("is already in progress")) throw e;
+			console.log(`composeUp: removal race (attempt ${attempt}) — retrying`);
+			Bun.sleepSync(5000);
+		}
+	}
 }
 
 /** The HUB_FLEET_REF a hub's deployed .env pins — null when there is none
@@ -540,8 +554,8 @@ function emitManifest(pinned: string | undefined, flags: string[]): void {
 const EXEC_ALLOWLIST: Record<string, { args: RegExp; why: string }> = {
 	docker: {
 		args:
-			/^(ps(\s+-a\b)?(\s+--format\s+\S+)?|inspect(\s+\S+)+|version|images|stats(\s+--no-stream)?|compose\s+ps(\s+-a\b)?)$/,
-		why: "ps|inspect|version|images|stats|compose ps",
+			/^(ps(\s+-a\b)?(\s+--format\s+\S+)?|inspect(\s+\S+)+|version|images|stats(\s+--no-stream)?|compose\s+ps(\s+-a\b)?|logs(\s+\S+)?)$/,
+		why: "ps|inspect|version|images|stats|compose ps|logs <name>",
 	},
 	synopkg: {
 		args: /^(status(\s+\S+)*|list(\s+\S+)*|checkupdate|version)$/,
@@ -590,9 +604,14 @@ function execHub(hub: HubProfile, name: string, cmd: string[]): void {
 		deny(
 			`${bin} ${shape} is not an allowlisted read-only shape (allowed: ${bin} ${entry.why})`,
 		);
+	// resolve bare allowlist names via the profile's declared path —
+	// non-interactive ssh shells don't carry /usr/local/bin (W484.1.1 gap)
+	const resolved = bin === "docker" ? (hub.deploy?.docker ?? "docker") : bin;
 	try {
 		// post-flight probes are quick — bound the exec leg
-		process.stdout.write(runOnHub(hub, cmd.join(" "), { timeout: 60_000 }));
+		process.stdout.write(
+			runOnHub(hub, [resolved, ...args].join(" "), { timeout: 60_000 }),
+		);
 	} catch (e) {
 		console.log(
 			`hubctl exec: hub unreachable or command failed (${e instanceof Error ? e.message : String(e)})`,
