@@ -25,6 +25,11 @@ GET /api/decisions → { ts, decisions: [ …record + age_s, task_title (joined
 from work_items when task_id set), asked_by_label ] }. Decision ids are
 globally unambiguous (event id + project in the record).
 
+Freshness (W798): /api/decisions recomputes per call — sync + records are
+never served from a TTL memo; only /api/data rides the feed memo. A fork is
+visible on the next GET after its emit; an answer lands on the next GET
+after the POST. Consumers that POST-then-GET rely on this.
+
 ## Id contract (W667 — one name on the wire)
 
 `id` is THE decision id everywhere on the wire: GET /api/decisions emits
@@ -45,6 +50,21 @@ with the sessions face as the fallback for unregistered targets;
 decisions — no human notices required — and /api/answer routes them to
 recordOwnerRuling without a lane ack.
 
+## W798 duplicate collapse + class rulings
+
+Forks whose question names the same subject — the longest path/dotted-key
+token (≥3 "/" segments or ≥3 "." parts, `:digits` stripped) — and same
+project collapse: the newest OPEN event is the primary card, members carry
+`dup_of: <primary id>` and are hidden from the OPEN feed (the client
+renders them under the primary's "+N like this" badge), primary carries
+`dup_count: N`. Records of one compute are the collapse input. Resolve the
+class with ONE ruling: POST /api/answer with `ids: [primary, …members]`
+applies the ruling to every OPEN member per-id (each gets its own ANSWER
+bus event; per-member tokens are NOT required — the write token guards the
+route, the answer token is stale-protection for the single-card path).
+Members answered by id alone (legacy path) answer under the old rules.
+Resolved rows render resolved in &history=1.
+
 ## State machine
 
 OPEN → ANSWERED (human sends; POST /api/answer idempotent: same token+note
@@ -58,7 +78,9 @@ with `ruling: owner` + `decision: <id>` and NO lane target, answer_to kept as
 the raw stored addressee. The decision resolves without a lane ack (no
 ANSWERED → ACKNOWLEDGED transition is possible — the addressee is gone by
 definition).
-OPEN → CANCELLED (asking lane supersede/cancel event; NOT by board dismiss)
+OPEN → CANCELLED (asking lane supersede/cancel event; NOT by board dismiss;
+linked task DONE — the work graph already decided, ages out on the next
+sync with the token rotated, W798)
 ANSWERED → ACKNOWLEDGED (lane inbox sees the ANSWER and the lane's next
 checkpoint/message references it — best-effort heuristic, monotonic)
 Never: dismiss/ack of the NOTIFICATION resolves a decision. The board's
@@ -96,7 +118,8 @@ submitting), recommendation (when a fact exists) with rationale + "use"
 fills the field, custom answer field, explicit Send — labelled "Record
 ruling" on owner-actionable cards (W487: those resolve on the board; a
 dead/absent target renders as "target lane is dead or absent — record the
-owner ruling", never as a retry offer). Unresolved decisions
+owner ruling", never as a retry offer). Duplicate classes render ONE
+primary card with a "+N like this" badge (W798). Unresolved decisions
 persist across reloads/restarts (server state is the truth). Badge with
 pending count visible when collapsed. Toast once per NEW decision id — never
 per poll. Global pending count shown when the view is project-filtered.
