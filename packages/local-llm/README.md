@@ -47,7 +47,8 @@ runtime home from belt/bin (W465).
 W284 (2026-10-15): the belt kit (packages/belt/bin) is the ONLY supervisor
 source — the serve supervisor here is retired. Installs heal the runtime
 home's belt closure from `packages/belt/bin` (swarm.ts `supervise` + full
-import graph); the launchd label is `com.belt.swarm`. The kit keeps the
+import graph); the launchd label is `com.suspenders.belt-swarm` (W640
+receipt namespace). The kit keeps the
 real modules belt resolves through shims (e.g. memory-policy.ts) and the
 config stubs (`belt.env`).
 
@@ -65,7 +66,7 @@ bun ~/.claude/local-llm/swarm.ts status     # swarm health (read-only)
 bun ~/.claude/local-llm/swarm.ts supervise  # resident supervisor
 ```
 
-launchd label: `com.belt.swarm` (`supervise`, KeepAlive).
+launchd label: `com.suspenders.belt-swarm` (`supervise`, KeepAlive).
 
 The serving kit writes outside-process HTTP observations to
 `~/.claude-insights/belt-supervisor.json` every supervision cycle

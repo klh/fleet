@@ -41,7 +41,7 @@ it does not run in place from the git checkout:
 
 Editing a dev checkout (`~/github/klh/suspenders`, etc.) has **zero runtime
 effect** until `install.sh` re-runs and re-copies. launchd-managed daemons
-(`com.belt.swarm`, etc.) run the **installed** copy. After merging
+(`com.suspenders.belt-swarm`, etc.) run the **installed** copy. After merging
 any fix in one of these repos, re-run that repo's `install.sh` (or speedy's,
 which chains all of them) to actually deploy it.
 
