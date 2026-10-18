@@ -1,6 +1,7 @@
 // scripts/lib/exec-chain.ts — W183.2: the lane executor chain, decomposed
 // out of dispatch-next.ts (1500-line law). One module owns the chain
-// vocabulary: the repo .prefer file chain (must=/prefer=/hub=, dotfiles-win)
+// vocabulary: the repo .prefer file chain (must=/prefer=/can=/hub=,
+// dotfiles-win)
 // and the ordered default_executors fallback chain — execPick walks either
 // by attempt index (a dead lane re-dispatch advances it; overrun parks on
 // the last entry), the same-bin tail rides claude native --fallback-model,
@@ -23,36 +24,56 @@ import {
 // chain is owner intent, W228 parity with the W620 cv reorder).
 import type { ProviderPenalty } from "../../hooks/lib/exec-quota.ts";
 import { providerOf } from "../../hooks/lib/exec-quota.ts";
+// W813: chain tokens may name HUBS (a stack.yaml/hubs.json label rides
+// that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
+// cv tally — all sync, so execPick stays sync.
+import { readRegistry } from "../../hooks/lib/hub-locate.ts";
+import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
+import { resolveLaneExecutor } from "./launch-preflight.ts";
 
-/** Repo dotfile (.prefer, dotfiles-win law): `must=executor` / `prefer=`
- * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor and
- * hub label. `hub` is resolved to a real endpoint by hub-locate.ts (owner
- * directive 2026-10-03: "local hub to remote hubs scenario" — label is not
- * just a display prefix); `hub-url` adds repo-declared one-off candidates
- * tried before the global registry (most specific intent wins, same rule
- * as must). Policy still gates: an executor the W201 allow-list denies
- * SKIPs with a loud note.
+/** Repo dotfile (.prefer, dotfiles-win law): `must=` / `prefer=` / `can=`
+ * / `hub=Label` / `hub-url=url[,url...]` — a repo pins its executor chain
+ * and hub label. `hub` is resolved to a real endpoint by hub-locate.ts
+ * (owner directive 2026-10-03: "local hub to remote hubs scenario" — label
+ * is not just a display prefix); `hub-url` adds repo-declared one-off
+ * candidates tried before the global registry (most specific intent wins).
+ * Policy still gates: an executor the W201 allow-list denies SKIPs with a
+ * loud note.
  *
- * `must=`/`prefer=` may repeat — owner directive 2026-10-03: "we don't care
- * if it's claude cli or copilot or anything like that, we just want the
- * agents working to always go for the MUST or try the PREFER (there can be
- * multiple must and prefer in sequential order)". All `must=` lines (file
- * order) come first in the chain, then all `prefer=` lines (file order) —
- * must always outranks prefer, ties broken by position. `chain` is that
- * full ordered list; execPick() walks it by attempt index. */
+ * `must=`/`prefer=` may repeat and carry comma-lists (W813: `must=a,b` =
+ * two targets on one line, the LEFT one tried first). W813 POSITION LAW:
+ * later directives win per position — a directive on a later line outranks
+ * one above it (the 2026-10-03 musts-first grouping is retired; a prefer=
+ * line below a must= line is genuinely tried first). `directives` is the
+ * file-order list; execPick() orders + walks it by attempt index.
+ *
+ * W813 `can=<model|hub>` — the developer override: when the target is
+ * doable on this machine it INVALIDATES the must= lines (one-shot, no
+ * must edit needed); unavailable, the line vanishes and must stands
+ * unchanged. A later can= line wins. */
+export interface PreferChainEntry {
+	value: string;
+	kind: "must" | "prefer";
+	/** 1-based source line — the W813 position tiebreak. */
+	line: number;
+}
+
 export const preferOf = (
 	repo: string,
 ): {
-	chain: string[];
+	directives: PreferChainEntry[];
 	hub: string | null;
 	hubUrls: string[];
+	can: { value: string; line: number } | null;
 } => {
 	try {
-		const musts: string[] = [];
-		const prefers: string[] = [];
+		const directives: PreferChainEntry[] = [];
 		let hub: string | null = null;
 		let hubUrlRaw = "";
-		for (const line of readFileSync(`${repo}/.prefer`, "utf8").split("\n")) {
+		let can: { value: string; line: number } | null = null;
+		const lines = readFileSync(`${repo}/.prefer`, "utf8").split("\n");
+		for (let li = 0; li < lines.length; li++) {
+			const line = lines[li] ?? "";
 			const i = line.indexOf("=");
 			if (i <= 0) continue;
 			const k = line.slice(0, i).trim();
@@ -64,21 +85,31 @@ export const preferOf = (
 			// pin a garbage model. Legacy executor files (must=opus) are
 			// unquoted single tokens and ride the chain exactly as before.
 			if (v.startsWith('"') || /\s/.test(v)) continue;
-			if (k === "must") musts.push(v);
-			else if (k === "prefer") prefers.push(v);
-			else if (k === "hub") hub = v;
+			if (k === "must" || k === "prefer") {
+				const kind: "must" | "prefer" = k === "must" ? "must" : "prefer";
+				// W813 comma-list: `must=a,b` = repeated lines on one line,
+				// left target tried first (position law orders LINES, not commas)
+				for (const value of v
+					.split(",")
+					.map((s) => s.trim())
+					.filter(Boolean))
+					directives.push({ value, kind, line: li + 1 });
+			} else if (k === "can") {
+				can = { value: v, line: li + 1 }; // later can= wins (position law)
+			} else if (k === "hub") hub = v;
 			else if (k === "hub-url") hubUrlRaw = v;
 		}
 		return {
-			chain: [...musts, ...prefers],
+			directives,
 			hub,
 			hubUrls: hubUrlRaw
 				.split(",")
 				.map((s) => s.trim())
 				.filter(Boolean),
+			can,
 		};
 	} catch {
-		return { chain: [], hub: null, hubUrls: [] };
+		return { directives: [], hub: null, hubUrls: [], can: null };
 	}
 };
 
@@ -105,6 +136,82 @@ const slotOf = (e: string): { model: string | null; bin: string } | null => {
 	return model ? { model, bin: binOf(e) } : null;
 };
 
+// W813: a chain token may name a HUB — known = a stack.yaml hub profile or
+// hubs.json registry label (case-insensitive, resolveHub precedent). A hub
+// slot rides the default executor (claude, NO model pin — the hub's belt
+// routes the model).
+const hubLabelOf = (e: string): string | null => {
+	if (isSpawnableExecutor(e) || !e.trim()) return null;
+	const tok = e.trim().toLowerCase();
+	if (
+		Object.keys(tryLoadStack()?.hubs ?? {}).some(
+			(l) => l.toLowerCase() === tok,
+		)
+	)
+		return e.trim();
+	const reg = readRegistry();
+	return Object.keys(reg).some((l) => l.toLowerCase() === tok)
+		? e.trim()
+		: null;
+};
+
+// W374 vocabulary: provider-exhaustion evidence is the one unavailable
+// signal the picker has for model targets.
+const exhausted = (e: string, quota?: ProviderPenalty): boolean => {
+	const p = providerOf(e);
+	return !!p && !!(quota?.get(p) ?? null);
+};
+
+// W813: classify a chain token into its ride — spawnable executor, hub
+// slot, or model pin (the model pin shape is unchanged W183.2 behavior).
+const slotFor = (
+	e: string,
+): { model: string | null; bin: string; hub: string | null } => {
+	if (isSpawnableExecutor(e)) return { model: null, bin: binOf(e), hub: null };
+	if (hubLabelOf(e)) return { model: null, bin: "claude", hub: e };
+	return { model: modelOf(e), bin: binOf(e), hub: null };
+};
+
+// W813: the .prefer directives ordered for the attempt walk — later lines
+// win (position law); a doable can= joins at its line as a prefer-kind
+// entry and INVALIDATES the must lines, an unavailable one vanishes and
+// must stands unchanged.
+const chainEntriesOf = (
+	prefer: ReturnType<typeof preferOf>,
+	cvOf?: Map<string, number>,
+	quota?: ProviderPenalty,
+): PreferChainEntry[] => {
+	const canTok =
+		prefer.can && canDoable(prefer.can.value, cvOf, quota)
+			? prefer.can
+			: null;
+	const kept = prefer.directives.filter((d) => !canTok || d.kind !== "must");
+	if (canTok)
+		kept.push({ value: canTok.value, kind: "prefer", line: canTok.line });
+	// stable sort: equal lines keep file order (comma-list left-first)
+	kept.sort((a, b) => b.line - a.line);
+	return kept;
+};
+
+// W813 can= doability — sync probes only (execPick stays sync):
+// executor → its bin resolves (launch-preflight); hub → known label NOT
+// inside a quiet-hours dark-window (W483: a dark hub is EXPECTED down);
+// feed value → translates to a real model; bare model id → recent
+// validated use on THIS machine (the cv tally) with no exhaustion evidence.
+const canDoable = (
+	e: string,
+	cvOf?: Map<string, number>,
+	quota?: ProviderPenalty,
+): boolean => {
+	if (isSpawnableExecutor(e)) return resolveLaneExecutor(e) !== null;
+	if (hubLabelOf(e)) return !darkHubNow(e);
+	if (e.includes(":")) {
+		const m = feedModel(e);
+		return !!m && !exhausted(m, quota);
+	}
+	return (cvOf?.get(e) ?? 0) > 0 && !exhausted(e, quota);
+};
+
 /** Executor pick (W201 policy + W176 prefer-drives + dotfiles-win): a repo
  * .prefer MUST beats everything except the policy allow-list; otherwise the
  * first default_executors entry that survives wins. Non-claude/codex
@@ -114,12 +221,12 @@ const slotOf = (e: string): { model: string | null; bin: string } | null => {
  * hubUrls passed through for the caller to resolve — resolution is async,
  * network-touching, and does not belong in this sync picker).
  *
- * `attempt` walks the must/prefer chain (owner directive 2026-10-03:
- * sequential try-in-order, CLI-agnostic). Attempt 0 is the first `must=`
- * (or first `prefer=` when there's no must); a dead/resumed lane advances
- * the index so the fleet loop itself IS the cross-bin retry (claude ->
- * copilot works, not just model->model). Within one spawn, same-bin chain
- * entries AFTER the picked index ride natively too: claude's own
+ * `attempt` walks the .prefer directive chain (W813 position law: later
+ * directives win — attempt 0 rides the LAST directive line; a
+ * dead/resumed lane advances the index toward earlier directives so the
+ * fleet loop itself IS the cross-bin retry (claude -> copilot works,
+ * not just model->model). Within one spawn, same-bin chain entries
+ * AFTER the picked index ride natively too: claude's own
  * `--fallback-model` (comma list, retries in order, confirmed 2026-10-03
  * to recover even from a flat invalid-model-name 400 — not just overload)
  * — so a single process already tries several models before a re-dispatch
@@ -150,45 +257,48 @@ export const execPick = (
 	const s = readBoardSettings().settings;
 	const enabled = s.enabled_executors;
 	const allowed = (name: string): boolean => !enabled || enabled.includes(name);
-	const label = (executor: string): string =>
-		prefer.hub ? `[${prefer.hub.toUpperCase()}] ${executor}` : executor;
-	if (prefer.chain.length > 0) {
-		const idx = Math.min(attempt, prefer.chain.length - 1);
-		const e = prefer.chain[idx];
-		// W228 owner law: must ALWAYS wins — a repo .prefer is the more
-		// specific owner intent; allow-list collision is surfaced, never
-		// silently rerouted.
+	const label = (executor: string, hubOverride?: string | null): string => {
+		const h = hubOverride ?? prefer.hub;
+		return h ? `[${h.toUpperCase()}] ${executor}` : executor;
+	};
+	const chainEntries = chainEntriesOf(prefer, cvOf, quota);
+	if (chainEntries.length > 0) {
+		const chain = chainEntries.map((d) => d.value);
+		const idx = Math.min(attempt, chain.length - 1);
+		const e = chain[idx];
+		const slot = slotFor(e);
+		// W228+W813: the directive at the picked position is owner intent —
+		// allow-list collision is surfaced, never silently rerouted.
 		if (!allowed(e))
 			console.log(
-				`NOTE — .prefer chain[${idx}]=${e} not in enabled_executors; MUST WINS (W228)`,
+				`NOTE — .prefer chain[${idx}]=${e} not in enabled_executors; directive wins (W228/W813)`,
 			);
-		// W374: a MUST riding an exhausted provider is surfaced, never rerouted
-		// (same law as the allow-list collision above)
-		if (quota) {
-			const why = quota.get(providerOf(modelOf(e) ?? e));
-			if (why)
-				console.log(
-					`NOTE — quota: .prefer chain[${idx}]=${e} rides an exhausted provider (${why}); MUST WINS (W228)`,
-				);
-		}
-		const bin = binOf(e);
+		// W374: a chain slot riding an exhausted provider is surfaced, never
+		// rerouted (same law as the allow-list collision above)
+		const qwhy = quota?.get(providerOf(slot.model ?? e) ?? "");
+		if (qwhy)
+			console.log(
+				`NOTE — quota: .prefer chain[${idx}]=${e} rides an exhausted provider (${qwhy}); directive wins (W228/W813)`,
+			);
+		const bin = slot.bin;
 		// same-bin tail after idx: natively chained via --fallback-model so
 		// one process tries all of them before a dead-lane re-dispatch is
 		// needed; a bin switch further down the chain can only be reached
 		// by that re-dispatch (a CLI flag can't cross binaries mid-process).
-		const fallbackModels = prefer.chain
+		const fallbackModels = chain
 			.slice(idx + 1)
-			.filter((next) => binOf(next) === bin)
-			.map((next) => modelOf(next))
-			.filter((m): m is string => !!m);
+			.flatMap((next) => {
+				const ns = slotFor(next);
+				return ns.bin === bin && ns.model ? [ns.model] : [];
+			});
 		return {
-			agent: label(e),
-			model: modelOf(e),
+			agent: label(e, slot.hub),
+			model: slot.model,
 			bin,
-			hub: prefer.hub,
+			hub: slot.hub ?? prefer.hub,
 			hubUrls: prefer.hubUrls,
 			fallbackModels,
-			chainLen: prefer.chain.length,
+			chainLen: chain.length,
 			chainIdx: idx,
 			name: e,
 		};
