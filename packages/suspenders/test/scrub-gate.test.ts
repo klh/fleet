@@ -287,6 +287,62 @@ describe("scrub lib: bounded range walk (glm-5.3 review)", () => {
 	});
 });
 
+describe("scrub lib: W796 tip-forgiveness drift guard", () => {
+	test("content drift at tip is never forgiven", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "w796c"]);
+		writeFileSync(join(REPO, "drift.md"), `dir ${HOME_LEAK_DIR}\n`);
+		sh(["add", "drift.md"]);
+		sh(["commit", "-m", "born unmarked"]);
+		const head = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		// tip carries the marker on DIFFERENT content; the born-unmarked
+		// line must still flag
+		writeFileSync(
+			join(REPO, "drift.md"),
+			`other ${HOME_LEAK_DIR} // scrub:allow\nand ${HOME_LEAK_DIR}\n`,
+		);
+		sh(["add", "drift.md"]);
+		sh(["commit", "-m", "drift at tip"]);
+		const tip = sh(["rev-parse", "HEAD"]).stdout.toString().trim();
+		const found = commitRangeFindings(REPO, head, tip);
+		expect(found.length).toBeGreaterThan(0);
+		sh(["checkout", "main"]);
+	});
+});
+
+describe("scrub gate e2e: W796 tip forgiveness", () => {
+	const MARKED = (dir: string): string => `${dir} // scrub:allow\n`;
+
+	test("push leg: marker added later in-range is forgiven at tip", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "w796a"]);
+		writeFileSync(join(REPO, "healed.md"), `dir ${HOME_LEAK_DIR}\n`);
+		sh(["add", "healed.md"]);
+		sh(["commit", "-m", "born unmarked"]);
+		writeFileSync(join(REPO, "healed.md"), MARKED(`dir ${HOME_LEAK_DIR}`));
+		sh(["add", "healed.md"]);
+		sh(["commit", "-m", "marker added in-range"]);
+		expect(gate("git push").out).toBe("{}");
+		sh(["checkout", "main"]);
+	});
+
+	test("push leg: marker removed again at tip flags once more", () => {
+		sh(["reset"]);
+		sh(["checkout", "-b", "w796b"]);
+		writeFileSync(join(REPO, "unhealed.md"), MARKED(`dir ${HOME_LEAK_DIR}`));
+		sh(["add", "unhealed.md"]);
+		sh(["commit", "-m", "marked"]);
+		expect(gate("git push").out).toBe("{}");
+		writeFileSync(join(REPO, "unhealed.md"), `dir ${HOME_LEAK_DIR}\n`);
+		sh(["add", "unhealed.md"]);
+		sh(["commit", "-m", "marker dropped at tip"]);
+		const r = gate("git push");
+		expect(r.out).toContain('"permissionDecision":"deny"');
+		expect(r.out).toContain("unhealed.md:1");
+		sh(["checkout", "main"]);
+	});
+});
+
 describe("scrub-gate bin: hook push (W708)", () => {
 	const hookPush = (refLine: string): { code: number; out: string } => {
 		const refFile = join(HOME, `refs-${n++}.txt`);

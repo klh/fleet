@@ -14,6 +14,7 @@ import {
 	scrubAddedLines,
 	scrubBuffer,
 	scrubRules,
+	SCRUB_ALLOW,
 	type ScrubFinding,
 } from "./scrub.ts";
 
@@ -74,6 +75,33 @@ export function stagedBinaryFindings(repoDir: string): ScrubFinding[] {
 	return binaryPaths(d.out).flatMap((p) => blobFindings(repoDir, `:${p}`, p));
 }
 
+// W796: tip-state forgiveness. The per-commit scan sees a line as it was
+// BORN (W708's unmarked wake.ts:11) even when a later in-range commit added
+// the scrub:allow marker (W700) — every W-branch push re-flagged the same
+// marker-exempt line and 12+ lanes queued the identical NEED_DECISION. A
+// range commit's added line is dropped when the tip's copy of that line
+// carries the marker: the leak self-healed inside the pushed history and
+// the content a clone actually checks out is clean. Tip content that
+// differs still flags — drift is never forgiven.
+const normalizeLine = (s: string): string =>
+	s
+		.replace(/\s*(?:\/\/|#)\s*scrub:allow/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+
+const tipMarkedLines = (
+	repoDir: string,
+	tip: string,
+	file: string,
+): string[] => {
+	const b = gitBlob(["cat-file", "blob", `${tip}:${file}`], repoDir);
+	if (!b.ok) return [];
+	return Buffer.from(b.buf)
+		.toString("utf8")
+		.split("\n")
+		.filter((l) => l.includes(SCRUB_ALLOW));
+};
+
 // per-commit scan of base..tip: each commit's own -U0 diff (an
 // add-then-remove inside the range is visible to the commit that adds the
 // leak — the net tree-diff is blind to it) plus each binary file the commit
@@ -100,10 +128,26 @@ export function commitRangeFindings(
 			`scrub-gate: scan bounded at ${maxCommits} newest commits — older history unscanned`,
 		);
 	const out: ScrubFinding[] = [];
+	const marked = new Map<string, Set<string>>();
+	const tipForgiven = (file: string, text: string): boolean => {
+		if (text.includes(SCRUB_ALLOW)) return false; // scanLine exempts anyway
+		let set = marked.get(file);
+		if (!set) {
+			set = new Set(tipMarkedLines(repoDir, tip, file).map(normalizeLine));
+			marked.set(file, set);
+		}
+		return set.has(normalizeLine(text));
+	};
 	for (const sha of shas) {
 		let d = git(["diff", `${sha}^`, sha, "-U0", "--no-color"], repoDir);
 		if (!d.ok) d = git(["diff", EMPTY_TREE, sha, "-U0", "--no-color"], repoDir); // root commit
-		if (d.ok) out.push(...scrubAddedLines(addedDiffLines(d.out), scrubRules()));
+		if (d.ok)
+			out.push(
+				...scrubAddedLines(
+					addedDiffLines(d.out).filter((l) => !tipForgiven(l.file, l.text)),
+					scrubRules(),
+				),
+			);
 		const nd = git(
 			["diff-tree", "-r", "--root", "--no-commit-id", "--numstat", sha],
 			repoDir,
