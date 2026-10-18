@@ -283,6 +283,13 @@ export function serveKv(o: {
 				return Response.json(kvIndex(home));
 			}
 			if (req.method === "GET" && parts.length >= 2) {
+				// W746 tenant isolation: when a ship token is configured, pack
+				// bytes demand it — the PUT gate is not the only reader gate.
+				// No token = loopback peer only (the solo posture, matching PUT).
+				const auth = req.headers.get("authorization") ?? "";
+				const expected = `Bearer ${token}`;
+				if (token.length > 0 ? auth !== expected : !isLoopbackPeer(req))
+					return new Response("unauthorized\n", { status: 401 });
 				const target =
 					parts.length >= 3
 						? packForSlugSha(parts[1], parts[2], home)

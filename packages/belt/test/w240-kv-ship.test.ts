@@ -116,7 +116,10 @@ test("serveKv: health, index, GET pack, PUT installs with token", async () => {
 		slug: string;
 	}>;
 	expect(index.map((r) => r.slug)).toContain(SLUG);
-	const got = await fetch(`${base}/kv/${SLUG}/${SHA.slice(0, 12)}`);
+	const got = await fetch(`${base}/kv/${SLUG}/${SHA.slice(0, 12)}`, {
+		// W746: pack bytes are token-gated once a ship token is configured
+		headers: { authorization: "Bearer sekrit" },
+	});
 	expect(got.ok).toBe(true);
 	const localBytes = new Uint8Array(await Bun.file(PACK).arrayBuffer());
 	const gotBytes = new Uint8Array(await got.arrayBuffer());

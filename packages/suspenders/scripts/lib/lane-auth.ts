@@ -32,6 +32,14 @@ export const BUCKLE_FRONT =
  *  legitimate lane run — a lane that outlives it re-dispatches and re-mints. */
 export const LANE_KEY_TTL_S = 24 * 60 * 60;
 
+/** Belt-partition bound (W746): the front answered the probe, then can die
+ *  before or inside the mint/revoke — every lane-key fetch is timeout-bounded
+ *  so a half-open partition degrades to the fail-closed null/false paths
+ *  (the covered REFUSED machinery) instead of hanging the dispatch with a
+ *  half-launched claim. Env-pinnable for tests (W670: read at call time). */
+const laneKeyTimeoutMs = (): number =>
+	Number(process.env.SUSPENDERS_LANE_KEY_TIMEOUT_MS) || 5_000;
+
 export type MintedLaneKey = { key: string; keyId: string };
 
 /** KEY=VALUE line parser — no eval; quotes are literal (belt.env is ours). */
@@ -84,18 +92,25 @@ export async function mintLaneKey(
 	fetchFn: typeof fetch = fetch,
 	front: string = BUCKLE_FRONT,
 ): Promise<MintedLaneKey | null> {
-	const r = await fetchFn(`${front}/v1/admin/keys`, {
-		method: "POST",
-		headers: {
-			authorization: `Bearer ${admin}`,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			name: sid,
-			scopes: ["buckle:proxy:WRITE_"],
-			expires_in_s: LANE_KEY_TTL_S,
-		}),
-	});
+	let r: Response;
+	try {
+		r = await fetchFn(`${front}/v1/admin/keys`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${admin}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				name: sid,
+				scopes: ["buckle:proxy:WRITE_"],
+				expires_in_s: LANE_KEY_TTL_S,
+			}),
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+	} catch {
+		// partition mid-mint (refused/timed out): fail closed like a bad body
+		return null;
+	}
 	const data = (await r.json().catch(() => null)) as {
 		key?: string;
 		apiKey?: string;
@@ -115,10 +130,17 @@ export async function revokeLaneKey(
 	fetchFn: typeof fetch = fetch,
 	front: string = BUCKLE_FRONT,
 ): Promise<boolean> {
-	const r = await fetchFn(`${front}/v1/admin/keys/${keyId}/revoke`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${admin}` },
-	});
+	let r: Response;
+	try {
+		r = await fetchFn(`${front}/v1/admin/keys/${keyId}/revoke`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${admin}` },
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+	} catch {
+		// partition mid-revoke: honest false — the TTL backstop bounds the key
+		return false;
+	}
 	return r.ok;
 }
 
@@ -355,6 +377,27 @@ export const readSessionEnrollment = (
 	}
 };
 
+/** Rotation-race guard (W746): a reuse candidate can be stale (revoke racing
+ *  the bootstrap re-fire). The W607 whoami self-verify echo is the front's
+ *  key-liveness seam: ok = live. Any rejection (401 revoked/expired, network
+ *  miss) means "not provably live" — the caller falls through to a fresh
+ *  mint, so a dead key is never re-handed to a session. */
+const keyLiveAtFront = async (
+	key: string,
+	front: string,
+	fetchFn: typeof fetch,
+): Promise<boolean> => {
+	try {
+		const r = await fetchFn(`${front}/v1/fleet/whoami`, {
+			headers: { authorization: `Bearer ${key}` },
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+		return r.ok;
+	} catch {
+		return false;
+	}
+};
+
 /** Enroll one interactive session: reuse-or-mint the per-session key and
  *  write the 0600 files on a fresh mint. Probe result comes in; the hook
  *  stays thin and every branch is unit-testable. Reuse never rewrites the
@@ -372,8 +415,14 @@ export const enrollSessionKey = async (o: {
 	const admin = o.admin !== undefined ? o.admin : adminKey();
 	if (!o.frontUp || !admin)
 		return sessionEnrollDecision({ ...o, minted: null, hasAdmin: !!admin });
+	// W746 rotation race: a reuse candidate read from the 0600 meta can be
+	// stale (revoke racing the bootstrap re-fire) — confirm liveness at the
+	// front before re-handing; a dead key falls through to a fresh mint.
+	const reuse = readSessionEnrollment(o.fleet, o.sid);
 	const minted =
-		readSessionEnrollment(o.fleet, o.sid) ??
+		(reuse && (await keyLiveAtFront(reuse.key, o.front, o.fetchFn ?? fetch))
+			? reuse
+			: null) ??
 		(await (async () => {
 			const m = await mintLaneKey(o.sid, admin, o.fetchFn ?? fetch, o.front);
 			if (m) writeSessionEnrollmentFiles(o.fleet, o.sid, m, o.front);
