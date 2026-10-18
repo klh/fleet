@@ -437,4 +437,13 @@ describe("services manifest win32 (W488.3)", () => {
 		for (const l of loadLegacyLabels())
 			expect(names.has(l.replace("com.suspenders.", ""))).toBe(false);
 	});
+
+	test("local-bar: the klh-local bar :7792 is manifest-owned (W801)", () => {
+		const bar = services.find((s) => s.name === "local-bar");
+		expect(bar).toBeDefined();
+		expect(bar?.port).toBe(7792);
+		expect(bar?.bunEntry).toBe("__HOME__/.local/klh-local/bin/dashboard.ts");
+		// the hand-installed unit stays on the boot-out list as its supersede
+		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
+	});
 });
