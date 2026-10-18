@@ -65,7 +65,7 @@ const curl = (port: number, path: string): RecoveryStep => ({
 	cmd: `curl -sS -m 3 -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:${port}${path}`,
 });
 
-const BELT_SWARM = "com.belt.swarm";
+const BELT_SWARM = "com.suspenders.belt-swarm";
 const CLOUD_GATEWAY = "com.suspenders.cloud-gateway";
 const SWARM_LOG = "~/.claude-insights/mlx-swarm.log";
 
@@ -290,8 +290,8 @@ const ENTRIES: RecoveryEntry[] = (process.env.SUSPENDERS_SERVICES_JSON
 	// second :4100 restarter — a fork-bomb hazard); there is deliberately no
 	// launchd entry for it in this map. W307 truth pass: litellm's one
 	// restarter is com.suspenders.cloud-gateway (the swarm observes :4100,
-	// owned: false). W284: the swarm supervisor label is com.belt.swarm —
-	// the suspenders local-llm serve fork is retired.
+	// owned: false). W284 retired the suspenders local-llm serve fork; W640
+	// renamed the supervisor to com.suspenders.belt-swarm (receipt namespace).
 ];
 
 export const RECOVERY_MAP: Readonly<Record<string, RecoveryEntry>> =

@@ -109,12 +109,12 @@ describe("services manifest (W488.1)", () => {
 		expect(d.WorkingDirectory as string).toBe(FIXTURE.repo);
 	});
 
-	test("belt-swarm: label override renders the belt label; AbandonProcessGroup true", () => {
+	test("belt-swarm: namespaced label (W640); AbandonProcessGroup true", () => {
 		const spec = byName("belt-swarm");
-		expect(serviceLabel(spec)).toBe("com.belt.swarm");
+		expect(serviceLabel(spec)).toBe("com.suspenders.belt-swarm");
 		const rendered = renderDarwin(spec, FIXTURE);
 		const d = parsePlistXml(rendered);
-		expect(d.Label).toBe("com.belt.swarm");
+		expect(d.Label).toBe("com.suspenders.belt-swarm");
 		expect(d.AbandonProcessGroup).toBe(true);
 		const args = d.ProgramArguments as string[];
 		expect(args[2]).toBe("supervise");
