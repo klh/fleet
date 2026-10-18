@@ -148,6 +148,37 @@ bypass map was taken from W270 commit `2d003cc`. Log: bench/RESULTS.md.
 Gap: REPORT-postw270.md (post-W270-fix rerun) was not available at compile
 time — the router/engine-local rows above are pre-W270.
 
+## Routing — fixed-tier vs complexity-v3 (W745, 2026-10-18)
+
+Route_audit-derived replay: buckle `route_audit` (gate placements +
+end-to-end durations + transport ok) + belt routing log (router-side
+specialist records) over a 7-day window — 30,059 routed requests, n≥12 ✓
+medians strong for measured cells. Runner: `bun packages/belt/bin/bench-routing.ts --days 7`
+(read-only, no behavior change; repeatable — same flags, window re-derived
+at run time). Audited arm = real per-request outcomes; fixed arms re-place
+every request to one tier and price latency from the SAME window's measured
+placement medians (tier-matched for the cloud arm); the fixed:cloud token
+volume scales the measured window volume by the request share (the ledger
+records no tokens for local rides — estimate, labeled).
+
+| Arm                        | done% | local% | p50    | p90   | cloud tok in/out (Mtok) | $/1k tasks  |
+| -------------------------- | ----: | -----: | -----: | ----: | ---------------------- | ----------- |
+| complexity-v3 (audited)    |  99.5 |   15.1 | 4.65 s | 8.1 s | 133.3 / 10.3           | $-n4        |
+| fixed:reason (all → :8903) | 100 † |    100 | 1.13 s | 9.6 s | 0 / 0                  | elec ($0)   |
+| fixed:cloud (all → :4100)  |  99.8 |      0 | 5.11 s | 5.11 s | 157.1 / 12.2 (est)    | $-n4        |
+
+† transport completion (HTTP ok), not answer quality — quality A/B is
+eval-models.ts's contract, not this bench's. fixed:reason is excluded from
+the choice: one specialist (maxInflight=1) absorbing the full window queues
+bursts, and ok ≠ quality on hard asks.
+
+**Verdict: complexity-v3 routing** — completion parity (±0.3 pt) with
+−25.7 Mtok/7d cloud volume (−15.2%, est) and p50 9.0% lower than
+fixed:cloud; the local 15.1% rides the swarm at elec with p50 163 ms
+placement latency (:4000) vs 5.1 s cloud. $-claims stay gated: the ledger
+carries no operator price table — abstain ($-n4) until
+`~/.claude/local-llm/route-prices.json` (`--prices`) exists.
+
 ## Prompt transforms — bench local swarm (W368, 2026-10-16)
 
 Which specialist should serve the board's prompt transforms — the
