@@ -379,6 +379,7 @@ override), verdict + medians + loadavg logged to benchmarks.jsonl.
 | 2026-09-27 | Intern-Decision-4B                     | 12/15 vs 13/15 fork replay, CUDA-only serving; revisit only if an MLX port appears             |
 | 2026-10-02 | kev-4B as belt fit-classifier          | 4/12 agreement, 3.6× latency, 1.6× tokens vs :8902 chat-JSON (W225)                            |
 | 2026-10-03 | Qwen3.5-9B-OptiQ-4bit                  | 68.5 vs 87.0 tok/s re-benched same-day (load1 ~9.7) — :8906 stays 9B-MLX-4bit, weights deleted |
+| 2026-10-19 | RavenX-Qwen3.6-35B-A3B MTP-4bit        | 132.1 vs 128.4 tok/s vs the :8903 incumbent — TIE inside ±5% margin; MTP edge unproven at 35B in MLX, OptiQ slot stands, weights deleted (W242)
 
 ## buckle gateway (curated)
 
