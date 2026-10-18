@@ -79,3 +79,21 @@ exit 4. Usage fields a harness does not expose stay `null` — never guessed.
   wired; catalog row).
 - codex `previous_response_id` chaining + fork thread fields: the Responses
   API route for forked lane starts without CLI support.
+
+## Start observability (W818)
+
+Every dispatch states how the lane started — on the dispatch console output
+AND as the first line of the lane log (`<repo>/.fleet/lane-<sid>.log`):
+
+    STARTER <item> — forked starter <version> (cached, session <id>; saved ≈60.3s vs cold, W768 bench)
+    STARTER <item> — forked starter <version> (seeded, session <id>, seed 31s; saved ≈60.3s vs cold, W768 bench)
+    STARTER <item> — cold start (no fork adapter for codex)
+    STARTER <item> — cold start (SUSPENDERS_LANE_STARTER=off)
+    STARTER <item> — cold start (starter seed failed)
+
+`saved` is the W768 adoption-bench median delta (cold 76.6 s → fork 16.3 s
+wall per lane); `seed <N>s` is the measured one-time seed cost, now recorded
+on the starter registry record (`seedMs`). Seeding covers the fleet repo —
+dispatch resolves starters per `--repo`'s `.fleet/starters/` and the
+registry there is populated (`claude-f4dae8ae032c`, seeded at the W768
+adoption run, verified 2026-10-18: 121 forked starts in `.fleet/loop.log`).

@@ -17,8 +17,10 @@ import {
 	parseSessionId,
 	starterEnabled,
 	starterSeedPrompt,
+	starterStartLine,
 	starterVersion,
 	STARTER_FLAG,
+	STARTER_SAVED_S,
 } from "../scripts/lib/lane-starter.ts";
 
 const scratch = (): string => {
@@ -157,7 +159,11 @@ describe("lane-starter", () => {
 			coldPrompt: "COLD",
 			log: () => {},
 		});
-		expect(r).toEqual({ forkArgs: [], prompt: "COLD" });
+		expect(r).toEqual({
+			forkArgs: [],
+			prompt: "COLD",
+			starter: { mode: "cold", reason: "SUSPENDERS_LANE_STARTER=off" },
+		});
 	});
 
 	test("W768: default-on — bare env forks the claude executor", async () => {
@@ -200,7 +206,11 @@ describe("lane-starter", () => {
 			coldPrompt: "COLD",
 			log: () => {},
 		});
-		expect(r).toEqual({ forkArgs: [], prompt: "COLD" });
+		expect(r).toEqual({
+			forkArgs: [],
+			prompt: "COLD",
+			starter: { mode: "cold", reason: "no fork adapter for codex" },
+		});
 	});
 
 	test("dispatchStarterFork: claude + flag on = seeded fork", async () => {
@@ -292,5 +302,93 @@ describe("lane-starter", () => {
 			},
 		});
 		expect(r.seedError?.preflight).toContain("belt-front up");
+	});
+
+	test("W818: seeded fork outcome carries source, seed cost, saved seconds", async () => {
+		const logs: string[] = [];
+		const r = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: true,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W818",
+			sid: "s818a",
+			wt: "/wt818a",
+			coldPrompt: "COLD",
+			log: (l) => logs.push(l),
+			ensureOpts: {
+				run: () => ({
+					code: 0,
+					out: `${JSON.stringify({ session_id: "seed-w818a" })}\n`,
+				}),
+			},
+		});
+		expect(r.starter).toEqual({
+			mode: "fork",
+			source: "seeded",
+			version: expect.any(String),
+			session: "seed-w818a",
+			seedMs: expect.any(Number),
+			savedS: STARTER_SAVED_S,
+		});
+	});
+
+	test("W818: second dispatch reuses the registry — outcome source=cached", async () => {
+		const seeded = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: true,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W818",
+			sid: "s818b",
+			wt: "/wt818b",
+			coldPrompt: "COLD",
+			log: () => {},
+			ensureOpts: {
+				run: () => ({
+					code: 0,
+					out: `${JSON.stringify({ session_id: "seed-w818b" })}\n`,
+				}),
+			},
+		});
+		expect(seeded.starter?.source).toBe("seeded");
+		const cached = await dispatchStarterFork({
+			env: { [STARTER_FLAG]: "on" },
+			noBelt: true,
+			harness: "claude",
+			fleet,
+			bin: "/bin/true",
+			item: "W818",
+			sid: "s818c",
+			wt: "/wt818c",
+			coldPrompt: "COLD",
+			log: () => {},
+			ensureOpts: {
+				run: () => {
+					throw new Error("registry hit must not re-run the seed");
+				},
+			},
+		});
+		expect(cached.starter?.mode).toBe("fork");
+		expect(cached.starter?.source).toBe("cached");
+	});
+
+	test("W818: cold outcomes render the reason; fork line names source+saved", () => {
+		expect(starterStartLine("W818", { mode: "cold", reason: "flag off" })).toBe(
+			"STARTER W818 — cold start (flag off)",
+		);
+		expect(
+			starterStartLine("W818", {
+				mode: "fork",
+				source: "cached",
+				version: "f4dae8ae032c",
+				session: "e02f5a14",
+				savedS: STARTER_SAVED_S,
+			}),
+		).toBe(
+			"STARTER W818 — forked starter f4dae8ae032c (cached, session e02f5a14; saved ≈60.3s vs cold, W768 bench)",
+		);
 	});
 });
