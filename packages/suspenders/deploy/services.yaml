@@ -4,9 +4,8 @@
 #   darwin → launchd plist com.suspenders.<name>.plist (W488.1)
 #   linux  → systemd USER units suspenders-<name>.service (+ .timer) (W488.2)
 #   win32  → WinSW v5 XML suspenders-<name>.xml (W488.3)
-# The hand-written templates in hooks/launchd/ stay in place (with a parity
-# test asserting field-equivalence) until the cutover child (W490.2) flips
-# install.sh to render from THIS manifest.
+# W490.2 cutover is real: scripts/install-services.ts is the ONLY renderer
+# (the hand-written hooks/launchd/ templates are deleted, W783).
 #
 # Field guide:
 #   name         service short name — unit label is <labelPrefix>.<name>
@@ -233,28 +232,22 @@ services:
     logs: { out: "__HOME__/.claude-insights/notify.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
-# Retired labels — boot-out + plist removal at the next install --with-launchd
-# (scripts/install-launchd.ts reads THIS list via loadLegacyLabels; the old
-# TS const is gone). Never boot-out a label still in `services:` above.
-legacyLabels:
-  # pre-namespacing supersede set (W284/W640 history)
-  - com.belt.swarm
-  - com.klh.llm-keepwarm
-  - com.klh.fleet-monitor
-  - com.klh.local-llm
-  - com.klh.watchdog
-  - com.suspenders.local-llm
-  # W779 heartbeat fold — the no-port maintenance agents are fleet-loop
-  # typed tasks now; their launchd units retire (W779)
-  - com.suspenders.fleet-monitor
-  - com.suspenders.db-backup
-  - com.suspenders.harvest
-  - com.suspenders.quota-sweep
-  - com.suspenders.dispatch-watchdog
-  - com.suspenders.llm-keepwarm
-  - com.suspenders.coord-worker
-  - com.suspenders.auto-install
-  - com.suspenders.soak
-  # old-namespace agents found loaded on machines (W779)
-  - com.klh.kev
-  - com.klh-local.dashboard
+# Retired-label sweep (W783) — declarative table, NAMESPACE granularity:
+# at every install --with-launchd, scripts/install-launchd.ts enumerates the
+# LaunchAgents dir + `launchctl list` and boots out + rms the plist of every
+# label matching a retired namespace or a retired product label. A future old
+# label under a retired namespace is covered by its namespace — never a new
+# list entry. Never sweep a namespace that still hosts a live label
+# (com.suspenders.* is live, so retired members of it fail forward or retire
+# as explicit labels below).
+legacySweep:
+  namespaces:
+    # pre-namespacing agents (W284/W640/W779 history): any com.klh.* label is
+    # swept forever; com.klh-local.* stays live (the Caddy front)
+    - prefix: com.klh.
+      except: [com.klh-local.]
+  labels:
+    # retired belt product labels (W277 gateway, W640 swarm rename — the live
+    # belt supervisor is com.suspenders.belt-swarm)
+    - com.belt.swarm
+    - com.belt.gateway

@@ -64,11 +64,10 @@ per-service blessings — the "bless once via the W640 fence" step:
     ./install.sh --re-bless-activation --confirm <manifest-sha-prefix>
 
 then `bash install.sh --with-launchd` rewrites the receipt wholesale,
-renders the 12 resident units, and boot-out+rm's every label on the
-services.yaml legacyLabels list (the nine folded labels + the legacy
-com.klh.kev / com.klh.watchdog / com.klh-local.dashboard agents) in the
-same registration pass. retainActivation keeps prior intent for labels
-absent from the candidate render, so nothing else re-blesses.
+renders the 12 resident units, and runs the W783 legacySweep (retired
+namespaces + product labels) in the same registration pass. retainActivation
+keeps prior intent for labels absent from the candidate render, so nothing
+else re-blesses.
 
 ## Approval fence — serialization among supported writers
 

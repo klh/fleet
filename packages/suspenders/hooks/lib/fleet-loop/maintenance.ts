@@ -7,7 +7,7 @@
 // residents (ports/KeepAlive) stay launchd units; they are never listed
 // here. Duplicates of today's StartInterval/StartCalendarInterval units are
 // impossible by construction: the retired labels ride the services.yaml
-// legacyLabels boot-out list, so install --with-launchd unloads them.
+// legacySweep table, so install --with-launchd unloads them.
 //
 // Semantics kept from the launchd era:
 //   everySeconds ≥ cadence spacing (fire when now-last ≥ every, launchd
@@ -145,7 +145,10 @@ export function readStamps(path: string): Record<string, number> {
 	}
 }
 
-export function writeStamps(path: string, stamps: Record<string, number>): void {
+export function writeStamps(
+	path: string,
+	stamps: Record<string, number>,
+): void {
 	try {
 		writeFileSync(path, `${JSON.stringify(stamps, null, "\t")}\n`);
 	} catch {}
@@ -174,7 +177,10 @@ export function isDue(
 			0,
 			0,
 		);
-		return nowMs >= fire.getTime() && (lastMs === undefined || lastMs < fire.getTime());
+		return (
+			nowMs >= fire.getTime() &&
+			(lastMs === undefined || lastMs < fire.getTime())
+		);
 	}
 	// a task with neither cadence field is malformed — never fire it
 	return false;

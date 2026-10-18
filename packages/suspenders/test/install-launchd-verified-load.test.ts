@@ -96,7 +96,7 @@ mock.module("execa",()=>({execa:async(command,args)=>{
  if(command===process.execPath){writeFileSync(join(agents,"com.suspenders.board.plist"),"board");return{stdout:JSON.stringify({services:[{service:"board",files:["com.suspenders.board.plist"]}]})};}
  if(command==="bash")return{exitCode:0};
  if(command==="/usr/bin/plutil")return{stdout:JSON.stringify({ProgramArguments:["/bun","/board.ts"],KeepAlive:true})};
- if(command==="/bin/launchctl")return args[0]==="print"?{exitCode:0,stdout:process.env.PRINT_OUT||""}:{exitCode:0};
+ if(command==="/bin/launchctl")return args[0]==="print"?{exitCode:0,stdout:process.env.PRINT_OUT||""}:args[0]==="list"?{exitCode:0,stdout:"PID\\tStatus\\tLabel\\n-\\t0\\tcom.klh.fixture-agent\\n"}:{exitCode:0};
  if(command==="launchctl")return{exitCode:0};
  throw Error("unexpected subprocess");}}));
 const{registerLaunchd}=await import(process.argv[1]);const result=await registerLaunchd(JSON.parse(process.argv[2]));console.log(JSON.stringify(result));`;

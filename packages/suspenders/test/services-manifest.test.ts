@@ -1,18 +1,14 @@
-// test/services-manifest.test.ts — W488.1 parity: every service in
-// deploy/services.yaml renders FIELD-EQUIVALENT to the hand-written template
-// plist it migrates (hooks/launchd/*.plist). Field-equivalence, not byte-
-// equality: formatting differs. Both sides get the SAME fixture placeholder
-// substitution before parsing, so a divergence in args, schedule keys, env,
-// logs, cwd or Nice fails loudly. Also covers placeholder validation (used
-// but undeclared / declared but unused / unresolvable tokens) and the
-// install.sh-matching belt defaults.
+// test/services-manifest.test.ts — deploy/services.yaml is the ONE renderer
+// source (W488.1 emitters, W783: the hand-written hooks/launchd/ templates
+// are deleted). Covers the darwin/linux/win32 renderers structurally,
+// placeholder validation (used but undeclared / declared but unused /
+// unresolvable tokens) and the install.sh-matching belt defaults.
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
 	defaultRenderValues,
-	loadLegacyLabels,
+	loadLegacySweep,
 	loadManifest,
+	matchLegacyLabel,
 	type RenderValues,
 	renderDarwin,
 	renderLinux,
@@ -22,12 +18,10 @@ import {
 	renderWin32,
 	type ServiceSpec,
 	serviceLabel,
-	substitute,
-	TEMPLATE_DIR,
 	usedPlaceholders,
 	validateSpec,
 } from "../scripts/install-services.ts";
-import { parsePlistXml, project } from "./plist-fields.ts";
+import { parsePlistXml } from "./plist-fields.ts";
 
 const FIXTURE: RenderValues = {
 	bun: "/usr/local/bin/bun-fixture",
@@ -60,29 +54,6 @@ const synth = (over: Partial<ServiceSpec>): ServiceSpec => ({
 });
 
 describe("services manifest (W488.1)", () => {
-	test("manifest covers exactly the templated plists on disk", () => {
-		const onDisk = readdirSync(TEMPLATE_DIR).filter((f) =>
-			f.endsWith(".plist"),
-		);
-		expect(services.map((s) => `${serviceLabel(s)}.plist`).sort()).toEqual(
-			onDisk.sort(),
-		);
-	});
-
-	for (const spec of services) {
-		test(`${spec.name}: manifest render is field-equivalent to the template plist`, () => {
-			const templatePath = join(TEMPLATE_DIR, `${serviceLabel(spec)}.plist`);
-			const templateXml = substitute(
-				readFileSync(templatePath, "utf8"),
-				FIXTURE,
-			);
-			const rendered = renderDarwin(spec, FIXTURE);
-			expect(project(parsePlistXml(rendered))).toEqual(
-				project(parsePlistXml(templateXml)),
-			);
-		});
-	}
-
 	test("fixture substitution reaches every placeholder class (fleet-loop carries five)", () => {
 		const d = parsePlistXml(renderDarwin(byName("fleet-loop"), FIXTURE));
 		const args = d.ProgramArguments as string[];
@@ -109,12 +80,12 @@ describe("services manifest (W488.1)", () => {
 		expect(d.WorkingDirectory as string).toBe(FIXTURE.repo);
 	});
 
-	test("belt-swarm: label override renders the belt label; AbandonProcessGroup true", () => {
+	test("belt-swarm renders the live com.suspenders label; AbandonProcessGroup true", () => {
 		const spec = byName("belt-swarm");
-		expect(serviceLabel(spec)).toBe("com.belt.swarm");
+		expect(serviceLabel(spec)).toBe("com.suspenders.belt-swarm");
 		const rendered = renderDarwin(spec, FIXTURE);
 		const d = parsePlistXml(rendered);
-		expect(d.Label).toBe("com.belt.swarm");
+		expect(d.Label).toBe("com.suspenders.belt-swarm");
 		expect(d.AbandonProcessGroup).toBe(true);
 		const args = d.ProgramArguments as string[];
 		expect(args[2]).toBe("supervise");
@@ -252,7 +223,10 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("intervalSeconds renders a timer with OnBootSec + OnUnitActiveSec", () => {
 		const timer = renderLinuxTimer(
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
 		);
 		if (timer === null) throw new Error("every15 timer missing");
 		const ini = parseIni(timer);
@@ -264,7 +238,10 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("calendar maps to OnCalendar + Persistent (daily 10:00)", () => {
 		const timer = renderLinuxTimer(
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 		);
 		if (timer === null) throw new Error("daily10 timer missing");
 		const ini = parseIni(timer);
@@ -274,8 +251,14 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("timer-backed services are Type=oneshot; residents Restart, never both", () => {
 		const timerSvcs = [
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 		].map((s) => parseIni(renderLinux(s, FIXTURE)).Service);
 		for (const svc of timerSvcs) {
 			expect(svc?.Type).toBe("oneshot");
@@ -286,7 +269,9 @@ describe("services manifest linux (W488.2)", () => {
 	});
 
 	test("Nice maps to Nice= (belownormal heavy tasks)", () => {
-		const ini = parseIni(renderLinux(synth({ name: "heavy", nice: 10 }), FIXTURE));
+		const ini = parseIni(
+			renderLinux(synth({ name: "heavy", nice: 10 }), FIXTURE),
+		);
 		expect(ini.Service?.Nice).toBe("10");
 	});
 
@@ -373,7 +358,10 @@ describe("services manifest win32 (W488.3)", () => {
 		const relay = winByName("consult-relay");
 		expect(relay).toContain('<onfailure action="restart" delay="10 sec"/>');
 		const daily = renderWin32(
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 			FIXTURE,
 		);
 		expect(daily).not.toMatch(/^\s*<onfailure/m);
@@ -381,7 +369,10 @@ describe("services manifest win32 (W488.3)", () => {
 		expect(daily).toContain("/ST 10:00");
 		expect(daily).toContain("/TN suspenders-daily10");
 		const every = renderWin32(
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
 			FIXTURE,
 		);
 		expect(every).toContain("/SC MINUTE /MO 15");
@@ -394,7 +385,10 @@ describe("services manifest win32 (W488.3)", () => {
 	});
 
 	test("renderUnits file contract: primary + timer naming, all three targets", () => {
-		const daily = synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } });
+		const daily = synth({
+			name: "daily10",
+			schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+		});
 		const backupUnits = renderUnits("linux", daily, FIXTURE);
 		expect(backupUnits.map((u) => u.file)).toEqual([
 			"suspenders-daily10.service",
@@ -425,16 +419,9 @@ describe("services manifest win32 (W488.3)", () => {
 		expect(winByName("board")).toContain('value="local"');
 	});
 
-	test("legacyLabels: loader returns the manifest list, strings only", () => {
-		expect(loadLegacyLabels()).toContain("com.klh.kev");
-		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
-		for (const l of loadLegacyLabels())
-			expect(typeof l).toBe("string");
-	});
-
-	test("legacyLabels: never a live service name", () => {
-		const names = new Set(services.map((s) => s.name));
-		for (const l of loadLegacyLabels())
-			expect(names.has(l.replace("com.suspenders.", ""))).toBe(false);
+	test("legacySweep: never matches a live rendered label", () => {
+		const sweep = loadLegacySweep();
+		for (const s of services)
+			expect(matchLegacyLabel(serviceLabel(s), sweep)).toBe(false);
 	});
 });

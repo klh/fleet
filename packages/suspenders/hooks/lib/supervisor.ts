@@ -135,8 +135,8 @@ export const hasUnrenderedVar = (text: string): boolean =>
 
 // ─── service discovery ───────────────────────────────────────────────────────
 
-/** The templates THIS checkout ships: hooks/launchd/com.suspenders.<svc>.plist.
- *  Config-over-code — a template present = a service supervisable here. */
+/** The service names a rendered-units dir carries:
+ *  com.suspenders.<svc>.plist (W783: rendered by install-services.ts). */
 export const listServices = (launchdDir: string): string[] => {
 	const out: string[] = [];
 	let entries: string[] = [];

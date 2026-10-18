@@ -43,7 +43,6 @@ import { assertBuckleActivation } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 export const MANIFEST_PATH = join(PACKAGE_ROOT, "deploy", "services.yaml");
-export const TEMPLATE_DIR = join(PACKAGE_ROOT, "hooks", "launchd");
 export const LABEL_PREFIX = "com.suspenders";
 
 /** The unit label: the per-service override or com.suspenders.<name>. */
@@ -87,10 +86,34 @@ interface ManifestFile {
 	labelPrefix: string;
 	defaults?: { schedule?: Partial<Schedule> };
 	services: unknown[];
-	/** W779: retired launchd labels — boot-out + plist removal at the next
-	 *  install --with-launchd. Config-over-code: install-launchd reads THIS
-	 *  list (loadLegacyLabels); the TS const is gone. */
-	legacyLabels?: unknown;
+	/** W783: the retired-label sweep table (namespace granularity) — boot-out
+	 *  + plist removal at every install --with-launchd. Config-over-code:
+	 *  install-launchd reads THIS table (loadLegacySweep). */
+	legacySweep?: unknown;
+}
+
+/** One retired namespace: every label under `prefix` is swept, minus the
+ *  `except` dotted prefixes (live namespaces embedded in a retired one). */
+export interface LegacyNamespaceSweep {
+	prefix: string;
+	except: string[];
+}
+
+/** The declarative retired-label sweep table from deploy/services.yaml. */
+export interface LegacySweep {
+	namespaces: LegacyNamespaceSweep[];
+	labels: string[];
+}
+
+/** Pure matcher: does a launchd label ride a retired namespace or explicit
+ *  retired label? Foreign labels never listed anywhere still match — that is
+ *  the namespace-granularity point (W783). */
+export function matchLegacyLabel(label: string, sweep: LegacySweep): boolean {
+	if (sweep.labels.includes(label)) return true;
+	return sweep.namespaces.some(
+		(n) =>
+			label.startsWith(n.prefix) && !n.except.some((e) => label.startsWith(e)),
+	);
 }
 
 export interface RenderValues {
@@ -123,7 +146,7 @@ const KNOWN_MANIFEST_KEYS = new Set([
 	"labelPrefix",
 	"defaults",
 	"services",
-	"legacyLabels",
+	"legacySweep",
 ]);
 const KNOWN_SERVICE_KEYS = new Set([
 	"name",
@@ -274,19 +297,9 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 		if (!KNOWN_SCHEDULE_KEYS.has(k))
 			throw new Error(`${path}: unknown schedule key "${k}" in defaults`);
 	}
-	// W779: validate the boot-out list alongside the services — a label
-	// that is not a non-empty string would silently degrade the boot-out
-	const labels = raw.legacyLabels;
-	if (labels !== undefined) {
-		if (!Array.isArray(labels))
-			throw new Error(`${path}: legacyLabels must be an array`);
-		labels.forEach((l, i) => {
-			if (typeof l !== "string" || l.trim() === "")
-				throw new Error(
-					`${path}: legacyLabels[${i}] must be a non-empty string`,
-				);
-		});
-	}
+	// W783: validate the sweep table alongside the services — a malformed
+	// namespace or label would silently degrade the boot-out
+	if (raw.legacySweep !== undefined) validateLegacySweep(path, raw.legacySweep);
 	const out: ServiceSpec[] = [];
 	for (const entry of raw.services) {
 		if (!isPlainObject(entry))
@@ -350,19 +363,84 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 	return out;
 }
 
-// W779: the boot-out list reads from the manifest — the retired-labels
-// const in install-launchd.ts is gone (one source, config-over-code).
-export function loadLegacyLabels(path = MANIFEST_PATH): string[] {
+// W783: the retired-label sweep table reads from the manifest (one source,
+// config-over-code). Absent table = nothing to sweep.
+export function loadLegacySweep(path = MANIFEST_PATH): LegacySweep {
 	const raw = parse(readFileSync(path, "utf8")) as ManifestFile;
-	const labels = raw.legacyLabels;
-	if (labels === undefined) return [];
+	return raw.legacySweep === undefined
+		? { namespaces: [], labels: [] }
+		: validateLegacySweep(path, raw.legacySweep);
+}
+
+const KNOWN_SWEEP_SECTION_KEYS = new Set(["namespaces", "labels"]);
+const KNOWN_SWEEP_NAMESPACE_KEYS = new Set(["prefix", "except"]);
+
+function validateLegacySweep(path: string, sweep: unknown): LegacySweep {
+	if (!isPlainObject(sweep))
+		throw new Error(`${path}: legacySweep must be a mapping`);
+	for (const k of Object.keys(sweep)) {
+		if (!KNOWN_SWEEP_SECTION_KEYS.has(k))
+			throw new Error(`${path}: unknown legacySweep key "${k}"`);
+	}
+	const namespaces = sweep.namespaces ?? [];
+	const labels = sweep.labels ?? [];
+	if (!Array.isArray(namespaces))
+		throw new Error(`${path}: legacySweep.namespaces must be an array`);
 	if (!Array.isArray(labels))
-		throw new Error(`${path}: legacyLabels must be an array`);
-	return labels.map((l, i) => {
-		if (typeof l !== "string" || l.trim() === "")
-			throw new Error(`${path}: legacyLabels[${i}] must be a non-empty string`);
-		return l;
+		throw new Error(`${path}: legacySweep.labels must be an array`);
+	const out: LegacySweep = { namespaces: [], labels: [] };
+	validateSweepNamespaces(path, namespaces, out);
+	validateSweepLabels(path, labels, out);
+	return out;
+}
+
+function validateSweepNamespaces(
+	path: string,
+	namespaces: unknown[],
+	out: LegacySweep,
+): void {
+	namespaces.forEach((n, i) => {
+		if (!isPlainObject(n))
+			throw new Error(
+				`${path}: legacySweep.namespaces[${i}] must be a mapping`,
+			);
+		for (const k of Object.keys(n)) {
+			if (!KNOWN_SWEEP_NAMESPACE_KEYS.has(k))
+				throw new Error(
+					`${path}: unknown legacySweep.namespaces[${i}] key "${k}"`,
+				);
+		}
+		if (typeof n.prefix !== "string" || !n.prefix.endsWith("."))
+			throw new Error(
+				`${path}: legacySweep.namespaces[${i}].prefix must be a dotted prefix like "com.klh."`,
+			);
+		const except = n.except ?? [];
+		if (!Array.isArray(except))
+			throw new Error(
+				`${path}: legacySweep.namespaces[${i}].except must be an array of dotted prefixes`,
+			);
+		for (const e of except) {
+			if (typeof e !== "string" || e.trim() === "")
+				throw new Error(
+					`${path}: legacySweep.namespaces[${i}].except entries must be non-empty strings`,
+				);
+		}
+		out.namespaces.push({ prefix: n.prefix, except: [...except] });
 	});
+}
+
+function validateSweepLabels(
+	path: string,
+	labels: unknown[],
+	out: LegacySweep,
+): void {
+	labels.forEach((l, i) => {
+		if (typeof l !== "string" || l.trim() === "")
+			throw new Error(
+				`${path}: legacySweep.labels[${i}] must be a non-empty string`,
+			);
+	});
+	out.labels = [...labels];
 }
 
 // shared post-render guard (all three emitters): a placeholder that survived

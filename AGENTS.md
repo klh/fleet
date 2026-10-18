@@ -166,8 +166,7 @@ gui/$(id -u)/<label>` revives):
   - `com.suspenders.belt-swarm` — the belt kit's `supervise` supervisor
     (KeepAlive; renamed from com.belt.swarm for the W640 receipt namespace):
     spawns :4000 + the MLX specialists below (W284: the ONLY swarm
-    supervisor — `com.suspenders.local-llm` is retired and rides the
-    LEGACY boot-out list)
+    supervisor — retired labels ride the W783 namespace sweep below)
   - `com.suspenders.cloud-gateway` — cloud transport lifecycle
     (belt/bin/cloud-gateway.ts → litellm :4100); never starts
     router/swarm
@@ -176,19 +175,22 @@ gui/$(id -u)/<label>` revives):
     keepwarm, coord-worker, auto-install, soak) are NOT launchd units —
     they are typed tasks fired by the ONE fleet-loop cycle, each task
     owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
-    retired labels ride the services.yaml legacyLabels boot-out list)
+    the W779 folds' labels were swept by the installs that landed W779 —
+    the sweep table does not grow compliance entries for settled folds)
   - `com.belt.dashboard` — fleet dashboard :7791 (LAN:
     belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
   - `com.klh-local.caddy` — the Caddy .local front
   - same namespace, no ports: knowledge-worker
-  - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
-    `com.klh.fleet-monitor` (superseded — installers boot them out and
-    rm the plists) and `com.belt.gateway` (retired W277 — was the :4100
-    litellm wrapper; a plist may linger on disk but must stay UNLOADED)
-    and `com.suspenders.local-llm` (retired W284 — the suspenders
-    local-llm serve fork; both installers boot it out and rm the plist)
+  - LEGACY, never load: any `com.klh.*` label except `com.klh-local.*` —
+    the retired pre-namespacing namespace, swept at every install (boot-out
+    + rm plist via the deploy/services.yaml `legacySweep` table, W783) —
+    plus the retired belt product labels `com.belt.swarm` / `com.belt.gateway`.
+    The sweep is namespace-granular: a future old label under a retired
+    namespace is covered by its namespace, never a new list entry; retired
+    com.suspenders.* members are NOT swept (the namespace is live) — they
+    fail forward or age out with the folds that retired them.
 - local-llm swarm: `bun ~/.claude/local-llm/swarm.ts status|supervise` —
   belt kit is the source (W284: the suspenders local-llm serve fork is
   retired; installs heal the runtime home's belt closure from

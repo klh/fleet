@@ -11,6 +11,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	statSync,
 } from "node:fs";
@@ -26,13 +27,18 @@ import {
 	type ActivationService,
 } from "./lib/service-drift.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
-import { loadLegacyLabels } from "./install-services.ts";
+import {
+	loadLegacySweep,
+	type LegacySweep,
+	matchLegacyLabel,
+} from "./install-services.ts";
 
-// supersede the pre-namespacing agent labels so old and new never run side by
-// side (same jobs, stale script paths, double keepwarm/monitor pings).
-// W284/W640/W779 history: the retired set is DATA now — deploy/services.yaml
-// `legacyLabels` (loadLegacyLabels below), read at registration time from
-// the same manifest the units render from. One source, config-over-code.
+// supersede the retired agent labels so old and new never run side by side
+// (same jobs, stale script paths, double keepwarm/monitor pings). W783: the
+// retired set is a declarative sweep TABLE — deploy/services.yaml
+// `legacySweep` (loadLegacySweep), NAMESPACE granularity: any com.klh.*
+// label (except com.klh-local.*) plus the retired belt product labels, so a
+// future old label is covered by its namespace, never a new list entry.
 
 // W631: registerLaunchd must render units only from a STABLE tree — the pinned
 // checkout. A snapshot harness copy (no .git — the generation dirs under
@@ -141,6 +147,86 @@ export async function verifiedLoad(
 				"loaded arguments differ from the rendered unit — competing writer after load",
 		};
 	return { ok: true };
+}
+
+/** `launchctl list` rows are `PID\tStatus\tLabel` — third column wins. The
+ *  header row and lines that do not parse are skipped. */
+export function parseLaunchctlListLabels(out: string): string[] {
+	return out
+		.split("\n")
+		.map((line) => line.split("\t"))
+		.filter((cols) => cols.length >= 3 && cols[0] !== "PID")
+		.map((cols) => cols[cols.length - 1].trim())
+		.filter((label) => label.length > 0);
+}
+
+/** The real loaded-label source: `launchctl list`. */
+export async function listLaunchdLabels(): Promise<string[]> {
+	const r = await execa("/bin/launchctl", ["list"], {
+		reject: false,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return parseLaunchctlListLabels(r.stdout);
+}
+
+export interface SweepDeps {
+	agentsDir: string;
+	/** launchd domain, e.g. gui/501 */
+	domain: string;
+	sweep: LegacySweep;
+	/** loaded-label source (defaults to listLaunchdLabels); injectable for tests */
+	listLoaded?: () => Promise<string[]>;
+	/** boot-out runner (defaults to launchctl bootout); injectable for tests */
+	bootout?: (label: string) => Promise<void>;
+}
+
+/** The W783 namespace sweep: enumerate the LaunchAgents dir + the loaded
+ *  labels, boot out + rm the plist of everything riding a retired namespace
+ *  or an explicit retired label. Idempotent. */
+export async function sweepLegacyLabels(
+	deps: SweepDeps,
+): Promise<{ booted: string[]; removed: string[] }> {
+	const { agentsDir } = deps;
+	const present = existsSync(agentsDir)
+		? readdirSync(agentsDir)
+				.filter((f) => f.endsWith(".plist"))
+				.map((f) => f.replace(/\.plist$/, ""))
+		: [];
+	const loaded = deps.listLoaded
+		? await deps.listLoaded()
+		: await listLaunchdLabels();
+	const matched = [...new Set([...present, ...loaded])]
+		.filter((label) => matchLegacyLabel(label, deps.sweep))
+		.sort();
+	const booted: string[] = [];
+	const removed: string[] = [];
+	await sweepMatched(deps, matched, booted, removed);
+	return { booted, removed };
+}
+
+/** Boot out + plist-rm each matched label; appends to the passed collectors. */
+async function sweepMatched(
+	deps: SweepDeps,
+	matched: string[],
+	booted: string[],
+	removed: string[],
+): Promise<void> {
+	for (const label of matched) {
+		if (deps.bootout) await deps.bootout(label);
+		else
+			await execa("/bin/launchctl", ["bootout", `${deps.domain}/${label}`], {
+				reject: false,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+		booted.push(label);
+		const plist = join(deps.agentsDir, `${label}.plist`);
+		if (existsSync(plist)) {
+			rmSync(plist);
+			removed.push(label);
+		}
+	}
 }
 
 export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
@@ -294,20 +380,14 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 		/* Unknown or absent intent is never invented. */
 	}
 	writeActivation(receiptPath, retainActivation(receipt, previous));
-	const superseded: string[] = [];
-	const legacyLabels = loadLegacyLabels(join(repo, "deploy/services.yaml"));
-	for (const legacy of legacyLabels) {
-		await execa("launchctl", ["bootout", `gui/${process.getuid()}/${legacy}`], {
-			reject: false,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const legacyPlist = join(agentsDir, `${legacy}.plist`);
-		if (existsSync(legacyPlist)) {
-			rmSync(legacyPlist);
-			superseded.push(legacy);
-		}
-	}
+	const sweep = loadLegacySweep(join(repo, "deploy/services.yaml"));
+	const swept = await sweepLegacyLabels({
+		agentsDir,
+		domain: `gui/${process.getuid()}`,
+		sweep,
+		listLoaded: listLaunchdLabels,
+	});
+	const superseded = swept.removed;
 	if (failed.length > 0) {
 		return {
 			status: "failed",

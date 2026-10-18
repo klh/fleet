@@ -14,7 +14,6 @@ export const HOOK_ITEMS = [
 	"coord",
 	"board",
 	"gates",
-	"launchd",
 	"rules",
 	"gate.ts",
 	"session-start.ts",
