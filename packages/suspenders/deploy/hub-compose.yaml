@@ -83,6 +83,7 @@ services:
       resources:
         limits:
           memory: 64m
+          pids: 64
     entrypoint: ["sh", "-c"]
     command:
       - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done
@@ -116,6 +117,7 @@ services:
       resources:
         limits:
           memory: 256m
+          pids: 128
     entrypoint: ["sh", "-c"]
     command:
       - if [ ! -d /srv/repo/.git ]; then git init /srv/repo && git -C /srv/repo remote add origin "$HUB_FLEET_REPO_URL"; fi; git -C /srv/repo remote set-url origin "$HUB_FLEET_REPO_URL" && git -C /srv/repo fetch --depth 1 origin "$HUB_FLEET_REF" && git -C /srv/repo reset --hard FETCH_HEAD
@@ -141,6 +143,7 @@ services:
       resources:
         limits:
           memory: 1g
+          pids: 256
     working_dir: /src/fleet
     # W689: boot script installs the pinned checkout AND links the base
     # monorepo's workspaces under their package names — overlay hubs run
@@ -170,6 +173,7 @@ services:
       resources:
         limits:
           memory: 512m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     working_dir: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle
@@ -246,6 +250,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -285,6 +290,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -329,6 +335,7 @@ services:
       resources:
         limits:
           memory: 512m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/fleet-board.ts --port ${HUB_BOARD_PORT:-7809}
@@ -363,6 +370,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -393,6 +401,7 @@ services:
       resources:
         limits:
           memory: 256m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/store-server.ts --port ${HUB_STORE_PORT:-7796}
@@ -419,6 +428,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -449,6 +459,7 @@ services:
       resources:
         limits:
           memory: 512m
+          pids: 256
     ports:
       - "${HUB_BELT_BIND:-127.0.0.1}:${HUB_BELT_PORT:-7792}:7791"
     restart: unless-stopped
@@ -475,6 +486,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -511,6 +523,7 @@ services:
       resources:
         limits:
           memory: 256m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/belt/bin/model-store.ts serve
@@ -544,6 +557,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     depends_on:
@@ -580,6 +594,7 @@ services:
       resources:
         limits:
           memory: 128m
+          pids: 256
     network_mode: host
     restart: unless-stopped
     command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/hooks/bin/federation-peers.ts
