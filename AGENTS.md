@@ -201,7 +201,8 @@ gui/$(id -u)/<label>` revives):
   it from the runtime-home copy
 - belt router :4000 (= router-shim, see above) · litellm :4100
   (com.suspenders.cloud-gateway) · buckle spoke :4101 (Mac), hubs
-  :4101 (NAS) / :4111 (desktop) · board :7799 · store :7795 (NAS) / :7796
+  :4101 (NAS) / :4111 (desktop) · board :7799 · store :7794 (Mac) /
+  :7795 (NAS) / :7796 (desktop)
 - NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
   non-interactive PATH); compose v5.6.0 per-user plugin
 

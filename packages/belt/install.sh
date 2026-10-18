@@ -101,8 +101,10 @@ if $WITH_LAUNCHD; then
     done
     # supersede the pre-belt agent labels so old and new never run side by side
     # (same jobs on stale script paths, double swarm starts). W284: the
-    # suspenders local-llm serve label joins the boot-out list.
-    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm; do
+    # suspenders local-llm serve label joins the boot-out list. W277:
+    # com.belt.gateway (retired :4100 wrapper) joins — the supervisor's
+    # litellm target is the single restarter (bin/litellm-target.ts).
+    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm com.belt.gateway; do
       launchctl bootout "gui/$bUid/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"
