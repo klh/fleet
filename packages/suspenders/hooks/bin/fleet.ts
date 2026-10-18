@@ -2,10 +2,21 @@
 // already up, then open it in the browser. Alias in .zshrc:
 //   alias fleet="bun $HOME/.claude/bin/fleet.ts"
 import { existsSync } from "node:fs";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
-const PORT = String(
-	Number(process.argv[process.argv.indexOf("--port") + 1] ?? 7799) || 7799,
-);
+// W820: parse rides verb-kit (W651) — flag-first argv parses against the
+// serve verb (embedded door keeps the alias script's top-level flow intact).
+const serve = defineVerb({
+	name: "serve",
+	usage: "usage: fleet [--port N]",
+	flags: ["--port"],
+});
+const parsed = parseVerb(serve, process.argv.slice(2));
+if (!parsed.ok) {
+	console.error(parsed.message);
+	process.exit(1);
+}
+const PORT = String(Number(parsed.parsed.flag("--port") ?? 7799) || 7799);
 const URL = "http://127.0.0.1:" + PORT;
 // board lives next to this script in both repo and installed layouts;
 // fall back to the legacy dotfiles path for old installs
