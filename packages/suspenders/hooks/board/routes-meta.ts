@@ -70,9 +70,9 @@ and nothing registers. Nothing else on the board depends on it.
 
 ## Companion repos
 
-- suspenders (this repo): https://github.com/klh/suspenders
-- belt (the LLM fleet behind the advice endpoint): https://github.com/klh/belt
-- klh-local (serves suspenders.local over the LAN): https://github.com/klh/local
+- suspenders (this repo): https://github.com/klh/fleet/tree/main/packages/suspenders
+- belt (the LLM fleet behind the advice endpoint): https://github.com/klh/fleet/tree/main/packages/belt
+- klh-local (serves suspenders.local over the LAN): https://github.com/klh/fleet/tree/main/packages/local
 
 a Threads thing — http://www.threads.dk`;
 

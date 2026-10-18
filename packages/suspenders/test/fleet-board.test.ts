@@ -59,6 +59,20 @@ describe("served page", () => {
 		expect(txt).toContain("/api/fleet-tree");
 		expect(txt).toContain("/fleet-tree");
 		expect(txt).toContain("http://www.threads.dk");
+		// companion-repo links point at the monorepo (W802; the 2026-10-05
+		// cutover archived the standalone repos)
+		expect(txt).not.toContain("https://github.com/klh/suspenders");
+		expect(txt).not.toContain("https://github.com/klh/belt");
+		expect(txt).not.toContain("https://github.com/klh/local");
+		expect(txt).toContain(
+			"https://github.com/klh/fleet/tree/main/packages/suspenders",
+		);
+		expect(txt).toContain(
+			"https://github.com/klh/fleet/tree/main/packages/belt",
+		);
+		expect(txt).toContain(
+			"https://github.com/klh/fleet/tree/main/packages/local",
+		);
 	});
 
 	test("served page wires the #filter= hash deep-link (statusline worker links)", async () => {
