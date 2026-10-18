@@ -413,6 +413,10 @@ export function decisionVerdicts(
 		const rows = registryRows(project || null);
 		const fresh = transcriptsAliveBatch([...lanes, ...rows.map((r) => r.sid)]);
 		const reg = verdictBySid(lanes, rows, () => boardProcessInspector(), fresh);
+		// W810: registry verdicts are the PRIMARY face — they must land in the
+		// map, not only gate the sessions fallback (the W685 batching refactor
+		// dropped the merge; registered-dead lanes never classified stale)
+		for (const [sid, v] of reg) out.set(sid, v);
 		const missing = lanes.filter((sid) => !reg.has(sid));
 		if (missing.length) {
 			// W685: the sessions fallback evaluates from ONE batched read —

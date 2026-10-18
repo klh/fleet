@@ -108,9 +108,15 @@ describe("endpoint hardening", () => {
 			"--as",
 			"board-lane",
 		]);
-		const nonNeed = (await getData()).events.find(
-			(e: Row) => e.kind === "NOTE",
-		).id;
+		// W810: /api/data rides the 1.5s feedMemo — poll for the fresh row
+		let nonNeed: number | undefined;
+		for (let i = 0; i < 20 && nonNeed === undefined; i++) {
+			nonNeed = (await getData()).events.find(
+				(e: Row) => e.kind === "NOTE",
+			)?.id as number | undefined;
+			if (nonNeed === undefined) await sleep(150);
+		}
+		expect(nonNeed).toBeDefined();
 		expect((await post("/api/ack", { id: nonNeed })).status).toBe(400);
 	});
 
@@ -411,33 +417,50 @@ describe("dashboard accuracy", () => {
 		const w1 = addWork("dep target", ["--scope", "dt"]);
 		const w2 = addWork("dependent item", ["--scope", "dd"]);
 		run("work.ts", ["block", w2, "--on", w1]);
-		const proj = await myProject();
-		expect(proj.gated.length).toBe(1);
-		expect(proj.gated[0].deps).toEqual([w1]);
+		// W810: the feedMemo can serve the pre-block project view — poll
+		let proj: Row | undefined;
+		for (let i = 0; i < 20 && !proj; i++) {
+			const p = await myProject();
+			if (p?.gated?.length === 1) proj = p;
+			if (!proj) await sleep(150);
+		}
+		expect(proj?.gated.length).toBe(1);
+		expect(proj?.gated[0].deps).toEqual([w1]);
 	});
 
 	test("failed work is rendered with its error note", async () => {
 		const w = addWork("doomed item", ["--scope", "df"]);
 		run("work.ts", ["fail", w, "--note", "boom: no compiler"]);
-		const failed = (await myProject()).other.find(
-			(x: Row) => x.state === "FAILED",
-		);
+		// W810: the feedMemo can serve the pre-fail project view — poll
+		let failed: Row | undefined;
+		for (let i = 0; i < 20 && !failed; i++) {
+			failed = (await myProject()).other.find(
+				(x: Row) => x.state === "FAILED",
+			);
+			if (!failed) await sleep(150);
+		}
 		expect(failed).toBeDefined();
-		expect(failed.note).toBe("boom: no compiler");
+		expect(failed?.note).toBe("boom: no compiler");
 	});
 
 	test("zombie chips drop the stray leading article", async () => {
+		// W685: zombies render only against shown-session prefixes — bootstrap
+		// the board-lane session the label references, then poll the feedMemo
+		expect(run("coord.ts", ["bootstrap", "--as", "board-lane"]).code).toBe(0);
 		run("coord.ts", [
 			"fact",
 			"set",
 			"zombie.V9",
 			"a board-lane ZOMBIE (hb 52min)",
 		]);
-		expect(
-			(await getData()).zombies.some(
+		let seen = false;
+		for (let i = 0; i < 20 && !seen; i++) {
+			seen = (await getData()).zombies.some(
 				(z: Row) => z.label === "board-lane ZOMBIE (hb 52min)",
-			),
-		).toBe(true);
+			);
+			if (!seen) await sleep(150);
+		}
+		expect(seen).toBe(true);
 	});
 });
 
@@ -498,8 +521,15 @@ describe("W28 llm telemetry", () => {
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES ('llm.budget.test-a', '500', 'owner', 1, ?)",
 		).run(t);
 		db.close();
-		const d = await getData();
-		const u = d.llm.usage.find((x: Row) => x.model === "test-a");
+		// W810: the direct db inserts land under the /api/data feedMemo — poll
+		let d: Row | undefined;
+		for (let i = 0; i < 20 && !d; i++) {
+			const cur = await getData();
+			if (cur.llm.usage.some((x: Row) => x.model === "test-a")) d = cur;
+			if (!d) await sleep(150);
+		}
+		expect(d).toBeDefined();
+		const u = d?.llm.usage.find((x: Row) => x.model === "test-a");
 		expect(u.tokens).toBe(180); // 120 + 60 — budget-joined
 		expect(u.budget).toBe(500);
 		expect(u.calls).toBe(2);
