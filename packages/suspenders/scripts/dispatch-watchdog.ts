@@ -463,7 +463,12 @@ const run = async (): Promise<number> => {
 				"activated payload and dispatch syntax verified",
 		},
 		services,
-		requiredServices: ["com.suspenders.fleet-loop"],
+		// fleet-loop retired 2026-10-18 (owner GO, #41257 option a): the blind
+		// merger/double-dispatcher stays dead; session refill crons + the
+		// coordinator own dispatch and merges until W779's typed heartbeat
+		// lands. No required service pins a label the receipt no longer
+		// renders.
+		requiredServices: [],
 		progress,
 		lane: {
 			name: "lane",
