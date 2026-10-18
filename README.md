@@ -259,6 +259,30 @@ attempts model downloads; `--skip-models` and `--no-llm` skip those.
 For a fleet-wide install across packages, speedy ships the umbrella installer
 (`packages/speedy/bin/install-fleet.ts`), which defaults to this repository.
 
+### Install the skills as agent tools
+
+The repo-root [`skills/`](skills/) catalog follows the vercel-labs/skills
+spec (agentskills.io): each skill is a folder with a `SKILL.md`, and the
+`npx skills` CLI installs them into 75+ agent CLIs. This repository is
+public, so the GitHub flow needs no auth:
+
+```sh
+# List what the catalog holds (writes nothing).
+npx skills add klh/fleet --list
+
+# Install every skill into detected agents (interactive, project scope).
+npx skills add klh/fleet
+
+# Install globally into named agents, non-interactively.
+npx skills add klh/fleet -g -y \
+  -a claude-code,codex,github-copilot,grok,gemini-cli,cursor
+```
+
+Agent ids come from the CLI's bundled registry; private forks resolve
+through `gh auth`. **ChatGPT is not a CLI target** — the registry has no
+ChatGPT adapter, so a fleet skill reaches ChatGPT by pasting its
+`SKILL.md` into the conversation.
+
 ## Everyday operations
 
 PATH shims expose the command surfaces; every verb has `--help`.

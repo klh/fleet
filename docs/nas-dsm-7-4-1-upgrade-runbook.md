@@ -65,8 +65,17 @@ nas` — expect belt/board/buckle/store `running` + sidecars `200`.
 3. Package Center: no "needs repair" badges (or repair done).
 4. `coord fleet` + one lane probe (any `dispatch`) riding the NAS front to
    prove the serving chain end-to-end.
+   - Hub-routed dispatch mints the lane key AT the hub (W615) and needs
+     `SUSPENDERS_HUB_<LABEL>_TOKEN` = the hub-ledger admin credential,
+     which stays ON the device (mint-on-device law). Without it this leg
+     is owner-side: fail-closed W463 refuses (lane-held credentials
+     401/403 by design); `hubctl mint-lane-key`/`exec` verb gap tracked
+     as W484.1.1.
 5. Re-check `buckle-ready :4113` against its pre-upgrade baseline (`000`
    today; anything ≠ baseline is new signal, not update damage).
+6. `hubctl status` probes `model-store :7793` unconditionally — a hub
+   pinned pre-W763 (`4500f17d`) shows a false ✗ (pin-lag, not damage;
+   triage = `git merge-base --is-ancestor 4500f17d <stack.yaml pin>`).
 
 ## Results live on the plane
 

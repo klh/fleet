@@ -64,6 +64,10 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
   the package-level truth; this root file is the stack-wide law.
+- Agent skills: the repo-root `skills/` catalog installs into any agent CLI
+  via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
+  "Install the skills as agent tools"). ChatGPT is not a CLI target — paste
+  the `SKILL.md` into the conversation.
 
 ## Operations — every verb and what it is for
 
@@ -167,13 +171,18 @@ gui/$(id -u)/<label>` revives):
   - `com.suspenders.cloud-gateway` — cloud transport lifecycle
     (belt/bin/cloud-gateway.ts → litellm :4100); never starts
     router/swarm
-  - `com.suspenders.llm-keepwarm` — llm-keepwarm.ts every 240s, no port
+  - W779 heartbeat (2026-10-18): the no-port maintenance agents (fleet-
+    monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
+    keepwarm, coord-worker, auto-install, soak) are NOT launchd units —
+    they are typed tasks fired by the ONE fleet-loop cycle, each task
+    owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
+    retired labels ride the services.yaml legacyLabels boot-out list)
   - `com.belt.dashboard` — fleet dashboard :7791 (LAN:
     belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
   - `com.klh-local.caddy` — the Caddy .local front
-  - same namespace, no ports: fleet-monitor, knowledge-worker, db-backup
+  - same namespace, no ports: knowledge-worker
   - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
     `com.klh.fleet-monitor` (superseded — installers boot them out and
     rm the plists) and `com.belt.gateway` (retired W277 — was the :4100

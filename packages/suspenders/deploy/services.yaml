@@ -119,14 +119,6 @@ services:
     logs: { out: "__HOME__/.claude-insights/buckle-spoke.log" }
     placeholders: ["__BUN__", "__HOME__", "__REPO__"]
 
-  # control-plane health sweep — every 15 min, --fix (W264-era monitor)
-  - name: fleet-monitor
-    bunEntry: "__PREFIX__/bin/monitor.ts"
-    args: ["--fix"]
-    schedule: { intervalSeconds: 900 }
-    logs: { out: /tmp/fleet-monitor.log }
-    placeholders: ["__BUN__", "__PREFIX__"]
-
   # belt LLM routing watcher (W145) — DELIVERED NOT INSTALLED: activation is
   # a coordinator step. Secrets ride render-time env (BELT_URL/BELT_TOKEN),
   # never this manifest. W576.5: --dispatch-cmd is prefix-absolute so the
@@ -178,55 +170,6 @@ services:
       GOVERNOR_STORE_PORT: "7794"
     schedule: { keepalive: true }
     logs: { out: /tmp/suspenders-store-server.log }
-    placeholders: ["__BUN__", "__PREFIX__"]
-
-  # nightly governor.db backup at 10:00 local (calendar, not interval)
-  - name: db-backup
-    bunEntry: "__PREFIX__/bin/db-backup.ts"
-    schedule: { calendar: { hour: 10, minute: 0 } }
-    logs: { out: /tmp/governor-backup.log }
-    placeholders: ["__BUN__", "__PREFIX__"]
-
-  # observation harvest — every 15 min
-  - name: harvest
-    bunEntry: "__PREFIX__/bin/harvest.ts"
-    args: ["run", "--repo", "__REPO__"]
-    schedule: { intervalSeconds: 900 }
-    logs: { out: /tmp/suspenders-harvest.log }
-    placeholders: ["__BUN__", "__PREFIX__", "__REPO__"]
-
-  # quota-exhaustion pickup (W366) — every 15 min (== lane-log staleness
-  # floor), --act: dead sid + terminal quota signature → reclaim + emit
-  - name: quota-sweep
-    bunEntry: "__PREFIX__/bin/quota-sweep.ts"
-    args: ["--act"]
-    schedule: { intervalSeconds: 900 }
-    logs: { out: /tmp/quota-sweep.log }
-    placeholders: ["__BUN__", "__PREFIX__"]
-
-  # dispatch-watchdog — the supervisor's supervisor (2026-10-06 outage
-  # class): every 5 min probes prefix-lib parity (the W463 crash-loop
-  # class), fleet-loop pid stability, dispatch flow vs READY backlog, and
-  # the governed lane path (mint→infer→revoke through :4101); repairs via
-  # the installer + kickstart and broadcasts every action on the coord bus.
-  - name: dispatch-watchdog
-    bunEntry: "__PREFIX__/scripts/dispatch-watchdog.ts"
-    args: []
-    schedule: { intervalSeconds: 300 }
-    logs: { out: "__HOME__/.claude-insights/dispatch-watchdog-launchd.log" }
-    placeholders: ["__BUN__", "__PREFIX__", "__HOME__"]
-
-  # local-llm keepwarm — every 4 min, niced off the interactive foreground.
-  # W507: the warm set is the emitted tier manifest (~/.claude/local-llm/
-  # tier.json, registry-emit `tier`) — no tier env here; missing manifest
-  # fails safe to the ≤4GB set (the W500 crash trigger).
-  - name: llm-keepwarm
-    bunEntry: "__PREFIX__/bin/llm-keepwarm.ts"
-    schedule: { intervalSeconds: 240 }
-    nice: 10
-    logs:
-      out: /tmp/llm-keepwarm.log
-      err: /tmp/llm-keepwarm.err
     placeholders: ["__BUN__", "__PREFIX__"]
 
   # knowledge search API — resident; KNOWLEDGE_REPO_ROOT is the resolution
@@ -290,49 +233,28 @@ services:
     logs: { out: "__HOME__/.claude-insights/notify.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
-  # W179.3 nightly real-provider soak — 03:15 calendar, DELIVERED NOT
-  # INSTALLED: activation is a coordinator step. Tiny caps by default
-  # (SOAK_MAX_USD / SOAK_MAX_TOKENS / SOAK_ITERS / SOAK_MAX_MINUTES env at
-  # render time); belt auth resolves via resolveBelt() from HOME. A cap hit
-  # is a clean exit (the cap working).
-  - name: soak
-    bunEntry: "__PREFIX__/bin/soak.ts"
-    schedule: { calendar: { hour: 3, minute: 15 }, runAtLoad: false }
-    nice: 10
-    logs: { out: /tmp/soak.log }
-    placeholders: ["__BUN__", "__PREFIX__"]
-
-  # coord-worker (W529) — the headless coordinator cadence: every 15 min a
-  # governed claude run drains inbox/consults, takes at most ONE READY
-  # coordinator-class item (tagged #coord), capsules, exits. No KeepAlive —
-  # the interval IS the cadence and launchd coalesces fires while a run
-  # lives. Fails closed (W463 posture): front down or mint failed refuses
-  # the run; the interactive coordinator's warm transcript (fact
-  # coordinator.sid) stands in front of the worker (skip-live).
-  - name: coord-worker
-    bunEntry: "__PREFIX__/scripts/coord-worker.ts"
-    args: ["--repo", "__REPO__"]
-    cwd: "__REPO__"
-    env:
-      HOME: "__HOME__"
-      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    schedule: { intervalSeconds: 900 }
-    nice: 10
-    logs: { out: /tmp/coord-worker.log }
-    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
-
-  # W638 auto-install watcher — every 5 min: fleet main moved past the
-  # last-installed stamp AND the repo volume mounted AND no lane live/unknown
-  # → plain `bash install.sh` (no unit re-registration, no restarts) + one
-  # dead-lane registry prune afterwards. Failed installs never advance the
-  # stamp; skips are waiting states. Activate with install.sh --with-launchd.
-  - name: auto-install
-    bunEntry: "__PREFIX__/scripts/auto-install.ts"
-    args: ["--repo", "__REPO__"]
-    cwd: "__REPO__"
-    env:
-      HOME: "__HOME__"
-      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    schedule: { intervalSeconds: 300 }
-    logs: { out: "__HOME__/.claude-insights/auto-install.log" }
-    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+# Retired labels — boot-out + plist removal at the next install --with-launchd
+# (scripts/install-launchd.ts reads THIS list via loadLegacyLabels; the old
+# TS const is gone). Never boot-out a label still in `services:` above.
+legacyLabels:
+  # pre-namespacing supersede set (W284/W640 history)
+  - com.belt.swarm
+  - com.klh.llm-keepwarm
+  - com.klh.fleet-monitor
+  - com.klh.local-llm
+  - com.klh.watchdog
+  - com.suspenders.local-llm
+  # W779 heartbeat fold — the no-port maintenance agents are fleet-loop
+  # typed tasks now; their launchd units retire (W779)
+  - com.suspenders.fleet-monitor
+  - com.suspenders.db-backup
+  - com.suspenders.harvest
+  - com.suspenders.quota-sweep
+  - com.suspenders.dispatch-watchdog
+  - com.suspenders.llm-keepwarm
+  - com.suspenders.coord-worker
+  - com.suspenders.auto-install
+  - com.suspenders.soak
+  # old-namespace agents found loaded on machines (W779)
+  - com.klh.kev
+  - com.klh-local.dashboard

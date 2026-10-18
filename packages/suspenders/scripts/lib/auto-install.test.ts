@@ -1,5 +1,6 @@
-// W638 — the auto-install watcher's decision core + the services.yaml
-// contract for the com.suspenders.auto-install entry.
+// W638 — the auto-install watcher's decision core. W779: the launchd unit
+// folded into the fleet-loop heartbeat — the cadence contract rides the
+// typed-task registry (hooks/lib/fleet-loop/maintenance.ts).
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,10 @@ import {
 	writeStamp,
 	type LaneAuditRow,
 } from "./auto-install.ts";
-import { loadManifest } from "../install-services.ts";
+import {
+	MAINTENANCE_TASKS,
+	missingRunners,
+} from "../../hooks/lib/fleet-loop/maintenance.ts";
 
 const ready = {
 	volumeMounted: true,
@@ -146,13 +150,9 @@ test("stamp: roundtrip + garbage → null", () => {
 	}
 });
 
-test("manifest: auto-install entry honors the render contract", () => {
-	const svc = loadManifest().find((s) => s.name === "auto-install");
-	expect(svc).toBeDefined();
-	expect(svc?.bunEntry).toBe("__PREFIX__/scripts/auto-install.ts");
-	expect(svc?.schedule?.intervalSeconds).toBe(300);
-	expect(svc?.args).toContain("__REPO__");
-	expect(svc?.placeholders).toEqual(
-		expect.arrayContaining(["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]),
-	);
+test("heartbeat: auto-install rides the W779 typed-task registry", () => {
+	const task = MAINTENANCE_TASKS.find((t) => t.name === "auto-install");
+	expect(task).toBeDefined();
+	expect(task?.everySeconds).toBe(300);
+	expect(missingRunners()).toEqual([]);
 });

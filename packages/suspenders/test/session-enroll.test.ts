@@ -39,6 +39,10 @@ const stubFront = Bun.serve({
 	async fetch(req) {
 		const u = new URL(req.url);
 		if (u.pathname === "/status") return new Response("ok");
+		// W746: reuse now validates liveness at the front before re-handing —
+		// whoami 200 for any presented bearer (mint counting stays mint-only)
+		if (u.pathname === "/v1/fleet/whoami")
+			return new Response(JSON.stringify({ authenticated: true }));
 		if (u.pathname === "/v1/admin/keys" && req.method === "POST") {
 			const b = (await req.json().catch(() => ({}))) as { name?: string };
 			const kid = `kid_${mintLog.length + 1}`;
@@ -267,7 +271,10 @@ describe("enrollSessionKey (in-lib, stubbed fetch)", () => {
 	test("fresh mint writes 0600 files with the session env grammar", async () => {
 		const fleet = mkdtempSync(join(tmpdir(), "w422171-fleet-"));
 		let mints = 0;
-		const stub = (async () => {
+		const stub = (async (url: string | URL | Request) => {
+			// W746: reuse liveness probe rides whoami — never counted as a mint
+			if (String(url).endsWith("/v1/fleet/whoami"))
+				return new Response(JSON.stringify({ authenticated: true }));
 			mints++;
 			return new Response(
 				JSON.stringify({ key: `bksk_m${mints}`, key_id: `kid_${mints}` }),
