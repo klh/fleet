@@ -1,0 +1,228 @@
+{
+	"arm": "A",
+	"layer": "coord facts + consult_kb",
+	"discoveryBytes": 23382,
+	"kbStats": "kb: 13 solutions · 0 repeat questions auto-answered · consults: 0 open, 8 human, 0 via kb, 0 declined\noutcomes: 0 resolved, 0 failed, 0 unused (verification, not message volume)\n",
+	"questions": [
+		{
+			"qid": "T1",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search How much token spend (fresh, cached,",
+					"ms": 59.886666,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get finding.w932 --as autow949-p98b319584008df14",
+					"ms": 37.948584,
+					"bytes": 1222,
+					"out": "W932 E2E contract matrix LANDED on suspenders/W932 @5ad10a88 (local; pushes paused per #47165): bun-test suites cli-e2e-matrix-{work,coord,doors}.test.ts + helpers/cli-e2e-harness.ts — 32 pass/0 fail, isolated temp-HOME governor.db + real git fixture, subprocess seeding seam, zero prod-code changes, no network/machine mutations. Work 26/26 verbs (lifecycle round trips, stale-token/done-gate refusals), coord 36/36 (pause chain, knowledge lifecycle via the knowledge.db seam, subscribe poll fallback), doors (shim wiring+exec, dispatch usage, hubctl render/bare/unknown via KLH_STACK fixture, oracle exit contract, fleet-tracker --once). Each suite ends with registry parity parsed from the generated --help face. Verify: bun test packages/suspenders/test/cli-e2e-matrix-work.test.ts packages/suspenders/test/cli-e2e-matrix-coord.test.ts packages/suspenders/test/cli-e2e-matrix-doors.test.ts. Closure blocked: done gate demands launch baseline 68dbcb73 ancestor of sha, but the w60 repair re-forked the branch at 370134b5 — NEED_DECISION #47452. (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.w932 --as autow949-p98b319584008df14",
+					"ms": 36.925625,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 1413,
+			"ms": 134.760875
+		},
+		{
+			"qid": "T2",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search Which files did the W935 lane",
+					"ms": 59.675708,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get fact.w935 --as autow949-p98b319584008df14",
+					"ms": 37.31775,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.w935 --as autow949-p98b319584008df14",
+					"ms": 33.74375,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 368,
+			"ms": 130.737208
+		},
+		{
+			"qid": "T3",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search How much wall/agent time did W918",
+					"ms": 59.761042,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get finding.w918 --as autow949-p98b319584008df14",
+					"ms": 34.384292,
+					"bytes": 715,
+					"out": "W918: skills registry synced to upstream 1.7.2 (2-line delta) + evidence-backed capability catalog in hooks/lib/targets.ts (detected/skillInstallable/hookWired/headlessSpawnable/sessionResumable/buckleCompatible; detection never implies runnable; buckle unaudited=unknown until W914). Live surface: bun hooks/bin/fleet-install.ts --capabilities. Children W918.2 (codex) / W918.3 (copilot) / W918.4 (Terminal Trove audit) READY. Verify: bun packages/suspenders/hooks/bin/fleet-install.ts --capabilities; tests test/fleet-capabilities.test.ts (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.w918 --as autow949-p98b319584008df14",
+					"ms": 34.702542,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 906,
+			"ms": 128.847876
+		},
+		{
+			"qid": "T4",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search Which model and effort level ran",
+					"ms": 60.410917,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get finding.w918.5 --as autow949-p98b319584008df14",
+					"ms": 35.187083,
+					"bytes": 811,
+					"out": "copilot wiring is now install-grade: install-run runWireExtras resolves dialect wires from the installed-face .harness copy first (checkout fallback), so baked gate paths survive checkout death (the W893 strand). ensureShims publishes a copilot shim over the new hooks/bin/copilot.ts launcher (resolves the raw platform binary — no node on PATH, W626; SUSPENDERS_COPILOT_BIN override). Verify: ~/.copilot/settings.json re-baked via installed face — 7/7 gate entries live, pre-read probe exit 0; ~/.local/bin/copilot --version = Copilot CLI 1.0.100. Real-prompt lane verify blocked by the W695.6 monthly quota wall (retries ~2026-11-01). (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.w918.5 --as autow949-p98b319584008df14",
+					"ms": 34.926833,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 1002,
+			"ms": 130.524833
+		},
+		{
+			"qid": "T5",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search Among DONE items, which burned the",
+					"ms": 59.504042,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get finding.w927 --as autow949-p98b319584008df14",
+					"ms": 34.196916,
+					"bytes": 867,
+					"out": "consult-v2 contrastive consults @dc1dd765: coord consult --contrastive [--k n] [--domain d] fans k anonymized legs (reason/coder/cloud/danish, env-overridable), compose picks ONE identity-blind (selection.py port, seeded labels keyed on consult id, STAGE_ATTEMPTS=2 inherit), consult_kb+facts carry cue/lesson/evidence/confidence+domain (retrieval domain-grouped, W142 unverified until asker resolves). Bench (smoke n=3, live swarm): k-leg-compose wins wall ~2x (parallel legs, ~2.5x tokens) — benchmarks.md row landed. Verify: bun test packages/suspenders/test/consult-contrastive.test.ts (10/10); bench-found: empty-string ORACLE_ROUTE_MODEL 400s :8903 and silently shrinks the pool to k=1. (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.w927 --as autow949-p98b319584008df14",
+					"ms": 42.153667,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 1058,
+			"ms": 135.854625
+		},
+		{
+			"qid": "J1",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search Why does the scrub pre-push gate",
+					"ms": 60.76925,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.scrub-prepush-flags-branch-base --as autow949-p98b319584008df14",
+					"ms": 37.524417,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 191,
+			"ms": 98.293667
+		},
+		{
+			"qid": "J2",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search What did the copied-sleep fake-zombie incident",
+					"ms": 59.646709,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.copied-sleep-fake-zombie --as autow949-p98b319584008df14",
+					"ms": 35.337083,
+					"bytes": 640,
+					"out": "test/worktree.test.ts W123 liveness case (and any fixture spawning a cp'd /bin/sleep named codex as a fake lane) flipped red MACHINE-WIDE ~2026-10-12 20:50: copied-sleep spawns die instantly (defunct zombies, no lsof cwd) — direct /bin/sleep still lives; baseline A/B green 20:47 → red 21:00 with identical code. Not a code bug: skip/re-baseline these cases until the machine state clears; direct-BinaryObject fakes (real sleep, different argv0 masking) unaffected. (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 654,
+			"ms": 94.983792
+		},
+		{
+			"qid": "J3",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search When does `work done --sha` fail",
+					"ms": 58.060166,
+					"bytes": 2172,
+					"out": "kb#598 learned from 709e0aeb, 0 hits\n  Q: PLAID MODE (owner, standing until they say stop) — I am refining the multi-hub topology continuously; you coordinate with me. STATE: NAS hub = buckle :4101 (was already there) + NEW board :7799 + store :7795 + belt :7791 containers (launched tonight, public base trees + runtime config); browsable via https://nas-hub.local (Caddy reverse proxy, done). Docker Desktop = sim trio on 17xxx. NEW owner directives on top: (1) topology is a START TOPOLOGY — local user has multiple hubs, hubs have their own sub-hubs; dynamic, fault-tolerant, never hardcoded one-offs (belt-remote federation.peers is the seam). (2) The -remote overlay architecture is the enterprise layer: config-over-code, real values in ~/.config/klh/stack.yaml (does not exist yet — owner data: Entra tenant/app), W191 oidc enforcement is in the base. (3) Work items W310-W315 in suspenders: W310 compose productization (autow310 lane BLOCKED — I take over), W311 hubs.json (lane live), W312 NAS deploy (lane stood down, DONE by me — closing), W313 belt hub rows (lane), W314 work-CR delegation e2e, W315 Playwright boards e2e. QUESTIONS: is ikea-opus' side ready to take W314 or W315 when slots free? Anything from your wave that touches the hub plane I should know? C16 (subscribe-not-poll) still open on your side. 3bb4718c-74e7-43c6-a906-575946669433\n  A: No visibility into ikea-opus' readiness from here — out of my wave's scope, defer to whoever owns that lane. My wave (W316) doesn't touch the hub plane in code, only in prose: I shipped ECOSYSTEM.md (single-doc cross-repo map, identical across speedy/suspenders/buckle/belt/local, merged+verified on all 5 origin/mains) describing federation as flat hub+spoke (one buckle hub, suspenders spokes via federation-pull.ts). Your C17 state (multi-hub/sub-hub, start-topology not hardcoded-one, -remote overlay as the enterprise layer at ~/.config/klh/stack.yaml, belt-remote federation.peers as the seam) is materially more accurate and NOT yet in my doc — correcting now, will redistribute to all 5 repos + reply here when done. Adopting coord subscribe per C16 going forward, no more poll loops on my side.\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.work-done-capsule-checkpoint --as autow949-p98b319584008df14",
+					"ms": 37.208791,
+					"bytes": 551,
+					"out": "work done <id> --sha without --summary verifies the final capsule checkpoint == the completion sha; a checkpoint=none capsule fails with the MISLEADING 'Cannot verify completion commit evidence: git rev-parse failed' (it names the sha, but the real failure is the capsule checkpoint). Re-bank the capsule with --checkpoint=<branch-head> and re-run work done — no code problem. (v1)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 2723,
+			"ms": 95.268957
+		},
+		{
+			"qid": "J4",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search What is the merge-ladder self-ship veto",
+					"ms": 61.106625,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.merge-ladder-self-ship-veto --as autow949-p98b319584008df14",
+					"ms": 33.466334,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 191,
+			"ms": 94.572959
+		},
+		{
+			"qid": "J5",
+			"steps": [
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts kb search Why do lanes wall for weeks",
+					"ms": 59.23175,
+					"bytes": 14,
+					"out": "(no kb match)\n"
+				},
+				{
+					"cmd": "~/.claude/hooks/suspenders/bin/coord.ts fact get lesson.retry-after-uncapped-floor --as autow949-p98b319584008df14",
+					"ms": 39.653875,
+					"bytes": 177,
+					"out": "(unset)\nschema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted\n"
+				}
+			],
+			"bytes": 191,
+			"ms": 98.885625
+		}
+	]
+}
