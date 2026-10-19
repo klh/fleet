@@ -6,6 +6,7 @@ export const BODY = String.raw`
 <header>
   <span class="mark">FLEET BOARD</span>
   <div class="right">
+    <label class="board-search" for="boardSearch" hidden>Search <input id="boardSearch" type="search" placeholder="tasks, lanes, decisions" autocomplete="off" aria-label="Search tasks, lanes, and decisions"></label>
     <span id="conn"></span>
     <span id="stamp"></span>
     <span id="blockedn"></span>

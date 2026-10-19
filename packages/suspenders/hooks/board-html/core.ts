@@ -4,6 +4,15 @@
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const CORE = String.raw`// --- #filter=<text> deep-link (statusline worker indicators link here) ---
 var hashFilter = ''; // raw needle from the hash; '' = no filtering
+var boardQuery = ''; // live search, independent of deep-link filters
+function boardMatch(parts){
+  if (!boardQuery) return true;
+  var q = boardQuery.toLowerCase();
+  for (var i = 0; i < parts.length; i++) {
+    if (String(parts[i] == null ? '' : parts[i]).toLowerCase().indexOf(q) >= 0) return true;
+  }
+  return false;
+}
 function hashNeedle(){
   var m = (location.hash || '').match(/^#filter=([^&]*)/);
   if (!m || !m[1]) return '';

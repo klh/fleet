@@ -23,6 +23,10 @@ function decById(id){
   return null;
 }
 function decNodeEl(id){ return document.querySelector('.dec[data-id="' + id + '"]'); }
+function decisionMatches(d){
+  return hashMatch([d.id, d.asked_by, d.asked_by_label]) &&
+    boardMatch([d.id, d.question, d.task_id, d.asked_by, d.asked_by_label, d.project]);
+}
 // recommendation: /api/decisions record when the backend adds it there,
 // else the /api/data needs map (the advice.<id> fact written by advise.ts)
 function adviceFor(id){
@@ -79,6 +83,7 @@ function projBase(){
 }
 function renderDecisionsInner(){
   var all = openDecs();
+  var visibleCount = all.filter(decisionMatches).length;
   var live = {};
   for (var i = 0; i < all.length; i++) live[all[i].id] = true;
   // request-state cleanup for decisions that left the list
@@ -114,7 +119,7 @@ function renderDecisionsInner(){
     setText(st, '');
     showDecFeedError(errEl);
   } else if (all.length) {
-    setText(st, all.length + ' decision' + (all.length === 1 ? '' : 's') + ' need you');
+    setText(st, boardQuery || hashFilter ? visibleCount + ' of ' + all.length + ' decisions shown' : all.length + ' decision' + (all.length === 1 ? '' : 's') + ' need you');
     errEl.style.display = 'none';
   } else {
     setText(st, 'No pending decisions · checked ' + ago(Math.round((Date.now() - decOkAt) / 1000)));
@@ -147,7 +152,7 @@ function renderDecisionsInner(){
   for (var di = 0; di < all.length; di++) {
     decNode(all[di]);
     var dq = decNodeEl(all[di].id);
-    if (dq) dq.style.display = hashMatch([all[di].id, all[di].asked_by, all[di].asked_by_label]) ? '' : 'none';
+    if (dq) dq.style.display = decisionMatches(all[di]) ? '' : 'none';
   }
 }
 // W742.2 panel verdicts + agreement — esc-assembled, mirrors the oracle

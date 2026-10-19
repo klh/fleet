@@ -215,7 +215,8 @@ function renderTasks(){
   var byProj = taskProj === 'all' ? ts : ts.filter(function(t){ return projShort(t.project) === taskProj; });
   var own = taskOwner === 'all' ? byProj : byProj.filter(function(t){ return ownerKey(t) === taskOwner; });
   // #filter= deep-link narrows rows to an id/owner/session substring (case-insensitive)
-  if (hashFilter) own = own.filter(function(t){ return hashMatch([t.id, ownerKey(t), ownerName(t)]); });
+  if (hashFilter) own = own.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
+  if (boardQuery) own = own.filter(function(t){ return boardMatch([t.id, t.title, t.state, ownerKey(t), ownerName(t), t.project]); });
   // completed items are opt-in (a healthy fleet buries live work under DONE rows)
   var showDone = false;
   try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
@@ -528,6 +529,7 @@ function renderKanban(){
   var ts = tasksData.tasks;
   buildOwnerDisp(ts);
   if (hashFilter) ts = ts.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
+  if (boardQuery) ts = ts.filter(function(t){ return boardMatch([t.id, t.title, t.state, ownerKey(t), ownerName(t), t.project]); });
   var html = '<div class="kanban">';
   var shownAll = [];
   var fam = kanbanFamilies(ts);

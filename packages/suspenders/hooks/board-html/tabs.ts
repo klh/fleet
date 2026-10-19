@@ -21,6 +21,7 @@ function setTab(id, fromHash){
   if (!TABS[id]) id = 'decisions';
   curTab = id;
   nav.current = id;
+  byId('boardSearch').parentElement.hidden = id !== 'tasks' && id !== 'lanes' && id !== 'decisions';
   for (var name in TABS) byId('tab-' + name).hidden = name !== id;
   if (!fromHash && location.hash !== '#' + id) location.hash = id;
   pollActiveTab();
@@ -28,6 +29,10 @@ function setTab(id, fromHash){
 }
 // --- wiring ---
 nav.addEventListener('tab-select', function(e){ setTab(e.detail); });
+byId('boardSearch').addEventListener('input', function(e){
+  boardQuery = String(e.target.value || '').trim();
+  renderTasks(); renderKanban(); renderDecisions();
+});
 // W775.1: the enterprise zone registers its tab when the overlay is
 // entitled (the zone probes /api/entitlements; a core SKU never fires
 // this, so the core page is byte-stable). #enterprise deep-links once

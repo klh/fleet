@@ -169,6 +169,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
   background:var(--klh-surface-hi); color:var(--klh-ink-2); border:1px solid var(--klh-edge); border-radius:4px;
   font:12px var(--klh-font-mono); padding:3px 6px;
 }
+.board-search { color:var(--klh-dim); font-size:11px; }
+.board-search[hidden] { display:none; }
+.board-search input { width:min(260px, 24vw); background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; }
+.board-search input:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
 #tasksTbl .num { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-dim); }
 /* W57 orchestrate box — LLM proposes a plan + parallel children from a goal; the human registers it as a plan-gated work split */
 .orch { border:1px solid var(--klh-edge); border-radius:6px; padding:10px 12px; margin:0 0 12px; background:var(--klh-wash); }
