@@ -54,14 +54,67 @@ export interface RouteAuditOutcome {
 	err: string | null;
 	decision?: string;
 	error_code?: string;
+	/** W824: ladder-walk attempt count at settle (null = not recorded —
+	 *  denial rows, aborted walks). */
+	attempts?: number | null;
 }
 
 /** W457 cache telemetry: provider-reported cache numbers joined onto the
  *  per-request audit row. cache_r = OpenAI usage.prompt_tokens_details.
  *  cached_tokens OR Anthropic usage.cache_read_input_tokens; cache_c =
  *  Anthropic usage.cache_creation_input_tokens (the canonical Usage mapping
- *  from usage.ts — the dialect column says which shape fed it). */
-export type RouteAuditUsage = Pick<Usage, "cache_r" | "cache_c">;
+ *  from usage.ts — the dialect column says which shape fed it). W824: the
+ *  full Usage joins (in/out tokens too) — per-request inspection surfaces
+ *  tokens in/out beside the cache columns. */
+export type RouteAuditUsage = Usage;
+
+/** W824 GET /v1/admin/requests query — all filters optional, limit is the
+ *  row cap (validated + clamped in the caller, re-clamped here). */
+export interface RequestReadQuery {
+	limit: number;
+	/** Inclusive ISO-ts window (lexical compare — audit ts is ISO). */
+	since?: string | null;
+	until?: string | null;
+	/** The presented-credential key id (route_audit.actor). */
+	key?: string | null;
+	lane?: string | null;
+	model?: string | null;
+	/** true = only rows where the outcome never landed ok. */
+	errors?: boolean;
+}
+
+/** One per-request inspection row (W824): decision + outcome + usage,
+ *  key NAME joined by the caller (never key material). */
+export interface RequestReadRow {
+	rid: string;
+	ts: string;
+	actor: string;
+	lane: string;
+	dialect: string;
+	hint: string;
+	candidates_seen: number;
+	candidates_top: string;
+	target_kind: string | null;
+	target_host: string | null;
+	target_port: number | null;
+	target_model: string | null;
+	decision: string;
+	latency_class: string;
+	tier: string;
+	allow_cloud: number;
+	hop: string | null;
+	error_code: string | null;
+	why: string;
+	status: number | null;
+	duration_ms: number | null;
+	ok: number | null;
+	err: string | null;
+	attempts: number | null;
+	cache_r: number | null;
+	cache_c: number | null;
+	in_tok: number | null;
+	out_tok: number | null;
+}
 
 const INSERT_AUDIT = `
 INSERT INTO route_audit (
@@ -102,7 +155,9 @@ CREATE TABLE IF NOT EXISTS route_audit (
   error_code TEXT,
   why TEXT NOT NULL DEFAULT '',
   status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
+  attempts INTEGER,
   cache_r INTEGER, cache_c INTEGER,
+  in_tok INTEGER, out_tok INTEGER,
   hop TEXT
 );
 `;
@@ -129,12 +184,15 @@ type AuditOp =
 	| { t: "use"; rid: string; u: RouteAuditUsage };
 
 const UPDATE_USAGE = `
-UPDATE route_audit SET cache_r = ?, cache_c = ? WHERE rid = ?
+UPDATE route_audit SET cache_r = ?, cache_c = ?,
+  in_tok = ?, out_tok = ?
+WHERE rid = ?
 `;
 
 const UPDATE_AUDIT = `
 UPDATE route_audit SET status = ?, duration_ms = ?, ok = ?, err = ?,
-  decision = COALESCE(?, decision), error_code = COALESCE(?, error_code)
+  decision = COALESCE(?, decision), error_code = COALESCE(?, error_code),
+  attempts = COALESCE(?, attempts)
 WHERE rid = ?
 `;
 
@@ -219,6 +277,15 @@ export class Ledger {
 		// unmarked legacy row — billable, the pre-W706 default).
 		if (!auditCols.includes("hop"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN hop TEXT");
+		// W824: attempts + per-request token columns heal onto pre-W824 dbs
+		// the same way — idempotent per open (pragma-checked), NULL = the
+		// row predates the column (honest unknown, never zero-faked).
+		if (!auditCols.includes("attempts"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN attempts INTEGER");
+		if (!auditCols.includes("in_tok"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN in_tok INTEGER");
+		if (!auditCols.includes("out_tok"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN out_tok INTEGER");
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -441,7 +508,9 @@ export class Ledger {
 		this.pushAudit({ t: "upd", rid, out });
 	}
 
-	/** The flush-time UPDATE (extracted from the old inline body). */
+	/** The flush-time UPDATE (extracted from the old inline body). W824:
+	 *  attempts rides COALESCE — a NULL-attempts row (denial) updated by a
+	 *  later real outcome keeps its attempt count, never a masking overwrite. */
 	private updateAudit(rid: string, out: RouteAuditOutcome): void {
 		this.updAudit.run(
 			out.status,
@@ -450,25 +519,27 @@ export class Ledger {
 			out.err,
 			out.decision ?? null,
 			out.error_code ?? null,
+			out.attempts ?? null,
 			rid,
 		);
 	}
 
 	/** W457: provider-reported cache usage onto the per-request audit row
 	 *  (joined by rid): enqueued. A null Usage is honest unknown — the
-	 *  UPDATE is skipped so the columns stay NULL, never estimated. */
+	 *  UPDATE is skipped so the columns stay NULL, never estimated. W824:
+	 *  the full Usage joins (tokens in/out ride the same op). */
 	auditUsage(rid: string, u: Usage | null): void {
 		if (u === null) return;
 		this.pushAudit({
 			t: "use",
 			rid,
-			u: { cache_r: u.cache_r, cache_c: u.cache_c },
+			u: { ...u },
 		});
 	}
 
 	/** The flush-time cache UPDATE (W457). */
 	private updateUsageRow(rid: string, u: RouteAuditUsage): void {
-		this.updUsage.run(u.cache_r, u.cache_c, rid);
+		this.updUsage.run(u.cache_r, u.cache_c, u.in_tok, u.out_tok, rid);
 	}
 
 	/** Read-back for tests / dashboards. Read barrier: pending audit ops
@@ -480,6 +551,44 @@ export class Ledger {
 			.all() as Array<Record<string, unknown>>;
 	}
 
+	/** W824: the capped per-request read behind GET /v1/admin/requests.
+	 *  Read barrier: pending ops flush first. Newest-first; err/why are
+	 *  truncated at read (error bodies reach the W450 256 KiB cap — this
+	 *  surface never re-serves request/response bodies). */
+	requestsRead(q: RequestReadQuery): RequestReadRow[] {
+		this.flush();
+		const limit = Math.min(Math.max(Math.floor(q.limit), 1), 500);
+		const where: string[] = [];
+		const args: Array<string | number> = [];
+		if (q.key) {
+			where.push("actor = ?");
+			args.push(q.key);
+		}
+		if (q.lane) {
+			where.push("lane = ?");
+			args.push(q.lane);
+		}
+		if (q.model) {
+			where.push("target_model = ?");
+			args.push(q.model);
+		}
+		if (q.errors === true) {
+			where.push("ok = 0");
+		}
+		if (q.since) {
+			where.push("ts >= ?");
+			args.push(q.since);
+		}
+		if (q.until) {
+			where.push("ts < ?");
+			args.push(q.until);
+		}
+		const rows = this.db
+			.query(requestsReadSql(where, limit))
+			.all(...args) as RequestReadRow[];
+		return rows.map((r) => { if (r.err === null && r.why.length <= REQUEST_WHY_CAP) return r; return { ...r, err: capRequestText(r.err), why: capRequestText(r.why) }; });
+	}
+
 	close(): void {
 		// drain: each failed flush ages the batch, so this ends within
 		// maxAttempts passes — survivors land, the rest are counted drops
@@ -489,6 +598,29 @@ export class Ledger {
 		this.timer = null;
 		this.db.close();
 	}
+}
+
+/** W824: the requestsRead SELECT — one shared column list (the inspection
+ *  read never widens beyond these fields), caller-built WHERE joined, the
+ *  clamped integer limit inlined (never injectable). */
+const REQUEST_WHY_CAP = 200;
+
+/** W824 read cap on free-text columns (err/why): upstream error bodies can
+ *  reach the W450 256 KiB ring cap — the inspection surface never re-serves
+ *  request/response bodies, so long text truncates at read (marked). */
+function capRequestText(s: string | null): string | null {
+	if (s === null) return null;
+	return s.length <= REQUEST_WHY_CAP ? s : `${s.slice(0, REQUEST_WHY_CAP)}…`;
+}
+function requestsReadSql(where: string[], limit: number): string {
+	const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+	return `SELECT rid, ts, actor, lane, dialect, hint,
+		candidates_seen, candidates_top, target_kind, target_host,
+		target_port, target_model, decision, latency_class, tier,
+		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
+		attempts, cache_r, cache_c, in_tok, out_tok
+		FROM route_audit ${clause}
+		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }
 
 /** Presented credential → truncated sha-256 hex id (12 chars). */

@@ -78,7 +78,9 @@ export class Governance {
 	readonly slots: Slots;
 	readonly db: Database;
 	private readonly sm: Servicemon;
-	private readonly ledger: Ledger;
+	/** W824: public — the /v1/admin/requests read rides the ledger's own
+	 *  connection (read barrier + capped per-request SELECT). */
+	readonly ledger: Ledger;
 	private readonly jwtValidator: ReturnType<typeof createJwtValidator> | null;
 	private readonly rootHash: string | null;
 	/** W154: shared Federation surface (auth semantics at the gate; serving

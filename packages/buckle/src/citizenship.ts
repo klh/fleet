@@ -98,6 +98,9 @@ export function allowOf(path: string): string | null {
 	if (path === "/v1/admin/keys" || path === "/v1/admin/teams")
 		return "GET, POST, OPTIONS";
 	if (path === "/v1/admin/spokes") return "GET, OPTIONS";
+	// W824 per-request inspection: read-only admin surface (HEAD rides the
+	// spokes precedent — GET-class only, no body variants).
+	if (path === "/v1/admin/requests") return "GET, OPTIONS";
 	if (path === "/v1/admin/spokes/enroll") return "POST, OPTIONS";
 	if (
 		path === "/v1/admin/keys/verify" ||
