@@ -26,6 +26,29 @@ const knowledgeFtsDdl = (
 	};
 };
 
+/** Heal legacy regular or kb-qualified FTS tables after the knowledge split. */
+function repairKnowledgeFts(db: Database): void {
+	const current = db
+		.query(
+			"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts'",
+		)
+		.get() as { sql?: string } | null;
+	if (!current?.sql || current.sql.includes("content='knowledge'")) return;
+	db.transaction(() => {
+		for (const name of [
+			"knowledge_fts_ai",
+			"knowledge_fts_ad",
+			"knowledge_fts_au",
+		])
+			db.run(`DROP TRIGGER IF EXISTS ${name}`);
+		db.run("DROP TABLE knowledge_fts");
+		const ddl = knowledgeFtsDdl("", false);
+		db.run(ddl.table);
+		db.run("INSERT INTO knowledge_fts (knowledge_fts) VALUES ('rebuild')");
+		for (const trigger of ddl.triggers) db.run(trigger);
+	})();
+}
+
 // v10 statement list (W166): the knowledge split rides ONE transaction, so
 // the whole move is a fixed, reviewable statement table — kb side (CREATE +
 // copy preserving ids + FTS rebuild from main), then main side (DROP).
@@ -189,26 +212,7 @@ export function migrateKnowledgeLayer(db: Database, uv: number): void {
 	// knowledge_fts (its own text copy). Converge to external-content — drop,
 	// recreate with content='knowledge', rebuild the index from knowledge rows,
 	// and refresh the sync triggers to the documented external-content form.
-	const ftsSql =
-		(
-			db
-				.query(
-					"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts'",
-				)
-				.get() as { sql?: string } | null
-		)?.sql ?? "";
-	if (ftsSql && !ftsSql.includes("content='knowledge'")) {
-		db.run("DROP TRIGGER IF EXISTS knowledge_fts_ai");
-		db.run("DROP TRIGGER IF EXISTS knowledge_fts_ad");
-		db.run("DROP TRIGGER IF EXISTS knowledge_fts_au");
-		db.run("DROP TABLE knowledge_fts");
-		const ddl91 = knowledgeFtsDdl("", false);
-		db.run(ddl91.table);
-		db.run(
-			"INSERT INTO knowledge_fts (rowid, topic, fact) SELECT id, topic, fact FROM knowledge",
-		);
-		for (const t of ddl91.triggers) db.run(t);
-	}
+	repairKnowledgeFts(db);
 	const kqCols = columnNames(db, "knowledge_queue");
 	if (kqCols.length && !kqCols.includes("origin_sid"))
 		db.run("ALTER TABLE knowledge_queue ADD COLUMN origin_sid TEXT");
@@ -232,6 +236,7 @@ export function openKnowledgeDb(): Database {
 	mkdirSync(REG(), { recursive: true });
 	const db = openWALDb(`${REG()}/knowledge.db`, "knowledge.db", 8192);
 	db.run("PRAGMA mmap_size=1073741824");
+	repairKnowledgeFts(db);
 	// W381 (from parked/W208) curation engine: retire proposals from the
 	// recency-decay sweep, disposed by a human (approve = the row retires,
 	// dismiss = cooldown). Self-healing CREATE on every open (the
