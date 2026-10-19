@@ -92,6 +92,27 @@ test("clean Git merge cannot publish already committed conflict markers", () => 
 	ship(repo);
 	rejected(repo, before);
 });
+test("preflight refuses a branch that replaces substantial documentation with a stub", () => {
+	const { repo } = fixture("export const valid = 1;\n");
+	writeFileSync(
+		join(repo, "README.md"),
+		`${"Documented capability and contract.\n".repeat(230)}`,
+	);
+	git(repo, "add", "README.md");
+	git(repo, "commit", "-m", "document baseline");
+	const before = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "checkout", "suspenders/GUARD");
+	git(repo, "reset", "--hard", "main");
+	writeFileSync(join(repo, "README.md"), "beta\n");
+	git(repo, "add", "README.md");
+	git(repo, "commit", "-m", "replace docs");
+	git(repo, "checkout", "main");
+	ship(repo);
+	rejected(repo, before);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"candidate removes",
+	);
+});
 test("preflight rejects diff3 markers in a renamed-looking newline path", () => {
 	const { repo, before } = fixture("||||||| base\n", "space and\nnewline.txt");
 	ship(repo, 'git merge --no-ff {branch} -m "custom merge"');

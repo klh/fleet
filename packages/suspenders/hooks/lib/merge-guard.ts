@@ -38,6 +38,39 @@ const fail = (tail: string): Result => ({ code: 1, tail });
 /** Inspect Git objects, never mutable checkout files. A clean Git merge can
  * still contain markers committed by a lane; syntax is checked independently. */
 function validateTree(repo: string, before: string, tree: string): Result {
+	const deleted = command(repo, [
+		"git",
+		"diff",
+		"--name-only",
+		"-z",
+		"--diff-filter=D",
+		before,
+		tree,
+	]);
+	if (deleted.code !== 0)
+		return fail("merge guard: cannot enumerate candidate deletions");
+	const deletedCount = deleted.out.split("\0").filter(Boolean).length;
+	if (deletedCount > 20)
+		return fail(`merge guard: candidate deletes ${deletedCount} tracked files`);
+	const changedLines = command(repo, [
+		"git",
+		"diff",
+		"--numstat",
+		"--diff-filter=M",
+		before,
+		tree,
+	]);
+	if (changedLines.code !== 0)
+		return fail("merge guard: cannot measure candidate file loss");
+	for (const line of changedLines.out.split("\n")) {
+		const [added, removed, path] = line.split("\t");
+		const addCount = Number(added);
+		const removeCount = Number(removed);
+		if (removeCount >= 200 && removeCount >= addCount * 10)
+			return fail(
+				`merge guard: candidate removes ${removeCount} lines from ${JSON.stringify(path)} with only ${addCount} added`,
+			);
+	}
 	const changed = command(repo, [
 		"git",
 		"diff",
@@ -86,8 +119,7 @@ function validateTree(repo: string, before: string, tree: string): Result {
 			"-U0",
 			"--no-color",
 		]);
-		if (d.code !== 0)
-			return fail("merge guard: candidate scrub scan failed");
+		if (d.code !== 0) return fail("merge guard: candidate scrub scan failed");
 		const found = scrubAddedLines(addedDiffLines(d.out), scrubRules());
 		if (found.length > 0)
 			return fail(
@@ -101,8 +133,7 @@ function validateTree(repo: string, before: string, tree: string): Result {
 			"--numstat",
 			`${before}..${tree}`,
 		]);
-		if (nd.code !== 0)
-			return fail("merge guard: candidate binary scan failed");
+		if (nd.code !== 0) return fail("merge guard: candidate binary scan failed");
 		const bin = binaryPaths(nd.out).flatMap((p) =>
 			blobFindings(repo, `${tree}:${p}`, p),
 		);
