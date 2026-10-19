@@ -21,7 +21,7 @@ if (json) {
 		if (o.ok)
 			console.log(
 				`knowledge-sync: ${o.target} ok (${o.sentMetrics} metrics rows, ${o.sentFacts} facts)`,
-		);
+			);
 		else console.error(`knowledge-sync: ${o.target} FAILED: ${o.error}`);
 	}
 	for (const s of result.skipped) console.error(`knowledge-sync: skip ${s}`);

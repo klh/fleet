@@ -92,7 +92,9 @@ export function readSyncState(path: string): SyncState {
 
 export function writeSyncState(path: string, state: SyncState): void {
 	try {
-		writeFileSync(path, `${JSON.stringify(state, null, "\t")}\n`, { mode: 0o600 });
+		writeFileSync(path, `${JSON.stringify(state, null, "\t")}\n`, {
+			mode: 0o600,
+		});
 	} catch {
 		// state is a cursor, not a ledger — a failed stamp re-sends next fire
 	}
@@ -130,16 +132,23 @@ function decantStats(
 	dim: "day" | "tool" | "model",
 	cwd: string,
 ): StatsMetrics[] {
-	const r = runDecant(config.decantBin, ["stats", "--by", dim, "--format", "json", "--no-sync"], cwd);
+	const r = runDecant(
+		config.decantBin,
+		["stats", "--by", dim, "--format", "json", "--no-sync"],
+		cwd,
+	);
 	if (r.code !== 0)
-		throw new Error(`decant stats --by ${dim} failed: ${r.stderr.slice(0, 200)}`);
+		throw new Error(
+			`decant stats --by ${dim} failed: ${r.stderr.slice(0, 200)}`,
+		);
 	let rows: unknown;
 	try {
 		rows = JSON.parse(r.stdout);
 	} catch {
 		throw new Error(`decant stats --by ${dim}: unparseable output`);
 	}
-	if (!Array.isArray(rows)) throw new Error(`decant stats --by ${dim}: not a list`);
+	if (!Array.isArray(rows))
+		throw new Error(`decant stats --by ${dim}: not a list`);
 	const out: StatsMetrics[] = [];
 	for (const row of rows) {
 		if (!row || typeof row !== "object" || Array.isArray(row)) continue;
@@ -220,7 +229,7 @@ export function collectFacts(
 			const red = redactSecrets(r.value ?? "");
 			if (!r.value) continue;
 			if (r.value.length > MAX_FACT_VALUE) continue;
-			if (red.rejected) {
+			if (red.rejected || red.hits.length > 0) {
 				skipped.push(`${r.key}: secret pattern (${red.hits.join(", ")})`);
 				continue;
 			}
@@ -232,6 +241,8 @@ export function collectFacts(
 				ts: r.ts,
 			});
 		}
+		// the hub caps 50 facts/payload — overflow waits for the next pass
+		if (send.length > 50) send.length = 50;
 	}
 	if (db) db.close();
 	return { send, skipped };

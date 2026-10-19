@@ -169,8 +169,7 @@ export function readSyncConfig(path: string): SyncConfig | null {
 	if (!input || typeof input !== "object" || Array.isArray(input))
 		throw new Error("Invalid sync configuration");
 	const config = input as Record<string, unknown>;
-	if (!identity(config.localHub))
-		throw new Error("Invalid sync configuration");
+	if (!identity(config.localHub)) throw new Error("Invalid sync configuration");
 	return {
 		localHub: config.localHub,
 		targets: parseTargets(config.targets),
@@ -190,24 +189,6 @@ export function readSyncToken(path: string): string {
 }
 
 // ─── the structural content deny ────────────────────────────────────────────
-
-/** decant per-session fields that are METRICS. Everything else on the row —
- *  notably `title` (transcript-derived text) and `project_path` (local
- *  paths) — is content and has no path through the projector. */
-const SESSION_METRIC_FIELDS = {
-	tool: "string",
-	model: "string",
-	reasoning_effort: "string",
-	started_at: "string",
-	ended_at: "string",
-	message_count: "number",
-	total_input_tokens: "number",
-	total_output_tokens: "number",
-	total_reasoning_tokens: "number",
-	peak_context_tokens: "number",
-	context_window_tokens: "number",
-	estimated_cost_usd: "number",
-} as const;
 
 export interface SessionMetrics {
 	sessionId: string; // opaque: sha256(source_session_id), 16 hex
@@ -229,7 +210,10 @@ export interface SessionMetrics {
 /** sha256 hex of the local session id — opaque correlation across the
  *  boundary; the raw id never leaves the machine. */
 export function opaqueSessionId(sourceSessionId: string): string {
-	return createHash("sha256").update(sourceSessionId).digest("hex").slice(0, 16);
+	return createHash("sha256")
+		.update(sourceSessionId)
+		.digest("hex")
+		.slice(0, 16);
 }
 
 const cleanMetricString = (v: unknown): string | null =>
@@ -250,9 +234,10 @@ export function projectSessionMetrics(
 			? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) || null
 			: null;
 	return {
-		sessionId: typeof row.source_session_id === "string"
-			? opaqueSessionId(row.source_session_id)
-			: "",
+		sessionId:
+			typeof row.source_session_id === "string"
+				? opaqueSessionId(row.source_session_id)
+				: "",
 		tool: cleanMetricString(row.tool),
 		model: cleanMetricString(row.model),
 		reasoningEffort: cleanMetricString(row.reasoning_effort),

@@ -15,10 +15,7 @@
 import type { Database } from "bun:sqlite";
 import { openKnowledgeDb } from "../lib/govdb.ts";
 import { json } from "./helpers.ts";
-import {
-	SYNCABLE_FACT,
-	MAX_FACT_VALUE,
-} from "../lib/knowledge-sync.ts";
+import { SYNCABLE_FACT, MAX_FACT_VALUE } from "../lib/knowledge-sync.ts";
 
 let kdbSingleton: Database | null = null;
 export function boardKnowledgeDb(): Database {
@@ -138,7 +135,11 @@ function validFactRow(row: unknown): { ok: boolean; reason: string | null } {
 		return { ok: false, reason: "empty value" };
 	if (f.value.length > MAX_FACT_VALUE)
 		return { ok: false, reason: "value too large" };
-	if (f.source !== undefined && f.source !== null && typeof f.source !== "string")
+	if (
+		f.source !== undefined &&
+		f.source !== null &&
+		typeof f.source !== "string"
+	)
 		return { ok: false, reason: "bad source" };
 	if (!isFiniteNumber(f.version) || !isFiniteNumber(f.ts))
 		return { ok: false, reason: "bad version/ts" };
@@ -161,6 +162,8 @@ export function landKnowledgeIngest(
 		facts: { landed: 0, dupes: 0, rejected: 0 },
 		metrics: 0,
 	};
+	const facts = Array.isArray(p.facts) ? p.facts : [];
+	if (facts.length > 50) return { ok: false, error: "too many facts (max 50)" };
 	// facts loop (W944)
 	for (const raw of facts) {
 		const v = validFactRow(raw);
@@ -213,7 +216,8 @@ export function landKnowledgeIngest(
 				"INSERT OR REPLACE INTO sync_metrics (origin_hub, dim, dim_key, payload, ts) VALUES (?, ?, ?, ?, ?)",
 				p.originHub,
 				dim,
-				(row as Record<string, unknown>).key ?? (row as Record<string, unknown>).sessionId,
+				(row as Record<string, unknown>).key ??
+					(row as Record<string, unknown>).sessionId,
 				JSON.stringify(row),
 				ts,
 			);
@@ -229,10 +233,12 @@ export async function handleKnowledgeIngest(
 	url: URL,
 ): Promise<Response | null> {
 	if (url.pathname !== "/api/knowledge-ingest") return null;
-	if (req.method === "GET" || req.method === "HEAD")
-		return jsonIngestSummary();
+	if (req.method === "GET" || req.method === "HEAD") return jsonIngestSummary();
 	if (req.method !== "POST")
-		return new Response(null, { status: 405, headers: { Allow: "GET, HEAD, POST" } });
+		return new Response(null, {
+			status: 405,
+			headers: { Allow: "GET, HEAD, POST" },
+		});
 	// POST body (W944): strict content-type, 64 KiB cap, JSON parse, land
 	const ct = (req.headers.get("content-type") ?? "").split(";")[0].trim();
 	if (ct !== "application/json")
@@ -285,9 +291,9 @@ export function jsonIngestSummary(): Response {
 			"SELECT COUNT(*) AS n FROM knowledge WHERE source = 'knowledge-sync'",
 		)
 		.get() as { n: number };
-	const metrics = kdb
-		.query("SELECT COUNT(*) AS n FROM sync_metrics")
-		.get() as { n: number };
+	const metrics = kdb.query("SELECT COUNT(*) AS n FROM sync_metrics").get() as {
+		n: number;
+	};
 	const hubs = kdb
 		.query(
 			"SELECT DISTINCT origin_system FROM knowledge WHERE source = 'knowledge-sync'",
