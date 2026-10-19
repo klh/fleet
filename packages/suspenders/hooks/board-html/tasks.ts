@@ -304,13 +304,17 @@ function pollExecutors(){
     .then(function(j){
       if (!j || j.ok === false || !Array.isArray(j.executors)) return;
       var opts = [];
+      var seen = new Set();
       for (var i = 0; i < j.executors.length; i++) {
         var x = j.executors[i];
-        if (x && x.value) opts.push({
+        if (x && x.value && !seen.has(String(x.value))) {
+          seen.add(String(x.value));
+          opts.push({
           value: String(x.value), label: String(x.label || x.value),
           locality: String(x.locality || 'remote'), plane: String(x.plane || 'remote'),
           reasoningEffort: !!x.reasoningEffort
-        });
+          });
+        }
       }
       if (opts.length >= 2) execOpts = opts;
       renderKanban(); // repaint cards with the live belt targets
