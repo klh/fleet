@@ -1,13 +1,13 @@
-import { CAPABILITIES, die, arg, db, dim, cyan, green } from "./shared.ts";
 import {
 	formatSessionLabel,
+	llmShorthand,
 	normalizeTool,
 	parseSessionTags,
 	slugifyLabelPart,
-	llmShorthand,
 } from "../lib/addressing.ts";
 import { transcriptTail } from "../lib/transcript.ts";
-import { emitEvent, broadcastNote, isLiveSession } from "./bus.ts";
+import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
+import { arg, CAPABILITIES, cyan, db, die, dim, green } from "./shared.ts";
 
 interface SessionRow {
 	sid: string;

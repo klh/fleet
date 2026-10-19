@@ -5,7 +5,12 @@
 // matching the list cap, files newer than a cap only.
 // W14: re-verify runs filesCheck IN-PROCESS — the old loop spawned one
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
+
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { openStore } from "../lib/govdb.ts";
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
+import { laneCompletion } from "../lib/lane-completion.ts";
 import { run } from "../lib/run.ts";
 import { touchSessionHeartbeat } from "../lib/session-bridge.ts";
 import { syncNativeRename } from "../lib/session-rename.ts";
@@ -15,16 +20,12 @@ import {
 	writeSessionState,
 } from "../lib/session-state.ts";
 import { resolveTranscriptPath, transcriptTail } from "../lib/transcript.ts";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { filesCheck } from "./files.ts";
-import { laneCompletion } from "../lib/lane-completion.ts";
-import { openStore } from "../lib/govdb.ts";
 import {
 	pendingTurnMessages,
 	turnBoundaryFeedback,
 	turnBoundarySid,
 } from "../lib/turn-boundary.ts";
+import { filesCheck } from "./files.ts";
 
 const CODE_EXT =
 	/\.(json|py|sh|bash|zsh|dash|ts|tsx|js|jsx|mjs|cjs|mts|cts|yaml|yml|toml)$/i;

@@ -6,7 +6,7 @@
 // Temp HOME under the repo (never /tmp); every DB open happens in a bun
 // subprocess so the parent test process never opens the real governor.db
 // (w451-event-indexes recipe).
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

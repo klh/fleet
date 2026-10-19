@@ -9,20 +9,20 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
-import { laneVerdict, type LaneRef } from "../lib/lane-liveness.ts";
+import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
-import {
-	die,
-	arg,
-	db,
-	green,
-	dim,
-	cyan,
-	amber,
-	red,
-	projectIdentity,
-} from "./shared.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import {
+	amber,
+	arg,
+	cyan,
+	db,
+	die,
+	dim,
+	green,
+	projectIdentity,
+	red,
+} from "./shared.ts";
 
 export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
