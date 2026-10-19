@@ -107,6 +107,10 @@ POST /api/decisions/<id>/evaluate returns 202 with `startedAt` immediately.
 GET /api/decisions/<id>/evals returns saved evaluations and a `status`
 (`running`, `startedAt`, `error`). The browser polls until the model finishes;
 the model call never holds the HTTP response open through a proxy timeout.
+The evaluation runs in a detached worker and its status is stored in the facts
+ledger, so a board restart does not erase an in-flight evaluation. A worker
+that does not finish within 135 seconds is reported as timed out and can be
+retried.
 
 ## Agent health
 
