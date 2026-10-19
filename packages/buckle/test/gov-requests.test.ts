@@ -13,7 +13,7 @@ const ROOT = "buckle-test-root";
 async function startGate(
 	upstreamUrl: string,
 ): Promise<{ base: string; stop(): void }> {
-	const dir = `/tmp/buckle-gate-${Date.now()}-${Math.random()
+	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 6)}`;
 	const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;
@@ -269,7 +269,7 @@ describe("W824 cap + filters", () => {
 
 describe("W824 read cap", () => {
 	test("long err/why truncate at read (bodies never re-served)", () => {
-		const dir = `/tmp/buckle-w824-${Date.now()}-${Math.random()
+		const dir = `/tmp/buckle-w824-${Date.now()}-${process.pid}-${Math.random()
 			.toString(36)
 			.slice(2, 6)}`;
 		const ledger = new Ledger(`${dir}.db`, undefined, { flushMs: 10_000 });

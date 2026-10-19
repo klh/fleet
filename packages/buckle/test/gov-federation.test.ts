@@ -20,7 +20,7 @@ async function startFed(
 	srv: ReturnType<typeof startServer>;
 	stop: () => void;
 }> {
-	const dir = `/tmp/w154-fed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = `/tmp/w154-fed-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
 		"version: 1",
 		"gateway:",

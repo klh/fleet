@@ -10,7 +10,7 @@ import { Slots, slotsFromEnv } from "../src/gov/slots.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 
 function fileDb(): { db: Database; path: string } {
-	const path = `/tmp/w468-replica-${Date.now()}-${Math.random()
+	const path = `/tmp/w468-replica-${Date.now()}-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 8)}.db`;
 	const db = new Database(path, { create: true });

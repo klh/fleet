@@ -22,7 +22,7 @@ async function startGate(
 	cfgOverride?: string,
 	slots?: { global: number; perTeam: number },
 ): Promise<GateServer> {
-	const dir = `/tmp/buckle-gate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = `/tmp/buckle-gate-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 	const cfg =
 		cfgOverride ??
 		`groups:\n  glm-5.3-flash:\n    - url: ${upstreamUrl}\n      dialect: openai\n`;

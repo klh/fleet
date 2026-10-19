@@ -29,7 +29,7 @@ async function startFed(opts: { adaptation?: AdaptCfg }): Promise<{
 	base: string;
 	stop: () => void;
 }> {
-	const dir = `/tmp/w235-adapt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = `/tmp/w235-adapt-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
 		"version: 1",
 		"gateway:",

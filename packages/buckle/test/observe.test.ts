@@ -21,7 +21,7 @@ const DATA = {
 
 describe("ObservationOutbox", () => {
 	test("monotonic ids per boot; stable source+id dedup pair", () => {
-		const dir = `/tmp/buckle-obs-${Date.now()}`;
+		const dir = `/tmp/buckle-obs-${Date.now()}-${process.pid}`;
 		const box = new ObservationOutbox({
 			path: `${dir}/obs.jsonl`,
 			hubId: "nas",
@@ -34,7 +34,7 @@ describe("ObservationOutbox", () => {
 	});
 
 	test("persists CloudEvents-shaped NDJSON, oldest generation first", async () => {
-		const dir = `/tmp/buckle-obs-${Date.now()}-r`;
+		const dir = `/tmp/buckle-obs-${Date.now()}-${process.pid}-r`;
 		const path = `${dir}/obs.jsonl`;
 		const box = new ObservationOutbox({ path, maxBytes: 256, bootId: "b1" });
 		for (let i = 0; i < 20; i++)
@@ -52,7 +52,7 @@ describe("ObservationOutbox", () => {
 
 	test("bounded queue drops oldest explicitly", () => {
 		const box = new ObservationOutbox({
-			path: `/tmp/buckle-obs-drop-${Date.now()}/obs.jsonl`,
+			path: `/tmp/buckle-obs-drop-${Date.now()}-${process.pid}/obs.jsonl`,
 		});
 		for (let i = 0; i < 2000; i++)
 			box.emit("lane.request.admitted", { ...DATA, rid: `r${i}` });
@@ -69,7 +69,7 @@ describe("observation emissions through the proxy", () => {
 		) => Response,
 	): Promise<{ outbox: ObservationOutbox; path: string }> {
 		const upstream = await startMockUpstream(handler);
-		const path = `/tmp/buckle-obs-emit-${Date.now()}/obs.jsonl`;
+		const path = `/tmp/buckle-obs-emit-${Date.now()}-${process.pid}/obs.jsonl`;
 		const outbox = new ObservationOutbox({ path, bootId: "bt" });
 		const deps: AppDeps = {
 			...testDeps({
@@ -117,7 +117,7 @@ describe("observation emissions through the proxy", () => {
 
 	test("a refused route still ends (outcome errored, never stuck active)", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "1" }));
-		const path = `/tmp/buckle-obs-deny-${Date.now()}/obs.jsonl`;
+		const path = `/tmp/buckle-obs-deny-${Date.now()}-${process.pid}/obs.jsonl`;
 		const outbox = new ObservationOutbox({ path, bootId: "bt" });
 		const deps: AppDeps = {
 			...testDeps({

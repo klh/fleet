@@ -25,7 +25,7 @@ describe("Ledger async flush", () => {
 	});
 
 	test("threshold flush lands rows without any reader", async () => {
-		const path = `/tmp/buckle-ledger-test-${Date.now()}.db`;
+		const path = `/tmp/buckle-ledger-test-${Date.now()}-${process.pid}.db`;
 		const db = new Ledger(path, undefined, { flushRows: 4 });
 		for (let i = 0; i < 5; i++) db.record(rec(1));
 		await Bun.sleep(20); // flushSoon defers off the caller's stack
