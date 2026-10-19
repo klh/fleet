@@ -377,20 +377,27 @@ export function metricsHistory(): MetricsHistory {
 	const d = openDb();
 	const step = HISTORY_WINDOW_MS / HISTORY_BUCKETS / 1000; // seconds
 	const now = Date.now();
-	const since = new Date(now - HISTORY_WINDOW_MS).toISOString();
-	const start = Math.floor((now - HISTORY_WINDOW_MS) / (step * 1000)) * step;
+	const end = Math.floor(now / (step * 1000)) * step;
+	const start = end - (HISTORY_BUCKETS - 1) * step;
+	const since = new Date(start * 1000).toISOString();
 	const grid = (sel: string, group: string): string =>
-		`SELECT ${sel} CAST(strftime('%s', ts) AS INTEGER)/${step}*${step} AS b, COUNT(*) AS n FROM routes WHERE ts > ? GROUP BY ${group}`;
-	const rows = d.query(grid(`SUM(ok = 0) AS err, AVG(duration_ms) AS ms,`, "b"))
-		.all(since) as { b: number; n: number; err: number; ms: number }[];
+		`SELECT ${sel} CAST(strftime('%s', ts) AS INTEGER)/${step}*${step} AS b, COUNT(*) AS n FROM routes WHERE ts >= ? GROUP BY ${group}`;
+	const rows = d
+		.query(grid(`SUM(ok = 0) AS err, AVG(duration_ms) AS ms,`, "b"))
+		.all(since) as { b: number; n: number; err: number; ms: number | null }[];
 	const byGrid = new Map(rows.map((r) => [r.b, r]));
 	const buckets: MetricsHistory["buckets"] = [];
 	for (let i = 0; i < HISTORY_BUCKETS; i++) {
 		const t = start + i * step;
 		const r = byGrid.get(t);
-		buckets.push(r ? [t, r.n, r.err, Math.round(r.ms)] : [t, 0, 0, null]);
+		buckets.push(
+			r
+				? [t, r.n, r.err, r.ms === null ? null : Math.round(r.ms)]
+				: [t, 0, 0, null],
+		);
 	}
-	const epRows = d.query(grid("machine, port,", "machine, port, b"))
+	const epRows = d
+		.query(grid("machine, port,", "machine, port, b"))
 		.all(since) as { machine: string; port: number; b: number; n: number }[];
 	const epMap = new Map<string, Map<number, number>>();
 	for (const r of epRows) {
@@ -405,7 +412,12 @@ export function metricsHistory(): MetricsHistory {
 			counts: buckets.map((b) => g.get(b[0]) ?? 0),
 		}))
 		.sort((a, z) => a.key.localeCompare(z.key));
-	return { windowMs: HISTORY_WINDOW_MS, bucketMs: step * 1000, buckets, endpoints };
+	return {
+		windowMs: HISTORY_WINDOW_MS,
+		bucketMs: step * 1000,
+		buckets,
+		endpoints,
+	};
 }
 
 let cache: { snap: MetricsSnapshot; at: number } | null = null;

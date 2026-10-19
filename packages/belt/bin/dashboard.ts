@@ -39,7 +39,7 @@ import {
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 } from "./klh-theme.ts";
-import { metricsFor, metricsSnapshot } from "./metrics.ts";
+import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -304,6 +304,8 @@ const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>belt — local LLM fleet</title>
 ${THEME_HEAD}
+<link rel="stylesheet" href="/vendor/uPlot.min.css">
+<script src="/vendor/uPlot.iife.min.js"></script>
 <style>
 * { box-sizing: border-box; }
 body { background:var(--klh-bg); color:var(--klh-ink); font:var(--klh-text-md)/1.5 var(--klh-font-mono); margin:0; padding:var(--klh-space-5) var(--klh-space-6) var(--klh-space-7); }
@@ -384,6 +386,7 @@ ${fleetNav("belt", "models")}
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
 <belt-topology></belt-topology>
 <script type="module" src="/dashboard-topology.js"></script>
+<belt-trends></belt-trends>
 <belt-supervisor></belt-supervisor>
 <script type="module" src="/dashboard-observability.js"></script>
 <h2>Fleet</h2>
@@ -612,6 +615,10 @@ recent routes across locals and remotes, and the /api/route audit trail
 ~/.claude/local-llm/metrics.db (bun:sqlite), fed incrementally from the two
 JSONL route logs belt already writes.
 
+GET /api/metrics/history returns 72 five-minute buckets of observed requests,
+errors and average duration over six hours, plus per-endpoint request counts
+on the same time grid. Empty buckets mean no Belt routes recorded.
+
 GET /api/supervisor returns the self-heal status doc: per-target probe
 state (up/degraded/down), last probe/ok, restart budgets. Rows with
 kind = hub are the remote buckle hubs from hubs.json.
@@ -689,6 +696,7 @@ const ROUTES: RouteMethods = {
 	"/api/remotes": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
+	"/api/metrics/history": ["GET", "HEAD"],
 	"/api/supervisor": ["GET", "HEAD"],
 	"/registry.json": ["GET", "HEAD"],
 	"/observation.js": ["GET", "HEAD"],
@@ -700,6 +708,8 @@ const ROUTES: RouteMethods = {
 	"/dashboard-topology-model.js": ["GET", "HEAD"],
 	"/dashboard-state.js": ["GET", "HEAD"],
 	"/vendor/lit.js": ["GET", "HEAD"],
+	"/vendor/uPlot.iife.min.js": ["GET", "HEAD"],
+	"/vendor/uPlot.min.css": ["GET", "HEAD"],
 };
 
 // Fixed 60s window per bearer token on the authenticated route API
@@ -787,6 +797,7 @@ Bun.serve({
 				...metricsSnapshot(),
 				ts: new Date().toISOString(),
 			});
+		if (path === "/api/metrics/history") return json(metricsHistory());
 		if (path === "/")
 			return new Response(pageHtml(), {
 				headers: { "content-type": "text/html; charset=utf-8" },
@@ -814,6 +825,17 @@ Bun.serve({
 		if (path === "/vendor/lit.js")
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
+			});
+		if (
+			path === "/vendor/uPlot.iife.min.js" ||
+			path === "/vendor/uPlot.min.css"
+		)
+			return new Response(Bun.file(`${import.meta.dir}${path}`), {
+				headers: {
+					"content-type": path.endsWith(".css")
+						? "text/css; charset=utf-8"
+						: "text/javascript; charset=utf-8",
+				},
 			});
 		if (path === "/dashboard-state.js")
 			return new Response(

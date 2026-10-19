@@ -17,6 +17,7 @@ const ins = db.query(
 	"INSERT INTO routes (ts, machine, port, model, role, duration_ms, ok, err, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 );
 ins.run(new Date(now - 120000).toISOString(), "mac", 8902, "m", "code", 120, 1, "", "t");
+ins.run(new Date(now - 1000).toISOString(), "mac", 8902, "m", "code", 90, 1, "", "t");
 ins.run(new Date(now - 240000).toISOString(), "mac", 8902, "m", "code", 80, 0, "boom", "t");
 ins.run(new Date(now - 600000).toISOString(), "nas", 4101, "x", "proxy", 300, 1, "", "t");
 ins.run(new Date(now - 7 * 3600000).toISOString(), "old", 1, "y", "z", 5, 1, "", "t");
@@ -25,6 +26,8 @@ const sum = (a) => a.reduce((x, y) => x + y, 0);
 console.log(JSON.stringify({
 	bucketMs: h.bucketMs,
 	buckets: h.buckets.length,
+	lastBucket: h.buckets.at(-1)?.[0],
+	currentStart: Math.floor(now / 300000) * 300,
 	total: sum(h.buckets.map((b) => b[1])),
 	errs: sum(h.buckets.map((b) => b[2])),
 	gridOk: h.buckets.every((b) => b[0] % 300 === 0),
@@ -37,30 +40,28 @@ test("metricsHistory buckets real samples onto a 5-minute grid", async () => {
 	const home = mkdtempSync(join(tmpdir(), "belt-hist-"));
 	mkdirSync(join(home, ".claude", "local-llm"), { recursive: true });
 	try {
-		const child = Bun.spawnSync(
-			[process.execPath, "-e", CHILD],
-			{
-				env: {
-					...process.env,
-					HOME: home,
-					METRICS_MOD: join(import.meta.dir, "..", "bin", "metrics.ts"),
-				},
-				stdout: "pipe",
-				stderr: "pipe",
+		const child = Bun.spawnSync([process.execPath, "-e", CHILD], {
+			env: {
+				...process.env,
+				HOME: home,
+				METRICS_MOD: join(import.meta.dir, "..", "bin", "metrics.ts"),
 			},
-		);
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		expect(child.exitCode).toBe(0);
 		const out = JSON.parse(child.stdout.toString());
 		expect(out.bucketMs).toBe(300000);
 		expect(out.buckets).toBe(72);
-		expect(out.total).toBe(3); // the 7h-old row sits outside the 6h window
+		expect(out.lastBucket).toBe(out.currentStart);
+		expect(out.total).toBe(4); // the 7h-old row sits outside the 6h window
 		expect(out.errs).toBe(1);
 		expect(out.gridOk).toBe(true);
 		expect(out.endpoints).toHaveLength(2);
 		const mac = out.endpoints.find((e) => e.key === "mac:8902");
 		const nas = out.endpoints.find((e) => e.key === "nas:4101");
 		expect(mac.counts).toHaveLength(72);
-		expect(mac.counts.reduce((a, b) => a + b, 0)).toBe(2);
+		expect(mac.counts.reduce((a, b) => a + b, 0)).toBe(3);
 		expect(nas.counts.reduce((a, b) => a + b, 0)).toBe(1);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
