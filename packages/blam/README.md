@@ -18,14 +18,19 @@ with three artifacts:
    single-machine fleet (sanitized), JSONL + JSON Schema + a labeling CLI,
    under a written multi-annotator protocol with agreement statistics
    (`schema/`, `dataset/`, `docs/labeling-protocol.md`).
-3. **BLAM-bench** — deterministic, LLM-optional reproduction scenarios:
-   each seeds a known failure condition (registry lag, crashed-merge
-   debris, commit-into-live-merge, vanish-rename, unenforced norms) against
-   a control plane under test, and scores detection, recovery, data-loss
-   prevention, and false-block rate (`bench/`).
+3. **BLAM-bench** — deterministic, LLM-optional benchmark suites in
+   `bench/`. Runnable today: the consult policy suite and the paired-arm
+   eval suite (exact commands + limits in `bench/README.md`). The
+   five-scenario CRASH suite (S1-S5: registry lag, crashed-merge debris,
+   commit-into-live-merge, vanish-rename, unenforced norms) is specified
+   there but has no harnesses yet — it will score detection, recovery,
+   data-loss prevention, and false-block rate against a control-plane
+   adapter.
 
-**Status:** scaffold + seed dataset + scenario specs. Dataset grows via the
-labeling protocol; benchmark harness implements scenario 1 as reference.
+**Status:** consult + paired bench suites are runnable and deterministic;
+the CRASH S1-S5 scenario suite is spec-only — no scenario harness exists
+yet. Dataset: 13 validated seed incidents, growing via the labeling
+protocol.
 
 ## Why LLM-optional matters
 
@@ -54,7 +59,9 @@ Full definitions, subclasses, decision tree: `docs/taxonomy.md`.
 bun install
 bun tools/label.ts validate dataset/incidents.jsonl   # schema-check the dataset
 bun tools/label.ts list                                # summary by class
-bun test                                               # validator + stats tests
+bun test                                               # all package tests (137)
+bun bench/consult/harness.ts                           # consult policy suite
+bun bench/paired/harness.ts                            # paired-arm eval suite
 ```
 
 ## Repo layout
