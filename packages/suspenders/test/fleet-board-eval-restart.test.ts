@@ -93,6 +93,39 @@ test("decision evaluation finishes across a board restart", async () => {
 		expect(feed?.evals[0]?.text).toBe("Keep the reviewed option.");
 		expect(feed?.evals).toHaveLength(1);
 		expect(feed?.status).toMatchObject({ running: false, error: null });
+
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"exit-lane",
+				"--note",
+				"worker exit fork",
+				"--as",
+				"exit-lane",
+			]).code,
+		).toBe(0);
+		const exitRec = fork(await getDecisions(), "worker exit fork");
+		const exitStart = await fetch(
+			`${BASE}/api/decisions/${exitRec.id}/evaluate`,
+			{ method: "POST", headers: { "x-klh-write-token": TOKEN } },
+		);
+		expect(exitStart.status).toBe(202);
+		const exitFeed = await (
+			await fetch(`${BASE}/api/decisions/${exitRec.id}/evals`)
+		).json();
+		process.kill(exitFeed.status.workerPid, "SIGKILL");
+		let stopped: { status: { running: boolean; error: string | null } } | null =
+			null;
+		for (let i = 0; i < 20; i++) {
+			stopped = await (
+				await fetch(`${BASE}/api/decisions/${exitRec.id}/evals`)
+			).json();
+			if (stopped && !stopped.status.running) break;
+			await sleep(100);
+		}
+		expect(stopped?.status.error).toContain("worker exited");
 	} finally {
 		restarted?.kill();
 		await restarted?.exited;

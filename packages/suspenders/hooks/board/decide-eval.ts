@@ -113,8 +113,24 @@ function launchWorker(id: number, run: EvalRun): void {
 	try {
 		const child = Bun.spawn(
 			[process.execPath, CLI("decision-eval-worker.ts"), String(id), run.runId],
-			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+			{ stdin: "ignore", stdout: "ignore", stderr: "pipe" },
 		);
+		const stderr = (async () => {
+			let message = "";
+			for await (const chunk of child.stderr)
+				message = `${message}${new TextDecoder().decode(chunk)}`.slice(-500);
+			return message.trim();
+		})();
+		void child.exited.then(async (code) => {
+			const detail = await stderr;
+			if (decisionEvalStatus(id)?.runId !== run.runId) return;
+			if (decisionEvalStatus(id)?.running)
+				finishDecisionEval(
+					id,
+					run.runId,
+					`Evaluation worker exited ${code} without a result${detail ? `: ${detail.slice(0, 200)}` : ""}`,
+				);
+		});
 		const current = decisionEvalStatus(id);
 		if (current?.runId === run.runId && current.running)
 			saveRun(id, { ...current, workerPid: child.pid });

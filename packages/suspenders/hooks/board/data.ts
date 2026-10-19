@@ -1157,7 +1157,10 @@ export function decisionRecords(
 			age_s: ago(d.created_at),
 			advice,
 			adviceError,
-			advicePending: adviceRows.get(`advice.${d.event_id}.requested`) ?? null,
+			advicePending:
+				advice || adviceError
+					? null
+					: (adviceRows.get(`advice.${d.event_id}.requested`) ?? null),
 			policy: policyProvenance(evPayloads.get(d.event_id) ?? null),
 		};
 	});

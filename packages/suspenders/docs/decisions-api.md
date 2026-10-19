@@ -102,6 +102,8 @@ it as `advicePending`. The worker clears the stamp on a terminal write and
 the board records an error if the worker exits without one. Transport
 failures back off 2s/4s/8s, with three automatic retries; a terminal
 advice or error fact ends the spinner.
+The decisions feed ignores a leftover request stamp when a terminal advice or
+error fact already exists.
 
 POST /api/decisions/<id>/evaluate returns 202 with `startedAt` immediately.
 GET /api/decisions/<id>/evals returns saved evaluations and a `status`
@@ -110,7 +112,8 @@ the model call never holds the HTTP response open through a proxy timeout.
 The evaluation runs in a separate worker and its status is stored in the facts
 ledger. On startup the board resumes any in-flight evaluation whose worker was
 killed with the board. A worker that does not finish within 135 seconds is
-reported as timed out and can be retried.
+reported as timed out and can be retried. If the worker exits without writing
+a result, the board records an error immediately instead of leaving a spinner.
 
 ## Agent health
 

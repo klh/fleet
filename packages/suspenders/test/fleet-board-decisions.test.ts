@@ -449,6 +449,9 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 				"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, 'in-flight', 'fleet-board', 1, ?)",
 			)
 			.run(`advice.${rec.id}.requested`, Date.now());
+		const stale = fork(await getDecisions(), "advise dedupe fork");
+		expect(stale.advicePending).toBeNull();
+		sdb.query("DELETE FROM facts WHERE key = ?").run(`advice.${rec.id}.error`);
 		const second = await post("/api/advise", { id: rec.id });
 		expect(second.json.ok).toBe(true);
 		expect(second.json.inFlight).toBe(true);
