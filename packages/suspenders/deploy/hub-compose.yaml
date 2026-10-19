@@ -204,6 +204,10 @@ services:
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
       BUCKLE_BIND: ${HUB_BUCKLE_BIND:-127.0.0.1}
       BUCKLE_DB: /state/buckle/buckle.db
+      # W858.10.3: lane-observation outbox → projection db at <path>.db
+      # (server.ts W461 stage 2; the network read model resolves the same
+      # chain) — hubs project per-hub request edges for the Network overview
+      BUCKLE_OBSERVATIONS_PATH: /state/buckle/observations.ndjson
       BUCKLE_POLICY: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml
       BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.yaml
       # W688.7.1: private-network ladder legs (e.g. the host litellm via

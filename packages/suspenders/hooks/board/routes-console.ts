@@ -4,7 +4,8 @@
 import { BELT_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
 import { recentAdminAudit } from "../lib/admin-audit.ts";
-import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
+import { cachedProbes, consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
+import { networkPayload } from "./network-overview.ts";
 import {
 	htmlHdr,
 	suspPreview,
@@ -56,8 +57,12 @@ export async function handleConsole(
 			},
 		});
 	if (url.pathname === "/api/services" && req.method === "GET")
-		// W273: every monitored service + its recovery-map entry
+		// W273: every monitored service + its recovery map entry
 		return json({ ok: true, services: (await probeAll()).map(withRecovery) });
+	if (url.pathname === "/api/console/network" && req.method === "GET")
+		// W858.10.3: the Network overview payload — read model + local spoke
+		// probe (cached probes; the browser never fetches :4101 itself)
+		return json(await networkPayload());
 	if (url.pathname === "/api/services/probe" && req.method === "GET") {
 		// W273 re-probe: one service, fresh (the row's self-check affordance)
 		const p = await probeService(url.searchParams.get("id") ?? "");

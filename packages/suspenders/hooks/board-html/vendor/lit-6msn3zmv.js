@@ -1,3 +1,4 @@
+// Vendored from the Lit monorepo (lit, lit-html, lit-element, @lit/reactive-element, @lit-labs/ssr-dom-shim) — BSD-3-Clause License (https://github.com/lit/lit) — bundled/minified offline for LAN serving; full text in upstream LICENSE files.
 import{r}from"./lit-c5g9ct2w.js";var a=r`
 	:host {
 		display: block;

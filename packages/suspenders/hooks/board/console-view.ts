@@ -21,6 +21,7 @@ import type {
 	LocalView,
 } from "../bin/console-html.ts";
 import { probeAll, withRecovery } from "./service-probe.ts";
+import { networkPayload } from "./network-overview.ts";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { readEffectiveUpstreams } from "./console-upstreams.ts";
 
@@ -92,6 +93,9 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		health,
 		groups: upstreams?.groups ?? null,
 		upstreamSource: upstreams?.source,
+		// W858.10.3: the Network overview payload as the card's SSR seed
+		// (cached probes shared — no extra fan-out)
+		network: await networkPayload(),
 	};
 };
 
@@ -102,7 +106,9 @@ let probeCache: {
 	probes: Awaited<ReturnType<typeof probeAll>>;
 } | null = null;
 const PROBE_TTL_MS = 15_000;
-const cachedProbes = async () => {
+export const cachedProbes = async (): Promise<
+	Awaited<ReturnType<typeof probeAll>>
+> => {
 	if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS)
 		return probeCache.probes;
 	const probes = await probeAll();

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { db } from "./context.ts";
 import { json } from "./helpers.ts";
 import {
@@ -5,6 +6,7 @@ import {
 	recordLaneObservation,
 } from "./lane-observations.ts";
 import { handleObservationPlane } from "./observation-serving.ts";
+import { resolveNetworkDbPaths } from "../../../buckle/src/network-read-model.ts";
 import { LaneProjection } from "../../../buckle/src/projection.ts";
 
 function numParam(url: URL, name: string): number | null {
@@ -14,17 +16,25 @@ function numParam(url: URL, name: string): number | null {
 }
 
 /** W461 stage 3: scoped lane/route read model over buckle's projection db
- *  (KLH_LANE_ROUTES_DB, config-over-code). Unset = 404 honestly. GET-only:
- *  the projection is written by buckle's ingest, never by the board. */
+ *  (KLH_LANE_ROUTES_DB, config-over-code). W858.10.3: unset knob falls
+ *  back to the machine projection-db chain (resolveNetworkDbPaths) so the
+ *  endpoint works once the collector env is wired; an absent file stays an
+ *  honest 404 — reads never create the db (LaneProjection opens rw). */
 function handleLaneRoutes(req: Request, url: URL): Response | null {
 	if (req.method !== "GET" && req.method !== "HEAD") return null;
-	const path = process.env.KLH_LANE_ROUTES_DB;
+	const path = resolveNetworkDbPaths(process.env).obsDb;
 	if (!path)
 		return json(
 			{
 				ok: false,
-				error: "lane routes db not configured (KLH_LANE_ROUTES_DB)",
+				error:
+					"lane routes db not resolvable (KLH_LANE_ROUTES_DB / BUCKLE_OBSERVATIONS_* unset)",
 			},
+			404,
+		);
+	if (!existsSync(path))
+		return json(
+			{ ok: false, error: `lane routes db not found: ${path}` },
 			404,
 		);
 	let projection: LaneProjection | null = null;
