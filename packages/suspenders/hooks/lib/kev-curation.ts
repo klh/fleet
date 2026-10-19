@@ -27,8 +27,13 @@ export interface KevCuration {
 export async function suggestKnowledge(
 	input: CurationInput,
 ): Promise<KevCuration> {
+	const body = input.text.trim();
+	const evidence =
+		body.length <= 900
+			? body
+			: `${body.slice(0, 450)}\n...\n${body.slice(-450)}`;
 	const decision = await kevTypedDecision({
-		state: `${input.kind}: ${input.title}\n${input.text}`.slice(0, 4000),
+		state: `${input.kind}: ${input.title.slice(0, 160)}\n${evidence}`,
 		question:
 			"Does this contain a reusable, evidenced lesson for another Fleet agent? Choose store only for a concrete transferable finding; noise for routine status or repetition; review when evidence is uncertain.",
 		options: [

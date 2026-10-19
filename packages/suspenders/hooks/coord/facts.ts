@@ -290,7 +290,7 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 			title: item ?? `lane ${as.slice(0, 8)}`,
 			text: JSON.stringify(extra),
 			reference: primary,
-			timeoutMs: 750,
+			timeoutMs: 1500,
 		});
 		try {
 			recordKnowledgeSuggestion(db, verdict, {

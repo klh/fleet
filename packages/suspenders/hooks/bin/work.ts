@@ -916,7 +916,7 @@ const dispatchVerb = async (
 			title: String(it.title ?? id),
 			text: record?.summary ?? String(it.description ?? ""),
 			reference: id,
-			timeoutMs: 750,
+			timeoutMs: 1500,
 		});
 		try {
 			recordKnowledgeSuggestion(db(), verdict, {

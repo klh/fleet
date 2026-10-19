@@ -74,3 +74,21 @@ test("low confidence and unavailable Kev never approve a store", async () => {
 	});
 	expect(unavailable.choice).toBe("unavailable");
 });
+
+test("long evidence stays within Kev's trained state window", async () => {
+	let state = "";
+	globalThis.fetch = async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		state = request.state;
+		return answer("review", 0.7);
+	};
+	await suggestKnowledge({
+		kind: "work",
+		title: "Inspect consult routing",
+		text: `opening-${"x".repeat(4000)}-closing`,
+		reference: "W42",
+	});
+	expect(state.length).toBeLessThan(1100);
+	expect(state).toContain("opening-");
+	expect(state).toContain("-closing");
+});
