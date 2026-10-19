@@ -642,7 +642,8 @@ function tickAccess(){
     var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
     Object.keys(byVendor).sort().forEach(function(v){
       var group=document.createElement('details');group.className='access-vendor';
-      var heading=document.createElement('summary');heading.textContent=v+' · '+byVendor[v].length+' models';group.append(heading);
+      var heading=document.createElement('summary');var count=byVendor[v].length;
+      heading.textContent=v+' · '+count+' model'+(count===1?'':'s');group.append(heading);
       var table=document.createElement('table');
       byVendor[v].forEach(function(m){
         var row=document.createElement('tr');var name=document.createElement('td');var access=document.createElement('td');
