@@ -123,13 +123,14 @@ describe("lane-starter", () => {
 		expect(t.startsWith("…")).toBe(true);
 	});
 
-	test("forkArgsFor: claude only, others catalog-only", () => {
+	test("forkArgsFor: claude + copilot, others catalog-only", () => {
 		expect(forkArgsFor("claude", "s1")).toEqual([
 			"--resume",
 			"s1",
 			"--fork-session",
 		]);
-		for (const h of ["copilot", "codex", "gemini", "grok"]) {
+		expect(forkArgsFor("copilot", "s1")).toEqual(["--session-id", "s1"]);
+		for (const h of ["codex", "gemini", "grok"]) {
 			expect(forkArgsFor(h, "s1")).toBeNull();
 		}
 	});

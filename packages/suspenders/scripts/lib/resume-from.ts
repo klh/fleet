@@ -12,7 +12,9 @@
 //                doctrine stands until an operator flips the knob).
 // 2. executor  — claude only: --resume/--fork-session are binary-verified
 //                on the claude adapter (W454); no other harness inherits
-//                the grammar.
+//                the grammar. Copilot's --session-id resume appends in
+//                place (no --fork-session — W918.3 live probe), so the
+//                immutability half can never hold there.
 // 3. claim     — the resumed sid must be the sid HOLDING the claim (the
 //                retake re-claims as the same sid through work take's
 //                CAS — dispatch calls this only for resume?.sid matches);

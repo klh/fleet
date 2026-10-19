@@ -236,6 +236,11 @@ export const ensureStarter = (
 ): StarterSeedOutcome | null => {
 	const forkArgsOf = forkArgsFor(harness, "SEED");
 	if (forkArgsOf === null) return null;
+	// W918.3: the seed TURN grammar is adapter data too — a harness with
+	// fork args but no verified seed recipe (copilot: claude-grammar seed
+	// flags die on its CLI) cold-starts; fork grammar ≠ seed grammar.
+	const seedArgsOf = adapterForExact(harness)?.starterSeedArgs;
+	if (!seedArgsOf) return null;
 	const seed = starterSeedPrompt();
 	assertNoSecrets(seed);
 	const version = starterVersion(seed);
@@ -268,7 +273,7 @@ export const ensureStarter = (
 				err: p.stderr ? new TextDecoder().decode(p.stderr) : "",
 			};
 		});
-	const seedArgs = ["-p", seed, "--output-format", "json", "--max-turns", "1"];
+	const seedArgs = seedArgsOf(seed);
 	const seedStartedAt = Date.now();
 	const res = run(executorBin, seedArgs, env);
 	const seedMs = Date.now() - seedStartedAt;

@@ -45,10 +45,29 @@ describe("W422 executor-adapter registry", () => {
 			"s1",
 			"--fork-session",
 		]);
-		for (const h of ["forge", "copilot", "codex", "grok", "cline", "gemini"]) {
+		// W918.3: copilot resume verified live on 1.0.98 — --session-id
+		// appends in place (no --fork-session; retake fence stays claude-only).
+		expect(adapterForExact("copilot")?.forkArgs("s1")).toEqual([
+			"--session-id",
+			"s1",
+		]);
+		for (const h of ["forge", "codex", "grok", "cline", "gemini"]) {
 			expect(adapterForExact(h)?.forkArgs("s1") ?? null).toBeNull();
 		}
 		expect(adapterForExact("no-such-agent")).toBeNull();
+	});
+	test("starter seed grammar is adapter data — only claude carries it (W918.3)", () => {
+		expect(adapterForExact("claude")?.starterSeedArgs?.("<seed>")).toEqual([
+			"-p",
+			"<seed>",
+			"--output-format",
+			"json",
+			"--max-turns",
+			"1",
+		]);
+		for (const h of ["copilot", "codex", "forge", "grok", "cline"]) {
+			expect(adapterForExact(h)?.starterSeedArgs).toBeUndefined();
+		}
 	});
 	test("isSpawnableExecutor gates resolveLaneExecutor; forge/grok/cline catalog-only", () => {
 		expect(isSpawnableExecutor("claude")).toBe(true);
@@ -63,6 +82,11 @@ describe("W422 executor-adapter registry", () => {
 		const copilot = adapterFor("copilot");
 		expect(copilot.briefHardGate).toBe(true);
 		expect(copilot.spawnArgs({})).toEqual(["--allow-all-tools"]);
+		expect(copilot.spawnArgs({ forkArgs: ["--session-id", "s9"] })).toEqual([
+			"--allow-all-tools",
+			"--session-id",
+			"s9",
+		]);
 		expect(copilot.promptArgs("m")).toEqual(["-p", "m"]);
 	});
 	test("codex adapter: exec subcommand carries the prompt LAST (W73)", () => {

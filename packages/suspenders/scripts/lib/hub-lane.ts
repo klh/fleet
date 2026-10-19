@@ -41,8 +41,7 @@ export const attributeHubLane = async (o: {
 		allowUngoverned: o.allowUngoverned,
 	});
 	if (decision.mode !== "governed") return { decision };
-	applyLaneAttribution(o.env, o.sid, o.hubUrl);
-	o.env.ANTHROPIC_AUTH_TOKEN = decision.key;
+	applyLaneAttribution(o.env, o.sid, o.hubUrl, decision.key);
 	return {
 		decision,
 		ownedKeyId: decision.keyId,

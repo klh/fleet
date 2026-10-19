@@ -15,9 +15,17 @@ export const copilotAdapter: ExecutorAdapter = {
 	// otherwise blocks on a confirmation it can never receive headless).
 	// dispatch-next's recipe is the bare flag; fleet-loop adds
 	// --allow-all-paths — that delta is fleet-loop's conversion to carry.
-	spawnArgs: () => ["--allow-all-tools"],
+	// W918.3: verified fork args append when the spec carries them.
+	spawnArgs: (spec) => ["--allow-all-tools", ...(spec.forkArgs ?? [])],
 	promptArgs: (prompt) => ["-p", prompt],
-	// session fork/resume semantics UNVERIFIED — cold start (lane-starter).
-	forkArgs: () => null,
+	// Session resume VERIFIED live on the 1.0.98 binary (W918.3, 2026-10-19):
+	// two -p turns sharing --session-id <uuid> — turn 2 recalled turn 1's
+	// token over the Buckle BYOK route. No --fork-session: a resume appends
+	// to the same stored session, so the W622 retake immutability fence
+	// cannot hold here (resume-from.ts stays claude-only).
+	forkArgs: (sessionId) => ["--session-id", sessionId],
+	// W918.3: no starterSeedArgs — the seed turn's claude-grammar flags
+	// (--max-turns) die on this CLI; cold start until a copilot seed recipe
+	// is probe-verified (fork grammar ≠ seed grammar).
 	processNames: ["copilot"],
 };
