@@ -260,6 +260,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .orchdisc:hover { color:var(--klh-ink); }
 .tidbtn { background:none; border:none; padding:0; color:var(--klh-accent); font:inherit; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
 /* W65 lanes kanban — one column per work-graph state, cards carry the lane's live tail */
+.kstatusnav { display:flex; gap:6px; overflow-x:auto; margin:0 0 8px; padding:0 0 4px; }
+.kstatusnav button { flex:none; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:3px; padding:4px 9px; color:var(--klh-ink-2); font:11px var(--klh-font-mono); cursor:pointer; }
+.kstatusnav button:hover { border-color:var(--klh-accent); color:var(--klh-ink); }
+.kstatusnav button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
 .kwrap { overflow-x:auto; }
 .kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
 .kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--klh-edge-mid); padding-top:6px; }

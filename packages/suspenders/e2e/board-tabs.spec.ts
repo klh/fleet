@@ -78,3 +78,23 @@ test("changing sections starts at the header after a deep scroll", async ({
 	await expect(page.locator("#tab-tasks")).toBeVisible();
 	await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
+
+test("lane status rail reaches offscreen columns by mouse and keyboard", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 960, height: 700 });
+	await page.goto(`${mustBoard().BASE}/#lanes`);
+	const rail = page.locator("#kstatusnav");
+	await expect(rail.getByRole("button")).toHaveCount(7);
+	const wrap = page.locator(".kwrap");
+	expect(await wrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
+		true,
+	);
+	await rail.getByRole("button", { name: /^done /i }).click();
+	await expect
+		.poll(() => wrap.evaluate((el) => el.scrollLeft))
+		.toBeGreaterThan(0);
+	await rail.getByRole("button", { name: /^ready /i }).focus();
+	await rail.getByRole("button", { name: /^ready /i }).press("Enter");
+	await expect.poll(() => wrap.evaluate((el) => el.scrollLeft)).toBe(0);
+});
