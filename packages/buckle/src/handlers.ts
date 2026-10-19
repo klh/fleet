@@ -213,6 +213,17 @@ export function scrubText(text: string): string {
 	return text.replace(/\/Users\/[^/\s'"]+/g, "~");
 }
 
+/** W921 traffic kind: a request is READINESS traffic only when a
+ *  root-authenticated principal carries the healthcheck's
+ *  `x-klh-traffic: readiness` mark — a lane key (or any non-root
+ *  credential) with that header stays inference, and root traffic
+ *  without the mark stays inference too (break-glass stays honest).
+ *  Gate-off posture (no principal) is never readiness. */
+export function trafficKindOf(req: Request): string {
+	if (req.headers.get("x-klh-traffic") !== "readiness") return "inference";
+	return principalOf(req)?.kind === "root" ? "readiness" : "inference";
+}
+
 interface Ctx {
 	key: string;
 	group: string;
@@ -239,6 +250,10 @@ interface Ctx {
 	/** W706: hop attribution — origin (self when entered here) + the
 	 *  immediate peer (null = entered the fleet at this hub). */
 	hop: HopContext;
+	/** W921 traffic kind: 'readiness' when a ROOT-authenticated request
+	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
+	 *  synthetic full-chain poll); 'inference' otherwise. */
+	trafficKind: string;
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;
@@ -275,6 +290,7 @@ function deny(
 		error_code: code,
 		why,
 		hop: hopKindOf(ctx.hop),
+		traffic_kind: ctx.trafficKind,
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
@@ -356,6 +372,7 @@ async function proxy(
 			peer: hopFromBaggage(req.headers.get("baggage")).peer,
 		},
 	};
+	ctx.trafficKind = trafficKindOf(req);
 	ctx.t0 = Date.now();
 	const hint = hintFromHeaders(req.headers);
 	if (!hint.ok) return deny(deps, ctx, 400, hint.why, "bad_hint", "denied");
@@ -453,6 +470,7 @@ async function runExecute(
 		error_code: null,
 		why: sel.why,
 		hop: hopKindOf(ctx.hop),
+		traffic_kind: ctx.trafficKind,
 	});
 	deps.table.inflight(sel.head.candidate_id, 1);
 	// W450 bounded RPC admission: one slot per in-flight upstream RPC; past

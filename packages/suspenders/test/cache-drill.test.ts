@@ -84,6 +84,7 @@ const row = (over: Partial<Row>): Row => ({
 	cache_c_reported: null,
 	in_tok: null,
 	out_tok: null,
+	traffic_kind: "inference",
 	...over,
 });
 
@@ -110,6 +111,27 @@ describe("parseRequestRow", () => {
 		expect(parseRequestRow("nope")).toBeNull();
 		expect(parseRequestRow({ rid: "", ts: "2026-10-19T09:00:00Z" })).toBeNull();
 		expect(parseRequestRow({ rid: "x", ts: "not-a-date" })).toBeNull();
+	});
+	test("W921: traffic_kind parses readiness/inference and legacy rows stay null", async () => {
+		const { parseRequestRow } = await lib();
+		expect(
+			parseRequestRow({
+				rid: "p1",
+				ts: "2026-10-19T09:00:00Z",
+				traffic_kind: "readiness",
+			})?.traffic_kind,
+		).toBe("readiness");
+		expect(
+			parseRequestRow({
+				rid: "p2",
+				ts: "2026-10-19T09:00:00Z",
+				traffic_kind: "inference",
+			})?.traffic_kind,
+		).toBe("inference");
+		expect(
+			parseRequestRow({ rid: "p3", ts: "2026-10-19T09:00:00Z" })
+				?.traffic_kind,
+		).toBeNull();
 	});
 });
 
@@ -261,6 +283,68 @@ describe("clusterMissReasons", () => {
 			"cold_full_context",
 			"unexplained",
 		]);
+	});
+});
+
+describe("W921 readiness-probe separation", () => {
+	test("probe rows stay out of lane aggregates, reasons and models", async () => {
+		const m = await lib();
+		const probe = row({
+			rid: "probe1",
+			lane: "",
+			traffic_kind: "readiness",
+			cache_r: 0,
+			cache_reported: true,
+			target_model: "general",
+		});
+		const lanes = m.laneAggregates([row({ cache_r: 0 }), probe]);
+		expect(lanes.map((l) => l.lane)).toEqual(["autow700"]);
+		expect(lanes[0]?.requests).toBe(1);
+		const reasons = m.clusterMissReasons([probe, row({ cache_r: 0 })]);
+		expect(reasons.map((c) => c.reason)).toEqual(["cold_start"]);
+		const models = m.modelAggregates([
+			row({ cache_r: 0 }),
+			probe,
+			row({ rid: "r2", cache_r: 0, target_model: "other" }),
+		]);
+		expect(models.map((mo) => mo.model)).toEqual(["glm-5.3-flash", "other"]);
+		expect(models[0]?.requests).toBe(1);
+	});
+
+	test("report: probes counted separately, inference ratios exclude them", async () => {
+		const m = await lib();
+		m.clearCacheDrillTtl();
+		const probe = {
+			...row({
+				rid: "probe1",
+				lane: "",
+				traffic_kind: "readiness",
+				cache_r: 0,
+				cache_reported: true,
+				target_model: "general",
+			}),
+			ts: "2026-10-19T10:01:00Z",
+		};
+		const rows = [
+			row({ ts: "2026-10-19T10:00:00Z", cache_r: 500 }),
+			probe,
+			row({ rid: "r2", ts: "2026-10-19T10:02:00Z", cache_r: 0 }),
+		];
+		const report = await m.cacheDrillReport({
+			days: 7,
+			env: env(),
+			endpoints: (label) =>
+				label === "hub-a"
+					? [{ url: "http://x/hub-a", via: "test", token: null }]
+					: [],
+			fetch: async () => ({ ok: true, rows }),
+		});
+		expect(report.overall.requests).toBe(2);
+		expect(report.overall.warm).toBe(1);
+		expect(report.probes.requests).toBe(1);
+		expect(report.probes.warm).toBe(0);
+		expect(report.probes.last_ts).toBe("2026-10-19T10:01:00Z");
+		expect(report.lanes.map((l) => l.lane)).toEqual(["autow700"]);
 	});
 });
 
