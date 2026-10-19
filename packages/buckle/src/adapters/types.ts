@@ -99,6 +99,25 @@ function staticHeaders(dep: Deployment): Record<string, string> {
 	return out;
 }
 
+/** W935 per-deployment upstream path shape: adapter_config.path_rewrite
+ *  maps buckle ingress path → upstream path (exact match on the ingress
+ *  path; anything not listed forwards verbatim). GitHub Copilot serves chat
+ *  completions at /chat/completions (no /v1) while /v1/messages and
+ *  /v1/responses keep the /v1 prefix — verbatim forwarding 404s the chat
+ *  wire. Values must be absolute paths; invalid rows are dropped (fail
+ *  closed to verbatim), matching staticHeaders tolerance. Only the pathname
+ *  moves — scheme/host stay dep.url, where the egress law lives. */
+export function upstreamUrlOf(dep: Deployment, path: string): string {
+	const raw = dep.adapter_config?.path_rewrite;
+	if (raw && typeof raw === "object") {
+		const to = (raw as Record<string, unknown>)[path];
+		if (typeof to === "string" && to.startsWith("/")) {
+			return new URL(to, dep.url).toString();
+		}
+	}
+	return new URL(path, dep.url).toString();
+}
+
 /** Shared auth header profile for bearer families: the key never lives in
  *  config — api_key_env names the env var read at request time. */
 export function bearerHeaders(dep: Deployment): Record<string, string> {

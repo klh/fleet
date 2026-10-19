@@ -13,6 +13,7 @@ import {
 	bearerHeaders,
 	type ChatAdapter,
 	type WireCall,
+	upstreamUrlOf,
 	usageField,
 } from "./types.ts";
 
@@ -38,7 +39,7 @@ export const OPENAI_COMPAT: ChatAdapter = {
 			wire.stream_options = { ...prior, include_usage: true };
 		}
 		return {
-			url: new URL(req.path, dep.url).toString(),
+			url: upstreamUrlOf(dep, req.path),
 			headers: bearerHeaders(dep),
 			body: JSON.stringify(wire),
 		};
