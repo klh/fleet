@@ -52,7 +52,20 @@ test("adapter-backed targets expose verified states", () => {
 	const codex = targetCapabilities("codex", REPO, false, probe);
 	expect(codex.headlessSpawnable).toBe(true);
 	expect(codex.sessionResumable).toBe(false);
-	expect(codex.buckleCompatible).toBe("unknown");
+	// W918.2 landed proof: /w/<slug>/v1/responses token round-trip.
+	expect(codex.buckleCompatible).toBe(true);
+});
+
+test("grok/cline catalog rows stay honest not-installed records", () => {
+	const probe: BinProbe = () => true;
+	for (const type of ["grok", "cline"] as const) {
+		const cap = targetCapabilities(type, REPO, false, probe);
+		// Never installed here, never lane-proven: even a passing binary
+		// probe must not invent spawn/resume/buckle evidence.
+		expect(cap.headlessSpawnable).toBe(false);
+		expect(cap.sessionResumable).toBe(false);
+		expect(cap.buckleCompatible).toBe("unknown");
+	}
 });
 
 test("hookWired reflects on-disk wire.ts evidence", () => {
@@ -68,11 +81,14 @@ test("defaultBinProbe resolves bun, refuses nonsense", () => {
 });
 
 test("fleet-install --capabilities prints the live catalog", () => {
-	const r = Bun.spawnSync(["bun", "hooks/bin/fleet-install.ts", "--capabilities"], {
-		cwd: REPO,
-		encoding: "utf8",
-		env: { ...process.env },
-	});
+	const r = Bun.spawnSync(
+		["bun", "hooks/bin/fleet-install.ts", "--capabilities"],
+		{
+			cwd: REPO,
+			encoding: "utf8",
+			env: { ...process.env },
+		},
+	);
 	const out = `${r.stdout ?? ""}`;
 	expect(r.exitCode).toBe(0);
 	expect(out).toContain("catalog targets");

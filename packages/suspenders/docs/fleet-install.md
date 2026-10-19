@@ -78,7 +78,12 @@ read (exit 0, no prompt, CI-safe).
 - `sessionResumable` — verified fork/resume semantics (adapter forkArgs
   non-null).
 - `buckleCompatible` — rides the governed Buckle front; `unknown` =
-  unaudited (W914 coordination pending).
+  unaudited (W914 coordination pending). Flips only per landed proof:
+  `claude-code` (every dispatch lane) and `codex` (W918.2,
+  `docs/w918.2-codex-executor-lane-proof.md` — token round-trip on
+  `/w/<slug>/v1/responses` with a scoped `bksk_` key). `grok`/`cline` ship
+  wire dialects but are not installed here and never lane-proven — their
+  rows stay `buckle=unknown`, `spawn=false`.
 
 ## Usage
 
