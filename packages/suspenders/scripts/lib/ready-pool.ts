@@ -36,11 +36,10 @@ export const parseReady = (
 		})
 		.filter((x): x is { id: string; title: string; requires: string[] } => !!x);
 
-/** decision-gated items never ride the automagic — they surface to the owner. */
+/** Only an explicit owner gate in the title blocks automatic dispatch.
+ * Event names such as NEED_DECISION and paused are ordinary feature work. */
 export const isOwnerGated = (title: string): boolean =>
-	/OWNER-GATED|OWNER GATE|\bGATED\b|\bHELD\b|NEED_DECISION|\bDECISION\b|PAUSED/i.test(
-		title,
-	);
+	/^\s*OWNER[- ]GATED\s*:/i.test(title);
 
 /** W619 capability gate: split the fresh READY pool into dispatchable rows
  *  and capability-mismatched skips. Pure — capsOf injects the sessions read
