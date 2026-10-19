@@ -54,6 +54,18 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
+- **Banking telemetry-shaped knowledge as facts rows** — W949's blind A/B
+  (2026-10-19, 10 real-fleet questions, identity-blind judge, 2 stable runs):
+  the banked layer answered 0/5 telemetry questions (per-item fact rows carry
+  work-prose, not numbers) while decant answered 5/5 at zero banking cost —
+  telemetry retrieval is mechanical-first, numbers never get banked. Judgment
+  lessons stay banked as a ~17× cheaper-to-read distilled cache (640 B vs
+  11 KB per hit), but decant covered the unbanked rest (J1/J4/J5 full marks).
+  Banking amortized spend ≈ 1.25 Mtok (1.6% coord-knowledge share of 78.1 Mtok
+  CONSULT=Y spend). Caveat: decant subsumes banked content (lanes echo facts
+  into transcripts); see the
+  [bench record](packages/suspenders/bench/w949/README.md) +
+  [benchmarks.md](benchmarks.md#knowledge-retrieval--llm-banked-facts-vs-mechanical-decant-w949-2026-10-19).
 - **Compact module map and automatic second reviewer on a small known repair**
   — W922's held-out Relay pilot (2026-10-19, one task × 3 paired repetitions,
   `gpt-6-luna`) reached 22/22 with the plain solo agent. The extra map used

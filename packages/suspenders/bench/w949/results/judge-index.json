@@ -1,0 +1,45 @@
+{
+	"seed": 949,
+	"index": [
+		{
+			"qid": "T1",
+			"xFrom": "B"
+		},
+		{
+			"qid": "T2",
+			"xFrom": "A"
+		},
+		{
+			"qid": "T3",
+			"xFrom": "B"
+		},
+		{
+			"qid": "T4",
+			"xFrom": "B"
+		},
+		{
+			"qid": "T5",
+			"xFrom": "B"
+		},
+		{
+			"qid": "J1",
+			"xFrom": "A"
+		},
+		{
+			"qid": "J2",
+			"xFrom": "A"
+		},
+		{
+			"qid": "J3",
+			"xFrom": "A"
+		},
+		{
+			"qid": "J4",
+			"xFrom": "A"
+		},
+		{
+			"qid": "J5",
+			"xFrom": "A"
+		}
+	]
+}

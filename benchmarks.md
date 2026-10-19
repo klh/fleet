@@ -14,7 +14,31 @@ model bump.
 
 ---
 
-## BLAM — coordination controls (2026-10-19 rerun)
+## Knowledge retrieval — LLM-banked facts vs mechanical decant (W949, 2026-10-19)
+
+Blind A/B, 10 real-fleet questions (5 telemetry / 5 judgment), identity-blind
+judging (seed 949, oracle :8903, 2 stable judge runs). Arms: A = coord facts +
+kb; B = decant FTS + targeted `ls --project` + `search` over the same fleet
+transcripts (450 s one-time sync, 1.5 GB index; standing serve amortizes).
+Banking cost measured on W776-attributed CONSULT=Y items (W932/935/918.5/927,
+78.1 Mtok, W943-validated ±1-3%): coord-knowledge tool calls = 14/874 (1.6%
+activity share) ≈ 1.25 Mtok amortized banking spend. W943 numbers validated
+the attribution ledger; per-question raw data in
+[packages/suspenders/bench/w949/](packages/suspenders/bench/w949/README.md).
+
+| Question class | Banked (facts+kb) | Mechanical (decant) | Verdict |
+| --- | --- | --- | --- |
+| Telemetry (5 Q) | 0/5 judge picks, 0/5 coverage | 5/5 picks, 5/5 coverage | **mechanical, outright** |
+| Judgment (5 Q) | 2/5 coverage, 5/5 quality where banked | 5/5 coverage, ties 5/5 where both | **mechanical-first; facts = distilled judgment cache** |
+
+**Verdict: mechanical-first retrieval** — telemetry never gets banked (0/5
+picks; per-item fact rows carry work-prose, not numbers); judgment lessons
+stay banked as a ~17× cheaper-to-read distilled cache (640 B vs 11 KB per
+hit) but the mechanical layer covers the unbanked rest (J1/J4/J5 full marks
+from raw transcripts). STOP-banking verdict: only for telemetry-shaped rows.
+Caveats: J1/J4 mechanical hits included this bench's own synced transcript
+(self-echo, flagged); J3 mechanical answer echoes the banked row (the layers
+couple through transcripts).
 
 The deterministic [consult](packages/blam/bench/consult/scenario.md) and
 [paired-arm](packages/blam/bench/paired/scenario.md) suites both passed 6/6
