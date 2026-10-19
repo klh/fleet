@@ -15,7 +15,7 @@ import {
 import { laneSid } from "../lib/laneslug.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
 import { CLI, DEMO, db, WORK_CLI } from "./context.ts";
-import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
+import { startDecisionEval } from "./decide-eval.ts";
 import { laneExecFacts, llmRoute, localSwarmChat, runCli } from "./exec.ts";
 import { resolveLlmTarget } from "./executor-catalog.ts";
 import { json, readJson, writeGuard } from "./helpers.ts";
@@ -37,6 +37,58 @@ import { releaseCasRetry } from "./release-cas-retry.ts";
 // backoff retries ride the in-flight child (inFlight:true) instead of
 // stacking spawns. advise.ts clears the stamp on its terminal writes.
 const ADVISE_INFLIGHT_MS = 120_000;
+const adviceQueue: number[] = [];
+const adviceQueued = new Set<number>();
+let adviceRunning = false;
+
+// The pinned local-reason leg has only two slots, shared with agents. Board
+// clicks run one at a time rather than flooding that model with 503s.
+function runNextAdvice(): void {
+	if (adviceRunning) return;
+	const id = adviceQueue.shift();
+	if (id === undefined) return;
+	adviceRunning = true;
+	db.query("UPDATE facts SET value = 'running', ts = ? WHERE key = ?").run(
+		Date.now(),
+		`advice.${id}.requested`,
+	);
+	try {
+		const child = Bun.spawn(
+			[process.execPath, CLI("advise.ts"), String(id), "--panel"],
+			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+		);
+		void child.exited.then(
+			(code) =>
+				finishAdvice(id, code === 0 ? null : `advice worker exited ${code}`),
+			(error: unknown) =>
+				finishAdvice(
+					id,
+					error instanceof Error ? error.message : String(error),
+				),
+		);
+	} catch (error) {
+		finishAdvice(id, error instanceof Error ? error.message : String(error));
+	}
+}
+
+function finishAdvice(id: number, failure: string | null): void {
+	const key = `advice.${id}`;
+	const outcome = db
+		.query("SELECT key FROM facts WHERE key IN (?, ?) LIMIT 1")
+		.get(key, `${key}.error`) as { key: string } | null;
+	if (!outcome)
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'fleet-board', 1, ?)",
+		).run(
+			`${key}.error`,
+			failure ?? "advice worker stopped without a result",
+			Date.now(),
+		);
+	db.query("DELETE FROM facts WHERE key = ?").run(`${key}.requested`);
+	adviceQueued.delete(id);
+	adviceRunning = false;
+	runNextAdvice();
+}
 
 // W487 owner ruling: capture the human's answer directly for the owner when
 // the fork must not dead-end on Send-to-lane — classified owner-needed, or
@@ -583,19 +635,13 @@ export async function handleActions(
 			url.pathname.match(/\/api\/decisions\/(\d+)\/evaluate/)?.[1],
 		);
 		if (!id) return json({ ok: false, error: "bad id" }, 400);
-		try {
-			const entry = await evaluateDecision(id);
-			return json({
-				ok: true,
-				latest: entry,
-				count: decisionEvals(id).length,
-			});
-		} catch (e) {
-			return json(
-				{ ok: false, error: e instanceof Error ? e.message : String(e) },
-				502,
-			);
-		}
+		const row = db
+			.query("SELECT state FROM decisions WHERE event_id = ?")
+			.get(id) as { state: string } | null;
+		if (!row) return json({ ok: false, error: "unknown decision" }, 404);
+		if (row.state !== "OPEN")
+			return json({ ok: false, error: `decision is ${row.state}` }, 409);
+		return json({ ok: true, ...startDecisionEval(id) }, 202);
 	}
 	if (req.method === "POST" && url.pathname === "/api/ack") {
 		// board dismiss = CANCELLED (the UI confirms before calling).
@@ -648,23 +694,23 @@ export async function handleActions(
 		const inflight = db
 			.query("SELECT ts FROM facts WHERE key = ?")
 			.get(stamp) as { ts: number } | null;
-		if (inflight && Date.now() - inflight.ts < ADVISE_INFLIGHT_MS)
+		if (
+			adviceQueued.has(id) ||
+			(inflight && Date.now() - inflight.ts < ADVISE_INFLIGHT_MS)
+		)
 			return json({ ok: true, started: false, inFlight: true });
 		db.query(
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'fleet-board', 1, ?)",
-		).run(stamp, "in-flight", Date.now());
-		// W742.2: the advisory card renders panel verdicts + agreement — the
-		// detached child fans both oracle legs (advise.ts --panel)
-		const child = Bun.spawn(
-			[process.execPath, CLI("advise.ts"), String(id), "--panel"],
-			{
-				stdin: "ignore",
-				stdout: "ignore",
-				stderr: "ignore",
-			},
+		).run(stamp, adviceRunning ? "queued" : "running", Date.now());
+		db.query("DELETE FROM facts WHERE key IN (?, ?)").run(
+			`advice.${id}`,
+			`advice.${id}.error`,
 		);
-		child.unref();
-		return json({ ok: true, started: true });
+		adviceQueue.push(id);
+		adviceQueued.add(id);
+		const queued = adviceRunning;
+		runNextAdvice();
+		return json({ ok: true, started: !queued, queued });
 	}
 	if (req.method === "POST" && url.pathname === "/api/comment") {
 		// W55 — review line-comments: route a board note to the item's

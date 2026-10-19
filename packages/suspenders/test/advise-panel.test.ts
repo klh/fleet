@@ -275,6 +275,22 @@ describe("advice quality", () => {
 });
 
 describe("panel render chunk (W742.2)", () => {
+	test("transport retry budget advances across scheduled requests", () => {
+		const ctx = createContext({});
+		runInContext(CORE + DECISIONS, ctx);
+		runInContext(
+			"var advRetry = {}, advAttempts = {}, advising = {7: Date.now()}, advErr = {};",
+			ctx,
+		);
+		for (let n = 1; n <= 3; n++) {
+			runInContext("queueAdvRetry(7, 'transport failed')", ctx);
+			expect(runInContext("advRetry[7].n", ctx)).toBe(n);
+			runInContext("delete advRetry[7]", ctx);
+		}
+		runInContext("queueAdvRetry(7, 'transport failed')", ctx);
+		expect(runInContext("advRetry[7]", ctx)).toBeUndefined();
+		expect(runInContext("advErr[7]", ctx)).toBe("transport failed");
+	});
 	test("legacy heading cannot be copied to a decision", () => {
 		const ctx = createContext({});
 		runInContext(CORE + DECISIONS, ctx);

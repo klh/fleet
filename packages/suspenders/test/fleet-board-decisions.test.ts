@@ -10,8 +10,19 @@ import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 type Row = Record<string, unknown>;
-const { HOME, REPO, run, sleep, getData, getDecisions, post, fork, addWork } =
-	await boardFixture(0, afterAll);
+const {
+	TOKEN,
+	HOME,
+	REPO,
+	run,
+	sleep,
+	getData,
+	getDecisions,
+	post,
+	fork,
+	addWork,
+	BASE,
+} = await boardFixture(0, afterAll);
 
 describe("decision lifecycle (docs/decisions-api.md)", () => {
 	test("fork survives inbox ack; answer rotates the token; replay 200, stale 409, then ack", async () => {
@@ -441,7 +452,71 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		expect(second.json.ok).toBe(true);
 		expect(second.json.inFlight).toBe(true);
 		expect(second.json.started).toBe(false);
+		const pending = fork(await getDecisions(), "advise dedupe fork");
+		expect(pending.advicePending).toBe("in-flight");
 		sdb.close();
+	});
+
+	test("a lane's unique owned work links a decision without a --work payload", async () => {
+		const wid = addWork("decision linkage without payload work");
+		const sid = "decision-link-lane";
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		db.query(
+			"UPDATE work_items SET owner_sid = ?, state = 'CLAIMED' WHERE id = ?",
+		).run(sid, wid);
+		db.close();
+		expect(
+			run("coord.ts", ["bootstrap", "--as", sid, "--role", "worker"]).code,
+		).toBe(0);
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				sid,
+				"--note",
+				"link this fork to its owner",
+				"--as",
+				sid,
+			]).code,
+		).toBe(0);
+		const rec = fork(await getDecisions(), "link this fork to its owner");
+		expect(rec.task_id).toBe(wid);
+		expect(rec.task_title).toBe("decision linkage without payload work");
+	});
+
+	test("re-evaluation acknowledges promptly and reports terminal model error", async () => {
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"board-lane",
+				"--note",
+				"evaluate failure fork",
+				"--as",
+				"board-lane",
+			]).code,
+		).toBe(0);
+		const rec = fork(await getDecisions(), "evaluate failure fork");
+		const started = await fetch(`${BASE}/api/decisions/${rec.id}/evaluate`, {
+			method: "POST",
+			headers: { "x-klh-write-token": TOKEN },
+		});
+		expect(started.status).toBe(202);
+		const first = await started.json();
+		expect(first).toMatchObject({ ok: true, started: true, running: true });
+		let status: { running: boolean; error: string | null } | null = null;
+		for (let i = 0; i < 50; i++) {
+			const feed = await (
+				await fetch(`${BASE}/api/decisions/${rec.id}/evals`)
+			).json();
+			status = feed.status;
+			if (status && !status.running) break;
+			await sleep(100);
+		}
+		expect(status?.running).toBe(false);
+		expect(status?.error).toBeTruthy();
 	});
 
 	test("W798: same-anchor OPEN forks collapse — primary dup_count, member dup_of", async () => {

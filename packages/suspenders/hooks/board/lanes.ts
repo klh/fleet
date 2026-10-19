@@ -25,7 +25,7 @@ import {
 } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
-import { db } from "./context.ts";
+import { db, type EventRow } from "./context.ts";
 import { chunked } from "./helpers.ts";
 
 // W682: config facts ride a 3s memo — the liveness verdicts read them per
@@ -113,22 +113,43 @@ export function normOptions(v: unknown): string {
 	);
 }
 
-// enrichment straight off the (immutable) source event — task_id from
-// payload.work ONLY, never guessed from the note text
+// Link from explicit event work/scope, or a unique work item owned by the
+// emitting lane. Never infer an item id from free-form question text.
 export function enrich(
 	d: { event_id: number; target: string },
-	e: { source?: string | null; payload?: string | null } | null | undefined,
+	e:
+		| {
+				source?: string | null;
+				scope?: string | null;
+				ts?: number | null;
+				payload?: string | null;
+		  }
+		| null
+		| undefined,
 ): void {
 	let p: Record<string, unknown> = {};
 	try {
 		p = e?.payload ? JSON.parse(e.payload) : {};
 	} catch {}
+	const project = String(
+		p.project ?? projOf(e?.source ?? "") ?? projOf(d.target) ?? "",
+	);
+	let work = p.work != null ? String(p.work) : null;
+	if (!work && /^W\d+(?:\.\d+)*$/.test(e?.scope ?? "")) work = e?.scope ?? null;
+	if (!work && project && e?.source && e.ts) {
+		const owned = db
+			.query(
+				"SELECT id FROM work_items WHERE project = ? AND owner_sid = ? AND created_at <= ? LIMIT 2",
+			)
+			.all(project, e.source, e.ts) as { id: string }[];
+		if (owned.length === 1) work = owned[0].id;
+	}
 	db.query(
-		"UPDATE decisions SET asked_by = ?, project = ?, task_id = COALESCE(task_id, ?), question = COALESCE(question, ?), options = COALESCE(options, ?) WHERE event_id = ?",
+		"UPDATE decisions SET asked_by = ?, project = COALESCE(NULLIF(?, ''), project), task_id = COALESCE(task_id, ?), question = COALESCE(question, ?), options = COALESCE(options, ?) WHERE event_id = ?",
 	).run(
 		String(e?.source ?? d.target),
-		String(p.project ?? projOf(e?.source) ?? projOf(d.target) ?? ""),
-		p.work != null ? String(p.work) : null,
+		project,
+		work,
 		String(p.note ?? p.question ?? ""),
 		normOptions(p.options),
 		d.event_id,
@@ -155,7 +176,7 @@ export function syncDecisions(): void {
 	// change them together.
 	for (const e of db
 		.query(
-			"SELECT id, ts, source, target, payload FROM events WHERE kind LIKE 'NEED%' AND target IS NOT NULL AND id NOT IN (SELECT event_id FROM decisions) ORDER BY id",
+			"SELECT id, ts, source, target, scope, payload FROM events WHERE kind LIKE 'NEED%' AND target IS NOT NULL AND id NOT IN (SELECT event_id FROM decisions) ORDER BY id",
 		)
 		.all() as EventRow[]) {
 		db.query(
@@ -174,15 +195,17 @@ export function syncDecisions(): void {
 	// v1 rows: backfill the enrichment columns from the source event
 	for (const d of db
 		.query(
-			"SELECT event_id, target FROM decisions WHERE asked_by IS NULL OR project IS NULL OR question IS NULL",
+			"SELECT event_id, target FROM decisions WHERE (asked_by IS NULL OR project IS NULL OR question IS NULL OR (task_id IS NULL AND state = 'OPEN')) AND EXISTS (SELECT 1 FROM events WHERE events.id = decisions.event_id)",
 		)
 		.all() as { event_id: number; target: string }[]) {
 		enrich(
 			d,
 			db
-				.query("SELECT source, payload FROM events WHERE id = ?")
+				.query("SELECT source, scope, ts, payload FROM events WHERE id = ?")
 				.get(d.event_id) as {
 				source: string;
+				scope: string | null;
+				ts: number;
 				payload: string | null;
 			} | null,
 		);
