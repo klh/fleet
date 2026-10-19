@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var p=(n)=>{if(n===null||!Number.isFinite(n))return"—";if(Math.abs(n)>=1e6)return`${(n/1e6).toFixed(1)}M`;if(Math.abs(n)>=1000)return`${(n/1000).toFixed(1)}k`;return String(n)},b=(n)=>n===null?"unknown":n<90?`${n}s`:`${Math.round(n/60)}m`,f=(n)=>{if(n===null)return 1;if(n>=100)return 4;if(n>=20)return 3;if(n>=5)return 2;return 1},y=r`
+import{r,e,t,s}from"./lit-bc7ky2yb.js";import{a}from"./lit-hg52k985.js";var p=(n)=>{if(n===null||!Number.isFinite(n))return"—";if(Math.abs(n)>=1e6)return`${(n/1e6).toFixed(1)}M`;if(Math.abs(n)>=1000)return`${(n/1000).toFixed(1)}k`;return String(n)},b=(n)=>n===null?"unknown":n<90?`${n}s`:`${Math.round(n/60)}m`,f=(n)=>{if(n===null)return 1;if(n>=100)return 4;if(n>=20)return 3;if(n>=5)return 2;return 1},y=r`
 	.hrow {
 		display: flex;
 		gap: 8px;

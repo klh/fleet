@@ -82,6 +82,15 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 	await expect(
 		reg.getByText(/Route registration is configuration/),
 	).toBeVisible();
+	const service = page.locator("klh-service-row").first();
+	await expect(service).toBeVisible();
+	const evidence = service.locator("details.evidence");
+	await expect(evidence.locator("summary")).toContainText(
+		/\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}/,
+	);
+	await expect(evidence.locator("summary")).toHaveAttribute("title", /UTC/);
+	await evidence.locator("summary").click();
+	await expect(evidence.locator(".evidenceBody")).toContainText("Source:");
 	await page.screenshot({ path: `${SHOTS}/local-cards.png`, fullPage: true });
 
 	await page.goto(`${B.BASE}/console/settings`);

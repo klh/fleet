@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["governor","Governor"],["setup","Setup"]];class o extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
+import{r,e,t,s}from"./lit-bc7ky2yb.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["governor","Governor"],["setup","Setup"]];class o extends s{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
 		:host {
 			display: block;
 		}
