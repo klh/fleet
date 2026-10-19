@@ -900,8 +900,7 @@ const dispatchItem = async (
 					governanceMode(),
 				);
 				if (decision.mode === "governed") {
-					applyLaneAttribution(env, sid);
-					env.ANTHROPIC_AUTH_TOKEN = decision.key;
+					applyLaneAttribution(env, sid, undefined, decision.key);
 					ownedKeyId = decision.keyId;
 					const meta = `${JSON.stringify({ sid, key_id: decision.keyId, mintedAt: Date.now() }, null, 2)}\n`;
 					writtenFiles.set(laneKeyMetaPath(FLEET, sid), meta);

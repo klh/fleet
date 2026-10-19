@@ -52,6 +52,10 @@ export interface ExecutorAdapter {
 	promptArgs(prompt: string): string[];
 	/** W454 starter-session fork args; null = no fork support (cold start). */
 	forkArgs(sessionId: string): string[] | null;
+	/** W918.3: the one-turn starter-seed argv (claude JSON grammar). Absent
+	 *  = not starter-seedable (cold start) — fork grammar alone never
+	 *  implies the seed turn; copilot/codex have no verified seed recipe. */
+	starterSeedArgs?: (seed: string) => string[];
 	/** Process-table names this executor answers to (liveness matcher). */
 	processNames: string[];
 	/** PATH-independent install locations probed when `which` misses —
@@ -213,12 +217,20 @@ export const applyLaneAttribution = (
 	env: Record<string, string>,
 	slug: string,
 	front = BUCKLE_FRONT,
+	key?: string,
 ): void => {
 	const root = `${front}/w/${slug}`;
 	env.ANTHROPIC_BASE_URL = root;
 	env.OPENAI_BASE_URL = `${root}/v1`;
 	env.OPENAI_API_BASE = `${root}/v1`;
+	env.COPILOT_PROVIDER_BASE_URL = `${root}/v1`;
 	env.GOOGLE_GEMINI_BASE_URL = root;
+	// W918.3: the copilot executor rides the same front by BYOK (openai
+	// wire, Bearer lane key) — one attribution, every executor's vars.
+	if (key) {
+		env.ANTHROPIC_AUTH_TOKEN = key;
+		env.COPILOT_PROVIDER_API_KEY = key;
+	}
 };
 
 // The tool-permission recipe is the CLAUDE spawn recipe — it lives in the

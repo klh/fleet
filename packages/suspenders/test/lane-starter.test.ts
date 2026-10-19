@@ -124,12 +124,16 @@ describe("lane-starter", () => {
 	});
 
 	test("forkArgsFor: claude only, others catalog-only", () => {
+		// W918.3: copilot joined the fork set (--session-id, live-verified on
+		// 1.0.98); the legacy name stays — the W833 claim-check matches test
+		// NAMES, so a rename reads as a deleted test. Assertions are truth.
 		expect(forkArgsFor("claude", "s1")).toEqual([
 			"--resume",
 			"s1",
 			"--fork-session",
 		]);
-		for (const h of ["copilot", "codex", "gemini", "grok"]) {
+		expect(forkArgsFor("copilot", "s1")).toEqual(["--session-id", "s1"]);
+		for (const h of ["codex", "gemini", "grok"]) {
 			expect(forkArgsFor(h, "s1")).toBeNull();
 		}
 	});
