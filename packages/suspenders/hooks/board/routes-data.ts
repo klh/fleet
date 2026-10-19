@@ -23,7 +23,7 @@ import {
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
 import { json } from "./helpers.ts";
-import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
+import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
 import { traceForWork } from "./orch-trace.ts";
@@ -220,6 +220,9 @@ export async function handleData(
 				unblockedBy(),
 				undefined,
 				itemAttribution(db as unknown as Database, p).get(id) ?? null,
+				null,
+				undefined,
+				signalFor(p, id),
 			),
 			events: workEvents(p, id),
 			trace: traceForWork(p, id, w.parent_id),

@@ -202,6 +202,24 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
 	},
+	{
+		// W969 Signals-lite — per-run silent-failure scan of closed lanes
+		// through the pinned oracle leg (:8903 default): bounded evidence
+		// (transcript tail + capsule + done payload), fixed four-class prompt,
+		// verdict → lane.signal events + the blam intake queue. Leg down =
+		// hold + retry next fire, silently; never blocks lane close.
+		// SUSPENDERS_SIGNALS_SCAN=0 disables the runner.
+		name: "signals-scan",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 240_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/signals-scan.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree

@@ -229,7 +229,8 @@ function taskRow(t, parentId, depth){
   return '<tr class="' + (parentId ? 'taskkid' : '') + '"' + (parentId ? ' style="--indent:' + (Math.min(Number(depth) || 1, 4) * 12) + 'px"' : '') + ' data-tid="' + esc(t.id) + '"><td>' + pdot + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog"' + (parentId ? ' aria-label="' + esc(t.id) + ', child of ' + esc(parentId) + '"' : '') + '>' + esc(t.id) + '</button></td>' +
     '<td class="mono dim">' + esc(projShort(t.project)) + '</td>' +
     '<td class="ttitle">' + esc(String(t.title || '(untitled)')).slice(0, 120) +
-      (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
+      (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') +
+      (t.signal ? '<div class="tail dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>' : '') + '</td>' +
     '<td>' + taskPill(displayState(t)) + '</td>' +
     '<td>' + esc(owner) + '</td>' +
     '<td class="num"' + (t.spend ? ' title="' + esc(spendStripText(t.spend)) + '"' : '') + '>' + esc(spendCell(t)) + '</td>' +
@@ -453,6 +454,7 @@ function kanbanCard(t, fam){
   html += spendStripHtml(t);
   if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="' + esc(String(t.failure_note)) + '">' + esc(String(t.failure_note)) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
+  if (t.signal) html += '<div class="ksignal dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>';
   if (startable) {
     var pick = defaultPick(t);
     var opts = execOptions(pick);
@@ -640,6 +642,8 @@ function updateKanbanVolatile(el, shownAll){
     if (ageEl) ageEl.textContent = agoShort(t.age_s);
     var tailEl = c.querySelector('.ktail');
     if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
+    var sigEl = c.querySelector('.ksignal');
+    if (sigEl) sigEl.textContent = t.signal ? '⚑ ' + t.signal.class + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%' : '';
   }
 }
 // visible-card edge list: [{cls, from, to}] — blocked (orange): dep card →

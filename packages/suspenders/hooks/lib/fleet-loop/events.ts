@@ -3,14 +3,16 @@
 // the tick raises (stall-watch, rogue sweep). Failures are swallowed —
 // events are advisory, the tick must survive.
 import { openStore } from "../govdb.ts";
+import type { GovernorStore } from "../govdb.ts";
 
 export function emitLoopEvent(
 	kind: string,
 	item: string,
 	payload: object,
+	store: GovernorStore = openStore(),
 ): void {
 	try {
-		openStore()
+		store
 			.query(
 				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', ?, ?, ?, NULL)",
 			)
