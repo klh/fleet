@@ -35,6 +35,14 @@ import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
+// W911: the plaid posture switch — read/write .fleet/posture (the file
+// dispatch-next reads once per invocation).
+import {
+	parsePosture,
+	postureWidth,
+	readPosture,
+	writePosture,
+} from "../lib/plaid.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import { itemClaimOf } from "../lib/ladder-lease.ts";
 import { flushOnDoneWait } from "../lib/merge-on-done.ts";
@@ -336,6 +344,21 @@ if (MODE === "lanes") {
 			`${identity === true ? "ALIVE" : identity === null ? "unknown" : "dead "}  ${l.item.padEnd(10)} ${l.sid.padEnd(16)} pid ${String(l.pid).padEnd(8)} ${(l.agent ?? "claude").padEnd(7)} ${l.branch}`,
 		);
 	}
+	process.exit(0);
+}
+
+// posture: the W911 plaid switch — read shows, an arg writes (steady|plaid).
+if (MODE === "posture") {
+	const arg = argv[1] && !argv[1].startsWith("--") ? argv[1] : undefined;
+	if (arg && !parsePosture(arg)) {
+		console.error("usage: fleet-loop posture [steady|plaid] --repo <dir>");
+		process.exit(1);
+	}
+	if (arg) writePosture(`${REPO}/.fleet`, parsePosture(arg));
+	const p = readPosture(`${REPO}/.fleet`);
+	console.log(
+		`posture: ${p} — loop stop ${postureWidth(p, 6)} lanes (steady --target 6; plaid per-pool 6-8 + overflow 2, cap 18)`,
+	);
 	process.exit(0);
 }
 

@@ -559,11 +559,11 @@ export function labelMaps(): {
 // lane.<sid>.<k>. Consumers read the same values laneModelOf returns.
 export function laneModelMaps(): Map<
 	string,
-	{ executor: string | null; model: string; locality: string }
+	{ executor: string | null; model: string; locality: string; route: string }
 > {
 	const map = new Map<
 		string,
-		{ executor: string | null; model: string; locality: string }
+		{ executor: string | null; model: string; locality: string; route: string }
 	>();
 	for (const r of db
 		.query("SELECT key, value FROM facts WHERE key GLOB 'lane.*.*'")
@@ -575,12 +575,13 @@ export function laneModelMaps(): Map<
 		const k = rest.slice(dot + 1);
 		let e = map.get(sid);
 		if (!e) {
-			e = { executor: null, model: "", locality: "" };
+			e = { executor: null, model: "", locality: "", route: "" };
 			map.set(sid, e);
 		}
 		if (k === "executor") e.executor = r.value;
 		else if (k === "model") e.model = r.value;
 		else if (k === "locality") e.locality = r.value;
+		else if (k === "route") e.route = r.value;
 	}
 	return map;
 }
