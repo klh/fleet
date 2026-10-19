@@ -202,6 +202,7 @@ function stLetter(label){
 }
 function taskPill(state){
   var s = String(state || '').toLowerCase();
+  if (state === 'SHATTERED') return '<span class="pill ready" title="Split into child work items; completes when required children finish">' + stLetter('split') + 'split</span>';
   if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + stLetter(s) + s + '</span>';
   if (state === 'DONE') return '<span class="pill done">' + stLetter('done') + 'done</span>';
   if (state === 'CANCELLED') return '<span class="pill cancel">' + stLetter('cancelled') + 'cancelled</span>';

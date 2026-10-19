@@ -31,6 +31,7 @@ type Item = Record<string, unknown>;
 
 function chunkSandbox(): {
 	taskRow: (t: Item, parentId?: string | null) => string;
+	taskTreeHtml: (pool: Item[]) => string;
 	kanbanCard: (t: Item) => string;
 	laneStamp: (s: string) => string;
 } {
@@ -39,7 +40,7 @@ function chunkSandbox(): {
 		"taskPill",
 		"agoShort",
 		"window",
-		`${TASKS}\nreturn { taskRow, kanbanCard, laneStamp };`,
+		`${TASKS}\nreturn { taskRow, taskTreeHtml, kanbanCard, laneStamp };`,
 	);
 	return fn(esc, taskPill, agoShort, {
 		__execPrefs: [],
@@ -109,6 +110,24 @@ describe("board spend cells (W776)", () => {
 		});
 		expect(card).toContain(stamp);
 		expect(card).not.toContain("(local ");
+	});
+
+	test("Tasks keeps deep children under their own project parent", () => {
+		const { taskTreeHtml } = chunkSandbox();
+		const base = { title: "test", state: "SHATTERED", age_s: 60 };
+		const html = taskTreeHtml([
+			{ ...base, project: "p2", id: "W934" },
+			{ ...base, project: "p1", id: "W934.2.2", parent_id: "W934.2" },
+			{ ...base, project: "p1", id: "W934" },
+			{ ...base, project: "p1", id: "W934.2", parent_id: "W934" },
+		]);
+		const p1 = html.indexOf('data-proj="p1"');
+		const child = html.indexOf('data-task="W934.2"');
+		const grandchild = html.indexOf('data-task="W934.2.2"');
+		expect(p1).toBeGreaterThan(-1);
+		expect(child).toBeGreaterThan(p1);
+		expect(grandchild).toBeGreaterThan(child);
+		expect(html).toContain("--indent:24px");
 	});
 
 	test("request histogram starts left and advances in three-minute bins", () => {

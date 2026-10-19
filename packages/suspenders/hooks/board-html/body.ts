@@ -70,7 +70,7 @@ export const BODY = String.raw`
     <select id="taskProj"><option value="all">all projects</option></select>
     <label class="plabel" for="taskOwner">session</label>
     <select id="taskOwner"><option value="all">all sessions</option></select>
-    <label class="plabel"><input type="checkbox" id="taskDone"> completed</label>
+    <label class="plabel"><input type="checkbox" id="taskDone"> history (done + cancelled)</label>
     <span id="taskCount" class="dim"></span>
   </div>
 

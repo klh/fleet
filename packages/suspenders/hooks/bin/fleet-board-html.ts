@@ -175,6 +175,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 #tasksTbl { width:100%; border-collapse:collapse; font-size:12.5px; }
 #tasksTbl th { text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); border-bottom:1px solid var(--klh-edge); padding:6px 10px; }
 #tasksTbl td { border-bottom:1px solid var(--klh-edge-faint); padding:7px 10px; vertical-align:top; }
+#tasksTbl tr.taskkid td:first-child { padding-left:calc(10px + var(--indent, 12px)); border-left:2px solid var(--klh-edge-mid); }
+#tasksTbl tr.taskkid { background:var(--klh-wash); }
 #tasksTbl tbody tr:hover { background:var(--klh-surface); }
 #tasksTbl th button.thsort { all:unset; cursor:pointer; font:inherit; color:inherit; text-transform:inherit; letter-spacing:inherit; }
 #tasksTbl th button.thsort:hover { text-decoration:underline; text-underline-offset:3px; }
@@ -252,10 +254,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcard.ksel { border-color:var(--klh-accent); box-shadow:0 0 0 2px var(--klh-accent-wash); }
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
-.kcard.kkid { border-style:dashed; }
-.krow { display:flex; gap:4px; align-items:baseline; }
+.kcard.kkid { border-style:dashed; position:relative; }
+.kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
+.krow { display:flex; gap:4px; align-items:center; min-width:0; }
+.krow .pill { margin-left:0; flex:none; }
+.krow .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
-.krow .kwhen { flex:none; white-space:nowrap; font-size:8px; font-variant-numeric:tabular-nums; }
+.kcardstamp { text-align:right; margin-top:2px; font-size:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
 .ktitle { margin-top:6px; font-weight:600; line-height:1.32; word-break:break-word; }
 .kmeta { display:flex; align-items:center; gap:6px; margin-top:5px; min-width:0; }
@@ -295,7 +300,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kspark svg { display:block; max-width:100%; }
 .kspark .spark-fresh { fill:var(--klh-accent); }
 .kspark .spark-cached { fill:var(--klh-ok-ink); }
-.ksparkaxis { display:flex; justify-content:space-between; font-size:7px; line-height:1.2; }
+.ksparkaxis { display:none; justify-content:space-between; font-size:7px; line-height:1.2; }
 .kspendtxt { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
 .kspend-drawer .kspark { margin-top:6px; }
 .kspend-drawer .ksparkplot { width:240px; }

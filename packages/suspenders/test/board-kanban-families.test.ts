@@ -177,6 +177,8 @@ describe("board kanban shattered families (W819)", () => {
 	});
 
 	test("page CSS: kkid rides a dashed border", () => {
-		expect(HTML).toContain(".kcard.kkid { border-style:dashed; }");
+		expect(HTML).toContain(
+			".kcard.kkid { border-style:dashed; position:relative; }",
+		);
 	});
 });
