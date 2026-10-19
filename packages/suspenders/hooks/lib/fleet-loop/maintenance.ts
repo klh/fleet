@@ -188,6 +188,20 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/metrics-alert.ts")],
 	},
+	{
+		// W944: the enterprise knowledge sync — decant headless (sync →
+		// stats/ls --json, never the db, never transcript surfaces) + the
+		// lesson./finding. fact feed, policy-gated (config-over-code,
+		// ~/.config/klh/knowledge-sync.json 0600; no file = disabled),
+		// pushed to every configured hub board /api/knowledge-ingest with the
+		// x-klh-write-token. Facts land hub-side as candidate rows (the W142
+		// promote gate governs activation); metrics as idempotent rollups.
+		name: "knowledge-sync",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
