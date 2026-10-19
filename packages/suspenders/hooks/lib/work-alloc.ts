@@ -15,6 +15,7 @@
 // (candidateLanes reads the lane's last items), a lane owning scope with zero
 // overlap takes SCOPE_MISS_PENALTY, ties break score > overlap > load >
 // live > sid, and the reason string carries the matched tokens as evidence.
+import type { Database } from "bun:sqlite";
 import { unmergedDeps, type DepRow } from "./dep-merge-gate.ts";
 import { laneAlive, transcriptPath, type LaneRef } from "./lane-liveness.ts";
 import type { GovernorStore } from "./govdb.ts";
@@ -440,4 +441,22 @@ export function applyAllocations(
 		else skipped.push({ item: d.item, why: String(r.why) });
 	}
 	return { applied, skipped };
+}
+
+// W846: the child-id allocator, moved verbatim from bin/work.ts (1500-line
+// cap offset) — max numeric suffix, not COUNT — a deleted child must not
+// cause a collide
+export function nextChildIdOf(
+	db: Database,
+	project: string,
+	parent: string,
+): string {
+	const n = (
+		db
+			.query(
+				"SELECT MAX(CAST(SUBSTR(id, length(?) + 2) AS INTEGER)) AS m FROM work_items WHERE project = ? AND parent_id = ?",
+			)
+			.get(parent, project, parent) as { m: number | null }
+	).m;
+	return `${parent}.${(n ?? 0) + 1}`;
 }

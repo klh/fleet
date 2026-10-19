@@ -83,8 +83,10 @@ Work graph (`work` — the ONE ledger; never Markdown todos):
   lanes (reclaimed-first FIFO, decisions {assign|recommend} with
   alloc_reason audit trail; `--apply` claims only the assign kind)
 - `work done <id> --sha <sha>` — close with evidence
-- `work add <title> [--parent <id>] [--priority n] [--desc ...]` — mint
-  (never invent work; empty title = unfilled item)
+- `work add <title> [--parent <id>] [--priority n] [--desc ...]
+  [--tag t1,t2]` — mint (never invent work; empty title = unfilled item;
+  W846: `--tag` stamps classification tags, comma-set — split children
+  inherit the parent's)
 - `work split` — fan out parallelizable work · `work lanes [--json]` —
   lane liveness (the one liveness surface)
 - `work reclaim all` — dead lanes' claims → READY (ghost cleanup)

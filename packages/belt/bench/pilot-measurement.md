@@ -109,3 +109,18 @@ and nothing more.
 - instrumentation for the four not-instrumented surfaces tracks under
   the item this record closes (see W845 done note); defect tracking and
   a human-time surface are the two with fleet-side fix paths.
+
+## W846 instrumented follow-up
+
+Two of the four gaps closed (2026-10-19, `pilot-measure.ts`):
+
+- **human time** — NEED_DECISION emit/settle latency is now read from the
+  board `decisions` table (`/api/decisions?history=1`): windowed on the
+  ask, settled = `answered_ts`, CANCELLED excluded from latency, and
+  per-item attribution via `task_id` (`summary.human`,
+  `items[].human_time_min`). Chair, seats, energy remain external.
+- **defects** — rework is classified at MINT time by the `fix`/`re-land`
+  tags (`work add --tag`; split children inherit), not by title regex —
+  `items.rework_children` counts tagged children of done parents only.
+  Historical items stay untagged: the counter is exact from the W846
+  landing forward.

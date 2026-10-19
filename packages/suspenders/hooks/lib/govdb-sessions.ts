@@ -2,6 +2,7 @@
 // liveness sweep and the W293 session-name bridge.
 import type { Database } from "bun:sqlite";
 import { transcriptAlive } from "./lane-liveness.ts";
+import { dieFor } from "./verb-kit.ts";
 
 // Liveness sweep shared by gc, coord bootstrap, the monitor, and session-start
 // (every bootstrap sweeps). Two signals: hb-stale (updates only at bootstrap)
@@ -75,6 +76,25 @@ export function tagNameOf(raw: string | null | undefined): string | null {
 	} catch {
 		return null;
 	}
+}
+
+// W846: the sid-expansion guard, moved verbatim from bin/work.ts (1500-line
+// cap offset): take/start/done/release resolve a truncated sid to the full
+// owner of record before compare. Exact sid wins first — a full sid must
+// never die on its own prefix family (autow219 vs autow2190… made
+// `work take --as autow219` ambiguous); unknown sids pass through untouched.
+const die = dieFor("work");
+export function resolveSidOf(db: Database, as: string): string {
+	const exact = db.query("SELECT sid FROM sessions WHERE sid = ?").get(as) as
+		| { sid: string }
+		| undefined;
+	if (exact) return exact.sid;
+	const sm = db
+		.query("SELECT sid FROM sessions WHERE sid LIKE ? || '%'")
+		.all(as) as { sid: string }[];
+	if (sm.length === 1) return sm[0].sid;
+	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
+	return as;
 }
 
 // a transcript written within the last 15 minutes = live process — W466:
