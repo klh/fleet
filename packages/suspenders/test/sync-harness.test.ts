@@ -66,6 +66,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"gate.ts",
 		"session-start.ts",
 		"session-end.ts",
+		"pre-compact.ts",
 		"statusline.ts",
 		"subagent-statusline.ts",
 		"bin/coord.ts",
@@ -197,6 +198,11 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	expect(
 		readFileSync(join(f.ctx.prefix, ".githooks/pre-commit"), "utf8"),
 	).toContain("scrub-gate.ts");
+	// W968: the W253 checkpoint roll rides the prefix as its own face —
+	// the settings.json PreCompact hook targets this path.
+	expect(lstatSync(join(f.ctx.prefix, "pre-compact.ts")).isSymbolicLink()).toBe(
+		true,
+	);
 	// Runtime code and shared imports survive deletion of the source checkout.
 	rmSync(f.source, { recursive: true, force: true });
 	expect(readFileSync(packagedDefaults, "utf8")).toContain("reviewed-default");
