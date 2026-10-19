@@ -180,7 +180,7 @@ class BeltTopology extends LitElement {
 				<text class="group" x="850" y="35">CLOUD PROVIDERS · CONFIGURED MODELS</text>
 				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
 					${this.machine(20, 52, 400, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "state unobserved" : data.gateway}`, data.gateway, models, true)}
-				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
+				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.displayName || item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
 				${clouds.map((item) => {
 					const y = cloudY;
 					cloudY += 68 + Math.max(1, item.models.length) * 19;

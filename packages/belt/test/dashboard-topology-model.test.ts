@@ -50,7 +50,15 @@ describe("Belt topology", () => {
 			},
 			{
 				observation,
-				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+				targets: [
+					{
+						kind: "hub",
+						name: "NAS",
+						displayName: "Lab NAS",
+						state: "up",
+						port: 4101,
+					},
+				],
 			},
 			now,
 		);
@@ -78,7 +86,9 @@ describe("Belt topology", () => {
 				state: "idle",
 			},
 		]);
-		expect(model.hubs).toEqual([{ name: "NAS", state: "up", port: 4101 }]);
+		expect(model.hubs).toEqual([
+			{ name: "NAS", displayName: "Lab NAS", state: "up", port: 4101 },
+		]);
 		expect(model.machines).toEqual([
 			{
 				name: "nas",

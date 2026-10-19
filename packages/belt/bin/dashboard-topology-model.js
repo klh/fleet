@@ -145,6 +145,7 @@ export function buildTopology(
 		},
 		hubs: hubs.map((item) => ({
 			name: String(item.name),
+			...(item.displayName ? { displayName: String(item.displayName) } : {}),
 			state: stateOf(item.state === "up" && !item.alert, hubFresh),
 			port: item.port,
 		})),

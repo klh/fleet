@@ -20,6 +20,7 @@ const STACK = `version: 0000000000000000000000000000000000000001
 hubs:
   nas:
     host: nas.example.lan
+    display_name: Lab NAS
     url: http://nas.example.lan:4101
     deploy:
       ssh: kk@nas.example.lan
@@ -45,6 +46,7 @@ describe("hubTargets heal wiring", () => {
 		expect(row?.heal).toBeInstanceOf(Function);
 		expect(row?.quietHours).toBeInstanceOf(Function);
 		expect(row?.bindTimeoutMs).toBe(90_000);
+		expect(row?.displayName).toBe("Lab NAS");
 	});
 
 	test("profile-less row stays probe-only", () => {

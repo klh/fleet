@@ -365,6 +365,10 @@ th { text-align:left; font-weight:400; font-size:var(--klh-text-xs); text-transf
 .chip { display:inline-block; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:2px 8px; font-size:var(--klh-text-sm); color:var(--klh-dim); margin:6px 6px 0 0; background:transparent; }
 .rhead { display:flex; align-items:center; margin:6px 0 0; }
 .rhead button { margin-left:auto; }
+.route-details { border-top:1px solid var(--klh-edge); margin-top:var(--klh-space-3); padding-top:var(--klh-space-2); }
+.route-details > summary { cursor:pointer; color:var(--klh-ink); font-size:var(--klh-text-sm); }
+.route-details > summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
+.route-details h2 { margin-top:var(--klh-space-3); }
 button { border:1px solid var(--klh-edge); border-radius:var(--klh-radius); background:transparent; color:var(--klh-dim); font:inherit; font-size:var(--klh-text-sm); padding:2px 10px; cursor:pointer; letter-spacing:.04em; }
 button:hover { color:var(--klh-ink); border-color:var(--klh-accent); }
 .badge { display:inline-block; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:0 6px; font-size:var(--klh-text-xs); letter-spacing:.08em; text-transform:uppercase; color:var(--klh-dim); margin-right:2px; }
@@ -401,9 +405,12 @@ ${fleetNav("belt", "models")}
 </details>
 <div class="rhead"><span id="remotesnote" class="mut">loading…</span><button id="remotesbtn" type="button">refresh</button></div>
 <div id="remotesdisc"></div>
+<details class="route-details"><summary>Recent Belt routes and router audit</summary>
+<h2>Observed routes</h2>
 <div id="remoteslog"></div>
-<h2>Routing log</h2>
+<h2>Router audit</h2>
 <div id="log">—</div>
+</details>
 <div id="prefsline"></div>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
@@ -511,7 +518,7 @@ function hhmmss(ts){
 }
 function fmt(line){
   try{var e=JSON.parse(line);
-    return e.ts.slice(11,19)+'  '+e.category+'  '+short(e.model)+'  :'+e.port+'  '+e.duration_ms+'ms  '+e.tier+(e.escalated?'  cloud':'');
+    return new Date(e.ts).toLocaleString()+'  '+e.category+'  '+short(e.model)+'  :'+e.port+'  '+e.duration_ms+'ms  '+(e.tier||'—')+(e.escalated?'  cloud':'');
   }catch(_){return line;}
 }
 
@@ -545,7 +552,7 @@ function applyRemotes(s){
     :'');
   fetch('/api/metrics').then(function(r){return r.json();}).then(function(m){
     var lines=(m.recent||[]).map(function(e){
-      return e.ts.slice(11,19)+'  '+e.role+'  →  '+e.machine+':'+e.port
+      return new Date(e.ts).toLocaleString()+'  '+e.role+'  →  '+e.machine+':'+e.port
         +(e.model?'  '+short(e.model):'')+'  '+e.duration_ms+'ms'+(e.ok?'':'  FAILED');
     });
     remoteslog.textContent=lines.length
