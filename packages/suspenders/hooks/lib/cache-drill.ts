@@ -10,12 +10,13 @@
 // oversized fresh context), each with an example rid and a next action.
 // A hub that does not serve the seam yet (pre-W824) degrades to a row with
 // ok:false + reason — the panels stay honest until it lands.
+
+import type { CrossHubEnv } from "./cross-hub-usage.ts";
 import {
+	crossHubLabels,
 	envToken,
 	resolveHubEndpoints,
-	crossHubLabels,
 } from "./cross-hub-usage.ts";
-import type { CrossHubEnv } from "./cross-hub-usage.ts";
 import { readAdminKey } from "./doctor.ts";
 import { tryLoadStack } from "./stack-config.ts";
 
@@ -138,11 +139,20 @@ export interface MissReasonCluster {
 	detail: string;
 }
 
+/** Cluster options: which hub labels stopped at the row cap before the
+ *  window start — their oldest sampled lane rows have unknown predecessors,
+ *  so a first-sampled miss there is a truncation boundary, never cold
+ *  start (W925). */
+export interface MissReasonOpts {
+	truncatedHubs?: Set<string>;
+}
+
 /** A lane's rows (one lane or all lanes) sorted by ts, walked once; every
  *  MISS (cache_r === 0) falls into the first matching rule. Rows with
  *  unknown usage (cache_r === null) never count as misses. */
 export function clusterMissReasons(
 	rows: BuckleRequestRow[],
+	opts: MissReasonOpts = {},
 ): MissReasonCluster[] {
 	const byKey = new Map<string, MissReasonCluster>();
 	const previousByLane = new Map<string, BuckleRequestRow>();
@@ -177,6 +187,15 @@ export function clusterMissReasons(
 			continue;
 		}
 		if (thisPrev === null) {
+			if (row.hub !== undefined && opts.truncatedHubs?.has(row.hub)) {
+				add(
+					"window_boundary",
+					"older requests not fetched",
+					"the fetched coverage starts at this request — the lane's earlier requests were not read (row cap), so this miss is not counted as cold start",
+					row,
+				);
+				continue;
+			}
 			add(
 				"cold_start",
 				"cold start",
@@ -447,6 +466,11 @@ export interface HubDrillStatus {
 	/** Non-model audit rows returned by a hub that ignored inference=true. */
 	excluded?: number;
 	rawRows?: number;
+	/** true = the row cap stopped the window walk before `since`. */
+	truncated?: boolean;
+	/** Oldest/newest ts actually fetched — the walk's exact coverage. */
+	coverageFrom?: string | null;
+	coverageTo?: string | null;
 	fetchedAt: string | null;
 }
 
@@ -454,50 +478,162 @@ export type RequestFetcher = (
 	url: string,
 	token: string | null,
 	days: number,
+	maxRows: number,
 ) => Promise<
-	| { ok: true; rows: BuckleRequestRow[]; excluded?: number; rawRows?: number }
+	| {
+			ok: true;
+			rows: BuckleRequestRow[];
+			excluded?: number;
+			rawRows?: number;
+			truncated?: boolean;
+			coverageFrom?: string | null;
+			coverageTo?: string | null;
+	  }
 	| { ok: false; why: string }
 >;
 
-/** One GET /v1/admin/requests against a hub base URL. The W824 admin route
- *  returns {requests:[...]}, capped at 500 rows per read. */
+/** One GET /v1/admin/requests page against a hub base URL. The W824 admin
+ *  route returns {requests:[...]}, capped at 500 rows per read; until +
+ *  before_rid carry the W925 keyset cursor (strict continuation after the
+ *  (ts, rid) row, same-ts tie groups included). */
+async function fetchRequestPage(
+	url: string,
+	headers: Record<string, string>,
+	since: string,
+	until: string | null,
+	beforeRid: string | null,
+	timeoutMs: number,
+): Promise<{ ok: true; wire: unknown[] } | { ok: false; why: string }> {
+	const query = new URLSearchParams({
+		since,
+		limit: "500",
+		inference: "true",
+	});
+	if (until !== null && beforeRid !== null) {
+		query.set("until", until);
+		query.set("before_rid", beforeRid);
+	}
+	const res = await fetch(`${url}/v1/admin/requests?${query.toString()}`, {
+		headers,
+		signal: AbortSignal.timeout(timeoutMs),
+	});
+	if (res.status === 404)
+		return { ok: false, why: "seam not served (pre-W824 hub)" };
+	if (!res.ok) return { ok: false, why: `hub answered ${String(res.status)}` };
+	const body = (await res.json()) as Record<string, unknown>;
+	if (!Array.isArray(body.requests))
+		return { ok: false, why: "envelope missing requests:[]" };
+	return { ok: true, wire: body.requests };
+}
+
+/** Absorb one wire page: dedupe by rid, keep model rows, track coverage.
+ *  cov is mutated in place; counters return. */
+function absorbPage(
+	wire: unknown[],
+	seen: Set<string>,
+	rows: BuckleRequestRow[],
+	cov: { from: string | null; to: string | null },
+): { wireRows: number; newRids: number; excluded: number } {
+	let wireRows = 0;
+	let newRids = 0;
+	let excluded = 0;
+	for (const raw of wire) {
+		wireRows++;
+		const parsed = parseRequestRow(raw);
+		if (parsed === null) continue;
+		if (seen.has(parsed.rid)) continue;
+		seen.add(parsed.rid);
+		newRids++;
+		if (parsed.target_model) {
+			rows.push(parsed);
+			if (cov.to === null || parsed.ts > cov.to) cov.to = parsed.ts;
+			if (cov.from === null || parsed.ts < cov.from) cov.from = parsed.ts;
+		} else excluded++;
+	}
+	return { wireRows, newRids, excluded };
+}
+
+/** The walk cursor from a full page's tail row (ts DESC, rid DESC wire
+ *  order); null when the tail row is garbage. */
+function wireTail(wire: unknown[]): { ts: string; rid: string } | null {
+	const tail = wire.at(-1) as Record<string, unknown> | undefined;
+	const ts = str(tail?.ts);
+	const rid = str(tail?.rid);
+	return ts === "" || rid === "" ? null : { ts, rid };
+}
+
+/** W925: one window walk over GET /v1/admin/requests — the seam caps each
+ *  read at 500-row pages; the drill paginates the selected window:
+ *  newest-first pages, the (until, before_rid) keyset cursor continuing
+ *  strictly after the page's last row, same-ts tie groups included. Walks
+ *  until a page comes back short (window covered) or the maxRows cap bites
+ *  (truncated — the walk's exact coverage rides coverageFrom/coverageTo).
+ *  A full page with zero new rids means the hub predates the before_rid
+ *  cursor: stop there too, honestly truncated. */
 export async function fetchHubRequests(
 	url: string,
 	token: string | null,
 	days: number,
 	timeoutMs = 4000,
+	maxRows = 2000,
 ): Promise<
-	| { ok: true; rows: BuckleRequestRow[]; excluded?: number; rawRows?: number }
+	| {
+			ok: true;
+			rows: BuckleRequestRow[];
+			excluded?: number;
+			rawRows?: number;
+			truncated?: boolean;
+			coverageFrom?: string | null;
+			coverageTo?: string | null;
+	  }
 	| { ok: false; why: string }
 > {
 	try {
 		const headers: Record<string, string> = {};
 		if (token !== null) headers.authorization = `Bearer ${token}`;
 		const since = new Date(Date.now() - days * 86_400_000).toISOString();
-		const query = new URLSearchParams({
-			since,
-			limit: "500",
-			inference: "true",
-		});
-		const res = await fetch(`${url}/v1/admin/requests?${query.toString()}`, {
-			headers,
-			signal: AbortSignal.timeout(timeoutMs),
-		});
-		if (res.status === 404)
-			return { ok: false, why: "seam not served (pre-W824 hub)" };
-		if (!res.ok)
-			return { ok: false, why: `hub answered ${String(res.status)}` };
-		const body = (await res.json()) as Record<string, unknown>;
-		if (!Array.isArray(body.requests))
-			return { ok: false, why: "envelope missing requests:[]" };
+		const seen = new Set<string>();
 		const rows: BuckleRequestRow[] = [];
 		let excluded = 0;
-		for (const raw of body.requests) {
-			const parsed = parseRequestRow(raw);
-			if (parsed?.target_model) rows.push(parsed);
-			else if (parsed !== null) excluded++;
+		let rawRows = 0;
+		let until: string | null = null;
+		let beforeRid: string | null = null;
+		let truncated = false;
+		const cov = { from: null as string | null, to: null as string | null };
+		for (;;) {
+			const page = await fetchRequestPage(
+				url,
+				headers,
+				since,
+				until,
+				beforeRid,
+				timeoutMs,
+			);
+			if (!page.ok) return page;
+			const acc = absorbPage(page.wire, seen, rows, cov);
+			rawRows += acc.wireRows;
+			excluded += acc.excluded;
+			if (page.wire.length < 500) {
+				truncated = false;
+				break;
+			}
+			const tail = wireTail(page.wire);
+			if (tail === null || acc.newRids === 0 || rawRows >= maxRows) {
+				truncated = true;
+				break;
+			}
+			until = tail.ts;
+			beforeRid = tail.rid;
 		}
-		return { ok: true, rows, excluded, rawRows: body.requests.length };
+		return {
+			ok: true,
+			rows,
+			excluded,
+			rawRows,
+			truncated,
+			coverageFrom: cov.from,
+			coverageTo: cov.to,
+		};
 	} catch (e) {
 		return { ok: false, why: String(e) };
 	}
@@ -593,7 +729,7 @@ async function rowsForLabel(
 	}
 	let lastWhy = "no endpoint tried";
 	for (const ep of eps) {
-		const out = await fetchOne(ep.url, ep.token ?? token, days);
+		const out = await fetchOne(ep.url, ep.token ?? token, days, limit);
 		if (out.ok) {
 			status.ok = true;
 			status.url = ep.url;
@@ -602,6 +738,9 @@ async function rowsForLabel(
 			status.rows = out.rows.length;
 			status.excluded = out.excluded ?? 0;
 			status.rawRows = out.rawRows ?? out.rows.length;
+			status.truncated = out.truncated ?? false;
+			status.coverageFrom = out.coverageFrom ?? null;
+			status.coverageTo = out.coverageTo ?? null;
 			const rows = out.rows.slice(-limit).map((r) => ({ ...r, hub: label }));
 			rowCache.set(key, { atMs: now, rows, status });
 			return { rows, status };
@@ -682,6 +821,9 @@ export async function cacheDrillReport(
 		all.push(...out.rows);
 	}
 	const rows = filterRows(all, filters);
+	const truncatedHubs = new Set(
+		hubs.filter((h) => h.truncated === true).map((h) => h.label),
+	);
 	const lanes = sortLanes(laneAggregates(rows), sort);
 	const models = modelAggregates(
 		rows,
@@ -703,7 +845,7 @@ export async function cacheDrillReport(
 			known,
 			warm,
 			warm_ratio: known > 0 ? warm / known : 0,
-			reasons: clusterMissReasons(rows),
+			reasons: clusterMissReasons(rows, { truncatedHubs }),
 		},
 		lane_scope:
 			scoped === null
@@ -713,7 +855,7 @@ export async function cacheDrillReport(
 						requests: [...scoped]
 							.sort((a, b) => b.ts.localeCompare(a.ts))
 							.slice(0, limit),
-						reasons: clusterMissReasons(scoped),
+						reasons: clusterMissReasons(scoped, { truncatedHubs }),
 					},
 	};
 }

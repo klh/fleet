@@ -8,11 +8,11 @@
 // page only emits the static host. Filters are client state (the drilldown is
 // a live view, unlike the server-shaped URL filters above it).
 import {
-	LitElement,
+	type CSSResultGroup,
 	css,
 	html,
+	LitElement,
 	nothing,
-	type CSSResultGroup,
 	type TemplateResult,
 } from "lit";
 import type {
@@ -36,6 +36,15 @@ const fmtTok = (n: number): string =>
 const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 const hhmm = (ts: string | null): string =>
 	ts === null || ts.length < 16 ? "—" : ts.slice(11, 16);
+/** Coverage label for a truncated walk: "MM-DD HH:MM" of the oldest
+ *  fetched row, or "—" when the hub status carries no coverage. */
+const covDay = (ts: string | null | undefined): string =>
+	ts === null || ts === undefined || ts.length < 16
+		? "—"
+		: ts.slice(0, 16).replace("T", " ");
+/** Hub statuses whose window walk stopped at the row cap. */
+const truncatedHubs = (hubs: HubDrillStatus[]): HubDrillStatus[] =>
+	hubs.filter((h) => h.ok && h.truncated === true);
 
 export class KlhUsageCacheDrill extends LitElement {
 	static properties = {
@@ -164,8 +173,15 @@ export class KlhUsageCacheDrill extends LitElement {
 					: nothing
 			}
 			${
-				r.hubs.some((h) => h.ok && (h.rawRows ?? h.rows) >= 500)
-					? html`<p class="uwarn">A source reached the 500-request read limit. Rates cover its newest requests only.</p>`
+				truncatedHubs(r.hubs).length > 0
+					? html`<p class="uwarn">Warm ratios cover the fetched span only: ${truncatedHubs(
+							r.hubs,
+						)
+							.map(
+								(h) =>
+									`${h.label} back to ${covDay(h.coverageFrom)} of the ${String(r.days)}d window`,
+							)
+							.join("; ")}.</p>`
 					: nothing
 			}
 			${

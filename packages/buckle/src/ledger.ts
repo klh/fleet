@@ -77,6 +77,10 @@ export interface RequestReadQuery {
 	/** Inclusive ISO-ts window (lexical compare — audit ts is ISO). */
 	since?: string | null;
 	until?: string | null;
+	/** W925 keyset cursor: with `until`, the page continues strictly after
+	 *  the (ts, rid) cursor row — same-ts tie groups larger than a page walk
+	 *  cleanly instead of stranding rows at the `ts < until` split. */
+	beforeRid?: string | null;
 	/** The presented-credential key id (route_audit.actor). */
 	key?: string | null;
 	lane?: string | null;
@@ -637,10 +641,15 @@ export class Ledger {
 			where.push("ok = 0");
 		}
 		if (q.since) {
-			where.push("ts >= ?");
+			where.push("(ts >= ?)");
 			args.push(q.since);
 		}
-		if (q.until) {
+		if (q.until && q.beforeRid) {
+			// W925 keyset cursor: strict continuation after (until, beforeRid),
+			// so same-ts tie groups page through without loss or repeats.
+			where.push("(ts < ? OR (ts = ? AND rid < ?))");
+			args.push(q.until, q.until, q.beforeRid);
+		} else if (q.until) {
 			where.push("ts < ?");
 			args.push(q.until);
 		}

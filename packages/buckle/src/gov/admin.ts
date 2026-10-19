@@ -5,8 +5,8 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
-import { verifyAuthChain } from "./audit-chain.ts";
 import type { RequestReadQuery } from "../ledger.ts";
+import { verifyAuthChain } from "./audit-chain.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
 
@@ -272,7 +272,9 @@ function isoWindow(sp: URLSearchParams, q: RequestReadQuery): Response | null {
  *  first): ts, key name/team join (NEVER key material), model, upstream
  *  chosen + ladder walk, status, tokens, latency, cache telemetry.
  *  Filters: limit (default 50, max 500), since/until (ISO), key, lane,
- *  model, errors=true, inference=true (model-selected requests only). */
+ *  model, errors=true, inference=true (model-selected requests only).
+ *  W925 pagination: until + before_rid = the (ts, rid) keyset cursor —
+ *  pages continue strictly after the cursor row, same-ts ties included. */
 function listRequests(gov: Governance, url: URL): Response {
 	const sp = url.searchParams;
 	const limit = parseLimit(sp.get("limit"));
@@ -281,6 +283,11 @@ function listRequests(gov: Governance, url: URL): Response {
 	const q: RequestReadQuery = { limit };
 	const w = isoWindow(sp, q);
 	if (w !== null) return w;
+	if (sp.get("before_rid")) {
+		if (!sp.get("until"))
+			return bad(400, "buckle.bad_window", "before_rid requires until");
+		q.beforeRid = sp.get("before_rid");
+	}
 	if (sp.get("key")) q.key = sp.get("key");
 	if (sp.get("lane")) q.lane = sp.get("lane");
 	if (sp.has("trace_id")) {

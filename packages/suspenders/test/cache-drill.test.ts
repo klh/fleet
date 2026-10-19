@@ -3,7 +3,7 @@
 // miss-reason clusters, filters/sort, and the TTL-cached per-hub fetch cycle
 // with honest per-hub degrade (cross-hub-usage test pattern: ?home= module
 // isolation + fixture stack/hubs config).
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,6 +85,21 @@ const row = (over: Partial<Row>): Row => ({
 	in_tok: null,
 	out_tok: null,
 	...over,
+});
+
+const W925_BASE = Date.parse("2026-10-19T12:00:00.000Z");
+const w925Iso = (ms: number): string => new Date(ms).toISOString();
+const w925Wire = (
+	rid: string,
+	tsMs: number,
+	cacheR = 0,
+): Record<string, unknown> => ({
+	rid,
+	ts: w925Iso(tsMs),
+	lane: "lane-a",
+	target_model: "glm-5.3-flash",
+	cache_r: cacheR,
+	cache_reported: 1,
 });
 
 describe("parseRequestRow", () => {
@@ -343,6 +358,147 @@ describe("cacheDrillReport", () => {
 		const r2 = await m.cacheDrillReport(opts);
 		expect(calls).toBe(1);
 		expect(r2.hubs[0]?.reason).toContain("pre-W824");
+	});
+});
+
+describe("W925 window walk", () => {
+	test("same-ts tie group pages through without loss or repeats", async () => {
+		const { fetchHubRequests } = await lib();
+		const tie = Array.from({ length: 520 }, (_, i) =>
+			w925Wire(`t${String(519 - i).padStart(3, "0")}`, W925_BASE + 1),
+		);
+		const newer = Array.from({ length: 10 }, (_, i) =>
+			w925Wire(`n${9 - i}`, W925_BASE + 600),
+		);
+		const older = Array.from({ length: 80 }, (_, i) =>
+			w925Wire(`o${i}`, W925_BASE - i),
+		);
+		const page1 = [...newer, ...tie.slice(0, 490)];
+		const page2 = [...tie.slice(490), ...older];
+		const calls: Array<{ until: string; rid: string }> = [];
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: string | URL | Request) => {
+			const u = new URL(String(input));
+			calls.push({
+				until: u.searchParams.get("until") ?? "",
+				rid: u.searchParams.get("before_rid") ?? "",
+			});
+			const page = calls.length === 1 ? page1 : page2;
+			return new Response(JSON.stringify({ requests: page }), {
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		try {
+			const out = await fetchHubRequests("http://hub", null, 7);
+			expect(out.ok).toBe(true);
+			if (!out.ok) return;
+			expect(out.rows.length).toBe(610);
+			expect(new Set(out.rows.map((r) => r.rid)).size).toBe(610);
+			expect(out.truncated).toBe(false);
+			expect(out.coverageTo).toBe(w925Iso(W925_BASE + 600));
+			expect(out.coverageFrom).toBe(w925Iso(W925_BASE - 79));
+			expect(calls.length).toBe(2);
+			expect(calls[1]).toEqual({
+				until: w925Iso(W925_BASE + 1),
+				rid: "t030",
+			});
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+	test("row cap stops the walk and reports honest coverage", async () => {
+		const { fetchHubRequests } = await lib();
+		const universe = Array.from({ length: 1000 }, (_, i) =>
+			w925Wire(`r${i}`, W925_BASE - i),
+		);
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: string | URL | Request) => {
+			const u = new URL(String(input));
+			const beforeRid = u.searchParams.get("before_rid");
+			const start = beforeRid === null ? 0 : Number(beforeRid.slice(1)) + 1;
+			const page = universe.slice(start, start + 500);
+			return new Response(JSON.stringify({ requests: page }), {
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		try {
+			const out = await fetchHubRequests("http://hub", null, 7, 4000, 700);
+			expect(out.ok).toBe(true);
+			if (!out.ok) return;
+			expect(out.rows.length).toBe(1000);
+			expect(out.truncated).toBe(true);
+			expect(out.coverageTo).toBe(w925Iso(W925_BASE));
+			expect(out.coverageFrom).toBe(w925Iso(W925_BASE - 999));
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+	test("a hub that ignores the cursor is honestly truncated", async () => {
+		const { fetchHubRequests } = await lib();
+		const page = Array.from({ length: 500 }, (_, i) =>
+			w925Wire(`z${i}`, W925_BASE - i),
+		);
+		let hits = 0;
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async () => {
+			hits += 1;
+			return new Response(JSON.stringify({ requests: page }), {
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		try {
+			const out = await fetchHubRequests("http://hub", null, 7);
+			expect(out.ok).toBe(true);
+			if (!out.ok) return;
+			expect(out.rows.length).toBe(500);
+			expect(out.truncated).toBe(true);
+			expect(hits).toBe(2);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+	test("first-sampled miss on a truncated hub is a window boundary", async () => {
+		const { clusterMissReasons } = await lib();
+		const miss = row({ rid: "m1", hub: "hub-a", cache_r: 0 });
+		const got = clusterMissReasons([miss], {
+			truncatedHubs: new Set(["hub-a"]),
+		});
+		expect(got.map((c) => [c.reason, c.count])).toEqual([
+			["window_boundary", 1],
+		]);
+		expect(clusterMissReasons([miss]).map((c) => c.reason)).toEqual([
+			"cold_start",
+		]);
+	});
+	test("truncated hub drives window_boundary into the drill report", async () => {
+		const m = await lib();
+		m.clearCacheDrillTtl();
+		const report = await m.cacheDrillReport({
+			days: 7,
+			env: env(),
+			endpoints: (label) => [
+				{ url: `http://x/${label}`, via: "test", token: null },
+			],
+			fetch: async () => ({
+				ok: true,
+				rows: [
+					row({
+						rid: "w1",
+						hub: "hub-a",
+						lane: "lane-x",
+						ts: "2026-10-10T10:00:00Z",
+						cache_r: 0,
+					}),
+				],
+				truncated: true,
+				coverageFrom: "2026-10-10T10:00:00Z",
+				coverageTo: "2026-10-10T10:00:00Z",
+			}),
+		});
+		expect(report.hubs[0]?.truncated).toBe(true);
+		const why = report.overall.reasons.map((r) => r.reason);
+		expect(why).toContain("window_boundary");
+		expect(why).not.toContain("cold_start");
 	});
 });
 

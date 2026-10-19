@@ -2,20 +2,20 @@
 // only reads what it selects), report shape, warm-rate math, sort, bust
 // heuristics, request page, fail-soft edges.
 import { Database } from "bun:sqlite";
-import { unlinkSync, writeFileSync } from "node:fs";
 import { afterAll, describe, expect, test } from "bun:test";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { mineOffenders } from "../bin/usage-mining.ts";
 import {
 	bustReasons,
-	classify,
 	CACHE_TTL_MS,
+	classify,
 	costIndex,
 	drilldownReport,
 	fleetWarm,
-	laneRequests,
 	type LaneDrill,
+	laneRequests,
 	readMiningLines,
 } from "./cache-drilldown.ts";
-import { mineOffenders } from "../bin/usage-mining.ts";
 
 const T0 = Date.parse("2026-10-18T12:00:00Z");
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -235,12 +235,12 @@ describe("mineOffenders + readMiningLines", () => {
 			const a = mineOffenders(T0 + 3_600_000);
 			expect(a.offenders.map((o) => o.lane)).toEqual(["laneX", "laneY"]);
 			expect(a.offenders[0]?.topReason).toBe("streak");
-			const art = { at: Date.now(), days: 7, offenders: a.offenders };
+			const art = { at: T0 + 3_600_000, days: 7, offenders: a.offenders };
 			const tmp = `${import.meta.dir}/w826-mining-artifact.json`;
 			writeFileSync(tmp, JSON.stringify(art));
-			expect(readMiningLines(Date.now(), 8 * 86_400_000, tmp)[0]).toContain(
-				"laneX",
-			);
+			expect(
+				readMiningLines(T0 + 8 * 86_400_000, 8 * 86_400_000, tmp)[0],
+			).toContain("laneX");
 			expect(readMiningLines(T0 + 9 * 86_400_000, 8 * 86_400_000, tmp)).toEqual(
 				[],
 			);
