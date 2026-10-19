@@ -747,7 +747,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			</div>`;return this.body(a)}body(a){let l=[...a.weekly].sort((i,n)=>n.d.localeCompare(i.d))[0];return e`<div class="upanel">
 			<div class="uhead">
 				<h2>WORK MIX</h2>
-				<p class="ufoot">${l?`Week of ${l.d}`:"No weekly data"} · ${a.lanes.length} lanes</p>
+				<p class="ufoot">${l?`Week of ${l.d}`:"No weekly data"} · ${a.lanes.length} ${a.lanes.length===1?"lane":"lanes"}</p>
 			</div>
 			${l?this.mix(l):e`<p class="uempty">No classified activity yet.</p>`}
 			<details class="mixdetails">

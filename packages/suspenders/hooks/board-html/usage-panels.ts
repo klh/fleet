@@ -598,7 +598,7 @@ export class KlhUsageActivity extends LitElement {
 		return html`<div class="upanel">
 			<div class="uhead">
 				<h2>WORK MIX</h2>
-				<p class="ufoot">${latest ? `Week of ${latest.d}` : "No weekly data"} · ${p.lanes.length} lanes</p>
+				<p class="ufoot">${latest ? `Week of ${latest.d}` : "No weekly data"} · ${p.lanes.length} ${p.lanes.length === 1 ? "lane" : "lanes"}</p>
 			</div>
 			${latest ? this.mix(latest) : html`<p class="uempty">No classified activity yet.</p>`}
 			<details class="mixdetails">
