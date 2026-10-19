@@ -28,14 +28,23 @@ import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import { db } from "./context.ts";
 import { chunked } from "./helpers.ts";
 
-export const deadAfterMs = (): number =>
-	Number(
+// W682: config facts ride a 3s memo — the liveness verdicts read them per
+// project chunk (80 fact reads per cold /api/data on the profiled fleet);
+// they change on `coord fact set` timescales, never inside a poll window.
+let _deadAfterMs: { at: number; v: number } | null = null;
+export const deadAfterMs = (): number => {
+	if (_deadAfterMs && Date.now() - _deadAfterMs.at < 3_000)
+		return _deadAfterMs.v;
+	const v = Number(
 		(
 			db
 				.query("SELECT value FROM facts WHERE key = 'fleet.zombie_after_ms'")
 				.get() as { value: string } | null
 		)?.value ?? 45 * 60_000,
 	);
+	_deadAfterMs = { at: Date.now(), v };
+	return v;
+};
 
 export const projOf = (sid: string): string | null =>
 	(
@@ -341,12 +350,20 @@ export const sessionAlive = (sid: string): boolean =>
 // verdictBySid uses) is authoritative; unregistered targets keep the
 // sessions+transcript verdict; `unknown` never reads dead (monitor
 // doctrine: lookup failure is not death).
-const coordinatorSid = (): string | null =>
-	(
-		db.query("SELECT value FROM facts WHERE key = 'coordinator.sid'").get() as {
-			value: string;
-		} | null
-	)?.value ?? null;
+let _coordSid: { at: number; v: string | null } | null = null;
+const coordinatorSid = (): string | null => {
+	if (_coordSid && Date.now() - _coordSid.at < 3_000) return _coordSid.v;
+	const v =
+		(
+			db
+				.query("SELECT value FROM facts WHERE key = 'coordinator.sid'")
+				.get() as {
+				value: string;
+			} | null
+		)?.value ?? null;
+	_coordSid = { at: Date.now(), v };
+	return v;
+};
 
 // one batched sessions read for a set of fallback targets
 const sessionRows = (sids: string[]): Map<string, LaneSessionRow> => {
@@ -594,9 +611,13 @@ export function projectList(): string[] {
 
 // owner_label (docs/board-api.md): the owner's newest claim intent, else the
 // session name (W293: tags JSON `name`), else null — the UI never renders a
-// raw sid when a label exists
+// raw sid when a label exists. W682: 3s per-sid memo — the tasks feed calls
+// this per owned row (4 store RPCs × live lanes each poll).
+const _ownerLabelCache = new Map<string, { at: number; v: string | null }>();
 export function ownerLabel(sid: string | null | undefined): string | null {
 	if (!sid) return null;
+	const hit = _ownerLabelCache.get(sid);
+	if (hit && Date.now() - hit.at < 3_000) return hit.v;
 	const rows = db
 		.query(
 			"SELECT intent FROM claims WHERE sid = ? AND intent IS NOT NULL ORDER BY ts DESC LIMIT 4",
@@ -605,13 +626,14 @@ export function ownerLabel(sid: string | null | undefined): string | null {
 	const c = rows.find(
 		(r) => r.intent && !String(r.intent).startsWith("restored by monitor"),
 	);
-	if (c?.intent) return String(c.intent).slice(0, 24);
-	return (
-		sessionName(sid) ??
-		(db.query("SELECT 1 AS x FROM sessions WHERE sid = ?").get(sid)
-			? sid
-			: null)
-	);
+	const v = c?.intent
+		? String(c.intent).slice(0, 24)
+		: (sessionName(sid) ??
+			(db.query("SELECT 1 AS x FROM sessions WHERE sid = ?").get(sid)
+				? sid
+				: null));
+	_ownerLabelCache.set(sid, { at: Date.now(), v });
+	return v;
 }
 
 export const payloadOf = (raw: string | null): Record<string, unknown> => {
@@ -767,23 +789,41 @@ export function unblockedBy(): Map<string, string | null> {
 
 // W105 — the lane registry's executor/model/locality, stamped into facts at
 // dispatch time (laneExecFacts, /api/start) and read back for any lane here.
+// W682: the per-sid lane-model triple rides a 3s memo — taskShape spreads it
+// for every row of every tasks feed (75 fact reads per cold compute on the
+// profiled fleet); the facts change at dispatch time, not per poll.
+const _laneModelCache = new Map<
+	string,
+	{
+		at: number;
+		v: {
+			executor: string | null;
+			model: string | null;
+			locality: string | null;
+		};
+	}
+>();
 export function laneModelOf(sid: string | null | undefined): {
 	executor: string | null;
 	model: string | null;
 	locality: string | null;
 } {
 	if (!sid) return { executor: null, model: null, locality: null };
+	const hit = _laneModelCache.get(sid);
+	if (hit && Date.now() - hit.at < 3_000) return hit.v;
 	const get = (k: string): string | null =>
 		(
 			db
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`lane.${sid}.${k}`) as { value: string } | null
 		)?.value ?? null;
-	return {
+	const v = {
 		executor: get("executor"),
 		model: get("model"),
 		locality: get("locality"),
 	};
+	_laneModelCache.set(sid, { at: Date.now(), v });
+	return v;
 }
 
 // W835 merge-ready lane cards: one git observation per live lane whose

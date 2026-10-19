@@ -25,6 +25,19 @@ export interface ItemTiming {
 	failed: boolean;
 }
 
+// W682 — the claim-replay event shape: callers that batch the bus read for
+// MANY projects (the board's /api/tasks attribution map) preload one scan and
+// pass it here, replacing the two per-project scans the replay used to pay.
+export interface TimingEventRow {
+	project: string;
+	id: number;
+	ts: number;
+	kind: string;
+	payload: string | null;
+}
+const TIMING_KINDS =
+	"('work.claimed','work.released','work.done','work.failed')";
+
 // Replay one project's work events chronologically. A work.claimed opens a
 // claim segment; the next work.released / work.done / work.failed closes it
 // (that duration is agent time). Items never claimed (auto-rollup parents)
@@ -33,17 +46,20 @@ export function workTiming(
 	db: Database,
 	project: string,
 	nowMs = Date.now(),
+	pre?: TimingEventRow[],
 ): ItemTiming[] {
-	const rows = db
-		.query(
-			"SELECT id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') AND project = ? ORDER BY ts, id",
-		)
-		.all(project) as {
-		id: number;
-		ts: number;
-		kind: string;
-		payload: string | null;
-	}[];
+	const rows = pre
+		? pre.filter((r) => r.project === project)
+		: (db
+				.query(
+					`SELECT id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} AND project = ? ORDER BY ts, id`,
+				)
+				.all(project) as {
+				id: number;
+				ts: number;
+				kind: string;
+				payload: string | null;
+			}[]);
 	const open = new Map<string, number>(); // work id → open claim-segment start ts
 	const out = new Map<string, ItemTiming>();
 	const item = (work: string): ItemTiming => {
@@ -117,17 +133,20 @@ export function claimWindows(
 	db: Database,
 	project: string,
 	nowMs = Date.now(),
+	pre?: TimingEventRow[],
 ): ClaimReplay {
-	const rows = db
-		.query(
-			"SELECT id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') AND project = ? ORDER BY ts, id",
-		)
-		.all(project) as {
-		id: number;
-		ts: number;
-		kind: string;
-		payload: string | null;
-	}[];
+	const rows = pre
+		? pre.filter((r) => r.project === project)
+		: (db
+				.query(
+					`SELECT id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} AND project = ? ORDER BY ts, id`,
+				)
+				.all(project) as {
+				id: number;
+				ts: number;
+				kind: string;
+				payload: string | null;
+			}[]);
 	const windows = new Map<string, ClaimWindow[]>();
 	const done = new Set<string>();
 	for (const r of rows) {
@@ -179,9 +198,7 @@ export function tokenUsage(
 		out.set(work, null); // default: unresolvable → rendered '-', never 0
 		try {
 			const paths = new Set<string>();
-			for (const sid of new Set(
-				ws.map((w) => w.sid).filter((s) => s !== ""),
-			)) {
+			for (const sid of new Set(ws.map((w) => w.sid).filter((s) => s !== ""))) {
 				const tp = (
 					db
 						.query("SELECT transcript_path FROM sessions WHERE sid = ?")

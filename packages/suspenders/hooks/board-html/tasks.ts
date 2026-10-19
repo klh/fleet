@@ -124,7 +124,12 @@ function paintSort(){
 function pollTasks(){
   if (tasksBusy || (curTab !== 'tasks' && curTab !== 'lanes')) return;
   tasksBusy = true;
-  fetch('/api/tasks' + projQuery(), { signal: AbortSignal.timeout(8000) })
+  // W682: the server trims terminal history to 12/project by default; the
+  // opt-in completed table asks for the full feed back.
+  var showDone = false;
+  try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
+  var dq = 'done=' + (showDone ? 'all' : '12');
+  fetch('/api/tasks' + projQuery() + (projQuery() ? '&' : '?') + dq, { signal: AbortSignal.timeout(8000) })
     .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(j){
       if (!j || j.ok === false || !Array.isArray(j.tasks)) throw new Error('bad /api/tasks payload');
