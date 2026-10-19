@@ -66,4 +66,4 @@ packages/suspenders/test/scrub-gate.test.ts:generic-api-key:30
 # negative-assertion string, policy-advisor:186 is a synthetic PEM body "abc" — not secrets
 packages/suspenders/test/hub-admin.test.ts:sk-key:179
 packages/suspenders/test/policy-advisor.test.ts:private-key:186
-packages/suspenders/test/prompt-transform.test
+packages/suspenders/test/prompt-transform.test.ts:generic-api-key:405
