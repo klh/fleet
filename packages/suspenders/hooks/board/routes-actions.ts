@@ -7,6 +7,7 @@ import { resolveLlmTarget } from "./executor-catalog.ts";
 import { runCli, laneExecFacts, llmRoute, localSwarmChat } from "./exec.ts";
 import { specialistByPort } from "./local-swarm.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
+import { releaseCasRetry } from "./release-cas-retry.ts";
 import { orchRecipient, orchTargets, type OrchRoute } from "./orch-targets.ts";
 import {
 	syncDecisions,
@@ -207,28 +208,36 @@ async function releaseClaimCas(
 			);
 		}
 	}
-	const rel = runCli(
-		[
-			WORK_CLI,
-			"reclaim",
-			id,
-			...(force ? ["--force"] : []),
-			"--expect-owner",
-			w.owner_sid,
-			"--expect-updated-at",
-			String(w.updated_at),
-			"--json",
-		],
-		repo,
-	);
-	if (rel.code !== 0)
-		return json(
-			{
-				ok: false,
-				error: `claim changed — release refused: ${rel.out.slice(0, 200)}`,
-			},
-			409,
-		);
+	// W873 — CAS release via `work reclaim`. A non-zero exit is not always a
+	// claim change: argv rejections (the verb kit dies before dispatch) are
+	// surfaced as-is, a genuinely moved claim gets one re-read + retry
+	// against the fresh owner/revision (both legs CAS-guarded, so a retry
+	// can never release the wrong claimant), and an unchanged claim means
+	// the reclaim gate refused — pass the CLI's own reason through.
+	const reclaimArgs = (owner: string, updatedAt: number) => [
+		WORK_CLI,
+		"reclaim",
+		id,
+		...(force ? ["--force"] : []),
+		"--expect-owner",
+		owner,
+		"--expect-updated-at",
+		String(updatedAt),
+		"--json",
+	];
+	const rel = runCli(reclaimArgs(w.owner_sid, w.updated_at), repo);
+	if (rel.code !== 0) {
+		// argv rejections are board bugs, not claim races — surface as-is
+		if (/(unknown option|usage:)/.test(rel.out))
+			return json(
+				{
+					ok: false,
+					error: `reclaim CLI rejected its arguments: ${rel.out.slice(0, 200)}`,
+				},
+				500,
+			);
+		return releaseCasRetry(project, id, w, force, repo, rel);
+	}
 	return json({
 		ok: true,
 		item: id,
