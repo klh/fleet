@@ -1,0 +1,353 @@
+{
+ "kind": "ext",
+ "generator": "ext-seal-1",
+ "seed": "bench-arena-ext/2026-10-19",
+ "note": "FRAMES slice (public since 2024-09, Apache-2.0): multi-hop search questions with short verifiable answers — the GAIA/WebWalker class. Contaminated in the wild: treat as directional signal next to seeded-defect recall, never leaderboard-grade. GAIA/WebWalkerQA/SealQA are gate-walled and not bundleable; see ext-raw/SOURCE.md.",
+ "source": {
+  "repo": "google/frames-benchmark",
+  "revision": "58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef",
+  "license": "apache-2.0",
+  "url": "https://huggingface.co/datasets/google/frames-benchmark/resolve/main/test.tsv",
+  "fetched": "2026-10-19",
+  "file": "ext-raw/frames-test.tsv",
+  "sha256": "4255093c93b595b5b04c7c8dde290b48ec87d72ca0fb0b760d9dd02740d669ff"
+ },
+ "tasks": [
+  {
+   "id": "fr710",
+   "prompt": "What primate species, known for its large population in China and presence in Florida, could potentially carry the Herpes B virus?",
+   "answer": "Rhesus Macaques",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr413",
+   "prompt": "What is the name of the 2nd track on the album by Corinne Bailey Rae that came out 10 years before her album The Heart Speaks in Whispers?",
+   "answer": "Enchantment",
+   "reasoning": "Multiple constraints | Temporal reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr487",
+   "prompt": "Give me the difference in time, measured in hours not days, between the first solo woman to thru-hike the Appalachian Trail and the fastest recorded solo woman to walk the Appalachian Trail before 2012.",
+   "answer": "2128 hours",
+   "reasoning": "Numerical reasoning | Multiple constraints | Post processing | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr552",
+   "prompt": "Which angle is greater: the recommended angle a glass should be tilted when pouring a pint of Guinness, or the angle the nose of a light aircraft is tilted to effect liftoff?",
+   "answer": "The recommended angle a glass should be tilted when pouring a pint of Guinness",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr804",
+   "prompt": "During the month that GEMA Global Engine Alliance LLC was founded as a joint venture of Chrysler, Mitsubishi Motors, and Hyundai Motor Company, which international arms treaty was signed, who signed it, where, and on what date?",
+   "answer": "On May 24th, 2002, the Strategic Offensive Reductions Treaty was signed in Moscow by Vladimir Putin and George W. Bush.",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr444",
+   "prompt": "What season of The Challenge was airing when Bridgeton premiered?",
+   "answer": "Season 36, Double Agents",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr664",
+   "prompt": "What was the daily average passenger count in 2011 of the first station on the train line that serves Hiraka Train Station in Japan?",
+   "answer": "2,851 Passengers",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr184",
+   "prompt": "How many months, rounded to the nearest whole number, did it take to construct the tallest building in the world as of January 1, 2024?",
+   "answer": "69",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr356",
+   "prompt": "What is the total number of pages in the first two first-edition books in the Emperyan Series by Rebecca Yarros?",
+   "answer": "1135",
+   "reasoning": "Numerical reasoning | Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr491",
+   "prompt": "How old was Lucy Lawless when season six of Xena: Warrior Princess first aired?",
+   "answer": "32",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Temporal reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr647",
+   "prompt": "How much money would be left of Elon Musk's net worth in January of 2021, if you subtracted the 2022 average yearly gross salary of 10,000 people, working in the Philippines, written in words?",
+   "answer": "one hundred eighty-four billion nine hundred fifty-nine million four hundred forty thousand.",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Post processing",
+   "links": 2
+  },
+  {
+   "id": "fr814",
+   "prompt": "What happened at the Dyatlov Pass Incident and how did it inspire the plot of 2013 horror film Devil Pass?",
+   "answer": "The Dyatlov Pass Incident was an event in 1959 where nine Soviet Hiker's died in the Northern Ural Mountains after cutting open their tents and running into the snow for a reason without explanation. Devil Pass is a found footage film that takes place in the decades following the Dyatlov Pass Incident about a group of American students who travel to Russia to investigate the event.",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr438",
+   "prompt": "Which original Saturday Night Live cast member's daughter, tied with Hannah Waddingham for the Best Supporting Actress in a Streaming Series, Comedy award at the 1st Hollywood Critics Association TV Awards in 2021?",
+   "answer": "Laraine Newman",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr230",
+   "prompt": "As of the 2023 Major League Baseball season, who is the only player in the top 15 lists of career home runs, career runs batted in, and career hits, who was also named (in 2007) the all-time Gold Glove team?",
+   "answer": "Willie Mays",
+   "reasoning": "Tabular reasoning | Multiple constraints",
+   "links": 4
+  },
+  {
+   "id": "fr213",
+   "prompt": "Who was Prime Minister when Will Young won Pop Idol?",
+   "answer": "Tony Blair",
+   "reasoning": "Multiple constraints | Post processing | Temporal reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr806",
+   "prompt": "Who won the season of the dance show that Tate McRae placed third in back in 2016?",
+   "answer": "Leon \"Kida\" Burns",
+   "reasoning": "Tabular reasoning | Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr547",
+   "prompt": "What is the name of the high school and hometown of the Olympic Gold Medalist winner who won 4-3 against Hassan Yazdani at the Japan Olympics in 2020?",
+   "answer": "Graham High School in St. Paris Ohio",
+   "reasoning": "Multiple constraints",
+   "links": 5
+  },
+  {
+   "id": "fr749",
+   "prompt": "Who is the male cousin, whose name begins with an L, of the actor who played the murderer in the ITV series White House Farm, and how old was he when he stood in the 2021 London mayoral election?",
+   "answer": "Laurence Fox, 42",
+   "reasoning": "Numerical reasoning | Temporal reasoning",
+   "links": 4
+  },
+  {
+   "id": "fr264",
+   "prompt": "Who was the wife of the founder of the city where the 2023 Tour De France started?",
+   "answer": "Violant of Castile",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr150",
+   "prompt": "As of July 1, 2023, what is the total number of letters in the names of the capital cities of the 5 most populated countries in the world?",
+   "answer": "43",
+   "reasoning": "Numerical reasoning | Post processing",
+   "links": 6
+  },
+  {
+   "id": "fr182",
+   "prompt": "What is so distinctive about the label design of an Australian record label which was purchased in 1960 by another record label which produced the debut album for The Clash?",
+   "answer": "The octagonal shape",
+   "reasoning": "Multiple constraints",
+   "links": 5
+  },
+  {
+   "id": "fr686",
+   "prompt": "The shonen manga that won the 35th Kodansha Manga Award has how many chapters in its final volume?",
+   "answer": "5",
+   "reasoning": "Tabular reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr619",
+   "prompt": "How many votes did the opposition party get in the Brant riding the election before Justin Trudeau was elected Prime Minister?",
+   "answer": "16,351",
+   "reasoning": "Post processing | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr371",
+   "prompt": "When the maker of the third-party console title \"ActRaiser\", merged with the makers of the console title \"Chrono Trigger\", what percentage of the company did the makers of \"ActRaiser\" make up?",
+   "answer": "20% of the company.",
+   "reasoning": "Numerical reasoning | Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr728",
+   "prompt": "Who was the team manager for Lee Jae-won's only football season as of January 1, 2024?",
+   "answer": "Yasuyuki Kishino",
+   "reasoning": "Tabular reasoning | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr449",
+   "prompt": "When Taylor Swift first released her studio album \"1989,\" how many studio albums had Katy Perry already released?",
+   "answer": "4",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr798",
+   "prompt": "John F. Kennedy was inaugurated into the presidency quite some time ago. Which song was number 1 on the Billboard Hot 100 chart on that same day, but 30 years after his inauguration?",
+   "answer": "Kennedy was inaugurated on January 20, 1961 In 1991, the number 1 song on the Billboard Hot 100 was \"Love Will Never Do (Without You)\" by Janet Jackson.",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Multiple constraints | Temporal reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr767",
+   "prompt": "What was the difference in population in the most populous town in the Isère department from 1946 to 1975?",
+   "answer": "63876",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Temporal reasoning",
+   "links": 2
+  },
+  {
+   "id": "fr251",
+   "prompt": "The Sikh empire's capital at the time of the Battle of Sobraon came under the rule of the British Crown in what year?",
+   "answer": "1858",
+   "reasoning": "Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr705",
+   "prompt": "Who was on the British throne when the England Men’s Cricket Team first beat Australia in a Test Series?",
+   "answer": "Queen Victoria, 1882.",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr329",
+   "prompt": "Of the top two most watched television season finales (as of June 2024), which finale ran the longest in length and by how much?",
+   "answer": "The MASH finale ran for 52 minutes longer than the Cheers finale.",
+   "reasoning": "Numerical reasoning | Tabular reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr384",
+   "prompt": "This town was the original location of the tallest Christmas Tree displayed at the Rockefeller Center. This was also home to the author of a famous children's book series. What is the name of this series?",
+   "answer": "Doctor Dolittle",
+   "reasoning": "Multiple constraints",
+   "links": 4
+  },
+  {
+   "id": "fr186",
+   "prompt": "What actor who starred in the People's Choice Award for Favorite Comedic Movie 1993 later became a U.S. President?",
+   "answer": "The actor who starred in the People's Choice Award for Favorite Comedic Movie in 1993 who later became the 45th President of the United States, Donald Trump.",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr108",
+   "prompt": "Was the founder of the bank that was established 42 years before the National Banking Act was expanded to include the Territory of Hawai'i still alive when it acquired Pioneer Federal Savings Bank?",
+   "answer": "No",
+   "reasoning": "Numerical reasoning | Multiple constraints | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr503",
+   "prompt": "Out of all of Steven Spielberg's Oscar winning movies up until 2020, which one has made the most money?",
+   "answer": "Saving Private Ryan",
+   "reasoning": "Numerical reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr112",
+   "prompt": "How many years was the first vessel Stephen Etnier commanded constructed after the novel that first inspired him to pursue painting was published?",
+   "answer": "7",
+   "reasoning": "Numerical reasoning | Multiple constraints | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr236",
+   "prompt": "What is the birthday of the man who produced the pop song named after one of the largest bird in the Procellariiformes species, off the 2024 album The Tortured Poets Department?",
+   "answer": "Aaron Dessner was born April 23, 1976.",
+   "reasoning": "Tabular reasoning | Multiple constraints | Post processing",
+   "links": 3
+  },
+  {
+   "id": "fr246",
+   "prompt": "There is only one existing lighthouse with attached living quarters in the ninth-largest US state by area, as of August 1, 2024. This lighthouse is located on the north side of a bay named for which tribe?",
+   "answer": "The Yaquina Tribe",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr556",
+   "prompt": "When Metallica released its album \"Master of Puppets,\" how old were founding members James Hetfield and Lars Ulrich?",
+   "answer": "22",
+   "reasoning": "Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr659",
+   "prompt": "What is the birth town of the absent athlete from the Victory Salute statue in San Jose, California?",
+   "answer": "Peter Norman was born in Coburg, Victoria, Australia.",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr548",
+   "prompt": "Sworn in for his second term, who was US President during the only year in history to feature Triple Crown winners in both horse racing AND baseball (War Admiral and St. Louis Cardinals' left fielder Joe Medwick, respectively), as of August 3, 2024?",
+   "answer": "Franklin D. Roosevelt (1937)",
+   "reasoning": "Multiple constraints",
+   "links": 3
+  },
+  {
+   "id": "fr107",
+   "prompt": "What percentage of his total league appearances did footballer Derek Smith (born 1946) make with the team whose original name is shared by a bird impressionist born in the nineteenth century? Give your answer to two decimal places.",
+   "answer": "95.35%",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Multiple constraints | Post processing | Temporal reasoning",
+   "links": 4
+  },
+  {
+   "id": "fr153",
+   "prompt": "What are the first three letters of the capital city of the country where Shakespeare's longest play is set?",
+   "answer": "Cop",
+   "reasoning": "Multiple constraints | Post processing",
+   "links": 2
+  },
+  {
+   "id": "fr456",
+   "prompt": "How many years older is the the library where Galileo's middle finger was first exhibited than the first public library to be lit using electric lightbulbs?",
+   "answer": "222",
+   "reasoning": "Numerical reasoning | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr773",
+   "prompt": "What's the name of Goku's iconic transformation and what episode number does it first appear in the anime?",
+   "answer": "Goku becomes a Super Saiyan in episode 95 of Dragon Ball Z.",
+   "reasoning": "Tabular reasoning | Multiple constraints",
+   "links": 4
+  },
+  {
+   "id": "fr305",
+   "prompt": "What year was the person born who was Prime Minister of The United Kingdom during the year that the first African American ran for president of the United States?",
+   "answer": "1792",
+   "reasoning": "Numerical reasoning | Tabular reasoning | Multiple constraints | Temporal reasoning",
+   "links": 3
+  },
+  {
+   "id": "fr671",
+   "prompt": "As of 1st August 2024 The three British Olympic Class ocean liners were manufactured in a city that lies at the mouth of what river?",
+   "answer": "River Lagan",
+   "reasoning": "Multiple constraints",
+   "links": 2
+  },
+  {
+   "id": "fr363",
+   "prompt": "What NBA team was founded three years before the Apollo 11 crew landed on the moon?",
+   "answer": "The Chicago Bulls",
+   "reasoning": "Numerical reasoning | Temporal reasoning",
+   "links": 2
+  }
+ ]
+}

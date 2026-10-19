@@ -1,0 +1,19 @@
+{
+ "generator": "ext-seal-1",
+ "seed": "bench-arena-ext/2026-10-19",
+ "sealed_at": "2026-10-19T03:58:36.372Z",
+ "rule": "never edit; --n k takes the first k tasks",
+ "raw": {
+  "file": "ext-raw/frames-test.tsv",
+  "sha256": "4255093c93b595b5b04c7c8dde290b48ec87d72ca0fb0b760d9dd02740d669ff",
+  "bytes": 484734
+ },
+ "note": "FRAMES slice (public since 2024-09, Apache-2.0): multi-hop search questions with short verifiable answers — the GAIA/WebWalker class. Contaminated in the wild: treat as directional signal next to seeded-defect recall, never leaderboard-grade. GAIA/WebWalkerQA/SealQA are gate-walled and not bundleable; see ext-raw/SOURCE.md.",
+ "files": {
+  "frames.json": {
+   "n": 48,
+   "bytes": 15651,
+   "sha256": "460f17aebfeaa4a0bfb402e2c8baf7556fce519eafc781ed764853efea3956df"
+  }
+ }
+}
