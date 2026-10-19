@@ -9,6 +9,14 @@ import {
 import { mergeReadyWhy } from "../lib/lane-git.ts";
 
 export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
+function dualStamp(ms){ // W902: UTC Z + viewer-local twin — hub clocks drift
+  if (!ms) return '';
+  var d = new Date(ms); if (isNaN(d.getTime())) return String(ms);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? '+' : '-';
+  var loc = 'local ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ', UTC' + sg + p(a / 60 | 0) + ':' + p(a % 60);
+  return d.toISOString().replace(/\\.\\d{3}Z$/, 'Z') + ' (' + loc + ')';
+}
 function renderConn(){
   var observed = lastData && lastData.observation;
   var dAge = observed && typeof observed.observedAt === 'number' ? Math.max(0, Math.round((Date.now() - observed.observedAt) / 1000)) : dataOkAt ? Math.round((Date.now() - dataOkAt) / 1000) : -1;
@@ -25,7 +33,7 @@ function renderConn(){
   else dec = 'decisions checked ' + ago(cAge);
   var sig = cls + '|' + txt + '|' + dec;
   var el = byId('conn');
-  el.title = observed ? 'Source: ' + observed.source + ' · target: ' + observed.target + ' · scope: ' + observed.scope + ' · observed: ' + new Date(observed.observedAt).toLocaleTimeString() + ' · expires: ' + new Date(observed.expiresAt).toLocaleTimeString() : 'Legacy feed without observation provenance';
+  el.title = observed ? 'Source: ' + observed.source + ' · target: ' + observed.target + ' · scope: ' + observed.scope + ' · observed: ' + dualStamp(observed.observedAt) + ' · expires: ' + dualStamp(observed.expiresAt) : 'Legacy feed without observation provenance';
   if (el.getAttribute('data-sig') !== sig) {
     el.setAttribute('data-sig', sig);
     setNodes(el, '<span class="dot ' + cls + '"></span>' + esc(txt) + ' <span class="dim">| ' + esc(dec) + '</span>' +
@@ -86,7 +94,7 @@ function renderHubObservations(d){
   var note = byId('hubScopeNote');
   var relay = d.observationRelay;
   var relayText = !relay || !relay.enabled ? 'Relay disabled: configure machine-level observation-relays.json.' : 'Relay ' + relay.localHub + ': ' + relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' + (relay.lastSuccessAt ? ' · last success ' + ago(msAgo(relay.lastSuccessAt)) : ' · awaiting first successful forward');
-  if (relay && relay.nextRetryAt) relayText += ' · next retry ' + new Date(relay.nextRetryAt).toLocaleTimeString();
+  if (relay && relay.nextRetryAt) relayText += ' · next retry ' + dualStamp(relay.nextRetryAt);
   if (relay && relay.lastError) relayText += ' · ' + relay.lastError;
   if (note) setText(note, relayText + ' ' + (snapshot ? 'Authenticated operator observations · origin and immediate downstream are separate axes. Unobserved lanes remain unknown; observations grant no work authority.' : 'No hub observation feed installed. Lane provenance is unknown.'));
   var body = byId('downstreamObservations');
@@ -95,7 +103,7 @@ function renderHubObservations(d){
   var fragment = document.createDocumentFragment();
   rows.slice(0, 100).forEach(function(o){
     var row = document.createElement('p'); row.className = 'mono';
-    row.textContent = o.laneId + ' · origin ' + o.originHub + ' · via ' + o.peerHub + ' · ' + o.project + ' · observed ' + ago(msAgo(o.observedAt)) + ' · expires ' + new Date(o.expiresAt).toLocaleTimeString();
+    row.textContent = o.laneId + ' · origin ' + o.originHub + ' · via ' + o.peerHub + ' · ' + o.project + ' · observed ' + ago(msAgo(o.observedAt)) + ' · expires ' + dualStamp(o.expiresAt);
     fragment.appendChild(row);
   });
   if (!rows.length) { var empty = document.createElement('p'); empty.className = 'dim'; empty.textContent = 'No unexpired downstream observations in this scope.'; fragment.appendChild(empty); }
@@ -253,7 +261,7 @@ function renderLlm(d){
       var c = calls[j];
       if (!govMatches(c.model, c.error)) continue;
       matched++;
-      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : (Number.isFinite(c.tt) ? c.tt + ' reported tok' : 'token usage unavailable') + ' · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
+      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : (Number.isFinite(c.tt) ? c.tt + ' reported tok' : 'token usage unavailable') + ' · ' + c.ms + 'ms') + ' · ' + dualStamp(c.ts) + '</div>';
     }
   }
   setNodes(el, h);

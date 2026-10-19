@@ -929,6 +929,16 @@ export class KlhUsageDrilldown extends LitElement {
 	declare report: UsageReport | null;
 	declare error: string;
 	declare loading: boolean;
+	// W902: UTC-first dual stamp — a bare local time is each bucket's twin
+	private stamp(hour: number): string {
+		const d = new Date(hour);
+		const p = (n: number): string => String(n).padStart(2, "0");
+		const off = -d.getTimezoneOffset();
+		const a = Math.abs(off);
+		const utc = `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:00Z`;
+		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+		return `${utc} (${local})`;
+	}
 	private requestId = 0;
 
 	constructor() {
@@ -1008,7 +1018,7 @@ export class KlhUsageDrilldown extends LitElement {
 						this.refresh();
 					}}
 				>
-					${this.hours.map((hour) => html`<option value=${String(hour)} ?selected=${hour === this.bucket}>${new Date(hour).toLocaleString()}</option>`)}
+					${this.hours.map((hour) => html`<option value=${String(hour)} ?selected=${hour === this.bucket}>${this.stamp(hour)}</option>`)}
 				</select>
 			</label>
 			${this.loading ? html`<p class="uempty">Loading hour…</p>` : nothing}

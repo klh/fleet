@@ -93,6 +93,17 @@ class KlhTaskTrace extends LitElement {
 		this.error = null;
 	}
 
+	// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+	private stamp(at: number): string {
+		const d = new Date(at);
+		const p = (n: number): string => String(n).padStart(2, "0");
+		const off = -d.getTimezoneOffset();
+		const a = Math.abs(off);
+		const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
+		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+		return `${utc} (${local})`;
+	}
+
 	protected render() {
 		const traceId = this.trace[0]?.traceId ?? "";
 		const execution = this.execution;
@@ -105,7 +116,7 @@ class KlhTaskTrace extends LitElement {
 				this.events.length
 					? html`<ol>${this.events.map(
 							(event) => html`<li>
-				<time datetime=${new Date(event.ts).toISOString()}>${new Date(event.ts).toLocaleString()}</time>
+				<time datetime=${new Date(event.ts).toISOString()}>${this.stamp(event.ts)}</time>
 				<div><strong>${event.kind}</strong> · ${event.source}<span class="sub">${[event.note, event.sha ? `commit ${event.sha.slice(0, 12)}` : null].filter(Boolean).join(" · ")}</span></div>
 			</li>`,
 						)}</ol>`
@@ -114,7 +125,7 @@ class KlhTaskTrace extends LitElement {
 			${this.trace.length ? html`<h3>Plan and registration</h3>` : ""}
 			<ol>${this.trace.map(
 				(step) => html`<li>
-				<time datetime=${new Date(step.at).toISOString()}>${new Date(step.at).toLocaleTimeString()}</time>
+				<time datetime=${new Date(step.at).toISOString()}>${this.stamp(step.at)}</time>
 				<div><strong class=${step.status === "error" ? "error" : ""}>${step.phase}</strong> · ${step.service}
 					<span class="sub">${[step.model, step.endpoint, step.ms == null ? null : `${step.ms} ms`, step.inputTokens == null ? null : `${step.inputTokens} in`, step.outputTokens == null ? null : `${step.outputTokens} out`].filter(Boolean).join(" · ")}</span>
 				</div>
@@ -137,7 +148,7 @@ class KlhTaskTrace extends LitElement {
 					hops.length
 						? html`<details><summary>Request history · ${hops.length} Buckle hops</summary><ol>${hops.map(
 								(hop) => html`<li>
-					<time datetime=${new Date(hop.at).toISOString()}>${new Date(hop.at).toLocaleTimeString()}</time>
+					<time datetime=${new Date(hop.at).toISOString()}>${this.stamp(hop.at)}</time>
 					<div><strong class=${hop.status === "error" ? "error" : ""}>${hop.hub} · ${hop.hop}</strong> → ${hop.model ?? "model unknown"}
 						<span class="sub">${[hop.endpoint, hop.ms == null ? null : `${hop.ms} ms`, hop.inputTokens == null ? null : `${hop.inputTokens} in`, hop.outputTokens == null ? null : `${hop.outputTokens} out`, hop.cacheReadTokens == null ? null : `${hop.cacheReadTokens} cache read`, hop.status, hop.traceId ? `trace ${hop.traceId}` : "trace unavailable (older request)", `request ${hop.requestId.slice(0, 12)}`].filter(Boolean).join(" · ")}</span>
 					</div>

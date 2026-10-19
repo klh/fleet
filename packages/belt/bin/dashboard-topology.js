@@ -181,7 +181,7 @@ class BeltTopology extends LitElement {
 				data?.gatewayTraffic
 					? html`<div class="traffic" aria-label="Observed Buckle traffic, past 60 seconds">
 				<span><strong>${data.gatewayTraffic.requests60}</strong><small>Buckle requests / min</small></span>
-				<span><strong>${Math.round((data.gatewayTraffic.inputTokens60 + data.gatewayTraffic.outputTokens60) / 60).toLocaleString()}</strong><small>reported tokens / sec</small></span>
+				<span><strong>${Math.round((data.gatewayTraffic.inputTokens60 + data.gatewayTraffic.outputTokens60) / 60).toLocaleString("en-US")}</strong><small>reported tokens / sec</small></span>
 				<span><strong>${data.gatewayTraffic.observedTargets}</strong><small>active gateway targets</small></span>
 			</div>`
 					: ""

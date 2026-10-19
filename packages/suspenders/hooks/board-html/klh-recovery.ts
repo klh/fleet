@@ -25,6 +25,16 @@ class KlhRecovery extends LitElement {
 	declare busy: boolean;
 	declare now: number;
 	private project = "";
+	// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+	private stamp(at: number): string {
+		const d = new Date(at);
+		const p = (n: number): string => String(n).padStart(2, "0");
+		const off = -d.getTimezoneOffset();
+		const a = Math.abs(off);
+		const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
+		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+		return `${utc} (${local})`;
+	}
 	private generation = 0;
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private clock: ReturnType<typeof setInterval> | null = null;
@@ -108,7 +118,7 @@ class KlhRecovery extends LitElement {
 		return html`
 			<header><h2>Recovery & collaboration</h2><span class="dim">last 24 hours · selected project</span><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh recovery"}</button></header>
 			<p class=${this.error || stale ? "warn" : "dim"} role="status">${this.error ? `Recovery unavailable: ${this.error}. ${d ? "Last good snapshot retained." : "No snapshot loaded."}` : age !== null ? `${stale ? "Stale snapshot" : "Checked"} · ${age}s ago` : "Loading recovery evidence…"}</p>
-			${d?.observation ? html`<p class="dim">Evidence: ${d.observation.source} · ${d.observation.scope} · expires ${new Date(d.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
+			${d?.observation ? html`<p class="dim">Evidence: ${d.observation.source} · ${d.observation.scope} · expires ${this.stamp(d.observation.expiresAt)}</p>` : ""}
 			${
 				d
 					? html`
