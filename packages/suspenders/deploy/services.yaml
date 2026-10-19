@@ -250,6 +250,24 @@ services:
     logs: { out: "__HOME__/.claude-insights/notify.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
+  # W822 — periodic fleet pulse: `notify.ts pulse` composes the digest from
+  # the work graph + watchdog state and fans it to the notify.yaml 'pulse'
+  # class channels (default desktop). StartInterval rides machine config —
+  # notify.yaml pulse.interval_s (default 14400), patched at render time by
+  # install-services.ts applyPulseInterval — so every install --with-launchd
+  # registers it, session-independent. cwd=__REPO__ anchors resolveProject on
+  # the pinned fleet checkout.
+  - name: fleet-pulse
+    bunEntry: "__PREFIX__/bin/notify.ts"
+    args: ["pulse"]
+    cwd: "__REPO__"
+    env:
+      HOME: "__HOME__"
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    schedule: { intervalSeconds: 14400 }
+    logs: { out: "__HOME__/.claude-insights/fleet-pulse.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__", "__REPO__"]
+
 # Retired labels — boot-out + plist removal at the next install --with-launchd
 # (scripts/install-launchd.ts reads THIS list via loadLegacyLabels; the old
 # TS const is gone). Never boot-out a label still in `services:` above.

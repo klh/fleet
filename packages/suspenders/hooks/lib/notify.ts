@@ -14,7 +14,8 @@ export type NotifyClass =
 	| "need-decision"
 	| "budget"
 	| "hub-down"
-	| "lane-death";
+	| "lane-death"
+	| "pulse";
 export type ChannelName = "desktop" | "email" | "slack";
 
 /** bus kind → notification class (the event source contract) */
@@ -38,6 +39,9 @@ export interface NotifyConfig {
 	/** sid the subscription binds as — set to the coordinator sid to also
 	 *  receive events directed at it (default: untargeted events only) */
 	as: string;
+	/** W822 fleet-pulse cadence — launchd StartInterval seconds; the
+	 *  services.yaml default is overridden at render time (config-over-code) */
+	pulse: { interval_s: number };
 	channels: {
 		desktop?: { enabled?: boolean };
 		slack?: { webhook_url?: string; webhook_url_file?: string };
@@ -60,6 +64,9 @@ const DEFAULT_POLICY: ClassPolicy = {
 	rate_limit: { max: 6, per_s: 3600 },
 };
 
+/** W822 fleet-pulse default cadence (4h) — notify.yaml pulse.interval_s wins. */
+export const DEFAULT_PULSE_INTERVAL_S = 14400;
+
 export const NOTIFY_PATH = (): string =>
 	process.env.KLH_NOTIFY ?? join(homedir(), ".config", "klh", "notify.yaml");
 
@@ -68,11 +75,19 @@ const CLASSES: NotifyClass[] = [
 	"budget",
 	"hub-down",
 	"lane-death",
+	"pulse",
 ];
+
+// positive-integer or default — a bad pulse.interval_s never breaks render
+const pulseIntervalOf = (v: unknown): number =>
+	typeof v === "number" && Number.isInteger(v) && v > 0
+		? v
+		: DEFAULT_PULSE_INTERVAL_S;
 
 /** Merge a parsed yaml doc over the defaults; unknown keys ignored. */
 export function normalizeConfig(raw: unknown): NotifyConfig {
 	const r = (raw ?? {}) as Partial<NotifyConfig>;
+	const pulseRaw = (r.pulse ?? {}) as { interval_s?: unknown };
 	const classes = {} as Record<NotifyClass, ClassPolicy>;
 	for (const c of CLASSES) {
 		const o = (r.classes?.[c] ?? {}) as Partial<ClassPolicy>;
@@ -82,7 +97,12 @@ export function normalizeConfig(raw: unknown): NotifyConfig {
 			rate_limit: { ...DEFAULT_POLICY.rate_limit, ...(o.rate_limit ?? {}) },
 		};
 	}
-	return { as: r.as ?? "notify", channels: r.channels ?? {}, classes };
+	return {
+		as: r.as ?? "notify",
+		pulse: { interval_s: pulseIntervalOf(pulseRaw.interval_s) },
+		channels: r.channels ?? {},
+		classes,
+	};
 }
 
 /** null when no notify.yaml exists — the daemon idles, never errors. */
@@ -116,7 +136,9 @@ export interface Notification {
 
 const payloadOf = (ev: BusEvent): Record<string, unknown> => {
 	try {
-		return ev.payload ? (JSON.parse(ev.payload) as Record<string, unknown>) : {};
+		return ev.payload
+			? (JSON.parse(ev.payload) as Record<string, unknown>)
+			: {};
 	} catch {
 		return {};
 	}

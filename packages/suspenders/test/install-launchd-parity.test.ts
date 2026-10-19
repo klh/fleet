@@ -93,6 +93,10 @@ describe("registerLaunchd parity (W490.2)", () => {
 					...process.env,
 					BELT_URL: FIXTURE.beltUrl,
 					BELT_TOKEN: FIXTURE.beltToken,
+					// W822: the renderer now reads machine notify.yaml (pulse cadence)
+					// — pin a fixture path so parity stays deterministic on machines
+					// whose notify.yaml overrides pulse.interval_s (W670 doctrine)
+					KLH_NOTIFY: join(outDir, "absent-notify.yaml"),
 				},
 			},
 		);

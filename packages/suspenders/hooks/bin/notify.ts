@@ -10,7 +10,11 @@
 //   bun notify.ts test [--channel c]  send one synthetic notification
 //   bun notify.ts check            print resolved config + channels (no send)
 import { homedir } from "node:os";
-import { openStore, resolveStoreHttpBase } from "../lib/govdb.ts";
+import {
+	openStore,
+	resolveProject,
+	resolveStoreHttpBase,
+} from "../lib/govdb.ts";
 import {
 	type BusEvent,
 	type ChannelName,
@@ -20,9 +24,11 @@ import {
 	subscribedKinds,
 } from "../lib/notify.ts";
 import { sendersFor } from "../lib/notify-adapters.ts";
+import { firePulse, PULSE_STATE_PATH } from "../lib/pulse.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
-const log = (m: string): void => console.log(`${new Date().toISOString()} ${m}`);
+const log = (m: string): void =>
+	console.log(`${new Date().toISOString()} ${m}`);
 
 function startSubscribe(
 	cfg: NotifyConfig,
@@ -100,11 +106,40 @@ async function run(): Promise<void> {
 	const onEvent = (ev: BusEvent): void => {
 		void notifier
 			.handle(ev)
-			.then((r) => log(`#${ev.id} ${ev.kind} → ${r.status} ${JSON.stringify(r.channels ?? {})}`))
+			.then((r) =>
+				log(
+					`#${ev.id} ${ev.kind} → ${r.status} ${JSON.stringify(r.channels ?? {})}`,
+				),
+			)
 			.catch(() => log(`#${ev.id} ${ev.kind} handler failed`));
 	};
 	if (!startSubscribe(cfg, onEvent)) startTail(onEvent);
 	await new Promise<void>(() => {});
+}
+
+// W822: one digest per invocation — launchd com.suspenders.fleet-pulse fires
+// this on StartInterval. cwd is __REPO__ (the pinned suspenders checkout), so
+// resolveProject lands on the fleet graph; --fleet overrides for manual runs.
+async function runPulse(fleetFlag: string | undefined): Promise<void> {
+	const cfg = load();
+	if (!cfg) {
+		log("no notify.yaml — pulse idle");
+		return;
+	}
+	const fleetRoot = fleetFlag
+		? resolveProject(fleetFlag).root
+		: resolveProject().root;
+	const proj = resolveProject(fleetRoot).id;
+	const res = await firePulse({
+		config: cfg,
+		senders: sendersFor(cfg, homedir()),
+		store: openStore(),
+		project: proj,
+		fleetRoot,
+		statePath: PULSE_STATE_PATH(),
+		log,
+	});
+	for (const [c, r] of Object.entries(res.channels)) log(`pulse ${c}: ${r}`);
 }
 
 async function sendTest(channel: string | null): Promise<number> {
@@ -150,6 +185,13 @@ if (import.meta.main) {
 				usage: "usage: notify test [--channel desktop|email|slack]",
 				flags: ["--channel"],
 				run: (p) => sendTest(p.flag("--channel")),
+			}),
+			defineVerb({
+				name: "pulse",
+				usage:
+					"usage: notify pulse [--fleet <dir>] — periodic fleet digest (launchd fleet-pulse)",
+				flags: ["--fleet"],
+				run: (p) => runPulse(p.flag("--fleet")),
 			}),
 			defineVerb({
 				name: "check",
