@@ -77,6 +77,39 @@ test("tasks table: pills carry state letters in the semantic hues", async ({
 	await page.screenshot({ path: "test-results/w891-tasks-letters.png" });
 });
 
+test("tasks filters use the shared project scope and retain column sorting", async ({
+	page,
+}) => {
+	const b = mustBoard();
+	await page.goto(`${b.BASE}/#tasks`);
+	await expect(page.locator("#proj")).toHaveCount(1);
+	await expect(page.locator("#taskProj")).toHaveCount(0);
+	const all = page.locator('#taskFocus [data-focus="all"]');
+	await expect(all).toHaveAttribute("aria-pressed", "true");
+	await page.locator('#taskFocus [data-focus="ready"]').click();
+	await expect(page.locator('#taskFocus [data-focus="ready"]')).toHaveAttribute(
+		"aria-pressed",
+		"true",
+	);
+	const rows = page.locator("#tasksBody tr[data-tid]");
+	await expect(rows.first()).toBeVisible();
+	const states = await rows.locator(".pill").allTextContents();
+	expect(states.every((state) => state.toLowerCase().includes("ready"))).toBe(
+		true,
+	);
+	await all.click();
+	await page.locator('#tasksTbl th[data-k="owner"] button').click();
+	await expect(page.locator("#taskPriority")).toHaveAttribute(
+		"aria-pressed",
+		"false",
+	);
+	await page.locator("#taskPriority").click();
+	await expect(page.locator("#taskPriority")).toHaveAttribute(
+		"aria-pressed",
+		"true",
+	);
+});
+
 test("fleet lanes rows: the status word leads with its letter", async ({
 	page,
 }) => {

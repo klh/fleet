@@ -85,6 +85,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"project",
 				"requires",
 				"scope",
+				"signal",
 				"spend",
 				"state",
 				"tag",

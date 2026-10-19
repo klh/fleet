@@ -4,19 +4,19 @@
 export const TASKS = String.raw`// --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
 // view state: session filter + column sort, persisted per browser (owner
 // asked: filter tasks by owning session, sortable table, fragments grouped)
-var taskSort = {key: 'age', dir: 1};
+var taskSort = {key: 'priority', dir: 1};
 var taskOwner = 'all';
-var taskProj = 'all';
+var taskFocus = 'all';
 try {
   var savedSort = JSON.parse(localStorage.getItem('sb.taskSort') || 'null');
   if (savedSort && savedSort.key) taskSort = savedSort;
   var savedOwner = localStorage.getItem('sb.taskOwner');
   if (savedOwner) taskOwner = String(savedOwner);
-  var savedProj = localStorage.getItem('sb.taskProj');
-  if (savedProj) taskProj = String(savedProj);
+  var savedFocus = localStorage.getItem('sb.taskFocus');
+  if (['all', 'attention', 'working', 'ready', 'waiting'].includes(savedFocus)) taskFocus = savedFocus;
 } catch (e) {}
 function saveTaskView(){
-  try { localStorage.setItem('sb.taskSort', JSON.stringify(taskSort)); localStorage.setItem('sb.taskOwner', taskOwner); localStorage.setItem('sb.taskProj', taskProj); } catch (e) {}
+  try { localStorage.setItem('sb.taskSort', JSON.stringify(taskSort)); localStorage.setItem('sb.taskOwner', taskOwner); localStorage.setItem('sb.taskFocus', taskFocus); } catch (e) {}
 }
 function projShort(p){ return String(p || '').replace(/\/\.git$/, '').split('/').pop() || '—'; }
 function ownerKey(t){ return t.owner_sid ? String(t.owner_sid) : 'unclaimed'; }
@@ -43,6 +43,7 @@ function buildOwnerDisp(ts){ // seven lanes all claiming "work-graph" must stay 
   }
 }
 function taskSortVal(t, k){
+  if (k === 'priority') return taskRank(t);
   if (k === 'age') return Number(t.age_s || 0);
   if (k === 'decisions') return Number(t.open_decisions || 0);
   if (k === 'tok') return Number(t.spend ? t.spend.fresh + t.spend.cached + t.spend.out : 0);
@@ -56,8 +57,20 @@ function sortTasks(arr){
   var k = taskSort.key, d = taskSort.dir;
   arr.sort(function(a, b){
     var va = taskSortVal(a, k), vb = taskSortVal(b, k);
-    return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * d;
+    var cmp = (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * d;
+    return cmp || Number(a.age_s || 0) - Number(b.age_s || 0);
   });
+}
+function taskBucket(t){
+  var state = displayState(t);
+  if (state === 'FAILED' || state === 'BLOCKED' || Number(t.open_decisions || 0) > 0) return 'attention';
+  if (state === 'CLAIMED' || state === 'RUNNING') return 'working';
+  if (state === 'READY') return 'ready';
+  return 'waiting';
+}
+function taskRank(t){
+  var bucket = taskBucket(t);
+  return bucket === 'attention' ? 0 : bucket === 'working' ? 1 : bucket === 'ready' ? 2 : 3;
 }
 function taskGroupKey(t){ return String(t.project || '') + '\u0000' + String(t.id); }
 function taskGroups(ts){ // fragments nest under their parent row, scoped by project
@@ -71,26 +84,6 @@ function taskGroups(ts){ // fragments nest under their parent row, scoped by pro
     else roots.push(t);
   }
   return {roots: roots, kids: kids};
-}
-function renderTaskProjOptions(ts){
-  var sel = byId('taskProj');
-  var seen = {}, names = [];
-  for (var i = 0; i < ts.length; i++){
-    var p = projShort(ts[i].project);
-    if (!seen[p]) { seen[p] = 1; names.push(p); }
-  }
-  names.sort();
-  var html = '<option value="all">all projects</option>';
-  for (var j = 0; j < names.length; j++) html += '<option value="' + esc(names[j]) + '">' + esc(names[j]) + '</option>';
-  if (sel.dataset.sig === html) return; // the option-list string stays the dedupe key; options build natively
-  sel.dataset.sig = html;
-  while (sel.options.length > 0) sel.remove(0);
-  sel.add(new Option('all projects', 'all'));
-  for (var j = 0; j < names.length; j++) sel.add(new Option(names[j], names[j]));
-  var has = false;
-  for (var o = 0; o < sel.options.length; o++) if (sel.options[o].value === taskProj) has = true;
-  if (!has) { taskProj = 'all'; saveTaskView(); }
-  sel.value = taskProj;
 }
 function renderTaskOwnerOptions(ts){
   var sel = byId('taskOwner');
@@ -113,6 +106,8 @@ function renderTaskOwnerOptions(ts){
   sel.value = taskOwner;
 }
 function paintSort(){
+  var priority = byId('taskPriority');
+  if (priority) priority.setAttribute('aria-pressed', taskSort.key === 'priority' ? 'true' : 'false');
   var ths = document.querySelectorAll('#tasksTbl th');
   for (var i = 0; i < ths.length; i++){
     var th = ths[i], k = th.getAttribute('data-k');
@@ -267,10 +262,8 @@ function renderTasks(){
   if (!tasksData) return; // nothing good yet — keep loading/error row
   var ts = tasksData.tasks;
   buildOwnerDisp(ts);
-  renderTaskProjOptions(ts);
   renderTaskOwnerOptions(ts);
-  var byProj = taskProj === 'all' ? ts : ts.filter(function(t){ return projShort(t.project) === taskProj; });
-  var own = taskOwner === 'all' ? byProj : byProj.filter(function(t){ return ownerKey(t) === taskOwner; });
+  var own = taskOwner === 'all' ? ts : ts.filter(function(t){ return ownerKey(t) === taskOwner; });
   // #filter= deep-link narrows rows to an id/owner/session substring (case-insensitive)
   if (hashFilter) own = own.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
   if (boardQuery) own = own.filter(function(t){ return boardMatch([t.id, t.title, t.state, ownerKey(t), ownerName(t), t.project]); });
@@ -278,7 +271,24 @@ function renderTasks(){
   var showDone = false;
   try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
   var cb = byId('taskDone'); if (cb) cb.checked = showDone;
-  var pool = showDone ? own : own.filter(function(t){ return t.state !== 'DONE' && t.state !== 'CANCELLED'; });
+  var open = own.filter(function(t){ return t.state !== 'DONE' && t.state !== 'CANCELLED'; });
+  var counts = {all: open.length, attention: 0, working: 0, ready: 0, waiting: 0};
+  for (var i = 0; i < open.length; i++) counts[taskBucket(open[i])]++;
+  var focus = byId('taskFocus');
+  if (focus) {
+    var allLabel = focus.querySelector('[data-focus="all"]');
+    if (allLabel && allLabel.firstChild) allLabel.firstChild.textContent = showDone ? 'All tasks ' : 'All open ';
+    if (showDone) counts.all = own.length;
+    var buttons = focus.querySelectorAll('[data-focus]');
+    for (var j = 0; j < buttons.length; j++) {
+      var key = buttons[j].getAttribute('data-focus');
+      buttons[j].setAttribute('aria-pressed', key === taskFocus ? 'true' : 'false');
+      var count = buttons[j].querySelector('[data-count]');
+      if (count) count.textContent = counts[key];
+    }
+  }
+  var pool = showDone && taskFocus === 'all' ? own : open;
+  if (taskFocus !== 'all') pool = pool.filter(function(t){ return taskBucket(t) === taskFocus; });
   var html = taskTreeHtml(pool);
   if (!html) html = '<tr><td colspan="7" class="dim">' + (ts.length ? '(no tasks match the filters)' : '(no tasks)') + '</td></tr>';
   var cnt = byId('taskCount');

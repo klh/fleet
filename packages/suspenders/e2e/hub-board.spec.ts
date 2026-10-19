@@ -195,7 +195,7 @@ test("scope isolation: local work never leaks to the hub board", async ({
 	await expect(
 		page.locator(`#tasksBody tr[data-tid="${localId}"]`),
 	).toHaveCount(0);
-	await expect(page.locator("#taskProj")).not.toContainText(L.projShort);
+	await expect(page.locator("#proj")).not.toContainText(L.projShort);
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(page.locator("#kanban")).not.toContainText(LOCAL_TITLE);
 	await page.waitForTimeout(1600); // > one GUI poll tick — absence is stable

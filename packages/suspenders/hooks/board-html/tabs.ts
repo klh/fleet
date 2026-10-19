@@ -125,10 +125,14 @@ if (ownSel) ownSel.addEventListener('change', function(e){
   taskOwner = e.target.value || 'all';
   saveTaskView(); renderTasks();
 });
-var projSel = byId('taskProj');
-if (projSel) projSel.addEventListener('change', function(e){
-  taskProj = e.target.value || 'all';
-  closeTask(); resetTail();
+byId('taskPriority').addEventListener('click', function(){
+  taskSort = {key: 'priority', dir: 1};
+  saveTaskView(); paintSort(); renderTasks();
+});
+byId('taskFocus').addEventListener('click', function(e){
+  var button = e.target.closest('[data-focus]');
+  if (!button) return;
+  taskFocus = button.getAttribute('data-focus') || 'all';
   saveTaskView(); renderTasks();
 });
 var doneCb = byId('taskDone');

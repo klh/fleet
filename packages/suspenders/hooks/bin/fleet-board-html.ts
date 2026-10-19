@@ -192,6 +192,14 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 #tasksTbl th button.thsort:hover { text-decoration:underline; text-underline-offset:3px; }
 .kidmark { color:var(--klh-dim); margin-right:6px; }
 .taskbar { display:flex; align-items:center; gap:10px; margin:0 0 10px; }
+.taskbar .taskOrder { margin-left:auto; background:transparent; color:var(--klh-dim); border:1px solid var(--klh-edge-mid); border-radius:3px; padding:4px 8px; font:11px var(--klh-font-mono); cursor:pointer; }
+.taskbar .taskOrder[aria-pressed="true"] { color:var(--klh-accent); border-color:var(--klh-accent); }
+.taskbar .taskOrder:focus-visible, .taskFocus button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+.taskFocus { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--klh-edge); margin:0 0 8px; }
+.taskFocus button { background:transparent; border:0; border-bottom:2px solid transparent; color:var(--klh-dim); cursor:pointer; padding:6px 10px; font:11px var(--klh-font-sans); }
+.taskFocus button span { margin-left:5px; font:10px var(--klh-font-mono); font-variant-numeric:tabular-nums; }
+.taskFocus button[aria-pressed="true"] { color:var(--klh-ink); border-bottom-color:var(--klh-accent); }
+.taskFocus button[data-focus="attention"] span { color:var(--klh-danger-ink); }
 .taskbar select {
   background:var(--klh-surface-hi); color:var(--klh-ink-2); border:1px solid var(--klh-edge); border-radius:4px;
   font:12px var(--klh-font-mono); padding:3px 6px;
