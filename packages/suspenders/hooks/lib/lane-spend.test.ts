@@ -1,12 +1,16 @@
 // W635 — lane-spend attribution tests: ledger resolution, spend extraction,
 // claim-window join. In-memory/temp ledger, real functions.
 import { Database } from "bun:sqlite";
-import { unlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
 	itemAttribution,
+	itemRequestSpendSeries,
 	itemSpend,
 	itemSpendSeries,
+	laneRequestSpendRows,
 	laneSpendRows,
 	resolveBuckleDb,
 	type LaneSpendRow,
@@ -162,6 +166,51 @@ describe("itemSpendSeries (W887)", () => {
 			wins,
 		).get("W1");
 		expect(pts?.length ?? 0).toBe(0);
+	});
+});
+
+describe("recent request spend series", () => {
+	test("reads per-request usage and attributes exact claim windows into one-minute points", () => {
+		const dir = mkdtempSync(join(tmpdir(), "fleet-lane-spark-"));
+		const file = join(dir, "buckle.db");
+		try {
+			const db = new Database(file);
+			db.run(
+				"CREATE TABLE route_audit (ts TEXT, lane TEXT, in_tok INTEGER, out_tok INTEGER, cache_r INTEGER, cache_c INTEGER)",
+			);
+			const insert = db.query(
+				"INSERT INTO route_audit VALUES (?, ?, ?, ?, ?, ?)",
+			);
+			const base = Date.parse("2026-10-19T20:00:00Z");
+			insert.run(new Date(base + 10_000).toISOString(), "lane-a", 20, 2, 30, 0);
+			insert.run(new Date(base + 40_000).toISOString(), "lane-a", 10, 1, 0, 5);
+			insert.run(new Date(base + 70_000).toISOString(), "lane-a", 40, 4, 20, 0);
+			insert.run(new Date(base + 130_000).toISOString(), "lane-a", 99, 9, 0, 0);
+			insert.run(
+				new Date(base + 75_000).toISOString(),
+				"other-lane",
+				500,
+				0,
+				0,
+				0,
+			);
+			db.close();
+			const rows = laneRequestSpendRows(file, "2026-10-19T20:00:00Z");
+			const windows = new Map<string, ClaimWindow[]>([
+				["W1", [{ sid: "lane-a", start: base, end: base + 120_000 }]],
+				["W2", [{ sid: "lane-a", start: base + 120_000, end: base + 180_000 }]],
+			]);
+			const series = itemRequestSpendSeries(rows, windows);
+			expect(series.get("W1")).toEqual([
+				{ t: base, fresh: 30, cached: 35, out: 3 },
+				{ t: base + 60_000, fresh: 40, cached: 20, out: 4 },
+			]);
+			expect(series.get("W2")).toEqual([
+				{ t: base + 120_000, fresh: 99, cached: 0, out: 9 },
+			]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 

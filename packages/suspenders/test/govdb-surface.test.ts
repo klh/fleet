@@ -94,13 +94,25 @@ describe("govdb entrypoint surface (W624 facade)", () => {
 		const uv = (
 			db.query("PRAGMA user_version").get() as { user_version: number }
 		).user_version;
-		expect(uv).toBeGreaterThanOrEqual(17); // W359 v17 identity split rides the ladder tail
+		expect(uv).toBeGreaterThanOrEqual(19); // durable work spend histogram
+		db.query(
+			"INSERT INTO work_spend_histogram (project,work_id,bucket_ms,fresh,cached,out_tok) VALUES ('p','W1',1000,10,20,3)",
+		).run();
 		// re-exported helpers operate on the real handle
 		expect(govdb.tagNameOf('{"name":"autow624"}')).toBe("autow624"); // W293 tags-JSON bridge
 		expect(govdb.tagNameOf("autow624-p98b319584008df14")).toBeNull(); // malformed tags → null, never throws
 		expect(() => govdb.pruneDeltas(db, 100)).not.toThrow();
 		expect(() => govdb.sweepStaleSessions(db, 60_000)).not.toThrow();
 		db.close();
+		const reopened = govdb.openGovernorDb();
+		expect(
+			reopened
+				.query(
+					"SELECT fresh,cached,out_tok FROM work_spend_histogram WHERE project='p' AND work_id='W1'",
+				)
+				.get(),
+		).toEqual({ fresh: 10, cached: 20, out_tok: 3 });
+		reopened.close();
 	});
 
 	test("openKnowledgeDb opens the split file with the checkpoint table", () => {

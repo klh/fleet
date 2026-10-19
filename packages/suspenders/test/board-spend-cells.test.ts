@@ -111,7 +111,7 @@ describe("board spend cells (W776)", () => {
 		expect(card).not.toContain("(local ");
 	});
 
-	test("hourly sparklines render stacked bars and leave empty hours blank", () => {
+	test("request histogram starts left and advances in three-minute bins", () => {
 		type Node = {
 			tag: string;
 			attrs: Record<string, string>;
@@ -137,14 +137,14 @@ describe("board spend cells (W776)", () => {
 			{ createElementNS },
 			{ addEventListener: () => {} },
 		) as (points: number[][], w: number, h: number) => Node;
-		const thisHour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+		const thisMinute = Math.floor(Date.now() / 60_000) * 60_000;
 		const chart = sparkSvg(
 			[
-				[thisHour - 2 * 3_600_000, 30, 70, 12],
-				[thisHour, 100, 0, 20],
+				[thisMinute - 4 * 60_000, 30, 70, 12],
+				[thisMinute, 100, 0, 20],
 			],
-			120,
-			18,
+			180,
+			28,
 		);
 		const bars = chart.children.filter((node) => node.tag === "rect");
 		expect(bars).toHaveLength(3);
@@ -155,11 +155,12 @@ describe("board spend cells (W776)", () => {
 		]);
 		const positions = [...new Set(bars.map((bar) => Number(bar.attrs.x)))];
 		expect(positions).toHaveLength(2);
-		expect(positions[1] - positions[0]).toBeGreaterThan(4);
+		expect(positions[0]).toBeLessThan(5);
+		expect(positions[1] - positions[0]).toBeGreaterThan(5);
 		expect(chart.children.some((node) => node.tag === "polyline")).toBe(false);
 		expect(
-			sparkSvg([[thisHour - 100 * 3_600_000, 100, 0, 0]], 120, 18).children,
-		).toHaveLength(0);
+			sparkSvg([[thisMinute - 100 * 60_000, 100, 0, 0]], 180, 28).children,
+		).toHaveLength(1);
 	});
 });
 

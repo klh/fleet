@@ -183,8 +183,8 @@ export async function handleData(
 		});
 	}
 	if (url.pathname === "/api/spend-series") {
-		// W887 — per-item spend-over-time (hour-bucket tuples) keyed
-		// project\0id (W318). 5s-memoized, one ledger read per window; the
+		// Per-item one-minute request usage keyed project\0id.
+		// 5s-memoized, one ledger read per window; the
 		// card sparklines poll this at 30s, never /api/tasks.
 		return json({ ok: true, series: workSpendSeriesPayload() });
 	}

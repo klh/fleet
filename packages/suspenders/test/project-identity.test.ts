@@ -17,7 +17,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import { capsuleProjectTag, itemCapsuleKey } from "../hooks/lib/capsule-fence.ts";
+import {
+	capsuleProjectTag,
+	itemCapsuleKey,
+} from "../hooks/lib/capsule-fence.ts";
 import { launchSchema } from "../scripts/lib/launch-fencing.ts";
 import { acquireLaunchLease } from "../scripts/lib/launch-preflight.ts";
 
@@ -94,6 +97,9 @@ describe("coord project rekey (W460)", () => {
 		db.query(
 			"INSERT INTO decisions (event_id, target, project, created_at) VALUES (1, 'coord:1 NEED_DECISION', ?, ?)",
 		).run(PROJ, TS);
+		db.query(
+			"INSERT INTO work_spend_histogram (project,work_id,bucket_ms,fresh,cached,out_tok) VALUES (?,?,?,10,20,3)",
+		).run(PROJ, "W1", TS);
 		db.close();
 
 		const r = run(REPO, coord, "project", "rekey", PROJ, TARGET);
@@ -107,9 +113,15 @@ describe("coord project rekey (W460)", () => {
 		const item = rd
 			.query("SELECT project FROM work_items WHERE id = 'W1'")
 			.get() as { project: string };
+		const histogram = rd
+			.query(
+				"SELECT project,fresh,cached FROM work_spend_histogram WHERE work_id='W1'",
+			)
+			.get() as { project: string; fresh: number; cached: number };
 		rd.close();
 		expect(dec.project).toBe(TARGET);
 		expect(item.project).toBe(TARGET);
+		expect(histogram).toEqual({ project: TARGET, fresh: 10, cached: 20 });
 	});
 
 	test("refused when the destination already holds work items", () => {

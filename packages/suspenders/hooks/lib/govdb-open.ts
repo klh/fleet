@@ -424,6 +424,18 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 18");
 	}
+	// v19 — durable, one-minute work spend histogram. The board refreshes
+	// recent buckets from Buckle audit with absolute totals, so repeated polls
+	// cannot double-count and older buckets survive board restarts.
+	if (uv < 19) {
+		db.run(
+			"CREATE TABLE IF NOT EXISTS work_spend_histogram (project TEXT NOT NULL, work_id TEXT NOT NULL, bucket_ms INTEGER NOT NULL, fresh INTEGER NOT NULL, cached INTEGER NOT NULL, out_tok INTEGER NOT NULL, PRIMARY KEY(project,work_id,bucket_ms))",
+		);
+		db.run(
+			"CREATE INDEX IF NOT EXISTS work_spend_histogram_bucket ON work_spend_histogram(bucket_ms)",
+		);
+		db.run("PRAGMA user_version = 19");
+	}
 	// W953 confidence doctrine: guarded ALTERs heal every open (the additive
 	// house pattern — no user_version bump; consults.deadline_at precedent).
 	// facts + consult_kb carry confidence REAL (fast filter) + the LATEST

@@ -69,6 +69,18 @@ export interface ItemSpendPoint {
 	out: number;
 }
 
+/** One completed Buckle request with usage, kept at request precision. */
+export interface LaneRequestSpendRow {
+	ts: number;
+	sid: string;
+	inTok: number;
+	outTok: number;
+	cacheR: number;
+	cacheC: number;
+}
+
+export const REQUEST_SPARK_BUCKET_MS = 60_000;
+
 /** Resolve the buckle ledger path: SUSPENDERS_BUCKLE_DB env pin, then the
  *  documented spoke home. Config-over-code — only channel names, no paths
  *  beyond the documented spoke layout. null = no readable ledger. */
@@ -108,6 +120,37 @@ export function laneSpendRows(
 			cacheC: Number(r.cc),
 			requests: Number(r.req),
 		}));
+	} finally {
+		d.close();
+	}
+}
+
+/** Recent per-request usage for live charts. The hourly router_usage table
+ * cannot show a time series for a lane younger than an hour. Older ledgers
+ * without route_audit usage columns yield no points rather than invented ones. */
+export function laneRequestSpendRows(
+	dbPath: string,
+	fromIso: string,
+): LaneRequestSpendRow[] {
+	const d = new Database(dbPath, { readonly: true });
+	try {
+		const rows = d
+			.query(
+				"SELECT ts, lane, in_tok, out_tok, cache_r, cache_c FROM route_audit WHERE ts >= ? AND lane <> '' AND in_tok IS NOT NULL ORDER BY ts",
+			)
+			.all(fromIso) as Array<Record<string, unknown>>;
+		return rows
+			.map((r) => ({
+				ts: Date.parse(String(r.ts)),
+				sid: String(r.lane),
+				inTok: Number(r.in_tok) || 0,
+				outTok: Number(r.out_tok) || 0,
+				cacheR: Number(r.cache_r) || 0,
+				cacheC: Number(r.cache_c) || 0,
+			}))
+			.filter((r) => Number.isFinite(r.ts));
+	} catch {
+		return [];
 	} finally {
 		d.close();
 	}
@@ -234,6 +277,45 @@ export function itemSpendSeries(
 			points.push({ t: Date.parse(`${b}:00Z`), fresh, cached, out: o });
 		}
 		out.set(work, points);
+	}
+	return out;
+}
+
+/** Attribute each request to the work item owning its lane at that instant,
+ * then reduce into one-minute buckets. Gaps remain gaps in the wire shape. */
+export function itemRequestSpendSeries(
+	rows: LaneRequestSpendRow[],
+	windows: Map<string, ClaimWindow[]>,
+	cap = 120,
+): Map<string, ItemSpendPoint[]> {
+	const bySid = new Map<string, LaneRequestSpendRow[]>();
+	for (const r of rows) {
+		const group = bySid.get(r.sid) ?? [];
+		group.push(r);
+		bySid.set(r.sid, group);
+	}
+	const used = new Set<LaneRequestSpendRow>();
+	const out = new Map<string, ItemSpendPoint[]>();
+	for (const [work, ws] of windows) {
+		const buckets = new Map<number, ItemSpendPoint>();
+		for (const w of ws) {
+			for (const r of bySid.get(w.sid) ?? []) {
+				if (r.ts < w.start || r.ts >= w.end || used.has(r)) continue;
+				used.add(r);
+				const t =
+					Math.floor(r.ts / REQUEST_SPARK_BUCKET_MS) * REQUEST_SPARK_BUCKET_MS;
+				const p = buckets.get(t) ?? { t, fresh: 0, cached: 0, out: 0 };
+				p.fresh += r.inTok;
+				p.cached += r.cacheR + r.cacheC;
+				p.out += r.outTok;
+				buckets.set(t, p);
+			}
+		}
+		if (buckets.size)
+			out.set(
+				work,
+				[...buckets.values()].sort((a, b) => a.t - b.t).slice(-cap),
+			);
 	}
 	return out;
 }
