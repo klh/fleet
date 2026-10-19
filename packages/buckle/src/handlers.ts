@@ -863,11 +863,14 @@ export function createApp(deps: AppDeps): App {
 				inner === "/v1/chat/completions" ||
 				inner === "/v1/messages" ||
 				inner === "/v1/messages/count_tokens" ||
+				inner === "/v1/responses" ||
 				inner === "/v1/models";
 			if (method === "OPTIONS" && ingress)
 				return options204(allowOf(inner) ?? "OPTIONS");
 			if (method === "GET" && inner === "/v1/models") return models(deps);
 			if (method === "POST" && inner === "/v1/chat/completions")
+				return proxy(req, "openai", inner, deps, laneRoute.lane);
+			if (method === "POST" && inner === "/v1/responses")
 				return proxy(req, "openai", inner, deps, laneRoute.lane);
 			if (method === "POST" && inner === "/v1/messages/count_tokens")
 				return proxy(req, "anthropic", inner, deps, laneRoute.lane);
@@ -942,6 +945,12 @@ export function createApp(deps: AppDeps): App {
 		);
 		if (rpRouted) return rpRouted;
 		if (method === "POST" && path === "/v1/chat/completions") {
+			return proxy(req, "openai", path, deps);
+		}
+		// W912: the OpenAI Responses ingress — same openai dialect, the path
+		// forwards verbatim (responses-only models are NEVER re-targeted at
+		// chat completions; other-dialect hops are ineligible by bridge law).
+		if (method === "POST" && path === "/v1/responses") {
 			return proxy(req, "openai", path, deps);
 		}
 		if (method === "POST" && path === "/v1/messages/count_tokens") {
