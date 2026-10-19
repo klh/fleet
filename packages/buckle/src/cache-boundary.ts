@@ -71,6 +71,13 @@ export type LaneCacheRow = {
 	requests: number;
 	wallMs: number;
 	at: string;
+	/** W926: keyed digest of the effective delivered prefix (16-hex); null
+	 *  when the fingerprint ledger is unwired. */
+	prefix_fp?: string | null;
+	/** W926: miss classification — same banked prefix + miss =
+	 *  provider-eviction, differing bytes = changed-prefix; null = unknown
+	 *  (no prior reference, no reported cache write, usage unobserved). */
+	miss_cause?: "changed-prefix" | "provider-eviction" | null;
 };
 
 /** Per-lane NDJSON telemetry log — append-only so a hub that comes back up
