@@ -97,6 +97,7 @@ export const BODY = String.raw`
 </section>
 <section id="tab-activity" hidden>
   <div id="actErr" class="taberr"></div>
+  <div id="actHist" class="acthist"></div>
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
 <section id="tab-governor" hidden>
@@ -173,6 +174,7 @@ var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 
 var curTab = 'decisions';
 var tasksData = null; var tasksOkAt = 0; var tasksErr = null; var tasksBusy = false; var tasksLoaded = false;
 var actData = null; var actOkAt = 0; var actErr = null; var actBusy = false; var actLoaded = false;
+var actDrill = null; // W858.7.4.2 {start,end} ms — the histogram bar drilled into (null = whole feed)
 var histOpen = false; var histData = null; var histOkAt = 0; var histErr = null; var histBusy = false; var histLoaded = false;
 var setupData = window.__SETUP__ || null; var setupOkAt = setupData ? (setupData.ts || 1) : 0; var setupErr = null; var setupBusy = false; var setupLoaded = !!setupData;
 var task = { id: null, proj: null, data: null, err: null, busy: false, okAt: 0, trigger: null }; // open drawer state

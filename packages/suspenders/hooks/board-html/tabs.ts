@@ -215,6 +215,7 @@ sel.addEventListener('change', function(){
   projBaseline = true; // fresh scope — re-baseline toasts
   lastDec = null; decLoaded = false; decErr = null; decOkAt = 0;
   histData = null; histLoaded = false; histErr = null; histOkAt = 0;
+  actData = null; actLoaded = false; actErr = null; actOkAt = 0; actDrill = null;
   byId('histBody').replaceChildren();
   fleetHistoryPage = 0;
   renderAll();

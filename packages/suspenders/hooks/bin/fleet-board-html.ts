@@ -365,6 +365,23 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .activityolder { margin-top:10px; border-top:1px solid var(--klh-edge); padding-top:8px; }
 .activityolder summary { cursor:pointer; color:var(--klh-accent); font-size:11px; }
 .activityolder[open] summary { margin-bottom:8px; }
+.acthist { border:1px solid var(--klh-edge); border-radius:2px; padding:10px 12px 8px; margin-bottom:10px; font:10px var(--klh-font-mono); color:var(--klh-dim); }
+.acthist:empty { display:none; }
+.acthist-head, .acthist-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.acthist-head { margin-bottom:7px; text-transform:uppercase; letter-spacing:.06em; }
+.acthist-foot { margin-top:5px; font-size:9px; }
+.acthist-bars { display:grid; grid-template-columns:repeat(24,minmax(0,1fr)); align-items:end; gap:2px; height:44px; }
+.acthist-bar { display:flex; align-items:end; justify-content:center; height:100%; min-width:0; padding:0; border:0; border-bottom:1px solid var(--klh-edge); background:transparent; cursor:pointer; }
+.acthist-bar:hover, .acthist-bar:focus-visible, .acthist-bar.selected { background:var(--klh-warm); outline:1px solid var(--klh-accent); outline-offset:0; }
+.acthist-stack { display:flex; flex-direction:column; width:100%; min-height:2px; overflow:hidden; }
+.acthist-stack > span { display:block; min-height:1px; }
+.acthist-landed { background:var(--klh-ok); }
+.acthist-failed { background:var(--klh-danger); }
+.acthist-decision { background:var(--klh-accent); }
+.acthist-other { background:var(--klh-edge-mid); }
+.acthist-key { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+.acthist-key i { display:inline-block; width:6px; height:6px; margin-left:5px; }
+@media (max-width:640px) { .acthist-key { font-size:0; gap:1px; } .acthist-key i { width:7px; height:7px; margin-left:2px; } }
 #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px, 92vw); background:var(--klh-overlay); border-left:1px solid var(--klh-edge-mid); box-shadow:-8px 0 24px var(--klh-shadow); padding:14px 16px 20px; overflow-y:auto; z-index:70; }
 .dwhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; }
 .drawerAction { margin:8px 0 12px; }
