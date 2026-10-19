@@ -40,11 +40,11 @@ export function cacheUsageReported(
 	const r = u as AnyRec;
 	if (dialect === "anthropic")
 		return "cache_read_input_tokens" in r || "cache_creation_input_tokens" in r;
-	const details = r.prompt_tokens_details ?? r.input_tokens_details;
-	return (
-		typeof details === "object" &&
-		details !== null &&
-		"cached_tokens" in details
+	return [r.prompt_tokens_details, r.input_tokens_details].some(
+		(details) =>
+			typeof details === "object" &&
+			details !== null &&
+			"cached_tokens" in details,
 	);
 }
 

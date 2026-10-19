@@ -78,4 +78,14 @@ describe("SseSniffer parser correctness", () => {
 		});
 		expect(s.cacheReported()).toBe(true);
 	});
+
+	test("OpenAI Responses cache details survive empty prompt details", () => {
+		const s = new SseSniffer("openai");
+		s.push(
+			'data: {"usage":{"input_tokens":200,"output_tokens":5,"prompt_tokens_details":{},"input_tokens_details":{"cached_tokens":128}}}\n\n',
+		);
+		s.flush();
+		expect(s.usage()?.cache_r).toBe(128);
+		expect(s.cacheReported()).toBe(true);
+	});
 });
