@@ -8,10 +8,12 @@ import {
 	CACHE_LEGEND,
 	CACHE_MARK,
 	compactTokens,
+	compareItemIds,
 	consultedItems,
 	DEFAULT_DONE_WINDOW_MS,
 	DONE_ROW_CAP,
 	type ReportRow,
+	reportBucketRank,
 	reportLetter,
 	reportModel,
 	MODEL_CAP,
@@ -241,7 +243,7 @@ describe("item hyperlinks (W910)", () => {
 });
 
 describe("reportRows", () => {
-	test("riding+queued+capped-done merged by recency; ids strict; window bounds", () => {
+	test("pool merges riding+queued+capped-done; ids strict; window bounds", () => {
 		const d = new Database(":memory:");
 		d.run(
 			"CREATE TABLE work_items (project TEXT, id TEXT, state TEXT, title TEXT, updated_at INTEGER)",
@@ -396,6 +398,102 @@ describe("W909 — MODEL / EFFORT / CONSULT columns", () => {
 		expect(w1?.consulted).toBe(false);
 		expect(w2?.effort).toBeNull();
 		expect(w2?.consulted).toBe(true);
+		d.close();
+	});
+});
+
+describe("W964 — deterministic row order", () => {
+	const db = (): Database => {
+		const d = new Database(":memory:");
+		d.run(
+			"CREATE TABLE work_items (project TEXT, id TEXT, state TEXT, title TEXT, updated_at INTEGER)",
+		);
+		d.run(
+			"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, project TEXT, payload TEXT)",
+		);
+		return d;
+	};
+	const add = (
+		d: Database,
+		id: string,
+		state: string,
+		age: number,
+	): void =>
+		d
+			.prepare(
+				"INSERT INTO work_items (project, id, state, title, updated_at) VALUES ('p', ?, ?, ?, ?)",
+			)
+			.run(id, state, `t-${id}`, T0 - age);
+
+	test("compareItemIds: digit runs compare as numbers", () => {
+		expect(compareItemIds("W9", "W49")).toBeLessThan(0);
+		expect(compareItemIds("W49", "W953")).toBeLessThan(0);
+		expect(compareItemIds("W49", "W9")).toBeGreaterThan(0);
+		expect(compareItemIds("W1", "W10")).toBeLessThan(0);
+		expect(compareItemIds("W688.4", "W688.7.1")).toBeLessThan(0);
+		expect(compareItemIds("W964", "W964")).toBe(0);
+	});
+
+	test("reportBucketRank: R < Q < F < D", () => {
+		expect(reportBucketRank("CLAIMED")).toBeLessThan(
+			reportBucketRank("READY"),
+		);
+		expect(reportBucketRank("READY")).toBeLessThan(
+			reportBucketRank("FAILED"),
+		);
+		expect(reportBucketRank("FAILED")).toBeLessThan(
+			reportBucketRank("DONE"),
+		);
+	});
+
+	test("pool: byte-identical across runs; a spend tick never moves rows", () => {
+		const d = db();
+		add(d, "W964", "CLAIMED", 30_000);
+		add(d, "W49", "READY", 50_000);
+		add(d, "W9", "RUNNING", 30_000);
+		add(d, "W953", "DONE", 40_000);
+		const before = reportRows(d, "p", { now: T0, ledger: null });
+		const ids = before.rows.map((r) => r.id);
+		expect(ids).toEqual(["W9", "W964", "W49", "W953"]);
+		expect(buildReportTable(before.rows)).toBe(
+			buildReportTable(reportRows(d, "p", { now: T0, ledger: null }).rows),
+		);
+		d.prepare("UPDATE work_items SET updated_at = ? WHERE id = ?").run(
+			T0,
+			"W964",
+		);
+		const after = reportRows(d, "p", { now: T0, ledger: null });
+		expect(after.rows.map((r) => r.id)).toEqual(ids);
+		d.close();
+	});
+
+	test("done rows: recency cap picks WHICH, display id-ascending", () => {
+		const d = db();
+		add(d, "W100", "DONE", 10 * 60_000);
+		add(d, "W5", "DONE", 20 * 60_000);
+		add(d, "W50", "DONE", 30 * 60_000);
+		add(d, "W1", "DONE", 40 * 60_000);
+		add(d, "W2", "DONE", 50 * 60_000);
+		add(d, "W3", "DONE", 60 * 60_000);
+		add(d, "W4", "DONE", 70 * 60_000);
+		const { rows } = reportRows(d, "p", { now: T0, ledger: null });
+		const done = rows.filter((r) => r.state === "DONE").map((r) => r.id);
+		expect(done).toEqual(["W1", "W2", "W5", "W50", "W100"]);
+		expect(done.length).toBe(DONE_ROW_CAP);
+		d.close();
+	});
+
+	test("--ids strict mode keeps caller order", () => {
+		const d = db();
+		add(d, "W9", "RUNNING", 60_000);
+		add(d, "W953", "DONE", 40_000);
+		const { rows, missing } = reportRows(d, "p", {
+			ids: ["W953", "W9", "W9x-nope"],
+			now: T0,
+			ledger: null,
+		});
+		expect(rows.map((r) => r.id)).toEqual(["W953", "W9"]);
+		expect(missing).toEqual(["W9x-nope"]);
 		d.close();
 	});
 });
