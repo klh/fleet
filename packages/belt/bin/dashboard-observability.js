@@ -78,6 +78,12 @@ class BeltSupervisor extends LitElement {
 	}
 	render() {
 		const doc = this.snapshot;
+		// W853: a null snapshot with no fetch error means no supervisor has
+		// ever run on this host (hub/container posture — belt-swarm lives on
+		// the Mac spoke; hub belt only observes). The panel is removed there:
+		// it can never show anything, and a standing red "unknown" misreports
+		// service state. A real or stale snapshot still renders below.
+		if (!doc && !this.error) return html``;
 		const fresh =
 			!this.error &&
 			supervisorFresh(doc, this.now) &&
@@ -94,7 +100,7 @@ class BeltSupervisor extends LitElement {
 			: null;
 		return html`
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
-			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (doc ? (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`) : "No supervisor snapshot. Current service state is unknown.")}</p>
+			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`)}</p>
 			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
 			${fleetRows.map((target) => this.row(target, fresh, doc))}
 			${
