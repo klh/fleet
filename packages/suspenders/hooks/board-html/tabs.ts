@@ -190,6 +190,16 @@ byId('fleetHead').addEventListener('click', function(){
   byId('fleetHead').setAttribute('aria-expanded', open ? 'false' : 'true');
   if (!open) renderFleet();
 });
+byId('govSearch').addEventListener('input', function(){
+  if (!lastData) return;
+  if (this.value.trim()) {
+    byId('fleetBody').style.display = 'block';
+    byId('fleetHead').setAttribute('aria-expanded', 'true');
+    setText(byId('fleetCaret'), '-');
+    document.querySelectorAll('.govpanel').forEach(function(panel){ panel.open = true; });
+  }
+  renderFleet(); renderClaims(lastData); renderFacts(lastData); renderLlm(lastData); renderDone(lastData); renderEvents(lastData);
+});
 document.addEventListener('keydown', function(e){
   if (e.key !== 'Escape') return;
   if (task.id) { closeTask(); return; } // drawer first, then the section

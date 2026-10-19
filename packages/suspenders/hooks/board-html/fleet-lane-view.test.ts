@@ -238,7 +238,7 @@ test("served overview bounds history and filters it without inserting HTML", () 
 		"<img onerror=bad()>",
 	);
 	expect(roots.fleetLine.textContent).toContain(
-		"1 working · 0 waiting on you · 1 blocked",
+		"0 working · 0 waiting on you · 1 blocked",
 	);
 	expect(byId("fleetHistoryLanes")?.children).toHaveLength(0);
 	const history = byId("fleetHistory");
@@ -408,9 +408,18 @@ test("header expires a snapshot even when the request was just received", () => 
 		"byId",
 		"ago",
 		"esc",
+		"setNodes",
 		`var dataOkAt = Date.now(); var decOkAt = Date.now(); var dataErr = null; var decErr = null; var decLoaded = true; ${RENDERS}; renderConn();`,
 	);
-	render(data, (id: string) => (id === "conn" ? conn : null), String, String);
+	render(
+		data,
+		(id: string) => (id === "conn" ? conn : null),
+		String,
+		String,
+		(el: typeof conn, html: string) => {
+			el.innerHTML = html;
+		},
+	);
 	expect(conn.innerHTML).toContain("stale snapshot");
 	expect(conn.title).toContain("Source: board · target: ledger · scope: all");
 	expect(conn.title).toContain("expires:");

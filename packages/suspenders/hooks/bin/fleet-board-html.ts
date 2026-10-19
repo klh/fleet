@@ -104,6 +104,14 @@ select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid v
 .chip .st { text-transform:uppercase; letter-spacing:.06em; }
 .chip.zombie { border-color:var(--klh-danger); color:var(--klh-danger-ink); }
 .chip.zombie b { color:var(--klh-danger-ink); }
+.fleetcolumns, .fleetrow { display:grid; grid-template-columns:minmax(140px, 1.5fr) minmax(110px, .7fr) minmax(90px, .6fr) minmax(100px, 1fr) minmax(120px, 1fr); gap:10px; align-items:center; min-width:700px; }
+.fleetcolumns { color:var(--klh-dim); font-size:10px; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--klh-edge); padding:5px 8px; }
+.fleetrow { border-bottom:1px solid var(--klh-edge-faint); padding:7px 8px; font-size:11px; }
+.fleetrow b { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleetrow span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleetrow.zombie .fleetstate { color:var(--klh-danger-ink); }
+.fleetmodel { font-family:var(--klh-font-mono); }
+#fleetRecent, #fleetHistoryLanes { overflow-x:auto; }
 .hfclear { background:none; border:none; color:var(--klh-accent); cursor:pointer; font:inherit; padding:0; text-decoration:underline; }
 #decisions { border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-panel); margin-bottom:14px; }
 #decisions.has { border-color:var(--klh-danger-edge); }
@@ -176,6 +184,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
   background:var(--klh-surface-hi); color:var(--klh-ink-2); border:1px solid var(--klh-edge); border-radius:4px;
   font:12px var(--klh-font-mono); padding:3px 6px;
 }
+.govsearch { margin-left:auto; color:var(--klh-dim); font-size:11px; white-space:nowrap; }
+.govsearch input { width:220px; margin-left:5px; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; padding:5px 8px; font:11px var(--klh-font-mono); }
 .board-search { color:var(--klh-dim); font-size:11px; }
 .board-search[hidden] { display:none; }
 .board-search input { width:min(260px, 24vw); background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; }
@@ -264,6 +274,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .tail { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:480px; }
 .akind { display:inline-block; border:1px solid var(--klh-edge-mid); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); }
 .sec { margin-bottom:20px; }
+.govpanel { margin-bottom:0; border-top:1px solid var(--klh-edge); padding:10px 0; }
+.govpanel > summary { cursor:pointer; font-size:12px; font-weight:600; }
+.govpanel > summary .dim { margin-left:8px; font-size:11px; font-weight:400; }
+.govpanel > .feed { margin:10px 0 0; }
 .sec h2 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; align-content:start; align-items:start; }
 .setupsummary { margin:0 0 10px; font-size:11px; }

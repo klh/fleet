@@ -52,6 +52,13 @@ function scopedSource(sid, project){
   var p = sourceProject(sid, project);
   return (sel.value === 'all' || p === sel.value) && scopedLane(sid, p);
 }
+function govMatches(){
+  var input = byId('govSearch');
+  var q = input && input.value ? input.value.trim().toLowerCase() : '';
+  if (!q) return true;
+  for (var i = 0; i < arguments.length; i++) if (String(arguments[i] || '').toLowerCase().indexOf(q) >= 0) return true;
+  return false;
+}
 function renderHubObservations(d){
   var snapshot = d.laneObservations;
   ['originHub', 'peerHub'].forEach(function(id){
@@ -94,8 +101,9 @@ function renderFleetLanes(el, lanes, zombies, needs){
   var fragment = document.createDocumentFragment();
   for (var i = 0; i < lanes.length; i++) {
     var s = lanes[i];
-    var chip = document.createElement('span');
-    chip.className = 'chip' + (s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies) ? ' zombie' : '');
+    if (!govMatches(s.label, s.sid, s.project, s.model, s.state)) continue;
+    var chip = document.createElement('div');
+    chip.className = 'fleetrow' + (s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies) ? ' zombie' : '');
     chip.title = s.sid;
     var observed = hubScope().observations.filter(function(o){ return o.laneId === s.sid && o.project === s.project && o.expiresAt > Date.now(); });
     chip.title += observed.length ? ' · ' + observed.map(function(o){ return 'origin ' + o.originHub + ' via ' + o.peerHub; }).join('; ') : ' · hub provenance unknown';
@@ -108,40 +116,40 @@ function renderFleetLanes(el, lanes, zombies, needs){
     // 'stale'/'unverified', never 'working'.
     var label = stateLabel(s.state, flagged);
     if (!flagged && claimed && s.verdict && s.verdict !== 'alive') label = s.verdict === 'dead' ? 'stale' : 'unverified';
-    chip.appendChild(document.createTextNode(' · ' + label + ' · heartbeat ' + (ago(s.hbAgo) || 'unknown')));
-    if (s.project) chip.appendChild(document.createTextNode(' · ' + s.project));
-    if (s.model) {
-      var badge = document.createElement('span');
-      badge.className = 'lmodel' + (s.locality === 'local' ? ' loc' : '');
-      badge.textContent = ' · ' + s.model + (s.locality ? ' (' + s.locality + ')' : '');
-      chip.appendChild(badge);
-    }
+    var status = document.createElement('span'); status.className = 'fleetstate'; status.textContent = label; chip.appendChild(status);
+    var heartbeat = document.createElement('span'); heartbeat.className = 'dim'; heartbeat.textContent = ago(s.hbAgo) || 'unknown'; chip.appendChild(heartbeat);
+    var project = document.createElement('span'); project.className = 'dim'; project.title = s.project || '';
+    var path = s.project ? s.project.split('/').filter(Boolean) : [];
+    project.textContent = path.length ? (path[path.length - 1] === '.git' ? path[path.length - 2] : path[path.length - 1]) : 'no project'; chip.appendChild(project);
+    var model = document.createElement('span'); model.className = 'fleetmodel'; model.textContent = s.model || 'no model'; chip.appendChild(model);
     var gitObs = ((lastData || {}).laneGit || {})[s.sid];
     if (gitObs && gitObs.mergeReady != null) {
       var gwhy = mergeReadyWhy(gitObs);
       var gtext = gitObs.mergeReady === true ? 'merge-ready' : 'not merge-ready (' + gwhy.join(', ') + ')';
-      chip.appendChild(document.createTextNode(' · ' + gtext));
+      chip.title += ' · ' + gtext;
+      status.textContent += gitObs.mergeReady === true ? ' / merge-ready' : ' / merge blocked';
     }
     fragment.appendChild(chip);
   }
-  if (!lanes.length) {
+  if (!fragment.childNodes.length) {
     var empty = document.createElement('p');
     empty.className = 'dim';
-    empty.textContent = 'No lanes with a heartbeat in the past hour.';
+    empty.textContent = 'No lanes match this scope.';
     fragment.appendChild(empty);
   }
   el.replaceChildren(fragment);
 }
 function renderFleetHistory(view, zombies, needs){
   var details = byId('fleetHistory');
-  var maxPage = Math.max(0, Math.ceil(view.history.length / 50) - 1);
+  var history = view.history.filter(function(s){ return govMatches(s.label, s.sid, s.project, s.model, s.state); });
+  var maxPage = Math.max(0, Math.ceil(history.length / 50) - 1);
   fleetHistoryPage = Math.min(fleetHistoryPage, maxPage);
-  setText(details.querySelector('summary'), view.history.length + ' older lanes · browse history');
-  details.hidden = !view.history.length;
+  setText(details.querySelector('summary'), history.length + ' older lanes / browse history');
+  details.hidden = !history.length;
   if (!details.open) return;
   var start = fleetHistoryPage * 50;
-  renderFleetLanes(byId('fleetHistoryLanes'), view.history.slice(start, start + 50), zombies, needs);
-  setText(byId('fleetHistoryRange'), (start + 1) + '–' + Math.min(start + 50, view.history.length) + ' of ' + view.history.length);
+  renderFleetLanes(byId('fleetHistoryLanes'), history.slice(start, start + 50), zombies, needs);
+  setText(byId('fleetHistoryRange'), (start + 1) + '–' + Math.min(start + 50, history.length) + ' of ' + history.length);
   var total = (lastData || {}).sessionsTotal || view.history.length;
   setText(byId('fleetHistoryNote'), total > view.history.length ? 'Oldest ' + (total - view.history.length) + ' not served — the board caps history at ' + view.history.length + ' lanes per feed.' : '');
   byId('fleetHistoryPrev').disabled = fleetHistoryPage === 0;
@@ -153,7 +161,9 @@ function fleetElements(body){
   recent.id = 'fleetRecent';
   var caption = document.createElement('p');
   caption.className = 'dim';
-  caption.textContent = 'Current lanes first · heartbeat within 5 minutes. Recent lanes cover the past hour.';
+  caption.textContent = 'Current and recent lanes · heartbeat evidence from the past hour';
+  var columns = document.createElement('div'); columns.className = 'fleetcolumns';
+  ['Lane', 'State', 'Heartbeat', 'Project', 'Model'].forEach(function(label){ var cell = document.createElement('span'); cell.textContent = label; columns.appendChild(cell); });
   var details = document.createElement('details');
   details.id = 'fleetHistory';
   details.appendChild(document.createElement('summary'));
@@ -179,7 +189,7 @@ function fleetElements(body){
   note.className = 'dim';
   details.appendChild(note);
   details.addEventListener('toggle', function(){ if (details.open) renderFleet(); });
-  body.replaceChildren(caption, recent, details);
+  body.replaceChildren(caption, columns, recent, details);
 }
 function renderFleet(){
   var d = lastData;
@@ -223,15 +233,17 @@ function renderLlm(d){
   if (!u.length) h += '<div class="dim">no llm.call events today — advise round-trips will appear here</div>';
   for (var i = 0; i < u.length; i++) {
     var m = u[i];
+    if (!govMatches(m.model)) continue;
     var pct = m.budget ? Math.min(100, Math.round(m.tokens / m.budget * 100)) : null;
-    h += '<div class="llmrow"><b>' + esc(m.model) + '</b> · ' + m.tokens + ' tok · ' + m.calls + ' call' + (m.calls === 1 ? '' : 's') + (m.budget ? ' · budget ' + m.budget + ' <span class="dim">(' + pct + '%)</span><div style="height:4px;background:var(--klh-edge);border-radius:2px;margin-top:2px"><div style="height:4px;width:' + pct + '%;background:var(--klh-ok-ink);border-radius:2px"></div></div>' : ' · <span class="dim">no llm.budget.' + esc(m.model) + ' fact set</span>') + '</div>';
+    h += '<div class="llmrow"><b>' + esc(m.model) + '</b> · ' + (Number.isFinite(m.tokens) ? m.tokens + ' reported tok' : 'token usage unavailable') + ' · ' + m.calls + ' call' + (m.calls === 1 ? '' : 's') + (m.budget ? ' · budget ' + m.budget + ' <span class="dim">(' + pct + '%)</span><div style="height:4px;background:var(--klh-edge);border-radius:2px;margin-top:2px"><div style="height:4px;width:' + pct + '%;background:var(--klh-ok-ink);border-radius:2px"></div></div>' : ' · <span class="dim">no budget set</span>') + '</div>';
   }
   var calls = d.llm.calls || [];
   if (calls.length) {
     h += '<div class="dim" style="margin-top:8px">recent calls:</div>';
     for (var j = 0; j < calls.length; j++) {
       var c = calls[j];
-      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : c.tt + ' tok · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
+      if (!govMatches(c.model, c.error)) continue;
+      h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : (Number.isFinite(c.tt) ? c.tt + ' reported tok' : 'token usage unavailable') + ' · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
     }
   }
   setNodes(el, h);
@@ -243,6 +255,7 @@ function renderClaims(d){
     var x = cs[i];
     if (!scopedSource(x.sid, x.project)) continue;
     var owner = (d.labels || {})[x.sid] || String(x.sid || '').slice(0, 10);
+    if (!govMatches(x.sid, x.project, x.scope, owner, x.intent)) continue;
     var wait = x.waiters != null ? 'waiting ' + String(x.waiters) : '';
     if (!wait && x.intent) wait = String(x.intent).slice(0, 44);
     var lease = x.lease != null ? String(x.lease) : 'held ' + ago(x.tsAgo);
@@ -260,6 +273,7 @@ function renderFacts(d){
   var h = '';
   for (var i = 0; i < fs.length; i++) {
     var f = fs[i];
+    if (!govMatches(f.key, f.value, f.trust && f.trust.detail)) continue;
     var t = f.trust;
     var parts = [];
     if (t) {
@@ -279,6 +293,7 @@ function renderDone(d){
   var completions = selectGovernorCompletions(d.projects || [], sel.value, hubScope());
   for (var i = 0; i < completions.length; i++) {
     var dn = completions[i];
+    if (!govMatches(dn.id, dn.title, dn.project)) continue;
     var row = document.createElement('div');
     row.className = 'r';
     row.title = dn.project + ' · ' + dn.title;
@@ -320,6 +335,7 @@ function renderEvents(d){
   for (var j = es.length - 1; j >= 0; j--) {
     var e = es[j];
     if (!scopedSource(e.source, e.project)) continue;
+    if (!govMatches(e.kind, e.source, e.target, e.note, e.project)) continue;
     var kl = String(e.kind).toLowerCase();
     if (evFilter !== 'all' && kl.indexOf(evFilter) < 0) continue;
     var row = document.createElement('div'); row.className = 'r';

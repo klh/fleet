@@ -98,20 +98,20 @@ export const BODY = String.raw`
     <select id="originHub"><option value="all">all origins</option><option value="unknown">unknown origin</option></select>
     <label class="plabel" for="peerHub">via downstream</label>
     <select id="peerHub"><option value="all">all downstreams</option><option value="unknown">unknown downstream</option></select>
-    <span class="dim">Hub filters apply to Governor and Activity. Other tabs show the project work graph.</span>
+    <label class="govsearch" for="govSearch">Find <input id="govSearch" type="search" placeholder="lane, fact, model, event" autocomplete="off"></label>
   </div>
   <p class="dim" id="hubScopeNote"></p>
   <details class="sec"><summary>Downstream observations · read-only evidence</summary><div id="downstreamObservations"></div></details>
   <klh-recovery></klh-recovery>
   <div id="fleet">
-    <button id="fleetHead" type="button" aria-expanded="true"><span id="fleetCaret">-</span> <span id="fleetLine">fleet: loading...</span></button>
-    <div id="fleetBody" style="display:block"></div>
+    <button id="fleetHead" type="button" aria-expanded="false"><span id="fleetCaret">+</span> <span id="fleetLine">fleet: loading...</span></button>
+    <div id="fleetBody" style="display:none"></div>
   </div>
-  <div class="sec"><h2>Claims <span class="dim">(file -&gt; owner -&gt; waiting -&gt; lease)</span></h2><div class="feed" id="claims"></div></div>
-  <div class="sec"><h2>Facts <span class="dim">(lesson.*/finding.* · trust = rating · evidence · researched)</span></h2><div class="feed" id="facts"></div></div>
-  <div class="sec"><h2>LLM telemetry <span class="dim">(global routing log + model budgets · ignores project and hub filters)</span></h2><div class="feed" id="llmview"></div></div>
-  <div class="sec"><h2>Completed</h2><div class="feed" id="done"></div></div>
-  <div class="sec"><h2>Event stream</h2><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></div>
+  <details class="sec govpanel"><summary>Claims <span class="dim">resource, owner, waiters, lease</span></summary><div class="feed" id="claims"></div></details>
+  <details class="sec govpanel"><summary>Facts <span class="dim">lessons and findings</span></summary><div class="feed" id="facts"></div></details>
+  <details class="sec govpanel"><summary>LLM telemetry <span class="dim">global routing log and model budgets</span></summary><div class="feed" id="llmview"></div></details>
+  <details class="sec govpanel"><summary>Completed work</summary><div class="feed" id="done"></div></details>
+  <details class="sec govpanel"><summary>Event stream</summary><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></details>
 </section>
 <section id="tab-setup" hidden>
   <div id="setupErr" class="taberr"></div>
