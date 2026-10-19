@@ -9,6 +9,7 @@ export interface SeatModel {
 	vendor: string;
 	endpoints: string[];
 	buckle: boolean;
+	routes: string[];
 }
 
 export interface ModelAccess {
@@ -25,24 +26,26 @@ export interface ModelAccess {
 }
 
 const LOCAL = (home: string) => join(home, ".claude/local-llm");
-const configuredGroups = async (home: string): Promise<Set<string>> => {
+const configuredGroups = async (
+	home: string,
+): Promise<Map<string, string[]>> => {
 	try {
 		const yaml = Bun.YAML.parse(
 			await Bun.file(join(LOCAL(home), "upstreams.yaml")).text(),
 		) as {
 			groups?: Record<string, { url?: string; model?: string }[]>;
 		};
-		return new Set(
-			Object.entries(yaml.groups ?? {}).flatMap(([group, targets]) =>
-				(targets ?? [])
-					.filter((target) =>
-						target.url?.startsWith("https://api.githubcopilot.com"),
-					)
-					.map((target) => target.model ?? group),
-			),
-		);
+		const routes = new Map<string, string[]>();
+		for (const [group, targets] of Object.entries(yaml.groups ?? {})) {
+			for (const target of targets ?? []) {
+				if (!target.url?.startsWith("https://api.githubcopilot.com")) continue;
+				const model = target.model ?? group;
+				routes.set(model, [...(routes.get(model) ?? []), group]);
+			}
+		}
+		return routes;
 	} catch {
-		return new Set();
+		return new Map();
 	}
 };
 
@@ -131,6 +134,7 @@ export const modelAccess = async (home: string): Promise<ModelAccess> => {
 						? row.supported_endpoints.map(String)
 						: [],
 					buckle: groups.has(String(row.id)),
+					routes: groups.get(String(row.id)) ?? [],
 				})),
 		};
 	} catch (error) {

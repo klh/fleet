@@ -83,6 +83,7 @@ export function buildTopology(
 	supervisor,
 	now = Date.now(),
 	networkPayload = null,
+	access = null,
 ) {
 	const localFresh = observed(status?.observation, now);
 	const remoteFresh = isFresh(remotes?.ts, now);
@@ -130,6 +131,8 @@ export function buildTopology(
 		item.endpoints += 1;
 		if (row.ok) item.reachable += 1;
 		if (row.last_seen) item.probed += 1;
+		if (row.reason?.startsWith("missing api key"))
+			item.unconfigured = (item.unconfigured || 0) + 1;
 		if (
 			typeof row.model === "string" &&
 			row.model &&
@@ -176,15 +179,18 @@ export function buildTopology(
 			[...machines.values()].map((item) => ({
 				...item,
 				state:
-					!remoteFresh || !item.probed
-						? "unknown"
-						: item.reachable > 0
-							? "up"
-							: "down",
+					item.unconfigured === item.endpoints
+						? "unconfigured"
+						: !remoteFresh || !item.probed
+							? "unknown"
+							: item.reachable > 0
+								? "up"
+								: "down",
 			})),
 			networkPayload,
 			now,
 		),
+		copilot: access?.copilot || null,
 		fresh: { local: localFresh, hubs: hubFresh, remotes: remoteFresh },
 	};
 }

@@ -126,7 +126,7 @@ describe("registry operational fields (W289)", () => {
 			expect(s.logPath).toBe(SWARM_LOG);
 		}
 		const kev = registryEntries().find((e) => e.port === 8912);
-		expect(kev?.healthPath).toBe("/health");
+		expect(kev?.healthPath).toBe("/v1/models");
 		expect(kev?.launchdLabel).toBe("com.belt.kev");
 		const emb = registryEntries().find((e) => e.port === 8907);
 		expect(emb?.launchdLabel).toBeUndefined();

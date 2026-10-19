@@ -470,7 +470,7 @@ export function registryEntries(
 			ram_gb: e.ram_gb,
 			tier: e.tier,
 			engine: "external",
-			healthPath: "/health",
+			healthPath: e.port === 8912 ? "/v1/models" : "/health",
 			launchdLabel: e.port === 8912 ? "com.belt.kev" : undefined,
 			protocol: e.protocol,
 			external: true,

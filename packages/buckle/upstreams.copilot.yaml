@@ -14,8 +14,8 @@
 # Responses API, which Copilot rejects; its github_copilot provider forces
 # an interactive device flow). SSE + tool_use on THIS wire: unverified.
 #
-# Group name = the wire id lanes send (dashes); `model:` = the seat's real id
-# (dots) — the dots-to-dashes alias lives here, as data.
+# Group name = the wire id lanes send; `model:` = the seat's real id.
+# Claude groups keep their existing dash aliases. Other models use catalog ids.
 version: 1
 
 groups:
@@ -25,7 +25,8 @@ groups:
       dialect: anthropic
       adapter: anthropic
       api_key_env: GITHUB_COPILOT_PAT
-      model: claude-sonnet-5.5
+      model: claude-sonnet-5
+      visibility: spoke-private
       adapter_config:
         headers:
           copilot-integration-id: vscode-chat
@@ -59,3 +60,185 @@ groups:
       dialect: openai
       adapter: openai-compat
       model: gpt-5.3-codex
+
+  # Selectable Copilot catalog models. Endpoint shape follows supported_endpoints.
+  gemini-3.7-flash:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gemini-3.7-flash
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gemini-3.8-flash:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gemini-3.8-flash
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gemini-4-argon:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gemini-4-argon
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.4-mini:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.4-mini
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.4:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.4
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.5:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.5
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.6-luna:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.6-luna
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.6-sol:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.6-sol
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5.6-terra:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5.6-terra
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-6.1-sol:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-6.1-sol
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-6-astra:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-6-astra
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-6-luna:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-6-luna
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-6-sol:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-6-sol
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  grok-4.5:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: grok-4.5
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  grok-4.6:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: grok-4.6
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  grok-4.7:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: grok-4.7
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  mai-code-1.1-flash:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: mai-code-1.1-flash
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
+  gpt-5-mini:
+    - url: https://api.githubcopilot.com
+      dialect: openai
+      adapter: openai-compat
+      api_key_env: GITHUB_COPILOT_PAT
+      model: gpt-5-mini
+      visibility: spoke-private
+      adapter_config:
+        headers:
+          copilot-integration-id: vscode-chat
