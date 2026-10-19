@@ -514,7 +514,8 @@ export async function quotaSweep(deps: SweepDeps): Promise<SweepReport> {
 			deps.broadcast ??
 			(async (n: string) => {
 				const { broadcastNote } = await import("../../coord/bus.ts");
-				return broadcastNote(n, "quota-sweep").targets;
+				const { openStore } = await import("../govdb/govdb.ts");
+				return broadcastNote(openStore(), n, "quota-sweep").targets;
 			});
 		const targets = await Promise.resolve(doBroadcast(note));
 		actions.push({

@@ -14,7 +14,8 @@ export type NotifyClass =
 	| "budget"
 	| "hub-down"
 	| "lane-death"
-	| "pulse";
+	| "pulse"
+	| "done-broadcast";
 export type ChannelName = "desktop" | "email" | "slack";
 
 /** bus kind → notification class (the event source contract) */
@@ -24,6 +25,11 @@ export const KIND_CLASS: Record<string, NotifyClass> = {
 	"credit.headroom.warn": "budget",
 	"hub.down": "hub-down",
 	"lane.dead": "lane-death",
+	// W822.1: work-done broadcasts arrive kev-scored ({actionable-now,
+	// interesting, noise}; done-broadcast.ts) — only actionable-now fires a
+	// channel (classify gates on the payload label); interesting/noise batch
+	// into the W822 pulse digest instead
+	BROADCAST: "done-broadcast",
 };
 
 export interface ClassPolicy {
@@ -75,6 +81,7 @@ const CLASSES: NotifyClass[] = [
 	"hub-down",
 	"lane-death",
 	"pulse",
+	"done-broadcast",
 ];
 
 // positive-integer or default — a bad pulse.interval_s never breaks render
@@ -154,9 +161,12 @@ export function scrubOutbound(text: string): string {
 /** Event → notification (null = not a notify kind). Dedupe key = class +
  *  the subject (work item scope, else sid/target, else the note itself). */
 export function classify(ev: BusEvent): Notification | null {
+	const p = payloadOf(ev);
+	// W822.1: a broadcast's kev label gates the fan-out — only actionable-now
+	// fires a channel; interesting/noise batch into the W822 pulse digest
+	if (ev.kind === "BROADCAST" && p.kev !== "actionable-now") return null;
 	const cls = KIND_CLASS[ev.kind];
 	if (!cls) return null;
-	const p = payloadOf(ev);
 	const note = String(p.note ?? p.reason ?? p.detail ?? "").trim();
 	const subject = String(
 		ev.scope ?? p.sid ?? p.target ?? (note.slice(0, 80) || ev.source),

@@ -107,7 +107,7 @@ const { rogueSweep } = createRogueSweep({
 const { reclaimSweep } = createReclaimSweep({
 	...runtime,
 	store: openStore,
-	broadcast: (note: string) => broadcastNote(note, "fleet-loop"),
+	broadcast: (note: string) => broadcastNote(openStore(), note, "fleet-loop"),
 	transport: transportProbe,
 });
 

@@ -63,6 +63,7 @@ import {
 	probeClaim,
 	setReclaimHold,
 } from "../lib/lanes/reclaim-liveness.ts";
+import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import {
 	parseReclaimReason,
 	reclaimGateDecision,
@@ -700,6 +701,22 @@ const dispatchVerb = async (
 					`knowledge enqueue failed for ${id}; completion remains done`,
 				);
 		}
+	
+		// W822.1: the done handler itself broadcasts the condensed summary —
+		// kev-scored on the local SystemOne, fail-open, total (never an error
+		// path of done). Silence means hub deploy or kill switch.
+		const b = await emitDoneBroadcast(db(), {
+			id,
+			title: String(it.title ?? id),
+			sha: record?.commit_sha ?? sha ?? null,
+			summary: record?.summary ?? flag("--summary"),
+			description: (it.description as string | null) ?? null,
+			source: String(it.owner_sid ?? as ?? "manual"),
+		});
+		if (b)
+			console.log(
+				`${dim("↯")} broadcast ${b.id} kev=${b.label} → ${b.targets} live session(s)`,
+			);
 	} else if (name === "backfill") {
 		// W2059: link an already-closed item's closer-session ledger rows as a
 		// work.attribution stamp. sid default = the completion record's closer.
