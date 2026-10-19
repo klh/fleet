@@ -585,7 +585,7 @@ export class KlhUsageActivity extends LitElement {
 		if (!p) return html``;
 		if ("empty" in p)
 			return html`<div class="upanel">
-				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
+				<h2>WORK MIX</h2>
 				<p class="uempty">${p.empty}</p>
 			</div>`;
 		return this.body(p);
@@ -594,13 +594,30 @@ export class KlhUsageActivity extends LitElement {
 	private body(
 		p: Exclude<NonNullable<UsagePanels["activity"]>, { empty: string }>,
 	): TemplateResult {
+		const latest = [...p.weekly].sort((a, b) => b.d.localeCompare(a.d))[0];
 		return html`<div class="upanel">
 			<div class="uhead">
-				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
-				<p class="ufoot">${p.foot}</p>
+				<h2>WORK MIX</h2>
+				<p class="ufoot">${latest ? `Week of ${latest.d}` : "No weekly data"} · ${p.lanes.length} lanes</p>
 			</div>
-			${this.weekly(p.weekly)}
-			${this.lanes(p.lanes)}
+			${latest ? this.mix(latest) : html`<p class="uempty">No classified activity yet.</p>`}
+			<details class="mixdetails">
+				<summary>Weekly history and lane breakdown</summary>
+				<p class="ufoot">${p.foot}</p>
+				${this.weekly(p.weekly)}
+				${this.lanes(p.lanes)}
+			</details>
+		</div>`;
+	}
+
+	private mix(week: UsageActivityWeek): TemplateResult {
+		return html`<div class="mixoverview">
+			<div class="mixbar" role="img" aria-label=${week.cells.map((c) => `${c.key} ${pct1(c.share)}`).join(", ")}>
+				${week.cells.map((c) => html`<span style=${`width:${pct1(c.share)};background:${ACT_COLOR[c.key] ?? "#888"}`}></span>`)}
+			</div>
+			<div class="mixlegend">
+				${week.cells.map((c) => html`<span><i style=${`background:${ACT_COLOR[c.key] ?? "#888"}`}></i>${c.key} <b>${pct1(c.share)}</b></span>`)}
+			</div>
 		</div>`;
 	}
 
@@ -684,6 +701,15 @@ export class KlhUsageActivity extends LitElement {
 KlhUsageActivity.styles = [
 	panelCss,
 	css`
+		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
+		.mixbar span { display:block; height:100%; }
+		.mixlegend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:9px; font-size:11px; color:var(--klh-dim, #98958e); }
+		.mixlegend span { display:inline-flex; align-items:center; gap:5px; }
+		.mixlegend i { display:inline-block; width:7px; height:7px; border-radius:1px; }
+		.mixlegend b { color:var(--klh-ink, #eee); font-weight:600; }
+		.mixdetails { margin-top:12px; border-top:1px solid var(--klh-edge, #555); padding-top:9px; }
+		.mixdetails summary { cursor:pointer; color:var(--klh-ink-2, #ccc); font-size:12px; }
+		.mixdetails[open] summary { margin-bottom:10px; }
 		.ucwrap {
 			display: flex;
 			align-items: center;
