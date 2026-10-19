@@ -8,7 +8,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { EMITTERS, registryEtag, registryJson } from "../bin/registry-emit.ts";
-import { ROUTER, registryEntries, SWARM_LOG } from "../bin/registry.ts";
+import {
+	ROUTER,
+	registryEntries,
+	SWARM_AGENT,
+	SWARM_LOG,
+} from "../bin/registry.ts";
 import {
 	directTiersFromRegistry,
 	loadDirectTiers,
@@ -129,7 +134,7 @@ describe("registry operational fields (W289)", () => {
 		expect(kev?.healthPath).toBe("/v1/models");
 		expect(kev?.launchdLabel).toBe("com.belt.kev");
 		const emb = registryEntries().find((e) => e.port === 8907);
-		expect(emb?.launchdLabel).toBeUndefined();
+		expect(emb?.launchdLabel).toBe(SWARM_AGENT);
 		expect(ROUTER.healthPath).toBe("/health/liveness");
 		expect(ROUTER.launchdLabel).toBe("com.suspenders.local-llm");
 	});

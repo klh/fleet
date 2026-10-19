@@ -102,7 +102,7 @@ const isUp = async (port: number, path = "/v1/models"): Promise<boolean> => {
 	}
 };
 
-const getModel = async (port: number): Promise<string> => {
+const getModel = async (port: number, preferred?: string): Promise<string> => {
 	try {
 		const r = await fetch(`http://localhost:${port}/v1/models`, {
 			signal: AbortSignal.timeout(1000),
@@ -111,7 +111,13 @@ const getModel = async (port: number): Promise<string> => {
 			data?: { id?: string }[];
 			models?: { run?: string; id?: string }[];
 		};
-		return j.data?.[0]?.id ?? j.models?.[0]?.run ?? j.models?.[0]?.id ?? "?";
+		return (
+			j.data?.find((model) => model.id === preferred)?.id ??
+			j.data?.[0]?.id ??
+			j.models?.[0]?.run ??
+			j.models?.[0]?.id ??
+			"?"
+		);
 	} catch {
 		return "down";
 	}
@@ -158,7 +164,7 @@ async function status() {
 			if (up) {
 				model_served =
 					s.engine === "rapid" || s.port === 8912
-						? await getModel(s.port)
+						? await getModel(s.port, s.model)
 						: (modelFromProcess(s.port) ?? null);
 				if (model_served && model_served !== "?") served.add(model_served);
 			}

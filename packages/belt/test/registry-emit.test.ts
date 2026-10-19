@@ -59,13 +59,14 @@ describe("registry schema (W271)", () => {
 		}
 	});
 
-	test("externals are flagged: Kev :8912 classify, embeddings :8907", () => {
+	test("Kev stays external while embeddings are Belt supervised", () => {
 		const kev = entries.find((e) => e.port === 8912);
 		const emb = entries.find((e) => e.port === 8907);
 		expect(kev?.external).toBe(true);
 		expect(kev?.class).toBe("classify");
-		expect(emb?.external).toBe(true);
+		expect(emb?.external).toBe(false);
 		expect(emb?.class).toBe("embed");
+		expect(emb?.tier).toBe("resident");
 		expect(entries.find((e) => e.port === 8913)?.class).toBe("rerank");
 	});
 

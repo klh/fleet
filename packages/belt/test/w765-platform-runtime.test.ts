@@ -65,6 +65,16 @@ test("spawnArgs: mlx rows on darwin keep today's argv (rapid for :8901)", () => 
 	expect(runtimeFor(coder)).toBe(platformDefinitions[thisPlatform()].runtime);
 });
 
+test("embedding worker loads the embedding checkpoint on the advertised port", () => {
+	const embed = SPECIALISTS.find((s) => s.port === 8907);
+	if (!embed) throw new Error("registry lost :8907");
+	const args = spawnArgs(embed, "darwin");
+	expect(args).toContain("8907");
+	expect(args).toContain("--embedding-model");
+	expect(args).toContain(embed.model);
+	expect(args[2]).toBe(embed.serveModel);
+});
+
 test("registryEntries mirrors runtime on specialist rows", () => {
 	const entries = registryEntries();
 	for (const e of entries) {

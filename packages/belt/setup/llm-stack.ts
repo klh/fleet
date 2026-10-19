@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { residentSet, DOWNLOAD_MODELS } from "../bin/registry.ts";
+import { spawnArgs } from "../bin/spawner.ts";
 
 const DRY = process.argv.includes("--dry-run");
 const SKIP_DL = process.argv.includes("--skip-download");
@@ -22,6 +23,7 @@ const HOME = homedir();
 const UV = "/opt/homebrew/bin/uv";
 const BREW = "/opt/homebrew/bin/brew";
 const MLX_PY = `${HOME}/.local/share/uv/tools/mlx-lm/bin/python`;
+const RAPID_PY = `${HOME}/.local/share/uv/tools/rapid-mlx/bin/python`;
 const HF_PY = "3.13"; // pin: brew python moves break uv tool symlinks otherwise
 
 function sh(cmd: string[]): Promise<number> {
@@ -32,15 +34,6 @@ function sh(cmd: string[]): Promise<number> {
 	}
 	const p = Bun.spawn(cmd, { stdout: "inherit", stderr: "inherit" });
 	return p.exited;
-}
-
-async function which(name: string): Promise<string | null> {
-	const p = Bun.spawn(["which", name], { stdout: "pipe", stderr: "ignore" });
-	const [out, code] = await Promise.all([
-		new Response(p.stdout).text(),
-		p.exited,
-	]);
-	return code === 0 ? out.trim() : null;
 }
 
 // ─── steps ───
@@ -84,7 +77,10 @@ async function stepTools(): Promise<void> {
 		])) !== 0
 	)
 		process.exit(1);
-	if (await which("rapid-mlx")) console.log("  ✓ rapid-mlx");
+	const embeddingExtra = existsSync(RAPID_PY)
+		? Bun.spawnSync([RAPID_PY, "-c", "import mlx_embeddings"]).exitCode === 0
+		: false;
+	if (embeddingExtra) console.log("  ✓ rapid-mlx with embeddings");
 	else if (
 		(await sh([
 			UV,
@@ -93,7 +89,7 @@ async function stepTools(): Promise<void> {
 			"--force",
 			"--python",
 			HF_PY,
-			"rapid-mlx",
+			"rapid-mlx[embeddings]==0.15.0",
 		])) !== 0
 	)
 		process.exit(1);
@@ -149,16 +145,7 @@ async function stepLaunchd(): Promise<void> {
 	for (const f of residentSet().filter((x) => x.engine === "rapid")) {
 		const label = `com.belt.llm-${f.port}`;
 		const plistPath = join(HOME, "Library", "LaunchAgents", `${label}.plist`);
-		const args = [
-			"rapid-mlx",
-			"serve",
-			f.model,
-			"--host",
-			"127.0.0.1",
-			"--port",
-			String(f.port),
-			...(f.flags ?? []),
-		];
+		const args = spawnArgs(f);
 		const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>

@@ -27,12 +27,13 @@ import it; change a model in the registry and both follow.
 | 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB | resident  | rapid-mlx |
 | 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB  | resident  | rapid-mlx |
 | 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
+| 8907 | 🧲 embed                 | Qwen3-Embedding-0.6B-4bit-DWQ                                            | ~2 GB  | resident  | rapid-mlx |
 | 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
 | 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB  | resident  | external  |
 
-Embeddings retired from the swarm (2026-09-23): `mlx_lm` 0.31.x dropped the
-routes; embeddings live on `:8907` via context-rag's `embed_server.py`, started
-on demand.
+The embedding model answers `/v1/embeddings` on `:8907`. Rapid-MLX loads it
+beside the small reranker checkpoint required by its server; the full tier
+supervises both. The minimal tier omits `:8907`.
 
 ## Install
 

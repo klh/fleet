@@ -78,7 +78,7 @@ export function spawnArgs(
 		return [
 			RAPID,
 			"serve",
-			s.model,
+			s.serveModel ?? s.model,
 			"--host",
 			"127.0.0.1",
 			"--port",

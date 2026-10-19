@@ -43,6 +43,8 @@ export interface Specialist {
 	// llama.cpp rows: local GGUF file path (acquisition binds repo+quant in
 	// the model catalog; see local-llm/models.catalog.ts)
 	model: string;
+	/** Chat checkpoint required by rapid-mlx when this row serves embeddings. */
+	serveModel?: string;
 	label: string; // display + routing role
 	// belt-facing gateway alias (litellm model_name, buckle group, direct
 	// tier key) — emitters derive every downstream config from this
@@ -53,6 +55,8 @@ export interface Specialist {
 	// route on measured prompt tokens against this, not prose
 	contextTokens: number;
 	tier: "resident" | "ondemand";
+	/** Full tier only when a light row also loads a second checkpoint. */
+	minimalResident?: boolean;
 	// W504 request-side cap: max in-flight /v1 calls the :4000 router admits
 	// for this port before 429 + ladder fall-through. Big unified-memory
 	// backends swap under bursts (the W500 OOM class). Unset = global default
@@ -108,6 +112,7 @@ export type SPECIALIST_PORTS =
 	| 8904
 	| 8905
 	| 8906
+	| 8907
 	| 8911
 	| 8913;
 
@@ -169,9 +174,24 @@ export const SPECIALISTS: Specialist[] = [
 		good_at:
 			"multi-step reasoning, planning, hard analysis, determinate answers, knowledge distillation",
 	},
-	// 8904/8905 (embed/rerank) retired 2026-09-23: mlx_lm 0.31.x server dropped
-	// /v1/embeddings + /v1/rerank routes. Embeddings live on :8907 (context-rag
-	// embed_server.py, mlx_embeddings) — started on demand by context-rag/mail-rag.
+	// 8904/8905 retired when mlx_lm dropped the embedding and rerank routes.
+	// rapid-mlx serves the cached embedding model through /v1/embeddings.
+	{
+		port: 8907,
+		model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
+		// rapid-mlx requires a positional chat model even for embedding-only use.
+		serveModel: "mlx-community/Qwen3-Reranker-0.6B-4bit",
+		label: "🧲 embed",
+		alias: "local-embed",
+		role: "embed",
+		ram_gb: 2,
+		contextTokens: 32_768,
+		tier: "resident",
+		minimalResident: false,
+		engine: "rapid",
+		flags: ["--embedding-model", "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"],
+		good_at: "text embeddings for retrieval (context-rag, mail-rag)",
+	},
 	{
 		port: 8906,
 		model: "mlx-community/Qwen3.5-9B-MLX-4bit",
@@ -247,22 +267,6 @@ export const EXTERNAL: ExternalService[] = [
 		owner: "external: ~/dev/kev (launchd com.belt.kev)",
 		protocol: "systemone",
 		good_at: "typed-question classification, use-case routing verdicts",
-	},
-	{
-		// context-rag embed_server.py (mlx_embeddings), started on demand by
-		// context-rag / mail-rag; weights = the cached Qwen3-Embedding-0.6B DWQ.
-		port: 8907,
-		healthPath: "/health",
-		model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
-		label: "🧲 embed",
-		alias: "local-embed",
-		role: "embed",
-		ram_gb: 0.5,
-		contextTokens: 32_768,
-		tier: "ondemand",
-		owner: "external: context-rag embed_server.py (on demand)",
-		protocol: "openai",
-		good_at: "text embeddings for retrieval (context-rag, mail-rag)",
 	},
 ];
 
@@ -365,7 +369,9 @@ export const BELT_TIER: Tier = resolveTier();
 export function residentSet(): Specialist[] {
 	const resident = SPECIALISTS.filter((s) => s.tier === "resident");
 	return resolveTier() === "minimal"
-		? resident.filter((s) => s.ram_gb <= TIER_MAX_RAM_GB)
+		? resident.filter(
+				(s) => s.ram_gb <= TIER_MAX_RAM_GB && s.minimalResident !== false,
+			)
 		: resident;
 }
 
