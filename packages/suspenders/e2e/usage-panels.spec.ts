@@ -79,6 +79,33 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
+test("cache drilldown: host upgrades, lanes paint, lane drilldown works", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/usage`);
+	await page.waitForFunction(
+		() => document.querySelector("klh-usage-cache-drill")?.shadowRoot !== null,
+	);
+	const drill = page.locator("klh-usage-cache-drill");
+	await expect(drill).toContainText("CACHE EFFICIENCY");
+	await expect(drill).toContainText("autow700");
+	// miss-reason clusters paint from the canned misses — not just counts,
+	// REASONS
+	await expect(drill).toContainText("MISS REASONS");
+	// usage → lane drilldown: click the lane row, the request table paints
+	await drill.locator("tr.ulane").first().click();
+	await expect(drill).toContainText("REQUESTS");
+	await expect(drill).toContainText("glm-5.3-flash");
+	const shot = join(
+		dirname(fileURLToPath(import.meta.url)),
+		"test-results",
+		"usage-cache-drill.png",
+	);
+	await page.screenshot({ path: shot, fullPage: true });
+	copyFileSync(shot, "/tmp/w825-look-cache-drill.png");
+	expect(statSync(shot).size).toBeGreaterThan(50_000);
+});
+
 test("federation page: spokes + aid rows paint from rollups", async ({
 	page,
 }) => {

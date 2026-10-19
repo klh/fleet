@@ -1,5 +1,5 @@
-import{i,r,e,s}from"./lit-9bpcreb0.js";import{o,l,c}from"./lit-ke1w0fw8.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${i(c)}
+import{i,r,e,s}from"./lit-9bpcreb0.js";import{o,l,d}from"./lit-65v7hzgb.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${i(d)}
 		:host {
 			display: block;
 		}
@@ -134,8 +134,8 @@ import{i,r,e,s}from"./lit-9bpcreb0.js";import{o,l,c}from"./lit-ke1w0fw8.js";var 
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
 			<select aria-label="switch actor (demo preview)">
-				${this.actorOptions().map((d)=>e`<option value=${d} ?selected=${d===n}>
-							${d}
+				${this.actorOptions().map((c)=>e`<option value=${c} ?selected=${c===n}>
+							${c}
 						</option>`)}
 			</select>
 			<div class="cavnote">
