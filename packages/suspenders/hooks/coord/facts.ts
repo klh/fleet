@@ -5,6 +5,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { assertCapsuleBounds, itemCapsuleKey } from "../lib/capsule-fence.ts";
+import {
+	ConfidenceError,
+	glyphFor,
+	makeStamp,
+	parseStamp,
+	renderStamp,
+} from "../lib/confidence.ts";
 import { expireConsults } from "../lib/consult-expiry.ts";
 import { openIdentity } from "../lib/govdb.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
@@ -116,28 +123,107 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
 			);
 		const src = arg("--source") ?? "coord";
+		// W953 confidence doctrine: --confidence REQUIRES --setter (provenance
+		// law — a grade without a logged setter is invalid). Verdict lifecycles
+		// (superseded/contradicted) require --ref per addendum 2. The stamp
+		// chain cites the row's prior stamp; every event appends to the
+		// confidence_history ledger.
+		const confArg = arg("--confidence");
+		const setterArg = arg("--setter");
+		if (confArg != null && setterArg == null)
+			die(
+				"fact set: --confidence requires --setter (human | model:<id> | mechanical:<tool>)",
+			);
+		if (confArg == null && setterArg != null)
+			die("fact set: --setter requires --confidence");
+		let confVal: number | null = null;
+		if (confArg != null) {
+			confVal = Number(confArg);
+			if (!Number.isFinite(confVal))
+				die(`fact set: --confidence must be a number, got "${confArg}"`);
+		}
 		const expected = parseIfVersion(arg("--if-version"));
-		const r = casWrite(key, expected, () =>
-			db
-				.query(
-					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
-						"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
-				)
-				.run(key, value, src, Date.now()),
-		);
+		const r = casWrite(key, expected, () => {
+			const cur = db
+				.query("SELECT confidence_stamp FROM facts WHERE key = ?")
+				.get(key) as { confidence_stamp: string | null } | undefined;
+			const prior = parseStamp(cur?.confidence_stamp);
+			let stamp: ReturnType<typeof makeStamp> | null = null;
+			if (confVal != null) {
+				try {
+					stamp = makeStamp({
+						value: confVal,
+						setter: setterArg,
+						evidence: arg("--evidence"),
+						verdict: arg("--verdict"),
+						ref: arg("--ref"),
+						prior,
+					});
+				} catch (e) {
+					if (e instanceof ConfidenceError) die(`fact set: ${e.message}`);
+					throw e;
+				}
+			}
+			db.query(
+				"INSERT INTO facts (key, value, source, version, ts, confidence, confidence_stamp) VALUES (?, ?, ?, 1, ?, ?, ?) " +
+					"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, confidence = excluded.confidence, confidence_stamp = excluded.confidence_stamp",
+			).run(
+				key,
+				value,
+				src,
+				Date.now(),
+				stamp?.value ?? null,
+				stamp ? JSON.stringify(stamp) : null,
+			);
+			if (stamp)
+				db.query(
+					"INSERT INTO confidence_history (ts, tbl, row_key, value, setter, evidence, verdict, ref, prior, prior_setter, prior_ts, by_sid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				).run(
+					stamp.ts,
+					"facts",
+					key,
+					stamp.value,
+					stamp.setter,
+					stamp.evidence,
+					stamp.verdict ?? null,
+					stamp.ref ?? null,
+					prior ? prior.value : null,
+					prior?.setter ?? null,
+					prior?.ts ?? null,
+					arg("--as") ?? null,
+				);
+		});
 		if (!r.ok)
 			die(
 				`fact ${key}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
 			);
 		console.log(`fact ${key} = ${value}`);
+		const stamped = db
+			.query("SELECT confidence_stamp FROM facts WHERE key = ?")
+			.get(key) as { confidence_stamp: string | null } | undefined;
+		const st = parseStamp(stamped?.confidence_stamp);
+		if (st)
+			console.log(
+				dim(`  ${renderStamp(st)}${confVal != null ? " · stamped" : ""}`),
+			);
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "get") {
 		const r = db
-			.query("SELECT value, version, ts FROM facts WHERE key = ?")
+			.query(
+				"SELECT value, version, ts, confidence, confidence_stamp FROM facts WHERE key = ?",
+			)
 			.get(rest[1] ?? "") as
-			| { value: string; version: number; ts: number }
+			| {
+					value: string;
+					version: number;
+					ts: number;
+					confidence: number | null;
+					confidence_stamp: string | null;
+			  }
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
+		const st = parseStamp(r?.confidence_stamp);
+		if (st) console.log(dim(`  ${renderStamp(st)}`));
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "list") {
 		// W466 bounding: the facts table is the knowledge read surface. Machine
@@ -161,17 +247,30 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			limit > 0 ? ` ORDER BY key LIMIT ${Math.floor(limit)}` : " ORDER BY key";
 		const rows = db
 			.query(
-				`SELECT key, value, version, ts FROM facts WHERE ${where}${orderLimit}`,
+				`SELECT key, value, version, ts, confidence, confidence_stamp FROM facts WHERE ${where}${orderLimit}`,
 			)
 			.all(...params) as {
 			key: string;
 			value: string;
 			version: number;
 			ts: number;
+			confidence: number | null;
+			confidence_stamp: string | null;
 		}[];
 		console.log(
 			rows.length
-				? rows.map((r) => `${r.key} = ${r.value}  (v${r.version})`).join("\n")
+				? rows
+						.map((r) => {
+							const st = parseStamp(r.confidence_stamp);
+							// W953: band glyph + value ride the line when the row is
+							// graded — the grade is displayed, never hidden (verdict
+							// #5: board/search show all grades)
+							const grade = st
+								? `  ${glyphFor(st.value)}${r.confidence ?? st.value}`
+								: "";
+							return `${r.key} = ${r.value}  (v${r.version})${grade}`;
+						})
+						.join("\n")
 				: "(no facts)",
 		);
 	} else if (sub === "rm") {
@@ -399,7 +498,7 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			die('usage: kb add "<problem>" --solution "<solution>" [--as <sid>]');
 		const kr = db
 			.query(
-				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)",
 			)
 			.run(
 				problem,
@@ -408,6 +507,13 @@ export async function cmdKb(rest: string[]): Promise<void> {
 				as ?? "harvest",
 				as ?? "harvest",
 				Date.now(),
+				as ? 0.6 : 0.4,
+				JSON.stringify(
+					makeStamp({
+						value: as ? 0.6 : 0.4,
+						setter: as ? `model:${as}` : "mechanical:harvest",
+					}),
+				),
 			);
 		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
 			kr.lastInsertRowid,

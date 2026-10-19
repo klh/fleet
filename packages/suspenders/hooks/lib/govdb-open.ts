@@ -11,6 +11,10 @@ import {
 	migrateKnowledgeSplit,
 } from "./govdb-knowledge.ts";
 import { columnNames, openWALDb, REG } from "./govdb-util.ts";
+import {
+	CONFIDENCE_HISTORY_DDL,
+	CONFIDENCE_HISTORY_INDEX_DDL,
+} from "./confidence.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
 
@@ -410,6 +414,31 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 18");
 	}
+	// W953 confidence doctrine: guarded ALTERs heal every open (the additive
+	// house pattern — no user_version bump; consults.deadline_at precedent).
+	// facts + consult_kb carry confidence REAL (fast filter) + the LATEST
+	// stamp JSON (value/setter/ts/evidence/verdict/ref/prior/hash — the
+	// provenance record). The append-only confidence_history ledger rides
+	// CONFIDENCE_HISTORY_DDL (one source in hooks/lib/confidence.ts) in BOTH
+	// this file and knowledge.db — every stamp event lands there, incl. low
+	// bands (the 0.4→0.9 upgrade path is the attack vector; the ledger is
+	// the audit trail).
+	const factsCols = columnNames(db, "facts");
+	if (factsCols.length) {
+		if (!factsCols.includes("confidence"))
+			db.run("ALTER TABLE facts ADD COLUMN confidence REAL");
+		if (!factsCols.includes("confidence_stamp"))
+			db.run("ALTER TABLE facts ADD COLUMN confidence_stamp TEXT");
+	}
+	const ckCols = columnNames(db, "consult_kb");
+	if (ckCols.length) {
+		if (!ckCols.includes("confidence"))
+			db.run("ALTER TABLE consult_kb ADD COLUMN confidence REAL");
+		if (!ckCols.includes("confidence_stamp"))
+			db.run("ALTER TABLE consult_kb ADD COLUMN confidence_stamp TEXT");
+	}
+	db.run(CONFIDENCE_HISTORY_DDL);
+	db.run(CONFIDENCE_HISTORY_INDEX_DDL);
 	migrateJSON(db);
 	return db;
 }

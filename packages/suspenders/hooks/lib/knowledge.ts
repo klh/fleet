@@ -8,6 +8,7 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { glyphFor } from "./confidence.ts";
 
 export interface KnowledgeFilters {
 	domain?: string | null;
@@ -15,6 +16,9 @@ export interface KnowledgeFilters {
 	originKind?: string | null;
 	originSystem?: string | null;
 	limit?: number;
+	// W953: min-confidence floor — unrated rows never meet a floor (a row
+	// with no stamp cannot demonstrate it clears one)
+	minConfidence?: number;
 }
 
 export interface KnowledgeHit {
@@ -92,6 +96,12 @@ const ORIGIN_PRIOR_SQL =
 const AXIS_FILTER_SQL =
 	"AND (? IS NULL OR k.domain = ?) AND (? IS NULL OR k.area = ?) AND (? IS NULL OR k.origin_kind = ?) AND (? IS NULL OR k.origin_system = ?)";
 
+// W953 confidence floor — unrated rows (confidence NULL) never meet a floor:
+// a row with no stamp cannot demonstrate it clears one. Shared verbatim by
+// the primary match and the 1-hop expansion (both alias knowledge as k).
+const CONF_FLOOR_SQL =
+	"AND (? IS NULL OR (k.confidence IS NOT NULL AND k.confidence >= ?))";
+
 // W836 — recall ranking excludes buried rows: retired AND graveyard (the
 // integrity-flagged/rejected). Graveyard rows are never deleted — the reason
 // rides knowledge.graveyard_reason — but they must never rank.
@@ -115,6 +125,7 @@ function expandOneHop(
 		area: string | null;
 		kind: string | null;
 		sys: string | null;
+		minConf: number | null;
 	},
 	limit: number,
 ): (KnowledgeHit & {
@@ -135,6 +146,7 @@ FROM knowledge k
 WHERE k.id NOT IN (${marks})
 	AND k.state ${LIVE_STATES_SQL}
 	${AXIS_FILTER_SQL}
+	${CONF_FLOOR_SQL}
 	AND ${anyEdge}
 ORDER BY (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
 	+ (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
@@ -177,6 +189,10 @@ export function knowledgeSearch(
 	const area = filters.area ?? null;
 	const kind = filters.originKind ?? null;
 	const sys = filters.originSystem ?? null;
+	// W953 floor: unrated rows (confidence NULL) cannot demonstrate they
+	// clear it — excluded, never silently trusted
+	const minConf = filters.minConfidence ?? null;
+	const minParams = [minConf, minConf];
 	// W181 F2/M7 scope predicates on the aux stores: facts carry NO scope
 	// tags (no domain/area/kind/system columns), so any scoped search
 	// honestly excludes them — a scope filter must never surface untaggable
@@ -196,6 +212,7 @@ export function knowledgeSearch(
 	WHERE knowledge_fts MATCH ?
 		AND knowledge_fts.state ${LIVE_STATES_SQL}
 		${AXIS_FILTER_SQL}
+		${CONF_FLOOR_SQL}
 	ORDER BY rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 		+ ${ORIGIN_PRIOR_SQL}
 	LIMIT ?`,
@@ -210,6 +227,7 @@ export function knowledgeSearch(
 						kind,
 						sys,
 						sys,
+						...minParams,
 						limit,
 					) as (KnowledgeHit & {
 					snip?: string;
@@ -247,7 +265,7 @@ export function knowledgeSearch(
 			out.push(
 				...db
 					.query(
-						`SELECT f.key, f.ts,
+						`SELECT f.key, f.ts, f.confidence,
 	snippet(facts_fts, 0, '[', ']', '…', 12) AS snip
 	FROM facts_fts
 	JOIN facts f ON f.rowid = facts_fts.rowid
@@ -255,12 +273,15 @@ export function knowledgeSearch(
 	ORDER BY rank LIMIT ?`,
 					)
 					.all(match, limit)
-					.map((r: unknown): KnowledgeHit => {
+					.map((r: unknown): KnowledgeHit | null => {
 						const o = r as {
 							key: string;
 							ts: number;
+							confidence: number | null;
 							snip?: string;
 						};
+						if (minConf != null && (o.confidence == null || o.confidence < minConf))
+							return null;
 						return {
 							kind: "fact" as const,
 							id: 0,
@@ -268,7 +289,8 @@ export function knowledgeSearch(
 							snippet: o.snip ?? "",
 							key: o.key,
 						};
-					}),
+					})
+					.filter((h): h is KnowledgeHit => h !== null),
 			);
 		} catch {} // facts_fts absent — skip honestly
 	}
@@ -280,21 +302,23 @@ export function knowledgeSearch(
 			out.push(
 				...db
 					.query(
-						`SELECT k.id, k.problem, k.solution, k.created_at AS ts,
+						`SELECT k.id, k.problem, k.solution, k.created_at AS ts, k.confidence,
 	snippet(consult_kb_fts, 0, '[', ']', '…', 12) AS snip
 	FROM consult_kb_fts
 	JOIN consult_kb k ON k.id = consult_kb_fts.rowid
 	WHERE consult_kb_fts MATCH ?
 		AND (? IS NULL OR k.project = ?)
+		${CONF_FLOOR_SQL}
 	ORDER BY rank LIMIT ?`,
 					)
-					.all(match, dom, dom, limit)
+					.all(match, dom, dom, ...minParams, limit)
 					.map((r: unknown): KnowledgeHit => {
 						const o = r as {
 							id: number;
 							problem: string;
 							solution: string;
 							ts: number;
+							confidence: number | null;
 							snip?: string;
 						};
 						return {
@@ -305,6 +329,7 @@ export function knowledgeSearch(
 							problem: o.problem,
 							fact: o.problem,
 							solution: o.solution,
+							confidence: o.confidence ?? undefined,
 						};
 					}),
 			);
@@ -439,16 +464,21 @@ export const KNOWLEDGE_PRECEDENCE =
 const ageOf = (ts: number): number =>
 	Math.max(0, Math.round((Date.now() - ts) / 86_400_000));
 
+// W953: band glyph + value on every rendered card — "band glyph not just
+// number" (unrated rows say so honestly)
+const confTag = (v: number | null | undefined): string =>
+	v == null ? "unrated" : `${glyphFor(v)} ${v}`;
+
 // fact / consult_kb cards (aux kinds of the merged search)
 function renderAuxCard(lines: string[], h: KnowledgeHit): void {
 	if (h.kind === "fact")
 		lines.push(
-			`fact ${h.key ?? "?"} [age ${ageOf(h.ts)}d · hash unverified]`,
+			`fact ${h.key ?? "?"} [${confTag(h.confidence)} · age ${ageOf(h.ts)}d · hash unverified]`,
 			`  ${h.snippet}`,
 		);
 	else
 		lines.push(
-			`kb#${h.id} · ${(h.problem ?? "").slice(0, 120)} [age ${ageOf(h.ts)}d · hash unverified]`,
+			`kb#${h.id} · ${(h.problem ?? "").slice(0, 120)} [${confTag(h.confidence)} · age ${ageOf(h.ts)}d · hash unverified]`,
 			`  ${h.solution ?? h.snippet}`,
 		);
 }
@@ -477,7 +507,7 @@ export function proseCards(
 			const rated = h.rating ? ` · ${h.rating}` : "";
 			const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 			lines.push(
-				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}]`,
+				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · ${confTag(h.confidence)} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}]`,
 				`  ${h.fact ?? h.snippet}`,
 				`  source: ${h.source_ref ?? h.code_origin ?? "none"}${h.domain ? ` · domain ${h.domain}` : ""}${h.area ? ` · area ${h.area}` : ""}`,
 			);

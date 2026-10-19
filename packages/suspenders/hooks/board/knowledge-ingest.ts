@@ -14,6 +14,7 @@
 // lane-observations ingest. Strict shape validation; 64 KiB body cap.
 import type { Database } from "bun:sqlite";
 import { openKnowledgeDb } from "../lib/govdb.ts";
+import { makeStamp } from "../lib/confidence.ts";
 import { json } from "./helpers.ts";
 import { SYNCABLE_FACT, MAX_FACT_VALUE } from "../lib/knowledge-sync.ts";
 
@@ -181,14 +182,23 @@ export function landKnowledgeIngest(
 			continue;
 		}
 		const now = Date.now();
+		// W953: remote facts arrive machine-raw on this hub — stamped 0.3,
+		// mechanical:knowledge-sync; the origin hub's grade does not travel.
+		const stamp = makeStamp({
+			value: 0.3,
+			setter: "mechanical:knowledge-sync",
+			evidence: `hub:${p.originHub}`,
+		});
 		kdb.run(
-			"INSERT INTO knowledge (ts, topic, fact, confidence, origin_kind, origin_system, origin_sid, contributors, source, state) VALUES (?, ?, ?, 0.3, 'remote-fact', ?, ?, ?, 'knowledge-sync', 'candidate')",
+			"INSERT INTO knowledge (ts, topic, fact, confidence, origin_kind, origin_system, origin_sid, contributors, source, state, confidence_stamp) VALUES (?, ?, ?, ?, 'remote-fact', ?, ?, ?, 'knowledge-sync', 'candidate', ?)",
 			now,
 			topic,
 			f.value,
+			stamp.value,
 			p.originHub,
 			p.originHub,
 			JSON.stringify([{ sid: p.originHub, ts: now, what: "knowledge-sync" }]),
+			JSON.stringify(stamp),
 		);
 		counts.facts.landed++;
 	}

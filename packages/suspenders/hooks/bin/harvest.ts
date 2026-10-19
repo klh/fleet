@@ -9,6 +9,7 @@
 // usage: bun harvest.ts scan|run --repo <path> [--days N]  (scan writes nothing)
 // env:   HOME (transcript roots; launchd sets it — no other config)
 import { openStore, projectIdentity } from "../lib/govdb.ts";
+import { makeStamp } from "../lib/confidence.ts";
 import {
 	clusterSignals,
 	discoverTranscripts,
@@ -141,11 +142,17 @@ const applyTx = db.transaction(() => {
 		}
 		const problem = `Recurring ${c.kind} in lane transcripts (${c.items.join(", ")}): ${c.subject}`;
 		const solution = `${c.detail}\n— harvested from lane transcripts ${new Date(now).toISOString().slice(0, 10)}; the evidence names the fix — read the gate/spec it points at before writing here again.`;
+		// W953: harvested clusters are machine-derived — 0.4, mechanical:harvest
+		const stamp = makeStamp({
+			value: 0.4,
+			setter: "mechanical:harvest",
+			evidence: `transcripts:${now}`,
+		});
 		const kr = db
 			.query(
-				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, 'harvest', 'harvest', NULL, ?)",
+				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, 'harvest', 'harvest', NULL, ?, ?, ?)",
 			)
-			.run(problem, solution.slice(0, 600), project, now);
+			.run(problem, solution.slice(0, 600), project, now, stamp.value, JSON.stringify(stamp));
 		// FTS index row — without it consult lookup never self-serves this row
 		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
 			kr.lastInsertRowid,

@@ -3,6 +3,7 @@
 // one-tab indent preserved, output byte-compatible.
 
 import { consultDeadline } from "../lib/consult-expiry.ts";
+import { makeStamp } from "../lib/confidence.ts";
 import {
 	type ConsultEnvelope,
 	citationsFor,
@@ -517,9 +518,16 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				).run(c.id, dup.id);
 			})();
 		} else {
+			// W953: the answer is a single-model pass — 0.6, setter = the expert
+			// executor, evidence = the consult link (provenance walkable)
+			const stamp = makeStamp({
+				value: 0.6,
+				setter: `model:${as}`,
+				evidence: `consult:${c.id}`,
+			});
 			const kr = db
 				.query(
-					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				)
 				.run(
 					c.question,
@@ -529,6 +537,8 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					as,
 					c.id,
 					Date.now(),
+					stamp.value,
+					JSON.stringify(stamp),
 				);
 			ensureConsultTrust(db);
 			db.query(
