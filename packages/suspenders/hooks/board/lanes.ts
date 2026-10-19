@@ -144,6 +144,20 @@ export function enrich(
 			.all(project, e.source, e.ts) as { id: string }[];
 		if (owned.length === 1) work = owned[0].id;
 	}
+	if (!work && project && e?.source) {
+		// work done/release clears owner_sid. The earlier claim is still an
+		// immutable, project-scoped link from this lane to its work item.
+		const claimed = db
+			.query(
+				`SELECT e.work AS id FROM events e
+			 JOIN work_items w ON w.project = e.project AND w.id = e.work
+			 WHERE e.kind = 'work.claimed' AND e.project = ?
+			 AND json_extract(e.payload, '$.by') = ? AND e.id <= ?
+			 ORDER BY e.id DESC LIMIT 1`,
+			)
+			.get(project, e.source, d.event_id) as { id: string } | null;
+		work = claimed?.id ?? null;
+	}
 	db.query(
 		"UPDATE decisions SET asked_by = ?, project = COALESCE(NULLIF(?, ''), project), task_id = COALESCE(task_id, ?), question = COALESCE(question, ?), options = COALESCE(options, ?) WHERE event_id = ?",
 	).run(
