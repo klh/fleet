@@ -509,13 +509,28 @@ const cmdInstall = (): void => {
 	}
 	mkdirSync(SITES, { recursive: true });
 	if (!existsSync(CADDYFILE)) writeFileSync(CADDYFILE, caddyfileSkeleton());
-	writeFileSync(PLIST, plistConf());
+	const wantedPlist = plistConf();
+	const currentPlist = existsSync(PLIST) ? readFileSync(PLIST, "utf8") : null;
 	const uid = process.getuid();
-	run(["/bin/launchctl", "bootout", `gui/${uid}/${LABEL}`]); // ignore "not loaded"
-	const r = run(["/bin/launchctl", "bootstrap", `gui/${uid}`, PLIST]);
-	if (r.code !== 0 && !r.out.includes("already bootstrapped"))
-		die(`launchctl bootstrap failed:\n${r.out}`);
-	run(["/bin/launchctl", "kickstart", `gui/${uid}/${LABEL}`]);
+	const loaded =
+		run(["/bin/launchctl", "print", `gui/${uid}/${LABEL}`]).code === 0;
+	if (!loaded || currentPlist !== wantedPlist) {
+		if (currentPlist !== wantedPlist) writeFileSync(PLIST, wantedPlist);
+		if (loaded) run(["/bin/launchctl", "bootout", `gui/${uid}/${LABEL}`]);
+		let bootstrapped = false;
+		let failure = "";
+		for (let attempt = 0; attempt < 4; attempt++) {
+			if (attempt > 0) Bun.sleepSync(250 * attempt);
+			const result = run(["/bin/launchctl", "bootstrap", `gui/${uid}`, PLIST]);
+			if (result.code === 0 || result.out.includes("already bootstrapped")) {
+				bootstrapped = true;
+				break;
+			}
+			failure = result.out;
+		}
+		if (!bootstrapped) die(`launchctl bootstrap failed:\n${failure}`);
+		run(["/bin/launchctl", "kickstart", `gui/${uid}/${LABEL}`]);
+	}
 	const ver = run([CADDY, "version"]);
 	console.log(`
 ✓ caddy serving as user LaunchAgent (${LABEL})
