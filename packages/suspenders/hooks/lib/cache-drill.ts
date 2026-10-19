@@ -57,6 +57,10 @@ export interface BuckleRequestRow {
 	/** optional extensions the seam may carry; null = not reported. */
 	in_tok: number | null;
 	out_tok: number | null;
+	/** W921 traffic kind: 'readiness' = marked root-auth healthcheck
+	 *  synthetic (excluded from cache analytics), 'inference' = agent
+	 *  traffic, null = the row predates the column. */
+	traffic_kind: string | null;
 	/** hub label the row was fetched from (set by this lib, not the wire). */
 	hub?: string;
 }
@@ -114,11 +118,18 @@ export function parseRequestRow(raw: unknown): BuckleRequestRow | null {
 					: null),
 		in_tok: num(r.in_tok),
 		out_tok: num(r.out_tok),
+		traffic_kind: str(r.traffic_kind) || null,
 	};
 }
 
 const cacheKnown = (row: BuckleRequestRow): boolean =>
 	row.cache_reported === true || (row.cache_r ?? 0) > 0;
+
+/** W921: readiness probes (marked root-auth healthcheck synthetics) are
+ *  infrastructure, not agent traffic — excluded from every lane/model cache
+ *  ratio and miss-reason cluster, shown separately by the report. */
+export const isProbeRow = (row: BuckleRequestRow): boolean =>
+	row.traffic_kind === "readiness";
 
 // ─── miss-reason clusters ─────────────────────────────────────────────────
 /** Inter-request gap above which a cold cache is EXPECTED (provider prompt
@@ -163,6 +174,7 @@ export function clusterMissReasons(
 		byKey.set(reason, cur);
 	};
 	for (const row of [...rows].sort((a, b) => a.ts.localeCompare(b.ts))) {
+		if (isProbeRow(row)) continue;
 		const isMiss = cacheKnown(row) && row.cache_r === 0;
 		const thisPrev = previousByLane.get(row.lane) ?? null;
 		if (row.lane) previousByLane.set(row.lane, row);
@@ -263,6 +275,16 @@ export interface LaneDrillRow {
 	day_series: LaneDayCell[];
 }
 
+/** W921: the separately-reported readiness-probe traffic (marked root-auth
+ *  healthcheck synthetics). Never inside the lane/model ratios or reasons. */
+export interface ProbeTrafficSummary {
+	requests: number;
+	known: number;
+	warm: number;
+	warm_ratio: number;
+	last_ts: string | null;
+}
+
 export interface ModelDrillRow {
 	model: string;
 	requests: number;
@@ -282,6 +304,7 @@ export function modelAggregates(
 	const unsupported = new Set(unsupportedModels);
 	const byModel = new Map<string, ModelDrillRow>();
 	for (const row of rows) {
+		if (isProbeRow(row)) continue;
 		const model = row.target_model ?? "(unrouted)";
 		const current = byModel.get(model) ?? {
 			model,
@@ -332,6 +355,7 @@ export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 		}
 	>();
 	for (const r of rows) {
+		if (isProbeRow(r)) continue;
 		const lane = r.lane === "" ? "(bare ingress)" : r.lane;
 		const cur = byLane.get(lane) ?? {
 			lane,
@@ -628,6 +652,9 @@ export interface CacheDrillReport {
 	/** per-lane aggregates over the FILTERED rows, sorted per `sort`. */
 	lanes: LaneDrillRow[];
 	models: ModelDrillRow[];
+	/** W921: probe traffic over the FILTERED rows, reported separately —
+	 *  the lane/model aggregates and miss reasons exclude it. */
+	probes: ProbeTrafficSummary;
 	overall: {
 		requests: number;
 		known: number;
@@ -682,13 +709,19 @@ export async function cacheDrillReport(
 		all.push(...out.rows);
 	}
 	const rows = filterRows(all, filters);
+	// W921: every cache ratio / reason cluster is INFERENCE-only — probe
+	// traffic is summed separately and reported on its own.
+	const inference = rows.filter((r) => !isProbeRow(r));
 	const lanes = sortLanes(laneAggregates(rows), sort);
 	const models = modelAggregates(
 		rows,
 		tryLoadStack()?.cache_unsupported_models ?? [],
 	);
-	const known = rows.filter(cacheKnown).length;
-	const warm = rows.filter((r) => (r.cache_r ?? 0) > 0).length;
+	const known = inference.filter(cacheKnown).length;
+	const warm = inference.filter((r) => (r.cache_r ?? 0) > 0).length;
+	const probeRows = rows.filter(isProbeRow);
+	const probeKnown = probeRows.filter(cacheKnown).length;
+	const probeWarm = probeRows.filter((r) => (r.cache_r ?? 0) > 0).length;
 	const scoped = filters.lane === "" ? null : rows;
 	return {
 		ok: true,
@@ -699,11 +732,21 @@ export async function cacheDrillReport(
 		lanes,
 		models,
 		overall: {
-			requests: rows.length,
+			requests: inference.length,
 			known,
 			warm,
 			warm_ratio: known > 0 ? warm / known : 0,
 			reasons: clusterMissReasons(rows),
+		},
+		probes: {
+			requests: probeRows.length,
+			known: probeKnown,
+			warm: probeWarm,
+			warm_ratio: probeKnown > 0 ? probeWarm / probeKnown : 0,
+			last_ts: probeRows.reduce<string | null>(
+				(latest, r) => (latest === null || r.ts > latest ? r.ts : latest),
+				null,
+			),
 		},
 		lane_scope:
 			scoped === null

@@ -174,11 +174,17 @@ function targetUrl(args: ProbeArgs): string {
  *  resolved from AUTH_ENV. Throws when the credential is declared but unset
  *  — fail-closed, a synthetic probe without its credential is a config
  *  error, never an "up". Undefined when no synthetic body is declared
- *  (plain liveness GET). */
+ *  (plain liveness GET).
+ *
+ *  W921: every synthetic request carries `x-klh-traffic: readiness` —
+ *  the gate's mark for root-auth readiness traffic, so the synthetic
+ *  full-chain poll can be told apart from agent inference in the ledger
+ *  (the cache drilldown excludes it instead of counting it as cold). */
 export function syntheticRequest(args: ProbeArgs): ProbeRequest | undefined {
 	if (args.synthetic === undefined) return undefined;
 	const headers: Record<string, string> = {
 		"content-type": "application/json",
+		"x-klh-traffic": "readiness",
 	};
 	if (args.authEnv !== undefined) {
 		const token = process.env[args.authEnv];

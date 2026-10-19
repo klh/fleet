@@ -47,6 +47,10 @@ export interface RouteAuditDecision {
 	 *  hub relayed the leg — evidence only, never billed again. Exactly one
 	 *  billable row per relayed request. */
 	hop: HopKind;
+	/** W921 traffic kind: 'readiness' = a marked root-auth healthcheck
+	 *  synthetic (excluded from lane cache analytics), 'inference' = agent
+	 *  traffic. NULL = the row predates the column. */
+	traffic_kind?: string | null;
 }
 
 export interface RouteAuditOutcome {
@@ -124,6 +128,8 @@ export interface RequestReadRow {
 	cache_c_reported: number | null;
 	in_tok: number | null;
 	out_tok: number | null;
+	/** W921 traffic kind: 'readiness' | 'inference'; NULL = legacy row. */
+	traffic_kind: string | null;
 }
 
 const INSERT_AUDIT = `
@@ -131,8 +137,9 @@ INSERT INTO route_audit (
   rid, trace_id, ts, actor, lane, dialect, hint,
   candidates_seen, candidates_top,
   target_kind, target_host, target_port, target_model,
-  decision, latency_class, tier, allow_cloud, error_code, why, hop
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  decision, latency_class, tier, allow_cloud, error_code, why, hop,
+  traffic_kind
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SCHEMA = `
@@ -170,7 +177,8 @@ CREATE TABLE IF NOT EXISTS route_audit (
   cache_r INTEGER, cache_c INTEGER, cache_reported INTEGER,
   cache_c_reported INTEGER,
   in_tok INTEGER, out_tok INTEGER,
-  hop TEXT
+  hop TEXT,
+  traffic_kind TEXT
 );
 `;
 
@@ -312,6 +320,10 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_audit ADD COLUMN out_tok INTEGER");
 		if (!auditCols.includes("trace_id"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN trace_id TEXT");
+		// W921: traffic kind (pre-W921 databases heal the same way; NULL =
+		// the row predates the column — unmarked legacy).
+		if (!auditCols.includes("traffic_kind"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN traffic_kind TEXT");
 		this.db.run(
 			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
 		);
@@ -536,6 +548,7 @@ export class Ledger {
 			row.error_code,
 			row.why,
 			row.hop,
+			row.traffic_kind ?? null,
 		);
 	}
 
@@ -682,7 +695,8 @@ function requestsReadSql(where: string[], limit: number): string {
 		candidates_seen, candidates_top, target_kind, target_host,
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
-		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok
+		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok,
+		traffic_kind
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

@@ -145,6 +145,15 @@ export class KlhUsageCacheDrill extends LitElement {
 					: nothing
 			}
 			${
+				r.probes.requests > 0
+					? html`<p class="ufoot">Readiness probes: ${String(r.probes.requests)}
+					requests in this window (last ${hhmm(r.probes.last_ts)}), warm
+					${r.probes.known > 0 ? pct1(r.probes.warm_ratio) : "—"} — synthetic
+					healthcheck traffic, excluded from the lane and model ratios
+					above.</p>`
+					: nothing
+			}
+			${
 				r.local_transcripts && r.local_transcripts.cache_read_tokens > 0
 					? html`<p class="ufoot">Local Claude transcripts report
 					${fmtTok(r.local_transcripts.cache_read_tokens)} cache-read tokens

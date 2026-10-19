@@ -93,6 +93,7 @@ interface ReqRow {
 	key_name: string | null;
 	key_team: string | null;
 	err: string | null;
+	traffic_kind: string | null;
 }
 
 async function getRequests(
@@ -390,5 +391,41 @@ describe("W824 read cap", () => {
 		expect(rows[0].why.endsWith("…")).toBe(true);
 		expect(rows[0].err?.length).toBe(201);
 		ledger.close();
+	});
+});
+
+describe("W921 traffic kind", () => {
+	test("marked root-auth requests persist readiness; everything else stays inference", async () => {
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
+		const gate = await startGate(upstream.url);
+		const lane = await issueViaAdmin(gate.base, {
+			name: "w921-lane",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const auditor = await issueViaAdmin(gate.base, {
+			name: "w921-auditor",
+			scopes: ["buckle:admin:READ_"],
+		});
+		const chat = (token: string, marker = false): Promise<Response> =>
+			fetch(`${gate.base}/v1/chat/completions`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					...(marker ? { "x-klh-traffic": "readiness" } : {}),
+				},
+				body: CHAT_BODY,
+			});
+		await chat(ROOT, true); // root + mark → readiness
+		await chat(lane.key, true); // lane key + mark → inference
+		await chat(ROOT); // root, unmarked → inference (break-glass stays honest)
+		const res = await getRequests(gate.base, auditor.key);
+		const rows = res.body.requests as ReqRow[];
+		expect(rows.length).toBe(3);
+		const kinds = rows
+			.sort((a, b) => a.ts.localeCompare(b.ts))
+			.map((r) => r.traffic_kind);
+		expect(kinds).toEqual(["readiness", "inference", "inference"]);
+		gate.stop();
+		upstream.close();
 	});
 });

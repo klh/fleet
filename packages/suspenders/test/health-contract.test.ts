@@ -190,7 +190,7 @@ describe("synthetic readiness (W467)", () => {
 	});
 
 	test("POSTs the declared body with the bearer credential and demands the expect-path", async () => {
-		let seen: { method?: string; auth?: string } = {};
+		let seen: { method?: string; auth?: string; traffic?: string } = {};
 		const server = Bun.serve({
 			port: 0,
 			hostname: "127.0.0.1",
@@ -198,6 +198,7 @@ describe("synthetic readiness (W467)", () => {
 				seen = {
 					method: req.method,
 					auth: req.headers.get("authorization") ?? undefined,
+					traffic: req.headers.get("x-klh-traffic") ?? undefined,
 				};
 				return new Response(readyBody, {
 					headers: { "content-type": "application/json" },
@@ -209,11 +210,15 @@ describe("synthetic readiness (W467)", () => {
 			const req = syntheticRequest(args(server.url.toString()));
 			expect(req?.method).toBe("POST");
 			expect(req?.headers?.authorization).toBe("Bearer sk-test");
+			// W921: readiness traffic is marked so the gateway can tell the
+			// synthetic full-chain poll apart from agent inference
+			expect(req?.headers?.["x-klh-traffic"]).toBe("readiness");
 			expect(req?.body).toContain("max_tokens");
 			const ok = await probeOnce(server.url.toString(), 500, req);
 			expect(ok.ok).toBe(true);
 			expect(seen.method).toBe("POST");
 			expect(seen.auth).toBe("Bearer sk-test");
+			expect(seen.traffic).toBe("readiness");
 		} finally {
 			delete process.env.W467_TOKEN;
 			server.stop(true);
