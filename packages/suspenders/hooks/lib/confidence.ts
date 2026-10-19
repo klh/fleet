@@ -30,6 +30,9 @@
 //   validation refuses those stamps without ref, so contradiction chains
 //   stay walkable ("what replaced me / what disproved me").
 import { createHash } from "node:crypto";
+// W955 convergence: the verdict enum lives in confidence-verdict.ts (its
+// ref rules + append-only ledger ride it); this module consumes + re-exports
+import { STAMP_VERDICTS } from "./confidence-verdict.ts";
 
 export const CONFIDENCE_MIN = 0.1;
 export const CONFIDENCE_MAX = 1.0;
@@ -132,14 +135,10 @@ export interface ConfidenceStamp {
 	hash: string;
 }
 
-export const STAMP_VERDICTS = [
-	"fresh",
-	"stale",
-	"confirmed",
-	"retracted",
-	"superseded",
-	"contradicted",
-] as const;
+// W955 convergence: one enum, zero drift — the lifecycle verdict set is
+// DEFINED in confidence-verdict.ts (with its ref rules + ledger) and
+// re-exported here for schema face
+export { STAMP_VERDICTS };
 
 // History ledger DDL shared by governor.db and knowledge.db — one source.
 // The row's confidence_stamp JSON mirrors the LATEST stamp; this table is

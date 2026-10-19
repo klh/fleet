@@ -163,6 +163,8 @@ LIMIT ?`,
 			axes.kind,
 			axes.sys,
 			axes.sys,
+			axes.minConf,
+			axes.minConf,
 			...seeds, // edge EXISTS
 			limit,
 		) as (KnowledgeHit & {
@@ -246,7 +248,7 @@ export function knowledgeSearch(
 				...expandOneHop(
 					db,
 					out.map((h) => h.id),
-					{ dom, area, kind, sys },
+					{ dom, area, kind, sys, minConf },
 					limit,
 				).map((r) => ({
 					...r,
