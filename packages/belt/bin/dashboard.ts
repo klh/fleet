@@ -318,6 +318,17 @@ header .right { margin-left:auto; display:flex; align-items:center; gap:8px; fon
 .blink { animation:blip 1s steps(1,end) infinite; }
 @keyframes blip { 0%{opacity:1} 50%{opacity:.15} 100%{opacity:1} }
 h2 { font-size:var(--klh-text-xs); font-weight:400; text-transform:uppercase; letter-spacing:.14em; color:var(--klh-dim); margin:20px 0 2px; }
+main { max-width:1600px; margin:0 auto; }
+.page-intro { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin:16px 0 10px; border-bottom:1px solid var(--klh-edge); padding-bottom:10px; }
+.page-intro h1 { margin:0; font-size:var(--klh-text-lg); font-weight:600; }
+.page-intro p { margin:0; color:var(--klh-dim); font-size:var(--klh-text-sm); }
+.surface-section { margin:0 0 var(--klh-space-5); }
+.surface-section > h2 { margin:0 0 10px; color:var(--klh-ink); }
+.diagnostics { border-top:1px solid var(--klh-edge); padding-top:12px; margin-top:20px; }
+.diagnostics > summary { cursor:pointer; color:var(--klh-ink); font-size:var(--klh-text-sm); }
+.diagnostics > summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
+.diagnostics-note { color:var(--klh-dim); font-size:var(--klh-text-sm); margin:8px 0; }
+@media (max-width:760px) { .page-intro { display:block; } .page-intro p { margin-top:4px; } }
 .fleet-details { border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-3); padding-block:var(--klh-space-2); }
 .fleet-details > summary { cursor:pointer; color:var(--klh-ink); font-size:var(--klh-text-sm); }
 .fleet-details > summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
@@ -391,9 +402,17 @@ ${fleetNav("belt", "models")}
 <header><span class="mark">belt</span><span class="sub">local LLM fleet</span>
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
+<main>
+<div class="page-intro"><h1>Models and routing</h1><p>Local machine · hub gateways · cloud providers</p></div>
+<section class="surface-section" aria-label="Network connections">
 <belt-topology></belt-topology>
 <script type="module" src="/dashboard-topology.js"></script>
+</section>
+<section class="surface-section" aria-label="Routing activity">
 <belt-trends></belt-trends>
+</section>
+<details class="diagnostics"><summary>Diagnostics · probes, endpoint inventory and route records</summary>
+<p class="diagnostics-note">Open this when a model or route needs investigation. The network map and activity above show the current overview.</p>
 <belt-supervisor></belt-supervisor>
 <script type="module" src="/dashboard-observability.js"></script>
 <details class="fleet-details"><summary>Fleet endpoint details</summary>
@@ -412,6 +431,8 @@ ${fleetNav("belt", "models")}
 <div id="log">—</div>
 </details>
 <div id="prefsline"></div>
+</details>
+</main>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
 <script src="/threads-mark.js"></script>

@@ -138,7 +138,7 @@ class BeltTrends extends LitElement {
 		super();
 		this.hist = null;
 		this.err = "";
-		this.open = false;
+		this.open = true;
 		this.drawnFor = null;
 		this.charts = [];
 		this.ros = [];
@@ -213,6 +213,15 @@ class BeltTrends extends LitElement {
 				belt-trends .bt-spark .lbl span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 				belt-trends .bt-spark .mount { height:34px; overflow:hidden; }
 				belt-trends .bt-wrap { max-width:100%; overflow:hidden; }
+				belt-trends .bt-raster { display:grid; grid-template-columns:repeat(72,minmax(0,1fr)); gap:2px; height:42px; align-items:end; border-bottom:1px solid var(--klh-edge); margin-top:12px; }
+				belt-trends .bt-cell { min-width:0; height:4px; background:var(--klh-edge-faint); }
+				belt-trends .bt-cell.active { height:34px; background:var(--klh-accent); }
+				belt-trends .bt-cell.failed { background:var(--klh-danger); }
+				belt-trends .bt-times { display:flex; justify-content:space-between; color:var(--klh-dim); font-size:var(--klh-text-xs); margin-top:4px; }
+				belt-trends .bt-list { width:100%; border-collapse:collapse; margin-top:16px; font-size:var(--klh-text-sm); }
+				belt-trends .bt-list th, belt-trends .bt-list td { padding:7px 8px 7px 0; border-bottom:1px solid var(--klh-edge-faint); text-align:left; }
+				belt-trends .bt-list th { color:var(--klh-dim); font-size:var(--klh-text-xs); font-weight:400; text-transform:uppercase; letter-spacing:.08em; }
+				belt-trends .bt-list td:nth-child(n+3) { font-variant-numeric:tabular-nums; }
 			</style>
 			<details class="bt" ?open=${this.open} @toggle=${this.toggled}>
 				<summary>
@@ -223,6 +232,8 @@ class BeltTrends extends LitElement {
 			</details>`;
 	}
 	body() {
+		const total = this.hist.buckets.reduce((sum, bucket) => sum + bucket[1], 0);
+		if (total > 0 && total < 12) return this.sparseBody();
 		const uPlotOk = Boolean(globalThis.uPlot);
 		if (!uPlotOk)
 			return html`<p class="bt-note">chart engine not loaded — trend charts degraded</p>`;
@@ -244,9 +255,43 @@ class BeltTrends extends LitElement {
 			</div>
 		</div>`;
 	}
+	sparseBody() {
+		const buckets = this.hist.buckets;
+		const first = buckets[0];
+		const last = buckets.at(-1);
+		const time = (bucket) =>
+			new Date(bucket[0] * 1000).toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+			});
+		const active = buckets
+			.map((bucket, index) => ({ bucket, index }))
+			.filter(({ bucket }) => bucket[1] > 0)
+			.reverse();
+		return html`<div class="bt-wrap">
+			<p class="bt-title">Activity · each mark is a 5-minute interval</p>
+			<div class="bt-raster" role="img" aria-label=${`${active.length} intervals had Belt routes in the last six hours`}>
+				${buckets.map((bucket) => html`<span class=${`bt-cell${bucket[1] ? " active" : ""}${bucket[2] ? " failed" : ""}`} title=${`${time(bucket)} · ${bucket[1]} routes · ${bucket[2]} failed`}></span>`)}
+			</div>
+			<div class="bt-times"><span>${first ? time(first) : ""}</span><span>${last ? time(last) : ""}</span></div>
+			<table class="bt-list"><thead><tr><th>Time</th><th>Endpoint</th><th>Routes</th><th>Failed</th><th>Avg response</th></tr></thead>
+				<tbody>${active.map(
+					({ bucket, index }) =>
+						html`<tr><td>${time(bucket)}</td><td>${
+							this.hist.endpoints
+								.filter((endpoint) => endpoint.counts[index] > 0)
+								.map((endpoint) => endpoint.key)
+								.join(", ") || "unknown"
+						}</td><td>${bucket[1]}</td><td>${bucket[2]}</td><td>${bucket[3] == null ? "—" : `${bucket[3]} ms`}</td></tr>`,
+				)}</tbody>
+			</table>
+		</div>`;
+	}
 	updated(changed) {
 		super.updated(changed);
 		if (!this.open || !this.hist || this.drawnFor === this.hist) return;
+		if (this.hist.buckets.reduce((sum, bucket) => sum + bucket[1], 0) < 12)
+			return;
 		const uPlot = globalThis.uPlot;
 		if (!uPlot) return;
 		this.teardown();
