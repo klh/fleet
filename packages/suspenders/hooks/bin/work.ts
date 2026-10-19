@@ -54,6 +54,7 @@ import {
 } from "../lib/reclaim-sticky.ts";
 import { reproGateRefusal } from "../lib/repro-gate.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
+import { queueCompletionKnowledge } from "../lib/work-knowledge.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
@@ -927,6 +928,20 @@ const dispatchVerb = async (
 			// Curation telemetry does not affect an already durable completion.
 		}
 		console.log(renderKnowledgeSuggestion(verdict));
+		if (record) {
+			const knowledge = await queueCompletionKnowledge(
+				db(),
+				record,
+				String(it.title ?? id),
+				verdict,
+			);
+			if (knowledge.status === "queued")
+				console.log(`knowledge candidate queued #${knowledge.qid}`);
+			else if (knowledge.status === "failed")
+				console.error(
+					`knowledge enqueue failed for ${id}; completion remains done`,
+				);
+		}
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";

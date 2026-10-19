@@ -163,6 +163,7 @@ const summary =
 
 test("completion persists a paragraph with immutable commit evidence after owner is cleared", () => {
 	const f = fixture();
+	f.env.SUSPENDERS_KEV_URL = "http://127.0.0.1:1";
 	const done = f.work(
 		"done",
 		f.id,
@@ -181,6 +182,23 @@ test("completion persists a paragraph with immutable commit evidence after owner
 	expect(record.commit_sha).toBe(f.sha);
 	expect(record.completed_by).toBe("completion-lane");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).owner_sid).toBeNull();
+	expect(done.out).toContain("knowledge candidate queued #");
+	const knowledge = new Database(
+		join(f.home, ".cache/claude-governor/knowledge.db"),
+	);
+	const queued = knowledge
+		.query("SELECT source, state, origin_sid FROM knowledge_queue")
+		.get() as {
+		source: string;
+		state: string;
+		origin_sid: string;
+	};
+	expect(queued).toMatchObject({
+		source: `work.done ${f.id}`,
+		state: "queued",
+		origin_sid: "completion-lane",
+	});
+	knowledge.close();
 });
 
 test("a dispatched no-op cannot become DONE using an old valid commit", () => {
