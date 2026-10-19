@@ -382,6 +382,8 @@ ${fleetNav("belt", "models")}
 <header><span class="mark">belt</span><span class="sub">local LLM fleet</span>
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
+<belt-topology></belt-topology>
+<script type="module" src="/dashboard-topology.js"></script>
 <belt-supervisor></belt-supervisor>
 <script type="module" src="/dashboard-observability.js"></script>
 <h2>Fleet</h2>
@@ -694,6 +696,8 @@ const ROUTES: RouteMethods = {
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
 	"/dashboard-observability.js": ["GET", "HEAD"],
+	"/dashboard-topology.js": ["GET", "HEAD"],
+	"/dashboard-topology-model.js": ["GET", "HEAD"],
 	"/dashboard-state.js": ["GET", "HEAD"],
 	"/vendor/lit.js": ["GET", "HEAD"],
 };
@@ -800,6 +804,13 @@ Bun.serve({
 				`const displayLabel = ${displayLabel.toString()};\n${await Bun.file(new URL("./dashboard-observability.js", import.meta.url)).text()}`,
 				{ headers: { "content-type": "text/javascript; charset=utf-8" } },
 			);
+		if (
+			path === "/dashboard-topology.js" ||
+			path === "/dashboard-topology-model.js"
+		)
+			return new Response(Bun.file(`${import.meta.dir}${path}`), {
+				headers: { "content-type": "text/javascript; charset=utf-8" },
+			});
 		if (path === "/vendor/lit.js")
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
