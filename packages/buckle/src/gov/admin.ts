@@ -103,6 +103,12 @@ export async function handleAdmin(
 	if (method === "GET" && path === "/v1/admin/teams") {
 		return ok({ teams: gov.keys.listTeams() });
 	}
+	// W843 readable per-team report: ceilings + members + minute windows +
+	// the lifetime spend book, one object per team (spend null when the
+	// team carries no ceiling — the book is capped-team scoped).
+	if (method === "GET" && path === "/v1/admin/teams/report") {
+		return ok({ teams: teamReport(gov) });
+	}
 	if (method === "GET" && path === "/v1/admin/budgets") {
 		return ok({ windows: gov.budgets.snapshot() });
 	}
@@ -304,10 +310,71 @@ async function upsertTeam(req: Request, gov: Governance): Promise<Response> {
 		department: str(body.department),
 		rpmCeiling: num(body.rpm_ceiling),
 		tpmCeiling: num(body.tpm_ceiling),
+		spendCeiling: num(body.spend_ceiling),
 	});
 	return ok({
 		team_id: teamId,
 		rpm_ceiling: num(body.rpm_ceiling),
 		tpm_ceiling: num(body.tpm_ceiling),
+		spend_ceiling: num(body.spend_ceiling),
 	});
+}
+
+/** W843 the per-team report: one readable object per team joining the
+ *  teams row, live key count, the minute-window aggregates and the
+ *  lifetime spend book (`team:<id>` subject). */
+function teamReport(gov: Governance): Array<Record<string, unknown>> {
+	const rows = new Map<string, Record<string, unknown>>();
+	for (const t of gov.keys.listTeams())
+		rows.set(String(t.team_id), {
+			...t,
+			members: 0,
+			windows: [] as Array<Record<string, unknown>>,
+			spend_used_tok: null as number | null,
+		});
+	joinMembers(gov, rows);
+	joinWindows(gov, rows);
+	joinSpend(gov, rows);
+	return [...rows.values()];
+}
+
+/** Members: non-revoked keys per team (join on api_keys.team). */
+function joinMembers(
+	gov: Governance,
+	rows: Map<string, Record<string, unknown>>,
+): void {
+	for (const k of gov.keys.listKeys()) {
+		if (k.team === null || k.revoked_at !== null) continue;
+		const r = rows.get(k.team);
+		if (r) r.members = (Number(r.members) || 0) + 1;
+	}
+}
+
+/** Minute windows: the durable team_budget_state rows, newest last. */
+function joinWindows(
+	gov: Governance,
+	rows: Map<string, Record<string, unknown>>,
+): void {
+	for (const w of gov.budgets.snapshotTeams()) {
+		const r = rows.get(w.teamId);
+		if (!r) continue;
+		(r.windows as Array<Record<string, unknown>>).push({
+			window: w.window,
+			used_rpm: w.reqs,
+			used_tpm: w.tks,
+		});
+	}
+}
+
+/** The lifetime spend book (`team:<id>` subjects only); null when the
+ *  team carries no spend ceiling — the book is capped-team scoped. */
+function joinSpend(
+	gov: Governance,
+	rows: Map<string, Record<string, unknown>>,
+): void {
+	for (const s of gov.budgets.snapshotSpends()) {
+		if (!s.subject.startsWith("team:")) continue;
+		const r = rows.get(s.subject.slice("team:".length));
+		if (r) r.spend_used_tok = s.usedTok;
+	}
 }

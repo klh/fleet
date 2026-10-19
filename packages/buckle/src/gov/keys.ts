@@ -148,10 +148,14 @@ export class KeyStore {
 		department: string | null;
 		rpmCeiling: number | null;
 		tpmCeiling: number | null;
+		/** W843 lifetime token-denominated spend ceiling (null = unbounded).
+		 *  Currency limits stay evidence-gated — this bounds TOKENS, the
+		 *  only quantity the gate observes honestly. */
+		spendCeiling: number | null;
 	}): void {
 		this.db
 			.query(
-				"INSERT INTO teams (team_id, name, department, rpm_ceiling, tpm_ceiling, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(team_id) DO UPDATE SET name = excluded.name, department = excluded.department, rpm_ceiling = excluded.rpm_ceiling, tpm_ceiling = excluded.tpm_ceiling",
+				"INSERT INTO teams (team_id, name, department, rpm_ceiling, tpm_ceiling, spend_ceiling, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(team_id) DO UPDATE SET name = excluded.name, department = excluded.department, rpm_ceiling = excluded.rpm_ceiling, tpm_ceiling = excluded.tpm_ceiling, spend_ceiling = excluded.spend_ceiling",
 			)
 			.run(
 				spec.teamId,
@@ -159,21 +163,28 @@ export class KeyStore {
 				spec.department,
 				spec.rpmCeiling,
 				spec.tpmCeiling,
+				spec.spendCeiling,
 				Date.now(),
 			);
 	}
 
-	/** Ceiling lookup: null = no ceiling (key limits alone apply). */
+	/** Ceiling lookup: null = no ceiling (key limits alone apply). W843:
+	 *  spend is the lifetime token ceiling — enforced against spend_state. */
 	teamCeilings(
 		teamId: string,
-	): { rpm: number | null; tpm: number | null } | null {
+	): { rpm: number | null; tpm: number | null; spend: number | null } | null {
 		const r = this.db
-			.query("SELECT rpm_ceiling, tpm_ceiling FROM teams WHERE team_id = ?")
+			.query(
+				"SELECT rpm_ceiling, tpm_ceiling, spend_ceiling FROM teams WHERE team_id = ?",
+			)
 			.get(teamId) as {
 			rpm_ceiling: number | null;
 			tpm_ceiling: number | null;
+			spend_ceiling: number | null;
 		} | null;
-		return r === null ? null : { rpm: r.rpm_ceiling, tpm: r.tpm_ceiling };
+		return r === null
+			? null
+			: { rpm: r.rpm_ceiling, tpm: r.tpm_ceiling, spend: r.spend_ceiling };
 	}
 
 	listTeams(): Array<Record<string, unknown>> {
