@@ -44,6 +44,23 @@ export interface HubProfile {
 	 *  overlay hub that is the pinned checkout root (e.g. /src/fleet/packages).
 	 *  Unset = solo posture, unchanged. */
 	overlay?: { dir?: string; sha256?: string; allow?: string };
+	/** W854: the mDNS announcer (deploy/mdns/announce.ts) — what the hub
+	 *  advertises as _klh-hub._tcp and where its health faces live. All
+	 *  knobs optional; undeclared = the compose template defaults. port
+	 *  defaults to buckle_port; addr undeclared = auto-detect (and an
+	 *  undetectable address SKIPS the A record — never advertise 127.0.0.1);
+	 *  hostname defaults to the normalized label (the same form hub-locate's
+	 *  mdns-guess leg tries); interval_ms = steady re-announce cadence;
+	 *  health_port = the announcer's self-report port (4114), sidecar_port
+	 *  = the mdns-health probe's verdict port (4115). */
+	mdns?: {
+		port?: number;
+		addr?: string;
+		hostname?: string;
+		interval_ms?: number;
+		health_port?: number;
+		sidecar_port?: number;
+	};
 	bind?: string;
 	board_bind?: string;
 	belt_bind?: string;

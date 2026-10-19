@@ -27,6 +27,8 @@ const RUNTIME = [
 	"belt-health",
 	"model-store-hub",
 	"model-store-health",
+	"mdns-announce",
+	"mdns-health",
 	"peer-pull",
 ];
 const BUILD = ["fleet-repo", "fleet-deps"];

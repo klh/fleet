@@ -28,10 +28,10 @@ import { stringify } from "yaml";
 // stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
 import {
+	type HubProfile,
 	inQuietHours,
 	loadStack,
 	STACK_PATH,
-	type HubProfile,
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
@@ -152,6 +152,15 @@ function renderEnv(
 	kv("HUB_KLH_OVERLAY_DIR", hub.overlay?.dir);
 	kv("HUB_KLH_OVERLAY_SHA256", hub.overlay?.sha256);
 	kv("HUB_KLH_OVERLAY_ALLOW", hub.overlay?.allow);
+	// W854: mDNS advertisement — what _klh-hub._tcp advertises (the
+	// announcer falls through to the template defaults for undeclared knobs;
+	// advertised port defaults to HUB_BUCKLE_PORT in the template)
+	kv("HUB_MDNS_PORT", hub.mdns?.port);
+	kv("HUB_MDNS_ADDR", hub.mdns?.addr);
+	kv("HUB_MDNS_HOSTNAME", hub.mdns?.hostname);
+	kv("HUB_MDNS_INTERVAL_MS", hub.mdns?.interval_ms);
+	kv("HUB_MDNS_HEALTH_PORT", hub.mdns?.health_port);
+	kv("HUB_MDNS_SIDECAR_PORT", hub.mdns?.sidecar_port);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -338,7 +347,7 @@ function requireDir(hub: HubProfile): string {
  *  belt's hub heal spawns byte-identical commands. */
 function composeUp(hub: HubProfile): void {
 	requireDir(hub); // the declared-dir gate + its stack-path error
-	const [bin, ... rest] = composeUpArgv(hub);
+	const [bin, ...rest] = composeUpArgv(hub);
 	// W820: the NAS daemon lags bulk-recreate removals — "removal of
 	// container ... is already in progress" clears in seconds; bounded retry.
 	for (let attempt = 1; ; attempt++) {
@@ -452,6 +461,8 @@ function status(hub: HubProfile): number {
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
 		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
+		// W854: the mdns-health sidecar's verdict port
+		["mdns-health", hub.mdns?.sidecar_port ?? 4115, "/healthz"],
 	];
 	for (const [svc, port, path] of probes) {
 		if (!port) continue;
@@ -553,8 +564,7 @@ function emitManifest(pinned: string | undefined, flags: string[]): void {
 // second command.
 const EXEC_ALLOWLIST: Record<string, { args: RegExp; why: string }> = {
 	docker: {
-		args:
-			/^(ps(\s+-a\b)?(\s+--format\s+\S+)?|inspect(\s+\S+)+|version|images|stats(\s+--no-stream)?|compose\s+ps(\s+-a\b)?|logs(\s+\S+)?)$/,
+		args: /^(ps(\s+-a\b)?(\s+--format\s+\S+)?|inspect(\s+\S+)+|version|images|stats(\s+--no-stream)?|compose\s+ps(\s+-a\b)?|logs(\s+\S+)?)$/,
 		why: "ps|inspect|version|images|stats|compose ps|logs <name>",
 	},
 	synopkg: {
@@ -626,9 +636,9 @@ function execHub(hub: HubProfile, name: string, cmd: string[]): void {
 // header variable and never printed or transported off the hub.
 const MINT_LANE_KEY_SCRIPT = [
 	"umask 077",
-	'K=$(sed -n \'s/^BUCKLE_ROOT_KEY=//p\' "$1" | head -n1 | tr -d \'\\r\\n\')',
+	"K=$(sed -n 's/^BUCKLE_ROOT_KEY=//p' \"$1\" | head -n1 | tr -d '\\r\\n')",
 	'[ -n "$K" ] || { echo "hub root key missing at $1" >&2; exit 3; }',
-	'curl --max-time 15 -sS -X POST \\',
+	"curl --max-time 15 -sS -X POST \\",
 	'  -H "Authorization: Bearer $K" -H "content-type: application/json" \\',
 	'  -d "$2" -w \'\\n%{http_code}\' "http://127.0.0.1:$3/v1/admin/keys"',
 ].join("\n");
