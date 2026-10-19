@@ -1120,6 +1120,9 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// superseding the last unsatisfied child closes its SHATTERED parent
 		const p = it.parent_id;
 		if (p) rollUp(p as string);
+		// W879: lanes.ts auto-cancels OPEN decisions on work.superseded —
+		// without this emit, linked NEED_DECISIONs hang OPEN (finding.w781)
+		emit("work.superseded", id, { note: `superseded by ${byId}` });
 		console.log(`${dim("■")} ${id} superseded by ${byId}`);
 	} else if (name === "block") {
 		const id = pos[0];

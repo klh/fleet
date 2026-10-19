@@ -373,6 +373,17 @@ describe("done — roll-up for shattered parents", () => {
 		expect(firstLine(work("show", p).out)).toContain("DONE");
 	});
 
+	test("supersede emits work.superseded so decision auto-cancel can match (W879)", () => {
+		const s = idOf(work("add", "supersede event").out);
+		expect(work("supersede", s, "--by", `${s}-next`).code).toBe(0);
+		withDb((db) => {
+			const row = db
+				.query("SELECT kind FROM events WHERE work = ? AND kind = ?")
+				.get(s, "work.superseded");
+			expect(row).not.toBeNull();
+		});
+	});
+
 	test("done without an id prints usage", () => {
 		expect(work("done").err).toContain(
 			"usage: done <id> [--as sid] --sha <sha>",
