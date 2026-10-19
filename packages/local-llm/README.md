@@ -24,6 +24,7 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `memory-policy.ts`    | real module — belt/bin/memory-policy.ts is a shim to this     |
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
+| `lane-load-bench.ts`  | W452 bench (re-integrated W782.2.1): residency probe + cold/warm TTFT + p95 at the registry's admission concurrency, deterministic quality grading |
 
 The `:4000` router is served by `packages/belt/bin/router-shim.ts`
 (anthropic wire → openai-protocol specialists); install.sh seeds the
