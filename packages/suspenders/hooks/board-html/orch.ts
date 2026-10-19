@@ -7,6 +7,27 @@ export const ORCH = String.raw`// --- W57 orchestrate box: LLM proposes a plan +
 // /api/orchestrate → /api/orchestrate/register). Target = the global project
 // filter; the proposal is read-only until registered.
 var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '' };
+var orchDraftKey = 'fleet.orchestrate.draft.v1';
+function orchSaveDraft(){
+  try {
+    var goal = byId('orchGoal').value;
+    if (!goal.trim() && !orch.prop) { localStorage.removeItem(orchDraftKey); return; }
+    localStorage.setItem(orchDraftKey, JSON.stringify({ goal: goal, project: orch.proj || orchProject(), proposal: orch.prop, model: orch.model, ms: orch.ms }));
+  } catch (e) { /* storage may be disabled; orchestration still works */ }
+}
+function orchRestoreDraft(){
+  try {
+    var raw = localStorage.getItem(orchDraftKey);
+    if (!raw) return;
+    var saved = JSON.parse(raw);
+    if (!saved || typeof saved.goal !== 'string') return;
+    byId('orchGoal').value = saved.goal;
+    if (saved.proposal && typeof saved.proposal.title === 'string' && Array.isArray(saved.proposal.children) && typeof saved.project === 'string') {
+      orch.prop = saved.proposal; orch.proj = saved.project; orch.model = saved.model || ''; orch.ms = saved.ms || 0;
+    }
+    renderOrch();
+  } catch (e) { /* an invalid draft does not block the board */ }
+}
 var orchCtx = null; // {id, project, route, targets, loading, sent}
 // W163 composer suggest: draft -> brief-shaped prompt via /api/suggest
 var sugg = { busy: false };
@@ -107,7 +128,8 @@ function renderOrch(){
       (c.brief ? '<div class="orchbrief dim">' + esc(c.brief) + '</div>' : '') + '</div>';
   }
   h += '<div class="orchactions">' +
-    '<button type="button" class="kstart" id="orchReg">register plan split</button> ' +
+    '<span class="dim">Draft proposal · no tasks created yet</span> ' +
+    '<button type="button" class="kstart" id="orchReg">create tasks from plan</button> ' +
     '<button type="button" class="orchdisc" id="orchDisc">discard</button></div></div>';
   sigSet(out, JSON.stringify(orch.prop) + orch.busy + orch.regBusy, h);
 }
@@ -199,6 +221,7 @@ function orchSend(proj, goal, previewId){
       if (j.ok) {
         orch.prop = j.proposal; orch.model = j.model || ''; orch.ms = j.ms || 0; orch.proj = proj;
         orchClearFiles();
+        orchSaveDraft();
       } else {
         orch.err = String(j.error || 'orchestrate failed (HTTP ' + status + ')');
       }
@@ -214,6 +237,7 @@ function orchReg(){
     if (j && j.ok) {
       toast('registered ' + j.plan + ' → ' + (j.children || []).length + ' children');
       orch.prop = null; byId('orchGoal').value = '';
+      orchSaveDraft();
       orchClearFiles();
       var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear();
       pollTasks();
@@ -223,7 +247,7 @@ function orchReg(){
     renderOrch();
   });
 }
-function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; renderOrch(); }
+function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; orchSaveDraft(); renderOrch(); }
 (function(){
   var host = byId('orch');
   if (host) {
@@ -241,10 +265,11 @@ function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; re
     });
   }
   var inp = byId('orchGoal');
+  orchRestoreDraft();
   byId('orchRoute').addEventListener('change', function(e){ if (orchCtx) { orchCtx.route = e.target.value; orchCtx.sent = ''; renderOrch(); } });
   byId('orchClear').addEventListener('click', function(){ orchCtx = null; orch.err = null; byId('orchGoal').value = ''; renderOrch(); });
   if (inp) inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doOrchestrate(); } });
-  if (inp) inp.addEventListener('input', function(){ var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear(); });
+  if (inp) inp.addEventListener('input', function(){ var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear(); orchSaveDraft(); });
   document.addEventListener('klh-dispatch', function(e){ var d = e.detail || {}; if (d.project && d.goal) orchSend(d.project, d.goal, d.previewId); });
   var go = byId('orchGo');
   if (go) go.addEventListener('click', doOrchestrate);
