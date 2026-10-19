@@ -10,6 +10,11 @@ import { openIdentity } from "../lib/govdb.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/retention.ts";
 import { run } from "../lib/run.ts";
 import { reapDeadSubscribes } from "../lib/subscribe-attach.ts";
+import {
+	recordKnowledgeSuggestion,
+	renderKnowledgeSuggestion,
+	suggestKnowledge,
+} from "../lib/kev-curation.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
 import type { Database } from "./shared.ts";
@@ -280,6 +285,26 @@ export async function cmdCapsule(rest: string[]): Promise<void> {
 		console.log(
 			`${green("✓")} ${dim(item ? `capsule stored for item ${item} + @${as.slice(0, 8)}` : `capsule stored for @${as.slice(0, 8)}`)}`,
 		);
+		const verdict = await suggestKnowledge({
+			kind: "capsule",
+			title: item ?? `lane ${as.slice(0, 8)}`,
+			text: JSON.stringify(extra),
+			reference: primary,
+			timeoutMs: 1500,
+		});
+		try {
+			recordKnowledgeSuggestion(db, verdict, {
+				sid: as,
+				project: projectIdentity(),
+			});
+		} catch {
+			// The capsule is already durable; advice is best effort.
+		}
+		console.log(renderKnowledgeSuggestion(verdict));
+		if (verdict.choice !== "noise")
+			console.log(
+				`Ask a live expert: coord consult --best "<question>" --as ${as}`,
+			);
 	}
 }
 

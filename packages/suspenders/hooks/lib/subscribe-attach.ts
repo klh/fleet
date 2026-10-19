@@ -7,8 +7,9 @@
 // sid known at dispatch) so every lane has a push inbox from birth.
 // Idempotent per sid: an anchored pgrep detects a live subscribe for the
 // sid and leaves it alone — re-attach is a no-op.
-import { existsSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { spawn } from "node:child_process";
 
 // coord CLI ships in bin/ next to this lib (repo checkout and installed
 // prefix share the layout); fall back to the pre-namespacing ~/.claude/bin
@@ -52,14 +53,17 @@ export const attachSubscribe = (
 	if (!existsSync(coord)) return false;
 	const log = coordSubscribeLog(sid);
 	mkdirSync(dirname(log), { recursive: true });
-	Bun.spawn(
-		[
-			"/bin/sh",
-			"-c",
-			`nohup bun ${coord} subscribe --as ${sid} >> ${log} 2>&1 &`,
-		],
-		{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
-	).unref();
+	const fd = openSync(log, "a", 0o600);
+	try {
+		const child = spawn(process.execPath, [coord, "subscribe", "--as", sid], {
+			cwd: "/",
+			detached: true,
+			stdio: ["ignore", fd, fd],
+		});
+		child.unref();
+	} finally {
+		closeSync(fd);
+	}
 	return true;
 };
 

@@ -12,8 +12,10 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projectIdentity } from "../hooks/lib/govdb-project.ts";
 
 const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");
+const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const home = mkdtempSync(join(tmpdir(), "suspenders-ws-subscribe-test-"));
 
 const procs: ReturnType<typeof Bun.spawn>[] = [];
@@ -69,7 +71,97 @@ function messageQueue(ws: WebSocket): () => Promise<Record<string, unknown>> {
 		});
 }
 
+async function cli(
+	url: string,
+	args: string[],
+): Promise<{ code: number; out: string; err: string }> {
+	const process = Bun.spawn(["bun", COORD, ...args], {
+		env: {
+			...globalThis.process.env,
+			HOME: home,
+			GOVERNOR_STORE_URL: url,
+			SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
+			NO_COLOR: "1",
+		},
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [out, err, code] = await Promise.all([
+		new Response(process.stdout).text(),
+		new Response(process.stderr).text(),
+		process.exited,
+	]);
+	return { out, err, code };
+}
+
 describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
+	test("consult @name and reply travel through the store to both WS inboxes", async () => {
+		const url = await startServer(await freePort());
+		const expert = "ws-e2e-expert";
+		const asker = "ws-e2e-asker";
+		for (const [sid, tags] of [
+			[expert, JSON.stringify({ name: "Fleet" })],
+			[asker, "{}"],
+		]) {
+			const response = await fetch(`${url}/rpc`, {
+				method: "POST",
+				body: JSON.stringify({
+					mode: "run",
+					sql: "INSERT INTO sessions (sid, project, started_at, hb, state, tags) VALUES (?, ?, ?, ?, 'RUNNING', ?)",
+					params: [sid, projectIdentity(), Date.now(), Date.now(), tags],
+				}),
+			});
+			expect(response.ok).toBe(true);
+		}
+		const expertWs = new WebSocket(
+			`${url.replace(/^http/, "ws")}/subscribe?as=${expert}`,
+		);
+		const askerWs = new WebSocket(
+			`${url.replace(/^http/, "ws")}/subscribe?as=${asker}`,
+		);
+		await Promise.all(
+			[expertWs, askerWs].map(
+				(ws) =>
+					new Promise<void>((resolve) =>
+						ws.addEventListener("open", () => resolve()),
+					),
+			),
+		);
+		const expertNext = messageQueue(expertWs);
+		const askerNext = messageQueue(askerWs);
+		try {
+			const opened = await cli(url, [
+				"consult",
+				"@Fleet",
+				"How does the subscriber carry consults?",
+				"--no-kb",
+				"--as",
+				asker,
+			]);
+			expect(opened.code).toBe(0);
+			const cid = opened.out.match(/C\d+/)?.[0] ?? "";
+			expect(cid).not.toBe("");
+			const received = await expertNext();
+			expect(received.kind).toBe("consult");
+			expect(received.target).toBe(expert);
+			expect(JSON.parse(String(received.payload)).consult).toBe(cid);
+			const replied = await cli(url, [
+				"consult-reply",
+				cid,
+				"The store pushes the directed event to the subscriber.",
+				"--as",
+				expert,
+			]);
+			expect(replied.code).toBe(0);
+			const answer = await askerNext();
+			expect(answer.kind).toBe("consult.answer");
+			expect(answer.target).toBe(asker);
+			expect(JSON.parse(String(answer.payload)).consult).toBe(cid);
+		} finally {
+			expertWs.close();
+			askerWs.close();
+		}
+	});
 	test("HTTP insert is pushed to a matching subscriber", async () => {
 		const url = await startServer(await freePort());
 		const wsUrl = `${url.replace(/^http/, "ws")}/subscribe?as=lane-ws1`;
@@ -119,7 +211,8 @@ describe("WS /subscribe (W303 push + W305 bidirectional RPC)", () => {
 		const reply = [a, b].find((m) => m.id === "req-1");
 		const broadcast = [a, b].find((m) => m.kind === "self.emit");
 		expect(reply).toBeTruthy();
-		expect(reply?.changes).toBe(1);
+		// The governor delta trigger may contribute a second SQLite change.
+		expect(Number(reply?.changes)).toBeGreaterThanOrEqual(1);
 		expect(typeof reply?.lastInsertRowid).toBe("number");
 		expect(broadcast).toBeTruthy();
 		expect(broadcast?.target).toBe("lane-ws2");

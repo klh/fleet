@@ -9,11 +9,7 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
-import {
-	laneVerdict,
-	transcriptAlive,
-	type LaneRef,
-} from "../lib/lane-liveness.ts";
+import { laneVerdict, type LaneRef } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
 	die,
@@ -56,6 +52,27 @@ export function isLiveSession(row: LivenessRow, now = Date.now()): boolean {
 		}
 	}
 	return row.role === "coordinator";
+}
+
+export function subscriberSessionAlive(sid: string, now = Date.now()): boolean {
+	const row = db
+		.query("SELECT state, hb, transcript_path FROM sessions WHERE sid = ?")
+		.get(sid) as
+		| { state: string; hb: number; transcript_path: string | null }
+		| undefined;
+	if (row?.state !== "RUNNING") return false;
+	if (row.transcript_path) {
+		try {
+			if (
+				statSync(row.transcript_path).mtimeMs >
+				now - TRANSCRIPT_LIVE_WINDOW_MS
+			)
+				return true;
+		} catch {
+			// A missing path does not override a fresh registered heartbeat.
+		}
+	}
+	return row.hb > now - LIVE_HEARTBEAT_WINDOW_MS;
 }
 
 export function emitEvent(opts: {
@@ -380,7 +397,7 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 	// 15-min mtime floor `work reclaim` trusts); a live session's jsonl
 	// keeps growing, so this never fires under a working session.
 	const sessionStaleness = setInterval(() => {
-		if (!transcriptAlive(as)) {
+		if (!subscriberSessionAlive(as)) {
 			clearInterval(sessionStaleness);
 			process.exit(0);
 		}

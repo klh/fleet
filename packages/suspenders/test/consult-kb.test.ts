@@ -11,7 +11,7 @@ import { Database } from "bun:sqlite";
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-kb-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-kb-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
-const env = { ...process.env, HOME };
+const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
 // projectIdentity(), mirrored: git-common-dir from inside the temp repo —
@@ -54,6 +54,21 @@ function run(args: string[]) {
 		err: p.stderr.toString(),
 		code: p.exitCode,
 	};
+}
+
+async function runAsync(args: string[], overrides: Record<string, string>) {
+	const p = Bun.spawn(["bun", coord, ...args], {
+		cwd: REPO,
+		env: { ...env, ...overrides },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [out, err, code] = await Promise.all([
+		new Response(p.stdout).text(),
+		new Response(p.stderr).text(),
+		p.exited,
+	]);
+	return { out, err, code };
 }
 
 function seedSession(sid: string) {
@@ -551,14 +566,24 @@ describe("harvest dedup (W618)", () => {
 		let r = run(["consult", EXPERT, q, "--as", ASKER]);
 		const c1 = r.out.match(/C\d+/)?.[0] ?? "";
 		expect(
-			run(["consult-reply", c1, "Release the gamma lease first", "--as", EXPERT])
-				.code,
+			run([
+				"consult-reply",
+				c1,
+				"Release the gamma lease first",
+				"--as",
+				EXPERT,
+			]).code,
 		).toBe(0);
 		r = run(["consult", EXPERT, q, "--as", ASKER]);
 		const c2 = r.out.match(/C\d+/)?.[0] ?? "";
 		expect(
-			run(["consult-reply", c2, "Release the gamma lease first", "--as", EXPERT])
-				.code,
+			run([
+				"consult-reply",
+				c2,
+				"Release the gamma lease first",
+				"--as",
+				EXPERT,
+			]).code,
 		).toBe(0);
 		// feedback on the MERGED consult resolves the shared candidate
 		expect(
@@ -611,5 +636,95 @@ describe("harvest dedup (W618)", () => {
 		d.close();
 		expect(counts.find((c) => c.problem === qa)?.n).toBe(1);
 		expect(counts.find((c) => c.problem === qb)?.n).toBe(1);
+	});
+
+	test("consult accepts the same unique @name and SID prefix as message", () => {
+		seedSession(EXPERT);
+		const d = new Database(DB);
+		d.query("UPDATE sessions SET tags = ? WHERE sid = ?").run(
+			JSON.stringify({ name: "Fleet" }),
+			EXPERT,
+		);
+		d.close();
+		const named = run([
+			"consult",
+			"@Fleet",
+			"What is the session alias contract?",
+			"--no-kb",
+			"--as",
+			ASKER,
+		]);
+		expect(named.code).toBe(0);
+		const prefixed = run([
+			"consult",
+			"expert-sess-111",
+			"What is the prefix contract?",
+			"--no-kb",
+			"--as",
+			ASKER,
+		]);
+		expect(prefixed.code).toBe(0);
+		const d2 = new Database(DB, { readonly: true });
+		const rows = d2
+			.query("SELECT expert_sid FROM consults ORDER BY id DESC LIMIT 2")
+			.all() as { expert_sid: string }[];
+		d2.close();
+		expect(rows.map((row) => row.expert_sid)).toEqual([EXPERT, EXPERT]);
+	});
+
+	test("Kev noise verdict keeps the answer but does not add a KB candidate", async () => {
+		seedSession(EXPERT);
+		const question = "Routine status pulse from the temporary consult fixture";
+		const opened = run(["consult", EXPERT, question, "--no-kb", "--as", ASKER]);
+		const cid = opened.out.match(/C\d+/)?.[0] ?? "";
+		expect(cid).not.toBe("");
+		const kev = Bun.serve({
+			port: 0,
+			fetch: () =>
+				Response.json({
+					model: "kev-test",
+					answers: {
+						d: {
+							choice: "noise",
+							confidence: 0.97,
+							probabilities: { noise: 0.97, store: 0.02, review: 0.01 },
+						},
+					},
+				}),
+		});
+		try {
+			const answered = await runAsync(
+				["consult-reply", cid, "Routine status only", "--as", EXPERT],
+				{ SUSPENDERS_KEV_URL: `http://127.0.0.1:${kev.port}` },
+			);
+			expect(answered.code).toBe(0);
+			expect(answered.out).toContain("Kev noise");
+			const d = new Database(DB, { readonly: true });
+			const consult = d
+				.query("SELECT state, answer FROM consults WHERE id = ?")
+				.get(Number(cid.slice(1))) as { state: string; answer: string };
+			const candidates = (
+				d
+					.query("SELECT COUNT(*) AS n FROM consult_kb WHERE consult_id = ?")
+					.get(Number(cid.slice(1))) as { n: number }
+			).n;
+			const verdict = d
+				.query(
+					"SELECT payload FROM events WHERE kind = 'knowledge.suggested' AND target = ? ORDER BY id DESC LIMIT 1",
+				)
+				.get(EXPERT) as { payload: string };
+			d.close();
+			expect(consult).toEqual({
+				state: "ANSWERED",
+				answer: "Routine status only",
+			});
+			expect(candidates).toBe(0);
+			expect(JSON.parse(verdict.payload).choice).toBe("noise");
+			expect(
+				run(["consult-reply", cid, "--feedback", "unused", "--as", ASKER]).err,
+			).toContain("no stored candidate");
+		} finally {
+			kev.stop(true);
+		}
 	});
 });

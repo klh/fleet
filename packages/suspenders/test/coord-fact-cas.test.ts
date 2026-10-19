@@ -18,7 +18,11 @@ afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 const runCli = (args: string[]): { code: number; out: string; err: string } => {
 	const p = Bun.spawnSync(["bun", COORD, ...args], {
-		env: { ...process.env, HOME: home },
+		env: {
+			...process.env,
+			HOME: home,
+			SUSPENDERS_KEV_URL: "http://127.0.0.1:1",
+		},
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -121,6 +125,8 @@ describe("capsule set --if-version=N — the capsule CAS", () => {
 			"--checkpoint=none",
 		]);
 		expect(s1.code).toBe(0);
+		expect(s1.out).toContain("Kev unavailable");
+		expect(s1.out).toContain("coord consult --best");
 		const s2 = runCli([
 			"capsule",
 			"set",
