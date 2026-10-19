@@ -13,6 +13,7 @@ import { cardCss } from "./klh-console-card-css.ts";
 export interface ExecutorOption {
 	value: string;
 	label: string;
+	group?: string;
 }
 
 const FORM_CSS = css`
@@ -160,14 +161,21 @@ class KlhExecutorEditor extends LitElement {
 				<div>
 					<label for="exadd">add executor (catalog)</label>
 					<select id="exadd">
-						${this.options.map(
-							(o) =>
-								html`<option
-									value=${o.value}
-									?disabled=${this.chain.includes(o.value)}
-								>
-									${o.label}
-								</option>`,
+						${Array.from(
+							new Set(this.options.map((o) => o.group ?? "Other")),
+						).map(
+							(group) => html`<optgroup label=${group}>
+								${this.options
+									.filter((o) => (o.group ?? "Other") === group)
+									.map(
+										(o) => html`<option
+											value=${o.value}
+											?disabled=${this.chain.includes(o.value)}
+										>
+											${o.label}
+										</option>`,
+									)}
+							</optgroup>`,
 						)}
 					</select>
 				</div>

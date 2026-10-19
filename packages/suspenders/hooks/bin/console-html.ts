@@ -354,7 +354,27 @@ const executorPrefsEditor = (
 	executors: ExecutorEntry[],
 	current: string[],
 ): string => {
-	const opts = executors.map((e) => ({ value: e.value, label: e.label }));
+	const opts = Array.from(
+		new Map(
+			executors.map((e) => [
+				e.value,
+				{
+					value: e.value,
+					label: e.label,
+					group:
+						e.plane === "local"
+							? "This Mac"
+							: e.plane === "user"
+								? "Personal models"
+								: e.plane === "hub"
+									? "Hubs"
+									: e.value.startsWith("llm:")
+										? "Remote models"
+										: "Agent clients",
+				},
+			]),
+		).values(),
+	);
 	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}"><input type="hidden" name="default_executors" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
 };
 
