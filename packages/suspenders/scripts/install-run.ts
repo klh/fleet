@@ -246,7 +246,9 @@ export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 // runWireExtras — the user-level wire's companions: policy adapters (fatal on
 // failure) and the W294 gate wires (merge-not-clobber, non-fatal). Returns a
 // note suffix describing degraded surfaces; "" when everything ran clean.
-async function runWireExtras(ctx: StepContext): Promise<string> {
+// Exported for install-wire-extras.test.ts (W918.5 prefix-face preference).
+// reason: W918.5 — export runWireExtras so the prefix-face wire preference is unit-testable.
+export async function runWireExtras(ctx: StepContext): Promise<string> {
 	const adapters = await execa(
 		process.execPath,
 		[join(ctx.repo, "scripts/install-policy-adapters.ts")],
@@ -265,12 +267,29 @@ async function runWireExtras(ctx: StepContext): Promise<string> {
 	// W778: the W73 gate wires live at hooks/dialects/<x>/wire.ts (their
 	// header even says so) — the W771.3 port pointed at a bin/ path that no
 	// publisher ever filled, so the wires silently never ran. The wire step
-	// already requires a fleet checkout (settings.example.json), so resolve
-	// them from ctx.repo.
+	// already requires a fleet checkout (settings.example.json), so fall back
+	// to ctx.repo when no prefix face carries them.
+	// W918.5: PREFER the installed-face copy — the wire bakes `import.meta.dir`
+	// -relative gate paths, so a checkout-sourced run strands the wiring when
+	// that checkout dies (the deleted W893 worktree broke every copilot hook
+	// on this machine). syncHarness runs earlier in the plan, so the prefix
+	// copy is fresh at wire time.
 	for (const dialect of ["codex", "copilot"]) {
-		const script = join(ctx.repo, "hooks", "dialects", dialect, "wire.ts");
+		const prefixScript = join(
+			ctx.prefix,
+			".harness",
+			"packages",
+			"suspenders",
+			"hooks",
+			"dialects",
+			dialect,
+			"wire.ts",
+		);
+		const script = existsSync(prefixScript)
+			? prefixScript
+			: join(ctx.repo, "hooks", "dialects", dialect, "wire.ts");
 		if (!existsSync(script)) {
-			extras += ` — ${dialect} gate wire missing in checkout (skipped)`;
+			extras += ` — ${dialect} gate wire missing (skipped)`;
 			continue;
 		}
 		const res = await execa(process.execPath, [script], {

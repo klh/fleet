@@ -36,4 +36,7 @@ export const copilotAdapter: ExecutorAdapter = {
 	// (--max-turns) die on this CLI; cold start until a copilot seed recipe
 	// is probe-verified (fork grammar ≠ seed grammar).
 	processNames: ["copilot"],
+	// W918.5: the ensureShims launcher lands at ~/.local/bin/copilot — probe
+	// it when `which` misses (launchd runs a bare PATH, W626).
+	installPaths: ["~/.local/bin/copilot"],
 };
