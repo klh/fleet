@@ -7,10 +7,8 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const { HOME, REPO, env, bin, MY_PROJ, post, addWork } = await boardFixture(
-	0,
-	afterAll,
-);
+const { HOME, REPO, env, bin, MY_PROJ, post, addWork, run, sleep } =
+	await boardFixture(0, afterAll);
 
 const DB = `${HOME}/.cache/claude-governor/governor.db`;
 
@@ -153,6 +151,85 @@ describe("W182 reassign", () => {
 		});
 		expect(itemRow(id)?.owner_sid).toBeNull();
 		dropSession("s-w182-re");
+	});
+});
+
+// Interpose in the signal→reclaim window: once the bank-capsule NOTE lands,
+// the reclaim CLI is mid-flight on STALE expectations — move the claim so
+// the release leg must re-read and retry once. Returns true when the claim
+// actually moved (the CLI can win the race; callers retry the scenario).
+async function interposeMove(
+	db: Database,
+	afterEvent: number,
+	id: string,
+): Promise<boolean> {
+	for (let i = 0; i < 300; i++) {
+		await sleep(10);
+		const note = db
+			.query(
+				"SELECT id FROM events WHERE kind = 'NOTE' AND source = 'fleet-board' AND id > ? AND json_extract(payload, '$.work') = ?",
+			)
+			.get(afterEvent, id);
+		if (!note) continue;
+		db.query(
+			"UPDATE work_items SET owner_sid = 's-w873-next', updated_at = updated_at + 1 WHERE project = ? AND id = ? AND state = 'CLAIMED'",
+		).run(MY_PROJ, id);
+		return (db.query("SELECT changes() AS c").get() as { c: number }).c > 0;
+	}
+	return false;
+}
+
+describe("W873 release-leg recovery", () => {
+	test("work reclaim accepts --force (board release leg regression)", () => {
+		const id = addWork("w873 reclaim force CLI item");
+		claim(id, "s-w873-cli");
+		const db = new Database(DB, { readonly: true });
+		const row = db
+			.query("SELECT updated_at FROM work_items WHERE project = ? AND id = ?")
+			.get(MY_PROJ, id) as { updated_at: number };
+		db.close();
+		const r = run("work.ts", [
+			"reclaim",
+			id,
+			"--force",
+			"--expect-owner",
+			"s-w873-cli",
+			"--expect-updated-at",
+			String(row.updated_at),
+			"--json",
+		]);
+		expect(r.code).toBe(0);
+		expect(JSON.parse(r.out).released).toBe(true);
+		expect(itemRow(id)?.state).toBe("READY");
+	});
+
+	test("release leg retries once on a moved claim, not a raw CLI error", async () => {
+		for (let attempt = 0; attempt < 6; attempt++) {
+			const id = addWork(`w873 moved-claim retry ${attempt}`);
+			claim(id, "s-w873-move");
+			liveSession("s-w873-move");
+			const db = new Database(DB);
+			db.run("PRAGMA busy_timeout = 4500");
+			const before = db.query("SELECT MAX(id) AS n FROM events").get() as {
+				n: number;
+			};
+			const pending = post("/api/release", {
+				project: MY_PROJ,
+				id,
+				force: true,
+			});
+			const moved = await interposeMove(db, before.n, id);
+			const r = await pending;
+			db.close();
+			dropSession("s-w873-move");
+			if (!moved) continue; // the CLI won the race — fresh attempt
+			expect(r.status).toBe(200);
+			expect(r.json.released).toBe("s-w873-next");
+			expect(itemRow(id)?.state).toBe("READY");
+			expect(itemRow(id)?.owner_sid).toBeNull();
+			return;
+		}
+		throw new Error("never observed the moved-claim window in 6 attempts");
 	});
 });
 
