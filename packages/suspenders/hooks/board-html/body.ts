@@ -107,11 +107,22 @@ export const BODY = String.raw`
     <select id="peerHub"><option value="all">all downstreams</option><option value="unknown">unknown downstream</option></select>
     <label class="govsearch" for="govSearch">Find <input id="govSearch" type="search" placeholder="lane, fact, model, event" autocomplete="off"></label>
   </div>
-  <p class="dim" id="hubScopeNote"></p>
+  <div class="govrelay" aria-label="Hub observation relay">
+    <strong>Hub observations</strong><span id="hubRelayState">checking</span>
+    <span id="hubRelayCounts" class="dim"></span>
+    <span id="hubRelayRetry" class="dim"></span>
+    <span id="hubRelayError" class="warn"></span>
+  </div>
+  <p class="dim govscope" id="hubScopeNote"></p>
   <details class="sec"><summary>Downstream observations · read-only evidence</summary><div id="downstreamObservations"></div></details>
   <klh-recovery></klh-recovery>
   <div id="fleet">
-    <button id="fleetHead" type="button" aria-expanded="false"><span id="fleetCaret">+</span> <span id="fleetLine">fleet: loading...</span></button>
+    <button id="fleetHead" type="button" aria-expanded="false">
+      <span class="fleettitle"><span id="fleetCaret">+</span> Fleet lanes</span>
+      <span class="fleetmetrics"><span><b id="fleetWorking">—</b> working</span><span><b id="fleetWaiting">—</b> waiting</span><span><b id="fleetBlocked">—</b> blocked</span><span><b id="fleetRecentCount">—</b> recent</span></span>
+      <span id="fleetLine" class="sr-only" aria-hidden="true">fleet: loading...</span>
+    </button>
+    <div id="fleetContext" class="fleetcontext dim"></div>
     <div id="fleetBody" style="display:none"></div>
   </div>
   <details class="sec govpanel"><summary>Claims <span class="dim">resource, owner, waiters, lease</span></summary><div class="feed" id="claims"></div></details>

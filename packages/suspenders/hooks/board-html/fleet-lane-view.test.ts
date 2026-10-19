@@ -6,6 +6,8 @@ import {
 } from "./fleet-lane-view.ts";
 import { RENDERS } from "./renders.ts";
 
+const fleetRenderScript = `function setNodes(el, text){ el.textContent = text; } function stLetter(){ return ''; } function esc(text){ return String(text); } ${RENDERS}; return renderFleet;`;
+
 const lane = (
 	sid: string,
 	hbAgo: number,
@@ -175,10 +177,17 @@ class Element {
 
 test("served overview bounds history and filters it without inserting HTML", () => {
 	const roots = Object.fromEntries(
-		["fleetBody", "fleetLine", "stamp", "blockedn"].map((id) => [
-			id,
-			new Element(),
-		]),
+		[
+			"fleetBody",
+			"fleetLine",
+			"fleetWorking",
+			"fleetWaiting",
+			"fleetBlocked",
+			"fleetRecentCount",
+			"fleetContext",
+			"stamp",
+			"blockedn",
+		].map((id) => [id, new Element()]),
 	);
 	const byId = (id: string): Element | undefined => {
 		const visit = (el: Element): Element | undefined => {
@@ -218,14 +227,14 @@ test("served overview bounds history and filters it without inserting HTML", () 
 		"ago",
 		"stateLabel",
 		"zombieFor",
-		`${RENDERS}; return renderFleet;`,
+		fleetRenderScript,
 	)(
 		document,
 		byId,
 		data,
 		{ value: "/fleet/.git" },
-		(el: Element, text: string) => {
-			el.textContent = text;
+		(el: Element | undefined, text: string) => {
+			if (el) el.textContent = text;
 		},
 		() => [],
 		String,
@@ -240,6 +249,7 @@ test("served overview bounds history and filters it without inserting HTML", () 
 	expect(roots.fleetLine.textContent).toContain(
 		"0 working · 0 waiting on you · 1 blocked",
 	);
+	expect(roots.fleetBlocked.textContent).toBe(1);
 	expect(byId("fleetHistoryLanes")?.children).toHaveLength(0);
 	const history = byId("fleetHistory");
 	if (!history) throw new Error("Missing native history details");
@@ -253,10 +263,17 @@ test("served overview bounds history and filters it without inserting HTML", () 
 });
 test("history cap note reports sessionsTotal beyond the served cap (W685)", () => {
 	const roots = Object.fromEntries(
-		["fleetBody", "fleetLine", "stamp", "blockedn"].map((id) => [
-			id,
-			new Element(),
-		]),
+		[
+			"fleetBody",
+			"fleetLine",
+			"fleetWorking",
+			"fleetWaiting",
+			"fleetBlocked",
+			"fleetRecentCount",
+			"fleetContext",
+			"stamp",
+			"blockedn",
+		].map((id) => [id, new Element()]),
 	);
 	const byId = (id: string): Element | undefined => {
 		const visit = (el: Element): Element | undefined => {
@@ -293,14 +310,14 @@ test("history cap note reports sessionsTotal beyond the served cap (W685)", () =
 		"ago",
 		"stateLabel",
 		"zombieFor",
-		`${RENDERS}; return renderFleet;`,
+		fleetRenderScript,
 	)(
 		document,
 		byId,
 		data,
 		{ value: "all" },
-		(el: Element, text: string) => {
-			el.textContent = text;
+		(el: Element | undefined, text: string) => {
+			if (el) el.textContent = text;
 		},
 		() => [],
 		String,
