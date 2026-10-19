@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class S extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=I()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
+import{r,e,t,s}from"./lit-9bpcreb0.js";var I=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class S extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=I()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
 			<div class="uback">
 				<a href=${a.backHref}>&larr; ${a.backLabel}</a>
 				<span class=${a.note.kind==="on"?"uon":"uwin"}

@@ -33,6 +33,9 @@ import {
 	THEME_HEAD,
 } from "../lib/theme.ts";
 import type { RecoveryEntry } from "../lib/recovery-map.ts";
+// W858.10.3: the Network overview payload (type-only — erased at runtime;
+// the card component owns the DOM)
+import type { NetworkPayload } from "../board/network-overview.ts";
 // W669.11: the console data cards ride klh-console-cards (UI law) — pages
 // emit static card hosts + esc(JSON) data attributes (klh-service-row
 // pattern); the components render shadow DOM from the slices.
@@ -106,6 +109,9 @@ export interface BeltView {
 	health: HealthProbe[];
 	groups: UpstreamGroup[] | null;
 	upstreamSource?: string;
+	/** W858.10.3: the /api/console/network payload — SSR seed for the
+	 *  Network overview card; the card re-fetches live every 10s. */
+	network: NetworkPayload | null;
 }
 
 // W669.11: the belt policy card's display slice — four states, rendered by
@@ -212,6 +218,10 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		) +
 		policyCard(v) +
 		upstreamsCard(v) +
+		// W858.10.3: the Network overview card — SSR seed + live 10s refresh
+		(v.network
+			? `<klh-network-card heading="Network overview" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
+			: "") +
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
 			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +

@@ -8,6 +8,9 @@
 // the server↔component seam (erased at bundle time).
 import { LitElement, html, nothing, type TemplateResult } from "lit";
 import { cardCss } from "./klh-console-card-css.ts";
+// W858.10.3 — the Network overview card defines <klh-network-card> (same
+// bundle, no new allowlist entry; its type imports are erased at bundle time)
+import "./klh-network-card.ts";
 
 // interleaves separator strings between rendered parts (flatMap, never
 // nested arrays — the parts array goes straight into lit-html)
