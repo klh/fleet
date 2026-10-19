@@ -52,7 +52,14 @@ interface PeerStatus {
 const fmtWhen = (ms: number | null): string =>
 	ms === null
 		? "forever"
-		: new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+		: new Intl.DateTimeFormat("da-DK", {
+				day: "2-digit",
+				month: "2-digit",
+				year: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			}).format(new Date(ms));
 
 const isoWhen = (s: string | null): string =>
 	s === null ? "—" : s.replace("T", " ").slice(0, 19);
@@ -66,6 +73,8 @@ class KlhHubAdmin extends LitElement {
 		fedidle: { state: true },
 		busy: { state: true },
 		err: { state: true },
+		tokenFilter: { state: true },
+		tokenSearch: { state: true },
 	};
 
 	declare tokens: TokenRow[] | null;
@@ -80,6 +89,8 @@ class KlhHubAdmin extends LitElement {
 	declare fedidle: boolean;
 	declare busy: boolean;
 	declare err: string | null;
+	declare tokenFilter: string;
+	declare tokenSearch: string;
 
 	constructor() {
 		super();
@@ -91,6 +102,8 @@ class KlhHubAdmin extends LitElement {
 		this.fedidle = true;
 		this.busy = false;
 		this.err = null;
+		this.tokenFilter = "active";
+		this.tokenSearch = "";
 	}
 	connectedCallback(): void {
 		super.connectedCallback();
@@ -266,6 +279,10 @@ class KlhHubAdmin extends LitElement {
 			color: var(--klh-dim, #98958e);
 			margin: 8px 0 2px;
 		}
+		.token-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
+		.token-controls label { display:flex; align-items:center; gap:6px; color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-controls input { min-width:180px; }
+		.token-count { color:var(--klh-dim); font:11px var(--klh-font-mono); }
 		details {
 			border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.1));
 			border-radius: 3px;
@@ -331,6 +348,18 @@ class KlhHubAdmin extends LitElement {
 	}
 	renderTokens(): TemplateResult {
 		const rows = this.tokens ?? [];
+		const active = rows.filter((r) => r.state === "active").length;
+		const search = this.tokenSearch.trim().toLowerCase();
+		const shown = rows.filter(
+			(r) =>
+				(this.tokenFilter === "all" || r.state === this.tokenFilter) &&
+				(!search ||
+					[r.key_id, r.actor, r.team, r.label, ...r.scopes]
+						.filter(Boolean)
+						.join(" ")
+						.toLowerCase()
+						.includes(search)),
+		);
 		return html`
 			<details>
 				<summary>Issue a token</summary>
@@ -373,6 +402,25 @@ class KlhHubAdmin extends LitElement {
 			</details>
 			${this.issued === null ? nothing : this.renderIssued()}
 			<h2>Tokens</h2>
+			<div class="token-controls">
+				<label>state
+					<select aria-label="token state" .value=${this.tokenFilter} @change=${(
+						e: Event,
+					) => {
+						this.tokenFilter = (e.target as HTMLSelectElement).value;
+					}}>
+						<option value="active">active</option><option value="revoked">revoked</option><option value="expired">expired</option><option value="rotated">rotated</option><option value="all">all</option>
+					</select>
+				</label>
+				<label>find
+					<input type="search" aria-label="find token" placeholder="actor, team, scope, ID" .value=${this.tokenSearch} @input=${(
+						e: Event,
+					) => {
+						this.tokenSearch = (e.target as HTMLInputElement).value;
+					}} />
+				</label>
+				<span class="token-count">${active} active · ${rows.length - active} inactive · ${shown.length} shown</span>
+			</div>
 			<table>
 				<thead>
 					<tr>
@@ -388,9 +436,9 @@ class KlhHubAdmin extends LitElement {
 				</thead>
 				<tbody>
 					${
-						rows.length === 0
-							? html`<tr><td colspan="8" class="dim">no tokens yet</td></tr>`
-							: rows.map((r) => this.tokenRow(r))
+						shown.length === 0
+							? html`<tr><td colspan="8" class="dim">${rows.length ? "no tokens match this view" : "no tokens yet"}</td></tr>`
+							: shown.map((r) => this.tokenRow(r))
 					}
 				</tbody>
 			</table>
@@ -409,7 +457,7 @@ class KlhHubAdmin extends LitElement {
 				<td>${r.class === "delegated" ? "user" : "machine"}</td>
 				<td>${r.team ?? "—"}</td>
 				<td class="mono">${r.scopes.join(", ")}</td>
-				<td class="mono">${fmtWhen(r.expires_at)}</td>
+				<td class="mono" title=${r.expires_at === null ? "" : new Date(r.expires_at).toISOString()}>${fmtWhen(r.expires_at)}</td>
 				<td>
 					<klh-tag
 						tone=${tagTone(active ? "ok" : r.state === "revoked" ? "bad" : "dim")}
