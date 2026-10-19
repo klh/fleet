@@ -24,7 +24,13 @@ test("reads the Buckle admin requests envelope and sends a bounded window", asyn
 					rid: "r1",
 					ts: "2026-10-19T12:00:00.000Z",
 					lane: "lane-one",
+					target_model: "glm-5.3-flash",
 					cache_r: 1024,
+				},
+				{
+					rid: "r2",
+					ts: "2026-10-19T12:00:00.000Z",
+					decision: "denied",
 				},
 			],
 		});
@@ -32,6 +38,7 @@ test("reads the Buckle admin requests envelope and sends a bounded window", asyn
 	const out = await fetchHubRequests("http://hub", "read-key", 7);
 	expect(out.ok).toBe(true);
 	if (out.ok) expect(out.rows[0]?.cache_r).toBe(1024);
+	if (out.ok) expect(out).toMatchObject({ excluded: 1, rawRows: 2 });
 	const url = new URL(requested);
 	expect(url.pathname).toBe("/v1/admin/requests");
 	expect(url.searchParams.get("limit")).toBe("500");

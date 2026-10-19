@@ -119,6 +119,7 @@ export class KlhUsageCacheDrill extends LitElement {
 
 	private lanePanel(r: CacheDrillReport): TemplateResult {
 		const degraded = r.hubs.filter((h) => !h.ok);
+		const unfiltered = r.hubs.filter((h) => (h.excluded ?? 0) > 0);
 		return html`<div class="upanel">
 			<div class="uhead">
 				<h2>CACHE EFFICIENCY · WARM RATIO PER LANE</h2>
@@ -163,8 +164,13 @@ export class KlhUsageCacheDrill extends LitElement {
 					: nothing
 			}
 			${
-				r.hubs.some((h) => h.ok && h.rows >= 500)
+				r.hubs.some((h) => h.ok && (h.rawRows ?? h.rows) >= 500)
 					? html`<p class="uwarn">A source reached the 500-request read limit. Rates cover its newest requests only.</p>`
+					: nothing
+			}
+			${
+				unfiltered.length > 0
+					? html`<p class="uwarn">Excluded non-model audit rows from ${unfiltered.map((h) => h.label).join(", ")}. Those hubs may still use the older request filter, so their 500-row cap can hide model traffic until updated.</p>`
 					: nothing
 			}
 			${this.reasonsTable(r.overall.reasons, "ALL LANES", r.overall.known)}

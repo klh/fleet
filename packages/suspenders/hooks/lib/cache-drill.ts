@@ -412,6 +412,9 @@ export interface HubDrillStatus {
 	url: string | null;
 	via: string | null;
 	rows: number;
+	/** Non-model audit rows returned by a hub that ignored inference=true. */
+	excluded?: number;
+	rawRows?: number;
 	fetchedAt: string | null;
 }
 
@@ -420,7 +423,8 @@ export type RequestFetcher = (
 	token: string | null,
 	days: number,
 ) => Promise<
-	{ ok: true; rows: BuckleRequestRow[] } | { ok: false; why: string }
+	| { ok: true; rows: BuckleRequestRow[]; excluded?: number; rawRows?: number }
+	| { ok: false; why: string }
 >;
 
 /** One GET /v1/admin/requests against a hub base URL. The W824 admin route
@@ -431,7 +435,8 @@ export async function fetchHubRequests(
 	days: number,
 	timeoutMs = 4000,
 ): Promise<
-	{ ok: true; rows: BuckleRequestRow[] } | { ok: false; why: string }
+	| { ok: true; rows: BuckleRequestRow[]; excluded?: number; rawRows?: number }
+	| { ok: false; why: string }
 > {
 	try {
 		const headers: Record<string, string> = {};
@@ -454,11 +459,13 @@ export async function fetchHubRequests(
 		if (!Array.isArray(body.requests))
 			return { ok: false, why: "envelope missing requests:[]" };
 		const rows: BuckleRequestRow[] = [];
+		let excluded = 0;
 		for (const raw of body.requests) {
 			const parsed = parseRequestRow(raw);
-			if (parsed !== null) rows.push(parsed);
+			if (parsed?.target_model) rows.push(parsed);
+			else if (parsed !== null) excluded++;
 		}
-		return { ok: true, rows };
+		return { ok: true, rows, excluded, rawRows: body.requests.length };
 	} catch (e) {
 		return { ok: false, why: String(e) };
 	}
@@ -561,6 +568,8 @@ async function rowsForLabel(
 			status.via = ep.via;
 			status.fetchedAt = new Date(now).toISOString();
 			status.rows = out.rows.length;
+			status.excluded = out.excluded ?? 0;
+			status.rawRows = out.rawRows ?? out.rows.length;
 			const rows = out.rows.slice(-limit).map((r) => ({ ...r, hub: label }));
 			rowCache.set(key, { atMs: now, rows, status });
 			return { rows, status };
