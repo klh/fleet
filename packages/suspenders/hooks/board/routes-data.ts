@@ -26,6 +26,7 @@ import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
 import { traceForWork } from "./orch-trace.ts";
+import { executionTraceForWork } from "./work-execution-trace.ts";
 import { recoverySnapshot } from "./recovery.ts";
 import { setupFeed } from "./setup-cache.ts";
 
@@ -215,6 +216,22 @@ export async function handleData(
 			events: workEvents(p, id),
 			trace: traceForWork(p, id, w.parent_id),
 			decisions: taskDecisions(p, id),
+		});
+	}
+	if (url.pathname === "/api/task/execution") {
+		const project = url.searchParams.get("project") ?? "";
+		const id = url.searchParams.get("id") ?? "";
+		const row = db
+			.query("SELECT 1 FROM work_items WHERE project = ? AND id = ?")
+			.get(project, id);
+		if (!row) return json({ ok: false, error: "work item not found" }, 404);
+		const requested = Number(url.searchParams.get("days") ?? 7);
+		const days = Number.isFinite(requested)
+			? Math.min(90, Math.max(1, Math.trunc(requested)))
+			: 7;
+		return json({
+			ok: true,
+			...(await executionTraceForWork(project, id, days)),
 		});
 	}
 	if (url.pathname === "/api/events") {

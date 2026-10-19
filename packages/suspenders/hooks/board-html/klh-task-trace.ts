@@ -13,14 +13,52 @@ interface TraceStep {
 	outputTokens?: number | null;
 }
 
+interface ExecutionHop {
+	at: number;
+	hub: string;
+	hop: string;
+	model: string | null;
+	endpoint: string | null;
+	ms: number | null;
+	inputTokens: number | null;
+	outputTokens: number | null;
+	cacheReadTokens: number | null;
+	status: "ok" | "error" | "unknown";
+	requestId: string;
+}
+
+interface ExecutionTrace {
+	lane: {
+		sid: string;
+		executor: string;
+		host: string;
+		state: string;
+		attempt: number;
+	} | null;
+	days: number;
+	hubs: { label: string; ok: boolean; reason: string | null }[];
+	hops: ExecutionHop[];
+	limited: boolean;
+}
+
 /** Observed Board orchestration hops attached to a work item. */
 class KlhTaskTrace extends LitElement {
-	static properties = { trace: { attribute: false } };
+	static properties = {
+		trace: { attribute: false },
+		execution: { attribute: false },
+		loading: { type: Boolean },
+		error: { type: String },
+	};
 	declare trace: TraceStep[];
+	declare execution: ExecutionTrace | null;
+	declare loading: boolean;
+	declare error: string | null;
 
 	static styles = css`
 		:host { display: block; border-top: 1px solid var(--klh-edge, #5d5a52); padding: 12px 0; }
 		h2 { margin: 0 0 8px; font: 600 13px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
+		h3 { margin: 12px 0 5px; font: 600 12px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
+		p { margin: 4px 0; font: 12px/1.45 ui-sans-serif, system-ui; color: var(--klh-dim, #97917f); }
 		ol { margin: 0; padding: 0; list-style: none; }
 		li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; padding: 5px 0; border-top: 1px solid var(--klh-edge, #5d5a52); font: 12px/1.45 ui-sans-serif, system-ui; }
 		time, .sub, code { color: var(--klh-dim, #97917f); }
@@ -33,11 +71,16 @@ class KlhTaskTrace extends LitElement {
 	constructor() {
 		super();
 		this.trace = [];
+		this.execution = null;
+		this.loading = false;
+		this.error = null;
 	}
 
 	protected render() {
 		const traceId = this.trace[0]?.traceId ?? "";
-		return html`<h2>Request trace <code>${traceId.slice(0, 12)}</code></h2>
+		const execution = this.execution;
+		return html`<h2>Work trace ${traceId ? html`<code>${traceId.slice(0, 12)}</code>` : ""}</h2>
+			${this.trace.length ? html`<h3>Plan and registration</h3>` : ""}
 			<ol>${this.trace.map(
 				(step) => html`<li>
 				<time datetime=${new Date(step.at).toISOString()}>${new Date(step.at).toLocaleTimeString()}</time>
@@ -45,7 +88,34 @@ class KlhTaskTrace extends LitElement {
 					<span class="sub">${[step.model, step.endpoint, step.ms == null ? null : `${step.ms} ms`, step.inputTokens == null ? null : `${step.inputTokens} in`, step.outputTokens == null ? null : `${step.outputTokens} out`].filter(Boolean).join(" · ")}</span>
 				</div>
 			</li>`,
-			)}</ol>`;
+			)}</ol>
+			${this.loading ? html`<p>Checking lane requests across hubs…</p>` : ""}
+			${this.error ? html`<p class="error">Request history unavailable: ${this.error}</p>` : ""}
+			${
+				execution?.lane
+					? html`
+				<h3>Execution · ${execution.days}d window</h3>
+				<p>Lane <code>${execution.lane.sid}</code> · ${execution.lane.executor} on ${execution.lane.host} · ${execution.lane.state} · attempt ${execution.lane.attempt}</p>
+				<p>Requests matched by lane ID. Gateway trace IDs are not available in this feed.</p>
+				${execution.hubs.filter((hub) => !hub.ok).map((hub) => html`<p class="error">${hub.label}: ${hub.reason ?? "unavailable"}</p>`)}
+				${execution.limited ? html`<p>Showing the latest 200 requests in this window.</p>` : ""}
+				${
+					execution.hops.length
+						? html`<ol>${execution.hops.map(
+								(hop) => html`<li>
+					<time datetime=${new Date(hop.at).toISOString()}>${new Date(hop.at).toLocaleTimeString()}</time>
+					<div><strong class=${hop.status === "error" ? "error" : ""}>${hop.hub} · ${hop.hop}</strong> → ${hop.model ?? "model unknown"}
+						<span class="sub">${[hop.endpoint, hop.ms == null ? null : `${hop.ms} ms`, hop.inputTokens == null ? null : `${hop.inputTokens} in`, hop.outputTokens == null ? null : `${hop.outputTokens} out`, hop.cacheReadTokens == null ? null : `${hop.cacheReadTokens} cache read`, hop.status, hop.requestId.slice(0, 12)].filter(Boolean).join(" · ")}</span>
+					</div>
+				</li>`,
+							)}</ol>`
+						: html`<p>No Buckle requests for this lane in the selected window.</p>`
+				}
+			`
+					: execution && !execution.lane
+						? html`<p>No dispatched lane recorded for this item.</p>`
+						: ""
+			}`;
 	}
 }
 
