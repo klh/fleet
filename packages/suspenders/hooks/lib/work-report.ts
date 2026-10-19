@@ -148,13 +148,46 @@ export const reportRows = (
 
 const COLUMNS = ["ITEM", "ST", "TASK", "TOKENS", "CACHE", "OUT/MIN", "AGENT"];
 
+/** W910: board deep-link base — env override, default the .local front
+ *  (config-over-code: hosts live in machine conf, never code). */
+export const DEFAULT_REPORT_LINK_BASE = "http://suspenders.local";
+
+export const reportLinkBase = (): string =>
+	process.env.SUSPENDERS_REPORT_LINK_BASE || DEFAULT_REPORT_LINK_BASE;
+
+/** W910 link options for buildReportTable (TTY-gated upstream). */
+export interface ReportTableOpts {
+	/** wrap ITEM ids in OSC 8 terminal hyperlinks */
+	links?: boolean;
+	/** board base URL for the `#lanes?w=<id>` deep-links */
+	baseUrl?: string;
+}
+
+/** The faces' ONE TTY decision: escapes only on a real terminal and never
+ *  when SUSPENDERS_NO_HYPERLINK is set — piped/hook-captured output stays
+ *  plain (fenced blocks in chat must not leak escapes). */
+export const reportTableLinkOpts = (
+	isTTY: boolean = Boolean(process.stdout.isTTY),
+): ReportTableOpts => ({
+	links: isTTY && !process.env.SUSPENDERS_NO_HYPERLINK,
+	baseUrl: reportLinkBase(),
+});
+
+/** OSC 8 hyperlink: ESC]8;URL BEL text ESC]8;BEL. */
+export const osc8Link = (text: string, url: string): string =>
+	`\x1b]8;${url}\x07${text}\x1b]8;\x07`;
+
 /** TASK truncation cap from the coordinator prototype (no ellipsis). */
 export const TASK_CAP = 26;
 
 /** The prototype table (W892): fixed-width programmatic pads — ITEM/ST/TASK
  *  left, numeric columns and their headers right; separator = per-column
  *  dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for OUT/MIN. */
-export const buildReportTable = (rows: ReportRow[]): string => {
+export const buildReportTable = (
+	rows: ReportRow[],
+	opts: ReportTableOpts = {},
+): string => {
+	const base = opts.baseUrl ?? reportLinkBase();
 	const cells = rows.map((r) => {
 		const tokens = r.fresh + r.cached;
 		return [
@@ -167,17 +200,26 @@ export const buildReportTable = (rows: ReportRow[]): string => {
 			agentClock(r.agentMs),
 		];
 	});
+	const ids = rows.map((r) => r.id);
 	const widths = COLUMNS.map((h, c) =>
 		Math.max(h.length, ...cells.map((row) => row[c].length)),
 	);
-	const line = (cols: string[]): string =>
+	const line = (cols: string[], i: number): string =>
 		cells &&
 		cols
-			.map((v, c) => (c <= 2 ? v.padEnd(widths[c]) : v.padStart(widths[c])))
+			.map((v, c) => {
+				// W910: pad the PLAIN text (escapes count in .length but are
+				// width-zero on screen), then wrap column 0's id.
+				const padded =
+					c <= 2 ? v.padEnd(widths[c]) : v.padStart(widths[c]);
+				return c === 0 && opts.links
+					? osc8Link(padded, `${base}/#lanes?w=${ids[i]}`)
+					: padded;
+			})
 			.join("  ");
 	const head = COLUMNS.map((h, c) =>
 		c <= 2 ? h.padEnd(widths[c]) : h.padStart(widths[c]),
 	).join("  ");
 	const sep = widths.map((w) => "-".repeat(w)).join("  ");
-	return [head, sep, ...cells.map((row) => line(row))].join("\n");
+	return [head, sep, ...rows.map((_r, i) => line(cells[i], i))].join("\n");
 };

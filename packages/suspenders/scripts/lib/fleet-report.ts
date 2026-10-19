@@ -4,7 +4,11 @@
 // re-derive the table. Fail-soft (metering doctrine: a report failure never
 // kills a dispatch) with a once-per-process NOTE.
 import type { Database } from "bun:sqlite";
-import { buildReportTable, reportRows } from "../../hooks/lib/work-report.ts";
+import {
+	buildReportTable,
+	reportRows,
+	reportTableLinkOpts,
+} from "../../hooks/lib/work-report.ts";
 import { openStore, projectIdentity } from "../../hooks/lib/govdb.ts";
 
 let noteShown = false;
@@ -15,7 +19,10 @@ export const renderFleetReport = (
 	db: Database,
 	project: string,
 ): string =>
-	buildReportTable(reportRows(db, project, { now: Date.now() }).rows);
+	buildReportTable(
+		reportRows(db, project, { now: Date.now() }).rows,
+		reportTableLinkOpts(),
+	);
 
 /** The env-reading wrapper for dispatch surfaces: opens the store per call
  *  (dispatch cycles are sparse), NOTE once on failure, "" never blocks. */
