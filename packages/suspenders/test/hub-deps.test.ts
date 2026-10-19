@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	HUB_FLEET_ROOT,
+	bootstrapHubDeps,
 	installBaseClosure,
 	linkBaseWorkspaces,
 	planBaseWorkspaces,
@@ -113,6 +114,25 @@ describe("HUB_FLEET_ROOT", () => {
 	test("is the compose volume root (W714 regression tripwire)", () => {
 		expect(HUB_FLEET_ROOT).toBe("/src/fleet");
 	});
+});
+
+test("compose bootstrap installs a frozen plain checkout", () => {
+	const root = makeRoot();
+	writeFileSync(
+		join(root, "package.json"),
+		JSON.stringify({
+			name: "hub-deps-boot-test",
+			version: "1.0.0",
+			private: true,
+		}),
+	);
+	const seed = Bun.spawnSync(["bun", "install", "--ignore-scripts"], {
+		cwd: root,
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	expect(seed.exitCode).toBe(0);
+	expect(bootstrapHubDeps(root)).toBe(0);
 });
 
 describe("installBaseClosure", () => {

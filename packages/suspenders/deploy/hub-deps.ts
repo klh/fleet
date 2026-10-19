@@ -84,13 +84,7 @@ export function linkBaseWorkspaces(root: string): BaseLink[] {
  *  every boot stays untouched. Returns the install's exit code. */
 export function installBaseClosure(root: string): number {
 	const install = Bun.spawnSync(
-		[
-			"bun",
-			"install",
-			"--production",
-			"--frozen-lockfile",
-			"--ignore-scripts",
-		],
+		["bun", "install", "--production", "--frozen-lockfile", "--ignore-scripts"],
 		{
 			cwd: `${root}/node_modules/fleet`,
 			stdout: "inherit",
@@ -100,26 +94,32 @@ export function installBaseClosure(root: string): number {
 	return install.exitCode ?? 1;
 }
 
-if (import.meta.main) {
+/** Run the same bootstrap path as the compose one-shot against a checkout. */
+export function bootstrapHubDeps(root: string): number {
 	const install = Bun.spawnSync(
 		["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
-		{ cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+		{ cwd: root, stdout: "inherit", stderr: "inherit" },
 	);
-	if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
+	if (install.exitCode !== 0) return install.exitCode ?? 1;
 
 	// public hub posture: absent base-monorepo dep is correct, but the skip
 	// must be visible in the boot log (W714)
-	const basePkgs = `${HUB_FLEET_ROOT}/node_modules/fleet/packages`;
+	const basePkgs = `${root}/node_modules/fleet/packages`;
 	if (!existsSync(basePkgs)) {
 		console.log(`no ${basePkgs} — plain fleet checkout, linking skipped`);
-		process.exit(0);
+		return 0;
 	}
 	// W816: the git-dep copy needs its own workspace closure (zod et al.)
 	// before anything boots from it; a failed closure install must fail the
 	// one-shot — not crash-loop a half-provisioned board.
-	const closure = installBaseClosure(HUB_FLEET_ROOT);
-	if (closure !== 0) process.exit(closure);
-	for (const { name, dir } of linkBaseWorkspaces(HUB_FLEET_ROOT)) {
+	const closure = installBaseClosure(root);
+	if (closure !== 0) return closure;
+	for (const { name, dir } of linkBaseWorkspaces(root)) {
 		console.log(`linked ${name} -> fleet/packages/${dir}`);
 	}
+	return 0;
+}
+
+if (import.meta.main) {
+	process.exit(bootstrapHubDeps(HUB_FLEET_ROOT));
 }
