@@ -512,6 +512,10 @@ describe("pool parsing", () => {
 		expect(parsed[1].title).toContain("OWNER-GATED");
 		expect(isOwnerGated(parsed[1].title)).toBe(true);
 		expect(isOwnerGated(parsed[0].title)).toBe(false);
+		expect(isOwnerGated("notification fan-out — NEED_DECISION events")).toBe(
+			false,
+		);
+		expect(isOwnerGated("coord paused event: target real sid")).toBe(false);
 	});
 
 	test("parseReady W494: an id that fills the pad emits no separator — still parsed", () => {
