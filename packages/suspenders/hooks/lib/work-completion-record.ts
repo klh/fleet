@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { projectRootOf, type GovernorStore } from "./govdb.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
 import { patchFirstVerdict } from "./patch-first.ts";
+import { benchDocsVerdict } from "./bench-docs-gate.ts";
 import { claimCheckVerdict } from "./claim-check.ts";
 import { resolveTranscriptPath } from "./transcript.ts";
 import {
@@ -435,6 +436,16 @@ export function prepareCompletion(
 		desc: pfRow?.description,
 	});
 	if (!pf.ok) throw new Error(pf.why ?? "patch-first refusal");
+	// W951 bench-docs: a bench-shaped item (title/description names a bench
+	// or A/B) must land its ledgers — benchmarks.md + doesnt_work.md must
+	// both appear in the baseline..sha path window or closure is refused.
+	// SUSPENDERS_DONE_DOCS=0 disables (owner directive #47519).
+	const bd = benchDocsVerdict({
+		title: pfRow?.title,
+		desc: pfRow?.description,
+		paths,
+	});
+	if (!bd.ok) throw new Error(bd.why ?? "bench-docs refusal");
 	// W511: fake-completion integrity scan on the closing diff's added lines —
 	// the gate refuses closure while gated tests, stub notes or
 	// placeholder-error throws ride the sha being claimed as done
