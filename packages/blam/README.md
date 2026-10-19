@@ -28,6 +28,8 @@ with three artifacts:
    adapter.
 
 **Status:** consult + paired bench suites are runnable and deterministic;
+the additive live paired runner accepts a task, agent command, and private
+validation command. Its integration test uses a stand-in, not a live model;
 the CRASH S1-S5 scenario suite is spec-only — no scenario harness exists
 yet. Dataset: 13 validated seed incidents, growing via the labeling
 protocol.
