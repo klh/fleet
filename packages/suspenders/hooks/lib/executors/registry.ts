@@ -17,11 +17,13 @@ import { claudeAdapter } from "./claude.ts";
 import { clineAdapter } from "./cline.ts";
 import { copilotAdapter } from "./copilot.ts";
 import { codexAdapter } from "./codex.ts";
+import { forgeAdapter } from "./forge.ts";
 import { grokAdapter } from "./grok.ts";
 
 export const EXECUTOR_ADAPTERS: ExecutorAdapter[] = [
 	claudeAdapter,
 	codexAdapter,
+	forgeAdapter,
 	copilotAdapter,
 	grokAdapter,
 	clineAdapter,
