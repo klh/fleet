@@ -1166,6 +1166,8 @@ export class KlhUsageCharts extends LitElement {
 		): Record<string, unknown> => {
 			const a: Record<string, unknown> = {
 				side,
+				// The default left gutter clips the leading digit at 100M+.
+				...(side === 3 ? { size: 72 } : {}),
 				stroke: axis,
 				grid: { show: true, stroke: grid, width: 1 },
 				ticks: { show: true, stroke: hair, width: 1 },
