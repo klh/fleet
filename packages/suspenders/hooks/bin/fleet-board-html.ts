@@ -317,7 +317,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 .toast { background:var(--klh-warm); border:1px solid var(--klh-danger); border-left-width:3px; color:var(--klh-ink); padding:8px 12px; font-size:12px; border-radius:2px; box-shadow:0 2px 12px var(--klh-shadow); }
 </style></head><body>
 ${fleetNav("suspenders", "suspenders")}
-<klh-topbar></klh-topbar>
+<klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>

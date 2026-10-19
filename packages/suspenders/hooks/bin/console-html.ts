@@ -81,7 +81,7 @@ const settingsExtra = (active: string): string =>
 
 export const consolePage = (
 	title: string,
-	active: "belt" | "suspenders" | "local" | "settings" | "",
+	active: "belt" | "suspenders" | "local" | "settings" | "hub" | "",
 	body: string,
 	me?: ConsoleMe,
 ): string =>

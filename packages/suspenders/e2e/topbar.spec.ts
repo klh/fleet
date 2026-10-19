@@ -137,3 +137,62 @@ test("settings gear: theme radios flip data-theme on the document", async ({
 	await gear.click();
 	look.clean();
 });
+
+// W858.3: the fleet strip is ONE navigation for belt / gateway / local /
+// hub-admin / settings across every surface; the board's gear panel now
+// carries the console-settings link too (parity with the console pages).
+const NAV_VIEWS = [
+	"Models",
+	"Gateway",
+	"Workflows",
+	"Services",
+	"Metrics",
+	"Hub",
+	"Settings",
+] as const;
+
+test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on every surface", async ({
+	page,
+}) => {
+	const B = mustBoard();
+	const look = watch(page);
+	for (const [path, current] of [
+		["/", "Workflows"],
+		["/console/belt", "Gateway"],
+		["/console/local", "Services"],
+		["/console/hub", "Hub"],
+		["/console/settings", "Settings"],
+		["/usage", "Metrics"],
+	] as const) {
+		await page.goto(`${B.BASE}${path}`);
+		const strip = page.locator("nav.klh-fleetnav");
+		await expect(strip).toBeVisible();
+		for (const label of NAV_VIEWS)
+			await expect(strip.getByRole("link", { name: label })).toBeVisible();
+		// aria-current lands on the surface's own view (null = none)
+		for (const label of NAV_VIEWS) {
+			const link = strip.getByRole("link", { name: label });
+			if (label === current)
+				await expect(link).toHaveAttribute("aria-current", "page");
+			else await expect(link).not.toHaveAttribute("aria-current");
+		}
+	}
+	// Hub → /console/hub, Settings → /console/settings (board = relative hrefs)
+	await page.goto(`${B.BASE}/`);
+	const strip = page.locator("nav.klh-fleetnav");
+	await expect(strip.getByRole("link", { name: "Hub" })).toHaveAttribute(
+		"href",
+		"/console/hub",
+	);
+	await expect(strip.getByRole("link", { name: "Settings" })).toHaveAttribute(
+		"href",
+		"/console/settings",
+	);
+	// the board's gear panel carries the console-settings link (slot parity)
+	await bar(page).locator(".klh-settings > summary").click();
+	await expect(
+		bar(page).getByRole("link", { name: /all console settings/ }),
+	).toBeVisible();
+	await page.screenshot({ path: `${SHOTS}/5-w8583-strip.png` });
+	look.clean();
+});

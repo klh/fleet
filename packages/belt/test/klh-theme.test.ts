@@ -21,8 +21,8 @@ import {
 
 const VENDORED = join(import.meta.dir, "..", "bin", "klh-theme.ts");
 const PIN = {
-	version: "1.1.0",
-	sha256: "ffe74fd448f11b859b3cb3bfa222ca60ed9b03b710ef41c20b6fc5a10779d515",
+	version: "1.3.0",
+	sha256: "573c092fcd0c8ca3c13e904db021ed44a3ed433f3e8606d389bcf6ba294c7dc6",
 };
 
 const sha256 = (bytes: Uint8Array | string): string =>
@@ -115,7 +115,9 @@ describe("belt dashboard page wears the klh theme (W281)", () => {
 	});
 
 	test("exactly one klh·fleet strip, belt current, first in <body>", () => {
-		const nav = fleetNav("belt");
+		// the dashboard serves fleetNav("belt", "models") — assert THAT nav
+		// (the view-less variant has no aria-current on the Models row)
+		const nav = fleetNav("belt", "models");
 		expect(count(html, nav)).toBe(1);
 		expect(count(html, 'class="klh-fleetnav"')).toBe(1);
 		expect(html.indexOf(nav)).toBeGreaterThan(html.indexOf("<body>"));
