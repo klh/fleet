@@ -1,5 +1,5 @@
-import { css, html, LitElement, svg } from "/vendor/lit.js";
 import { buildTopology } from "/dashboard-topology-model.js";
+import { css, html, LitElement, svg } from "/vendor/lit.js";
 
 const colour = (state) =>
 	state === "up"
@@ -136,8 +136,8 @@ class BeltTopology extends LitElement {
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
 			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 28} y=${y + 24}>${item.name}</text>
-			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
-			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Model inventory unavailable</text>`}
+			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : item.probed === 0 && item.reachable === 0 ? `Direct API probe failed · ${item.routed} Belt routes` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
+			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Direct API model inventory unobserved</text>`}
 		</g>`;
 	}
 	render() {
@@ -190,7 +190,7 @@ class BeltTopology extends LitElement {
 				data
 					? html`<div class="map"><svg viewBox=${`0 0 1190 ${height}`} role="img" aria-label="Local machine contains Buckle and Belt models; Buckle links lead to hub machines; cloud providers are listed beyond hubs">
 				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
-				<text class="group" x="850" y="35">CLOUD PROVIDERS · CONFIGURED MODELS</text>
+				<text class="group" x="850" y="35">CLOUD GATEWAYS · OBSERVED ROUTES</text>
 				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
 					${this.machine(20, 52, 400, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "state unobserved" : data.gateway}`, data.gateway, models, true)}
 				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.displayName || item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
