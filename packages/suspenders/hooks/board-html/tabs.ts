@@ -19,6 +19,7 @@ function renderTab(){
 var nav = byId('boardTabs'); // <klh-board-tabs> (W695.3.6): owns the buttons, emits tab-select
 function setTab(id, fromHash){
   if (!TABS[id]) id = 'decisions';
+  var changed = curTab !== id;
   curTab = id;
   nav.current = id;
   byId('boardSearch').parentElement.hidden = id !== 'tasks' && id !== 'lanes' && id !== 'decisions';
@@ -26,6 +27,7 @@ function setTab(id, fromHash){
   if (!fromHash && location.hash !== '#' + id) location.hash = id;
   pollActiveTab();
   renderTab();
+  if (changed) window.scrollTo(0, 0);
 }
 // --- wiring ---
 nav.addEventListener('tab-select', function(e){ setTab(e.detail); });
