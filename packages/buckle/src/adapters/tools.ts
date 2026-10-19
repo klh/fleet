@@ -81,15 +81,24 @@ const PASS_THROUGH = new Set([
 	"stream",
 ]);
 
-/** Reasoning efforts forwarded verbatim on the openai wire (W770): litellm
- *  zai rows forward them to Z.AI via allowed_openai_params — GLM-5.3
- *  accepts low|high|max natively (always-thinks; disable 400s). */
-const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+/** Reasoning efforts on the openai wire (W770), clamped to the Z.AI-verified
+ *  set (W884): litellm zai rows forward them via allowed_openai_params —
+ *  GLM-5.3 accepts low|high|max natively (always-thinks; disable 400s,
+ *  medium is not in the 5.3 set). Parity with belt escalate.ts ZAI_EFFORT:
+ *  medium→low, xhigh→high; low|high|max pass verbatim. */
+const REASONING_EFFORT_CLAMP: Record<string, "low" | "high" | "max"> = {
+	low: "low",
+	medium: "low",
+	high: "high",
+	xhigh: "high",
+	max: "max",
+};
 
 /** Anthropic ingress body → openai wire body. tool_result blocks lift into
  *  role:"tool" messages (in block order) ahead of the residual user text
  *  message; thinking/top_k degrade honestly (drop + warning);
- *  reasoning_effort forwards verbatim when it names a known effort. */
+ *  reasoning_effort clamps to the zai-verified set (medium→low, xhigh→high;
+ *  W884); unknown efforts degrade honestly (dropped + warning). */
 export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 	const warnings: TransformWarning[] = [];
 	let rejected: TransformWarning | null = null;
@@ -117,13 +126,20 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 				out.tool_choice = choice;
 			}
 		} else if (key === "reasoning_effort") {
-			const effort = str(value);
-			if (REASONING_EFFORTS.has(effort)) {
+			const raw = str(value);
+			const effort = REASONING_EFFORT_CLAMP[raw];
+			if (effort !== undefined) {
+				if (effort !== raw) {
+					warnings.push({
+						field: key,
+						message: `clamped ${JSON.stringify(raw)}→${effort} (zai-verified set)`,
+					});
+				}
 				out.reasoning_effort = effort;
 			} else {
 				warnings.push({
 					field: key,
-					message: `unknown effort ${JSON.stringify(effort)} — honest degrade (dropped)`,
+					message: `unknown effort ${JSON.stringify(raw)} — honest degrade (dropped)`,
 				});
 			}
 		} else if (key === "thinking" || key === "top_k") {
