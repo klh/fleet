@@ -18,7 +18,12 @@ function fetchDiff(){
     .then(function(res){
       diffView.busy = false;
       if (res.status === 200 && res.j && res.j.ok) { diffView.data = res.j; diffView.okAt = Date.now(); }
-      else diffView.err = (res.j && res.j.error) || 'HTTP ' + res.status;
+      else if (res.status === 404 && /^no branch /.test(String(res.j && res.j.error || ''))) {
+        var state = String(task.data && task.data.task && task.data.task.state || '').toUpperCase();
+        diffView.err = state === 'READY' ? 'No branch yet. This item has not been claimed.' :
+          state === 'DONE' ? 'The branch was merged or retired. Use the completion commit in the timeline.' :
+          'No local branch is available for this item yet.';
+      } else diffView.err = (res.j && res.j.error) || 'HTTP ' + res.status;
       // ship outcome rides this poll: the 404 (retired branch) is the
       // shipped signal; a 200 while a ship runs keeps the 2s poll alive
       if (shipView.phase === 'run') {

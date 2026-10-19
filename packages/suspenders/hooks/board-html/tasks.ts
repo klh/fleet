@@ -685,6 +685,10 @@ function splineRoutes(a, b, width){
   ];
 }
 function openTask(id, proj, trigger){
+  if (trigger) {
+    var taskHash = '#task=' + encodeURIComponent(id) + (proj ? '&proj=' + encodeURIComponent(proj) : '');
+    if (location.hash !== taskHash) history.pushState(null, '', location.pathname + location.search + taskHash);
+  }
   task.id = id; task.proj = proj || null; task.data = null; task.err = null; task.okAt = 0; task.trigger = trigger || null;
   task.execution = null; task.executionBusy = false; task.executionAt = 0; task.executionErr = null;
   byId('drawer').hidden = false;
@@ -695,8 +699,9 @@ function openTask(id, proj, trigger){
   pollTask(true);
   byId('drawerClose').focus();
 }
-function closeTask(){
+function closeTask(keepHash){
   byId('drawer').hidden = true;
+  if (!keepHash && location.hash.indexOf('#task=') === 0) history.replaceState(null, '', location.pathname + location.search + '#' + curTab);
   var t = task.trigger;
   var id = task.id;
   task.id = null; task.trigger = null; task.data = null;
@@ -779,12 +784,12 @@ function renderDrawer(){
   var prevReason = byId('acancel');
   var keepReason = prevReason ? prevReason.value : '';
   var reasonFocused = !!(prevReason && document.activeElement === prevReason);
-  var acts = '<div class="r"><label class="dim" for="acancel">cancel reason</label> ' +
-    '<input id="acancel" type="text" maxlength="300" placeholder="why this item closes unfinished" value="' + esc(keepReason) + '">' +
-    '<button type="button" class="retry" id="acancelBtn">cancel item</button></div>' +
-    '<div class="r"><label class="dim" for="asop">second opinion</label> ' +
+  var acts = '<div class="drawerAction"><label for="acancel">Cancel this item</label><div class="drawerActionControls">' +
+    '<input id="acancel" type="text" maxlength="300" placeholder="Reason for cancellation" value="' + esc(keepReason) + '">' +
+    '<button type="button" class="retry" id="acancelBtn">Cancel item</button></div></div>' +
+    '<div class="drawerAction"><label for="asop">Second opinion</label><div class="drawerActionControls">' +
     '<select id="asop" aria-label="second-opinion executor">' + execOptions(defaultPick(t)) + '</select>' +
-    '<button type="button" class="retry" id="asopBtn">request review</button></div>';
+    '<button type="button" class="retry" id="asopBtn">Request review</button></div></div>';
   var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
     '<div class="feed"><h2>Timeline</h2>' + tl + '</div>' +

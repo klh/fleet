@@ -53,7 +53,10 @@ window.addEventListener('hashchange', function(){
 // (lane reports, notifications, terminal links all land here)
 function applyHashTask(){
   var m = (location.hash || '').match(/^#task=([^&]+)(?:&proj=([^&]*))?/);
-  if (m && openTask) openTask(decodeURIComponent(m[1]), m[2] ? decodeURIComponent(m[2]) : null, null);
+  if (m && openTask) {
+    var id = decodeURIComponent(m[1]), project = m[2] ? decodeURIComponent(m[2]) : null;
+    if (task.id !== id || task.proj !== project) openTask(id, project, null);
+  } else if (task.id) closeTask(true);
 }
 byId('hashChipBar').addEventListener('click', function(e){
   var b = e.target.closest && e.target.closest('.hfclear');
