@@ -7,11 +7,11 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
-	writeFileSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { executePlan, type StepContext } from "../scripts/install-run.ts";
 import { syncHarness } from "../scripts/sync-harness.ts";
 

@@ -7,12 +7,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { assertNoSecrets } from "../../../suspenders/hooks/lib/secret-guard.ts";
 import {
 	listStarters,
-	starterRegistryDir,
 	type StarterArtifact,
+	starterRegistryDir,
 } from "../../../suspenders/hooks/lib/starter-artifacts.ts";
-import { assertNoSecrets } from "../../../suspenders/hooks/lib/secret-guard.ts";
 import {
 	promoteStarter,
 	readStarterAuthorized,
@@ -22,11 +22,11 @@ import { gatePromotion } from "../../src/promotion.ts";
 import {
 	command,
 	git,
-	runLivePaired,
 	type LiveManifest,
 	type LiveReport,
+	runLivePaired,
 } from "../paired/live.ts";
-import { pairedLift, type PairedRep } from "../paired/types.ts";
+import { type PairedRep, pairedLift } from "../paired/types.ts";
 
 export interface ImprovementTask {
 	id: string;

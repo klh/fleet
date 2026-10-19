@@ -2,16 +2,16 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	runImprovement,
-	type ImprovementManifest,
-} from "../bench/improve/loop.ts";
 import { getStarter } from "../../suspenders/hooks/lib/starter-artifacts.ts";
 import {
 	promoteStarter,
 	writeGrants,
 } from "../../suspenders/hooks/lib/starter-distribution.ts";
 import { starterSeedPrompt } from "../../suspenders/scripts/lib/lane-starter.ts";
+import {
+	type ImprovementManifest,
+	runImprovement,
+} from "../bench/improve/loop.ts";
 
 const roots: string[] = [];
 const git = (repo: string, ...args: string[]) => {

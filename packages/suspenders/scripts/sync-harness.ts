@@ -19,14 +19,14 @@ import {
 	PRUNE_ALLOWLIST,
 	payloadChecksum,
 } from "../hooks/lib/harness-manifest.ts";
-import type { StepContext, StepResult } from "./install-run.ts";
 import { hubCapabilities, spokeCapabilities } from "../hooks/lib/profile.ts";
 import {
+	type PlannedShim,
 	planShims,
 	restoreShims,
 	writeShims,
-	type PlannedShim,
 } from "./ensure-shims.ts";
+import type { StepContext, StepResult } from "./install-run.ts";
 
 const SOURCE_PATHS = [
 	".githooks",

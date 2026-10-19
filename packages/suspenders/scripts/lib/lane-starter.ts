@@ -17,16 +17,10 @@
 // to their OWN session (--fork-session leaves the original untouched).
 import { createHash } from "node:crypto";
 import {
-	applyLaneAttribution,
-	BUCKLE_FRONT,
-	laneEnv,
-	probeBuckleFront,
-} from "./lane.ts";
-import {
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -36,6 +30,12 @@ import { dirname, join } from "node:path";
 import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 import { listStarters } from "../../hooks/lib/starter-artifacts.ts";
 import { readStarterAuthorized } from "../../hooks/lib/starter-distribution.ts";
+import {
+	applyLaneAttribution,
+	BUCKLE_FRONT,
+	laneEnv,
+	probeBuckleFront,
+} from "./lane.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
 // Registry cap — bounded history means bounded REGISTRY too: retired starter
@@ -197,6 +197,7 @@ export const laneIdentityPrompt = (sid: string, wt: string): string =>
 // lives in hooks/lib/secret-guard.ts (W458.1) — one pattern shared with the
 // starter-artifact validation.
 import { assertNoSecrets } from "../../hooks/lib/secret-guard.ts";
+
 export { assertNoSecrets };
 
 export const starterVersion = (seedPrompt: string): string =>
