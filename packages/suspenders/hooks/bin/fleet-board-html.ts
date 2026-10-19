@@ -2,7 +2,7 @@
 // the shell is the klh-topbar Lit component (avatar dropdown + settings
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
-import { THEME_HEAD, FLEET_NAV_CSS, fleetNav } from "../lib/theme.ts";
+import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
 
 const unesc = (s) =>
 	s
@@ -12,25 +12,26 @@ const unesc = (s) =>
 		.join(String.fromCharCode(0xb7))
 		.split("\\u00B7")
 		.join(String.fromCharCode(0xb7));
+
+import { ACTIVITY } from "../board-html/activity.ts";
 // fleet-board-html.ts — the fleet board page, split from the server so the
 // HTML payload stays reviewable. Pure string; served by fleet-board.ts.
 // Source stays pure ASCII: — renders an em dash, · a middle dot.
 // v3: hash-tab shell (Decisions · Tasks · Activity · Governor · Setup),
 // global project filter, decision history, task drawer, named lane states.
 import { BODY } from "../board-html/body.ts";
-import { CORE } from "../board-html/core.ts";
-import { RENDERS } from "../board-html/renders.ts";
-import { DECISIONS } from "../board-html/decisions.ts";
-import { HISTORY } from "../board-html/history.ts";
-import { TASKS } from "../board-html/tasks.ts";
-import { DIFF } from "../board-html/diff.ts";
-import { SHIP } from "../board-html/ship.ts";
-import { TAIL } from "../board-html/tail.ts";
-import { ACTIVITY } from "../board-html/activity.ts";
-import { SETUP } from "../board-html/setup.ts";
-import { TABS } from "../board-html/tabs.ts";
-import { ORCH } from "../board-html/orch.ts";
 import { BOOT } from "../board-html/boot.ts";
+import { CORE } from "../board-html/core.ts";
+import { DECISIONS } from "../board-html/decisions.ts";
+import { DIFF } from "../board-html/diff.ts";
+import { HISTORY } from "../board-html/history.ts";
+import { ORCH } from "../board-html/orch.ts";
+import { RENDERS } from "../board-html/renders.ts";
+import { SETUP } from "../board-html/setup.ts";
+import { SHIP } from "../board-html/ship.ts";
+import { TABS } from "../board-html/tabs.ts";
+import { TAIL } from "../board-html/tail.ts";
+import { TASKS } from "../board-html/tasks.ts";
 
 // W157: the client JS lives in hooks/board-html/*.ts as String.raw chunk
 // values interpolated into ONE outer String.raw — the same template
@@ -316,6 +317,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 </style></head><body>
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar></klh-topbar>
+<script>/*SETUP_SEED*/</script>
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>

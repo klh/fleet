@@ -2,8 +2,9 @@
 // /api/task, /api/executors; docs/board-api.md), split from
 // fleet-board.test.ts by the 1500-line law (W456). Own factory fixture
 // — scratch HOME, OS-chosen port.
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
@@ -82,6 +83,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"project",
 				"requires",
 				"scope",
+				"spend",
 				"state",
 				"tag",
 				"tag_color",
@@ -370,17 +372,21 @@ describe("board api v3 (docs/board-api.md)", () => {
 		).toBeUndefined();
 	});
 
-	test("/api/setup: six advisory checks, unwired in temp HOME, llm failure neither hangs nor throws", async () => {
+	test("/api/setup: nine advisory checks, unwired in temp HOME, llm failure neither hangs nor throws", async () => {
 		const t0 = Date.now();
 		const r = await (await fetch(`${BASE}/api/setup`)).json();
 		expect(Date.now() - t0).toBeLessThan(5000);
 		expect(r.ok).toBe(true);
+		expect(r.ts).toBeGreaterThan(0);
 		expect(r.checks.map((c: Row) => c.id)).toEqual([
 			"db",
 			"hooks-wired",
 			"session-start",
 			"monitor-agent",
+			"activation",
+			"board-unit",
 			"llm",
+			"hubs",
 			"bind",
 		]);
 		for (const c of r.checks) {
@@ -403,8 +409,18 @@ describe("board api v3 (docs/board-api.md)", () => {
 		expect(byId["hooks-wired"].fix).toBe("./install.sh --wire");
 		expect(byId["session-start"].ok).toBe(false);
 		expect(byId["monitor-agent"].ok).toBe(false);
+		// W852: scratch HOME — no activation receipt, no board plist
+		expect(byId.activation.ok).toBe(false);
+		expect(byId["board-unit"].ok).toBe(false);
 		expect(byId.llm.ok).toBe(false); // dead SUSPENDERS_LLM_URL — advisory only
 		expect(byId.llm.detail).toContain("127.0.0.1:1");
+		// W852: no hubs.json in scratch HOME — trivially ok
+		expect(byId.hubs.ok).toBe(true);
+		expect(byId.hubs.detail).toBe("no hubs configured");
 		expect(byId.bind.detail).toBe("127.0.0.1");
+		// W852: the feed rides the stale-while-revalidate cache — a repeat
+		// fetch inside the TTL is the SAME snapshot (same ts)
+		const r2 = await (await fetch(`${BASE}/api/setup`)).json();
+		expect(r2.ts).toBe(r.ts);
 	});
 });

@@ -1,41 +1,44 @@
 import { completionTail } from "../lib/work-completion-record.ts";
+
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import {
-	db,
-	BIND,
-	REG_DIR,
-	LLM_ORIGIN,
-	gatePath,
-	sessionStartPath,
-} from "./context.ts";
-import {
-	projOf,
-	syncDecisions,
-	ago,
-	labelMaps,
-	labelFrom,
-	laneModelMaps,
-	ownerLabel,
-	payloadOf,
-	decisionVerdicts,
-	transcriptTail,
-	subscribeTail,
-	unblockedBy,
-	laneModelOf,
-	laneGitSnapshot,
-} from "./lanes.ts";
+import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { chunked } from "./helpers.ts";
-import { collapseDups } from "./decision-dups.ts";
+import { readRegistry } from "../lib/hub-locate.ts";
+import { type ItemAttribution, itemAttribution } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
+import { darkHubNow } from "../lib/stack-config.ts";
+import {
+	BIND,
+	db,
+	gatePath,
+	LLM_ORIGIN,
+	REG_DIR,
+	sessionStartPath,
+} from "./context.ts";
+import { collapseDups } from "./decision-dups.ts";
+import { chunked } from "./helpers.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
+import {
+	ago,
+	decisionVerdicts,
+	labelFrom,
+	labelMaps,
+	laneGitSnapshot,
+	laneModelMaps,
+	laneModelOf,
+	ownerLabel,
+	payloadOf,
+	projOf,
+	subscribeTail,
+	syncDecisions,
+	transcriptTail,
+	unblockedBy,
+} from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
-import { itemAttribution, type ItemAttribution } from "../lib/lane-spend.ts";
-import type { Database } from "bun:sqlite";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -299,25 +302,132 @@ export function settingsCommands(kind: string): string[] {
 	}
 }
 
-export async function llmCheck(): Promise<{ ok: boolean; detail: string }> {
+// W852: the advice endpoint is a belt specialist whose residency is the
+// machine's tier manifest (belt bin/registry-emit.ts `tier` → tier.json,
+// warm_ports; llm-keepwarm reads the same file). At BELT_TIER=minimal the
+// default :8901 coder is NOT resident, so a healthy minimal fleet painted
+// FAIL — the endpoint loads on first use instead. Precedence mirrors belt's
+// resolveTier: BELT_TIER env → manifest → full.
+const TIER_MANIFEST_PATH = () =>
+	process.env.BELT_TIER_MANIFEST ??
+	`${process.env.HOME}/.claude/local-llm/tier.json`;
+
+// keepwarm's fail-safe set (hooks/bin/llm-keepwarm.ts) — the ≤4GB residents
+const MINIMAL_FALLBACK_PORTS = [8902, 8913];
+
+export function tierFacts(): { tier: string; warmPorts: number[] } {
+	let tier =
+		process.env.BELT_TIER === "minimal" || process.env.BELT_TIER === "full"
+			? process.env.BELT_TIER
+			: "full";
+	let warmPorts: number[] = [];
 	try {
-		const r = await fetch(`${LLM_ORIGIN}/v1/models`, {
-			signal: AbortSignal.timeout(1500),
-		});
-		return {
-			ok: r.ok,
-			detail: r.ok
-				? `${LLM_ORIGIN} answers`
-				: `HTTP ${r.status} from ${LLM_ORIGIN}`,
+		const doc = JSON.parse(readFileSync(TIER_MANIFEST_PATH(), "utf8")) as {
+			tier?: string;
+			warm_ports?: unknown;
 		};
+		if (tier === "full" && (doc.tier === "minimal" || doc.tier === "full"))
+			tier = doc.tier;
+		if (Array.isArray(doc.warm_ports))
+			warmPorts = doc.warm_ports.filter(
+				(p): p is number => typeof p === "number" && p > 0 && p < 65536,
+			);
 	} catch {
-		return { ok: false, detail: `no answer from ${LLM_ORIGIN} within 1.5s` };
+		// no manifest / unreadable → env tier or full, no on-demand excuse
 	}
+	if (tier === "minimal" && !warmPorts.length)
+		warmPorts = MINIMAL_FALLBACK_PORTS;
+	return { tier, warmPorts };
+}
+
+const probeModels = async (origin: string, ms: number): Promise<boolean> => {
+	try {
+		const r = await fetch(`${origin}/v1/models`, {
+			signal: AbortSignal.timeout(ms),
+		});
+		return r.ok;
+	} catch {
+		return false;
+	}
+};
+
+export async function llmCheck(): Promise<{ ok: boolean; detail: string }> {
+	const direct = await probeModels(LLM_ORIGIN, 1500);
+	if (direct) return { ok: true, detail: `${LLM_ORIGIN} answers` };
+	const { tier, warmPorts } = tierFacts();
+	// full tier: the endpoint IS resident, when a resident endpoint is down
+	// it is down. minimal tier: the advice target loads on demand — the
+	// resident swarm answering is what matters (W852 owner complaint).
+	if (tier !== "minimal" || !warmPorts.length)
+		return { ok: false, detail: `no answer from ${LLM_ORIGIN} within 1.5s` };
+	const up = (
+		await Promise.all(
+			warmPorts.map((p) => probeModels(`http://127.0.0.1:${p}`, 1000)),
+		)
+	)
+		.map((ok, i) => (ok ? warmPorts[i] : 0))
+		.filter(Boolean);
+	if (!up.length)
+		return {
+			ok: false,
+			detail: `${LLM_ORIGIN} down and the resident swarm (${warmPorts.join(", ")}) silent`,
+		};
+	return {
+		ok: true,
+		detail: `${LLM_ORIGIN} is on-demand (tier manifest) — resident swarm ${up.join(", ")} answers; advice works, first use pays a model-load stall`,
+	};
+}
+
+// W852 — hub reachability: one bounded probe per configured hub (first
+// candidate — the registry is precedence-ordered), hubs inside a stack.yaml
+// dark window are EXPECTED down (NAS nightly poweroff, W483) and skip the
+// probe. No registry = no hubs configured, trivially ok.
+const probeHub = async (base: string): Promise<boolean> => {
+	try {
+		await fetch(`${base.replace(/\/$/, "")}/api/health`, {
+			signal: AbortSignal.timeout(1200),
+		});
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+async function hubCheck(): Promise<{ ok: boolean; detail: string }> {
+	const reg = readRegistry();
+	const entries = Object.entries(reg).filter(([label]) => label.trim());
+	if (!entries.length) return { ok: true, detail: "no hubs configured" };
+	return probeHubRows(entries);
+}
+
+async function probeHubRows(
+	entries: [string, { candidates?: string[] }][],
+): Promise<{ ok: boolean; detail: string }> {
+	const rows = await Promise.all(
+		entries.map(async ([label, entry]) => {
+			const url = entry?.candidates?.[0];
+			if (!url) return { ok: true, detail: `${label}: no candidates listed` };
+			if (darkHubNow(label))
+				return { ok: true, detail: `${label}: dark window (expected down)` };
+			const up = await probeHub(url);
+			return {
+				ok: up,
+				detail: up ? `${label} answers` : `${label} no answer at ${url}`,
+			};
+		}),
+	);
+	const down = rows.filter((r) => !r.ok);
+	return {
+		ok: down.length === 0,
+		detail:
+			down.map((r) => r.detail).join("; ") ||
+			rows.map((r) => r.detail).join("; "),
+	};
 }
 
 export async function setupChecks(): Promise<unknown[]> {
 	const launchdPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.fleet-monitor.plist`;
-	const llm = await llmCheck();
+	const [llm, hubs] = await Promise.all([llmCheck(), hubCheck()]);
 	// wired = a registered command runs the hook BY NAME — the install layout
 	// varies (namespaced suspenders/ vs legacy hooks/), so a literal-path match
 	// false-negatived every non-namespaced machine
@@ -335,6 +445,30 @@ export async function setupChecks(): Promise<unknown[]> {
 			);
 		} catch {} // no LaunchAgents dir — nothing installed
 	}
+	// W852 — the install's activation receipt (~/.config/klh/service-activation.json,
+	// SERVICE-ACTIVATION.md): blessed intent for every launchd unit this install
+	// registered. Unreadable/empty = install-grade wiring is missing.
+	const ACTIVATION_RECEIPT = `${process.env.HOME}/.config/klh/service-activation.json`;
+	let activationOk = false;
+	let activationDetail =
+		"no readable receipt at ~/.config/klh/service-activation.json";
+	try {
+		const doc = JSON.parse(readFileSync(ACTIVATION_RECEIPT, "utf8")) as {
+			services?: unknown[];
+		};
+		const n = Array.isArray(doc.services) ? doc.services.length : 0;
+		if (n > 0) {
+			activationOk = true;
+			activationDetail = `receipt blessed ${n} services`;
+		}
+	} catch {
+		// missing/unreadable — surfaced as the check's FAIL + fix
+	}
+	// W852 — the board's own launchd unit: a server cannot paint itself
+	// healthy (owner law), so the check is the UNIT is installed, not the
+	// process — the answering process IS this board.
+	const boardPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.board.plist`;
+	const boardOk = existsSync(boardPlist);
 	return [
 		{
 			id: "db",
@@ -371,11 +505,34 @@ export async function setupChecks(): Promise<unknown[]> {
 			fix: monitorOk ? null : "./install.sh --with-launchd",
 		},
 		{
+			id: "activation",
+			label: "Service activation receipt",
+			ok: activationOk,
+			detail: activationDetail,
+			fix: activationOk ? null : "./install.sh --with-launchd",
+		},
+		{
+			id: "board-unit",
+			label: "Board service unit",
+			ok: boardOk,
+			detail: boardOk
+				? "com.suspenders.board launchd unit installed"
+				: "no com.suspenders.board plist in ~/Library/LaunchAgents",
+			fix: boardOk ? null : "./install.sh --with-launchd",
+		},
+		{
 			id: "llm",
 			label: "Advice LLM endpoint",
 			ok: llm.ok,
 			detail: llm.detail,
 			fix: llm.ok ? null : "local LLM stack docs",
+		},
+		{
+			id: "hubs",
+			label: "Hub reachability",
+			ok: hubs.ok,
+			detail: hubs.detail,
+			fix: hubs.ok ? null : "check the hub or its stack.yaml profile",
 		},
 		{ id: "bind", label: "LAN binding", ok: true, detail: BIND, fix: null },
 	];
