@@ -327,10 +327,11 @@ const run = async (): Promise<number> => {
 			finding.state === "running" ||
 			finding.state === "scheduled-idle" ||
 			finding.state === "starting";
-		emit(
-			healthy ? "BROADCAST" : "NEED_DECISION",
-			`service supervision ${finding.label}: ${finding.state} — ${finding.reason}; read-only audit, no restart performed`,
-		);
+		const note = `service supervision ${finding.label}: ${finding.state} — ${finding.reason}; read-only audit, no restart performed`;
+		// W848: NEED_DECISIONs take the W797 6h TTL gate, per-label key —
+		// ghost-label/stale-receipt storms re-carded every 5-min pass.
+		if (healthy) emit("BROADCAST", note);
+		else emitDecision(`drift:${finding.label}`, note);
 	}
 	verdicts.push(
 		...services.map((service) => `service ${service.label} ${service.state}`),
