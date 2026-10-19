@@ -32,7 +32,7 @@ function renderAct(){
   }
   if (!actData) return;
   var ev = actData.events || [];
-  var html = '';
+  var recent = '', older = '', shown = 0;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i] || {};
     if (!scopedSource(e.source, e.project)) continue;
@@ -41,9 +41,14 @@ function renderAct(){
     if (e.target) row += ' -&gt; ' + esc(String(e.target).slice(0, 12));
     if (e.note) row += ' — ' + esc(String(e.note).slice(0, 80));
     if (e.sha) row += ' <span class="mono">@' + esc(String(e.sha).slice(0, 7)) + '</span>';
-    html += row + '</span></div>';
+    row += '</span></div>';
+    if (shown < 12) recent += row;
+    else older += row;
+    shown++;
   }
-  if (!html) html = '<div class="r"><span class="dim">(no activity yet)</span></div>';
+  var html = '<div class="activityhead">' + shown + ' events, newest first</div>' + recent;
+  if (older) html += '<details class="activityolder"><summary>Older events (' + (shown - 12) + ')</summary>' + older + '</details>';
+  if (!shown) html = '<div class="r"><span class="dim">(no activity yet)</span></div>';
   sigSet(body, String(actOkAt) + '|' + sel.value + '|' + hubOrigin + '|' + hubPeer, html);
 }
 `;

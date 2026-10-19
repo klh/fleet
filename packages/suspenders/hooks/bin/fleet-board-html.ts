@@ -295,6 +295,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .feed .r .ts { width:52px; flex:none; text-align:right; color:var(--klh-dim); font-variant-numeric:tabular-nums; }
 .feed .r.hot { border-left:2px solid var(--klh-danger); background:var(--klh-warm); padding-left:8px; }
 .feed b { font-weight:500; }
+.activityhead { margin-bottom:8px; color:var(--klh-dim); font-size:11px; }
+.activityolder { margin-top:10px; border-top:1px solid var(--klh-edge); padding-top:8px; }
+.activityolder summary { cursor:pointer; color:var(--klh-accent); font-size:11px; }
+.activityolder[open] summary { margin-bottom:8px; }
 #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px, 92vw); background:var(--klh-overlay); border-left:1px solid var(--klh-edge-mid); box-shadow:-8px 0 24px var(--klh-shadow); padding:14px 16px 20px; overflow-y:auto; z-index:30; }
 .dwhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; }
 #drawerTitle { margin:0; font-size:13px; font-weight:600; word-break:break-word; }
