@@ -6,6 +6,7 @@
 // fresh attempt count. Superseded/DONE/CANCELLED stay closed — retry never
 // rewrites history; it only re-opens work the environment killed.
 import { launchSchema } from "../../scripts/lib/launch-fencing.ts";
+import { budgetFlagClear } from "./budget-flag.ts";
 import type { GovernorStore } from "./govdb.ts";
 
 type Row = {
@@ -67,9 +68,9 @@ export function retryFailedItem(
 			project,
 			id,
 		);
-		// W787: clear the dispatch-side dedup flag so a future exhaustion
+		// W787/W782.4: drain the open budget decision — a future exhaustion
 		// re-flags (one NEED_DECISION per exhaustion episode, not per cycle).
-		store.run("DELETE FROM facts WHERE key=?", `lane.budget-flagged.${id}`);
+		budgetFlagClear(store, id);
 		return { ok: true };
 	})();
 }
