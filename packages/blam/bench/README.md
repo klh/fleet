@@ -17,9 +17,10 @@ reproduce ≥9/10 runs.
 | S4  | R1 debris-blocks-recovery   | kill a ladder run mid-merge with staged content                    | debris cleared within one cycle; next branch not falsely failed |
 | S5  | S1 foreign-merge-conclusion | `git commit` while MERGE_HEAD + live marker                        | commit refused, or no two-parent commit                         |
 
-Each scenario directory: `scenario.md` (fixture, injection, window,
-properties) + `harness.ts` (deterministic driver). Reference
-implementation for S4 is in progress; the others are specced.
+SPEC ONLY — no S1-S5 harness or scenario directory exists yet; the table
+above is the specification. The suites that run today are the two below.
+Each future scenario lands as `scenario.md` (fixture, injection, window,
+properties) + `harness.ts` (deterministic driver).
 
 ## Consult policy suite (W447)
 
@@ -44,6 +45,22 @@ setup-dependent-gains warning (arXiv 2609.05933). Condense rides the real
 models the W611 gate drain. Spec: `paired/scenario.md`. Run:
 `bun packages/blam/bench/paired/harness.ts`.
 
+## What runs today — commands, runtime, limits
+
+    bun packages/blam/bench/consult/harness.ts    # 3 policies × 2 KB states × 2 delivery modes, ~10ms
+    bun packages/blam/bench/paired/harness.ts     # 5 cases × 2 arms × 4 reps, paired per rep, ~20ms
+
+Both end with `6/6 properties hold` (`scenario.md` in each directory
+defines them) and are fully deterministic — outcomes are computed from
+scripted scenario models, so numbers reproduce byte-for-byte. They
+measure policy/protocol mechanics, not live model behavior.
+
+Scope boundary: BLAM-bench scores control-plane coordination robustness
+(failure reproduction, detection, recovery). It does not measure model
+quality, model pull, or speed — those are Belt's model-fleet benchmarks
+(`benchmarks.md` at the repo root). The only shared surface is the
+prompt-condense engine (`src/condense/`), which Belt's router reuses.
+
 ## Control-plane adapter
 
 A control plane under test implements:
@@ -53,7 +70,8 @@ A control plane under test implements:
     sweepCycle(): void           # the loop under test
     onScenarioEnd(): report
 
-Suspenders is the reference control plane; its pre-fix vs post-fix
-behavior on this suite is the first measured A/B (pre-fix: S1 fails,
-S4 fails, S5 fails; post-fix: all pass — measured on the 2026-09-28
-incident record). Other control planes adapt via the four functions.
+Suspenders is the intended reference control plane. The pre-fix vs
+post-fix A/B (pre-fix: S1/S4/S5 fail; post-fix: pass — from the
+2026-09-28 incident record) is the expected first result once S1-S5
+harnesses exist; it has not been measured by any runnable suite yet.
+Other control planes adapt via the four functions.
