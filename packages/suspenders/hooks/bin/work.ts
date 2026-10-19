@@ -1,5 +1,5 @@
 // work.ts — the Work Graph: hierarchical, claimable, shatterable work items
-// in governor.db, partitioned per project (repo root). Replaces TODO/ledger
+// in governor.db, partitioned per project (repo root). Replaces the old
 // Markdown as the operational state DB — Markdown keeps architecture and
 // decisions; the DB owns runtime state.
 //
@@ -30,6 +30,11 @@ import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import { doneEffortStamp } from "../lib/lane-effort.ts";
+import {
+	recordKnowledgeSuggestion,
+	renderKnowledgeSuggestion,
+	suggestKnowledge,
+} from "../lib/kev-curation.ts";
 import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
@@ -219,7 +224,9 @@ function emit(
 	source = "work",
 ): void {
 	db()
-		.query("INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?")
+		.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
+		)
 		.run(
 			Date.now(),
 			source,
@@ -475,7 +482,12 @@ const showOne = (id: string, json: boolean): void => {
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
 	}
-	console.log(renderTimestamps(it, completionRecord(db(), PROJECT, String(it.id))?.completed_at ?? null).join("\n"));
+	console.log(
+		renderTimestamps(
+			it,
+			completionRecord(db(), PROJECT, String(it.id))?.completed_at ?? null,
+		).join("\n"),
+	);
 	// W617/W687: the item capsule + W776 attribution travel with the item
 	const cap = db()
 		.query("SELECT value FROM facts WHERE key = ?")
@@ -506,7 +518,10 @@ const showOne = (id: string, json: boolean): void => {
 		);
 };
 
-const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
+const dispatchVerb = async (
+	name: string,
+	{ pos, flag, rest }: Parsed,
+): Promise<void> => {
 	if (name === "add") {
 		const title = pos[0];
 		if (!title)
@@ -853,7 +868,10 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				verified: !!record,
 				summary: record?.summary ?? null,
 				// W909: the lane's effort level rides the done event (reporter EFFORT column)
-				...doneEffortStamp(`${projectRootOf(PROJECT)}/.fleet`, String(it.owner_sid ?? as ?? "")),
+				...doneEffortStamp(
+					`${projectRootOf(PROJECT)}/.fleet`,
+					String(it.owner_sid ?? as ?? ""),
+				),
 			});
 			const unblocked = freeDependents(id);
 			releaseClaim(
@@ -891,6 +909,24 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// detached flush waits out this lane's exit and merges seconds later,
 		// instead of at the next watch cycle. Manual closes (no lane entry) skip.
 		triggerMergeOnDone(projectRootOf(PROJECT), id);
+		// Curation is advisory and runs after the durable completion transaction.
+		// A cold or unavailable Kev cannot reopen or lose completed work.
+		const verdict = await suggestKnowledge({
+			kind: "work",
+			title: String(it.title ?? id),
+			text: record?.summary ?? String(it.description ?? ""),
+			reference: id,
+			timeoutMs: 750,
+		});
+		try {
+			recordKnowledgeSuggestion(db(), verdict, {
+				sid: String(it.owner_sid ?? as ?? ""),
+				project: PROJECT,
+			});
+		} catch {
+			// Curation telemetry does not affect an already durable completion.
+		}
+		console.log(renderKnowledgeSuggestion(verdict));
 	} else if (name === "fail") {
 		const id = pos[0];
 		const note = flag("--note") ?? "";

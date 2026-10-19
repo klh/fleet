@@ -18,9 +18,15 @@ import {
 } from "./shared.ts";
 
 import { claimedWorkOf } from "../lib/lane-effort.ts";
+import {
+	recordKnowledgeSuggestion,
+	renderKnowledgeSuggestion,
+	suggestKnowledge,
+} from "../lib/kev-curation.ts";
 
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import { consultDeadline } from "../lib/consult-expiry.ts";
+import { resolveTarget } from "./addressing.ts";
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -72,9 +78,8 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W604: consult_kb first (asker-verified solutions), then the knowledge
 	// store — a hash-verified fact answers with its trust attached; lanes only
 	// pinged on miss. --no-kb escapes both.
-	const factHit = (kbHit || rest.includes("--no-kb"))
-		? null
-		: await factLookup(question);
+	const factHit =
+		kbHit || rest.includes("--no-kb") ? null : await factLookup(question);
 	if (!kbHit && !factHit) {
 		if (rest.includes("--best"))
 			expert =
@@ -83,14 +88,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			die(
 				"no ranked expert — nobody live has touched this; retain evidence and request a decision, do not broadcast or retry unchanged",
 			);
-		if (
-			!db
-				.query(
-					"SELECT 1 FROM sessions WHERE sid = ? AND project = ? AND state = 'RUNNING'",
-				)
-				.get(expert, projectIdentity())
-		)
-			die(`${expert.slice(0, 8)} is not a live session in this project`);
+		expert = resolveTarget(expert, projectIdentity()).sid;
 	}
 	if (kbHit) {
 		const r = db
@@ -166,7 +164,12 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			state: "FACT",
 			...link,
 			answer: factHit.fact ?? "",
-			fact: { id: factHit.id, topic: factHit.topic, trust: factHit.trust, source: factHit.source_ref },
+			fact: {
+				id: factHit.id,
+				topic: factHit.topic,
+				trust: factHit.trust,
+				source: factHit.source_ref,
+			},
 		});
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
@@ -319,6 +322,15 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		die(`${cid} is addressed to ${String(c.expert_sid).slice(0, 8)}, not you`);
 	if (c.state !== "OPEN") die(`${cid} is ${c.state}`);
 	const st = decline ? "DECLINED" : "ANSWERED";
+	const verdict = decline
+		? null
+		: await suggestKnowledge({
+				kind: "consult",
+				title: c.question,
+				text,
+				reference: String(cid),
+				timeoutMs: 1500,
+			});
 	db.query(
 		"UPDATE consults SET state = ?, answer = ?, answered_at = ? WHERE id = ?",
 	).run(st, decline ? null : text, Date.now(), c.id);
@@ -326,7 +338,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	// W618 dedup: a same-project row with the same normalized problem+answer
 	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer
 	// appends as a refinement — instead of forking a near-duplicate row.
-	if (!decline) {
+	if (!decline && verdict?.choice !== "noise") {
 		const nq = kbNorm(c.question);
 		const na = kbNorm(text);
 		const dup = (
@@ -389,12 +401,36 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	).run(
 		Date.now(),
 		as,
-		JSON.stringify({ consult: cid, state: st, answer: decline ? null : text }),
+		JSON.stringify({
+			consult: cid,
+			state: st,
+			answer: decline ? null : text,
+			...(verdict
+				? {
+						curation: {
+							choice: verdict.choice,
+							confidence: verdict.confidence,
+							model: verdict.model,
+						},
+					}
+				: {}),
+		}),
 		c.asker_sid,
 	);
 	console.log(
 		`${st} ${cyan(String(cid))} ${dim("→")} ${String(c.asker_sid).slice(0, 8)}`,
 	);
+	if (verdict) {
+		try {
+			recordKnowledgeSuggestion(db, verdict, {
+				sid: as,
+				project: projectIdentity(),
+			});
+		} catch {
+			// Advice cannot invalidate a completed consult reply.
+		}
+		console.log(renderKnowledgeSuggestion(verdict));
+	}
 }
 
 export async function cmdConsults(_rest: string[]): Promise<void> {

@@ -60,9 +60,7 @@ export const defineVerb = (spec: VerbSpec): VerbSpec => {
 				`verb-kit: ${spec.name}: required flag ${f} is not a declared flag`,
 			);
 	if ((spec.minPos ?? 0) > 0 && !spec.usage)
-		throw new Error(
-			`verb-kit: ${spec.name}: minPos > 0 requires a usage line`,
-		);
+		throw new Error(`verb-kit: ${spec.name}: minPos > 0 requires a usage line`);
 	return spec;
 };
 
@@ -125,11 +123,9 @@ export const parseVerb = (spec: VerbSpec, rest: string[]): ParseOutcome => {
 
 // per-verb help: the usage line + the flag vocabulary (switches fold in)
 export const renderVerbHelp = (spec: VerbSpec): string => {
-	const lines: string[] = [];
-	if (spec.usage) lines.push(spec.usage);
+	const lines: string[] = [spec.usage ?? `usage: ${spec.name}`];
 	const flags = [...(spec.flags ?? [])];
-	for (const s of spec.switches ?? [])
-		if (!flags.includes(s)) flags.push(s);
+	for (const s of spec.switches ?? []) if (!flags.includes(s)) flags.push(s);
 	if (flags.length) lines.push(`  flags: ${flags.join(" ")}`);
 	return lines.join("\n");
 };

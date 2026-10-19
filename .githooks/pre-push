@@ -3,6 +3,8 @@
 # lines scanned as the upstream range; falls back to the staged check).
 # Enable on this machine: git config core.hooksPath .githooks
 command -v bun >/dev/null 2>&1 || exit 0
+FLEET_ROOT="$(git rev-parse --show-toplevel)"
+bun "$FLEET_ROOT/.githooks/post-commit" --full || exit 1
 P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || P="$(git rev-parse --show-toplevel)/packages/suspenders"
 [ -f "$P/hooks/bin/scrub-gate.ts" ] || exit 0

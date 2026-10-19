@@ -53,6 +53,29 @@ test("attach spawns exactly one live subscribe per sid; re-attach is a no-op", a
 	expect(liveCount(sid)).toBe(1);
 });
 
+test("subscriber survives the bootstrap process exiting", async () => {
+	const sid = `wtest-detached-${Date.now()}`;
+	const modulePath = join(
+		import.meta.dir,
+		"..",
+		"hooks",
+		"lib",
+		"subscribe-attach.ts",
+	);
+	const parent = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`import { attachSubscribe } from ${JSON.stringify(modulePath)}; attachSubscribe(${JSON.stringify(sid)}, { coord: ${JSON.stringify(stub)} });`,
+		],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	expect(parent.exitCode).toBe(0);
+	const deadline = Date.now() + 3000;
+	while (!subscribeLive(sid) && Date.now() < deadline) await Bun.sleep(20);
+	expect(subscribeLive(sid)).toBe(true);
+});
+
 test("no spawn when no coord CLI resolves at the given path", () => {
 	const sid = `wtest-absent-${Date.now()}`;
 	expect(attachSubscribe(sid, { coord: join(dir, "absent", "coord.ts") })).toBe(

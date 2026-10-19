@@ -281,9 +281,11 @@ function matchesNeedle(target: SessionTarget, needle: string): boolean {
 	);
 }
 
-function resolveTarget(needle: string): SessionTarget {
-	const live = listLiveTargets();
-	const q = needle.toLowerCase();
+export function resolveTarget(needle: string, project?: string): SessionTarget {
+	const live = listLiveTargets().filter(
+		(target) => project === undefined || target.project === project,
+	);
+	const q = needle.replace(/^@/, "").toLowerCase();
 	const exact = live.filter(
 		(target) =>
 			target.sid.toLowerCase() === q || target.label.toLowerCase() === q,
@@ -293,7 +295,7 @@ function resolveTarget(needle: string): SessionTarget {
 		target.sid.toLowerCase().startsWith(q),
 	);
 	if (exact.length === 0 && prefix.length === 1) return prefix[0];
-	const matches = live.filter((target) => matchesNeedle(target, needle));
+	const matches = live.filter((target) => matchesNeedle(target, q));
 	if (matches.length === 1) return matches[0];
 	if (matches.length === 0)
 		die(`no live session target matching ${JSON.stringify(needle)}`);

@@ -1,0 +1,34 @@
+#!/usr/bin/env bun
+// Local post-commit contract check. Git cannot roll back a committed change;
+// pre-push repeats the same gate and refuses to publish a regression.
+import { resolve } from "node:path";
+
+const root = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+	stdout: "pipe",
+}).stdout.toString().trim();
+const suite = [
+	"verb-surface.test.ts",
+	"verb-kit.test.ts",
+	"coord-addressing.test.ts",
+	"consult-kb.test.ts",
+	"subscribe-attach.test.ts",
+	"subscribe-liveness.test.ts",
+	"ws-subscribe.test.ts",
+	"kev-curation.test.ts",
+	"coord-fact-cas.test.ts",
+	"coord-capsule-project-scope.test.ts",
+];
+if (process.argv.includes("--full"))
+	suite.push("work-cli.test.ts", "work-completion-record.test.ts");
+const tests = suite.map((name) =>
+	resolve(root, "packages/suspenders/test", name),
+);
+const run = Bun.spawnSync([process.execPath, "test", ...tests], {
+	cwd: root,
+	stdout: "inherit",
+	stderr: "inherit",
+});
+if (run.exitCode !== 0) {
+	console.error("Fleet verb contract failed after commit; repair before pushing.");
+	process.exit(run.exitCode || 1);
+}

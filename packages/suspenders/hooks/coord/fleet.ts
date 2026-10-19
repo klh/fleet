@@ -35,6 +35,7 @@ import { type LaneVerdict, verdictBySid } from "../lib/lane-liveness.ts";
 import { hbFresh } from "../lib/reclaim-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { homedir } from "node:os";
+import { attachSubscribe } from "../lib/subscribe-attach.ts";
 import {
 	type BriefWeight,
 	buckleLaneTokens,
@@ -179,6 +180,9 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 		die(
 			"bootstrap identity binding changed concurrently or conflicts with registered provenance",
 		);
+	// Every remotely bound session bootstrap attaches its push inbox. A local
+	// SQLite binding has no WebSocket server to attach to.
+	if (!db.local) attachSubscribe(as);
 	const mine = db
 		.query(
 			"SELECT id, title, state FROM work_items WHERE project = ? AND owner_sid = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED') ORDER BY id",
@@ -300,19 +304,20 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 		// unevidenced claimant reads ? (never a running marker); only evidence
 		// (registry verdict or fresh heartbeat) paints ▶.
 		const v = verdictOf(l);
-		const g = v === "dead"
-			? red("×")
-			: v === "unknown"
-				? dim("?")
-				: st === "PAUSE_REQUESTED"
-					? amber("◐")
-					: st === "PAUSED"
-						? amber("⏸")
-						: st === "RESUME_READY"
-							? cyan("↻")
-							: st === "BLOCKED"
-								? red("⚠")
-								: green("▶");
+		const g =
+			v === "dead"
+				? red("×")
+				: v === "unknown"
+					? dim("?")
+					: st === "PAUSE_REQUESTED"
+						? amber("◐")
+						: st === "PAUSED"
+							? amber("⏸")
+							: st === "RESUME_READY"
+								? cyan("↻")
+								: st === "BLOCKED"
+									? red("⚠")
+									: green("▶");
 		const nm = sessionNames.get(l);
 		return `${g} ${nm ? `${trunc(nm)} ${dim(`(${l.slice(0, 8)})`)}` : dim(names.get(l) ?? l.slice(0, 8))}`;
 	});
