@@ -76,6 +76,11 @@ class KlhTaskTrace extends LitElement {
 		strong { font-weight: 600; color: var(--klh-ink, #e8e4da); }
 		.error { color: var(--klh-danger-ink, #e07a5f); }
 		.sub { display: block; overflow-wrap: anywhere; }
+		details { margin: 10px 0; border: 1px solid var(--klh-edge, #5d5a52); padding: 8px 10px; }
+		summary { cursor: pointer; font: 600 12px/1.4 ui-sans-serif, system-ui; }
+		summary:focus-visible { outline: 2px solid var(--klh-accent, #b87b16); outline-offset: 2px; }
+		.counts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0; font: 12px/1.45 ui-sans-serif, system-ui; }
+		.counts span { color: var(--klh-dim, #97917f); }
 		code { font: 11px ui-monospace, SFMono-Regular, monospace; }
 	`;
 
@@ -91,6 +96,9 @@ class KlhTaskTrace extends LitElement {
 	protected render() {
 		const traceId = this.trace[0]?.traceId ?? "";
 		const execution = this.execution;
+		const hops = execution?.hops ?? [];
+		const failed = hops.filter((hop) => hop.status === "error").length;
+		const models = [...new Set(hops.map((hop) => hop.model).filter(Boolean))];
 		return html`<h2>Work trace ${traceId ? html`<code>${traceId.slice(0, 12)}</code>` : ""}</h2>
 			<h3>Work graph</h3>
 			${
@@ -122,17 +130,19 @@ class KlhTaskTrace extends LitElement {
 				<p>Lane <code>${execution.lane.sid}</code> · ${execution.lane.executor} on ${execution.lane.host} · ${execution.lane.state} · attempt ${execution.lane.attempt}</p>
 					<p>Requests matched by lane ID. Each request shows its gateway trace ID when available.</p>
 				${execution.hubs.filter((hub) => !hub.ok).map((hub) => html`<p class="error">${hub.label}: ${hub.reason ?? "unavailable"}</p>`)}
-				${execution.limited ? html`<p>Showing the latest 200 requests in this window.</p>` : ""}
+				<div class="counts"><span><strong>${hops.length}</strong> requests</span><span><strong>${failed}</strong> failed</span><span><strong>${models.length}</strong> models</span></div>
+				${models.length ? html`<p>Models: ${models.join(", ")}</p>` : ""}
+				${execution.limited ? html`<p>History limited to the latest 200 requests in this window.</p>` : ""}
 				${
-					execution.hops.length
-						? html`<ol>${execution.hops.map(
+					hops.length
+						? html`<details><summary>Request history · ${hops.length} Buckle hops</summary><ol>${hops.map(
 								(hop) => html`<li>
 					<time datetime=${new Date(hop.at).toISOString()}>${new Date(hop.at).toLocaleTimeString()}</time>
 					<div><strong class=${hop.status === "error" ? "error" : ""}>${hop.hub} · ${hop.hop}</strong> → ${hop.model ?? "model unknown"}
 						<span class="sub">${[hop.endpoint, hop.ms == null ? null : `${hop.ms} ms`, hop.inputTokens == null ? null : `${hop.inputTokens} in`, hop.outputTokens == null ? null : `${hop.outputTokens} out`, hop.cacheReadTokens == null ? null : `${hop.cacheReadTokens} cache read`, hop.status, hop.traceId ? `trace ${hop.traceId}` : "trace unavailable (older request)", `request ${hop.requestId.slice(0, 12)}`].filter(Boolean).join(" · ")}</span>
 					</div>
 				</li>`,
-							)}</ol>`
+							)}</ol></details>`
 						: html`<p>No Buckle requests for this lane in the selected window.</p>`
 				}
 			`

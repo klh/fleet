@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class u extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
+import{r,e,t,s}from"./lit-9bpcreb0.js";var u=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],d={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class p extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -69,10 +69,10 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 			opacity: 0.5;
 			cursor: default;
 		}
-	`;project="";goal="";previewId=null;constructor(){super();this.settings={...c},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(n){return!this.busy&&!this.sent&&this.goal===n&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let a=await(await fetch("/api/prompt/settings")).json();if(a.settings)this.settings={...c,...a.settings}}catch{}}async toggle(n,a){let i=this.settings;this.settings={...i,[n]:a};try{let o=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[n]:a})}),l=await o.json();if(!o.ok||!l.settings)throw Error(l.error??`HTTP ${o.status}`);this.settings={...c,...l.settings}}catch(o){this.settings=i,this.err=`settings not saved: ${o instanceof Error?o.message:String(o)}`}}async prepare(n,a,i){this.project=n,this.goal=a,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let o=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(i?.length?{project:n,goal:a,attachments:i}:{project:n,goal:a}),signal:AbortSignal.timeout(30000)}),l=await o.json();if(!o.ok||!l.ok||!l.preview)throw Error(l.error??`HTTP ${o.status}`);this.view=l.preview,this.previewId=l.previewId??null}catch(o){this.err=`preview failed: ${o instanceof Error?o.message:String(o)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(n,a){return e`<details ?open=${a}>
+	`;project="";goal="";previewId=null;constructor(){super();this.settings={...d},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(n){return!this.busy&&!this.sent&&this.goal===n&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let a=await(await fetch("/api/prompt/settings")).json();if(a.settings)this.settings={...d,...a.settings}}catch{}}async toggle(n,a){let l=this.settings;this.settings={...l,[n]:a};try{let o=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[n]:a})}),c=await o.json();if(!o.ok||!c.settings)throw Error(c.error??`HTTP ${o.status}`);this.settings={...d,...c.settings}}catch(o){this.settings=l,this.err=`settings not saved: ${o instanceof Error?o.message:String(o)}`}}async prepare(n,a,l){this.project=n,this.goal=a,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let o=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(l?.length?{project:n,goal:a,attachments:l}:{project:n,goal:a}),signal:AbortSignal.timeout(30000)}),c=await o.json();if(!o.ok||!c.ok||!c.preview)throw Error(c.error??`HTTP ${o.status}`);this.view=c.preview,this.previewId=c.previewId??null}catch(o){this.err=`preview failed: ${o instanceof Error?o.message:String(o)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(n,a){return e`<details ?open=${a}>
 			<summary>${n.label} · ${n.bytes} B</summary>
 			<pre>${n.text}</pre>
-		</details>`}summary(){let n=d.filter(([a])=>this.settings[a]).map(([,a])=>a);return`prompt transforms · ${n.length?n.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let n=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
+		</details>`}summary(){let n=u.filter(([a])=>this.settings[a]).map(([,a])=>a);return`prompt transforms · ${n.length?n.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let n=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
 			<div class="hd">
 				<strong>${this.sent?"dispatched":"will dispatch"}</strong>
 				${n?e`<span class="dim"
@@ -103,18 +103,18 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 			<details>
 				<summary>${this.summary()}</summary>
 				<div class="toggles">
-					${d.map(([n,a])=>e`<label>
+					${u.map(([n,a])=>e`<label>
 							<input
 								type="checkbox"
 								.checked=${this.settings[n]}
-								@change=${(i)=>this.toggle(n,i.target.checked)}
+								@change=${(l)=>this.toggle(n,l.target.checked)}
 							/>
 							${a}
 						</label>`)}
 				</div>
 			</details>
 			${this.body()}
-		`}}customElements.define("klh-prompt-preview",u);class p extends s{static properties={trace:{attribute:!1},events:{attribute:!1},execution:{attribute:!1},loading:{type:Boolean},error:{type:String}};static styles=r`
+		`}}customElements.define("klh-prompt-preview",p);class h extends s{static properties={trace:{attribute:!1},events:{attribute:!1},execution:{attribute:!1},loading:{type:Boolean},error:{type:String}};static styles=r`
 		:host { display: block; border-top: 1px solid var(--klh-edge, #5d5a52); padding: 12px 0; }
 		h2 { margin: 0 0 8px; font: 600 13px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
 		h3 { margin: 12px 0 5px; font: 600 12px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
@@ -125,8 +125,13 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 		strong { font-weight: 600; color: var(--klh-ink, #e8e4da); }
 		.error { color: var(--klh-danger-ink, #e07a5f); }
 		.sub { display: block; overflow-wrap: anywhere; }
+		details { margin: 10px 0; border: 1px solid var(--klh-edge, #5d5a52); padding: 8px 10px; }
+		summary { cursor: pointer; font: 600 12px/1.4 ui-sans-serif, system-ui; }
+		summary:focus-visible { outline: 2px solid var(--klh-accent, #b87b16); outline-offset: 2px; }
+		.counts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0; font: 12px/1.45 ui-sans-serif, system-ui; }
+		.counts span { color: var(--klh-dim, #97917f); }
 		code { font: 11px ui-monospace, SFMono-Regular, monospace; }
-	`;constructor(){super();this.trace=[],this.events=[],this.execution=null,this.loading=!1,this.error=null}render(){let n=this.trace[0]?.traceId??"",a=this.execution;return e`<h2>Work trace ${n?e`<code>${n.slice(0,12)}</code>`:""}</h2>
+	`;constructor(){super();this.trace=[],this.events=[],this.execution=null,this.loading=!1,this.error=null}render(){let n=this.trace[0]?.traceId??"",a=this.execution,l=a?.hops??[],o=l.filter((i)=>i.status==="error").length,c=[...new Set(l.map((i)=>i.model).filter(Boolean))];return e`<h2>Work trace ${n?e`<code>${n.slice(0,12)}</code>`:""}</h2>
 			<h3>Work graph</h3>
 			${this.events.length?e`<ol>${this.events.map((i)=>e`<li>
 				<time datetime=${new Date(i.ts).toISOString()}>${new Date(i.ts).toLocaleString()}</time>
@@ -147,14 +152,16 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 				<p>Lane <code>${a.lane.sid}</code> · ${a.lane.executor} on ${a.lane.host} · ${a.lane.state} · attempt ${a.lane.attempt}</p>
 					<p>Requests matched by lane ID. Each request shows its gateway trace ID when available.</p>
 				${a.hubs.filter((i)=>!i.ok).map((i)=>e`<p class="error">${i.label}: ${i.reason??"unavailable"}</p>`)}
-				${a.limited?e`<p>Showing the latest 200 requests in this window.</p>`:""}
-				${a.hops.length?e`<ol>${a.hops.map((i)=>e`<li>
+				<div class="counts"><span><strong>${l.length}</strong> requests</span><span><strong>${o}</strong> failed</span><span><strong>${c.length}</strong> models</span></div>
+				${c.length?e`<p>Models: ${c.join(", ")}</p>`:""}
+				${a.limited?e`<p>History limited to the latest 200 requests in this window.</p>`:""}
+				${l.length?e`<details><summary>Request history · ${l.length} Buckle hops</summary><ol>${l.map((i)=>e`<li>
 					<time datetime=${new Date(i.at).toISOString()}>${new Date(i.at).toLocaleTimeString()}</time>
 					<div><strong class=${i.status==="error"?"error":""}>${i.hub} · ${i.hop}</strong> → ${i.model??"model unknown"}
 						<span class="sub">${[i.endpoint,i.ms==null?null:`${i.ms} ms`,i.inputTokens==null?null:`${i.inputTokens} in`,i.outputTokens==null?null:`${i.outputTokens} out`,i.cacheReadTokens==null?null:`${i.cacheReadTokens} cache read`,i.status,i.traceId?`trace ${i.traceId}`:"trace unavailable (older request)",`request ${i.requestId.slice(0,12)}`].filter(Boolean).join(" · ")}</span>
 					</div>
-				</li>`)}</ol>`:e`<p>No Buckle requests for this lane in the selected window.</p>`}
-			`:a&&!a.lane?e`<p>No dispatched lane recorded for this item.</p>`:""}`}}customElements.define("klh-task-trace",p);class h extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
+				</li>`)}</ol></details>`:e`<p>No Buckle requests for this lane in the selected window.</p>`}
+			`:a&&!a.lane?e`<p>No dispatched lane recorded for this item.</p>`:""}`}}customElements.define("klh-task-trace",h);class g extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin-top: 6px;
@@ -214,4 +221,4 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 			${this.latest?e`<output>
 						${this.when(this.latest.ts)} — ${this.latest.text}
 					</output>`:""}
-		`}}customElements.define("klh-decision-eval",h);function g(){let n=document.querySelectorAll(".dec[data-id]");for(let a of n){if(a.querySelector("klh-decision-eval"))continue;let i=a.querySelector(".dec-actions")??a,o=document.createElement("klh-decision-eval");o.setAttribute("event-id",a.getAttribute("data-id")??""),i.appendChild(o)}}var b=new MutationObserver(g);function m(){let n=document.querySelector("#decisions");if(!n){setTimeout(m,300);return}b.observe(n,{childList:!0,subtree:!0}),g()}m();
+		`}}customElements.define("klh-decision-eval",g);function m(){let n=document.querySelectorAll(".dec[data-id]");for(let a of n){if(a.querySelector("klh-decision-eval"))continue;let l=a.querySelector(".dec-actions")??a,o=document.createElement("klh-decision-eval");o.setAttribute("event-id",a.getAttribute("data-id")??""),l.appendChild(o)}}var v=new MutationObserver(m);function b(){let n=document.querySelector("#decisions");if(!n){setTimeout(b,300);return}v.observe(n,{childList:!0,subtree:!0}),m()}b();
