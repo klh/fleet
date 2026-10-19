@@ -57,6 +57,10 @@ export interface BriefOpts {
 	/** W254: pointer-grade brief intel — file-map + done-definition digest,
 	 *  derived at dispatch from the mission text; absent/null = no sections. */
 	intel?: BriefIntel | null;
+	/** W899: the fleet's `work report` table, pre-rendered by the caller from
+	 *  the one W892 implementation — lane briefs carry the same shape the
+	 *  install tail and session-start SUPERVISOR DEFAULT emit. */
+	fleetReport?: string | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => {
@@ -169,6 +173,10 @@ export const composeBrief = (o: BriefOpts): string => {
 	parts.push(...briefResume(o));
 	parts.push(...resumeCheckLines(o));
 	parts.push(...briefLanding(o));
+	// W899: the brief carries the fleet's work report table (pre-rendered by
+	// the caller from the one W892 implementation) — lane briefs speak the
+	// same shape the install tail and the session-start tick emit.
+	if (o.fleetReport) parts.push("", `FLEET REPORT:`, o.fleetReport);
 	// W146 interfaces: aids = knowledge-interface lines for the child lane;
 	// extra = supervisor context lines appended verbatim.
 	if (o.aids?.length)

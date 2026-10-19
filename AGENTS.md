@@ -75,7 +75,11 @@ item's W776 attribution; fixed-width programmatic pads; ST letters
 R = riding, Q = queued, D = done, F = failed (W891 colors them on the
 board). Supervisor ticks paste it verbatim — the session-start
 SUPERVISOR DEFAULT contract references the installed reporter and
-supersedes the W865 prose list.
+EMITS it (the hook calls the one library; W899), lane briefs carry the
+same table (dispatch FLEET REPORT), and the install tail runs the report
+through the PATH shim as its final section (every install proves the verb
+live). This supersedes the W865 prose list.
+
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
   "Install the skills as agent tools"). ChatGPT is not a CLI target — paste
@@ -99,7 +103,7 @@ Work graph (`work` — the ONE ledger; never Markdown todos):
   alloc_reason audit trail; `--apply` claims only the assign kind)
 - `work done <id> --sha <sha>` — close with evidence
 - `work add <title> [--parent <id>] [--priority n] [--desc ...]
-  [--tag t1,t2]` — mint (never invent work; empty title = unfilled item;
+[--tag t1,t2]` — mint (never invent work; empty title = unfilled item;
   W846: `--tag` stamps classification tags, comma-set — split children
   inherit the parent's)
 - `work split` — fan out parallelizable work · `work lanes [--json]` —
