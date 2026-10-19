@@ -129,6 +129,7 @@ var doneCb = byId('taskDone');
 if (doneCb) doneCb.addEventListener('change', function(e){
   try { localStorage.setItem('taskShowDone', e.target.checked ? '1' : '0'); } catch(err) {}
   renderTasks();
+  pollTasks(); // W682: the feed depth changed — refetch (done=12 vs done=all)
 });
 paintSort();
 byId('drawerClose').addEventListener('click', closeTask);

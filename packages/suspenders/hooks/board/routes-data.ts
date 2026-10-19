@@ -164,10 +164,19 @@ export async function handleData(
 	}
 	if (url.pathname === "/api/tasks") {
 		// v3 tasks feed (docs/board-api.md) — every live work item, newest
-		// activity first, with open fork counts and human owner labels
+		// activity first, with open fork counts and human owner labels.
+		// W682: terminal history (DONE/CANCELLED/ORPHANED) caps at the newest
+		// 12 rows per project by default — the kanban renders 12 done cards —
+		// `?done=all` restores the complete feed (the opt-in completed table).
 		syncDecisions(); // fork counts must reflect events the poll hasn't seen
 		const p = url.searchParams.get("project");
-		return json({ ok: true, projects: projectList(), tasks: tasks(p) });
+		const done = url.searchParams.get("done");
+		const doneArg = done === "all" ? "all" : Math.max(0, Number(done) || 12);
+		return json({
+			ok: true,
+			projects: projectList(),
+			tasks: tasks(p, doneArg),
+		});
 	}
 	if (url.pathname === "/api/task") {
 		// detail drawer feed: the item, its bus events, its decisions

@@ -8,7 +8,12 @@
 // ledger fails soft (no cost section — metrics never blocks on the gateway).
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { claimWindows, workTiming, type ClaimWindow } from "./work-timing.ts";
+import {
+	claimWindows,
+	workTiming,
+	type ClaimWindow,
+	type TimingEventRow,
+} from "./work-timing.ts";
 
 /** Per model_class (model_group) spend split (W776: the class dimension). */
 export interface GroupSpend {
@@ -178,16 +183,19 @@ export interface ItemAttribution {
 	groups: Record<string, GroupSpend>;
 }
 
-/** The W776 attribution for one project's items, keyed by item id. */
+/** The W776 attribution for one project's items, keyed by item id.
+ *  W682: `pre` carries one preloaded claim-replay event scan (all projects)
+ *  so a multi-project caller pays ONE bus read instead of two per project. */
 export function itemAttribution(
 	db: Database,
 	project: string,
 	nowMs = Date.now(),
 	ledger: string | null = resolveBuckleDb(),
+	pre?: TimingEventRow[],
 ): Map<string, ItemAttribution> {
-	const { windows } = claimWindows(db, project, nowMs);
+	const { windows } = claimWindows(db, project, nowMs, pre);
 	const timing = new Map(
-		workTiming(db, project, nowMs).map((t) => [t.work, t]),
+		workTiming(db, project, nowMs, pre).map((t) => [t.work, t]),
 	);
 	const fromBucket = `${new Date(nowMs - ATTRIBUTION_LOOKBACK_MS).toISOString().slice(0, 13)}:00`;
 	let rows: LaneSpendRow[] = [];

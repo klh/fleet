@@ -1,5 +1,6 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
+import type { TimingEventRow } from "../lib/work-timing.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
@@ -51,11 +52,21 @@ export function taskShape(
 	},
 	attribution: ItemAttribution | null = null,
 	failureNote: string | null = null,
+	completion?: Map<string, { text: string; ts: string; source: string }>,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
 	// live (TTL-cached per project in prefer.ts)
 	const pref = preferForProject(w.project);
+	// W682 — batched callers pass a preloaded completion-tail map (one
+	// chunked read for the whole feed); single-item callers keep the direct
+	// completionTail() lookup. Missing key = no record, same as null.
+	const done =
+		w.state === "DONE"
+			? completion
+				? (completion.get(`${w.project}\u0000${w.id}`) ?? null)
+				: completionTail(db, w.project, w.id)
+			: null;
 	return {
 		project: w.project,
 		id: w.id,
@@ -76,7 +87,7 @@ export function taskShape(
 		age_s: ago(w.updated_at),
 		open_decisions: openDecisions,
 		tail:
-			(w.state === "DONE" ? completionTail(db, w.project, w.id) : null) ??
+			done ??
 			transcriptTail(w.owner_sid, w.state === "FAILED" ? 320 : 110) ??
 			subscribeTail(w.owner_sid),
 		...laneModelOf(w.owner_sid),
@@ -142,10 +153,24 @@ const ATTR_TTL_MS = 5_000;
 function workAttribution(): Map<string, ItemAttribution> {
 	if (_wAttr && Date.now() - _wAttr.at < ATTR_TTL_MS) return _wAttr.m;
 	const m = new Map<string, ItemAttribution>();
+	// W682: ONE claim-replay bus scan feeds every project's replay — the
+	// per-project pair of events scans (25 projects × 2 = 50 store round
+	// trips per TTL window) collapses into this single read.
+	const evs = db
+		.query(
+			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
+		)
+		.all() as TimingEventRow[];
 	for (const { project } of db
 		.query("SELECT DISTINCT project FROM work_items")
 		.all() as { project: string }[]) {
-		for (const [id, a] of itemAttribution(db as unknown as Database, project)) {
+		for (const [id, a] of itemAttribution(
+			db as unknown as Database,
+			project,
+			Date.now(),
+			undefined,
+			evs,
+		)) {
 			m.set(`${project}\u0000${id}`, a);
 		}
 	}
@@ -154,8 +179,49 @@ function workAttribution(): Map<string, ItemAttribution> {
 }
 
 // the tasks feed: everything not SUPERSEDED (or DONE still holding an owner —
-// a stale claim, not a result), newest activity first, open forks counted
-export function tasks(p: string | null): unknown[] {
+// a stale claim, not a result), newest activity first, open forks counted.
+// W682 wire trim: terminal history (DONE/CANCELLED/ORPHANED) caps at the
+// newest `done` rows per project — the client kanban renders 12 done cards
+// per project and the completed table is opt-in — while live states always
+// ride in full. `?done=all` restores the complete feed (the opt-in table).
+const TASKS_TERMINAL_STATES = new Set(["DONE", "CANCELLED", "ORPHANED"]);
+const TASKS_DONE_CAP_DEFAULT = 12;
+
+// W682 — completion tails batched: one full-table read replaces the per-DONE
+// row completionTail() store RPC (~1525 statements per cold /api/tasks
+// compute — the profile's whale). Fail-soft like completionRecord: a missing
+// table yields an empty map, rows fall through to transcript tails.
+function completionTailMap(): Map<
+	string,
+	{ text: string; ts: string; source: string }
+> {
+	const out = new Map<string, { text: string; ts: string; source: string }>();
+	try {
+		for (const r of db
+			.query(
+				"SELECT project, item, summary, completed_at FROM work_completion_records",
+			)
+			.all() as {
+			project: string;
+			item: string;
+			summary: string;
+			completed_at: number;
+		}[])
+			out.set(`${r.project}\u0000${r.item}`, {
+				text: r.summary,
+				ts: new Date(r.completed_at).toISOString(),
+				source: "completion",
+			});
+	} catch {
+		// no completion records table (fresh fixture) — tails fall through
+	}
+	return out;
+}
+
+export function tasks(
+	p: string | null,
+	done: number | "all" = TASKS_DONE_CAP_DEFAULT,
+): unknown[] {
 	const where =
 		"state != 'SUPERSEDED' AND NOT (state = 'DONE' AND owner_sid IS NOT NULL)";
 	const rows = (
@@ -184,6 +250,23 @@ export function tasks(p: string | null): unknown[] {
 		openByTask.set(`${r.project}\u0000${r.task_id}`, r.n);
 	const unblocked = unblockedBy();
 	const edges = depEdges();
+	// W682: terminal history caps per project (the client kanban renders 12
+	// done cards per project; the completed table opts into the full feed
+	// with ?done=all) — the 1.4MB wire was mostly buried DONE rows.
+	let feed = rows;
+	if (done !== "all") {
+		const cap =
+			typeof done === "number" && done >= 0 ? done : TASKS_DONE_CAP_DEFAULT;
+		const seen = new Map<string, number>();
+		feed = rows.filter((w) => {
+			if (!TASKS_TERMINAL_STATES.has(w.state)) return true;
+			const n = seen.get(w.project) ?? 0;
+			if (n >= cap) return false;
+			seen.set(w.project, n + 1);
+			return true;
+		});
+	}
+	const completion = completionTailMap();
 	const failures = new Map<string, string>();
 	for (const row of db
 		.query(
@@ -200,7 +283,7 @@ export function tasks(p: string | null): unknown[] {
 			if (!failures.has(key)) failures.set(key, event.note);
 		}
 	}
-	return rows.map((w) =>
+	return feed.map((w) =>
 		taskShape(
 			w,
 			openByTask.get(`${w.project}\u0000${w.id}`) ?? 0,
@@ -208,6 +291,7 @@ export function tasks(p: string | null): unknown[] {
 			edges.get(`${w.project}\u0000${w.id}`),
 			workAttribution().get(`${w.project}\u0000${w.id}`) ?? null,
 			failures.get(`${w.project}\u0000${w.id}`) ?? null,
+			completion,
 		),
 	);
 }
@@ -1016,11 +1100,30 @@ export function decisionRecords(
 // after POST /api/answer (fixture suite red since the memo landed; W798
 // probe: new forks invisible for up to 1.5s).
 let _feed: { at: number; data: unknown } | null = null;
+let _feedBuilding = false;
 const FEED_TTL_MS = 1_500;
 
 function feedMemo(): { at: number; data: unknown } {
-	if (_feed && Date.now() - _feed.at < FEED_TTL_MS) return _feed;
-	_feed = { at: Date.now(), data: buildPayload() };
+	if (!_feed) {
+		_feed = { at: Date.now(), data: buildPayload() };
+		return _feed;
+	}
+	// W682: stale-while-revalidate — a poll landing on an expired memo gets
+	// the last good payload immediately and the rebuild defers until the
+	// response has flushed. The compute is synchronous store RPCs, so a
+	// rebuild-in-place stalled every other 1s poll for the cold compute's
+	// whole wall time; deferring keeps every poll sub-ms while the ledger
+	// staleness stays inside the old worst case (TTL + one compute).
+	if (Date.now() - _feed.at >= FEED_TTL_MS && !_feedBuilding) {
+		_feedBuilding = true;
+		setTimeout(() => {
+			try {
+				_feed = { at: Date.now(), data: buildPayload() };
+			} finally {
+				_feedBuilding = false;
+			}
+		}, 1);
+	}
 	return _feed;
 }
 
