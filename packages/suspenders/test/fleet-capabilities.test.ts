@@ -66,3 +66,15 @@ test("defaultBinProbe resolves bun, refuses nonsense", () => {
 	expect(defaultBinProbe("bun")).toBe(true);
 	expect(defaultBinProbe("definitely-not-a-binary-w918")).toBe(false);
 });
+
+test("fleet-install --capabilities prints the live catalog", () => {
+	const r = Bun.spawnSync(["bun", "hooks/bin/fleet-install.ts", "--capabilities"], {
+		cwd: REPO,
+		encoding: "utf8",
+		env: { ...process.env },
+	});
+	const out = `${r.stdout ?? ""}`;
+	expect(r.exitCode).toBe(0);
+	expect(out).toContain("catalog targets");
+	expect(out).toContain("Claude");
+});

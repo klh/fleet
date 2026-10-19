@@ -21,6 +21,7 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import {
+	capabilityCatalog,
 	detectFleetTargets,
 	type FleetTarget,
 	listTargets,
@@ -38,6 +39,7 @@ interface Flags {
 	agent?: string[];
 	yes: boolean;
 	dryRun: boolean;
+	capabilities: boolean;
 }
 
 // W820.2: argv rides verb-kit (W651) — embedded door. -y folds to --yes
@@ -47,9 +49,10 @@ function flagsOf(argv: string[]): Flags {
 	const norm = argv.map((a) => (a === "-y" ? "--yes" : a));
 	const SPEC = defineVerb({
 		name: "fleet-install",
-		usage: "usage: bun fleet-install.ts [--agent <name|*>] [--yes] [--dry-run]",
+		usage:
+			"usage: bun fleet-install.ts [--agent <name|*>] [--yes] [--dry-run] [--capabilities]",
 		flags: ["--agent"],
-		switches: ["--yes", "--dry-run"],
+		switches: ["--yes", "--dry-run", "--capabilities"],
 	});
 	if (norm.includes("--help") || norm.includes("-h")) {
 		console.log(renderVerbHelp(SPEC));
@@ -66,6 +69,7 @@ function flagsOf(argv: string[]): Flags {
 			.map((s) => s.trim()),
 		yes: parsed.flag("--yes") === "true",
 		dryRun: parsed.flag("--dry-run") === "true",
+		capabilities: parsed.flag("--capabilities") === "true",
 	};
 }
 
@@ -101,6 +105,21 @@ async function wireTarget(
 async function main(): Promise<void> {
 	const flags = flagsOf(process.argv.slice(2));
 	p.intro("suspenders fleet-install — wire hook gates across CLI targets");
+
+	if (flags.capabilities) {
+		const rows = await capabilityCatalog(REPO);
+		p.log.info(
+			`${rows.length} catalog targets — ${rows.filter((r) => r.installed).length} detected on this machine`,
+		);
+		for (const r of rows) {
+			if (!r.installed) continue;
+			const c = r.capabilities;
+			p.log.info(
+				`${r.displayName}: skills=${c.skillInstallable} hooks=${c.hookWired} spawn=${c.headlessSpawnable} resume=${c.sessionResumable} buckle=${c.buckleCompatible}`,
+		);
+		}
+		process.exit(0);
+	}
 
 	const spinner = p.spinner();
 	spinner.start("Detecting installed CLI/agent targets…");
