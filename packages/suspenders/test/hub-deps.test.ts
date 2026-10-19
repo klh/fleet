@@ -113,6 +113,16 @@ describe("HUB_FLEET_ROOT", () => {
 	test("is the compose volume root (W714 regression tripwire)", () => {
 		expect(HUB_FLEET_ROOT).toBe("/src/fleet");
 	});
+	test("boot main() links through the const, never a dropped alias (W859.1)", async () => {
+		// W688.6 renamed the boot root to HUB_FLEET_ROOT but missed the
+		// `cwd: ROOT` site — overlay-hub fleet-deps boots died with
+		// ReferenceError before install (67a026e4 fixed it branch-only;
+		// the reconcile dropped it and e6ebfbbd broke deploys).
+		const url = new URL("../deploy/hub-deps.ts", import.meta.url);
+		const src = await Bun.file(url).text();
+		expect(src).not.toMatch(/\bcwd: ROOT\b/);
+		expect(src).toContain("cwd: HUB_FLEET_ROOT");
+	});
 });
 
 describe("installBaseClosure", () => {

@@ -103,7 +103,7 @@ export function installBaseClosure(root: string): number {
 if (import.meta.main) {
 	const install = Bun.spawnSync(
 		["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
-		{ cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+		{ cwd: HUB_FLEET_ROOT, stdout: "inherit", stderr: "inherit" },
 	);
 	if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
 

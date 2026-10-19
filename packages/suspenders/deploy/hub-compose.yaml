@@ -593,6 +593,9 @@ services:
     container_name: ${HUB_NAME:-desktop}-mdns-announce
     logging: *default-logging
     <<: *runtime-hardening
+    # twin of deploy.resources.limits.pids below — compose v5.6 rejects the
+    # pair when distinct (hub-init/fleet-repo pattern: the two must match)
+    pids_limit: 128
     deploy:
       resources:
         limits:
@@ -622,6 +625,9 @@ services:
     container_name: ${HUB_NAME:-desktop}-mdns-health
     logging: *default-logging
     <<: *runtime-hardening
+    # twin of deploy.resources.limits.pids below — compose v5.6 rejects the
+    # pair when distinct (hub-init/fleet-repo pattern: the two must match)
+    pids_limit: 128
     deploy:
       resources:
         limits:
