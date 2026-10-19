@@ -18,6 +18,7 @@ describe("W422 executor-adapter registry", () => {
 		expect(EXECUTOR_ADAPTERS.map((a) => a.id)).toEqual([
 			"claude",
 			"codex",
+			"forge",
 			"copilot",
 			"grok",
 			"cline",
@@ -25,6 +26,7 @@ describe("W422 executor-adapter registry", () => {
 		expect(HARNESS_PROCESS_NAMES).toEqual([
 			"claude",
 			"codex",
+			"forge",
 			"copilot",
 			"grok",
 			"cline",
@@ -43,15 +45,16 @@ describe("W422 executor-adapter registry", () => {
 			"s1",
 			"--fork-session",
 		]);
-		for (const h of ["copilot", "codex", "grok", "cline", "gemini"]) {
+		for (const h of ["forge", "copilot", "codex", "grok", "cline", "gemini"]) {
 			expect(adapterForExact(h)?.forkArgs("s1") ?? null).toBeNull();
 		}
 		expect(adapterForExact("no-such-agent")).toBeNull();
 	});
-	test("isSpawnableExecutor gates resolveLaneExecutor; grok/cline catalog-only", () => {
+	test("isSpawnableExecutor gates resolveLaneExecutor; forge/grok/cline catalog-only", () => {
 		expect(isSpawnableExecutor("claude")).toBe(true);
 		expect(isSpawnableExecutor("copilot")).toBe(true);
 		expect(isSpawnableExecutor("codex")).toBe(true);
+		expect(isSpawnableExecutor("forge")).toBe(false);
 		expect(isSpawnableExecutor("grok")).toBe(false);
 		expect(isSpawnableExecutor("cline")).toBe(false);
 		expect(isSpawnableExecutor("glm-5.3-flash")).toBe(false);
