@@ -422,6 +422,7 @@ export async function checkAll(): Promise<CheckRow[]> {
 				model: ep.model,
 				...(models.length ? { models } : {}),
 				ok,
+				...(reason ? { reason } : {}),
 				ms: Date.now() - t0,
 				ip: st.resolved_ip,
 				last_seen: lastSeen(m.name, ep.port),

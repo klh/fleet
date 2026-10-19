@@ -976,6 +976,7 @@ export function createApp(deps: AppDeps): App {
 function models(deps: AppDeps): Response {
 	const data = deps.pool
 		.groups()
+		.filter((id) => deps.pool.deployments(id).length > 0)
 		.map((id) => ({ id, object: "model", owned_by: "buckle" }));
 	return Response.json({ object: "list", data });
 }

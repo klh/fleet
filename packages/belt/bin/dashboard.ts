@@ -107,8 +107,11 @@ const getModel = async (port: number): Promise<string> => {
 		const r = await fetch(`http://localhost:${port}/v1/models`, {
 			signal: AbortSignal.timeout(1000),
 		});
-		const j = (await r.json()) as { data?: { id?: string }[] };
-		return j.data?.[0]?.id ?? "?";
+		const j = (await r.json()) as {
+			data?: { id?: string }[];
+			models?: { run?: string; id?: string }[];
+		};
+		return j.data?.[0]?.id ?? j.models?.[0]?.run ?? j.models?.[0]?.id ?? "?";
 	} catch {
 		return "down";
 	}
@@ -154,7 +157,7 @@ async function status() {
 			let model_served: string | null = null;
 			if (up) {
 				model_served =
-					s.engine === "rapid"
+					s.engine === "rapid" || s.port === 8912
 						? await getModel(s.port)
 						: (modelFromProcess(s.port) ?? null);
 				if (model_served && model_served !== "?") served.add(model_served);
@@ -431,9 +434,9 @@ ${fleetNav("belt", "models")}
 <belt-topology></belt-topology>
 <script type="module" src="/dashboard-topology.js"></script>
 </section>
-<section class="surface-section" aria-label="Account model access">
-<details><summary>Model access · IKEA Copilot and personal seats</summary>
-<p class="diagnostics-note">The Copilot picker, Buckle routes and personal CLI sign-ins are separate access paths.</p>
+<section class="surface-section" aria-label="Hubs and local models">
+<details><summary>Hubs and local models</summary>
+<p class="diagnostics-note">Available models and their Buckle route from this machine.</p>
 <div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
 </details>
 </section>
@@ -573,7 +576,7 @@ function dual(ts){
   var d=new Date(ts);
   if(isNaN(d))return String(ts);
   var p=function(n){return (n<10?'0':'')+n;};
-  return d.toISOString().replace(/\.\d{3}Z$/,'Z')+'  ('+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())+' local)';
+  return d.toISOString().replace(/\\.\\d{3}Z$/,'Z')+'  ('+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())+' local)';
 }
 function fmt(line){
   try{var e=JSON.parse(line);
@@ -649,7 +652,7 @@ function tickAccess(){
         var row=document.createElement('tr');var name=document.createElement('td');var access=document.createElement('td');
         name.textContent=m.name;
         var responseOnly=m.endpoints.includes('/responses')&&!m.endpoints.includes('/chat/completions')&&!m.endpoints.includes('/v1/messages');
-        var via=m.buckle?'Buckle route configured':responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
+        var via=m.routes?.length?m.routes.map(function(route){return 'local/Copilot/'+route;}).join(', '):responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
         access.textContent=via;row.append(name,access);table.append(row);
       });
       group.append(table);box.append(group);

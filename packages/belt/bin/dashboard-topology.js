@@ -76,11 +76,18 @@ class BeltTopology extends LitElement {
 			this.topology = buildTopology(status, remotes, supervisor);
 			this.error = "";
 			try {
-				const response = await fetch("/api/network", {
-					signal: controller.signal,
-					cache: "no-store",
-				});
+				const [response, accessResponse] = await Promise.all([
+					fetch("/api/network", {
+						signal: controller.signal,
+						cache: "no-store",
+					}),
+					fetch("/api/model-access", {
+						signal: controller.signal,
+						cache: "no-store",
+					}),
+				]);
 				const network = response.ok ? await response.json() : null;
+				const access = accessResponse.ok ? await accessResponse.json() : null;
 				this.networkIssue =
 					network?.ok && network.network?.ok
 						? ""
@@ -91,6 +98,7 @@ class BeltTopology extends LitElement {
 					supervisor,
 					Date.now(),
 					network,
+					access,
 				);
 			} catch {
 				this.networkIssue = "Buckle request feed unavailable";
@@ -122,7 +130,7 @@ class BeltTopology extends LitElement {
 							const itemY = y + 142 + row * (local ? 48 : 39);
 							return svg`<g><title>${item.model}</title>
 								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
-								<text class="title" x=${itemX + 12} y=${itemY + 4}>${local ? `${item.role} · ${item.label}` : this.shortModel(item.model)}</text>
+								<text class="title" x=${itemX + 12} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : `${title.split(" · hub")[0]}/${this.shortModel(item.model, 18)}`}</text>
 								<text class="meta endpoint" x=${itemX + 12} y=${itemY + 20}>${local ? this.shortModel(item.model, 22) : "configured in remote inventory"}</text>
 								${local ? svg`<text class="meta endpoint" x=${itemX + 12} y=${itemY + 34}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
 							</g>`;
@@ -132,12 +140,15 @@ class BeltTopology extends LitElement {
 		</g>`;
 	}
 	cloud(x, y, width, item) {
-		const height = 54 + Math.max(1, item.models.length) * 19;
+		const visible = item.models.slice(0, 4);
+		const height =
+			54 + Math.max(1, visible.length) * 19 + (item.models.length > 4 ? 20 : 0);
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
 			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
-			<text class="title" x=${x + 28} y=${y + 24}>${item.name}</text>
-			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : item.probed === 0 && item.reachable === 0 ? `Direct API probe failed · ${item.routed} Belt routes` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
-			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Direct API model inventory unobserved</text>`}
+			<text class="title" x=${x + 28} y=${y + 24}>${item.name}${item.state === "unconfigured" ? " · direct API" : ""}</text>
+			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${item.kind === "copilot" ? `${item.models.length} selectable · ${item.buckleCount} Buckle routes` : Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : item.state === "unconfigured" ? "No direct API key · Copilot is a separate route" : item.probed === 0 && item.reachable === 0 ? `Direct API probe failed · ${item.routed} Belt routes` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
+			${visible.length ? visible.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${item.kind === "copilot" ? `local/Copilot/${this.shortModel(model, 23)}` : this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>${item.kind === "copilot" ? "Copilot catalog unavailable" : item.state === "unconfigured" ? "Direct API catalog requires its own key" : "Model inventory unobserved"}</text>`}
+			${item.models.length > 4 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 14} y=${y + 62 + visible.length * 19}>${item.models.length - visible.length} more · view model access</text></a>` : ""}
 		</g>`;
 	}
 	render() {
@@ -149,6 +160,16 @@ class BeltTopology extends LitElement {
 		const clouds = machines.filter(
 			(item) => !hubNames.has(item.name.toLowerCase()),
 		);
+		if (data?.copilot)
+			clouds.unshift({
+				name: "IKEA Copilot",
+				kind: "copilot",
+				state: data.copilot.state === "catalog reachable" ? "up" : "unknown",
+				models: data.copilot.models.map(
+					(model) => model.routes?.[0] ?? model.id,
+				),
+				buckleCount: data.copilot.models.filter((model) => model.buckle).length,
+			});
 		let hubY = 52;
 		const hubCards = hubs.map((item) => {
 			const inventory = machines.find(
@@ -168,7 +189,11 @@ class BeltTopology extends LitElement {
 			return card;
 		});
 		const cloudHeight = clouds.reduce(
-			(sum, item) => sum + 68 + Math.max(1, item.models.length) * 19,
+			(sum, item) =>
+				sum +
+				68 +
+				Math.max(1, Math.min(4, item.models.length)) * 19 +
+				(item.models.length > 4 ? 20 : 0),
 			0,
 		);
 		const localHeight = Math.max(195, 132 + Math.ceil(models.length / 2) * 48);
@@ -196,7 +221,10 @@ class BeltTopology extends LitElement {
 				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.displayName || item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
 				${clouds.map((item) => {
 					const y = cloudY;
-					cloudY += 68 + Math.max(1, item.models.length) * 19;
+					cloudY +=
+						68 +
+						Math.max(1, Math.min(4, item.models.length)) * 19 +
+						(item.models.length > 4 ? 20 : 0);
 					return this.cloud(850, y, 320, item);
 				})}
 			</svg></div>

@@ -139,6 +139,34 @@ describe("Belt topology", () => {
 		expect(model.machines[0]?.state).toBe("unknown");
 	});
 
+	test("missing direct API key is unconfigured while Copilot catalog remains separate", () => {
+		const copilot = {
+			state: "catalog reachable",
+			models: [
+				{ id: "claude-haiku-4.5", buckle: true, routes: ["claude-haiku-4-5"] },
+			],
+		};
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "anthropic",
+						ok: false,
+						reason: "missing api key (ANTHROPIC_API_KEY)",
+					},
+				],
+			},
+			{},
+			now,
+			null,
+			{ copilot },
+		);
+		expect(model.machines[0]?.state).toBe("unconfigured");
+		expect(model.copilot).toEqual(copilot);
+	});
+
 	test("adds observed Copilot models and measured token rate without inventing a hop", () => {
 		const payload = {
 			ok: true,
