@@ -115,7 +115,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "pause",
 		usage:
-			'usage: pause <sid> --reason "why" [--scope s] [--intervention "what is coming"]',
+			'usage: pause <sid> --reason "why" [--scope s] [--intervention "what is coming"] [--force]',
 		lax: true,
 		run: (p) => cmdPause(p.rest),
 	}),

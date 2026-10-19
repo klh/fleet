@@ -9,7 +9,12 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
-import { transcriptAlive } from "../lib/lane-liveness.ts";
+import {
+	laneVerdict,
+	transcriptAlive,
+	type LaneRef,
+} from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import {
 	die,
 	arg,
@@ -18,6 +23,7 @@ import {
 	dim,
 	cyan,
 	amber,
+	red,
 	projectIdentity,
 } from "./shared.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
@@ -214,7 +220,6 @@ export function readEvents(opts: {
 	if (kinds?.length) rows = rows.filter((r) => kinds.includes(r.kind));
 	return rows;
 }
-
 
 // age glyph for the catch-up reads (poll, events); live faces (wait,
 // subscribe) print rows as they arrive and need none
@@ -420,23 +425,74 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	const rows = readEvents({ as, since: ncur, directedOnly: true });
 	for (const r of rows) console.log(formatEventLine(r));
 	if (rest.includes("--ack"))
-		advanceCursor(as, ncur, rows.length ? Math.max(...rows.map((r) => r.id)) : ncur);
+		advanceCursor(
+			as,
+			ncur,
+			rows.length ? Math.max(...rows.map((r) => r.id)) : ncur,
+		);
 	if (!rows.length) console.log(dim("(inbox empty)"));
+}
+
+// W831: the interrupt's miss report — 'interrupted' as a STICKY terminal
+// state fact + the lane.interrupted event receipt. Nothing re-arms it; the
+// claim converges via the reclaim sweep instead of a PAUSE_REQUESTED hanging
+// unacked forever.
+function markInterrupted(
+	sid: string,
+	source: string,
+	scope: string | null,
+	reason: string | null,
+): void {
+	db.query(
+		"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
+	).run(`lane.${sid}.state`, "INTERRUPTED", source, Date.now());
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'lane.interrupted', ?, ?, ?)",
+	).run(
+		Date.now(),
+		source,
+		scope,
+		JSON.stringify({
+			...(reason ? { reason } : {}),
+			note: "no live process for this lane — sticky terminal",
+		}),
+		sid,
+	);
+	console.log(
+		`${red("✖")} ${dim(`interrupted → @${sid.slice(0, 8)} — no live process; sticky terminal`)}`,
+	);
 }
 
 export async function cmdPause(rest: string[]): Promise<void> {
 	// cooperative preemption: PAUSE_REQUESTED is interrupt-class and goes out
 	// immediately — the lane finishes its atomic edit, checkpoints, writes a
 	// continuation capsule, marks PAUSED, then waits.
+	// W831 interrupt double-check: the event targets sid by construction, so
+	// the interrupt proceeds on the PAUSE_REQUESTED path only when a live
+	// child process for that lane exists (registry row + the shared
+	// lane-liveness verdict). On miss the interrupt reports 'interrupted' as
+	// a STICKY terminal state — ghost running states converge instead of a
+	// PAUSE_REQUESTED hanging unacked forever. --force is the explicit
+	// operator override.
 	const sid = rest[0];
 	const reason = arg("--reason");
 	if (!sid || !reason)
 		die(
-			'usage: pause <sid> --reason "why" [--scope s] [--intervention "what is coming"]',
+			'usage: pause <sid> --reason "why" [--scope s] [--intervention "what is coming"] [--force]',
 		);
 	const scope = arg("--scope");
 	const intervention = arg("--intervention");
 	const source = arg("--as") ?? "coordinator";
+	if (!rest.includes("--force")) {
+		const entry = loadLaneRegistry<LaneRef>(process.cwd()).find(
+			(l) => l.sid === sid,
+		);
+		const live = entry ? laneVerdict(entry) : null;
+		if (live !== "alive") {
+			markInterrupted(sid, source, scope, reason);
+			return;
+		}
+	}
 	db.query(
 		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'pause_requested', ?, ?, ?)",
 	).run(

@@ -32,6 +32,11 @@ function fixture(file = ":memory:") {
 	db.run(
 		"CREATE TABLE events(ts INTEGER,source TEXT,kind TEXT,scope TEXT,payload TEXT,target TEXT)",
 	);
+	// W831: the release tx stamps the sticky reclaim marker — facts is part of
+	// the release gateway's surface now
+	db.run(
+		"CREATE TABLE facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)",
+	);
 	db.run(
 		"INSERT INTO work_items VALUES ('project','W1','CLAIMED','old','src',100)",
 	);

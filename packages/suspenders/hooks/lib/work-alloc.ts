@@ -18,6 +18,7 @@
 import { unmergedDeps, type DepRow } from "./dep-merge-gate.ts";
 import { laneAlive, transcriptPath, type LaneRef } from "./lane-liveness.ts";
 import type { GovernorStore } from "./govdb.ts";
+import { clearReclaimMarker } from "./reclaim-sticky.ts";
 import { claimTokenHash, claimTokenMint } from "./work-fence.ts";
 
 // the verified oh-my-codex weights (W515 brief description)
@@ -380,6 +381,9 @@ export function assignTask(
 				"UPDATE work_items SET claim_token_hash = ? WHERE project = ? AND id = ?",
 			)
 			.run(claimTokenHash(token), project, args.id);
+		// W831 sticky-until-resume: a successful claim IS the resume — the
+		// reclaim marker (reclaim.reason.<project>.<id>) converges here.
+		clearReclaimMarker(store, project, args.id);
 		if (it.scope)
 			store
 				.query(

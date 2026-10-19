@@ -23,6 +23,8 @@ import {
 	projectRootOf,
 } from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
+import { isSpawnableExecutor } from "../lib/executors/registry.ts";
+import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
@@ -72,16 +74,20 @@ function recordOwnerRuling(
 		: json({ ok: true, ruling: true, to });
 }
 
-// W182 — executor vocabulary shared by every dispatch route: raw agent
-// strings normalize (codex/copilot/grok/cline and llm:* pass through,
-// everything else falls back to claude — never a silently garbled executor).
+// W182 — executor vocabulary shared by every dispatch route, W831 total
+// selector: known spawnable tokens and llm:* pass through; ANYTHING else is
+// an explicit refusal — a miss never silently maps onto claude (the wrong-
+// backend wake the Chorus spawner-select lift bans).
 const DISPATCHABLE_AGENTS = ["codex", "copilot", "grok", "cline"];
-function normalizeAgent(raw: string): string {
-	return DISPATCHABLE_AGENTS.includes(raw)
-		? raw
-		: raw.startsWith("llm:")
-			? raw
-			: "claude";
+function normalizeAgent(raw: string): string | null {
+	const token = raw.trim().toLowerCase();
+	if (!token) return "claude"; // the GUI's empty-dropdown default
+	if (token.startsWith("llm:")) return token;
+	// registry vocabulary first; the legacy raw-agent list stays for the
+	// not-yet-spawnable rows (grok/cline) so their refusal names the truth
+	if (isSpawnableExecutor(token)) return token;
+	if (DISPATCHABLE_AGENTS.includes(token)) return token;
+	return null;
 }
 
 // W182 — llm:* leg resolution for /api/second-opinion: the same catalog the
@@ -205,6 +211,7 @@ async function releaseClaimCas(
 			WORK_CLI,
 			"reclaim",
 			id,
+			...(force ? ["--force"] : []),
 			"--expect-owner",
 			w.owner_sid,
 			"--expect-updated-at",
@@ -259,16 +266,12 @@ async function dispatchStart(
 		return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
 	let claude = "";
 	if (!agent.startsWith("llm:")) {
-		claude =
-			Bun.which(agent) ??
-			(agent === "codex"
-				? "/opt/homebrew/bin/codex"
-				: `${process.env.HOME}/.local/bin/claude`);
-		if (!existsSync(claude))
-			return json(
-				{ ok: false, error: `${agent} binary not found on the board's PATH` },
-				409,
-			);
+		// W831 total carrier selector: the binary resolve is the selector's,
+		// not a which()-then-unrelated-fallback chain — a miss names the
+		// requested carrier and refuses (W223.1 doctrine, registry-vocab).
+		const picked = selectLaneCarrier(agent);
+		if (!picked.ok) return json({ ok: false, error: picked.why }, 409);
+		claude = picked.bin;
 	}
 	if (w.owner_sid)
 		return json(
@@ -777,7 +780,17 @@ export async function handleActions(
 		if (!parsed.ok) return parsed.resp;
 		const project = String(parsed.body?.project ?? "");
 		const id = String(parsed.body?.id ?? "");
-		const agent = normalizeAgent(String(parsed.body?.agent ?? "claude"));
+		const rawAgent = String(parsed.body?.agent ?? "claude");
+		// W831 fail-closed carrier: an unknown agent 400s — never a claude wake.
+		const agent = normalizeAgent(rawAgent);
+		if (!agent)
+			return json(
+				{
+					ok: false,
+					error: `unknown carrier ${rawAgent} — not in the executor registry`,
+				},
+				400,
+			);
 		const effort = String(parsed.body?.effort ?? "").trim();
 		if (!project || !id)
 			return json({ ok: false, error: "missing project or id" }, 400);
@@ -973,7 +986,17 @@ export async function handleActions(
 		if (!parsed.ok) return parsed.resp;
 		const project = String(parsed.body?.project ?? "");
 		const id = String(parsed.body?.id ?? "");
-		const agent = normalizeAgent(String(parsed.body?.agent ?? "claude"));
+		const rawAgent = String(parsed.body?.agent ?? "claude");
+		// W831 fail-closed carrier: an unknown agent 400s — never a claude wake.
+		const agent = normalizeAgent(rawAgent);
+		if (!agent)
+			return json(
+				{
+					ok: false,
+					error: `unknown carrier ${rawAgent} — not in the executor registry`,
+				},
+				400,
+			);
 		const effort = String(parsed.body?.effort ?? "").trim();
 		if (!project || !id)
 			return json({ ok: false, error: "missing project or id" }, 400);

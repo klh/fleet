@@ -1,4 +1,5 @@
 import type { GovernorStore } from "./govdb.ts";
+import { markReclaimed } from "./reclaim-sticky.ts";
 
 export type ExpectedWorkClaim = {
 	project: string;
@@ -72,6 +73,17 @@ export function releaseWorkClaim(
 					by: audit.by,
 					reason: audit.reason,
 				}),
+			);
+		// W831 reason discriminator: reclaims stamp the sticky-until-resume
+		// marker (operator-reclaim → user, bulk pass → crash); an owner's own
+		// release is not a reclaim and writes none.
+		if (audit.reason !== "owner-release")
+			markReclaimed(
+				store,
+				expected.project,
+				expected.id,
+				audit.reason === "reclaim-all" ? "crash" : "user",
+				expected.owner,
 			);
 		return true;
 	})();
