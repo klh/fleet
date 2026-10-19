@@ -123,8 +123,7 @@ export class KlhUsageCacheDrill extends LitElement {
 				<h2>CACHE EFFICIENCY · WARM RATIO PER LANE</h2>
 				<p class="ufoot">
 					warm = share of requests that HIT provider cache (cache_read &gt; 0)
-					· the clone-reuse metric — cloned lanes sharing settings/prefix
-					should run warm · ${String(r.days)}d window
+					· ${String(r.days)}d window
 					${
 						degraded.length > 0
 							? html`· <span class="uwarn"
@@ -135,8 +134,33 @@ export class KlhUsageCacheDrill extends LitElement {
 					}
 				</p>
 			</div>
-			${this.filterRow(r)} ${this.reasonsTable(r.overall.reasons, "ALL LANES")}
-			${this.laneTable(r.lanes)}
+			${this.filterRow(r)}
+			${
+				r.local_transcripts && r.local_transcripts.cache_read_tokens > 0
+					? html`<p class="ufoot">Local Claude transcripts report
+					${fmtTok(r.local_transcripts.cache_read_tokens)} cache-read tokens
+					across ${fmtTok(r.local_transcripts.requests)} requests in this
+					window. This total has no Buckle lane attribution${
+						r.local_transcripts.source === "legacy-aggregate"
+							? " and uses the legacy rollup"
+							: ""
+					}.</p>`
+					: nothing
+			}
+			${
+				degraded.length > 0
+					? html`<p class="uwarn">Missing hub data: ${degraded
+							.map((h) => `${h.label} (${h.reason ?? "unavailable"})`)
+							.join(", ")}. Rates cover responding hubs only.</p>`
+					: nothing
+			}
+			${
+				r.hubs.some((h) => h.ok && h.rows >= 500)
+					? html`<p class="uwarn">A hub reached the 500-request read limit. Rates cover its newest requests only.</p>`
+					: nothing
+			}
+			${this.reasonsTable(r.overall.reasons, "ALL LANES", r.overall.known)}
+			${this.laneTable(r.lanes, degraded.length > 0)}
 		</div>`;
 	}
 
@@ -211,7 +235,7 @@ export class KlhUsageCacheDrill extends LitElement {
 			<span class="uoverall">
 				${String(r.overall.requests)} req ·
 				${String(r.overall.known)} known · warm
-				<b>${pct1(r.overall.warm_ratio)}</b>
+						<b>${r.overall.known > 0 ? pct1(r.overall.warm_ratio) : "—"}</b>
 				${this.loading ? html`<span class="uempty">· refreshing…</span>` : nothing}
 			</span>
 		</div>`;
@@ -220,11 +244,16 @@ export class KlhUsageCacheDrill extends LitElement {
 	private reasonsTable(
 		reasons: MissReasonCluster[],
 		scope: string,
+		known: number,
 	): TemplateResult {
 		return html`<h3>MISS REASONS · ${scope}</h3>
 			${
 				reasons.length === 0
-					? html`<p class="uempty">no misses in scope — fully warm</p>`
+					? html`<p class="uempty">${
+							known > 0
+								? "no cache misses among the requests with reported usage"
+								: "no cache verdicts in scope"
+						}</p>`
 					: html`<table class="uacts">
 							<thead>
 								<tr>
@@ -250,11 +279,14 @@ export class KlhUsageCacheDrill extends LitElement {
 			}`;
 	}
 
-	private laneTable(lanes: LaneDrillRow[]): TemplateResult {
+	private laneTable(lanes: LaneDrillRow[], degraded: boolean): TemplateResult {
 		if (lanes.length === 0)
 			return html`<p class="uempty">
-				no lane-attributed requests in scope — lanes appear once buckle traffic
-				rides /w/&lt;slug&gt; ingress and a hub serves the W824 seam
+				${
+					degraded
+						? "lane data unavailable from the failed hubs"
+						: "no requests recorded for this scope"
+				}
 			</p>`;
 		const maxReq = Math.max(1, ...lanes.map((l) => l.requests));
 		return html`<table class="uacts">
@@ -304,7 +336,7 @@ export class KlhUsageCacheDrill extends LitElement {
 									title=${`${pct1(w / 100)} of ${String(l.known)} known`}
 								></i
 							></span>
-							<span class="unum">${pct1(w / 100)}</span>
+							<span class="unum">${l.known > 0 ? pct1(w / 100) : "—"}</span>
 						</td>
 						<td class="unum">${fmtTok(l.cache_r_tok)}</td>
 						<td class="unum">${fmtTok(l.cache_c_tok)}</td>
@@ -333,7 +365,11 @@ export class KlhUsageCacheDrill extends LitElement {
 					← all lanes
 				</button>
 			</div>
-			${this.reasonsTable(scope.reasons, scope.lane)}
+			${this.reasonsTable(
+				scope.reasons,
+				scope.lane,
+				rows.filter((row) => row.cache_r !== null).length,
+			)}
 			<table class="uacts">
 				<thead>
 					<tr>

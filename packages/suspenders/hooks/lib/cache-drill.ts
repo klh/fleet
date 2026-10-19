@@ -360,9 +360,8 @@ export type RequestFetcher = (
 	{ ok: true; rows: BuckleRequestRow[] } | { ok: false; why: string }
 >;
 
-/** One GET /v1/admin/requests against a hub base URL. Tolerant envelope:
- *  {ok:true, rows:[...]} is the expected shape (W824 seam); anything else
- *  degrades honestly. */
+/** One GET /v1/admin/requests against a hub base URL. The W824 admin route
+ *  returns {requests:[...]}, capped at 500 rows per read. */
 export async function fetchHubRequests(
 	url: string,
 	token: string | null,
@@ -374,7 +373,9 @@ export async function fetchHubRequests(
 	try {
 		const headers: Record<string, string> = {};
 		if (token !== null) headers.authorization = `Bearer ${token}`;
-		const res = await fetch(`${url}/v1/admin/requests?days=${String(days)}`, {
+		const since = new Date(Date.now() - days * 86_400_000).toISOString();
+		const query = new URLSearchParams({ since, limit: "500" });
+		const res = await fetch(`${url}/v1/admin/requests?${query.toString()}`, {
 			headers,
 			signal: AbortSignal.timeout(timeoutMs),
 		});
@@ -383,10 +384,10 @@ export async function fetchHubRequests(
 		if (!res.ok)
 			return { ok: false, why: `hub answered ${String(res.status)}` };
 		const body = (await res.json()) as Record<string, unknown>;
-		if (body.ok !== true || !Array.isArray(body.rows))
-			return { ok: false, why: "envelope missing ok:true rows:[]" };
+		if (!Array.isArray(body.requests))
+			return { ok: false, why: "envelope missing requests:[]" };
 		const rows: BuckleRequestRow[] = [];
-		for (const raw of body.rows) {
+		for (const raw of body.requests) {
 			const parsed = parseRequestRow(raw);
 			if (parsed !== null) rows.push(parsed);
 		}
@@ -493,6 +494,12 @@ export interface CacheDrillReport {
 	days: number;
 	filters: CacheDrillFilters & { sort: CacheDrillSort; limit: number };
 	hubs: HubDrillStatus[];
+	/** Separate local Claude transcript meter; supplied by the board route. */
+	local_transcripts?: {
+		cache_read_tokens: number;
+		requests: number;
+		source: "transcript-v2" | "legacy-aggregate";
+	};
 	/** per-lane aggregates over the FILTERED rows, sorted per `sort`. */
 	lanes: LaneDrillRow[];
 	overall: {

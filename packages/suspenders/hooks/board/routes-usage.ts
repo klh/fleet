@@ -119,7 +119,16 @@ export async function handleUsage(
 		// pattern (TTL-cached, per-hub degrade); params: days, lane, model,
 		// day, miss_only=1, sort, limit.
 		const { days, filters } = cacheDrillParams(url);
-		return json(await cacheDrillReport({ days, filters }));
+		maybeHarvest(db);
+		const local = buildUsageReport(db, { days });
+		return json({
+			...(await cacheDrillReport({ days, filters })),
+			local_transcripts: {
+				cache_read_tokens: local.totals.cr,
+				requests: local.totals.rq,
+				source: local.provenance?.source ?? "legacy-aggregate",
+			},
+		});
 	}
 	return null;
 }

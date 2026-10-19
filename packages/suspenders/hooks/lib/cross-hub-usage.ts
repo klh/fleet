@@ -6,7 +6,7 @@
 // Each hub fetches independently and degrades alone: a down hub lands a
 // degraded row, never blocks the others. Results are TTL-cached per label
 // (module Map) so the /usage page stays cheap between reloads.
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { darkHubNow, tryLoadStack, type StackConfig } from "./stack-config.ts";
 import { readCapped } from "./federation.ts";
 
@@ -118,6 +118,20 @@ function readRegistryFrom(env?: CrossHubEnv): Record<string, unknown> {
 	}
 }
 
+function readHubTokenFile(path: string | undefined): string | null {
+	if (!path) return null;
+	try {
+		const resolved = path.startsWith("~/")
+			? `${process.env.HOME ?? ""}/${path.slice(2)}`
+			: path;
+		const { mode, size } = statSync(resolved);
+		if ((mode & 0o777) !== 0o600 || size > 4096) return null;
+		return readFileSync(resolved, "utf8").trim() || null;
+	} catch {
+		return null;
+	}
+}
+
 // ─── endpoint resolution: stack profile url → registry candidates ─────────
 export interface HubEndpoint {
 	url: string;
@@ -134,13 +148,15 @@ export function resolveHubEndpoints(
 	const want = normLabel(label);
 	const out: HubEndpoint[] = [];
 	const stack = opts.stack !== undefined ? opts.stack : tryLoadStack();
+	let stackToken: string | null = null;
 	for (const [l, prof] of Object.entries(stack?.hubs ?? {})) {
 		if (normLabel(l) !== want) continue;
+		stackToken = readHubTokenFile(prof.token_file) ?? prof.token ?? null;
 		if (typeof prof?.url === "string" && prof.url.length > 0)
 			out.push({
 				url: prof.url.replace(/\/$/, ""),
 				via: "stack.yaml",
-				token: prof.token ?? null,
+				token: stackToken,
 			});
 	}
 	// registry keys are operator config (hubs.json labels like "NAS") while
@@ -151,7 +167,8 @@ export function resolveHubEndpoints(
 		([k]) => normLabel(k) === want,
 	)?.[1] as { candidates?: unknown; token?: unknown } | undefined;
 	if (reg !== null && typeof reg === "object") {
-		const token = typeof reg.token === "string" ? reg.token : null;
+		const token =
+			stackToken ?? (typeof reg.token === "string" ? reg.token : null);
 		const cands = Array.isArray(reg.candidates) ? reg.candidates : [];
 		for (const c of cands)
 			if (typeof c === "string" && c.length > 0)

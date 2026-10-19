@@ -7,8 +7,8 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			</div>
 			<div class="ufilters">
 				${a.filters.map((l)=>e`<span class="ufgroup" data-label=${l.label}>
-						${l.options.map((n)=>e`<a class=${n.on?"ufilter on":"ufilter"} href=${n.href}
-									>${n.label}</a
+						${l.options.map((i)=>e`<a class=${i.on?"ufilter on":"ufilter"} href=${i.href}
+									>${i.label}</a
 								>`)}
 					</span>`)}
 			</div>`}}w.styles=r`
@@ -75,49 +75,55 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			</div>`;let a=this.report;if(a===null)return e`<div class="upanel">
 				<h2>CACHE EFFICIENCY</h2>
 				<p class="uempty">loading…</p>
-			</div>`;return e`${this.lanePanel(a)} ${this.scopePanel(a)}`}lanePanel(a){let l=a.hubs.filter((n)=>!n.ok);return e`<div class="upanel">
+			</div>`;return e`${this.lanePanel(a)} ${this.scopePanel(a)}`}lanePanel(a){let l=a.hubs.filter((i)=>!i.ok);return e`<div class="upanel">
 			<div class="uhead">
 				<h2>CACHE EFFICIENCY · WARM RATIO PER LANE</h2>
 				<p class="ufoot">
 					warm = share of requests that HIT provider cache (cache_read &gt; 0)
-					· the clone-reuse metric — cloned lanes sharing settings/prefix
-					should run warm · ${String(a.days)}d window
+					· ${String(a.days)}d window
 					${l.length>0?e`· <span class="uwarn"
 								>${String(l.length)}/${String(a.hubs.length)} hubs
-								degraded: ${l.map((n)=>n.label).join(", ")}</span
+								degraded: ${l.map((i)=>i.label).join(", ")}</span
 							>`:t}
 				</p>
 			</div>
-			${this.filterRow(a)} ${this.reasonsTable(a.overall.reasons,"ALL LANES")}
-			${this.laneTable(a.lanes)}
-		</div>`}filterRow(a){let l=[...new Set(a.lanes.flatMap((i)=>i.models))].sort(),n=[...new Set(a.lanes.flatMap((i)=>i.day_series.map((o)=>o.d)))].sort().reverse();return e`<div class="ufrow">
+			${this.filterRow(a)}
+			${a.local_transcripts&&a.local_transcripts.cache_read_tokens>0?e`<p class="ufoot">Local Claude transcripts report
+					${f(a.local_transcripts.cache_read_tokens)} cache-read tokens
+					across ${f(a.local_transcripts.requests)} requests in this
+					window. This total has no Buckle lane attribution${a.local_transcripts.source==="legacy-aggregate"?" and uses the legacy rollup":""}.</p>`:t}
+			${l.length>0?e`<p class="uwarn">Missing hub data: ${l.map((i)=>`${i.label} (${i.reason??"unavailable"})`).join(", ")}. Rates cover responding hubs only.</p>`:t}
+			${a.hubs.some((i)=>i.ok&&i.rows>=500)?e`<p class="uwarn">A hub reached the 500-request read limit. Rates cover its newest requests only.</p>`:t}
+			${this.reasonsTable(a.overall.reasons,"ALL LANES",a.overall.known)}
+			${this.laneTable(a.lanes,l.length>0)}
+		</div>`}filterRow(a){let l=[...new Set(a.lanes.flatMap((n)=>n.models))].sort(),i=[...new Set(a.lanes.flatMap((n)=>n.day_series.map((o)=>o.d)))].sort().reverse();return e`<div class="ufrow">
 			<label>
 				<span>days</span>
 				<select
-					@change=${(i)=>{this.days=Number(i.target.value),this.lane="",this.refresh()}}
+					@change=${(n)=>{this.days=Number(n.target.value),this.lane="",this.refresh()}}
 				>
-					${[7,14,28,90].map((i)=>e`<option value=${String(i)} ?selected=${i===this.days}
-								>${String(i)}</option
+					${[7,14,28,90].map((n)=>e`<option value=${String(n)} ?selected=${n===this.days}
+								>${String(n)}</option
 							>`)}
 				</select>
 			</label>
 			<label>
 				<span>model</span>
 				<select
-					@change=${(i)=>{this.model=i.target.value,this.refresh()}}
+					@change=${(n)=>{this.model=n.target.value,this.refresh()}}
 				>
-					${["",...l].map((i)=>e`<option value=${i} ?selected=${i===this.model}
-								>${i===""?"any":i}</option
+					${["",...l].map((n)=>e`<option value=${n} ?selected=${n===this.model}
+								>${n===""?"any":n}</option
 							>`)}
 				</select>
 			</label>
 			<label>
 				<span>day</span>
 				<select
-					@change=${(i)=>{this.day=i.target.value,this.refresh()}}
+					@change=${(n)=>{this.day=n.target.value,this.refresh()}}
 				>
-					${["",...n].map((i)=>e`<option value=${i} ?selected=${i===this.day}
-								>${i===""?"all":i}</option
+					${["",...i].map((n)=>e`<option value=${n} ?selected=${n===this.day}
+								>${n===""?"all":n}</option
 							>`)}
 				</select>
 			</label>
@@ -125,18 +131,18 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 				<input
 					type="checkbox"
 					?checked=${this.missOnly}
-					@change=${(i)=>{this.missOnly=i.target.checked,this.refresh()}}
+					@change=${(n)=>{this.missOnly=n.target.checked,this.refresh()}}
 				/>
 				<span>misses only</span>
 			</label>
 			<span class="uoverall">
 				${String(a.overall.requests)} req ·
 				${String(a.overall.known)} known · warm
-				<b>${R(a.overall.warm_ratio)}</b>
+						<b>${a.overall.known>0?R(a.overall.warm_ratio):"—"}</b>
 				${this.loading?e`<span class="uempty">· refreshing…</span>`:t}
 			</span>
-		</div>`}reasonsTable(a,l){return e`<h3>MISS REASONS · ${l}</h3>
-			${a.length===0?e`<p class="uempty">no misses in scope — fully warm</p>`:e`<table class="uacts">
+		</div>`}reasonsTable(a,l,i){return e`<h3>MISS REASONS · ${l}</h3>
+			${a.length===0?e`<p class="uempty">${i>0?"no cache misses among the requests with reported usage":"no cache verdicts in scope"}</p>`:e`<table class="uacts">
 							<thead>
 								<tr>
 									<th>reason</th>
@@ -155,10 +161,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 										<td class="uwhy">${n.detail}</td>
 									</tr>`)}
 							</tbody>
-						</table>`}`}laneTable(a){if(a.length===0)return e`<p class="uempty">
-				no lane-attributed requests in scope — lanes appear once buckle traffic
-				rides /w/&lt;slug&gt; ingress and a hub serves the W824 seam
-			</p>`;let l=Math.max(1,...a.map((n)=>n.requests));return e`<table class="uacts">
+						</table>`}`}laneTable(a,l){if(a.length===0)return e`<p class="uempty">
+				${l?"lane data unavailable from the failed hubs":"no requests recorded for this scope"}
+			</p>`;let i=Math.max(1,...a.map((n)=>n.requests));return e`<table class="uacts">
 			<thead>
 				<tr>
 					<th>lane</th>
@@ -170,13 +175,13 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 				</tr>
 			</thead>
 			<tbody>
-				${a.map((n)=>{let i=n.known>0?n.warm/n.known*100:0;return e`<tr
+				${a.map((n)=>{let o=n.known>0?n.warm/n.known*100:0;return e`<tr
 						class="ulane"
 						@click=${()=>{this.lane=n.lane==="(bare ingress)"?"":n.lane,this.refresh()}}
 					>
 						<td>
 							<b>${n.lane}</b>
-							${n.hubs.map((o)=>e`<span class="uchip">${o}</span>`)}
+							${n.hubs.map((u)=>e`<span class="uchip">${u}</span>`)}
 							${n.models.length>1?e`<span class="uwarn">${String(n.models.length)} models</span>`:t}
 						</td>
 						<td class="unum">
@@ -184,26 +189,26 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 							<span class="ubarslot"
 								><i
 									class="ureq"
-									style=${`width:${String(Math.max(4,n.requests/l*100))}%`}
+									style=${`width:${String(Math.max(4,n.requests/i*100))}%`}
 								></i
 							></span>
 						</td>
 						<td>
 							<span class="uwr"
 								><i
-									class=${i>=50?"uwarm":"ucold"}
-									style=${`width:${String(Math.max(2,i))}%`}
-									title=${`${R(i/100)} of ${String(n.known)} known`}
+									class=${o>=50?"uwarm":"ucold"}
+									style=${`width:${String(Math.max(2,o))}%`}
+									title=${`${R(o/100)} of ${String(n.known)} known`}
 								></i
 							></span>
-							<span class="unum">${R(i/100)}</span>
+							<span class="unum">${n.known>0?R(o/100):"—"}</span>
 						</td>
 						<td class="unum">${f(n.cache_r_tok)}</td>
 						<td class="unum">${f(n.cache_c_tok)}</td>
 						<td class="unum">${F(n.last_ts)}</td>
 					</tr>`})}
 			</tbody>
-		</table>`}scopePanel(a){let l=a.lane_scope;if(l===null)return t;let n=l.requests,i=a.hubs;return e`<div class="upanel">
+		</table>`}scopePanel(a){let l=a.lane_scope;if(l===null)return t;let i=l.requests,n=a.hubs;return e`<div class="upanel">
 			<div class="uhead">
 				<h2>LANE ${l.lane} · REQUESTS</h2>
 				<button
@@ -213,7 +218,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 					← all lanes
 				</button>
 			</div>
-			${this.reasonsTable(l.reasons,l.lane)}
+			${this.reasonsTable(l.reasons,l.lane,i.filter((o)=>o.cache_r!==null).length)}
 			<table class="uacts">
 				<thead>
 					<tr>
@@ -227,9 +232,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 					</tr>
 				</thead>
 				<tbody>
-					${n.length===0?e`<tr>
+					${i.length===0?e`<tr>
 								<td colspan="7" class="uempty">no requests in scope</td>
-							</tr>`:n.map((o)=>{let h=i.find((u)=>u.label===o.hub)?.label??o.hub??"";return e`<tr class=${o.ok===!1?"ubad":""}>
+							</tr>`:i.map((o)=>{let u=n.find((p)=>p.label===o.hub)?.label??o.hub??"";return e`<tr class=${o.ok===!1?"ubad":""}>
 									<td class="unum">${o.ts.slice(11,19)}</td>
 									<td>${o.target_model??"—"}</td>
 									<td class="unum">${o.status===null?"—":String(o.status)}</td>
@@ -242,7 +247,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 									<td class="unum">
 										${o.duration_ms===null?"—":f(o.duration_ms)}
 									</td>
-									<td><span class="uchip">${h}</span></td>
+									<td><span class="uchip">${u}</span></td>
 								</tr>`})}
 				</tbody>
 			</table>
@@ -419,7 +424,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			padding: 2px 8px;
 			cursor: pointer;
 		}
-	`];customElements.define("klh-usage-cache-drill",S);var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},p=()=>x()?.panels??null,E=()=>x()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),N=(a)=>a==null||!Number.isFinite(a)?"—":d(a),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
+	`];customElements.define("klh-usage-cache-drill",S);var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},h=()=>x()?.panels??null,E=()=>x()?.slot??{},c=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),M=(a)=>a==null||!Number.isFinite(a)?"—":c(a),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -496,9 +501,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`;class C extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=p()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
-			>${l.map((i)=>e`<a class="${n}${i.on?" on":""}" href=${i.href}
-						>${i.label}</a
+`;class C extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=h()?.header??null}chips(a,l,i){return e`<span class="ufgroup" data-label=${a}
+			>${l.map((n)=>e`<a class="${i}${n.on?" on":""}" href=${n.href}
+						>${n.label}</a
 					>`)}</span
 		>`}body(a){return e`<div class="uback">
 				<a href="/">&larr; fleet board</a><span class="uwin">${a.back}</span>
@@ -570,7 +575,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class U extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=p()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class U extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=h()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((a)=>e`<div class="utile">
 					<div class="uv">${a.v}</div>
 					<div class="uk">${a.k}</div>
@@ -606,10 +611,10 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;var v=(a,l)=>a[l]??"#888",P=(a,l,n)=>{let i=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
-		style=${`width:${i};background:${v(n,a.g)}`}
-		title=${`${a.g}: ${d(a.tok)} tok`}
-	></i>`};class H extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=p()?.actors?.rows??[],this.slot=E()}render(){let a=p()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
+`;var v=(a,l)=>a[l]??"#888",P=(a,l,i)=>{let n=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
+		style=${`width:${n};background:${v(i,a.g)}`}
+		title=${`${a.g}: ${c(a.tok)} tok`}
+	></i>`};class H extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=h()?.actors?.rows??[],this.slot=E()}render(){let a=h()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
 			<h2>ACTORS</h2>
 			<table class="uacts">
 				<thead>
@@ -624,18 +629,18 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 					${a.map((l)=>this.row(l))}
 				</tbody>
 			</table>
-		</div>`}row(a){let l=[...a.demo?["synthetic demo"]:[],...a.chips].map((n)=>e`<span class="uchip">${n}</span>`);return e`<tr class="uact">
+		</div>`}row(a){let l=[...a.demo?["synthetic demo"]:[],...a.chips].map((i)=>e`<span class="uchip">${i}</span>`);return e`<tr class="uact">
 				<td>
 					<b>${a.actor}</b>
 					${l}
 				</td>
 				<td>
 					<div class="ubar" style=${`width:${a.barW}%`}>
-						${a.segs.map((n)=>P(n,a.total,this.slot))}
+						${a.segs.map((i)=>P(i,a.total,this.slot))}
 					</div>
 				</td>
-				<td class="unum">${d(a.total)}</td>
-				<td class="unum">${d(a.rq)}</td>
+				<td class="unum">${c(a.total)}</td>
+				<td class="unum">${c(a.rq)}</td>
 			</tr>
 			${this.detail(a.models)}`}detail(a){return e`<tr class="udetail">
 			<td colspan="4">
@@ -661,8 +666,8 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 				></i
 				>${a.m}
 			</td>
-			<td class="unum">${d(a.tok)}</td>
-			<td class="unum">${d(a.rq)}</td>
+			<td class="unum">${c(a.tok)}</td>
+			<td class="unum">${c(a.rq)}</td>
 		</tr>`}}H.styles=[k,r`
 		tr.udetail td {
 			padding-top: 0;
@@ -689,7 +694,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
+	`];class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=h()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
 				<h2>${a.title}</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -712,14 +717,14 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		</div>`}arow(a){return e`<tr>
 			<td><b>${a.aid}</b></td>
 			<td>${a.domain}</td>
-			<td class="unum">${d(a.inj)}</td>
-			<td class="unum">${d(a.skip)}</td>
-			<td class="unum">${d(a.tok)}</td>
+			<td class="unum">${c(a.inj)}</td>
+			<td class="unum">${c(a.skip)}</td>
+			<td class="unum">${c(a.tok)}</td>
 		</tr>`}}A.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];var D={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var D={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=h()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -741,19 +746,19 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			<tbody>
 				${a.map((l)=>e`<tr>
 					<td>${l.d}</td>
-					<td class="unum">${d(l.cost)}</td>
-					<td style="width:44%">${l.cells.map((n,i)=>this.cell(n,i))}</td>
+					<td class="unum">${c(l.cost)}</td>
+					<td style="width:44%">${l.cells.map((i,n)=>this.cell(i,n))}</td>
 					<td class="unum">${T(l.orient)}</td>
 				</tr>`)}
 			</tbody>
-		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let i=T(a.share);return e`${n}<span class="ucwrap">
+		</table>`}cell(a,l){let i=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${i}<span class="uempty">—</span>`;let n=T(a.share);return e`${i}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${i};background:${D[a.key]??"#888"}`}
-					title=${`${a.key}: ${i}`}
+					style=${`width:${n};background:${D[a.key]??"#888"}`}
+					title=${`${a.key}: ${n}`}
 				></i></span
-			><span class="unum">${i}</span></span
-		>`}lanes(a){let l=a.length?a.map((n)=>this.laneRow(n)):[e`<tr>
+			><span class="unum">${n}</span></span
+		>`}lanes(a){let l=a.length?a.map((i)=>this.laneRow(i)):[e`<tr>
 						<td colspan="6" class="uempty">
 							no classified activity yet — first harvest fills this table
 						</td>
@@ -776,8 +781,8 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			<td>${this.cell(a.cells[0],0)}</td>
 			<td class="unum">${T(a.orient)}</td>
 			<td class="unum">${a.spr}</td>
-			<td class="unum">${d(a.cost)}</td>
-			<td class="unum">${d(a.req)}</td>
+			<td class="unum">${c(a.cost)}</td>
+			<td class="unum">${c(a.req)}</td>
 		</tr>`}}z.styles=[k,r`
 		.ucwrap {
 			display: flex;
@@ -791,7 +796,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var j="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.spokes??null,this.slot=E()}render(){let a=p()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var j="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=h()?.spokes??null,this.slot=E()}render(){let a=h()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<p class="uempty">${j}</p>
 		</div>`}body(a){return e`<div class="upanel">
@@ -819,13 +824,13 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 					${a.segs.map((l)=>P(l,a.total,this.slot))}
 				</div>
 			</td>
-			<td class="unum">${d(a.total)}</td>
-			<td class="unum">${d(a.rq)}</td>
+			<td class="unum">${c(a.total)}</td>
+			<td class="unum">${c(a.rq)}</td>
 		</tr>`}}L.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];var B="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.crosshub??null,this.slot=E()}render(){let a=p()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var B="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=h()?.crosshub??null,this.slot=E()}render(){let a=h()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
@@ -845,12 +850,12 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${String(l)}%`}>
-					${a.segs.map((n)=>P(n,a.total,this.slot))}
+					${a.segs.map((i)=>P(i,a.total,this.slot))}
 				</div>
 			</td>
-			<td class="unum">${d(a.total)}</td>
-			<td class="unum">${d(a.rq)}</td>
-		</tr>`}get rowTotals(){return(p()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
+			<td class="unum">${c(a.total)}</td>
+			<td class="unum">${c(a.rq)}</td>
+		</tr>`}get rowTotals(){return(h()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
 			<table class="uacts">
 				<thead>
@@ -869,14 +874,14 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class M extends s{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let a=x()?.timeline??[],l=a[0]??[];this.hours=l.map((i,o)=>({bucket:i*1000,tokens:a.slice(1).reduce((h,u)=>h+(u[o]??0),0)})).filter((i)=>i.tokens>0).map((i)=>i.bucket).reverse();let n=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(n)?n:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let a=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((n)=>{if(!n.ok)throw Error(`HTTP ${String(n.status)}`);return n.json()}).then((n)=>{if(a!==this.requestId)return;this.report=n.report,this.loading=!1}).catch((n)=>{if(a!==this.requestId)return;this.error=String(n.message??n),this.loading=!1})}render(){if(!this.hours.length)return e``;let a=this.report?.actors.flatMap((l)=>l.byModel.map((n)=>({actor:l.actor,...n})))??[];return e`<div class="upanel" id="usage-hour">
+	`];class q extends s{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let a=x()?.timeline??[],l=a[0]??[];this.hours=l.map((n,o)=>({bucket:n*1000,tokens:a.slice(1).reduce((u,p)=>u+(p[o]??0),0)})).filter((n)=>n.tokens>0).map((n)=>n.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let a=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(a!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(a!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}render(){if(!this.hours.length)return e``;let a=this.report?.actors.flatMap((l)=>l.byModel.map((i)=>({actor:l.actor,...i})))??[];return e`<div class="upanel" id="usage-hour">
 			<div class="uhead">
 				<h2>HOUR DETAIL</h2>
 				<p class="ufoot">Select an hour to inspect its actors and models.</p>
 			</div>
 			<label class="hour-picker">hour
 				<select
-					@change=${(l)=>{this.bucket=Number(l.target.value);let n=new URL(location.href);n.searchParams.set("hour",String(this.bucket)),history.replaceState(null,"",n),this.refresh()}}
+					@change=${(l)=>{this.bucket=Number(l.target.value);let i=new URL(location.href);i.searchParams.set("hour",String(this.bucket)),history.replaceState(null,"",i),this.refresh()}}
 				>
 					${this.hours.map((l)=>e`<option value=${String(l)} ?selected=${l===this.bucket}>${new Date(l).toLocaleString()}</option>`)}
 				</select>
@@ -886,13 +891,13 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			${!this.loading&&!this.error&&a.length===0?e`<p class="uempty">No attributed usage in this hour.</p>`:t}
 			${!this.loading&&!this.error&&a.length>0?e`<div class="hour-scroll"><table class="uacts">
 				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
-				<tbody>${a.map((l)=>e`<tr><td>${l.actor}</td><td>${l.model}</td><td>${l.group}</td><td>${d(l.i)}</td><td>${d(l.cr)}</td><td>${d(l.cc)}</td><td>${d(l.o)}</td><td>${String(l.rq)}</td></tr>`)}</tbody>
+				<tbody>${a.map((l)=>e`<tr><td>${l.actor}</td><td>${l.model}</td><td>${l.group}</td><td>${c(l.i)}</td><td>${c(l.cr)}</td><td>${c(l.cc)}</td><td>${c(l.o)}</td><td>${String(l.rq)}</td></tr>`)}</tbody>
 			</table></div>`:t}
-		</div>`}}M.styles=[k,r`
+		</div>`}}q.styles=[k,r`
 	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
 	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
 	.hour-scroll { overflow-x: auto; }
-`];class q extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=x();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
+`];class _ extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=x();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -906,8 +911,8 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(b,c)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),i=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),h=(b,c)=>c.map((g)=>d(g)),u=(b,c)=>{let g={side:b,stroke:o,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:i,width:1}};if(c)g.values=c;return g},m=this.querySelector("#u-timeline");if(m&&this.groups.length){let b=[{}];for(let c of this.groups){let g=v(this.slot,c);b.push({label:c,stacked:!0,stroke:g,fill:g,width:1,points:{show:!1},value:(W,_)=>N(_)})}this.chart(m,a,{width:m.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[u(2),u(3,h)]},this.timeline,300)}let y=this.querySelector("#u-hours");if(y)this.chart(y,a,{width:y.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,c)=>N(c)}],axes:[u(2,(b,c)=>c.map((g)=>String(Math.round(g)).padStart(2,"0"))),u(3,h)]},this.byHour,190)}chart(a,l,n,i,o){let h=new l(n,i,a);this.charts.push(h);let u=()=>{let m=a.clientWidth;if(m>0&&m!==h.width)h.setSize({width:m,height:o})};if(typeof ResizeObserver==="function"){let m=new ResizeObserver(u);m.observe(a),this.ros.push(m)}else this.resizes.push(u),window.addEventListener("resize",u)}}q.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(b,d)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||d,i=()=>l("--klh-chart-grid","#2c2c2a"),n=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),u=(b,d)=>d.map((g)=>c(g)),p=(b,d)=>{let g={side:b,stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:n,width:1}};if(d)g.values=d;return g},m=this.querySelector("#u-timeline");if(m&&this.groups.length){let b=[{}];for(let d of this.groups){let g=v(this.slot,d);b.push({label:d,stacked:!0,stroke:g,fill:g,width:1,points:{show:!1},value:(W,N)=>M(N)})}this.chart(m,a,{width:m.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[p(2),p(3,u)]},this.timeline,300)}let y=this.querySelector("#u-hours");if(y)this.chart(y,a,{width:y.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,d)=>M(d)}],axes:[p(2,(b,d)=>d.map((g)=>String(Math.round(g)).padStart(2,"0"))),p(3,u)]},this.byHour,190)}chart(a,l,i,n,o){let u=new l(i,n,a);this.charts.push(u);let p=()=>{let m=a.clientWidth;if(m>0&&m!==u.width)u.setSize({width:m,height:o})};if(typeof ResizeObserver==="function"){let m=new ResizeObserver(p);m.observe(a),this.ros.push(m)}else this.resizes.push(p),window.addEventListener("resize",p)}}_.styles=r`
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",C);customElements.define("klh-usage-tiles",U);customElements.define("klh-usage-actors",H);customElements.define("klh-usage-aids",A);customElements.define("klh-usage-activity",z);customElements.define("klh-usage-spokes",L);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",M);customElements.define("klh-usage-charts",q);export{z as KlhUsageActivity,H as KlhUsageActors,A as KlhUsageAids,q as KlhUsageCharts,O as KlhUsageCrossHub,M as KlhUsageDrilldown,C as KlhUsageHeader,L as KlhUsageSpokes,U as KlhUsageTiles,d as fmtTok,T as pct1};
+`;customElements.define("klh-usage-header",C);customElements.define("klh-usage-tiles",U);customElements.define("klh-usage-actors",H);customElements.define("klh-usage-aids",A);customElements.define("klh-usage-activity",z);customElements.define("klh-usage-spokes",L);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",q);customElements.define("klh-usage-charts",_);export{z as KlhUsageActivity,H as KlhUsageActors,A as KlhUsageAids,_ as KlhUsageCharts,O as KlhUsageCrossHub,q as KlhUsageDrilldown,C as KlhUsageHeader,L as KlhUsageSpokes,U as KlhUsageTiles,c as fmtTok,T as pct1};

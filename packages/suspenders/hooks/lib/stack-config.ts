@@ -71,6 +71,8 @@ export interface HubProfile {
 	 *  (before the hubs.json registry) — plus an optional front token. */
 	url?: string;
 	token?: string;
+	/** Local 0600 file containing a hub-scoped admin read key. */
+	token_file?: string;
 	/** Deploy source: `ref` pins the git ref for all three repos; the named
 	 *  entries override origins (forks/mirrors) — never host paths, the hub
 	 *  pulls its code from the git origins into volumes. */
