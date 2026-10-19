@@ -492,10 +492,12 @@ function status(hub: HubProfile): number {
 /** Exec deploy/runtime-info.ts inside buckle-hub and print the verdict. */
 function runtimeReport(
 	hub: HubProfile,
-	_docker: string | undefined,
+	docker: string | undefined,
 	dir: string,
 ): void {
-	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
+	// NAS docker lives off the non-interactive ssh PATH — use the
+	// stack.yaml deploy.docker path (config-over-code), not bare `docker`
+	const compose = `${docker ?? "docker"} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
 	// overlay hubs run base code from node_modules/fleet (HUB_FLEET_SRC) —
 	// the bare /src/fleet/packages path only exists on plain-fleet hubs
 	const infoPath = JSON.stringify(
