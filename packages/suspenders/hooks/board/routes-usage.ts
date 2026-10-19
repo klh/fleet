@@ -11,6 +11,11 @@ import {
 	type CrossHubReport,
 	crossHubRollup,
 } from "../lib/cross-hub-usage.ts";
+import {
+	drilldownReport,
+	laneRequests,
+} from "../lib/cache-drilldown.ts";
+import { resolveBuckleDb } from "../lib/lane-spend.ts";
 import { usagePage } from "../bin/usage-page-html.ts";
 
 export async function handleUsage(
@@ -86,7 +91,37 @@ export async function handleUsage(
 			meter: activityReport(db, { weeks: Math.min(26, Math.max(1, w)) }),
 		});
 	}
-	return null;
+	{
+		// W826: drillable cache-efficiency over the buckle ledger — summary
+		// (fleet warm-rate + per-lane rows with bust heuristics) or, with
+		// ?drill=<lane>, that lane's request rows. Fail-soft like every
+		// ledger consumer: no readable ledger → available:false, the panel
+		// renders the miss honestly.
+		if (url.pathname !== "/api/usage/drilldown") return null;
+		const ledger = resolveBuckleDb();
+		const days = Number(url.searchParams.get("days") ?? 7) || 7;
+		const model = url.searchParams.get("model") ?? "";
+		const drill = url.searchParams.get("drill") ?? "";
+		if (drill !== "") {
+			return json({
+				ok: true,
+				page: laneRequests(ledger, {
+					lane: drill,
+					days,
+					model: model || undefined,
+					missOnly: url.searchParams.get("missOnly") === "1",
+					limit: Number(url.searchParams.get("limit") ?? 200) || 200,
+				}),
+			});
+		}
+		const sorts = ["warm-rate", "cache-miss", "tokens", "cost", "requests"] as const;
+		const sp = url.searchParams.get("sort") ?? "";
+		const sort = sorts.find((s) => s === sp) ?? "warm-rate";
+		return json({
+			ok: true,
+			report: drilldownReport(ledger, { days, model: model || undefined, sort }),
+		});
+	}
 }
 
 /** W365: the per-hub rollup, never fatal — any failure degrades to

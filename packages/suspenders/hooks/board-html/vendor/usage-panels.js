@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class x extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=L()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
+import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class x extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=N()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
 			<div class="uback">
 				<a href=${a.backHref}>&larr; ${a.backLabel}</a>
 				<span class=${a.note.kind==="on"?"uon":"uwin"}
@@ -69,7 +69,205 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",x);var w=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},d=()=>w()?.panels??null,R=()=>w()?.slot??{},i=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),y=(a)=>`${(a*100).toFixed(1)}%`,f=r`
+`;customElements.define("klh-usage-head",x);var d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),M=(a)=>`${(a*100).toFixed(1)}%`,F=[{v:"warm-rate",label:"warm rate (worst first)"},{v:"cache-miss",label:"cache-miss ratio"},{v:"tokens",label:"tokens"},{v:"cost",label:"cost index"},{v:"requests",label:"requests"}];class w extends s{static properties={rep:{type:Object,state:!0},page:{type:Object,state:!0},drill:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},sort:{type:String,state:!0},missOnly:{type:Boolean,state:!0},err:{type:String,state:!0}};constructor(){super();this.rep=null,this.page=null,this.drill="",this.days=7,this.model="",this.sort="warm-rate",this.missOnly=!1,this.err=""}connectedCallback(){super.connectedCallback(),this.load()}async load(){let a=new URLSearchParams({days:String(this.days),sort:this.sort});if(this.model!=="")a.set("model",this.model);try{let n=await(await fetch(`/api/usage/drilldown?${a}`)).json();this.rep=n.report??null,this.err=this.rep?.available===!1?"no readable buckle ledger — drilldown unavailable":""}catch{this.err="drilldown fetch failed",this.rep=null}}async open(a){if(this.drill===a){this.drill="",this.page=null;return}this.drill=a,this.page=null;let l=new URLSearchParams({drill:a,days:String(this.days)});if(this.model!=="")l.set("model",this.model);if(this.missOnly)l.set("missOnly","1");try{let o=await(await fetch(`/api/usage/drilldown?${l}`)).json();this.page=o.page??null}catch{this.page={available:!1,lane:a,rows:[],total:0,truncated:!1,reasons:[]}}}setFilter(a){if(Object.assign(this,a),this.load(),this.drill!==""){let l=this.drill;this.drill="",this.open(l)}}render(){if(this.rep===null)return e`<div class="upanel"><p class="uempty">${this.err===""?"loading…":this.err}</p></div>`;return e`<div class="upanel">
+			<h2>CACHE EFFICIENCY · ${this.rep.window.days}D</h2>
+			${this.controls()}
+			${this.fleetLine()}
+			<table class="udrill">
+				<thead>
+					<tr>
+						<th>lane</th>
+						<th class="unum">reqs</th>
+						<th class="unum">warm</th>
+						<th class="unum">warm%</th>
+						<th class="unum">cache rd</th>
+						<th class="unum">cache wr</th>
+						<th class="unum">tokens</th>
+						<th class="unum">cost idx</th>
+						<th>why cold</th>
+					</tr>
+				</thead>
+				<tbody>
+					${this.rep.lanes.map((a)=>this.laneRow(a))}
+				</tbody>
+			</table>
+			${this.page!==null&&this.drill!==""?this.drillRows():t}
+		</div>`}controls(){return e`<div class="uctl">
+			<label>window
+				<select @change=${(a)=>this.setFilter({days:Number(a.target.value)})}>
+					${[1,7,30,90].map((a)=>e`<option value=${a} ?selected=${this.days===a}>${a}d</option>`)}
+				</select>
+			</label>
+			<label>model
+				<select @change=${(a)=>this.setFilter({model:a.target.value})}>
+					<option value="" ?selected=${this.model===""}>all</option>
+					${(this.rep?.models??[]).map((a)=>e`<option value=${a} ?selected=${this.model===a}>${a}</option>`)}
+				</select>
+			</label>
+			<label>sort
+				<select @change=${(a)=>this.setFilter({sort:a.target.value})}>
+					${F.map((a)=>e`<option value=${a.v} ?selected=${this.sort===a.v}>${a.label}</option>`)}
+				</select>
+			</label>
+			<label class="uchk">
+				<input type="checkbox" ?checked=${this.missOnly} @change=${(a)=>this.setFilter({missOnly:a.target.checked})} />
+				requests: cache-miss only
+			</label>
+		</div>`}fleetLine(){let a=this.rep?.fleet;if(!a)return t;return e`<p class="ufleet">
+			fleet warm-rate <b>${M(a.warmRate)}</b> · ${d(a.requests)} requests warmed ${d(a.warm)} ·
+			${d(a.tokens)} tokens · cost idx ${d(Math.round(a.costIndex))}
+		</p>`}laneRow(a){let l=this.drill===a.lane;return e`<tr class=${l?"open":""} @click=${()=>void this.open(a.lane)}>
+			<td class="ulane">${l?"▾":"▸"} ${a.lane===""?"(unlaned)":a.lane}</td>
+			<td class="unum">${d(a.requests)}</td>
+			<td class="unum">${d(a.warm)}</td>
+			<td class="unum ${a.warmRate<0.25?"bad":a.warmRate>=0.6?"good":""}">${M(a.warmRate)}</td>
+			<td class="unum">${d(a.cacheR)}</td>
+			<td class="unum">${d(a.cacheC)}</td>
+			<td class="unum">${d(a.tokens)}</td>
+			<td class="unum">${d(Math.round(a.costIndex))}</td>
+			<td class="uwhy">${a.reasons.slice(0,3).map((n)=>e`<span class="uwhy-r">${n.reason}×${n.count}</span>`)}</td>
+		</tr>
+		${l&&this.page!==null?this.drillRow():t}`}drillRow(){return e`<tr class="usub">
+			<td colspan="9">
+				${this.page===null?e`<p class="uempty">loading ${this.drill}…</p>`:e`<p class="ufoot">
+							${d(this.page.total)} requests${this.page.truncated?" (capped — raise ?limit)":""} ·
+							${this.page.reasons.slice(0,3).map((a)=>e`<span class="uwhy-r">${a.reason}×${a.count}</span>`)}
+						</p>
+						<table class="ureq">
+							<thead>
+								<tr><th>ts</th><th>model</th><th class="unum">status</th><th class="unum">ms</th><th class="unum">cache rd</th><th class="unum">cache wr</th><th>decision</th></tr>
+							</thead>
+							<tbody>
+								${this.page.rows.map((a)=>e`<tr>
+										<td class="uts">${a.ts.replace("T"," ").slice(0,19)}</td>
+										<td>${a.model}</td>
+										<td class="unum ${a.ok?"":"bad"}">${a.status}</td>
+										<td class="unum">${d(a.durationMs)}</td>
+										<td class="unum">${d(a.cacheR)}</td>
+										<td class="unum">${d(a.cacheC)}</td>
+										<td class="udec" title=${a.err??""}>${a.decision}</td>
+									</tr>`)}
+							</tbody>
+						</table>`}
+			</td>
+		</tr>`}}w.styles=r`
+	:host {
+		display: block;
+	}
+	.upanel {
+		display: block;
+		background: var(--klh-surface, #1c1b19);
+		border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.08));
+		border-radius: 3px;
+		padding: 12px 14px 10px;
+		margin-bottom: 14px;
+	}
+	.upanel h2 {
+		margin: 0 0 6px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--klh-dim, #98958e);
+	}
+	.uempty,
+	.ufoot {
+		font-size: 10.5px;
+		color: var(--klh-dim, #98958e);
+		margin: 2px 0 8px;
+	}
+	.uctl {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		flex-wrap: wrap;
+		margin: 8px 0 10px;
+		font-size: 11px;
+		color: var(--klh-dim, #98958e);
+	}
+	.uctl select {
+		background: var(--klh-bg, #141311);
+		color: var(--klh-ink, #e8e6e1);
+		border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.12));
+		font: inherit;
+		padding: 1px 4px;
+	}
+	.ufleet {
+		font-size: 11.5px;
+		color: var(--klh-ink, #e8e6e1);
+		margin: 0 0 8px;
+	}
+	.ufleet b {
+		color: var(--klh-accent, #e0a458);
+	}
+	table.udrill,
+	table.ureq {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 12px;
+	}
+	table.udrill th,
+	table.udrill td,
+	table.ureq th,
+	table.ureq td {
+		padding: 5px 8px;
+		border-bottom: 1px solid var(--klh-rule, rgba(255, 255, 255, 0.06));
+		text-align: left;
+	}
+	th {
+		font-size: 9.5px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--klh-dim, #98958e);
+	}
+	.unum {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.bad {
+		color: var(--klh-bad, #c25b4e);
+	}
+	.good {
+		color: var(--klh-good, #7ba05b);
+	}
+	tr[data-open] td,
+	tbody tr {
+		cursor: pointer;
+	}
+	tbody tr.usub,
+	tbody tr.usub td {
+		cursor: default;
+	}
+	.usub > td {
+		background: var(--klh-bg, #141311);
+	}
+	.ulane {
+		max-width: 300px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.uwhy-r {
+		display: inline-block;
+		font-size: 10px;
+		color: var(--klh-dim, #98958e);
+		border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.08));
+		border-radius: 2px;
+		padding: 0 4px;
+		margin: 0 3px 2px 0;
+		white-space: nowrap;
+	}
+	.uts,
+	.udec {
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.udec {
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+`;customElements.define("klh-usage-drilldown",w);var T=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},u=()=>T()?.panels??null,C=()=>T()?.slot??{},i=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),R=(a)=>`${(a*100).toFixed(1)}%`,f=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -146,7 +344,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`;class T extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=d()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
+`;class U extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=u()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
 			>${l.map((o)=>e`<a class="${n}${o.on?" on":""}" href=${o.href}
 						>${o.label}</a
 					>`)}</span
@@ -163,7 +361,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 							>${l.label}</a
 						>`:t}
 				<span class="uon">${a.status}</span>
-			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}T.styles=r`
+			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}U.styles=r`
 	:host {
 		display: block;
 	}
@@ -223,12 +421,12 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class U extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=d()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class E extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=u()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((a)=>e`<div class="utile">
 					<div class="uv">${a.v}</div>
 					<div class="uk">${a.k}</div>
 				</div>`)}
-		</div>`}}U.styles=r`
+		</div>`}}E.styles=r`
 	:host {
 		display: block;
 	}
@@ -259,10 +457,10 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;var b=(a,l)=>a[l]??"#888",C=(a,l,n)=>{let o=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
-		style=${`width:${o};background:${b(n,a.g)}`}
+`;var v=(a,l)=>a[l]??"#888",S=(a,l,n)=>{let o=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
+		style=${`width:${o};background:${v(n,a.g)}`}
 		title=${`${a.g}: ${i(a.tok)} tok`}
-	></i>`};class E extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=d()?.actors?.rows??[],this.slot=R()}render(){let a=d()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
+	></i>`};class P extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=C()}render(){let a=u()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
 			<h2>ACTORS</h2>
 			<table class="uacts">
 				<thead>
@@ -284,7 +482,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 				</td>
 				<td>
 					<div class="ubar" style=${`width:${a.barW}%`}>
-						${a.segs.map((n)=>C(n,a.total,this.slot))}
+						${a.segs.map((n)=>S(n,a.total,this.slot))}
 					</div>
 				</td>
 				<td class="unum">${i(a.total)}</td>
@@ -310,13 +508,13 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 			<td>
 				<i
 					class="udot"
-					style=${`background:${b(this.slot,a.g)}`}
+					style=${`background:${v(this.slot,a.g)}`}
 				></i
 				>${a.m}
 			</td>
 			<td class="unum">${i(a.tok)}</td>
 			<td class="unum">${i(a.rq)}</td>
-		</tr>`}}E.styles=[f,r`
+		</tr>`}}P.styles=[f,r`
 		tr.udetail td {
 			padding-top: 0;
 			border-bottom: none;
@@ -342,7 +540,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class P extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=d()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
+	`];class O extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
 				<h2>${a.title}</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -368,11 +566,11 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 			<td class="unum">${i(a.inj)}</td>
 			<td class="unum">${i(a.skip)}</td>
 			<td class="unum">${i(a.tok)}</td>
-		</tr>`}}P.styles=[f,r`
+		</tr>`}}O.styles=[f,r`
 		:host {
 			display: block;
 		}
-	`];var M={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class S extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=d()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var j={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class H extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -396,13 +594,13 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 					<td>${l.d}</td>
 					<td class="unum">${i(l.cost)}</td>
 					<td style="width:44%">${l.cells.map((n,o)=>this.cell(n,o))}</td>
-					<td class="unum">${y(l.orient)}</td>
+					<td class="unum">${R(l.orient)}</td>
 				</tr>`)}
 			</tbody>
-		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let o=y(a.share);return e`${n}<span class="ucwrap">
+		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let o=R(a.share);return e`${n}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${o};background:${M[a.key]??"#888"}`}
+					style=${`width:${o};background:${j[a.key]??"#888"}`}
 					title=${`${a.key}: ${o}`}
 				></i></span
 			><span class="unum">${o}</span></span
@@ -427,11 +625,11 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		</table>`}laneRow(a){return e`<tr>
 			<td><b>${a.actor}</b></td>
 			<td>${this.cell(a.cells[0],0)}</td>
-			<td class="unum">${y(a.orient)}</td>
+			<td class="unum">${R(a.orient)}</td>
 			<td class="unum">${a.spr}</td>
 			<td class="unum">${i(a.cost)}</td>
 			<td class="unum">${i(a.req)}</td>
-		</tr>`}}S.styles=[f,r`
+		</tr>`}}H.styles=[f,r`
 		.ucwrap {
 			display: flex;
 			align-items: center;
@@ -444,9 +642,9 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var N="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class H extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=d()?.spokes??null,this.slot=R()}render(){let a=d()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var D="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class z extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let a=u()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
-			<p class="uempty">${N}</p>
+			<p class="uempty">${D}</p>
 		</div>`}body(a){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<table class="uacts">
@@ -469,18 +667,21 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${a.barW}%`}>
-					${a.segs.map((l)=>C(l,a.total,this.slot))}
+					${a.segs.map((l)=>S(l,a.total,this.slot))}
 				</div>
 			</td>
 			<td class="unum">${i(a.total)}</td>
 			<td class="unum">${i(a.rq)}</td>
-		</tr>`}}H.styles=[f,r`
+		</tr>`}}z.styles=[f,r`
 		:host {
 			display: block;
 		}
-	`];var q="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class z extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=d()?.crosshub??null,this.slot=R()}render(){let a=d()?.crosshub;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var B="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=C()}render(){let a=u()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+				<h2>CROSS-HUB</h2>
+				<p class="uempty">${a.empty}</p>
+			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
-			<p class="uempty">${q}</p>
+			<p class="uempty">${B}</p>
 		</div>`}row(a){if(a.degraded)return e`<tr>
 				<td>
 					<b>${a.hub}</b>
@@ -495,12 +696,12 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${String(l)}%`}>
-					${a.segs.map((n)=>C(n,a.total,this.slot))}
+					${a.segs.map((n)=>S(n,a.total,this.slot))}
 				</div>
 			</td>
 			<td class="unum">${i(a.total)}</td>
 			<td class="unum">${i(a.rq)}</td>
-		</tr>`}get rowTotals(){return(d()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
+		</tr>`}get rowTotals(){return(u()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
 			<table class="uacts">
 				<thead>
@@ -515,17 +716,17 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 					${a.map((l)=>this.row(l))}
 				</tbody>
 			</table>
-		</div>`}}z.styles=[f,r`
+		</div>`}}L.styles=[f,r`
 		:host {
 			display: block;
 		}
-	`];class A extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=w();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
+	`];class A extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=T();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
 				</div>
 				<div class="ulegend">
-					${this.groups.map((a)=>e`<span><i style=${`background:${b(this.slot,a)}`}></i
+					${this.groups.map((a)=>e`<span><i style=${`background:${v(this.slot,a)}`}></i
 								>${a}</span>`)}
 				</div>
 				<div id="u-timeline" class="uchart"></div>
@@ -533,8 +734,8 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var L=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(p,c)=>getComputedStyle(document.documentElement).getPropertyValue(p).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),o=()=>l("--klh-chart-hair","#383835"),v=()=>l("--klh-chart-axis","#898781"),g=(p,c)=>c.map((h)=>i(h)),m=(p,c)=>{let h={side:p,stroke:v,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:o,width:1}};if(c)h.values=c;return h},u=this.querySelector("#u-timeline");if(u&&this.groups.length){let p=[{}];for(let c of this.groups){let h=b(this.slot,c);p.push({label:c,stacked:!0,stroke:h,fill:h,width:1,points:{show:!1},value:(O)=>i(O??0)})}this.chart(u,a,{width:u.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:p,axes:[m(2),m(3,g)]},this.timeline,300)}let k=this.querySelector("#u-hours");if(k)this.chart(k,a,{width:k.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:b(this.slot,"flash"),fill:b(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(p)=>i(p??0)}],axes:[m(2,(p,c)=>c.map((h)=>String(Math.round(h)).padStart(2,"0"))),m(3,g)]},this.byHour,190)}chart(a,l,n,o,v){let g=new l(n,o,a);this.charts.push(g);let m=()=>{let u=a.clientWidth;if(u>0&&u!==g.width)g.setSize({width:u,height:v})};if(typeof ResizeObserver==="function"){let u=new ResizeObserver(m);u.observe(a),this.ros.push(u)}else this.resizes.push(m),window.addEventListener("resize",m)}}A.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(h,c)=>getComputedStyle(document.documentElement).getPropertyValue(h).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),o=()=>l("--klh-chart-hair","#383835"),k=()=>l("--klh-chart-axis","#898781"),g=(h,c)=>c.map((m)=>i(m)),b=(h,c)=>{let m={side:h,stroke:k,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:o,width:1}};if(c)m.values=c;return m},p=this.querySelector("#u-timeline");if(p&&this.groups.length){let h=[{}];for(let c of this.groups){let m=v(this.slot,c);h.push({label:c,stacked:!0,stroke:m,fill:m,width:1,points:{show:!1},value:(q)=>i(q??0)})}this.chart(p,a,{width:p.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:h,axes:[b(2),b(3,g)]},this.timeline,300)}let y=this.querySelector("#u-hours");if(y)this.chart(y,a,{width:y.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(h)=>i(h??0)}],axes:[b(2,(h,c)=>c.map((m)=>String(Math.round(m)).padStart(2,"0"))),b(3,g)]},this.byHour,190)}chart(a,l,n,o,k){let g=new l(n,o,a);this.charts.push(g);let b=()=>{let p=a.clientWidth;if(p>0&&p!==g.width)g.setSize({width:p,height:k})};if(typeof ResizeObserver==="function"){let p=new ResizeObserver(b);p.observe(a),this.ros.push(p)}else this.resizes.push(b),window.addEventListener("resize",b)}}A.styles=r`
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",T);customElements.define("klh-usage-tiles",U);customElements.define("klh-usage-actors",E);customElements.define("klh-usage-aids",P);customElements.define("klh-usage-activity",S);customElements.define("klh-usage-spokes",H);customElements.define("klh-usage-crosshub",z);customElements.define("klh-usage-charts",A);export{S as KlhUsageActivity,E as KlhUsageActors,P as KlhUsageAids,A as KlhUsageCharts,z as KlhUsageCrossHub,T as KlhUsageHeader,H as KlhUsageSpokes,U as KlhUsageTiles};
+`;customElements.define("klh-usage-header",U);customElements.define("klh-usage-tiles",E);customElements.define("klh-usage-actors",P);customElements.define("klh-usage-aids",O);customElements.define("klh-usage-activity",H);customElements.define("klh-usage-spokes",z);customElements.define("klh-usage-crosshub",L);customElements.define("klh-usage-charts",A);export{H as KlhUsageActivity,P as KlhUsageActors,O as KlhUsageAids,A as KlhUsageCharts,L as KlhUsageCrossHub,U as KlhUsageHeader,z as KlhUsageSpokes,E as KlhUsageTiles};
