@@ -139,13 +139,13 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["p
 			${i?.lane?e`
 				<h3>Execution · ${i.days}d window</h3>
 				<p>Lane <code>${i.lane.sid}</code> · ${i.lane.executor} on ${i.lane.host} · ${i.lane.state} · attempt ${i.lane.attempt}</p>
-				<p>Requests matched by lane ID. Gateway trace IDs are not available in this feed.</p>
+					<p>Requests matched by lane ID. Each request shows its gateway trace ID when available.</p>
 				${i.hubs.filter((a)=>!a.ok).map((a)=>e`<p class="error">${a.label}: ${a.reason??"unavailable"}</p>`)}
 				${i.limited?e`<p>Showing the latest 200 requests in this window.</p>`:""}
 				${i.hops.length?e`<ol>${i.hops.map((a)=>e`<li>
 					<time datetime=${new Date(a.at).toISOString()}>${new Date(a.at).toLocaleTimeString()}</time>
 					<div><strong class=${a.status==="error"?"error":""}>${a.hub} · ${a.hop}</strong> → ${a.model??"model unknown"}
-						<span class="sub">${[a.endpoint,a.ms==null?null:`${a.ms} ms`,a.inputTokens==null?null:`${a.inputTokens} in`,a.outputTokens==null?null:`${a.outputTokens} out`,a.cacheReadTokens==null?null:`${a.cacheReadTokens} cache read`,a.status,a.requestId.slice(0,12)].filter(Boolean).join(" · ")}</span>
+						<span class="sub">${[a.endpoint,a.ms==null?null:`${a.ms} ms`,a.inputTokens==null?null:`${a.inputTokens} in`,a.outputTokens==null?null:`${a.outputTokens} out`,a.cacheReadTokens==null?null:`${a.cacheReadTokens} cache read`,a.status,a.traceId?`trace ${a.traceId}`:"trace unavailable (older request)",`request ${a.requestId.slice(0,12)}`].filter(Boolean).join(" · ")}</span>
 					</div>
 				</li>`)}</ol>`:e`<p>No Buckle requests for this lane in the selected window.</p>`}
 			`:i&&!i.lane?e`<p>No dispatched lane recorded for this item.</p>`:""}`}}customElements.define("klh-task-trace",p);class h extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
