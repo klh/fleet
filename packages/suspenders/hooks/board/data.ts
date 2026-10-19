@@ -10,13 +10,12 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { readRegistry } from "../lib/hub-locate.ts";
 import {
-	ATTRIBUTION_LOOKBACK_MS,
 	type ItemAttribution,
 	type ItemSpendPoint,
 	itemAttribution,
-	itemSpendSeries,
-	type LaneSpendRow,
-	laneSpendRows,
+	itemRequestSpendSeries,
+	type LaneRequestSpendRow,
+	laneRequestSpendRows,
 	resolveBuckleDb,
 } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
@@ -201,22 +200,41 @@ function workAttribution(): Map<string, ItemAttribution> {
 	return m;
 }
 
-// W887 — per-item spend-over-time for /api/spend-series, memoized 5s like
-// workAttribution (W663: the sparkline poll rides the cache; laneSpendRows
-// is project-independent so ONE ledger read feeds every project).
+// Per-item one-minute request series for /api/spend-series, memoized 5s like
+// workAttribution. Each refresh replaces recent buckets with absolute audit
+// totals. The histogram table retains older buckets across board restarts.
 let _wSeries: { at: number; m: Map<string, ItemSpendPoint[]> } | null = null;
 export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 	if (_wSeries && Date.now() - _wSeries.at < ATTR_TTL_MS) return _wSeries.m;
 	const evs = claimEventScan();
-	const fromBucket = `${new Date(Date.now() - ATTRIBUTION_LOOKBACK_MS).toISOString().slice(0, 13)}:00`;
-	let rows: LaneSpendRow[] = [];
+	const lastBucket = Number(
+		(
+			db
+				.query("SELECT MAX(bucket_ms) AS t FROM work_spend_histogram")
+				.get() as {
+				t: number | null;
+			} | null
+		)?.t ?? 0,
+	);
+	const fromMs = Math.max(
+		Date.now() - 24 * 3_600_000,
+		lastBucket ? lastBucket - 2 * 3_600_000 : 0,
+	);
+	const fromIso = new Date(fromMs).toISOString();
+	let rows: LaneRequestSpendRow[] = [];
 	try {
 		const ledger = resolveBuckleDb();
-		rows = ledger ? laneSpendRows(ledger, fromBucket) : [];
+		rows = ledger ? laneRequestSpendRows(ledger, fromIso) : [];
 	} catch {
 		rows = []; // unreadable ledger — fail-soft (coord fleet parity)
 	}
 	const m = new Map<string, ItemSpendPoint[]>();
+	const write = db.query(
+		"INSERT INTO work_spend_histogram (project,work_id,bucket_ms,fresh,cached,out_tok) VALUES (?,?,?,?,?,?) ON CONFLICT(project,work_id,bucket_ms) DO UPDATE SET fresh=excluded.fresh,cached=excluded.cached,out_tok=excluded.out_tok",
+	);
+	const newest = db.query(
+		"SELECT MAX(bucket_ms) AS t FROM work_spend_histogram WHERE project=? AND work_id=?",
+	);
 	for (const { project } of db
 		.query("SELECT DISTINCT project FROM work_items")
 		.all() as { project: string }[]) {
@@ -226,16 +244,46 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 			Date.now(),
 			evs,
 		);
-		for (const [id, points] of itemSpendSeries(rows, windows)) {
-			m.set(`${project}\u0000${id}`, points);
+		for (const [id, points] of itemRequestSpendSeries(
+			rows,
+			windows,
+			Number.MAX_SAFE_INTEGER,
+		)) {
+			const lastWritten = Number(
+				(newest.get(project, id) as { t: number | null } | null)?.t ?? 0,
+			);
+			for (const p of points)
+				if (p.t >= lastWritten - 120_000)
+					write.run(project, id, p.t, p.fresh, p.cached, p.out);
 		}
+	}
+	for (const r of db
+		.query(
+			"SELECT project,work_id,bucket_ms,fresh,cached,out_tok FROM work_spend_histogram ORDER BY project,work_id,bucket_ms",
+		)
+		.all() as {
+		project: string;
+		work_id: string;
+		bucket_ms: number;
+		fresh: number;
+		cached: number;
+		out_tok: number;
+	}[]) {
+		const key = `${r.project}\u0000${r.work_id}`;
+		const points = m.get(key) ?? [];
+		points.push({
+			t: r.bucket_ms,
+			fresh: r.fresh,
+			cached: r.cached,
+			out: r.out_tok,
+		});
+		m.set(key, points);
 	}
 	_wSeries = { at: Date.now(), m };
 	return m;
 }
 
-/** W887 — wire shape for /api/spend-series: per-item [t, fresh, cached, out]
- *  tuples keyed project\0id (W318). Tuples keep the poll payload tight. */
+/** Persisted per-item one-minute [t, fresh, cached, out] tuples, keyed project\0id. */
 export function workSpendSeriesPayload(): Record<
 	string,
 	[number, number, number, number][]

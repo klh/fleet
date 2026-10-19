@@ -204,7 +204,7 @@ function spendStripHtml(t, cls){
   if (!sp) return '';
   var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
   var inner = fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + spendStripText(sp);
-  return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><span class="kspark" data-spark="' + key + '"></span><span class="kspendtxt">' + esc(inner) + '</span></div>';
+  return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(inner) + '</span></div>';
 }
 function displayState(t){
   return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
@@ -435,10 +435,13 @@ function kanbanCard(t, fam){
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
-  html += '<div class="klane dim">lane ' + esc(t.owner_label || t.owner_sid || 'unclaimed') + (t.origin ? ' · ' + esc(String(t.origin)) : '') + '</div>';
+  var laneOwner = String(t.owner_label || t.owner_sid || 'unclaimed');
+  var laneOrigin = t.origin ? String(t.origin) : '';
+  html += '<div class="kmeta">';
+  if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model: ' + esc(String(t.model)) + (t.locality ? ' · ' + esc(String(t.locality)) : '') + '">' + esc(String(t.model)) + '</span>';
+  html += '<span class="klane dim" title="lane ' + esc(laneOwner) + (laneOrigin ? ' · ' + esc(laneOrigin) : '') + '">' + (laneOrigin ? 'via ' + esc(laneOrigin) : 'lane ' + esc(laneOwner)) + '</span></div>';
   html += spendStripHtml(t);
-  if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
-  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure">' + esc(String(t.failure_note)) + '</div>';
+  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="' + esc(String(t.failure_note)) + '">' + esc(String(t.failure_note)) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (startable) {
     var pick = defaultPick(t);
@@ -647,7 +650,7 @@ function splineEdges(ts, vis){
   return out;
 }
 var SVGNS = 'http://www.w3.org/2000/svg';
-// --- W887 card sparklines: per-item spend-over-time (hour buckets) painted
+// --- card sparklines: per-item request spend over time painted
 // as stacked bars — fresh = accent, cached = ok. Data rides
 // /api/spend-series (30s poll, silent-fail garnish); the .kspark placeholders
 // emitted by spendStripHtml get painted here and in the drawer. DOM-safe key:
@@ -678,23 +681,26 @@ function sparkSvg(points, w, h){
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  var hours = w > 120 ? 72 : 24;
-  var end = Math.floor(Date.now() / 3600000), start = end - hours + 1;
+  var drawer = w > 180, slots = drawer ? 40 : 30;
+  var first = Number(points[0][0]), last = Number(points[points.length - 1][0]);
+  var slotMs = Math.max(180000, Math.ceil((last - first + 1) / (slots - 1) / 60000) * 60000);
+  var start = first;
   var bins = {}, maxV = 0, i;
   for (i = 0; i < points.length; i++){
-    var hour = Math.floor(Number(points[i][0]) / 3600000);
-    if (hour < start || hour > end) continue;
-    var b = bins[hour] || (bins[hour] = [0, 0]);
+    var slot = Math.floor((Number(points[i][0]) - start) / slotMs);
+    if (slot < 0 || slot >= slots) continue;
+    var b = bins[slot] || (bins[slot] = [0, 0]);
     b[0] += Number(points[i][1]) || 0;
     b[1] += Number(points[i][2]) || 0;
   }
   for (var key in bins) maxV = Math.max(maxV, bins[key][0] + bins[key][1]);
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Hourly fresh and cached input tokens, last ' + hours + ' hours');
-  if (!maxV) return svg; // empty window stays empty; old spend is not current activity
-  var step = w / hours, barW = Math.max(1, Math.min(4, step - 1));
-  for (i = 0; i < hours; i++){
-    var at = start + i, bucket = bins[at];
+  svg.setAttribute('data-bin-min', String(slotMs / 60000));
+  svg.setAttribute('aria-label', 'Fresh and cached input tokens from first request to latest, ' + (slotMs / 60000) + '-minute intervals');
+  if (!maxV) return svg;
+  var step = w / slots, barW = Math.max(1, Math.min(drawer ? 7 : 4, step - 1));
+  for (i = 0; i < slots; i++){
+    var at = start + i * slotMs, bucket = bins[i];
     if (!bucket) continue;
     var x = i * step + (step - barW) / 2;
     var used = 0;
@@ -709,7 +715,7 @@ function sparkSvg(points, w, h){
       rect.setAttribute('height', bh.toFixed(1));
       rect.setAttribute('class', part ? 'spark-cached' : 'spark-fresh');
       var tip = document.createElementNS(SVGNS, 'title');
-      tip.textContent = new Date(at * 3600000).toLocaleString('da-DK') + ' · ' + (part ? 'cached ' : 'fresh ') + fmtTokShort(val) + ' input tokens';
+      tip.textContent = new Date(at).toLocaleString('da-DK') + ' · ' + (part ? 'cached ' : 'fresh ') + fmtTokShort(val) + ' input tokens · ' + (slotMs / 60000) + ' min bin';
       rect.appendChild(tip);
       svg.appendChild(rect);
       used += bh;
@@ -723,12 +729,20 @@ function paintSparks(root){
     var el = els[i];
     var key = el.getAttribute('data-spark') || '';
     var pts = spendSeries[key] || null;
-    var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 3600000) : '';
+    var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 60000) : '';
     if (el.getAttribute('data-ssig') === sig) continue;
     el.setAttribute('data-ssig', sig);
     while (el.firstChild) el.removeChild(el.firstChild);
     var big = el.closest ? el.closest('.kspend-drawer') : null;
-    if (pts && pts.length) el.appendChild(sparkSvg(pts, big ? 240 : 120, big ? 36 : 18));
+    if (pts && pts.length){
+      var chart = sparkSvg(pts, big ? 240 : 180, big ? 36 : 28);
+      el.appendChild(chart);
+      var axis = el.parentElement.querySelector('.ksparkaxis');
+      if (axis){
+        axis.firstElementChild.textContent = new Date(pts[0][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
+        axis.lastElementChild.textContent = new Date(pts[pts.length - 1][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
+      }
+    }
   }
 }
 function splineSvg(){
@@ -888,6 +902,7 @@ function renderDrawer(){
     (t.parent_id ? '<div class="r"><span class="dim">parent</span> ' + esc(t.parent_id) + '</div>' : '') +
     '<div class="r"><span class="dim">age</span> ' + ago(t.age_s) + '</div>' +
     '<div class="r"><span class="dim">open decisions</span> ' + (t.open_decisions || 0) + '</div>';
+  if (t.failure_note) meta += '<div class="r"><span class="dim">failure</span> ' + esc(String(t.failure_note)) + '</div>';
   var decs = '';
   var dl = d.decisions || [];
   for (var i = 0; i < dl.length; i++) {

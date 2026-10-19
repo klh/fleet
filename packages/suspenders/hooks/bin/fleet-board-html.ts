@@ -207,7 +207,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .orchcontext select { font-size:11px; }
 #orchDestination { font-family:var(--klh-font-mono); }
 #orchClear { margin-left:auto; border:0; background:none; color:var(--klh-dim); cursor:pointer; font-size:16px; }
-.korch { display:block; margin-top:8px; padding:2px 0; border:0; background:none; color:var(--klh-accent); cursor:pointer; font:11px var(--klh-font-mono); }
+.korch { display:block; margin-top:4px; padding:2px 0; border:0; background:none; color:var(--klh-accent); cursor:pointer; font:10px var(--klh-font-mono); }
 .korch:hover { text-decoration:underline; text-underline-offset:3px; }
 .orchrow { display:flex; gap:8px; align-items:center; }
 #orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; resize:none; }
@@ -246,7 +246,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
 /* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
-.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
+.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:10px 12px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
 .kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
 /* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
 .kcard.ksel { border-color:var(--klh-accent); box-shadow:0 0 0 2px var(--klh-accent-wash); }
@@ -257,10 +257,11 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
 .krow .kwhen { flex:none; white-space:nowrap; font-size:8px; font-variant-numeric:tabular-nums; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
-.ktitle { margin-top:4px; word-break:break-word; }
-.klane { margin-top:3px; font-size:11px; }
+.ktitle { margin-top:6px; font-weight:600; line-height:1.32; word-break:break-word; }
+.kmeta { display:flex; align-items:center; gap:6px; margin-top:5px; min-width:0; }
+.klane { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; }
 .ktail { margin-top:4px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--klh-dim); }
-.kfailure { margin-top:6px; padding:6px 8px; border-left:2px solid var(--klh-danger); color:var(--klh-ink); font-size:11px; line-height:1.35; overflow-wrap:anywhere; }
+.kfailure { margin-top:6px; padding:6px 8px; border-left:2px solid var(--klh-danger); color:var(--klh-ink); font-size:11px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow-wrap:anywhere; }
 .kstart { margin-top:6px; background:none; border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:2px 8px; cursor:pointer; }
 .kstart:hover { background:var(--klh-accent-wash); }
 /* executor dropdown + play (board dispatch): one clean row — the select
@@ -284,16 +285,20 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .spl-key.spl-wait { color:var(--klh-ok-ink); }
 /* W105 model badges — amber = remote model, green = local (LAN/loopback) */
 .kmodel, .lmodel { display:inline-block; margin-top:4px; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
+.kmeta .kmodel { flex:none; max-width:55%; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .lmodel { margin-top:0; margin-left:6px; }
 .kmodel.loc, .lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
 /* Hourly input-token bars; numbers sit beneath the chart. */
-.kspend { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.kspend { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:6px; }
+.ksparkplot { width:180px; max-width:100%; }
 .kspark { display:block; }
-.kspark svg { display:block; }
+.kspark svg { display:block; max-width:100%; }
 .kspark .spark-fresh { fill:var(--klh-accent); }
 .kspark .spark-cached { fill:var(--klh-ok-ink); }
+.ksparkaxis { display:flex; justify-content:space-between; font-size:7px; line-height:1.2; }
 .kspendtxt { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
 .kspend-drawer .kspark { margin-top:6px; }
+.kspend-drawer .ksparkplot { width:240px; }
 .kspend-drawer .kspark svg { width:240px; height:36px; }
 .ttitle { word-break:break-word; max-width:480px; }
 .tail { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:480px; }

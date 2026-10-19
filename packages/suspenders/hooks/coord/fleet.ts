@@ -954,6 +954,7 @@ const PROJECT_TABLES = [
 	"work_deps",
 	"work_items",
 	"work_sequences",
+	"work_spend_histogram",
 	"consults",
 	"consult_kb",
 	"sessions",
