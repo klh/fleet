@@ -13,7 +13,10 @@ that governs every model call, and a board that shows what happened.
 [Examples](#what-you-can-do-with-fleet) · [The stack](#the-stack) ·
 [Architecture](#how-it-fits-together) · [Get started](#get-started) ·
 [Operations](#everyday-operations) · [Status](#status) ·
-[Benchmarks](benchmarks.md)
+[Benchmarks](benchmarks.md) · [License](#license)
+
+**Personal use only · redistribution prohibited.** Commercial and
+organizational use requires a separate written license. [Licensing terms](#license).
 
 </div>
 
@@ -388,12 +391,21 @@ scripted lane stand-ins, so failure reproduction runs without model calls.
 See the [taxonomy](packages/blam/docs/taxonomy.md),
 [benchmark harness](packages/blam/bench/).
 
-## Licensing
+## License
 
-Licenses are package-specific. All seven packages carry the PolyForm
-Noncommercial License 1.0.0. BLAM's dataset has a separate CC-BY-4.0 notice,
-and LiteLLM provider docs vendored under buckle remain MIT. Consult each
-package's `LICENSE` rather than assuming one license for the stack.
+**Personal use only. No redistribution.** The Fleet monorepo and its seven
+packages use the [Fleet Personal Use License 1.0](LICENSE). It permits an
+individual to run and privately modify Fleet for personal, noncommercial
+study, experimentation, testing, and hobby use. It does not permit sharing
+copies or use for an employer, client, organization, product, or service.
+
+**Commercial licensing:** obtain a separate written license from Klaus
+Lynggaard Hougesen before commercial, professional, organizational, or
+production use. For licensing enquiries, use the
+[Fleet repository contact](https://github.com/klh/fleet/issues/new).
+
+BLAM's dataset has a separate CC-BY-4.0 notice, and vendored third-party
+material retains its own licenses. See the notices alongside those files.
 
 ---
 

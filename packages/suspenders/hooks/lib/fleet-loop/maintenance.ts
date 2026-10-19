@@ -162,7 +162,7 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
-		// W828: the PolyForm noncommercial perimeter — walks the repo's
+		// W828: the Fleet personal-use license perimeter — walks the repo's
 		// node_modules license fields against the permissive allowlist,
 		// verifies vendored-bundle banners, records swarm model licenses,
 		// and writes the report json the W822 pulse reads. Daily fire;

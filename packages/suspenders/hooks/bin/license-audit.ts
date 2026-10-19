@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // hooks/bin/license-audit.ts — CLI face of the W828 license audit
-// (hooks/lib/license-audit.ts): the PolyForm noncommercial perimeter.
+// (hooks/lib/license-audit.ts): the Fleet personal-use license perimeter.
 // Composes the report (node_modules walk + vendored banners + model
 // weights + external adopt-protocol map), writes the artifact json the
 // W822 pulse reads, lands finding.license-audit, and exits 1 when

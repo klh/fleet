@@ -315,10 +315,10 @@ Quality runs at three moments: the governor post-files gate applies qlty fmt + f
 
 ## License
 
-speedy is source-available under the **PolyForm Noncommercial License 1.0.0**
-(see [LICENSE](LICENSE)) — free for any noncommercial purpose (personal
-projects, education, research); production or commercial use requires a
-commercial license from the Licensor.
+speedy is source-available under the [Fleet Personal Use License 1.0](LICENSE).
+**Personal use only; redistribution prohibited.** Commercial, professional,
+organizational, and production use requires a separate written license.
+[Commercial licensing](https://github.com/klh/fleet#license).
 
 ---
 

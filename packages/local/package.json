@@ -4,7 +4,7 @@
 	"private": true,
 	"description": "the local service front — Caddy registration, Bonjour/mDNS names, loopback defaults, service registry",
 	"type": "module",
-	"license": "PolyForm-Noncommercial-1.0.0",
+	"license": "SEE LICENSE IN LICENSE",
 	"engines": {
 		"bun": ">=1.2"
 	},

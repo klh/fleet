@@ -1,0 +1,51 @@
+FLEET PERSONAL USE LICENSE 1.0
+
+Copyright © 2025–2026 Klaus Lynggaard Hougesen. All rights reserved.
+Required Notice: Copyright 2025–2026 Klaus Lynggaard Hougesen (https://github.com/klh/fleet)
+
+PERSONAL USE ONLY. NO REDISTRIBUTION.
+
+COMMERCIAL LICENSING
+Commercial, professional, organizational, production, or other use outside the
+personal permission below requires a separate written license from Klaus
+Lynggaard Hougesen before that use begins. Commercial licensing information:
+https://github.com/klh/fleet#license
+
+1. Scope. These terms apply to the Fleet monorepo and its packages when a copy
+   is distributed with this license. Third-party material identified by its own
+   license or notice remains under that material's terms.
+
+2. Personal permission. An individual may obtain, copy, run, and privately
+   modify the software solely for that individual's personal, noncommercial
+   study, experimentation, testing, or hobby use, without an anticipated
+   commercial or organizational application. Copies and modifications must
+   remain under that individual's control and retain this license and the
+   copyright notice above. This permission is nonexclusive, nontransferable,
+   and cannot be sublicensed.
+
+3. No distribution. You may not distribute, publish, share, sell, sublicense,
+   transfer, or otherwise make available any copy of the software or a modified
+   version to another person or entity. This includes source code, binaries,
+   packages, container images, and hosted copies. Permission to obtain a copy
+   from the copyright holder does not grant permission to redistribute it.
+
+4. No organizational or commercial use. The personal permission does not cover
+   work for or on behalf of an employer, client, business, nonprofit,
+   educational institution, government body, or other organization; use in a
+   product or service; production deployment; or any use with an anticipated
+   commercial application. A separate written license is required for those
+   uses, even if the organization itself is noncommercial.
+
+5. Reserved rights. No rights are granted except those expressly stated in
+   section 2. In particular, these terms grant no right to distribute the
+   software and no patent license. Rights that applicable law gives you without
+   a license, such as fair use where it applies, are unaffected.
+
+6. Termination. The permission in section 2 ends automatically if you breach
+   these terms. You must then stop using the software and remove copies under
+   your control, except where applicable law requires otherwise. The copyright
+   holder may grant separate rights under a written agreement.
+
+7. Disclaimer. To the extent permitted by law, the software is provided "as
+   is", without warranties or conditions of any kind. The copyright holder
+   is not liable for damages arising from use of the software.

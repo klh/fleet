@@ -1,4 +1,4 @@
-// hooks/lib/license-audit.ts — W828: the PolyForm noncommercial perimeter,
+// hooks/lib/license-audit.ts — W828: the Fleet personal-use license perimeter,
 // enforced. One pass, four faces: (1) walk the repo's bun-managed
 // node_modules (the isolated .bun store, plus hoisted entries for other
 // linkers) and classify every dependency license against the PERMISSIVE
@@ -210,7 +210,7 @@ export const violationsOf = (rows: LicenseRow[]): LicenseViolation[] =>
 			cls: r.cls,
 			reason:
 				r.cls === "copyleft"
-					? "copyleft license — PolyForm perimeter forbids bundled code"
+					? "copyleft license — Fleet license perimeter forbids bundled code"
 					: "unknown/missing license field",
 		}));
 
@@ -226,7 +226,7 @@ export interface VendoredEntry {
 
 /** The committed third-party bundles. First-party compiled chunks that
  *  happen to live in vendor/ dirs (klh-*.js, usage-panels.js) are NOT
- *  third-party — the root PolyForm LICENSE covers them. */
+ *  third-party — the root Fleet LICENSE covers them. */
 export const VENDORED: VendoredEntry[] = [
 	{
 		path: "packages/belt/bin/vendor/lit.js",
@@ -321,7 +321,7 @@ export interface ModelLicenseRow {
 /** Known license posture per swarm model. Qwen3 mainline = Apache-2.0; the
  *  Qwen3.5 generation + its trained checkpoints (kev-4b) carry the
  *  owner-asserted Qwen Research restrictions (non-commercial only).
- *  Recorded — NOT hard violations: fleet use is noncommercial today. */
+ *  Recorded — NOT hard violations: review these before any commercial grant. */
 export const MODEL_LICENSE_RULES: Array<{
 	match: RegExp;
 	license: string;

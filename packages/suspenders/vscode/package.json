@@ -4,7 +4,7 @@
 	"description": "The suspenders agent fleet inside VS Code — working lanes, ready work, and the decisions that need you.",
 	"version": "0.1.0",
 	"publisher": "klh",
-	"license": "PolyForm-Noncommercial-1.0.0",
+	"license": "SEE LICENSE IN LICENSE",
 	"engines": {
 		"vscode": "^1.85.0"
 	},

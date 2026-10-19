@@ -3,7 +3,7 @@
 	"version": "2.0.0",
 	"description": "Local LLM fleet — MLX specialists, anthropic-wire router, benchmark rig",
 	"type": "module",
-	"license": "PolyForm-Noncommercial-1.0.0",
+	"license": "SEE LICENSE IN LICENSE",
 	"private": true,
 	"engines": {
 		"bun": ">=1.2"

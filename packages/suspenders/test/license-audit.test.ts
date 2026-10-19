@@ -1,4 +1,4 @@
-// test/license-audit.test.ts — W828: the PolyForm noncommercial perimeter
+// test/license-audit.test.ts — W828: the Fleet personal-use license perimeter
 // audit. Covers classification (allowlist, copyleft buckets, SPDX OR/AND
 // duals, unknown/missing), the node_modules walk (isolated .bun store +
 // hoisted + scoped + dedupe), vendored-banner verification, model-license

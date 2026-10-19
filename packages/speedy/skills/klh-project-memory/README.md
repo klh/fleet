@@ -1,7 +1,7 @@
 # Project Memory Skill
 
 [![Agent Skill Standard](https://img.shields.io/badge/Agent%20Skill-Standard-blue)](https://agentskills.io/)
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0)
+[![License: personal use only](https://img.shields.io/badge/License-personal%20use%20only-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude-Code-5A67D8)](https://claude.ai/code)
 [![SkillzWave Marketplace](https://img.shields.io/badge/SkillzWave-Marketplace-00C7B7)](https://skillzwave.ai/skill/SpillwaveSolutions__project-memory__project-memory__SKILL/)
 
@@ -676,7 +676,9 @@ To improve this skill:
 
 ## License
 
-This skill is part of the Claude Code skills ecosystem and follows standard usage guidelines for Claude Code extensions.
+This copy is covered by the [Fleet Personal Use License 1.0](LICENSE): personal
+use only, no redistribution. Commercial or organizational use requires a
+separate written license from the copyright holder.
 
 ## Support
 

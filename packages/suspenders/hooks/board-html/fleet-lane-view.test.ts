@@ -386,7 +386,7 @@ test("Governor claims and event rows use the same hub and project scope", () => 
 test("header expires a snapshot even when the request was just received", () => {
 	const attributes: Record<string, string> = {};
 	const conn = {
-		innerHTML: "",
+		markup: "",
 		title: "",
 		getAttribute: (key: string) => attributes[key],
 		setAttribute: (key: string, value: string) => {
@@ -417,10 +417,10 @@ test("header expires a snapshot even when the request was just received", () => 
 		String,
 		String,
 		(el: typeof conn, html: string) => {
-			el.innerHTML = html;
+			el.markup = html;
 		},
 	);
-	expect(conn.innerHTML).toContain("stale snapshot");
+	expect(conn.markup).toContain("stale snapshot");
 	expect(conn.title).toContain("Source: board · target: ledger · scope: all");
 	expect(conn.title).toContain("expires:");
 });

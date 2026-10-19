@@ -75,4 +75,6 @@ bun bench/paired/harness.ts                            # paired-arm eval suite
 
 ## License
 
-Code: PolyForm Noncommercial 1.0.0 (`LICENSE`). Dataset: CC-BY-4.0 (see `dataset/README.md`).
+Code: [Fleet Personal Use License 1.0](LICENSE), with personal use only and no
+redistribution; commercial licensing is described in the [Fleet README](../../README.md#license).
+Dataset: CC-BY-4.0 (see `dataset/README.md`).
