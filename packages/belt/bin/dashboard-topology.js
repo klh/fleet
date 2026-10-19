@@ -84,12 +84,18 @@ class BeltTopology extends LitElement {
 			<text class="title" x=${x + 28} y=${y + 113}>Belt · local models</text>
 			${
 				models.length
-					? models.map(
-							(item, index) => svg`<g><title>${item.model}</title>
-				<circle cx=${x + 30} cy=${y + 142 + index * 39} r="3" fill=${colour(item.state)}></circle>
-				<text class="title" x=${x + 42} y=${y + 146 + index * 39}>${local ? `${item.role} · ${this.shortModel(item.model, 27)}` : this.shortModel(item.model)}</text>
-				<text class="meta endpoint" x=${x + 42} y=${y + 162 + index * 39}>${local ? `${item.label} · ${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}` : "configured in remote inventory"}</text></g>`,
-						)
+					? models.map((item, index) => {
+							const column = local ? index % 2 : 0;
+							const row = local ? Math.floor(index / 2) : index;
+							const itemX = x + 30 + column * 186;
+							const itemY = y + 142 + row * (local ? 48 : 39);
+							return svg`<g><title>${item.model}</title>
+								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
+								<text class="title" x=${itemX + 12} y=${itemY + 4}>${local ? `${item.role} · ${item.label}` : this.shortModel(item.model)}</text>
+								<text class="meta endpoint" x=${itemX + 12} y=${itemY + 20}>${local ? this.shortModel(item.model, 22) : "configured in remote inventory"}</text>
+								${local ? svg`<text class="meta endpoint" x=${itemX + 12} y=${itemY + 34}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
+							</g>`;
+						})
 					: svg`<text class="meta" x=${x + 28} y=${y + 151}>No model inventory reported</text>`
 			}
 		</g>`;
@@ -124,7 +130,7 @@ class BeltTopology extends LitElement {
 			const card = {
 				...item,
 				y: hubY,
-				height: Math.max(202, 132 + remoteModels.length * 39),
+				height: Math.max(162, 132 + remoteModels.length * 39),
 				models: remoteModels,
 			};
 			hubY += card.height + 18;
@@ -134,7 +140,8 @@ class BeltTopology extends LitElement {
 			(sum, item) => sum + 68 + Math.max(1, item.models.length) * 19,
 			0,
 		);
-		const height = Math.max(500, hubY, 52 + cloudHeight);
+		const localHeight = Math.max(195, 132 + Math.ceil(models.length / 2) * 48);
+		const height = Math.max(350, 52 + localHeight, hubY, 52 + cloudHeight);
 		let cloudY = 52;
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
@@ -145,7 +152,7 @@ class BeltTopology extends LitElement {
 				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
 				<text class="group" x="850" y="35">CLOUD PROVIDERS · CONFIGURED MODELS</text>
 				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
-				${this.machine(20, 52, 400, 432, "This Mac", "local spoke · :4101 · state unobserved", "unknown", models, true)}
+					${this.machine(20, 52, 400, localHeight, "This Mac", "local spoke · :4101 · state unobserved", "unknown", models, true)}
 				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
 				${clouds.map((item) => {
 					const y = cloudY;
