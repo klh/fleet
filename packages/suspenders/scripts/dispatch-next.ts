@@ -41,6 +41,7 @@ export { composeBrief };
 // — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
 // branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
 import { adapterFor } from "../hooks/lib/executors/registry.ts";
+import { effortForPriority } from "../hooks/lib/lane-effort.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -72,7 +73,6 @@ import {
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W512: lane --settings composer — env grammar + the Task-pin hook block
 import { laneSettingsData } from "./lib/lane-settings.ts";
-import { effortForPriority } from "../hooks/lib/lane-effort.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
 	preferRoutingBriefLines,
@@ -964,6 +964,7 @@ const dispatchItem = async (
 			harness: pick.bin ?? "claude",
 			fleet: FLEET,
 			bin,
+			model: pick.model ?? "glm-5.3-flash",
 			item,
 			sid,
 			wt,

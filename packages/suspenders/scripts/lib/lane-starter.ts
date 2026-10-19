@@ -17,23 +17,25 @@
 // to their OWN session (--fork-session leaves the original untouched).
 import { createHash } from "node:crypto";
 import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+// W422: fork support per harness is adapter data (exact lookup — an unknown
+// harness cold-starts, it never inherits claude's fork grammar).
+import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { listStarters } from "../../hooks/lib/starter-artifacts.ts";
+import { readStarterAuthorized } from "../../hooks/lib/starter-distribution.ts";
+import {
 	applyLaneAttribution,
 	BUCKLE_FRONT,
 	laneEnv,
 	probeBuckleFront,
 } from "./lane.ts";
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-// W422: fork support per harness is adapter data (exact lookup — an unknown
-// harness cold-starts, it never inherits claude's fork grammar).
-import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
 
 export const STARTER_FLAG = "SUSPENDERS_LANE_STARTER";
 // Registry cap — bounded history means bounded REGISTRY too: retired starter
@@ -135,8 +137,8 @@ export const starterEnabled = (
 // The STABLE shared prefix. Repo-local protocol only — no sid, no item, no
 // branch, no worktree path, no credentials (the credential guard below
 // enforces it at seed time).
-export const starterSeedPrompt = (): string =>
-	[
+export const starterInstructionContext = (guidance?: string): string => {
+	const base = [
 		"You are a fleet lane executor for this repository. Orientation, stable across lanes:",
 		"- Repo law: read AGENTS.md (root) and the nearest per-package AGENTS.md before any edit.",
 		"- Quality: qlty is THE quality tool; .qlty/qlty.toml + biome rule set BEFORE the first write.",
@@ -144,8 +146,46 @@ export const starterSeedPrompt = (): string =>
 		"- 1500-line hard limit on any .ts; streams over buffers; config-over-code (no hardcoded hosts/keys).",
 		"- UI: Lit web components + CSS design tokens; the UI law's forbidden DOM sinks are banned.",
 		"- Progress: terse voice; evidence before claims; verify with real output.",
-		"Acknowledge with READY and nothing else.",
-	].join("\n");
+	];
+	if (guidance) {
+		base.push("Promoted lane guidance:");
+		base.push(guidance);
+	}
+	return base.join("\n");
+};
+
+export const starterSeedPrompt = (fleet?: string, model?: string): string => {
+	let guidance: string | undefined;
+	if (fleet) {
+		try {
+			const repo = dirname(fleet);
+			const versions = listStarters(repo, "lane-orientation").sort(
+				(a, b) => b.version - a.version,
+			);
+			for (const row of versions) {
+				const read = readStarterAuthorized(
+					repo,
+					"lane-orientation",
+					row.version,
+				);
+				if (!read.ok) continue;
+				if (!read.artifact.compatibility.harnesses.includes("claude")) continue;
+				if (
+					model &&
+					!read.artifact.compatibility.models.includes(model) &&
+					!read.artifact.compatibility.models.includes("*")
+				)
+					continue;
+				guidance = read.artifact.instructions;
+				break;
+			}
+		} catch {
+			// A damaged registry cannot prevent lanes from starting. Fall back
+			// to the fixed, reviewed orientation prompt.
+		}
+	}
+	return `${starterInstructionContext(guidance)}\nAcknowledge with READY and nothing else.`;
+};
 
 // The per-lane identity APPENDED after the fork — everything lane-specific
 // lives here, so the shared prefix stays cache-stable across lanes.
@@ -157,6 +197,7 @@ export const laneIdentityPrompt = (sid: string, wt: string): string =>
 // lives in hooks/lib/secret-guard.ts (W458.1) — one pattern shared with the
 // starter-artifact validation.
 import { assertNoSecrets } from "../../hooks/lib/secret-guard.ts";
+
 export { assertNoSecrets };
 
 export const starterVersion = (seedPrompt: string): string =>
@@ -221,6 +262,7 @@ export const ensureStarter = (
 	executorBin: string,
 	env: Record<string, string>,
 	options: {
+		model?: string;
 		log?: (line: string) => void;
 		timeoutMs?: number;
 		run?: (
@@ -241,7 +283,7 @@ export const ensureStarter = (
 	// flags die on its CLI) cold-starts; fork grammar ≠ seed grammar.
 	const seedArgsOf = adapterForExact(harness)?.starterSeedArgs;
 	if (!seedArgsOf) return null;
-	const seed = starterSeedPrompt();
+	const seed = starterSeedPrompt(fleet, options.model);
 	assertNoSecrets(seed);
 	const version = starterVersion(seed);
 	const cached = readStarter(fleet, harness, version);
@@ -354,6 +396,7 @@ export const dispatchStarterFork = async (o: {
 	harness: string;
 	fleet: string;
 	bin: string;
+	model?: string;
 	item: string;
 	sid: string;
 	wt: string;
@@ -403,13 +446,10 @@ export const dispatchStarterFork = async (o: {
 			? `belt-front up: ${front}`
 			: `belt-front down: ${BUCKLE_FRONT} did not answer /status`;
 	if (front) applyLaneAttribution(seedEnv, "fleet-starter", front);
-	const starter = ensureStarter(
-		o.fleet,
-		o.harness,
-		o.bin,
-		seedEnv,
-		o.ensureOpts,
-	);
+	const starter = ensureStarter(o.fleet, o.harness, o.bin, seedEnv, {
+		...o.ensureOpts,
+		model: o.model,
+	});
 	if (starter?.kind === "fork") {
 		const outcome: StarterStartOutcome = {
 			mode: "fork",

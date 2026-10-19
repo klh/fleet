@@ -7,11 +7,11 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
-	writeFileSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { executePlan, type StepContext } from "../scripts/install-run.ts";
 import { syncHarness } from "../scripts/sync-harness.ts";
 
@@ -117,6 +117,8 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 	);
 	put("packages/local-llm/fixture.ts", "export const value = 1;");
 	put("packages/blam/src/fixture.ts", "export const value = 1;");
+	put("packages/blam/bench/paired/fixture.ts", "export const value = 1;");
+	put("packages/blam/bench/improve/fixture.ts", "export const value = 1;");
 	put(
 		"packages/suspenders/install.sh",
 		`#!/bin/sh\ntouch ${join(root, "service-called")}\n`,
