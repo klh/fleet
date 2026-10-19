@@ -47,8 +47,8 @@ normalizes (`*.test.ts` may stay beside their modules — they never ship).
   merge-to-main tracked as W695.3.7).
 - Tests: `test/<mirror>/<name>.test.ts`; bench-harness tests may sit beside
   their harness inside `bench/`; fixtures in `test/fixtures/`.
-- Benchmarks docs: ONE `benchmarks.md` per package, decision-grade rows only
-  (owner law); `bench-questions.md` merged into it (wave 4, W669.5).
+- Benchmark results: one fleet-root `benchmarks.md`. Package documents may
+  hold protocols or question sets; raw machine records stay near their runner.
 - No stray state files in package roots: `*.db`, `*.lock` beyond the root
   bun.lock, scratch `-.` dirs are debris (wave 0).
 
@@ -60,7 +60,7 @@ normalizes (`*.test.ts` may stay beside their modules — they never ship).
 | 1    | belt: move `bin/*.test.ts` (distill + any siblings) into `test/` mirroring; bench/ co-located tests stay                                              | low          | import-path-only edits                                                                                             |
 | 2    | suspenders: audit `scripts/` vs `hooks/bin/` overlap, retire true duplicates (harvest family already owned by W657; verb-kit wave owns the CLI faces) | medium       | each retirement checks consumers (launchd labels + board imports + cron) in the same commit                        |
 | 3    | buckle: normalize `bin/` (operator CLIs) vs `src/` (modules) — move any import-only module that lives in `bin/`                                       | medium       | `src/server.ts` is plist-referenced — services.yaml + plists update in the same commit if it moves (it should not) |
-| 4    | docs: single-source `bench-questions.md` into `benchmarks.md` per package; cross-pointers instead of copies                                           | low          | md-only                                                                                                            |
+| 4    | docs: consolidate curated results in fleet-root `benchmarks.md`; keep package protocols and question sets as cross-pointers                           | low          | md-only                                                                                                            |
 | 5    | local-llm: test co-location audit only; document the flat contract in its AGENTS.md                                                                   | zero renames | overlay contract documented, not changed                                                                           |
 
 Waves land in order; a wave is one branch `suspenders/W669.<n>`, one package,

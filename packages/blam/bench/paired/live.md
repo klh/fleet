@@ -20,7 +20,18 @@ Example manifest for an isolated fixture repository:
   "baseline": "Follow the task and run the relevant tests.",
   "candidate": "Inspect the failing case, write the smallest fix, run the relevant tests, and record any remaining uncertainty.",
   "reps": 3,
-  "executor": ["codex", "exec", "--json", "--model", "{model}", "--cd", "{worktree}", "--sandbox", "workspace-write", "{prompt}"],
+  "executor": [
+    "codex",
+    "exec",
+    "--json",
+    "--model",
+    "{model}",
+    "--cd",
+    "{worktree}",
+    "--sandbox",
+    "workspace-write",
+    "{prompt}"
+  ],
   "judge": ["bun", "/path/outside/evaluation-fixture/judge.ts", "{worktree}"],
   "timeoutMs": 600000,
   "outputDir": "/path/to/evaluation-results"
@@ -31,8 +42,12 @@ Run `bun packages/blam/bench/paired/live.ts /path/to/manifest.json`.
 The result is `report.json` and one binary Git patch per arm and
 repetition. The report includes a SHA-256 of the manifest, the exact
 base commit, model label, per-arm lane ID, harness digest, exit status,
-validation result, executor time, judge time, observed tokens, and
-output digest, plus failed-validation counts per arm. The common
+validation result, executor time, judge time, observed total tokens,
+cache-read and cache-write tokens when reported, and output digest, plus
+failed-validation counts per arm. A judge may emit a JSON `score` from 0 to 1
+for partial quality; a missing score falls back to pass/fail. A nonzero
+judge exit still blocks promotion, even when it reports a partial score.
+The common
 `pairedLift` and `gatePromotion` functions
 make the decision. The runner never promotes a harness automatically.
 
@@ -42,6 +57,6 @@ and alternates order; it cannot prove provider routing or prevent an
 agent from accessing files outside its worktree. Use an external sandbox
 and private judge storage when that matters. Token counts come from the
 executor's reported usage; if accounting is absent, promotion is
-refused. Wall time covers the executor, with judge time recorded
+refused. Null cache counts mean unreported, not zero. Wall time covers the executor, with judge time recorded
 separately. Patches can contain task data, so treat the output directory
 as private and do not commit it.

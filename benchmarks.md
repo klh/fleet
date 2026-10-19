@@ -1,10 +1,10 @@
 # fleet benchmarks
 
-ALL benchmarks live in this single file at the fleet root. Package-level
-benchmarks.md files are pointers; do not start new ones. One curated row
+All curated benchmark results live in this file at the fleet root. Package
+documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
 
-**Do not store bench data in other .md files** — update this table instead.
+**Do not store benchmark results in other .md files** — update this table instead.
 
 Laws (fleet-wide): run on **AC power only** (never battery); medians over
 N≥12 unless noted; speed rows are solid, quality rows need ≥130 paired
@@ -13,6 +13,65 @@ test; score per class, never blended; one lever at a time; re-run after any
 model bump.
 
 ---
+
+## BLAM — coordination controls (2026-10-19 rerun)
+
+The deterministic [consult](packages/blam/bench/consult/scenario.md) and
+[paired-arm](packages/blam/bench/paired/scenario.md) suites both passed 6/6
+properties on this run. They simulate coordination policies; their token and
+time counts are modeled costs, **not observed LLM usage**. Keep them separate
+from live agent results below.
+
+| Paired simulated case | Quality on → off | Tokens/rep on → off | Blocked min/rep on → off |
+| --------------------- | ---------------: | ------------------: | -----------------------: |
+| Condense              |      1.00 → 1.00 |         724 → 1,039 |                    0 → 0 |
+| Consult contract      |      0.75 → 0.63 |         330 → 2,400 |              16.5 → 73.5 |
+| Steer delivery        |      1.00 → 0.75 |       1,640 → 3,000 |                  20 → 45 |
+| Bounded resume        |      1.00 → 0.95 |      6,000 → 16,150 |                    1 → 6 |
+| Long resume           |      0.75 → 0.85 |     22,000 → 16,150 |                    1 → 6 |
+
+The long-resume control is deliberately worse: for a large changed context,
+fresh orientation is the simulated winner. The separate W768 live orientation
+smoke (2026-10-15, n=3) observed cold median 76.6 s / 49,752 fresh tokens
+versus forked starter 15.8 s / 1,659 fresh tokens with 97% cache share. That
+small live run supports the default Claude starter fork; it is not a general
+quality or cost estimate across tasks.
+
+### Relay coding pilot (W922, 2026-10-19; AC; one held-out task × 3 pairs)
+
+The new [BLAM Relay fixture](packages/blam/bench/agentic/README.md) has three
+synthetic repairs drawn from recent Fleet failure classes: stale claim release,
+cache support/reads/writes, and W3C trace propagation. Evaluated agents see
+only the broken fixture and public contract; a separate 22-check oracle stays
+outside their worktree. Control scores: original 7/22, reference 22/22.
+Each arm starts from the same fixture commit and uses `gpt-6-luna` through
+ephemeral `codex exec` with the same tool access; arm order alternates. These
+are **agent harness smoke measurements**, not an end-to-end deployed Fleet or
+Buckle test. Repeating one task three times does not meet the ≥130 paired
+question quality rule.
+
+| Treatment vs its paired solo control | Oracle score       | Reported total tokens/arm, mean | Cache-read tokens/arm, mean | Wall seconds/arm, mean | Result                          |
+| ------------------------------------ | ------------------ | ------------------------------: | --------------------------: | ---------------------: | ------------------------------- |
+| Plain solo                           | 22/22 → 22/22      |   260.7k → 375.9k (compact map) |             114.3k → 171.9k |            24.2 → 27.2 | No score gain; +44% tokens      |
+| Plain solo → fresh reviewer          | 22/22 → 22/22      |                 269.0k → 937.4k |             121.5k → 438.0k |            20.8 → 69.3 | No score gain; +248% tokens     |
+| Plain solo → three module agents     | 22/22 → 19/22 mean |                 260.0k → 652.1k |             118.9k → 302.5k |            25.3 → 18.2 | One 13/22 failure; +151% tokens |
+
+None of the three treatments was promoted. The split arm passed 22/22 twice
+but scored 13/22 once; its mean was 19/22, while all three matched solo arms
+passed. It did shorten mean wall time by 7.1 seconds under this setup, but
+that does not compensate for the quality failure. The first split attempt was
+invalid: BLAM trimmed the final newline from `git diff`, causing `git apply`
+to reject the patches. The raw-patch fix and regression test landed before
+the reported rerun; `/tmp/blam-relay-split-w922` is the invalid receipt and
+`/tmp/blam-relay-split-fixed-w922` is the valid one. Cache-read accounting is
+the executor's reported token usage, not a controlled cache-off arm; all
+treatments also reported zero cache-write tokens. Provider cache effects were
+measured separately in the W864 on/off rows below. Full local receipts and
+patches from these pilots are in `/tmp/blam-relay-context-w922` and
+`/tmp/blam-relay-review-w922` and `/tmp/blam-relay-split-fixed-w922`; they are
+not committed because patches can
+contain task content. The base fixture commit for both was
+`4979a0d86f3ef7f32eff70245a6ce37e75d0d585`.
 
 ## belt — model fleet (curated)
 
@@ -114,20 +173,30 @@ cache is always-on, capability read from `/metrics` + usage
 `cached_tokens`. Cloud via buckle `:4101` = off (no cache_control) vs on
 (`cache_control: ephemeral`, rep 1 writes, rest read).
 
-| Leg                      | 2000 tok miss→hit ms | read | 8000 tok miss→hit ms | read | Verdict                                             |
-| ------------------------ | -------------------: | ---: | -------------------: | ---: | --------------------------------------------------- |
-| :8903 reason 35B-A3B     |          407 → 73    | 1760 |         1622 → 101   | 7296 | always-on prefix cache 5.6×/16× TTFT; 21.4GB active |
-| :8901 coder 30B-A3B      |          346 → 35    | 1677 |         1806 → 79    | 6876 | 10×/23× TTFT; 16.8GB active                         |
-| :8902 extract 4B         |          352 → 30    | 1677 |         1653 → 75    | 6876 | 12×/22× TTFT; 2.8GB active                          |
-| glm-5.3-flash (z.ai)     |         1488 → 1247  | 1536 |                 —    |  —   | cache_control honored, −16% wall                    |
-| zai-glm-5.3-flash        |         1051 → 1090  | 1536 |                 —    |  —   | cache_control honored (read reported), no wall gain |
-| claude-sonnet-5 (Copilot)|         1135 → 1233  | 1536 |                 —    |  —   | cache_control honored (read reported), no wall gain |
+| Leg                       | 2000 tok miss→hit ms | read | 8000 tok miss→hit ms | read | Verdict                                             |
+| ------------------------- | -------------------: | ---: | -------------------: | ---: | --------------------------------------------------- |
+| :8903 reason 35B-A3B      |             407 → 73 | 1760 |           1622 → 101 | 7296 | always-on prefix cache 5.6×/16× TTFT; 21.4GB active |
+| :8901 coder 30B-A3B       |             346 → 35 | 1677 |            1806 → 79 | 6876 | 10×/23× TTFT; 16.8GB active                         |
+| :8902 extract 4B          |             352 → 30 | 1677 |            1653 → 75 | 6876 | 12×/22× TTFT; 2.8GB active                          |
+| glm-5.3-flash (z.ai)      |          1488 → 1247 | 1536 |                    — |    — | cache_control honored, −16% wall                    |
+| zai-glm-5.3-flash         |          1051 → 1090 | 1536 |                    — |    — | cache_control honored (read reported), no wall gain |
+| claude-sonnet-5 (Copilot) |          1135 → 1233 | 1536 |                    — |    — | cache_control honored (read reported), no wall gain |
 
 Verdict: the local always-on prefix cache is the decisive cache win —
 10–16× warm TTFT at 2k–8k prefixes at zero request cost. Cloud
 `cache_control` is honored everywhere and reads are reported (1536 of the
 2000-token prefix), but at these prefix sizes wall latency gains are
 inconsistent (one leg −16%, two flat) — don't pay for cache hops at 2k.
+
+W922 reran the `:8902` extract leg on AC on 2026-10-19 with the same 2k
+prefix and n=12. Current model:
+`mlx-community/Qwen3-4B-Instruct-2507-4bit`; miss→hit median TTFT
+**298→29 ms**, usage cache-read **16→1,677 tokens**. The 16-token miss read
+shows incidental overlap; it is not a forced cache-off request. Rapid-MLX
+has no per-request cache switch on this wire, so this is a fixed-prefix
+versus nonce-cold comparison. The result corroborates the earlier 352→30 ms
+row under this run's load; it does not isolate provider cache writes or agent
+session cloning.
 
 ### Router-value decomposition (n=33; × = paired median wall ratio A/B)
 
@@ -186,11 +255,11 @@ placement medians (tier-matched for the cloud arm); the fixed:cloud token
 volume scales the measured window volume by the request share (the ledger
 records no tokens for local rides — estimate, labeled).
 
-| Arm                        | done% | local% | p50    | p90   | cloud tok in/out (Mtok) | $/1k tasks  |
-| -------------------------- | ----: | -----: | -----: | ----: | ---------------------- | ----------- |
-| complexity-v3 (audited)    |  99.5 |   15.1 | 4.65 s | 8.1 s | 133.3 / 10.3           | $-n4        |
-| fixed:reason (all → :8903) | 100 † |    100 | 1.13 s | 9.6 s | 0 / 0                  | elec ($0)   |
-| fixed:cloud (all → :4100)  |  99.8 |      0 | 5.11 s | 5.11 s | 157.1 / 12.2 (est)    | $-n4        |
+| Arm                        | done% | local% |    p50 |    p90 | cloud tok in/out (Mtok) | $/1k tasks |
+| -------------------------- | ----: | -----: | -----: | -----: | ----------------------- | ---------- |
+| complexity-v3 (audited)    |  99.5 |   15.1 | 4.65 s |  8.1 s | 133.3 / 10.3            | $-n4       |
+| fixed:reason (all → :8903) | 100 † |    100 | 1.13 s |  9.6 s | 0 / 0                   | elec ($0)  |
+| fixed:cloud (all → :4100)  |  99.8 |      0 | 5.11 s | 5.11 s | 157.1 / 12.2 (est)      | $-n4       |
 
 † transport completion (HTTP ok), not answer quality — quality A/B is
 eval-models.ts's contract, not this bench's. fixed:reason is excluded from
@@ -214,10 +283,10 @@ sealed tasks: 24 seeded across 13 defect classes × 10 generator families +
 (seal sha16 `05578c7b2a3391ed`). Both arms 39/39 calls ok, AC power,
 2026-10-18. n=39 → **weak** band (33–129); local-only, no cloud leg.
 
-| Arm | recall | FP/task | human noise/clean | converged ≤3 | verdict acc* | tok-in p50 | calls p50 | wall p50 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| A: single-pass oracle | 100% | 0.49 | 1.58 | 1/39 | 67% | 190 | 1 | 1.3 s |
-| B: review pipeline | 94% | 1.03 | 3.08 | 20/39 | 74% | 2,673 | 7 | 14.3 s |
+| Arm                   | recall | FP/task | human noise/clean | converged ≤3 | verdict acc* | tok-in p50 | calls p50 | wall p50 |
+| --------------------- | -----: | ------: | ----------------: | -----------: | -----------: | ---------: | --------: | -------: |
+| A: single-pass oracle |   100% |    0.49 |              1.58 |         1/39 |          67% |        190 |         1 |    1.3 s |
+| B: review pipeline    |    94% |    1.03 |              3.08 |        20/39 |          74% |      2,673 |         7 |   14.3 s |
 
 \* outcome-corrected: on defect tasks a PASS after a recall>0 fix counts
 correct (found-and-fixed); the only wrong verdict is PASS with zero
@@ -266,16 +335,16 @@ separable. Walls are CROSS-CONTAMINATED (the three direct lanes ran
 concurrently on one GPU; the router lane ran solo afterwards) — speed
 shape only.
 
-| Transform | Target       | n   | score mean | ret p50 | ratio p50 | add p50 | wall p50 | Verdict                                           |
-| --------- | ------------ | --- | ---------: | -------: | --------: | ------: | -------: | ------------------------------------------------- |
-| compress  | blam caveman | 130 |       94.0 |    1.000 |     0.689 |       0 | 0 ms     | incumbent; deterministic, offline, zero latency    |
-| compress  | coder :8901  | 129 |   **96.5** |    1.000 |     0.555 |       0 | 1,599 ms | best LLM compressor; ≤±7 of blam = not separable   |
-| compress  | extract :8902| 129 |       94.8 |    1.000 |     0.520 |       0 | 900 ms   | reformats tokens (`--trace=` style), invents flags |
-| compress  | reason :8903 | 129 |       92.6 |    1.000 |     0.589 |       1 | 2,032 ms | add p50=1: invents identifiers per leg             |
-| enhance   | extract :8902| 130 |   **99.6** |    1.000 |     1.354 |       0 | 842 ms   | **best enhancer** — fastest direct + top score     |
-| enhance   | reason :8903 | 130 |       99.3 |    1.000 |     1.421 |       0 | 1,092 ms | tie with extract within ±7                         |
-| enhance   | coder :8901  | 130 |       95.9 |    1.000 |     1.392 |       0 | 1,151 ms | occasional token-dropping rewrites (score-42 tail) |
-| enhance   | router :4000 | 130 |       99.1 |    1.000 |     1.351 |       0 | 478 ms   | placed 130/130 on :8902; solo-run wall, see note   |
+| Transform | Target        | n   | score mean | ret p50 | ratio p50 | add p50 | wall p50 | Verdict                                            |
+| --------- | ------------- | --- | ---------: | ------: | --------: | ------: | -------: | -------------------------------------------------- |
+| compress  | blam caveman  | 130 |       94.0 |   1.000 |     0.689 |       0 |     0 ms | incumbent; deterministic, offline, zero latency    |
+| compress  | coder :8901   | 129 |   **96.5** |   1.000 |     0.555 |       0 | 1,599 ms | best LLM compressor; ≤±7 of blam = not separable   |
+| compress  | extract :8902 | 129 |       94.8 |   1.000 |     0.520 |       0 |   900 ms | reformats tokens (`--trace=` style), invents flags |
+| compress  | reason :8903  | 129 |       92.6 |   1.000 |     0.589 |       1 | 2,032 ms | add p50=1: invents identifiers per leg             |
+| enhance   | extract :8902 | 130 |   **99.6** |   1.000 |     1.354 |       0 |   842 ms | **best enhancer** — fastest direct + top score     |
+| enhance   | reason :8903  | 130 |       99.3 |   1.000 |     1.421 |       0 | 1,092 ms | tie with extract within ±7                         |
+| enhance   | coder :8901   | 130 |       95.9 |   1.000 |     1.392 |       0 | 1,151 ms | occasional token-dropping rewrites (score-42 tail) |
+| enhance   | router :4000  | 130 |       99.1 |   1.000 |     1.351 |       0 |   478 ms | placed 130/130 on :8902; solo-run wall, see note   |
 
 Picks: **best compressor = local-coder :8901 (as LLM leg) — but the
 deterministic blam caveman stays the production condense** (no separation
@@ -300,14 +369,14 @@ documented in packages/suspenders/docs/board-api.md (`prompt.enhance` row).
 
 ## Measured A/B results
 
-| Comparison                                          | Result                     | Verdict                     |
-| --------------------------------------------------- | -------------------------- | --------------------------- |
-| MoE 35B-A3B vs dense Qwen3.8-27B                    | 147.9 vs 28.3 tok/s (5.2×) | MoE wins at equal quality   |
-| bf16 KV vs int8 KV (Coder-30B)                      | 107.4 vs 87.3 tok/s        | bf16 KV wins                |
-| rapid-mlx 0.14.3 vs mlx_lm.server (code, Coder-30B) | 121.8 vs 91.9 tok/s (+33%) | rapid-mlx runner wins       |
-| rapid-mlx vs mlx_lm.server (reason, dense 27B)      | 29.5 vs 24.8 tok/s (+19%)  | rapid-mlx runner wins       |
-| Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)   | 107.2 vs 86.0 tok/s (+25%) | OptiQ takes the :8903 slot  |
-| Engine swap (Coder-30B, mlx_lm → rapid-mlx)         | 97.4 → 123.7 tok/s         | biggest single lever so far |
+| Comparison                                                                                                      | Result                                                                                                                                                                                                                                                                           | Verdict                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| MoE 35B-A3B vs dense Qwen3.8-27B                                                                                | 147.9 vs 28.3 tok/s (5.2×)                                                                                                                                                                                                                                                       | MoE wins at equal quality                                                                                                                 |
+| bf16 KV vs int8 KV (Coder-30B)                                                                                  | 107.4 vs 87.3 tok/s                                                                                                                                                                                                                                                              | bf16 KV wins                                                                                                                              |
+| rapid-mlx 0.14.3 vs mlx_lm.server (code, Coder-30B)                                                             | 121.8 vs 91.9 tok/s (+33%)                                                                                                                                                                                                                                                       | rapid-mlx runner wins                                                                                                                     |
+| rapid-mlx vs mlx_lm.server (reason, dense 27B)                                                                  | 29.5 vs 24.8 tok/s (+19%)                                                                                                                                                                                                                                                        | rapid-mlx runner wins                                                                                                                     |
+| Qwen3.5-35B-A3B-OptiQ vs -4bit (same model, W228)                                                               | 107.2 vs 86.0 tok/s (+25%)                                                                                                                                                                                                                                                       | OptiQ takes the :8903 slot                                                                                                                |
+| Engine swap (Coder-30B, mlx_lm → rapid-mlx)                                                                     | 97.4 → 123.7 tok/s                                                                                                                                                                                                                                                               | biggest single lever so far                                                                                                               |
 | GLM-5.3 reasoning pin vs unpinned (W770, legacy leg :4100, zai-glm-5.3, 9528-char diff-review brief, 3k budget) | effort-low = stop=stop, 2559 out (1305 reasoning), 4990-char review, 40.1 s vs unpinned = 3000/3000 thinking-only, content 0 chars, 46.1 s; anthropic-carrier alias row (glm-5.3) rejects reasoning_effort with litellm 400 — the forward lives on the zai openai-wire rows only | pin is LIVE on :4100 zai rows (post-activation A/B 2026-10-15) — pin the escalate legs; :4101 kickstart still picks up the buckle forward |
 
 ## Installer cutover — bash vs TS full-install wall-time (W490.2, 2026-10-06)
@@ -395,16 +464,16 @@ override), verdict + medians + loadavg logged to benchmarks.jsonl.
 
 ## Rejection log
 
-| Date       | Model                                  | Verdict                                                                                        |
-| ---------- | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| 2026-09-23 | Qwen3.8-27B (dense)                    | 28.3 vs 138.5 tok/s at equal probe quality — the :8903 slot stays Qwen3.5-35B-A3B              |
-| 2026-09-27 | GLM-5.x locally                        | 204–418GB at 4-bit; no fit in 128GB — remote-only                                              |
-| 2026-09-27 | Xing4.0-29B-A4B                        | MLA+MTP unproven in MLX, no expected edge over Qwen3.5-35B-A3B                                 |
-| 2026-09-27 | Fastino-Nemotron-3.5-Lightning-Finance | English-only; no Danish context — general local model + own docs wins                          |
-| 2026-09-27 | Intern-Decision-4B                     | 12/15 vs 13/15 fork replay, CUDA-only serving; revisit only if an MLX port appears             |
-| 2026-10-02 | kev-4B as belt fit-classifier          | 4/12 agreement, 3.6× latency, 1.6× tokens vs :8902 chat-JSON (W225)                            |
-| 2026-10-03 | Qwen3.5-9B-OptiQ-4bit                  | 68.5 vs 87.0 tok/s re-benched same-day (load1 ~9.7) — :8906 stays 9B-MLX-4bit, weights deleted |
-| 2026-10-19 | RavenX-Qwen3.6-35B-A3B MTP-4bit        | 132.1 vs 128.4 tok/s vs the :8903 incumbent — TIE inside ±5% margin; MTP edge unproven at 35B in MLX, OptiQ slot stands, weights deleted (W242)
+| Date       | Model                                  | Verdict                                                                                                                                         |
+| ---------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-23 | Qwen3.8-27B (dense)                    | 28.3 vs 138.5 tok/s at equal probe quality — the :8903 slot stays Qwen3.5-35B-A3B                                                               |
+| 2026-09-27 | GLM-5.x locally                        | 204–418GB at 4-bit; no fit in 128GB — remote-only                                                                                               |
+| 2026-09-27 | Xing4.0-29B-A4B                        | MLA+MTP unproven in MLX, no expected edge over Qwen3.5-35B-A3B                                                                                  |
+| 2026-09-27 | Fastino-Nemotron-3.5-Lightning-Finance | English-only; no Danish context — general local model + own docs wins                                                                           |
+| 2026-09-27 | Intern-Decision-4B                     | 12/15 vs 13/15 fork replay, CUDA-only serving; revisit only if an MLX port appears                                                              |
+| 2026-10-02 | kev-4B as belt fit-classifier          | 4/12 agreement, 3.6× latency, 1.6× tokens vs :8902 chat-JSON (W225)                                                                             |
+| 2026-10-03 | Qwen3.5-9B-OptiQ-4bit                  | 68.5 vs 87.0 tok/s re-benched same-day (load1 ~9.7) — :8906 stays 9B-MLX-4bit, weights deleted                                                  |
+| 2026-10-19 | RavenX-Qwen3.6-35B-A3B MTP-4bit        | 132.1 vs 128.4 tok/s vs the :8903 incumbent — TIE inside ±5% margin; MTP edge unproven at 35B in MLX, OptiQ slot stands, weights deleted (W242) |
 
 ## buckle gateway (curated)
 
@@ -543,12 +612,12 @@ all three attempts — see honesty notes).
 
 ### Run-ids (ts 20261015T153116Z prefix elided; results gitignored)
 
-| variant | glm | local | kev | mixed |
-| ------- | --- | ----- | --- | ----- |
-| none | `0ec075cc` | — | — | — |
-| condense-in | `5e959eb0` | `421c943e` | `6fd25423` | `cf74f174` |
+| variant      | glm        | local      | kev        | mixed      |
+| ------------ | ---------- | ---------- | ---------- | ---------- |
+| none         | `0ec075cc` | —          | —          | —          |
+| condense-in  | `5e959eb0` | `421c943e` | `6fd25423` | `cf74f174` |
 | condense-out | `c08ff583` | `9d583bd1` | `09ed4b81` | `80fa0b10` |
-| enhance | `7c68aa82` | `84037d00` | `b65ced01` | `6aa7ab90` |
+| enhance      | `7c68aa82` | `84037d00` | `b65ced01` | `6aa7ab90` |
 
 enhance×local assembled from TWO partial runs (both EXIT 0, classes
 e/d/a/c/f clean in both): `153116Z-84037d00` + `183005Z-84037d00`; class-b
@@ -558,21 +627,21 @@ direct and via :4100) are excluded from tables.
 
 ### pass% per class (n=12/class/leg; stack-router e-leg is a placement probe, excluded)
 
-| transform | set | a | b | c | d | e | f |
-| --------- | --- | - | - | - | - | - | - |
-| none | glm | 33 | 100 | 100 | 100 | 100 | 100 |
-| condense-in | glm | 33 | 100 | 100 | 96 | 100 | 100 |
-| condense-in | local | 100 | 71 | 100 | 92 | 75 | 100 |
-| condense-in | kev | — | — | — | — | 83 | — |
-| condense-in | mixed | 100 | 58 | 100 | 83 | 83 | 100 |
-| condense-out | glm | 42 | 96 | 100 | 96 | 100 | 100 |
-| condense-out | local | 92 | 71 | 100 | 92 | 75 | 100 |
-| condense-out | kev | — | — | — | — | 83 | — |
-| condense-out | mixed | 100 | 58 | 100 | 83 | 92 | 100 |
-| enhance | glm | 4 | 54 | 0 | 71 | 100 | 92 |
-| enhance | local | 0 | — | 2 | 75 | 75 | 100 |
-| enhance | kev | — | — | — | — | 83 | — |
-| enhance | mixed | 8 | 0 | 0 | 67 | 75 | 100 |
+| transform    | set   | a   | b   | c   | d   | e   | f   |
+| ------------ | ----- | --- | --- | --- | --- | --- | --- |
+| none         | glm   | 33  | 100 | 100 | 100 | 100 | 100 |
+| condense-in  | glm   | 33  | 100 | 100 | 96  | 100 | 100 |
+| condense-in  | local | 100 | 71  | 100 | 92  | 75  | 100 |
+| condense-in  | kev   | —   | —   | —   | —   | 83  | —   |
+| condense-in  | mixed | 100 | 58  | 100 | 83  | 83  | 100 |
+| condense-out | glm   | 42  | 96  | 100 | 96  | 100 | 100 |
+| condense-out | local | 92  | 71  | 100 | 92  | 75  | 100 |
+| condense-out | kev   | —   | —   | —   | —   | 83  | —   |
+| condense-out | mixed | 100 | 58  | 100 | 83  | 92  | 100 |
+| enhance      | glm   | 4   | 54  | 0   | 71  | 100 | 92  |
+| enhance      | local | 0   | —   | 2   | 75  | 75  | 100 |
+| enhance      | kev   | —   | —   | —   | —   | 83  | —   |
+| enhance      | mixed | 8   | 0   | 0   | 67  | 75  | 100 |
 
 Cells pool both legs per class (err rows counted as fail; stack-router
 e-probe excluded; kev legs are class-e-only). Baseline a=33% is the hardest

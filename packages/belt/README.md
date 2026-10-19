@@ -21,14 +21,14 @@ Single source of truth: [`bin/registry.ts`](bin/registry.ts) — port↔model pa
 exist only there. `swarm.ts` (lifecycle) and `router-shim.ts` (routing) both
 import it; change a model in the registry and both follow.
 
-| Port | Role                     | Model                                                                    | RAM         | Tier      | Engine    |
-| ---- | ------------------------ | ------------------------------------------------------------------------ | ----------- | --------- | --------- |
-| 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB       | resident  | rapid-mlx |
-| 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB      | resident  | rapid-mlx |
-| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB       | resident  | rapid-mlx |
-| 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB        | on-demand | rapid-mlx |
-| 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB      | resident  | rapid-mlx |
-| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB       | resident  | external  |
+| Port | Role                     | Model                                                                    | RAM    | Tier      | Engine    |
+| ---- | ------------------------ | ------------------------------------------------------------------------ | ------ | --------- | --------- |
+| 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB  | resident  | rapid-mlx |
+| 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB | resident  | rapid-mlx |
+| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB  | resident  | rapid-mlx |
+| 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
+| 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
+| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB  | resident  | external  |
 
 Embeddings retired from the swarm (2026-09-23): `mlx_lm` 0.31.x dropped the
 routes; embeddings live on `:8907` via context-rag's `embed_server.py`, started
@@ -68,10 +68,10 @@ bun ~/.claude/local-llm/set-cloud.ts off         # router: local-only mode
 
 ## The trio
 
-| Repo                                                | Layer                                                           | Depends on                                             |
-| --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| Repo                                                                         | Layer                                                           | Depends on                                             |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
 | [klh/suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders) | control plane — SQLite sessions/claims/work graph, fleet board  | any OpenAI-compatible endpoint (default `:8901`)       |
-| **klh/belt**                                        | local LLM fleet — MLX specialists, router, benchmark rig        | suspenders (optional, for warm weights + board advice) |
+| **klh/belt**                                                                 | local LLM fleet — MLX specialists, router, benchmark rig        | suspenders (optional, for warm weights + board advice) |
 | [klh/speedy](https://github.com/klh/fleet/tree/main/packages/speedy)         | speed + safety config layer — skills, hooks, personas, settings | installs both                                          |
 
 suspenders' advice worker (`advise.ts`) reads `SUSPENDERS_LLM_URL`
@@ -91,7 +91,7 @@ bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruc
 - `bin/bench-suite.ts` — standard 4-prompt bench (TS dedupe, web component,
   trade-offs, Danish email) + optional `--thinking-off`; logs each prompt and a
   median to `benchmarks.jsonl` via `bench-log.ts`. `--ttft --sizes
-  2000,8000,32000` switches to the prefill bench (`bin/bench-ttft.ts`): cold
+2000,8000,32000` switches to the prefill bench (`bin/bench-ttft.ts`): cold
   and prefix-cache-hit time-to-first-token medians, prefill tok/s, with
   engine / revision / flags / power / thermal meta per row
 - Router admission: the `:4000` shim caps in-flight requests per port
@@ -103,8 +103,8 @@ bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruc
   self-contained HTML graph)
 - [`bench/benchmarks.jsonl`](bench/benchmarks.jsonl) — the measured record
   (committed)
-- [`benchmarks.md`](benchmarks.md) — the canonical curated bench tables and
-  rejection log (owner law 2026-10-02); `bench/RESULTS.md` is a historical stub
+- [Fleet benchmarks](../../benchmarks.md) — curated results and rejection log;
+  [Belt questions](bench-questions.md) — protocols; `bench/RESULTS.md` is a historical stub
 - [`docs/add-a-model.md`](docs/add-a-model.md) — **how to add a new model**:
   registry → download → serve → bench → adopt/reject, with the rejection log
 
@@ -165,7 +165,7 @@ gateway config during an approved maintenance window.
   bench discipline and the survey-rejection log
 - [Routing doctrine](docs/routing.md) — the measured decision table + rules
 - [Fleet findings](docs/fleet-findings.md) — calibration notes and gotchas
-  (wired limit, uv symlink gotcha); bench tables live in [benchmarks.md](benchmarks.md)
+  (wired limit, uv symlink gotcha); bench tables live in [fleet benchmarks](../../benchmarks.md)
 
 ## License
 

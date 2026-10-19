@@ -55,8 +55,8 @@ docs/codex-setup.md there); user-level copilot instructions in
 - Swarm supervision (W272): shim + :890x respawn with backoff + circuit
   breaker; litellm (:4100) joins the same set (W277). Probe-scale budgets
   (<64 tok) are exempt from the always-think min-budget raise.
-- Benchmarks live in the belt repo (`benchmarks.md` at its root; the
-  bench-arena harness in `bench/arena/`).
+- Curated benchmarks live in the fleet-root `benchmarks.md`; Belt's
+  bench-arena harness lives in `packages/belt/bench/arena/`.
 
 ## Capability profiles (W165 — federation doc capability-split law)
 
