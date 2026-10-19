@@ -6,6 +6,7 @@
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import { verifyAuthChain } from "./audit-chain.ts";
+import type { RequestReadQuery } from "../ledger.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
 
@@ -107,6 +108,12 @@ export async function handleAdmin(
 	}
 	if (method === "GET" && path === "/v1/admin/slots") {
 		return ok({ held: gov.slots.held() });
+	}
+	// W824 per-request inspection over the usage ledger: capped, filtered,
+	// read-only (gate class enforces buckle:admin:READ_); key NAME/team join
+	// from api_keys (key material never leaves the store).
+	if (method === "GET" && path === "/v1/admin/requests") {
+		return listRequests(gov, url);
 	}
 	// W173 spoke enrollment + fleet registry: the hub names its fleet — mint
 	// a one-time enrollment code (admin-only by gate class), read the
@@ -232,6 +239,61 @@ function listSpokesRoute(gov: Governance): Response {
 			"no enrollment surface on this gate (solo posture)",
 		);
 	return ok({ spokes: sp.list() });
+}
+
+/** W824 limit param: absent → 50; positive integer → clamp 500; anything
+ *  else → null (the caller 400s). */
+function parseLimit(raw: string | null): number | null {
+	if (raw === null) return 50;
+	const n = Number(raw);
+	return Number.isInteger(n) && n >= 1 ? Math.min(n, 500) : null;
+}
+
+/** W824 since/until: validate ISO-parseable, write into the read query.
+ *  null = ok; a Response = the 400 to return instead. */
+function isoWindow(
+	sp: URLSearchParams,
+	q: RequestReadQuery,
+): Response | null {
+	for (const name of ["since", "until"] as const) {
+		const raw = sp.get(name);
+		if (raw === null || raw.length === 0) continue;
+		if (Number.isNaN(Date.parse(raw)))
+			return bad(
+				400,
+				"buckle.bad_window",
+				`${name} must be an ISO timestamp`,
+			);
+		q[name] = raw;
+	}
+	return null;
+}
+
+/** W824 GET /v1/admin/requests — per-request inspection rows (newest
+ *  first): ts, key name/team join (NEVER key material), model, upstream
+ *  chosen + ladder walk, status, tokens, latency, cache telemetry.
+ *  Filters: limit (default 50, max 500), since/until (ISO), key, lane,
+ *  model, errors=true. */
+function listRequests(gov: Governance, url: URL): Response {
+	const sp = url.searchParams;
+	const limit = parseLimit(sp.get("limit"));
+	if (limit === null)
+		return bad(400, "buckle.bad_limit", "limit must be a positive integer");
+	const q: RequestReadQuery = { limit };
+	const w = isoWindow(sp, q);
+	if (w !== null) return w;
+	if (sp.get("key")) q.key = sp.get("key");
+	if (sp.get("lane")) q.lane = sp.get("lane");
+	if (sp.get("model")) q.model = sp.get("model");
+	q.errors = sp.get("errors") === "true";
+	const rows = gov.ledger.requestsRead(q);
+	const byId = new Map(gov.keys.listKeys().map((k) => [k.key_id, k]));
+	return ok({
+		requests: rows.map((r) => {
+			const k = byId.get(r.actor);
+			return { ...r, key_name: k?.name ?? null, key_team: k?.team ?? null };
+		}),
+	});
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {

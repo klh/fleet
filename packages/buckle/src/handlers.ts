@@ -565,6 +565,9 @@ function finishResponse(
 		status: resp.status,
 		duration_ms: ms,
 		ok,
+		// W824: the ladder walk length at settle (null on aborted walks —
+		// the union kind without an attempts field).
+		attempts: result.kind === "aborted" ? null : result.attempts,
 		err: rateLimited
 			? "rate_limited"
 			: result.kind === "exhausted"
