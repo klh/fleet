@@ -37,6 +37,8 @@ import type {
 } from "../bin/usage-chrome.ts";
 // W695.3.5: the page head rides the same bundle (side-effect registers it)
 import "./klh-usage-head.ts";
+// W825: the cache drilldown rides the same bundle (side-effect registers it)
+import "./usage-cache-drill.ts";
 
 // ─── shared payload read ──────────────────────────────────────────────────
 interface PanelRoot {
@@ -59,7 +61,9 @@ const readPanels = (): UsagePanels | null => readPayload()?.panels ?? null;
 const readSlot = (): Record<string, string> => readPayload()?.slot ?? {};
 
 // ─── client-side formatting (payload carries honest numbers) ──────────────
-const fmtTok = (n: number): string =>
+// exported for the sibling client components (usage-cache-drill) — one
+// formatting ramp across the usage bundle
+export const fmtTok = (n: number): string =>
 	n >= 1e9
 		? `${(n / 1e9).toFixed(1)}B`
 		: n >= 1e6
@@ -67,7 +71,7 @@ const fmtTok = (n: number): string =>
 			: n >= 1e3
 				? `${(n / 1e3).toFixed(1)}K`
 				: String(Math.round(n));
-const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
+export const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
 // ─── shadow-scoped panel chrome (the u* classes each panel needs) ─────────
 const panelCss: CSSResultGroup = css`
@@ -193,11 +197,13 @@ export class KlhUsageHeader extends LitElement {
 				${this.chips("team", h.teams, "ufchip")}
 				${this.chips("dept", h.depts, "ufchip")}
 				${h.filtered ? html`<span class="uon">${h.filtered}</span>` : nothing}
-				${demo
-					? html`<a class="ufilter${demo.on ? " on" : ""}" href=${demo.href}
+				${
+					demo
+						? html`<a class="ufilter${demo.on ? " on" : ""}" href=${demo.href}
 							>${demo.label}</a
 						>`
-					: nothing}
+						: nothing
+				}
 				<span class="uon">${h.status}</span>
 			</div>`;
 	}
@@ -834,10 +840,7 @@ export class KlhUsageCrossHub extends LitElement {
 				</td>
 				<td colspan="3">${r.reason ?? "hub down"}</td>
 			</tr>`;
-		const barW = Math.max(
-			2,
-			(r.total / Math.max(1, ...this.rowTotals)) * 100,
-		);
+		const barW = Math.max(2, (r.total / Math.max(1, ...this.rowTotals)) * 100);
 		return html`<tr>
 			<td>
 				<b>${r.hub}</b>
@@ -1035,7 +1038,9 @@ export class KlhUsageCharts extends LitElement {
 					value: (v: number | null): string => fmtTok(v ?? 0),
 				});
 			}
-			this.chart(tEl, uPlot,
+			this.chart(
+				tEl,
+				uPlot,
 				{
 					width: tEl.clientWidth,
 					height: 300,
@@ -1051,7 +1056,9 @@ export class KlhUsageCharts extends LitElement {
 		// hour-of-day histogram — single-series distribution, slot 1 (flash blue)
 		const hEl = this.querySelector<HTMLElement>("#u-hours");
 		if (hEl) {
-			this.chart(hEl, uPlot,
+			this.chart(
+				hEl,
+				uPlot,
 				{
 					width: hEl.clientWidth,
 					height: 190,

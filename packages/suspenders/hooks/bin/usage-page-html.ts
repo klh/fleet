@@ -317,12 +317,18 @@ export function usagePage(
 		"klh-usage-activity",
 		"klh-usage-aids",
 		"klh-usage-crosshub",
+		"klh-usage-cache-drill",
 	]
 		.map((t) => `<${t}></${t}>`)
 		.join("");
 	return usagePageShell({
 		title: "FLEET USAGE",
 		body: hosts,
-		payload: chartPayload(r, header, opts.activity, crossHubData(opts.crossHub)),
+		payload: chartPayload(
+			r,
+			header,
+			opts.activity,
+			crossHubData(opts.crossHub),
+		),
 	});
 }

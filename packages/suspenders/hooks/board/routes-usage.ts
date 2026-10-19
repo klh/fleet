@@ -7,10 +7,8 @@ import { json } from "./helpers.ts";
 import { maybeHarvest } from "../lib/usage-harvest.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
 import { buildUsageReport } from "../lib/usage.ts";
-import {
-	type CrossHubReport,
-	crossHubRollup,
-} from "../lib/cross-hub-usage.ts";
+import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
+import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
 import { usagePage } from "../bin/usage-page-html.ts";
 
 export async function handleUsage(
@@ -76,9 +74,8 @@ export async function handleUsage(
 	}
 	if (url.pathname === "/api/activity-meter") {
 		// W243: the decant-shape meter as JSON — weekly activity classify,
-		// context-share per lane, orientation-vs-implementation axis,
-		// search-count normalization, pricing-shape metering. TTL-gated
-		// harvest first; ?weeks=N clamps to 1..26.
+		// context-share per lane, usage → lane → request drilldown data path
+		// rides /api/usage/cache-drill below (W825).
 		maybeHarvest(db);
 		const w = Number(url.searchParams.get("weeks") ?? 8) || 8;
 		return json({
@@ -86,13 +83,24 @@ export async function handleUsage(
 			meter: activityReport(db, { weeks: Math.min(26, Math.max(1, w)) }),
 		});
 	}
+	if (url.pathname === "/api/usage/cache-drill") {
+		// W825: buckle per-request cache drilldown — per-lane warm-cache
+		// aggregates + miss-reason clusters + (lane filter) the lane's
+		// per-request rows. Hubs fetched server-side with the cross-hub
+		// pattern (TTL-cached, per-hub degrade); params: days, lane, model,
+		// day, miss_only=1, sort, limit.
+		const { days, filters } = cacheDrillParams(url);
+		return json(await cacheDrillReport({ days, filters }));
+	}
 	return null;
 }
 
 /** W365: the per-hub rollup, never fatal — any failure degrades to
  *  undefined and the views omit the panel honestly. days rides the query
  *  string (clamped in crossHubRollup). */
-async function crossHubUsageSafe(url: URL): Promise<CrossHubReport | undefined> {
+async function crossHubUsageSafe(
+	url: URL,
+): Promise<CrossHubReport | undefined> {
 	try {
 		const d = Number(url.searchParams.get("days") ?? 28) || 28;
 		return await crossHubRollup({ days: Math.min(90, Math.max(1, d)) });
