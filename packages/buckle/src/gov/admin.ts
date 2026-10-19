@@ -283,6 +283,16 @@ function listRequests(gov: Governance, url: URL): Response {
 	if (w !== null) return w;
 	if (sp.get("key")) q.key = sp.get("key");
 	if (sp.get("lane")) q.lane = sp.get("lane");
+	if (sp.has("trace_id")) {
+		const traceId = sp.get("trace_id") ?? "";
+		if (!/^[0-9a-f]{32}$/.test(traceId))
+			return bad(
+				400,
+				"buckle.bad_trace_id",
+				"trace_id must be 32 lowercase hex characters",
+			);
+		q.trace_id = traceId;
+	}
 	if (sp.get("model")) q.model = sp.get("model");
 	q.errors = sp.get("errors") === "true";
 	q.inference = sp.get("inference") === "true";

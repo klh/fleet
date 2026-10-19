@@ -21,6 +21,8 @@ export interface UsageRecord {
 /** W136 §6 decision row (the outcome fields ride the same table row). */
 export interface RouteAuditDecision {
 	rid: string;
+	/** W3C trace ID from the accepted inbound traceparent (or generated root). */
+	trace_id?: string | null;
 	ts: string;
 	actor: string;
 	/** W1 per-lane attribution: the /w/<slug> slug when the request rode a
@@ -78,6 +80,7 @@ export interface RequestReadQuery {
 	/** The presented-credential key id (route_audit.actor). */
 	key?: string | null;
 	lane?: string | null;
+	trace_id?: string | null;
 	model?: string | null;
 	/** Exclude rejected/unrouted ingress before applying the read cap. */
 	inference?: boolean;
@@ -89,6 +92,7 @@ export interface RequestReadQuery {
  *  key NAME joined by the caller (never key material). */
 export interface RequestReadRow {
 	rid: string;
+	trace_id: string | null;
 	ts: string;
 	actor: string;
 	lane: string;
@@ -122,11 +126,11 @@ export interface RequestReadRow {
 
 const INSERT_AUDIT = `
 INSERT INTO route_audit (
-  rid, ts, actor, lane, dialect, hint,
+  rid, trace_id, ts, actor, lane, dialect, hint,
   candidates_seen, candidates_top,
   target_kind, target_host, target_port, target_model,
   decision, latency_class, tier, allow_cloud, error_code, why, hop
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SCHEMA = `
@@ -144,6 +148,7 @@ CREATE TABLE IF NOT EXISTS router_usage (
 );
 CREATE TABLE IF NOT EXISTS route_audit (
   rid TEXT PRIMARY KEY,
+	trace_id TEXT,
   ts TEXT NOT NULL,
   actor TEXT NOT NULL DEFAULT '',
   lane TEXT NOT NULL DEFAULT '',
@@ -297,6 +302,11 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_audit ADD COLUMN in_tok INTEGER");
 		if (!auditCols.includes("out_tok"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN out_tok INTEGER");
+		if (!auditCols.includes("trace_id"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN trace_id TEXT");
+		this.db.run(
+			"CREATE INDEX IF NOT EXISTS route_audit_trace ON route_audit(trace_id, ts)",
+		);
 		this.upsert = this.db.query(UPSERT);
 		this.insAudit = this.db.query(INSERT_AUDIT);
 		this.updAudit = this.db.query(UPDATE_AUDIT);
@@ -493,6 +503,7 @@ export class Ledger {
 	private insertAudit(row: RouteAuditDecision): void {
 		this.insAudit.run(
 			row.rid,
+			row.trace_id ?? null,
 			row.ts,
 			row.actor,
 			row.lane,
@@ -595,6 +606,10 @@ export class Ledger {
 			where.push("lane = ?");
 			args.push(q.lane);
 		}
+		if (q.trace_id) {
+			where.push("trace_id = ?");
+			args.push(q.trace_id);
+		}
 		if (q.model) {
 			where.push("target_model = ?");
 			args.push(q.model);
@@ -645,7 +660,7 @@ function capRequestText(s: string | null): string | null {
 }
 function requestsReadSql(where: string[], limit: number): string {
 	const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-	return `SELECT rid, ts, actor, lane, dialect, hint,
+	return `SELECT rid, trace_id, ts, actor, lane, dialect, hint,
 		candidates_seen, candidates_top, target_kind, target_host,
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
