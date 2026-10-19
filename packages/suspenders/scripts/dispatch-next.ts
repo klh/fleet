@@ -141,6 +141,7 @@ import {
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
+import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
@@ -449,6 +450,20 @@ const dispatchItem = async (
 			return null;
 		}
 	}
+	// W896 verdict-repeat gate (scripts/lib/verdict-repeat-gate.ts): a capsule
+	// that re-banks the verbatim verdict its prior attempt closed on flips
+	// the item to the operator-gated class (FAILED + NEED_DECISION, verdict
+	// on the card) instead of a re-spawn.
+	if (resume && !DRY && verdictRepeatGate({
+		item,
+		sid,
+		capsule: capsuleGet(sid),
+		run,
+		coordCli,
+		workCli,
+		log,
+	}))
+		return null;
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
 		console.log(`${DRY ? "DRY" : "STOP"} ${note}`);
