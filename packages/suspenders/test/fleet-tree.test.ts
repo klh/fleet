@@ -159,7 +159,12 @@ describe("W530.2 fleet tree refresh", () => {
 
 	test("configured registry credential authorizes discovery, secret stays off the wire", async () => {
 		writeHome(
-			{ NAS: { candidates: ["http://guarded:4101"], token: "bksk_registry_nas_read" } },
+			{
+				NAS: {
+					candidates: ["http://guarded:4101"],
+					token: "bksk_registry_nas_read",
+				},
+			},
 			{},
 		);
 		const s: Scenario = {
@@ -177,7 +182,14 @@ describe("W530.2 fleet tree refresh", () => {
 					return presented === "Bearer bksk_registry_nas_read"
 						? Response.json({
 								router: { port: 5999 },
-								entries: [{ alias: "nas-coder", label: "nas-coder", port: 5999, tier: "coder" }],
+								entries: [
+									{
+										alias: "nas-coder",
+										label: "nas-coder",
+										port: 5999,
+										tier: "coder",
+									},
+								],
 							})
 						: new Response("denied", { status: 401 });
 				}
@@ -654,12 +666,17 @@ describe("W530.2 fleet tree refresh", () => {
 							status: "granted",
 						},
 					},
-					models: [{ label: "Local inference", up: null }],
+					// strict display whitelist: no up/down keys on demo leaves
+					models: ["Local inference"],
 				},
 			},
 		);
-		const wire = (await (await get("http://b/api/fleet-tree?refresh=1")).json()) as Row;
-		const demo = (wire.tree as Row[]).find((r) => r.identity === "simulation:IKEA");
+		const wire = (await (
+			await get("http://b/api/fleet-tree?refresh=1")
+		).json()) as Row;
+		const demo = (wire.tree as Row[]).find(
+			(r) => r.identity === "simulation:IKEA",
+		);
 		expect(demo?.label).toBe("IKEA (simulation)");
 		expect(demo?.authorization).toBeTruthy();
 	}, 10000);
