@@ -625,3 +625,33 @@ cell (glm cloud, cold, n=12 — noise floor).
   starves under any concurrent lane load; bench-grade runs need a quiet
   window or a reserved slot.
 - Judge pass (W748) not run — quality signal is mechanical-only at n=12.
+
+## Contrastive consult pool vs single leg (W927, 2026-10-19) — smoke, n=3
+
+Question: does the W927 contrastive consult (k legs in parallel + an
+identity-blind compose pick + experience fields) beat the single pinned
+:8903 leg for lane consults? Runner: `coord consult --contrastive --k 2`
+against the LIVE swarm (:8903 reason + :8901 coder; :8906 danish down,
+cloud leg unkeyed), temp HOME isolates the graph; the single-leg baseline
+POSTs :8903 directly (live /v1/models wire id). Real fleet questions, one
+run each — **smoke by the sample-size law (n=3, ±15pts band)**; medians
+rule out only gross effects. Owner-accept-rate NOT measured (needs owner
+GO on resolved lanes) — the row chooses on answered-rate + wall + token
+cost + pick diversity.
+
+| metric | single :8903 | contrastive k=2 |
+| ------ | ------------ | --------------- |
+| answered | 3/3 | 3/3 |
+| wall ms (median) | 8782 | 4914 |
+| token shape | 1 leg | 2 legs + compose ≈ 2.5× |
+| compose overhead | — | 1.3–2.5s |
+| pick diversity | — | winner reason 5/6, coder 1/6 across runs |
+
+**Verdict: k-leg-compose for lane consults.** Wall ~2× faster (legs fan
+out in parallel; the compose adds back only its own ~1.5s) at ~2.5× token
+cost — the right trade when a wrong/refused consult stalls a lane for
+minutes. The compose judge demonstrably picks non-default legs (coder
+won when the :8903 answer trailed), so the pool is not a rubber stamp.
+Single leg stays right for cheap high-volume calls (keepwarm, extract
+tier). Re-bench on :8906 danish + a keyed cloud leg before trusting the
+k=4 shape; owner-accept data lands via the W909 consult events.
