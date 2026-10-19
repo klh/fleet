@@ -122,7 +122,9 @@ function renderFleetLanes(el, lanes, zombies, needs){
     // 'stale'/'unverified', never 'working'.
     var label = stateLabel(s.state, flagged);
     if (!flagged && claimed && s.verdict && s.verdict !== 'alive') label = s.verdict === 'dead' ? 'stale' : 'unverified';
-    var status = document.createElement('span'); status.className = 'fleetstate'; status.textContent = label; chip.appendChild(status);
+    var status = document.createElement('span'); status.className = 'fleetstate'; chip.appendChild(status);
+    // W891 — the state letter rides the status word via the string sink
+    setNodes(status, stLetter(label) + esc(label));
     var heartbeat = document.createElement('span'); heartbeat.className = 'dim'; heartbeat.textContent = ago(s.hbAgo) || 'unknown'; chip.appendChild(heartbeat);
     var project = document.createElement('span'); project.className = 'dim'; project.title = s.project || '';
     var path = s.project ? s.project.split('/').filter(Boolean) : [];
@@ -133,7 +135,7 @@ function renderFleetLanes(el, lanes, zombies, needs){
       var gwhy = mergeReadyWhy(gitObs);
       var gtext = gitObs.mergeReady === true ? 'merge-ready' : 'not merge-ready (' + gwhy.join(', ') + ')';
       chip.title += ' · ' + gtext;
-      status.textContent += gitObs.mergeReady === true ? ' / merge-ready' : ' / merge blocked';
+      status.appendChild(document.createTextNode(gitObs.mergeReady === true ? ' / merge-ready' : ' / merge blocked'));
     }
     fragment.appendChild(chip);
   }

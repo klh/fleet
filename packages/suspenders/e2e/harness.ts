@@ -47,7 +47,7 @@ export function unusedPort(): number {
 
 export async function startBoard(
 	label: string,
-	opts: { env?: NodeJS.ProcessEnv } = {},
+	opts: { env?: NodeJS.ProcessEnv; args?: string[] } = {},
 ): Promise<Board> {
 	const HOME = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-repo-`));
@@ -95,7 +95,13 @@ export async function startBoard(
 	}
 
 	const proc = Bun.spawn(
-		["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
+		[
+			"bun",
+			join(bin, "fleet-board.ts"),
+			"--port",
+			String(PORT),
+			...(opts.args ?? []),
+		],
 		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
 	);
 	let output = "";

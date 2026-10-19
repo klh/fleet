@@ -82,13 +82,37 @@ function agoShort(s){
   return Math.round(s / 86400) + 'd';
 }
 function msAgo(ts){ return ts != null ? Math.max(0, Math.round((Date.now() - ts) / 1000)) : null; }
+// W891 — state letters: the displayed state's initial rides the pill/status
+// word, colored by the klh semantic state tokens (F red, R blue, D green,
+// Q gray) — hues resolve through vars, never literals.
+var ST_HUES = {
+  ready: 'info',
+  claimed: 'accent',
+  running: 'accent',
+  done: 'ok',
+  failed: 'danger',
+  blocked: 'danger',
+  paused: 'danger',
+  zombie: 'danger',
+  'waiting for you': 'danger',
+  working: 'accent',
+  'rate-limited': 'accent'
+};
+function stateHue(label){
+  return ST_HUES[String(label == null ? '' : label).toLowerCase()] || 'dim';
+}
+function stLetter(label){
+  var s = String(label == null ? '' : label);
+  return '<b class="stl ' + stateHue(s) + '">' + (s ? esc(s.charAt(0).toUpperCase()) : '?') + '</b>';
+}
 function taskPill(state){
   var s = String(state || '').toLowerCase();
-  if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + s + '</span>';
-  if (state === 'DONE') return '<span class="pill done">done</span>';
-  if (state === 'CANCELLED') return '<span class="pill cancel">cancelled</span>';
-  if (state === 'BLOCKED' || state === 'PAUSED' || state === 'FAILED') return '<span class="pill block">' + s + '</span>';
-  return '<span class="pill ready">' + (s || '?') + '</span>';
+  if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + stLetter(s) + s + '</span>';
+  if (state === 'DONE') return '<span class="pill done">' + stLetter('done') + 'done</span>';
+  if (state === 'CANCELLED') return '<span class="pill cancel">' + stLetter('cancelled') + 'cancelled</span>';
+  if (state === 'BLOCKED' || state === 'PAUSED') return '<span class="pill block">' + stLetter(s) + s + '</span>';
+  if (state === 'FAILED') return '<span class="pill block">' + stLetter('failed') + 'failed</span>';
+  return '<span class="pill ready">' + stLetter(s || '?') + (s || '?') + '</span>';
 }
 function zombieFor(sid, zombies){
   for (var z = 0; z < zombies.length; z++) if (String(zombies[z].label).indexOf(String(sid).slice(0, 10)) === 0) return true;

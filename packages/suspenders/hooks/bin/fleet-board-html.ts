@@ -311,6 +311,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.block { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
 .pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
+/* W891 state letters — semantic state hues ride the klh tokens (F red, R blue, D green, Q gray) */
+.stl { font-weight:700; letter-spacing:0; margin-right:5px; }
+.stl.info { color:var(--klh-info); }
+.stl.ok { color:var(--klh-ok-ink); }
+.stl.danger { color:var(--klh-danger-ink); }
+.stl.accent { color:var(--klh-accent); }
+.stl.dim { color:var(--klh-dim); }
 .rq { color:var(--klh-danger-ink); }
 .scard .shead { display:flex; gap:8px; align-items:baseline; font-size:12.5px; }
 .sok { flex:none; font-size:9px; text-transform:uppercase; letter-spacing:.08em; border:1px solid; border-radius:2px; padding:1px 6px; }
