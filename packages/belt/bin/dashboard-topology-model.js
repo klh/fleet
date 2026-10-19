@@ -47,9 +47,8 @@ export function addNetworkEvidence(machines, payload, now = Date.now()) {
 			item.models = [...item.models, row.model];
 		item.buckleReq15 = (item.buckleReq15 || 0) + row.req15;
 		item.buckleReq60 = (item.buckleReq60 || 0) + (row.req60 || 0);
-		if (Number.isFinite(row.in60) || Number.isFinite(row.out60)) {
-			item.tokens60 = (item.tokens60 || 0) + (row.in60 || 0) + (row.out60 || 0);
-		}
+		if (Number.isFinite(row.out60))
+			item.outTokens60 = (item.outTokens60 || 0) + row.out60;
 		if (isFresh(row.lastOkAt, now, ROUTE_MS)) item.routeObserved = true;
 		result.set(key, item);
 	}
@@ -102,11 +101,13 @@ export function buildTopology(
 			name,
 			endpoints: 0,
 			reachable: 0,
+			probed: 0,
 			routed: 0,
 			models: [],
 		};
 		item.endpoints += 1;
 		if (row.ok) item.reachable += 1;
+		if (row.last_seen) item.probed += 1;
 		if (
 			typeof row.model === "string" &&
 			row.model &&
@@ -150,7 +151,12 @@ export function buildTopology(
 		machines: addNetworkEvidence(
 			[...machines.values()].map((item) => ({
 				...item,
-				state: stateOf(item.reachable > 0, remoteFresh),
+				state:
+					!remoteFresh || !item.probed
+						? "unknown"
+						: item.reachable > 0
+							? "up"
+							: "down",
 			})),
 			networkPayload,
 			now,

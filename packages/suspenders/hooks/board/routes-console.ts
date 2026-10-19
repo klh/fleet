@@ -4,7 +4,7 @@
 import { BELT_REPO, db } from "./context.ts";
 import { json, writeGuard } from "./helpers.ts";
 import { recentAdminAudit } from "../lib/admin-audit.ts";
-import { cachedProbes, consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
+import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import { networkPayload } from "./network-overview.ts";
 import {
 	htmlHdr,

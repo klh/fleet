@@ -77,9 +77,10 @@ class BeltTopology extends LitElement {
 					cache: "no-store",
 				});
 				const network = response.ok ? await response.json() : null;
-				this.networkIssue = network?.ok
-					? ""
-					: "Buckle request feed unavailable";
+				this.networkIssue =
+					network?.ok && network.network?.ok
+						? ""
+						: "Buckle request feed unavailable";
 				this.topology = buildTopology(
 					status,
 					remotes,
@@ -131,7 +132,7 @@ class BeltTopology extends LitElement {
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
 			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 28} y=${y + 24}>${item.name}</text>
-			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.tokens60) ? `${(item.tokens60 / 60).toFixed(1)} tok/s` : "tokens unreported"}` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
+			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
 			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Model inventory unavailable</text>`}
 		</g>`;
 	}

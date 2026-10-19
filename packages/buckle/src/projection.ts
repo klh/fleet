@@ -105,7 +105,9 @@ export class LaneProjection {
 				.all() as Array<{ name: string }>
 		).map((r) => r.name);
 		if (!edgeCols.includes("origin"))
-			this.db.run("ALTER TABLE request_edges ADD COLUMN origin TEXT NOT NULL DEFAULT ''");
+			this.db.run(
+				"ALTER TABLE request_edges ADD COLUMN origin TEXT NOT NULL DEFAULT ''",
+			);
 		if (!edgeCols.includes("peer"))
 			this.db.run("ALTER TABLE request_edges ADD COLUMN peer TEXT");
 		this.insEvent = this.db.query(

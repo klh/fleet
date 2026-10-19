@@ -29,8 +29,18 @@ describe("Belt topology", () => {
 			{
 				ts: "2026-10-19T11:59:00Z",
 				rows: [
-					{ machine: "nas", model: "qwen", ok: true },
-					{ machine: "zai", model: "glm", ok: true },
+					{
+						machine: "nas",
+						model: "qwen",
+						ok: true,
+						last_seen: "2026-10-19T11:59:00Z",
+					},
+					{
+						machine: "zai",
+						model: "glm",
+						ok: true,
+						last_seen: "2026-10-19T11:59:00Z",
+					},
 					{ machine: "zai", model: "glm", ok: false },
 				],
 				routes: [
@@ -74,6 +84,7 @@ describe("Belt topology", () => {
 				name: "nas",
 				endpoints: 1,
 				reachable: 1,
+				probed: 1,
 				routed: 0,
 				models: ["qwen"],
 				state: "up",
@@ -82,6 +93,7 @@ describe("Belt topology", () => {
 				name: "zai",
 				endpoints: 2,
 				reachable: 1,
+				probed: 1,
 				routed: 1,
 				models: ["glm"],
 				state: "up",
@@ -101,6 +113,19 @@ describe("Belt topology", () => {
 		);
 		expect(model.router).toBe("unknown");
 		expect(model.hubs[0]?.state).toBe("unknown");
+		expect(model.machines[0]?.state).toBe("unknown");
+	});
+
+	test("configured cloud endpoints without a probe remain unknown", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [{ machine: "openai", ok: false, last_seen: null }],
+			},
+			{},
+			now,
+		);
 		expect(model.machines[0]?.state).toBe("unknown");
 	});
 
@@ -145,7 +170,7 @@ describe("Belt topology", () => {
 				state: "unknown",
 				buckleReq15: 6,
 				buckleReq60: 2,
-				tokens60: 120,
+				outTokens60: 30,
 				routeObserved: true,
 			},
 		]);

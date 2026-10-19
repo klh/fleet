@@ -46,7 +46,7 @@ led.run(
 );
 led.run(
 	`INSERT INTO router_usage VALUES (?,?,?,?)`,
-	new Date().toISOString().slice(0, 13) + ":00:00",
+	`${new Date().toISOString().slice(0, 13)}:00:00`,
 	100,
 	500,
 	1,
@@ -93,12 +93,15 @@ const env = {
 const bin = join(import.meta.dir, "..", "hooks", "bin");
 const PORT = 20000 + Math.floor(Math.random() * 20000);
 const BASE = `http://127.0.0.1:${PORT}`;
-const proc = Bun.spawn(["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)], {
-	cwd: REPO,
-	env,
-	stdout: "pipe",
-	stderr: "pipe",
-});
+const proc = Bun.spawn(
+	["bun", join(bin, "fleet-board.ts"), "--port", String(PORT)],
+	{
+		cwd: REPO,
+		env,
+		stdout: "pipe",
+		stderr: "pipe",
+	},
+);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUp() {
 	for (let i = 0; i < 100; i++) {
@@ -120,11 +123,19 @@ afterAll(async () => {
 
 describe("resolveNetworkDbPaths precedence", () => {
 	test("explicit knobs win, then PATH.db, then the HOME default", () => {
-		expect(resolveNetworkDbPaths({ BUCKLE_DB: "L", KLH_LANE_ROUTES_DB: "O", HOME: "/h" })).toEqual({
+		expect(
+			resolveNetworkDbPaths({
+				BUCKLE_DB: "L",
+				KLH_LANE_ROUTES_DB: "O",
+				HOME: "/h",
+			}),
+		).toEqual({
 			ledger: "L",
 			obsDb: "O",
 		});
-		expect(resolveNetworkDbPaths({ BUCKLE_OBSERVATIONS_PATH: "/x/obs", HOME: "/h" })).toEqual({
+		expect(
+			resolveNetworkDbPaths({ BUCKLE_OBSERVATIONS_PATH: "/x/obs", HOME: "/h" }),
+		).toEqual({
 			ledger: "/h/.claude/local-llm/buckle.db",
 			obsDb: "/x/obs.db",
 		});

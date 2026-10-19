@@ -33,10 +33,7 @@ function handleLaneRoutes(req: Request, url: URL): Response | null {
 			404,
 		);
 	if (!existsSync(path))
-		return json(
-			{ ok: false, error: `lane routes db not found: ${path}` },
-			404,
-		);
+		return json({ ok: false, error: `lane routes db not found: ${path}` }, 404);
 	let projection: LaneProjection | null = null;
 	try {
 		projection = new LaneProjection(path);

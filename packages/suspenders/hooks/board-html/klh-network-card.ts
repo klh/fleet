@@ -95,9 +95,11 @@ const spokeRow = (p: NetworkPayload): TemplateResult =>
 const hubSection = (n: OkNet): TemplateResult => html`
 	<div class="hrow">
 		<span class="hname">hubs (observed)</span>
-		${n.hubs.length
-			? nothing
-			: html`<span class="unknown">no projection db wired here</span>`}
+		${
+			n.hubs.length
+				? nothing
+				: html`<span class="unknown">no projection db wired here</span>`
+		}
 	</div>
 	${n.hubs.map(
 		(h) => html`<div class="hrow">
@@ -108,21 +110,25 @@ const hubSection = (n: OkNet): TemplateResult => html`
 			<span class="unknown">obs age ${h.freshness.ageS === null ? "unknown" : `${h.freshness.ageS}s`} · seq ${h.freshness.lastSeq ?? "?"}</span>
 		</div>`,
 	)}
-	${n.hops.length
-		? html`<div class="hrow">
+	${
+		n.hops.length
+			? html`<div class="hrow">
 				<span class="hname">forwarding edges</span>
 				${n.hops.map(
 					(hp) =>
 						html`<span class="num">${hp.origin || "local"} → ${hp.peer} (${hp.n})</span>`,
 				)}
 			</div>`
-		: nothing}
-	${n.unsettled.length
-		? html`<div class="hrow">
+			: nothing
+	}
+	${
+		n.unsettled.length
+			? html`<div class="hrow">
 				<span class="hname">unsettled</span>
 				${n.unsettled.map((u) => html`<span class="num">${u.kind}: ${u.n}</span>`)}
 			</div>`
-		: nothing}`;
+			: nothing
+	}`;
 
 /** One measured interface row: 60s rate + 15m workload, per-interface
  *  provenance (#45792) with the measured edge bar (1-4px × 14). */
@@ -164,9 +170,11 @@ const topRows = (n: OkNet): TemplateResult => {
 			<span class="num">${n.throughput.window.requests} req</span>
 			<span class="num">in ${fmtTok(n.throughput.window.in_tok)}</span>
 			<span class="num">out ${fmtTok(n.throughput.window.out_tok)} tok</span>
-			${n.observations.available
-				? nothing
-				: html`<span class="unknown">observations: not collected here</span>`}
+			${
+				n.observations.available
+					? nothing
+					: html`<span class="unknown">observations: not collected here</span>`
+			}
 		</p>
 		<div class="hrow">
 			<span class="hname">hour buckets</span>
@@ -190,18 +198,22 @@ const networkCardRender = (p: NetworkPayload): TemplateResult => {
 	return html`${spokeRow(p)}
 		${topRows(n)}
 		${hubSection(n)}
-		${n.throughput.interfaces.length
-			? n.throughput.interfaces.map(interfaceRow)
-			: html`<div class="hrow">
+		${
+			n.throughput.interfaces.length
+				? n.throughput.interfaces.map(interfaceRow)
+				: html`<div class="hrow">
 					<span class="hname">interfaces</span>
 					<span class="unknown">no settled traffic in window</span>
-				</div>`}
-		${n.routes.length
-			? n.routes.map(routeRow)
-			: html`<div class="hrow">
+				</div>`
+		}
+		${
+			n.routes.length
+				? n.routes.map(routeRow)
+				: html`<div class="hrow">
 					<span class="hname">routes</span>
 					<span class="unknown">none settled yet</span>
-				</div>`}
+				</div>`
+		}
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero
@@ -232,13 +244,25 @@ class KlhNetworkCard extends LitElement {
 		this.heading = "";
 		this.data = null;
 	}
-	connectedCallback() { super.connectedCallback(); void this.refresh(); this.timer = setInterval(() => void this.refresh(), 10_000); }
-	disconnectedCallback() { super.disconnectedCallback(); if (this.timer) clearInterval(this.timer); }
-	private async refresh(): Promise<void> { const p = await fetchNetwork(); if (p) { this.live = p; this.err = ""; } else this.err = "refresh failed — last known values shown"; }
+	connectedCallback() {
+		super.connectedCallback();
+		void this.refresh();
+		this.timer = setInterval(() => void this.refresh(), 10_000);
+	}
+	disconnectedCallback() {
+		super.disconnectedCallback();
+		if (this.timer) clearInterval(this.timer);
+	}
+	private async refresh(): Promise<void> {
+		const p = await fetchNetwork();
+		if (p) {
+			this.live = p;
+			this.err = "";
+		} else this.err = "refresh failed — last known values shown";
+	}
 	protected render(): TemplateResult {
 		const p = this.live ?? this.data;
-		if (!p)
-			return html`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;
+		if (!p) return html`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;
 		const errLine = this.err
 			? html`<p class="unknown">${this.err}</p>`
 			: nothing;

@@ -141,11 +141,14 @@ export function resolveNetworkDbPaths(
 ): NetworkDbPaths {
 	const home = env.HOME ?? "";
 	const ledger =
-		env.BUCKLE_DB ?? (home ? `${home}/.claude/local-llm/buckle.db` : "buckle.db");
+		env.BUCKLE_DB ??
+		(home ? `${home}/.claude/local-llm/buckle.db` : "buckle.db");
 	const obsDb =
 		env.KLH_LANE_ROUTES_DB ??
 		env.BUCKLE_OBSERVATIONS_DB ??
-		(env.BUCKLE_OBSERVATIONS_PATH ? `${env.BUCKLE_OBSERVATIONS_PATH}.db` : null) ??
+		(env.BUCKLE_OBSERVATIONS_PATH
+			? `${env.BUCKLE_OBSERVATIONS_PATH}.db`
+			: null) ??
 		(home ? `${home}/.claude/local-llm/buckle-obs.db` : null);
 	return { ledger, obsDb };
 }
@@ -190,9 +193,9 @@ export function networkOverview(
 function ledgerLastAuditAt(db: Database): string | null {
 	return (
 		(
-			db
-				.query("SELECT MAX(ts) AS m FROM route_audit")
-				.get() as { m: string | null }
+			db.query("SELECT MAX(ts) AS m FROM route_audit").get() as {
+				m: string | null;
+			}
 		)?.m ?? null
 	);
 }
@@ -239,12 +242,15 @@ function interfaceRows(db: Database, t: number): NetworkInterfaceRow[] {
 		GROUP BY target_kind, target_host, target_port, target_model
 		ORDER BY out15 DESC`,
 		)
-		.all(since60, since60, since60, since15) as unknown as NetworkInterfaceRow[];
+		.all(
+			since60,
+			since60,
+			since60,
+			since15,
+		) as unknown as NetworkInterfaceRow[];
 }
 
-function usageBuckets(
-	db: Database,
-): NetworkThroughput["buckets"] {
+function usageBuckets(db: Database): NetworkThroughput["buckets"] {
 	return db
 		.query(
 			`SELECT hour_bucket AS hour, in_tok, out_tok, requests
@@ -256,10 +262,7 @@ function usageBuckets(
 /** Settled-token flow over the trailing window (route_audit rows with
  *  provider-reported usage). SUM over no rows is SQL NULL — kept null;
  *  COUNT is a true measured 0. */
-function tokenWindow(
-	db: Database,
-	t: number,
-): NetworkThroughput["window"] {
+function tokenWindow(db: Database, t: number): NetworkThroughput["window"] {
 	const sinceIso = new Date(t - NETWORK_WINDOW_MIN * 60_000).toISOString();
 	const row = db
 		.query(
@@ -308,15 +311,18 @@ function freshnessMaps(db: Database): {
 	const lastEvents = new Map(
 		(
 			db
-				.query("SELECT source, MAX(time) AS iso FROM obs_events GROUP BY source")
+				.query(
+					"SELECT source, MAX(time) AS iso FROM obs_events GROUP BY source",
+				)
 				.all() as Array<{ source: string; iso: string | null }>
 		).map((r) => [r.source, r.iso]),
 	);
 	const seqs = new Map(
 		(
-			db
-				.query("SELECT source, last_seq FROM observer_state")
-				.all() as Array<{ source: string; last_seq: number }>
+			db.query("SELECT source, last_seq FROM observer_state").all() as Array<{
+				source: string;
+				last_seq: number;
+			}>
 		).map((r) => [r.source, r.last_seq]),
 	);
 	return { lastEvents, seqs };
@@ -329,7 +335,7 @@ function mergeFreshness(
 	now: number,
 ): NetworkHubRow {
 	const iso = lastEvents.get(g.source) ?? null;
-	const lastEventAt = iso ? (Date.parse(iso) || null) : null;
+	const lastEventAt = iso ? Date.parse(iso) || null : null;
 	const lastSeq = seqs.get(g.source) ?? null;
 	return {
 		source: g.source,
@@ -391,7 +397,7 @@ function hubHops(obsDb: string, t: number): HopRow[] {
 
 function observationsSection(
 	obsDb: string | null | undefined,
-	t: number,
+	_t: number,
 ): {
 	path: string | null;
 	available: boolean;
@@ -402,9 +408,9 @@ function observationsSection(
 	let db: Database | null = null;
 	try {
 		db = new Database(obsDb, { readonly: true });
-		const row = db
-			.query("SELECT MAX(time) AS iso FROM obs_events")
-			.get() as { iso: string | null } | null;
+		const row = db.query("SELECT MAX(time) AS iso FROM obs_events").get() as {
+			iso: string | null;
+		} | null;
 		return {
 			path: obsDb,
 			available: true,
