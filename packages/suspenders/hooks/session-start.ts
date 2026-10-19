@@ -333,7 +333,7 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// sessions only: a subagent lane is not a loop-arming runtime.
 	if (readyN > 0 && !isSubagent)
 		out.push(
-			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: one status line (lanes live x/N, READY n, dispatched) followed by a condensed list — every live/dispatched item rendered as [W<id>](https://suspenders.local/#task=<id>&proj=<project>) — <3-8-word description>. Project is the full work-graph project path. Keep working owned items when slots are full.`,
+			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`,
 		);
 }
 

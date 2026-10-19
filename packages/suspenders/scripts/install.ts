@@ -169,6 +169,19 @@ async function main(): Promise<void> {
 	} else {
 		renderHuman(doc);
 	}
+	// W892/W899 (owner GO 2026-10-19): every install ends with the supervisor
+	// micro-metrics table - the install itself proves the reporter is live.
+	if (!flags.json && !flags.dryRun) {
+		const rep = Bun.spawnSync(
+			[
+				"bun",
+				new URL("../hooks/bin/fleet-report.ts", import.meta.url).pathname,
+			],
+			{ stdout: "inherit", stderr: "inherit" },
+		);
+		if (rep.exitCode !== 0)
+			console.log(`(fleet-report unavailable: exit ${String(rep.exitCode)})`);
+	}
 	process.exitCode = exitFor(doc.outcome);
 }
 

@@ -4,6 +4,20 @@ How to work in this repo as a dispatched lane — written for any agent CLI
 (`claude -p`, `codex exec`, or a human). The dispatch brief carries WHO you
 are and WHAT the mission is; this file carries HOW. Read it before any edit.
 
+## Supervisor reporting (W892 standard, owner GO 2026-10-19)
+
+Every supervisor/user-centric tick replies with the ONE standard table:
+
+    bun ~/.claude/hooks/suspenders/bin/fleet-report.ts
+
+Emit its output verbatim in a fenced block, headed by one status line
+(lanes live x/N, READY n, dispatched). Columns: ITEM/ST/TASK/TOKENS/
+CACHE/OUT-MIN/AGENT — CACHE is prompt-cache hit share (cached ÷ (fresh+
+cached)), OUT/MIN is output tokens per agent-minute, AGENT is agent wall
+time. ST: R riding · Q queued · D done · F failed. Item ids double as
+`#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
+reporter computes the pads; prose tick lines are a regression.
+
 ## Protocol
 
 0. **PLAN FIRST** — before any edit: `eza -T` the directories the mission
@@ -19,11 +33,11 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
    kept child, end with `SPLIT <id>` — the fleet refills the rest. A split
    beyond 2 children needs a registered plan item first (`work add "plan: …"`,
    then `split --plan <id>`). Your inbox is WS-first (W303): `coord subscribe
-   --as <sid>` attaches at spawn/bootstrap, idempotent per sid — one
+--as <sid>` attaches at spawn/bootstrap, idempotent per sid — one
    persistent push connection whose feed tails
    `~/.claude-insights/coord-subscribe-<sid>.log` (claude-code: the `push`
    gate surfaces new lines per tool call); never poll it. `coord
-   inbox --as <sid>` is the catch-up read before starting and before
+inbox --as <sid>` is the catch-up read before starting and before
    finishing — coordinator/board messages arrive there (drawer "send
    message" delivers there).
 2. Work in the worktree + branch your brief names. SMALL anchored edits;
@@ -69,7 +83,7 @@ zero narration, ever.
   consult: [C12] answered: <answer, truncated>
   ```
   Relay the answer where it was asked; `coord consult-reply <C##> --feedback
-  resolved|failed --evidence ...` closes the loop.
+resolved|failed --evidence ...` closes the loop.
 - A fleet-wide consult (`--best`, no single addressee):
   ```
   consult: fleet asks, <question, truncated>
