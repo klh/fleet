@@ -57,7 +57,7 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(JSON.stringify(p).toLowerCase().includes("flashx")).toBe(false);
 	});
 
-	test("fallback order: every ladder terminates at local-reason (W880)", () => {
+	test("fallback order is zai twin → local-reason, per glm group", () => {
 		const f = loadGatewayPolicy(REPO_POLICY).fallbacks ?? {};
 		for (const [group, ladder] of Object.entries(f)) {
 			expect(ladder?.at(-1)).toBe("local-reason");
