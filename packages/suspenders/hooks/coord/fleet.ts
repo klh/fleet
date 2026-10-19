@@ -42,6 +42,7 @@ import {
 	type LaneTokens,
 	measureBriefWeight,
 } from "../../scripts/lib/brief-weight.ts";
+import { renameSession } from "../lib/session-rename.ts";
 
 export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	// the session-start ritual: identity + owned work + ready pool + inbox,
@@ -224,6 +225,38 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 	);
 	for (const w of mine)
 		console.log(`  ${cyan(w.id)} ${dim(w.state)} ${w.title.slice(0, 60)}`);
+}
+
+// W930: the ONE shared rename verb — `coord rename --as <sid> <name>`. Sets
+// sessions.tags `name` (the W293 key every @name resolution reads) through
+// lib/session-rename renameSession, so verb and stop-gate sync share the
+// duplicate rule (live same-project slug collision: refuse without --force).
+export async function cmdRename(_rest: string[]): Promise<void> {
+	const as = arg("--as") ?? die("usage: rename --as <sid> <name> [--force]");
+	// positional name: first raw token that is neither a flag nor a flag value
+	const known = new Set(["--as", "--name"]);
+	let name = arg("--name");
+	for (let i = 0; !name && i < _rest.length; i++) {
+		const t = _rest[i];
+		if (t === "--force") continue;
+		if (known.has(t)) i++;
+		else if (!t.startsWith("--")) name = t;
+	}
+	if (!name) die("usage: rename --as <sid> <name> [--force]");
+	const r = renameSession(db, as, name, { force: _rest.includes("--force") });
+	if (!r.ok) {
+		if (r.reason === "duplicate")
+			die(
+				`duplicate name ${JSON.stringify(name)} — held by ${r.holder?.slice(0, 8)} (live, same project); --force overrides`,
+			);
+		if (r.reason === "no-session") die(`no session ${as}`);
+		if (r.reason === "not-running")
+			die(`session ${as.slice(0, 8)} is not RUNNING — rename refused`);
+		die("empty name refused — usage: rename --as <sid> <name>");
+	}
+	console.log(
+		`RENAMED ${as.slice(0, 8)}${r.previous ? ` (${r.previous} →)` : ""} ${r.name}`,
+	);
 }
 
 export async function cmdFleet(_rest: string[]): Promise<void> {

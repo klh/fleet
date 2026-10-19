@@ -56,6 +56,7 @@ import {
 import {
 	cmdBootstrap,
 	cmdFleet,
+	cmdRename,
 	cmdMetrics,
 	cmdDoctorSession,
 	cmdDiff,
@@ -238,7 +239,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "knowledge-grade",
 		usage:
-			'usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>',
+			"usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>",
 		lax: true,
 		run: (p) => cmdKnowledgeGrade(p.rest),
 	}),
@@ -289,6 +290,13 @@ const VERBS: VerbSpec[] = [
 			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label]",
 		lax: true,
 		run: (p) => cmdBootstrap(p.rest),
+	}),
+	defineVerb({
+		name: "rename",
+		usage: "usage: rename --as <sid> <name> [--force]",
+		flags: ["--as", "--name"],
+		switches: ["--force"],
+		run: (p) => cmdRename(p.rest),
 	}),
 	defineVerb({
 		name: "fleet",

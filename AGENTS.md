@@ -137,6 +137,10 @@ Coordination (`coord`):
   re-deriving pain; `finding.*` for intel; IKEA content ONLY here)
 - `coord consult` / `coord who-knows` — questions, never ownership
 - `coord fleet` — who is working (sessions + claims; never /tmp files)
+- `coord rename --as <sid> <name> [--force]` — the ONE shared rename (W930):
+  stamps sessions.tags `name` for every @name resolution; the stop gate
+  syncs native CLI /rename (claude-code `custom-title`) through the same
+  core, duplicate live same-project names refuse without `--force`
 - `coord project identity` / `coord project rekey <old> <new>` — graph
   identity migration as a VERB (W428): one tx across work_items, work_deps,
   work_sequences, consults, consult_kb, sessions + events `$.project`;

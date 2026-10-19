@@ -8,6 +8,7 @@
 import { allow, feedback, type HookInput } from "../lib/hookio.ts";
 import { run } from "../lib/run.ts";
 import { touchSessionHeartbeat } from "../lib/session-bridge.ts";
+import { syncNativeRename } from "../lib/session-rename.ts";
 import {
 	readSessionState,
 	sessionStatePath,
@@ -113,6 +114,9 @@ export function stopGate(hook: HookInput): never {
 	// (all dialects share this gate) and fills an empty transcript_path —
 	// fail-open inside the touch, never blocks the checks below.
 	touchSessionHeartbeat(hook.session_id, hook.transcript_path);
+	// W930 native-rename sync: a CLI-native /rename (claude-code custom-title)
+	// lands in sessions.tags at the same fail-open seam every dialect rides.
+	syncNativeRename(hook);
 	const incomplete = laneCompletion(hook);
 	if (incomplete) feedback(incomplete);
 
