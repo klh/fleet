@@ -44,9 +44,10 @@ window.addEventListener('ent-entitled', function(){
   if (location.hash === '#enterprise') setTab('enterprise', true);
 });
 window.addEventListener('hashchange', function(){
+  applyHashRoute(); // W890 query-style tab hashes — tab switch + w/project/q params
   var h = (location.hash || '').replace(/^#/, '');
   if (TABS[h]) setTab(h, true);
-  applyHashFilter(); // #filter= deep-link; any other hash (incl. plain tabs) clears it
+  applyHashFilter(); // #filter= legacy form; ?q/?filter arrive via hashNeedle
   applyHashTask();
 });
 // #task=<id>[&proj=<p>] deep-link — open the task drawer straight from a URL

@@ -599,6 +599,7 @@ function renderKanban(){
   updateKanbanVolatile(el, shownAll);
   paintSparks(el);
   drawSplines();
+  trySelectCard(); // W890 ?w= deep link: highlight+scroll once the kanban renders the card
 }
 function updateKanbanVolatile(el, shownAll){
   var cards = el.querySelectorAll('.kcard');

@@ -248,6 +248,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
 .kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
 .kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
+/* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
+.kcard.ksel { border-color:var(--klh-accent); box-shadow:0 0 0 2px var(--klh-accent-wash); }
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; }
