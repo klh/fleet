@@ -81,6 +81,11 @@ definition).
 OPEN → CANCELLED (asking lane supersede/cancel event; NOT by board dismiss;
 linked task DONE — the work graph already decided, ages out on the next
 sync with the token rotated, W798)
+
+Decision linkage uses explicit event `work` or W-item `scope` first, then a
+unique current owner. After work completion clears `owner_sid`, the latest
+project-scoped `work.claimed` event by the asking lane before the decision
+supplies the historical link. Question prose is never parsed for item IDs.
 ANSWERED → ACKNOWLEDGED (lane inbox sees the ANSWER and the lane's next
 checkpoint/message references it — best-effort heuristic, monotonic)
 Never: dismiss/ack of the NOTIFICATION resolves a decision. The board's

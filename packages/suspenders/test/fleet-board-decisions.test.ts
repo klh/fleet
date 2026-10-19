@@ -486,6 +486,43 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		expect(rec.task_title).toBe("decision linkage without payload work");
 	});
 
+	test("a completed lane links historical decisions from its claim event", async () => {
+		const wid = addWork("historical decision claim link");
+		const sid = "completed-decision-lane";
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		const item = db
+			.query("SELECT project FROM work_items WHERE id = ?")
+			.get(wid) as { project: string };
+		db.query(
+			"INSERT INTO events (ts, source, kind, payload) VALUES (?, 'work', 'work.claimed', ?)",
+		).run(
+			Date.now(),
+			JSON.stringify({ project: item.project, work: wid, by: sid }),
+		);
+		db.close();
+		expect(
+			run("coord.ts", ["bootstrap", "--as", sid, "--role", "worker"]).code,
+		).toBe(0);
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				sid,
+				"--note",
+				"historical link after owner cleared",
+				"--as",
+				sid,
+			]).code,
+		).toBe(0);
+		const rec = fork(
+			await getDecisions(),
+			"historical link after owner cleared",
+		);
+		expect(rec.task_id).toBe(wid);
+		expect(rec.task_title).toBe("historical decision claim link");
+	});
+
 	test("re-evaluation acknowledges promptly and reports terminal model error", async () => {
 		expect(
 			run("coord.ts", [
