@@ -13,6 +13,7 @@ import {
 	capPacket,
 	packetId,
 	Preseeder,
+	renderCard,
 	renderPacket,
 	verifiedRows,
 	type KnowledgeApiHit,
@@ -118,6 +119,20 @@ describe("preseed pipeline", () => {
 			hit({ id: undefined }),
 		]);
 		expect(rows.length).toBe(1);
+	});
+
+	test("W836: graveyard state never enters a packet; rating/evidence ride the card", () => {
+		// a graveyarded row faking verified trust is still excluded — the
+		// active-only filter is the poisoning guard
+		const rows = verifiedRows([hit({ state: "graveyard", trust: "verified" })]);
+		expect(rows.length).toBe(0);
+		const card = renderCard(
+			hit({ rating: "solid", evidence: "docs/research-ampcode.md:12" }),
+		);
+		expect(card[0]).toContain("· solid");
+		expect(card[0]).toContain("ev docs/research-ampcode.md:12");
+		const plain = renderCard(hit({}));
+		expect(plain[0]).not.toContain("· solid");
 	});
 
 	test("render is byte-stable + sorted by id; packetId deterministic", () => {

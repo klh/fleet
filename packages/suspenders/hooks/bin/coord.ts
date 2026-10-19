@@ -44,6 +44,8 @@ import {
 	cmdKnowledgeEnqueue,
 	cmdKnowledgePromote,
 	cmdKnowledgeRetire,
+	cmdKnowledgeGrade,
+	cmdKnowledgeGraveyard,
 	cmdKnowledgeNote,
 	cmdKnowledgeVerify,
 	cmdKnowledgeCurate,
@@ -232,6 +234,19 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: knowledge-retire <id> [--superseded-by <id>]",
 		lax: true,
 		run: (p) => cmdKnowledgeRetire(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-grade",
+		usage:
+			'usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>',
+		lax: true,
+		run: (p) => cmdKnowledgeGrade(p.rest),
+	}),
+	defineVerb({
+		name: "knowledge-graveyard",
+		usage: 'usage: knowledge-graveyard <id> --reason "<why>" [--as sid]',
+		lax: true,
+		run: (p) => cmdKnowledgeGraveyard(p.rest),
 	}),
 	defineVerb({
 		name: "knowledge-note",

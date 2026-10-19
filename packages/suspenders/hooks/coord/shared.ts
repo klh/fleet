@@ -226,8 +226,11 @@ export function renderKnowledgeHit(
 	if (h.kind === "knowledge") {
 		const trust = trustOf(h.source_ref, h.source_hash);
 		const hop = h.hop === 1 ? ` · 1-hop ${h.via}` : "";
+		// W836: audit rating + evidence ref ride the marker when stamped
+		const rated = h.rating ? ` · ${h.rating}` : "";
+		const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 		console.log(
-			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}${hop}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
+			`${cyan(`k#${h.id}`)} ${dim(`${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · ${trust}${hop}${rated}${ev}`)} ${h.topic ?? ""} ${dim([h.domain, h.area, h.origin_kind, h.origin_system].filter(Boolean).join("/"))}\n  ${h.snippet}`,
 		);
 	} else if (h.kind === "fact")
 		console.log(`${cyan(String(h.key))}\n  ${h.snippet}`);

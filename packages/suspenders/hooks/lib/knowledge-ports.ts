@@ -175,6 +175,20 @@ export interface KnowledgeStore {
 	promote(id: number): Promise<boolean>;
 	retire(id: number, supersededBy: number | null): Promise<boolean>;
 	note(id: number, sid: string, what: string): Promise<number>;
+	// W836 audit trust schema: grade stamps {rating, evidence, researched_at}
+	// on a row (audit-lane provenance note rides along); graveyard buries a
+	// rejected/integrity-flagged row with its reason — NEVER a delete, and
+	// recall ranking excludes the state.
+	grade(
+		id: number,
+		fields: {
+			rating?: string | null;
+			evidence?: string | null;
+			researchedAt?: number | null;
+		},
+		by?: string,
+	): Promise<boolean>;
+	graveyard(id: number, reason: string, by?: string): Promise<boolean>;
 	verifyRows(
 		id: number | null,
 	): Promise<
@@ -396,6 +410,55 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		);
 	}
 
+	// W836: stamp the audit trust fields {rating, evidence, researched_at} —
+	// provenance rides a contributors note; absent fields keep old values.
+	async grade(
+		id: number,
+		fields: {
+			rating?: string | null;
+			evidence?: string | null;
+			researchedAt?: number | null;
+		},
+		by?: string,
+	): Promise<boolean> {
+		const cur = this.db
+			.query(
+				"SELECT id FROM knowledge WHERE id = ? AND state NOT IN ('retired','graveyard')",
+			)
+			.get(id);
+		if (!cur) return false;
+		this.db
+			.query(
+				"UPDATE knowledge SET rating = COALESCE(?, rating), evidence = COALESCE(?, evidence), researched_at = COALESCE(?, researched_at) WHERE id = ?",
+			)
+			.run(fields.rating ?? null, fields.evidence ?? null, fields.researchedAt ?? null, id);
+		this.appendNote(
+			id,
+			by ?? "audit",
+			`grade: rating=${fields.rating ?? "keep"} evidence=${fields.evidence ?? "keep"} researched=${fields.researchedAt ? new Date(fields.researchedAt).toISOString().slice(0, 10) : "keep"} (W836)`,
+		);
+		return true;
+	}
+
+	// W836: bury a rejected/integrity-flagged row — state='graveyard' with the
+	// reason ON the row; append-only (never DELETE). Excluded from recall
+	// ranking and curation scans; a correction is a NEW row (supersedes_id).
+	async graveyard(id: number, reason: string, by?: string): Promise<boolean> {
+		const ok =
+			this.db
+				.query(
+					"UPDATE knowledge SET state = 'graveyard', graveyard_reason = ? WHERE id = ? AND state != 'graveyard'",
+				)
+				.run(reason.slice(0, 300), id).changes > 0;
+		if (!ok) return false;
+		this.appendNote(id, by ?? "audit", `graveyard: ${reason.slice(0, 300)} (W836)`);
+		this.emitCurate("knowledge.graveyard", by ?? "audit", {
+			knowledge: id,
+			reason: reason.slice(0, 300),
+		});
+		return true;
+	}
+
 	async note(id: number, sid: string, what: string): Promise<number> {
 		const row = this.db
 			.query("SELECT contributors FROM knowledge WHERE id = ?")
@@ -437,7 +500,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 		const docs = [...loadDocs(opts.repoRoot), ...loadRootDocs(opts.repoRoot)];
 		const rows = this.db
 			.query(
-				"SELECT id, topic, fact, source_ref FROM knowledge WHERE state != 'retired'",
+				"SELECT id, topic, fact, source_ref FROM knowledge WHERE state NOT IN ('retired', 'graveyard')",
 			)
 			.all() as {
 			id: number;
@@ -690,7 +753,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 	async proposeDecay(opts: DecayOpts = {}): Promise<DecaySweep> {
 		const rows = this.db
 			.query(
-				"SELECT id, topic, confidence, state, ts, updated_at FROM knowledge WHERE state != 'retired'",
+				"SELECT id, topic, confidence, state, ts, updated_at FROM knowledge WHERE state NOT IN ('retired', 'graveyard')",
 			)
 			.all() as CurateRow[];
 		const open = this.db

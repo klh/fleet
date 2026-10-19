@@ -881,6 +881,41 @@ export function llm(): unknown {
 	};
 }
 
+// W836 facts trust panel: knowledge-bearing facts (lesson.*/finding.*) with
+// the trust marker parsed from the fact's own JSON ({rating, detail,
+// evidence, researched}) — the shape the `coord fact` schema note teaches.
+// Plain-text facts ride with trust=null (honest: nothing to render).
+export function factsTrust(): unknown[] {
+	const rows = db
+		.query(
+			"SELECT key, value, ts FROM facts WHERE key LIKE 'lesson.%' OR key LIKE 'finding.%' ORDER BY ts DESC LIMIT 40",
+		)
+		.all() as { key: string; value: string; ts: number }[];
+	return rows.map((r) => {
+		let trust: Record<string, unknown> | null = null;
+		try {
+			const v: unknown = JSON.parse(r.value);
+			if (v && typeof v === "object" && !Array.isArray(v)) {
+				const o = v as Record<string, unknown>;
+				const take = (k: string): unknown =>
+					o[k] != null && o[k] !== "" ? o[k] : undefined;
+				const rating = take("rating");
+				const detail = take("detail");
+				const evidence = take("evidence");
+				const researched = take("researched");
+				if (
+					rating !== undefined ||
+					detail !== undefined ||
+					evidence !== undefined ||
+					researched !== undefined
+				)
+					trust = { rating, detail, evidence, researched };
+			}
+		} catch {} // plain-text fact — honest null marker
+		return { key: r.key, value: r.value, tsAgo: ago(r.ts), trust };
+	});
+}
+
 export function payload() {
 	return feedMemo().data;
 }
@@ -969,6 +1004,7 @@ function buildPayload(): unknown {
 		zombies,
 		consults,
 		llm: llm(),
+		facts: factsTrust(),
 	};
 }
 

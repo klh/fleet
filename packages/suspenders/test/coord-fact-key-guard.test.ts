@@ -48,7 +48,8 @@ describe("fact set — flag-shaped key guard (W773)", () => {
 		const r = runCli(["fact", "set", "--text", "keyless"]);
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("usage: fact set");
-		expect(runCli(["fact", "get", "--text"]).out).toBe("(unset)\n");
+		// W836: fact get rides the schema note after the value line
+		expect(runCli(["fact", "get", "--text"]).out).toContain("(unset)");
 	});
 
 	test("flag-shaped positional key dies too", () => {
@@ -70,7 +71,7 @@ describe("fact rm — the purge verb (W773)", () => {
 		const r = runCli(["fact", "rm", "w773.rm"]);
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("fact w773.rm removed");
-		expect(runCli(["fact", "get", "w773.rm"]).out).toBe("(unset)\n");
+		expect(runCli(["fact", "get", "w773.rm"]).out).toContain("(unset)");
 	});
 
 	test("accepts a flag-shaped key — the junk rows ARE flag-shaped", () => {
@@ -81,7 +82,7 @@ describe("fact rm — the purge verb (W773)", () => {
 		const r = runCli(["fact", "rm", "--text"]);
 		expect(r.code).toBe(0);
 		expect(r.out).toContain("fact --text removed");
-		expect(runCli(["fact", "get", "--text"]).out).toBe("(unset)\n");
+		expect(runCli(["fact", "get", "--text"]).out).toContain("(unset)");
 	});
 
 	test("missing key dies with no such key", () => {

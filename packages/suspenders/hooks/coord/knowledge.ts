@@ -106,6 +106,46 @@ export async function cmdKnowledgeRetire(rest: string[]): Promise<void> {
 	console.log(`${green("✓")} knowledge #${id} → retired`);
 }
 
+export async function cmdKnowledgeGrade(rest: string[]): Promise<void> {
+	// W836 audit trust schema: stamp {rating, evidence, researched_at} on a
+	// row. The distill indexer is impartial — rating/evidence are the audit
+	// lane's call, never the ingest model's.
+	const id = Number(rest[0]);
+	const rating = arg("--rating");
+	const evidence = arg("--evidence");
+	const as = arg("--as");
+	const raw = arg("--researched");
+	const researchedAt = raw
+		? /^\d+$/.test(raw)
+			? Number(raw)
+			: Date.parse(raw)
+		: null;
+	if (!id || Number.isNaN(researchedAt ?? 0))
+		die(
+			'usage: knowledge-grade <id> --rating <s> [--evidence <file:line|URL>] [--researched <date|ms>] --as <sid>',
+		);
+	const ok = await makeStore().grade(
+		id,
+		{ rating, evidence, researchedAt },
+		as ?? undefined,
+	);
+	if (!ok) die(`knowledge #${id} is retired/graveyard (or missing)`);
+	console.log(`${green("✓")} knowledge #${id} graded${rating ? ` ${rating}` : ""}`);
+}
+
+export async function cmdKnowledgeGraveyard(rest: string[]): Promise<void> {
+	// W836: rejected/integrity-flagged rows are never deleted — they move to
+	// the graveyard with the reason, and recall ranking excludes them.
+	const id = Number(rest[0]);
+	const reason = arg("--reason");
+	const as = arg("--as");
+	if (!id || !reason)
+		die('usage: knowledge-graveyard <id> --reason "<why>" [--as sid]');
+	const ok = await makeStore().graveyard(id, reason, as ?? undefined);
+	if (!ok) die(`knowledge #${id} is already graveyarded (or missing)`);
+	console.log(`${green("✓")} knowledge #${id} → graveyard`);
+}
+
 export async function cmdKnowledgeNote(rest: string[]): Promise<void> {
 	// micro-update by a contributing agent: append to the row's contributors
 	// ledger (sid + ts + what changed) and bump updated_at. Mechanical —

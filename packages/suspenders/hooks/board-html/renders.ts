@@ -247,6 +247,25 @@ function renderClaims(d){
   if (!fragment.childNodes.length) { var empty = document.createElement('div'); empty.className = 'r dim'; empty.textContent = '(no claims in this scope)'; fragment.appendChild(empty); }
   byId('claims').replaceChildren(fragment);
 }
+function renderFacts(d){
+  var fs = d.facts || [];
+  var h = '';
+  for (var i = 0; i < fs.length; i++) {
+    var f = fs[i];
+    var t = f.trust;
+    var parts = [];
+    if (t) {
+      if (t.rating) parts.push(esc(t.rating));
+      if (t.evidence) parts.push('ev ' + esc(t.evidence));
+      if (t.researched) parts.push('researched ' + esc(t.researched));
+    }
+    var marker = parts.length ? ' [<span class="dim">' + parts.join(' · ') + '</span>]' : '';
+    var body = esc(String((t && t.detail) ? t.detail : f.value).slice(0, 90));
+    h += '<div class="r"><span class="ts">' + agoShort(f.tsAgo) + '</span><span>' + esc(f.key) + marker + ' — ' + body + '</span></div>';
+  }
+  if (!h) h = '<div class="r dim">(no lesson.*/finding.* facts yet)</div>';
+  setNodes(byId('facts'), h);
+}
 function renderDone(d){
   var fragment = document.createDocumentFragment();
   var completions = selectGovernorCompletions(d.projects || [], sel.value, hubScope());
