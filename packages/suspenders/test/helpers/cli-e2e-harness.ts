@@ -34,6 +34,8 @@ export function cliFixture(label: string): {
 	seed: (code: string) => string;
 	/** Query the fixture governor.db through the subprocess seam. */
 	q: <T>(statement: string) => T[];
+	/** Run a mutation against the fixture governor.db (row seeding). */
+	ins: (statement: string, params: unknown[]) => void;
 	registryFromHelp: (file: string) => string[];
 	cleanup: () => void;
 } {
@@ -92,6 +94,11 @@ const { openGovernorDb } = await import(${JSON.stringify(GOVDB)});
 console.log(JSON.stringify(openGovernorDb().query(${JSON.stringify(statement)}).all()));
 `),
 		) as T[];
+	const ins = (statement: string, params: unknown[]): void => {
+		seed(`const { openGovernorDb } = await import(${JSON.stringify(GOVDB)});
+openGovernorDb().query(${JSON.stringify(statement)}).run(...${JSON.stringify(params)});
+`);
+	};
 	const registryFromHelp = (file: string): string[] => {
 		const r = spawn(REPO, join(BIN, file), ["--help"]);
 		if (r.code !== 0) throw new Error(`${file} --help exited ${r.code}`);
@@ -107,6 +114,7 @@ console.log(JSON.stringify(openGovernorDb().query(${JSON.stringify(statement)}).
 		run: (file, args) => spawn(REPO, join(BIN, file), args),
 		seed,
 		q,
+		ins,
 		registryFromHelp,
 		cleanup: () => {
 			rmSync(HOME, { recursive: true, force: true });
