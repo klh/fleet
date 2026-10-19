@@ -73,6 +73,30 @@ not committed because patches can
 contain task content. The base fixture commit for both was
 `4979a0d86f3ef7f32eff70245a6ce37e75d0d585`.
 
+## Fleet attribution validity — decant cross-check (W943, 2026-10-19)
+
+Decision: can the fleet report's TOKENS/CACHE/OUT-MIN columns (W776:
+buckle-ledger `router_usage` ⋈ claim windows) be trusted, vs an independent
+recount of the same transcripts by decant (local-first, Apache-2.0)?
+Method + full per-lane table:
+[docs/decant-crosscheck-2026-10-19.md](docs/decant-crosscheck-2026-10-19.md).
+Runner: `bun packages/suspenders/scripts/decant-crosscheck.ts --by-sid`
+(read-only on ledger + graph + decant index).
+
+| Comparison (7d, fleet lanes)                  | Result                                          | Verdict                                            |
+| --------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| Fronted lanes, closed sessions (267 sid rows) | per-lane fresh/cached/out agree within **±1–3%** | **TRUST** the W776 columns for fronted lanes       |
+| Pre-Oct-19 lanes (cache era gap)              | ledger cache ≈ 0 (0.77k–1M/day) vs transcripts 90–99% share; front reports 858.8M on Oct 19 | **CORRECTION-NEEDED**: CACHE column undercounts ~90+ pts for claims before the Oct 19 fix |
+| Non-lane keys (keepwarm 4.4k req, watchdog 3.0k req) | no claim window → excluded               | attribution join doing real work; raw ledger not lane-only |
+| Live lanes at run time                        | −15..−21% (transcript flush lag)                | artifact, not drift                                |
+
+Drift causes (top-3): pre-Oct-19 cache-invisibility era on the buckle
+front; non-lane probe keys sharing the ledger; constant +15–16k
+bootstrap-sized fresh surplus per lane (first hop off-front, ~0.05% at
+fleet scale). decant's parse verified exact vs a raw unique-id recount;
+transcript usage rows MUST be deduped by `message.id` (raw-line sums
+double-count ~2×).
+
 ## belt — model fleet (curated)
 
 THE canonical benchmark table for belt (owner law, 2026-10-02). The
