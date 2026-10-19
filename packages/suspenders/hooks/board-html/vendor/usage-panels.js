@@ -196,8 +196,9 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var I=()=>{let a=document.getElementById(
 						class="ulane"
 						@click=${()=>{this.lane=n.lane==="(bare ingress)"?"":n.lane,this.refresh()}}
 					>
-						<td>
-							<b>${n.lane}</b>
+						<td title=${n.lane}>
+							<b>${n.models[0]??n.lane}</b>
+							${n.models.length>0?e`<span class="ulane-id">${n.lane}</span>`:t}
 							${n.hubs.map((u)=>e`<span class="uchip">${u}</span>`)}
 							${n.models.length>1?e`<span class="uwarn">${String(n.models.length)} models</span>`:t}
 						</td>
@@ -417,6 +418,15 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var I=()=>{let a=document.getElementById(
 		}
 		tr.ulane:hover td {
 			background: var(--klh-edge-faint, rgba(255, 255, 255, 0.04));
+		}
+		.ulane-id {
+			display: block;
+			color: var(--klh-dim, #98958e);
+			font-size: 10px;
+			max-width: 34ch;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 		.urid {
 			font-size: 10px;

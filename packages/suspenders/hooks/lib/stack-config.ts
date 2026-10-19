@@ -9,6 +9,8 @@ import { parse } from "yaml";
 
 export interface HubProfile {
 	host: string;
+	/** Human-facing hub label. The profile key stays the stable routing identity. */
+	display_name?: string;
 	buckle_port?: number;
 	board_port?: number;
 	store_port?: number;

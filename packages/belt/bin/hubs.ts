@@ -77,13 +77,12 @@ export function readHubs(file = HUBS_PATH()): HubRow[] {
 	return rows;
 }
 
-/** W371: stack.yaml profiles that declare deploy.dir, keyed by lowercased
- *  hub label — the restartable set. Missing/unparseable stack.yaml = no
- *  restartable hubs (belt runs heal-less, same tolerance as coord hubs). */
-function healProfiles(): Map<string, HubProfile> {
+/** Stack profiles keyed by stable hub id. Display names never affect lookup
+ *  or healing; a missing stack still leaves registry hubs probe-only. */
+function hubProfiles(): Map<string, HubProfile> {
 	const out = new Map<string, HubProfile>();
 	for (const [label, hub] of Object.entries(tryLoadStack()?.hubs ?? {})) {
-		if (hub.deploy?.dir) out.set(label.toLowerCase(), hub);
+		out.set(label.toLowerCase(), hub);
 	}
 	return out;
 }
@@ -134,10 +133,13 @@ export function hubHeal(profile: HubProfile): () => Promise<string | null> {
  *  hold (W483: a hub is EXPECTED down in its window — no restart attempts,
  *  no paging). */
 export function hubTargets(): Target[] {
-	const profiles = healProfiles();
+	const profiles = hubProfiles();
 	return readHubs().map((h) => {
+		const profile = profiles.get(h.label.toLowerCase());
+		const displayName = profile?.display_name?.trim();
 		const row: Target = {
 			name: h.label,
+			...(displayName ? { displayName } : {}),
 			port: h.port,
 			kind: "hub",
 			owned: false,
@@ -145,8 +147,7 @@ export function hubTargets(): Target[] {
 			...(h.tls ? { scheme: "https" as const } : {}),
 			healthPath: "/api/health",
 		};
-		const profile = profiles.get(h.label.toLowerCase());
-		if (!profile) return row;
+		if (!profile?.deploy?.dir) return row;
 		return {
 			...row,
 			heal: hubHeal(profile),

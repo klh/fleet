@@ -76,6 +76,7 @@ export interface Child {
 
 export interface Target {
 	name: string;
+	displayName?: string;
 	port: number;
 	kind: Kind;
 	owned: boolean;
@@ -110,6 +111,7 @@ export interface ProbeResult {
 
 export interface TargetStatus {
 	name: string;
+	displayName?: string;
 	port: number;
 	kind: Kind;
 	owned: boolean;
@@ -442,6 +444,7 @@ export class Supervisor {
 			const saved = budget.targets[identity];
 			this.status.set(t.port, {
 				name: t.name,
+				...(t.displayName ? { displayName: t.displayName } : {}),
 				port: t.port,
 				kind: t.kind,
 				owned: t.owned,
@@ -713,7 +716,6 @@ export class Supervisor {
 			}
 		}
 	}
-
 
 	private async loopReport(t: Target): Promise<void> {
 		while (!this.stopped) {

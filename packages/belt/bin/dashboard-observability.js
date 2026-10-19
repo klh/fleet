@@ -142,6 +142,7 @@ class BeltTrends extends LitElement {
 		this.drawnFor = null;
 		this.charts = [];
 		this.ros = [];
+		this.busy = false;
 	}
 	connectedCallback() {
 		super.connectedCallback();
@@ -153,6 +154,7 @@ class BeltTrends extends LitElement {
 		clearInterval(this.timer);
 		this.controller?.abort();
 		for (const ro of this.ros) ro.disconnect();
+		this.teardown();
 	}
 	createRenderRoot() {
 		return this;
@@ -195,23 +197,29 @@ class BeltTrends extends LitElement {
 		const total = buckets.reduce((a, b) => a + b[1], 0);
 		const errs = buckets.reduce((a, b) => a + b[2], 0);
 		const hours = this.hist ? Math.round(this.hist.windowMs / 3600000) : 6;
+		const active = buckets.filter((b) => b[1] > 0).length;
+		const last = buckets.findLast((b) => b[1] > 0);
 		return html`
 			<style>
 				belt-trends { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
-				belt-trends summary { cursor:pointer; overflow-wrap:anywhere; color:var(--klh-dim); }
+				belt-trends summary { cursor:pointer; overflow-wrap:anywhere; color:var(--klh-ink); }
 				belt-trends summary:hover { color:var(--klh-ink); }
 				belt-trends .bt-err { color:var(--klh-danger); overflow-wrap:anywhere; }
-				belt-trends .bt-note { color:var(--klh-dim); font-size:var(--klh-text-xs); margin:6px 0 0; }
-				belt-trends .bt-sparks { display:flex; flex-wrap:wrap; gap:10px 28px; margin-top:10px; }
-				belt-trends .bt-spark { flex:1 1 200px; min-width:180px; max-width:340px; }
+				belt-trends .bt-note { color:var(--klh-dim); font-size:var(--klh-text-xs); margin:6px 0 12px; }
+				belt-trends .bt-title { color:var(--klh-ink); font-size:var(--klh-text-sm); margin:18px 0 4px; }
+				belt-trends .bt-sparks { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 24px; margin-top:12px; }
+				belt-trends .bt-spark { min-width:0; border-top:1px solid var(--klh-edge-faint); padding-top:7px; }
 				belt-trends .bt-spark .lbl { display:flex; justify-content:space-between; gap:8px; font-size:var(--klh-text-xs); color:var(--klh-dim); font-variant-numeric:tabular-nums; }
+				belt-trends .bt-spark .lbl span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+				belt-trends .bt-spark .mount { height:34px; overflow:hidden; }
+				belt-trends .bt-wrap { max-width:100%; overflow:hidden; }
 			</style>
-			<details class="bt" @toggle=${this.toggled}>
+			<details class="bt" ?open=${this.open} @toggle=${this.toggled}>
 				<summary>
-					trends · ${hours}h · ${total} req · ${errs} failed · ${endpoints.length} endpoints
+					Trends · ${hours}h · ${total} Belt routes · ${errs} failed
 					${this.err ? html`<span class="bt-err"> · ${this.err}</span>` : ""}
 				</summary>
-				${this.open && this.hist ? this.body() : ""}
+				${this.open && this.hist ? html`<p class="bt-note">Belt router observations only · ${active} active 5-minute intervals · ${endpoints.length} endpoints${last ? ` · last route ${new Date(last[0] * 1000).toLocaleTimeString()}` : ""}. Buckle traffic is measured separately in Metrics.</p>${this.body()}` : ""}
 			</details>`;
 	}
 	body() {
@@ -221,8 +229,11 @@ class BeltTrends extends LitElement {
 		if (!this.hist.buckets.length)
 			return html`<p class="bt-note">no history yet</p>`;
 		return html`<div class="bt-wrap">
+			<p class="bt-title">Requests and failures · 5-minute buckets</p>
 			<div class="bt-trend"></div>
+			<p class="bt-title">Average response time · milliseconds per active bucket</p>
 			<div class="bt-latency"></div>
+			<p class="bt-title">Routes by endpoint</p>
 			<div class="bt-sparks">
 				${this.hist.endpoints.map(
 					(ep) => html`<div class="bt-spark" data-key=${ep.key}>
@@ -275,7 +286,7 @@ class BeltTrends extends LitElement {
 				trendEl,
 				uPlot,
 				{
-					...base(150),
+					...base(185),
 					legend: { show: true, live: true },
 					series: [
 						{},
@@ -284,7 +295,10 @@ class BeltTrends extends LitElement {
 							stroke: accent,
 							fill: () => `${accent()}2e`,
 							width: 1.5,
-							points: { show: false },
+							points: {
+								show: buckets.reduce((sum, b) => sum + b[1], 0) < 16,
+								size: 5,
+							},
 							value: int,
 						},
 						{
@@ -306,8 +320,8 @@ class BeltTrends extends LitElement {
 				latEl,
 				uPlot,
 				{
-					...base(110),
-					legend: { show: false },
+					...base(125),
+					legend: { show: true, live: true },
 					series: [
 						{},
 						{
@@ -315,7 +329,7 @@ class BeltTrends extends LitElement {
 							stroke: dim,
 							fill: () => `${dim()}1e`,
 							width: 1.5,
-							points: { show: false },
+							points: { show: true, size: 5 },
 							value: (_u, v) => (v == null ? "—" : `${Math.round(v)}ms`),
 						},
 					],
@@ -329,6 +343,8 @@ class BeltTrends extends LitElement {
 					width: mount.clientWidth || 180,
 					height: 28,
 					legend: { show: false },
+					axes: [],
+					padding: [2, 0, 2, 0],
 					scales: { x: { time: true } },
 					series: [
 						{},

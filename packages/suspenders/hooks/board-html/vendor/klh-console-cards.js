@@ -68,9 +68,9 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";import{a}from"./lit-5afk64c9.js";var p=(n
 		></span>
 	</div>`},_=(n)=>e`<div class="hrow">
 	<span class="unknown">${n.ts.slice(11,19)}</span>
-	<span class="num">${n.lane||"—"}</span>
+	<span class="title">${n.target_model??"model unknown"}</span>
+	<span class="unknown" title=${n.lane||"No lane attribution"}>${n.lane?`lane ${n.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 	<span class="num">${n.target_kind??"?"} ${n.target_host??""}</span>
-	<span class="num">${n.target_model??""}</span>
 	<span class="num">${n.duration_ms===null?"—":`${n.duration_ms}ms`}</span>
 	<span class="num">in ${p(n.in_tok)} · out ${p(n.out_tok)}</span>
 </div>`,T=(n)=>{let o=n.throughput.buckets.slice(0,12).reverse(),i=Math.max(1,...n.throughput.buckets.map((l)=>l.out_tok));return e`<p class="hrow">

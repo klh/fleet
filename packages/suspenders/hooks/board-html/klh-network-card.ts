@@ -153,9 +153,9 @@ const interfaceRow = (i: NetworkInterfaceRow): TemplateResult => {
  *  duration + measured tokens (null → "—", never 0). */
 const routeRow = (r: NetworkRouteRow): TemplateResult => html`<div class="hrow">
 	<span class="unknown">${r.ts.slice(11, 19)}</span>
-	<span class="num">${r.lane || "—"}</span>
+	<span class="title">${r.target_model ?? "model unknown"}</span>
+	<span class="unknown" title=${r.lane || "No lane attribution"}>${r.lane ? `lane ${r.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 	<span class="num">${r.target_kind ?? "?"} ${r.target_host ?? ""}</span>
-	<span class="num">${r.target_model ?? ""}</span>
 	<span class="num">${r.duration_ms === null ? "—" : `${r.duration_ms}ms`}</span>
 	<span class="num">in ${fmtTok(r.in_tok)} · out ${fmtTok(r.out_tok)}</span>
 </div>`;

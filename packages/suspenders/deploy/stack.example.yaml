@@ -8,6 +8,7 @@
 hubs:
   desktop:
     host: 127.0.0.1
+    display_name: Workstation hub # optional UI label; desktop remains the stable id
     buckle_port: 4111
     board_port: 7809
     store_port: 7796

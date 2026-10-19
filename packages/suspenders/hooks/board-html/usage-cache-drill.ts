@@ -344,8 +344,9 @@ export class KlhUsageCacheDrill extends LitElement {
 							this.refresh();
 						}}
 					>
-						<td>
-							<b>${l.lane}</b>
+						<td title=${l.lane}>
+							<b>${l.models[0] ?? l.lane}</b>
+							${l.models.length > 0 ? html`<span class="ulane-id">${l.lane}</span>` : nothing}
 							${l.hubs.map((h) => html`<span class="uchip">${h}</span>`)}
 							${
 								l.models.length > 1
@@ -602,6 +603,15 @@ KlhUsageCacheDrill.styles = [
 		}
 		tr.ulane:hover td {
 			background: var(--klh-edge-faint, rgba(255, 255, 255, 0.04));
+		}
+		.ulane-id {
+			display: block;
+			color: var(--klh-dim, #98958e);
+			font-size: 10px;
+			max-width: 34ch;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 		.urid {
 			font-size: 10px;
