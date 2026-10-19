@@ -24,7 +24,7 @@ test("decision evaluation finishes across a board restart", async () => {
 		hostname: "127.0.0.1",
 		port: 0,
 		async fetch() {
-			await sleep(700);
+			await sleep(1_500);
 			return Response.json({
 				choices: [{ message: { content: "Keep the reviewed option." } }],
 			});
@@ -60,6 +60,13 @@ test("decision evaluation finishes across a board restart", async () => {
 		});
 		expect(started.status).toBe(202);
 		expect((await started.json()).running).toBe(true);
+		const before = await (
+			await fetch(`${BASE}/api/decisions/${rec.id}/evals`)
+		).json();
+		const workerPid = before.status?.workerPid as number;
+		expect(workerPid).toBeGreaterThan(0);
+		// launchd restarts terminate the board's child process too.
+		process.kill(workerPid, "SIGKILL");
 		proc.kill();
 		await proc.exited;
 		restarted = Bun.spawn(
@@ -84,6 +91,7 @@ test("decision evaluation finishes across a board restart", async () => {
 			await sleep(100);
 		}
 		expect(feed?.evals[0]?.text).toBe("Keep the reviewed option.");
+		expect(feed?.evals).toHaveLength(1);
 		expect(feed?.status).toMatchObject({ running: false, error: null });
 	} finally {
 		restarted?.kill();

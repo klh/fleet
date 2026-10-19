@@ -53,6 +53,7 @@ type EvalRun = {
 	startedAt: number;
 	running: boolean;
 	error: string | null;
+	workerPid?: number;
 };
 const RUN_LIMIT_MS = 135_000;
 const runKey = (id: number): string => `decision.eval.${id}.run`;
@@ -98,7 +99,49 @@ export function finishDecisionEval(
 	saveRun(id, { ...current, running: false, error });
 }
 
-/** A detached worker survives board restarts; its run state lives in facts. */
+function workerAlive(pid: number | undefined): boolean {
+	if (!pid || !Number.isSafeInteger(pid)) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+function launchWorker(id: number, run: EvalRun): void {
+	try {
+		const child = Bun.spawn(
+			[process.execPath, CLI("decision-eval-worker.ts"), String(id), run.runId],
+			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+		);
+		const current = decisionEvalStatus(id);
+		if (current?.runId === run.runId && current.running)
+			saveRun(id, { ...current, workerPid: child.pid });
+		child.unref();
+	} catch (error) {
+		finishDecisionEval(
+			id,
+			run.runId,
+			error instanceof Error ? error.message : String(error),
+		);
+	}
+}
+
+/** launchd may kill a board's child workers on restart; recover from facts. */
+export function recoverDecisionEvals(): void {
+	const rows = db
+		.query("SELECT key FROM facts WHERE key LIKE 'decision.eval.%.run'")
+		.all() as { key: string }[];
+	for (const row of rows) {
+		const id = Number(/^decision\.eval\.(\d+)\.run$/.exec(row.key)?.[1]);
+		if (!Number.isSafeInteger(id) || id <= 0) continue;
+		const run = decisionEvalStatus(id);
+		if (run?.running && !workerAlive(run.workerPid)) launchWorker(id, run);
+	}
+}
+
+/** A separate worker writes its run state to facts. */
 export function startDecisionEval(id: number): {
 	started: boolean;
 	running: boolean;
@@ -114,19 +157,7 @@ export function startDecisionEval(id: number): {
 		error: null,
 	};
 	saveRun(id, run);
-	try {
-		const child = Bun.spawn(
-			[process.execPath, CLI("decision-eval-worker.ts"), String(id), run.runId],
-			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
-		);
-		child.unref();
-	} catch (error) {
-		finishDecisionEval(
-			id,
-			run.runId,
-			error instanceof Error ? error.message : String(error),
-		);
-	}
+	launchWorker(id, run);
 	return {
 		started: true,
 		running: decisionEvalStatus(id)?.running ?? false,
