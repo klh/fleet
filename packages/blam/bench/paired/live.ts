@@ -40,6 +40,9 @@ export interface ArmReceipt {
 	judgeExit: number | null;
 	timedOut: boolean;
 	tokens: number | null;
+	cacheReadTokens: number | null;
+	cacheWriteTokens: number | null;
+	quality: number;
 	wallMs: number;
 	judgeMs: number | null;
 	outputSha256: string;
@@ -58,7 +61,7 @@ export interface LiveReport {
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 
-function git(cwd: string, ...args: string[]): string {
+export function gitRaw(cwd: string, ...args: string[]): string {
 	const p = Bun.spawnSync(["git", "-C", cwd, ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -67,8 +70,11 @@ function git(cwd: string, ...args: string[]): string {
 		throw new Error(
 			`git ${args[0]} failed: ${new TextDecoder().decode(p.stderr).slice(0, 300)}`,
 		);
-	return new TextDecoder().decode(p.stdout).trim();
+	return new TextDecoder().decode(p.stdout);
 }
+
+export const git = (cwd: string, ...args: string[]): string =>
+	gitRaw(cwd, ...args).trim();
 
 function expanded(argv: string[], vars: Record<string, string>): string[] {
 	return argv.map((part) =>
@@ -95,7 +101,7 @@ async function boundedText(
 	return text + decoder.decode();
 }
 
-async function command(
+export async function command(
 	argv: string[],
 	cwd: string,
 	timeoutMs: number,
@@ -125,7 +131,11 @@ async function command(
 }
 
 /** Accept Claude JSON, Codex JSONL turn.completed, or a generic usage object. */
-export function tokensFromOutput(output: string): number | null {
+export function usageFromOutput(output: string): {
+	tokens: number;
+	cacheReadTokens: number | null;
+	cacheWriteTokens: number | null;
+} | null {
 	const lines = output.trim().split("\n");
 	for (let i = lines.length - 1; i >= 0; i--) {
 		let item: Record<string, unknown>;
@@ -140,24 +150,49 @@ export function tokensFromOutput(output: string): number | null {
 				: null;
 		const usage = (item.usage ?? nested) as Record<string, unknown> | null;
 		if (!usage) continue;
+		const read = usage.cache_read_input_tokens ?? usage.cached_input_tokens;
+		const write =
+			usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens;
+		const cacheReadTokens = typeof read === "number" && read >= 0 ? read : null;
+		const cacheWriteTokens =
+			typeof write === "number" && write >= 0 ? write : null;
 		const total = usage.total_tokens;
 		if (typeof total === "number" && Number.isFinite(total) && total >= 0)
-			return total;
+			return { tokens: total, cacheReadTokens, cacheWriteTokens };
 		const input = usage.input_tokens;
 		const outputTokens = usage.output_tokens;
 		if (typeof input === "number" && typeof outputTokens === "number") {
-			const cacheRead =
-				typeof usage.cache_read_input_tokens === "number"
-					? usage.cache_read_input_tokens
-					: 0;
-			const cacheWrite =
-				typeof usage.cache_creation_input_tokens === "number"
-					? usage.cache_creation_input_tokens
-					: 0;
-			return input + outputTokens + cacheRead + cacheWrite;
+			return {
+				tokens:
+					input +
+					outputTokens +
+					(cacheReadTokens ?? 0) +
+					(cacheWriteTokens ?? 0),
+				cacheReadTokens,
+				cacheWriteTokens,
+			};
 		}
 	}
 	return null;
+}
+
+export const tokensFromOutput = (output: string): number | null =>
+	usageFromOutput(output)?.tokens ?? null;
+
+function qualityFromJudge(output: string, exit: number): number {
+	try {
+		const score = (JSON.parse(output.trim()) as { score?: unknown }).score;
+		if (
+			typeof score === "number" &&
+			Number.isFinite(score) &&
+			score >= 0 &&
+			score <= 1
+		)
+			return score;
+	} catch {
+		// A conventional exit-only judge still scores pass/fail.
+	}
+	return exit === 0 ? 1 : 0;
 }
 
 export function validateManifest(m: LiveManifest): void {
@@ -224,7 +259,7 @@ async function runArm(
 		const wallMs = Math.round(performance.now() - started);
 		// Freeze the agent artifact before validation; the judge may create files.
 		git(worktree, "add", "-N", ".");
-		const patch = git(worktree, "diff", "--binary", "HEAD");
+		const patch = gitRaw(worktree, "diff", "--binary", "HEAD");
 		const patchFile = join(m.outputDir, `${rep}-${arm}.patch`);
 		writeFileSync(patchFile, patch, { mode: 0o600 });
 		const judgeStarted = performance.now();
@@ -235,6 +270,7 @@ async function runArm(
 					})
 				: null;
 		const judgeMs = judge ? Math.round(performance.now() - judgeStarted) : null;
+		const usage = usageFromOutput(execution.stdout);
 		return {
 			arm,
 			rep,
@@ -245,7 +281,10 @@ async function runArm(
 			executorExit: execution.exit,
 			judgeExit: judge?.exit ?? null,
 			timedOut: execution.timedOut || (judge?.timedOut ?? false),
-			tokens: tokensFromOutput(execution.stdout),
+			tokens: usage?.tokens ?? null,
+			cacheReadTokens: usage?.cacheReadTokens ?? null,
+			cacheWriteTokens: usage?.cacheWriteTokens ?? null,
+			quality: judge ? qualityFromJudge(judge.stdout, judge.exit) : 0,
 			wallMs,
 			judgeMs,
 			outputSha256: sha(execution.stdout),
@@ -290,12 +329,12 @@ export async function runLivePaired(
 				rep,
 				setup: baseSha,
 				off: {
-					correct: baseline.judgeExit === 0 ? 1 : 0,
+					correct: baseline.quality,
 					tokens: baseline.tokens,
 					minutes: baseline.wallMs / 60_000,
 				},
 				on: {
-					correct: candidate.judgeExit === 0 ? 1 : 0,
+					correct: candidate.quality,
 					tokens: candidate.tokens,
 					minutes: candidate.wallMs / 60_000,
 				},

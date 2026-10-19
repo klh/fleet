@@ -54,6 +54,22 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
+- **Compact module map and automatic second reviewer on a small known repair**
+  — W922's held-out Relay pilot (2026-10-19, one task × 3 paired repetitions,
+  `gpt-6-luna`) reached 22/22 with the plain solo agent. The extra map used
+  375.9k vs 260.7k reported tokens per arm (+44%); a fresh reviewer used
+  937.4k vs 269.0k (+248%), with no oracle-score improvement. Do not enable
+  either treatment by default for this task class. This is a smoke result,
+  not evidence against context injection or review on harder work; see the
+  [paired receipts](benchmarks.md#relay-coding-pilot-w922-2026-10-19-ac-one-held-out-task--3-pairs).
+- **Shattering three small pure functions into separate agent calls** — W922's
+  corrected Relay pilot (same model and one task × 3 pairs) shortened mean wall
+  time from 25.3 to 18.2 seconds, but raised reported tokens from 260.0k to
+  652.1k and one split arm scored only 13/22 while all matched solo arms got
+  22/22. Do not split this class by default; use parallel agents when the
+  tasks are large enough to pay for three separate contexts and integration.
+  The first run was invalid because BLAM trimmed `git diff` patches; the
+  patch-capture regression test now guards that harness failure.
 - **Cold-context lane orientation** — measured 2026-10-15 (n=3, live route):
   cold median 76.6s / 49,752 fresh tok vs forked-starter 15.8s / 1,659 fresh
   tok / 97% cache share. Starter forks now default-on for the claude

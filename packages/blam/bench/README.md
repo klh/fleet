@@ -63,21 +63,37 @@ The manifest schema and a Codex example are in `paired/live.md`. A
 credentialless integration test exercises the same runner with an agent
 stand-in; those token numbers are test data, not a model benchmark.
 
+## Synthetic agentic coding fixture (W922)
+
+`agentic/` holds an unpublished, deterministic repair task drawn from three
+Fleet failure classes: claim release after agent restart, honest cache
+accounting, and W3C trace propagation. The model sees only the broken fixture
+and its contract. A separate oracle scores 22 behavior checks, including
+boundary cases omitted from the visible contract. The checked-in reference
+scores 22/22; the broken starting point scores 7/22. `strategy.ts` can run
+one agent, a second reviewer, or three isolated module owners. Paired live
+runs compare harness guidance from the same fixture revision and report
+model tokens, cache reads and writes when emitted, elapsed time, oracle score,
+and agent count. The results and limits belong in the fleet-root
+[`benchmarks.md`](../../../benchmarks.md). See
+[`agentic/README.md`](agentic/README.md) for the exact protocol.
+
 ## What runs today — commands, runtime, limits
 
     bun packages/blam/bench/consult/harness.ts    # 3 policies × 2 KB states × 2 delivery modes, ~10ms
     bun packages/blam/bench/paired/harness.ts     # 5 cases × 2 arms × 4 reps, paired per rep, ~20ms
+    bun packages/blam/test/agentic-oracle.test.ts # fixture and oracle controls
 
 The two deterministic suites end with `6/6 properties hold` (`scenario.md` in each directory
 defines them) and are fully deterministic — outcomes are computed from
 scripted scenario models, so numbers reproduce byte-for-byte. They
 measure policy/protocol mechanics, not live model behavior.
 
-Scope boundary: BLAM-bench scores control-plane coordination robustness
-(failure reproduction, detection, recovery). It does not measure model
-quality, model pull, or speed — those are Belt's model-fleet benchmarks
-(`benchmarks.md` at the repo root). The only shared surface is the
-prompt-condense engine (`src/condense/`), which Belt's router reuses.
+Scope boundary: BLAM's deterministic suites score control-plane coordination
+robustness (failure reproduction, detection, recovery). The agentic fixture
+also measures coding output under specified harness treatments. It does not
+rank general model quality; Belt's model-fleet measurements live in the
+fleet-root `benchmarks.md`.
 
 ## Control-plane adapter
 

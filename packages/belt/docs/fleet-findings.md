@@ -6,13 +6,13 @@ This doc records what we measured, what we swapped, and the gotchas that cost us
 time — so a new Mac can skip straight to the good config.
 
 Measured on an M5 Max 128GB, macOS 26. **All benchmark numbers live in
-[benchmarks.md](../benchmarks.md)** (owner law, 2026-10-02) — do not store
+[fleet benchmarks](../../../benchmarks.md)** (owner law, 2026-10-02) — do not store
 bench data in this doc; raw records in bench/benchmarks.jsonl.
 
 ## Runner: rapid-mlx over mlx_lm.server
 
 A/B on identical prompts (4-prompt battery, warm, temp 0, 350 max tokens):
-numbers in [benchmarks.md → Measured A/B results](../../benchmarks.md#measured-ab-results).
+numbers in [benchmarks.md → Measured A/B results](../../../benchmarks.md#measured-ab-results).
 Short version: rapid-mlx wins (code +33%, reason +19%, extract even).
 
 Why it is faster, concretely:
@@ -97,7 +97,7 @@ architecture prose → classified → 27B; personal email asks never touch the 2
 ## Classifier shootout (Jev-style typed routing)
 
 Numbers and verdicts moved to
-[benchmarks.md → Decision-model backends](../../benchmarks.md#decision-model-backends)
+[benchmarks.md → Decision-model backends](../../../benchmarks.md#decision-model-backends)
 (owner law 2026-10-02: bench data lives only there). The durable lessons:
 a 40% misroute rate beats any speed gain; Kev's `needs_strong` head comes
 back mushy — use `use_case` only unless you calibrate that head yourself.
@@ -105,8 +105,8 @@ back mushy — use `use_case` only unless you calibrate that head yourself.
 ## Benchmarking discipline
 
 Belt questions (per-class question sets, sample-size laws, runner contracts)
-live in [benchmarks.md](../benchmarks.md); curated fleet tables in the
-fleet-root [benchmarks.md](../../benchmarks.md); raw append-only records in
+live in [bench-questions.md](../bench-questions.md); curated fleet tables in the
+fleet-root [benchmarks.md](../../../benchmarks.md); raw append-only records in
 bench/benchmarks.jsonl.
 
 ## System-level notes (Apple Silicon / Metal)

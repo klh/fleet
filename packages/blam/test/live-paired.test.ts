@@ -3,8 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	gitRaw,
 	runLivePaired,
 	tokensFromOutput,
+	usageFromOutput,
 	type LiveManifest,
 } from "../bench/paired/live.ts";
 
@@ -61,6 +63,24 @@ afterEach(() => {
 });
 
 describe("BLAM live paired runner", () => {
+	test("raw patch output remains applicable after capture", () => {
+		const manifest = fixture();
+		writeFileSync(join(manifest.repo, "README.md"), "changed fixture\n");
+		const patch = gitRaw(manifest.repo, "diff", "--binary", "HEAD");
+		expect(patch.endsWith("\n")).toBe(true);
+		git(manifest.repo, "checkout", "--", "README.md");
+		const applied = Bun.spawnSync(["git", "-C", manifest.repo, "apply", "-"], {
+			stdin: new TextEncoder().encode(patch),
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(new TextDecoder().decode(applied.stderr)).toBe("");
+		expect(applied.exitCode).toBe(0);
+		expect(readFileSync(join(manifest.repo, "README.md"), "utf8")).toBe(
+			"changed fixture\n",
+		);
+	});
+
 	test("isolates each arm at the same revision and promotes measured lift", async () => {
 		const manifest = fixture();
 		const report = await runLivePaired(manifest);
@@ -140,5 +160,27 @@ describe("BLAM live paired runner", () => {
 			),
 		).toBe(20);
 		expect(tokensFromOutput("no accounting")).toBeNull();
+		expect(
+			usageFromOutput(
+				'{"type":"turn.completed","usage":{"total_tokens":90,"cached_input_tokens":60}}',
+			),
+		).toEqual({
+			tokens: 90,
+			cacheReadTokens: 60,
+			cacheWriteTokens: null,
+		});
+	});
+
+	test("private judge scores partial quality without turning a failure into promotion", async () => {
+		const manifest = fixture();
+		manifest.judge = [
+			"bun",
+			"-e",
+			"console.log(JSON.stringify({score:0.5}));process.exit(1)",
+		];
+		const report = await runLivePaired(manifest);
+		expect(report.receipts.every((r) => r.quality === 0.5)).toBe(true);
+		expect(report.lift?.correctDelta).toBe(0);
+		expect(report.promotion.promote).toBe(false);
 	});
 });
