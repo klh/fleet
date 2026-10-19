@@ -330,7 +330,12 @@ export async function runContrastive(
 	const composeMeta =
 		composed instanceof Error
 			? { model: "", ms: 0, error: composed.message }
-			: { model: composed.model, ms: composed.ms };
+			: {
+					model: composed.model,
+					ms: composed.ms,
+					promptTok: composed.promptTok,
+					compTok: composed.compTok,
+				};
 	// one retry already spent inside fireStage — now inherit (pool rule):
 	// the default leg's label wins, no compose opinion, low confidence
 	if (!pick) {

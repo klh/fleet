@@ -207,30 +207,35 @@ export function openGovernorDb(): Database {
 	// pointer (file:line / URL / ticket), confidence the compose vocabulary,
 	// domain the grouping word retrieval filters on.
 	const kbCols = columnNames(db, "consult_kb");
-	for (const c of [
-		"cue",
-		"lesson",
-		"evidence",
-		"confidence",
-		"domain",
-	] as const)
-		if (!kbCols.includes(c))
-			db.run(`ALTER TABLE consult_kb ADD COLUMN ${c} TEXT`);
+	// partial pre-v13 fixtures may never have created consult_kb — the heal
+	// contract says open must NOT crash on a schema that lacks the table
+	if (kbCols.length)
+		for (const c of [
+			"cue",
+			"lesson",
+			"evidence",
+			"confidence",
+			"domain",
+		] as const)
+			if (!kbCols.includes(c))
+				db.run(`ALTER TABLE consult_kb ADD COLUMN ${c} TEXT`);
 	db.run(
 		"CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)",
 	);
 	// W927: facts gain the domain grouping word (lesson.* retrieval filters on
 	// it) and the library.py experience fields (cue/lesson/evidence/confidence)
 	const factCols = columnNames(db, "facts");
-	for (const c of [
-		"domain",
-		"cue",
-		"lesson",
-		"evidence",
-		"confidence",
-	] as const)
-		if (!factCols.includes(c))
-			db.run(`ALTER TABLE facts ADD COLUMN ${c} TEXT`);
+	// same partial-schema guard as consult_kb above
+	if (factCols.length)
+		for (const c of [
+			"domain",
+			"cue",
+			"lesson",
+			"evidence",
+			"confidence",
+		] as const)
+			if (!factCols.includes(c))
+				db.run(`ALTER TABLE facts ADD COLUMN ${c} TEXT`);
 	// v5 — row-image delta log (W33): sessions, claims, locks, facts, and
 	// work_items all mutate IN PLACE with no event trail, so "what actually
 	// changed between two points" (coord diff --since) was unreconstructable.

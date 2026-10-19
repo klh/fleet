@@ -35,8 +35,11 @@ const probeModel = async (
 	}
 };
 
+// empty-string env knobs are UNSET, not a model id — fall through to the
+// probe (a pinned "" model 400s every :8903 call with "model must not be
+// empty", silently shrinking the consult pool)
 const legModel = (): Promise<string> =>
-	ROUTE_MODEL ?? probeModel(ROUTE_URL, ROUTE_KEY);
+	ROUTE_MODEL?.trim() ? ROUTE_MODEL : probeModel(ROUTE_URL, ROUTE_KEY);
 
 const wireHeaders = (key: string | undefined): Record<string, string> => ({
 	"content-type": "application/json",
