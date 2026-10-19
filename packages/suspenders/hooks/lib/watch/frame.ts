@@ -45,9 +45,16 @@ const rgb = (hex: string, s: string): string => {
 		: paint(`38;2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`, s);
 };
 
+// the ANSI ESC byte is the point of these patterns — the literal is intended.
 /** Visible length (ANSI-stripped, code points). */
 export const visibleLen = (s: string): number =>
-	[...s.replace(/\x1b\[[0-9;]*m/g, "")].length;
+	[
+		...s.replace(
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the ANSI marker being stripped
+			/\x1b\[[0-9;]*m/g,
+			"",
+		),
+	].length;
 
 /** ANSI-aware truncate — never past `width` visible cols; a cut re-opens
  *  reset so the pane's cursor state stays clean. */
@@ -55,6 +62,7 @@ export function truncate(s: string, width: number): string {
 	if (visibleLen(s) <= width) return s;
 	const out: string[] = [];
 	let n = 0;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the ANSI marker being split on
 	for (const tok of s.split(/(\x1b\[[0-9;]*m)/)) {
 		if (tok.startsWith("\x1b[")) {
 			out.push(tok);
@@ -101,6 +109,7 @@ export function laneGlyph(state: string): [string, (s: string) => string] {
 	if (state === "PAUSED") return ["⏸", amber];
 	if (state === "RESUME_READY") return ["↻", cyan];
 	if (state === "BLOCKED") return ["⚠", red];
+	if (state === "INTERRUPTED") return ["×", red];
 	return ["▶", green];
 }
 
@@ -148,7 +157,7 @@ export function buildFrame(m: WatchModel): string[] {
 				a.sid.localeCompare(b.sid),
 		)
 		.slice(0, lanesCap)) {
-		const [g, col] = laneGlyph(l.state);
+		const [, col] = laneGlyph(l.state);
 		const liveMark =
 			l.live === null ? dim(" ") : l.live ? green("●") : red("×");
 		const item = l.item ? cyan(l.item) : dim("—");

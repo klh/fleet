@@ -72,13 +72,14 @@ try {
 				? readFileSync(log, "utf8").split("\n").slice(-200)
 				: [];
 			prev.push(JSON.stringify(row));
-			writeFileSync(log, prev.filter(Boolean).join("\n") + "\n");
+			writeFileSync(log, `${prev.filter(Boolean).join("\n")}\n`);
 		} catch {}
 		db.close();
 		const glyph: Record<string, [string, (s: string) => string]> = {
 			PAUSE_REQUESTED: ["⏸", amber],
 			PAUSED: ["⏸", amber],
 			RESUME_READY: ["↻", cyan],
+			INTERRUPTED: ["×", red],
 			RUNNING: ["▶", green],
 		};
 		if (st?.value && glyph[st.value]) {

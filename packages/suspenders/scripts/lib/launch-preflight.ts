@@ -36,6 +36,36 @@ export function resolveLaneExecutor(
 	return null;
 }
 
+// W831 total carrier selector (Chorus spawner-select lift): one function over
+// the raw token, three exits, no fall-through. Unknown/unspawnable tokens and
+// unresolvable binaries are EXPLICIT failures — a dispatch never wakes the
+// wrong backend by silently mapping a miss onto claude.
+export type CarrierSelection =
+	| { ok: true; agent: string; bin: string }
+	| { ok: false; why: string };
+
+export function selectLaneCarrier(
+	raw: string,
+	env: NodeJS.ProcessEnv = process.env,
+): CarrierSelection {
+	const token = raw.trim().toLowerCase();
+	if (!token) return { ok: false, why: "empty carrier token" };
+	if (token.startsWith("llm:"))
+		return {
+			ok: false,
+			why: "llm:* legs are review-lane catalog resolves, not spawnable carriers",
+		};
+	if (!isSpawnableExecutor(token))
+		return {
+			ok: false,
+			why: `unknown carrier ${raw.trim()} — not in the executor registry`,
+		};
+	const bin = resolveLaneExecutor(token, env);
+	if (!bin)
+		return { ok: false, why: `${token} binary not found — carrier offline` };
+	return { ok: true, agent: token, bin };
+}
+
 /** The configured store owns the claim. Both owner and revision gate cleanup,
  * so a transfer or renewal cannot be overwritten by a failed older launch. */
 export function releaseFailedLaunch(

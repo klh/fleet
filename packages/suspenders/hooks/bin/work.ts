@@ -52,6 +52,10 @@ import {
 } from "../lib/reclaim-liveness.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
+import {
+	parseReclaimReason,
+	reclaimGateDecision,
+} from "../lib/reclaim-sticky.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
@@ -235,7 +239,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "reclaim",
 		usage:
-			"usage: reclaim <id> [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
+			"usage: reclaim <id> [--reason user|crash] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
 		flags: [...ITEM_FLAGS, "--expect-owner", "--expect-updated-at", "--json"],
 		switches: ["--json"],
 		minPos: 1,
@@ -1420,6 +1424,26 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				die(
 					`${id} is ${it.state} — only CLAIMED/RUNNING/ORPHANED can be reclaimed`,
 				);
+			// W831 kill-path double-check: the manual reclaim shares the bulk
+			// pass's liveness truth. A verifiably-live claimant refuses (ghost
+			// claims make two writers); --reason crash demands death evidence;
+			// --force is the explicit operator decision (board force leg).
+			const rawReason = flag("--reason");
+			if (rawReason && !parseReclaimReason(rawReason))
+				die(`invalid --reason ${rawReason} — user | crash`);
+			const reclaimReason = parseReclaimReason(rawReason) ?? "user";
+			const verdict = probeClaim(db(), PROJECT, {
+				id,
+				owner: String(it.owner_sid ?? ""),
+				revision: Number(it.updated_at),
+				lane: claimantLanes(process.cwd()).get(String(it.owner_sid ?? "")),
+			}).verdict;
+			const gate = reclaimGateDecision(
+				verdict,
+				reclaimReason,
+				!!flag("--force"),
+			);
+			if (!gate.ok) die(`${id} reclaim refused — ${gate.why}`);
 			const expectedOwner = flag("--expect-owner");
 			if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
 				die(`${id} owner changed — reclaim refused`);

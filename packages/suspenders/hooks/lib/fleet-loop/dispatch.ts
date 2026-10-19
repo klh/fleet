@@ -23,7 +23,7 @@ import {
 	acquireLaunchLease,
 	releaseFailedLaunch,
 	releaseLaunchLease,
-	resolveLaneExecutor,
+	selectLaneCarrier,
 } from "../../../scripts/lib/launch-preflight.ts";
 import {
 	assertLaunchClaim,
@@ -58,10 +58,6 @@ export async function runDispatch(
 		console.error("dispatch requires --item <Wn>");
 		process.exit(1);
 	}
-	if (AGENT !== "claude" && AGENT !== "codex") {
-		console.error("dispatch --agent must be claude or codex");
-		process.exit(1);
-	}
 	const sid =
 		lanes().find((lane) => lane.item === item)?.sid ??
 		laneSid(item, projectIdentity(REPO));
@@ -91,13 +87,14 @@ export async function runDispatch(
 			out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
 		};
 	};
-	const bin = resolveLaneExecutor(AGENT);
-	if (!bin) {
-		console.error(
-			`${AGENT} binary not found or configured executor unavailable`,
-		);
+	// W831 total carrier selector: unknown/unspawnable/offline executors are
+	// explicit refusals — never a silent fall-through to the wrong backend.
+	const carrier = selectLaneCarrier(AGENT);
+	if (!carrier.ok) {
+		console.error(`REFUSED ${item} — ${carrier.why}`);
 		process.exit(1);
 	}
+	const bin = carrier.bin;
 	const store = openStore(),
 		project = projectIdentity(REPO),
 		nonce = crypto.randomUUID();
