@@ -289,3 +289,55 @@ describe("ask-gate kev triage", () => {
 		}
 	});
 });
+
+describe("ask-gate answer delivery (W861)", () => {
+	test("coordinator leg: the routed consult left a consult event targeted at the coordinator", () => {
+		const db = new Database(DB, { readonly: true });
+		const ev = db
+			.query("SELECT id FROM events WHERE kind = 'consult' AND target = ?")
+			.get(COORD);
+		db.close();
+		expect(ev).toBeDefined();
+	});
+
+	test("consult reply surfaces in the asking session on the next prompt", () => {
+		const open = consultRows(`WHERE asker_sid = '${SID}' AND state = 'OPEN'`);
+		expect(open).toHaveLength(1);
+		const cid = `C${open[0]?.id}`;
+		const r = run([
+			coord,
+			"consult-reply",
+			cid,
+			"komfur: the second W1 is the archive copy",
+			"--as",
+			COORD,
+		]);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("ANSWERED");
+		const a = askGate("hello");
+		expect(a.code).toBe(0);
+		const ctx = a.json?.hookSpecificOutput?.additionalContext ?? "";
+		expect(ctx).toContain("coord-inbox:");
+		expect(ctx).toContain("komfur: the second W1 is the archive copy");
+		// cursor advanced — the same answer never re-delivers
+		const b = askGate("hello again");
+		expect(b.out.trim()).toBe("{}");
+	});
+
+	test("a declined consult also surfaces (no silent dead end)", () => {
+		const q =
+			"why is the board not showing the worktree dispatch lanes and W9 rows?";
+		const routed = askGate(q);
+		const ctx0 = routed.json?.hookSpecificOutput?.additionalContext ?? "";
+		expect(ctx0).toContain("[fleet-ask] routed to the coordinator as C");
+		const m = ctx0.match(/as C(\d+)/);
+		const cid = `C${m?.[1]}`;
+		const d = run([coord, "consult-reply", cid, "--decline", "--as", COORD]);
+		expect(d.code).toBe(0);
+		expect(d.out).toContain("DECLINED");
+		const a = askGate("hello");
+		const ctx = a.json?.hookSpecificOutput?.additionalContext ?? "";
+		expect(ctx).toContain(`coord-inbox:`);
+		expect(ctx).toContain(cid);
+	});
+});
