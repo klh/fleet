@@ -945,7 +945,7 @@ export function fleetTargets(): Target[] {
 			port: e.port,
 			kind: e.tier === "ondemand" ? "ondemand" : "external",
 			owned: false,
-			healthPath: "/health",
+			healthPath: e.healthPath,
 		});
 	}
 	const gateway = litellmTarget();
