@@ -6,7 +6,6 @@
 import {
 	CALL_TIMEOUT_MS,
 	type Finding,
-	lineOf,
 	MAX_ROUNDS,
 	MAX_TOKENS,
 	type ReviewTask,
@@ -18,6 +17,9 @@ import { callLeg } from "./legs.ts";
 import type { Leg, Req } from "./legs.ts";
 import { stripThink } from "./core.ts";
 import {
+	findingIdOf,
+	openPriorBlockers,
+	parseAcks,
 	parseFindings,
 	parseFix,
 	parseTriage,
@@ -25,13 +27,9 @@ import {
 	parseVerify,
 } from "./review-parse.ts";
 
-// the EXACT oracle.ts review frame — arm parity with the live practice
-const ORACLE_REVIEW_FRAME = [
-	"You are a read-only reviewer (oracle fixed contract). Review this diff.",
-	"Audit, never re-do. Findings as terse bullets — severity(high|medium|low): file:line — issue. No style nits.",
-	"End your reply with ONE machine-parseable final line:",
-	"VERDICT: PASS | VERDICT: FAIL - <reason>",
-].join("\n");
+// the EXACT oracle.ts review frame — arm parity single source (W832): the
+// arena pin imports oracle's frame lib instead of re-declaring it
+import { REVIEW_FRAME } from "../../../suspenders/hooks/lib/oracle-frame.ts";
 const DIFF_CAP = 60_000; // oracle.ts INPUT_CAP — arm parity
 
 // the arm-B reviewer brief: the how-to-review.md reviewer checklist + the
@@ -88,6 +86,8 @@ export interface ArmRun {
 	findings: Finding[];
 	verdict: "PASS" | "FAIL";
 	roundsToPass: number;
+	/** W832: prior blocker IDs left open at the final verdict. */
+	openBlockers: string[];
 	tokIn: number;
 	tokOut: number;
 	calls: number;
@@ -96,7 +96,13 @@ export interface ArmRun {
 	ok: boolean;
 	err?: string;
 }
-const acc0 = (): { tokIn: number; tokOut: number; calls: number; wallMs: number; trace: TraceRow[] } => ({
+const acc0 = (): {
+	tokIn: number;
+	tokOut: number;
+	calls: number;
+	wallMs: number;
+	trace: TraceRow[];
+} => ({
 	tokIn: 0,
 	tokOut: 0,
 	calls: 0,
@@ -111,7 +117,12 @@ async function callLocal(
 	legName: string,
 	round = 0,
 ): Promise<{ ok: boolean; text: string; err?: string }> {
-	const leg: Leg = { id: "local-direct", wire: "openai", priced: "local", desc: "review arena" };
+	const leg: Leg = {
+		id: "local-direct",
+		wire: "openai",
+		priced: "local",
+		desc: "review arena",
+	};
 	const q: Req = {
 		user: prompt,
 		maxTokens: MAX_TOKENS,
@@ -119,7 +130,6 @@ async function callLocal(
 		timeoutMs: CALL_TIMEOUT_MS,
 		port,
 	};
-	const t0 = performance.now();
 	const o = await callLeg(leg, q);
 	acc.tokIn += o.inTok;
 	acc.tokOut += o.outTok;
@@ -140,14 +150,28 @@ async function callLocal(
 }
 
 const diffFor = (t: ReviewTask): string => t.diff.slice(0, DIFF_CAP);
-const findKey = (f: Finding): string => `${f.file}:${f.line}:${f.issue.slice(0, 40)}`;
+const findKey = (f: Finding): string =>
+	`${f.file}:${f.line}:${f.issue.slice(0, 40)}`;
+
+/** W832 stable ID for a new posting: the reviewer-emitted ID wins (stable
+ *  across rounds), else synthesized `B/N<round>-<slug>`; collisions -N. */
+const idFor = (f: Finding, round: number, used: Set<string>): string => {
+	const base = f.id ?? findingIdOf(round, f.severity === "high", f.issue);
+	let id = base;
+	for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+	used.add(id);
+	return id;
+};
 
 /** Arm A — the current single-pass oracle review. One call, no rounds. */
-export async function armA(task: ReviewTask, port = ARM_A_PORT): Promise<ArmRun> {
+export async function armA(
+	task: ReviewTask,
+	port = ARM_A_PORT,
+): Promise<ArmRun> {
 	const acc = acc0();
 	const res = await callLocal(
 		acc,
-		`${ORACLE_REVIEW_FRAME}\n\nDIFF:\n${diffFor(task)}`,
+		`${REVIEW_FRAME}\n\nDIFF:\n${diffFor(task)}`,
 		port,
 		"armA-review",
 		1,
@@ -159,29 +183,42 @@ export async function armA(task: ReviewTask, port = ARM_A_PORT): Promise<ArmRun>
 		findings,
 		verdict: v?.verdict ?? "FAIL",
 		roundsToPass: v?.verdict === "PASS" ? 1 : MAX_ROUNDS + 1,
+		openBlockers: [],
 		...acc,
 		ok: res.ok,
 		err: res.err,
 	};
 }
 
-/** Arm B — the how-to-review.md pipeline on one task. */
+/** Arm B — the how-to-review.md pipeline on one task. Round 2+ rides the
+ *  W832 contract: prior findings carry stable IDs, the reviewer must
+ *  acknowledge EVERY prior ID (fixed | still-open | not-verifiable), only an
+ *  explicit "fixed" closes, and a prior blocker left open forces FAIL. */
 export async function armB(task: ReviewTask): Promise<ArmRun> {
 	const acc = acc0();
-	const posted: Finding[] = [];
+	const posted: { id: string; f: Finding }[] = [];
 	const postedKeys = new Set<string>();
+	/** W832: blocker IDs currently open — fixed removes, re-reporting re-adds. */
+	const openIds = new Set<string>();
 	let curDiff = task.diff;
 	let rounds = MAX_ROUNDS + 1;
 	let verdict: "PASS" | "FAIL" = "FAIL";
 	for (let round = 1; round <= MAX_ROUNDS; round++) {
-		const postedBlock = postedKeys.size
-			? `ALREADY POSTED (never repeat; report only NEW findings):\n${[...postedKeys].map((k) => `- ${k}`).join("\n")}\n\n`
+		const priorIds = posted.map((p) => p.id);
+		const priorBlock = priorIds.length
+			? `PRIOR FINDINGS (acknowledge EVERY one by ID before any new finding, exactly \`<ID>: fixed | still-open | not-verifiable — what was re-run\`; only an explicit "fixed" closes; a prior blocker left open forces VERDICT: FAIL):\n${posted.map((p) => `- ${p.id} — ${p.f.severity}: ${p.f.file}:${p.f.line} — ${p.f.issue}`).join("\n")}\n\n`
 			: "";
-		const prompt = `${BENCH_REVIEW_CONTRACT}\n\nMISSION: ${task.mission}\n\n${postedBlock}DIFF:\n${curDiff}\n\n${BENCH_REVIEW_SUFFIX}`;
+		const prompt = `${BENCH_REVIEW_CONTRACT}\n\nMISSION: ${task.mission}\n\n${priorBlock}DIFF:\n${curDiff}\n\n${BENCH_REVIEW_SUFFIX}`;
 		// the local reviewer leg format-flakes at temp 0 (server-side sampling
 		// nondeterminism) — re-ask until parseable, max 3 attempts; every
 		// attempt is token-attributed through acc
-		let rev = await callLocal(acc, prompt, REVIEW_LEGS.reviewer.port, "reviewer", round);
+		let rev = await callLocal(
+			acc,
+			prompt,
+			REVIEW_LEGS.reviewer.port,
+			"reviewer",
+			round,
+		);
 		let attempts = 1;
 		while (
 			rev.ok &&
@@ -190,21 +227,45 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 			parseVerdictLine(rev.text).verdict === "FAIL" &&
 			attempts < 3
 		) {
-			rev = await callLocal(acc, prompt, REVIEW_LEGS.reviewer.port, "reviewer", round);
+			rev = await callLocal(
+				acc,
+				prompt,
+				REVIEW_LEGS.reviewer.port,
+				"reviewer",
+				round,
+			);
 			attempts++;
 		}
 		if (!rev.ok)
-			return { arm: "b", findings: posted, verdict: "FAIL", roundsToPass: MAX_ROUNDS + 1, ...acc, ok: false, err: rev.err };
-		const rf = parseFindings(rev.text);
-		// format-miss guard: a FAIL verdict with zero parseable findings is an
-		// honest FAIL (never auto-PASS through the convergence gate)
-		const rv = parseVerdictLine(rev.text);
-		if (rf.length === 0 && rv.verdict === "FAIL")
 			return {
 				arm: "b",
-				findings: posted,
+				findings: posted.map((p) => p.f),
 				verdict: "FAIL",
 				roundsToPass: MAX_ROUNDS + 1,
+				openBlockers: [...openIds],
+				...acc,
+				ok: false,
+				err: rev.err,
+			};
+		const rf = parseFindings(rev.text);
+		const rv = parseVerdictLine(rev.text);
+		// W832 acks — the reviewer must acknowledge every prior ID; only an
+		// explicit "fixed" closes (openIds updated before any PASS gate)
+		if (priorIds.length > 0) {
+			const acks = parseAcks(rev.text);
+			for (const id of openPriorBlockers(priorIds, acks)) openIds.add(id);
+			for (const a of acks) if (a.status === "fixed") openIds.delete(a.id);
+		}
+		// format-miss guard: a FAIL verdict with zero parseable findings is an
+		// honest FAIL (never auto-PASS through the convergence gate) — unless
+		// W832 blockers are still open, in which case the rounds continue
+		if (rf.length === 0 && rv.verdict === "FAIL" && openIds.size === 0)
+			return {
+				arm: "b",
+				findings: posted.map((p) => p.f),
+				verdict: "FAIL",
+				roundsToPass: MAX_ROUNDS + 1,
+				openBlockers: [...openIds],
 				...acc,
 				ok: true,
 				err: "reviewer FAILed with 0 parseable findings",
@@ -222,7 +283,16 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 				round,
 			);
 			if (!vRes.ok)
-				return { arm: "b", findings: posted, verdict: "FAIL", roundsToPass: MAX_ROUNDS + 1, ...acc, ok: false, err: vRes.err };
+				return {
+					arm: "b",
+					findings: posted.map((p) => p.f),
+					verdict: "FAIL",
+					roundsToPass: MAX_ROUNDS + 1,
+					openBlockers: [...openIds],
+					...acc,
+					ok: false,
+					err: vRes.err,
+				};
 			const kinds = parseVerify(vRes.text, rf.length);
 			confirmed = rf.filter((_, i) => kinds[i] === "confirmed");
 		}
@@ -239,18 +309,32 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 				round,
 			);
 			if (!tRes.ok)
-				return { arm: "b", findings: posted, verdict: "FAIL", roundsToPass: MAX_ROUNDS + 1, ...acc, ok: false, err: tRes.err };
+				return {
+					arm: "b",
+					findings: posted.map((p) => p.f),
+					verdict: "FAIL",
+					roundsToPass: MAX_ROUNDS + 1,
+					openBlockers: [...openIds],
+					...acc,
+					ok: false,
+					err: tRes.err,
+				};
 			const tags = parseTriage(tRes.text, confirmed.length);
 			blocking = confirmed.filter((_, i) => tags[i] === "important");
 		}
+		// W832: new postings get a stable ID — the reviewer-emitted ID wins,
+		// else synthesized `B/N<round>-<slug>`; round = first-reporting round.
+		// Blocker postings join the open set until explicitly acked fixed.
+		const usedIds = new Set(posted.map((p) => p.id));
 		for (const f of blocking) {
 			const k = findKey(f);
-			if (!postedKeys.has(k)) {
-				postedKeys.add(k);
-				posted.push(f);
-			}
+			if (postedKeys.has(k)) continue;
+			postedKeys.add(k);
+			const id = idFor(f, round, usedIds);
+			posted.push({ id, f });
+			if (id.startsWith("B")) openIds.add(id);
 		}
-		if (blocking.length === 0) {
+		if (blocking.length === 0 && openIds.size === 0) {
 			rounds = round;
 			verdict = "PASS";
 			break;
@@ -258,7 +342,9 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 
 		const primary = Object.keys(task.files?.buggy ?? {})[0];
 		if (!primary) break;
-		const findingsBlock = [...postedKeys].map((k) => `- ${k}`).join("\n");
+		const findingsBlock = posted
+			.map((p) => `- ${p.id} — ${p.f.file}:${p.f.line} — ${p.f.issue}`)
+			.join("\n");
 		const fixRes = await callLocal(
 			acc,
 			`${FIXER_FRAME}\n\nFINDINGS:\n${findingsBlock}\n\nFILE ${primary}:\n${task.files?.buggy[primary] ?? ""}`,
@@ -268,16 +354,44 @@ export async function armB(task: ReviewTask): Promise<ArmRun> {
 		);
 		const fixedText = fixRes.ok ? parseFix(fixRes.text) : null;
 		if (!fixedText)
-			return { arm: "b", findings: posted, verdict: "FAIL", roundsToPass: MAX_ROUNDS + 1, ...acc, ok: false, err: "fixer produced no patch" };
+			return {
+				arm: "b",
+				findings: posted.map((p) => p.f),
+				verdict: "FAIL",
+				roundsToPass: MAX_ROUNDS + 1,
+				openBlockers: [...openIds],
+				...acc,
+				ok: false,
+				err: "fixer produced no patch",
+			};
 		const baseLines = (task.files?.fixed[primary] ?? "").split("\n");
 		curDiff = unifiedDiff(primary, baseLines, fixedText.split("\n"));
 	}
-	return { arm: "b", findings: posted, verdict, roundsToPass: rounds, ...acc, ok: true };
+	return {
+		arm: "b",
+		findings: posted.map((p) => p.f),
+		verdict,
+		roundsToPass: rounds,
+		openBlockers: [...openIds],
+		...acc,
+		ok: true,
+	};
 }
 
 export async function pingLocal(port: number): Promise<boolean> {
-	const leg: Leg = { id: "local-direct", wire: "openai", priced: "local", desc: "review arena ping" };
-	const q: Req = { user: "Reply with the single word: ready", maxTokens: 4, effort: null, timeoutMs: 30e3, port };
+	const leg: Leg = {
+		id: "local-direct",
+		wire: "openai",
+		priced: "local",
+		desc: "review arena ping",
+	};
+	const q: Req = {
+		user: "Reply with the single word: ready",
+		maxTokens: 4,
+		effort: null,
+		timeoutMs: 30e3,
+		port,
+	};
 	const o = await callLeg(leg, q);
 	return o.ok;
 }

@@ -16,7 +16,10 @@ export interface FindingMatch {
 const norm = (f: string): string => basename(f).replace(/\.test\.ts$/, ".ts");
 
 /** Mechanical matcher: same file basename + line within ±LINE_TOL. */
-export function matchFindings(defects: Defect[], findings: Finding[]): {
+export function matchFindings(
+	defects: Defect[],
+	findings: Finding[],
+): {
 	matches: FindingMatch[];
 	recall: number; // matched defects / total defects
 	fileRecall: number; // defects whose FILE was cited at any line
@@ -61,6 +64,9 @@ export interface ArmOutcome {
 	/** Important findings on clean files (pure human cost) — clean tasks only */
 	humanNoise: number;
 	roundsToPass: number; // 1..3 = converged round; 4 = never within cap
+	/** W832: prior blocker IDs left open at the final verdict (still-open,
+	 *  not-verifiable or never acknowledged) — a PASS over these is wrong. */
+	openBlockers: string[];
 	verdictCorrect: boolean; // final verdict matches seeded truth
 	tokIn: number;
 	tokOut: number;
@@ -95,6 +101,8 @@ export function scoreOutcome(o: {
 	findings: Finding[];
 	roundsToPass: number;
 	verdict: "PASS" | "FAIL";
+	/** W832: prior blocker IDs still open at the final verdict. */
+	openBlockers?: string[];
 	tokIn: number;
 	tokOut: number;
 	calls: number;
@@ -110,12 +118,15 @@ export function scoreOutcome(o: {
 	const humanRequired = important.length;
 	// clean task: every finding is human noise (nothing seeded to find)
 	const humanNoise = truthHasDefects ? 0 : matches.length;
+	const openBlockers = o.openBlockers ?? [];
 	// outcome-correct verdict: on defect tasks, FAIL is correct AND so is a
 	// PASS reached after a recall>0 fix (found-and-fixed is the pipeline's
-	// success path); the only wrong verdict is PASS with zero detection.
+	// success path); the only wrong verdicts are PASS with zero detection and
+	// — W832 — PASS over an open prior blocker (only explicit fixed closes).
 	const verdictCorrect = truthHasDefects
-		? o.verdict === "FAIL" || (o.verdict === "PASS" && recall > 0)
-		: o.verdict === "PASS";
+		? o.verdict === "FAIL" ||
+			(o.verdict === "PASS" && recall > 0 && openBlockers.length === 0)
+		: o.verdict === "PASS" && openBlockers.length === 0;
 	return {
 		arm: o.arm,
 		taskId: o.taskId,
@@ -127,6 +138,7 @@ export function scoreOutcome(o: {
 		humanRequired,
 		humanNoise,
 		roundsToPass: o.roundsToPass,
+		openBlockers,
 		verdictCorrect,
 		tokIn: o.tokIn,
 		tokOut: o.tokOut,
@@ -152,7 +164,9 @@ export function aggregate(arm: "a" | "b", outs: ArmOutcome[]): ArmAggregate {
 			seeded.length === 0
 				? 0
 				: seeded.reduce((a, o) => a + o.fileRecall, 0) / seeded.length,
-		meanFpPerTask: outs.length ? outs.reduce((a, o) => a + o.fp, 0) / outs.length : 0,
+		meanFpPerTask: outs.length
+			? outs.reduce((a, o) => a + o.fp, 0) / outs.length
+			: 0,
 		humanRequiredPerTask: outs.length
 			? outs.reduce((a, o) => a + o.humanRequired, 0) / outs.length
 			: 0,

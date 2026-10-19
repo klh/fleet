@@ -20,8 +20,17 @@ import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 // kit usage line prints + exit 1 on violation; --help renders per-verb help.
 const spec = defineVerb({
 	name: "review",
-	usage: "usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
-	flags: ["--item", "--project", "--executor", "--bin", "--belt", "--llm-url", "--llm-model"],
+	usage:
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>])",
+	flags: [
+		"--item",
+		"--project",
+		"--executor",
+		"--bin",
+		"--belt",
+		"--llm-url",
+		"--llm-model",
+	],
 	reqFlags: ["--item", "--project"],
 });
 const args = process.argv.slice(2);
@@ -112,7 +121,9 @@ const prompt = [
 	`BRANCH DIFF (main...suspenders/${item}, capped):`,
 	diff || "(no branch — review the thread/claims only)",
 	``,
-	`Report findings as terse bullets; end your reply with ONE machine-parseable final line:`,
+	`Report findings as terse bullets; every finding carries a stable ID — B<round>-<slug> (blocker) or N<round>-<slug> (note) — round = the round that FIRST reported it; IDs are never renumbered.`,
+	`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
+	`End your reply with ONE machine-parseable final line:`,
 	`VERDICT: PASS | VERDICT: FAIL - <reason>`,
 ].join("\n");
 

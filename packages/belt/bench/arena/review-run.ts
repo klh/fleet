@@ -2,7 +2,13 @@
 // task set into review-seal/ (sha16-pinned MANIFEST), --run executes both
 // arms over the sealed tasks (AC-gated, ping-preflighted, resumable JSONL)
 // and --report renders the decision-grade metrics table.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { jsonl, sha } from "./core.ts";
 import {
@@ -37,7 +43,14 @@ export interface Args {
 	runId: string | null;
 }
 export function parseArgs(argv: string[]): Args {
-	const a: Args = { design: false, run: false, report: false, arm: "both", limit: 0, runId: null };
+	const a: Args = {
+		design: false,
+		run: false,
+		report: false,
+		arm: "both",
+		limit: 0,
+		runId: null,
+	};
 	for (let i = 0; i < argv.length; i++) {
 		const k = argv[i] ?? "";
 		const nx = argv[i + 1];
@@ -116,17 +129,21 @@ export async function runArm(
 				findings: run.findings,
 				roundsToPass: run.roundsToPass,
 				verdict: run.verdict,
+				openBlockers: run.openBlockers,
 				tokIn: run.tokIn,
 				tokOut: run.tokOut,
 				calls: run.calls,
 				wallMs: run.wallMs,
 			});
-			appendFileSync(file, `${JSON.stringify({ ...out, runOk: run.ok, err: run.err })}\n`);
+			appendFileSync(
+				file,
+				`${JSON.stringify({ ...out, runOk: run.ok, err: run.err })}\n`,
+			);
 			console.log(
 				`${arm}/${t.id} ${run.verdict} r${run.roundsToPass} in${out.tokIn} ok=${run.ok}${run.err ? ` ${run.err}` : ""}`,
 			);
 		}
-	}
+	};
 	await Promise.all([worker(), worker()]);
 	return todo.length;
 }
@@ -141,10 +158,7 @@ export async function run(
 	const tasks = await loadSeal();
 	const picked = src ? tasks.filter((t) => t.src === src) : tasks;
 	const ports = [
-		...new Set([
-			ARM_A_PORT,
-			...Object.values(REVIEW_LEGS).map((l) => l.port),
-		]),
+		...new Set([ARM_A_PORT, ...Object.values(REVIEW_LEGS).map((l) => l.port)]),
 	];
 	for (const p of ports) {
 		if (!(await pingLocal(p)))
