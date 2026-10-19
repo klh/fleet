@@ -157,17 +157,16 @@ export function usageFromOutput(output: string): {
 		const cacheWriteTokens =
 			typeof write === "number" && write >= 0 ? write : null;
 		const total = usage.total_tokens;
-		if (typeof total === "number" && Number.isFinite(total) && total >= 0)
+		if (typeof total === "number" && Number.isFinite(total) && total > 0)
 			return { tokens: total, cacheReadTokens, cacheWriteTokens };
 		const input = usage.input_tokens;
 		const outputTokens = usage.output_tokens;
 		if (typeof input === "number" && typeof outputTokens === "number") {
+			const tokens =
+				input + outputTokens + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
+			if (tokens <= 0) continue;
 			return {
-				tokens:
-					input +
-					outputTokens +
-					(cacheReadTokens ?? 0) +
-					(cacheWriteTokens ?? 0),
+				tokens,
 				cacheReadTokens,
 				cacheWriteTokens,
 			};

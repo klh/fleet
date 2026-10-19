@@ -14,6 +14,27 @@ model bump.
 
 ---
 
+## W960 harness self-improvement smoke (2026-10-20; AC)
+
+The W958 loop ran one propose/probe/compose step, then three distinct private-judged
+tasks (`cfg-create-01`, `bugfix-01`, `script-io-01`) at the pinned Fleet revision
+`9d2ddb90`, using `glm-5.3-flash` through the local Belt route. Both arms
+started from that revision. The editor returned a candidate, but the executor
+produced empty patches on every held-out task; baseline and candidate each
+passed **0/3** judges. Claude's JSON reported **zero usage tokens** for every
+call, so token savings and cache efficiency are **unmeasured**. The loop
+correctly refused promotion. This is a pipeline smoke failure, not a quality
+comparison or an estimate of model efficiency. The private receipt is under
+`~/.claude/local-llm/blam/w960/runs/364ba7e1-3e41-40ee-86f8-19d03f03cd85`.
+
+A direct CLI reproduction showed a denied Write call with the normal Claude
+configuration. With a clean config, the same model narrated a file write but
+produced no file. The local route continued to report zero usage. BLAM now
+treats zero usage as missing accounting; a full 130-case run waits for an
+executor that demonstrably writes files and reports positive token usage.
+
+---
+
 ## BLAM — coordination controls (2026-10-19 rerun)
 
 The deterministic [consult](packages/blam/bench/consult/scenario.md) and
