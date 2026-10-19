@@ -67,8 +67,19 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 
 ## Supervisor reporting (W892, installed face W899/W906)
 
-`work report` (verb) and `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
-(the installed face install.ts copies) render THE supervisor reply table
+`work report` (verb) — with `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
+as its installed-face shim (argv-verbatim passthrough, W913) — renders THE
+supervisor reply table (owner GO 2026-10-19): rows = riding + queued +
+last-5-done (or strict `--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/
+OUT-MIN/AGENT from each item's W776 attribution; fixed-width programmatic
+pads; ST letters R = riding, Q = queued, D = done, F = failed (W891 colors
+them on the board). Supervisor ticks paste it verbatim — the session-start
+SUPERVISOR DEFAULT contract references the installed reporter and
+EMITS it (the hook calls the one library; W899), lane briefs carry the
+same table (dispatch FLEET REPORT), and the install tail runs the report
+through the PATH shim as its final section (every install proves the verb
+live). One implementation (hooks/lib/work-report.ts) — the bin's glyph/
+spend-line parser retired (W913). This supersedes the W865 prose list.
 (owner GO 2026-10-19): rows = riding + queued + last-5-done (or strict
 `--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT from each
 item's W776 attribution; fixed-width programmatic pads; ST letters

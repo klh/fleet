@@ -8,15 +8,17 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
 
 Every supervisor/user-centric tick replies with the ONE standard table:
 
-    bun ~/.claude/hooks/suspenders/bin/fleet-report.ts
+    work report
 
-Emit its output verbatim in a fenced block, headed by one status line
-(lanes live x/N, READY n, dispatched). Columns: ITEM/ST/TASK/TOKENS/
-CACHE/OUT-MIN/AGENT — CACHE is prompt-cache hit share (cached ÷ (fresh+
-cached)), OUT/MIN is output tokens per agent-minute, AGENT is agent wall
-time. ST: R riding · Q queued · D done · F failed. Item ids double as
-`#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
-reporter computes the pads; prose tick lines are a regression.
+(or `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` — the installed
+face, now a verbatim shim over the verb, W913). Emit its output verbatim
+in a fenced block, headed by one status line (lanes live x/N, READY n,
+dispatched). Columns: ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT — CACHE is
+prompt-cache hit share (cached ÷ (fresh+cached)), OUT/MIN is output
+tokens per agent-minute, AGENT is agent wall time. ST: R riding · Q
+queued · D done · F failed. Item ids double as `#lanes?w=<id>` deep-links
+(W890). Do not hand-roll the table — the verb computes the pads; prose
+tick lines are a regression.
 
 ## Protocol
 
