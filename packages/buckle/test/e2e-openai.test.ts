@@ -59,9 +59,9 @@ describe("openai e2e", () => {
 		expect(row.cache_r).toBe(7);
 		const audit = d.ledger.auditRows()[0] ?? {};
 		expect(audit.cache_r).toBe(7);
-		// openai usage has no creation field → known zero, not NULL (NULL =
-		// unobserved usage; see auditUsage)
-		expect(audit.cache_c).toBe(0);
+		// OpenAI reports cached reads but has no cache creation field.
+		expect(audit.cache_c).toBe(null);
+		expect(audit.cache_c_reported).toBe(0);
 		upstream.close();
 	});
 

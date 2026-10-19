@@ -70,6 +70,7 @@ import {
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 import {
 	cacheUsageReported,
+	cacheWriteReported,
 	type Usage,
 	usageFromAnthropic,
 	usageFromOpenAI,
@@ -647,13 +648,15 @@ async function jsonResponse(
 	}
 	let usage: Usage | null = null;
 	let cacheReported = false;
+	let writeReported = false;
 	if (parsed !== null && typeof parsed === "object") {
 		const u = (parsed as Record<string, unknown>).usage;
 		cacheReported = cacheUsageReported(ctx.dialect, u);
+		writeReported = cacheWriteReported(ctx.dialect, u);
 		usage =
 			ctx.dialect === "anthropic" ? usageFromAnthropic(u) : usageFromOpenAI(u);
 	}
-	record(deps, ctx, usage, cacheReported);
+	record(deps, ctx, usage, cacheReported, writeReported);
 	// W5 inbound condense: sidestore AFTER the ledger row; the response
 	// bytes above are untouched (byte identity).
 	condenseInbound(deps, ctx, parsed);
@@ -681,7 +684,13 @@ function streamResponse(
 	const downstream = new TransformStream<Uint8Array, Uint8Array>();
 	const finish = once(() => {
 		sniffer.flush();
-		record(deps, ctx, sniffer.usage(), sniffer.cacheReported());
+		record(
+			deps,
+			ctx,
+			sniffer.usage(),
+			sniffer.cacheReported(),
+			sniffer.cacheWriteReported(),
+		);
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
@@ -770,9 +779,10 @@ function record(
 	ctx: Ctx,
 	usage: Usage | null,
 	cacheReported: boolean,
+	cacheWriteReported: boolean,
 ): void {
 	// W457 cache telemetry: joined onto the route_audit row by rid.
-	deps.ledger.auditUsage(ctx.rid, usage, cacheReported);
+	deps.ledger.auditUsage(ctx.rid, usage, cacheReported, cacheWriteReported);
 	// W458.4 per-lane cache telemetry: attributed lanes append the row with
 	// the boundary the request actually rode (the delivered head). Usage
 	// null = honest unknown — the request still counts, tokens stay zero.

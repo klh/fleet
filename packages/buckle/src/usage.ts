@@ -48,6 +48,19 @@ export function cacheUsageReported(
 	);
 }
 
+/** A cache read field does not imply that the provider reports cache writes. */
+export function cacheWriteReported(
+	dialect: "anthropic" | "openai",
+	u: unknown,
+): boolean {
+	return (
+		dialect === "anthropic" &&
+		typeof u === "object" &&
+		u !== null &&
+		"cache_creation_input_tokens" in u
+	);
+}
+
 /** Anthropic usage objects, unwrapped by the caller: message_start carries
  *  usage under .message, message_delta flat under .usage — the SSE sniffer
  *  (sse.ts) handles the envelopes and feeds the flat usage object here. */

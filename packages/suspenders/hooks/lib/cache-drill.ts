@@ -52,6 +52,8 @@ export interface BuckleRequestRow {
 	cache_r: number | null;
 	cache_c: number | null;
 	cache_reported: boolean | null;
+	/** Cache-write field presence. NULL means an older gateway did not record it. */
+	cache_c_reported: boolean | null;
 	/** optional extensions the seam may carry; null = not reported. */
 	in_tok: number | null;
 	out_tok: number | null;
@@ -103,6 +105,13 @@ export function parseRequestRow(raw: unknown): BuckleRequestRow | null {
 		cache_reported:
 			bool(r.cache_reported) ??
 			(r.cache_reported === 1 ? true : r.cache_reported === 0 ? false : null),
+		cache_c_reported:
+			bool(r.cache_c_reported) ??
+			(r.cache_c_reported === 1
+				? true
+				: r.cache_c_reported === 0
+					? false
+					: null),
 		in_tok: num(r.in_tok),
 		out_tok: num(r.out_tok),
 	};
@@ -136,7 +145,7 @@ export function clusterMissReasons(
 	rows: BuckleRequestRow[],
 ): MissReasonCluster[] {
 	const byKey = new Map<string, MissReasonCluster>();
-	let prev: BuckleRequestRow | null = null;
+	const previousByLane = new Map<string, BuckleRequestRow>();
 	const add = (
 		reason: string,
 		label: string,
@@ -155,10 +164,19 @@ export function clusterMissReasons(
 	};
 	for (const row of [...rows].sort((a, b) => a.ts.localeCompare(b.ts))) {
 		const isMiss = cacheKnown(row) && row.cache_r === 0;
-		const thisPrev = prev;
-		prev = row;
+		const thisPrev = previousByLane.get(row.lane) ?? null;
+		if (row.lane) previousByLane.set(row.lane, row);
 		if (!isMiss) continue;
-		if (thisPrev === null || thisPrev.lane !== row.lane) {
+		if (!row.lane) {
+			add(
+				"unattributed",
+				"unattributed ingress",
+				"this request did not ride /w/<lane>; route agent traffic through its lane URL before diagnosing cache misses",
+				row,
+			);
+			continue;
+		}
+		if (thisPrev === null) {
 			add(
 				"cold_start",
 				"cold start",
@@ -199,19 +217,19 @@ export function clusterMissReasons(
 			);
 			continue;
 		}
-		if ((row.in_tok ?? 0) >= COLD_CONTEXT_TOK && (row.cache_c ?? 0) === 0) {
+		if ((row.in_tok ?? 0) >= COLD_CONTEXT_TOK) {
 			add(
 				"cold_full_context",
-				"oversized fresh context",
-				"large fresh input with no cache read and no cache write — nothing cacheable was hit; the body likely lacks stable prefixes (system prompt / tools placement)",
+				"large uncached context",
+				"large input with no cache read; inspect the stable prefix and provider cache settings before assuming writes failed",
 				row,
 			);
 			continue;
 		}
 		add(
 			"unexplained",
-			"unexplained (possible tools/system-prompt drift)",
-			"no signal in the audit row separates tools-set from prompt drift — needs prefix-hash telemetry at the seam; cloned lanes sharing settings should NOT miss here",
+			"unexplained cache miss",
+			"request metadata cannot separate tool or system-prompt changes; compare prefix hashes before changing routing",
 			row,
 		);
 	}
@@ -237,6 +255,7 @@ export interface LaneDrillRow {
 	misses: number;
 	cache_r_tok: number;
 	cache_c_tok: number;
+	cache_c_known: number;
 	last_ts: string | null;
 	/** distinct target models the lane rode (drift signal at a glance). */
 	models: string[];
@@ -252,6 +271,7 @@ export interface ModelDrillRow {
 	warm_ratio: number;
 	cache_r_tok: number;
 	cache_c_tok: number;
+	cache_c_known: number;
 	status: "measured" | "partial" | "unsupported" | "not reported";
 }
 
@@ -271,6 +291,7 @@ export function modelAggregates(
 			warm_ratio: 0,
 			cache_r_tok: 0,
 			cache_c_tok: 0,
+			cache_c_known: 0,
 			status: "not reported" as const,
 		};
 		current.requests++;
@@ -279,7 +300,10 @@ export function modelAggregates(
 			if ((row.cache_r ?? 0) > 0) current.warm++;
 		}
 		current.cache_r_tok += row.cache_r ?? 0;
-		current.cache_c_tok += row.cache_c ?? 0;
+		if (row.cache_c_reported) {
+			current.cache_c_known++;
+			current.cache_c_tok += row.cache_c ?? 0;
+		}
 		byModel.set(model, current);
 	}
 	return [...byModel.values()]
@@ -318,6 +342,7 @@ export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 			misses: 0,
 			cache_r_tok: 0,
 			cache_c_tok: 0,
+			cache_c_known: 0,
 			last_ts: null,
 			models: [],
 			hubs: [],
@@ -333,7 +358,10 @@ export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 			else cur.misses += 1;
 		}
 		cur.cache_r_tok += r.cache_r ?? 0;
-		cur.cache_c_tok += r.cache_c ?? 0;
+		if (r.cache_c_reported) {
+			cur.cache_c_known++;
+			cur.cache_c_tok += r.cache_c ?? 0;
+		}
 		if (cur.last_ts === null || r.ts > cur.last_ts) cur.last_ts = r.ts;
 		if (r.target_model) cur._models.add(r.target_model);
 		if (r.hub) cur._hubs.add(r.hub);
@@ -353,6 +381,7 @@ export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 		misses: c.misses,
 		cache_r_tok: c.cache_r_tok,
 		cache_c_tok: c.cache_c_tok,
+		cache_c_known: c.cache_c_known,
 		last_ts: c.last_ts,
 		models: [...c._models].sort(),
 		hubs: [...c._hubs].sort(),

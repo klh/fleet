@@ -10,6 +10,7 @@
 import type { Dialect } from "./upstreams.ts";
 import {
 	cacheUsageReported,
+	cacheWriteReported,
 	type Usage,
 	usageFromAnthropic,
 	usageFromOpenAI,
@@ -29,6 +30,7 @@ export class SseSniffer {
 	private deltaOut = 0;
 	private openai: Usage | null = null;
 	private cacheSeen = false;
+	private cacheWriteSeen = false;
 
 	constructor(private readonly dialect: Dialect) {}
 
@@ -93,10 +95,12 @@ export class SseSniffer {
 			if (t === "message_start") {
 				const msg = (r.message ?? {}) as AnyRec;
 				this.cacheSeen ||= cacheUsageReported("anthropic", msg.usage);
+				this.cacheWriteSeen ||= cacheWriteReported("anthropic", msg.usage);
 				const u = usageFromAnthropic(msg.usage);
 				if (u !== null) this.start = u;
 			} else if (t === "message_delta") {
 				this.cacheSeen ||= cacheUsageReported("anthropic", r.usage);
+				this.cacheWriteSeen ||= cacheWriteReported("anthropic", r.usage);
 				const u = usageFromAnthropic(r.usage);
 				if (u !== null) {
 					this.deltaOut = Math.max(this.deltaOut, u.out_tok);
@@ -133,6 +137,10 @@ export class SseSniffer {
 
 	cacheReported(): boolean {
 		return this.cacheSeen;
+	}
+
+	cacheWriteReported(): boolean {
+		return this.cacheWriteSeen;
 	}
 }
 
