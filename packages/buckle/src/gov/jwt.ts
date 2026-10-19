@@ -77,7 +77,10 @@ interface Jwk {
 	key: CryptoKey;
 }
 
-/** Per-issuer JWKS cache with TTL — refetch on unknown kid only. */
+/** Per-issuer JWKS cache with TTL — refetch on TTL expiry or forced refresh
+ *  (W844: issuer/JWKS rollover — a token signed by a NEW kid must not wait
+ *  out the cache TTL; one forced refetch on unknown kid, then fixed-shape
+ *  rejection if still unknown). */
 class JwksCache {
 	private readonly cache = new Map<string, { keys: Jwk[]; at: number }>();
 
@@ -86,9 +89,10 @@ class JwksCache {
 		private readonly fetcher: typeof fetch = fetch,
 	) {}
 
-	async keysFor(uri: string): Promise<Jwk[]> {
+	async keysFor(uri: string, refresh = false): Promise<Jwk[]> {
 		const hit = this.cache.get(uri);
-		if (hit !== undefined && Date.now() - hit.at < this.ttlMs) return hit.keys;
+		if (!refresh && hit !== undefined && Date.now() - hit.at < this.ttlMs)
+			return hit.keys;
 		return this.load(uri);
 	}
 
@@ -183,26 +187,56 @@ interface SigArgs {
 }
 
 async function verifySignature(args: SigArgs): Promise<JwtResult> {
-	const keys = await args.jwks.keysFor(args.uri);
+	let keys: Jwk[];
+	try {
+		keys = await args.jwks.keysFor(args.uri);
+	} catch (e) {
+		// W844: unreachable JWKS fails CLOSED as a fixed-shape rejection —
+		// never a throw into the gate (a 500-shaped outage).
+		return { ok: false, code: "buckle.jwks_unavailable", why: String(e) };
+	}
 	const sig = b64urlBytes(args.s64);
 	const signed = new TextEncoder().encode(`${args.h64}.${args.p64}`);
-	for (const k of keys) {
-		const kidMismatch =
-			k.kid !== null &&
-			args.header.kid !== undefined &&
-			k.kid !== args.header.kid;
-		if (kidMismatch) continue;
-		const sigBuf = sig.buffer.slice(
-			sig.byteOffset,
-			sig.byteOffset + sig.byteLength,
-		) as ArrayBuffer;
-		const good = await crypto.subtle.verify(
-			{ name: "RSASSA-PKCS1-v1_5" },
-			k.key,
-			sigBuf,
-			signed,
-		);
-		if (good) return checkClaims(args, k.kid);
+	// W844 rollover: verify against the cached JWKS set; when the token's kid
+	// is absent from it, force ONE refetch (rotation publishes a new kid
+	// mid-TTL) and retry before rejecting.
+	const tryKeys = async (keys: Jwk[]): Promise<JwtResult | null> => {
+		for (const k of keys) {
+			const kidMismatch =
+				k.kid !== null &&
+				args.header.kid !== undefined &&
+				k.kid !== args.header.kid;
+			if (kidMismatch) continue;
+			const sigBuf = sig.buffer.slice(
+				sig.byteOffset,
+				sig.byteOffset + sig.byteLength,
+			) as ArrayBuffer;
+			const good = await crypto.subtle.verify(
+				{ name: "RSASSA-PKCS1-v1_5" },
+				k.key,
+				sigBuf,
+				signed,
+			);
+			if (good) return checkClaims(args, k.kid);
+		}
+		return null;
+	};
+	const first = await tryKeys(keys);
+	if (first !== null) return first;
+	// W844: kid absent from the cached set (rotation mid-TTL) — force ONE
+	// refetch and retry; still unknown = fixed-shape bad_signature.
+	const kid = args.header.kid;
+	const knownKid =
+		kid !== undefined && keys.some((k) => k.kid !== null && k.kid === kid);
+	if (kid !== undefined && !knownKid) {
+		try {
+			const retried = await tryKeys(
+				await args.jwks.keysFor(args.uri, true),
+			);
+			if (retried !== null) return retried;
+		} catch (e) {
+			return { ok: false, code: "buckle.jwks_unavailable", why: String(e) };
+		}
 	}
 	return {
 		ok: false,

@@ -28,6 +28,8 @@ import { scrub, servicemon } from "../lib/servicemon.ts";
 const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
 
 import { setEnterpriseProvider } from "../board/ent-seam.ts";
+import { enforceIam } from "../board/iam-enforce.ts";
+import { getIamGate, setIamGate } from "../board/iam-seam.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
@@ -76,6 +78,13 @@ if (entModule)
 				throw new Error("no enterpriseProvider export");
 			setEnterpriseProvider(m.enterpriseProvider(db));
 			console.log("enterprise overlay provider registered");
+			// W844: the browser-SSO gate rides the same overlay module — the
+			// optional `iamGate` export. Core-SKU boards (no module export)
+			// never register a gate and keep the perimeter untouched.
+			if (typeof m.iamGate === "function") {
+				setIamGate(m.iamGate(db));
+				console.log("enterprise iam gate registered");
+			}
 		})
 		.catch((e) =>
 			console.error(`enterprise overlay module failed: ${String(e)}`),
@@ -163,13 +172,19 @@ Bun.serve({
 			write: isWriteMethod(req.method),
 		});
 		if (denied) return denied;
-		return withBoardErrors(req, async () =>
-			withWriteCookie(
-				await inner(req),
-				req,
-				server.requestIP(req)?.address ?? null,
-			),
-		);
+		const respond = async (r: Request): Promise<Response> =>
+			withBoardErrors(r, async () =>
+				withWriteCookie(
+					await inner(r),
+					r,
+					server.requestIP(req)?.address ?? null,
+				),
+			);
+		// W844: a registered gate authenticates + authorizes EVERY request
+		// server-side before dispatch; gate-less boards keep the perimeter
+		// untouched (Core SKU).
+		if (getIamGate()) return enforceIam(req, new URL(req.url), respond);
+		return respond(req);
 	},
 });
 console.log(
