@@ -195,7 +195,7 @@ gui/$(id -u)/<label>` revives):
   - W779 heartbeat (2026-10-18): the no-port maintenance agents (fleet-
     monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
     keepwarm, coord-worker, auto-install, soak, rogue-reap W827, license-
-    audit W828 —
+    audit W828, metrics-alert W782.2.1 —
     reaps lane-leaked serve processes in stale .worktrees dirs + prunes
     merged-and-clean worktrees; `.fleet/rogue-reap-paused` pauses) are
     NOT launchd units —

@@ -177,6 +177,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		],
 		cwd: (repo) => repo,
 	},
+	{
+		// W782.2.1: W452's metrics alerter folded onto the heartbeat — scrapes
+		// the fleet's existing /status + /metrics (board :7799, buckle spoke
+		// :4101; METRICS_ALERT_TARGETS overrides) every 5 min, alerting drops,
+		// failures and queue age. Exit 1 when alerts fired = a fail log here.
+		name: "metrics-alert",
+		everySeconds: 300,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/metrics-alert.ts")],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree

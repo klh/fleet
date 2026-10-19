@@ -92,7 +92,8 @@ describe("statusAlerts", () => {
 describe("queueAlerts", () => {
 	test("sticky QUEUE then RECOVER", () => {
 		const s = freshState();
-		const over = { count: 3, oldestMs: 3 * 3_600_000 };
+		// above the 24h METRICS_ALERT_QUEUE_HOURS default — a 3h queue is under it
+		const over = { count: 3, oldestMs: 30 * 3_600_000 };
 		const under = { count: 1, oldestMs: 10 * 60_000 };
 		expect(queueAlerts(s, over)).toHaveLength(1);
 		expect(queueAlerts(s, over)).toHaveLength(0); // sticky
