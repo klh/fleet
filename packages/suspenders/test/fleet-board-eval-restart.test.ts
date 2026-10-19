@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -65,6 +66,27 @@ test("decision evaluation finishes across a board restart", async () => {
 		).json();
 		const workerPid = before.status?.workerPid as number;
 		expect(workerPid).toBeGreaterThan(0);
+		expect(
+			run("coord.ts", [
+				"emit",
+				"NEED_DECISION",
+				"--to",
+				"advice-lane",
+				"--note",
+				"advice restart fork",
+				"--as",
+				"advice-lane",
+			]).code,
+		).toBe(0);
+		const adviceRec = fork(await getDecisions(), "advice restart fork");
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, 'running', 'test', 1, ?)",
+		).run(`advice.${adviceRec.id}.requested`, Date.now());
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, '2147483647', 'test', 1, ?)",
+		).run(`advice.${adviceRec.id}.workerPid`, Date.now());
+		db.close();
 		// launchd restarts terminate the board's child process too.
 		process.kill(workerPid, "SIGKILL");
 		proc.kill();
@@ -93,6 +115,15 @@ test("decision evaluation finishes across a board restart", async () => {
 		expect(feed?.evals[0]?.text).toBe("Keep the reviewed option.");
 		expect(feed?.evals).toHaveLength(1);
 		expect(feed?.status).toMatchObject({ running: false, error: null });
+		let advice: { adviceError?: string; advicePending?: string | null } | null =
+			null;
+		for (let i = 0; i < 30; i++) {
+			advice = fork(await getDecisions(), "advice restart fork");
+			if (advice?.adviceError) break;
+			await sleep(100);
+		}
+		expect(advice?.adviceError).toBeTruthy();
+		expect(advice?.advicePending).toBeNull();
 
 		expect(
 			run("coord.ts", [
