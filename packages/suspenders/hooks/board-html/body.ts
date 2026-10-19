@@ -66,13 +66,19 @@ export const BODY = String.raw`
 </section>
 <section id="tab-tasks" hidden>
   <div class="taskbar">
-    <label class="plabel" for="taskProj">project</label>
-    <select id="taskProj"><option value="all">all projects</option></select>
     <label class="plabel" for="taskOwner">session</label>
     <select id="taskOwner"><option value="all">all sessions</option></select>
     <label class="plabel"><input type="checkbox" id="taskDone"> history (done + cancelled)</label>
+    <button type="button" id="taskPriority" class="taskOrder">action order</button>
     <span id="taskCount" class="dim"></span>
   </div>
+  <nav id="taskFocus" class="taskFocus" aria-label="Filter tasks by status">
+    <button type="button" data-focus="all">All open <span data-count="all">0</span></button>
+    <button type="button" data-focus="attention">Needs attention <span data-count="attention">0</span></button>
+    <button type="button" data-focus="working">Working <span data-count="working">0</span></button>
+    <button type="button" data-focus="ready">Ready <span data-count="ready">0</span></button>
+    <button type="button" data-focus="waiting">Waiting <span data-count="waiting">0</span></button>
+  </nav>
 
   <div id="tasksErr" class="taberr"></div>
   <table id="tasksTbl">
