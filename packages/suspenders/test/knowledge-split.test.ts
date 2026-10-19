@@ -202,6 +202,45 @@ describe("W166 knowledge.db split", () => {
 });
 
 describe("W166 migration resilience", () => {
+	test("legacy qualified FTS content heals on knowledge.db open", () => {
+		fixture();
+		openGovernorDb().close();
+		const legacy = new Database(KBP);
+		for (const name of [
+			"knowledge_fts_ai",
+			"knowledge_fts_ad",
+			"knowledge_fts_au",
+		])
+			legacy.run(`DROP TRIGGER IF EXISTS ${name}`);
+		legacy.run("DROP TABLE knowledge_fts");
+		legacy.run(
+			FTS_DDL.replace("content='knowledge'", "content='kb.knowledge'"),
+		);
+		legacy.close();
+		const healed = openKnowledgeDb();
+		const ddl = (
+			healed
+				.query("SELECT sql FROM sqlite_master WHERE name = 'knowledge_fts'")
+				.get() as { sql: string }
+		).sql;
+		expect(ddl).toContain("content='knowledge'");
+		expect(
+			countK(
+				KBP,
+				"SELECT COUNT(*) n FROM knowledge_fts WHERE knowledge_fts MATCH 'wal'",
+			),
+		).toBe(40);
+		healed.run(
+			"INSERT INTO knowledge (ts, topic, fact) VALUES (1, 'healed', 'index stays writable')",
+		);
+		expect(
+			countK(
+				KBP,
+				"SELECT COUNT(*) n FROM knowledge_fts WHERE knowledge_fts MATCH 'healed'",
+			),
+		).toBe(1);
+		healed.close();
+	});
 	test("idempotent re-open: uv stays >= 11, no re-copy", () => {
 		const before = countK(KBP, "SELECT COUNT(*) n FROM knowledge");
 		openGovernorDb().close();
