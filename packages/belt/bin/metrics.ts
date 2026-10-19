@@ -358,6 +358,56 @@ function buildSnapshot(): MetricsSnapshot {
 	return { endpoints, recent, audit };
 }
 
+// ─── history — time-bucketed trend series for the dashboard charts ───
+
+export interface MetricsHistory {
+	windowMs: number;
+	bucketMs: number;
+	/** [bucket-start unix s, requests, errors, avg duration ms] per bucket. */
+	buckets: [number, number, number, number | null][];
+	/** Per-endpoint request counts on the SAME grid as `buckets`. */
+	endpoints: { key: string; counts: number[] }[];
+}
+
+const HISTORY_WINDOW_MS = 6 * 3_600_000;
+const HISTORY_BUCKETS = 72;
+
+export function metricsHistory(): MetricsHistory {
+	tallyMetrics();
+	const d = openDb();
+	const step = HISTORY_WINDOW_MS / HISTORY_BUCKETS / 1000; // seconds
+	const now = Date.now();
+	const since = new Date(now - HISTORY_WINDOW_MS).toISOString();
+	const start = Math.floor((now - HISTORY_WINDOW_MS) / (step * 1000)) * step;
+	const grid = (sel: string, group: string): string =>
+		`SELECT ${sel} CAST(strftime('%s', ts) AS INTEGER)/${step}*${step} AS b, COUNT(*) AS n FROM routes WHERE ts > ? GROUP BY ${group}`;
+	const rows = d.query(grid(`SUM(ok = 0) AS err, AVG(duration_ms) AS ms,`, "b"))
+		.all(since) as { b: number; n: number; err: number; ms: number }[];
+	const byGrid = new Map(rows.map((r) => [r.b, r]));
+	const buckets: MetricsHistory["buckets"] = [];
+	for (let i = 0; i < HISTORY_BUCKETS; i++) {
+		const t = start + i * step;
+		const r = byGrid.get(t);
+		buckets.push(r ? [t, r.n, r.err, Math.round(r.ms)] : [t, 0, 0, null]);
+	}
+	const epRows = d.query(grid("machine, port,", "machine, port, b"))
+		.all(since) as { machine: string; port: number; b: number; n: number }[];
+	const epMap = new Map<string, Map<number, number>>();
+	for (const r of epRows) {
+		const k = `${r.machine}:${r.port}`;
+		const g = epMap.get(k) ?? new Map<number, number>();
+		g.set(r.b, r.n);
+		epMap.set(k, g);
+	}
+	const endpoints = [...epMap.entries()]
+		.map(([key, g]) => ({
+			key,
+			counts: buckets.map((b) => g.get(b[0]) ?? 0),
+		}))
+		.sort((a, z) => a.key.localeCompare(z.key));
+	return { windowMs: HISTORY_WINDOW_MS, bucketMs: step * 1000, buckets, endpoints };
+}
+
 let cache: { snap: MetricsSnapshot; at: number } | null = null;
 const TTL_MS = 5_000;
 
