@@ -32,13 +32,14 @@ type Item = Record<string, unknown>;
 function chunkSandbox(): {
 	taskRow: (t: Item, parentId?: string | null) => string;
 	kanbanCard: (t: Item) => string;
+	laneStamp: (s: string) => string;
 } {
 	const fn = new Function(
 		"esc",
 		"taskPill",
 		"agoShort",
 		"window",
-		`${TASKS}\nreturn { taskRow, kanbanCard };`,
+		`${TASKS}\nreturn { taskRow, kanbanCard, laneStamp };`,
 	);
 	return fn(esc, taskPill, agoShort, {
 		__execPrefs: [],
@@ -61,7 +62,9 @@ describe("board spend cells (W776)", () => {
 		const { taskRow } = chunkSandbox();
 		const row = taskRow({ ...IKEA_ROW, spend: SPEND }, null);
 		// W887: the tok cell carries the micro-strip as its tooltip
-		expect(row).toContain('<td class="num" title="2h23m · 322 tok/m · 18% cache">214k</td>'); // 138593+30000+45880
+		expect(row).toContain(
+			'<td class="num" title="2h23m · 322 tok/m · 18% cache">214k</td>',
+		); // 138593+30000+45880
 		expect(row).toContain('<td class="num">2h23m</td>');
 	});
 
@@ -92,6 +95,71 @@ describe("board spend cells (W776)", () => {
 		const { taskRow } = chunkSandbox();
 		const row = taskRow({ ...IKEA_ROW, spend: SPEND }, null);
 		expect(row).toContain("322 tok/m · 18% cache");
+	});
+
+	test("lane timestamps show compact local time and preserve the full instant on hover", () => {
+		const { laneStamp, kanbanCard } = chunkSandbox();
+		const stamp = laneStamp("2026-10-19T15:44:54Z");
+		expect(stamp).toMatch(
+			/<time datetime="2026-10-19T15:44:54\.000Z" title="[^"]*UTC 2026-10-19T15:44:54\.000Z">\d{2}\.\d{2}\.26 \d{2}:\d{2}<\/time>/,
+		);
+		const card = kanbanCard({
+			...IKEA_ROW,
+			updated_at_utc: "2026-10-19T15:44:54Z",
+		});
+		expect(card).toContain(stamp);
+		expect(card).not.toContain("(local ");
+	});
+
+	test("hourly sparklines render stacked bars and leave empty hours blank", () => {
+		type Node = {
+			tag: string;
+			attrs: Record<string, string>;
+			children: Node[];
+			textContent: string;
+			setAttribute: (key: string, value: string) => void;
+			appendChild: (node: Node) => void;
+		};
+		const createElementNS = (_ns: string, tag: string): Node => ({
+			tag,
+			attrs: {},
+			children: [],
+			textContent: "",
+			setAttribute(key, value) {
+				this.attrs[key] = value;
+			},
+			appendChild(node) {
+				this.children.push(node);
+			},
+		});
+		const fn = new Function("document", "window", `${TASKS}\nreturn sparkSvg;`);
+		const sparkSvg = fn(
+			{ createElementNS },
+			{ addEventListener: () => {} },
+		) as (points: number[][], w: number, h: number) => Node;
+		const thisHour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+		const chart = sparkSvg(
+			[
+				[thisHour - 2 * 3_600_000, 30, 70, 12],
+				[thisHour, 100, 0, 20],
+			],
+			120,
+			18,
+		);
+		const bars = chart.children.filter((node) => node.tag === "rect");
+		expect(bars).toHaveLength(3);
+		expect(bars.map((bar) => bar.attrs.class)).toEqual([
+			"spark-fresh",
+			"spark-cached",
+			"spark-fresh",
+		]);
+		const positions = [...new Set(bars.map((bar) => Number(bar.attrs.x)))];
+		expect(positions).toHaveLength(2);
+		expect(positions[1] - positions[0]).toBeGreaterThan(4);
+		expect(chart.children.some((node) => node.tag === "polyline")).toBe(false);
+		expect(
+			sparkSvg([[thisHour - 100 * 3_600_000, 100, 0, 0]], 120, 18).children,
+		).toHaveLength(0);
 	});
 });
 
