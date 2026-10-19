@@ -60,16 +60,24 @@ const OPENAI_USAGE = {
 	},
 };
 
-async function chat(base: string, token: string): Promise<Response> {
+async function chat(
+	base: string,
+	token: string,
+	traceparent?: string,
+): Promise<Response> {
 	return fetch(`${base}/v1/chat/completions`, {
 		method: "POST",
-		headers: { authorization: `Bearer ${token}` },
+		headers: {
+			authorization: `Bearer ${token}`,
+			...(traceparent ? { traceparent } : {}),
+		},
 		body: CHAT_BODY,
 	});
 }
 
 interface ReqRow {
 	rid: string;
+	trace_id: string | null;
 	ts: string;
 	actor: string;
 	lane: string;
@@ -122,6 +130,41 @@ describe("W824 gate class", () => {
 });
 
 describe("W824 per-request rows", () => {
+	test("exposes and filters W3C trace IDs without changing the request ID", async () => {
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
+		const gate = await startGate(upstream.url);
+		const lane = await issueViaAdmin(gate.base, {
+			name: "trace-lane",
+			scopes: ["buckle:proxy:WRITE_"],
+		});
+		const auditor = await issueViaAdmin(gate.base, {
+			name: "auditor",
+			scopes: ["buckle:admin:READ_"],
+		});
+		const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+		await chat(gate.base, lane.key, `00-${traceId}-00f067aa0ba902b7-01`);
+		await chat(gate.base, lane.key);
+		const all = await getRequests(gate.base, auditor.key);
+		const rows = all.body.requests as ReqRow[];
+		expect(rows.length).toBe(2);
+		expect(rows.find((row) => row.trace_id === traceId)?.rid).toBeTruthy();
+		expect(rows.every((row) => /^[0-9a-f]{32}$/.test(row.trace_id ?? ""))).toBe(
+			true,
+		);
+		const filtered = await getRequests(
+			gate.base,
+			auditor.key,
+			`?trace_id=${traceId}`,
+		);
+		expect(
+			(filtered.body.requests as ReqRow[]).map((row) => row.trace_id),
+		).toEqual([traceId]);
+		expect(
+			(await getRequests(gate.base, auditor.key, "?trace_id=bad")).status,
+		).toBe(400);
+		gate.stop();
+		upstream.close();
+	});
 	test("usage join + key name join", async () => {
 		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);

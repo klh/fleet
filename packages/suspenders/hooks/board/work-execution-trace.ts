@@ -1,6 +1,6 @@
 // Work item → dispatched lane → Buckle request rows. The join is by the
-// dispatch intent's lane sid and Buckle's /w/<sid> attribution. This does not
-// claim a shared W3C trace id: the W824 admin seam does not expose one.
+// dispatch intent's lane sid and Buckle's /w/<sid> attribution. Each Buckle
+// row also carries its own W3C trace ID when written by a current gateway.
 import type { BuckleRequestRow, HubDrillStatus } from "../lib/cache-drill.ts";
 import { cacheDrillReport } from "../lib/cache-drill.ts";
 import { db } from "./context.ts";
@@ -15,6 +15,7 @@ export interface WorkLane {
 
 export interface ExecutionHop {
 	at: number;
+	traceId: string | null;
 	phase: "model.request";
 	service: string;
 	hub: string;
@@ -47,6 +48,7 @@ export function executionHops(rows: BuckleRequestRow[]): ExecutionHop[] {
 		seen.add(key);
 		hops.push({
 			at: Date.parse(row.ts),
+			traceId: row.trace_id,
 			phase: "model.request",
 			service: "Buckle",
 			hub: row.hub ?? "unknown",

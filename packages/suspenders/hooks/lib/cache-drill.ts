@@ -22,6 +22,8 @@ import { tryLoadStack } from "./stack-config.ts";
 // ─── wire mirror: one buckle route_audit row (ledger.ts is the contract) ───
 export interface BuckleRequestRow {
 	rid: string;
+	/** W3C trace ID, null for Buckle rows written before the trace migration. */
+	trace_id: string | null;
 	ts: string;
 	/** /w/<slug> slug when the request rode a lane ingress; '' for bare. */
 	lane: string;
@@ -73,6 +75,7 @@ export function parseRequestRow(raw: unknown): BuckleRequestRow | null {
 	if (!rid || !ts || Number.isNaN(Date.parse(ts))) return null;
 	return {
 		rid,
+		trace_id: /^[0-9a-f]{32}$/.test(str(r.trace_id)) ? str(r.trace_id) : null,
 		ts,
 		lane: str(r.lane),
 		actor: str(r.actor),

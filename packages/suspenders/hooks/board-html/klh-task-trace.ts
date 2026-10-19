@@ -15,6 +15,7 @@ interface TraceStep {
 
 interface ExecutionHop {
 	at: number;
+	traceId: string | null;
 	hub: string;
 	hop: string;
 	model: string | null;
@@ -96,7 +97,7 @@ class KlhTaskTrace extends LitElement {
 					? html`
 				<h3>Execution · ${execution.days}d window</h3>
 				<p>Lane <code>${execution.lane.sid}</code> · ${execution.lane.executor} on ${execution.lane.host} · ${execution.lane.state} · attempt ${execution.lane.attempt}</p>
-				<p>Requests matched by lane ID. Gateway trace IDs are not available in this feed.</p>
+					<p>Requests matched by lane ID. Each request shows its gateway trace ID when available.</p>
 				${execution.hubs.filter((hub) => !hub.ok).map((hub) => html`<p class="error">${hub.label}: ${hub.reason ?? "unavailable"}</p>`)}
 				${execution.limited ? html`<p>Showing the latest 200 requests in this window.</p>` : ""}
 				${
@@ -105,7 +106,7 @@ class KlhTaskTrace extends LitElement {
 								(hop) => html`<li>
 					<time datetime=${new Date(hop.at).toISOString()}>${new Date(hop.at).toLocaleTimeString()}</time>
 					<div><strong class=${hop.status === "error" ? "error" : ""}>${hop.hub} · ${hop.hop}</strong> → ${hop.model ?? "model unknown"}
-						<span class="sub">${[hop.endpoint, hop.ms == null ? null : `${hop.ms} ms`, hop.inputTokens == null ? null : `${hop.inputTokens} in`, hop.outputTokens == null ? null : `${hop.outputTokens} out`, hop.cacheReadTokens == null ? null : `${hop.cacheReadTokens} cache read`, hop.status, hop.requestId.slice(0, 12)].filter(Boolean).join(" · ")}</span>
+						<span class="sub">${[hop.endpoint, hop.ms == null ? null : `${hop.ms} ms`, hop.inputTokens == null ? null : `${hop.inputTokens} in`, hop.outputTokens == null ? null : `${hop.outputTokens} out`, hop.cacheReadTokens == null ? null : `${hop.cacheReadTokens} cache read`, hop.status, hop.traceId ? `trace ${hop.traceId}` : "trace unavailable (older request)", `request ${hop.requestId.slice(0, 12)}`].filter(Boolean).join(" · ")}</span>
 					</div>
 				</li>`,
 							)}</ol>`

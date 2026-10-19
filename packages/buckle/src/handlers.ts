@@ -255,6 +255,7 @@ function deny(
 ): Response {
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
 		lane: ctx.lane,
@@ -432,6 +433,7 @@ async function runExecute(
 	}
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
+		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: new Date().toISOString(),
 		actor: ctx.key,
 		lane: ctx.lane,

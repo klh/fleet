@@ -4,6 +4,7 @@ import { executionHops } from "../hooks/board/work-execution-trace.ts";
 
 const row = (overrides: Partial<BuckleRequestRow>): BuckleRequestRow => ({
 	rid: "r1",
+	trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
 	ts: "2026-10-19T15:00:00.000Z",
 	lane: "lane-a",
 	actor: "",
@@ -56,6 +57,7 @@ describe("work execution request hops", () => {
 			["r2", "nas"],
 		]);
 		expect(hops[0]).toMatchObject({
+			traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
 			model: "glm-5.3-flash",
 			inputTokens: 60,
 			outputTokens: 25,
