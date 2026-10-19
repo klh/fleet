@@ -29,6 +29,7 @@ import { scrub, servicemon } from "../lib/servicemon.ts";
 const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
 
 import { setEnterpriseProvider } from "../board/ent-seam.ts";
+import { recoverDecisionEvals } from "../board/decide-eval.ts";
 import { enforceIam } from "../board/iam-enforce.ts";
 import { getIamGate, setIamGate } from "../board/iam-seam.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
@@ -67,6 +68,7 @@ const idb = openIdentity(); // W156/W359: /console/hub token plane rides identit
 
 ensureLaneObservations(db);
 ensureLaneReadModel(db);
+recoverDecisionEvals();
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
 
