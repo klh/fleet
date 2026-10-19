@@ -57,13 +57,26 @@ const UI_LAW_PATTERNS: Array<[RegExp, string]> = [
 	[/\.outerHTML\s*\+?=/, ".outerHTML= — never HTML-string DOM writes"],
 	[/document\.write\s*\(/, "document.write("],
 	[/insertAdjacentHTML\s*\(/, "insertAdjacentHTML("],
-	[/(?:import|from)\s*\(?\s*["']https?:/, "remote module import — vendor it, never CDN"],
+	[
+		/(?:import|from)\s*\(?\s*["']https?:/,
+		"remote module import — vendor it, never CDN",
+	],
 ];
 const UI_LAW_HTML_PATTERNS: Array<[RegExp, string]> = [
 	[/<script[^>]+src=["']https?:/, "remote <script src> — vendor it, never CDN"],
 ];
 const UI_LAW_ALLOWLIST = [/\/vendor\//, /^tests\/law-guards\.test\.ts$/];
-const UI_LAW_GLOBS = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.html", "*.htm", "*.svg"];
+const UI_LAW_GLOBS = [
+	"*.ts",
+	"*.tsx",
+	"*.js",
+	"*.jsx",
+	"*.mjs",
+	"*.cjs",
+	"*.html",
+	"*.htm",
+	"*.svg",
+];
 
 function tracked(...patterns: string[]): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", ...patterns], { cwd: ROOT });
@@ -81,10 +94,7 @@ test("no tracked .ts exceeds the 1500-line law", () => {
 	const over = tracked("*.ts")
 		.map(
 			(f) =>
-				[
-					f,
-					readFileSync(join(ROOT, f), "utf8").split("\n").length,
-				] as const,
+				[f, readFileSync(join(ROOT, f), "utf8").split("\n").length] as const,
 		)
 		.filter(([, n]) => n > LINE_LIMIT);
 	expect(
@@ -116,9 +126,55 @@ test("no tracked code file writes HTML strings into the DOM or imports from a CD
 			if (re.test(text)) offenders.push(`${f}: ${why}`);
 		}
 	}
-	expect(offenders, "UI law: HTML-string DOM writes and CDN imports are never allowed").toEqual([]);
+	expect(
+		offenders,
+		"UI law: HTML-string DOM writes and CDN imports are never allowed",
+	).toEqual([]);
 });
 
 test("UI-law scan has teeth (real tracked code population)", () => {
 	expect(tracked(...UI_LAW_GLOBS).length).toBeGreaterThan(500);
+});
+
+// W828 — the PolyForm noncommercial perimeter, CI face. The fleet tree
+// must stay free for personal non-commercial use: (L6) every installed
+// dependency (the post-install truth of bun.lock) classifies permissive
+// — copyleft and unknown/missing fail the build; (L7) every committed
+// third-party bundle keeps its license banner. Both ride the ONE
+// classification in packages/suspenders/hooks/lib/license-audit.ts.
+import {
+	classifyLicense,
+	PERMISSIVE,
+	verifyVendorHeaders,
+	walkLicenses,
+} from "../packages/suspenders/hooks/lib/license-audit.ts";
+
+test("installed dependencies stay permissive (PolyForm noncommercial perimeter)", () => {
+	const rows = walkLicenses(ROOT);
+	expect(
+		rows.length,
+		"license walk found no packages — bun install before test",
+	).toBeGreaterThan(0);
+	const bad = rows.filter((r) => r.cls !== "permissive");
+	expect(
+		bad.map((r) => `${r.name}@${r.version}: ${r.license} (${r.cls})`),
+		"copyleft/unknown dependency licenses violate the PolyForm perimeter",
+	).toEqual([]);
+});
+
+test("classifyLicense knows the allowlist (license guard has teeth)", () => {
+	expect(classifyLicense("MIT")).toBe("permissive");
+	expect(classifyLicense("GPL-3.0-only")).toBe("copyleft");
+	expect(classifyLicense("")).toBe("unknown");
+	expect(PERMISSIVE.length).toBeGreaterThan(5);
+});
+
+test("vendored third-party bundles keep their license banners", () => {
+	const rows = verifyVendorHeaders(ROOT);
+	const missing = rows.filter((r) => r.header === "missing");
+	expect(
+		missing.map((r) => `${r.path} (${r.license})`),
+		"re-add the license banner or drop the bundle",
+	).toEqual([]);
+	expect(rows.length).toBeGreaterThanOrEqual(8);
 });

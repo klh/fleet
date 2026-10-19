@@ -128,6 +128,8 @@ export interface PulseDeps {
 	warm?: () => FleetWarm | null;
 	/** W826 mining candidate lines (default: none). */
 	mining?: () => string[];
+	/** W828 license-health lines (default: none). */
+	license?: () => string[];
 }
 
 export interface PulseDigest {
@@ -225,6 +227,7 @@ function sectionsOf(args: {
 	wdAge: string;
 	commits: string[];
 	mining: string[];
+	license: string[];
 }): string[] {
 	const out: string[] = [];
 	if (args.done.length > 0) {
@@ -249,6 +252,11 @@ function sectionsOf(args: {
 		out.push(
 			"cache offenders (weekly mining):",
 			...args.mining.map((m) => `  ${m}`),
+		);
+	if (args.license.length > 0)
+		out.push(
+			"license perimeter (daily audit):",
+			...args.license.map((l) => `  ${l}`),
 		);
 	if (args.commits.length > 0) {
 		out.push("commits:");
@@ -277,6 +285,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const verdict = verdictOf(dec, wd.state);
 	const warm = deps.warm?.() ?? null;
 	const mining = deps.mining?.() ?? [];
+	const license = deps.license?.() ?? [];
 	const warmFrag =
 		warm !== null ? ` · warm ${(warm.rate * 100).toFixed(1)}%` : "";
 	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}${warmFrag}`;
@@ -290,6 +299,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 		wdAge,
 		commits,
 		mining,
+		license,
 	});
 	const digestKey = digestKeyOf(sections.join("\n"));
 	const deltas =

@@ -26,6 +26,7 @@ import {
 import { sendersFor } from "../lib/notify-adapters.ts";
 import { firePulse, PULSE_STATE_PATH } from "../lib/pulse.ts";
 import { fleetWarm, readMiningLines } from "../lib/cache-drilldown.ts";
+import { readLicenseLines } from "../lib/license-audit.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const log = (m: string): void =>
@@ -142,6 +143,7 @@ async function runPulse(fleetFlag: string | undefined): Promise<void> {
 		// offenders are a delta section; both fail soft to absent
 		warm: () => fleetWarm(),
 		mining: () => readMiningLines(),
+		license: () => readLicenseLines(),
 		log,
 	});
 	for (const [c, r] of Object.entries(res.channels)) log(`pulse ${c}: ${r}`);

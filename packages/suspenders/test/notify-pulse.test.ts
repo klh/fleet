@@ -229,6 +229,26 @@ describe("composePulse warm + mining", () => {
 	});
 });
 
+// W828: the license-health section — same injection contract as mining
+describe("composePulse license section", () => {
+	test("license lines render the perimeter section; empty = absent", () => {
+		const db = mkStore();
+		item(db, "R1", "READY", T0 - 2 * HOUR);
+		const lines = [
+			"license-health: 81 pkgs · 0 violation(s) · vendored 8/8 · models 3 flagged (2h old)",
+		];
+		const dg = composePulse(
+			baseDeps(db, { now: () => T0, license: () => lines }),
+		);
+		expect(dg.body).toContain("license perimeter (daily audit):");
+		expect(dg.body).toContain("license-health: 81 pkgs");
+		const quiet = composePulse(
+			baseDeps(db, { now: () => T0, license: () => [] }),
+		);
+		expect(quiet.body).not.toContain("license perimeter");
+	});
+});
+
 describe("firePulse", () => {
 	test("sends on class channels and advances state on first ok", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pulse-fire-"));
