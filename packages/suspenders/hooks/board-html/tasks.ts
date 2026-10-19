@@ -678,7 +678,7 @@ function sparkSvg(points, w, h){
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  var hours = w > 120 ? 72 : 48;
+  var hours = w > 120 ? 72 : 24;
   var end = Math.floor(Date.now() / 3600000), start = end - hours + 1;
   var bins = {}, maxV = 0, i;
   for (i = 0; i < points.length; i++){
@@ -692,7 +692,7 @@ function sparkSvg(points, w, h){
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'Hourly fresh and cached input tokens, last ' + hours + ' hours');
   if (!maxV) return svg; // empty window stays empty; old spend is not current activity
-  var step = w / hours, barW = Math.max(1, Math.min(3, step - 0.5));
+  var step = w / hours, barW = Math.max(1, Math.min(4, step - 1));
   for (i = 0; i < hours; i++){
     var at = start + i, bucket = bins[at];
     if (!bucket) continue;
