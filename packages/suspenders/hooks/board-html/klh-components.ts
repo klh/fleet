@@ -5,7 +5,7 @@
 // /vendor/klh-components.js. Registers klh-decision-eval and
 // self-mounts one affordance per OPEN decision card (.dec[data-id]); W270
 // adds klh-prompt-preview (the orchestrate prompt-transform preview).
-import { LitElement, html, css, type TemplateResult } from "lit";
+import { css, html, LitElement, type TemplateResult } from "lit";
 import "./klh-prompt-preview.ts";
 import "./klh-task-trace.ts";
 

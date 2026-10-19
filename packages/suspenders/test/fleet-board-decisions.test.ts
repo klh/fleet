@@ -2,8 +2,9 @@
 // (docs/decisions-api.md), split from fleet-board.test.ts by the
 // 1500-line law (W456). Own factory fixture — scratch HOME, OS-chosen
 // port — so one bun test run keeps the family files isolated.
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";

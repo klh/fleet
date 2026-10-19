@@ -4,14 +4,15 @@
 // only), appends it to facts decision.eval.<event_id> (JSON array, capped),
 // and returns the latest. No rate limit (owner: ad nauseum) — every click is
 // stamped and kept so the owner can compare evaluations over time.
-import { db } from "./context.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
+
 import { beltChat } from "../lib/belt-chat.ts";
+import { readBoardSettings } from "../lib/board-config.ts";
 import {
 	kevProbabilityLines,
 	kevTypedDecision,
 	parseOptions,
 } from "../lib/kev.ts";
+import { db } from "./context.ts";
 
 const CAP = 10;
 

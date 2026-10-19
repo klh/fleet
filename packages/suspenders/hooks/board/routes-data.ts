@@ -20,16 +20,16 @@ import {
 	workEvents,
 	workSpendSeriesPayload,
 } from "./data.ts";
-import { decisionEvals, decisionEvalStatus } from "./decide-eval.ts";
+import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
 import { json } from "./helpers.ts";
 import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
 import { traceForWork } from "./orch-trace.ts";
-import { executionTraceForWork } from "./work-execution-trace.ts";
 import { recoverySnapshot } from "./recovery.ts";
 import { setupFeed } from "./setup-cache.ts";
+import { executionTraceForWork } from "./work-execution-trace.ts";
 
 // W183.1 — plane-labeled executor feed. Four planes (provenance.ts/
 // repo-laws.ts's own vocabulary, not invented here): "local" (this
