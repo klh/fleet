@@ -16,6 +16,17 @@ import {
 	workTiming,
 } from "./work-timing.ts";
 
+/** W943.1 — the cache-blind era. router_usage rows written before the
+ *  2026-10-19 buckle-front fix carry cache_r/cache_c ≈ 0 (glm hourly sums:
+ *  ≤132k tok through 2026-10-19T09, 72.2M at T10), so CACHE summed over
+ *  earlier buckets is a floor, not a measurement. First bucket with
+ *  trustworthy cache accounting; bucket strings compare lexicographically.
+ *  SUSPENDERS_CACHE_ERA_FIX overrides (tests, machine config). */
+export const CACHE_ERA_FIX_BUCKET = "2026-10-19T10:00";
+
+export const cacheEraFixBucket = (): string =>
+	process.env.SUSPENDERS_CACHE_ERA_FIX || CACHE_ERA_FIX_BUCKET;
+
 /** Per model_class (model_group) spend split (W776: the class dimension). */
 export interface GroupSpend {
 	in: number;
@@ -45,6 +56,8 @@ export interface ItemSpend {
 	cacheR: number;
 	cacheC: number;
 	requests: number;
+	/** W943.1: earliest attributed hour bucket, null = no attributed spend. */
+	firstBucket: string | null;
 	groups: Map<string, GroupSpend>;
 }
 
@@ -165,13 +178,16 @@ export function itemSpend(
 			cacheR: 0,
 			cacheC: 0,
 			requests: 0,
+			firstBucket: null,
 			groups: new Map(),
 		});
 	}
 	for (const [work, forBucket] of attributeBuckets(rows, windows)) {
 		const t = out.get(work);
 		if (!t) continue;
-		for (const rs of forBucket.values()) {
+		for (const [bucket, rs] of forBucket) {
+			if (t.firstBucket === null || bucket < t.firstBucket)
+				t.firstBucket = bucket;
 			for (const r of rs) {
 				t.in += r.inTok;
 				t.out += r.outTok;
@@ -242,6 +258,9 @@ export interface ItemAttribution {
 	wallMs: number; // first claim → last event (W15)
 	agentMs: number; // Σ closed claim segments (W15)
 	effort: string | null; // W909: lane effort level from the work.done payload
+	/** W943.1: attributed spend includes cache-blind-era buckets — CACHE is
+	 *  a floor for such items (docs/decant-crosscheck-2026-10-19.md). */
+	blindCache: boolean;
 	groups: Record<string, GroupSpend>;
 }
 
@@ -281,6 +300,9 @@ export function itemAttribution(
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
 			effort: t?.effort ?? null,
+			blindCache:
+				(s?.firstBucket != null && s.firstBucket < cacheEraFixBucket()) ||
+				false,
 			groups: Object.fromEntries(s?.groups ?? []),
 		});
 	}
