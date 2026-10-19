@@ -52,9 +52,16 @@ export function buildTopology(status, remotes, supervisor, now = Date.now()) {
 			endpoints: 0,
 			reachable: 0,
 			routed: 0,
+			models: [],
 		};
 		item.endpoints += 1;
 		if (row.ok) item.reachable += 1;
+		if (
+			typeof row.model === "string" &&
+			row.model &&
+			!item.models.includes(row.model)
+		)
+			item.models.push(row.model);
 		machines.set(name, item);
 	}
 	for (const route of routes) {

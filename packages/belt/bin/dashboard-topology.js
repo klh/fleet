@@ -20,10 +20,12 @@ class BeltTopology extends LitElement {
 		button { margin-left:auto; background:transparent; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); color:var(--klh-ink); padding:4px 10px; font:inherit; cursor:pointer; }
 		button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
 		.map { width:100%; overflow-x:auto; }
-		svg { display:block; width:100%; min-width:740px; height:auto; font:12px var(--klh-font-sans, sans-serif); }
-		.edge { fill:none; stroke:var(--klh-edge); stroke-width:2; stroke-dasharray:5 5; }
-		.edge.routed { stroke:var(--klh-accent); stroke-dasharray:none; }
-		.node { fill:var(--klh-surface); stroke:var(--klh-edge); stroke-width:1.5; }
+		svg { display:block; width:100%; min-width:780px; height:auto; font:12px var(--klh-font-sans, sans-serif); }
+		.edge { fill:none; stroke:var(--klh-edge); stroke-width:1.5; stroke-dasharray:5 5; }
+		.machine { fill:var(--klh-surface); stroke:var(--klh-edge); stroke-width:1.5; }
+		.buckle { fill:var(--klh-accent-wash); stroke:var(--klh-accent); stroke-width:1; }
+		.belt { fill:var(--klh-edge-faint); stroke:var(--klh-edge); stroke-width:1; }
+		.cloud { fill:var(--klh-surface); stroke:var(--klh-edge); stroke-width:1; }
 		.title { fill:var(--klh-ink); font-weight:600; }
 		.meta { fill:var(--klh-dim); }
 		.endpoint { font-variant-numeric:tabular-nums; }
@@ -69,59 +71,89 @@ class BeltTopology extends LitElement {
 			clearTimeout(timeout);
 		}
 	}
-	node(x, y, width, title, meta, state, full = "") {
-		return svg`<g><title>${full || `${title} · ${meta}`}</title><rect class="node" x=${x} y=${y} width=${width} height="48" rx="5"></rect>
-			<circle cx=${x + 13} cy=${y + 16} r="3.5" fill=${colour(state)}></circle>
-			<text class="title" x=${x + 24} y=${y + 20}>${title}</text>
-			<text class="meta endpoint" x=${x + 12} y=${y + 37}>${meta}</text></g>`;
+	shortModel(value, length = 29) {
+		const name = String(value).split("/").pop();
+		return name.length > length ? `${name.slice(0, length - 1)}…` : name;
+	}
+	machine(x, y, width, height, title, buckle, state, models, local = false) {
+		return svg`<g><rect class="machine" x=${x} y=${y} width=${width} height=${height} rx="6"></rect>
+			<circle cx=${x + 17} cy=${y + 21} r="4" fill=${colour(state)}></circle><text class="title" x=${x + 30} y=${y + 25}>${title}</text>
+			<rect class="buckle" x=${x + 16} y=${y + 38} width=${width - 32} height="44" rx="4"></rect>
+			<text class="title" x=${x + 30} y=${y + 57}>Buckle</text><text class="meta" x=${x + 30} y=${y + 73}>${buckle}</text>
+			<rect class="belt" x=${x + 16} y=${y + 96} width=${width - 32} height="24" rx="3"></rect>
+			<text class="title" x=${x + 28} y=${y + 113}>Belt · local models</text>
+			${
+				models.length
+					? models.map(
+							(item, index) => svg`<g><title>${item.model}</title>
+				<circle cx=${x + 30} cy=${y + 142 + index * 39} r="3" fill=${colour(item.state)}></circle>
+				<text class="title" x=${x + 42} y=${y + 146 + index * 39}>${local ? `${item.role} · ${this.shortModel(item.model, 27)}` : this.shortModel(item.model)}</text>
+				<text class="meta endpoint" x=${x + 42} y=${y + 162 + index * 39}>${local ? `${item.label} · ${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}` : "configured in remote inventory"}</text></g>`,
+						)
+					: svg`<text class="meta" x=${x + 28} y=${y + 151}>No model inventory reported</text>`
+			}
+		</g>`;
+	}
+	cloud(x, y, width, item) {
+		const height = 54 + Math.max(1, item.models.length) * 19;
+		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
+			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.state)}></circle>
+			<text class="title" x=${x + 28} y=${y + 24}>${item.name}</text>
+			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${item.reachable}/${item.endpoints} probes · ${item.routed} recent routes</text>
+			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Model inventory unavailable</text>`}
+		</g>`;
 	}
 	render() {
 		const data = this.topology;
 		const machines = data?.machines ?? [];
 		const hubs = data?.hubs ?? [];
 		const models = data?.specialists.models ?? [];
-		const right = [
-			...hubs.map((item) => ({
-				title: `${item.name} hub · :${item.port}`,
-				meta: `${item.state} · active workload unavailable`,
-				state: item.state,
-				routed: 0,
-			})),
-			...machines.map((item) => ({
-				title: `${item.name} · ${item.reachable}/${item.endpoints} endpoints`,
-				meta: `${item.routed} successful routes in 15m`,
-				state: item.state,
-				routed: item.routed,
-			})),
-		];
-		const height = Math.max(
-			480,
-			48 + Math.max(models.length, right.length) * 58,
+		const hubNames = new Set(hubs.map((item) => item.name.toLowerCase()));
+		const clouds = machines.filter(
+			(item) => !hubNames.has(item.name.toLowerCase()),
 		);
-		const centre = Math.round(height / 2);
-		const routes = machines.reduce((sum, item) => sum + item.routed, 0);
-		const providerText = machines.length
-			? `${machines.length} remote groups · ${routes} routed in 15m`
-			: "No remote endpoints reported";
+		let hubY = 52;
+		const hubCards = hubs.map((item) => {
+			const inventory = machines.find(
+				(machine) => machine.name.toLowerCase() === item.name.toLowerCase(),
+			);
+			const remoteModels = (inventory?.models ?? []).map((model) => ({
+				model,
+				state: inventory.state,
+			}));
+			const card = {
+				...item,
+				y: hubY,
+				height: Math.max(202, 132 + remoteModels.length * 39),
+				models: remoteModels,
+			};
+			hubY += card.height + 18;
+			return card;
+		});
+		const cloudHeight = clouds.reduce(
+			(sum, item) => sum + 68 + Math.max(1, item.models.length) * 19,
+			0,
+		);
+		const height = Math.max(500, hubY, 52 + cloudHeight);
+		let cloudY = 52;
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
-			<p role="status">${this.error || (data ? `Local router ${data.router} · ${models.length} local models · ${providerText}` : "Loading observed connections…")}</p>
+			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hub probes · ${clouds.length} provider groups` : "Loading observed connections…")}</p>
 			${
 				data
-					? html`<div class="map"><svg viewBox=${`0 0 1160 ${height}`} role="img" aria-label="This Mac and its Belt router, individual local models, hub probes, and remote endpoints">
-				<text class="group" x="486" y="16">LOCAL MODELS · BELT ROUTES IN LAST 5 MINUTES</text>
-				<text class="group" x="832" y="16">HUBS AND REMOTE ENDPOINTS</text>
-				<path class="edge" d=${`M185 ${centre} H225`}></path>
-				<path class="edge" d=${`M410 ${centre} H458 V48`}></path>
-				<path class="edge" d=${`M458 48 V${48 + Math.max(0, models.length - 1) * 58}`}></path>
-				<path class="edge" d=${`M410 ${centre} H804 V48`}></path>
-				<path class="edge" d=${`M804 48 V${48 + Math.max(0, right.length - 1) * 58}`}></path>
-				${this.node(20, centre - 24, 165, "This Mac", "Belt dashboard", data.router)}
-				${this.node(225, centre - 24, 185, "Belt router", `:4000 · ${data.router}`, data.router)}
-				${models.map((item, index) => svg`<path class="edge" d=${`M458 ${48 + index * 58} H486`}></path>${this.node(486, 24 + index * 58, 290, `${item.role} · :${item.port}`, `${item.label} · ${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}`, item.state, String(item.model))}`)}
-				${right.map((item, index) => svg`<path class=${item.routed ? "edge routed" : "edge"} d=${`M804 ${48 + index * 58} H832`}></path>${this.node(832, 24 + index * 58, 308, item.title, item.meta, item.state)}`)}
+					? html`<div class="map"><svg viewBox=${`0 0 1190 ${height}`} role="img" aria-label="Local machine contains Buckle and Belt models; Buckle links lead to hub machines; cloud providers are listed beyond hubs">
+				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
+				<text class="group" x="850" y="35">CLOUD PROVIDERS · CONFIGURED MODELS</text>
+				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
+				${this.machine(20, 52, 400, 432, "This Mac", "local spoke · :4101 · state unobserved", "unknown", models, true)}
+				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
+				${clouds.map((item) => {
+					const y = cloudY;
+					cloudY += 68 + Math.max(1, item.models.length) * 19;
+					return this.cloud(850, y, 320, item);
+				})}
 			</svg></div>
-			<div class="legend">Dots show the last health observation. Dashed links are configured or probed paths; a solid link has a successful route in the past 15 minutes. Model load counts Belt router calls only. Lane counts, hub workloads and token throughput await Buckle telemetry.</div>`
+			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed Buckle links show hub probes. Cloud gateway links need verified hop records, so provider cards remain unlinked. Local load counts Belt router calls only; lane counts and token throughput await Buckle telemetry.</div>`
 					: ""
 			}
 		</section>`;

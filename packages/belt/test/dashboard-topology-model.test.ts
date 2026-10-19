@@ -29,9 +29,9 @@ describe("Belt topology", () => {
 			{
 				ts: "2026-10-19T11:59:00Z",
 				rows: [
-					{ machine: "nas", ok: true },
-					{ machine: "zai", ok: true },
-					{ machine: "zai", ok: false },
+					{ machine: "nas", model: "qwen", ok: true },
+					{ machine: "zai", model: "glm", ok: true },
+					{ machine: "zai", model: "glm", ok: false },
 				],
 				routes: [
 					{ machine: "zai", ok: true, ts: "2026-10-19T11:57:00Z" },
@@ -70,8 +70,22 @@ describe("Belt topology", () => {
 		]);
 		expect(model.hubs).toEqual([{ name: "NAS", state: "up", port: 4101 }]);
 		expect(model.machines).toEqual([
-			{ name: "nas", endpoints: 1, reachable: 1, routed: 0, state: "up" },
-			{ name: "zai", endpoints: 2, reachable: 1, routed: 1, state: "up" },
+			{
+				name: "nas",
+				endpoints: 1,
+				reachable: 1,
+				routed: 0,
+				models: ["qwen"],
+				state: "up",
+			},
+			{
+				name: "zai",
+				endpoints: 2,
+				reachable: 1,
+				routed: 1,
+				models: ["glm"],
+				state: "up",
+			},
 		]);
 	});
 
