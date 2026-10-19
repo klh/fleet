@@ -28,6 +28,7 @@ import {
 import { rebindKeptLaneContext } from "../lib/lane-context.ts";
 import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
+import { doneEffortStamp } from "../lib/lane-effort.ts";
 import {
 	loadLaneRegistry,
 	loadLaneRegistryFile,
@@ -850,6 +851,8 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				sha: record?.commit_sha ?? sha ?? "",
 				verified: !!record,
 				summary: record?.summary ?? null,
+				// W909: the lane's effort level rides the done event (reporter EFFORT column)
+				...doneEffortStamp(`${projectRootOf(PROJECT)}/.fleet`, String(it.owner_sid ?? as ?? "")),
 			});
 			const unblocked = freeDependents(id);
 			releaseClaim(

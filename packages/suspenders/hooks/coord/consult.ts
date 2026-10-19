@@ -17,6 +17,8 @@ import {
 	projectIdentity,
 } from "./shared.ts";
 
+import { claimedWorkOf } from "../lib/lane-effort.ts";
+
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import { consultDeadline } from "../lib/consult-expiry.ts";
 
@@ -56,6 +58,13 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		);
 	// Lessons are advisory context, not verified solutions.
 	const lessonHit = rest.includes("--no-kb") ? null : lessonLookup(question);
+	// W909 CONSULT column: stamp the asker's current claim into every consult
+	// event payload — the reporter renders Y/N from these links.
+	const work = claimedWorkOf(db, projectIdentity(), as);
+	const link = {
+		project: projectIdentity(),
+		...(work ? { work } : {}),
+	};
 	const version = arg("--version") ?? consultVersion();
 	const kbHit = rest.includes("--no-kb")
 		? null
@@ -121,6 +130,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			JSON.stringify({
 				consult: cid,
 				state: "KB",
+				...link,
 				answer: kbHit.solution,
 				kb: {
 					id: kbHit.id,
@@ -154,6 +164,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		const payload = JSON.stringify({
 			consult: cid,
 			state: "FACT",
+			...link,
 			answer: factHit.fact ?? "",
 			fact: { id: factHit.id, topic: factHit.topic, trust: factHit.trust, source: factHit.source_ref },
 		});
@@ -197,6 +208,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			scope,
 			JSON.stringify({
 				consult: cid,
+				...link,
 				q: question,
 				guidance: lessonHit
 					? { key: lessonHit.key, value: lessonHit.value, verified: false }

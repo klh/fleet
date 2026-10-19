@@ -56,6 +56,11 @@ export const laneSettingsData = (
 					env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? model,
 				ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
 				ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
+				// W909: the lane's effort level — `work done` banks it into the
+				// work.done event (lib/lane-effort.ts); the reporter renders it.
+				...(env.SUSPENDERS_LANE_EFFORT
+					? { SUSPENDERS_LANE_EFFORT: env.SUSPENDERS_LANE_EFFORT }
+					: {}),
 				...runawayEnv(env),
 			},
 			hooks: {

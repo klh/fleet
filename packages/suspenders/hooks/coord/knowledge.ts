@@ -4,6 +4,7 @@
 import {
 	die,
 	arg,
+	db,
 	green,
 	dim,
 	cyan,
@@ -14,7 +15,9 @@ import {
 	currentPromptHash,
 	readFileSync,
 	createHash,
+	projectIdentity,
 } from "./shared.ts";
+import { claimedWorkOf } from "../lib/lane-effort.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -82,6 +85,23 @@ export async function cmdKnowledgeEnqueue(_rest: string[]): Promise<void> {
 		codeOrigin: arg("--code-origin"),
 		originSid: arg("--as"),
 	});
+	// W909 CONSULT column: stamp the enqueueing lane's current claim into the
+	// bus — `knowledge.enqueued` payload carries work+project (shred trigger
+	// stamps the events.project column), the reporter renders Y/N from it.
+	const work = claimedWorkOf(db, projectIdentity(), arg("--as"));
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'knowledge.enqueued', ?, ?, ?)",
+	).run(
+		Date.now(),
+		arg("--as") ?? "coord",
+		work ?? "",
+		JSON.stringify({
+			work,
+			project: projectIdentity(),
+			qid,
+		}),
+		arg("--as") ?? "",
+	);
 	console.log(
 		`${green("✓")} queued #${qid} — the ingest worker takes the oldest queued row per pass`,
 	);
