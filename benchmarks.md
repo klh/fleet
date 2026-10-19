@@ -20,25 +20,33 @@ Blind A/B, 10 real-fleet questions (5 telemetry / 5 judgment), identity-blind
 judging (seed 949, oracle :8903, 2 stable judge runs). Arms: A = coord facts +
 kb; B = decant FTS + targeted `ls --project` + `search` over the same fleet
 transcripts (450 s one-time sync, 1.5 GB index; standing serve amortizes).
-Banking cost measured on W776-attributed CONSULT=Y items (W932/935/918.5/927,
-78.1 Mtok, W943-validated ±1-3%): coord-knowledge tool calls = 14/874 (1.6%
-activity share) ≈ 1.25 Mtok amortized banking spend. W943 numbers validated
-the attribution ledger; per-question raw data in
+Banking cost: ≈1.25 Mtok is an ESTIMATE — an allocation from tool-call
+share (coord-knowledge calls = 14/874 = 1.6% of the 78.1 Mtok CONSULT=Y
+spend on W932/935/918.5/927, W943-validated ±1-3%), not measured token
+spend. Per-question raw data in
 [packages/suspenders/bench/w949/](packages/suspenders/bench/w949/README.md).
 
 | Question class | Banked (facts+kb) | Mechanical (decant) | Verdict |
 | --- | --- | --- | --- |
-| Telemetry (5 Q) | 0/5 judge picks, 0/5 coverage | 5/5 picks, 5/5 coverage | **mechanical, outright** |
-| Judgment (5 Q) | 2/5 coverage, 5/5 quality where banked | 5/5 coverage, ties 5/5 where both | **mechanical-first; facts = distilled judgment cache** |
+| Telemetry (5 Q) | 0/5 preferred, 0/5 complete | 5/5 preferred, 1/5 complete (only T5; T1 request count, T2 files+commit, T3 cache rate, T4 effort missing/wrong) | **mechanical-first — cheaper, shallower** |
+| Judgment (5 Q) | 0/5 picks (J2/J3 were 5/5 TIES), 2/5 coverage | 5/5 coverage (J2/J3 via transcript echo) | **mechanical-first; facts = distilled judgment cache** |
 
-**Verdict: mechanical-first retrieval** — telemetry never gets banked (0/5
-picks; per-item fact rows carry work-prose, not numbers); judgment lessons
-stay banked as a ~17× cheaper-to-read distilled cache (640 B vs 11 KB per
-hit) but the mechanical layer covers the unbanked rest (J1/J4/J5 full marks
-from raw transcripts). STOP-banking verdict: only for telemetry-shaped rows.
-Caveats: J1/J4 mechanical hits included this bench's own synced transcript
-(self-echo, flagged); J3 mechanical answer echoes the banked row (the layers
-couple through transcripts).
+**Verdict: mechanical-first retrieval** — telemetry retrieval is
+mechanical-FIRST with fact-backfill for the shallow tail (the preference
+win was 5/5 but only 1/5 fully answered: T1 request count, T2 files+commit,
+T3 cache rate, T4 dispatched effort); judgment lessons stay banked as a
+~17× cheaper-to-read distilled cache (640 B vs 11 KB per hit) while the
+mechanical layer covers the unbanked rest (J1/J4/J5 full marks from raw
+transcripts). Not "telemetry banking = waste": at 1/5 completeness the
+policy re-derives to mechanical-first + fact-backfill, pending a re-bench
+on a frozen corpus. Confidence 1.0 (human:owner audit #47581 +
+clarification #47582); judge preference 0.8 (model:oracle-:8903); telemetry
+numbers 0.5 (mechanical:decant). Caveats: J1/J4 mechanical hits included
+this bench's own synced transcript (self-echo, flagged); J3 mechanical
+answer echoes the banked row (the layers couple through transcripts).
+FREEZE RULE (W952): freeze the transcript snapshot BEFORE question
+selection; later benches must not read corpus they contaminated — W949's
+numbers are pre-freeze, directional only.
 
 The deterministic [consult](packages/blam/bench/consult/scenario.md) and
 [paired-arm](packages/blam/bench/paired/scenario.md) suites both passed 6/6

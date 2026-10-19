@@ -56,14 +56,18 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 - **Banking telemetry-shaped knowledge as facts rows** — W949's blind A/B
   (2026-10-19, 10 real-fleet questions, identity-blind judge, 2 stable runs):
-  the banked layer answered 0/5 telemetry questions (per-item fact rows carry
-  work-prose, not numbers) while decant answered 5/5 at zero banking cost —
-  telemetry retrieval is mechanical-first, numbers never get banked. Judgment
-  lessons stay banked as a ~17× cheaper-to-read distilled cache (640 B vs
-  11 KB per hit), but decant covered the unbanked rest (J1/J4/J5 full marks).
-  Banking amortized spend ≈ 1.25 Mtok (1.6% coord-knowledge share of 78.1 Mtok
-  CONSULT=Y spend). Caveat: decant subsumes banked content (lanes echo facts
-  into transcripts); see the
+  decant won the judge PREFERENCE 5/5 but fully answered only 1/5 (T5; T1
+  request count, T2 files+commit, T3 cache rate, T4 effort missed) — banked
+  rows carry work-prose, not numbers. Corrected policy (owner audit #47581 +
+  clarification #47582, confidence 1.0 human): mechanical-FIRST with
+  fact-backfill for the shallow tail, pending a re-bench on a frozen corpus —
+  not "numbers never get banked". Judgment lessons stay banked (J2/J3 ties at
+  5/5; ~17× cheaper to read, 640 B vs 11 KB per hit; decant covered J1/J4/J5
+  from raw transcripts). Banking spend ≈ 1.25 Mtok is an ESTIMATE — an
+  allocation from tool-call share (1.6% of 78.1 Mtok CONSULT=Y), not measured
+  spend. Contamination: J1/J4 self-echo + J3 banked-fact echo; freeze rule
+  (W952): snapshot frozen before question selection, later benches never read
+  corpus they contaminated — W949's numbers are pre-freeze. See the
   [bench record](packages/suspenders/bench/w949/README.md) +
   [benchmarks.md](benchmarks.md#knowledge-retrieval--llm-banked-facts-vs-mechanical-decant-w949-2026-10-19).
 - **Compact module map and automatic second reviewer on a small known repair**
