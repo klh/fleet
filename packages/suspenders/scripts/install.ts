@@ -165,19 +165,6 @@ async function main(): Promise<void> {
 		),
 		contract: INSTALL_CONTRACT,
 	};
-	if (flags.json) {
-		console.log(JSON.stringify(doc, null, "\t"));
-	} else {
-		renderHuman(doc);
-		if (doc.report_table !== undefined)
-			console.log(
-				doc.report_table === null
-					? "\nWORK REPORT: FAILED — the work report verb did not run from the installed prefix (see the error above)"
-					: `
-WORK REPORT (via the PATH shim from ${paths.prefix}):
-${doc.report_table}`,
-			);
-	}
 	// W899: the install tail CALLS the W892 verb — `work report` through the
 	// installed prefix's PATH shim — as the CONSENTED install's final section
 	// (a dead tail fails the install, never a silent skip; paused/dry plans
@@ -191,6 +178,20 @@ ${doc.report_table}`,
 			);
 			process.exitCode = 1;
 		}
+	}
+
+	if (flags.json) {
+		console.log(JSON.stringify(doc, null, "\t"));
+	} else {
+		renderHuman(doc);
+		if (doc.report_table !== undefined)
+			console.log(
+				doc.report_table === null
+					? "\nWORK REPORT: FAILED — the work report verb did not run from the installed prefix (see the error above)"
+					: `
+WORK REPORT (via the PATH shim from ${paths.prefix}):
+${doc.report_table}`,
+			);
 	}
 	// the tail's failure verdict wins over the plan outcome (a dead proof is
 	// a failed install — "make damn sure")
