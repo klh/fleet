@@ -460,7 +460,7 @@ function status(hub: HubProfile): number {
 		["board-health", hub.board_health_port ?? 7800, "/healthz"],
 		["store-health", hub.store_health_port ?? 7794, "/healthz"],
 		["belt-health", hub.belt_health_port ?? 7790, "/healthz"],
-		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
+		["model-store-health", hub.model_store_health_port ?? 7801, "/healthz"],
 		// W854: the mdns-health sidecar's verdict port
 		["mdns-health", hub.mdns?.sidecar_port ?? 4115, "/healthz"],
 	];
@@ -496,10 +496,15 @@ function runtimeReport(
 	dir: string,
 ): void {
 	const compose = `docker compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)}`;
+	// overlay hubs run base code from node_modules/fleet (HUB_FLEET_SRC) —
+	// the bare /src/fleet/packages path only exists on plain-fleet hubs
+	const infoPath = JSON.stringify(
+		`${hub.repos?.src ?? "/src/fleet/packages"}/suspenders/deploy/runtime-info.ts`,
+	);
 	try {
 		const out = runOnHub(
 			hub,
-			`${compose} exec -T buckle-hub bun /src/fleet/packages/suspenders/deploy/runtime-info.ts --json 2>&1 || true`,
+			`${compose} exec -T buckle-hub bun ${infoPath} --json 2>&1 || true`,
 		);
 		const line = [...out.split("\n")].reverse().find((l) => l.startsWith("{"));
 		if (line) {
