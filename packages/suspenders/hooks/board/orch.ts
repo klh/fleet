@@ -14,6 +14,12 @@ import {
 } from "./prompt-transform.ts";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
+import {
+	linkOrchWork,
+	linkedOrchWork,
+	orchTraceparent,
+	recordOrchStep,
+} from "./orch-trace.ts";
 
 export const ORCH = {
 	MIN_CHILDREN: 2,
@@ -148,6 +154,7 @@ export const orchUserMessage = (goal: string, ctx: string): string =>
 export async function orchPrepare(
 	project: string,
 	goal: string,
+	traceId?: string,
 ): Promise<
 	| { ok: true; plan: PromptPlan; ctx: string }
 	| { ok: false; status: number; error: string }
@@ -168,9 +175,12 @@ export async function orchPrepare(
 				model: target.model,
 				url: target.url,
 				wire: target.wire,
+				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
 			});
 			orchTelemetry({
 				for: "prompt.enhance",
+				traceId,
+				project: projectIdentity(repo),
 				model: r.model,
 				...(target.alias ? { alias: target.alias } : {}),
 				host: new URL(target.url).host,
@@ -178,6 +188,17 @@ export async function orchPrepare(
 				ms: r.ms,
 				...(r.ok ? {} : { error: r.note.slice(0, 200) }),
 			});
+			if (traceId)
+				recordOrchStep(project, {
+					traceId,
+					at: Date.now(),
+					phase: "prompt.enhance",
+					service: target.mode === "direct" ? "local model" : "buckle gateway",
+					status: r.ok ? "ok" : "error",
+					model: r.model,
+					endpoint: new URL(target.url).host,
+					ms: r.ms,
+				});
 			return r;
 		},
 		injections: [
@@ -190,6 +211,14 @@ export async function orchPrepare(
 		],
 		compose: (final) => orchUserMessage(final, ctx),
 	});
+	if (traceId)
+		recordOrchStep(project, {
+			traceId,
+			at: Date.now(),
+			phase: "prompt.ready",
+			service: "board",
+			status: "ok",
+		});
 	return { ok: true, plan, ctx };
 }
 
@@ -197,6 +226,7 @@ export async function orchestrate(
 	project: string,
 	goal: string,
 	prepared?: { ctx: string },
+	traceId?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
 	const repo = projectRootOf(project);
 	if (!existsSync(repo))
@@ -217,6 +247,7 @@ export async function orchestrate(
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
+				...(traceId ? { traceparent: orchTraceparent(traceId) } : {}),
 				...(ORCH_KEY ? { authorization: `Bearer ${ORCH_KEY}` } : {}),
 			},
 			body: JSON.stringify({
@@ -252,6 +283,8 @@ export async function orchestrate(
 	}
 	orchTelemetry({
 		for: "orchestrate",
+		traceId,
+		project: projectIdentity(repo),
 		model,
 		host: ORCH_HOST,
 		pt,
@@ -260,21 +293,48 @@ export async function orchestrate(
 		ms: Date.now() - t0,
 		...(llmError ? { error: llmError.slice(0, 200) } : {}),
 	});
+	if (traceId)
+		recordOrchStep(project, {
+			traceId,
+			at: Date.now(),
+			phase: llmError ? "model.failed" : "model.completed",
+			service: "local model",
+			status: llmError ? "error" : "ok",
+			model,
+			endpoint: ORCH_HOST,
+			ms: Date.now() - t0,
+			inputTokens: pt,
+			outputTokens: ct,
+		});
 	if (llmError)
-		return { status: 502, body: { ok: false, error: llmError.slice(0, 300) } };
+		return {
+			status: 502,
+			body: { ok: false, traceId, error: llmError.slice(0, 300) },
+		};
 	const proposal = parseProposal(content);
-	if (!proposal)
+	if (!proposal) {
+		if (traceId)
+			recordOrchStep(project, {
+				traceId,
+				at: Date.now(),
+				phase: "model.output_rejected",
+				service: "board",
+				status: "error",
+				model,
+			});
 		return {
 			status: 502,
 			body: {
 				ok: false,
+				traceId,
 				error:
 					"orchestrator returned no parseable plan (want JSON {title, children[]}) — rephrase the goal and retry",
 			},
 		};
+	}
 	return {
 		status: 200,
-		body: { ok: true, proposal, model, ms: Date.now() - t0 },
+		body: { ok: true, traceId, proposal, model, ms: Date.now() - t0 },
 	};
 }
 
@@ -285,6 +345,7 @@ export function orchRegister(
 	project: string,
 	title: string,
 	kids: string[],
+	traceId?: string,
 ): { status: number; body: Record<string, unknown> } {
 	const repo = projectRootOf(project);
 	if (!existsSync(repo))
@@ -292,6 +353,20 @@ export function orchRegister(
 			status: 404,
 			body: { ok: false, error: `project directory missing: ${repo}` },
 		};
+	if (traceId) {
+		const prior = linkedOrchWork(project, traceId);
+		if (prior) {
+			const children = db
+				.query(
+					"SELECT id,title FROM work_items WHERE project = ? AND parent_id = ? ORDER BY id",
+				)
+				.all(projectIdentity(repo), prior) as { id: string; title: string }[];
+			return {
+				status: 200,
+				body: { ok: true, traceId, plan: prior, children },
+			};
+		}
+	}
 	const run = (args: string[]): { out: string; err: string; code: number } => {
 		const p = Bun.spawnSync([process.execPath, CLI("work.ts"), ...args], {
 			cwd: repo,
@@ -350,7 +425,17 @@ export function orchRegister(
 			)
 			.all(key, pid) as { id: string; title: string }[]
 	).map((r) => ({ id: r.id, title: r.title }));
-	return { status: 200, body: { ok: true, plan: pid, children } };
+	if (traceId) {
+		recordOrchStep(project, {
+			traceId,
+			at: Date.now(),
+			phase: "work.registered",
+			service: "work graph",
+			status: "ok",
+		});
+		linkOrchWork(project, traceId, pid);
+	}
+	return { status: 200, body: { ok: true, traceId, plan: pid, children } };
 }
 
 // W125 — tokens_total for /metrics: the per-item token metrics (govdb

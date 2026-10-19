@@ -7,6 +7,7 @@
 // adds klh-prompt-preview (the orchestrate prompt-transform preview).
 import { LitElement, html, css, type TemplateResult } from "lit";
 import "./klh-prompt-preview.ts";
+import "./klh-task-trace.ts";
 
 type EvalEntry = { ts: number; text: string };
 

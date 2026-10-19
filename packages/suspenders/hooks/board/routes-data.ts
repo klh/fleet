@@ -25,6 +25,7 @@ import { json } from "./helpers.ts";
 import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { orchTargets } from "./orch-targets.ts";
+import { traceForWork } from "./orch-trace.ts";
 import { recoverySnapshot } from "./recovery.ts";
 import { setupFeed } from "./setup-cache.ts";
 
@@ -212,6 +213,7 @@ export async function handleData(
 				itemAttribution(db as unknown as Database, p).get(id) ?? null,
 			),
 			events: workEvents(p, id),
+			trace: traceForWork(p, id, w.parent_id),
 			decisions: taskDecisions(p, id),
 		});
 	}

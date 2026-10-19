@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class d extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
+import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class p extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -69,10 +69,10 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["p
 			opacity: 0.5;
 			cursor: default;
 		}
-	`;project="";goal="";previewId=null;constructor(){super();this.settings={...c},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(i){return!this.busy&&!this.sent&&this.goal===i&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let a=await(await fetch("/api/prompt/settings")).json();if(a.settings)this.settings={...c,...a.settings}}catch{}}async toggle(i,a){let o=this.settings;this.settings={...o,[i]:a};try{let n=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[i]:a})}),l=await n.json();if(!n.ok||!l.settings)throw Error(l.error??`HTTP ${n.status}`);this.settings={...c,...l.settings}}catch(n){this.settings=o,this.err=`settings not saved: ${n instanceof Error?n.message:String(n)}`}}async prepare(i,a){this.project=i,this.goal=a,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let o=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({project:i,goal:a}),signal:AbortSignal.timeout(30000)}),n=await o.json();if(!o.ok||!n.ok||!n.preview)throw Error(n.error??`HTTP ${o.status}`);this.view=n.preview,this.previewId=n.previewId??null}catch(o){this.err=`preview failed: ${o instanceof Error?o.message:String(o)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(i,a){return e`<details ?open=${a}>
+	`;project="";goal="";previewId=null;constructor(){super();this.settings={...c},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(i){return!this.busy&&!this.sent&&this.goal===i&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let n=await(await fetch("/api/prompt/settings")).json();if(n.settings)this.settings={...c,...n.settings}}catch{}}async toggle(i,n){let o=this.settings;this.settings={...o,[i]:n};try{let a=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[i]:n})}),l=await a.json();if(!a.ok||!l.settings)throw Error(l.error??`HTTP ${a.status}`);this.settings={...c,...l.settings}}catch(a){this.settings=o,this.err=`settings not saved: ${a instanceof Error?a.message:String(a)}`}}async prepare(i,n,o){this.project=i,this.goal=n,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let a=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(o?.length?{project:i,goal:n,attachments:o}:{project:i,goal:n}),signal:AbortSignal.timeout(30000)}),l=await a.json();if(!a.ok||!l.ok||!l.preview)throw Error(l.error??`HTTP ${a.status}`);this.view=l.preview,this.previewId=l.previewId??null}catch(a){this.err=`preview failed: ${a instanceof Error?a.message:String(a)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(i,n){return e`<details ?open=${n}>
 			<summary>${i.label} · ${i.bytes} B</summary>
 			<pre>${i.text}</pre>
-		</details>`}summary(){let i=p.filter(([a])=>this.settings[a]).map(([,a])=>a);return`prompt transforms · ${i.length?i.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let i=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
+		</details>`}summary(){let i=d.filter(([n])=>this.settings[n]).map(([,n])=>n);return`prompt transforms · ${i.length?i.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let i=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
 			<div class="hd">
 				<strong>${this.sent?"dispatched":"will dispatch"}</strong>
 				${i?e`<span class="dim"
@@ -85,9 +85,9 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["p
 			${i?.enhanceNote?e`<div class="dim">${i.enhanceNote}</div>`:t}
 			${i?e`<pre aria-label="final prompt">${i.final}</pre>`:t}
 			${i?.stages?.length?e`<div class="dim">stages</div>
-							${i.stages.map((a)=>this.block(a,!1))}`:t}
+							${i.stages.map((n)=>this.block(n,!1))}`:t}
 			${i?.injected?.length?e`<div class="dim">injected context (appended to the prompt)</div>
-							${i.injected.map((a)=>this.block(a,!1))}`:t}
+							${i.injected.map((n)=>this.block(n,!1))}`:t}
 			${this.sent||!this.project?t:e`<div class="actions">
 							<button
 								class="go"
@@ -103,18 +103,34 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["p
 			<details>
 				<summary>${this.summary()}</summary>
 				<div class="toggles">
-					${p.map(([i,a])=>e`<label>
+					${d.map(([i,n])=>e`<label>
 							<input
 								type="checkbox"
 								.checked=${this.settings[i]}
 								@change=${(o)=>this.toggle(i,o.target.checked)}
 							/>
-							${a}
+							${n}
 						</label>`)}
 				</div>
 			</details>
 			${this.body()}
-		`}}customElements.define("klh-prompt-preview",d);class u extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
+		`}}customElements.define("klh-prompt-preview",p);class u extends s{static properties={trace:{attribute:!1}};static styles=r`
+		:host { display: block; border-top: 1px solid var(--klh-edge, #5d5a52); padding: 12px 0; }
+		h2 { margin: 0 0 8px; font: 600 13px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
+		ol { margin: 0; padding: 0; list-style: none; }
+		li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; padding: 5px 0; border-top: 1px solid var(--klh-edge, #5d5a52); font: 12px/1.45 ui-sans-serif, system-ui; }
+		time, .sub, code { color: var(--klh-dim, #97917f); }
+		strong { font-weight: 600; color: var(--klh-ink, #e8e4da); }
+		.error { color: var(--klh-danger-ink, #e07a5f); }
+		.sub { display: block; overflow-wrap: anywhere; }
+		code { font: 11px ui-monospace, SFMono-Regular, monospace; }
+	`;constructor(){super();this.trace=[]}render(){let i=this.trace[0]?.traceId??"";return e`<h2>Request trace <code>${i.slice(0,12)}</code></h2>
+			<ol>${this.trace.map((n)=>e`<li>
+				<time datetime=${new Date(n.at).toISOString()}>${new Date(n.at).toLocaleTimeString()}</time>
+				<div><strong class=${n.status==="error"?"error":""}>${n.phase}</strong> · ${n.service}
+					<span class="sub">${[n.model,n.endpoint,n.ms==null?null:`${n.ms} ms`,n.inputTokens==null?null:`${n.inputTokens} in`,n.outputTokens==null?null:`${n.outputTokens} out`].filter(Boolean).join(" · ")}</span>
+				</div>
+			</li>`)}</ol>`}}customElements.define("klh-task-trace",u);class h extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin-top: 6px;
@@ -156,7 +172,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["p
 			color: var(--klh-danger-ink, #e07a5f);
 			border-left-color: var(--klh-danger, #e07a5f);
 		}
-	`;constructor(){super();this.count=0,this.latest=null,this.busy=!1,this.err=null}connectedCallback(){super.connectedCallback(),this.hydrate()}async hydrate(){if(!this.eventId)return;try{let i=await fetch(`/api/decisions/${this.eventId}/evals`);if(!i.ok)return;let a=await i.json();this.apply(a.evals??[])}catch{}}apply(i,a){this.count=a??i.length,this.latest=i[i.length-1]??null,this.err=null}async evaluate(){if(this.busy||!this.eventId)return;this.busy=!0,this.err=null;try{let i=await fetch(`/api/decisions/${this.eventId}/evaluate`,{method:"POST"}),a=await i.json();if(!i.ok||!a.ok)throw Error(a.error??`HTTP ${i.status}`);if(a.latest)this.apply([a.latest],a.count)}catch(i){this.err=i instanceof Error?i.message:String(i)}finally{this.busy=!1}}when(i){return new Date(i).toLocaleTimeString()}render(){return e`
+	`;constructor(){super();this.count=0,this.latest=null,this.busy=!1,this.err=null}connectedCallback(){super.connectedCallback(),this.hydrate()}async hydrate(){if(!this.eventId)return;try{let i=await fetch(`/api/decisions/${this.eventId}/evals`);if(!i.ok)return;let n=await i.json();this.apply(n.evals??[])}catch{}}apply(i,n){this.count=n??i.length,this.latest=i[i.length-1]??null,this.err=null}async evaluate(){if(this.busy||!this.eventId)return;this.busy=!0,this.err=null;try{let i=await fetch(`/api/decisions/${this.eventId}/evaluate`,{method:"POST"}),n=await i.json();if(!i.ok||!n.ok)throw Error(n.error??`HTTP ${i.status}`);if(n.latest)this.apply([n.latest],n.count)}catch(i){this.err=i instanceof Error?i.message:String(i)}finally{this.busy=!1}}when(i){return new Date(i).toLocaleTimeString()}render(){return e`
 			<div class="row">
 				<button
 					?disabled=${this.busy}
@@ -174,4 +190,4 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var p=[["prompt.condense","condense"],["p
 			${this.latest?e`<output>
 						${this.when(this.latest.ts)} — ${this.latest.text}
 					</output>`:""}
-		`}}customElements.define("klh-decision-eval",u);function h(){let i=document.querySelectorAll(".dec[data-id]");for(let a of i){if(a.querySelector("klh-decision-eval"))continue;let o=a.querySelector(".dec-actions")??a,n=document.createElement("klh-decision-eval");n.setAttribute("event-id",a.getAttribute("data-id")??""),o.appendChild(n)}}var v=new MutationObserver(h);function g(){let i=document.querySelector("#decisions");if(!i){setTimeout(g,300);return}v.observe(i,{childList:!0,subtree:!0}),h()}g();
+		`}}customElements.define("klh-decision-eval",h);function g(){let i=document.querySelectorAll(".dec[data-id]");for(let n of i){if(n.querySelector("klh-decision-eval"))continue;let o=n.querySelector(".dec-actions")??n,a=document.createElement("klh-decision-eval");a.setAttribute("event-id",n.getAttribute("data-id")??""),o.appendChild(a)}}var v=new MutationObserver(g);function m(){let i=document.querySelector("#decisions");if(!i){setTimeout(m,300);return}v.observe(i,{childList:!0,subtree:!0}),g()}m();

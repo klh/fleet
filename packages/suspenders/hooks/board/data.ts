@@ -304,7 +304,7 @@ export function workEvents(p: string, id: string): unknown[] {
 			.query(
 				`SELECT id, ts, source, kind, payload FROM events
 				WHERE (work = ? AND project = ?)
-					OR (scope = ? AND (project = ? OR project IS NULL))
+					OR (scope = ? AND project = ?)
 				ORDER BY id DESC LIMIT 50`,
 			)
 			.all(id, p, id, p) as EventRow[]

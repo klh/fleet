@@ -4,6 +4,7 @@
 import { DEMO } from "./context.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
 import { ORCH, orchestrate, orchPrepare, orchRegister } from "./orch.ts";
+import { newOrchTraceId, recordOrchStep } from "./orch-trace.ts";
 import { composeGoalAttachments } from "./drop-files.ts";
 import {
 	holdPlan,
@@ -80,15 +81,24 @@ export async function handleOrch(
 		const att = attachmentsOf(parsed.body);
 		const composed = composeGoalAttachments(goal, att);
 		if (!composed.ok) return json({ ok: false, error: composed.error }, 400);
-		const p = await orchPrepare(project, composed.goal);
+		const traceId = newOrchTraceId();
+		recordOrchStep(project, {
+			traceId,
+			at: Date.now(),
+			phase: "request.accepted",
+			service: "board",
+			status: "ok",
+		});
+		const p = await orchPrepare(project, composed.goal, traceId);
 		if (!p.ok) return json({ ok: false, error: p.error }, p.status);
 		const previewId = holdPlan({
 			project,
 			goal,
+			traceId,
 			final: p.plan.final,
 			ctx: p.ctx,
 		});
-		return json({ ok: true, previewId, preview: previewView(p.plan) });
+		return json({ ok: true, traceId, previewId, preview: previewView(p.plan) });
 	}
 	if (req.method === "POST" && url.pathname === "/api/orchestrate") {
 		// W57 — propose only: an LLM round-trip, zero work-graph writes.
@@ -108,15 +118,28 @@ export async function handleOrch(
 		const pid = parsed.body?.previewId;
 		const held = typeof pid === "string" ? takePlan(pid, project, goal) : null;
 		if (held) {
-			const r = await orchestrate(project, held.final, { ctx: held.ctx });
+			const r = await orchestrate(
+				project,
+				held.final,
+				{ ctx: held.ctx },
+				held.traceId,
+			);
 			return json({ ...r.body, previewed: true }, r.status);
 		}
 		const att = attachmentsOf(parsed.body);
 		const composed = composeGoalAttachments(goal, att);
 		if (!composed.ok) return json({ ok: false, error: composed.error }, 400);
-		const p = await orchPrepare(project, composed.goal);
+		const traceId = newOrchTraceId();
+		recordOrchStep(project, {
+			traceId,
+			at: Date.now(),
+			phase: "request.accepted",
+			service: "board",
+			status: "ok",
+		});
+		const p = await orchPrepare(project, composed.goal, traceId);
 		if (!p.ok) return json({ ok: false, error: p.error }, p.status);
-		const r = await orchestrate(project, p.plan.final, { ctx: p.ctx });
+		const r = await orchestrate(project, p.plan.final, { ctx: p.ctx }, traceId);
 		const view = wantsPreview(p.plan.settings)
 			? { prompt: previewView(p.plan) }
 			: {};
@@ -153,7 +176,13 @@ export async function handleOrch(
 		if (!title) return json({ ok: false, error: "missing title" }, 400);
 		if (kids.length < ORCH.MIN_CHILDREN || kids.length > ORCH.MAX_CHILDREN)
 			return json({ ok: false, error: "children must number 2..8" }, 400);
-		const r = orchRegister(project, title, kids);
+		const requestedTraceId = parsed.body?.traceId;
+		const traceId =
+			typeof requestedTraceId === "string" &&
+			/^[0-9a-f]{32}$/.test(requestedTraceId)
+				? requestedTraceId
+				: newOrchTraceId();
+		const r = orchRegister(project, title, kids, traceId);
 		return json(r.body, r.status);
 	}
 	// ── W147 console (NEW paths only; existing routes untouched) ──
