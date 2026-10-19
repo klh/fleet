@@ -16,10 +16,18 @@ import {
 	miningArtifactPath,
 } from "../lib/cache-drilldown.ts";
 import { resolveBuckleDb } from "../lib/lane-spend.ts";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
 const MIN_REQUESTS = 20;
 const TOP_N = 5;
 const FACT_KEY = "finding.usage-mining";
+
+// W669.12.3: the --no-emit switch parses through verb-kit (W651).
+const mining = defineVerb({
+	name: "usage-mining",
+	usage: "usage: usage-mining [--no-emit]",
+	switches: ["--no-emit"],
+});
 
 /** Rank lanes: ≥ MIN_REQUESTS in the window, worst warm-rate first, cost
  *  index as the tiebreak (equal coldness — the expensive one mines first). */
@@ -78,7 +86,12 @@ function emitFact(text: string): boolean {
 }
 
 async function main(): Promise<void> {
-	const noEmit = process.argv.slice(2).includes("--no-emit");
+	const outcome = parseVerb(mining, process.argv.slice(2));
+	if (!outcome.ok) {
+		console.error(outcome.message);
+		process.exit(1);
+	}
+	const noEmit = outcome.parsed.flag("--no-emit") === "true";
 	const artifact = mineOffenders();
 	const path = miningArtifactPath();
 	try {
