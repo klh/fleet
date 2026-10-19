@@ -1,32 +1,31 @@
-import { readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { factDemoted } from "../lib/consult-federation-hub.ts";
 import {
+	type GovernorStore,
 	openStore,
 	projectIdentity,
-	type GovernorStore,
 } from "../lib/govdb.ts";
-import { makeStore, type KnowledgeHit } from "../lib/knowledge-ports.ts";
-import { ensureConsultTrust } from "./consult-trust.ts";
 import { trustOf, withTrust } from "../lib/knowledge.ts";
+import { type KnowledgeHit, makeStore } from "../lib/knowledge-ports.ts";
+import { ensureConsultTrust } from "./consult-trust.ts";
 
 export {
-	projectIdentity,
 	CAPABILITIES,
-	workTiming,
+	projectIdentity,
 	pruneDeltas,
-	tokenUsage,
 	sweepStaleSessions,
 	tagNameOf,
+	tokenUsage,
+	workTiming,
 } from "../lib/govdb.ts";
 export {
-	makeStore,
-	enqueueKnowledge,
 	currentPromptHash,
+	enqueueKnowledge,
+	makeStore,
 } from "../lib/knowledge-ports.ts";
-export { readFileSync, realpathSync };
-export { createHash };
-export { resolve };
+export { createHash, readFileSync, realpathSync, resolve };
 
 export interface Ev {
 	id: number;
@@ -205,6 +204,7 @@ export async function factLookup(
 	let bestOverlap = 0;
 	for (const h of hits) {
 		if (h.kind !== "knowledge" || h.hop || h.trust !== "verified") continue;
+		if (factDemoted(db, h.id)) continue;
 		const hay = `${h.topic ?? ""} ${h.fact ?? ""}`
 			.toLowerCase()
 			.split(/[^a-z0-9_.-]+/);

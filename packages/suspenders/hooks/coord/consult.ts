@@ -1,32 +1,48 @@
 // hooks/coord/consult.ts — cross-agent consults (W157 command modules).
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
-import {
-	die,
-	arg,
-	db,
-	green,
-	dim,
-	cyan,
-	red,
-	kbLookup,
-	kbNorm,
-	factLookup,
-	lessonLookup,
-	rankExperts,
-	projectIdentity,
-} from "./shared.ts";
 
-import { claimedWorkOf } from "../lib/lane-effort.ts";
+import { consultDeadline } from "../lib/consult-expiry.ts";
+import {
+	type ConsultEnvelope,
+	citationsFor,
+	classifyQuestion,
+	ensureConsultFederation,
+	hubPolicy,
+	idempotencyKey,
+	mintTraceId,
+	recordCitations,
+	recordRouteStage,
+} from "../lib/consult-federation.ts";
+import {
+	applyStaleFeedback,
+	attemptHubLeg,
+	hubCooldownActive,
+	joinPendingHubConsult,
+} from "../lib/consult-federation-hub.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/kev-curation.ts";
-
-import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
-import { consultDeadline } from "../lib/consult-expiry.ts";
+import { claimedWorkOf } from "../lib/lane-effort.ts";
 import { resolveTarget } from "./addressing.ts";
+import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+import {
+	arg,
+	cyan,
+	db,
+	die,
+	dim,
+	factLookup,
+	green,
+	kbLookup,
+	kbNorm,
+	lessonLookup,
+	projectIdentity,
+	rankExperts,
+	red,
+} from "./shared.ts";
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -37,7 +53,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W449: skip-next only applies to VALUE options — boolean flags (--best,
 	// --no-kb) used to swallow the following positional (the question), so
 	// `consult --best "q"` died with a usage error.
-	const valueOpts = new Set(["--as", "--scope", "--version"]);
+	const valueOpts = new Set(["--as", "--scope", "--version", "--hub"]);
 	const boolOpts = new Set(["--best", "--no-kb"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
@@ -62,6 +78,29 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		die(
 			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
 		);
+	// W934.2.1.2: the federation envelope — trace id + idempotency key.
+	ensureConsultFederation(db);
+	const traceId = mintTraceId();
+	const idemKey = idempotencyKey(question, scope, projectIdentity());
+	const { privateDomain } = classifyQuestion(question, scope);
+	const stampFederation = (
+		consultId: number,
+		state: string,
+		hub: string | null = null,
+	): void => {
+		db.query(
+			"INSERT INTO consult_federation (consult_id, trace_id, idempotency_key, route, hub, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		).run(
+			consultId,
+			traceId,
+			idemKey,
+			JSON.stringify([{ stage: state, at: Date.now() }]),
+			hub,
+			state,
+			Date.now(),
+		);
+	};
+
 	// Lessons are advisory context, not verified solutions.
 	const lessonHit = rest.includes("--no-kb") ? null : lessonLookup(question);
 	// W909 CONSULT column: stamp the asker's current claim into every consult
@@ -85,6 +124,48 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
 		if (!expert) {
+			// Hub leg (W934.2.1.2, contract step 4): one bounded request when
+			// policy permits and the question is not private-domain. Explicit
+			// --hub without policy (or on a scoped consult) refuses honestly.
+			const policy = hubPolicy();
+			if (rest.includes("--hub") && !policy)
+				die(
+					'no consult federation policy — write ~/.claude/local-llm/consult-federation.json {"enabled":true,"hub":"<label>"} first',
+				);
+			if (rest.includes("--hub") && privateDomain)
+				die("scoped consults never leave the machine");
+			const canHub = policy?.enabled && !privateDomain;
+			if (canHub && hubCooldownActive(db, idemKey)) {
+				console.log(dim(`hub leg skipped — cooldown active on this question`));
+			}
+			if (canHub && !hubCooldownActive(db, idemKey)) {
+				const join = joinPendingHubConsult(db, idemKey, 600_000);
+				if (join !== null) {
+					console.log(`PENDING C${join} joined hub consult`);
+					return;
+				}
+				const env: ConsultEnvelope = {
+					consultId: "",
+					traceId,
+					idempotencyKey: idemKey,
+					origin: as,
+					project: projectIdentity(),
+					scope,
+					maxHops: policy.maxHops ?? 1,
+					visitedHubs: [],
+				};
+				const verdict = await attemptHubLeg(db, env, question, policy, link);
+				if (verdict.handled) {
+					if (verdict.answer !== null)
+						console.log(
+							`ANSWERED C${verdict.cid} via hub ${verdict.hub}: ${verdict.answer}`,
+						);
+					return;
+				}
+				console.log(
+					red(`hub ${verdict.hub ?? ""} degraded: ${verdict.why ?? "unknown"}`),
+				);
+			}
 			// W923: a refused consult still events (the W909 item link rides in
 			// the payload) — invisible consults made the report CONSULT all-N.
 			db.query(
@@ -127,6 +208,11 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			r.lastInsertRowid,
 			kbHit.id,
 		);
+		stampFederation(Number(r.lastInsertRowid), "KB");
+		recordCitations(db, Number(r.lastInsertRowid), [
+			{ kind: "kb", refId: kbHit.id, sourceRef: null, sourceHash: null },
+		]);
+		recordRouteStage(db, Number(r.lastInsertRowid), "kb");
 		const expertLive = !!db
 			.query(
 				"SELECT 1 FROM sessions WHERE sid = ? AND project = ? AND state = 'RUNNING'",
@@ -190,6 +276,16 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
 		).run(Date.now(), as, scope, payload, as);
+		stampFederation(Number(r.lastInsertRowid), "FACT");
+		recordCitations(db, Number(r.lastInsertRowid), [
+			{
+				kind: "fact",
+				refId: factHit.id,
+				sourceRef: factHit.source_ref ?? null,
+				sourceHash: factHit.source_hash ?? null,
+			},
+		]);
+		recordRouteStage(db, Number(r.lastInsertRowid), "fact");
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from a verified fleet fact ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}`,
 		);
@@ -218,6 +314,8 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				Date.now(),
 				consultDeadline(Date.now()),
 			);
+		stampFederation(Number(r.lastInsertRowid), "OPEN");
+		recordRouteStage(db, Number(r.lastInsertRowid), "expert");
 		const cid = `C${r.lastInsertRowid}`;
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
@@ -275,7 +373,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const feedback = arg("--feedback");
 	if (feedback) {
 		if (c.asker_sid !== as) die("only the asker can record a consult outcome");
-		if (!["ANSWERED", "KB"].includes(c.state))
+		if (!["ANSWERED", "KB", "FACT"].includes(c.state))
 			die(`${cid} is ${c.state}; no candidate to verify`);
 		if (!["resolved", "failed", "unused"].includes(feedback))
 			die("feedback must be resolved, failed or unused");
@@ -290,6 +388,40 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				"SELECT id FROM consult_kb WHERE consult_id = ? UNION SELECT kb_id AS id FROM consult_reuse WHERE consult_id = ? LIMIT 1",
 			)
 			.get(c.id, c.id) as { id: number } | undefined;
+		if (!kb && c.state === "FACT") {
+			// W934.2.1.2 stale feedback: a plane-answered FACT consult cites its
+			// knowledge IDs; failed feedback demotes them (the factDemoted
+			// predicate), resolved feedback is an audit-only confirmation.
+			const cites = citationsFor(db, c.id).filter((x) => x.kind === "fact");
+			if (!cites.length) die("no stored candidate for this consult");
+			db.transaction(() => {
+				db.query("INSERT INTO consult_feedback VALUES (?, ?, ?, ?, ?)").run(
+					c.id,
+					feedback,
+					evidence,
+					as,
+					Date.now(),
+				);
+				db.query(
+					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.feedback', ?, ?, ?)",
+				).run(
+					Date.now(),
+					as,
+					c.scope,
+					JSON.stringify({ consult: cid, outcome: feedback, evidence }),
+					c.expert_sid,
+				);
+			})();
+			if (feedback === "failed") {
+				const stale = applyStaleFeedback(db, c.id);
+				console.log(
+					`FEEDBACK ${cid} failed — ${stale.demoted.length} fact citation(s) demoted`,
+				);
+			} else {
+				console.log(`FEEDBACK ${cid} ${feedback}`);
+			}
+			return;
+		}
 		if (!kb) die("no stored candidate for this consult");
 		if (feedback === "resolved") {
 			const trust = db
