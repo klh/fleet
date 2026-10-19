@@ -47,9 +47,9 @@ import {
 	payloadOf,
 	projOf,
 	signalMaps,
-	type TaskSignal,
 	subscribeTail,
 	syncDecisions,
+	type TaskSignal,
 	transcriptTail,
 	unblockedBy,
 } from "./lanes.ts";

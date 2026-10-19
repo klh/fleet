@@ -2,8 +2,9 @@
 // insert into the governor events table for every lane.* / plane.* event
 // the tick raises (stall-watch, rogue sweep). Failures are swallowed —
 // events are advisory, the tick must survive.
-import { openStore } from "../govdb.ts";
+
 import type { GovernorStore } from "../govdb.ts";
+import { openStore } from "../govdb.ts";
 
 export function emitLoopEvent(
 	kind: string,
