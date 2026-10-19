@@ -37,6 +37,28 @@ export const reportLetter = (state: string): string => {
 	return "R"; // CLAIMED/RUNNING — riding
 };
 
+/** W964 ST-bucket rank: R riding < Q queued < F failed < D done. */
+const BUCKET_RANK: Record<string, number> = { R: 0, Q: 1, F: 2, D: 3 };
+export const reportBucketRank = (state: string): number =>
+	BUCKET_RANK[reportLetter(state)] ?? 9;
+
+/** W964 numeric-aware id compare: digit runs compare numerically — W9 < W49
+ *  < W953; W688.4 < W688.7.1 — non-digit runs lexically, prefix < extension. */
+export const compareItemIds = (a: string, b: string): number => {
+	const ra = a.match(/\d+|\D+/g) ?? [];
+	const rb = b.match(/\d+|\D+/g) ?? [];
+	for (let i = 0; i < Math.min(ra.length, rb.length); i++) {
+		if (ra[i] === rb[i]) continue;
+		if (/^\d/.test(ra[i]) && /^\d/.test(rb[i])) {
+			const d = BigInt(ra[i]) - BigInt(rb[i]);
+			if (d !== 0n) return d < 0n ? -1 : 1;
+			continue;
+		}
+		return ra[i] < rb[i] ? -1 : 1;
+	}
+	return ra.length - rb.length;
+};
+
 /** --done-window duration: `45m | 2h | 2d` (s/m/h/d), capped at 30d. */
 export const parseReportWindow = (raw: string): number | null => {
 	const m = /^(\d+)([smhd])$/.exec(raw);
@@ -141,8 +163,9 @@ export const toReportRows = (
 type Item = Record<string, string | number | null>;
 
 /** Table rows: `--ids` resolve strictly (misses land in `missing` — the
- *  caller dies loud, never a silent skip); otherwise riding + queued +
- *  done-within-window, most recently touched first. */
+ *  caller dies loud, never a silent skip) and keep caller order; otherwise
+ *  riding + queued + done-within-window in ST-bucket order (R/Q/F/D), id
+ *  ascending within each bucket — byte-stable across spend ticks (W964). */
 export const reportRows = (
 	db: Database,
 	project: string,
@@ -183,8 +206,14 @@ export const reportRows = (
 				 ORDER BY updated_at DESC LIMIT ?`,
 			)
 			.all(project, now - window, DONE_ROW_CAP) as Item[];
+		// W964 stable order: ST-bucket first, id ascending inside each — a
+		// spend tick (updated_at bump) never reshuffles rows. The done query
+		// above still decides WHICH done rows appear (recency cap).
 		items = [...actives, ...dones].sort(
-			(a, b) => Number(b.updated_at) - Number(a.updated_at),
+			(a, b) =>
+				reportBucketRank(String(a.state)) -
+					reportBucketRank(String(b.state)) ||
+				compareItemIds(String(a.id), String(b.id)),
 		);
 	}
 	return {
