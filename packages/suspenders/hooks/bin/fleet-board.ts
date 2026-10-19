@@ -35,7 +35,10 @@ import { getIamGate, setIamGate } from "../board/iam-seam.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
-import { handleActions } from "../board/routes-actions.ts";
+import {
+	handleActions,
+	recoverPendingAdvice,
+} from "../board/routes-actions.ts";
 import { handleConsultIngress } from "../board/routes-consult.ts";
 import { handleConsole } from "../board/routes-console.ts";
 import { handleData } from "../board/routes-data.ts";
@@ -69,6 +72,7 @@ const idb = openIdentity(); // W156/W359: /console/hub token plane rides identit
 ensureLaneObservations(db);
 ensureLaneReadModel(db);
 recoverDecisionEvals();
+recoverPendingAdvice();
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
 

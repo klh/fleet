@@ -103,7 +103,8 @@ the board records an error if the worker exits without one. Transport
 failures back off 2s/4s/8s, with three automatic retries; a terminal
 advice or error fact ends the spinner.
 The decisions feed ignores a leftover request stamp when a terminal advice or
-error fact already exists.
+error fact already exists. On board startup, unfinished advice requests whose
+worker has died are queued again; live workers are left to finish.
 
 POST /api/decisions/<id>/evaluate returns 202 with `startedAt` immediately.
 GET /api/decisions/<id>/evals returns saved evaluations and a `status`
