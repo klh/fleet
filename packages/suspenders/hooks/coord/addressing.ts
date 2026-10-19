@@ -364,4 +364,9 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	console.log(
 		`${green("✓")} ${dim(`message queued #${id} → ${target.label} @${target.sid.slice(0, 8)}`)}`,
 	);
+	console.log(
+		dim(
+			"A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
+		),
+	);
 }

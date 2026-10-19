@@ -121,9 +121,9 @@ export function stopGate(hook: HookInput): never {
 	if (incomplete) feedback(incomplete);
 
 	// W516 turn-boundary drain (the amp M3 lift): operator direct-messages
-	// queue while the lane works and are processed HERE, at the turn
-	// boundary, instead of injected mid-turn. laneCompletion stays first —
-	// completion enforcement outranks inbox draining. No lane context or no
+	// queue while the agent works and are processed HERE, at the turn
+	// boundary, including interactive sessions. laneCompletion stays first —
+	// completion enforcement outranks inbox draining. No session identity or
 	// control plane → nothing to drain, the gate allows.
 	const drainCwd = hook.cwd ?? "";
 	if (drainCwd && existsSync(drainCwd)) {
