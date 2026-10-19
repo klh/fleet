@@ -79,6 +79,18 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: document.createElement only inside web components (import lit / @customElement). ${F}\n`,
 				};
+			// W869: the recurring lint classes (AGENTS.md "recurring offenders")
+			// refuse the write deterministically — qlty-independent, so the
+			// refusal survives a gate process without qlty on PATH. Agents emit
+			// them clean when the refusal is at write time, not at stop/merge.
+			const promoted = promotedClassViolation(F, payload);
+			if (promoted) {
+				refreshLeaseHash(F); // W58: bless before a block, next edit re-claims
+				return {
+					kind: "block",
+					err: `W869 PROMOTED CLASS (write-time block): ${promoted}\nFix this now before continuing.\n`,
+				};
+			}
 		}
 	}
 
@@ -272,6 +284,45 @@ export function govdbImportViolation(
 		msg: "imports the DB directly — store owners only",
 		soft: false,
 	};
+}
+
+// ---- W869 promoted lint classes: deterministic write-time refusal ----------
+// The two recurring offenders AGENTS.md names (noNonNullAssertion,
+// useLiteralKeys) no longer wait for a completion that never runs outside
+// worktrees: the emitted payload itself is checked, qlty or no qlty.
+// Regexes match the shapes biome flags — postfix `!` before member/call
+// access; quote-keyed computed access/keys whose key is a valid identifier
+// (biome's own scope — numeric ["0"] and dashed ["a-b"] keys never fire).
+
+const IDENT_KEY = /^[A-Za-z_$][\w$]*$/;
+const NON_NULL = /[\w$)\]]!(?=[.([])/;
+const LIT_ACCESS = /[\w$)\]]\s*\[\s*(['"])((?:\\.|(?!\1).)*)\1\s*\]/;
+const LIT_KEY = /[,{]\s*\[\s*(['"])((?:\\.|(?!\1).)*)\1\s*\]\s*:/;
+
+/** First promoted-class violation, `rule — F:line: <line text>`, else null. */
+export function promotedClassViolation(
+	F: string,
+	payload: string,
+): string | null {
+	if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(F)) return null;
+	const rows = payload.split("\n");
+	for (let i = 0; i < rows.length; i++) {
+		const line = rows[i];
+		if (NON_NULL.test(line))
+			return `biome:lint/style/noNonNullAssertion — non-null assertion at ${F}:${i + 1}: ${line.trim().slice(0, 160)}`;
+		// `x as ["a"]` is a type-position tuple, not member access
+		const m = LIT_ACCESS.exec(line);
+		if (m) {
+			const before = line.slice(0, (m.index ?? 0) + 1);
+			const word = /([A-Za-z_$][\w$]*)\s*$/.exec(before)?.[1] ?? "";
+			if (word !== "as" && word !== "satisfies" && IDENT_KEY.test(m[2]))
+				return `biome:lint/complexity/useLiteralKeys — computed string-key access at ${F}:${i + 1}: ${line.trim().slice(0, 160)}`;
+		}
+		const k = LIT_KEY.exec(line);
+		if (k && IDENT_KEY.test(k[2]))
+			return `biome:lint/complexity/useLiteralKeys — computed string-key object property at ${F}:${i + 1}: ${line.trim().slice(0, 160)}`;
+	}
+	return null;
 }
 
 /** `qlty fmt` in place. Returns a note when the file changed, null otherwise.

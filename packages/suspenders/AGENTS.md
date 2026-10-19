@@ -110,6 +110,15 @@ string `+ "\n"` concat (useTemplate), comma operator, unused vars/imports,
 use-before-declaration. biome owns code formatting; prettier owns markdown
 only — never enable both on code (they deadlock).
 
+**Quality timing (W869, owner GO 2026-10-19):** useLiteralKeys and
+noNonNullAssertion are WRITE-TIME blocking — `promotedClassViolation` in
+hooks/gates/files.ts refuses the payload even without qlty on PATH. A claimed
+lane's edit outside its registered dispatch worktree (`.worktrees/<item>`)
+denies PRE-write (`locationVsClaim` in hooks/gates/governor.ts) — lanes never
+dirty the shared checkout. The merge ladder auto-fixes whatever still lands
+(`qltyFixMergedFiles` in hooks/lib/fleet-loop/merge.ts: `qlty check --fix` +
+the cached biome binary, committed on main).
+
 ## 1500-Line Hard Limit
 
 Any .ts (or equivalent) that grows past **1500 lines MUST be decomposed**:
