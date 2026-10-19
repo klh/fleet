@@ -1,0 +1,19 @@
+{
+	"version": "v-w854",
+	"auth": { "required": false },
+	"hubs": {
+		"w854": {
+			"host": "127.0.0.1",
+			"buckle_port": 4101,
+			"deploy": { "dir": "/tmp/w854-render" },
+			"mdns": {
+				"port": 4101,
+				"addr": "192.0.2.50",
+				"hostname": "nas-hub",
+				"interval_ms": 15000,
+				"health_port": 4114,
+				"sidecar_port": 4115
+			}
+		}
+	}
+}

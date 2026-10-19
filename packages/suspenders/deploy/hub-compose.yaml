@@ -579,6 +579,75 @@ services:
       retries: 3
       start_period: 15s
 
+  # W854: mDNS advertisement — the hub announces ITSELF on the LAN
+  # (_klh-hub._tcp, instance = HUB_NAME). hub-locate's dns-sd discovery leg
+  # browses this exact service type; until now the browse came back EMPTY.
+  # Pure-TS announcer on the pinned bun image (no new container image, no
+  # native deps); host networking puts the announcements on the LAN
+  # interface. The announcer serves its real state on HUB_MDNS_HEALTH_PORT;
+  # compose health hits the OUTSIDE-PROCESS mdns-health sidecar (owner law).
+  # An undetectable/undeclared HUB_MDNS_ADDR skips the A record — the hub
+  # is never advertised as 127.0.0.1 to the LAN.
+  mdns-announce:
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-mdns-announce
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 128
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      buckle-health:
+        condition: service_healthy
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/mdns/announce.ts
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HOME: /tmp
+      HUB_MDNS_LABEL: ${HUB_NAME:-desktop}
+      HUB_MDNS_PORT: ${HUB_MDNS_PORT:-${HUB_BUCKLE_PORT:-4111}}
+      HUB_MDNS_ADDR: ${HUB_MDNS_ADDR:-}
+      HUB_MDNS_HOSTNAME: ${HUB_MDNS_HOSTNAME:-}
+      HUB_MDNS_INTERVAL_MS: ${HUB_MDNS_INTERVAL_MS:-}
+      HUB_MDNS_HEALTH_PORT: ${HUB_MDNS_HEALTH_PORT:-4114}
+
+  # The verdict about the announcer comes from a process outside it —
+  # probe.ts polls the announcer's self-report over the wire and serves the
+  # degrade-on-miss verdict; compose health hits THIS sidecar.
+  mdns-health:
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-mdns-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 128
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      mdns-announce:
+        condition: service_started
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_MDNS_HEALTH_PORT:-4114}/healthz --listen ${HUB_MDNS_SIDECAR_PORT:-4115}
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_MDNS_SIDECAR_PORT: ${HUB_MDNS_SIDECAR_PORT:-4115}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_MDNS_SIDECAR_PORT ?? "4115") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # W362 peer policy propagation — the hub pulls each declared peer's
   # /federation/policy-manifest (labels from HUB_PEERS, hosts/ports/keys
   # resolved over the network at runtime). The content-addressed manifest

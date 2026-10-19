@@ -57,6 +57,23 @@ front every 60s and serves the verdict on its own port (`/healthz`,
   health still hits `buckle-health` — a dead upstream degrades the verdict,
   it never restart-loops the gate.
 
+## mDNS advertisement (W854)
+
+Every hub announces itself on the LAN as `_klh-hub._tcp` (instance = the
+hub's label): the `mdns-announce` service runs the pure-TS announcer
+(`deploy/mdns/announce.ts`) on the pinned bun image, host-networked, after
+`buckle-health` proves the gate healthy. This is what hub-locate's dns-sd
+discovery leg (`resolveHub` step 4) browses — until W854 the browse came
+back EMPTY and `<label>.local` resolved only via per-machine loopback
+mappings. Knobs live in the hub's stack.yaml `mdns:` block (`port`, `addr`,
+`hostname`, `interval_ms`, `health_port`, `sidecar_port`; undeclared =
+template defaults; the advertised port defaults to `buckle_port`). The
+announcer serves its real state on `:4114/healthz`; the OUTSIDE-PROCESS
+`mdns-health` sidecar polls that and serves the verdict on `:4115` —
+compose health hits the sidecar, never the announcer (owner law). An
+undetectable/undeclared `addr` SKIPS the A record — the hub is never
+advertised as 127.0.0.1. `hubctl status` probes the mdns-health verdict.
+
 ## Source pinning (mono deploy, W422.7)
 
 Hubs build from ONE pinned Fleet monorepo checkout, not per-package repos:

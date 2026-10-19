@@ -64,6 +64,17 @@ hubs:
       docker: /usr/local/bin/docker
     secrets:
       buckle_root_key: /volume1/docker/hub/buckle/buckle.env
+    # W854 mDNS advertisement (_klh-hub._tcp) — all knobs optional;
+    # undeclared = the compose template defaults (port ← buckle_port,
+    # addr auto-detects the primary LAN IPv4, hostname = normalized label).
+    # An undetectable addr SKIPS the A record — never advertise 127.0.0.1.
+    mdns:
+      port: 4101
+      # addr: 192.0.2.50 # pin when auto-detect picks the wrong interface
+      hostname: nas-hub
+      interval_ms: 15000
+      health_port: 4114
+      sidecar_port: 4115
 
 # Enterprise layer (the overlay knobs, materialized per hub):
 auth:
