@@ -472,4 +472,76 @@ describe("W57 orchestrate box", () => {
 		db.close();
 		expect(row.n).toBeGreaterThanOrEqual(1);
 	});
+	test("preview, model, and registration share a trace visible on parent and child", async () => {
+		const goal = "Trace fixture: propose two independent documentation edits";
+		const preview = await postO("/api/orchestrate/preview", {
+			project: MY_PROJ,
+			goal,
+		});
+		expect(preview.status).toBe(200);
+		expect(preview.json.traceId).toMatch(/^[0-9a-f]{32}$/);
+		const proposed = await postO("/api/orchestrate", {
+			project: MY_PROJ,
+			goal,
+			previewId: preview.json.previewId,
+		});
+		expect(proposed.status).toBe(200);
+		expect(proposed.json.traceId).toBe(preview.json.traceId);
+		const registered = await postO("/api/orchestrate/register", {
+			project: MY_PROJ,
+			title: proposed.json.proposal.title,
+			children: proposed.json.proposal.children,
+			traceId: proposed.json.traceId,
+		});
+		expect(registered.status).toBe(200);
+		const parentId = registered.json.plan as string;
+		const childId = registered.json.children[0].id as string;
+		for (const id of [parentId, childId]) {
+			const detail = await (
+				await fetch(
+					`${OB}/api/task?project=${encodeURIComponent(MY_PROJ)}&id=${id}`,
+				)
+			).json();
+			expect(detail.trace.map((s: { phase: string }) => s.phase)).toEqual(
+				expect.arrayContaining([
+					"request.accepted",
+					"prompt.ready",
+					"model.completed",
+					"work.registered",
+				]),
+			);
+			expect(
+				detail.trace.every(
+					(s: { traceId: string }) => s.traceId === proposed.json.traceId,
+				),
+			).toBe(true);
+		}
+	});
+	test("task timeline excludes projectless events with a colliding work id", async () => {
+		const reg = await postO("/api/orchestrate/register", {
+			project: MY_PROJ,
+			title: "timeline isolation",
+			children: [{ title: "one" }, { title: "two" }],
+		});
+		expect(reg.status).toBe(200);
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		db.query(
+			"INSERT INTO events (ts,source,kind,scope,payload) VALUES (?,'test','ADVICE',?,?)",
+		).run(
+			Date.now(),
+			reg.json.plan,
+			JSON.stringify({ note: "unrelated projectless event" }),
+		);
+		db.close();
+		const detail = await (
+			await fetch(
+				`${OB}/api/task?project=${encodeURIComponent(MY_PROJ)}&id=${reg.json.plan}`,
+			)
+		).json();
+		expect(
+			detail.events.some(
+				(e: { note?: string }) => e.note === "unrelated projectless event",
+			),
+		).toBe(false);
+	});
 });

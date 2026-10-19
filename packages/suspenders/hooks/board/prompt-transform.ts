@@ -198,6 +198,7 @@ export async function enhancePrompt(
 		wire?: "openai" | "anthropic";
 		fetcher?: Fetcher;
 		timeoutMs?: number;
+		traceparent?: string;
 	},
 ): Promise<EnhanceResult> {
 	const t0 = Date.now();
@@ -217,6 +218,7 @@ export async function enhancePrompt(
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
+				...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
 				// anthropic-version rides the anthropic wire only; direct tiers
 				// are loopback + keyless (no credential on the openai wire)
 				...(openai ? {} : { "anthropic-version": "2023-06-01" }),
@@ -413,6 +415,7 @@ export function previewView(p: PromptPlan): Record<string, unknown> {
 export interface HeldPlan {
 	project: string;
 	goal: string;
+	traceId: string;
 	final: string;
 	ctx: string;
 	at: number;

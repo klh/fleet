@@ -1,2 +1,1 @@
-// Vendored from the Lit monorepo (lit, lit-html, lit-element, @lit/reactive-element, @lit-labs/ssr-dom-shim) — BSD-3-Clause License (https://github.com/lit/lit) — bundled/minified offline for LAN serving; full text in upstream LICENSE files.
 function n(e,r=Date.now()){return!!e&&Number.isFinite(e.observedAt)&&Number.isFinite(e.expiresAt)&&e.observedAt<=r+5000&&e.expiresAt>e.observedAt&&r<e.expiresAt}export{n};

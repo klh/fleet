@@ -1,5 +1,5 @@
 // hooks/lib/govdb-open.ts — openGovernorDb: the governor.db schema and
-// its explicit migration ladder (v1→v15), plus the legacy JSON→SQL
+// its explicit migration ladder (v1→v18), plus the legacy JSON→SQL
 // registry migration. W624 split: knowledge steps live in
 // govdb-knowledge.ts, the delta-trigger template in govdb-deltas.ts.
 import type { Database } from "bun:sqlite";
@@ -399,6 +399,17 @@ export function openGovernorDb(): Database {
 	// spoke-plane file). LAST, so every step above runs on the pre-split
 	// shapes it was written against (the v13 teams heal reads teams).
 	if (uv < 17) migrateIdentitySplit(db, REG());
+	// v18 — Board request traces: bounded, content-free model/service hops.
+	// Work ids are scoped by project, and children inherit the parent trace.
+	if (uv < 18) {
+		db.run(
+			"CREATE TABLE IF NOT EXISTS orchestrate_traces (trace_id TEXT NOT NULL, seq INTEGER NOT NULL, project TEXT NOT NULL, work_id TEXT, at INTEGER NOT NULL, phase TEXT NOT NULL, service TEXT NOT NULL, status TEXT NOT NULL, model TEXT, endpoint TEXT, duration_ms INTEGER, input_tokens INTEGER, output_tokens INTEGER, PRIMARY KEY(trace_id,seq))",
+		);
+		db.run(
+			"CREATE INDEX IF NOT EXISTS orchestrate_traces_work ON orchestrate_traces(project,work_id,at)",
+		);
+		db.run("PRAGMA user_version = 18");
+	}
 	migrateJSON(db);
 	return db;
 }

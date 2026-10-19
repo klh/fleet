@@ -6,13 +6,13 @@ export const ORCH = String.raw`// --- W57 orchestrate box: LLM proposes a plan +
 // goal; the human registers it as a plan-gated work split (POST
 // /api/orchestrate → /api/orchestrate/register). Target = the global project
 // filter; the proposal is read-only until registered.
-var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '' };
+var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '', traceId: '' };
 var orchDraftKey = 'fleet.orchestrate.draft.v1';
 function orchSaveDraft(){
   try {
     var goal = byId('orchGoal').value;
     if (!goal.trim() && !orch.prop) { localStorage.removeItem(orchDraftKey); return; }
-    localStorage.setItem(orchDraftKey, JSON.stringify({ goal: goal, project: orch.proj || orchProject(), proposal: orch.prop, model: orch.model, ms: orch.ms }));
+    localStorage.setItem(orchDraftKey, JSON.stringify({ goal: goal, project: orch.proj || orchProject(), proposal: orch.prop, model: orch.model, ms: orch.ms, traceId: orch.traceId }));
   } catch (e) { /* storage may be disabled; orchestration still works */ }
 }
 function orchRestoreDraft(){
@@ -23,7 +23,7 @@ function orchRestoreDraft(){
     if (!saved || typeof saved.goal !== 'string') return;
     byId('orchGoal').value = saved.goal;
     if (saved.proposal && typeof saved.proposal.title === 'string' && Array.isArray(saved.proposal.children) && typeof saved.project === 'string') {
-      orch.prop = saved.proposal; orch.proj = saved.project; orch.model = saved.model || ''; orch.ms = saved.ms || 0;
+      orch.prop = saved.proposal; orch.proj = saved.project; orch.model = saved.model || ''; orch.ms = saved.ms || 0; orch.traceId = saved.traceId || '';
     }
     renderOrch();
   } catch (e) { /* an invalid draft does not block the board */ }
@@ -219,7 +219,7 @@ function orchSend(proj, goal, previewId){
       j = j || {};
       orch.busy = false;
       if (j.ok) {
-        orch.prop = j.proposal; orch.model = j.model || ''; orch.ms = j.ms || 0; orch.proj = proj;
+        orch.prop = j.proposal; orch.model = j.model || ''; orch.ms = j.ms || 0; orch.proj = proj; orch.traceId = j.traceId || '';
         orchClearFiles();
         orchSaveDraft();
       } else {
@@ -232,11 +232,11 @@ function orchSend(proj, goal, previewId){
 function orchReg(){
   if (!orch.prop || orch.busy || orch.regBusy) return;
   orch.regBusy = true;
-  postJSON('/api/orchestrate/register', { project: orch.proj, title: orch.prop.title, children: orch.prop.children.map(function(c){ return { title: c.title }; }) }).then(function(j){
+  postJSON('/api/orchestrate/register', { project: orch.proj, title: orch.prop.title, children: orch.prop.children.map(function(c){ return { title: c.title }; }), traceId: orch.traceId }).then(function(j){
     orch.regBusy = false;
     if (j && j.ok) {
       toast('registered ' + j.plan + ' → ' + (j.children || []).length + ' children');
-      orch.prop = null; byId('orchGoal').value = '';
+      orch.prop = null; orch.traceId = ''; byId('orchGoal').value = '';
       orchSaveDraft();
       orchClearFiles();
       var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear();
@@ -247,7 +247,7 @@ function orchReg(){
     renderOrch();
   });
 }
-function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; orchSaveDraft(); renderOrch(); }
+function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; orch.traceId = ''; orchSaveDraft(); renderOrch(); }
 (function(){
   // W875: expand on click only (native summary toggle, no hover); the minus
   // control collapses. Hover-open/leave behavior removed per owner 2026-10-19.

@@ -776,6 +776,15 @@ function renderDrawer(){
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';
   if (task.err) html += '<div class="derr">refresh failed — ' + esc(String(task.err).slice(0, 120)) + '</div>';
   sigSet(body, String(task.okAt) + '|' + (task.err || ''), html);
+  if (Array.isArray(d.trace) && d.trace.length) {
+    var traceHost = body.querySelector('klh-task-trace') || document.createElement('klh-task-trace');
+    traceHost.trace = d.trace;
+    if (!traceHost.isConnected) {
+      var timeline = body.querySelector('.feed:nth-of-type(3)');
+      if (timeline) body.insertBefore(traceHost, timeline);
+      else body.appendChild(traceHost);
+    }
+  }
   // reason draft: restore focus + caret after the re-render
   var nr = byId('acancel');
   if (nr && keepReason) {
