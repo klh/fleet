@@ -24,17 +24,27 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+	controllerWatchBoundary,
+	currentControllerIdentity,
+} from "../../scripts/lib/controller-fence.ts";
+import { broadcastNote } from "../coord/bus.ts";
+import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
-import { createRuntime } from "../lib/fleet-loop/runtime.ts";
-import { createRetire } from "../lib/fleet-loop/retire.ts";
-import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
-import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
-import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
-import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
-import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
-import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
+import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
+import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
+import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
+import { createRetire } from "../lib/fleet-loop/retire.ts";
+import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
+import { createRuntime } from "../lib/fleet-loop/runtime.ts";
+import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
+import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
 import { openStore, projectIdentity } from "../lib/govdb.ts";
+// W641: the ladder's govdb lease gate — shared flush predicate, one source
+import { itemClaimOf } from "../lib/ladder-lease.ts";
+import { laneProcessIdentity } from "../lib/lane-liveness.ts";
+import { flushOnDoneWait } from "../lib/merge-on-done.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
 // dispatch-next reads once per invocation).
 import {
@@ -43,16 +53,6 @@ import {
 	readPosture,
 	writePosture,
 } from "../lib/plaid.ts";
-// W641: the ladder's govdb lease gate — shared flush predicate, one source
-import { itemClaimOf } from "../lib/ladder-lease.ts";
-import { flushOnDoneWait } from "../lib/merge-on-done.ts";
-import { laneProcessIdentity } from "../lib/lane-liveness.ts";
-import { wisdomSweep } from "../coord/wisdom.ts";
-import { broadcastNote } from "../coord/bus.ts";
-import {
-	controllerWatchBoundary,
-	currentControllerIdentity,
-} from "../../scripts/lib/controller-fence.ts";
 
 const config = parseLoopConfig(process.argv.slice(2), import.meta.dir);
 const {

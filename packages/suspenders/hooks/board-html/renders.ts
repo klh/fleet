@@ -1,12 +1,13 @@
 // hooks/board-html/renders.ts — conn/fleet/llm/claims/done/events renders (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+
+import { mergeReadyWhy } from "../lib/lane-git.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,
 	selectGovernorLanes,
 } from "./fleet-lane-view.ts";
-import { mergeReadyWhy } from "../lib/lane-git.ts";
 
 export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
 function dualStamp(ms){ // W902: UTC Z + viewer-local twin — hub clocks drift

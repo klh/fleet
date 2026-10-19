@@ -54,16 +54,16 @@ import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 import {
 	applyLaneAttribution,
+	coordCliFor,
+	laneAuditFor,
 	laneEnv,
 	probeBuckleFront,
+	recreateWorktreeFor,
 	residueOf,
 	run as runShared,
 	sh as shShared,
 	spawnClaude,
 	workCliFor,
-	coordCliFor,
-	recreateWorktreeFor,
-	laneAuditFor,
 } from "./lib/lane.ts";
 import {
 	ensureLaneKey,
@@ -87,13 +87,6 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
-// W911: the bounded plaid posture — the ONE override of the execPick chain.
-import {
-	plaidDispatch,
-	postureWidth,
-	readPosture,
-	recordPlaidTrace,
-} from "../hooks/lib/plaid.ts";
 import {
 	cvMap,
 	executorCv,
@@ -114,6 +107,13 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
+// W911: the bounded plaid posture — the ONE override of the execPick chain.
+import {
+	plaidDispatch,
+	postureWidth,
+	readPosture,
+	recordPlaidTrace,
+} from "../hooks/lib/plaid.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -226,9 +226,11 @@ const TARGET = Number(val("--target") ?? 6);
 const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
 const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
 	runShared(cmd, cwd);
+
 // W349 residue probe: git-state dirt the lane did NOT make — hoisted to
 // lib/lane.ts (W911 1500-law decomposition); re-exported for importers.
 export { residueOf };
+
 // W349: retire+recreate a wrong-branch leftover — hoisted to lib/lane.ts
 // (W911 1500-law decomposition).
 const recreateWorktree = (item: string): string | null =>

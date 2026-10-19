@@ -19,10 +19,10 @@
 // share redistributes WITHIN its pool in table order.
 // This replaces the parked/W503 unbounded fan-out semantics.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import type { GovernorStore } from "./govdb.ts";
 import type { ProviderPenalty } from "./exec-quota.ts";
 import { quotaProviderPenalty } from "./exec-quota.ts";
 import { adapterFor } from "./executors/registry.ts";
+import type { GovernorStore } from "./govdb.ts";
 
 // ── posture file (.fleet/posture) ─────────────────────────────────────────
 

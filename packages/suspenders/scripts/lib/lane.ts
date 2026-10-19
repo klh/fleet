@@ -10,8 +10,8 @@ import {
 	loadLaneRegistry,
 	mergeLaneRegistry,
 } from "../../hooks/lib/lane-registry.ts";
-import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 import { attachSubscribe } from "../../hooks/lib/subscribe-attach.ts";
+import { jobslabEnv, jobslabFor, jobslabPrefix } from "./jobslab.ts";
 
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
@@ -150,11 +150,13 @@ export const run = (
 	};
 };
 
-export { laneProcessIdentity as alive } from "../../hooks/lib/lane-liveness.ts";
 // ONE liveness surface (W494.1): the hooks/lib probe replaced lane.ts's
 // inline ps/lsof folk-magic copy (which matched /claude|codex/ comms only,
 // blind to copilot/grok/cline) — supervise rides the law surface now.
-export { worktreeLive } from "../../hooks/lib/lane-liveness.ts";
+export {
+	laneProcessIdentity as alive,
+	worktreeLive,
+} from "../../hooks/lib/lane-liveness.ts";
 
 export const lanesFileFor = laneRegistryFile;
 export const loadLanes = (fleet: string): Lane[] =>
@@ -223,6 +225,7 @@ export const applyLaneAttribution = (
 // claude adapter now; the local import feeds spawnClaude's default tail and
 // the re-export keeps existing importers stable.
 import { CLAUDE_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
+
 export { CLAUDE_ALLOWED_TOOLS as DEFAULT_ALLOWED_TOOLS } from "../../hooks/lib/executors/claude.ts";
 
 export const spawnClaude = (o: {

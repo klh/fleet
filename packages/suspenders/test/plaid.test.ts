@@ -5,11 +5,13 @@
 // stretch, overflow, cap, walled pool contributes zero), assignment
 // (least-loaded + ordinal ties + walled exclusion), facts roundtrip,
 // status shape.
-import { afterEach, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { GovernorStore } from "../hooks/lib/govdb.ts";
 import {
 	PLAID,
 	PLAID_ROUTES,
@@ -28,7 +30,6 @@ import {
 	setPlaidRouteSource,
 	writePosture,
 } from "../hooks/lib/plaid.ts";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
 
 const dbs: Database[] = [];
 const dirs: string[] = [];

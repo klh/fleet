@@ -14,8 +14,8 @@ import {
 	type ItemAttribution,
 	type ItemSpendPoint,
 	itemAttribution,
-	type LaneSpendRow,
 	itemSpendSeries,
+	type LaneSpendRow,
 	laneSpendRows,
 	resolveBuckleDb,
 } from "../lib/lane-spend.ts";
@@ -23,8 +23,8 @@ import { observation } from "../lib/observation.ts";
 // W911: the plaid UI-agreement view — one shape for dispatch + board.
 import { plaidStatus } from "../lib/plaid.ts";
 import { preferForProject } from "../lib/prefer.ts";
-import { utcZ } from "../lib/wallclock.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
+import { utcZ } from "../lib/wallclock.ts";
 import {
 	BIND,
 	db,
