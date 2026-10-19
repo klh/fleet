@@ -19,6 +19,7 @@ export const HOOK_ITEMS = [
 	"gate.ts",
 	"session-start.ts",
 	"session-end.ts",
+	"pre-compact.ts", // W253 checkpoint roll — the settings.json PreCompact face
 	"knowledgeworker.md",
 	"statusline.ts",
 	"subagent-statusline.ts",
