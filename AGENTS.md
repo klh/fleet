@@ -70,8 +70,12 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
 `work report` (verb) and `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts`
 (the installed face install.ts copies) render THE supervisor reply table
 (owner GO 2026-10-19): rows = riding + queued + last-5-done (or strict
-`--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT from each
-item's W776 attribution; fixed-width programmatic pads; ST letters
+`--ids w1,w2`); columns ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT/MODEL/
+EFFORT/CONSULT from each item's W776 attribution — MODEL = top model_group
+(`+` when several), EFFORT = the lane's effort level (dispatch pins
+SUSPENDERS_LANE_EFFORT into the per-lane 0600 settings; `work done` banks it
+into the work.done event), CONSULT Y/N = the lane banked knowledge or
+consulted (W909 event links); fixed-width programmatic pads; ST letters
 R = riding, Q = queued, D = done, F = failed (W891 colors them on the
 board). Supervisor ticks paste it verbatim — the session-start
 SUPERVISOR DEFAULT contract references the installed reporter and

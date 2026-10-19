@@ -12,9 +12,13 @@ Every supervisor/user-centric tick replies with the ONE standard table:
 
 Emit its output verbatim in a fenced block, headed by one status line
 (lanes live x/N, READY n, dispatched). Columns: ITEM/ST/TASK/TOKENS/
-CACHE/OUT-MIN/AGENT — CACHE is prompt-cache hit share (cached ÷ (fresh+
+CACHE/OUT-MIN/AGENT/MODEL/EFFORT/CONSULT — CACHE is prompt-cache hit share (cached ÷ (fresh+
 cached)), OUT/MIN is output tokens per agent-minute, AGENT is agent wall
-time. ST: R riding · Q queued · D done · F failed. Item ids double as
+time, MODEL is the top model_group by attributed tokens (`+` when several),
+EFFORT the lane's effort level (dispatch pins SUSPENDERS_LANE_EFFORT into
+the per-lane 0600 settings; `work done` banks it into the work.done event),
+CONSULT Y/N = the item's lane banked knowledge (knowledge-enqueue) or
+consulted (the event payloads carry the item link, W909). ST: R riding · Q queued · D done · F failed. Item ids double as
 `#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
 reporter computes the pads; prose tick lines are a regression.
 

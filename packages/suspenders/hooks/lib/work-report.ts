@@ -8,7 +8,11 @@
 // (FAILED; surfaces via --ids). W891 colors these letters on the board.
 
 import type { Database } from "bun:sqlite";
-import { type ItemAttribution, itemAttribution } from "./lane-spend.ts";
+import {
+	type GroupSpend,
+	type ItemAttribution,
+	itemAttribution,
+} from "./lane-spend.ts";
 
 /** One table row: graph state joined to its spend attribution. */
 export interface ReportRow {
@@ -19,6 +23,9 @@ export interface ReportRow {
 	cached: number;
 	out: number;
 	agentMs: number;
+	model: string; // W909: top model_group (+ when several), "" = none
+	effort: string | null; // W909: lane effort level (work.done payload)
+	consulted: boolean; // W909: lane banked knowledge or consulted
 }
 
 /** done → D, failed → F, riding (CLAIMED/RUNNING) → R, queued (READY) → Q. */
@@ -64,10 +71,53 @@ export const agentClock = (ms: number): string => {
 	return `${m}m`;
 };
 
+/** W909 MODEL cell: the top model_group by attributed tokens (ties break by
+ *  name), truncated at MODEL_CAP, "+" appended when several groups carry
+ *  spend; "" when none. */
+export const MODEL_CAP = 16;
+export const reportModel = (groups: Record<string, GroupSpend>): string => {
+	const ranked = Object.entries(groups)
+		.map(([g, s]) => [g, s.in + s.out + s.cacheR + s.cacheC] as const)
+		.filter(([, t]) => t > 0)
+		.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+	if (!ranked.length) return "";
+	return ranked[0][0].slice(0, MODEL_CAP) + (ranked.length > 1 ? "+" : "");
+};
+
+/** W909 CONSULT set: items whose lane banked knowledge (knowledge.enqueued)
+ *  or consulted (consult / consult.answer) — W909 stamps work+project into
+ *  those event payloads at record time; pre-W909 events carry no link and
+ *  honestly read N. */
+export const consultedItems = (
+	db: Database,
+	project: string,
+): Set<string> => {
+	try {
+		const rows = db
+			.query(
+				"SELECT payload FROM events WHERE kind IN ('consult','consult.answer','knowledge.enqueued') AND project = ?",
+			)
+			.all(project) as { payload: string | null }[];
+		const out = new Set<string>();
+		for (const r of rows) {
+			try {
+				const w = (
+					JSON.parse(r.payload ?? "{}") as { work?: string }
+				).work;
+				if (w) out.add(w);
+			} catch {}
+		}
+		return out;
+	} catch {
+		return new Set(); // no events table (tests) — fail soft
+	}
+};
+
 /** W892 row mapper: graph items ⋈ W776 attribution → table rows. */
 export const toReportRows = (
 	items: Array<Record<string, string | number | null>>,
 	attribution: Map<string, ItemAttribution>,
+	consulted?: Set<string>,
 ): ReportRow[] =>
 	items.map((it) => {
 		const a = attribution.get(String(it.id));
@@ -79,6 +129,9 @@ export const toReportRows = (
 			cached: a?.cached ?? 0,
 			out: a?.out ?? 0,
 			agentMs: a?.agentMs ?? 0,
+			model: reportModel(a?.groups ?? {}),
+			effort: a?.effort ?? null,
+			consulted: consulted?.has(String(it.id)) ?? false,
 		};
 	});
 
@@ -141,12 +194,24 @@ export const reportRows = (
 				now,
 				"ledger" in opts ? opts.ledger : undefined,
 			),
+			consultedItems(db, project),
 		),
 		missing,
 	};
 };
 
-const COLUMNS = ["ITEM", "ST", "TASK", "TOKENS", "CACHE", "OUT/MIN", "AGENT"];
+const COLUMNS = [
+	"ITEM",
+	"ST",
+	"TASK",
+	"TOKENS",
+	"CACHE",
+	"OUT/MIN",
+	"AGENT",
+	"MODEL",
+	"EFFORT",
+	"CONSULT",
+];
 
 /** W910: board deep-link base — env override, default the .local front
  *  (config-over-code: hosts live in machine conf, never code). */
@@ -181,8 +246,9 @@ export const osc8Link = (text: string, url: string): string =>
 export const TASK_CAP = 26;
 
 /** The prototype table (W892): fixed-width programmatic pads — ITEM/ST/TASK
- *  left, numeric columns and their headers right; separator = per-column
- *  dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for OUT/MIN. */
+ *  left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right; separator =
+ *  per-column dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for
+ *  OUT/MIN; no data = `-` for MODEL/EFFORT and N for CONSULT. */
 export const buildReportTable = (
 	rows: ReportRow[],
 	opts: ReportTableOpts = {},
@@ -198,6 +264,9 @@ export const buildReportTable = (
 			tokens > 0 ? `${Math.round((r.cached / tokens) * 100)}%` : "-",
 			`${r.agentMs > 0 ? Math.round(r.out / (r.agentMs / 60_000)) : 0}`,
 			agentClock(r.agentMs),
+			r.model || "-",
+			r.effort ?? "-",
+			r.consulted ? "Y" : "N",
 		];
 	});
 	const ids = rows.map((r) => r.id);

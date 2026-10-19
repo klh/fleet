@@ -241,6 +241,7 @@ export interface ItemAttribution {
 	requests: number;
 	wallMs: number; // first claim → last event (W15)
 	agentMs: number; // Σ closed claim segments (W15)
+	effort: string | null; // W909: lane effort level from the work.done payload
 	groups: Record<string, GroupSpend>;
 }
 
@@ -279,6 +280,7 @@ export function itemAttribution(
 			requests: s?.requests ?? 0,
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
+			effort: t?.effort ?? null,
 			groups: Object.fromEntries(s?.groups ?? []),
 		});
 	}

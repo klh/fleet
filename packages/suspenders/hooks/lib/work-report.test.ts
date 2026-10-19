@@ -6,11 +6,14 @@ import {
 	agentClock,
 	buildReportTable,
 	compactTokens,
+	consultedItems,
 	DEFAULT_DONE_WINDOW_MS,
 	DONE_ROW_CAP,
-	parseReportWindow,
 	type ReportRow,
 	reportLetter,
+	reportModel,
+	MODEL_CAP,
+	parseReportWindow,
 	reportRows,
 	reportTableLinkOpts,
 	TASK_CAP,
@@ -74,6 +77,9 @@ const proto = (p: Record<string, unknown>): ReportRow =>
 		cached: 0,
 		out: 0,
 		agentMs: 0,
+		model: "",
+		effort: null,
+		consulted: false,
 		...p,
 	}) as ReportRow;
 
@@ -134,15 +140,15 @@ describe("buildReportTable — the prototype golden", () => {
 		]);
 		expect(table).toBe(
 			[
-				"ITEM      ST  TASK                        TOKENS  CACHE  OUT/MIN   AGENT",
-				"--------  --  --------------------------  ------  -----  -------  ------",
-				"W887      R   board micro-metrics: spark    172k     0%     5750     12m",
-				"W843      D   Buckle: reconcile provider    8.8M    98%      833     36m",
-				"W552      R   Save governed IKEA recordi    5.2M    90%       76  21h37m",
-				"W688.4    R   Enterprise W235 packaging:     60k     0%      207   1h56m",
-				"W782      R   review: skipped/postponed/       -      -        0   1h30m",
-				"W179.2    Q   notification fan-out — NEE       -      -        0   9d22h",
-				"W688.7.1  D   hub serves the enterprise    17.1M    39%     3364     55m",
+				"ITEM      ST  TASK                        TOKENS  CACHE  OUT/MIN   AGENT  MODEL  EFFORT  CONSULT",
+				"--------  --  --------------------------  ------  -----  -------  ------  -----  ------  -------",
+				"W887      R   board micro-metrics: spark    172k     0%     5750     12m      -       -        N",
+				"W843      D   Buckle: reconcile provider    8.8M    98%      833     36m      -       -        N",
+				"W552      R   Save governed IKEA recordi    5.2M    90%       76  21h37m      -       -        N",
+				"W688.4    R   Enterprise W235 packaging:     60k     0%      207   1h56m      -       -        N",
+				"W782      R   review: skipped/postponed/       -      -        0   1h30m      -       -        N",
+				"W179.2    Q   notification fan-out — NEE       -      -        0   9d22h      -       -        N",
+				"W688.7.1  D   hub serves the enterprise    17.1M    39%     3364     55m      -       -        N",
 			].join("\n"),
 		);
 	});
@@ -294,6 +300,81 @@ describe("reportRows", () => {
 		).run(T0 - DEFAULT_DONE_WINDOW_MS - 60_000);
 		const { rows } = reportRows(d, "p", { now: T0, ledger: null });
 		expect(rows.map((r) => r.id)).toEqual([]);
+		d.close();
+	});
+});
+
+describe("W909 — MODEL / EFFORT / CONSULT columns", () => {
+	// minimal graph + bus: the schema reportRows/itemAttribution replay against
+	const db = (): Database => {
+		const d = new Database(":memory:");
+		d.run(
+			"CREATE TABLE work_items (project TEXT, id TEXT, state TEXT, title TEXT, updated_at INTEGER)",
+		);
+		d.run(
+			"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, kind TEXT, project TEXT, payload TEXT)",
+		);
+		return d;
+	};
+	test("reportModel: top group + '+' when several; tie → name; cap; none → ''", () => {
+		const g = (i: number, o: number) => ({
+			in: i,
+			out: o,
+			cacheR: 0,
+			cacheC: 0,
+			requests: 0,
+		});
+		expect(reportModel({})).toBe("");
+		expect(reportModel({ a: g(1, 2) })).toBe("a");
+		expect(reportModel({ a: g(9, 0), b: g(1, 1) })).toBe("a+");
+		expect(reportModel({ b: g(5, 0), a: g(0, 5) })).toBe("a+"); // tie → name asc
+		expect(reportModel({ a: g(0, 0) })).toBe(""); // zero-spend never renders
+		expect(MODEL_CAP).toBe(16);
+		expect(reportModel({ "averyveryverylongmodelname": g(1, 1) })).toBe(
+			"averyveryverylon",
+		);
+	});
+	test("consultedItems: consult + knowledge.enqueued links, other projects out", () => {
+		const d = db();
+		const ev = (kind: string, payload: unknown, project = "p"): void =>
+			d
+				.prepare(
+					"INSERT INTO events (ts, kind, project, payload) VALUES (?, ?, ?, ?)",
+				)
+				.run(T0, kind, project, JSON.stringify(payload));
+		ev("consult", { work: "W1", project: "p" });
+		ev("consult.answer", { consult: "C1", state: "KB", work: "W1" });
+		ev("knowledge.enqueued", { work: "W2", qid: 1 });
+		ev("knowledge.enqueued", { work: "W9", qid: 2 }, "other");
+		ev("broadcast", { work: "W3" });
+		expect([...consultedItems(d, "p")].sort()).toEqual(["W1", "W2"]);
+		d.close();
+	});
+	test("reportRows: effort + consulted flow through attribution replay", () => {
+		const d = db();
+		const item = (id: string, t: number): void =>
+			d
+				.prepare(
+					"INSERT INTO work_items (project, id, state, title, updated_at) VALUES ('p', ?, 'DONE', 't', ?)",
+				)
+				.run(id, t);
+		const ev = (ts: number, kind: string, payload: unknown): void =>
+			d
+				.prepare(
+					"INSERT INTO events (ts, kind, project, payload) VALUES (?, ?, 'p', ?)",
+				)
+				.run(ts, kind, JSON.stringify(payload));
+		item("W1", T0 - 1_000);
+		item("W2", T0 - 2_000);
+		ev(T0 - 1_500, "work.done", { work: "W1", effort: "high" });
+		ev(T0 - 1_600, "consult", { work: "W2" });
+		const { rows } = reportRows(d, "p", { now: T0, ledger: null });
+		const w1 = rows.find((r) => r.id === "W1");
+		const w2 = rows.find((r) => r.id === "W2");
+		expect(w1?.effort).toBe("high");
+		expect(w1?.consulted).toBe(false);
+		expect(w2?.effort).toBeNull();
+		expect(w2?.consulted).toBe(true);
 		d.close();
 	});
 });

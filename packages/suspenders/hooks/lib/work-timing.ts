@@ -23,6 +23,9 @@ export interface ItemTiming {
 	releases: number;
 	done: boolean;
 	failed: boolean;
+	// W909: the lane's effort level, stamped into the work.done payload by
+	// `work done` (lib/lane-effort.ts); last done event wins.
+	effort?: string;
 }
 
 // W682 — the claim-replay event shape: callers that batch the bus read for
@@ -83,8 +86,14 @@ export function workTiming(
 	};
 	for (const r of rows) {
 		let work = "";
+		let effort: string | undefined;
 		try {
-			work = (JSON.parse(r.payload ?? "{}") as { work?: string }).work ?? "";
+			const p = JSON.parse(r.payload ?? "{}") as {
+				work?: string;
+				effort?: string;
+			};
+			work = p.work ?? "";
+			effort = p.effort;
 		} catch {}
 		if (!work) continue;
 		const t = item(work);
@@ -99,7 +108,10 @@ export function workTiming(
 				open.delete(work);
 				t.releases++;
 			}
-			if (r.kind === "work.done") t.done = true;
+			if (r.kind === "work.done") {
+				t.done = true;
+				if (effort) t.effort = effort;
+			}
 			if (r.kind === "work.failed") t.failed = true;
 			t.lastEvent = r.ts;
 		}

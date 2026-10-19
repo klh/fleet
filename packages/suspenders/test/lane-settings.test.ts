@@ -72,4 +72,19 @@ describe("lane-settings (W512)", () => {
 		};
 		expect(clean.env.SUSPENDERS_RUNAWAY_USD_CAP).toBeUndefined();
 	});
+
+	test("W909: SUSPENDERS_LANE_EFFORT pins only when dispatch carries it", () => {
+		const withEffort = JSON.parse(
+			laneSettingsData(
+				{ ...env, SUSPENDERS_LANE_EFFORT: "high" },
+				"glm-5.3-flash",
+				"/p/bin",
+			),
+		) as { env: Record<string, string> };
+		expect(withEffort.env.SUSPENDERS_LANE_EFFORT).toBe("high");
+		const clean = JSON.parse(
+			laneSettingsData(env, "glm-5.3-flash", "/p/bin"),
+		) as { env: Record<string, string> };
+		expect(clean.env.SUSPENDERS_LANE_EFFORT).toBeUndefined();
+	});
 });
