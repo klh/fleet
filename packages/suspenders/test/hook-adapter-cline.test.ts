@@ -66,6 +66,7 @@ function runBun(
 		cwd: REPO,
 		env: {
 			...baseEnv(),
+			KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
 			...extra,
 		},
 		stdin: Bun.file(payloadFile),

@@ -45,6 +45,10 @@ function spawnGate(payload: unknown) {
 			stdout: "pipe",
 			stderr: "pipe",
 			cwd: import.meta.dir,
+			env: {
+				...process.env,
+				KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
+			},
 		},
 	);
 	rmSync(pf);

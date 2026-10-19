@@ -46,6 +46,7 @@ const env = (): Record<string, string> => {
 	const e = { ...(process.env as Record<string, string>), HOME };
 	delete e.SUSPENDERS_SID;
 	delete e.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	e.KLH_SESSION_ROLE = "lane"; // W834: tests exercise gate logic, not role
 	return e;
 };
 const GATE = join(import.meta.dir, "..", "hooks", "gate.ts");

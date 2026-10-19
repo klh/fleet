@@ -58,7 +58,11 @@ function spawnGate(
 			stdin: Bun.file(pf),
 			stdout: "pipe",
 			stderr: "pipe",
-			env: { ...process.env, ...env },
+			env: {
+				...process.env,
+				KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
+				...env,
+			},
 		},
 	);
 	rmSync(pf);

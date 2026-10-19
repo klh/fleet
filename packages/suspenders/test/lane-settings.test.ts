@@ -17,6 +17,7 @@ describe("lane-settings (W512)", () => {
 			env: Record<string, string>;
 		};
 		expect(s.env.ANTHROPIC_MODEL).toBe("opus");
+		expect(s.env.KLH_SESSION_ROLE).toBe("lane"); // W834 role marker
 		expect(s.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("glm-5.3-flash");
 		expect(s.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("glm-5.3-flash");
 		expect(s.env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4101/w/autow512");
