@@ -25,6 +25,7 @@ import {
 	subscribeTail,
 	unblockedBy,
 	laneModelOf,
+	laneGitSnapshot,
 } from "./lanes.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chunked } from "./helpers.ts";
@@ -968,6 +969,7 @@ function buildPayload(): unknown {
 		decisionsTs: Date.now(),
 		zombies,
 		consults,
+		laneGit: laneGitSnapshot(ss),
 		llm: llm(),
 	};
 }
