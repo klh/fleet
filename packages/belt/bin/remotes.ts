@@ -189,13 +189,40 @@ export function resolveHost(machine: RemoteMachine): string | null {
 	return null;
 }
 
+/** 0600 engine key files per api_key_env name — config-over-code: values
+ *  stay in the machine files, never code or logs. */
+const ENGINE_KEY_FILES: Record<string, string> = {
+	LITELLM_KEY: `${RUNTIME}/litellm.key`,
+};
+
 /** Bearer key for an endpoint: inline api_key wins, else api_key_env from
- *  the runtime file/env — undefined when neither is set. NEVER log it. */
-export function endpointKey(ep: RemoteEndpoint): string | undefined {
+ *  the process env; when the env var is absent, the 0600 engine key file
+ *  answers (loadKeys() precedent, litellm-target.ts: env first, then the
+ *  file — the 2026-10-19 :4100 401 mass lane-death: belt-swarm-spawned
+ *  children never had LITELLM_KEY in env). undefined when neither is set.
+ *  NEVER log it. */
+type KeyEnv = Record<string, string | undefined>;
+type ReadKeyFile = (path: string) => string | undefined;
+
+const readKeyFile: ReadKeyFile = (path) => {
+	try {
+		return readFileSync(path, "utf8").trim() || undefined;
+	} catch {
+		return undefined; // absent file = no key, same as a missing env var
+	}
+};
+
+export function endpointKey(
+	ep: RemoteEndpoint,
+	env: KeyEnv = process.env,
+	read: ReadKeyFile = readKeyFile,
+): string | undefined {
 	if (ep.api_key) return ep.api_key;
 	if (ep.api_key_env) {
-		const fromEnv = process.env[ep.api_key_env];
+		const fromEnv = env[ep.api_key_env];
 		if (fromEnv) return fromEnv;
+		const file = ENGINE_KEY_FILES[ep.api_key_env];
+		if (file) return read(file);
 	}
 	return undefined;
 }
