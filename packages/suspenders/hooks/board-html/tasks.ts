@@ -177,6 +177,35 @@ function spendCell(t){
 function wallCell(t){
   return fmtWall(t && t.spend ? t.spend.wall_ms : 0);
 }
+// W887 micro-strip text half: wall · tok/min · cache-hit % (the sparkline
+// half is painted as SVG by paintSparks; these helpers own the numbers).
+function tokPerMin(sp){
+  var m = sp && sp.wall_ms ? sp.wall_ms / 60000 : 0;
+  return m > 0 ? sp.out / m : null;
+}
+function cachePct(sp){
+  var denom = sp ? sp.fresh + sp.cached : 0;
+  return denom > 0 ? (sp.cached / denom) * 100 : null;
+}
+function fmtRate(n){
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+function spendStripText(sp){
+  var rpm = tokPerMin(sp), cp = cachePct(sp);
+  var s = fmtWall(sp.wall_ms);
+  if (rpm != null) s += ' · ' + fmtRate(rpm) + ' tok/m';
+  if (cp != null) s += ' · ' + Math.round(cp) + '% cache';
+  return s;
+}
+function spendStripHtml(t, cls){
+  var sp = t && t.spend ? t.spend : null;
+  if (!sp) return '';
+  var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
+  var inner = fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + spendStripText(sp);
+  return '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><span class="kspark" data-spark="' + key + '"></span><span class="kspendtxt">' + esc(inner) + '</span></div>';
+}
 function displayState(t){
   return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
 }
@@ -193,7 +222,7 @@ function taskRow(t, parentId){
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
     '<td>' + taskPill(displayState(t)) + '</td>' +
     '<td>' + esc(owner) + '</td>' +
-    '<td class="num">' + esc(spendCell(t)) + '</td>' +
+    '<td class="num"' + (t.spend ? ' title="' + esc(spendStripText(t.spend)) + '"' : '') + '>' + esc(spendCell(t)) + '</td>' +
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
     '<td class="num">' + agoShort(t.age_s) + '</td>' +
     '<td class="num' + (od ? ' rq' : '') + '">' + (od || '-') + '</td></tr>';
@@ -394,8 +423,7 @@ function kanbanCard(t, fam){
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
   html += '<div class="klane dim">lane ' + esc(t.owner_label || t.owner_sid || 'unclaimed') + (t.origin ? ' · ' + esc(String(t.origin)) : '') + '</div>';
-  var sp = t.spend;
-  if (sp) html += '<div class="kspend dim">' + esc(fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + fmtWall(sp.wall_ms)) + '</div>';
+  html += spendStripHtml(t);
   if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
   if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure">' + esc(String(t.failure_note)) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
@@ -564,11 +592,12 @@ function renderKanban(){
   // only when the STRUCTURE changed; refresh ages + tails in place otherwise.
   var kstruct = html.replace(/<span class="kage dim">[^<]*<\/span>/g, '').replace(/<div class="ktail">[^<]*<\/div>/g, '');
   var prevStructural = el.getAttribute('data-ksig') || '';
-  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); drawSplines(); return; }
+  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); drawSplines(); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
   el.setAttribute('data-ksig', kstruct);
   sigSet(el, kstruct, html);
   updateKanbanVolatile(el, shownAll);
+  paintSparks(el);
   drawSplines();
 }
 function updateKanbanVolatile(el, shownAll){
@@ -604,6 +633,76 @@ function splineEdges(ts, vis){
   return out;
 }
 var SVGNS = 'http://www.w3.org/2000/svg';
+// --- W887 card sparklines: per-item spend-over-time (hour buckets) painted
+// as inline SVG — fresh = accent stroke, cached = ok stroke. Data rides
+// /api/spend-series (30s poll, silent-fail garnish); the .kspark placeholders
+// emitted by spendStripHtml get painted here and in the drawer. DOM-safe key:
+// esc(project)+'|'+esc(id) (NUL is unusable in attributes).
+var spendSeries = {}, spendSeriesAt = 0, spendSeriesBusy = false;
+function pollSpendSeries(force){
+  if (spendSeriesBusy) return;
+  if (!force && spendSeriesAt && Date.now() - spendSeriesAt < 30000) return;
+  if (curTab !== 'tasks' && curTab !== 'lanes' && !task.id) return;
+  spendSeriesBusy = true;
+  fetch('/api/spend-series', { signal: AbortSignal.timeout(8000) })
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(j){
+      if (!j || j.ok === false || !j.series) throw new Error('bad /api/spend-series payload');
+      var m = {};
+      for (var k in j.series) m[k.split('\u0000').join('|')] = j.series[k];
+      spendSeries = m; spendSeriesAt = Date.now();
+    })
+    .catch(function(){}) // garnish — never an error surface
+    .finally(function(){
+      spendSeriesBusy = false;
+      if (byId('kanban')) paintSparks(byId('kanban'));
+      var db2 = byId('drawerBody');
+      if (task.id && db2 && !byId('drawer').hidden) paintSparks(db2);
+    });
+}
+function sparkSvg(points, w, h){
+  var svg = document.createElementNS(SVGNS, 'svg');
+  svg.setAttribute('width', w); svg.setAttribute('height', h);
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  svg.setAttribute('aria-hidden', 'true');
+  var n = points.length, maxV = 0, i;
+  for (i = 0; i < n; i++) maxV = Math.max(maxV, points[i][1] + points[i][2]);
+  if (!maxV) return svg; // all-zero series: no strokes, never fake data
+  var step = n > 1 ? w / (n - 1) : w - 2;
+  var addLine = function(idx, cls){
+    var pts = '', any = false;
+    for (i = 0; i < n; i++){
+      var v = points[i][idx];
+      if (v > 0) any = true;
+      pts += (i ? ' ' : '') + (i * step).toFixed(1) + ',' + (h - 2 - (v / maxV) * (h - 4)).toFixed(1);
+    }
+    return any ? pts : null;
+  };
+  var pf = addLine(1), pc = addLine(2);
+  var mk = function(cls, pts){
+    var p = document.createElementNS(SVGNS, 'polyline');
+    p.setAttribute('points', pts);
+    p.setAttribute('class', cls);
+    svg.appendChild(p);
+  };
+  if (pc) mk('spark-cached', pc); // cached under fresh
+  if (pf) mk('spark-fresh', pf);
+  return svg;
+}
+function paintSparks(root){
+  var els = root.querySelectorAll('.kspark');
+  for (var i = 0; i < els.length; i++){
+    var el = els[i];
+    var key = el.getAttribute('data-spark') || '';
+    var pts = spendSeries[key] || null;
+    var sig = pts ? pts.length + ':' + pts[pts.length - 1][0] : '';
+    if (el.getAttribute('data-ssig') === sig) continue;
+    el.setAttribute('data-ssig', sig);
+    while (el.firstChild) el.removeChild(el.firstChild);
+    var big = el.closest ? el.closest('.kspend-drawer') : null;
+    if (pts && pts.length) el.appendChild(sparkSvg(pts, big ? 240 : 120, big ? 36 : 18));
+  }
+}
 function splineSvg(){
   var el = byId('kanban');
   if (!el) return null;
@@ -697,6 +796,7 @@ function openTask(id, proj, trigger){
   resetDiff();
   resetTail();
   pollTask(true);
+  pollSpendSeries(true); // drawer sparkline wants the series now
   byId('drawerClose').focus();
 }
 function closeTask(keepHash){
@@ -791,6 +891,7 @@ function renderDrawer(){
     '<select id="asop" aria-label="second-opinion executor">' + execOptions(defaultPick(t)) + '</select>' +
     '<button type="button" class="retry" id="asopBtn">Request review</button></div></div>';
   var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' +
+    spendStripHtml(t, 'kspend-drawer') +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
     '<div class="feed"><h2>Timeline</h2>' + tl + '</div>' +
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';
@@ -818,6 +919,7 @@ function renderDrawer(){
   if (cb) cb.addEventListener('click', function(){ cancelItem(t.id, t.project, byId('acancel').value, cb); });
   var sb = byId('asopBtn');
   if (sb) sb.addEventListener('click', function(){ secondOpinion(t.id, t.project, byId('asop').value, sb); });
+  paintSparks(body);
   renderTaskDiff();
   renderTaskTail();
 }

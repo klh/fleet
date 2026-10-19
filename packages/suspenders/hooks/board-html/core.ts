@@ -171,7 +171,7 @@ function pollDec(){
     .catch(function(e){ if (scope === projQuery()) decErr = String((e && e.message) || e); })
     .finally(function(){ decBusy = false; renderAll(); if (scope !== projQuery()) pollDec(); });
 }
-function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); if (task.id) { pollTask(false); pollTail(); } }
+function tick(){ renderConn(); pollData(); pollDec(); pollActiveTab(); pollSpendSeries(false); if (task.id) { pollTask(false); pollTail(); } }
 function noteNew(list){
   var base = projBaseline || !decBaseline;
   projBaseline = false;

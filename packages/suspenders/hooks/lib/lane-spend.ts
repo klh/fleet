@@ -48,6 +48,14 @@ export interface ItemSpend {
 	groups: Map<string, GroupSpend>;
 }
 
+/** One spend-over-time point: an attributed hour bucket's tokens. */
+export interface ItemSpendPoint {
+	t: number; // bucket start ms (UTC)
+	fresh: number; // non-cache prompt tokens (in)
+	cached: number; // cacheR + cacheC
+	out: number;
+}
+
 /** Resolve the buckle ledger path: SUSPENDERS_BUCKLE_DB env pin, then the
  *  documented spoke home. Config-over-code — only channel names, no paths
  *  beyond the documented spoke layout. null = no readable ledger. */
@@ -92,17 +100,15 @@ export function laneSpendRows(
 	}
 }
 
-/** Attribute lane spend to items via claim windows. A bucket overlaps a
- *  window when the bucket's HOUR INTERVAL [start, start+1h) intersects
- *  [window.start, window.end) — partial-hour buckets attribute to the
- *  overlapping window, so sub-hour claims never lose their spend. Each
- *  bucket attributes ONCE per item (first matching window — hour buckets
- *  can straddle sequential re-claims; summing would double-count). Spend
- *  on lanes with no matching claim window is never attributed. */
-export function itemSpend(
+/** Attributed ledger rows per item per hour bucket — the shared core of the
+ *  totals (itemSpend) and the time-series (itemSpendSeries) reductions.
+ *  Same attribution rules as the W635 walk: a bucket attributes ONCE per
+ *  item (first matching window); spend on lanes with no matching claim
+ *  window is never attributed. */
+function attributeBuckets(
 	rows: LaneSpendRow[],
 	windows: Map<string, ClaimWindow[]>,
-): Map<string, ItemSpend> {
+): Map<string, Map<string, LaneSpendRow[]>> {
 	const bySid = new Map<string, LaneSpendRow[]>();
 	for (const r of rows) {
 		const arr = bySid.get(r.sid);
@@ -110,17 +116,8 @@ export function itemSpend(
 		else bySid.set(r.sid, [r]);
 	}
 	const attributed = new Set<LaneSpendRow>();
-	const out = new Map<string, ItemSpend>();
+	const out = new Map<string, Map<string, LaneSpendRow[]>>();
 	for (const [work, ws] of windows) {
-		const t: ItemSpend = {
-			work,
-			in: 0,
-			out: 0,
-			cacheR: 0,
-			cacheC: 0,
-			requests: 0,
-			groups: new Map(),
-		};
 		for (const w of ws) {
 			const rs = bySid.get(w.sid);
 			if (!rs) continue;
@@ -133,6 +130,49 @@ export function itemSpend(
 				)
 					continue;
 				if (attributed.has(r)) continue; // once per (item, bucket, sid)
+				attributed.add(r);
+				let fw = out.get(work);
+				if (!fw) {
+					fw = new Map();
+					out.set(work, fw);
+				}
+				const fb = fw.get(r.bucket);
+				if (fb) fb.push(r);
+				else fw.set(r.bucket, [r]);
+			}
+		}
+	}
+	return out;
+}
+
+/** Attribute lane spend to items via claim windows. A bucket overlaps a
+ *  window when the bucket's HOUR INTERVAL [start, start+1h) intersects
+ *  [window.start, window.end) — partial-hour buckets attribute to the
+ *  overlapping window, so sub-hour claims never lose their spend. Each
+ *  bucket attributes ONCE per item (first matching window — hour buckets
+ *  can straddle sequential re-claims; summing would double-count). Spend
+ *  on lanes with no matching claim window is never attributed. */
+export function itemSpend(
+	rows: LaneSpendRow[],
+	windows: Map<string, ClaimWindow[]>,
+): Map<string, ItemSpend> {
+	const out = new Map<string, ItemSpend>();
+	for (const work of windows.keys()) {
+		out.set(work, {
+			work,
+			in: 0,
+			out: 0,
+			cacheR: 0,
+			cacheC: 0,
+			requests: 0,
+			groups: new Map(),
+		});
+	}
+	for (const [work, forBucket] of attributeBuckets(rows, windows)) {
+		const t = out.get(work);
+		if (!t) continue;
+		for (const rs of forBucket.values()) {
+			for (const r of rs) {
 				t.in += r.inTok;
 				t.out += r.outTok;
 				t.cacheR += r.cacheR;
@@ -140,13 +180,7 @@ export function itemSpend(
 				t.requests += r.requests;
 				const g =
 					t.groups.get(r.group) ??
-					({
-						in: 0,
-						out: 0,
-						cacheR: 0,
-						cacheC: 0,
-						requests: 0,
-					} as const);
+					({ in: 0, out: 0, cacheR: 0, cacheC: 0, requests: 0 } as const);
 				t.groups.set(r.group, {
 					in: g.in + r.inTok,
 					out: g.out + r.outTok,
@@ -154,10 +188,36 @@ export function itemSpend(
 					cacheC: g.cacheC + r.cacheC,
 					requests: g.requests + r.requests,
 				});
-				attributed.add(r);
 			}
 		}
-		out.set(work, t);
+	}
+	return out;
+}
+
+/** W887 — per-item spend-over-time: one point per attributed hour bucket,
+ *  oldest first, capped at the newest `cap` buckets (bucket strings sort
+ *  lexicographically). The sparkline surface, not a replay surface. */
+export function itemSpendSeries(
+	rows: LaneSpendRow[],
+	windows: Map<string, ClaimWindow[]>,
+	cap = 72,
+): Map<string, ItemSpendPoint[]> {
+	const out = new Map<string, ItemSpendPoint[]>();
+	for (const [work, forBucket] of attributeBuckets(rows, windows)) {
+		const keys = [...forBucket.keys()].sort().slice(-cap);
+		const points: ItemSpendPoint[] = [];
+		for (const b of keys) {
+			let fresh = 0;
+			let cached = 0;
+			let o = 0;
+			for (const r of forBucket.get(b) ?? []) {
+				fresh += r.inTok;
+				cached += r.cacheR + r.cacheC;
+				o += r.outTok;
+			}
+			points.push({ t: Date.parse(`${b}:00Z`), fresh, cached, out: o });
+		}
+		out.set(work, points);
 	}
 	return out;
 }

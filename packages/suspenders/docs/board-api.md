@@ -74,6 +74,15 @@ bus events whose `payload.work` or scope equals the item (checkpoint/landed/bloc
 work.* kinds included), newest first; and `decisions: [{ event_id, state, question,
 answer_note|null }]` for the item. Missing id → 404 shape.
 
+## GET /api/spend-series (W887)
+
+`{ ok, series }` — per-item spend-over-time for the card sparklines: hour-bucket
+`[t, fresh, cached, out]` tuples keyed `project\0id` (W318 id collision). Buckets
+are attributed through the same W635 claim-window join as the W776 totals
+(`itemSpendSeries` over `laneSpendRows`), capped at the newest 72 buckets per
+item, oldest first. 5s-memoized; one buckle-ledger read per memo window (W663).
+No spend (no ledger, no claim window overlap) → the item is absent from the map.
+
 ## GET /api/activity?project=&limit=
 
 `{ ok, projects, events: [{ id, ts, kind, source, target|null, note, sha|null, project }], nextCursor }`

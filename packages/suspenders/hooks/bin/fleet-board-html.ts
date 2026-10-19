@@ -283,6 +283,14 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kmodel, .lmodel { display:inline-block; margin-top:4px; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
 .lmodel { margin-top:0; margin-left:6px; }
 .kmodel.loc, .lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
+/* W887 card sparklines — inline SVG, token-themed (fresh=accent, cached=ok) */
+.kspark { display:inline-block; vertical-align:middle; margin-right:8px; }
+.kspark svg { display:block; }
+.kspark polyline { fill:none; stroke-width:1.5; stroke-linejoin:round; }
+.kspark .spark-fresh { stroke:var(--klh-accent); }
+.kspark .spark-cached { stroke:var(--klh-ok-ink); }
+.kspend-drawer .kspark { display:block; margin:6px 0; }
+.kspend-drawer .kspark svg { width:240px; height:36px; }
 .ttitle { word-break:break-word; max-width:480px; }
 .tail { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:480px; }
 .akind { display:inline-block; border:1px solid var(--klh-edge-mid); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); }

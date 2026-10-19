@@ -60,7 +60,8 @@ describe("board spend cells (W776)", () => {
 	test("taskRow: tok + wall cells render when spend rides the feed", () => {
 		const { taskRow } = chunkSandbox();
 		const row = taskRow({ ...IKEA_ROW, spend: SPEND }, null);
-		expect(row).toContain('<td class="num">214k</td>'); // 138593+30000+45880
+		// W887: the tok cell carries the micro-strip as its tooltip
+		expect(row).toContain('<td class="num" title="2h23m · 322 tok/m · 18% cache">214k</td>'); // 138593+30000+45880
 		expect(row).toContain('<td class="num">2h23m</td>');
 	});
 
@@ -76,6 +77,21 @@ describe("board spend cells (W776)", () => {
 		const card = kanbanCard({ ...IKEA_ROW, spend: SPEND });
 		expect(card).toContain("kspend");
 		expect(card).toContain("214k tok · 2h23m");
+	});
+
+	test("kanbanCard: micro-strip carries spark placeholder + strip text (W887)", () => {
+		const { kanbanCard } = chunkSandbox();
+		const card = kanbanCard({ ...IKEA_ROW, spend: SPEND });
+		expect(card).toContain("kspark");
+		expect(card).toContain('data-spark="|W9"');
+		expect(card).toContain("322 tok/m");
+		expect(card).toContain("18% cache");
+	});
+
+	test("taskRow: strip text rides the tok cell tooltip (W887)", () => {
+		const { taskRow } = chunkSandbox();
+		const row = taskRow({ ...IKEA_ROW, spend: SPEND }, null);
+		expect(row).toContain("322 tok/m · 18% cache");
 	});
 });
 
