@@ -175,7 +175,7 @@ describe("upstream base URL law", () => {
 	});
 
 	test("loadUpstreams fails closed naming the group", () => {
-		const dir = `/tmp/buckle-egress-${Date.now()}`;
+		const dir = `/tmp/buckle-egress-${Date.now()}-${process.pid}`;
 		mkdirSync(dir, { recursive: true });
 		const p = `${dir}/u.yaml`;
 		writeFileSync(

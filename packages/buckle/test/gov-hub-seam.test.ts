@@ -43,7 +43,7 @@ async function startFed(opts: {
 	hubEntitlements?: HubEntitlementsFactory;
 	manifestCr?: ManifestCrFactory;
 }): Promise<{ base: string; stop: () => void }> {
-	const dir = `/tmp/w233-seam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+	const dir = `/tmp/w233-seam-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}`;
 	const policy = [
 		"version: 1",
 		"gateway:",

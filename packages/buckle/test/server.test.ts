@@ -77,7 +77,7 @@ describe("e2e through Bun.serve", () => {
 				usage: { prompt_tokens: 4, completion_tokens: 1 },
 			}),
 		);
-		const dir = `/tmp/buckle-test-${Date.now()}`;
+		const dir = `/tmp/buckle-test-${Date.now()}-${process.pid}`;
 		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
 		await Bun.write(`${dir}/upstreams.yaml`, cfg);
 		const server = startServer({
@@ -113,7 +113,7 @@ describe("e2e through Bun.serve", () => {
 		const upstream = await startMockUpstream(() =>
 			Response.json({ id: "x", choices: [], usage: {} }),
 		);
-		const dir = `/tmp/buckle-cap-${Date.now()}`;
+		const dir = `/tmp/buckle-cap-${Date.now()}-${process.pid}`;
 		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
 		await Bun.write(`${dir}/upstreams.yaml`, cfg);
 		const server = startServer({
@@ -138,7 +138,7 @@ describe("e2e through Bun.serve", () => {
 describe("http citizenship at the observability seam (W155)", () => {
 	test("OPTIONS → 204 + Allow; wrong method → 405 + Allow on /status and /metrics", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
-		const dir = `/tmp/buckle-cit-${Date.now()}`;
+		const dir = `/tmp/buckle-cit-${Date.now()}-${process.pid}`;
 		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
 		await Bun.write(`${dir}/upstreams.yaml`, cfg);
 		const server = startServer({
@@ -174,7 +174,7 @@ describe("http citizenship at the observability seam (W155)", () => {
 
 	test("GET /status carries a strong ETag; If-None-Match → 304", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ id: "x" }));
-		const dir = `/tmp/buckle-etag-${Date.now()}`;
+		const dir = `/tmp/buckle-etag-${Date.now()}-${process.pid}`;
 		const cfg = `groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`;
 		await Bun.write(`${dir}/upstreams.yaml`, cfg);
 		const server = startServer({

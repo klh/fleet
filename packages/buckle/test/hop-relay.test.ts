@@ -58,7 +58,7 @@ async function hub(
 	next: string | null,
 	providerUrl: string,
 ): Promise<Hub> {
-	const obsPath = `/tmp/buckle-hop-${hubId}-${Date.now()}.jsonl`;
+	const obsPath = `/tmp/buckle-hop-${hubId}-${Date.now()}-${process.pid}.jsonl`;
 	await rm(obsPath, { force: true });
 	const dep: Deployment = next
 		? { group: MODEL, url: next, dialect: "openai", buckle: true }

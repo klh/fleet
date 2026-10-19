@@ -23,7 +23,7 @@ describe("W746 upstream 5xx storm", () => {
 					})
 				: new Response(JSON.stringify({ error: "storm" }), { status: 500 }),
 		);
-		const cfg = `/tmp/buckle-storm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.yaml`;
+		const cfg = `/tmp/buckle-storm-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}.yaml`;
 		await Bun.write(
 			`${cfg}`,
 			`groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`,

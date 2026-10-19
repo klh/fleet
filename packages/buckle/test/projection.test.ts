@@ -31,7 +31,7 @@ const ADMIT = {
 
 describe("LaneProjection", () => {
 	test("ingest is idempotent by source+id; edges project admitted→ended", () => {
-		const db = `/tmp/buckle-proj-${Date.now()}.db`;
+		const db = `/tmp/buckle-proj-${Date.now()}-${process.pid}.db`;
 		const p = new LaneProjection(db);
 		const batch = [
 			obs("lane.request.admitted", ADMIT),
@@ -55,7 +55,7 @@ describe("LaneProjection", () => {
 	});
 
 	test("a sequence gap closes that observer's stuck active edges as unknown", () => {
-		const db = `/tmp/buckle-proj-gap-${Date.now()}.db`;
+		const db = `/tmp/buckle-proj-gap-${Date.now()}-${process.pid}.db`;
 		const p = new LaneProjection(db);
 		p.ingest([obs("lane.request.admitted", { ...ADMIT, rid: "rA" })]);
 		// seq jumps (crash / rotation lost events) → rA can never end
@@ -71,7 +71,7 @@ describe("LaneProjection", () => {
 	});
 
 	test("W706: relayed origin + peer project onto the edge", () => {
-		const db = `/tmp/buckle-proj-hop-${Date.now()}.db`;
+		const db = `/tmp/buckle-proj-hop-${Date.now()}-${process.pid}.db`;
 		const p = new LaneProjection(db);
 		p.ingest([
 			obs("lane.request.admitted", { ...ADMIT, origin: "hubA", peer: "hubA" }),
@@ -90,7 +90,7 @@ describe("LaneProjection", () => {
 	});
 
 	test("scoped queries: origin filter, errorOnly, keyset pagination + resync", () => {
-		const db = `/tmp/buckle-proj-scope-${Date.now()}.db`;
+		const db = `/tmp/buckle-proj-scope-${Date.now()}-${process.pid}.db`;
 		const p = new LaneProjection(db);
 		const rows: Observation[] = [];
 		for (let i = 0; i < 25; i++) {
@@ -138,7 +138,7 @@ describe("LaneProjection", () => {
 
 describe("OutboxTailer", () => {
 	test("tails complete lines only, tolerates rotation and torn tails", async () => {
-		const dir = `/tmp/buckle-tail-${Date.now()}`;
+		const dir = `/tmp/buckle-tail-${Date.now()}-${process.pid}`;
 		const path = `${dir}/obs.jsonl`;
 		const p = new LaneProjection(`${dir}/proj.db`);
 		const t = new OutboxTailer(p, path);
@@ -160,7 +160,7 @@ describe("OutboxTailer", () => {
 	});
 
 	test("a torn line completes via append — no carry doubling, nothing dropped", async () => {
-		const dir = `/tmp/buckle-tail-append-${Date.now()}`;
+		const dir = `/tmp/buckle-tail-append-${Date.now()}-${process.pid}`;
 		const path = `${dir}/obs.jsonl`;
 		const p = new LaneProjection(`${dir}/proj.db`);
 		const t = new OutboxTailer(p, path);

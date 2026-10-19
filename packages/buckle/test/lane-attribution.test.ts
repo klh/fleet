@@ -146,7 +146,7 @@ describe("lane prefix contract", () => {
 	});
 
 	test("pre-lane databases: ALTER guard keeps audit writes alive", () => {
-		const path = `/tmp/w1-lane-test-${Date.now()}.db`;
+		const path = `/tmp/w1-lane-test-${Date.now()}-${process.pid}.db`;
 		const raw = new Database(path, { create: true });
 		raw.exec(
 			"CREATE TABLE route_audit (rid TEXT PRIMARY KEY, ts TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', dialect TEXT NOT NULL DEFAULT '', hint TEXT NOT NULL DEFAULT '', candidates_seen INTEGER NOT NULL DEFAULT 0, candidates_top TEXT NOT NULL DEFAULT '', target_kind TEXT, target_host TEXT, target_port INTEGER, target_model TEXT, decision TEXT NOT NULL DEFAULT '', latency_class TEXT NOT NULL DEFAULT 'unproven', tier TEXT NOT NULL DEFAULT '', allow_cloud INTEGER NOT NULL DEFAULT 0, error_code TEXT, why TEXT NOT NULL DEFAULT '', status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT)",

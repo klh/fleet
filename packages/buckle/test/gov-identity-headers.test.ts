@@ -66,7 +66,7 @@ describe("identity headers — sign/verify", () => {
 
 describe("identity headers — through the gate", () => {
 	test("authenticator as the authenticate hook: SSO principal rides", async () => {
-		const dir = `/tmp/w235-ih-${Date.now()}`;
+		const dir = `/tmp/w235-ih-${Date.now()}-${process.pid}`;
 		await Bun.write(
 			`${dir}.policy.yaml`,
 			["version: 1", "gateway:", "  fallbacks:", "    m: [local]", ""].join("\n"),

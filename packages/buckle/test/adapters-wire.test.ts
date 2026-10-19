@@ -57,7 +57,7 @@ describe("registry (fail closed)", () => {
 describe("upstreams adapter field", () => {
 	test("derive-from-dialect back-compat + explicit override", async () => {
 		const upstream = await startMockUpstream(() => Response.json({ ok: true }));
-		const dir = `/tmp/buckle-adapters-${Date.now()}`;
+		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
 		const cfg =
 			`groups:\n` +
 			`  g1:\n    - url: ${upstream.url}\n      dialect: openai\n` +
@@ -71,7 +71,7 @@ describe("upstreams adapter field", () => {
 	});
 
 	test("unknown adapter = startup fatal naming the group", async () => {
-		const dir = `/tmp/buckle-adapters-${Date.now()}`;
+		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
 		const cfg =
 			`groups:\n  bad:\n    - url: http://127.0.0.1:9\n` +
 			`      dialect: openai\n      adapter: frobnicate\n`;
@@ -82,7 +82,7 @@ describe("upstreams adapter field", () => {
 
 describe("tier-2 family named in config (W150)", () => {
 	test("bedrock named in config loads; resolution is deferred to request time", () => {
-		const dir = `/tmp/buckle-adapters-${Date.now()}`;
+		const dir = `/tmp/buckle-adapters-${Date.now()}-${process.pid}`;
 		const cfg =
 			`groups:\n  aws:\n    - url: http://127.0.0.1:9\n` +
 			`      dialect: openai\n      adapter: bedrock\n`;

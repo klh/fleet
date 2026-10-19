@@ -9,7 +9,7 @@ import { startServer } from "../src/server.ts";
 const ROOT = "buckle-test-root";
 
 function start(): { base: string; stop(): void } {
-	const dir = `/tmp/buckle-whoami-${Date.now()}-${Math.random()
+	const dir = `/tmp/buckle-whoami-${Date.now()}-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 6)}`;
 	Bun.write(

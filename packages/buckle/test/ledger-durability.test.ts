@@ -104,7 +104,7 @@ describe("Ledger durability", () => {
 	});
 
 	test("close() drains through transient failures", () => {
-		const path = `/tmp/buckle-ledger-dur-${Date.now()}.db`;
+		const path = `/tmp/buckle-ledger-dur-${Date.now()}-${process.pid}.db`;
 		const l = new Ledger(path, undefined, { flushMs: 60_000 });
 		l.record(rec(5));
 		failNext(l, 2);
