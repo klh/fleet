@@ -192,12 +192,11 @@ byId('fleetHead').addEventListener('click', function(){
 });
 byId('govSearch').addEventListener('input', function(){
   if (!lastData) return;
-  if (this.value.trim()) {
-    byId('fleetBody').style.display = 'block';
-    byId('fleetHead').setAttribute('aria-expanded', 'true');
-    setText(byId('fleetCaret'), '-');
-    document.querySelectorAll('.govpanel').forEach(function(panel){ panel.open = true; });
-  }
+  var searching = !!this.value.trim();
+  byId('fleetBody').style.display = searching ? 'block' : 'none';
+  byId('fleetHead').setAttribute('aria-expanded', String(searching));
+  setText(byId('fleetCaret'), searching ? '-' : '+');
+  if (!searching) document.querySelectorAll('.govpanel').forEach(function(panel){ panel.open = false; });
   renderFleet(); renderClaims(lastData); renderFacts(lastData); renderLlm(lastData); renderDone(lastData); renderEvents(lastData);
 });
 document.addEventListener('keydown', function(e){

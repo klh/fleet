@@ -59,6 +59,12 @@ function govMatches(){
   for (var i = 0; i < arguments.length; i++) if (String(arguments[i] || '').toLowerCase().indexOf(q) >= 0) return true;
   return false;
 }
+function setGovPanel(id, count){
+  var input = byId('govSearch'), target = byId(id);
+  if (!input || !input.value.trim() || !target || !target.closest) return;
+  var panel = target.closest('details.govpanel');
+  if (panel) panel.open = count > 0;
+}
 function renderHubObservations(d){
   var snapshot = d.laneObservations;
   ['originHub', 'peerHub'].forEach(function(id){
@@ -228,12 +234,13 @@ function renderFleet(){
 function renderLlm(d){
   var el = byId('llmview');
   if (!d.llm) { setNodes(el, '<div class="dim">no llm telemetry in payload (older board build)</div>'); return; }
-  var h = '';
+  var h = '', matched = 0;
   var u = d.llm.usage || [];
   if (!u.length) h += '<div class="dim">no llm.call events today — advise round-trips will appear here</div>';
   for (var i = 0; i < u.length; i++) {
     var m = u[i];
     if (!govMatches(m.model)) continue;
+    matched++;
     var pct = m.budget ? Math.min(100, Math.round(m.tokens / m.budget * 100)) : null;
     h += '<div class="llmrow"><b>' + esc(m.model) + '</b> · ' + (Number.isFinite(m.tokens) ? m.tokens + ' reported tok' : 'token usage unavailable') + ' · ' + m.calls + ' call' + (m.calls === 1 ? '' : 's') + (m.budget ? ' · budget ' + m.budget + ' <span class="dim">(' + pct + '%)</span><div style="height:4px;background:var(--klh-edge);border-radius:2px;margin-top:2px"><div style="height:4px;width:' + pct + '%;background:var(--klh-ok-ink);border-radius:2px"></div></div>' : ' · <span class="dim">no budget set</span>') + '</div>';
   }
@@ -243,19 +250,23 @@ function renderLlm(d){
     for (var j = 0; j < calls.length; j++) {
       var c = calls[j];
       if (!govMatches(c.model, c.error)) continue;
+      matched++;
       h += '<div class="mono">' + esc(String(c.model)) + ' · ' + (c.error ? '<span style="color:var(--klh-danger-ink)">ERR ' + esc(String(c.error)) + '</span>' : (Number.isFinite(c.tt) ? c.tt + ' reported tok' : 'token usage unavailable') + ' · ' + c.ms + 'ms') + ' · ' + new Date(c.ts).toLocaleTimeString() + '</div>';
     }
   }
   setNodes(el, h);
+  setGovPanel('llmview', matched);
 }
 function renderClaims(d){
   var fragment = document.createDocumentFragment();
+  var matched = 0;
   var cs = d.claims || [];
   for (var i = 0; i < cs.length; i++) {
     var x = cs[i];
     if (!scopedSource(x.sid, x.project)) continue;
     var owner = (d.labels || {})[x.sid] || String(x.sid || '').slice(0, 10);
     if (!govMatches(x.sid, x.project, x.scope, owner, x.intent)) continue;
+    matched++;
     var wait = x.waiters != null ? 'waiting ' + String(x.waiters) : '';
     if (!wait && x.intent) wait = String(x.intent).slice(0, 44);
     var lease = x.lease != null ? String(x.lease) : 'held ' + ago(x.tsAgo);
@@ -267,13 +278,15 @@ function renderClaims(d){
   }
   if (!fragment.childNodes.length) { var empty = document.createElement('div'); empty.className = 'r dim'; empty.textContent = '(no claims in this scope)'; fragment.appendChild(empty); }
   byId('claims').replaceChildren(fragment);
+  setGovPanel('claims', matched);
 }
 function renderFacts(d){
   var fs = d.facts || [];
-  var h = '';
+  var h = '', matched = 0;
   for (var i = 0; i < fs.length; i++) {
     var f = fs[i];
     if (!govMatches(f.key, f.value, f.trust && f.trust.detail)) continue;
+    matched++;
     var t = f.trust;
     var parts = [];
     if (t) {
@@ -287,13 +300,16 @@ function renderFacts(d){
   }
   if (!h) h = '<div class="r dim">(no lesson.*/finding.* facts yet)</div>';
   setNodes(byId('facts'), h);
+  setGovPanel('facts', matched);
 }
 function renderDone(d){
   var fragment = document.createDocumentFragment();
+  var matched = 0;
   var completions = selectGovernorCompletions(d.projects || [], sel.value, hubScope());
   for (var i = 0; i < completions.length; i++) {
     var dn = completions[i];
     if (!govMatches(dn.id, dn.title, dn.project)) continue;
+    matched++;
     var row = document.createElement('div');
     row.className = 'r';
     row.title = dn.project + ' · ' + dn.title;
@@ -317,6 +333,7 @@ function renderDone(d){
     fragment.appendChild(empty);
   }
   byId('done').replaceChildren(fragment);
+  setGovPanel('done', matched);
 }
 function renderEvents(d){
   var filts = ['all','landed','blocked','need','checkpoint','alert','answer'];
@@ -330,7 +347,7 @@ function renderEvents(d){
     buttons.appendChild(button);
   }
   byId('filters').replaceChildren(buttons);
-  var fragment = document.createDocumentFragment();
+  var fragment = document.createDocumentFragment(), matched = 0;
   var es = d.events || [];
   for (var j = es.length - 1; j >= 0; j--) {
     var e = es[j];
@@ -338,6 +355,7 @@ function renderEvents(d){
     if (!govMatches(e.kind, e.source, e.target, e.note, e.project)) continue;
     var kl = String(e.kind).toLowerCase();
     if (evFilter !== 'all' && kl.indexOf(evFilter) < 0) continue;
+    matched++;
     var row = document.createElement('div'); row.className = 'r';
     var ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = agoShort(e.tsAgo);
     var text = document.createElement('span');
@@ -346,6 +364,7 @@ function renderEvents(d){
   }
   if (!fragment.childNodes.length) { var empty = document.createElement('div'); empty.className = 'r dim'; empty.textContent = '(no matching events in this scope)'; fragment.appendChild(empty); }
   byId('events').replaceChildren(fragment);
+  setGovPanel('events', matched);
 }
 function setFilt(f){ evFilter = f; if (lastData) renderEvents(lastData); }
 `;
