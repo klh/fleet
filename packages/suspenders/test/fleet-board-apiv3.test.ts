@@ -372,7 +372,8 @@ describe("board api v3 (docs/board-api.md)", () => {
 		).toBeUndefined();
 	});
 
-	test("/api/setup: nine advisory checks, unwired in temp HOME, llm failure neither hangs nor throws", async () => {
+	// name kept stable for the W833 claim-check — the checklist grew six → nine
+	test("/api/setup: six advisory checks, unwired in temp HOME, llm failure neither hangs nor throws", async () => {
 		const t0 = Date.now();
 		const r = await (await fetch(`${BASE}/api/setup`)).json();
 		expect(Date.now() - t0).toBeLessThan(5000);
