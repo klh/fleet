@@ -23,7 +23,7 @@ test("every surface receives the same monochrome menu destinations", () => {
 		expect(icon).not.toMatch(/#[0-9a-f]{3,8}/i);
 	expect(displayLabel("🧠 reason · model-name")).toBe("reason · model-name");
 });
-test("gateway has transports while local services starts with route registry", () => {
+test("gateway and local consoles show live status before configuration", () => {
 	const probes = ["buckle-4101", "swarm-8901", "suspenders-board"].map(
 		(id) => ({
 			id,
@@ -47,6 +47,9 @@ test("gateway has transports while local services starts with route registry", (
 	expect(gateway).toContain('data-service="buckle-4101"');
 	expect(gateway).not.toContain('data-service="swarm-8901"');
 	expect(gateway).not.toContain('data-service="suspenders-board"');
+	expect(gateway.indexOf("Gateway transports")).toBeLessThan(
+		gateway.indexOf("Routing configuration"),
+	);
 	const local = localPage({
 		services: [
 			{
@@ -61,8 +64,8 @@ test("gateway has transports while local services starts with route registry", (
 		probes,
 		source: "probes+registry",
 	});
-	expect(local.indexOf("Registered services · 1")).toBeLessThan(
-		local.indexOf("Local machine ·"),
+	expect(local.indexOf("Local machine ·")).toBeLessThan(
+		local.indexOf("Registered .local routes · 1"),
 	);
 	expect(local).toContain("Remote upstream");
 	expect(local).toContain('data-service="swarm-8901"');

@@ -199,6 +199,7 @@ const upstreamsSlice = (v: BeltView): UpstreamsCardData => ({
 });
 
 const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
+const INVENTORY_CSS = `.consoleInventory{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;margin:0 0 14px;padding:10px 14px}.consoleInventory>summary{cursor:pointer;color:var(--klh-ink);font-size:12px;font-weight:600}.consoleInventory>summary:focus-visible{outline:2px solid var(--klh-accent);outline-offset:2px}.consoleInventory[open]>summary{margin-bottom:12px}`;
 
 // W669.11: the console cards bundle — every page emitting a klh-*-card host
 // loads it; the components upgrade the hosts from their data attributes
@@ -208,20 +209,21 @@ const FORMS_SCRIPT = `<script type="module" src="/vendor/klh-console-forms.js"><
 
 export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
-		`<style>${PILL_CSS}${PAGE_CSS}</style>` +
+		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		(v.network
+			? `<klh-network-card heading="Network overview" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
+			: "") +
 		healthHtml(
 			v.health.filter((p) =>
 				["belt-gateway-4000", "litellm-4100", "buckle-4101"].includes(p.id),
 			),
 			"Gateway transports",
 		) +
+		`<details class="consoleInventory"><summary>Routing configuration · ${v.groups?.length ?? 0} model groups</summary>` +
 		policyCard(v) +
 		upstreamsCard(v) +
-		// W858.10.3: the Network overview card — SSR seed + live 10s refresh
-		(v.network
-			? `<klh-network-card heading="Network overview" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
-			: "") +
+		`</details>` +
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
 			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +
@@ -274,10 +276,11 @@ export const localPage = (v: LocalView, me?: ConsoleMe): string => {
 	}));
 	const registryData: RegistryCardData = { rows: registryRows };
 	const body =
-		`<style>${PAGE_CSS}${PILL_CSS}</style><p class="dimpl">Registered .local routes, local model capacity and process observations.</p>` +
+		`<style>${PAGE_CSS}${PILL_CSS}${INVENTORY_CSS}</style><p class="dimpl">Registered .local routes, local model capacity and process observations.</p>` +
 		(v.error ? `<div class="errbox">${esc(v.error)}</div>` : "") +
-		`<klh-registry-card heading="Registered services · ${v.services.length}" data="${esc(JSON.stringify(registryData))}"></klh-registry-card>` +
 		`<div class="panel"><h2>Local machine · ${upCount}/${v.probes.length} up${idleCount ? ` · ${idleCount} on demand` : ""}</h2>${probeRows || '<p class="dimpl">No monitored services</p>'}<p class="cfoot">${esc(v.source)} · ${esc(scrub(v.regPath))}</p></div><script type="module" src="/vendor/klh-service-row.js"></script>` +
+		`<details class="consoleInventory"><summary>Registered .local routes · ${v.services.length}</summary>` +
+		`<klh-registry-card heading="Registered services · ${v.services.length}" data="${esc(JSON.stringify(registryData))}"></klh-registry-card></details>` +
 		CARDS_SCRIPT;
 
 	return consolePage("Local services", "local", body, me);
