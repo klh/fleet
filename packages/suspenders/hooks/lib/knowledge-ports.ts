@@ -40,6 +40,7 @@ import {
 	type DecayOpts,
 } from "./knowledge-curate.ts";
 import { resolveBelt } from "./belt-locate.ts";
+import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
 
 export type { KnowledgeHit };
 
@@ -609,9 +610,17 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 
 	async upsert(row: KnowledgeUpsert): Promise<number> {
 		const now = Date.now();
+		// W953: worker upserts are machine-derived candidates — the row's own
+		// model-assigned confidence rides the doctrine scale (floor 0.1),
+		// stamped mechanical:knowledge-worker.
+		const stamp = makeStamp({
+			value: Math.max(CONFIDENCE_MIN, row.confidence),
+			setter: "mechanical:knowledge-worker",
+			evidence: row.sourceRef ?? undefined,
+		});
 		const ins = this.db
 			.query(
-				"INSERT INTO knowledge (ts, topic, fact, confidence, domain, area, origin_kind, origin_system, code_origin, origin_sid, contributors, duplicate_of, supersedes_id, source_ref, source_hash, source, state, created_at, updated_at, hub_eligible) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'knowledge-worker', 'candidate', ?, ?, ?)",
+				"INSERT INTO knowledge (ts, topic, fact, confidence, domain, area, origin_kind, origin_system, code_origin, origin_sid, contributors, duplicate_of, supersedes_id, source_ref, source_hash, source, state, created_at, updated_at, hub_eligible, confidence_stamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'knowledge-worker', 'candidate', ?, ?, ?, ?)",
 			)
 			.run(
 				now,
@@ -643,6 +652,7 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 				now,
 				now,
 				row.hubEligible ?? null,
+				JSON.stringify(stamp),
 			);
 		return Number(ins.lastInsertRowid);
 	}

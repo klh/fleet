@@ -5,6 +5,10 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { columnNames, openWALDb, REG } from "./govdb-util.ts";
+import {
+	CONFIDENCE_HISTORY_DDL,
+	CONFIDENCE_HISTORY_INDEX_DDL,
+} from "./confidence.ts";
 
 // The knowledge FTS shape in its three historical variants (v6 fresh create,
 // v10 kb.-qualified split, W91 external-content convergence): one builder so
@@ -277,7 +281,13 @@ export function openKnowledgeDb(): Database {
 			db.run("ALTER TABLE knowledge ADD COLUMN researched_at INTEGER");
 		if (!kCols.includes("graveyard_reason"))
 			db.run("ALTER TABLE knowledge ADD COLUMN graveyard_reason TEXT");
+		// W953 confidence doctrine: the stamp JSON rides the row next to the
+		// scalar confidence column (present since the v6 schema).
+		if (!kCols.includes("confidence_stamp"))
+			db.run("ALTER TABLE knowledge ADD COLUMN confidence_stamp TEXT");
 	}
+	db.run(CONFIDENCE_HISTORY_DDL);
+	db.run(CONFIDENCE_HISTORY_INDEX_DDL);
 	db.run(
 		"CREATE TABLE IF NOT EXISTS queue_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), prompt_hash TEXT NOT NULL, ts INTEGER NOT NULL)",
 	);
