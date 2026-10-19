@@ -104,6 +104,31 @@ sealed decision labels (it cannot emit `none`: 8 rows unwinnable).
 
 The n=33 run did not repeat `--warm`; warm numbers are n=12 only.
 
+### Prompt cache on/off (W864, 2026-10-19; n=12 medians, AC)
+
+Runner: `bun bin/bench-suite.ts --cache --port <p> --model <id>
+--wire openai|anthropic [--cache-control] --reps 12 --sizes 2000,8000`
+(`bin/bench-cache.ts`). Local `:890x` = miss (fresh nonce) vs hit (fixed
+streamed prefix) — rapid-mlx has NO per-request cache control; the prefix
+cache is always-on, capability read from `/metrics` + usage
+`cached_tokens`. Cloud via buckle `:4101` = off (no cache_control) vs on
+(`cache_control: ephemeral`, rep 1 writes, rest read).
+
+| Leg                      | 2000 tok miss→hit ms | read | 8000 tok miss→hit ms | read | Verdict                                             |
+| ------------------------ | -------------------: | ---: | -------------------: | ---: | --------------------------------------------------- |
+| :8903 reason 35B-A3B     |          407 → 73    | 1760 |         1622 → 101   | 7296 | always-on prefix cache 5.6×/16× TTFT; 21.4GB active |
+| :8901 coder 30B-A3B      |          346 → 35    | 1677 |         1806 → 79    | 6876 | 10×/23× TTFT; 16.8GB active                         |
+| :8902 extract 4B         |          352 → 30    | 1677 |         1653 → 75    | 6876 | 12×/22× TTFT; 2.8GB active                          |
+| glm-5.3-flash (z.ai)     |         1488 → 1247  | 1536 |                 —    |  —   | cache_control honored, −16% wall                    |
+| zai-glm-5.3-flash        |         1051 → 1090  | 1536 |                 —    |  —   | cache_control honored (read reported), no wall gain |
+| claude-sonnet-5 (Copilot)|         1135 → 1233  | 1536 |                 —    |  —   | cache_control honored (read reported), no wall gain |
+
+Verdict: the local always-on prefix cache is the decisive cache win —
+10–16× warm TTFT at 2k–8k prefixes at zero request cost. Cloud
+`cache_control` is honored everywhere and reads are reported (1536 of the
+2000-token prefix), but at these prefix sizes wall latency gains are
+inconsistent (one leg −16%, two flat) — don't pay for cache hops at 2k.
+
 ### Router-value decomposition (n=33; × = paired median wall ratio A/B)
 
 | Class | router vs oracle (router − local-direct) | router vs same model via gateway (router − engine-zai) | LiteLLM hop, cloud (engine-zai − pure) | LiteLLM hop, local (engine-local − local-direct) |
