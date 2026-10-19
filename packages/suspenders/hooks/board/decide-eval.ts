@@ -12,7 +12,7 @@ import {
 	kevTypedDecision,
 	parseOptions,
 } from "../lib/kev.ts";
-import { db } from "./context.ts";
+import { CLI, db } from "./context.ts";
 
 const CAP = 10;
 
@@ -48,32 +48,90 @@ function llmBase(): string {
 }
 
 type EvalEntry = { ts: number; text: string };
-type EvalRun = { startedAt: number; running: boolean; error: string | null };
-const evalRuns = new Map<number, EvalRun>();
+type EvalRun = {
+	runId: string;
+	startedAt: number;
+	running: boolean;
+	error: string | null;
+};
+const RUN_LIMIT_MS = 135_000;
+const runKey = (id: number): string => `decision.eval.${id}.run`;
 
-export function decisionEvalStatus(id: number): EvalRun | null {
-	return evalRuns.get(id) ?? null;
+function saveRun(id: number, run: EvalRun): void {
+	db.query(
+		"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'decision-eval', 1, ?)",
+	).run(runKey(id), JSON.stringify(run), Date.now());
 }
 
-/** Start without holding the board HTTP response open across a model call. */
+export function decisionEvalStatus(id: number): EvalRun | null {
+	const row = db
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(runKey(id)) as { value: string } | null;
+	if (!row) return null;
+	try {
+		const run = JSON.parse(row.value) as EvalRun;
+		if (
+			!run ||
+			typeof run.startedAt !== "number" ||
+			typeof run.runId !== "string"
+		)
+			return null;
+		if (run.running && Date.now() - run.startedAt > RUN_LIMIT_MS)
+			return {
+				...run,
+				running: false,
+				error: "Evaluation worker timed out — retry",
+			};
+		return run;
+	} catch {
+		return null;
+	}
+}
+
+export function finishDecisionEval(
+	id: number,
+	runId: string,
+	error: string | null,
+): void {
+	const current = decisionEvalStatus(id);
+	if (!current || current.runId !== runId) return;
+	saveRun(id, { ...current, running: false, error });
+}
+
+/** A detached worker survives board restarts; its run state lives in facts. */
 export function startDecisionEval(id: number): {
 	started: boolean;
 	running: boolean;
 	startedAt: number;
 } {
-	const current = evalRuns.get(id);
+	const current = decisionEvalStatus(id);
 	if (current?.running)
 		return { started: false, running: true, startedAt: current.startedAt };
-	const run: EvalRun = { startedAt: Date.now(), running: true, error: null };
-	evalRuns.set(id, run);
-	void evaluateDecision(id)
-		.catch((err: unknown) => {
-			run.error = err instanceof Error ? err.message : String(err);
-		})
-		.finally(() => {
-			run.running = false;
-		});
-	return { started: true, running: true, startedAt: run.startedAt };
+	const run: EvalRun = {
+		runId: crypto.randomUUID(),
+		startedAt: Date.now(),
+		running: true,
+		error: null,
+	};
+	saveRun(id, run);
+	try {
+		const child = Bun.spawn(
+			[process.execPath, CLI("decision-eval-worker.ts"), String(id), run.runId],
+			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+		);
+		child.unref();
+	} catch (error) {
+		finishDecisionEval(
+			id,
+			run.runId,
+			error instanceof Error ? error.message : String(error),
+		);
+	}
+	return {
+		started: true,
+		running: decisionEvalStatus(id)?.running ?? false,
+		startedAt: run.startedAt,
+	};
 }
 
 const evalKey = (id: number): string => `decision.eval.${id}`;
