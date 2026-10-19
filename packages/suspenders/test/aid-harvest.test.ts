@@ -1,9 +1,10 @@
 // test/aid-harvest.test.ts — W142 metering seam: buckle :4101 →
 // aid-harvest → governor.db aid_events + aid_rollup, and the W127 usage
 // surface join (aid_events(sid) ⋈ sessions ⋈ usage_rollup(actor, hour)).
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { harvestAids } from "../hooks/lib/aid-harvest.ts";
+import { aidsPullToken, harvestAids } from "../hooks/lib/aid-harvest.ts";
 import { buildUsageReport } from "../hooks/lib/usage.ts";
 
 const SCHEMA = `
@@ -97,5 +98,88 @@ describe("aid harvest + usage join", () => {
 		expect(j?.tokens_injected).toBe(612);
 		expect(j?.in_tok).toBe(150000);
 		server.stop(true);
+	});
+});
+
+/** W855 gated stub: 401 without the exact bearer, fixture rows with it —
+ *  the real buckle gate's shape (every /aids/* pull is proxy-class). */
+function gatedStubBuckle(
+	token: string | null,
+	rows: { events: unknown[]; rollup: unknown[] },
+): { server: ReturnType<typeof Bun.serve>; base: string } {
+	const server = Bun.serve({
+		port: 0,
+		fetch(req) {
+			const url = new URL(req.url);
+			const auth = req.headers.get("authorization") ?? "";
+			if (token === null || auth !== `Bearer ${token}`)
+				return Response.json({ code: "buckle.auth_missing" }, { status: 401 });
+			if (url.pathname === "/aids/events")
+				return Response.json({ ok: true, events: rows.events });
+			if (url.pathname === "/aids/rollup")
+				return Response.json({ ok: true, rows: rows.rollup });
+			return new Response("no", { status: 404 });
+		},
+	});
+	return { server, base: `http://127.0.0.1:${server.port}` };
+}
+
+describe("W855 — harvest rides the buckle gate credential", () => {
+	test("headerless pull against a gated buckle: 401 skip names the credential", async () => {
+		const { server, base } = gatedStubBuckle("secret-token", {
+			events: [],
+			rollup: [],
+		});
+		const db = scratchDb();
+		const s = await harvestAids(db, {
+			baseUrl: base,
+			env: {},
+			home: "/nonexistent-home",
+		});
+		expect(s.pulled).toBe(0);
+		expect(s.skipped).toContain("401");
+		expect(s.skipped).toContain("credential");
+		server.stop(true);
+	});
+
+	test("resolved token rides the Authorization header on both pulls", async () => {
+		const ev = {
+			ts: NOW,
+			aid: "cache-align",
+			decision: "skipped",
+			sid: null,
+		};
+		const row = {
+			hour_bucket: BUCKET,
+			aid: "cache-align",
+			domain: "",
+			model_group: "all",
+			injected: 0,
+			skipped: 1,
+			tok_injected: 0,
+			est_tok_saved: 0,
+			requests: 1,
+		};
+		const { server, base } = gatedStubBuckle("secret-token", {
+			events: [ev],
+			rollup: [row],
+		});
+		const db = scratchDb();
+		const s = await harvestAids(db, { baseUrl: base, token: "secret-token" });
+		expect(s.pulled).toBe(1);
+		expect(s.events_inserted).toBe(1);
+		expect(s.buckets_upserted).toBe(1);
+		server.stop(true);
+	});
+
+	test("belt.env BUCKLE_ADMIN_KEY is the disk fallback", () => {
+		const home = `${import.meta.dir}/.w855-fixture-home`;
+		mkdirSync(`${home}/.claude/local-llm`, { recursive: true });
+		writeFileSync(
+			`${home}/.claude/local-llm/belt.env`,
+			"OTHER=1\nBUCKLE_ADMIN_KEY=disk-key\n",
+		);
+		expect(aidsPullToken({ env: {}, home })).toBe("disk-key");
+		rmSync(home, { recursive: true, force: true });
 	});
 });
