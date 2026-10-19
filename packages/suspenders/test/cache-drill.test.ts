@@ -129,8 +129,7 @@ describe("parseRequestRow", () => {
 			})?.traffic_kind,
 		).toBe("inference");
 		expect(
-			parseRequestRow({ rid: "p3", ts: "2026-10-19T09:00:00Z" })
-				?.traffic_kind,
+			parseRequestRow({ rid: "p3", ts: "2026-10-19T09:00:00Z" })?.traffic_kind,
 		).toBeNull();
 	});
 });
@@ -402,6 +401,30 @@ describe("cacheDrillReport", () => {
 		});
 		expect(report.lane_scope?.lane).toBe("autow700");
 		expect(report.lane_scope?.requests.length).toBe(3);
+	});
+
+	test("bare ingress can be selected as its own request scope", async () => {
+		const m = await lib();
+		m.clearCacheDrillTtl();
+		const report = await m.cacheDrillReport({
+			days: 7,
+			env: env(),
+			endpoints: (label) =>
+				label === "hub-a"
+					? [{ url: "http://x/hub-a", via: "test", token: null }]
+					: [],
+			filters: { lane: "(bare ingress)" },
+			fetch: async () => ({
+				ok: true,
+				rows: [
+					row({ rid: "bare", lane: "", target_model: "zai-model" }),
+					row({ rid: "lane", lane: "autow700", target_model: "glm-model" }),
+				],
+			}),
+		});
+		expect(report.lane_scope?.lane).toBe("(bare ingress)");
+		expect(report.lane_scope?.requests.map((r) => r.rid)).toEqual(["bare"]);
+		expect(report.overall.requests).toBe(1);
 	});
 
 	test("degrade + TTL: seam-missing hub stays honest, rows cached", async () => {

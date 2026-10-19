@@ -69,7 +69,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",S);var g=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),x=(a)=>`${(a*100).toFixed(1)}%`,N=(a)=>a===null||a.length<16?"—":a.slice(11,16);class T extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
+`;customElements.define("klh-usage-head",S);var g=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),x=(a)=>`${(a*100).toFixed(1)}%`,T=(a,l=!1)=>{if(a===null)return"—";let i=new Date(a);if(Number.isNaN(i.getTime()))return"—";let n=(c)=>String(c).padStart(2,"0"),o=`${n(i.getHours())}:${n(i.getMinutes())}`;return l?`${o}:${n(i.getSeconds())}`:o};class E extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
 				<h2>CACHE EFFICIENCY</h2>
 				<p class="uempty">drilldown unavailable — ${this.err}</p>
 			</div>`;let a=this.report;if(a===null)return e`<div class="upanel">
@@ -92,7 +92,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 					${String(a.overall.known)} of ${String(a.overall.requests)}
 					requests. Warm rates exclude the rest.</p>`:t}
 			${a.probes.requests>0?e`<p class="ufoot">Readiness probes: ${String(a.probes.requests)}
-					requests in this window (last ${N(a.probes.last_ts)}), warm
+					requests in this window (last ${T(a.probes.last_ts)}), warm
 					${a.probes.known>0?x(a.probes.warm_ratio):"—"} — synthetic
 					healthcheck traffic, excluded from the lane and model ratios
 					above.</p>`:t}
@@ -197,13 +197,12 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 				</tr>
 			</thead>
 			<tbody>
-				${a.map((n)=>{let o=n.known>0?n.warm/n.known*100:0;return e`<tr
-						class="ulane"
-						@click=${()=>{this.lane=n.lane==="(bare ingress)"?"":n.lane,this.refresh()}}
-					>
+				${a.map((n)=>{let o=n.known>0?n.warm/n.known*100:0;return e`<tr class="ulane">
 						<td title=${n.lane}>
-							<b>${n.models[0]??n.lane}</b>
-							${n.models.length>0?e`<span class="ulane-id">${n.lane}</span>`:t}
+							<button class="ulaneButton" type="button" @click=${()=>{this.lane=n.lane,this.refresh()}}>
+								<b>${n.models[0]??n.lane}</b>
+								${n.models.length>0?e`<span class="ulane-id">${n.lane}</span>`:t}
+							</button>
 							${n.hubs.map((c)=>e`<span class="uchip">${c}</span>`)}
 							${n.models.length>1?e`<span class="uwarn">${String(n.models.length)} models</span>`:t}
 						</td>
@@ -228,12 +227,12 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 						</td>
 						<td class="unum">${g(n.cache_r_tok)}</td>
 						<td class="unum" title=${n.cache_c_known?`${String(n.cache_c_known)} requests reported cache writes`:"Provider did not report cache writes"}>${n.cache_c_known?g(n.cache_c_tok):"—"}</td>
-						<td class="unum">${N(n.last_ts)}</td>
+						<td class="unum"><time title=${n.last_ts??"Unknown time"} datetime=${n.last_ts??""}>${T(n.last_ts)}</time></td>
 					</tr>`})}
 			</tbody>
 		</table>`}scopePanel(a){let l=a.lane_scope;if(l===null)return t;let i=l.requests,n=a.hubs;return e`<div class="upanel">
 			<div class="uhead">
-				<h2>LANE ${l.lane} · REQUESTS</h2>
+				<h2>${l.lane==="(bare ingress)"?"UNATTRIBUTED REQUESTS":`LANE ${l.lane} · REQUESTS`}</h2>
 				<button
 					class="ubtn"
 					@click=${()=>{this.lane="",this.refresh()}}
@@ -258,7 +257,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 					${i.length===0?e`<tr>
 								<td colspan="7" class="uempty">no requests in scope</td>
 							</tr>`:i.map((o)=>{let c=n.find((u)=>u.label===o.hub)?.label??o.hub??"";return e`<tr class=${o.ok===!1?"ubad":""}>
-									<td class="unum">${o.ts.slice(11,19)}</td>
+					<td class="unum"><time datetime=${o.ts} title=${o.ts}>${T(o.ts,!0)}</time></td>
 									<td>${o.target_model??"—"}</td>
 									<td class="unum">${o.status===null?"—":String(o.status)}</td>
 									<td class="unum ${o.cache_r===0?"ucoldtext":""}">
@@ -274,7 +273,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 								</tr>`})}
 				</tbody>
 			</table>
-		</div>`}}T.styles=[r`
+		</div>`}}E.styles=[r`
 		:host {
 			display: block;
 		}
@@ -419,7 +418,20 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			background: var(--klh-danger, #e5484d);
 		}
 		tr.ulane {
+			cursor: default;
+		}
+		.ulaneButton {
+			background: transparent;
+			border: 0;
+			padding: 0;
+			text-align: left;
+			color: inherit;
+			font: inherit;
 			cursor: pointer;
+		}
+		.ulaneButton:focus-visible {
+			outline: 2px solid var(--klh-accent, #d8900f);
+			outline-offset: 2px;
 		}
 		tr.ulane:hover td {
 			background: var(--klh-edge-faint, rgba(255, 255, 255, 0.04));
@@ -456,7 +468,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			padding: 2px 8px;
 			cursor: pointer;
 		}
-	`];customElements.define("klh-usage-cache-drill",T);var w=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},m=()=>w()?.panels??null,C=()=>w()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),D=(a)=>a==null||!Number.isFinite(a)?"—":d(a),v=(a)=>`${(a*100).toFixed(1)}%`,y=r`
+	`];customElements.define("klh-usage-cache-drill",E);var w=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},m=()=>w()?.panels??null,U=()=>w()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),D=(a)=>a==null||!Number.isFinite(a)?"—":d(a),v=(a)=>`${(a*100).toFixed(1)}%`,y=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -533,7 +545,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`;class U extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=m()?.header??null}chips(a,l,i){return e`<span class="ufgroup" data-label=${a}
+`;class H extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=m()?.header??null}chips(a,l,i){return e`<span class="ufgroup" data-label=${a}
 			>${l.map((n)=>e`<a class="${i}${n.on?" on":""}" href=${n.href}
 						>${n.label}</a
 					>`)}</span
@@ -547,7 +559,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 				${this.chips("dept",a.depts,"ufchip")}
 				${a.filtered?e`<span class="uon">${a.filtered}</span>`:t}
 				<span class="uon">${a.status}</span>
-			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}U.styles=r`
+			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}H.styles=r`
 	:host {
 		display: block;
 	}
@@ -607,12 +619,12 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class H extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=m()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class P extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=m()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((a)=>e`<div class="utile">
 					<div class="uv">${a.v}</div>
 					<div class="uk">${a.k}</div>
 				</div>`)}
-		</div>`}}H.styles=r`
+		</div>`}}P.styles=r`
 	:host {
 		display: block;
 	}
@@ -643,10 +655,10 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;var k=(a,l)=>a[l]??"#888",P=(a,l,i)=>{let n=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
+`;var k=(a,l)=>a[l]??"#888",_=(a,l,i)=>{let n=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
 		style=${`width:${n};background:${k(i,a.g)}`}
 		title=${`${a.g}: ${d(a.tok)} tok`}
-	></i>`};class q extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=m()?.actors?.rows??[],this.slot=C()}render(){let a=m()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
+	></i>`};class q extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=m()?.actors?.rows??[],this.slot=U()}render(){let a=m()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
 			<h2>ACTORS</h2>
 			<table class="uacts">
 				<thead>
@@ -668,7 +680,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 				</td>
 				<td>
 					<div class="ubar" style=${`width:${a.barW}%`}>
-						${a.segs.map((i)=>P(i,a.total,this.slot))}
+						${a.segs.map((i)=>_(i,a.total,this.slot))}
 					</div>
 				</td>
 				<td class="unum">${d(a.total)}</td>
@@ -726,7 +738,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class _ extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
+	`];class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
 				<h2>${a.title}</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -752,11 +764,11 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			<td class="unum">${d(a.inj)}</td>
 			<td class="unum">${d(a.skip)}</td>
 			<td class="unum">${d(a.tok)}</td>
-		</tr>`}}_.styles=[y,r`
+		</tr>`}}z.styles=[y,r`
 		:host {
 			display: block;
 		}
-	`];var E={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var C={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class L extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>WORK MIX</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){let l=[...a.weekly].sort((i,n)=>n.d.localeCompare(i.d))[0];return e`<div class="upanel">
@@ -773,10 +785,10 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			</details>
 		</div>`}mix(a){return e`<div class="mixoverview">
 			<div class="mixbar" role="img" aria-label=${a.cells.map((l)=>`${l.key} ${v(l.share)}`).join(", ")}>
-				${a.cells.map((l)=>e`<span style=${`width:${v(l.share)};background:${E[l.key]??"#888"}`}></span>`)}
+				${a.cells.map((l)=>e`<span style=${`width:${v(l.share)};background:${C[l.key]??"#888"}`}></span>`)}
 			</div>
 			<div class="mixlegend">
-				${a.cells.map((l)=>e`<span><i style=${`background:${E[l.key]??"#888"}`}></i>${l.key} <b>${v(l.share)}</b></span>`)}
+				${a.cells.map((l)=>e`<span><i style=${`background:${C[l.key]??"#888"}`}></i>${l.key} <b>${v(l.share)}</b></span>`)}
 			</div>
 		</div>`}weekly(a){return e`<table class="uacts">
 			<thead>
@@ -798,7 +810,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		</table>`}cell(a,l){let i=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${i}<span class="uempty">—</span>`;let n=v(a.share);return e`${i}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${n};background:${E[a.key]??"#888"}`}
+					style=${`width:${n};background:${C[a.key]??"#888"}`}
 					title=${`${a.key}: ${n}`}
 				></i></span
 			><span class="unum">${n}</span></span
@@ -827,7 +839,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			<td class="unum">${a.spr}</td>
 			<td class="unum">${d(a.cost)}</td>
 			<td class="unum">${d(a.req)}</td>
-		</tr>`}}z.styles=[y,r`
+		</tr>`}}L.styles=[y,r`
 		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
 		.mixbar span { display:block; height:100%; }
 		.mixlegend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:9px; font-size:11px; color:var(--klh-dim, #98958e); }
@@ -849,9 +861,9 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var j="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.spokes??null,this.slot=C()}render(){let a=m()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var B="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.spokes??null,this.slot=U()}render(){let a=m()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
-			<p class="uempty">${j}</p>
+			<p class="uempty">${B}</p>
 		</div>`}body(a){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<table class="uacts">
@@ -874,21 +886,21 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${a.barW}%`}>
-					${a.segs.map((l)=>P(l,a.total,this.slot))}
+					${a.segs.map((l)=>_(l,a.total,this.slot))}
 				</div>
 			</td>
 			<td class="unum">${d(a.total)}</td>
 			<td class="unum">${d(a.rq)}</td>
-		</tr>`}}L.styles=[y,r`
+		</tr>`}}O.styles=[y,r`
 		:host {
 			display: block;
 		}
-	`];var W="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.crosshub??null,this.slot=C()}render(){let a=m()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var j="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class M extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=m()?.crosshub??null,this.slot=U()}render(){let a=m()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
-			<p class="uempty">${W}</p>
+			<p class="uempty">${j}</p>
 		</div>`}row(a){if(a.degraded){let i=a.reason??"No response from this hub",n=/timed out|timeout/i.test(i)?"No response before the hub timeout":/typeerror|host is down|connection refused|unable to connect/i.test(i)?"Cannot reach this hub":/hub answered (401|403)/.test(i)?"Usage access denied":/hub answered 404/.test(i)?"Usage endpoint unavailable":/no url/i.test(i)?"No usage endpoint configured":"Could not read usage from this hub";return e`<tr>
 				<td>
 					<b>${a.hub}</b>
@@ -906,7 +918,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			</td>
 			<td>
 				<div class="ubar" style=${`width:${String(l)}%`}>
-					${a.segs.map((i)=>P(i,a.total,this.slot))}
+					${a.segs.map((i)=>_(i,a.total,this.slot))}
 				</div>
 			</td>
 			<td class="unum">${d(a.total)}</td>
@@ -927,7 +939,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 				</tbody>
 			</table>
 			<p class="ufoot">${m()?.crosshub?.foot??""}</p>
-		</div>`}}O.styles=[y,r`
+		</div>`}}M.styles=[y,r`
 		:host {
 			display: block;
 		}
@@ -939,7 +951,7 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 		details code {
 			overflow-wrap: anywhere;
 		}
-	`];class M extends s{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(a){let l=new Date(a),i=(n)=>String(n).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(a){let[l,i,n]=a.split("-");return`${n}.${i}.${l?.slice(-2)}`}hourLabel(a){return`${String(new Date(a).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let a=w()?.timeline??[],l=a[0]??[];this.hours=l.map((n,o)=>({bucket:n*1000,tokens:a.slice(1).reduce((c,u)=>c+(u[o]??0),0)})).filter((n)=>n.tokens>0).map((n)=>n.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let a=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(a!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(a!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(a){this.bucket=a;let l=new URL(location.href);l.searchParams.set("hour",String(a)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let a=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),n=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
+	`];class A extends s{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(a){let l=new Date(a),i=(n)=>String(n).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(a){let[l,i,n]=a.split("-");return`${n}.${i}.${l?.slice(-2)}`}hourLabel(a){return`${String(new Date(a).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let a=w()?.timeline??[],l=a[0]??[];this.hours=l.map((n,o)=>({bucket:n*1000,tokens:a.slice(1).reduce((c,u)=>c+(u[o]??0),0)})).filter((n)=>n.tokens>0).map((n)=>n.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let a=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(a!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(a!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(a){this.bucket=a;let l=new URL(location.href);l.searchParams.set("hour",String(a)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let a=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),n=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
 			<div class="uhead">
 				<h2>HOUR DETAIL</h2>
 				<p class="ufoot">Select a day and hour to inspect its actors and models.</p>
@@ -966,11 +978,11 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
 				<tbody>${n.map((o)=>e`<tr><td>${o.actor}</td><td>${o.model}</td><td>${o.group}</td><td>${d(o.i)}</td><td>${d(o.cr)}</td><td>${d(o.cc)}</td><td>${d(o.o)}</td><td>${String(o.rq)}</td></tr>`)}</tbody>
 			</table></div>`:t}
-		</div>`}}M.styles=[y,r`
+		</div>`}}A.styles=[y,r`
 	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
 	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
 	.hour-scroll { overflow-x: auto; }
-`];class A extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=w();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
+`];class N extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=w();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -984,8 +996,8 @@ import{r,e,t,s}from"./lit-bc7ky2yb.js";var F=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(b,p)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||p,i=()=>l("--klh-chart-grid","#2c2c2a"),n=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(b,p)=>p.map((f)=>d(f)),u=(b,p)=>{let f={side:b,...b===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:n,width:1}};if(p)f.values=p;return f},h=this.querySelector("#u-timeline");if(h&&this.groups.length){let b=[{}];for(let p of this.groups){let f=k(this.slot,p);b.push({label:p,stacked:!0,stroke:f,fill:f,width:1,points:{show:!1},value:(B,I)=>D(I)})}this.chart(h,a,{width:h.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[u(2),u(3,c)]},this.timeline,300)}let R=this.querySelector("#u-hours");if(R)this.chart(R,a,{width:R.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:k(this.slot,"flash"),fill:k(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,p)=>D(p)}],axes:[u(2,(b,p)=>p.map((f)=>String(Math.round(f)).padStart(2,"0"))),u(3,c)]},this.byHour,190)}chart(a,l,i,n,o){let c=new l(i,n,a);this.charts.push(c);let u=()=>{let h=a.clientWidth;if(h>0&&h!==c.width)c.setSize({width:h,height:o})};if(typeof ResizeObserver==="function"){let h=new ResizeObserver(u);h.observe(a),this.ros.push(h)}else this.resizes.push(u),window.addEventListener("resize",u)}}A.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(b,p)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||p,i=()=>l("--klh-chart-grid","#2c2c2a"),n=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(b,p)=>p.map((f)=>d(f)),u=(b,p)=>{let f={side:b,...b===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:n,width:1}};if(p)f.values=p;return f},h=this.querySelector("#u-timeline");if(h&&this.groups.length){let b=[{}];for(let p of this.groups){let f=k(this.slot,p);b.push({label:p,stacked:!0,stroke:f,fill:f,width:1,points:{show:!1},value:(W,I)=>D(I)})}this.chart(h,a,{width:h.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[u(2),u(3,c)]},this.timeline,300)}let R=this.querySelector("#u-hours");if(R)this.chart(R,a,{width:R.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:k(this.slot,"flash"),fill:k(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,p)=>D(p)}],axes:[u(2,(b,p)=>p.map((f)=>String(Math.round(f)).padStart(2,"0"))),u(3,c)]},this.byHour,190)}chart(a,l,i,n,o){let c=new l(i,n,a);this.charts.push(c);let u=()=>{let h=a.clientWidth;if(h>0&&h!==c.width)c.setSize({width:h,height:o})};if(typeof ResizeObserver==="function"){let h=new ResizeObserver(u);h.observe(a),this.ros.push(h)}else this.resizes.push(u),window.addEventListener("resize",u)}}N.styles=r`
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",U);customElements.define("klh-usage-tiles",H);customElements.define("klh-usage-actors",q);customElements.define("klh-usage-aids",_);customElements.define("klh-usage-activity",z);customElements.define("klh-usage-spokes",L);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",M);customElements.define("klh-usage-charts",A);export{z as KlhUsageActivity,q as KlhUsageActors,_ as KlhUsageAids,A as KlhUsageCharts,O as KlhUsageCrossHub,M as KlhUsageDrilldown,U as KlhUsageHeader,L as KlhUsageSpokes,H as KlhUsageTiles,d as fmtTok,v as pct1};
+`;customElements.define("klh-usage-header",H);customElements.define("klh-usage-tiles",P);customElements.define("klh-usage-actors",q);customElements.define("klh-usage-aids",z);customElements.define("klh-usage-activity",L);customElements.define("klh-usage-spokes",O);customElements.define("klh-usage-crosshub",M);customElements.define("klh-usage-drilldown",A);customElements.define("klh-usage-charts",N);export{L as KlhUsageActivity,q as KlhUsageActors,z as KlhUsageAids,N as KlhUsageCharts,M as KlhUsageCrossHub,A as KlhUsageDrilldown,H as KlhUsageHeader,O as KlhUsageSpokes,P as KlhUsageTiles,d as fmtTok,v as pct1};

@@ -109,9 +109,24 @@ test("cache drilldown: host upgrades, lanes paint, lane drilldown works", async 
 	// REASONS
 	await expect(drill).toContainText("MISS REASONS");
 	// usage → lane drilldown: click the lane row, the request table paints
-	await drill.locator("tr.ulane").first().click();
+	await drill
+		.locator("tr.ulane")
+		.filter({ hasText: "autow700" })
+		.locator("button.ulaneButton")
+		.click();
 	await expect(drill).toContainText("REQUESTS");
 	await expect(drill).toContainText("glm-5.3-flash");
+	await drill.getByRole("button", { name: "← all lanes" }).click();
+	const bare = drill
+		.locator("tr.ulane")
+		.filter({ hasText: "(bare ingress)" })
+		.locator("button.ulaneButton");
+	await bare.focus();
+	await bare.press("Enter");
+	await expect(drill).toContainText("UNATTRIBUTED REQUESTS");
+	await expect(drill).toContainText("zai-glm-5.3-flash");
+	await expect(drill.locator("time").last()).toHaveText(/\d{2}:\d{2}:\d{2}/);
+	await expect(drill.locator("time").last()).toHaveAttribute("title", /Z$/);
 	const shot = join(
 		dirname(fileURLToPath(import.meta.url)),
 		"test-results",
