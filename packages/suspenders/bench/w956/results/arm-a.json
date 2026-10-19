@@ -1,0 +1,23 @@
+{
+	"arm": "A",
+	"layer": "coord facts + kb (confidence-stamp-aware discovery)",
+	"corpus": "live governor.db (facts+kb are the banked layer; not transcript-derived)",
+	"discoveryBytes": { "factListScan": 65536, "kbList": 1576 },
+	"stamps": {
+		"schema": "W953/W955: {rating, detail, evidence(file:line|URL), researched} on knowledge-bearing rows",
+		"corpusState": "no banked row carries a rating — doctrine landed, corpus backfill hasn't; every row arm A could reach is unstamped (rating null)",
+		"bandFilterEffect": "band-filtering (e.g. rating >= 0.6) is currently a no-op filter over an unstamped corpus: it can neither promote nor demote any row arm A used"
+	},
+	"questions": [
+		{ "qid": "T1", "steps": [{ "cmd": "coord fact get finding.w932", "bytes": 1152 }, { "cmd": "coord kb search 'W932 spend tokens'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "T2", "steps": [{ "cmd": "coord fact get finding.w935", "bytes": 617 }, { "cmd": "coord kb search 'W935 files commit'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "T3", "steps": [{ "cmd": "coord fact get finding.w918", "bytes": 828 }, { "cmd": "coord kb search 'W918 wall cache'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "T4", "steps": [{ "cmd": "coord fact get finding.w918.5", "bytes": 703 }, { "cmd": "coord kb search 'W918.5 model effort'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "T5", "steps": [{ "cmd": "coord fact list (discovery scan)", "bytes": 65536 }, { "cmd": "coord kb search 'most agent minutes'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "J1", "steps": [{ "cmd": "coord fact get lesson.scrub-prepush-flags-branch-base", "bytes": 0 }, { "cmd": "coord kb search 'scrub pre-push marker'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "J2", "steps": [{ "cmd": "coord fact get lesson.copied-sleep-fake-zombie", "bytes": 617 }, { "cmd": "coord kb search 'copied sleep zombie'", "bytes": 0 }], "answered": true, "ratingUsed": null },
+		{ "qid": "J3", "steps": [{ "cmd": "coord fact get lesson.work-done-capsule-checkpoint", "bytes": 479 }, { "cmd": "coord kb search 'work done rev-parse'", "bytes": 3081 }], "answered": true, "ratingUsed": null },
+		{ "qid": "J4", "steps": [{ "cmd": "coord fact get lesson.merge-ladder-self-ship-veto", "bytes": 0 }, { "cmd": "coord kb search 'merge ladder self-ship'", "bytes": 0 }], "answered": false, "ratingUsed": null },
+		{ "qid": "J5", "steps": [{ "cmd": "coord fact get lesson.retry-after-uncapped-floor", "bytes": 0 }, { "cmd": "coord kb search '429 retry-after weeks'", "bytes": 0 }], "answered": false, "ratingUsed": null }
+	]
+}

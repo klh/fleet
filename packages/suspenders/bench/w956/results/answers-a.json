@@ -1,0 +1,12 @@
+{
+	"T1": "No answer — finding.w932 records what LANDED (E2E contract matrix, 32/32 pass, NEED_DECISION on the done-gate baseline), not spend; no telemetry row exists in the banked layer. kb search 'W932 spend tokens': no match.",
+	"T2": "No answer — finding.w935 is work-prose (adapter path_rewrite fix), not a file list or commit id; kb search: no match.",
+	"T3": "No answer — finding.w918 is work-prose (skills registry sync + capability catalog); the banked layer holds no wall/cache numbers for W918.",
+	"T4": "No answer — finding.w918.5 is work-prose (install-grade copilot wiring); no model/effort/rate numbers in the banked layer.",
+	"T5": "No answer — the fact-list discovery scan (64KB render, advice.*/finding.*/lesson.* rows) holds no per-item agent-minute ranking.",
+	"J1": "No answer — lesson.scrub-prepush-flags-branch-base is UNBANKED (fact get: unset; kb search 'scrub pre-push marker': no match). The banked layer cannot explain the re-flag or the sanctioned response.",
+	"J2": "Around 2026-10-12 ~20:50 machine-wide, the W123 liveness case (any fixture spawning a cp'd /bin/sleep named codex) flipped red with ZERO code delta: copied-sleep spawns die instantly as defunct zombies (no lsof cwd) while direct /bin/sleep keeps living; baseline A/B proved green 20:47 → red 21:00 on identical code — machine state, not a code bug. Teaching: skip/re-baseline such cases until machine state clears; direct-BinaryObject fakes (real sleep, different argv0 masking) are unaffected.",
+	"J3": "WITHOUT --summary, `work done <id> --sha` verifies the final capsule checkpoint == the completion sha; a checkpoint=none capsule fails with the MISLEADING 'Cannot verify completion commit evidence: git rev-parse failed' (it names the sha; the real failure is the capsule checkpoint). Resolution: re-bank the capsule with --checkpoint=<branch-head> and re-run — no code problem. (--summary bypasses the match.)",
+	"J4": "No answer — lesson.merge-ladder-self-ship-veto is UNBANKED (fact get: unset; kb search: no match). The banked layer cannot state the veto or its rationale.",
+	"J5": "No answer — lesson.retry-after-uncapped-floor is UNBANKED (fact get: unset; kb search: no match). The banked layer cannot explain the weeks-long 429 walls or the sanctioned cap."
+}
