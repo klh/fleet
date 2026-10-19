@@ -686,6 +686,7 @@ function splineRoutes(a, b, width){
 }
 function openTask(id, proj, trigger){
   task.id = id; task.proj = proj || null; task.data = null; task.err = null; task.okAt = 0; task.trigger = trigger || null;
+  task.execution = null; task.executionBusy = false; task.executionAt = 0; task.executionErr = null;
   byId('drawer').hidden = false;
   setText(byId('drawerTitle'), 'task ' + id);
   sigSet(byId('drawerBody'), '', '<div class="state dim">loading task...</div>');
@@ -699,6 +700,7 @@ function closeTask(){
   var t = task.trigger;
   var id = task.id;
   task.id = null; task.trigger = null; task.data = null;
+  task.execution = null;
   if (t && document.contains(t)) { t.focus(); return; }
   var b = id ? document.querySelector('#tasksBody [data-task="' + id + '"]') : null;
   if (b) b.focus(); // row was re-rendered while open — refocus its button
@@ -715,9 +717,22 @@ function pollTask(force){
       if (!j || j.ok === false) throw new Error((j && j.error) || 'bad /api/task payload');
       if (!j.task || !Array.isArray(j.events)) throw new Error('bad /api/task payload');
       task.data = j; task.err = null; task.okAt = Date.now();
+      pollExecutionTrace();
     })
     .catch(function(e){ task.err = String((e && e.message) || e); })
     .finally(function(){ task.busy = false; renderDrawer(); });
+}
+function pollExecutionTrace(){
+  if (!task.id || task.executionBusy || (task.executionAt && Date.now() - task.executionAt < 30000)) return;
+  var id = task.id, proj = task.proj || (task.data && task.data.task && task.data.task.project);
+  if (!proj) return;
+  var sameTask = function(){ return task.id === id && (task.proj || (task.data && task.data.task && task.data.task.project)) === proj; };
+  task.executionBusy = true; task.executionAt = Date.now(); task.executionErr = null;
+  fetch('/api/task/execution?project=' + encodeURIComponent(proj) + '&id=' + encodeURIComponent(id), { signal: AbortSignal.timeout(20000) })
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(j){ if (sameTask()) task.execution = j; })
+    .catch(function(e){ if (sameTask()) task.executionErr = String(e && e.message || e); })
+    .finally(function(){ if (sameTask()) { task.executionBusy = false; renderDrawer(); } });
 }
 function renderDrawer(){
   if (!task.id) return;
@@ -776,9 +791,12 @@ function renderDrawer(){
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';
   if (task.err) html += '<div class="derr">refresh failed — ' + esc(String(task.err).slice(0, 120)) + '</div>';
   sigSet(body, String(task.okAt) + '|' + (task.err || ''), html);
-  if (Array.isArray(d.trace) && d.trace.length) {
+  if (Array.isArray(d.trace)) {
     var traceHost = body.querySelector('klh-task-trace') || document.createElement('klh-task-trace');
     traceHost.trace = d.trace;
+    traceHost.execution = task.execution;
+    traceHost.loading = task.executionBusy;
+    traceHost.error = task.executionErr;
     if (!traceHost.isConnected) {
       var timeline = body.querySelector('.feed:nth-of-type(3)');
       if (timeline) body.insertBefore(traceHost, timeline);
