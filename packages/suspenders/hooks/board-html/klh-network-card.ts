@@ -69,26 +69,49 @@ const netCss = css`
 	.live {
 		color: var(--klh-accent);
 	}
+	.netMetrics {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--klh-space-4);
+		max-width: 760px;
+		margin: var(--klh-space-4) 0;
+		padding: var(--klh-space-4) 0;
+		border-block: 1px solid var(--klh-edge);
+	}
+	.netMetric span { display:block; color:var(--klh-dim); font:var(--klh-text-xs) var(--klh-font-mono); }
+	.netMetric strong { display:block; color:var(--klh-ink); font:600 18px/1.3 var(--klh-font-sans); font-variant-numeric:tabular-nums; }
+	.hourPlot { width:min(760px,100%); margin:var(--klh-space-4) 0; }
+	.hourHeading { display:flex; justify-content:space-between; gap:var(--klh-space-4); margin-bottom:var(--klh-space-2); }
+	.hourHeading .hname { min-width:0; }
 	.hourSeries {
 		display: flex;
 		align-items: end;
-		gap: 3px;
-		width: min(360px, 100%);
-		height: 42px;
+		gap: 4px;
+		width: 100%;
+		height: 84px;
 		border-bottom: 1px solid var(--klh-edge-mid);
 	}
 	.hourBar {
 		flex: 1 1 0;
 		min-width: 3px;
+		max-height: 100%;
 		background: var(--klh-accent);
 	}
 	.hourRange {
-		width: min(360px, 100%);
+		width: 100%;
 		display: flex;
 		justify-content: space-between;
 		font: var(--klh-text-xs) var(--klh-font-mono);
 		color: var(--klh-dim);
 	}
+	.routes { margin-top:var(--klh-space-4); border-top:1px solid var(--klh-edge); padding-top:var(--klh-space-3); }
+	.routes summary { cursor:pointer; color:var(--klh-ink); font-weight:600; }
+	.routes summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+	.routesBody { overflow-x:auto; margin-top:var(--klh-space-3); }
+	.routeHead, .routeRow { display:grid; grid-template-columns:78px minmax(140px,1fr) 110px 150px 80px 140px; gap:8px; min-width:780px; align-items:baseline; }
+	.routeHead { color:var(--klh-dim); font:var(--klh-text-xs) var(--klh-font-mono); text-transform:uppercase; border-bottom:1px solid var(--klh-edge); }
+	.routeRow { border-bottom:1px solid var(--klh-edge-faint); padding:var(--klh-space-2) 0; }
+	@media(max-width:680px){.netMetrics{gap:var(--klh-space-2)}.netMetric strong{font-size:14px}.hourSeries{height:64px}}
 `;
 
 const ageS = (iso: string): number =>
@@ -171,8 +194,10 @@ const interfaceRow = (i: NetworkInterfaceRow): TemplateResult => {
 
 /** One recent successful route (#45790): ts/lane/target provenance +
  *  duration + measured tokens (null → "—", never 0). */
-const routeRow = (r: NetworkRouteRow): TemplateResult => html`<div class="hrow">
-	<span class="unknown">${r.ts.slice(11, 19)}</span>
+const routeRow = (
+	r: NetworkRouteRow,
+): TemplateResult => html`<div class="routeRow">
+	<time class="unknown" datetime=${r.ts} title=${r.ts}>${new Date(r.ts).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
 	<span class="title">${r.target_model ?? "model unknown"}</span>
 	<span class="unknown" title=${r.lane || "No lane attribution"}>${r.lane ? `lane ${r.lane.replace(/^autow([\d.]+)-.*/, "W$1")}` : "unattributed"}</span>
 	<span class="num">${r.target_kind ?? "?"} ${r.target_host ?? ""}</span>
@@ -194,30 +219,29 @@ const topRows = (n: OkNet): TemplateResult => {
 	const maxOut = Math.max(1, ...b.map((x) => x.out_tok));
 	const first = b[0];
 	const last = b[b.length - 1];
-	return html`<p class="hrow">
-			<span class="hname">window 15m</span>
-			<span class="num">${n.throughput.window.requests} req</span>
-			<span class="num">in ${fmtTok(n.throughput.window.in_tok)}</span>
-			<span class="num">out ${fmtTok(n.throughput.window.out_tok)} tok</span>
+	return html`<div class="netMetrics" aria-label="Last 15 minutes">
+			<div class="netMetric"><span>requests · 15m</span><strong>${n.throughput.window.requests}</strong></div>
+			<div class="netMetric"><span>input tokens · 15m</span><strong>${fmtTok(n.throughput.window.in_tok)}</strong></div>
+			<div class="netMetric"><span>output tokens · 15m</span><strong>${fmtTok(n.throughput.window.out_tok)}</strong></div>
+		</div>
+		<p class="unknown">
 			${
 				n.observations.available
-					? nothing
-					: html`<span class="unknown">observations: not collected here</span>`
+					? "Hub observations available"
+					: "Hub observations are not collected here"
 			}
 		</p>
-		<div class="hrow">
-			<span class="hname">recorded output · 12h</span>
-			<div>
+		<div class="hourPlot">
+			<div class="hourHeading"><span class="hname">Recorded output · last 12 hours</span><span class="unknown">peak ${fmtTok(maxOut)} tok/hour</span></div>
 				<div class="hourSeries" role="img" aria-label="Recorded output tokens by hour, oldest to newest">
 					${b.map(
 						(x) => html`<span class="hourBar"
-							style="height:${x.out_tok ? Math.max(2, Math.round((x.out_tok / maxOut) * 40)) : 0}px"
+							style="height:${x.out_tok ? Math.max(2, Math.round((x.out_tok / maxOut) * 80)) : 0}px"
 							title="${hourLabel(x.hour)} · ${x.requests} req · out ${fmtTok(x.out_tok)} tok"
 						></span>`,
 					)}
 				</div>
 				<div class="hourRange"><span>${first ? hourLabel(first.hour) : ""}</span><span>${last ? hourLabel(last.hour) : ""}</span></div>
-			</div>
 		</div>`;
 };
 
@@ -239,14 +263,13 @@ const networkCardRender = (p: NetworkPayload): TemplateResult => {
 					<span class="unknown">no settled traffic in window</span>
 				</div>`
 		}
-		${
-			n.routes.length
-				? n.routes.map(routeRow)
-				: html`<div class="hrow">
-					<span class="hname">routes</span>
-					<span class="unknown">none settled yet</span>
-				</div>`
-		}
+		<details class="routes">
+			<summary>Recent settled routes · ${n.routes.length}</summary>
+			<div class="routesBody">
+				<div class="routeHead"><span>Time</span><span>Model</span><span>Lane</span><span>Target</span><span>Latency</span><span>Tokens</span></div>
+				${n.routes.length ? n.routes.map(routeRow) : html`<p class="unknown">No settled routes yet</p>`}
+			</div>
+		</details>
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero

@@ -35,7 +35,7 @@ test("Gateway shows one measured bar per hour, with summed request rows", async 
 	if (!board) throw new Error("board not started");
 	await page.goto(`${board.BASE}/console/belt`);
 	const card = page.locator("klh-network-card");
-	await expect(card.getByText("recorded output · 12h")).toBeVisible();
+	await expect(card.getByText("Recorded output · last 12 hours")).toBeVisible();
 	const bars = card.locator(".hourBar");
 	await expect(bars).toHaveCount(12);
 	const titles = await bars.evaluateAll((items) =>
@@ -44,4 +44,9 @@ test("Gateway shows one measured bar per hour, with summed request rows", async 
 	expect(
 		titles.filter((title) => title.includes("3 req · out 60 tok")),
 	).toHaveLength(1);
+	const routes = card.locator("details.routes");
+	await expect(routes).toBeVisible();
+	await expect(routes).not.toHaveAttribute("open", "");
+	await routes.locator("summary").click();
+	await expect(routes.getByText("No settled routes yet")).toBeVisible();
 });
