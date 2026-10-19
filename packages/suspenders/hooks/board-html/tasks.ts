@@ -311,6 +311,25 @@ var KCOLS = [
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
   { key: 'CANCELLED', label: 'cancelled', states: ['CANCELLED'], cap: 12 }
 ];
+function ensureKstatusNav(){
+  var nav = byId('kstatusnav');
+  if (!nav || nav.childElementCount) return;
+  for (var i = 0; i < KCOLS.length; i++) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('data-kcol', String(i));
+    button.textContent = KCOLS[i].label;
+    nav.appendChild(button);
+  }
+  nav.addEventListener('click', function(e){
+    var button = e.target.closest && e.target.closest('button[data-kcol]');
+    if (!button) return;
+    var col = byId('kanban').querySelectorAll('.kcol')[Number(button.getAttribute('data-kcol'))];
+    var wrap = byId('kanban').parentElement;
+    if (!col || !wrap) return;
+    wrap.scrollTo({ left: wrap.scrollLeft + col.getBoundingClientRect().left - wrap.getBoundingClientRect().left, behavior: 'smooth' });
+  });
+}
 var starting = {}; // 'proj\u0000id' -> start POST in flight (rebuild-proof)
 var execPick = {}; // 'proj\u0000id' -> chosen executor (survives card rebuilds)
 var execOpts = [
@@ -599,6 +618,7 @@ function renderKanban(){
   }
   if (!tasksData) return;
   var ts = tasksData.tasks;
+  ensureKstatusNav();
   buildOwnerDisp(ts);
   if (hashFilter) ts = ts.filter(function(t){ return hashMatch([t.id, t.title, ownerKey(t), ownerName(t), t.project]); });
   if (boardQuery) ts = ts.filter(function(t){ return boardMatch([t.id, t.title, t.state, ownerKey(t), ownerName(t), t.project]); });
@@ -613,6 +633,8 @@ function renderKanban(){
     var resid = [];
     for (var r = 0; r < items.length; r++) if (!fam.nested[String(items[r].id)]) resid.push(items[r]);
     var shown = col.cap ? resid.slice(0, col.cap) : resid;
+    var jump = byId('kstatusnav').querySelectorAll('button')[c];
+    if (jump) jump.textContent = col.label + ' ' + resid.length;
     html += '<div class="kcol"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
     for (var i = 0; i < shown.length; i++){
       shownAll.push(shown[i]);
