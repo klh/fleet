@@ -49,3 +49,16 @@ console.log(resolvePrefer("/Volumes/Sensitive/github/klh/fleet"))'
 
 Board /api/data fleet rows then carry `tag: "fleet"`,
 `tag_color: "#5D4157"` (≤5s TTL) and the tasks view dots/borders follow.
+
+## Applied (2026-10-19, lane autow866 re-dispatch)
+
+The block was appended to the machine-local, gitignored repo-root
+`.prefer` (idempotent append; executor-plane `must=`/`prefer=` lines
+untouched) and verified live on this machine:
+
+- `resolvePrefer` on the fleet root → `tag: "fleet"`,
+  `color: "#5D4157"`, `errors: []` — W868's plane split keeps the
+  executor ladder silent.
+- Live board `/api/tasks?project=<fleet>/.git` → all 992 rows carry
+  `tag: "fleet"`, `tag_color: "#5D4157"`; the tasks-view `.pdot` dots and
+  kanban `--prefer` card borders render the Kaimurasaki color.
