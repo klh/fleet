@@ -2,26 +2,6 @@
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import { db } from "./context.ts";
-// (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
-// on purpose: lanes.ts never calls it, the two lists just change together)
-import { tagNameOf } from "../lib/govdb.ts";
-import {
-	type LaneRef,
-	type LaneVerdict,
-	type ProcessInspection,
-	transcriptAlive,
-	verdictBySid,
-} from "../lib/lane-liveness.ts";
-import { loadLaneRegistry } from "../lib/lane-registry.ts";
-import {
-	gitObservation,
-	type LaneGitObservation,
-} from "../lib/lane-git.ts";
-import { hostname } from "node:os";
-import { chunked } from "./helpers.ts";
-import { transcriptsAliveBatch } from "../lib/lane-liveness.ts";
-import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
 import {
 	closeSync,
 	existsSync,
@@ -30,6 +10,23 @@ import {
 	readSync,
 	statSync,
 } from "node:fs";
+import { hostname } from "node:os";
+// (the isDecisionKind accept-set note below mirrors govdb.ts — not imported
+// on purpose: lanes.ts never calls it, the two lists just change together)
+import { tagNameOf } from "../lib/govdb.ts";
+import { gitObservation, type LaneGitObservation } from "../lib/lane-git.ts";
+import {
+	type LaneRef,
+	type LaneVerdict,
+	type ProcessInspection,
+	transcriptAlive,
+	transcriptsAliveBatch,
+	verdictBySid,
+} from "../lib/lane-liveness.ts";
+import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
+import { db } from "./context.ts";
+import { chunked } from "./helpers.ts";
 
 export const deadAfterMs = (): number =>
 	Number(
@@ -630,14 +627,16 @@ export const TAIL_MAX = 110;
 export const LANE_TAIL_BYTES = 32 * 1024;
 export function transcriptTail(
 	sid: string | null | undefined,
+	maxChars = TAIL_MAX,
 ): { text: string; ts: string | null } | null {
-	return transcriptTailAll(sid, 1)[0] ?? null;
+	return transcriptTailAll(sid, 1, maxChars)[0] ?? null;
 }
 // newest-last list of the session's latest assistant text / tool blocks.
 // max=1 reproduces the kanban-card tail contract (the single last block).
 export function transcriptTailAll(
 	sid: string | null | undefined,
 	max: number,
+	maxChars = TAIL_MAX,
 ): { text: string; ts: string | null }[] {
 	if (!sid) return [];
 	const row = db
@@ -687,7 +686,7 @@ export function transcriptTailAll(
 			const b = msg.content[k];
 			if (b?.type === "text" && typeof b.text === "string" && b.text.trim())
 				out.push({
-					text: b.text.trim().replace(/\s+/g, " ").slice(0, TAIL_MAX),
+					text: b.text.trim().replace(/\s+/g, " ").slice(0, maxChars),
 					ts: j.timestamp ?? null,
 				});
 			else if (b?.type === "tool_use" && b.name)
@@ -700,7 +699,7 @@ export function transcriptTailAll(
 							"",
 					)
 						.replace(/\s+/g, " ")
-						.slice(0, TAIL_MAX - 3)}`,
+						.slice(0, maxChars - 3)}`,
 					ts: j.timestamp ?? null,
 				});
 		}

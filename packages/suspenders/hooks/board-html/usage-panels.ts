@@ -17,11 +17,11 @@
 // script: the component mounts the charts itself in firstUpdated, so the
 // page carries one host and no inline render script.
 import {
-	LitElement,
+	type CSSResultGroup,
 	css,
 	html,
+	LitElement,
 	nothing,
-	type CSSResultGroup,
 	type TemplateResult,
 } from "lit";
 import type {
@@ -71,6 +71,8 @@ export const fmtTok = (n: number): string =>
 			: n >= 1e3
 				? `${(n / 1e3).toFixed(1)}K`
 				: String(Math.round(n));
+const fmtChartValue = (n: number | null | undefined): string =>
+	n == null || !Number.isFinite(n) ? "—" : fmtTok(n);
 export const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
 // ─── shadow-scoped panel chrome (the u* classes each panel needs) ─────────
@@ -1027,7 +1029,7 @@ export class KlhUsageCharts extends LitElement {
 					fill: c,
 					width: 1,
 					points: { show: false },
-					value: (v: number | null): string => fmtTok(v ?? 0),
+					value: (v: number | null): string => fmtChartValue(v),
 				});
 			}
 			this.chart(
@@ -1064,7 +1066,7 @@ export class KlhUsageCharts extends LitElement {
 							fill: slotColor(this.slot, "flash"),
 							paths: uPlot.paths?.bars({ size: [0.72, 100] }),
 							points: { show: false },
-							value: (v: number | null): string => fmtTok(v ?? 0),
+							value: (v: number | null): string => fmtChartValue(v),
 						},
 					],
 					axes: [

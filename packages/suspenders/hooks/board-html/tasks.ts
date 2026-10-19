@@ -172,18 +172,21 @@ function spendCell(t){
 function wallCell(t){
   return fmtWall(t && t.spend ? t.spend.wall_ms : 0);
 }
+function displayState(t){
+  return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
+}
 function taskRow(t, parentId){
   var owner = ownerName(t);
   var prefer = preferOf(t);
   var pdot = prefer ? '<span class="pdot" style="--prefer:' + esc(prefer.color) + '" title="prefer: ' + esc(prefer.tag || prefer.color) + '"></span>' : '';
   var od = t.open_decisions || 0;
   var kid = parentId ? '<span class="kidmark">↳</span>' : '';
-  var ub = (t.state === 'READY' && t.unblocked_by) ? '<span class="dim" title="unblocked by ' + esc(t.unblocked_by) + ' — startable">▶ </span>' : '';
+  var ub = (displayState(t) === 'READY' && t.unblocked_by) ? '<span class="dim" title="unblocked by ' + esc(t.unblocked_by) + ' — startable">▶ </span>' : '';
   return '<tr data-tid="' + esc(t.id) + '"><td>' + pdot + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button></td>' +
     '<td class="mono dim">' + esc(projShort(t.project)) + '</td>' +
     '<td class="ttitle">' + esc(String(t.title || '(untitled)')).slice(0, 120) +
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
-    '<td>' + taskPill(t.state) + '</td>' +
+    '<td>' + taskPill(displayState(t)) + '</td>' +
     '<td>' + esc(owner) + '</td>' +
     '<td class="num">' + esc(spendCell(t)) + '</td>' +
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
@@ -368,7 +371,7 @@ function execOptions(pick){
 }
 function kanbanCard(t, fam){
   var od = t.open_decisions || 0;
-  var startable = t.state === 'READY' && !t.owner_sid;
+  var startable = displayState(t) === 'READY' && !t.owner_sid;
   var active = (t.state === 'CLAIMED' || t.state === 'RUNNING') && t.owner_sid;
   var kid = fam && fam.nested[String(t.id)];
   var kidStyle = '';
@@ -377,15 +380,18 @@ function kanbanCard(t, fam){
     kidStyle += 'margin-left:' + (Math.min(kid.d, 2) * 14) + 'px';
   }
   var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
-  html += '<div class="krow">' + (kid ? '<span class="kidmark">↳</span>' : '') + taskPill(t.state) +
+  html += '<div class="krow">' + (kid ? '<span class="kidmark">↳</span>' : '') + taskPill(displayState(t)) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
     '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
+  if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
+    html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
   html += '<div class="klane dim">lane ' + esc(t.owner_label || t.owner_sid || 'unclaimed') + (t.origin ? ' · ' + esc(String(t.origin)) : '') + '</div>';
   var sp = t.spend;
   if (sp) html += '<div class="kspend dim">' + esc(fmtTokShort(sp.fresh + sp.cached + sp.out) + ' tok · ' + fmtWall(sp.wall_ms)) + '</div>';
   if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
+  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure">' + esc(String(t.failure_note)) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (startable) {
     var pick = defaultPick(t);
@@ -527,7 +533,7 @@ function renderKanban(){
   var fam = kanbanFamilies(ts);
   for (var c = 0; c < KCOLS.length; c++) {
     var col = KCOLS[c];
-    var items = ts.filter(function(t){ return col.states.indexOf(t.state) >= 0; });
+    var items = ts.filter(function(t){ return col.states.indexOf(displayState(t)) >= 0; });
     items.sort(function(a, b){ return (a.age_s || 0) - (b.age_s || 0); }); // newest activity first
     items = depOrder(items); // W214: provider above dependent, splines flow top-down
     var resid = [];
@@ -709,7 +715,7 @@ function renderDrawer(){
     return;
   }
   var t = d.task;
-  var meta = '<div class="r"><span class="dim">state</span> ' + taskPill(t.state) + '</div>' +
+  var meta = '<div class="r"><span class="dim">state</span> ' + taskPill(displayState(t)) + '</div>' +
     '<div class="r"><span class="dim">owner</span> ' + esc(t.owner_label || (t.owner_sid ? String(t.owner_sid).slice(0, 12) : '') || 'unclaimed') + '</div>' +
     (t.origin ? '<div class="r"><span class="dim">origin</span> <span class="mono">' + esc(String(t.origin)) + '</span></div>' : '') +
     '<div class="r"><span class="dim">project</span> <span class="mono">' + esc(t.project || '?') + '</span></div>' +

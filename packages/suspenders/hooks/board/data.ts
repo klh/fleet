@@ -1,41 +1,42 @@
 import { completionTail } from "../lib/work-completion-record.ts";
+
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
 // sibling modules and the route modules import them.
 
-import {
-	db,
-	BIND,
-	REG_DIR,
-	LLM_ORIGIN,
-	gatePath,
-	sessionStartPath,
-} from "./context.ts";
-import {
-	projOf,
-	syncDecisions,
-	ago,
-	labelMaps,
-	labelFrom,
-	laneModelMaps,
-	ownerLabel,
-	payloadOf,
-	decisionVerdicts,
-	transcriptTail,
-	subscribeTail,
-	unblockedBy,
-	laneModelOf,
-	laneGitSnapshot,
-} from "./lanes.ts";
+import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { chunked } from "./helpers.ts";
-import { collapseDups } from "./decision-dups.ts";
+import { type ItemAttribution, itemAttribution } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
+import {
+	BIND,
+	db,
+	gatePath,
+	LLM_ORIGIN,
+	REG_DIR,
+	sessionStartPath,
+} from "./context.ts";
+import { collapseDups } from "./decision-dups.ts";
+import { chunked } from "./helpers.ts";
 import { laneObservationSnapshot } from "./lane-observations.ts";
+import {
+	ago,
+	decisionVerdicts,
+	labelFrom,
+	labelMaps,
+	laneGitSnapshot,
+	laneModelMaps,
+	laneModelOf,
+	ownerLabel,
+	payloadOf,
+	projOf,
+	subscribeTail,
+	syncDecisions,
+	transcriptTail,
+	unblockedBy,
+} from "./lanes.ts";
 import { getObservationRelayStatus } from "./observation-relay.ts";
-import { itemAttribution, type ItemAttribution } from "../lib/lane-spend.ts";
-import type { Database } from "bun:sqlite";
 
 export function taskShape(
 	w: WorkItemRow,
@@ -46,6 +47,7 @@ export function taskShape(
 		waiting_on: [],
 	},
 	attribution: ItemAttribution | null = null,
+	failureNote: string | null = null,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -56,6 +58,7 @@ export function taskShape(
 		id: w.id,
 		title: w.title,
 		state: w.state,
+		failure_note: w.state === "FAILED" ? failureNote : null,
 		owner_sid: w.owner_sid ?? null,
 		owner_label: ownerLabel(w.owner_sid),
 		// W353: the dispatch origin stamp (`work take --origin host:agent`) —
@@ -71,7 +74,7 @@ export function taskShape(
 		open_decisions: openDecisions,
 		tail:
 			(w.state === "DONE" ? completionTail(db, w.project, w.id) : null) ??
-			transcriptTail(w.owner_sid) ??
+			transcriptTail(w.owner_sid, w.state === "FAILED" ? 320 : 110) ??
 			subscribeTail(w.owner_sid),
 		...laneModelOf(w.owner_sid),
 		unblocked_by:
@@ -178,6 +181,22 @@ export function tasks(p: string | null): unknown[] {
 		openByTask.set(`${r.project}\u0000${r.task_id}`, r.n);
 	const unblocked = unblockedBy();
 	const edges = depEdges();
+	const failures = new Map<string, string>();
+	for (const row of db
+		.query(
+			"SELECT payload FROM events WHERE kind = 'work.failed' ORDER BY ts DESC LIMIT 1000",
+		)
+		.all() as { payload: string | null }[]) {
+		const event = payloadOf(row.payload);
+		if (
+			typeof event.project === "string" &&
+			typeof event.work === "string" &&
+			typeof event.note === "string"
+		) {
+			const key = `${event.project}\u0000${event.work}`;
+			if (!failures.has(key)) failures.set(key, event.note);
+		}
+	}
 	return rows.map((w) =>
 		taskShape(
 			w,
@@ -185,6 +204,7 @@ export function tasks(p: string | null): unknown[] {
 			unblocked,
 			edges.get(`${w.project}\u0000${w.id}`),
 			workAttribution().get(`${w.project}\u0000${w.id}`) ?? null,
+			failures.get(`${w.project}\u0000${w.id}`) ?? null,
 		),
 	);
 }

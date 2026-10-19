@@ -12,15 +12,49 @@
 // workgraph mirror (beads-inspired): mutations re-export <repo>/.workgraph.jsonl
 // (atomic, best-effort); reads fall back to the committed mirror when
 // governor.db cannot serve the project — fresh clone / DB unreachable.
+
+import type { Database } from "bun:sqlite";
+import { basename } from "node:path";
+import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import {
 	assertCaps,
 	type GovernorStore,
 	openStore,
 	projectIdentity,
 	projectRootOf,
+	resolveSidOf,
 } from "../lib/govdb.ts";
-import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
-import { itemCapsuleKey } from "../lib/capsule-fence.ts";
+import { rebindKeptLaneContext } from "../lib/lane-context.ts";
+import { gitBadge, gitObservation, mergeReadyWhy } from "../lib/lane-git.ts";
+import { laneAlive } from "../lib/lane-liveness.ts";
+import {
+	loadLaneRegistry,
+	loadLaneRegistryFile,
+} from "../lib/lane-registry.ts";
+import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
+import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
+import { preferTagFor } from "../lib/prefer.ts";
+import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
+import {
+	parseDuration,
+	probeClaim,
+	setReclaimHold,
+} from "../lib/reclaim-liveness.ts";
+import {
+	parseReclaimReason,
+	reclaimGateDecision,
+} from "../lib/reclaim-sticky.ts";
+import { reproGateRefusal } from "../lib/repro-gate.ts";
+import { reapIfIdle } from "../lib/subscribe-attach.ts";
+import {
+	defineVerb,
+	dieFor,
+	idList,
+	type Parsed,
+	runCli,
+	type VerbSpec,
+} from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -29,57 +63,21 @@ import {
 	planAllocation,
 	renderAllocPlan,
 } from "../lib/work-alloc.ts";
-import { basename } from "node:path";
 import {
-	loadLaneRegistry,
-	loadLaneRegistryFile,
-} from "../lib/lane-registry.ts";
-import {
-	completionRecord,
-	prepareCompletion,
-	persistCompletion,
 	type CompletionRecord,
+	completionRecord,
+	persistCompletion,
+	prepareCompletion,
 } from "../lib/work-completion-record.ts";
-import { laneAlive } from "../lib/lane-liveness.ts";
-import {
-	gitBadge,
-	gitObservation,
-	mergeReadyWhy,
-} from "../lib/lane-git.ts";
-import {
-	parseDuration,
-	probeClaim,
-	setReclaimHold,
-} from "../lib/reclaim-liveness.ts";
-import { releaseWorkClaim } from "../lib/work-release.ts";
-import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
-import {
-	parseReclaimReason,
-	reclaimGateDecision,
-} from "../lib/reclaim-sticky.ts";
-import { retryFailedItem } from "../lib/work-retry.ts";
-import { rebindKeptLaneContext } from "../lib/lane-context.ts";
-import { reapIfIdle } from "../lib/subscribe-attach.ts";
-import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
-import { GLYPH, renderRow } from "../lib/work-render.ts";
-import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
-import type { Database } from "bun:sqlite";
-import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
-import { preferTagFor } from "../lib/prefer.ts";
-import { mergeTags, validateTags } from "../lib/work-tags.ts";
+import { EFFORTS } from "../lib/work-effort.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
-import { EFFORTS } from "../lib/work-effort.ts";
+import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
+import { releaseWorkClaim } from "../lib/work-release.ts";
+import { GLYPH, renderRow } from "../lib/work-render.ts";
+import { retryFailedItem } from "../lib/work-retry.ts";
+import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
-import { reproGateRefusal } from "../lib/repro-gate.ts";
-import {
-	defineVerb,
-	dieFor,
-	idList,
-	runCli,
-	type Parsed,
-	type VerbSpec,
-} from "../lib/verb-kit.ts";
 
 const die = dieFor("work");
 
