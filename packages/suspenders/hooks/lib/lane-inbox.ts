@@ -63,6 +63,11 @@ export function drainLaneInboxFor(sid: string): string | null {
 				.all(sid, cur, MAX_DRAIN + 1) as EvRow[];
 			if (!rows.length) return null;
 			const shown = rows.slice(0, MAX_DRAIN);
+			for (const r of shown)
+				if (r.kind === "NOTE")
+					db.query(
+						"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE event_id = ? AND sid = ? AND state = 'QUEUED'",
+					).run(Date.now(), r.id, sid);
 			// advance past SHOWN only; never backwards (a concurrent `inbox
 			// --ack` may already be ahead — the upsert WHERE keeps monotonicity)
 			db.query(
@@ -70,7 +75,7 @@ export function drainLaneInboxFor(sid: string): string | null {
 			).run(sid, Math.max(...shown.map((r) => r.id)));
 			const more = rows.length > MAX_DRAIN;
 			return [
-				`coord-inbox: ${shown.length} undelivered event(s) delivered mid-work:`,
+				`coord-inbox: ${shown.length} event(s) shown in hook context; direct notes still need acknowledgment:`,
 				...shown.map((r) => `  ${renderEvent(r)}`),
 				...(more
 					? ["  … more pending — the next tool result delivers them"]

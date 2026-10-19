@@ -44,6 +44,16 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE TABLE IF NOT EXISTS cursors (sid TEXT PRIMARY KEY, event_id INTEGER NOT NULL)",
 	);
+	// W957: a cursor means an event was displayed, not that a direct NOTE was
+	// accepted. New messages get a receipt at emission; historical messages
+	// without one retain their unknown delivery state rather than backfilling
+	// a false acknowledgment.
+	db.run(
+		"CREATE TABLE IF NOT EXISTS direct_message_receipts (event_id INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE, sid TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'QUEUED', queued_at INTEGER NOT NULL, seen_at INTEGER, accepted_at INTEGER)",
+	);
+	db.run(
+		"CREATE INDEX IF NOT EXISTS direct_message_receipts_sid_state ON direct_message_receipts(sid, state, event_id)",
+	);
 	// W451 hub longevity: measured hot-path indexes — the bus had NO index
 	// beyond the rowid PK, so every kind/target-filtered tail read (coord
 	// events --kinds, the board's per-second /api/data scans, inbox polling)

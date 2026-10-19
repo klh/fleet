@@ -5,17 +5,19 @@
 // unreachable), routing via `coord consult <coordinator-sid>` with OPEN-consult
 // dedup. Advisory law: silent allow everywhere else. Includes the komfur W1
 // double-mint worked example end-to-end (route + supersede playbook).
-import { describe, test, expect, afterAll, beforeAll } from "bun:test";
+
+import { Database } from "bun:sqlite";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-	mkdtempSync,
-	rmSync,
 	mkdirSync,
+	mkdtempSync,
+	readFileSync,
 	realpathSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Database } from "bun:sqlite";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-ask-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-ask-repo-"));

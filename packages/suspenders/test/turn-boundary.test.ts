@@ -22,15 +22,28 @@ db.run(
 	"CREATE TABLE events (id INTEGER PRIMARY KEY, ts INTEGER, source TEXT, kind TEXT, scope TEXT, payload TEXT, target TEXT)",
 );
 db.run("CREATE TABLE cursors (sid TEXT PRIMARY KEY, event_id INTEGER)");
-const note = (id: number, source: string, text: string, target: string): void =>
+db.run(
+	"CREATE TABLE direct_message_receipts (event_id INTEGER PRIMARY KEY, sid TEXT, state TEXT, queued_at INTEGER, seen_at INTEGER, accepted_at INTEGER)",
+);
+const note = (
+	id: number,
+	source: string,
+	text: string,
+	target: string,
+): void => {
 	db.run(
 		"INSERT INTO events (id, ts, source, kind, payload, target) VALUES (?, ?, ?, 'NOTE', ?, ?)",
 		[id, Date.now(), source, JSON.stringify({ note: text }), target],
 	);
+	db.run(
+		"INSERT INTO direct_message_receipts (event_id, sid, state, queued_at) VALUES (?, ?, 'QUEUED', ?)",
+		[id, target, Date.now()],
+	);
+};
 const ack = (sid: string, eventId: number): void =>
 	db.run(
-		"INSERT INTO cursors (sid, event_id) VALUES (?, ?) ON CONFLICT(sid) DO UPDATE SET event_id = excluded.event_id",
-		[sid, eventId],
+		"UPDATE direct_message_receipts SET state = 'ACCEPTED', accepted_at = ? WHERE sid = ? AND event_id <= ?",
+		[Date.now(), sid, eventId],
 	);
 
 afterAll(() => {
@@ -45,6 +58,8 @@ describe("pendingTurnMessages (W516 queue semantics)", () => {
 		expect(pendingTurnMessages(db, "laneA").map((m) => m.id)).toEqual([1, 2]);
 		expect(pendingTurnMessages(db, "laneB").map((m) => m.id)).toEqual([3]);
 		expect(pendingTurnMessages(db, "laneC")).toEqual([]);
+		db.run("INSERT INTO cursors (sid, event_id) VALUES ('laneA', 2)");
+		expect(pendingTurnMessages(db, "laneA").map((m) => m.id)).toEqual([1, 2]);
 		ack("laneA", 2);
 		expect(pendingTurnMessages(db, "laneA")).toEqual([]);
 	});
@@ -53,6 +68,10 @@ describe("pendingTurnMessages (W516 queue semantics)", () => {
 		db.run(
 			"INSERT INTO events (id, ts, source, kind, payload, target) VALUES (?, ?, ?, 'NOTE', ?, ?)",
 			[4, Date.now(), "old-writer", "{broken", "laneD"],
+		);
+		db.run(
+			"INSERT INTO direct_message_receipts (event_id, sid, state, queued_at) VALUES (4, 'laneD', 'QUEUED', ?)",
+			[Date.now()],
 		);
 		const msgs = pendingTurnMessages(db, "laneD");
 		expect(msgs).toEqual([{ id: 4, source: "old-writer", note: "" }]);
@@ -110,5 +129,12 @@ describe("turnBoundarySid (lane identity via resolveLaneContext)", () => {
 
 	test("non-repo cwd has no lane identity", () => {
 		expect(turnBoundarySid({ cwd: tmpdir() })).toBeNull();
+	});
+
+	test("interactive session uses the hook sid when no lane context exists", () => {
+		rmSync(join(REPO, ".fleet", "lane-context.json"));
+		expect(turnBoundarySid({ cwd: REPO, session_id: "interactive-sid" })).toBe(
+			"interactive-sid",
+		);
 	});
 });

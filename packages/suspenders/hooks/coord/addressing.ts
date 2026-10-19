@@ -1,13 +1,13 @@
-import { CAPABILITIES, die, arg, db, dim, cyan, green } from "./shared.ts";
 import {
 	formatSessionLabel,
+	llmShorthand,
 	normalizeTool,
 	parseSessionTags,
 	slugifyLabelPart,
-	llmShorthand,
 } from "../lib/addressing.ts";
 import { transcriptTail } from "../lib/transcript.ts";
-import { emitEvent, broadcastNote, isLiveSession } from "./bus.ts";
+import { broadcastNote, emitEvent, isLiveSession } from "./bus.ts";
+import { arg, CAPABILITIES, cyan, db, die, dim, green } from "./shared.ts";
 
 interface SessionRow {
 	sid: string;
@@ -363,5 +363,10 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	});
 	console.log(
 		`${green("✓")} ${dim(`message queued #${id} → ${target.label} @${target.sid.slice(0, 8)}`)}`,
+	);
+	console.log(
+		dim(
+			"A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
+		),
 	);
 }
