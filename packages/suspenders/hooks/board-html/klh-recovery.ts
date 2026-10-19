@@ -113,7 +113,7 @@ class KlhRecovery extends LitElement {
 				d
 					? html`
 				<p>${d.outcomes.resolved ?? 0} resolved consults · ${d.outcomes.failed ?? 0} failed · ${d.outcomes.unused ?? 0} unused${!d.feedbackAvailable ? " · outcome reporting not installed" : ""}</p>
-				<h3>Governor incidents <span class="dim">most recent 30</span></h3>
+				<details class="incidents"><summary>Governor incidents · ${d.incidents.filter((r) => !r.resolved_at && d.ts - r.last_at < 1_800_000).length} need coordination · ${d.incidents.length} in this window</summary>
 				${
 					!d.incidentsAvailable
 						? html`<p class="dim">Incident reporting is not installed.</p>`
@@ -127,6 +127,7 @@ class KlhRecovery extends LitElement {
 				</tr>`,
 				)}</tbody></table></div>`
 				}
+				</details>
 				<details><summary>Consult threads · ${d.consults.length} most recent</summary>
 				<p class="dim">An answer is a candidate until the asker confirms the result. Open threads older than one hour await expiry; they are not active evidence.</p>
 				${d.consults.map((c) => html`<p><b>C${c.id}</b> · ${c.state === "OPEN" && d.ts - c.created_at >= 3_600_000 ? "OPEN · stale" : c.state} · ${c.outcome ?? "Outcome unconfirmed"}<br><code>${this.lane(c.asker_sid)} → ${this.lane(c.expert_sid)} · ${c.scope ?? "No scope"} · ${c.project}</code></p>`)}
