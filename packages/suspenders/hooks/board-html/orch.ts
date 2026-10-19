@@ -98,8 +98,15 @@ function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; re
 (function(){
   var host = byId('orch');
   if (host) {
-    host.addEventListener('mouseenter', function(){ host.open = true; });
+    var hoverOpened = false;
+    host.addEventListener('mouseenter', function(){
+      if (!host.open) { host.open = true; hoverOpened = true; }
+    });
+    host.querySelector('summary').addEventListener('click', function(e){
+      if (hoverOpened) { e.preventDefault(); hoverOpened = false; }
+    });
     host.addEventListener('mouseleave', function(){
+      hoverOpened = false;
       if (orch.busy || orch.regBusy || orch.prop || orch.err || byId('orchGoal').value.trim() || host.contains(document.activeElement)) return;
       host.open = false;
     });
