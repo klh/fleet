@@ -148,6 +148,7 @@ var drafts = {}; // dec id -> typed-but-unsent text, survives re-renders
 var selOpt = {}; // dec id -> chosen option label (selecting, not submitting)
 var advising = {}; // dec id -> ms when the advise request started
 var advRetry = {}; // dec id -> {n, at} advise transport-failure backoff
+var advAttempts = {}; // dec id -> completed automatic retries
 var advErr = {}; // dec id -> advise request error (inline)
 var answering = {}; // dec id -> true while an answer POST is in flight
 var ansErr = {}; // dec id -> inline answer/delivery error

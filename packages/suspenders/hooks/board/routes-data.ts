@@ -20,7 +20,7 @@ import {
 	workEvents,
 	workSpendSeriesPayload,
 } from "./data.ts";
-import { decisionEvals } from "./decide-eval.ts";
+import { decisionEvals, decisionEvalStatus } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
 import { json } from "./helpers.ts";
 import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
@@ -163,6 +163,7 @@ export async function handleData(
 				ok: true,
 				event_id: Number(m[1]),
 				evals: decisionEvals(Number(m[1])),
+				status: decisionEvalStatus(Number(m[1])),
 			});
 	}
 	if (url.pathname === "/api/tasks") {

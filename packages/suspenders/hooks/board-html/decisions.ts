@@ -92,13 +92,17 @@ function renderDecisionsInner(){
   for (var k3 in answering) if (!live[k3]) delete answering[k3];
   for (var k4 in sentOk) if (!live[k4]) delete sentOk[k4];
   for (var k5 in advRetry) if (!live[k5]) delete advRetry[k5];
+  for (var k6 in advAttempts) if (!live[k6]) delete advAttempts[k6];
   // W667 advise lifecycle: advice landing clears every request state; a
   // spinner past the server's max runtime reads dead honestly; armed
   // backoffs re-fire askAdv (exhaustion lands in advErr)
   for (var ai = 0; ai < all.length; ai++) {
     var did = all[ai].id;
-    if ((advising[did] || advRetry[did]) && adviceFor(did) && adviceFor(did).advice) {
-      delete advising[did]; delete advRetry[did]; delete advErr[did];
+    var advice = adviceFor(did);
+    if (advice && advice.advicePending && !advising[did]) advising[did] = Date.now();
+    if ((advising[did] || advRetry[did]) && advice && !advice.advicePending &&
+        Date.now() - (advising[did] || 0) > 1500 && (advice.advice || advice.adviceError)) {
+      delete advising[did]; delete advRetry[did]; delete advErr[did]; delete advAttempts[did];
     }
     if (advising[did] && Date.now() - advising[did] > 330000) {
       delete advising[did]; delete advRetry[did];
@@ -106,7 +110,7 @@ function renderDecisionsInner(){
     }
     if (advRetry[did] && advRetry[did].at <= Date.now()) {
       delete advRetry[did];
-      askAdv(did); // exhaustion lands in advErr inside queueAdvRetry
+      askAdv(did, true); // exhaustion lands in advErr inside queueAdvRetry
     }
   }
   // header state: loading / N need you / none / feed unavailable
@@ -305,10 +309,10 @@ function decNode(d){
     }
   }
   var advEl = q.querySelector('.dadv');
-  if (advising[d.id] && adviceFor(d.id)) delete advising[d.id]; // fact landed
   var a = advising[d.id] ? null : adviceFor(d.id);
+  var pending = adviceFor(d.id) && adviceFor(d.id).advicePending;
   var asig;
-  if (advising[d.id]) asig = 'busy:' + Math.round((Date.now() - advising[d.id]) / 1000) + ':' + (advRetry[d.id] ? 1 : 0);
+  if (advising[d.id]) asig = 'busy:' + Math.round((Date.now() - advising[d.id]) / 1000) + ':' + (advRetry[d.id] ? 1 : 0) + ':' + pending;
   else if (advErr[d.id]) asig = 'adverr:' + advErr[d.id];
   else if (a && a.adviceError) asig = 'aerr:' + a.adviceError;
   else if (a && a.advice) asig = 'adv:' + JSON.stringify(a.advice);
@@ -321,7 +325,7 @@ function decNode(d){
     } else if (advising[d.id]) {
       advEl.style.display = 'block';
       var secs = Math.round((Date.now() - advising[d.id]) / 1000);
-      setNodes(advEl, '<span class="dim">getting recommendation... ' + secs + 's' + (advRetry[d.id] ? ' (retrying)' : '') + '</span>');
+      setNodes(advEl, '<span class="dim">' + (pending === 'queued' ? 'recommendation queued' : 'getting recommendation... ' + secs + 's') + (advRetry[d.id] ? ' (retrying)' : '') + '</span>');
     } else if (advErr[d.id]) {
       advEl.style.display = 'block';
       setNodes(advEl, '<span class="risk">advice request failed: ' + esc(advErr[d.id]) + '</span>' +
@@ -405,8 +409,9 @@ function sendAns(id){
       renderDecisions();
     });
 }
-function askAdv(id){
+function askAdv(id, retrying){
   if (advRetry[id] && advRetry[id].at > Date.now()) return; // backoff armed
+  if (!retrying) advAttempts[id] = 0;
   delete advErr[id];
   delete advRetry[id];
   if (!advising[id]) advising[id] = Date.now(); // age continuity across retries
@@ -429,7 +434,8 @@ function askAdv(id){
 // W667: exponential backoff (2s/4s/8s), max 3 auto-retries; exhaustion
 // lands in advErr (manual retry button). The spinner stays up throughout.
 function queueAdvRetry(id, msg){
-  var n = ((advRetry[id] && advRetry[id].n) || 0) + 1;
+  var n = (advAttempts[id] || 0) + 1;
+  advAttempts[id] = n;
   if (n > 3) {
     delete advising[id];
     delete advRetry[id];

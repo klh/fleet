@@ -25,7 +25,9 @@ async function evalModel(): Promise<string> {
 	if (cachedModel) return cachedModel;
 	const base = llmBase();
 	try {
-		const r = await fetch(`${base}/models`);
+		const r = await fetch(`${base}/models`, {
+			signal: AbortSignal.timeout(5_000),
+		});
 		if (r.ok) {
 			const d = (await r.json()) as { data?: { id?: string }[] };
 			cachedModel = d.data?.[0]?.id ?? null;
@@ -45,6 +47,33 @@ function llmBase(): string {
 }
 
 type EvalEntry = { ts: number; text: string };
+type EvalRun = { startedAt: number; running: boolean; error: string | null };
+const evalRuns = new Map<number, EvalRun>();
+
+export function decisionEvalStatus(id: number): EvalRun | null {
+	return evalRuns.get(id) ?? null;
+}
+
+/** Start without holding the board HTTP response open across a model call. */
+export function startDecisionEval(id: number): {
+	started: boolean;
+	running: boolean;
+	startedAt: number;
+} {
+	const current = evalRuns.get(id);
+	if (current?.running)
+		return { started: false, running: true, startedAt: current.startedAt };
+	const run: EvalRun = { startedAt: Date.now(), running: true, error: null };
+	evalRuns.set(id, run);
+	void evaluateDecision(id)
+		.catch((err: unknown) => {
+			run.error = err instanceof Error ? err.message : String(err);
+		})
+		.finally(() => {
+			run.running = false;
+		});
+	return { started: true, running: true, startedAt: run.startedAt };
+}
 
 const evalKey = (id: number): string => `decision.eval.${id}`;
 
@@ -75,10 +104,11 @@ function persistEval(id: number, text: string): EvalEntry {
 export async function evaluateDecision(id: number): Promise<EvalEntry> {
 	const d = db
 		.query(
-			"SELECT question, task_id, project, state FROM decisions WHERE event_id = ?",
+			"SELECT question, options, task_id, project, state FROM decisions WHERE event_id = ?",
 		)
 		.get(id) as {
 		question: string | null;
+		options: string | null;
 		task_id: string | null;
 		project: string | null;
 		state: string;
@@ -151,6 +181,7 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 		role: "reasoning",
 		user: prompt,
 		maxTokens: 600,
+		timeoutMs: 45_000,
 	});
 	if (gw) return persistEval(id, gw.text);
 	// same executor contract as hooks/bin/advise.ts: SUSPENDERS_LLM_URL/KEY/
@@ -164,6 +195,7 @@ export async function evaluateDecision(id: number): Promise<EvalEntry> {
 	const res = await fetch(llmUrl, {
 		method: "POST",
 		headers: headers,
+		signal: AbortSignal.timeout(60_000),
 		body: JSON.stringify({
 			model: await evalModel(),
 			max_tokens: 600,

@@ -88,15 +88,20 @@ dismiss button on a card = CANCELLED and asks for confirmation.
 
 ## Advise (W667)
 
-POST /api/advise {id} fires hooks/bin/advise.ts detached and returns
-{ok:true, started:true}, or {ok:true, started:false, inFlight:true} when a
-request stamp (fact `advice.<id>.requested`) is younger than 120s — the
-detached child can run minutes, so re-clicks and client backoff retries
-ride the in-flight child instead of stacking spawns. advise.ts clears the
-stamp on both terminal writes (advice fact / error fact). The client keeps
-the spinner honest: transport failures (e.g. the 8s fetch timeout) back
-off 2s/4s/8s and re-fire up to 3 times (advice landing clears every state);
-exhaustion or a spinner past 5m30s lands a retry-button error.
+POST /api/advise {id} queues hooks/bin/advise.ts and returns
+{ok:true, started:true}, {ok:true, queued:true} or
+{ok:true, started:false, inFlight:true}. The board runs one advice panel at
+a time because the pinned local model has two shared slots. The fact
+`advice.<id>.requested` records `queued` or `running`; /api/decisions exposes
+it as `advicePending`. The worker clears the stamp on a terminal write and
+the board records an error if the worker exits without one. Transport
+failures back off 2s/4s/8s, with three automatic retries; a terminal
+advice or error fact ends the spinner.
+
+POST /api/decisions/<id>/evaluate returns 202 with `startedAt` immediately.
+GET /api/decisions/<id>/evals returns saved evaluations and a `status`
+(`running`, `startedAt`, `error`). The browser polls until the model finishes;
+the model call never holds the HTTP response open through a proxy timeout.
 
 ## Agent health
 

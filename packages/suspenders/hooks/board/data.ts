@@ -1092,7 +1092,11 @@ export function decisionRecords(
 	// source-event payload — batch into four IN(...) reads (the profile's
 	// 3.7s whale: 684 store RPCs per cold compute → ~7).
 	const adviceRows = factsByKeys(
-		rows.flatMap((d) => [`advice.${d.event_id}`, `advice.${d.event_id}.error`]),
+		rows.flatMap((d) => [
+			`advice.${d.event_id}`,
+			`advice.${d.event_id}.error`,
+			`advice.${d.event_id}.requested`,
+		]),
 	);
 	const roles = sessionsRoles(rows.map((d) => d.target));
 	const evPayloads = eventPayloads(rows.map((d) => d.event_id));
@@ -1153,6 +1157,7 @@ export function decisionRecords(
 			age_s: ago(d.created_at),
 			advice,
 			adviceError,
+			advicePending: adviceRows.get(`advice.${d.event_id}.requested`) ?? null,
 			policy: policyProvenance(evPayloads.get(d.event_id) ?? null),
 		};
 	});

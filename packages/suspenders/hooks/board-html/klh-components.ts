@@ -10,6 +10,10 @@ import "./klh-prompt-preview.ts";
 import "./klh-task-trace.ts";
 
 type EvalEntry = { ts: number; text: string };
+type EvalFeed = {
+	evals?: EvalEntry[];
+	status?: { startedAt: number; running: boolean; error: string | null } | null;
+};
 
 class KlhDecisionEval extends LitElement {
 	static properties = {
@@ -88,8 +92,16 @@ class KlhDecisionEval extends LitElement {
 		try {
 			const r = await fetch(`/api/decisions/${this.eventId}/evals`);
 			if (!r.ok) return;
-			const d = (await r.json()) as { evals?: EvalEntry[] };
+			const d = (await r.json()) as EvalFeed;
 			this.apply(d.evals ?? []);
+			if (d.status?.running)
+				void this.waitForEval(d.status.startedAt)
+					.catch((e: unknown) => {
+						this.err = e instanceof Error ? e.message : String(e);
+					})
+					.finally(() => {
+						this.busy = false;
+					});
 		} catch {
 			// feed unavailable — the button still works
 		}
@@ -109,19 +121,43 @@ class KlhDecisionEval extends LitElement {
 			const r = await fetch(`/api/decisions/${this.eventId}/evaluate`, {
 				method: "POST",
 			});
-			const d = (await r.json()) as {
+			const d = (await r.json().catch(() => null)) as {
 				ok?: boolean;
-				latest?: EvalEntry;
-				count?: number;
+				startedAt?: number;
 				error?: string;
-			};
-			if (!r.ok || !d.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
-			if (d.latest) this.apply([d.latest], d.count);
+			} | null;
+			if (!r.ok || !d?.ok)
+				throw new Error(
+					d?.error ?? `Evaluation could not start (HTTP ${r.status})`,
+				);
+			await this.waitForEval(d.startedAt ?? Date.now());
 		} catch (e) {
 			this.err = e instanceof Error ? e.message : String(e);
 		} finally {
 			this.busy = false;
 		}
+	}
+
+	private async waitForEval(startedAt: number): Promise<void> {
+		this.busy = true;
+		const deadline = Date.now() + 135_000;
+		while (this.isConnected && Date.now() < deadline) {
+			const r = await fetch(`/api/decisions/${this.eventId}/evals`, {
+				signal: AbortSignal.timeout(8_000),
+			});
+			if (!r.ok)
+				throw new Error(`Evaluation status unavailable (HTTP ${r.status})`);
+			const d = (await r.json()) as EvalFeed;
+			this.apply(d.evals ?? []);
+			if (d.status?.error) throw new Error(d.status.error);
+			if (!d.status?.running) {
+				if (this.latest && this.latest.ts >= startedAt) return;
+				throw new Error("Evaluation stopped without a result — retry");
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+		}
+		if (this.isConnected)
+			throw new Error("Evaluation is taking too long — retry");
 	}
 
 	private when(ts: number): string {
