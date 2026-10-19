@@ -6,6 +6,7 @@ import { CLI, db } from "./context.ts";
 import { existsSync, readdirSync } from "node:fs";
 import { readBoardSettings } from "../lib/board-config.ts";
 import {
+	byteLen,
 	enhancePrompt,
 	type PromptPlan,
 	preparePrompt,
@@ -219,6 +220,17 @@ export async function orchPrepare(
 			service: "board",
 			status: "ok",
 		});
+	// W894: durable condense stage bytes — content-free byte counts only,
+	// feeding the report-savings fleet-day condense term (report-savings.ts).
+	orchTelemetry({
+		for: "prompt.stages",
+		...(traceId ? { traceId } : {}),
+		originalBytes: byteLen(plan.original),
+		condensedBytes: plan.condensed === null ? null : byteLen(plan.condensed),
+		enhancedBytes: plan.enhanced === null ? null : byteLen(plan.enhanced),
+		finalBytes: byteLen(plan.final),
+		wireBytes: byteLen(plan.wire),
+	});
 	return { ok: true, plan, ctx };
 }
 
