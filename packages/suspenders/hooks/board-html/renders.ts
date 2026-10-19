@@ -94,10 +94,17 @@ function renderHubObservations(d){
   });
   var note = byId('hubScopeNote');
   var relay = d.observationRelay;
-  var relayText = !relay || !relay.enabled ? 'Relay disabled: configure machine-level observation-relays.json.' : 'Relay ' + relay.localHub + ': ' + relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' + (relay.lastSuccessAt ? ' · last success ' + ago(msAgo(relay.lastSuccessAt)) : ' · awaiting first successful forward');
-  if (relay && relay.nextRetryAt) relayText += ' · next retry ' + dualStamp(relay.nextRetryAt);
-  if (relay && relay.lastError) relayText += ' · ' + relay.lastError;
-  if (note) setText(note, relayText + ' ' + (snapshot ? 'Authenticated operator observations · origin and immediate downstream are separate axes. Unobserved lanes remain unknown; observations grant no work authority.' : 'No hub observation feed installed. Lane provenance is unknown.'));
+  var enabled = !!(relay && relay.enabled);
+  setText(byId('hubRelayState'), enabled ? relay.localHub + (relay.lastError ? ' · needs attention' : ' · active') : 'not configured');
+  setText(byId('hubRelayCounts'), enabled ? relay.sent + ' sent · ' + (relay.backlog || 0) + ' pending' : 'Configure observation-relays.json on this machine');
+  var retry = byId('hubRelayRetry');
+  if (retry) {
+    setText(retry, enabled ? (relay.lastSuccessAt ? 'last success ' + ago(msAgo(relay.lastSuccessAt)) : 'no successful forward yet') + (relay.nextRetryAt ? ' · retry ' + new Date(relay.nextRetryAt).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) : '') : '');
+    retry.title = relay && relay.nextRetryAt ? dualStamp(relay.nextRetryAt) : '';
+  }
+  var relayError = byId('hubRelayError');
+  if (relayError) { setText(relayError, relay && relay.lastError ? relay.lastError : ''); relayError.title = relay && relay.lastError ? relay.lastError : ''; }
+  if (note) setText(note, snapshot ? 'Authenticated observations · origin and immediate downstream are separate axes. Unobserved lanes have unknown provenance.' : 'No hub observation feed installed; lane provenance is unknown.');
   var body = byId('downstreamObservations');
   if (!body) return;
   var rows = (snapshot && snapshot.lanes || []).filter(function(o){ return o.expiresAt > Date.now() && scopedSource(o.laneId, o.project); });
@@ -243,6 +250,16 @@ function renderFleet(){
   }
   var el = byId('fleetLine');
   setText(el, line);
+  setText(byId('fleetWorking'), working);
+  setText(byId('fleetWaiting'), waiting);
+  setText(byId('fleetBlocked'), blocked);
+  setText(byId('fleetRecentCount'), view.recent.length);
+  var context = [];
+  if (zN) context.push(zN + ' recently flagged');
+  if (ck && (ck.human || ck.kbSolutions)) context.push('Consult ' + ck.open + ' open · ' + (ck.human + ck.kb) + ' answered');
+  if (pl) context.push('Plaid ' + pl.posture + ' · Copilot ' + pl.live.copilot + ' / Zai ' + pl.live.zai + ' · baseline ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ' · overflow ' + pl.overflow.used + '/2');
+  if (pl && pl.fallback) context.push('No healthy route · dispatch paused');
+  setText(byId('fleetContext'), context.join('   ·   '));
   setText(byId('stamp'), (d.observation ? d.observation.kind + ' snapshot · observed ' : 'updated ') + ago(Math.max(0, Math.round((Date.now() - (d.observation ? d.observation.observedAt : d.ts)) / 1000))));
   byId('blockedn').textContent = blocked ? blocked + ' blocked' : '';
   var body = byId('fleetBody');

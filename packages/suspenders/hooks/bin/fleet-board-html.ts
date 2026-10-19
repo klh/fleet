@@ -99,6 +99,16 @@ select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid v
 #fleetHead:hover { border-color:var(--klh-edge-strong); }
 #fleetCaret { display:inline-block; width:10px; }
 #fleetBody { display:none; padding:8px 2px 0; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.govrelay { display:flex; flex-wrap:wrap; align-items:center; gap:5px 16px; padding:9px 12px; border:1px solid var(--klh-edge); background:var(--klh-surface); font-size:11px; }
+.govrelay strong { color:var(--klh-ink); font-size:11px; }
+.govrelay .warn { color:var(--klh-danger-ink); max-width:min(36ch,100%); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.govscope { margin:5px 0 12px; font-size:10px; line-height:1.4; }
+#fleetHead { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 18px; min-height:44px; padding:8px 12px; }
+.fleettitle { color:var(--klh-ink); font-weight:600; white-space:nowrap; }
+.fleetmetrics { display:flex; flex-wrap:wrap; gap:8px 18px; color:var(--klh-dim); }
+.fleetmetrics b { color:var(--klh-ink); font-variant-numeric:tabular-nums; font-weight:600; }
+.fleetcontext { padding:6px 12px 0; font-size:10px; line-height:1.5; }
 .chip { display:inline-block; border:1px solid var(--klh-edge); border-radius:2px; padding:3px 8px; font-size:10px; color:var(--klh-dim); margin:0 6px 6px 0; }
 .chip b { color:var(--klh-ink); font-weight:500; }
 .chip .st { text-transform:uppercase; letter-spacing:.06em; }

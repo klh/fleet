@@ -111,7 +111,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	const row = page.locator(`#tasksBody tr[data-tid="${id}"]`);
 	await expect(row).toBeVisible();
 	await expect(row).toContainText(TITLE);
-	await expect(row.locator(".pill.ready")).toHaveText("ready");
+	await expect(row.locator(".pill.ready")).toHaveText("Rready");
 	await expect(row).toContainText(H.projShort);
 	await page.screenshot({ path: `${SHOTS}/1-declared.png`, fullPage: true });
 
@@ -124,7 +124,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	// W643: the raw claim token prints once at take — present it to done
 	const token = (hubTake.match(/claim token: (\S+)/) ?? [])[1] ?? "";
 	expect(token, "no claim token in take output").not.toBe("");
-	await expect(row.locator(".pill.run")).toHaveText("claimed");
+	await expect(row.locator(".pill.run")).toHaveText("Cclaimed");
 	await page.getByRole("button", { name: "Lanes" }).click();
 	const card = page.locator(`#kanban .kcard[data-kid="${id}"]`);
 	await expect(card).toBeVisible();
@@ -145,7 +145,7 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	await expect(row).toHaveCount(0); // done rows leave the live list …
 	await page.check("#taskDone"); // … unless completed is shown
 	await expect(row).toBeVisible();
-	await expect(row.locator(".pill.done")).toHaveText("done");
+	await expect(row.locator(".pill.done")).toHaveText("Ddone");
 	await page.getByRole("button", { name: "Lanes" }).click();
 	await expect(
 		page
