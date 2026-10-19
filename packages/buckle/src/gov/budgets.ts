@@ -12,6 +12,12 @@ import type { Database } from "bun:sqlite";
 export interface BudgetLimits {
 	rpm: number | null;
 	tpm: number | null;
+	/** W843 lifetime token-denominated spend ceiling (team level; null =
+	 *  unbounded). Currency limits stay evidence-gated — the gate bounds
+	 *  TOKENS, the only quantity it observes honestly, and the book errs
+	 *  high: admission reserves the input estimate, settle adds the real
+	 *  usage, so a reserved-then-delivered request counts its input twice. */
+	spend?: number | null;
 }
 
 /** Minute-window id: `YYYY-MM-DDTHH:MM` in UTC. */
@@ -82,6 +88,16 @@ WHERE key_id = ? AND window = ?`;
 const READ_TEAM = `SELECT used_rpm, used_tpm FROM team_budget_state
 WHERE team_id = ? AND window = ?`;
 
+// W843: the lifetime spend book — subject is `team:<id>`; the admission
+// reservation and the settle-time real usage both ADD here.
+const UPSERT_SPEND = `INSERT INTO spend_state (subject, used_tok, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(subject) DO UPDATE SET
+  used_tok = used_tok + excluded.used_tok,
+  updated_at = excluded.updated_at`;
+
+const READ_SPEND = `SELECT used_tok FROM spend_state WHERE subject = ?`;
+
 interface Counts {
 	used_rpm: number;
 	used_tpm: number;
@@ -130,6 +146,22 @@ export class Budgets {
 			if (!denied && team !== null) {
 				const tr = this.db.query(READ_TEAM).get(team.id, win) as Counts | null;
 				denied = tr !== null && over(team.limits, tr);
+			}
+			// W843: the team spend ceiling rides the same transaction — the
+			// input estimate is reserved here (conservative: delivered
+			// requests count their input again at settle) and denial rolls
+			// the reservation back with the rest.
+			if (
+				!denied &&
+				team !== null &&
+				team.limits.spend !== null &&
+				team.limits.spend !== undefined
+			) {
+				this.db.query(UPSERT_SPEND).run(`team:${team.id}`, estTks, t);
+				const sp = this.db.query(READ_SPEND).get(`team:${team.id}`) as {
+					used_tok: number;
+				};
+				denied = sp.used_tok > team.limits.spend;
 			}
 			if (denied) {
 				this.db.exec("ROLLBACK");
@@ -190,6 +222,11 @@ export class Budgets {
 				.run(keyId, win, requests, tokens, cacheR, cacheC, t);
 			if (team !== null)
 				this.db.query(UPSERT_TEAM).run(team.id, win, requests, tokens, t);
+			// W843: real usage lands on the team spend book at settle — the
+			// reservation holds the input estimate; this adds what the
+			// provider actually reported (book errs high, never under).
+			if (team !== null && tokens > 0)
+				this.db.query(UPSERT_SPEND).run(`team:${team.id}`, tokens, t);
 			this.db.exec("COMMIT");
 		} catch (e) {
 			try {
@@ -241,6 +278,16 @@ export class Budgets {
 			reqs: number;
 			tks: number;
 		}>;
+	}
+
+	/** W843: the lifetime spend book — one row per subject that carries a
+	 *  reservation or real usage (`team:<id>`). */
+	snapshotSpends(): Array<{ subject: string; usedTok: number }> {
+		return this.db
+			.query(
+				"SELECT subject, used_tok AS usedTok FROM spend_state ORDER BY subject",
+			)
+			.all() as Array<{ subject: string; usedTok: number }>;
 	}
 
 	private view(c: Counts, t: number): BudgetView {

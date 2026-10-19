@@ -175,10 +175,7 @@ export class Governance {
 				tap(event);
 			} catch {
 				this.sm
-					.counter(
-						"buckle_adaptation_errors_total",
-						"Adaptation hook errors.",
-					)
+					.counter("buckle_adaptation_errors_total", "Adaptation hook errors.")
 					.inc({ hook: "audit" });
 			}
 		}
@@ -283,10 +280,7 @@ export class Governance {
 			out = await hook(req);
 		} catch {
 			this.sm
-				.counter(
-					"buckle_adaptation_errors_total",
-					"Adaptation hook errors.",
-				)
+				.counter("buckle_adaptation_errors_total", "Adaptation hook errors.")
 				.inc({ hook: "authenticate" });
 			return null;
 		}
@@ -320,15 +314,7 @@ export class Governance {
 						? await this.resolveSso(req)
 						: null;
 				if (sso !== null)
-					return this.authorize(
-						req,
-						path,
-						routeClass,
-						rid,
-						sso,
-						t0,
-						inner,
-					);
+					return this.authorize(req, path, routeClass, rid, sso, t0, inner);
 				this.rejectEvent(req, auth.code);
 				this.auditDenial({
 					rid,
@@ -521,7 +507,10 @@ export class Governance {
 		// masks the team allowance the DB authority must also hold.
 		const team =
 			p.team !== null
-				? { id: p.team, limits: ceiling ?? { rpm: null, tpm: null } }
+				? {
+						id: p.team,
+						limits: ceiling ?? { rpm: null, tpm: null, spend: null },
+					}
 				: null;
 		return this.admit(req, path, rid, p, limits, team, inner);
 	}
@@ -534,7 +523,11 @@ export class Governance {
 		limits: { rpm: number | null; tpm: number | null },
 		team: {
 			id: string;
-			limits: { rpm: number | null; tpm: number | null };
+			limits: {
+				rpm: number | null;
+				tpm: number | null;
+				spend: number | null;
+			};
 		} | null,
 		inner: (req: Request) => Response | Promise<Response>,
 	): Promise<Response> {
@@ -544,7 +537,17 @@ export class Governance {
 		if (p.kind !== "root" && !this.slots.acquire(p.team))
 			return this.slotLimited(path, rid, p);
 		try {
-			if (limits.rpm === null && limits.tpm === null) return await inner(req);
+			// W843: an unbounded rpm/tpm key still consults the books when its
+			// team carries a spend ceiling — the ceiling must never be
+			// skipped because the window limits are null.
+			if (
+				limits.rpm === null &&
+				limits.tpm === null &&
+				(team === null ||
+					team.limits.spend === null ||
+					team.limits.spend === undefined)
+			)
+				return await inner(req);
 			const chk = this.budgets.check(
 				p.keyId,
 				limits,

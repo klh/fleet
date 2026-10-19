@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS team_budget_state (
   window_start INTEGER NOT NULL,
   PRIMARY KEY (team_id, window)
 );
+-- W843 bounded spend policy: the token-denominated spend book. The
+-- authority behind the team spend ceiling (teams.spend_ceiling);
+-- currency limits stay evidence-gated (provider billing), never faked.
+CREATE TABLE IF NOT EXISTS spend_state (
+  subject TEXT PRIMARY KEY,
+  used_tok INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS admission_slots (
   scope TEXT PRIMARY KEY,
   held INTEGER NOT NULL DEFAULT 0,
@@ -121,6 +129,11 @@ const DELTA_TABLES: Array<{ tbl: string; pk: string; cols: string[] }> = [
 		pk: "$.id",
 		cols: ["id", "ts", "actor", "event", "jti", "via"],
 	},
+	{
+		tbl: "spend_state",
+		pk: "$.subject",
+		cols: ["subject", "used_tok", "updated_at"],
+	},
 	// W233.3: the federation_cr_queue delta entry moved with the DDL —
 	// the overlay hub schema owns the CR queue deltas.
 ];
@@ -158,6 +171,10 @@ export function applyGovernanceSchema(db: Database): void {
 		db.run("ALTER TABLE teams ADD COLUMN rpm_ceiling INTEGER");
 	if (!cols.includes("tpm_ceiling"))
 		db.run("ALTER TABLE teams ADD COLUMN tpm_ceiling INTEGER");
+	// W843 team spend ceiling — lifetime token-denominated cap (guarded
+	// ALTER, idempotent per open; NULL = unbounded)
+	if (!cols.includes("spend_ceiling"))
+		db.run("ALTER TABLE teams ADD COLUMN spend_ceiling INTEGER");
 	// W457 cache telemetry — guarded ALTERs (pre-cache budget_state heals)
 	const budgetCols = (
 		db
