@@ -31,11 +31,17 @@ function renderSetup(){
   }
   if (!setupData) return;
   var cs = setupData.checks || [];
+  var failures = cs.filter(function(c){ return !c.ok; }).length;
+  setText(byId('setupSummary'), failures ? failures + ' checks need attention / ' + cs.length + ' total' : cs.length + ' checks passing');
   var html = '';
   for (var i = 0; i < cs.length; i++) {
     var c = cs[i] || {};
+    var detail = String(c.detail || '');
+    var detailHtml = detail.startsWith('/') || detail.indexOf('.generation-') >= 0
+      ? '<details class="sdetail"><summary>Technical details</summary><code>' + esc(detail) + '</code></details>'
+      : '<div class="sdetail dim">' + esc(detail) + '</div>';
     html += '<div class="card scard"><div class="shead"><span class="sok ' + (c.ok ? 'ok' : 'fail') + '">' + (c.ok ? 'ok' : 'fail') + '</span> <b>' + esc(c.label || c.id || '?') + '</b></div>' +
-      '<div class="sdetail dim">' + esc(String(c.detail || '')) + '</div>' +
+      detailHtml +
       (c.fix ? '<div class="sfix"><code>' + esc(String(c.fix)) + '</code> <button type="button" class="copyfix" data-fix="' + esc(String(c.fix)) + '">copy</button></div>' : '') +
       '</div>';
   }

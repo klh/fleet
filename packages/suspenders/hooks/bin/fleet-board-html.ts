@@ -265,7 +265,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .akind { display:inline-block; border:1px solid var(--klh-edge-mid); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); }
 .sec { margin-bottom:20px; }
 .sec h2 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; align-content:start; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; align-content:start; align-items:start; }
+.setupsummary { margin:0 0 10px; font-size:11px; }
+.sdetail summary { cursor:pointer; color:var(--klh-dim); }
+.sdetail code { display:block; margin-top:6px; overflow-wrap:anywhere; font:11px var(--klh-font-mono); }
 .card { background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:2px; padding:10px 12px; }
 .pill { display:inline-block; font-size:10px; text-transform:uppercase; letter-spacing:.06em; background:transparent; border:1px solid; border-radius:2px; padding:1px 6px; margin-left:6px; vertical-align:1px; }
 .pill.run { color:var(--klh-accent); border-color:var(--klh-accent); }

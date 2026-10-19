@@ -115,6 +115,7 @@ export const BODY = String.raw`
 </section>
 <section id="tab-setup" hidden>
   <div id="setupErr" class="taberr"></div>
+  <p id="setupSummary" class="setupsummary dim" aria-live="polite"></p>
   <div class="grid" id="setupBody"><div class="state dim">loading setup checks...</div></div>
 </section>
 <section id="tab-enterprise" hidden>
