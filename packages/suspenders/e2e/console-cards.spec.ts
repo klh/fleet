@@ -49,6 +49,12 @@ test("belt console: policy + upstream-pool cards upgrade and render", async ({
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/belt`);
+	const network = page.locator("klh-network-card");
+	const inventory = page.locator("details.consoleInventory");
+	await expect(network).toBeVisible();
+	await expect(inventory).not.toHaveAttribute("open", "");
+	await expect(page.locator("klh-policy-card")).not.toBeVisible();
+	await inventory.locator("summary").click();
 	// the scratch board still resolves the committed-default policy (the walk
 	// ends at the repo checkout) — the card renders the resolved ladder
 	const policy = page.locator("klh-policy-card");
@@ -76,6 +82,10 @@ test("local page: registry card upgrades; settings: knobs + audit cards", async 
 	const B = mustBoard();
 	const look = watch(page);
 	await page.goto(`${B.BASE}/console/local`);
+	const inventory = page.locator("details.consoleInventory");
+	await expect(page.locator("klh-service-row").first()).toBeVisible();
+	await expect(inventory).not.toHaveAttribute("open", "");
+	await inventory.locator("summary").click();
 	const reg = page.locator("klh-registry-card");
 	await expect(reg).toBeVisible();
 	await expect(reg.getByText(/Registered services · 0/)).toBeVisible();
