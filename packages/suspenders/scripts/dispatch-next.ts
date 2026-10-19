@@ -220,7 +220,13 @@ const residueOf = (wt: string): string =>
 		.split("\n")
 		.filter((line) => {
 			const p = line.slice(3).trim();
-			return line && p !== ".klh-brief.md" && !p.startsWith(".fleet/");
+			return (
+				line &&
+				p !== ".klh-brief.md" &&
+				!p.startsWith(".fleet/") &&
+				p !== "node_modules" &&
+				!p.startsWith("node_modules/")
+			);
 		})
 		.join("\n");
 // W349: retire+recreate a wrong-branch leftover — the SKIP line on failure,
