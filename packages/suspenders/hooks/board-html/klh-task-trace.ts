@@ -13,6 +13,14 @@ interface TraceStep {
 	outputTokens?: number | null;
 }
 
+interface WorkEvent {
+	ts: number;
+	kind: string;
+	source: string;
+	note?: string | null;
+	sha?: string | null;
+}
+
 interface ExecutionHop {
 	at: number;
 	traceId: string | null;
@@ -46,11 +54,13 @@ interface ExecutionTrace {
 class KlhTaskTrace extends LitElement {
 	static properties = {
 		trace: { attribute: false },
+		events: { attribute: false },
 		execution: { attribute: false },
 		loading: { type: Boolean },
 		error: { type: String },
 	};
 	declare trace: TraceStep[];
+	declare events: WorkEvent[];
 	declare execution: ExecutionTrace | null;
 	declare loading: boolean;
 	declare error: string | null;
@@ -72,6 +82,7 @@ class KlhTaskTrace extends LitElement {
 	constructor() {
 		super();
 		this.trace = [];
+		this.events = [];
 		this.execution = null;
 		this.loading = false;
 		this.error = null;
@@ -81,6 +92,17 @@ class KlhTaskTrace extends LitElement {
 		const traceId = this.trace[0]?.traceId ?? "";
 		const execution = this.execution;
 		return html`<h2>Work trace ${traceId ? html`<code>${traceId.slice(0, 12)}</code>` : ""}</h2>
+			<h3>Work graph</h3>
+			${
+				this.events.length
+					? html`<ol>${this.events.map(
+							(event) => html`<li>
+				<time datetime=${new Date(event.ts).toISOString()}>${new Date(event.ts).toLocaleString()}</time>
+				<div><strong>${event.kind}</strong> · ${event.source}<span class="sub">${[event.note, event.sha ? `commit ${event.sha.slice(0, 12)}` : null].filter(Boolean).join(" · ")}</span></div>
+			</li>`,
+						)}</ol>`
+					: html`<p>No work graph events recorded for this item.</p>`
+			}
 			${this.trace.length ? html`<h3>Plan and registration</h3>` : ""}
 			<ol>${this.trace.map(
 				(step) => html`<li>
@@ -90,6 +112,7 @@ class KlhTaskTrace extends LitElement {
 				</div>
 			</li>`,
 			)}</ol>
+			${!this.trace.length ? html`<p>No orchestration trace recorded. Directly created work starts at the work graph.</p>` : ""}
 			${this.loading ? html`<p>Checking lane requests across hubs…</p>` : ""}
 			${this.error ? html`<p class="error">Request history unavailable: ${this.error}</p>` : ""}
 			${

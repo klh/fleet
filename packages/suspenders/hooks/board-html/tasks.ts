@@ -870,16 +870,6 @@ function renderDrawer(){
       (dd.answer_note ? '<span class="hans">' + esc(String(dd.answer_note).slice(0, 160)) + '</span>' : '') + '</div>';
   }
   if (!decs) decs = '<div class="r"><span class="dim">(none)</span></div>';
-  var tl = '';
-  var evs = d.events || [];
-  for (var j = 0; j < evs.length; j++) {
-    var e = evs[j] || {};
-    tl += '<div class="r"><span class="ts">' + agoShort(msAgo(e.ts)) + '</span><span><span class="akind">' + esc(String(e.kind || '?')) + '</span> ' +
-      '<span class="mono">' + esc(String(e.source || '').slice(0, 16)) + '</span>' +
-      (e.note ? ' — ' + esc(String(e.note).slice(0, 90)) : '') +
-      (e.sha ? ' <span class="mono">@' + esc(String(e.sha).slice(0, 7)) + '</span>' : '') + '</span></div>';
-  }
-  if (!tl) tl = '<div class="r"><span class="dim">(no events)</span></div>';
   // Actions feed: cancel (reason-required) + second opinion. The reason
   // draft + its focus survive the 5s drawer re-render (capture → render → restore).
   var prevReason = byId('acancel');
@@ -894,21 +884,19 @@ function renderDrawer(){
   var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' +
     spendStripHtml(t, 'kspend-drawer') +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
-    '<div class="feed"><h2>Timeline</h2>' + tl + '</div>' +
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';
   if (task.err) html += '<div class="derr">refresh failed — ' + esc(String(task.err).slice(0, 120)) + '</div>';
   sigSet(body, String(task.okAt) + '|' + (task.err || ''), html);
-  if (Array.isArray(d.trace)) {
-    var traceHost = body.querySelector('klh-task-trace') || document.createElement('klh-task-trace');
-    traceHost.trace = d.trace;
-    traceHost.execution = task.execution;
-    traceHost.loading = task.executionBusy;
-    traceHost.error = task.executionErr;
-    if (!traceHost.isConnected) {
-      var timeline = body.querySelector('.feed:nth-of-type(3)');
-      if (timeline) body.insertBefore(traceHost, timeline);
-      else body.appendChild(traceHost);
-    }
+  var traceHost = body.querySelector('klh-task-trace') || document.createElement('klh-task-trace');
+  traceHost.trace = Array.isArray(d.trace) ? d.trace : [];
+  traceHost.events = d.events;
+  traceHost.execution = task.execution;
+  traceHost.loading = task.executionBusy;
+  traceHost.error = task.executionErr;
+  if (!traceHost.isConnected) {
+    var actions = body.querySelector('.feed:last-of-type');
+    if (actions) body.insertBefore(traceHost, actions);
+    else body.appendChild(traceHost);
   }
   // reason draft: restore focus + caret after the re-render
   var nr = byId('acancel');
