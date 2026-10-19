@@ -47,6 +47,8 @@ import {
 	ownerLabel,
 	payloadOf,
 	projOf,
+	signalMaps,
+	type TaskSignal,
 	subscribeTail,
 	syncDecisions,
 	transcriptTail,
@@ -65,6 +67,7 @@ export function taskShape(
 	attribution: ItemAttribution | null = null,
 	failureNote: string | null = null,
 	completion?: Map<string, { text: string; ts: string; source: string }>,
+	signal?: TaskSignal | null,
 ): Record<string, unknown> {
 	// W517 — .prefer tree identity: the stamped tag wins, live resolve
 	// covers rows added before coverage; color is a tree attribute, always
@@ -102,6 +105,9 @@ export function taskShape(
 		created_at_utc: utcZ(w.created_at),
 		updated_at_utc: utcZ(w.updated_at),
 		open_decisions: openDecisions,
+		// W969 Signals-lite verdict (newest lane.signal per item) — the board
+		// lanes view badges silent-failure findings beside the tail
+		signal: signal ?? null,
 		tail:
 			done ??
 			transcriptTail(w.owner_sid, w.state === "FAILED" ? 320 : 110) ??
@@ -336,6 +342,7 @@ export function tasks(
 		});
 	}
 	const completion = completionTailMap();
+	const signals = signalMaps();
 	const failures = new Map<string, string>();
 	for (const row of db
 		.query(
@@ -361,6 +368,7 @@ export function tasks(
 			workAttribution().get(`${w.project}\u0000${w.id}`) ?? null,
 			failures.get(`${w.project}\u0000${w.id}`) ?? null,
 			completion,
+			signals.get(`${w.project}\u0000${w.id}`) ?? null,
 		),
 	);
 }

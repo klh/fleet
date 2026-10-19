@@ -528,6 +528,63 @@ export function ago(ts: number | null | undefined): number {
 	return ts ? Math.max(0, Math.round((Date.now() - ts) / 1000)) : -1;
 }
 
+// W969 Signals-lite: newest lane.signal verdict per (project, item) — one
+// newest-first read, first-wins per key. `signal` rides the task rows so
+// the board lanes view can badge silent-failure verdicts (reported-done-
+// tests-red | loop-no-progress | claim-evidence-mismatch | clean).
+export interface TaskSignal {
+	class: string;
+	confidence: number;
+	ts: number;
+}
+
+export function signalMaps(): Map<string, TaskSignal> {
+	const out = new Map<string, TaskSignal>();
+	for (const r of db
+		.query(
+			"SELECT payload FROM events WHERE kind = 'lane.signal' ORDER BY id DESC LIMIT 400",
+		)
+		.all() as { payload: string | null }[]) {
+		const pl = payloadOf(r.payload);
+		if (
+			typeof pl.work !== "string" ||
+			typeof pl.class !== "string" ||
+			typeof pl.confidence !== "number"
+		)
+			continue;
+		const key = `${String(pl.project ?? "")}\u0000${pl.work}`;
+		if (out.has(key)) continue;
+		out.set(key, {
+			class: pl.class,
+			confidence: pl.confidence,
+			ts: typeof pl.ts === "number" ? pl.ts : 0,
+		});
+	}
+	return out;
+}
+
+// single-item face for the drawer (/api/task) — same vocabulary
+export function signalFor(project: string, id: string): TaskSignal | null {
+	for (const r of db
+		.query(
+			"SELECT payload FROM events WHERE kind = 'lane.signal' AND json_extract(payload, '$.work') = ? ORDER BY id DESC LIMIT 1",
+		)
+		.all(id) as { payload: string | null }[]) {
+		const pl = payloadOf(r.payload);
+		if (
+			typeof pl.class === "string" &&
+			typeof pl.confidence === "number" &&
+			String(pl.project ?? "") === project
+		)
+			return {
+				class: pl.class,
+				confidence: pl.confidence,
+				ts: typeof pl.ts === "number" ? pl.ts : 0,
+			};
+	}
+	return null;
+}
+
 // W293 session-name bridge: the user-facing lane name lives in sessions.tags
 // JSON (stamped by `coord bootstrap --name` at dispatch or by hand). The
 // board never renders a bare sid where a name exists.
