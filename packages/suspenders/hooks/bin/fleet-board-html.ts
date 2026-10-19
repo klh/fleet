@@ -194,7 +194,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .tidbtn { background:none; border:none; padding:0; color:var(--klh-accent); font:inherit; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
 /* W65 lanes kanban — one column per work-graph state, cards carry the lane's live tail */
 .kwrap { overflow-x:auto; }
-.kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; }
+.kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
 .kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--klh-edge-mid); padding-top:6px; }
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
@@ -220,9 +220,9 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kexec .kstart { margin-top:0; flex:none; }
 .kexecsel { background:var(--klh-bg); border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:2px 4px; max-width:250px; flex:1 1 auto; min-width:0; cursor:pointer; }
 .kempty { font-size:11px; padding:2px 0 6px; }
-/* W214 dependency splines — thin beziers over the kanban, token-colored */
+/* W214 dependency routes — thin lines in lane gutters, token-colored */
 .kwrap { position:relative; }
-#ksplines { position:absolute; top:0; left:0; pointer-events:none; z-index:2; overflow:visible; }
+#ksplines { position:absolute; top:0; left:0; pointer-events:none; z-index:2; overflow:hidden; }
 #ksplines > path { fill:none; stroke-width:1.5; opacity:.8; }
 #ksplines > path.spl-block { stroke:var(--klh-danger-ink); }
 #ksplines > path.spl-wait { stroke:var(--klh-ok-ink); }

@@ -18,13 +18,18 @@ function chunkSandbox(): {
 		ts: Item[],
 		vis: Record<string, number>,
 	) => { cls: string; from: string; to: string }[];
+	splineRoutes: (
+		a: { x: number; y: number; w: number; h: number },
+		b: { x: number; y: number; w: number; h: number },
+		width: number,
+	) => string[];
 } {
 	const fn = new Function(
 		"esc",
 		"taskPill",
 		"agoShort",
 		"window",
-		`${TASKS}\nreturn { tkey, depOrder, splineEdges };`,
+		`${TASKS}\nreturn { tkey, depOrder, splineEdges, splineRoutes };`,
 	);
 	return fn(null, null, null, { addEventListener: () => {} });
 }
@@ -70,7 +75,7 @@ describe("board dependency splines (W214)", () => {
 	});
 
 	test("splineEdges: blocked dep→dependent, waiting child→parent; hidden pairs drop", () => {
-		const { splineEdges, tkey } = chunkSandbox();
+		const { splineEdges } = chunkSandbox();
 		const A = { project: "/r/.git", id: "W1" };
 		const B = { project: "/r/.git", id: "W2", blocked_by: ["W1"] };
 		const P = { project: "/r/.git", id: "W9", waiting_on: ["W9.1"] };
@@ -102,5 +107,25 @@ describe("board dependency splines (W214)", () => {
 			"#ksplines > path.spl-wait { stroke:var(--klh-ok-ink); }",
 		);
 		expect(HTML).toContain('id="splinesLegend"');
+		expect(HTML).toContain(
+			"#ksplines { position:absolute; top:0; left:0; pointer-events:none; z-index:2; overflow:hidden; }",
+		);
+		expect(TASKS).toContain("el.appendChild(svg)");
+	});
+
+	test("spline routes stay in column gutters and use short cross-column transitions", () => {
+		const { splineRoutes } = chunkSandbox();
+		const a = { x: 0, y: 40, w: 250, h: 80 };
+		const below = { x: 0, y: 220, w: 250, h: 80 };
+		const beside = { x: 260, y: 220, w: 250, h: 80 };
+		expect(splineRoutes(a, below, 520)).toEqual([
+			"M250 80 L255 80 L255 260 L250 260",
+		]);
+		const cross = splineRoutes(a, beside, 520);
+		expect(cross).toEqual([
+			"M250 80 L255 80 L255 96",
+			"M255 244 L255 260 L260 260",
+		]);
+		expect(cross.every((path) => !path.includes("520"))).toBe(true);
 	});
 });

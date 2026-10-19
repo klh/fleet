@@ -418,9 +418,9 @@ function kanbanCard(t, fam){
 // --- W214 dependency splines — blocked edges (thin orange) + shattered-parent
 // waiting edges (thin green). depOrder() reorders each column provider-first
 // (Kahn topological on in-column edges, age tie-break) so splines read
-// top-down; drawSplines() routes card-edge-to-card-edge beziers in an
-// overlay SVG riding the kanban scroll container (scroll-invariant: the
-// overlay scrolls with the content). Server: blocked_by = unmet work_deps,
+// top-down; drawSplines() routes edges within each lane in an overlay SVG
+// attached to the kanban content, so it scrolls with the cards. Server:
+// blocked_by = unmet work_deps,
 // waiting_on = SHATTERED roll-up wait set.
 var tkey = function(t){ return (t.project || '') + '\u0000' + t.id; };
 function depOrder(items){
@@ -598,8 +598,7 @@ function splineEdges(ts, vis){
 var SVGNS = 'http://www.w3.org/2000/svg';
 function splineSvg(){
   var el = byId('kanban');
-  var wrap = el ? el.parentNode : null;
-  if (!wrap) return null;
+  if (!el) return null;
   var svg = byId('ksplines');
   if (!svg){
     svg = document.createElementNS(SVGNS, 'svg');
@@ -621,7 +620,7 @@ function splineSvg(){
     mk('spl-arrow-block', 'spl-block');
     mk('spl-arrow-wait', 'spl-wait');
     svg.appendChild(defs);
-    wrap.appendChild(svg);
+    el.appendChild(svg);
   }
   return svg;
 }
@@ -646,27 +645,36 @@ function drawSplines(){
   for (i = 0; i < edges.length; i++){
     var a = pos[edges[i].from], b = pos[edges[i].to];
     if (!a || !b) continue;
-    var sameCol = Math.abs(a.x - b.x) < a.w / 2;
-    var x1, y1, x2, y2, d;
-    if (sameCol){
-      x1 = a.x + a.w / 2; y1 = a.y < b.y ? a.y + a.h : a.y;
-      x2 = b.x + b.w / 2; y2 = a.y < b.y ? b.y : b.y + b.h;
-      var my = (y1 + y2) / 2;
-      d = 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + my + ', ' + x2 + ' ' + my + ', ' + x2 + ' ' + y2;
-    } else {
-      x1 = a.x < b.x ? a.x + a.w : a.x;
-      y1 = a.y + a.h / 2;
-      x2 = a.x < b.x ? b.x : b.x + b.w;
-      y2 = b.y + b.h / 2;
-      var mx = (x1 + x2) / 2;
-      d = 'M' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2;
+    var routes = splineRoutes(a, b, el.offsetWidth);
+    for (var j = 0; j < routes.length; j++){
+      var path = document.createElementNS(SVGNS, 'path');
+      path.setAttribute('d', routes[j]);
+      path.setAttribute('class', edges[i].cls);
+      if (j === routes.length - 1) path.setAttribute('marker-end', 'url(#' + (edges[i].cls === 'spl-block' ? 'spl-arrow-block' : 'spl-arrow-wait') + ')');
+      svg.appendChild(path);
     }
-    var path = document.createElementNS(SVGNS, 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('class', edges[i].cls);
-    path.setAttribute('marker-end', 'url(#' + (edges[i].cls === 'spl-block' ? 'spl-arrow-block' : 'spl-arrow-wait') + ')');
-    svg.appendChild(path);
   }
+}
+// The full dependency line stays in a column gutter. Across columns, show a
+// short exit and entry in each lane; a long curve over unrelated cards hides
+// the work rather than explaining the dependency.
+function splineRoutes(a, b, width){
+  var y1 = a.y + a.h / 2, y2 = b.y + b.h / 2;
+  var direction = y2 >= y1 ? 1 : -1;
+  if (Math.abs(a.x - b.x) < a.w / 2){
+    var edge = Math.max(a.x + a.w, b.x + b.w);
+    var gutter = edge + 5 <= width - 3 ? edge + 5 : edge - 5;
+    return ['M' + (a.x + a.w) + ' ' + y1 + ' L' + gutter + ' ' + y1 + ' L' + gutter + ' ' + y2 + ' L' + (b.x + b.w) + ' ' + y2];
+  }
+  var rightward = a.x < b.x;
+  var exitX = rightward ? a.x + a.w : a.x;
+  var exitGutter = exitX + (rightward ? 5 : -5);
+  var entryX = rightward ? b.x : b.x + b.w;
+  var entryGutter = entryX + (rightward ? -5 : 5);
+  return [
+    'M' + exitX + ' ' + y1 + ' L' + exitGutter + ' ' + y1 + ' L' + exitGutter + ' ' + (y1 + direction * 16),
+    'M' + entryGutter + ' ' + (y2 - direction * 16) + ' L' + entryGutter + ' ' + y2 + ' L' + entryX + ' ' + y2,
+  ];
 }
 function openTask(id, proj, trigger){
   task.id = id; task.proj = proj || null; task.data = null; task.err = null; task.okAt = 0; task.trigger = trigger || null;
