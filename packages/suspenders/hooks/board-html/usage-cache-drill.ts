@@ -137,6 +137,13 @@ export class KlhUsageCacheDrill extends LitElement {
 			</div>
 			${this.filterRow(r)}
 			${
+				r.overall.requests > r.overall.known
+					? html`<p class="uwarn">Cache verdicts are available for
+					${String(r.overall.known)} of ${String(r.overall.requests)}
+					requests. Warm rates exclude the rest.</p>`
+					: nothing
+			}
+			${
 				r.local_transcripts && r.local_transcripts.cache_read_tokens > 0
 					? html`<p class="ufoot">Local Claude transcripts report
 					${fmtTok(r.local_transcripts.cache_read_tokens)} cache-read tokens
@@ -169,8 +176,9 @@ export class KlhUsageCacheDrill extends LitElement {
 	private modelTable(models: ModelDrillRow[]): TemplateResult {
 		if (models.length === 0) return nothing;
 		return html`<h3>CACHE BY MODEL</h3>
-			<p class="ufoot">unsupported = declared in machine config; not reported =
-				no provider cache field was observed</p>
+			<p class="ufoot">partial = some requests have no cache verdict;
+				unsupported = declared in machine config; not reported = no provider
+				cache field was observed</p>
 			<table class="uacts">
 				<thead><tr><th>model</th><th class="unum">req</th><th class="unum">verdicts</th><th>warm</th><th class="unum">cache read</th><th>status</th></tr></thead>
 				<tbody>${models.map(

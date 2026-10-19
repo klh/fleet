@@ -88,6 +88,13 @@ test("model cache status separates measured, unsupported and unreported", () => 
 			cache_r: 0,
 			cache_reported: 0,
 		},
+		{
+			rid: "d",
+			ts: "2026-10-19T12:00:03Z",
+			target_model: "cloud",
+			cache_r: 0,
+			cache_reported: 0,
+		},
 		{ rid: "c", ts: "2026-10-19T12:00:02Z", target_model: "other", cache_r: 0 },
 	]
 		.map((raw) => parseRequestRow(raw))
@@ -96,7 +103,7 @@ test("model cache status separates measured, unsupported and unreported", () => 
 	expect(models.find((m) => m.model === "cloud")).toMatchObject({
 		known: 1,
 		warm: 0,
-		status: "measured",
+		status: "partial",
 	});
 	expect(models.find((m) => m.model === "local")).toMatchObject({
 		known: 0,

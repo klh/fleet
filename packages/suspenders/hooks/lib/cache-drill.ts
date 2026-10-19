@@ -249,7 +249,7 @@ export interface ModelDrillRow {
 	warm_ratio: number;
 	cache_r_tok: number;
 	cache_c_tok: number;
-	status: "measured" | "unsupported" | "not reported";
+	status: "measured" | "partial" | "unsupported" | "not reported";
 }
 
 export function modelAggregates(
@@ -285,7 +285,9 @@ export function modelAggregates(
 			warm_ratio: model.known > 0 ? model.warm / model.known : 0,
 			status:
 				model.known > 0
-					? ("measured" as const)
+					? model.known === model.requests
+						? ("measured" as const)
+						: ("partial" as const)
 					: unsupported.has(model.model)
 						? ("unsupported" as const)
 						: ("not reported" as const),
