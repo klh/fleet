@@ -10,9 +10,10 @@
 // (untracked), bun-installed, then the task runs concurrently per lane.
 // NDJSON records land in <out>/<tag>.ndjson (streams law); the summary table
 // prints to stdout. Exit 0 = all lanes exited 0 in every config.
-import { mkdirSync, appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { defineVerb, parseVerb } from "../hooks/lib/verb-kit.ts";
+import { p95, parseDf, parseTop, splitTask } from "./lib/capacity-math.ts";
 
 const SPEC = defineVerb({
 	name: "run",
@@ -21,44 +22,6 @@ const SPEC = defineVerb({
 	flags: ["--lanes", "--repo", "--iters", "--task", "--tag", "--out"],
 	switches: ["--keep", "--json"],
 });
-
-export const p95 = (walls: number[]): number | null => {
-	if (walls.length === 0) return null;
-	const s = [...walls].sort((a, b) => a - b);
-	return s[Math.ceil(0.95 * s.length) - 1];
-};
-
-/** task argv split; a leading "bun" token is implied (spawn adds it) */
-export const splitTask = (task: string): string[] => {
-	const parts = task.split(" ").filter(Boolean);
-	return parts[0] === "bun" ? parts.slice(1) : parts;
-};
-
-/** parse macOS `top -l 1 -n 0`: active CPU % and used-mem GB */
-export const parseTop = (
-	out: string,
-): { cpuActive: number | null; memUsedGb: number | null } => {
-	const cpu = out.match(
-		/CPU usage:\s*([\d.]+)% user,\s*([\d.]+)% sys/,
-	);
-	if (!cpu) return { cpuActive: null, memUsedGb: null };
-	const mem = out.match(/PhysMem:\s*([\d.]+)G used/);
-	return {
-		cpuActive:
-			Math.round(
-				(Number(cpu[1]) + Number(cpu[2])) * 10,
-			) / 10,
-		memUsedGb: mem ? Number(mem[1]) : null,
-	};
-};
-
-/** parse `df -k <path>` → available KiB on the volume holding <path> */
-export const parseDf = (out: string): number | null => {
-	const lines = out.trim().split("\n");
-	const row = lines[lines.length - 1]?.split(/\s+/);
-	const avail = row ? Number(row[3]) : NaN;
-	return Number.isFinite(avail) ? avail : null;
-};
 
 export type LaneRecord = {
 	ts: number;
@@ -102,9 +65,7 @@ const LANE_SET = (arg("lanes") ?? "1,2,4")
 	.map((s) => Number(s.trim()))
 	.filter((n) => n > 0);
 const ITERS = Number(arg("iters") ?? 1);
-const TASK = splitTask(
-	arg("task") ?? "bun test packages/buckle/test",
-);
+const TASK = splitTask(arg("task") ?? "bun test packages/buckle/test");
 const TAG = arg("tag") ?? new Date().toISOString().replace(/[:.]/g, "-");
 const OUT = resolve(arg("out") ?? join(REPO, ".fleet", "capacity-bench"));
 const KEEP = hasSwitch("keep");
@@ -156,7 +117,7 @@ const sampleOnce = async (): Promise<Sample> => {
 	};
 };
 
-const startSampler = (onSample: (s: Sample) => void): () => void => {
+const startSampler = (onSample: (s: Sample) => void): (() => void) => {
 	let live = true;
 	void (async () => {
 		while (live) {
@@ -188,8 +149,7 @@ const runConfig = async (n: number, ndjson: string): Promise<ConfigSummary> => {
 	for (let i = 0; i < n; i++) {
 		const wt = join(OUT, `lanes${n}-i0-${i}`);
 		const code = git(["worktree", "add", "--detach", wt, "HEAD"]);
-		if (code !== 0)
-			throw new Error(`worktree add failed for ${wt}`);
+		if (code !== 0) throw new Error(`worktree add failed for ${wt}`);
 		wts.push(wt);
 	}
 	const stop = startSampler((s) => samples.push(s));
@@ -302,4 +262,3 @@ for (const n of LANE_SET) {
 	writeRecord(ndjson, summary);
 	printSummary(summary);
 }
-

@@ -41,8 +41,7 @@ export const worstStatus = (
 ): CheckStatus => {
 	let worst: CheckStatus = "pass";
 	for (const r of results)
-		if (checkStatusRank[r.status] > checkStatusRank[worst])
-			worst = r.status;
+		if (checkStatusRank[r.status] > checkStatusRank[worst]) worst = r.status;
 	return worst;
 };
 
@@ -82,7 +81,7 @@ export const readAdminKey = (beltEnv: string): string | null => {
 	}
 };
 
-export const checkBun = (ctx: DoctorContext): CheckResult => {
+export const checkBun = (_ctx: DoctorContext): CheckResult => {
 	const version = typeof Bun !== "undefined" ? Bun.version : null;
 	const major = version ? Number(version.split(".")[0]) : 0;
 	return {
@@ -95,7 +94,7 @@ export const checkBun = (ctx: DoctorContext): CheckResult => {
 
 const AGENT_CLIS = ["claude", "codex", "copilot"];
 
-export const checkAgentClis = (ctx: DoctorContext): CheckResult => {
+export const checkAgentClis = (_ctx: DoctorContext): CheckResult => {
 	const found = AGENT_CLIS.filter((c) => Bun.which(c) !== null);
 	return {
 		id: "agent-cli",
@@ -204,7 +203,11 @@ export const smokeBoard = async (base: string): Promise<SmokeResult> => {
 			headers: { accept: "application/json" },
 		});
 		if (!res.ok)
-			return { id: "board", status: "warn", detail: `board HTTP ${res.status}` };
+			return {
+				id: "board",
+				status: "warn",
+				detail: `board HTTP ${res.status}`,
+			};
 		const body = (await res.json()) as { items?: unknown[] };
 		return {
 			id: "board",

@@ -5,22 +5,27 @@
 // scoped-key mint/verify/revoke roundtrip). Exit: 0 all pass, 0< warn, 2 fail.
 import { join, resolve } from "node:path";
 import {
+	type CheckResult,
+	type DoctorContext,
 	readAdminKey,
 	runChecks,
 	smokeBoard,
 	smokeGateRoundtrip,
 	worstStatus,
-	type CheckResult,
-	type DoctorContext,
-	type SmokeResult,
 } from "../lib/doctor.ts";
-import { defineVerb, runCli, type Parsed } from "../lib/verb-kit.ts";
+import { defineVerb, type Parsed, runCli } from "../lib/verb-kit.ts";
 
 const home = process.env.HOME ?? "";
 
-const emitRows = (rows: CheckResult[], asJson: boolean, repo: string): number => {
+const emitRows = (
+	rows: CheckResult[],
+	asJson: boolean,
+	repo: string,
+): number => {
 	if (asJson)
-		console.log(JSON.stringify({ repo, origin: import.meta.path, checks: rows }));
+		console.log(
+			JSON.stringify({ repo, origin: import.meta.path, checks: rows }),
+		);
 	else for (const r of rows) console.log(`[${r.status}] ${r.id}: ${r.detail}`);
 	const worst = worstStatus(rows);
 	return worst === "pass" ? 0 : worst === "warn" ? 1 : 2;
@@ -28,7 +33,9 @@ const emitRows = (rows: CheckResult[], asJson: boolean, repo: string): number =>
 
 const runSmoke = async (p: Parsed, asJson: boolean): Promise<number> => {
 	const boardBase =
-		p.flag("--board-url") ?? process.env.KLH_BOARD_URL ?? "http://127.0.0.1:7799";
+		p.flag("--board-url") ??
+		process.env.KLH_BOARD_URL ??
+		"http://127.0.0.1:7799";
 	const gateBase =
 		p.flag("--gate-url") ?? process.env.KLH_GATE_URL ?? "http://127.0.0.1:4101";
 	const key = readAdminKey(`${home}/.claude/local-llm/belt.env`);
@@ -53,14 +60,14 @@ const VERBS = [
 	defineVerb({
 		name: "check",
 		usage:
-			'usage: doctor check [--repo <dir>] [--json] — static onboarding checks (bun, agent CLI, gateway credentials, repo rules, project identity)',
+			"usage: doctor check [--repo <dir>] [--json] — static onboarding checks (bun, agent CLI, gateway credentials, repo rules, project identity)",
 		flags: ["--repo"],
 		switches: ["--json"],
 	}),
 	defineVerb({
 		name: "smoke",
 		usage:
-			'usage: doctor smoke [--repo <dir>] [--board-url <url>] [--gate-url <url>] --json — live board + scoped-key roundtrip',
+			"usage: doctor smoke [--repo <dir>] [--board-url <url>] [--gate-url <url>] --json — live board + scoped-key roundtrip",
 		flags: ["--repo", "--board-url", "--gate-url"],
 		switches: ["--json"],
 	}),
