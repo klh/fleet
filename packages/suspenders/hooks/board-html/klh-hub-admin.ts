@@ -75,6 +75,7 @@ class KlhHubAdmin extends LitElement {
 		err: { state: true },
 		tokenFilter: { state: true },
 		tokenSearch: { state: true },
+		tokenPage: { state: true },
 	};
 
 	declare tokens: TokenRow[] | null;
@@ -91,6 +92,7 @@ class KlhHubAdmin extends LitElement {
 	declare err: string | null;
 	declare tokenFilter: string;
 	declare tokenSearch: string;
+	declare tokenPage: number;
 
 	constructor() {
 		super();
@@ -104,6 +106,7 @@ class KlhHubAdmin extends LitElement {
 		this.err = null;
 		this.tokenFilter = "active";
 		this.tokenSearch = "";
+		this.tokenPage = 0;
 	}
 	connectedCallback(): void {
 		super.connectedCallback();
@@ -283,6 +286,8 @@ class KlhHubAdmin extends LitElement {
 		.token-controls label { display:flex; align-items:center; gap:6px; color:var(--klh-dim); font:11px var(--klh-font-mono); }
 		.token-controls input { min-width:180px; }
 		.token-count { color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-pages { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:8px 0; color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-pages button:disabled { opacity:.4; cursor:default; }
 		details {
 			border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.1));
 			border-radius: 3px;
@@ -350,7 +355,7 @@ class KlhHubAdmin extends LitElement {
 		const rows = this.tokens ?? [];
 		const active = rows.filter((r) => r.state === "active").length;
 		const search = this.tokenSearch.trim().toLowerCase();
-		const shown = rows.filter(
+		const matched = rows.filter(
 			(r) =>
 				(this.tokenFilter === "all" || r.state === this.tokenFilter) &&
 				(!search ||
@@ -360,6 +365,9 @@ class KlhHubAdmin extends LitElement {
 						.toLowerCase()
 						.includes(search)),
 		);
+		const pageCount = Math.max(1, Math.ceil(matched.length / 12));
+		const page = Math.min(this.tokenPage, pageCount - 1);
+		const shown = matched.slice(page * 12, (page + 1) * 12);
 		return html`
 			<details>
 				<summary>Issue a token</summary>
@@ -408,6 +416,7 @@ class KlhHubAdmin extends LitElement {
 						e: Event,
 					) => {
 						this.tokenFilter = (e.target as HTMLSelectElement).value;
+						this.tokenPage = 0;
 					}}>
 						<option value="active">active</option><option value="revoked">revoked</option><option value="expired">expired</option><option value="rotated">rotated</option><option value="all">all</option>
 					</select>
@@ -417,9 +426,10 @@ class KlhHubAdmin extends LitElement {
 						e: Event,
 					) => {
 						this.tokenSearch = (e.target as HTMLInputElement).value;
+						this.tokenPage = 0;
 					}} />
 				</label>
-				<span class="token-count">${active} active · ${rows.length - active} inactive · ${shown.length} shown</span>
+				<span class="token-count">${active} active · ${rows.length - active} inactive · ${matched.length ? page * 12 + 1 : 0}–${page * 12 + shown.length} of ${matched.length}</span>
 			</div>
 			<table>
 				<thead>
@@ -442,6 +452,19 @@ class KlhHubAdmin extends LitElement {
 					}
 				</tbody>
 			</table>
+			${
+				pageCount > 1
+					? html`<nav class="token-pages" aria-label="Token pages">
+				<button type="button" ?disabled=${page === 0} @click=${() => {
+					this.tokenPage = page - 1;
+				}}>Previous</button>
+				<span>Page ${page + 1} of ${pageCount}</span>
+				<button type="button" ?disabled=${page + 1 >= pageCount} @click=${() => {
+					this.tokenPage = page + 1;
+				}}>Next</button>
+			</nav>`
+					: nothing
+			}
 			<p class="foot">
 				Listing is masked (8-char id, no material). Every issue/revoke lands
 				in the console audit trail (governor.db).
