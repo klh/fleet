@@ -48,6 +48,7 @@ import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { handleLaneModel } from "../board/routes-lane-model.ts";
 import { handleMeta } from "../board/routes-meta.ts";
 import { handleObservations } from "../board/routes-observations.ts";
+import { handleKnowledgeIngest } from "../board/knowledge-ingest.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleFiles } from "../board/routes-files.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
@@ -134,6 +135,7 @@ const base = {
 		for (const h of [
 			handleLaneModel,
 			handleObservations,
+			handleKnowledgeIngest,
 			handleFleetTree,
 			handleData,
 			handleUsage,
