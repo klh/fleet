@@ -32,6 +32,7 @@ import {
 	BUCKLE_FRONT,
 	enrollSessionKey,
 } from "../../scripts/lib/lane-auth.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 /** The keepwarm's lane identity on the front (/w/<SID>, route_audit.lane). */
 export const PREFIX_SID = "prefix-keepwarm";
@@ -405,28 +406,31 @@ export function reportCache(o: { dbPath: string; hours: number }): string {
 
 // ---- CLI -------------------------------------------------------------------
 
-const usage = (): void => {
-	console.log(
-		[
-			"usage: bun hooks/bin/prefix-keepwarm.ts [--capture [-- <client argv…>]] [--report [hours]] [--prefix <path>]",
-			"  default   one warm pass (replays the captured stable prefix)",
-			"  --capture record the stable prefix from a real lane request (default client: claude -p, one turn)",
-			"  --report  cache telemetry from the spoke ledger (default 48h)",
-		].join("\n"),
-	);
-};
+// W669.12.3: parse rides verb-kit (W651) — declared flags, kit owns argv
+// (a mid-argv `--` lands the client argv in positionals, W250).
+const keepwarm = defineVerb({
+	name: "prefix-keepwarm",
+	usage:
+		"usage: bun hooks/bin/prefix-keepwarm.ts [--capture [-- <client argv…>]] [--report [hours]] [--prefix <path>]",
+	flags: ["--prefix", "--report"],
+	switches: ["--capture"],
+});
 
 const main = async (): Promise<number> => {
-	const argv = process.argv.slice(2);
-	if (argv.includes("--help")) {
-		usage();
+	const tokens = process.argv.slice(2);
+	if (tokens.includes("--help")) {
+		console.log(renderVerbHelp(keepwarm));
 		return 0;
 	}
-	const prefixPathIdx = argv.indexOf("--prefix");
-	const prefixPath = prefixPathIdx >= 0 ? argv[prefixPathIdx + 1] : undefined;
-	if (argv.includes("--report")) {
-		const hoursIdx = argv.indexOf("--report");
-		const hours = Number(argv[hoursIdx + 1]) || 48;
+	const outcome = parseVerb(keepwarm, tokens);
+	if (!outcome.ok) {
+		console.error(outcome.message);
+		return 1;
+	}
+	const parsed = outcome.parsed;
+	const prefixPath = parsed.flag("--prefix") ?? undefined;
+	if (parsed.rest.includes("--report")) {
+		const hours = Number(parsed.flag("--report")) || 48;
 		console.log(
 			reportCache({ dbPath: join(runtimeHome(), "buckle.db"), hours }),
 		);
@@ -437,9 +441,8 @@ const main = async (): Promise<number> => {
 		console.log(`prefix-keepwarm: skipped — ${auth.why}`);
 		return 0;
 	}
-	if (argv.includes("--capture")) {
-		const sep = argv.indexOf("--");
-		const clientArgv = sep >= 0 ? argv.slice(sep + 1) : undefined;
+	if (parsed.rest.includes("--capture")) {
+		const clientArgv = parsed.pos.length > 0 ? parsed.pos : undefined;
 		const cap = await capturePrefix({
 			front: auth.front,
 			key: auth.key,

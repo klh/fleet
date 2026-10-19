@@ -14,22 +14,30 @@
 // refused (the sweep fail-logs it; the next daily fire retries).
 import { openStore, projectIdentity } from "../lib/govdb.ts";
 import { gateMs, quotaLiftRetry } from "../lib/quota-lift-retry.ts";
+import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 
-const argv = process.argv.slice(2);
-const val = (flag: string): string | undefined => {
-	const i = argv.indexOf(flag);
-	return i >= 0 ? argv[i + 1] : undefined;
-};
-const json = argv.includes("--json");
-const item = val("--item");
-const gate = val("--after");
+// W669.12.3: parse rides verb-kit (W651) — declared flags, kit owns argv.
+const retry = defineVerb({
+	name: "quota-lift-retry",
+	usage: "usage: quota-lift-retry --item <id> --after YYYY-MM-DD [--json]",
+	flags: ["--item", "--after"],
+	switches: ["--json"],
+	reqFlags: ["--item", "--after"],
+});
+const tokens = process.argv.slice(2);
 
 const fail = (msg: string): never => {
 	console.error(msg);
 	process.exit(1);
 };
-if (!item || !gate)
-	fail("usage: quota-lift-retry --item <id> --after YYYY-MM-DD [--json]");
+
+if (tokens.includes("--help")) fail(retry.usage ?? "usage: quota-lift-retry");
+const outcome = parseVerb(retry, tokens);
+if (!outcome.ok) fail(outcome.message);
+const json = outcome.parsed.flag("--json") === "true";
+const item = outcome.parsed.flag("--item");
+const gate = outcome.parsed.flag("--after");
+if (!item || !gate) fail("quota-lift-retry: --item and --after required");
 
 try {
 	gateMs(gate);
@@ -46,11 +54,7 @@ const r = quotaLiftRetry({
 	nowMs: Date.now(),
 	emit: (kind, note) => {
 		const { emitEvent } = require("../coord/bus.ts") as {
-			emitEvent: (o: {
-				kind: string;
-				note: string;
-				source: string;
-			}) => number;
+			emitEvent: (o: { kind: string; note: string; source: string }) => number;
 		};
 		emitEvent({ kind, note, source: "quota-lift-retry" });
 	},
