@@ -93,6 +93,7 @@ type Sess = {
 	cost: number;
 	sub: number;
 	parent: number | null;
+	path: string;
 };
 type Top = Sess & {
 	sid?: string;
@@ -115,7 +116,8 @@ const sessions = (
 			`SELECT s.id, s.source_session_id src, s.started_at, s.ended_at,
 			  s.total_input_tokens i, s.total_output_tokens o,
 			  s.total_cache_read_tokens cr, s.total_cache_creation_tokens cc,
-			  s.estimated_cost_usd cost, s.is_subagent sub, s.parent_session_id parent
+			  s.estimated_cost_usd cost, s.is_subagent sub, s.parent_session_id parent,
+			  p.path
 			 FROM session s JOIN project p ON p.id = s.project_id
 			 WHERE (p.path = ? OR p.path LIKE ?) AND s.started_at >= ?`,
 		)
@@ -134,6 +136,7 @@ const sessions = (
 	cost: Number(r.cost),
 	sub: Number(r.sub),
 	parent: r.parent === null ? null : Number(r.parent),
+	path: String(r.path ?? ""),
 }));
 
 // roll subagent subtrees into their top-level ancestor
@@ -179,13 +182,19 @@ for (const s of sessions) {
 	if (s.sub !== 0) t.kids += 1;
 }
 
-// --- sid per top-level session: max-overlap window, ledger-known sids only
+// --- sid per top-level session: the item id parsed from the worktree path
+// is the primary join (stale open windows of other lanes tie-steal);
+// windows of THAT item then supply the sid, ledger-known sids only.
 const overlap = (a0: number, a1: number, b0: number, b1: number): number =>
 	Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 for (const t of roll.values()) {
+	const m = t.path.match(/\/\.worktrees\/(W[\d.]+)\/?$/);
+	const item = m ? m[1] : null;
+	if (item) t.works.add(item);
 	let best: { sid: string; ov: number } | null = null;
 	for (const w of windows) {
 		if (!ledgerSids.has(w.sid)) continue; // open windows of foreign sids lie
+		if (item && w.work !== item) continue; // never steal across items
 		const ov = overlap(t.start, t.end, w.start, w.end);
 		if (ov <= 0) continue;
 		if (!best || ov > best.ov) best = { sid: w.sid, ov };
