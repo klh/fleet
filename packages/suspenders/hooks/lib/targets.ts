@@ -89,9 +89,16 @@ const AGENT_TO_EXECUTOR: Partial<Record<AgentType, string>> = {
 
 /** W918 capability evidence: Buckle front-route per target. true = the
  *  executor verifiably rides the governed buckle front (per-lane bksk_
- *  key, /w/<sid>); "unknown" = unaudited — W914 coordinates endpoints. */
+ *  key, /w/<sid>) — flips ONLY on a landed e2e proof (docs/w918.2-*.md
+ *  pattern: probe token round-trip on the lane front); "unknown" =
+ *  unaudited — W914 coordinates endpoints. */
 const BUCKLE_ROUTE: Partial<Record<AgentType, boolean | "unknown">> = {
 	"claude-code": true,
+	// W918.2 @370134b5: probe token round-trip on /w/<slug>/v1/responses
+	// with a scoped bksk_ key (docs/w918.2-codex-executor-lane-proof.md).
+	// Cloud glm leg bounces on Responses params — operator config, not a
+	// route gap. github-copilot stays "unknown" until W918.3 lands.
+	codex: true,
 };
 
 /** Evidence-backed capability states for one catalog target (W918). The

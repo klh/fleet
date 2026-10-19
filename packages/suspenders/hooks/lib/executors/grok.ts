@@ -1,6 +1,9 @@
 // hooks/lib/executors/grok.ts — the grok CLI adapter (W422 law: one file
-// per agent). Catalog row: grok rides the claude-style arg grammar in
-// fleet-loop's direct-launch mode; no dispatch-core spawn recipe yet.
+// per agent). Honest record (W929.2): the wire dialect ships
+// (hooks/dialects/grok/, W296) but the grok CLI is not installed here and
+// the adapter has never run a lane — no verified spawn recipe, no
+// Buckle-front proof; catalog rows stay spawnable=false/buckle=unknown
+// until a real install + e2e lane proof.
 import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
 
 export const grokAdapter: ExecutorAdapter = {
