@@ -31,6 +31,7 @@ import {
 	parseGovernanceMode,
 	parseReady,
 	probeFrontDecision,
+	residueOf,
 } from "../scripts/dispatch-next.ts";
 import { captureClaimFeed } from "../scripts/lib/structured-feed.ts";
 import { dispatchHarness, stubBuckle } from "./helpers/dispatch-harness.ts";
@@ -1445,4 +1446,44 @@ describe("W512 lane settings Task-pin hook", () => {
 			await toolA({}, "work.ts", "fail", id);
 		}
 	}, 60_000);
+});
+
+// W874: untracked node_modules at any depth is dependency debris, never
+// unbanked residue — fresh spawns that install deps must stay dispatch-ready.
+describe("residueOf (W874)", () => {
+	const git = (wt: string, ...args: string[]) =>
+		spawnSync("/usr/bin/git", args, { cwd: wt, encoding: "utf8" });
+	test("untracked node_modules (root + nested) is dispatch-ready; a dirty file still blocks", () => {
+		const wt = join(REPO, "w874-residue-fixture");
+		mkdirSync(join(wt, "packages", "suspenders"), { recursive: true });
+		try {
+			git(wt, "init", "-q");
+			git(wt, "config", "user.email", "t@t.invalid");
+			git(wt, "config", "user.name", "t");
+			writeFileSync(join(wt, "tracked.ts"), "export const w874 = true;\n");
+			// tracked so the nested install surfaces at its real depth, not
+			// collapsed as "?? packages/"
+			writeFileSync(
+				join(wt, "packages", "suspenders", "pkg.ts"),
+				"export const pkg = true;\n",
+			);
+			git(wt, "add", "tracked.ts", "packages/suspenders/pkg.ts");
+			git(wt, "commit", "-qm", "fixture");
+			expect(residueOf(wt)).toBe("");
+			mkdirSync(join(wt, "node_modules"), { recursive: true });
+			writeFileSync(join(wt, "node_modules", "dep.js"), "x");
+			mkdirSync(join(wt, "packages", "suspenders", "node_modules"), {
+				recursive: true,
+			});
+			writeFileSync(
+				join(wt, "packages", "suspenders", "node_modules", "dep.js"),
+				"x",
+			);
+			expect(residueOf(wt)).toBe("");
+			writeFileSync(join(wt, "tracked.ts"), "export const w874 = false;\n");
+			expect(residueOf(wt)).toContain("tracked.ts");
+		} finally {
+			rmSync(wt, { recursive: true, force: true });
+		}
+	});
 });
