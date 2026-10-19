@@ -27,7 +27,7 @@ export const BODY = String.raw`
         <option value="supervisor">supervisor</option>
       </select>
       <span id="orchDestination" class="dim"></span>
-      <button id="orchClear" type="button" aria-label="clear work item target">×</button>
+      <button id="orchClear" type="button" aria-label="clear work item target">&times;</button>
     </div>
     <div class="orchrow">
       <textarea id="orchGoal" rows="1" placeholder="Describe the work to plan" aria-label="orchestration goal"></textarea>
