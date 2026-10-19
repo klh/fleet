@@ -6,13 +6,14 @@
 // per-item attribution. Same honesty rules as W24 tokenUsage: attribution is
 // claim-window overlap in time, not causality; a missing or unreadable
 // ledger fails soft (no cost section — metrics never blocks on the gateway).
-import { existsSync } from "node:fs";
+
 import { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 import {
-	claimWindows,
-	workTiming,
 	type ClaimWindow,
+	claimWindows,
 	type TimingEventRow,
+	workTiming,
 } from "./work-timing.ts";
 
 /** Per model_class (model_group) spend split (W776: the class dimension). */
