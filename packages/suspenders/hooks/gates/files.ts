@@ -59,7 +59,7 @@ export function filesCheck(hook: HookInput): FilesExit {
 	const sid = hook.session_id;
 
 	// ---- UI law (owner 2026-10-01, CLAUDE.md): NEVER innerHTML/document.write
-	// anywhere; document.createElement only inside web components (lit) ----
+	// anywhere; document.createElement(NS) only inside web components (lit) ----
 	if (isCode) {
 		const payload = String(
 			hook.tool_input?.content ?? hook.tool_input?.new_string ?? "",
@@ -74,10 +74,10 @@ export function filesCheck(hook: HookInput): FilesExit {
 					kind: "block",
 					err: `UI LAW: innerHTML/document.write are NEVER allowed — rewrite as lit-html templates in a web component. ${F}\n`,
 				};
-			if (!isWc && /document\.createElement\s*\(/.test(payload))
+			if (!isWc && /document\.createElement\s*\(|createElementNS\s*\(/.test(payload))
 				return {
 					kind: "block",
-					err: `UI LAW: document.createElement only inside web components (import lit / @customElement). ${F}\n`,
+					err: `UI LAW: document.createElement / createElementNS only inside web components (import lit / @customElement). ${F}\n`,
 				};
 			// W869: the recurring lint classes (AGENTS.md "recurring offenders")
 			// refuse the write deterministically — qlty-independent, so the

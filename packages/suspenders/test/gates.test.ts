@@ -227,6 +227,40 @@ describe("filesCheck (the W14 exit-free core stop.ts now calls in-process)", () 
 		} as HookInput);
 		expect(v.kind).toBe("ok");
 	});
+	test("UI law: document.createElementNS in non-wc payload → block (W881)", () => {
+		const f = fixture("export const x = 1;\n", ".ts");
+		const v = filesCheck({
+			tool_name: "Write",
+			tool_input: {
+				file_path: f,
+				content: "const el = document.createElementNS(SVGNS, 'svg');\n",
+			},
+		} as HookInput);
+		expect(v.kind).toBe("block");
+	});
+	test("UI law: bare createElementNS( in non-wc payload → block (W881)", () => {
+		const f = fixture("export const x = 1;\n", ".ts");
+		const v = filesCheck({
+			tool_name: "Edit",
+			tool_input: {
+				file_path: f,
+				old_string: "svg = byId('ksplines');",
+				new_string: "svg = createElementNS(SVGNS, 'svg');",
+			},
+		} as HookInput);
+		expect(v.kind).toBe("block");
+	});
+	test("UI law: lit-marked file + createElementNS → ok", () => {
+		const f = fixture("import { LitElement } from 'lit';\n", ".ts");
+		const v = filesCheck({
+			tool_name: "Write",
+			tool_input: {
+				file_path: f,
+				content: "const el = document.createElementNS(SVGNS, 'svg');\n",
+			},
+		} as HookInput);
+		expect(v.kind).toBe("ok");
+	});
 });
 
 // ============================== gate-level (real spawns) ==============================
