@@ -20,4 +20,7 @@ export const copilotAdapter: ExecutorAdapter = {
 	// session fork/resume semantics UNVERIFIED — cold start (lane-starter).
 	forkArgs: () => null,
 	processNames: ["copilot"],
+	// W918.5: the ensureShims launcher lands at ~/.local/bin/copilot — probe
+	// it when `which` misses (launchd runs a bare PATH, W626).
+	installPaths: ["~/.local/bin/copilot"],
 };

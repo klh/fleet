@@ -22,6 +22,9 @@ export const SHIM_NAMES = [
 	"dispatch",
 	"fleet-tracker",
 	"oracle",
+	// W918.5: PATH-stable copilot launcher (bin/copilot.ts) — the npm shim
+	// under nvm needs node on PATH, which launchd/lane contexts lack (W626).
+	"copilot",
 ];
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
