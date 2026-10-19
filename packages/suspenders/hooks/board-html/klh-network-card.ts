@@ -69,6 +69,26 @@ const netCss = css`
 	.live {
 		color: var(--klh-accent);
 	}
+	.hourSeries {
+		display: flex;
+		align-items: end;
+		gap: 3px;
+		width: min(360px, 100%);
+		height: 42px;
+		border-bottom: 1px solid var(--klh-edge-mid);
+	}
+	.hourBar {
+		flex: 1 1 0;
+		min-width: 3px;
+		background: var(--klh-accent);
+	}
+	.hourRange {
+		width: min(360px, 100%);
+		display: flex;
+		justify-content: space-between;
+		font: var(--klh-text-xs) var(--klh-font-mono);
+		color: var(--klh-dim);
+	}
 `;
 
 const ageS = (iso: string): number =>
@@ -160,11 +180,20 @@ const routeRow = (r: NetworkRouteRow): TemplateResult => html`<div class="hrow">
 	<span class="num">in ${fmtTok(r.in_tok)} · out ${fmtTok(r.out_tok)}</span>
 </div>`;
 
+const hourLabel = (hour: string): string => {
+	const date = new Date(`${hour}:00Z`);
+	if (Number.isNaN(date.getTime())) return hour;
+	const p = (n: number): string => String(n).padStart(2, "0");
+	return `${p(date.getDate())}.${p(date.getMonth() + 1)} ${p(date.getHours())}:00`;
+};
+
 /** Window totals (15m, settled usage; COUNT is a true 0, sums stay null)
- *  + the newest hour buckets as proportional bars. */
+ *  + a chronological histogram of the last 12 recorded hours. */
 const topRows = (n: OkNet): TemplateResult => {
 	const b = n.throughput.buckets.slice(0, 12).reverse();
-	const maxOut = Math.max(1, ...n.throughput.buckets.map((x) => x.out_tok));
+	const maxOut = Math.max(1, ...b.map((x) => x.out_tok));
+	const first = b[0];
+	const last = b[b.length - 1];
 	return html`<p class="hrow">
 			<span class="hname">window 15m</span>
 			<span class="num">${n.throughput.window.requests} req</span>
@@ -177,14 +206,18 @@ const topRows = (n: OkNet): TemplateResult => {
 			}
 		</p>
 		<div class="hrow">
-			<span class="hname">hour buckets</span>
-			${b.map(
-				(x) => html`<span
-					class="bar"
-					style="width:${Math.max(2, Math.round((x.out_tok / maxOut) * 32))}px;background:var(--klh-edge)"
-					title="${x.hour} · out ${fmtTok(x.out_tok)} tok"
-				></span>`,
-			)}
+			<span class="hname">recorded output · 12h</span>
+			<div>
+				<div class="hourSeries" role="img" aria-label="Recorded output tokens by hour, oldest to newest">
+					${b.map(
+						(x) => html`<span class="hourBar"
+							style="height:${x.out_tok ? Math.max(2, Math.round((x.out_tok / maxOut) * 40)) : 0}px"
+							title="${hourLabel(x.hour)} · ${x.requests} req · out ${fmtTok(x.out_tok)} tok"
+						></span>`,
+					)}
+				</div>
+				<div class="hourRange"><span>${first ? hourLabel(first.hour) : ""}</span><span>${last ? hourLabel(last.hour) : ""}</span></div>
+			</div>
 		</div>`;
 };
 
