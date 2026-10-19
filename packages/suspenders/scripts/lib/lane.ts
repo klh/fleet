@@ -66,6 +66,79 @@ export const sh = (cmd: string[], cwd = process.cwd()): string => {
 	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
 };
 
+// W911 decomposition (dispatch-next hit the 1500-line law): the CLI prefix
+// builders + the residue probe hoist here — the shared fleet-script plumbing.
+export const workCliFor =
+	(bin: string) =>
+	(...args: string[]): string[] => [
+		process.execPath,
+		`${bin}/work.ts`,
+		...args,
+	];
+export const coordCliFor =
+	(bin: string) =>
+	(...args: string[]): string[] => [
+		process.execPath,
+		`${bin}/coord.ts`,
+		...args,
+	];
+
+// W349: retire+recreate a wrong-branch leftover — the SKIP line on failure,
+// null on success. Retire refuses dirty trees (exit 3) so residue is never
+// silently discarded.
+export const recreateWorktreeFor = (
+	item: string,
+	bin: string,
+): string | null => {
+	const retired = run([process.execPath, `${bin}/worktree.ts`, "retire", item]);
+	if (retired.code !== 0)
+		return `SKIP ${item} — leftover worktree retire failed: ${retired.out.split("\n")[0]}`;
+	const created = run([process.execPath, `${bin}/worktree.ts`, "create", item]);
+	if (created.code !== 0)
+		return `SKIP ${item} — worktree recreate failed: ${created.out.split("\n")[0]}`;
+	return null;
+};
+
+// lane liveness is THE plane's verdict (2026-10-05): work lanes --json
+// (hooks/lib/lane-liveness.ts) is the one source dispatch-next, fleet-loop
+// and humans share — recycled pids and permanently-trusted host lanes both
+// read dead now. Missing audit observations fall back to process identity;
+// a failed identity probe conservatively retains the occupied slot.
+export const laneAuditFor = (
+	workCli: (...args: string[]) => string[],
+	fleet: string,
+): Map<string, boolean> => {
+	try {
+		const raw = sh(workCli("lanes", "--json", "--fleet", fleet));
+		return new Map(
+			(JSON.parse(raw) as Array<{ sid: string; live: boolean }>).map((a) => [
+				a.sid,
+				a.live,
+			]),
+		);
+	} catch {
+		return new Map();
+	}
+};
+
+// W349 residue probe: git-state dirt the lane did NOT make — dispatch's own
+// worktree artifacts (.klh-brief.md, .fleet/) are not residue. W874: an
+// untracked node_modules at ANY depth (root install or per-package) is
+// dependency debris, never work residue.
+export const residueOf = (wt: string): string =>
+	sh(["git", "-C", wt, "status", "--porcelain"])
+		.split("\n")
+		.filter((line) => {
+			const p = line.slice(3).trim();
+			return (
+				line &&
+				p !== ".klh-brief.md" &&
+				!p.startsWith(".fleet/") &&
+				!p.split("/").includes("node_modules")
+			);
+		})
+		.join("\n");
+
 export const run = (
 	cmd: string[],
 	cwd = process.cwd(),

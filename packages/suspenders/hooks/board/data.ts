@@ -20,6 +20,8 @@ import {
 	resolveBuckleDb,
 } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
+// W911: the plaid UI-agreement view — one shape for dispatch + board.
+import { plaidStatus } from "../lib/plaid.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
@@ -727,6 +729,8 @@ export interface SessionView {
 	executor: string | null;
 	model: string | null;
 	locality: string | null;
+	/** W911 plaid route (lane.<sid>.route) — null unless plaid-dispatched. */
+	route: string | null;
 	// W378 fleet honesty: the shared lane-liveness verdict (board/lanes.ts
 	// decisionVerdicts — registry-first `work lanes` truth with the sessions
 	// face as fallback) rides every row, so a stale RUNNING session can never
@@ -758,6 +762,7 @@ export function sessions(): SessionView[] {
 			executor: null,
 			model: null,
 			locality: null,
+			route: null,
 		}),
 		verdict: verdicts.get(s.sid) ?? "unknown",
 		live: verdicts.get(s.sid) === "alive",
@@ -1380,6 +1385,12 @@ function buildPayload(): unknown {
 		laneGit: laneGitSnapshot(ss),
 		llm: llm(),
 		facts: factsTrust(),
+		// W911 plaid: the UI-agreement view — same lib the dispatcher reads,
+		// live lanes from the session verdicts (the facts, not a file).
+		plaid: plaidStatus(
+			db,
+			allSessions.filter((s) => s.live).map((s) => s.sid),
+		),
 	};
 }
 

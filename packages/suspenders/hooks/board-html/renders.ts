@@ -138,6 +138,7 @@ function renderFleetLanes(el, lanes, zombies, needs){
     var path = s.project ? s.project.split('/').filter(Boolean) : [];
     project.textContent = path.length ? (path[path.length - 1] === '.git' ? path[path.length - 2] : path[path.length - 1]) : 'no project'; chip.appendChild(project);
     var model = document.createElement('span'); model.className = 'fleetmodel'; model.textContent = s.model || 'no model'; chip.appendChild(model);
+    if (s.route) chip.title += ' · route ' + s.route;
     var gitObs = ((lastData || {}).laneGit || {})[s.sid];
     if (gitObs && gitObs.mergeReady != null) {
       var gwhy = mergeReadyWhy(gitObs);
@@ -229,6 +230,15 @@ function renderFleet(){
   if (sel.value === 'all' && hubScope().origin === 'all' && hubScope().peer === 'all' && ck && (ck.human || ck.kbSolutions)) {
     line += ' · consults: ' + ck.open + ' open, ' + (ck.human + ck.kb) + ' answered' +
       (ck.kbSolutions ? ' · kb ' + ck.kbSolutions + ' solutions/' + ck.kbHits + ' hits' : '');
+  }
+  // W911: the plaid view rides the fleet line — pools/baseline/overflow and
+  // unavailable routes with their reasons (UI agreement with the dispatcher).
+  var pl = d.plaid;
+  if (pl) {
+    line += ' · plaid ' + pl.posture + ' (pools ' + pl.live.copilot + '/' + pl.live.zai + ', baseline open ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ', overflow ' + pl.overflow.used + '/2)';
+    var down = (pl.routes || []).filter(function(r){ return !r.available; });
+    for (var i = 0; i < down.length; i++) line += ' · down: ' + down[i].name + ' (' + (down[i].reason || 'unknown') + ')';
+    if (pl.fallback) line += ' · no healthy route — dispatch paused';
   }
   var el = byId('fleetLine');
   setText(el, line);
