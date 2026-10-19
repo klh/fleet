@@ -179,7 +179,7 @@ class KlhPromptPreview extends LitElement {
 		}
 	}
 
-	async prepare(project: string, goal: string): Promise<void> {
+	async prepare(project: string, goal: string, attachments?: string[]): Promise<void> {
 		this.project = project;
 		this.goal = goal;
 		this.previewId = null;
@@ -191,7 +191,9 @@ class KlhPromptPreview extends LitElement {
 			const r = await fetch("/api/orchestrate/preview", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ project, goal }),
+				body: JSON.stringify(
+					attachments?.length ? { project, goal, attachments } : { project, goal },
+				),
 				signal: AbortSignal.timeout(30_000),
 			});
 			const d = (await r.json()) as {

@@ -348,6 +348,31 @@ final, finalBytes, ran, enhanceNote, stages?, injected?, wireBytes? } }`. Secret
   `prompt` (the same view). The preview never blocks: **dispatch anyway** is always
   offered, including when the preview itself fails.
 
+## Orchestrator file attachments (W858.8)
+
+Browser File objects carry no reusable local path — the bytes ride a multipart
+upload and the board hands back exact, resolvable references:
+
+- `POST /api/orchestrate/files` — multipart/form-data, field `files`. Bounded
+  (max 8 files/batch, `SUSPENDERS_DROP_MAX_BYTES` per-file cap, default 4 MiB;
+  extension allowlist — docs/code/data + a few image types). Nothing stores
+  until every file validates; the response is `{ ok, files: [{ id, name, type,
+  size, sha256, createdAt, expiresAt, url }] }`.
+- `GET /api/files/<id>?k=<secret>` — the reference: the per-file secret IS the
+  credential (wrong/missing answers 404; there is no list endpoint).
+  `?meta=1` returns the JSON meta. `DELETE` removes early (write-token
+  guarded). Expired answers 410 and purges on touch. Bytes serve with
+  `content-disposition: attachment` + `x-content-type-options: nosniff`.
+- Storage: `$HOME/.cache/claude-governor/drop-files/` (0700 dir, 0600 files;
+  `SUSPENDERS_DROP_DIR` override; `SUSPENDERS_DROP_TTL_HOURS` default 24;
+  `SUSPENDERS_DROP_MAX_FILES` default 8). A lazy sweep purges expired entries
+  on every upload; orphaned meta answers "missing".
+- `POST /api/orchestrate` + `/preview` accept `attachments` (array of the ref
+  URLs): each is re-resolved server-side before any LLM call (a dead ref =
+  400, nothing dispatches), then composed as an `ATTACHED FILES` block
+  appended to the goal. A previewed plan dispatches verbatim (W270 contract) —
+  the block is baked into the previewed prompt.
+
 ## Demo mode — `--demo` CLI flag
 
 `fleet-board.ts --demo` seeds an idempotent demo partition before serving (skip when

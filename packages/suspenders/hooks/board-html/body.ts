@@ -34,6 +34,13 @@ export const BODY = String.raw`
       <button id="orchSuggest" type="button" hidden>suggest</button>
       <button id="orchGo" type="button">orchestrate</button>
     </div>
+    <div class="orchdrop" id="orchDrop">
+      <button id="orchPick" type="button">attach files</button>
+      <span class="dim" id="orchDropHint">or drop files here — refs are private + expiring</span>
+      <input id="orchFile" type="file" multiple hidden>
+    </div>
+    <div id="orchFiles"></div>
+    <div id="orchDropErr"></div>
     <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
     <div id="orchErr"></div>
     <div id="orchOut"></div>
