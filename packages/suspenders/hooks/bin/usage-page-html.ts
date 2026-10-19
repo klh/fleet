@@ -314,6 +314,7 @@ export function usagePage(
 		"klh-usage-tiles",
 		"klh-usage-charts",
 		"klh-usage-actors",
+		"klh-usage-drilldown",
 		"klh-usage-activity",
 		"klh-usage-aids",
 		"klh-usage-crosshub",

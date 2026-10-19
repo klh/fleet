@@ -7,11 +7,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-	cachePulseSection,
-	cacheReportPath,
-	readCacheReport,
-} from "./cache-telemetry.ts";
 import type { GovernorStore } from "./govdb.ts";
 import {
 	auditLanes,
@@ -26,6 +21,7 @@ import {
 	type Sender,
 	scrubOutbound,
 } from "./notify.ts";
+import type { FleetWarm } from "./cache-drilldown.ts";
 
 /** W822 pulse state — only deltas repeat; the heartbeat never skips. */
 export interface PulseState {
@@ -127,8 +123,11 @@ export interface PulseDeps {
 	git?: (root: string, n: number) => string[];
 	/** watchdog verdict override (default: state json + aggregate log line) */
 	watchdog?: () => PulseWatchdog;
-	/** W825.2 cache-telemetry section source (default: the weekly report file) */
-	cacheTelemetry?: () => string[] | null;
+	/** W826 fleet cache warm-rate (default: not wired — the composition root
+	 *  in notify.ts injects the live ledger read). Null = omit honestly. */
+	warm?: () => FleetWarm | null;
+	/** W826 mining candidate lines (default: none). */
+	mining?: () => string[];
 }
 
 export interface PulseDigest {
@@ -220,17 +219,17 @@ function sectionsOf(args: {
 	since: number;
 	now: number;
 	ready: Array<{ id: string; title: string; created_at: number }>;
-	done: Array<{ id: string; title: string; result_sha: string | null }>;
+	done: Array<{ id: string; result_sha: string | null; title: string }>;
 	dec: number | null;
 	wd: PulseWatchdog;
 	wdAge: string;
 	commits: string[];
-	cache: string[] | null;
+	mining: string[];
 }): string[] {
 	const out: string[] = [];
 	if (args.done.length > 0) {
 		out.push(
-			`landed since ${args.since > 0 ? new Date(args.since).toISOString() : "first pulse"}:`,
+			`landed since ${args.since > 0 ? new Date(args.since).toISOString() : "first pulse"}`,
 		);
 		for (const d of args.done)
 			out.push(
@@ -246,7 +245,11 @@ function sectionsOf(args: {
 		out.push(`open NEED_DECISION: ${args.dec}`);
 	if (args.wd.state !== "ok")
 		out.push(`watchdog: ${args.wd.state}${args.wdAge}`);
-	if (args.cache !== null) out.push(...args.cache);
+	if (args.mining.length > 0)
+		out.push(
+			"cache offenders (weekly mining):",
+			...args.mining.map((m) => `  ${m}`),
+		);
 	if (args.commits.length > 0) {
 		out.push("commits:");
 		for (const c of args.commits) out.push(`  ${c}`);
@@ -270,12 +273,13 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const dec = decisionCount(deps);
 	const wd = deps.watchdog?.() ?? readWatchdog(deps.fleetRoot);
 	const commits = (deps.git ?? gitLog)(deps.fleetRoot, 3);
-	const cacheSection = deps.cacheTelemetry
-		? deps.cacheTelemetry()
-		: cachePulseSection(readCacheReport(cacheReportPath()));
 	const wdAge = wd.at ? ` (${ageOf(now() - Date.parse(wd.at))} old)` : "";
 	const verdict = verdictOf(dec, wd.state);
-	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}`;
+	const warm = deps.warm?.() ?? null;
+	const mining = deps.mining?.() ?? [];
+	const warmFrag =
+		warm !== null ? ` · warm ${(warm.rate * 100).toFixed(1)}%` : "";
+	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}${warmFrag}`;
 	const sections = sectionsOf({
 		since,
 		now: now(),
@@ -285,7 +289,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 		wd: { state: wd.state, at: wd.at },
 		wdAge,
 		commits,
-		cache: cacheSection,
+		mining,
 	});
 	const digestKey = digestKeyOf(sections.join("\n"));
 	const deltas =

@@ -133,14 +133,14 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/soak.ts")],
 	},
 	{
-		// W825.2: weekly cache-telemetry mining — buckle's lane-cache log →
-		// warm-cache report (offenders + clone-reuse) for the W822 pulse
-		// digest. Report-only; the pulse reads the report file, never here.
-		name: "cache-telemetry",
-		everySeconds: 7 * 86400,
-		nice: 10,
+		// W826: weekly cache-efficiency mining — ranks the worst cache
+		// offenders over the buckle ledger, writes the pulse's mining
+		// artifact, lands finding.usage-mining. Advisory: the runner itself
+		// fail-softs on any ledger problem.
+		name: "usage-mining",
+		everySeconds: 604_800,
 		timeoutMs: 120_000,
-		argv: (root) => [join(root, "hooks/bin/cache-telemetry.ts")],
+		argv: (root) => [join(root, "hooks/bin/usage-mining.ts")],
 	},
 ];
 
