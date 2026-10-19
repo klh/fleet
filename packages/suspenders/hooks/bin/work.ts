@@ -15,6 +15,7 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
+import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import {
@@ -857,6 +858,8 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				it.scope as string | null,
 				it.id as string,
 			);
+			// W782.4: a closed item drains its open budget decision.
+			budgetFlagClear(db(), id);
 			return unblocked;
 		});
 		const { freed, gated } = tx();

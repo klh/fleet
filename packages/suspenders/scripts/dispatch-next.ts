@@ -31,6 +31,7 @@ import { resolve } from "node:path";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel } from "../hooks/lib/brief-intel.ts";
+import { budgetFlagClaim, budgetFlagGet } from "../hooks/lib/budget-flag.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
@@ -455,15 +456,19 @@ const dispatchItem = async (
 	// that re-banks the verbatim verdict its prior attempt closed on flips
 	// the item to the operator-gated class (FAILED + NEED_DECISION, verdict
 	// on the card) instead of a re-spawn.
-	if (resume && !DRY && verdictRepeatGate({
-		item,
-		sid,
-		capsule: capsuleGet(sid),
-		run,
-		coordCli,
-		workCli,
-		log,
-	}))
+	if (
+		resume &&
+		!DRY &&
+		verdictRepeatGate({
+			item,
+			sid,
+			capsule: capsuleGet(sid),
+			run,
+			coordCli,
+			workCli,
+			log,
+		})
+	)
 		return null;
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
@@ -472,18 +477,23 @@ const dispatchItem = async (
 			const failed = run(workCli("fail", item, "--as", sid, "--note", note));
 			if (failed.code !== 0) throw new Error(failed.out);
 			log(`lane.retry-exhausted ${item} ${sid}`);
-			run(
-				coordCli(
-					"emit",
-					"NEED_DECISION",
-					"--as",
-					sid,
-					"--scope",
-					"suspenders",
-					"--note",
-					note,
-				),
-			);
+			// W782.4: flag stands → suppress the resume NEED_DECISION re-emit.
+			const flagStore = openStore();
+			if (budgetFlagClaim(flagStore, item))
+				run(
+					coordCli(
+						"emit",
+						"NEED_DECISION",
+						"--as",
+						sid,
+						"--scope",
+						"suspenders",
+						"--note",
+						note,
+					),
+				);
+			else log(`lane.budget-flagged ${item} — suppressed (W782.4)`);
+			flagStore.close();
 		}
 		return null;
 	}
@@ -556,37 +566,27 @@ const dispatchItem = async (
 	if (attempt >= limit) {
 		governanceRefusals.push(item);
 		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
-		// W787: one NEED_DECISION per exhaustion episode — the flagged fact
+		// W787/W782.4: one open budget NEED_DECISION per item — the flag fact
 		// gates the emit; `work retry` clears it (and resets the budget).
-		const flagKey = `lane.budget-flagged.${item}`;
-		const flagged = store
-			.query("SELECT value FROM facts WHERE key=?")
-			.get(flagKey) as { value: string } | undefined;
-		if (flagged) {
+		if (!budgetFlagClaim(store, item)) {
 			console.log(
-				`REFUSED ${item} — budget exhausted (flagged ${flagged.value}); NEED_DECISION suppressed (W787 dedup)`,
+				`REFUSED ${item} — budget exhausted (flagged ${budgetFlagGet(store, item)}); NEED_DECISION suppressed (W782.4)`,
 			);
-			store.close();
-			return null;
+		} else {
+			console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
+			run(
+				coordCli(
+					"emit",
+					"NEED_DECISION",
+					"--as",
+					sid,
+					"--scope",
+					"suspenders",
+					"--note",
+					note,
+				),
+			);
 		}
-		store
-			.query(
-				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'dispatch',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,version=version+1,ts=excluded.ts",
-			)
-			.run(flagKey, new Date().toISOString(), Date.now());
-		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
-		run(
-			coordCli(
-				"emit",
-				"NEED_DECISION",
-				"--as",
-				sid,
-				"--scope",
-				"suspenders",
-				"--note",
-				note,
-			),
-		);
 		store.close();
 		return null;
 	}
