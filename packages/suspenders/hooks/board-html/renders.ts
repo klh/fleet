@@ -6,6 +6,7 @@ import {
 	selectGovernorCompletions,
 	selectGovernorLanes,
 } from "./fleet-lane-view.ts";
+import { mergeReadyWhy } from "../lib/lane-git.ts";
 
 export const RENDERS = `// --- 1: overall status + connection health (live / stale / error) ---
 function renderConn(){
@@ -35,6 +36,7 @@ function renderConn(){
 }
 // Current status is based on recent heartbeat evidence, not persistent state alone.
 var selectGovernorLanes = ${selectGovernorLanes.toString()};
+var mergeReadyWhy = ${mergeReadyWhy.toString()};
 var selectGovernorCompletions = ${selectGovernorCompletions.toString()};
 var matchesHubScope = ${matchesHubScope.toString()};
 function hubScope(){
@@ -113,6 +115,12 @@ function renderFleetLanes(el, lanes, zombies, needs){
       badge.className = 'lmodel' + (s.locality === 'local' ? ' loc' : '');
       badge.textContent = ' · ' + s.model + (s.locality ? ' (' + s.locality + ')' : '');
       chip.appendChild(badge);
+    }
+    var gitObs = ((lastData || {}).laneGit || {})[s.sid];
+    if (gitObs && gitObs.mergeReady != null) {
+      var gwhy = mergeReadyWhy(gitObs);
+      var gtext = gitObs.mergeReady === true ? 'merge-ready' : 'not merge-ready (' + gwhy.join(', ') + ')';
+      chip.appendChild(document.createTextNode(' · ' + gtext));
     }
     fragment.appendChild(chip);
   }

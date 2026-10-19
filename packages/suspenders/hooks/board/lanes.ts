@@ -14,6 +14,11 @@ import {
 	verdictBySid,
 } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
+import {
+	gitObservation,
+	type LaneGitObservation,
+} from "../lib/lane-git.ts";
+import { hostname } from "node:os";
 import { chunked } from "./helpers.ts";
 import { transcriptsAliveBatch } from "../lib/lane-liveness.ts";
 import { coordSubscribeLog } from "../lib/subscribe-attach.ts";
@@ -780,4 +785,31 @@ export function laneModelOf(sid: string | null | undefined): {
 		model: get("model"),
 		locality: get("locality"),
 	};
+}
+
+// W835 merge-ready lane cards: one git observation per live lane whose
+// registry row carries a local worktree. W663: batched through the lib's
+// 10s memo (one probe window per worktree), this-host worktrees only —
+// a foreign registry row's worktree path does not exist here.
+export function laneGitSnapshot(
+	rows: { sid: string; project: string | null; live: boolean }[],
+): Record<string, LaneGitObservation> {
+	const thisHost = hostname();
+	const wtBySid = new Map<string, string>();
+	for (const project of [
+		...new Set(rows.map((r) => r.project).filter(Boolean)),
+	]) {
+		for (const l of registryRows(project as string)) {
+			if (!l.worktree) continue;
+			if (l.host !== undefined && l.host !== thisHost) continue;
+			if (!wtBySid.has(l.sid)) wtBySid.set(l.sid, l.worktree);
+		}
+	}
+	const out: Record<string, LaneGitObservation> = {};
+	for (const r of rows) {
+		if (!r.live) continue;
+		const wt = wtBySid.get(r.sid);
+		if (wt) out[r.sid] = gitObservation(wt);
+	}
+	return out;
 }

@@ -41,6 +41,11 @@ import {
 } from "../lib/work-completion-record.ts";
 import { laneAlive } from "../lib/lane-liveness.ts";
 import {
+	gitBadge,
+	gitObservation,
+	mergeReadyWhy,
+} from "../lib/lane-git.ts";
+import {
 	parseDuration,
 	probeClaim,
 	setReclaimHold,
@@ -965,6 +970,15 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
 			);
+		// W835 merge-ready precondition warning — never blocks (merge-on-done
+		// owns the actual merge): observe the close's cwd; warn when the
+		// branch is dirty/conflicted or has nothing new to merge. Unknown
+		// (null) stays silent.
+		const git = gitObservation(process.cwd());
+		if (git.mergeReady === false)
+			console.log(
+				`${amber("●")} ${id} not merge-ready: ${mergeReadyWhy(git).join(", ")} — merge-on-done may strand this close`,
+			);
 		// W643 claim-token fence: present the token minted at take (--token,
 		// KLH_CLAIM_TOKEN env, or the lane context) — the verdict runs inside
 		// prepareCompletion so the durable lane-context channel is consulted
@@ -1279,18 +1293,27 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			launchedAt?: number;
 		}>(flag("--fleet") ?? process.cwd());
 
-		const audit = entries.map((l) => ({
-			sid: l.sid,
-			item: l.item,
-			live: laneAlive(l),
-			host: l.host ?? null,
-		}));
+		// W835: live lanes with a worktree gain a git observation record
+		// (lib/lane-git.ts — budgeted probes, per-field null-degradation);
+		// merge-ready gate = !dirty && ahead>0 && conflicted==0.
+		const audit = entries.map((l) => {
+			const live = laneAlive(l);
+			const git = live && l.worktree ? gitObservation(l.worktree) : null;
+			return {
+				sid: l.sid,
+				item: l.item,
+				live,
+				host: l.host ?? null,
+				worktree: l.worktree ?? null,
+				git,
+			};
+		});
 		if (flag("--json") !== undefined) {
 			console.log(JSON.stringify(audit));
 		} else {
 			for (const a of audit)
 				console.log(
-					`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}`,
+					`${a.live ? "▶" : "×"} ${a.sid} ${a.item}${a.host ? ` @${a.host}` : ""}${gitBadge(a.git)}`,
 				);
 		}
 	} else if (name === "allocate") {
