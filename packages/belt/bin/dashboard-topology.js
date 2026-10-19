@@ -4,14 +4,20 @@ import { buildTopology } from "/dashboard-topology-model.js";
 const colour = (state) =>
 	state === "up"
 		? "var(--klh-ok-ink)"
-		: state === "attention"
+		: state === "routed"
 			? "var(--klh-accent)"
-			: state === "down"
-				? "var(--klh-danger)"
-				: "var(--klh-dim)";
+			: state === "attention"
+				? "var(--klh-accent)"
+				: state === "down"
+					? "var(--klh-danger)"
+					: "var(--klh-dim)";
 
 class BeltTopology extends LitElement {
-	static properties = { topology: { state: true }, error: { state: true } };
+	static properties = {
+		topology: { state: true },
+		error: { state: true },
+		networkIssue: { state: true },
+	};
 	static styles = css`
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
 		.heading { display:flex; align-items:baseline; gap:var(--klh-space-3); flex-wrap:wrap; }
@@ -35,6 +41,7 @@ class BeltTopology extends LitElement {
 		super();
 		this.topology = null;
 		this.error = "";
+		this.networkIssue = "";
 	}
 	connectedCallback() {
 		super.connectedCallback();
@@ -64,6 +71,25 @@ class BeltTopology extends LitElement {
 			);
 			this.topology = buildTopology(status, remotes, supervisor);
 			this.error = "";
+			try {
+				const response = await fetch("/api/network", {
+					signal: controller.signal,
+					cache: "no-store",
+				});
+				const network = response.ok ? await response.json() : null;
+				this.networkIssue = network?.ok
+					? ""
+					: "Buckle request feed unavailable";
+				this.topology = buildTopology(
+					status,
+					remotes,
+					supervisor,
+					Date.now(),
+					network,
+				);
+			} catch {
+				this.networkIssue = "Buckle request feed unavailable";
+			}
 		} catch (error) {
 			if (controller.signal.aborted && this.controller !== controller) return;
 			this.error = `Connection data unavailable: ${error.message}`;
@@ -103,9 +129,9 @@ class BeltTopology extends LitElement {
 	cloud(x, y, width, item) {
 		const height = 54 + Math.max(1, item.models.length) * 19;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
-			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.state)}></circle>
+			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 28} y=${y + 24}>${item.name}</text>
-			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${item.reachable}/${item.endpoints} probes · ${item.routed} recent routes</text>
+			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.tokens60) ? `${(item.tokens60 / 60).toFixed(1)} tok/s` : "tokens unreported"}` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
 			${item.models.length ? item.models.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>Model inventory unavailable</text>`}
 		</g>`;
 	}
@@ -152,7 +178,7 @@ class BeltTopology extends LitElement {
 				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
 				<text class="group" x="850" y="35">CLOUD PROVIDERS · CONFIGURED MODELS</text>
 				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
-					${this.machine(20, 52, 400, localHeight, "This Mac", "local spoke · :4101 · state unobserved", "unknown", models, true)}
+					${this.machine(20, 52, 400, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "state unobserved" : data.gateway}`, data.gateway, models, true)}
 				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
 				${clouds.map((item) => {
 					const y = cloudY;
@@ -160,7 +186,7 @@ class BeltTopology extends LitElement {
 					return this.cloud(850, y, 320, item);
 				})}
 			</svg></div>
-			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed Buckle links show hub probes. Cloud gateway links need verified hop records, so provider cards remain unlinked. Local load counts Belt router calls only; lane counts and token throughput await Buckle telemetry.</div>`
+			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed Buckle links show hub probes. Cloud gateway links need verified hop records, so provider cards remain unlinked. Local model loads count Belt router calls only.${this.networkIssue ? ` ${this.networkIssue}.` : " Cloud request rates and models come from Buckle's recorded routes; token rates use reported usage over 60 seconds."}</div>`
 					: ""
 			}
 		</section>`;

@@ -103,4 +103,60 @@ describe("Belt topology", () => {
 		expect(model.hubs[0]?.state).toBe("unknown");
 		expect(model.machines[0]?.state).toBe("unknown");
 	});
+
+	test("adds observed Copilot models and measured token rate without inventing a hop", () => {
+		const payload = {
+			ok: true,
+			ts: new Date(now).toISOString(),
+			gateway: { state: "up", up: true },
+			network: {
+				ok: true,
+				throughput: {
+					interfaces: [
+						{
+							kind: "cloud",
+							host: "api.githubcopilot.com",
+							model: "claude-opus-5.5",
+							req15: 6,
+							req60: 2,
+							in60: 90,
+							out60: 30,
+							lastOkAt: "2026-10-19T11:59:00Z",
+						},
+					],
+				},
+			},
+		};
+		const model = buildTopology(
+			{ observation, router: { up: true } },
+			{ ts: new Date(now).toISOString(), rows: [], routes: [] },
+			{ observation, targets: [] },
+			now,
+			payload,
+		);
+		expect(model.gateway).toBe("up");
+		expect(model.machines).toEqual([
+			{
+				name: "copilot",
+				endpoints: 0,
+				reachable: 0,
+				routed: 0,
+				models: ["claude-opus-5.5"],
+				state: "unknown",
+				buckleReq15: 6,
+				buckleReq60: 2,
+				tokens60: 120,
+				routeObserved: true,
+			},
+		]);
+		const stale = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [], routes: [] },
+			{},
+			now + 121_000,
+			payload,
+		);
+		expect(stale.gateway).toBe("unknown");
+		expect(stale.machines).toEqual([]);
+	});
 });

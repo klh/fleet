@@ -612,6 +612,11 @@ the fastest endpoint per routing role, per-endpoint call tallies as above,
 DNS-SD discovered _klh-llm._tcp advertisements, recent remote routes, and
 the cloud-vs-local posture.
 
+GET /api/network returns a browser-safe slice of the Board's Buckle network
+read model: gateway state, observed hubs and route targets, and aggregate
+request/token throughput by interface. It reports unavailable when the Board
+or its Buckle telemetry is unavailable; it does not expose lane identities.
+
 GET /api/metrics returns the tallies alone: per (machine, port, model)
 {calls, errors, avg_ms, last_used, load_5m, last_error} plus the 12 most
 recent routes across locals and remotes, and the /api/route audit trail
@@ -692,12 +697,64 @@ const json = (x: unknown, status = 200): Response =>
 		headers: { "content-type": "application/json" },
 	});
 
+/** Browser-safe slice of the Board's Buckle read model. The Board reads the
+ * ledger locally; Belt forwards only aggregate counts and route targets. */
+const networkSnapshot = async (): Promise<Response> => {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 2500);
+	try {
+		const base = process.env.BELT_BOARD_URL ?? "http://127.0.0.1:7799";
+		const response = await fetch(new URL("/api/console/network", base), {
+			signal: controller.signal,
+		});
+		if (!response.ok)
+			return json({ ok: false, reason: "Board network feed unavailable" });
+		const payload = (await response.json()) as Record<string, unknown>;
+		const network = payload.network as Record<string, unknown> | undefined;
+		const gateway = payload.gateway as Record<string, unknown> | undefined;
+		return json({
+			ok: true,
+			ts: payload.ts,
+			gateway: gateway
+				? {
+						state: gateway.state,
+						up: gateway.up,
+						observedAt: gateway.observedAt,
+					}
+				: null,
+			network: network?.ok
+				? {
+						ok: true,
+						ts: network.ts,
+						hubs: network.hubs,
+						hops: network.hops,
+						throughput: {
+							interfaces: (network.throughput as Record<string, unknown>)
+								?.interfaces,
+						},
+						observations: {
+							available: (network.observations as Record<string, unknown>)
+								?.available,
+							lastEventAt: (network.observations as Record<string, unknown>)
+								?.lastEventAt,
+						},
+					}
+				: { ok: false, reason: "Buckle telemetry unavailable" },
+		});
+	} catch {
+		return json({ ok: false, reason: "Board network feed unavailable" });
+	} finally {
+		clearTimeout(timeout);
+	}
+};
+
 // W155.3 http-citizenship: methods each known path serves — the single
 // source the gate introspects (HEAD rides GET paths; Bun strips its body).
 const ROUTES: RouteMethods = {
 	"/": ["GET", "HEAD"],
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
+	"/api/network": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/metrics/history": ["GET", "HEAD"],
@@ -760,6 +817,7 @@ Bun.serve({
 		if (path === "/api/status") return etagJson(req, await statusBody());
 		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
+		if (path === "/api/network") return networkSnapshot();
 		// W258 — the capability forecast: conservative per-machine rows
 		if (path === "/api/catalog") return json(capabilityPayload());
 		if (path === "/api/route") return serveRoute(req);

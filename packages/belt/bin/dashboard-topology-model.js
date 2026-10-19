@@ -11,7 +11,58 @@ const observed = (observation, now) =>
 
 const stateOf = (up, fresh) => (!fresh ? "unknown" : up ? "up" : "down");
 
-export function buildTopology(status, remotes, supervisor, now = Date.now()) {
+const providerKey = (host) => {
+	const value = String(host || "").toLowerCase();
+	if (value.endsWith("githubcopilot.com")) return "copilot";
+	if (value.endsWith("z.ai")) return "zai";
+	if (value.endsWith("openai.com")) return "openai";
+	if (value.endsWith("anthropic.com")) return "anthropic";
+	return value || "unknown provider";
+};
+
+/** Add Buckle observations to Belt's probe inventory without treating a
+ * routed request as a current health probe or inventing an upstream hop. */
+export function addNetworkEvidence(machines, payload, now = Date.now()) {
+	if (!payload?.ok || !payload.network?.ok || !isFresh(payload.ts, now))
+		return machines;
+	const result = new Map(
+		machines.map((item) => [item.name.toLowerCase(), { ...item }]),
+	);
+	const interfaces = Array.isArray(payload.network.throughput?.interfaces)
+		? payload.network.throughput.interfaces
+		: [];
+	for (const row of interfaces) {
+		if (row.kind !== "cloud" || !row.host || !Number.isFinite(row.req15))
+			continue;
+		const key = providerKey(row.host);
+		const item = result.get(key) || {
+			name: key,
+			endpoints: 0,
+			reachable: 0,
+			routed: 0,
+			models: [],
+			state: "unknown",
+		};
+		if (row.model && !item.models.includes(row.model))
+			item.models = [...item.models, row.model];
+		item.buckleReq15 = (item.buckleReq15 || 0) + row.req15;
+		item.buckleReq60 = (item.buckleReq60 || 0) + (row.req60 || 0);
+		if (Number.isFinite(row.in60) || Number.isFinite(row.out60)) {
+			item.tokens60 = (item.tokens60 || 0) + (row.in60 || 0) + (row.out60 || 0);
+		}
+		if (isFresh(row.lastOkAt, now, ROUTE_MS)) item.routeObserved = true;
+		result.set(key, item);
+	}
+	return [...result.values()];
+}
+
+export function buildTopology(
+	status,
+	remotes,
+	supervisor,
+	now = Date.now(),
+	networkPayload = null,
+) {
 	const localFresh = observed(status?.observation, now);
 	const remoteFresh = isFresh(remotes?.ts, now);
 	const hubFresh = observed(supervisor?.observation, now);
@@ -68,8 +119,16 @@ export function buildTopology(status, remotes, supervisor, now = Date.now()) {
 		const item = machines.get(String(route.machine || "unknown"));
 		if (item && route.ok && isFresh(route.ts, now, ROUTE_MS)) item.routed += 1;
 	}
+	const networkFresh = networkPayload?.ok && isFresh(networkPayload.ts, now);
 	return {
 		router: stateOf(status?.router?.up, localFresh),
+		gateway:
+			networkFresh && networkPayload.gateway
+				? String(
+						networkPayload.gateway.state ||
+							(networkPayload.gateway.up ? "up" : "down"),
+					)
+				: "unknown",
 		specialists: {
 			state: !localFresh
 				? "unknown"
@@ -88,10 +147,14 @@ export function buildTopology(status, remotes, supervisor, now = Date.now()) {
 			state: stateOf(item.state === "up" && !item.alert, hubFresh),
 			port: item.port,
 		})),
-		machines: [...machines.values()].map((item) => ({
-			...item,
-			state: stateOf(item.reachable > 0, remoteFresh),
-		})),
+		machines: addNetworkEvidence(
+			[...machines.values()].map((item) => ({
+				...item,
+				state: stateOf(item.reachable > 0, remoteFresh),
+			})),
+			networkPayload,
+			now,
+		),
 		fresh: { local: localFresh, hubs: hubFresh, remotes: remoteFresh },
 	};
 }
