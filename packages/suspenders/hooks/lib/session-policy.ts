@@ -123,7 +123,7 @@ function activeExceptionFor(
 	db: Database,
 	gap: Row,
 	project: string,
-	now: number,
+	_now: number,
 ): DecisionRecord | null {
 	if (!gap.serviceId || !gap.policyId) return null;
 	return activeException(db, {
@@ -411,4 +411,101 @@ export async function checkSessionPolicies(options: {
 		}
 	}
 	return notes;
+}
+
+/** One OPEN policy-provenanced decision — the graph row the dispatch brief
+ *  disclosure reads. Fields mirror the NEED_DECISION payload's `policy`
+ *  object written by checkSessionPolicies. */
+export interface OpenPolicyDecision {
+	id: number;
+	hub: string;
+	sha256: string;
+	row: string;
+	source: string;
+	question: string;
+}
+
+const shaPin = /^[a-f0-9]{64}$/;
+
+export function openPolicyDecisions(
+	db: Database,
+	project: string,
+): OpenPolicyDecision[] {
+	let rows: {
+		id: number;
+		question: string | null;
+		payload: string | null;
+	}[];
+	try {
+		// the decisions table is board-owned (context.ts creates it on
+		// governor.db); a graph that never ran the board has none — the
+		// disclosure is best-effort, an absent table reads as no decisions
+		rows = db
+			.query(
+				"SELECT d.event_id AS id, d.question AS question, e.payload AS payload FROM decisions d JOIN events e ON e.id = d.event_id WHERE d.project = ? AND d.state = 'OPEN' ORDER BY d.event_id DESC LIMIT 50",
+			)
+			.all(project) as {
+			id: number;
+			question: string | null;
+			payload: string | null;
+		}[];
+	} catch {
+		return [];
+	}
+	const out: OpenPolicyDecision[] = [];
+	const seen = new Set<string>();
+	for (const row of rows) {
+		let policy: unknown;
+		try {
+			policy = row.payload
+				? (JSON.parse(row.payload) as { policy?: unknown }).policy
+				: null;
+		} catch {
+			continue;
+		}
+		if (!policy || typeof policy !== "object") continue;
+		const {
+			hub,
+			sha256,
+			id: gapId,
+			source,
+		} = policy as Record<string, unknown>;
+		if (
+			typeof hub !== "string" ||
+			!hub ||
+			typeof sha256 !== "string" ||
+			!shaPin.test(sha256) ||
+			typeof gapId !== "string" ||
+			!gapId
+		)
+			continue;
+		const key = `${hub}|${sha256}|${gapId}`;
+		if (seen.has(key)) continue; // same gap re-asked by a sibling session — one disclosure
+		seen.add(key);
+		out.push({
+			id: row.id,
+			hub,
+			sha256,
+			row: gapId,
+			source: typeof source === "string" ? source : "",
+			question: row.question ?? "",
+		});
+	}
+	return out;
+}
+
+/** The provenance lines dispatch injects into a lane brief: which
+ *  corporate-policy decisions are already open for this repo, with the
+ *  hub / row / content-pin evidence. Read-only graph read — no hub probe,
+ *  no decision minted at dispatch. */
+export function policyBriefLines(db: Database, project: string): string[] {
+	const open = openPolicyDecisions(db, project);
+	if (!open.length) return [];
+	return [
+		`POLICY PROVENANCE — ${open.length} open corporate-policy decision${open.length === 1 ? "" : "s"} for this repo:`,
+		...open.map(
+			(d) =>
+				`  - decision #${d.id} [hub=${d.hub} row=${d.row} sha256=${d.sha256}] ${d.question.split("\n")[0]} — ask for approval / consult the recorded answer before remediation.`,
+		),
+	];
 }

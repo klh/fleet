@@ -98,6 +98,9 @@ import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
+// W862: policy provenance rides the brief — read-only graph read, the
+// compliance check itself re-runs at the lane's session bootstrap
+import { policyBriefLines } from "../hooks/lib/session-policy.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
@@ -397,6 +400,16 @@ const advanceAttempt = (
 /** the mission brief. Everything a headless lane needs: full item spec,
  *  capsule protocol, landing chain, sid + how it gets resumed. Resume runs
  *  embed the dead lane's last capsule as RESUME CONTEXT. */
+// W862: policy provenance lines — read-only graph read over an ephemeral
+// store handle; both brief sites (dry + live) disclose the same way.
+const policyBriefExtra = (project: string): string[] => {
+	const db = openStore();
+	try {
+		return policyBriefLines(db, project);
+	} finally {
+		db.close();
+	}
+};
 // W460: sidOf is the legacy-named alias of the canonical laneSid —
 // dispatch/supervise/fleet-loop/board must never derive sids independently
 export const sidOf = laneSid;
@@ -487,6 +500,7 @@ const dispatchItem = async (
 				...resumeBriefLine(
 					decisionFor(RESUME_FROM, resume?.sid, pick.bin ?? "claude"),
 				),
+				...policyBriefExtra(projectIdentity(REPO)),
 			],
 		});
 		console.log(brief);
@@ -745,7 +759,11 @@ const dispatchItem = async (
 			agent: pick.agent,
 			effort: effortFromShow(show.out),
 			intel,
-			extra: [...routingExtra(), ...resumeBriefLine(resumeDecision)],
+			extra: [
+				...routingExtra(),
+				...resumeBriefLine(resumeDecision),
+				...policyBriefExtra(projectIdentity(REPO)),
+			],
 		});
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
 		// and enforcement mode are ADAPTER data (registry). A failing brief on

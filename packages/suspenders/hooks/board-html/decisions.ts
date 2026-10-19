@@ -181,6 +181,7 @@ function decNode(d){
       '<div class="dhead"><span class="dproj mono"></span><span class="dwho"></span><span class="dage dim"></span></div>' +
       '<div class="dq"></div>' +
       '<div class="dblocks"></div>' +
+      '<div class="dsrc dim"></div>' +
       '<div class="dopts"></div>' +
       '<div class="dadv"></div>' +
       '<div class="dans"><input class="ans" placeholder="your decision...">' +
@@ -248,6 +249,26 @@ function decNode(d){
   setText(q.querySelector('.dq'), d.question || '(no question text)');
   var blocks = 'blocks: ' + (d.task_title || (d.task_id ? 'task ' + d.task_id : 'no linked task'));
   setText(q.querySelector('.dblocks'), blocks);
+  // W862: hub-policy provenance — the backend validates the payload shape
+  // (policyProvenance); textContent only, origin disclosed never inferred
+  var polEl = q.querySelector('.dpol');
+  if (!polEl) {
+    polEl = document.createElement('span');
+    polEl.className = 'dpol pill';
+    var dh2 = q.querySelector('.dhead');
+    var ageEl2 = q.querySelector('.dage');
+    if (ageEl2) dh2.insertBefore(polEl, ageEl2); else dh2.appendChild(polEl);
+  }
+  var polTxt = d.policy ? 'policy' : '';
+  polEl.textContent = polTxt;
+  polEl.className = 'dpol pill' + (polTxt ? ' block' : '');
+  polEl.style.display = polTxt ? '' : 'none';
+  var srcEl = q.querySelector('.dsrc');
+  var srcTxt = d.policy
+    ? 'policy provenance: hub ' + d.policy.hub + ' · row ' + d.policy.id + ' · pin ' + String(d.policy.sha256 || '').slice(0, 12) + '…'
+    : '';
+  if (srcEl.textContent !== srcTxt) srcEl.textContent = srcTxt;
+  srcEl.style.display = srcTxt ? '' : 'none';
   var ruling = !!d.owner_actionable;
   var errEl2 = q.querySelector('.derr');
   var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? (ruling ? 'target lane is dead or absent — record the owner ruling' : 'delivery failed — press Send to retry') : '');

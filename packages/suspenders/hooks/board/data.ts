@@ -719,6 +719,32 @@ function eventPayloads(ids: number[]): Map<number, string | null> {
 // OPEN decisions first, then newest resolved; advice (hooks/bin/advise.ts,
 // fact advice.<id> or advice.<id>.error) rides along so the card can show
 // the recommendation — the LLM advises, the human decides.
+// W862: decisions forked from a hub-policy check carry their provenance
+// (hub / row id / content pin) straight from the NEED_DECISION payload —
+// the board card discloses origin, it never guesses from question text.
+const policyProvenance = (
+	raw: string | null,
+): { hub: string; sha256: string; id: string; source: string } | null => {
+	const policy = payloadOf(raw).policy;
+	if (!policy || typeof policy !== "object") return null;
+	const { hub, sha256, id, source } = policy as Record<string, unknown>;
+	if (
+		typeof hub !== "string" ||
+		!hub ||
+		typeof id !== "string" ||
+		!id ||
+		typeof sha256 !== "string" ||
+		!/^[a-f0-9]{64}$/.test(sha256)
+	)
+		return null;
+	return {
+		hub,
+		sha256,
+		id,
+		source: typeof source === "string" ? source : "",
+	};
+};
+
 export function decisionRecords(
 	project: string | null = null,
 ): Record<string, unknown>[] {
@@ -818,6 +844,7 @@ export function decisionRecords(
 			age_s: ago(d.created_at),
 			advice,
 			adviceError,
+			policy: policyProvenance(evPayloads.get(d.event_id) ?? null),
 		};
 	});
 }
