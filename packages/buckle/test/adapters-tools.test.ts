@@ -132,6 +132,30 @@ describe("requestAnthropicToOpenAI", () => {
 		expect(bad.body.reasoning_effort).toBe(undefined);
 		expect(bad.warnings.some((w) => w.field === "reasoning_effort")).toBe(true);
 	});
+
+	test("reasoning_effort clamps to the zai-verified set (W884)", () => {
+		const med = requestAnthropicToOpenAI({
+			model: "g",
+			reasoning_effort: "medium",
+			messages: [],
+		});
+		expect(med.body.reasoning_effort).toBe("low");
+		expect(med.warnings.some((w) => w.field === "reasoning_effort")).toBe(
+			true,
+		);
+		const xh = requestAnthropicToOpenAI({
+			model: "g",
+			reasoning_effort: "xhigh",
+			messages: [],
+		});
+		expect(xh.body.reasoning_effort).toBe("high");
+		const mx = requestAnthropicToOpenAI({
+			model: "g",
+			reasoning_effort: "max",
+			messages: [],
+		});
+		expect(mx.body.reasoning_effort).toBe("max");
+	});
 });
 
 describe("responseOpenAIToAnthropic", () => {
