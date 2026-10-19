@@ -71,6 +71,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 			expect(Object.keys(t).sort()).toEqual([
 				"age_s",
 				"blocked_by",
+				"created_at_utc",
 				"executor",
 				"failure_note",
 				"id",
@@ -91,6 +92,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 				"tail",
 				"title",
 				"unblocked_by",
+				"updated_at_utc",
 				"waiting_on",
 			]);
 		}

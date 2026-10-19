@@ -239,11 +239,10 @@ export const VENDORED: VendoredEntry[] = [
 		marker: "Vendored from the Lit monorepo",
 	},
 	...[
-		"lit-5afk64c9.js",
-		"lit-9bpcreb0.js",
-		"lit-65v7hzgb.js",
-		"lit-ke1w0fw8.js",
+		"lit-aqxetgnz.js",
 		"lit-rppg1wh3.js",
+		"lit-sq0mv1by.js",
+		"lit-ztzmytvz.js",
 	].map((f) => ({
 		path: `packages/suspenders/hooks/board-html/vendor/${f}`,
 		license: "BSD-3-Clause",

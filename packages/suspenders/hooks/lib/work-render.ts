@@ -2,6 +2,7 @@
 // the work-graph state glyphs + the one row renderer shared by the
 // list/ready/owned verbs. Presentation only, zero DB access. Local colors
 // (bin/ entrypoints define their own paint; lib/watch/frame.ts precedent).
+import { dualStamp } from "./wallclock.ts";
 export type Item = Record<string, string | number | null>;
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -34,4 +35,20 @@ export const renderRow = (r: Item): string => {
 	const eff = r.effort ? dim(` ⟨${String(r.effort)}⟩`) : "";
 	const tg = r.tags ? dim(` #${String(r.tags)}`) : "";
 	return `  ${col(g)} ${cyan(String(r.id).padEnd(7))}${String(r.title).slice(0, 56)}${owner ? `  ${owner}` : ""}${req}${eff}${tg}`;
+};
+
+// W902: created/updated always; closed rides the completion record's
+// completed_at when the caller has one (DONE items). UTC Z + local twin —
+// hub clocks drift; a bare local time is unreadable across hubs.
+export const renderTimestamps = (
+	r: Item,
+	completedAt: number | null,
+): string[] => {
+	const out = [
+		`  ${dim("created:")} ${dualStamp(Number(r.created_at))}`,
+		`  ${dim("updated:")} ${dualStamp(Number(r.updated_at))}`,
+	];
+	if (completedAt !== null)
+		out.push(`  ${dim("closed:")} ${dualStamp(completedAt)}`);
+	return out;
 };

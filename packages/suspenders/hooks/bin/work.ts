@@ -67,7 +67,7 @@ import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
-import { GLYPH, renderRow } from "../lib/work-render.ts";
+import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
 import {
 	buildReportTable,
 	parseReportWindow,
@@ -216,9 +216,7 @@ function emit(
 	source = "work",
 ): void {
 	db()
-		.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
-		)
+		.query("INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?")
 		.run(
 			Date.now(),
 			source,
@@ -474,6 +472,7 @@ const showOne = (id: string, json: boolean): void => {
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
 	}
+	console.log(renderTimestamps(it, completionRecord(db(), PROJECT, String(it.id))?.completed_at ?? null).join("\n"));
 	// W617/W687: the item capsule + W776 attribution travel with the item
 	const cap = db()
 		.query("SELECT value FROM facts WHERE key = ?")

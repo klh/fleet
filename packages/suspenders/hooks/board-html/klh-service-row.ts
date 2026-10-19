@@ -217,7 +217,14 @@ class KlhServiceRow extends LitElement {
 
 	private when(iso: string): string {
 		const d = new Date(iso);
-		return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
+		if (Number.isNaN(d.getTime())) return "";
+		// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+		const p = (n: number): string => String(n).padStart(2, "0");
+		const off = -d.getTimezoneOffset();
+		const a = Math.abs(off);
+		const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
+		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+		return `${utc} (${local})`;
 	}
 
 	protected render(): TemplateResult {

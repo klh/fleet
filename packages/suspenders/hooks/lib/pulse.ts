@@ -22,6 +22,7 @@ import {
 	scrubOutbound,
 } from "./notify.ts";
 import type { FleetWarm } from "./cache-drilldown.ts";
+import { dualStamp } from "./wallclock.ts";
 
 /** W822 pulse state — only deltas repeat; the heartbeat never skips. */
 export interface PulseState {
@@ -232,7 +233,7 @@ function sectionsOf(args: {
 	const out: string[] = [];
 	if (args.done.length > 0) {
 		out.push(
-			`landed since ${args.since > 0 ? new Date(args.since).toISOString() : "first pulse"}`,
+			`landed since ${args.since > 0 ? dualStamp(args.since) : "first pulse"}`,
 		);
 		for (const d of args.done)
 			out.push(
@@ -288,7 +289,9 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const license = deps.license?.() ?? [];
 	const warmFrag =
 		warm !== null ? ` · warm ${(warm.rate * 100).toFixed(1)}%` : "";
-	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}${warmFrag}`;
+	// W902: the report header carries its own generated-at stamp — UTC Z first,
+	// local twin beside it (hub clocks drift; silence ≠ same clock)
+	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}${warmFrag} · gen ${dualStamp(now())}`;
 	const sections = sectionsOf({
 		since,
 		now: now(),

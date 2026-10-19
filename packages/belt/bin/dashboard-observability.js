@@ -6,6 +6,20 @@ import {
 } from "/dashboard-state.js";
 import { observationFresh } from "/observation.js";
 
+// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+const dualStamp = (ms) => {
+	if (!ms) return "";
+	const d = new Date(ms);
+	if (Number.isNaN(d.getTime())) return String(ms);
+	const p = (n) => String(n).padStart(2, "0");
+	const off = -d.getTimezoneOffset();
+	const a = Math.abs(off);
+	const sg = off >= 0 ? "+" : "-";
+	const utc = d.toISOString().replace(/\.\d{3}Z$/, "Z");
+	const loc = `local ${p(d.getHours())}:${p(d.getMinutes())}, UTC${sg}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+	return `${utc} (${loc})`;
+};
+
 class BeltSupervisor extends LitElement {
 	static properties = {
 		snapshot: { state: true },
@@ -101,7 +115,7 @@ class BeltSupervisor extends LitElement {
 		return html`
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`)}</p>
-			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
+			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${dualStamp(doc.observation.expiresAt)}</p>` : ""}
 			<details><summary>${targets.length} monitored endpoints · view probe details</summary>
 				${fleetRows.map((target) => this.row(target, fresh, doc))}
 				${
@@ -228,7 +242,7 @@ class BeltTrends extends LitElement {
 					Trends · ${hours}h · ${total} Belt routes · ${errs} failed
 					${this.err ? html`<span class="bt-err"> · ${this.err}</span>` : ""}
 				</summary>
-				${this.open && this.hist ? html`<p class="bt-note">Belt router observations only · ${active} active 5-minute intervals · ${endpoints.length} endpoints${last ? ` · last route ${new Date(last[0] * 1000).toLocaleTimeString()}` : ""}. Buckle traffic is measured separately in Metrics.</p>${this.body()}` : ""}
+				${this.open && this.hist ? html`<p class="bt-note">Belt router observations only · ${active} active 5-minute intervals · ${endpoints.length} endpoints${last ? ` · last route ${dualStamp(last[0] * 1000)}` : ""}. Buckle traffic is measured separately in Metrics.</p>${this.body()}` : ""}
 			</details>`;
 	}
 	body() {
@@ -259,11 +273,9 @@ class BeltTrends extends LitElement {
 		const buckets = this.hist.buckets;
 		const first = buckets[0];
 		const last = buckets.at(-1);
+		// W908 port of W902: axis marks are UTC-first — hub clocks drift
 		const time = (bucket) =>
-			new Date(bucket[0] * 1000).toLocaleTimeString([], {
-				hour: "2-digit",
-				minute: "2-digit",
-			});
+			`${new Date(bucket[0] * 1000).toISOString().slice(11, 16)}Z`;
 		const active = buckets
 			.map((bucket, index) => ({ bucket, index }))
 			.filter(({ bucket }) => bucket[1] > 0)
