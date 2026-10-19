@@ -265,6 +265,32 @@ SUPERSEDED), releases the claim and retires the worktree via the same
 
 Success: `{ ok: true, item, state: "CANCELLED" }`.
 
+## POST /api/retry (W970)
+
+`{ project, id, force?, note? }` — board face for the W761 `work retry`
+requeue verb: FAILED (or budget-quarantined READY) → READY, stale claim
+released, launch budget reset. The retry itself is the CLI leg (`work retry`
+via the same runCli path /api/cancel uses), so the verb owns the state
+refusals verbatim. Before the CLI leg the endpoint runs the **operator
+gate**: an item with an OPEN NEED_DECISION linked on the card (the W896
+operator-gated class) or the `operator` classification tag refuses with
+409 `{operatorGated: true}` — retrying one re-arms auto-dispatch for
+owner-only work; `force: true` overrides (the card confirm offers exactly
+this). Note rides the verb's `--note` (lands on the work.retried event).
+
+| condition                                   | status |
+| ------------------------------------------- | ------ |
+| missing `project` or `id`                   | 400    |
+| demo board (`--demo`)                       | 409    |
+| unknown work item                           | 404    |
+| operator-gated item without `force`         | 409 `{operatorGated:true}` |
+| non-FAILED / non-quarantined state          | 409    |
+| project directory missing on disk           | 409    |
+
+Success: `{ ok: true, item, state: "READY" }`.
+
+## POST /api/second-opinion (W182)
+
 ## POST /api/second-opinion (W182)
 
 `{ project, id, executor }` — spawns a read-only REVIEW lane (no claim) on

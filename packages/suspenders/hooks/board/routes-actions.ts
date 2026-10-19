@@ -535,6 +535,36 @@ async function dispatchStart(
 	});
 }
 
+// W970 — the /api/retry operator gate: the operator-gated class is an open
+// NEED_DECISION on the item (the W896 verdict-repeat class) or the `operator`
+// classification tag. Refuses with {operatorGated:true} so the card can offer
+// a force confirm; null = proceed to the CLI leg.
+function retryOperatorGate(
+	project: string,
+	id: string,
+	tags: string | null,
+	force: boolean,
+): Response | null {
+	syncDecisions();
+	const open = db
+		.query(
+			"SELECT event_id FROM decisions WHERE project = ? AND task_id = ? AND state = 'OPEN' LIMIT 1",
+		)
+		.get(project, id) as { event_id: number } | null;
+	const tagged = String(tags ?? "").split(",").includes("operator");
+	if (force || (!open && !tagged)) return null;
+	return json(
+		{
+			ok: false,
+			operatorGated: true,
+			error: open
+				? `${id} has an open NEED_DECISION (#${open.event_id}) — operator-gated requeue; force overrides`
+				: `${id} carries the operator tag — retry would re-arm auto-dispatch for owner-only work; force overrides`,
+		},
+		409,
+	);
+}
+
 export async function handleActions(
 	req: Request,
 	url: URL,
@@ -1199,6 +1229,40 @@ export async function handleActions(
 				500,
 			);
 		return json({ ok: true, item: id, state: "CANCELLED" });
+	}
+	if (req.method === "POST" && url.pathname === "/api/retry") {
+		// W970 — requeue face for the W761 CLI verb (FAILED / budget-quarantined
+		// READY → READY); the operator gate refuses the gated class unless forced.
+		const guard = writeGuard(req, url);
+		if (guard) return guard;
+		const parsed = await readJson(req);
+		if (!parsed.ok) return parsed.resp;
+		const project = String(parsed.body?.project ?? "");
+		const id = String(parsed.body?.id ?? "");
+		const force = !!parsed.body?.force;
+		const note = String(parsed.body?.note ?? "").trim().slice(0, 2000);
+		if (!project || !id)
+			return json({ ok: false, error: "missing project or id" }, 400);
+		if (DEMO) return json({ ok: false, error: "demo board — no real lanes" }, 409);
+		const w = db
+			.query("SELECT state, tags FROM work_items WHERE project = ? AND id = ?")
+			.get(project, id) as { state: string; tags: string | null } | null;
+		if (!w) return json({ ok: false, error: `no work item ${id} in ${project}` }, 404);
+		const gate = retryOperatorGate(project, id, w.tags, force);
+		if (gate) return gate;
+		const repo = projectRootOf(project);
+		if (!existsSync(repo))
+			return json({ ok: false, error: `project directory missing: ${repo}` }, 409);
+		const retry = runCli(
+			[WORK_CLI, "retry", id, ...(note ? ["--note", note] : [])],
+			repo,
+		);
+		if (retry.code !== 0)
+			return json(
+				{ ok: false, error: `retry failed: ${retry.out.slice(0, 300)}` },
+				409,
+			);
+		return json({ ok: true, item: id, state: "READY" });
 	}
 	if (req.method === "POST" && url.pathname === "/api/second-opinion") {
 		// W182 — a read-only REVIEW lane (never claims) against the item's

@@ -388,6 +388,26 @@ function cancelItem(id, proj, reason, btn){
     else toast('cancel failed: ' + String((j && j.error) || 'unknown error'));
   });
 }
+// W970 — FAILED-card requeue: /api/retry mirrors the W761 CLI verb;
+// operator-gated items (open NEED_DECISION or the 'operator' tag) need a
+// force confirm, mirroring unclaim's live-lane confirm.
+function retryItem(id, proj, btn, force){
+  var k = proj + '\u0000' + id;
+  if (starting[k]) return;
+  starting[k] = true;
+  if (btn) btn.disabled = true;
+  postJSON('/api/retry', { project: proj, id: id, force: !!force }).then(function(j){
+    delete starting[k];
+    if (btn) btn.disabled = false;
+    if (j && j.ok) { toast('requeued ' + id + ' — READY, dispatch picks it up'); pollTasks(); }
+    else if (j && j.operatorGated && !force) {
+      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the requeue to READY? Auto-dispatch will spawn a lane for it.')) retryItem(id, proj, null, true);
+      return;
+    }
+    else toast('retry failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  });
+}
 // W182 — second opinion: spawns a read-only REVIEW lane on the item; the
 // verdict lands as a work.review event on the drawer timeline.
 function secondOpinion(id, proj, executor, btn){
@@ -440,6 +460,7 @@ function kanbanCard(t, fam){
   if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model running this lane">' + esc(String(t.model)) + (t.locality ? ' (' + esc(String(t.locality)) + ')' : '') + '</span>';
   if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure">' + esc(String(t.failure_note)) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
+  if (t.state === 'FAILED') html += '<div class="kexec"><button type="button" class="kstart" data-retry="' + esc(t.id) + '" data-retryproj="' + esc(t.project || '') + '" title="requeue — FAILED to READY; operator-gated items need a force confirm">↺ retry</button></div>';
   if (startable) {
     var pick = defaultPick(t);
     var opts = execOptions(pick);

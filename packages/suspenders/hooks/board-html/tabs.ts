@@ -93,6 +93,12 @@ byId('kanban').addEventListener('click', function(e){
     unclaimItem(u.getAttribute('data-unclaim'), u.getAttribute('data-unclaimproj'), u, false);
     return;
   }
+  // W970 — FAILED-card requeue (operator-gated items confirm-then-force)
+  var rt = e.target.closest('[data-retry]');
+  if (rt) {
+    retryItem(rt.getAttribute('data-retry'), rt.getAttribute('data-retryproj'), rt, false);
+    return;
+  }
   // executor/effort pick — selecting a lane is not a card open (the click
   // would otherwise fall through to .kcard and pop the task drawer mid-pick)
   if (e.target.classList && (e.target.classList.contains('kexecsel') || e.target.classList.contains('keffortsel'))) return;

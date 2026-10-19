@@ -47,6 +47,27 @@ function itemRow(id: string): Record<string, unknown> | null {
 	db.close();
 	return row;
 }
+// fixture: mark an item FAILED with a failure note (the W970 retry class)
+function fail(id: string, note: string): void {
+	const db = new Database(DB);
+	db.run("PRAGMA busy_timeout = 4500");
+	db.query(
+		"UPDATE work_items SET state = 'FAILED' WHERE project = ? AND id = ?",
+	).run(MY_PROJ, id);
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fixture', 'work.failed', NULL, ?, NULL)",
+	).run(Date.now(), JSON.stringify({ work: id, project: MY_PROJ, note }));
+	db.close();
+}
+// fixture: an OPEN NEED_DECISION linked to the item (the operator-gated class)
+function needEvent(id: string, question: string): void {
+	const db = new Database(DB);
+	db.run("PRAGMA busy_timeout = 4500");
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 's-w970-op', 'NEED_DECISION', ?, ?, 's-w970-op')",
+	).run(Date.now(), id, JSON.stringify({ project: MY_PROJ, work: id, question }));
+	db.close();
+}
 
 describe("W182 release", () => {
 	test("validation: missing id 400, unknown item 404, unclaimed 409", async () => {
@@ -279,6 +300,45 @@ describe("W182 cancel", () => {
 	});
 });
 
+describe("W970 retry", () => {
+	test("validation: missing id 400, unknown item 404", async () => {
+		expect((await post("/api/retry", { project: MY_PROJ })).status).toBe(400);
+		const missing = await post("/api/retry", {
+			project: MY_PROJ,
+			id: "W99999",
+		});
+		expect(missing.status).toBe(404);
+	});
+
+	test("non-FAILED READY item: CLI refusal maps to 409", async () => {
+		const id = addWork("w970 retry plain READY item");
+		const r = await post("/api/retry", { project: MY_PROJ, id });
+		expect(r.status).toBe(409);
+		expect(String(r.json.error)).toContain("no launch-budget reservation");
+	});
+
+	test("happy path: FAILED requeues READY + work.retried event", async () => {
+		const id = addWork("w970 retry happy item");
+		fail(id, "lane died");
+		const r = await post("/api/retry", { project: MY_PROJ, id });
+		expect(r.status).toBe(200);
+		expect(r.json).toEqual({ ok: true, item: id, state: "READY" });
+		expect(itemRow(id)?.state).toBe("READY");
+		expect(itemRow(id)?.owner_sid).toBeNull();
+	});
+
+	test("operator gate: open NEED_DECISION 409s; force requeues", async () => {
+		const id = addWork("w970 retry operator-gated item");
+		fail(id, "owner-only work");
+		needEvent(id, "owner must configure the relay");
+		const r = await post("/api/retry", { project: MY_PROJ, id });
+		expect(r.status).toBe(409);
+		expect(r.json.operatorGated).toBe(true);
+		const forced = await post("/api/retry", { project: MY_PROJ, id, force: true });
+		expect(forced.status).toBe(200);
+		expect(itemRow(id)?.state).toBe("READY");
+	});
+});
 describe("W182 second-opinion", () => {
 	test("validation: missing executor 400, unknown executor 400, bad llm legs 409", async () => {
 		expect(

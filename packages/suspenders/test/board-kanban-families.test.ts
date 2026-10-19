@@ -91,6 +91,25 @@ describe("board kanban shattered families (W819)", () => {
 		expect(html).not.toContain("<script>");
 		expect(html).toContain("upstream returned 401");
 	});
+	test("FAILED card carries the retry action; READY does not (W970)", () => {
+		const { kanbanCard } = chunkSandbox();
+		const html = kanbanCard({
+			project: P,
+			id: "W970f",
+			title: "retry me",
+			state: "FAILED",
+			failure_note: "lane died",
+		});
+		expect(html).toContain('data-retry="W970f"');
+		expect(html).toContain("↺ retry");
+		const ready = kanbanCard({
+			project: P,
+			id: "W970r",
+			title: "no retry",
+			state: "READY",
+		});
+		expect(ready).not.toContain("data-retry");
+	});
 	test("non-terminal child nests under resident SHATTERED parent with parent color + depth", () => {
 		const { kanbanFamilies } = chunkSandbox();
 		const parent = { ...sh("W1", 9), tag_color: "#0058A3" };
