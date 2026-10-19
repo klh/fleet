@@ -58,13 +58,26 @@ export async function registerCaddy(ctx: StepContext): Promise<StepResult> {
  * -y unattended, -a explicit agent — a bare add hits the interactive
  * agent-picker and exits 1 in a non-TTY. Best-effort: failure names the
  * manual command instead of aborting the install.
+ *
+ * W903: the catalog lives at the git repo root, not under packages/suspenders
+ * (what ctx.repo is) — resolve the toplevel like registerGitHooks does;
+ * non-git trees fall back to ctx.repo.
  */
 export async function registerSkills(ctx: StepContext): Promise<StepResult> {
-	const skillsDir = join(ctx.repo, "skills");
+	const top = await execa(
+		"git",
+		["-C", ctx.repo, "rev-parse", "--show-toplevel"],
+		{ reject: false },
+	);
+	const repoRoot =
+		top.failed || top.exitCode !== 0 || top.stdout.trim() === ""
+			? ctx.repo
+			: top.stdout.trim();
+	const skillsDir = join(repoRoot, "skills");
 	if (!existsSync(skillsDir)) {
 		return {
 			status: "skipped",
-			note: `no skills/ directory at ${ctx.repo} — nothing to register`,
+			note: `no skills/ directory at ${repoRoot} — nothing to register`,
 		};
 	}
 	const res = await execa(
