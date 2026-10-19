@@ -44,6 +44,7 @@ const env = (): Record<string, string> => ({
 	HOME,
 	KLH_STACK: STACK,
 	SUSPENDERS_HUBS_FILE: REGISTRY,
+	SUSPENDERS_CACHE_LOCAL: "0",
 });
 
 const lib = (): Promise<typeof import("../hooks/lib/cache-drill.ts")> =>
@@ -54,6 +55,7 @@ type Row = Mod["BuckleRequestRow"];
 
 const row = (over: Partial<Row>): Row => ({
 	rid: "r1",
+	trace_id: null,
 	ts: "2026-10-19T10:00:00Z",
 	lane: "autow700",
 	actor: "key1",
@@ -78,6 +80,8 @@ const row = (over: Partial<Row>): Row => ({
 	err: null,
 	cache_r: 4000,
 	cache_c: 0,
+	cache_reported: true,
+	cache_c_reported: null,
 	in_tok: null,
 	out_tok: null,
 	...over,
@@ -94,6 +98,15 @@ describe("parseRequestRow", () => {
 		});
 		expect(ok !== null && ok.rid === "r9" && ok.cache_r === 0).toBe(true);
 		expect(ok !== null && ok.target_model === null).toBe(true);
+		expect(ok?.cache_c_reported).toBeNull();
+		expect(
+			parseRequestRow({
+				rid: "r10",
+				ts: "2026-10-19T09:00:00Z",
+				cache_c: 0,
+				cache_c_reported: 1,
+			})?.cache_c_reported,
+		).toBe(true);
 		expect(parseRequestRow("nope")).toBeNull();
 		expect(parseRequestRow({ rid: "", ts: "2026-10-19T09:00:00Z" })).toBeNull();
 		expect(parseRequestRow({ rid: "x", ts: "not-a-date" })).toBeNull();
@@ -101,12 +114,26 @@ describe("parseRequestRow", () => {
 });
 
 describe("laneAggregates", () => {
+	test("cache write totals exclude providers that did not report writes", async () => {
+		const { laneAggregates } = await lib();
+		const [lane] = laneAggregates([
+			row({ rid: "r1", cache_c: 0, cache_c_reported: false }),
+			row({ rid: "r2", cache_c: 12, cache_c_reported: true }),
+		]);
+		expect(lane?.cache_c_known).toBe(1);
+		expect(lane?.cache_c_tok).toBe(12);
+	});
 	test("warm ratio excludes unknown usage; day series + hubs + models", async () => {
 		const { laneAggregates } = await lib();
 		const lanes = laneAggregates([
 			row({ ts: "2026-10-19T10:00:00Z", cache_r: 500 }),
 			row({ rid: "r2", ts: "2026-10-19T10:05:00Z", cache_r: 0 }),
-			row({ rid: "r3", ts: "2026-10-19T10:06:00Z", cache_r: null }),
+			row({
+				rid: "r3",
+				ts: "2026-10-19T10:06:00Z",
+				cache_r: null,
+				cache_reported: null,
+			}),
 			row({
 				rid: "r4",
 				ts: "2026-10-18T09:00:00Z",
@@ -129,6 +156,59 @@ describe("laneAggregates", () => {
 });
 
 describe("clusterMissReasons", () => {
+	test("interleaved lanes cannot manufacture model drift or repeated cold starts", async () => {
+		const { clusterMissReasons } = await lib();
+		const clusters = clusterMissReasons([
+			row({
+				rid: "a1",
+				lane: "lane-a",
+				ts: "2026-10-19T10:00:00Z",
+				cache_r: 0,
+				target_model: "model-a",
+			}),
+			row({
+				rid: "b1",
+				lane: "lane-b",
+				ts: "2026-10-19T10:00:01Z",
+				cache_r: 0,
+				target_model: "model-b",
+			}),
+			row({
+				rid: "a2",
+				lane: "lane-a",
+				ts: "2026-10-19T10:00:02Z",
+				cache_r: 900,
+				target_model: "model-a",
+			}),
+			row({
+				rid: "b2",
+				lane: "lane-b",
+				ts: "2026-10-19T10:00:03Z",
+				cache_r: 900,
+				target_model: "model-b",
+			}),
+		]);
+		expect(clusters.map((c) => [c.reason, c.count])).toEqual([
+			["cold_start", 2],
+		]);
+	});
+
+	test("bare ingress cannot be diagnosed as one lane's routing drift", async () => {
+		const { clusterMissReasons } = await lib();
+		const clusters = clusterMissReasons([
+			row({ rid: "bare1", lane: "", cache_r: 0, target_model: "model-a" }),
+			row({
+				rid: "bare2",
+				lane: "",
+				ts: "2026-10-19T10:00:01Z",
+				cache_r: 0,
+				target_model: "model-b",
+			}),
+		]);
+		expect(clusters.map((c) => [c.reason, c.count])).toEqual([
+			["unattributed", 2],
+		]);
+	});
 	test("walks the lane in ts order, one rule per miss", async () => {
 		const { clusterMissReasons } = await lib();
 		const clusters = clusterMissReasons([

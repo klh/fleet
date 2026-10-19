@@ -373,7 +373,7 @@ export class KlhUsageCacheDrill extends LitElement {
 							<span class="unum">${l.known > 0 ? pct1(w / 100) : "—"}</span>
 						</td>
 						<td class="unum">${fmtTok(l.cache_r_tok)}</td>
-						<td class="unum">${fmtTok(l.cache_c_tok)}</td>
+						<td class="unum" title=${l.cache_c_known ? `${String(l.cache_c_known)} requests reported cache writes` : "Provider did not report cache writes"}>${l.cache_c_known ? fmtTok(l.cache_c_tok) : "—"}</td>
 						<td class="unum">${hhmm(l.last_ts)}</td>
 					</tr>`;
 				})}
@@ -437,7 +437,7 @@ export class KlhUsageCacheDrill extends LitElement {
 										${row.cache_r === null ? "—" : fmtTok(row.cache_r)}
 									</td>
 									<td class="unum">
-										${row.cache_c === null ? "—" : fmtTok(row.cache_c)}
+										${row.cache_c_reported ? fmtTok(row.cache_c ?? 0) : "—"}
 									</td>
 									<td class="unum">
 										${row.duration_ms === null ? "—" : fmtTok(row.duration_ms)}

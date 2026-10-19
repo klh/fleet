@@ -57,6 +57,7 @@ describe("anthropic e2e", () => {
 		expect(audit.lane).toBe("");
 		expect(audit.cache_r).toBe(1);
 		expect(audit.cache_c).toBe(2);
+		expect(audit.cache_c_reported).toBe(1);
 		upstream.close();
 	});
 

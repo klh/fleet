@@ -120,6 +120,8 @@ export interface RequestReadRow {
 	cache_c: number | null;
 	/** 1 = provider explicitly reported cache fields; 0 = usage lacked them. */
 	cache_reported: number | null;
+	/** 1 = cache creation tokens were explicitly reported; NULL = legacy. */
+	cache_c_reported: number | null;
 	in_tok: number | null;
 	out_tok: number | null;
 }
@@ -166,6 +168,7 @@ CREATE TABLE IF NOT EXISTS route_audit (
   status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
   attempts INTEGER,
   cache_r INTEGER, cache_c INTEGER, cache_reported INTEGER,
+  cache_c_reported INTEGER,
   in_tok INTEGER, out_tok INTEGER,
   hop TEXT
 );
@@ -195,10 +198,11 @@ type AuditOp =
 			rid: string;
 			u: RouteAuditUsage;
 			cacheReported: boolean | null;
+			cacheWriteReported: boolean | null;
 	  };
 
 const UPDATE_USAGE = `
-UPDATE route_audit SET cache_r = ?, cache_c = ?, cache_reported = ?,
+UPDATE route_audit SET cache_r = ?, cache_c = ?, cache_reported = ?, cache_c_reported = ?,
   in_tok = ?, out_tok = ?
 WHERE rid = ?
 `;
@@ -289,6 +293,10 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
 		if (!auditCols.includes("cache_reported"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_reported INTEGER");
+		if (!auditCols.includes("cache_c_reported"))
+			this.db.run(
+				"ALTER TABLE route_audit ADD COLUMN cache_c_reported INTEGER",
+			);
 		// W706: hop marker (pre-W706 databases heal the same way; NULL hop =
 		// unmarked legacy row — billable, the pre-W706 default).
 		if (!auditCols.includes("hop"))
@@ -437,7 +445,13 @@ export class Ledger {
 				for (const { v: op } of audit) {
 					if (op.t === "ins") this.insertAudit(op.row);
 					else if (op.t === "upd") this.updateAudit(op.rid, op.out);
-					else this.updateUsageRow(op.rid, op.u, op.cacheReported);
+					else
+						this.updateUsageRow(
+							op.rid,
+							op.u,
+							op.cacheReported,
+							op.cacheWriteReported,
+						);
 				}
 			})();
 		} catch {
@@ -554,6 +568,7 @@ export class Ledger {
 		rid: string,
 		u: Usage | null,
 		cacheReported: boolean | null = null,
+		cacheWriteReported: boolean | null = null,
 	): void {
 		if (u === null) return;
 		this.pushAudit({
@@ -561,6 +576,7 @@ export class Ledger {
 			rid,
 			u: { ...u },
 			cacheReported,
+			cacheWriteReported,
 		});
 	}
 
@@ -569,11 +585,13 @@ export class Ledger {
 		rid: string,
 		u: RouteAuditUsage,
 		cacheReported: boolean | null,
+		cacheWriteReported: boolean | null,
 	): void {
 		this.updUsage.run(
 			u.cache_r,
-			u.cache_c,
+			cacheWriteReported ? u.cache_c : null,
 			cacheReported === null ? null : cacheReported ? 1 : 0,
+			cacheWriteReported === null ? null : cacheWriteReported ? 1 : 0,
 			u.in_tok,
 			u.out_tok,
 			rid,
@@ -664,7 +682,7 @@ function requestsReadSql(where: string[], limit: number): string {
 		candidates_seen, candidates_top, target_kind, target_host,
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
-		attempts, cache_r, cache_c, cache_reported, in_tok, out_tok
+		attempts, cache_r, cache_c, cache_reported, cache_c_reported, in_tok, out_tok
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

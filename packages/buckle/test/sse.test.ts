@@ -14,6 +14,7 @@ describe("SseSniffer (openai)", () => {
 		const u = s.usage();
 		expect(u?.in_tok).toBe(11);
 		expect(u?.out_tok).toBe(7);
+		expect(s.cacheWriteReported()).toBe(false);
 	});
 
 	test("no usage seen → null (honest unknown, never fake zeros)", () => {
@@ -39,6 +40,7 @@ describe("SseSniffer (anthropic)", () => {
 		expect(u?.out_tok).toBe(9);
 		expect(u?.cache_r).toBe(3);
 		expect(u?.cache_c).toBe(2);
+		expect(s.cacheWriteReported()).toBe(true);
 	});
 
 	test("keep-alive comments ignored; chunk-boundary splits handled", () => {

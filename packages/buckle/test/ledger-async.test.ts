@@ -129,6 +129,7 @@ describe("Ledger async flush", () => {
 			"rC",
 			{ in_tok: 6, out_tok: 3, cache_r: 1, cache_c: 2 },
 			true,
+			true,
 		);
 		const row = db.auditRows()[0] ?? {};
 		expect(row.cache_r).toBe(1);
