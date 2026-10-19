@@ -175,7 +175,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .board-search input:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
 #tasksTbl .num { text-align:right; font-variant-numeric:tabular-nums; color:var(--klh-dim); }
 /* W57 orchestrate box — LLM proposes a plan + parallel children from a goal; the human registers it as a plan-gated work split */
-.orch { border:1px solid var(--klh-edge); border-radius:6px; padding:10px 12px; margin:0 0 12px; background:var(--klh-wash); }
+.orch { border:1px solid var(--klh-edge); border-radius:4px; padding:0; margin:0 0 10px; background:var(--klh-wash); }
+.orch summary { cursor:pointer; display:flex; align-items:center; gap:10px; padding:7px 12px; font-size:11px; font-weight:600; letter-spacing:.04em; list-style:none; }
+.orch summary::-webkit-details-marker { display:none; }
+.orch summary::before { content:'+'; color:var(--klh-accent); font:14px var(--klh-font-mono); }
+.orch[open] summary::before { content:'−'; }
+.orch summary .dim { font-weight:400; letter-spacing:0; }
+.orchbody { border-top:1px solid var(--klh-edge); padding:10px 12px; }
 .orchrow { display:flex; gap:8px; align-items:center; }
 #orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; resize:none; }
 #orchGoal:focus { outline:none; border-color:var(--klh-accent); }

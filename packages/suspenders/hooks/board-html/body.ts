@@ -15,6 +15,19 @@ export const BODY = String.raw`
     <select id="proj"><option value="all">all projects</option></select>
   </div>
 </header>
+<details id="orch" class="orch">
+  <summary>Orchestrate <span class="dim">Turn a goal into a plan</span></summary>
+  <div class="orchbody">
+    <div class="orchrow">
+      <textarea id="orchGoal" rows="1" placeholder="Describe the work to plan" aria-label="orchestration goal"></textarea>
+      <button id="orchSuggest" type="button" hidden>suggest</button>
+      <button id="orchGo" type="button">orchestrate</button>
+    </div>
+    <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
+    <div id="orchErr"></div>
+    <div id="orchOut"></div>
+  </div>
+</details>
 <klh-board-tabs id="boardTabs"></klh-board-tabs>
 <div id="hashChipBar"></div>
 <main>
@@ -34,16 +47,6 @@ export const BODY = String.raw`
   </div>
 </section>
 <section id="tab-tasks" hidden>
-  <div id="orch" class="orch">
-    <div class="orchrow">
-      <textarea id="orchGoal" rows="1" placeholder="goal — click to expand; suggest = the local model expands your draft into a brief" aria-label="orchestration goal"></textarea>
-      <button id="orchSuggest" type="button" hidden>suggest</button>
-      <button id="orchGo" type="button">orchestrate</button>
-    </div>
-    <klh-prompt-preview id="orchPreview"></klh-prompt-preview>
-    <div id="orchErr"></div>
-    <div id="orchOut"></div>
-  </div>
   <div class="taskbar">
     <label class="plabel" for="taskProj">project</label>
     <select id="taskProj"><option value="all">all projects</option></select>

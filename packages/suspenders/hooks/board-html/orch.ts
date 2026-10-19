@@ -14,6 +14,8 @@ function orchProject(){
   return v && v !== 'all' ? v : null;
 }
 function renderOrch(){
+	var host = byId('orch');
+	if (host && (orch.busy || orch.regBusy || orch.prop || orch.err)) host.open = true;
   var errEl = byId('orchErr');
   if (orch.err) errBanner(errEl, orch.err, function(){ orch.err = null; renderOrch(); });
   else clearErr(errEl);
@@ -94,6 +96,14 @@ function orchReg(){
 }
 function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; renderOrch(); }
 (function(){
+  var host = byId('orch');
+  if (host) {
+    host.addEventListener('mouseenter', function(){ host.open = true; });
+    host.addEventListener('mouseleave', function(){
+      if (orch.busy || orch.regBusy || orch.prop || orch.err || byId('orchGoal').value.trim() || host.contains(document.activeElement)) return;
+      host.open = false;
+    });
+  }
   var inp = byId('orchGoal');
   if (inp) inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doOrchestrate(); } });
   if (inp) inp.addEventListener('input', function(){ var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear(); });
