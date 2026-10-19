@@ -34,7 +34,6 @@ import {
 } from "../lib/lane-registry.ts";
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
-import { provisionForTake } from "../lib/worktree-provision.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
 import {
@@ -79,6 +78,7 @@ import { GLYPH, renderRow } from "../lib/work-render.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
+import { provisionForTake } from "../lib/worktree-provision.ts";
 
 const die = dieFor("work");
 

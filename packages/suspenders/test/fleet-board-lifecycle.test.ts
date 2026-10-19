@@ -2,8 +2,9 @@
 // release (unclaim), reassign (release + re-dispatch), cancel (owner-override
 // close) and second-opinion (read-only REVIEW lane). Each fixture owns its
 // scratch HOME; the OS chooses unused ports, isolating concurrent runs.
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 

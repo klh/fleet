@@ -1,35 +1,36 @@
 // hooks/board/routes-actions.ts — board writes: /api/answer /api/ack /api/advise /api/comment /api/message /api/start /api/ship (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { CLI, db, DEMO, WORK_CLI } from "./context.ts";
-import { beltCheck, rowLocality } from "./belt.ts";
-import { resolveLlmTarget } from "./executor-catalog.ts";
-import { runCli, laneExecFacts, llmRoute, localSwarmChat } from "./exec.ts";
-import { specialistByPort } from "./local-swarm.ts";
-import { json, writeGuard, readJson } from "./helpers.ts";
-import { releaseCasRetry } from "./release-cas-retry.ts";
-import { orchRecipient, orchTargets, type OrchRoute } from "./orch-targets.ts";
-import {
-	syncDecisions,
-	pidAlive,
-	lanesOf,
-	readShipJson,
-	sessionAlive,
-	decisionTargetAlive,
-	payloadOf,
-} from "./lanes.ts";
-import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
+
+import { existsSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
+import { dirname } from "node:path";
+import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
+import { isSpawnableExecutor } from "../lib/executors/registry.ts";
 import {
 	isDecisionKind,
 	projectIdentity,
 	projectRootOf,
 } from "../lib/govdb.ts";
 import { laneSid } from "../lib/laneslug.ts";
-import { isSpawnableExecutor } from "../lib/executors/registry.ts";
-import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
-import { hostname } from "node:os";
-import { dirname } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { beltCheck, rowLocality } from "./belt.ts";
+import { CLI, DEMO, db, WORK_CLI } from "./context.ts";
+import { decisionEvals, evaluateDecision } from "./decide-eval.ts";
+import { laneExecFacts, llmRoute, localSwarmChat, runCli } from "./exec.ts";
+import { resolveLlmTarget } from "./executor-catalog.ts";
+import { json, readJson, writeGuard } from "./helpers.ts";
+import {
+	decisionTargetAlive,
+	lanesOf,
+	payloadOf,
+	pidAlive,
+	readShipJson,
+	sessionAlive,
+	syncDecisions,
+} from "./lanes.ts";
+import { specialistByPort } from "./local-swarm.ts";
+import { type OrchRoute, orchRecipient, orchTargets } from "./orch-targets.ts";
+import { releaseCasRetry } from "./release-cas-retry.ts";
 
 // W667: /api/advise dedupe window — the detached advise child can run
 // minutes (belt leg timeout 300s); within this window re-clicks and UI
