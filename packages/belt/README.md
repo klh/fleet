@@ -169,10 +169,9 @@ gateway config during an approved maintenance window.
 
 ## License
 
-belt is source-available under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE](LICENSE)):
-
-- **Free** for any noncommercial purpose — personal projects, education, research, and internal evaluation.
-- **Production / commercial use requires a commercial license** — running it in a product or service, in paid client work, or as part of business operations. Contact the Licensor (see LICENSE) for terms.
-- **No conversion clause** — PolyForm licenses have no Change Date: the Licensed Work never converts to an open license; all rights remain with the Licensor.
+belt is source-available under the [Fleet Personal Use License 1.0](LICENSE).
+**Personal use only; redistribution prohibited.** Commercial, professional,
+organizational, and production use requires a separate written license.
+[Commercial licensing](https://github.com/klh/fleet#license).
 
 A Threads thing — [threads.dk](http://www.threads.dk).

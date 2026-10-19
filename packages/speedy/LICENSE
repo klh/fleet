@@ -1,81 +1,51 @@
-speedy is licensed under the PolyForm Noncommercial License 1.0.0.
+FLEET PERSONAL USE LICENSE 1.0
 
-Copyright © 2025-2026 Klaus Lynggaard Hougesen
-Required Notice: Copyright 2025-2026 Klaus Lynggaard Hougesen (https://github.com/klh/fleet)
-Commercial licensing: https://github.com/klh/fleet#license
+Copyright © 2025–2026 Klaus Lynggaard Hougesen. All rights reserved.
+Required Notice: Copyright 2025–2026 Klaus Lynggaard Hougesen (https://github.com/klh/fleet)
 
----
-# PolyForm Noncommercial License 1.0.0
+PERSONAL USE ONLY. NO REDISTRIBUTION.
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+COMMERCIAL LICENSING
+Commercial, professional, organizational, production, or other use outside the
+personal permission below requires a separate written license from Klaus
+Lynggaard Hougesen before that use begins. Commercial licensing information:
+https://github.com/klh/fleet#license
 
-## Acceptance
+1. Scope. These terms apply to the Fleet monorepo and its packages when a copy
+   is distributed with this license. Third-party material identified by its own
+   license or notice remains under that material's terms.
 
-In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
+2. Personal permission. An individual may obtain, copy, run, and privately
+   modify the software solely for that individual's personal, noncommercial
+   study, experimentation, testing, or hobby use, without an anticipated
+   commercial or organizational application. Copies and modifications must
+   remain under that individual's control and retain this license and the
+   copyright notice above. This permission is nonexclusive, nontransferable,
+   and cannot be sublicensed.
 
-## Copyright License
+3. No distribution. You may not distribute, publish, share, sell, sublicense,
+   transfer, or otherwise make available any copy of the software or a modified
+   version to another person or entity. This includes source code, binaries,
+   packages, container images, and hosted copies. Permission to obtain a copy
+   from the copyright holder does not grant permission to redistribute it.
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+4. No organizational or commercial use. The personal permission does not cover
+   work for or on behalf of an employer, client, business, nonprofit,
+   educational institution, government body, or other organization; use in a
+   product or service; production deployment; or any use with an anticipated
+   commercial application. A separate written license is required for those
+   uses, even if the organization itself is noncommercial.
 
-## Distribution License
+5. Reserved rights. No rights are granted except those expressly stated in
+   section 2. In particular, these terms grant no right to distribute the
+   software and no patent license. Rights that applicable law gives you without
+   a license, such as fair use where it applies, are unaffected.
 
-The licensor grants you an additional copyright license to distribute copies of the software. Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+6. Termination. The permission in section 2 ends automatically if you breach
+   these terms. You must then stop using the software and remove copies under
+   your control, except where applicable law requires otherwise. The copyright
+   holder may grant separate rights under a written agreement.
 
-## Notices
-
-You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software. For example:
-
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
-
-## Changes and New Works License
-
-The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
-
-## Patent License
-
-The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
-
-## Noncommercial Purposes
-
-Any noncommercial purpose is a permitted purpose.
-
-## Personal Uses
-
-Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
-
-## Noncommercial Organizations
-
-Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
-
-## Fair Use
-
-You may have "fair use" rights for the software under the law. These terms do not limit them.
-
-## No Other Rights
-
-These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else. These terms do not imply any other licenses.
-
-## Patent Defense
-
-If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
-
-## Violations
-
-The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice. Otherwise, all your licenses end immediately.
-
-## No Liability
-
-***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
-
-## Definitions
-
-The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
-
-**You** refers to the individual or entity agreeing to these terms.
-
-**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization. **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise. Control can be direct or indirect.
-
-**Your licenses** are all the licenses granted to you for the software under these terms.
-
-**Use** means anything you do with the software requiring one of your licenses.
-
+7. Disclaimer. To the extent permitted by law, the software is provided "as
+   is", without warranties or conditions of any kind. The copyright holder
+   is not liable for damages arising from use of the software.

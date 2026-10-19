@@ -136,8 +136,9 @@ test("UI-law scan has teeth (real tracked code population)", () => {
 	expect(tracked(...UI_LAW_GLOBS).length).toBeGreaterThan(500);
 });
 
-// W828 — the PolyForm noncommercial perimeter, CI face. The fleet tree
-// must stay free for personal non-commercial use: (L6) every installed
+// W828 — the Fleet personal-use license perimeter, CI face. The fleet tree
+// must stay clear of third-party restrictions incompatible with its license:
+// (L6) every installed
 // dependency (the post-install truth of bun.lock) classifies permissive
 // — copyleft and unknown/missing fail the build; (L7) every committed
 // third-party bundle keeps its license banner. Both ride the ONE
@@ -149,7 +150,7 @@ import {
 	walkLicenses,
 } from "../packages/suspenders/hooks/lib/license-audit.ts";
 
-test("installed dependencies stay permissive (PolyForm noncommercial perimeter)", () => {
+test("installed dependencies stay permissive (Fleet personal-use license perimeter)", () => {
 	const rows = walkLicenses(ROOT);
 	expect(
 		rows.length,
@@ -158,7 +159,7 @@ test("installed dependencies stay permissive (PolyForm noncommercial perimeter)"
 	const bad = rows.filter((r) => r.cls !== "permissive");
 	expect(
 		bad.map((r) => `${r.name}@${r.version}: ${r.license} (${r.cls})`),
-		"copyleft/unknown dependency licenses violate the PolyForm perimeter",
+		"copyleft/unknown dependency licenses violate the Fleet license perimeter",
 	).toEqual([]);
 });
 

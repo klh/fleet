@@ -4,7 +4,7 @@
 	"private": true,
 	"description": "the developer environment layer — CLI tools, curated skills, personas, hooks, settings, harness configuration",
 	"type": "module",
-	"license": "PolyForm-Noncommercial-1.0.0",
+	"license": "SEE LICENSE IN LICENSE",
 	"engines": {
 		"bun": ">=1.2"
 	}
