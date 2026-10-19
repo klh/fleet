@@ -16,7 +16,7 @@ export const BODY = String.raw`
   </div>
 </header>
 <details id="orch" class="orch">
-  <summary>Orchestrate <span class="dim">Turn a goal into a plan</span></summary>
+  <summary>Orchestrate <span class="dim">Turn a goal into a plan</span><button id="orchCollapse" type="button" aria-label="collapse orchestrate panel">&minus;</button></summary>
   <div class="orchbody">
     <div id="orchContext" class="orchcontext" hidden>
       <span id="orchWorkPill" class="orchpill"></span>
