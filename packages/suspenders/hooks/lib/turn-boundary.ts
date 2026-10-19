@@ -1,7 +1,7 @@
 // hooks/lib/turn-boundary.ts — W516 turn-boundary message queue (the Amp M3
 // lift, research-ampcode.md §M3): operator direct-messages (kind NOTE,
-// target = sid) queue in the bus while the lane works and are DRAINED AT THE
-// STOP GATE — the turn boundary — instead of injected mid-turn. SendMessage
+// target = sid) queue in the bus while the agent works and are checked at the
+// STOP GATE — the turn boundary — even for interactive sessions. SendMessage
 // stays interrupts-only; this composes with the W502 stop-gate completion
 // enforcer (laneCompletion runs first; the drain fires on clean stops).
 
@@ -31,26 +31,20 @@ export function turnBoundarySid(hook: HookInput): string | null {
 	if (!cwd || !existsSync(cwd)) return null;
 	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (!top.ok) return null;
-	return resolveLaneContext(top.out.trim())?.sid ?? null;
+	return resolveLaneContext(top.out.trim())?.sid ?? hook.session_id ?? null;
 }
 
-/** Operator messages queued past the lane's inbox cursor, oldest first.
- *  Empty when the lane is drained (cursor advanced by `coord inbox --ack`). */
+/** Direct messages without explicit acceptance, oldest first. A hook or WS
+ * cursor can pass the event without clearing this queue. */
 export function pendingTurnMessages(
 	db: MessageStore,
 	sid: string,
 ): TurnMessage[] {
-	const cur =
-		(
-			db.query("SELECT event_id FROM cursors WHERE sid = ?").get(sid) as {
-				event_id: number;
-			} | null
-		)?.event_id ?? 0;
 	const rows = db
 		.query(
-			"SELECT id, ts, source, payload FROM events WHERE target = ? AND kind = 'NOTE' AND id > ? ORDER BY id",
+			"SELECT e.id, e.ts, e.source, e.payload FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE r.sid = ? AND r.state != 'ACCEPTED' ORDER BY e.id",
 		)
-		.all(sid, cur) as {
+		.all(sid) as {
 		id: number;
 		ts: number;
 		source: string;
@@ -81,7 +75,7 @@ export function turnBoundaryFeedback(
 		);
 	if (msgs.length > 5) lines.unshift(`  … and ${msgs.length - 5} more`);
 	return [
-		`TURN-BOUNDARY INBOX (${msgs.length}): operator message(s) queued while this lane worked.`,
+		`TURN-BOUNDARY INBOX (${msgs.length}): direct message(s) await your acknowledgment.`,
 		...lines,
 		`Process each now (act or acknowledge), then run coord inbox --as ${sid} --ack to mark them drained, then stop again.`,
 	].join("\n");

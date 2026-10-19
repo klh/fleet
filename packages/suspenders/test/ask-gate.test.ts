@@ -8,6 +8,7 @@
 import { describe, test, expect, afterAll, beforeAll } from "bun:test";
 import {
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	mkdirSync,
 	realpathSync,

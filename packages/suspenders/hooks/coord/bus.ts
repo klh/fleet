@@ -90,18 +90,27 @@ export function emitEvent(opts: {
 		...(opts.note ? { note: opts.note } : {}),
 		...(opts.extra ?? {}),
 	});
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-	).run(
-		Date.now(),
-		opts.source,
-		opts.kind,
-		opts.scope ?? null,
-		payload,
-		opts.to ?? null,
-	);
-	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
-		.id;
+	const insert = (): number => {
+		db.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
+		).run(
+			Date.now(),
+			opts.source,
+			opts.kind,
+			opts.scope ?? null,
+			payload,
+			opts.to ?? null,
+		);
+		const id = (
+			db.query("SELECT last_insert_rowid() AS id").get() as { id: number }
+		).id;
+		if (opts.kind === "NOTE" && opts.to)
+			db.query(
+				"INSERT INTO direct_message_receipts (event_id, sid, queued_at) VALUES (?, ?, ?)",
+			).run(id, opts.to, Date.now());
+		return id;
+	};
+	return opts.kind === "NOTE" && opts.to ? db.transaction(insert)() : insert();
 }
 
 export function broadcastNote(
@@ -439,14 +448,30 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 				event_id: number;
 			} | null
 		)?.event_id ?? 0;
-	const rows = readEvents({ as, since: ncur, directedOnly: true });
+	const fresh = readEvents({ as, since: ncur, directedOnly: true });
+	const unaccepted = db
+		.query(
+			"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE r.sid = ? AND r.state != 'ACCEPTED' ORDER BY e.id",
+		)
+		.all(as) as Ev[];
+	const rows = [
+		...new Map([...unaccepted, ...fresh].map((r) => [r.id, r])).values(),
+	].sort((a, b) => a.id - b.id);
 	for (const r of rows) console.log(formatEventLine(r));
-	if (rest.includes("--ack"))
+	if (unaccepted.length)
+		db.query(
+			"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE sid = ? AND state = 'QUEUED'",
+		).run(Date.now(), as);
+	if (rest.includes("--ack")) {
+		db.query(
+			"UPDATE direct_message_receipts SET state = 'ACCEPTED', seen_at = COALESCE(seen_at, ?), accepted_at = ? WHERE sid = ? AND state != 'ACCEPTED'",
+		).run(Date.now(), Date.now(), as);
 		advanceCursor(
 			as,
 			ncur,
 			rows.length ? Math.max(...rows.map((r) => r.id)) : ncur,
 		);
+	}
 	if (!rows.length) console.log(dim("(inbox empty)"));
 }
 

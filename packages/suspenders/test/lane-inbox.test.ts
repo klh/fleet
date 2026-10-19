@@ -61,7 +61,7 @@ describe("lane-inbox drain (W611)", () => {
 			cur: number;
 			maxId: number;
 		};
-		expect(r.msg).toContain("coord-inbox: 3 undelivered event(s)");
+		expect(r.msg).toContain("coord-inbox: 3 event(s) shown in hook context");
 		expect(r.msg).toContain("#");
 		expect(r.msg).toContain("steer 0");
 		expect(r.cur).toBe(r.maxId); // advanced past SHOWN
@@ -94,7 +94,7 @@ console.log(JSON.stringify(other));
 			cur: number;
 			maxId: number;
 		};
-		expect(r.msg).toContain("coord-inbox: 5 undelivered event(s)");
+		expect(r.msg).toContain("coord-inbox: 5 event(s) shown in hook context");
 		expect(r.msg).toContain("more pending");
 		expect(r.cur).toBeLessThan(r.maxId); // 6th + 7th stay past the cursor
 	});
