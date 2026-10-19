@@ -8,7 +8,7 @@ are and WHAT the mission is; this file carries HOW. Read it before any edit.
 
 Every supervisor/user-centric tick replies with the ONE standard table:
 
-    bun ~/.claude/hooks/suspenders/bin/fleet-report.ts
+    work report
 
 Emit its output verbatim in a fenced block, headed by one status line
 (lanes live x/N, READY n, dispatched). Columns: ITEM/ST/TASK/TOKENS/
@@ -21,6 +21,7 @@ CONSULT Y/N = the item's lane banked knowledge (knowledge-enqueue) or
 consulted (the event payloads carry the item link, W909). ST: R riding · Q queued · D done · F failed. Item ids double as
 `#lanes?w=<id>` deep-links (W890). Do not hand-roll the table — the
 reporter computes the pads; prose tick lines are a regression.
+(The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913.)
 
 ## Protocol
 
