@@ -701,7 +701,7 @@ function openTask(id, proj, trigger){
 }
 function closeTask(keepHash){
   byId('drawer').hidden = true;
-  if (!keepHash && location.hash.indexOf('#task=') === 0) history.replaceState(null, '', location.pathname + location.search + '#' + curTab);
+  if (keepHash !== true && location.hash.indexOf('#task=') === 0) history.replaceState(null, '', location.pathname + location.search + '#' + curTab);
   var t = task.trigger;
   var id = task.id;
   task.id = null; task.trigger = null; task.data = null;
