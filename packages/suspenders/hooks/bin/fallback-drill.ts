@@ -10,11 +10,16 @@
 // Secrets: the gateway master key resolves at call time — LITELLM_KEY env
 // wins, else the 0600 ~/.claude/local-llm/litellm.key; used for the Bearer
 // header only, never logged.
+import { YAML } from "bun";
 import { readFileSync } from "node:fs";
 
 const HOME = process.env.HOME ?? "";
 const GATEWAY_URL = process.env.BELT_GATEWAY_URL ?? "http://127.0.0.1:4100";
 const MASTER_KEY_FILE = `${HOME}/.claude/local-llm/litellm.key`;
+/** The LIVE gateway config (:4100 loads it at boot) — the W878 ladder
+ *  assertion reads it; env override for tests/alt deployments. */
+const GATEWAY_CONFIG =
+	process.env.BELT_GATEWAY_CONFIG ?? `${HOME}/.claude/local-llm/litellm.yaml`;
 const ZAI_BASE = process.env.BELT_ZAI_BASE ?? "https://api.z.ai/api/anthropic";
 /** The anthropic-dialect glm group every lane rides. */
 const PROBE_MODEL = "glm-5.3-flash";
@@ -27,6 +32,9 @@ export interface DrillResult {
 	ms: number;
 	/** Answering tier when the response exposes it (best-effort, never asserted). */
 	model: string | null;
+	/** W878: ladders asserted present in the LIVE gateway config — false
+	 *  fails the drill even when z.ai answers (the F2 vacuous-pass gap). */
+	laddersPresent: boolean;
 	verdict: "pass" | "fail" | "skipped";
 	why: string;
 }
@@ -41,6 +49,50 @@ export interface DrillDeps {
 	timeoutMs?: number;
 	/** z.ai reachability probe timeout. */
 	probeTimeoutMs?: number;
+	/** Live gateway config path (default GATEWAY_CONFIG). */
+	configPath?: string;
+	/** Config reader override for tests; a throw = unreadable. */
+	readConfig?: (path: string) => string;
+}
+
+/** Parse verdict of the litellm_settings.fallbacks ladder assertion. */
+export interface LadderCheck {
+	present: boolean;
+	/** Model groups carrying a ladder (empty when absent/unparseable). */
+	groups: string[];
+	why: string;
+}
+
+/** W878 (F2, W499): the drill must fail closed when the LIVE gateway config
+ *  carries no litellm_settings.fallbacks — with z.ai healthy a completion
+ *  pass is trivially true with or without ladders (F1 sat 12 days this
+ *  way). Pure parse of the emitted shape: a list of single-key maps. */
+export function checkFallbacksPresent(text: string): LadderCheck {
+	let doc: { litellm_settings?: { fallbacks?: unknown } } | null;
+	try {
+		doc = YAML.parse(text) as typeof doc;
+	} catch {
+		return { present: false, groups: [], why: "gateway config unparseable" };
+	}
+	const fb = doc?.litellm_settings?.fallbacks;
+	if (!Array.isArray(fb) || fb.length === 0)
+		return {
+			present: false,
+			groups: [],
+			why: "no litellm_settings.fallbacks in the gateway config",
+		};
+	const groups = fb.flatMap((row) =>
+		row && typeof row === "object" && !Array.isArray(row)
+			? Object.keys(row)
+			: [],
+	);
+	if (groups.length === 0)
+		return {
+			present: false,
+			groups: [],
+			why: "litellm_settings.fallbacks has no usable rows",
+		};
+	return { present: true, groups, why: `ladders: ${groups.join(", ")}` };
 }
 
 /** env wins, else the 0600 file. Null when both are absent. */
@@ -73,9 +125,11 @@ export async function zaiDark(
 	}
 }
 
-/** One drill pass: darkness probe, then a real 1-token completion through
- *  the gateway. ok = 200 + at least one choice (max_tokens: 1 can legally
- *  yield empty content on a reasoner — the COMPLETION is the contract). */
+/** One drill pass: key → ladder assertion (W878: the config must carry
+ *  litellm_settings.fallbacks, else fail even when z.ai answers) → darkness
+ *  probe, then a real 1-token completion through the gateway. ok = 200 + at
+ *  least one choice (max_tokens: 1 can legally yield empty content on a
+ *  reasoner — the COMPLETION is the contract). */
 export async function drillFallback(
 	deps: DrillDeps = {},
 ): Promise<DrillResult> {
@@ -87,11 +141,24 @@ export async function drillFallback(
 			ok: false,
 			ms: 0,
 			model: null,
+			laddersPresent: false,
 			verdict: "skipped",
 			why: `no LITELLM_KEY (env or ${MASTER_KEY_FILE})`,
 		};
+	const read = deps.readConfig ?? ((p: string) => readFileSync(p, "utf8"));
+	const configPath = deps.configPath ?? GATEWAY_CONFIG;
+	let ladders: LadderCheck;
+	try {
+		ladders = checkFallbacksPresent(read(configPath));
+	} catch (e) {
+		ladders = {
+			present: false,
+			groups: [],
+			why: `gateway config unreadable: ${String(e).slice(0, 120)}`,
+		};
+	}
 	const dark = await zaiDark(fetchImpl, deps.zaiBase, deps.probeTimeoutMs);
-	return runRequest(fetchImpl, key, dark, deps);
+	return runRequest(fetchImpl, key, dark, deps, ladders);
 }
 
 interface Doc {
@@ -106,6 +173,7 @@ async function runRequest(
 	key: string,
 	dark: boolean,
 	deps: DrillDeps,
+	ladders: LadderCheck,
 ): Promise<DrillResult> {
 	const t0 = Date.now();
 	let r: Response;
@@ -135,16 +203,20 @@ async function runRequest(
 	}
 	const doc = (await r.json().catch(() => null)) as Doc | null;
 	const ok = r.ok && (doc?.choices?.length ?? 0) > 0;
+	const served = ok && ladders.present;
 	return {
 		dark,
 		ok,
 		ms: Date.now() - t0,
 		model: doc?.model ?? null,
-		verdict: ok ? "pass" : "fail",
-		why: ok
-			? dark
-				? "z.ai dark — a local rung answered"
-				: "z.ai reachable — gateway answered"
-			: `gateway HTTP ${r.status}${doc ? "" : " (unparseable body)"}`,
+		laddersPresent: ladders.present,
+		verdict: served ? "pass" : "fail",
+		why: !ok
+			? `gateway HTTP ${r.status}${doc ? "" : " (unparseable body)"}`
+			: ladders.present
+				? dark
+					? "z.ai dark — a local rung answered"
+					: "z.ai reachable — gateway answered"
+				: `gateway answered but ${ladders.why}`,
 	};
 }
