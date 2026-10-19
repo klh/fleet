@@ -48,3 +48,14 @@ groups:
   claude-opus-5:
     - <<: *copilot
       model: claude-opus-5
+  # W912 — Responses-API-only rows: the catalog marks gpt-5.3-codex and most
+  # GPT models /responses-only. These ride POST /v1/responses (bare or
+  # /w/<sid>-prefixed): buckle forwards the ingress path VERBATIM on
+  # openai-dialect rows, and the bridge NEVER re-targets a /v1/responses leg
+  # at chat completions. Group name = the wire id (no dots here, so no
+  # dots-to-dashes alias is needed).
+  gpt-5.3-codex:
+    - <<: *copilot
+      dialect: openai
+      adapter: openai-compat
+      model: gpt-5.3-codex

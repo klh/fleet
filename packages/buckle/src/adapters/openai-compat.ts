@@ -30,7 +30,10 @@ export const OPENAI_COMPAT: ChatAdapter = {
 			...body,
 			model: dep.model ?? body.model,
 		};
-		if (wire.stream === true) {
+		// include_usage is a chat-completions knob; the Responses wire (W912
+		// pass-through) reports usage on response.completed unconditionally,
+		// and strict endpoints 400 on the unknown parameter.
+		if (wire.stream === true && req.path === "/v1/chat/completions") {
 			const prior = (wire.stream_options ?? {}) as Record<string, unknown>;
 			wire.stream_options = { ...prior, include_usage: true };
 		}

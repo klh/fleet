@@ -116,9 +116,22 @@ export class SseSniffer {
 			}
 			return;
 		}
-		this.cacheSeen ||= cacheUsageReported("openai", r.usage);
-		const u = usageFromOpenAI(r.usage);
+		this.cacheSeen ||= cacheUsageReported("openai", this.openaiUsageOf(r));
+		const u = usageFromOpenAI(this.openaiUsageOf(r));
 		if (u !== null) this.openai = u; // last chunk wins
+	}
+
+	/** The openai-family usage slot of one SSE event: top-level `usage` on
+	 *  the chat-completions wire; on the Responses wire (W912) the usage
+	 *  rides the response object of `response.*` events. */
+	private openaiUsageOf(r: AnyRec): unknown {
+		if (r.usage !== undefined && r.usage !== null) return r.usage;
+		if (typeof r.type === "string" && r.type.startsWith("response.")) {
+			const resp = r.response;
+			if (resp !== null && typeof resp === "object")
+				return (resp as AnyRec).usage;
+		}
+		return undefined;
 	}
 
 	/** Extracted usage, or null = honest unknown (nothing was seen). */
