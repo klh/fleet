@@ -4,13 +4,13 @@
 // and drained by work retry / work done.
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import type { GovernorStore } from "../hooks/lib/govdb.ts";
 import {
 	budgetFlagClaim,
 	budgetFlagClear,
 	budgetFlagGet,
 	budgetFlagKey,
 } from "../hooks/lib/budget-flag.ts";
+import type { GovernorStore } from "../hooks/lib/govdb.ts";
 
 function fixture(): GovernorStore {
 	const db = new Database(":memory:");

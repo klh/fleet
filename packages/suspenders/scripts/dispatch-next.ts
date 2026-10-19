@@ -100,7 +100,6 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
-import { fleetReport } from "./lib/fleet-report.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -112,6 +111,7 @@ import {
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { execPick } from "./lib/exec-chain.ts";
+import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
@@ -143,8 +143,8 @@ import {
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
-import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
+import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
