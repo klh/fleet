@@ -54,6 +54,8 @@ export function admitSpawn<T extends { pid: number }>(options: {
 	guardGb: number;
 	wiredGb: () => number;
 	alive: (pid: number) => boolean;
+	/** True only when this exact child PID is listening on its ledger port. */
+	ready?: (port: number, pid: number) => boolean;
 	spawn: () => T;
 	cancel?: (child: T) => void;
 }): T {
@@ -67,11 +69,19 @@ export function admitSpawn<T extends { pid: number }>(options: {
 				throw new Error(
 					`model :${options.port} already reserved by a live process`,
 				);
-			const reserved = Object.values(rows).reduce(
-				(sum, row) => sum + (row.ram_gb ?? options.guardGb),
-				0,
-			);
-			const projected = options.wiredGb() + reserved + options.budgetGb;
+			let readyReserved = 0;
+			let loadingReserved = 0;
+			for (const [port, row] of Object.entries(rows)) {
+				const budget = row.ram_gb ?? options.guardGb;
+				if (options.ready?.(Number(port), row.pid)) readyReserved += budget;
+				else loadingReserved += budget;
+			}
+			// Ready models already contribute to wired memory. Keep the larger
+			// measurement; only loading reservations add to it.
+			const projected =
+				Math.max(options.wiredGb(), readyReserved) +
+				loadingReserved +
+				options.budgetGb;
 			if (!Number.isFinite(projected) || projected > options.guardGb)
 				throw new Error(
 					`model memory admission refused: projected ${projected.toFixed(1)}GB exceeds ${options.guardGb}GB`,

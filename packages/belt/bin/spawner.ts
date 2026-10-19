@@ -163,6 +163,20 @@ export const clearLedgerPort = (port: number): void => {
 const pidAlive = (pid: number): boolean =>
 	Bun.spawnSync(["/bin/kill", "-0", String(pid)]).exitCode === 0;
 
+const readyListener = (port: number, pid: number): boolean => {
+	if (process.platform !== "darwin") return false;
+	const probe = Bun.spawnSync([
+		"/usr/sbin/lsof",
+		"-nP",
+		`-tiTCP:${port}`,
+		"-sTCP:LISTEN",
+	]);
+	return (
+		probe.exitCode === 0 &&
+		probe.stdout.toString().trim().split("\n").includes(String(pid))
+	);
+};
+
 // ─── W500: wired-RAM budget gate ───
 // Per-OS memory-pressure probe behind ONE interface (W766): macOS keeps
 // vm_stat (wired pages × 16KB arm64 page), Linux reads /proc/meminfo
@@ -242,6 +256,7 @@ export function spawnReserved(s: Specialist): ReturnType<typeof Bun.spawn> {
 			guardGb: WIRED_GUARD_GB,
 			wiredGb,
 			alive: pidAlive,
+			ready: readyListener,
 			spawn: () =>
 				Bun.spawn(spawnArgs(s), { stdin: "ignore", stdout: fd, stderr: fd }),
 			cancel: (child) => child.kill(),

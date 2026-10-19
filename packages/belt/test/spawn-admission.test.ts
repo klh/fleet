@@ -50,6 +50,26 @@ test("live reservation survives readiness/timeout; only dead pids are pruned", (
 	expect(spawn(8903, () => false).pid).toBe(8903);
 });
 
+test("ready model reservations overlap wired usage while loading ones still add", () => {
+	const path = join(root, "ready-overlap.json");
+	const attempt = (port: number, ready: boolean, wired = 35) =>
+		admitSpawn({
+			path,
+			port,
+			budgetGb: 20,
+			guardGb: 60,
+			wiredGb: () => wired,
+			alive: () => true,
+			ready: (existingPort, pid) =>
+				ready && existingPort === 8901 && pid === 8901,
+			spawn: () => ({ pid: port }),
+		});
+	attempt(8901, false);
+	expect(() => attempt(8903, false)).toThrow("memory admission refused");
+	expect(attempt(8903, true).pid).toBe(8903);
+	expect(() => attempt(8906, true, 50)).toThrow("memory admission refused");
+});
+
 test("invalid ledger and unknown wired usage fail closed", () => {
 	const path = join(root, "invalid.json");
 	const attempt = () =>
