@@ -1,48 +1,40 @@
 import { expect, test } from "bun:test";
-import { join } from "node:path";
-import { beltBinClosure } from "./belt-bin-overlay.ts";
 import { dashboardCodeGroups } from "./refresh-dashboards.ts";
 
-test("belt dashboard publication covers the complete import closure", async () => {
+test("Belt refresh carries UI modules and leaves installed runtime machinery alone", () => {
 	const group = dashboardCodeGroups.find((row) => row.package === "belt/bin");
 	if (!group) throw new Error("belt publication group missing");
-	const closure = await beltBinClosure(
-		join(import.meta.dir, "../../belt/bin/dashboard.ts"),
-	);
 	const published = new Set<string>(group.files);
-	// belt/bin memory-policy.ts + observation.ts are repo-side re-export
-	// shims of the local-llm kit files; the flat runtime home carries the
-	// real implementations, so the manifest must not copy the shims over.
-	const runtimeShims = new Set(["memory-policy.ts", "observation.ts"]);
-	for (const file of closure) {
-		if (runtimeShims.has(file)) continue;
-		expect(published.has(file), `missing closure file ${file}`).toBe(true);
-	}
-	expect(published.has("dashboard-observability.js")).toBe(true);
-	expect(published.has("vendor/lit.js")).toBe(true);
+	for (const file of [
+		"dashboard.ts",
+		"model-access.ts",
+		"dashboard-state.ts",
+		"dashboard-observability.js",
+		"dashboard-topology.js",
+		"dashboard-topology-model.js",
+		"vendor/lit.js",
+	])
+		expect(published.has(file), `missing UI module ${file}`).toBe(true);
+	// The flat runtime home has machine-specific remotes/hubs modules. Copying
+	// their repo versions breaks ../../suspenders imports at publication time.
+	for (const file of ["remotes.ts", "hubs.ts", "registry.ts"])
+		expect(
+			published.has(file),
+			`runtime module ${file} must stay installer-owned`,
+		).toBe(false);
 });
 
-test("local CLI runtime publication includes the complete relative module closure", async () => {
+test("local refresh carries the page and its direct visual dependencies", () => {
 	const group = dashboardCodeGroups.find((row) => row.package === "local/bin");
 	if (!group) throw new Error("local publication group missing");
-	// Observation is published into both destinations by the shared copy pass.
-	const published = new Set<string>([...group.files, "observation.ts"]);
-	const pending = ["klh-local.ts"];
-	const visited = new Set<string>();
-	while (pending.length) {
-		const name = pending.pop();
-		if (!name || visited.has(name)) continue;
-		visited.add(name);
-		const source = await Bun.file(
-			join(import.meta.dir, "../../local/bin", name),
-		).text();
-		for (const match of source.matchAll(/from\s+["']\.\/([^"']+)["']/g)) {
-			const dependency = match[1];
-			expect(published.has(dependency), `${name} imports ${dependency}`).toBe(
-				true,
-			);
-			pending.push(dependency);
-		}
-	}
-	expect(visited.has("dns-maintenance.ts")).toBe(true);
+	for (const file of [
+		"dashboard.ts",
+		"dashboard-page.html",
+		"klh-theme.ts",
+		"vendor/lit-shared.js",
+	])
+		expect(group.files.includes(file), `missing local UI file ${file}`).toBe(
+			true,
+		);
+	expect(group.files.includes("klh-local.ts")).toBe(false);
 });
