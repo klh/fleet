@@ -107,7 +107,7 @@ checks, never throw:
 | db            | Control-plane database  | this process is serving it                                                                 | —                             |
 | hooks-wired   | Hook gates wired        | `~/.claude/settings.json` references this install's `gate.ts` in PreToolUse                | `./install.sh --wire`         |
 | session-start | Session injection wired | SessionStart hook references session-start.ts                                              | `./install.sh --wire`         |
-| monitor-agent | Fleet monitor launchd   | `~/Library/LaunchAgents/com.suspenders.fleet-monitor.plist` exists                         | `./install.sh --with-launchd` |
+| fleet-loop    | Fleet-loop heartbeat unit | `~/Library/LaunchAgents/com.suspenders.fleet-loop.plist` exists                           | `./install.sh --with-launchd` |
 | llm           | Advice LLM endpoint     | `GET $SUSPENDERS_LLM_URL/v1/models` (default `http://127.0.0.1:8901`) answers within 1.5 s | local LLM stack docs          |
 | bind          | LAN binding             | informational: SUSPENDERS_BIND value                                                       | —                             |
 

@@ -384,7 +384,7 @@ describe("board api v3 (docs/board-api.md)", () => {
 			"db",
 			"hooks-wired",
 			"session-start",
-			"monitor-agent",
+			"fleet-loop",
 			"activation",
 			"board-unit",
 			"llm",
@@ -410,7 +410,9 @@ describe("board api v3 (docs/board-api.md)", () => {
 		expect(byId["hooks-wired"].ok).toBe(false); // temp HOME wires nothing
 		expect(byId["hooks-wired"].fix).toBe("./install.sh --wire");
 		expect(byId["session-start"].ok).toBe(false);
-		expect(byId["monitor-agent"].ok).toBe(false);
+		// W882: retired monitor-agent plist check → the fleet-loop heartbeat
+		// unit (scratch HOME wires nothing, so still false)
+		expect(byId["fleet-loop"].ok).toBe(false);
 		// W852: scratch HOME — no activation receipt, no board plist
 		expect(byId.activation.ok).toBe(false);
 		expect(byId["board-unit"].ok).toBe(false);
