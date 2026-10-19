@@ -7,7 +7,7 @@ function set(p){try{if(p==="light"||p==="dark")window.localStorage.setItem(K,p);
 apply();
 if(mq){var on=function(){if(pref()==="system")apply();};if(mq.addEventListener)mq.addEventListener("change",on);else if(mq.addListener)mq.addListener(on);}
 if(window.addEventListener)window.addEventListener("storage",function(e){if(e.key===K)apply();});
-window.klhTheme={pref:pref,resolve:resolve,apply:apply,set:set};})();</script>`;var c=`.klh-settings{position:relative;}
+window.klhTheme={pref:pref,resolve:resolve,apply:apply,set:set};})();</script>`;var d=`.klh-settings{position:relative;}
 .klh-settings>summary{list-style:none;cursor:pointer;color:var(--klh-dim);display:flex;padding:2px;border-radius:2px;}
 .klh-settings>summary::-webkit-details-marker{display:none;}
 .klh-settings>summary:hover,.klh-settings[open]>summary{color:var(--klh-accent);}
@@ -18,5 +18,5 @@ window.klhTheme={pref:pref,resolve:resolve,apply:apply,set:set};})();</script>`;
 .klh-settings-panel input[type=radio]{accent-color:var(--klh-accent);margin:0;}
 .klh-settings-panel a{color:var(--klh-accent);font-size:11px;text-decoration:none;}
 .klh-settings-panel a:hover{text-decoration:underline;}
-.klh-settings-panel a[aria-current]{color:var(--klh-ink);}`;var d=(e)=>e.replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu,"").trim();
-export{i,l,c,d};
+.klh-settings-panel a[aria-current]{color:var(--klh-ink);}`;var c=(e)=>e.replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu,"").trim();
+export{i,l,d,c};
