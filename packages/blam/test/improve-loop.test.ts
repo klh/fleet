@@ -121,6 +121,8 @@ test("a held-out regression refuses promotion and does not change the starter", 
 	);
 	const result = await runImprovement(manifest);
 	expect(result.promotion.promote).toBe(false);
+	expect(result.heldout).toHaveLength(1);
+	expect(result.heldout[0]?.candidatePassed).toBe(false);
 	expect(getStarter(manifest.starterRepo, "lane-orientation", 2).ok).toBe(
 		false,
 	);

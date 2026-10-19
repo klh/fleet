@@ -181,6 +181,15 @@ describe("BLAM live paired runner", () => {
 			cacheReadTokens: 60,
 			cacheWriteTokens: null,
 		});
+		expect(
+			usageFromOutput(
+				'{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":10}}',
+			),
+		).toEqual({
+			tokens: 110,
+			cacheReadTokens: 60,
+			cacheWriteTokens: null,
+		});
 	});
 
 	test("private judge scores partial quality without turning a failure into promotion", async () => {

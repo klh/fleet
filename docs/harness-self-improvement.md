@@ -29,7 +29,8 @@ probe. The executor and private judges are also argv arrays. The manifest,
 judge files, output directory, and generated patches stay outside the agent's
 task worktree. At least three different held-out tasks are required. A run
 cannot promote when usage is absent, a command fails, a candidate fails any
-judge, or the measured promotion gate refuses it.
+judge, or the measured promotion gate refuses it. Held-out evaluation stops at
+the first failed or unmeasured pair; that candidate cannot promote.
 
 This is a bounded, sequential Propose-Probe-Compose implementation inspired
 by Harness². It is not a model-weight training mechanism, and it does not
