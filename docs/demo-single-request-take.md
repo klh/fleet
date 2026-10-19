@@ -43,7 +43,20 @@ no later human interaction is simulated.
   (`nas.threads.dk:22`); when down, `prepare` cannot complete — the take
   stays staged and the run is deferred, never faked with a stale pin.
 
-## Status 2026-10-11
+## Status 2026-10-19
 
-`take-7-single` fixture staged; NAS route down (`no route to host` on
-:22); fresh manifest fetch pending owner decision (event #30663).
+`take-7-single` prepared and preflight green. NAS route restored; the
+fresh manifest fetch returned sha256 `35bcd840…` — the exact pinned pin,
+so no stale pin was needed. Headless lane staged the kit in /tmp (absolute
+lane-auth import), ran `prepare`, and re-pointed the baked staging paths
+(`repo-policy.json` keyFile, `readiness.json` fixture,
+`mother-settings.json` `SUSPENDERS_REPO_POLICY_CONFIG`) to the real take
+dir before syncing it into `.fleet/demos/ikea-recording/take-7-single/`.
+
+Preflight evidence (2026-10-19): `check-one-request` exits 0 with the
+governed sid `2b2c803c…`, project scoped to the take fixture, request
+text 1505 chars, `launchesClaude: false`; a policy-bridge smoke instance
+served the pinned manifest on loopback 8878 (sha match) and was stopped —
+the owner starts the long-running bridge for the run. The take is
+runnable: owner opens a clean terminal and pastes the `check-one-request`
+request ONCE (`terminal-one-request`).
