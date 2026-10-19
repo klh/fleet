@@ -178,7 +178,7 @@ export function networkOverview(
 			unsettled: unsettledByKind(db),
 			routes: recentRoutes(db),
 			throughput: {
-				buckets: usageBuckets(db),
+				buckets: usageBuckets(db, t),
 				window: tokenWindow(db, t),
 				interfaces: interfaceRows(db, t),
 			},
@@ -250,13 +250,24 @@ function interfaceRows(db: Database, t: number): NetworkInterfaceRow[] {
 		) as unknown as NetworkInterfaceRow[];
 }
 
-function usageBuckets(db: Database): NetworkThroughput["buckets"] {
-	return db
+function usageBuckets(db: Database, now: number): NetworkThroughput["buckets"] {
+	const end = Math.floor(now / 3_600_000) * 3_600_000;
+	const start = end - (NETWORK_BUCKETS_CAP - 1) * 3_600_000;
+	const hour = (time: number): string =>
+		`${new Date(time).toISOString().slice(0, 13)}:00`;
+	const rows = db
 		.query(
-			`SELECT hour_bucket AS hour, in_tok, out_tok, requests
-		FROM router_usage ORDER BY hour_bucket DESC LIMIT ${NETWORK_BUCKETS_CAP}`,
+			`SELECT hour_bucket AS hour, SUM(in_tok) AS in_tok,
+			SUM(out_tok) AS out_tok, SUM(requests) AS requests
+			FROM router_usage WHERE hour_bucket BETWEEN ? AND ?
+			GROUP BY hour_bucket ORDER BY hour_bucket DESC`,
 		)
-		.all() as NetworkThroughput["buckets"];
+		.all(hour(start), hour(end)) as NetworkThroughput["buckets"];
+	const byHour = new Map(rows.map((row) => [row.hour, row]));
+	return Array.from({ length: NETWORK_BUCKETS_CAP }, (_, i) => {
+		const key = hour(end - i * 3_600_000);
+		return byHour.get(key) ?? { hour: key, in_tok: 0, out_tok: 0, requests: 0 };
+	});
 }
 
 /** Settled-token flow over the trailing window (route_audit rows with

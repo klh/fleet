@@ -5,6 +5,7 @@
 // usage stays null, empty windows stay null sums, missing dbs degrade
 // sections — never fabricated zeros).
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -145,6 +146,35 @@ const assertSeeded = (
 };
 
 describe("networkOverview", () => {
+	test("hourly trend sums model rows and keeps quiet hours in place", () => {
+		const dir = tmpDir();
+		try {
+			const path = join(dir, "buckle.db");
+			new Ledger(path).close();
+			const db = new Database(path);
+			const insert = db.query(
+				"INSERT INTO router_usage (hour_bucket, key, model_group, model, in_tok, out_tok, requests) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			);
+			insert.run("2026-10-20T01:00", "a", "glm", "glm-a", 10, 20, 1);
+			insert.run("2026-10-20T01:00", "b", "claude", "claude-b", 30, 40, 2);
+			insert.run("2026-10-19T23:00", "a", "glm", "glm-a", 5, 8, 1);
+			db.close();
+			const result = networkOverview({ ledger: path }, () =>
+				Date.UTC(2026, 9, 20, 1, 30),
+			);
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.throughput.buckets).toHaveLength(24);
+			expect(result.throughput.buckets.slice(0, 3)).toEqual([
+				{ hour: "2026-10-20T01:00", in_tok: 40, out_tok: 60, requests: 3 },
+				{ hour: "2026-10-20T00:00", in_tok: 0, out_tok: 0, requests: 0 },
+				{ hour: "2026-10-19T23:00", in_tok: 5, out_tok: 8, requests: 1 },
+			]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("missing ledger = honest ok:false", () => {
 		const r = networkOverview({
 			ledger: "/nonexistent/buckle.db",
