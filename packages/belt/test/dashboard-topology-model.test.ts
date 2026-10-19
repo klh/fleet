@@ -170,6 +170,12 @@ describe("Belt topology", () => {
 			payload,
 		);
 		expect(model.gateway).toBe("up");
+		expect(model.gatewayTraffic).toEqual({
+			requests60: 2,
+			inputTokens60: 90,
+			outputTokens60: 30,
+			observedTargets: 1,
+		});
 		expect(model.machines).toEqual([
 			{
 				name: "copilot",
@@ -192,6 +198,44 @@ describe("Belt topology", () => {
 			payload,
 		);
 		expect(stale.gateway).toBe("unknown");
+		expect(stale.gatewayTraffic).toBeNull();
 		expect(stale.machines).toEqual([]);
+	});
+
+	test("summarizes local Buckle routes without assigning them to a cloud provider", () => {
+		const model = buildTopology({}, {}, {}, now, {
+			ok: true,
+			ts: new Date(now).toISOString(),
+			network: {
+				ok: true,
+				throughput: {
+					interfaces: [
+						{
+							kind: "local",
+							host: "127.0.0.1",
+							model: "glm",
+							req60: 7,
+							in60: 120,
+							out60: 60,
+						},
+						{
+							kind: "local",
+							host: "127.0.0.1",
+							model: "coder",
+							req60: 2,
+							in60: 30,
+							out60: 10,
+						},
+					],
+				},
+			},
+		});
+		expect(model.gatewayTraffic).toEqual({
+			requests60: 9,
+			inputTokens60: 150,
+			outputTokens60: 70,
+			observedTargets: 2,
+		});
+		expect(model.machines).toEqual([]);
 	});
 });

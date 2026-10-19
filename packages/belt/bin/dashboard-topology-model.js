@@ -55,6 +55,28 @@ export function addNetworkEvidence(machines, payload, now = Date.now()) {
 	return [...result.values()];
 }
 
+export function gatewayTraffic(payload, now = Date.now()) {
+	if (!payload?.ok || !payload.network?.ok || !isFresh(payload.ts, now))
+		return null;
+	const interfaces = Array.isArray(payload.network.throughput?.interfaces)
+		? payload.network.throughput.interfaces
+		: [];
+	return interfaces.reduce(
+		(total, row) => ({
+			requests60:
+				total.requests60 + (Number.isFinite(row.req60) ? row.req60 : 0),
+			inputTokens60:
+				total.inputTokens60 + (Number.isFinite(row.in60) ? row.in60 : 0),
+			outputTokens60:
+				total.outputTokens60 + (Number.isFinite(row.out60) ? row.out60 : 0),
+			observedTargets:
+				total.observedTargets +
+				(Number.isFinite(row.req60) && row.req60 > 0 ? 1 : 0),
+		}),
+		{ requests60: 0, inputTokens60: 0, outputTokens60: 0, observedTargets: 0 },
+	);
+}
+
 export function buildTopology(
 	status,
 	remotes,
@@ -130,6 +152,7 @@ export function buildTopology(
 							(networkPayload.gateway.up ? "up" : "down"),
 					)
 				: "unknown",
+		gatewayTraffic: gatewayTraffic(networkPayload, now),
 		specialists: {
 			state: !localFresh
 				? "unknown"

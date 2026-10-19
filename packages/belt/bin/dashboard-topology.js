@@ -36,6 +36,10 @@ class BeltTopology extends LitElement {
 		.meta { fill:var(--klh-dim); }
 		.endpoint { font-variant-numeric:tabular-nums; }
 		.group { fill:var(--klh-dim); font-size:10px; letter-spacing:1.3px; }
+		.traffic { display:flex; flex-wrap:wrap; gap:var(--klh-space-2); margin:var(--klh-space-3) 0; }
+		.traffic span { display:flex; align-items:baseline; gap:6px; padding:6px 10px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); font-size:var(--klh-text-sm); }
+		.traffic strong { font-variant-numeric:tabular-nums; }
+		.traffic small { color:var(--klh-dim); font:inherit; }
 	`;
 	constructor() {
 		super();
@@ -174,6 +178,15 @@ class BeltTopology extends LitElement {
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
 			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hub probes · ${clouds.length} provider groups` : "Loading observed connections…")}</p>
 			${
+				data?.gatewayTraffic
+					? html`<div class="traffic" aria-label="Observed Buckle traffic, past 60 seconds">
+				<span><strong>${data.gatewayTraffic.requests60}</strong><small>Buckle requests / min</small></span>
+				<span><strong>${Math.round((data.gatewayTraffic.inputTokens60 + data.gatewayTraffic.outputTokens60) / 60).toLocaleString()}</strong><small>reported tokens / sec</small></span>
+				<span><strong>${data.gatewayTraffic.observedTargets}</strong><small>active gateway targets</small></span>
+			</div>`
+					: ""
+			}
+			${
 				data
 					? html`<div class="map"><svg viewBox=${`0 0 1190 ${height}`} role="img" aria-label="Local machine contains Buckle and Belt models; Buckle links lead to hub machines; cloud providers are listed beyond hubs">
 				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
@@ -187,7 +200,7 @@ class BeltTopology extends LitElement {
 					return this.cloud(850, y, 320, item);
 				})}
 			</svg></div>
-			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed Buckle links show hub probes. Cloud gateway links need verified hop records, so provider cards remain unlinked. Local model loads count Belt router calls only.${this.networkIssue ? ` ${this.networkIssue}.` : " Cloud request rates and models come from Buckle's recorded routes; token rates use reported usage over 60 seconds."}</div>`
+			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed links show hub probes. Gateway traffic counts Buckle requests; model loads count direct Belt router calls. Cloud provider cards need verified hop records before links can be drawn.${this.networkIssue ? ` ${this.networkIssue}.` : " Token rates use reported usage over 60 seconds."}</div>`
 					: ""
 			}
 		</section>`;
