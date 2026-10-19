@@ -132,6 +132,16 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 1_200_000,
 		argv: (root) => [join(root, "hooks/bin/soak.ts")],
 	},
+	{
+		// W825.2: weekly cache-telemetry mining — buckle's lane-cache log →
+		// warm-cache report (offenders + clone-reuse) for the W822 pulse
+		// digest. Report-only; the pulse reads the report file, never here.
+		name: "cache-telemetry",
+		everySeconds: 7 * 86400,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/cache-telemetry.ts")],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
@@ -161,7 +171,10 @@ export function readStamps(path: string): Record<string, number> {
 	}
 }
 
-export function writeStamps(path: string, stamps: Record<string, number>): void {
+export function writeStamps(
+	path: string,
+	stamps: Record<string, number>,
+): void {
 	try {
 		writeFileSync(path, `${JSON.stringify(stamps, null, "\t")}\n`);
 	} catch {}
@@ -190,7 +203,10 @@ export function isDue(
 			0,
 			0,
 		);
-		return nowMs >= fire.getTime() && (lastMs === undefined || lastMs < fire.getTime());
+		return (
+			nowMs >= fire.getTime() &&
+			(lastMs === undefined || lastMs < fire.getTime())
+		);
 	}
 	// a task with neither cadence field is malformed — never fire it
 	return false;
