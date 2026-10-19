@@ -122,8 +122,30 @@ function loadSettingsDoc(settingsPath: string): {
 	}
 }
 
+// groupSignature — canonical compare form for a hook group: matcher plus the
+// sorted type+command set with the prefix/$HOME path folded to "@". Groups
+// that differ only in key order, timeout or placeholder-vs-real-path converge
+// instead of duplicating on re-run (W860 ask-gate follow-up).
+function groupSignature(group: unknown, prefix: string): string {
+	if (typeof group !== "object" || group === null) return JSON.stringify(group);
+	const g = group as { matcher?: unknown; hooks?: unknown };
+	const hooks = Array.isArray(g.hooks) ? g.hooks : [];
+	const cmds = hooks
+		.map((h) => {
+			if (typeof h !== "object" || h === null) return JSON.stringify(h);
+			const hook = h as { type?: unknown; command?: unknown };
+			const command = String(hook.command ?? "")
+				.replaceAll(prefix, "@")
+				.replaceAll("$HOME", "@");
+			return `${String(hook.type ?? "")}\u0000${command}`;
+		})
+		.sort();
+	return JSON.stringify([g.matcher ?? null, cmds]);
+}
+
 // mergeHooksInto — per-event hooks merge: array concat, dedupe on JSON form,
-// $HOME placeholder → real prefix. Returns the newly added entry count.
+// then on groupSignature (same commands under the same matcher = already
+// wired), $HOME placeholder → real prefix. Returns the newly added count.
 function mergeHooksInto(
 	settingsPath: string,
 	ex: { hooks: Record<string, unknown> },
@@ -144,8 +166,10 @@ function mergeHooksInto(
 		) as unknown[];
 		doc.hooks[event] = cur;
 		const seen = new Set(cur.map((m) => JSON.stringify(m)));
+		const sigs = new Set(cur.map((m) => groupSignature(m, prefix)));
 		for (const e of rewritten) {
 			if (seen.has(JSON.stringify(e))) continue;
+			if (sigs.has(groupSignature(e, prefix))) continue;
 			cur.push(e);
 			added++;
 		}
@@ -186,7 +210,13 @@ async function runWireExtras(ctx: StepContext): Promise<string> {
 	const adapters = await execa(
 		process.execPath,
 		[join(ctx.repo, "scripts/install-policy-adapters.ts")],
-		{ cwd: ctx.repo, env: { SUSPENDERS_PREFIX: ctx.prefix }, reject: false },
+		{
+			cwd: ctx.repo,
+			// env replaces, never merges — keep the operator environment so the
+			// adapter resolves HOME/CODEX_HOME/etc. instead of repo-relative paths
+			env: { ...process.env, SUSPENDERS_PREFIX: ctx.prefix },
+			reject: false,
+		},
 	);
 	if (adapters.exitCode !== 0) {
 		return " — policy adapters failed (non-fatal)";

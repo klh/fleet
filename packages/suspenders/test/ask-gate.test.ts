@@ -11,6 +11,7 @@ import {
 	rmSync,
 	mkdirSync,
 	realpathSync,
+	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -288,4 +289,128 @@ describe("ask-gate kev triage", () => {
 			srv.stop(true);
 		}
 	});
+});
+
+// ---- W860: the --wire install merge must land + converge the ask group ----
+// W817 shipped the gate + the example group, but the live machine's
+// ~/.claude/settings.json never got it: the per-event merge had no
+// convergence beyond exact-JSON equality, and nothing covered the wire
+// landing UPS at all. Fixture doc mirrors the live shape pre-heal (3
+// unrelated UPS groups from other tooling; --wire brings the 4th, ask).
+const INSTALL = join(import.meta.dir, "..", "scripts", "install.ts");
+
+function wireHome(home: string): { code: number; out: string; err: string } {
+	const p = Bun.spawnSync(["bun", INSTALL, "--wire", "--json"], {
+		cwd: join(import.meta.dir, ".."),
+		env: {
+			...process.env,
+			HOME: home,
+			// pin the companion wires' targets — the extras legs must never
+			// touch ambient machine state from a fixture test
+			SUSPENDERS_CODEX_HOOKS: join(home, ".codex", "hooks.json"),
+			SUSPENDERS_COPILOT_SETTINGS: join(home, ".copilot", "settings.json"),
+		},
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return {
+		code: p.exitCode,
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+	};
+}
+function upsGroups(home: string): unknown[] {
+	const doc = JSON.parse(
+		readFileSync(join(home, ".claude", "settings.json"), "utf8"),
+	) as { hooks?: { UserPromptSubmit?: unknown[] } };
+	return doc.hooks?.UserPromptSubmit ?? [];
+}
+describe("ask-gate --wire install merge (W860)", () => {
+	// the live-machine shape: 3 unrelated UPS groups from other tooling —
+	// --wire adds exactly the 4th (ask)
+	const preseed = {
+		hooks: {
+			UserPromptSubmit: [
+				{ hooks: [{ type: "command", command: "echo unrelated-a" }] },
+				{ hooks: [{ type: "command", command: "echo unrelated-b" }] },
+				{ hooks: [{ type: "command", command: "echo unrelated-c" }] },
+			],
+		},
+	};
+	const homes: string[] = [];
+	const homeWith = (doc: object): string => {
+		const home = mkdtempSync(join(tmpdir(), "suspenders-w860-"));
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			`${JSON.stringify(doc, null, 2)}\n`,
+		);
+		homes.push(home);
+		return home;
+	};
+
+	afterAll(() => {
+		for (const h of homes) rmSync(h, { recursive: true, force: true });
+	});
+	test("fresh --wire lands the ask group: 4 UPS groups incl. ask", () => {
+		const home = homeWith(preseed);
+		const r = wireHome(home);
+		expect(r.code).toBe(0);
+		const groups = upsGroups(home);
+		expect(groups).toHaveLength(4);
+		expect(JSON.stringify(groups)).toContain("gate.ts ask");
+	}, 20000);
+	test("re-run is idempotent: wire-written doc adds nothing", () => {
+		const home = homeWith(preseed);
+		expect(wireHome(home).code).toBe(0);
+		const second = wireHome(home);
+		expect(second.code).toBe(0);
+		const doc = JSON.parse(second.out) as { steps?: { note?: string }[] };
+		expect(doc.steps?.[0]?.note).toContain("0 new hook entries");
+		expect(upsGroups(home)).toHaveLength(4);
+	}, 20000);
+	test("hand-healed ask group converges — never duplicated on wire", () => {
+		const home = mkdtempSync(join(tmpdir(), "suspenders-w860-"));
+		homes.push(home);
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		const prefixPath = join(home, ".claude", "hooks", "suspenders");
+		// the coordinator's heal form: real prefix path, no timeout — a
+		// different JSON form of the example group
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			`${JSON.stringify(
+				{
+					hooks: {
+						UserPromptSubmit: [
+							...preseed.hooks.UserPromptSubmit,
+							{
+								hooks: [
+									{ type: "command", command: `bun ${prefixPath}/gate.ts ask` },
+								],
+							},
+						],
+					},
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const r = wireHome(home);
+		expect(r.code).toBe(0);
+		const groups = upsGroups(home);
+		expect(groups).toHaveLength(4);
+		// merge, never clobber: the hand-healed form survives untouched
+		expect(JSON.stringify(groups)).toContain("/gate.ts ask");
+		const askCommands = groups.flatMap((g) => {
+			const hooks = (g as { hooks?: unknown }).hooks;
+			return Array.isArray(hooks)
+				? hooks.filter((h) =>
+						String((h as { command?: unknown }).command ?? "").includes(
+							"gate.ts ask",
+						),
+					)
+				: [];
+		});
+		expect(askCommands).toHaveLength(1);
+	}, 20000);
 });
