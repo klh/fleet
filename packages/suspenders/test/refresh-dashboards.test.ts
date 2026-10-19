@@ -110,7 +110,10 @@ test("failed GUI refresh never writes into immutable generation, even transientl
 });
 
 import { chmodSync, statSync } from "node:fs";
-import { refreshDashboards } from "../scripts/refresh-dashboards.ts";
+import {
+	dashboardCodeGroups,
+	refreshDashboards,
+} from "../scripts/refresh-dashboards.ts";
 import { syncHarness } from "../scripts/sync-harness.ts";
 
 function capturedFixture() {
@@ -120,28 +123,9 @@ function capturedFixture() {
 	const home = join(scratch, "home");
 	const prefix = join(home, "prefix");
 	const sourceFiles = {
-		"belt/bin": [
-			"dashboard.ts",
-			"dashboard-state.ts",
-			"tail-lines.ts",
-			"health.ts",
-			"remotes.ts",
-			"inventory-probe.ts",
-			"dashboard-observability.js",
-			"klh-theme.ts",
-			"vendor/lit.js",
-		],
-		"local/bin": [
-			"dashboard.ts",
-			"dashboard-health.ts",
-			"health.ts",
-			"klh-local.ts",
-			"dns-reconcile.ts",
-			"dns-maintenance.ts",
-			"dashboard-page.html",
-			"klh-theme.ts",
-			"vendor/lit-shared.js",
-		],
+		...Object.fromEntries(
+			dashboardCodeGroups.map((group) => [group.package, group.files]),
+		),
 		"local-llm": ["observation.ts"],
 	};
 	for (const [pkg, files] of Object.entries(sourceFiles))
