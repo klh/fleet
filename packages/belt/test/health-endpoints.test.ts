@@ -73,6 +73,10 @@ for (const [script, portEnv] of [
 					const source = await asset.text();
 					expect(source).toContain("const displayLabel =");
 					expect(source).toContain("displayLabel(target.name)");
+					// W853: hub/container posture never has a supervisor snapshot —
+					// the panel removes itself instead of a standing red "unknown".
+					expect(source).not.toContain("No supervisor snapshot");
+					expect(source).toContain("!doc && !this.error");
 					const built = await Bun.build({
 						entrypoints: ["observability.js"],
 						plugins: [
