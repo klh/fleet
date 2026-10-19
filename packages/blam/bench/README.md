@@ -45,12 +45,30 @@ setup-dependent-gains warning (arXiv 2609.05933). Condense rides the real
 models the W611 gate drain. Spec: `paired/scenario.md`. Run:
 `bun packages/blam/bench/paired/harness.ts`.
 
+## Live paired harness experiment (W919)
+
+`paired/live.ts` runs one coding task under two harness texts. Every arm
+starts from the same Git commit in a disposable worktree. The executor argv,
+model, task, and timeout are identical; only the appended harness guidance
+changes. Runs alternate arm order across repetitions. A separate validation
+command, held outside both worktrees, scores the resulting artifact. The
+runner records exit status, measured executor tokens and wall time, validation
+status, and a patch for each arm in a local output directory. Missing usage,
+timeouts, failed execution, failed candidate validation, fewer than three
+pairs, or a weak paired lift all refuse promotion. The runner reports a
+decision; it does not change any installed harness or global policy.
+
+Run: `bun packages/blam/bench/paired/live.ts /path/to/manifest.json`.
+The manifest schema and a Codex example are in `paired/live.md`. A
+credentialless integration test exercises the same runner with an agent
+stand-in; those token numbers are test data, not a model benchmark.
+
 ## What runs today — commands, runtime, limits
 
     bun packages/blam/bench/consult/harness.ts    # 3 policies × 2 KB states × 2 delivery modes, ~10ms
     bun packages/blam/bench/paired/harness.ts     # 5 cases × 2 arms × 4 reps, paired per rep, ~20ms
 
-Both end with `6/6 properties hold` (`scenario.md` in each directory
+The two deterministic suites end with `6/6 properties hold` (`scenario.md` in each directory
 defines them) and are fully deterministic — outcomes are computed from
 scripted scenario models, so numbers reproduce byte-for-byte. They
 measure policy/protocol mechanics, not live model behavior.

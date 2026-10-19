@@ -6,8 +6,9 @@ runs isolated **with + without** arms with repetitions; the report pairs
 arms per repetition and computes lift. The pairing is the defence against
 the setup-dependent-gains warning (arXiv 2609.05933): both arms see the
 same setup in every rep, so measured lift is attributable to the arm, not
-the setup. No model calls — the live-agent track rides additively later
-on the same `RepOutcome` schema (types.ts).
+the setup. This deterministic suite makes no model calls. The additive
+live-agent runner is `live.ts`; its protocol is in `live.md` and it uses
+the same `RepOutcome` schema (types.ts).
 
 Run: `bun packages/blam/bench/paired/harness.ts`
 
