@@ -48,7 +48,7 @@ describe("tier manifest (W507)", () => {
 		const ports = (doc: unknown): number[] =>
 			withManifest(doc, () => residentSet().map((s) => s.port));
 		expect(ports({ tier: "minimal" })).toEqual([8902, 8913]);
-		expect(ports({ tier: "full" })).toEqual([8901, 8902, 8903, 8913]);
+		expect(ports({ tier: "full" })).toEqual([8901, 8902, 8903, 8907, 8913]);
 	});
 
 	test("emitter: tier + warm_ports follow the manifest, hash-stable", () => {
@@ -79,7 +79,7 @@ describe("tier manifest (W507)", () => {
 				warm_ports: number[];
 			};
 			expect(doc.tier).toBe("full");
-			expect(doc.warm_ports).toEqual([8901, 8902, 8903, 8913]);
+			expect(doc.warm_ports).toEqual([8901, 8902, 8903, 8907, 8913]);
 		} finally {
 			if (prevManifest === undefined) delete process.env.BELT_TIER_MANIFEST;
 			else process.env.BELT_TIER_MANIFEST = prevManifest;
