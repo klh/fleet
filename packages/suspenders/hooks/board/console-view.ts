@@ -102,7 +102,9 @@ let probeCache: {
 	probes: Awaited<ReturnType<typeof probeAll>>;
 } | null = null;
 const PROBE_TTL_MS = 15_000;
-const cachedProbes = async () => {
+export const cachedProbes = async (): Promise<
+	Awaited<ReturnType<typeof probeAll>>
+> => {
 	if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS)
 		return probeCache.probes;
 	const probes = await probeAll();

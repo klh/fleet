@@ -15,7 +15,7 @@ import type { Observation } from "./observe.ts";
 
 /** An active edge older than this is closed as unknown at ingest — the
  *  observer may have died mid-request; its silence is not an outcome. */
-const ACTIVE_TTL_MS = 30 * 60_000;
+export const ACTIVE_TTL_MS = 30 * 60_000;
 
 export interface RequestEdge {
 	source: string;
