@@ -41,7 +41,7 @@ describe("Ledger async flush", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.record(rec(7));
 		db.auditDecision({
-		hop: "origin",
+			hop: "origin",
 			rid: "r1",
 			ts: "2026-10-01T00:00:00.000Z",
 			actor: "a",
@@ -73,7 +73,7 @@ describe("Ledger async flush", () => {
 	test("audit INSERT→UPDATE order survives the ring", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
-		hop: "origin",
+			hop: "origin",
 			rid: "rX",
 			ts: "2022-02-02T22:22:22.222Z",
 			actor: "a",
@@ -104,7 +104,7 @@ describe("Ledger async flush", () => {
 	test("W457: auditUsage lands cache_r/cache_c on the decision row", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
-		hop: "origin",
+			hop: "origin",
 			rid: "rC",
 			ts: "2026-10-06T00:00:00.000Z",
 			actor: "a",
@@ -125,17 +125,22 @@ describe("Ledger async flush", () => {
 			why: "w",
 		});
 		db.auditOutcome("rC", { status: 200, duration_ms: 5, ok: true, err: null });
-		db.auditUsage("rC", { in_tok: 6, out_tok: 3, cache_r: 1, cache_c: 2 });
+		db.auditUsage(
+			"rC",
+			{ in_tok: 6, out_tok: 3, cache_r: 1, cache_c: 2 },
+			true,
+		);
 		const row = db.auditRows()[0] ?? {};
 		expect(row.cache_r).toBe(1);
 		expect(row.cache_c).toBe(2);
+		expect(row.cache_reported).toBe(1);
 		db.close();
 	});
 
 	test("W457: auditUsage(null) skips the write — unobserved cache stays NULL", () => {
 		const db = new Ledger(":memory:", undefined, { flushMs: 60_000 });
 		db.auditDecision({
-		hop: "origin",
+			hop: "origin",
 			rid: "rN",
 			ts: "2026-10-06T00:00:00.000Z",
 			actor: "a",

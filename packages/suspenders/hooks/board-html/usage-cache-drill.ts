@@ -21,6 +21,7 @@ import type {
 	HubDrillStatus,
 	LaneDrillRow,
 	MissReasonCluster,
+	ModelDrillRow,
 } from "../lib/cache-drill.ts";
 
 // ─── formatting (same ramp as usage-panels) ───────────────────────────────
@@ -127,7 +128,7 @@ export class KlhUsageCacheDrill extends LitElement {
 					${
 						degraded.length > 0
 							? html`· <span class="uwarn"
-								>${String(degraded.length)}/${String(r.hubs.length)} hubs
+								>${String(degraded.length)}/${String(r.hubs.length)} sources
 								degraded: ${degraded.map((h) => h.label).join(", ")}</span
 							>`
 							: nothing
@@ -149,19 +150,38 @@ export class KlhUsageCacheDrill extends LitElement {
 			}
 			${
 				degraded.length > 0
-					? html`<p class="uwarn">Missing hub data: ${degraded
+					? html`<p class="uwarn">Missing request data: ${degraded
 							.map((h) => `${h.label} (${h.reason ?? "unavailable"})`)
-							.join(", ")}. Rates cover responding hubs only.</p>`
+							.join(", ")}. Rates cover responding sources only.</p>`
 					: nothing
 			}
 			${
 				r.hubs.some((h) => h.ok && h.rows >= 500)
-					? html`<p class="uwarn">A hub reached the 500-request read limit. Rates cover its newest requests only.</p>`
+					? html`<p class="uwarn">A source reached the 500-request read limit. Rates cover its newest requests only.</p>`
 					: nothing
 			}
 			${this.reasonsTable(r.overall.reasons, "ALL LANES", r.overall.known)}
+			${this.modelTable(r.models)}
 			${this.laneTable(r.lanes, degraded.length > 0)}
 		</div>`;
+	}
+
+	private modelTable(models: ModelDrillRow[]): TemplateResult {
+		if (models.length === 0) return nothing;
+		return html`<h3>CACHE BY MODEL</h3>
+			<p class="ufoot">unsupported = declared in machine config; not reported =
+				no provider cache field was observed</p>
+			<table class="uacts">
+				<thead><tr><th>model</th><th class="unum">req</th><th class="unum">verdicts</th><th>warm</th><th class="unum">cache read</th><th>status</th></tr></thead>
+				<tbody>${models.map(
+					(m) => html`<tr>
+						<td>${m.model}</td><td class="unum">${fmtTok(m.requests)}</td>
+						<td class="unum">${fmtTok(m.known)}</td>
+						<td>${m.known > 0 ? pct1(m.warm_ratio) : "—"}</td>
+						<td class="unum">${fmtTok(m.cache_r_tok)}</td><td>${m.status}</td>
+					</tr>`,
+				)}</tbody>
+			</table>`;
 	}
 
 	private filterRow(r: CacheDrillReport): TemplateResult {
@@ -284,7 +304,7 @@ export class KlhUsageCacheDrill extends LitElement {
 			return html`<p class="uempty">
 				${
 					degraded
-						? "lane data unavailable from the failed hubs"
+						? "lane data unavailable from the failed sources"
 						: "no requests recorded for this scope"
 				}
 			</p>`;
@@ -368,7 +388,9 @@ export class KlhUsageCacheDrill extends LitElement {
 			${this.reasonsTable(
 				scope.reasons,
 				scope.lane,
-				rows.filter((row) => row.cache_r !== null).length,
+				rows.filter(
+					(row) => row.cache_reported === true || (row.cache_r ?? 0) > 0,
+				).length,
 			)}
 			<table class="uacts">
 				<thead>

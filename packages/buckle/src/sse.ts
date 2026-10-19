@@ -8,7 +8,12 @@
 // message_delta. Keep-alive comment lines (`: ping`) pass through the
 // client branch verbatim and are ignored here.
 import type { Dialect } from "./upstreams.ts";
-import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
+import {
+	cacheUsageReported,
+	type Usage,
+	usageFromAnthropic,
+	usageFromOpenAI,
+} from "./usage.ts";
 
 type AnyRec = Record<string, unknown>;
 
@@ -23,6 +28,7 @@ export class SseSniffer {
 	private start: Usage | null = null;
 	private deltaOut = 0;
 	private openai: Usage | null = null;
+	private cacheSeen = false;
 
 	constructor(private readonly dialect: Dialect) {}
 
@@ -86,23 +92,27 @@ export class SseSniffer {
 			const t = typeof r.type === "string" ? r.type : this.eventType;
 			if (t === "message_start") {
 				const msg = (r.message ?? {}) as AnyRec;
+				this.cacheSeen ||= cacheUsageReported("anthropic", msg.usage);
 				const u = usageFromAnthropic(msg.usage);
 				if (u !== null) this.start = u;
 			} else if (t === "message_delta") {
+				this.cacheSeen ||= cacheUsageReported("anthropic", r.usage);
 				const u = usageFromAnthropic(r.usage);
-				if (u !== null && u.out_tok > this.deltaOut) this.deltaOut = u.out_tok;
-				// cumulative input side may ride message_delta (the cross-dialect
-				// bridge always puts it there; newer anthropic wires do too)
-				if (u !== null && u.in_tok > (this.start?.in_tok ?? 0))
+				if (u !== null) {
+					this.deltaOut = Math.max(this.deltaOut, u.out_tok);
+					// Some bridges send input and cache usage only in the final
+					// delta. Every field is cumulative, so retain its maximum.
 					this.start = {
-						in_tok: u.in_tok,
+						in_tok: Math.max(this.start?.in_tok ?? 0, u.in_tok),
 						out_tok: this.start?.out_tok ?? 0,
-						cache_r: this.start?.cache_r ?? 0,
-						cache_c: this.start?.cache_c ?? 0,
+						cache_r: Math.max(this.start?.cache_r ?? 0, u.cache_r),
+						cache_c: Math.max(this.start?.cache_c ?? 0, u.cache_c),
 					};
+				}
 			}
 			return;
 		}
+		this.cacheSeen ||= cacheUsageReported("openai", r.usage);
 		const u = usageFromOpenAI(r.usage);
 		if (u !== null) this.openai = u; // last chunk wins
 	}
@@ -119,6 +129,10 @@ export class SseSniffer {
 			};
 		}
 		return this.openai;
+	}
+
+	cacheReported(): boolean {
+		return this.cacheSeen;
 	}
 }
 

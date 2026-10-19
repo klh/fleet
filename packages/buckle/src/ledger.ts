@@ -112,6 +112,8 @@ export interface RequestReadRow {
 	attempts: number | null;
 	cache_r: number | null;
 	cache_c: number | null;
+	/** 1 = provider explicitly reported cache fields; 0 = usage lacked them. */
+	cache_reported: number | null;
 	in_tok: number | null;
 	out_tok: number | null;
 }
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS route_audit (
   why TEXT NOT NULL DEFAULT '',
   status INTEGER, duration_ms INTEGER, ok INTEGER, err TEXT,
   attempts INTEGER,
-  cache_r INTEGER, cache_c INTEGER,
+  cache_r INTEGER, cache_c INTEGER, cache_reported INTEGER,
   in_tok INTEGER, out_tok INTEGER,
   hop TEXT
 );
@@ -181,10 +183,15 @@ ON CONFLICT(hour_bucket, key, model_group, model) DO UPDATE SET
 type AuditOp =
 	| { t: "ins"; row: RouteAuditDecision }
 	| { t: "upd"; rid: string; out: RouteAuditOutcome }
-	| { t: "use"; rid: string; u: RouteAuditUsage };
+	| {
+			t: "use";
+			rid: string;
+			u: RouteAuditUsage;
+			cacheReported: boolean | null;
+	  };
 
 const UPDATE_USAGE = `
-UPDATE route_audit SET cache_r = ?, cache_c = ?,
+UPDATE route_audit SET cache_r = ?, cache_c = ?, cache_reported = ?,
   in_tok = ?, out_tok = ?
 WHERE rid = ?
 `;
@@ -273,6 +280,8 @@ export class Ledger {
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_r INTEGER");
 		if (!auditCols.includes("cache_c"))
 			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_c INTEGER");
+		if (!auditCols.includes("cache_reported"))
+			this.db.run("ALTER TABLE route_audit ADD COLUMN cache_reported INTEGER");
 		// W706: hop marker (pre-W706 databases heal the same way; NULL hop =
 		// unmarked legacy row — billable, the pre-W706 default).
 		if (!auditCols.includes("hop"))
@@ -416,7 +425,7 @@ export class Ledger {
 				for (const { v: op } of audit) {
 					if (op.t === "ins") this.insertAudit(op.row);
 					else if (op.t === "upd") this.updateAudit(op.rid, op.out);
-					else this.updateUsageRow(op.rid, op.u);
+					else this.updateUsageRow(op.rid, op.u, op.cacheReported);
 				}
 			})();
 		} catch {
@@ -528,18 +537,34 @@ export class Ledger {
 	 *  (joined by rid): enqueued. A null Usage is honest unknown — the
 	 *  UPDATE is skipped so the columns stay NULL, never estimated. W824:
 	 *  the full Usage joins (tokens in/out ride the same op). */
-	auditUsage(rid: string, u: Usage | null): void {
+	auditUsage(
+		rid: string,
+		u: Usage | null,
+		cacheReported: boolean | null = null,
+	): void {
 		if (u === null) return;
 		this.pushAudit({
 			t: "use",
 			rid,
 			u: { ...u },
+			cacheReported,
 		});
 	}
 
 	/** The flush-time cache UPDATE (W457). */
-	private updateUsageRow(rid: string, u: RouteAuditUsage): void {
-		this.updUsage.run(u.cache_r, u.cache_c, u.in_tok, u.out_tok, rid);
+	private updateUsageRow(
+		rid: string,
+		u: RouteAuditUsage,
+		cacheReported: boolean | null,
+	): void {
+		this.updUsage.run(
+			u.cache_r,
+			u.cache_c,
+			cacheReported === null ? null : cacheReported ? 1 : 0,
+			u.in_tok,
+			u.out_tok,
+			rid,
+		);
 	}
 
 	/** Read-back for tests / dashboards. Read barrier: pending audit ops
@@ -586,7 +611,10 @@ export class Ledger {
 		const rows = this.db
 			.query(requestsReadSql(where, limit))
 			.all(...args) as RequestReadRow[];
-		return rows.map((r) => { if (r.err === null && r.why.length <= REQUEST_WHY_CAP) return r; return { ...r, err: capRequestText(r.err), why: capRequestText(r.why) }; });
+		return rows.map((r) => {
+			if (r.err === null && r.why.length <= REQUEST_WHY_CAP) return r;
+			return { ...r, err: capRequestText(r.err), why: capRequestText(r.why) };
+		});
 	}
 
 	close(): void {
@@ -618,7 +646,7 @@ function requestsReadSql(where: string[], limit: number): string {
 		candidates_seen, candidates_top, target_kind, target_host,
 		target_port, target_model, decision, latency_class, tier,
 		allow_cloud, hop, error_code, why, status, duration_ms, ok, err,
-		attempts, cache_r, cache_c, in_tok, out_tok
+		attempts, cache_r, cache_c, cache_reported, in_tok, out_tok
 		FROM route_audit ${clause}
 		ORDER BY ts DESC, rid DESC LIMIT ${limit}`;
 }

@@ -68,7 +68,12 @@ import {
 	type TraceContext,
 } from "./trace.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
-import { type Usage, usageFromAnthropic, usageFromOpenAI } from "./usage.ts";
+import {
+	cacheUsageReported,
+	type Usage,
+	usageFromAnthropic,
+	usageFromOpenAI,
+} from "./usage.ts";
 
 export interface AppDeps {
 	router: Router;
@@ -639,12 +644,14 @@ async function jsonResponse(
 		// unparseable ok-body: record the request, no usage columns
 	}
 	let usage: Usage | null = null;
+	let cacheReported = false;
 	if (parsed !== null && typeof parsed === "object") {
 		const u = (parsed as Record<string, unknown>).usage;
+		cacheReported = cacheUsageReported(ctx.dialect, u);
 		usage =
 			ctx.dialect === "anthropic" ? usageFromAnthropic(u) : usageFromOpenAI(u);
 	}
-	record(deps, ctx, usage);
+	record(deps, ctx, usage, cacheReported);
 	// W5 inbound condense: sidestore AFTER the ledger row; the response
 	// bytes above are untouched (byte identity).
 	condenseInbound(deps, ctx, parsed);
@@ -672,7 +679,7 @@ function streamResponse(
 	const downstream = new TransformStream<Uint8Array, Uint8Array>();
 	const finish = once(() => {
 		sniffer.flush();
-		record(deps, ctx, sniffer.usage());
+		record(deps, ctx, sniffer.usage(), sniffer.cacheReported());
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch.pipeTo(blackHole(sniffer)).catch(() => {
@@ -756,9 +763,14 @@ function writeErrorEvent(
  *  W457: the same usage joins the per-request audit row (cache_r/cache_c —
  *  OpenAI cached_tokens / Anthropic cache_read + cache_creation); a null
  *  usage skips that join, so unobserved cache stays NULL, never zero-faked. */
-function record(deps: AppDeps, ctx: Ctx, usage: Usage | null): void {
+function record(
+	deps: AppDeps,
+	ctx: Ctx,
+	usage: Usage | null,
+	cacheReported: boolean,
+): void {
 	// W457 cache telemetry: joined onto the route_audit row by rid.
-	deps.ledger.auditUsage(ctx.rid, usage);
+	deps.ledger.auditUsage(ctx.rid, usage, cacheReported);
 	// W458.4 per-lane cache telemetry: attributed lanes append the row with
 	// the boundary the request actually rode (the delivered head). Usage
 	// null = honest unknown — the request still counts, tokens stay zero.

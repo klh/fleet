@@ -20,13 +20,32 @@ export function usageFromOpenAI(u: unknown): Usage | null {
 	if (!u || typeof u !== "object") return null;
 	const r = u as AnyRec;
 	const details = (r.prompt_tokens_details ?? {}) as AnyRec;
+	const inputDetails = (r.input_tokens_details ?? {}) as AnyRec;
 	const usage: Usage = {
-		in_tok: num(r.prompt_tokens),
-		out_tok: num(r.completion_tokens),
-		cache_r: num(details.cached_tokens),
+		in_tok: num(r.prompt_tokens ?? r.input_tokens),
+		out_tok: num(r.completion_tokens ?? r.output_tokens),
+		cache_r: num(details.cached_tokens ?? inputDetails.cached_tokens),
 		cache_c: 0,
 	};
 	return hasTokens(usage) ? usage : null;
+}
+
+/** Cache support is observed only when the provider sends an explicit cache
+ *  usage field. A zero token count without that field is not a cache miss. */
+export function cacheUsageReported(
+	dialect: "anthropic" | "openai",
+	u: unknown,
+): boolean {
+	if (!u || typeof u !== "object") return false;
+	const r = u as AnyRec;
+	if (dialect === "anthropic")
+		return "cache_read_input_tokens" in r || "cache_creation_input_tokens" in r;
+	const details = r.prompt_tokens_details ?? r.input_tokens_details;
+	return (
+		typeof details === "object" &&
+		details !== null &&
+		"cached_tokens" in details
+	);
 }
 
 /** Anthropic usage objects, unwrapped by the caller: message_start carries

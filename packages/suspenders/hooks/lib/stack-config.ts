@@ -116,6 +116,8 @@ export interface HubProfile {
 }
 
 export interface StackConfig {
+	/** Models without provider prompt-cache reporting; local KV reuse is separate. */
+	cache_unsupported_models?: string[];
 	/** The stack version: ONE string pins buckle+suspenders+belt — the ref
 	 *  every repo sidecar pulls. Absent = main (dev posture). */
 	version?: string;

@@ -62,4 +62,20 @@ describe("SseSniffer parser correctness", () => {
 		s.flush();
 		expect(s.usage()?.in_tok).toBe(2);
 	});
+
+	test("Anthropic message_delta carries late cache-read usage", () => {
+		const s = new SseSniffer("anthropic");
+		s.push(
+			'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":4,"output_tokens":0}}}\n\n' +
+				'event: message_delta\ndata: {"type":"message_delta","usage":{"input_tokens":4,"output_tokens":8,"cache_read_input_tokens":8192,"cache_creation_input_tokens":64}}\n\n',
+		);
+		s.flush();
+		expect(s.usage()).toEqual({
+			in_tok: 4,
+			out_tok: 8,
+			cache_r: 8192,
+			cache_c: 64,
+		});
+		expect(s.cacheReported()).toBe(true);
+	});
 });

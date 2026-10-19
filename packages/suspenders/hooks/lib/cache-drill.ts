@@ -1,8 +1,8 @@
 // hooks/lib/cache-drill.ts — W825: buckle per-request cache drilldown for the
 // board. Consumes the W824 seam (GET /v1/admin/requests over the buckle
 // ledger's route_audit rows: lane, target_model, cache_r/cache_c per request)
-// with the cross-hub-usage pattern: hub labels from stack.yaml/hubs.json,
-// per-hub fetch + honest degrade, TTL-cached raw rows. On top of the rows it
+// with the cross-hub-usage pattern: the Mac spoke plus hub labels from
+// stack.yaml/hubs.json, per-source fetch + honest degrade, TTL-cached rows. It
 // shapes (1) per-lane aggregates with the warm-cache ratio — share of a
 // lane's requests that HIT cache (cache_r > 0), the owner's clone-reuse
 // metric — and (2) miss-reason clusters: not just miss counts, the likely
@@ -16,6 +16,8 @@ import {
 	crossHubLabels,
 } from "./cross-hub-usage.ts";
 import type { CrossHubEnv } from "./cross-hub-usage.ts";
+import { readAdminKey } from "./doctor.ts";
+import { tryLoadStack } from "./stack-config.ts";
 
 // ─── wire mirror: one buckle route_audit row (ledger.ts is the contract) ───
 export interface BuckleRequestRow {
@@ -47,6 +49,7 @@ export interface BuckleRequestRow {
 	/** provider-reported cache tokens; null = usage unknown (honest). */
 	cache_r: number | null;
 	cache_c: number | null;
+	cache_reported: boolean | null;
 	/** optional extensions the seam may carry; null = not reported. */
 	in_tok: number | null;
 	out_tok: number | null;
@@ -94,10 +97,16 @@ export function parseRequestRow(raw: unknown): BuckleRequestRow | null {
 		err: str(r.err) || null,
 		cache_r: num(r.cache_r),
 		cache_c: num(r.cache_c),
+		cache_reported:
+			bool(r.cache_reported) ??
+			(r.cache_reported === 1 ? true : r.cache_reported === 0 ? false : null),
 		in_tok: num(r.in_tok),
 		out_tok: num(r.out_tok),
 	};
 }
+
+const cacheKnown = (row: BuckleRequestRow): boolean =>
+	row.cache_reported === true || (row.cache_r ?? 0) > 0;
 
 // ─── miss-reason clusters ─────────────────────────────────────────────────
 /** Inter-request gap above which a cold cache is EXPECTED (provider prompt
@@ -142,7 +151,7 @@ export function clusterMissReasons(
 		byKey.set(reason, cur);
 	};
 	for (const row of [...rows].sort((a, b) => a.ts.localeCompare(b.ts))) {
-		const isMiss = row.cache_r === 0;
+		const isMiss = cacheKnown(row) && row.cache_r === 0;
 		const thisPrev = prev;
 		prev = row;
 		if (!isMiss) continue;
@@ -232,6 +241,58 @@ export interface LaneDrillRow {
 	day_series: LaneDayCell[];
 }
 
+export interface ModelDrillRow {
+	model: string;
+	requests: number;
+	known: number;
+	warm: number;
+	warm_ratio: number;
+	cache_r_tok: number;
+	cache_c_tok: number;
+	status: "measured" | "unsupported" | "not reported";
+}
+
+export function modelAggregates(
+	rows: BuckleRequestRow[],
+	unsupportedModels: string[] = [],
+): ModelDrillRow[] {
+	const unsupported = new Set(unsupportedModels);
+	const byModel = new Map<string, ModelDrillRow>();
+	for (const row of rows) {
+		const model = row.target_model ?? "(unrouted)";
+		const current = byModel.get(model) ?? {
+			model,
+			requests: 0,
+			known: 0,
+			warm: 0,
+			warm_ratio: 0,
+			cache_r_tok: 0,
+			cache_c_tok: 0,
+			status: "not reported" as const,
+		};
+		current.requests++;
+		if (cacheKnown(row)) {
+			current.known++;
+			if ((row.cache_r ?? 0) > 0) current.warm++;
+		}
+		current.cache_r_tok += row.cache_r ?? 0;
+		current.cache_c_tok += row.cache_c ?? 0;
+		byModel.set(model, current);
+	}
+	return [...byModel.values()]
+		.map((model) => ({
+			...model,
+			warm_ratio: model.known > 0 ? model.warm / model.known : 0,
+			status:
+				model.known > 0
+					? ("measured" as const)
+					: unsupported.has(model.model)
+						? ("unsupported" as const)
+						: ("not reported" as const),
+		}))
+		.sort((a, b) => b.requests - a.requests);
+}
+
 export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 	const byLane = new Map<
 		string,
@@ -261,7 +322,7 @@ export function laneAggregates(rows: BuckleRequestRow[]): LaneDrillRow[] {
 			_hubs: new Set<string>(),
 		};
 		cur.requests += 1;
-		if (r.cache_r !== null) {
+		if (cacheKnown(r)) {
 			cur.known += 1;
 			if (r.cache_r > 0) cur.warm += 1;
 			else cur.misses += 1;
@@ -315,7 +376,7 @@ export function filterRows(
 			(f.lane === "" || r.lane === f.lane) &&
 			(f.model === "" || r.target_model === f.model) &&
 			(f.day === "" || r.ts.slice(0, 10) === f.day) &&
-			(!f.missOnly || r.cache_r === 0),
+			(!f.missOnly || (cacheKnown(r) && r.cache_r === 0)),
 	);
 }
 
@@ -411,6 +472,8 @@ export function clearCacheDrillTtl(): void {
 
 export interface CacheDrillEnv extends CrossHubEnv {
 	SUSPENDERS_CACHE_DRILL_TTL_MS?: string;
+	SUSPENDERS_CACHE_LOCAL?: string;
+	BUCKLE_SPOKE_URL?: string;
 }
 
 export interface DrillOpts {
@@ -449,7 +512,22 @@ async function rowsForLabel(
 		return { rows: cached.rows, status: cached.status };
 	const eps = opts.endpoints
 		? opts.endpoints(label)
-		: resolveHubEndpoints(label, { env });
+		: label === "local"
+			? [
+					{
+						url: (env.BUCKLE_SPOKE_URL ?? "http://127.0.0.1:4101").replace(
+							/\/$/,
+							"",
+						),
+						via: "Mac spoke",
+						token:
+							env.BUCKLE_ADMIN_KEY ??
+							readAdminKey(
+								`${env.HOME ?? process.env.HOME ?? ""}/.claude/local-llm/belt.env`,
+							),
+					},
+				]
+			: resolveHubEndpoints(label, { env });
 	const token = envToken(env);
 	const fetchOne = opts.fetch ?? fetchHubRequests;
 	const status: HubDrillStatus = {
@@ -502,6 +580,7 @@ export interface CacheDrillReport {
 	};
 	/** per-lane aggregates over the FILTERED rows, sorted per `sort`. */
 	lanes: LaneDrillRow[];
+	models: ModelDrillRow[];
 	overall: {
 		requests: number;
 		known: number;
@@ -538,6 +617,12 @@ export async function cacheDrillReport(
 	const limit = Math.min(1000, Math.max(1, Math.trunc(f.limit ?? 200) || 200));
 	const env = opts.env ?? (process.env as CacheDrillEnv);
 	const labels = crossHubLabels({ env });
+	if (
+		process.platform === "darwin" &&
+		env.SUSPENDERS_CACHE_LOCAL !== "0" &&
+		!labels.includes("local")
+	)
+		labels.unshift("local");
 	const hubLimit = Math.min(
 		10_000,
 		Math.max(1, Math.trunc(opts.hubRowLimit ?? 2000)),
@@ -551,7 +636,11 @@ export async function cacheDrillReport(
 	}
 	const rows = filterRows(all, filters);
 	const lanes = sortLanes(laneAggregates(rows), sort);
-	const known = rows.filter((r) => r.cache_r !== null).length;
+	const models = modelAggregates(
+		rows,
+		tryLoadStack()?.cache_unsupported_models ?? [],
+	);
+	const known = rows.filter(cacheKnown).length;
 	const warm = rows.filter((r) => (r.cache_r ?? 0) > 0).length;
 	const scoped = filters.lane === "" ? null : rows;
 	return {
@@ -561,6 +650,7 @@ export async function cacheDrillReport(
 		filters: { ...filters, sort, limit },
 		hubs,
 		lanes,
+		models,
 		overall: {
 			requests: rows.length,
 			known,

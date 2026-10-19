@@ -2,7 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fetchHubRequests } from "./cache-drill.ts";
+import {
+	fetchHubRequests,
+	modelAggregates,
+	parseRequestRow,
+} from "./cache-drill.ts";
 import { resolveHubEndpoints } from "./cross-hub-usage.ts";
 
 const originalFetch = globalThis.fetch;
@@ -66,4 +70,40 @@ test("uses a mode-600 stack token file for a registry URL", () => {
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("model cache status separates measured, unsupported and unreported", () => {
+	const rows = [
+		{
+			rid: "a",
+			ts: "2026-10-19T12:00:00Z",
+			target_model: "cloud",
+			cache_r: 0,
+			cache_reported: 1,
+		},
+		{
+			rid: "b",
+			ts: "2026-10-19T12:00:01Z",
+			target_model: "local",
+			cache_r: 0,
+			cache_reported: 0,
+		},
+		{ rid: "c", ts: "2026-10-19T12:00:02Z", target_model: "other", cache_r: 0 },
+	]
+		.map((raw) => parseRequestRow(raw))
+		.filter((row): row is NonNullable<typeof row> => row !== null);
+	const models = modelAggregates(rows, ["local"]);
+	expect(models.find((m) => m.model === "cloud")).toMatchObject({
+		known: 1,
+		warm: 0,
+		status: "measured",
+	});
+	expect(models.find((m) => m.model === "local")).toMatchObject({
+		known: 0,
+		status: "unsupported",
+	});
+	expect(models.find((m) => m.model === "other")).toMatchObject({
+		known: 0,
+		status: "not reported",
+	});
 });
