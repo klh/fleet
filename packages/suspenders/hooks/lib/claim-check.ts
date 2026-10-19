@@ -10,6 +10,12 @@
 // assembled from split string parts so the W511 scan never flags this
 // file's own source.
 //
+// W917 origin gate: run events come ONLY from results of test invocations
+// the session's own assistant initiated (tool_use id pairing + the paired
+// command must BE a test run). Counts relayed from other sessions — WS
+// inbox dumps and task notifications — pair to nothing this session
+// called, so they never satisfy a claim.
+//
 // Fail-open: an unreadable/absent transcript yields no transcript claims
 // (capsule text still counts), untimestamped events are dropped, and stat
 // failures skip a path. SUSPENDERS_CLAIM_CHECK=0 disables the probe.
@@ -33,6 +39,19 @@ const NEG_PRE =
 	/\b(?:no|not|never|without|cannot|didn't|doesn't|won't|can't)\b[^.]*$/i;
 const RUN_PASS = /(\d+)\s+pass(?:ed)?\b/i;
 const RUN_FAIL = /(\d+)\s+fail(?:ed|ure)?\b/i;
+// W917 origin gate: a run event is the output of a test invocation the
+// session's own assistant initiated — the paired tool_use command must BE
+// a test run. Relayed counts from other sessions (WS-inbox dumps, task
+// notifications) ride no such call, so they never count. Assembled from
+// parts so this file's own source never trips the W511 scan.
+const TEST_CMD_RE = new RegExp(
+	assemble(
+		"\\b(?:bun|npm|yarn|pnpm)\\s+(?:run\\s+)?(?:--?[a-z-]+\\s+)*",
+		"test\\b|\\bvitest\\b|\\bjest\\b|\\bnode\\s+--test\\b|\\bcargo\\s+",
+		"test\\b|\\bgo\\s+test\\b|\\bpytest\\b",
+	),
+	"i",
+);
 
 /** a test-pass claim in lane prose (negations in the preceding window void it). */
 export const isClaim = (text: string): boolean =>
@@ -67,7 +86,14 @@ export interface TranscriptEvents {
 	runs: ClaimEvent[];
 }
 
-type ContentPart = { type?: unknown; text?: unknown; content?: unknown };
+type ContentPart = {
+	type?: unknown;
+	text?: unknown;
+	content?: unknown;
+	id?: unknown;
+	input?: unknown;
+	tool_use_id?: unknown;
+};
 
 const toolResultText = (c: ContentPart): string => {
 	if (typeof c.content === "string") return c.content;
@@ -80,13 +106,18 @@ const toolResultText = (c: ContentPart): string => {
 		.join("\n");
 };
 
-/** Extract claim events (assistant prose) and run events (tool outputs with
- *  pass/fail sums) from transcript JSONL text. Untimestamped lines drop. */
+/** Extract claim events (assistant prose only) and run events (only from
+ *  results of assistant-initiated test invocations — W917 origin gate) from
+ *  transcript JSONL text. Untimestamped lines drop. */
 export function transcriptEventsFromText(text: string): TranscriptEvents {
 	const out: TranscriptEvents = { claims: [], runs: [] };
 	const keep = (ev: ClaimEvent, into: ClaimEvent[]): void => {
 		if (ev.ts > 0) into.push(ev);
 	};
+	// W917 origin gate: tool_use id → did this session's own assistant ask
+	// for a test run? Only results of such calls become run events;
+	// unpaired or non-test results are foreign noise and drop.
+	const initiated = new Map<string, boolean>();
 	for (const lineOf of text.split("\n")) {
 		if (lineOf.length < 2) continue;
 		let obj: Record<string, unknown>;
@@ -101,10 +132,24 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 			| undefined;
 		const assistant = msg?.role === "assistant" || obj.type === "assistant";
 		const content = msg?.content;
+		let paired = false;
+		// sweep 1 (W917 origin gate): register the assistant's own tool_use
+		// ids and whether each command WAS a test invocation.
+		if (Array.isArray(content) && assistant)
+			for (const c of content as ContentPart[]) {
+				if (!c || typeof c !== "object") continue;
+				if (c.type !== "tool_use") continue;
+				const id = typeof c.id === "string" ? c.id : "";
+				const cmd = (c.input as { command?: unknown } | undefined)?.command;
+				initiated.set(id, typeof cmd === "string" && TEST_CMD_RE.test(cmd));
+			}
 		if (Array.isArray(content))
 			for (const c of content as ContentPart[]) {
 				if (!c || typeof c !== "object") continue;
 				if (c.type === "tool_result") {
+					const id = typeof c.tool_use_id === "string" ? c.tool_use_id : "";
+					if (!id || !initiated.get(id)) continue; // foreign: drop
+					paired = true;
 					const t = toolResultText(c);
 					if (t && runCounts(t)) keep({ ts, text: t }, out.runs);
 				} else if (
@@ -123,8 +168,9 @@ export function transcriptEventsFromText(text: string): TranscriptEvents {
 				const v = (tur as Record<string, unknown>)[k];
 				if (typeof v === "string") turTexts.push(v);
 			}
-		for (const t of turTexts)
-			if (runCounts(t)) keep({ ts, text: t }, out.runs);
+		if (paired)
+			for (const turText of turTexts)
+				if (runCounts(turText)) keep({ ts, text: turText }, out.runs);
 	}
 	return out;
 }
@@ -168,16 +214,23 @@ const TEST_CALL_NAME = new RegExp(
 	assemble(
 		"\\b(",
 		"describe|it|test",
-		')\\s*\\(\\s*(["\'`])([^"\'`]{1,160}?)\\2',
+		")\\s*\\(\\s*([\"'`])([^\"'`]{1,160}?)\\2",
 	),
 );
 const XFAIL_RE = new RegExp(
-	assemble("\\.fai", "ling\\s*\\(|\\bf(", "it|describe", ")\\s*\\(|\\bxfa", "il\\b"),
+	assemble(
+		"\\.fai",
+		"ling\\s*\\(|\\bf(",
+		"it|describe",
+		")\\s*\\(|\\bxfa",
+		"il\\b",
+	),
 	"i",
 );
 const STRICT_RE =
 	/\.(?:toBe|toEqual|toStrictEqual|toMatchObject|toMatchSnapshot|toContain|toHaveLength)\s*\(/;
-const LOOSE_RE = /\.(?:toBeTruthy|toBeFalsy|toBeDefined|toBeUndefined|toBeNull)\s*\(/;
+const LOOSE_RE =
+	/\.(?:toBeTruthy|toBeFalsy|toBeDefined|toBeUndefined|toBeNull)\s*\(/;
 const META_PATH =
 	/^((?:\.fleet|\.claude|\.agents|node_modules)[/\\]|\.klh-(?:brief|done)\.md$|\.workgraph\.jsonl$)/;
 const DOC_PATH = /\.(?:md|markdown|txt)$/i;
@@ -221,12 +274,7 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 			hits.push({ kind, path: p, line, text: text.trim().slice(0, 160) });
 	};
 	const flush = (): void => {
-		if (
-			isTest &&
-			strictRemoved > strictAdded &&
-			looseFirst &&
-			path
-		)
+		if (isTest && strictRemoved > strictAdded && looseFirst && path)
 			push("loosened-assertion", path, looseFirst.line, looseFirst.text);
 		isTest = false;
 		strictRemoved = 0;
@@ -246,10 +294,7 @@ export function scanClosingDiff(diff: string): ClaimCheckHit[] {
 		}
 		if (raw.startsWith("+++ ")) {
 			const target = raw.slice(4).split("\t")[0] ?? "";
-			path =
-				target === "/dev/null"
-					? delPath
-					: stripAB(target);
+			path = target === "/dev/null" ? delPath : stripAB(target);
 			isTest = !!path && TEST_FILE.test(path) && testAffectingPath(path);
 			continue;
 		}
@@ -322,7 +367,9 @@ export const claimCheckVerdict = (o: {
 }): ClaimCheckVerdict => {
 	const disabled = o.disabled ?? process.env.SUSPENDERS_CLAIM_CHECK === "0";
 	if (disabled) return { ok: true };
-	const escape = "Escape hatch: SUSPENDERS_CLAIM_CHECK=0.";
+	// renamed from `escape` (W917): the bare name shadows the global and
+	// qlty/biome blocks the file under noShadowRestrictedNames
+	const escapeNote = "Escape hatch: SUSPENDERS_CLAIM_CHECK=0.";
 	const diffHits = scanClosingDiff(o.diffText);
 	if (diffHits.length)
 		return {
@@ -334,7 +381,7 @@ export const claimCheckVerdict = (o: {
 					.map((h) => `  ${h.path}:${h.line} [${h.kind}] ${h.text}`)
 					.join("\n") +
 				(diffHits.length > 10 ? `\n  … ${diffHits.length - 10} more` : "") +
-				`\n${escape}`,
+				`\n${escapeNote}`,
 		};
 	const text =
 		o.transcriptText ??
@@ -410,7 +457,7 @@ export const claimCheckVerdict = (o: {
 	if (miss)
 		return {
 			ok: false,
-			why: `claim-check (W833): test-pass claim not backed by evidence — ${miss.why}\n  claim: "${miss.claim.text.replace(/\s+/g, " ").trim().slice(0, 120)}"\n${escape}`,
+			why: `claim-check (W833): test-pass claim not backed by evidence — ${miss.why}\n  claim: "${miss.claim.text.replace(/\s+/g, " ").trim().slice(0, 120)}"\n${escapeNote}`,
 		};
 	return { ok: true };
 };

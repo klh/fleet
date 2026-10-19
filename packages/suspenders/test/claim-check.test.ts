@@ -36,17 +36,68 @@ const assistantSay = (text: string, min: number): string =>
 		timestamp: iso(min),
 		message: { role: "assistant", content: [{ type: "text", text }] },
 	});
+let tid = 0;
+// a paired bun-test call: assistant tool_use + its result — the real
+// transcript shape; run events need this pairing (W917 origin gate)
+const toolUse = (command: string, min: number): string => {
+	const id = `toolu_w917_${++tid}`;
+	return lineOf({
+		type: "assistant",
+		timestamp: iso(min),
+		message: {
+			role: "assistant",
+			content: [{ type: "tool_use", id, input: { command } }],
+		},
+	});
+};
 const toolResult = (text: string, min: number): string =>
+	[
+		toolUse("bun test", min - 1),
+		lineOf({
+			type: "user",
+			timestamp: iso(min),
+			message: {
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: `toolu_w917_${tid}`,
+						content: text,
+					},
+				],
+			},
+		}),
+	].join("\n");
+const toolStdout = (text: string, min: number): string =>
+	[
+		toolUse("bun test", min - 1),
+		lineOf({
+			type: "user",
+			timestamp: iso(min),
+			toolUseResult: { stdout: text },
+			message: {
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: `toolu_w917_${tid}`,
+						content: "",
+					},
+				],
+			},
+		}),
+	].join("\n");
+
+// an UNPAIRED result — relayed noise with no assistant call behind it
+const orphanResult = (text: string, id: string, min: number): string =>
 	lineOf({
 		type: "user",
 		timestamp: iso(min),
 		message: {
 			role: "user",
-			content: [{ type: "tool_result", content: text }],
+			content: [{ type: "tool_result", tool_use_id: id, content: text }],
 		},
 	});
-const toolStdout = (text: string, min: number): string =>
-	lineOf({ type: "user", timestamp: iso(min), toolUseResult: { stdout: text } });
 
 const v = (o: Partial<Parameters<typeof claimCheckVerdict>[0]> = {}) =>
 	claimCheckVerdict({ paths: [], diffText: "", disabled: false, ...o });
@@ -99,7 +150,10 @@ describe("claim and run detection", () => {
 		const events = transcriptEventsFromText(
 			lineOf({
 				type: "assistant",
-				message: { role: "assistant", content: [{ type: "text", text: "all tests pass" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "all tests pass" }],
+				},
 			}),
 		);
 		expect(events.claims).toHaveLength(0);
@@ -146,6 +200,73 @@ describe("ordering: the pass must predate the claim", () => {
 	});
 });
 
+describe("origin: foreign noise never counts (W917)", () => {
+	test("relayed counts in an unpaired tool_result never satisfy a claim", () => {
+		const r = v({
+			transcriptText: [
+				orphanResult(" 27 pass\n 2 fail", "foreign_dump_1", -10),
+				assistantSay("all tests pass", -2),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("no test run found in the transcript");
+	});
+
+	test("WS-inbox user text with pass/fail sums yields no runs and no claims", () => {
+		const events = transcriptEventsFromText(
+			lineOf({
+				type: "user",
+				timestamp: iso(-4),
+				message: {
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "WS INBOX +2:\n  lanes live 5/7 — relayed suite line reads 27 pass / 2 fail",
+						},
+					],
+				},
+			}),
+		);
+		expect(events.runs).toHaveLength(0);
+		expect(events.claims).toHaveLength(0);
+	});
+
+	test("a result of a non-test command is not a run", () => {
+		const events = transcriptEventsFromText(
+			[
+				toolUse("eza -la", -11),
+				lineOf({
+					type: "user",
+					timestamp: iso(-10),
+					message: {
+						role: "user",
+						content: [
+							{
+								type: "tool_result",
+								tool_use_id: `toolu_w917_${tid}`,
+								content: " 5 pass\n 0 fail",
+							},
+						],
+					},
+				}),
+			].join("\n"),
+		);
+		expect(events.runs).toHaveLength(0);
+	});
+
+	test("own test-run output counts beside foreign noise", () => {
+		const r = v({
+			transcriptText: [
+				toolResult(" 20 pass\n 0 fail", -10),
+				orphanResult(" 27 pass\n 2 fail", "foreign_dump_2", -9),
+				assistantSay("all tests pass", -2),
+			].join("\n"),
+		});
+		expect(r.ok).toBe(true);
+	});
+});
+
 describe("capsule claims", () => {
 	test("capsule claim with no run refuses", () => {
 		const r = v({
@@ -183,7 +304,11 @@ describe("stale evidence: test-affecting files after the pass", () => {
 
 	test("file touched after the run refuses, naming the path", () => {
 		setMtime("calc.ts", -5); // run at -10, grace 2min → stale at -8
-		const r = v({ transcriptText: transcript, paths: ["calc.ts"], statRoot: DIR });
+		const r = v({
+			transcriptText: transcript,
+			paths: ["calc.ts"],
+			statRoot: DIR,
+		});
 		expect(r.ok).toBe(false);
 		expect(r.why).toContain("changed after the last passing run");
 		expect(r.why).toContain("calc.ts");
@@ -240,8 +365,8 @@ describe("diff erosion", () => {
 	test("focused and expected-failure gates refuse", () => {
 		// fixtures assemble gate vocabulary from parts so this file's own
 		// closing diffs never trip the scans they test (W511/W833 doctrine)
-		const xfailCall = ["+	test.fai", "ling(\"flaky race\", () => {});"].join("");
-		const focusCall = ["+	f", "it(\"focused\", () => {});"].join("");
+		const xfailCall = ["+	test.fai", 'ling("flaky race", () => {});'].join("");
+		const focusCall = ["+	f", 'it("focused", () => {});'].join("");
 		for (const added of [xfailCall, focusCall]) {
 			const hits = scanClosingDiff(
 				[
@@ -266,9 +391,9 @@ describe("diff erosion", () => {
 			"-		expect(total).toBe(7);",
 			"+		expect(total).toBeTruthy();",
 		].join("\n");
-		expect(
-			scanClosingDiff(diff).map((h) => h.kind),
-		).toEqual(["loosened-assertion"]);
+		expect(scanClosingDiff(diff).map((h) => h.kind)).toEqual([
+			"loosened-assertion",
+		]);
 	});
 
 	test("clean additions and non-test files pass", () => {
@@ -302,9 +427,9 @@ describe("diff erosion", () => {
 
 describe("fail-open and the knob", () => {
 	test("missing transcript and no capsule claim → ok", () => {
-		expect(
-			v({ transcriptPath: "/nonexistent/transcript.jsonl" }).ok,
-		).toBe(true);
+		expect(v({ transcriptPath: "/nonexistent/transcript.jsonl" }).ok).toBe(
+			true,
+		);
 	});
 
 	test("SUSPENDERS_CLAIM_CHECK=0 disables every half", () => {
