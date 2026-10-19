@@ -86,6 +86,25 @@ describe("itemSpend", () => {
 		);
 		expect(m.get("W3")?.in).toBe(80);
 	});
+
+	test("firstBucket tracks the earliest attributed bucket (W943.1)", () => {
+		const m = itemSpend(
+			[
+				row({ bucket: "2023-11-14T22:00", sid: "s1", inTok: 50 }),
+				row({ bucket: "2023-11-14T23:00", sid: "s1", inTok: 30 }),
+			],
+			wins,
+		);
+		expect(m.get("W1")?.firstBucket).toBe("2023-11-14T22:00");
+	});
+
+	test("firstBucket stays null when nothing attributes (W943.1)", () => {
+		const m = itemSpend(
+			[row({ bucket: "2023-11-15T02:00", sid: "s2", inTok: 500 })],
+			wins,
+		);
+		expect(m.get("W1")?.firstBucket ?? null).toBeNull();
+	});
 });
 
 describe("itemSpendSeries (W887)", () => {
@@ -239,10 +258,26 @@ describe("itemAttribution", () => {
 		expect(a1?.requests).toBe(3);
 		expect(a1?.wallMs).toBe(30 * 60_000);
 		expect(a1?.agentMs).toBe(30 * 60_000);
+		expect(a1?.blindCache).toBe(true);
 		expect(a1?.groups["glm-5.3-flash"]?.in).toBe(120);
 		const a2 = m.get("W2");
 		expect(a2?.fresh ?? 0).toBe(0);
 		expect(a2?.agentMs).toBe(5 * 60_000);
+	});
+
+	test("W943.1: SUSPENDERS_CACHE_ERA_FIX pins the era (false case)", () => {
+		const lp = `${import.meta.dir}/w9431-era-probe.db`;
+		try {
+			unlinkSync(lp);
+		} catch {}
+		attrLedgerDb(lp).close();
+		process.env.SUSPENDERS_CACHE_ERA_FIX = "2023-11-14T19:00";
+		try {
+			const m = itemAttribution(attrGovDb(), "proj", WT0 + 45 * 60_000, lp);
+			expect(m.get("W1")?.blindCache).toBe(false);
+		} finally {
+			delete process.env.SUSPENDERS_CACHE_ERA_FIX;
+		}
 	});
 
 	test("missing ledger fails soft: zero spend, real wall", () => {

@@ -26,6 +26,7 @@ export interface ReportRow {
 	model: string; // W909: top model_group (+ when several), "" = none
 	effort: string | null; // W909: lane effort level (work.done payload)
 	consulted: boolean; // W909: lane banked knowledge or consulted
+	blindCache: boolean; // W943.1: attributed spend spans the cache-blind era — CACHE is a floor
 }
 
 /** done → D, failed → F, riding (CLAIMED/RUNNING) → R, queued (READY) → Q. */
@@ -132,6 +133,7 @@ export const toReportRows = (
 			model: reportModel(a?.groups ?? {}),
 			effort: a?.effort ?? null,
 			consulted: consulted?.has(String(it.id)) ?? false,
+			blindCache: a?.blindCache ?? false,
 		};
 	});
 
@@ -245,6 +247,14 @@ export const osc8Link = (text: string, url: string): string =>
 /** TASK truncation cap from the coordinator prototype (no ellipsis). */
 export const TASK_CAP = 26;
 
+/** W943.1 CACHE marker: `*` on a CACHE cell = the item's attributed spend
+ *  includes cache-blind-era ledger buckets (router_usage before the
+ *  2026-10-19T10Z buckle-front fix carries cache≈0) — the number is a
+ *  floor, never a measurement. */
+export const CACHE_MARK = "*";
+export const CACHE_LEGEND =
+	"* CACHE is a floor: ledger rows before 2026-10-19T10Z dropped cached_tokens (W943.1 era gap — docs/decant-crosscheck-2026-10-19.md)";
+
 /** The prototype table (W892): fixed-width programmatic pads — ITEM/ST/TASK
  *  left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right; separator =
  *  per-column dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for
@@ -261,7 +271,9 @@ export const buildReportTable = (
 			reportLetter(r.state),
 			r.title.slice(0, TASK_CAP),
 			tokens > 0 ? compactTokens(tokens) : "-",
-			tokens > 0 ? `${Math.round((r.cached / tokens) * 100)}%` : "-",
+			tokens > 0
+				? `${Math.round((r.cached / tokens) * 100)}%${r.blindCache ? CACHE_MARK : ""}`
+				: "-",
 			`${r.agentMs > 0 ? Math.round(r.out / (r.agentMs / 60_000)) : 0}`,
 			agentClock(r.agentMs),
 			r.model || "-",
@@ -290,5 +302,6 @@ export const buildReportTable = (
 		c <= 2 ? h.padEnd(widths[c]) : h.padStart(widths[c]),
 	).join("  ");
 	const sep = widths.map((w) => "-".repeat(w)).join("  ");
-	return [head, sep, ...rows.map((_r, i) => line(cells[i], i))].join("\n");
+	const body = [head, sep, ...rows.map((_r, i) => line(cells[i], i))].join("\n");
+	return rows.some((r) => r.blindCache) ? `${body}\n${CACHE_LEGEND}` : body;
 };

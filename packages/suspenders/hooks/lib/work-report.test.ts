@@ -5,6 +5,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	agentClock,
 	buildReportTable,
+	CACHE_LEGEND,
+	CACHE_MARK,
 	compactTokens,
 	consultedItems,
 	DEFAULT_DONE_WINDOW_MS,
@@ -80,6 +82,7 @@ const proto = (p: Record<string, unknown>): ReportRow =>
 		model: "",
 		effort: null,
 		consulted: false,
+		blindCache: false,
 		...p,
 	}) as ReportRow;
 
@@ -151,6 +154,24 @@ describe("buildReportTable — the prototype golden", () => {
 				"W688.7.1  D   hub serves the enterprise    17.1M    39%     3364     55m      -       -        N",
 			].join("\n"),
 		);
+	});
+
+	test("W943.1 blindCache: `*` marks the CACHE cell + legend line rides the table", () => {
+		const spend = {
+			fresh: 172000,
+			out: 69000,
+			agentMs: 12 * 60000,
+		};
+		const plain = buildReportTable([proto({ id: "W887", ...spend })]);
+		expect(plain).not.toContain(CACHE_MARK);
+		expect(plain).not.toContain("CACHE is a floor");
+		const marked = buildReportTable([
+			proto({ id: "W887", ...spend, blindCache: true }),
+		]);
+		const lines = marked.split("\n");
+		expect(lines[2]?.includes("0%*")).toBe(true);
+		expect(lines.at(-1)).toBe(CACHE_LEGEND);
+		expect(marked).toContain("CACHE is a floor");
 	});
 
 	test("TASK truncates at 26 with no ellipsis; zero-spend shows dashes", () => {
