@@ -515,7 +515,10 @@ export async function cmdPause(rest: string[]): Promise<void> {
 export async function cmdPaused(_rest: string[]): Promise<void> {
 	// the LANE's own transition: PAUSE_REQUESTED → PAUSED. Requires proof of a
 	// safe boundary: checkpoint SHA (--sha) AND a written capsule. A model
-	// cannot skip the restart context by accident.
+	// cannot skip the restart context by accident. W885: the receipt targets
+	// the lane's own sid — a literal target never matches the WS/inbox
+	// directed filter (store-server.ts: row.target !== f.as), so the row
+	// orphans; same contract as lane.interrupted.
 	const as =
 		arg("--as") ??
 		die("usage: paused --as <sid> --sha <checkpoint-sha> [--step s]");
@@ -554,7 +557,7 @@ export async function cmdPaused(_rest: string[]): Promise<void> {
 		as,
 		arg("--scope"),
 		JSON.stringify({ sha, ...(arg("--step") ? { step: arg("--step") } : {}) }),
-		"coordinator",
+		as,
 	);
 	console.log(
 		`${amber("⏸")} ${dim(`PAUSED @${sha.slice(0, 8)} — capsule + checkpoint banked`)}`,
