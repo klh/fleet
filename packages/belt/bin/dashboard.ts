@@ -318,6 +318,9 @@ header .right { margin-left:auto; display:flex; align-items:center; gap:8px; fon
 .blink { animation:blip 1s steps(1,end) infinite; }
 @keyframes blip { 0%{opacity:1} 50%{opacity:.15} 100%{opacity:1} }
 h2 { font-size:var(--klh-text-xs); font-weight:400; text-transform:uppercase; letter-spacing:.14em; color:var(--klh-dim); margin:20px 0 2px; }
+.fleet-details { border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-3); padding-block:var(--klh-space-2); }
+.fleet-details > summary { cursor:pointer; color:var(--klh-ink); font-size:var(--klh-text-sm); }
+.fleet-details > summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
 table { width:100%; border-collapse:collapse; }
 th { text-align:left; font-weight:400; font-size:var(--klh-text-xs); text-transform:uppercase; letter-spacing:.14em; color:var(--klh-dim); padding:8px 8px 6px 0; border-bottom:1px solid var(--klh-edge); }
 .mut { color:var(--klh-dim); }
@@ -389,12 +392,13 @@ ${fleetNav("belt", "models")}
 <belt-trends></belt-trends>
 <belt-supervisor></belt-supervisor>
 <script type="module" src="/dashboard-observability.js"></script>
-<h2>Fleet</h2>
+<details class="fleet-details"><summary>Fleet endpoint details</summary>
 <div class="scroll">
 <div class="fhead"><span>location</span><span>endpoint</span><span>state</span><span>protocol</span><span>model</span><span class="w">engine</span><span class="w">ram</span><span class="w">latency</span><span class="w">good at</span></div>
 <div id="fleet"></div>
 </div>
 <div id="fleetmeta" class="mut">—</div>
+</details>
 <div class="rhead"><span id="remotesnote" class="mut">loading…</span><button id="remotesbtn" type="button">refresh</button></div>
 <div id="remotesdisc"></div>
 <div id="remoteslog"></div>
