@@ -17,9 +17,11 @@ reproduce ≥9/10 runs.
 | S4  | R1 debris-blocks-recovery   | kill a ladder run mid-merge with staged content                    | debris cleared within one cycle; next branch not falsely failed |
 | S5  | S1 foreign-merge-conclusion | `git commit` while MERGE_HEAD + live marker                        | commit refused, or no two-parent commit                         |
 
-Each scenario directory: `scenario.md` (fixture, injection, window,
-properties) + `harness.ts` (deterministic driver). Reference
-implementation for S4 is in progress; the others are specced.
+Each scenario is a driver in `crash/scenarios.ts` over the shared world
+model (`crash/scenario.md` § world model): real git fixture (refs,
+MERGE_HEAD, staged content are real git state) + scripted stand-ins, so
+repeated runs are byte-identical. Reference implementation of S1-S5:
+`crash/harness.ts` — run `bun packages/blam/bench/crash/harness.ts`.
 
 ## Consult policy suite (W447)
 
@@ -53,7 +55,11 @@ A control plane under test implements:
     sweepCycle(): void           # the loop under test
     onScenarioEnd(): report
 
-Suspenders is the reference control plane; its pre-fix vs post-fix
-behavior on this suite is the first measured A/B (pre-fix: S1 fails,
-S4 fails, S5 fails; post-fix: all pass — measured on the 2026-09-28
-incident record). Other control planes adapt via the four functions.
+The v0 reference plane is `crash/plane.ts` (scripted, two eras —
+`scenario.md` § eras). Suspenders is the reference control plane; its
+pre-fix vs post-fix behavior on this suite is the first measured A/B:
+post-fix passes 5/5 scenarios on every run; pre-fix reproduces the
+2026-09-28 headline (S1 false retire, S4 debris/blame/data-loss, S5
+foreign merge conclusion) and also fails S2 (heal deferred behind a
+forged-alive marker) and S3 (act on a vanished branch name). Other
+control planes adapt via the four functions.
