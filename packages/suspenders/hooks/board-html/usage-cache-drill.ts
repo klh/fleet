@@ -34,8 +34,14 @@ const fmtTok = (n: number): string =>
 				? `${(n / 1e3).toFixed(1)}K`
 				: String(Math.round(n));
 const pct1 = (x: number): string => `${(x * 100).toFixed(1)}%`;
-const hhmm = (ts: string | null): string =>
-	ts === null || ts.length < 16 ? "—" : ts.slice(11, 16);
+const localTime = (ts: string | null, withSeconds = false): string => {
+	if (ts === null) return "—";
+	const date = new Date(ts);
+	if (Number.isNaN(date.getTime())) return "—";
+	const two = (n: number): string => String(n).padStart(2, "0");
+	const clock = `${two(date.getHours())}:${two(date.getMinutes())}`;
+	return withSeconds ? `${clock}:${two(date.getSeconds())}` : clock;
+};
 
 export class KlhUsageCacheDrill extends LitElement {
 	static properties = {
@@ -147,7 +153,7 @@ export class KlhUsageCacheDrill extends LitElement {
 			${
 				r.probes.requests > 0
 					? html`<p class="ufoot">Readiness probes: ${String(r.probes.requests)}
-					requests in this window (last ${hhmm(r.probes.last_ts)}), warm
+					requests in this window (last ${localTime(r.probes.last_ts)}), warm
 					${r.probes.known > 0 ? pct1(r.probes.warm_ratio) : "—"} — synthetic
 					healthcheck traffic, excluded from the lane and model ratios
 					above.</p>`
@@ -346,22 +352,17 @@ export class KlhUsageCacheDrill extends LitElement {
 			<tbody>
 				${lanes.map((l) => {
 					const w = l.known > 0 ? (l.warm / l.known) * 100 : 0;
-					return html`<tr
-						class="ulane"
-						@click=${() => {
-							this.lane = l.lane === "(bare ingress)" ? "" : l.lane;
-							this.refresh();
-						}}
-					>
+					return html`<tr class="ulane">
 						<td title=${l.lane}>
-							<b>${l.models[0] ?? l.lane}</b>
-							${l.models.length > 0 ? html`<span class="ulane-id">${l.lane}</span>` : nothing}
+							<button class="ulaneButton" type="button" @click=${() => {
+								this.lane = l.lane;
+								this.refresh();
+							}}>
+								<b>${l.models[0] ?? l.lane}</b>
+								${l.models.length > 0 ? html`<span class="ulane-id">${l.lane}</span>` : nothing}
+							</button>
 							${l.hubs.map((h) => html`<span class="uchip">${h}</span>`)}
-							${
-								l.models.length > 1
-									? html`<span class="uwarn">${String(l.models.length)} models</span>`
-									: nothing
-							}
+							${l.models.length > 1 ? html`<span class="uwarn">${String(l.models.length)} models</span>` : nothing}
 						</td>
 						<td class="unum">
 							${fmtTok(l.requests)}
@@ -384,7 +385,7 @@ export class KlhUsageCacheDrill extends LitElement {
 						</td>
 						<td class="unum">${fmtTok(l.cache_r_tok)}</td>
 						<td class="unum" title=${l.cache_c_known ? `${String(l.cache_c_known)} requests reported cache writes` : "Provider did not report cache writes"}>${l.cache_c_known ? fmtTok(l.cache_c_tok) : "—"}</td>
-						<td class="unum">${hhmm(l.last_ts)}</td>
+						<td class="unum"><time title=${l.last_ts ?? "Unknown time"} datetime=${l.last_ts ?? ""}>${localTime(l.last_ts)}</time></td>
 					</tr>`;
 				})}
 			</tbody>
@@ -398,7 +399,7 @@ export class KlhUsageCacheDrill extends LitElement {
 		const status: HubDrillStatus[] = r.hubs;
 		return html`<div class="upanel">
 			<div class="uhead">
-				<h2>LANE ${scope.lane} · REQUESTS</h2>
+				<h2>${scope.lane === "(bare ingress)" ? "UNATTRIBUTED REQUESTS" : `LANE ${scope.lane} · REQUESTS`}</h2>
 				<button
 					class="ubtn"
 					@click=${() => {
@@ -440,7 +441,7 @@ export class KlhUsageCacheDrill extends LitElement {
 										row.hub ??
 										"";
 									return html`<tr class=${row.ok === false ? "ubad" : ""}>
-									<td class="unum">${row.ts.slice(11, 19)}</td>
+					<td class="unum"><time datetime=${row.ts} title=${row.ts}>${localTime(row.ts, true)}</time></td>
 									<td>${row.target_model ?? "—"}</td>
 									<td class="unum">${row.status === null ? "—" : String(row.status)}</td>
 									<td class="unum ${row.cache_r === 0 ? "ucoldtext" : ""}">
@@ -608,7 +609,20 @@ KlhUsageCacheDrill.styles = [
 			background: var(--klh-danger, #e5484d);
 		}
 		tr.ulane {
+			cursor: default;
+		}
+		.ulaneButton {
+			background: transparent;
+			border: 0;
+			padding: 0;
+			text-align: left;
+			color: inherit;
+			font: inherit;
 			cursor: pointer;
+		}
+		.ulaneButton:focus-visible {
+			outline: 2px solid var(--klh-accent, #d8900f);
+			outline-offset: 2px;
 		}
 		tr.ulane:hover td {
 			background: var(--klh-edge-faint, rgba(255, 255, 255, 0.04));

@@ -189,6 +189,15 @@ const drillRows = [
 		duration_ms: 190,
 		in_tok: 90_000,
 	}),
+	mk({
+		rid: "e2e-bare",
+		ts: "2026-10-19T10:03:00Z",
+		lane: "",
+		cache_r: 0,
+		target_model: "zai-glm-5.3-flash",
+		status: 200,
+		ok: true,
+	}),
 ];
 
 // The REAL lib over the canned rows (seams injected, no network): shapes

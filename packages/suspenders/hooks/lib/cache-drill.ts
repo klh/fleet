@@ -431,7 +431,8 @@ export function filterRows(
 ): BuckleRequestRow[] {
 	return rows.filter(
 		(r) =>
-			(f.lane === "" || r.lane === f.lane) &&
+			(f.lane === "" ||
+				(f.lane === "(bare ingress)" ? r.lane === "" : r.lane === f.lane)) &&
 			(f.model === "" || r.target_model === f.model) &&
 			(f.day === "" || r.ts.slice(0, 10) === f.day) &&
 			(!f.missOnly || (cacheKnown(r) && r.cache_r === 0)),
