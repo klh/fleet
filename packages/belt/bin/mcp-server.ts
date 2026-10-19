@@ -12,7 +12,12 @@
 // BELT_MCP_TENANT + BELT_MCP_AUDIENCE the server refuses to serve /mcp unless
 // BELT_MCP_DEV=1 — dev mode pins the loopback and logs the downgrade. No
 // tokens are ever read from the repo (config-over-code).
-import { bearerOf, loadMcpAuthConfig, verifyEntraToken, type McpAuthConfig } from "./mcp-auth.ts";
+import {
+	bearerOf,
+	loadMcpAuthConfig,
+	verifyEntraToken,
+	type McpAuthConfig,
+} from "./mcp-auth.ts";
 import { SERVER_INFO, TOOLS, callTool } from "./mcp-tools.ts";
 import {
 	citizenshipGate,
@@ -30,10 +35,7 @@ import { join } from "node:path";
 const loadEnvFile = (): void => {
 	try {
 		const raw = readFileSync(
-			join(
-				process.env.HOME ?? ".",
-				".claude/local-llm/belt-mcp.env",
-			),
+			join(process.env.HOME ?? ".", ".claude/local-llm/belt-mcp.env"),
 			"utf8",
 		);
 		for (const line of raw.split("\n")) {
@@ -51,7 +53,10 @@ loadEnvFile();
 // when we support it, else the newest we speak.
 const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26"];
 const LATEST_VERSION = SUPPORTED_VERSIONS[0] ?? "2025-06-18";
-const ROUTES = { "/mcp": ["POST", "GET", "DELETE"], "/health": ["GET", "HEAD"] };
+const ROUTES = {
+	"/mcp": ["POST", "GET", "DELETE"],
+	"/health": ["GET", "HEAD"],
+};
 const SESSION_TTL_MS = 86_400_000;
 
 const PORT = Number(process.env.BELT_MCP_PORT ?? 7793);
@@ -65,12 +70,11 @@ const EXTRA_HOSTS = (process.env.BELT_MCP_HOSTS ?? "")
 
 if (!AUTH && !DEV) {
 	console.error(
-		"belt-mcp: no Entra config (BELT_MCP_TENANT / BELT_MCP_AUDIENCE) — refusing to serve unauthenticated. Set them, or BELT_MCP_DEV=1 for loopback dev mode.",
+		"belt-mcp: no Entra config (BELT_MCP_TENANT / BELT_MCP_AUDIENCE) — status only; MCP tools unavailable.",
 	);
-	process.exit(1);
 }
-if (DEV && BIND !== "127.0.0.1" && BIND !== "localhost") {
-	console.error("belt-mcp: dev mode pins the loopback — refusing other binds");
+if (!AUTH && BIND !== "127.0.0.1" && BIND !== "localhost") {
+	console.error("belt-mcp: without Entra auth, bind must be loopback");
 	process.exit(1);
 }
 if (DEV) console.error("belt-mcp: DEV MODE — auth disabled, loopback only");
@@ -83,9 +87,7 @@ const hostAllowed = (host: string | null): boolean => {
 	const bare = host.toLowerCase().split(":")[0] ?? "";
 	if (bare === "127.0.0.1" || bare === "localhost" || bare === "::1")
 		return true;
-	return EXTRA_HOSTS.some(
-		(h) => h === bare || h === host.toLowerCase(),
-	);
+	return EXTRA_HOSTS.some((h) => h === bare || h === host.toLowerCase());
 };
 
 const sessions = new Map<string, number>();
@@ -136,10 +138,7 @@ async function dispatch(msg: RpcMsg): Promise<unknown> {
 				rawArgs && typeof rawArgs === "object"
 					? (rawArgs as Record<string, unknown>)
 					: {};
-			if (
-				name !== "knowledge_search" &&
-				name !== "belt_infer"
-			)
+			if (name !== "knowledge_search" && name !== "belt_infer")
 				return rpcError(msg.id, -32602, `unknown tool: ${name}`);
 			const { text, isError } = await callTool(name, args);
 			return { content: [{ type: "text", text }], isError };
@@ -193,13 +192,10 @@ async function handleMcpPost(req: Request): Promise<Response> {
 	try {
 		msg = (await req.json()) as RpcMsg;
 	} catch {
-		return new Response(
-			JSON.stringify(rpcError(null, -32700, "parse error")),
-			{
-				status: 400,
-				headers: { "content-type": "application/json" },
-			},
-		);
+		return new Response(JSON.stringify(rpcError(null, -32700, "parse error")), {
+			status: 400,
+			headers: { "content-type": "application/json" },
+		});
 	}
 	if (msg.jsonrpc !== "2.0" || typeof msg.method !== "string")
 		return new Response(
@@ -255,6 +251,25 @@ const server = Bun.serve({
 	idleTimeout: 180, // belt_infer can legitimately run long on the swarm
 	async fetch(req): Promise<Response> {
 		const pathname = new URL(req.url).pathname;
+		if (!AUTH && !DEV) {
+			if (pathname === "/" && req.method === "GET")
+				return new Response(
+					`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Belt MCP · setup needed</title><style>body{margin:0;background:#171717;color:#e8e6e2;font:14px system-ui,sans-serif}main{max-width:620px;margin:12vh auto;padding:0 24px}small{color:#a6a29b;letter-spacing:.12em;text-transform:uppercase}h1{font-size:26px;font-weight:550;margin:22px 0 12px}p{line-height:1.6;color:#bbb7af}code{font:12px ui-monospace,monospace;color:#d99a25}a{color:#d99a25}hr{border:0;border-top:1px solid #393735;margin:28px 0}</style><main><small>klh·fleet / belt</small><h1>MCP setup needed</h1><p>The Belt MCP service is running, but its Entra tenant and audience are not configured. Tools remain unavailable until authentication is configured.</p><hr><p>Configure <code>BELT_MCP_TENANT</code> and <code>BELT_MCP_AUDIENCE</code> in the machine-level <code>belt-mcp.env</code>, then restart the service. See <a href="https://github.com/klh/fleet/blob/main/packages/belt/docs/mcp.md">setup instructions</a>.</p></main></html>`,
+					{
+						status: 503,
+						headers: { "content-type": "text/html; charset=utf-8" },
+					},
+				);
+			return new Response(
+				JSON.stringify({
+					ok: false,
+					service: "belt-mcp",
+					status: "unconfigured",
+					tools: "unavailable",
+				}),
+				{ status: 503, headers: { "content-type": "application/json" } },
+			);
+		}
 		const live = livenessResponse(req, "belt-mcp", {
 			transport: "streamable-http",
 			auth: AUTH ? "entra-oauth" : DEV ? "dev-open" : "closed",
@@ -290,7 +305,7 @@ const server = Bun.serve({
 });
 
 console.error(
-	`belt-mcp: ${SERVER_INFO.name}@${SERVER_INFO.version} on ${BIND}:${PORT} (${AUTH ? "entra-oauth" : "dev-open"})`,
+	`belt-mcp: ${SERVER_INFO.name}@${SERVER_INFO.version} on ${BIND}:${PORT} (${AUTH ? "entra-oauth" : DEV ? "dev-open" : "status-only"})`,
 );
 
 export { server as mcpServer };

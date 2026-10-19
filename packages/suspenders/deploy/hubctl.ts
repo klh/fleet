@@ -23,6 +23,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 // stack.yaml is parsed by the ONE reader (W356) — hubctl renders deploys
@@ -56,6 +57,36 @@ function requireHub(stack: StackConfig, name: string): HubProfile {
 	return hub;
 }
 
+/** A local hub must not publish over an existing .local service. The registry
+ * is machine-owned, so this check follows the operator's actual front. */
+function assertLocalPortReservations(hub: HubProfile, name: string): void {
+	if (hub.deploy?.ssh) return;
+	const path = join(
+		process.env.HOME ?? homedir(),
+		".local/state/klh-local/registry.json",
+	);
+	if (!existsSync(path)) return;
+	const services = JSON.parse(readFileSync(path, "utf8")) as Array<{
+		name?: string;
+		port?: number;
+	}>;
+	if (!Array.isArray(services))
+		throw new Error(`${path} is not a service list`);
+	for (const [kind, port] of [
+		["buckle", hub.buckle_port],
+		["board", hub.board_port],
+		["store", hub.store_port],
+		["belt", hub.belt_port],
+	] as const) {
+		if (!port) continue;
+		const conflict = services.find((service) => Number(service.port) === port);
+		if (conflict)
+			throw new Error(
+				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.yaml`,
+			);
+	}
+}
+
 /** Render the compose .env from the profile — declared knobs only (the
  *  template's own defaults cover everything else; single source of truth). */
 function renderEnv(
@@ -64,6 +95,7 @@ function renderEnv(
 	auth?: StackConfig["auth"],
 	version?: string,
 ): string {
+	assertLocalPortReservations(hub, name);
 	const ref = version;
 	if (!ref || ref === "main" || ref === "master")
 		throw new Error(
