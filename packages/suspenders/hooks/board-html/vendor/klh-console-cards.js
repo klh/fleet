@@ -1,4 +1,4 @@
-import{e,t,s}from"./lit-9bpcreb0.js";import{a}from"./lit-5afk64c9.js";var o=(r,i)=>r.flatMap((n,u)=>u?[e`${i}`,n]:[n]);class l extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let r=this.data;if(!r)return e`${t}`;if(r.kind==="missing")return e`<h2>${this.heading}</h2>
+import{e,t,s}from"./lit-c5g9ct2w.js";import{a}from"./lit-6msn3zmv.js";var o=(r,i)=>r.flatMap((n,u)=>u?[e`${i}`,n]:[n]);class l extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let r=this.data;if(!r)return e`${t}`;if(r.kind==="missing")return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no routing-policy.yaml found on the belt chain (BELT_POLICY/
 					BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)

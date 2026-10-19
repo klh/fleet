@@ -1029,7 +1029,7 @@ export class KlhUsageCharts extends LitElement {
 					fill: c,
 					width: 1,
 					points: { show: false },
-					value: (v: number | null): string => fmtChartValue(v),
+					value: (_u: unknown, v: number | null): string => fmtChartValue(v),
 				});
 			}
 			this.chart(
@@ -1066,7 +1066,8 @@ export class KlhUsageCharts extends LitElement {
 							fill: slotColor(this.slot, "flash"),
 							paths: uPlot.paths?.bars({ size: [0.72, 100] }),
 							points: { show: false },
-							value: (v: number | null): string => fmtChartValue(v),
+							value: (_u: unknown, v: number | null): string =>
+								fmtChartValue(v),
 						},
 					],
 					axes: [

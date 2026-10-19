@@ -1,4 +1,4 @@
-import{i,r,e,s}from"./lit-9bpcreb0.js";import{o,l,d}from"./lit-65v7hzgb.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+import{i,r,e,s}from"./lit-c5g9ct2w.js";import{o,l,d}from"./lit-65v7hzgb.js";var p=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",v=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class h extends s{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
 		${i(d)}
 		:host {
 			display: block;

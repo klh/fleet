@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class y extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=N()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
+import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class y extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=q()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
 			<div class="uback">
 				<a href=${a.backHref}>&larr; ${a.backLabel}</a>
 				<span class=${a.note.kind==="on"?"uon":"uwin"}
@@ -69,7 +69,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",y);var f=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),w=(a)=>`${(a*100).toFixed(1)}%`,_=(a)=>a===null||a.length<16?"—":a.slice(11,16);class R extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
+`;customElements.define("klh-usage-head",y);var f=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),w=(a)=>`${(a*100).toFixed(1)}%`,F=(a)=>a===null||a.length<16?"—":a.slice(11,16);class R extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
 				<h2>CACHE EFFICIENCY</h2>
 				<p class="uempty">drilldown unavailable — ${this.err}</p>
 			</div>`;let a=this.report;if(a===null)return e`<div class="upanel">
@@ -200,7 +200,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 						</td>
 						<td class="unum">${f(n.cache_r_tok)}</td>
 						<td class="unum">${f(n.cache_c_tok)}</td>
-						<td class="unum">${_(n.last_ts)}</td>
+						<td class="unum">${F(n.last_ts)}</td>
 					</tr>`})}
 			</tbody>
 		</table>`}scopePanel(a){let l=a.lane_scope;if(l===null)return t;let n=l.requests,i=a.hubs;return e`<div class="upanel">
@@ -419,7 +419,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 			padding: 2px 8px;
 			cursor: pointer;
 		}
-	`];customElements.define("klh-usage-cache-drill",R);var S=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},u=()=>S()?.panels??null,C=()=>S()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
+	`];customElements.define("klh-usage-cache-drill",R);var S=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},u=()=>S()?.panels??null,C=()=>S()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),N=(a)=>a==null||!Number.isFinite(a)?"—":d(a),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -500,7 +500,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 			>${l.map((i)=>e`<a class="${n}${i.on?" on":""}" href=${i.href}
 						>${i.label}</a
 					>`)}</span
-		>`}body(a){let l=a.demoToggle;return e`<div class="uback">
+		>`}body(a){return e`<div class="uback">
 				<a href="/">&larr; fleet board</a><span class="uwin">${a.back}</span>
 			</div>
 			<h1 class="utitle">USAGE</h1>
@@ -509,9 +509,6 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 				${this.chips("team",a.teams,"ufchip")}
 				${this.chips("dept",a.depts,"ufchip")}
 				${a.filtered?e`<span class="uon">${a.filtered}</span>`:t}
-				${l?e`<a class="ufilter${l.on?" on":""}" href=${l.href}
-							>${l.label}</a
-						>`:t}
 				<span class="uon">${a.status}</span>
 			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}E.styles=r`
 	:host {
@@ -722,7 +719,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var F={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -752,7 +749,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let i=T(a.share);return e`${n}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${i};background:${F[a.key]??"#888"}`}
+					style=${`width:${i};background:${I[a.key]??"#888"}`}
 					title=${`${a.key}: ${i}`}
 				></i></span
 			><span class="unum">${i}</span></span
@@ -794,9 +791,9 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var I="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let a=u()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var D="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let a=u()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
-			<p class="uempty">${I}</p>
+			<p class="uempty">${D}</p>
 		</div>`}body(a){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<table class="uacts">
@@ -828,12 +825,12 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var D="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=C()}render(){let a=u()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var W="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=C()}render(){let a=u()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
-			<p class="uempty">${D}</p>
+			<p class="uempty">${W}</p>
 		</div>`}row(a){if(a.degraded)return e`<tr>
 				<td>
 					<b>${a.hub}</b>
@@ -886,7 +883,7 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(m,c)=>getComputedStyle(document.documentElement).getPropertyValue(m).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),i=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),b=(m,c)=>c.map((g)=>d(g)),p=(m,c)=>{let g={side:m,stroke:o,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:i,width:1}};if(c)g.values=c;return g},h=this.querySelector("#u-timeline");if(h&&this.groups.length){let m=[{}];for(let c of this.groups){let g=v(this.slot,c);m.push({label:c,stacked:!0,stroke:g,fill:g,width:1,points:{show:!1},value:(q)=>d(q??0)})}this.chart(h,a,{width:h.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:m,axes:[p(2),p(3,b)]},this.timeline,300)}let x=this.querySelector("#u-hours");if(x)this.chart(x,a,{width:x.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(m)=>d(m??0)}],axes:[p(2,(m,c)=>c.map((g)=>String(Math.round(g)).padStart(2,"0"))),p(3,b)]},this.byHour,190)}chart(a,l,n,i,o){let b=new l(n,i,a);this.charts.push(b);let p=()=>{let h=a.clientWidth;if(h>0&&h!==b.width)b.setSize({width:h,height:o})};if(typeof ResizeObserver==="function"){let h=new ResizeObserver(p);h.observe(a),this.ros.push(h)}else this.resizes.push(p),window.addEventListener("resize",p)}}M.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(g,c)=>getComputedStyle(document.documentElement).getPropertyValue(g).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),i=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),b=(g,c)=>c.map((m)=>d(m)),p=(g,c)=>{let m={side:g,stroke:o,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:i,width:1}};if(c)m.values=c;return m},h=this.querySelector("#u-timeline");if(h&&this.groups.length){let g=[{}];for(let c of this.groups){let m=v(this.slot,c);g.push({label:c,stacked:!0,stroke:m,fill:m,width:1,points:{show:!1},value:(j,_)=>N(_)})}this.chart(h,a,{width:h.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:g,axes:[p(2),p(3,b)]},this.timeline,300)}let x=this.querySelector("#u-hours");if(x)this.chart(x,a,{width:x.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(g,c)=>N(c)}],axes:[p(2,(g,c)=>c.map((m)=>String(Math.round(m)).padStart(2,"0"))),p(3,b)]},this.byHour,190)}chart(a,l,n,i,o){let b=new l(n,i,a);this.charts.push(b);let p=()=>{let h=a.clientWidth;if(h>0&&h!==b.width)b.setSize({width:h,height:o})};if(typeof ResizeObserver==="function"){let h=new ResizeObserver(p);h.observe(a),this.ros.push(h)}else this.resizes.push(p),window.addEventListener("resize",p)}}M.styles=r`
 	:host {
 		display: block;
 	}
