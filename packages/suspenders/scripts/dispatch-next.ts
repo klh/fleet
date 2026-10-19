@@ -73,6 +73,7 @@ import {
 import { grinderGate } from "./lib/lane-death-capture.ts";
 // W512: lane --settings composer — env grammar + the Task-pin hook block
 import { laneSettingsData } from "./lib/lane-settings.ts";
+import { effortForPriority } from "../hooks/lib/lane-effort.ts";
 // W519: .prefer prefer= soft routing — the brief carries the constraint
 import {
 	preferRoutingBriefLines,
@@ -1047,7 +1048,12 @@ const dispatchItem = async (
 		// updatedInput), the one channel no settings-env merge can clobber.
 		const laneSettings = `${FLEET}/lane-settings-${sid}.json`;
 		const m = pick.model ?? "glm-5.3-flash";
-		const settingsData = laneSettingsData(env, m, BIN);
+		const settingsData = laneSettingsData(
+			env,
+			m,
+			BIN,
+			effortForPriority(item.priority),
+		);
 		writtenFiles.set(laneSettings, settingsData);
 		writeFileSync(laneSettings, settingsData);
 		chmodSync(laneSettings, 0o600);
