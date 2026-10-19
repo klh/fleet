@@ -35,6 +35,7 @@ import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
 import { handleActions } from "../board/routes-actions.ts";
+import { handleConsultIngress } from "../board/routes-consult.ts";
 import { handleConsole } from "../board/routes-console.ts";
 import { handleData } from "../board/routes-data.ts";
 import { handleDrawer } from "../board/routes-drawer.ts";
@@ -139,6 +140,7 @@ const base = {
 			handleFederationUsage,
 			(req2, url2) => handleFederationWork(req2, url2, db),
 			handleDrawer,
+			handleConsultIngress,
 			handleActions,
 			handleOrch,
 			handleFiles,
