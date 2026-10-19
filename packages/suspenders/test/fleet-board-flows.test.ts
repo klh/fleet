@@ -444,6 +444,71 @@ describe("W57 orchestrate box", () => {
 			),
 		).toBe(true);
 	});
+	test("W863 preview exposes the pre-injection phase map; failed work cut", async () => {
+		await postO("/api/prompt/settings", { "prompt.log": true });
+		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		db.run("PRAGMA busy_timeout = 4500");
+		const ins = db.query(
+			"INSERT INTO work_items (project, id, title, state, owner_sid, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, 'test', ?, ?)",
+		);
+		ins.run(
+			MY_PROJ,
+			"W90001",
+			"failed noise",
+			"FAILED",
+			Date.now(),
+			Date.now(),
+		);
+		ins.run(MY_PROJ, "W90002", "ready work", "READY", Date.now(), Date.now());
+		db.close();
+		writeFileSync(join(REPO, "AGENTS.md"), "law: be terse\n");
+		const r = await postO("/api/orchestrate/preview", {
+			project: MY_PROJ,
+			goal: "add csv export",
+		});
+		expect(r.status).toBe(200);
+		const v = r.json.preview;
+		expect(v.phases.map((ph: { id: string }) => ph.id)).toEqual([
+			"planner-goal-header",
+			"planner-system-prompt",
+			"planner-repo-context",
+			"lane-brief",
+			"repo-law",
+			"remote-policy",
+		]);
+		const byId = new Map(v.phases.map((ph: { id: string }) => [ph.id, ph]));
+		const sys = byId.get("planner-system-prompt");
+		expect(sys.cacheable).toBe("yes");
+		expect(sys.bytes).toBeGreaterThan(0);
+		expect(sys.tokens).toBe(Math.ceil(sys.bytes / 4));
+		const brief = byId.get("lane-brief");
+		expect(brief.state).toBe("unknown");
+		expect(brief.bytes).toBeNull();
+		const law = byId.get("repo-law");
+		expect(law.state).toBe("ready");
+		expect(law.bytes).toBeGreaterThan(0);
+		expect(law.text).toContain("law: be terse");
+		const policy = byId.get("remote-policy");
+		expect(policy.state).toBe("unsupported");
+		expect(policy.note).toContain("Core SKU");
+		const ctx = byId.get("planner-repo-context");
+		expect(ctx.text).toContain("W90002 READY");
+		expect(ctx.text).not.toContain("W90001");
+		expect(typeof v.wireNote).toBe("string");
+		await postO("/api/prompt/settings", { "prompt.log": false });
+		const r2 = await postO("/api/orchestrate/preview", {
+			project: MY_PROJ,
+			goal: "add csv export",
+		});
+		const v2 = r2.json.preview;
+		expect(v2.phases.every((ph: { text: unknown }) => ph.text === null)).toBe(
+			true,
+		);
+		// clean up the seeded rows so later asserts see a stable graph
+		const del = new Database(`${HOME}/.cache/claude-governor/governor.db`);
+		del.run("DELETE FROM work_items WHERE id IN ('W90001','W90002')");
+		del.close();
+	});
 	test("W270 enhance via the router; inline transforms without a preview", async () => {
 		await postO("/api/prompt/settings", { "prompt.enhance": true });
 		const r = await postO("/api/orchestrate", {

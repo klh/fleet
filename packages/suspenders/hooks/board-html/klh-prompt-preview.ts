@@ -12,6 +12,17 @@ type Settings = Record<
 	boolean
 >;
 type Block = { label: string; text: string; bytes: number };
+type Phase = {
+	id: string;
+	label: string;
+	source: string;
+	state: "ready" | "unsupported" | "unknown";
+	bytes: number | null;
+	tokens: number | null;
+	cacheable: "yes" | "no" | "unknown";
+	note: string | null;
+	text: string | null;
+};
 type View = {
 	final: string;
 	finalBytes: number;
@@ -19,6 +30,8 @@ type View = {
 	enhanceNote: string | null;
 	stages?: Block[];
 	injected?: Block[];
+	phases?: Phase[];
+	wireNote?: string;
 	wireBytes?: number;
 };
 
@@ -78,6 +91,9 @@ class KlhPromptPreview extends LitElement {
 		}
 		.dim {
 			color: var(--klh-dim, #97917f);
+		}
+		.ph {
+			padding: 2px 0;
 		}
 		pre {
 			margin: 4px 0;
@@ -243,6 +259,24 @@ class KlhPromptPreview extends LitElement {
 		</details>`;
 	}
 
+	/** one pre-injection context phase (W863): summary row; the content
+	 *  block only when the server disclosed it (log mode) */
+	private phaseRow(ph: Phase): TemplateResult {
+		const size =
+			ph.bytes === null ? "size unknown" : `${ph.bytes} B (~${ph.tokens} tok)`;
+		const head = `${ph.label} · ${ph.source} · ${size} · cache ${ph.cacheable} · ${ph.state}`;
+		return ph.text !== null
+			? html`<details>
+					<summary>${head}</summary>
+					<pre>${ph.text}</pre>
+				</details>`
+			: html`<div class="ph">
+					${head}${
+						ph.note ? html` — <span class="dim">${ph.note}</span>` : nothing
+					}
+				</div>`;
+	}
+
 	private summary(): string {
 		const on = TOGGLES.filter(([k]) => this.settings[k]).map(([, l]) => l);
 		return `prompt transforms · ${on.length ? on.join(", ") : "all off"}`;
@@ -279,6 +313,13 @@ class KlhPromptPreview extends LitElement {
 							${v.injected.map((s) => this.block(s, false))}`
 					: nothing
 			}
+			${
+				v?.phases?.length
+					? html`<div class="dim">pre-injection context phases</div>
+							${v.phases.map((ph) => this.phaseRow(ph))}`
+					: nothing
+			}
+			${v?.wireNote ? html`<div class="dim note">${v.wireNote}</div>` : nothing}
 			${
 				this.sent || !this.project
 					? nothing

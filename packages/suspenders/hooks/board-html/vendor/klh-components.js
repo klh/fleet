@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class d extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
+import{r,e,t,s}from"./lit-9bpcreb0.js";var d=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],c={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class p extends s{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -31,6 +31,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["p
 		}
 		.dim {
 			color: var(--klh-dim, #97917f);
+		}
+		.ph {
+			padding: 2px 0;
 		}
 		pre {
 			margin: 4px 0;
@@ -69,10 +72,15 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["p
 			opacity: 0.5;
 			cursor: default;
 		}
-	`;project="";goal="";previewId=null;constructor(){super();this.settings={...c},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(i){return!this.busy&&!this.sent&&this.goal===i&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let a=await(await fetch("/api/prompt/settings")).json();if(a.settings)this.settings={...c,...a.settings}}catch{}}async toggle(i,a){let o=this.settings;this.settings={...o,[i]:a};try{let n=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[i]:a})}),l=await n.json();if(!n.ok||!l.settings)throw Error(l.error??`HTTP ${n.status}`);this.settings={...c,...l.settings}}catch(n){this.settings=o,this.err=`settings not saved: ${n instanceof Error?n.message:String(n)}`}}async prepare(i,a){this.project=i,this.goal=a,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let o=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({project:i,goal:a}),signal:AbortSignal.timeout(30000)}),n=await o.json();if(!o.ok||!n.ok||!n.preview)throw Error(n.error??`HTTP ${o.status}`);this.view=n.preview,this.previewId=n.previewId??null}catch(o){this.err=`preview failed: ${o instanceof Error?o.message:String(o)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(i,a){return e`<details ?open=${a}>
+	`;project="";goal="";previewId=null;constructor(){super();this.settings={...c},this.view=null,this.busy=!1,this.err=null,this.sent=!1}get gated(){return this.settings["prompt.debug"]||this.settings["prompt.log"]}ready(i){return!this.busy&&!this.sent&&this.goal===i&&!!this.project}connectedCallback(){super.connectedCallback(),this.loadSettings()}async loadSettings(){try{let a=await(await fetch("/api/prompt/settings")).json();if(a.settings)this.settings={...c,...a.settings}}catch{}}async toggle(i,a){let n=this.settings;this.settings={...n,[i]:a};try{let o=await fetch("/api/prompt/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[i]:a})}),l=await o.json();if(!o.ok||!l.settings)throw Error(l.error??`HTTP ${o.status}`);this.settings={...c,...l.settings}}catch(o){this.settings=n,this.err=`settings not saved: ${o instanceof Error?o.message:String(o)}`}}async prepare(i,a){this.project=i,this.goal=a,this.previewId=null,this.view=null,this.err=null,this.sent=!1,this.busy=!0;try{let n=await fetch("/api/orchestrate/preview",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({project:i,goal:a}),signal:AbortSignal.timeout(30000)}),o=await n.json();if(!n.ok||!o.ok||!o.preview)throw Error(o.error??`HTTP ${n.status}`);this.view=o.preview,this.previewId=o.previewId??null}catch(n){this.err=`preview failed: ${n instanceof Error?n.message:String(n)}`}finally{this.busy=!1}}clear(){this.view=null,this.err=null,this.sent=!1,this.goal="",this.project="",this.previewId=null}dispatch(){if(this.busy||this.sent||!this.project)return;this.sent=!0,this.dispatchEvent(new CustomEvent("klh-dispatch",{bubbles:!0,composed:!0,detail:{project:this.project,goal:this.goal,previewId:this.previewId}}))}block(i,a){return e`<details ?open=${a}>
 			<summary>${i.label} · ${i.bytes} B</summary>
 			<pre>${i.text}</pre>
-		</details>`}summary(){let i=p.filter(([a])=>this.settings[a]).map(([,a])=>a);return`prompt transforms · ${i.length?i.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let i=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
+		</details>`}phaseRow(i){let a=i.bytes===null?"size unknown":`${i.bytes} B (~${i.tokens} tok)`,n=`${i.label} · ${i.source} · ${a} · cache ${i.cacheable} · ${i.state}`;return i.text!==null?e`<details>
+					<summary>${n}</summary>
+					<pre>${i.text}</pre>
+				</details>`:e`<div class="ph">
+					${n}${i.note?e` — <span class="dim">${i.note}</span>`:t}
+				</div>`}summary(){let i=d.filter(([a])=>this.settings[a]).map(([,a])=>a);return`prompt transforms · ${i.length?i.join(", "):"all off"}`}body(){if(!this.busy&&!this.view&&!this.err)return t;let i=this.view;return e`<section class="pv" aria-live="polite" aria-label="dispatch preview">
 			<div class="hd">
 				<strong>${this.sent?"dispatched":"will dispatch"}</strong>
 				${i?e`<span class="dim"
@@ -88,6 +96,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["p
 							${i.stages.map((a)=>this.block(a,!1))}`:t}
 			${i?.injected?.length?e`<div class="dim">injected context (appended to the prompt)</div>
 							${i.injected.map((a)=>this.block(a,!1))}`:t}
+			${i?.phases?.length?e`<div class="dim">pre-injection context phases</div>
+							${i.phases.map((a)=>this.phaseRow(a))}`:t}
+			${i?.wireNote?e`<div class="dim note">${i.wireNote}</div>`:t}
 			${this.sent||!this.project?t:e`<div class="actions">
 							<button
 								class="go"
@@ -103,18 +114,18 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["p
 			<details>
 				<summary>${this.summary()}</summary>
 				<div class="toggles">
-					${p.map(([i,a])=>e`<label>
+					${d.map(([i,a])=>e`<label>
 							<input
 								type="checkbox"
 								.checked=${this.settings[i]}
-								@change=${(o)=>this.toggle(i,o.target.checked)}
+								@change=${(n)=>this.toggle(i,n.target.checked)}
 							/>
 							${a}
 						</label>`)}
 				</div>
 			</details>
 			${this.body()}
-		`}}customElements.define("klh-prompt-preview",d);class u extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
+		`}}customElements.define("klh-prompt-preview",p);class u extends s{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin-top: 6px;
@@ -174,4 +185,4 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var p=[["prompt.condense","condense"],["p
 			${this.latest?e`<output>
 						${this.when(this.latest.ts)} — ${this.latest.text}
 					</output>`:""}
-		`}}customElements.define("klh-decision-eval",u);function h(){let i=document.querySelectorAll(".dec[data-id]");for(let a of i){if(a.querySelector("klh-decision-eval"))continue;let o=a.querySelector(".dec-actions")??a,n=document.createElement("klh-decision-eval");n.setAttribute("event-id",a.getAttribute("data-id")??""),o.appendChild(n)}}var v=new MutationObserver(h);function g(){let i=document.querySelector("#decisions");if(!i){setTimeout(g,300);return}v.observe(i,{childList:!0,subtree:!0}),h()}g();
+		`}}customElements.define("klh-decision-eval",u);function h(){let i=document.querySelectorAll(".dec[data-id]");for(let a of i){if(a.querySelector("klh-decision-eval"))continue;let n=a.querySelector(".dec-actions")??a,o=document.createElement("klh-decision-eval");o.setAttribute("event-id",a.getAttribute("data-id")??""),n.appendChild(o)}}var v=new MutationObserver(h);function g(){let i=document.querySelector("#decisions");if(!i){setTimeout(g,300);return}v.observe(i,{childList:!0,subtree:!0}),h()}g();

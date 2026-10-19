@@ -3,15 +3,21 @@
 // sibling modules and the route modules import them.
 
 import { CLI, db } from "./context.ts";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { readBoardSettings } from "../lib/board-config.ts";
 import {
+	byteLen,
+	type ContextPhase,
 	enhancePrompt,
+	type Injection,
+	type PhaseCache,
 	type PromptPlan,
 	preparePrompt,
 	resolveEnhanceTarget,
 	resolvePromptSettings,
+	tokenEstimate,
 } from "./prompt-transform.ts";
+import { getEnterpriseProvider } from "./ent-seam.ts";
 import { condenseTier } from "@klh/blam/src/condense/tiers.ts";
 import { projectIdentity, projectRootOf } from "../lib/govdb.ts";
 
@@ -106,11 +112,14 @@ export function parseProposal(text: string): OrchProposal | null {
 // via the union protect grammar). Deterministic (L6), so the preview's
 // disclosed ctx is byte-identical to the dispatched ctx — the held plan
 // materializes ctx once, no tier-keyed cache needed.
+// W863: FAILED items are cut — failed work is terminal, not open; related
+// follow-ups re-mint READY (repro gate/requeue), so the planner never
+// reads an unrelated failed-item pile.
 export function orchContext(_project: string, repo: string): string {
 	const items = (
 		db
 			.query(
-				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','SHATTERED') ORDER BY id LIMIT ?",
+				"SELECT id, state, title FROM work_items WHERE project = ? AND state NOT IN ('DONE','CANCELLED','SUPERSEDED','SHATTERED','FAILED') ORDER BY id LIMIT ?",
 			)
 			.all(projectIdentity(repo), ORCH.CTX_ITEMS) as {
 			id: string;
@@ -142,6 +151,114 @@ export function orchTelemetry(payload: Record<string, unknown>): void {
 // the exact user message on the wire — the preview discloses this append
 export const orchUserMessage = (goal: string, ctx: string): string =>
 	`GOAL:\n${goal}\n\nREPO CONTEXT:\n${ctx}`;
+
+// one planner injection → its context phase (W863)
+const orchPhaseFromInjection = (
+	i: Injection | undefined,
+	id: string,
+	cacheable: PhaseCache,
+	source: string,
+): ContextPhase => {
+	const text = i?.text ?? null;
+	const bytes = text === null ? null : byteLen(text);
+	return {
+		id,
+		label: i?.label ?? id,
+		source,
+		state: text === null ? "unknown" : "ready",
+		bytes,
+		tokens: tokenEstimate(bytes),
+		cacheable,
+		note: text === null ? "injection missing from the plan" : null,
+		text,
+	};
+};
+
+// the lane bootstrap brief materializes at dispatch — before the plan
+// registers, its per-item parts (mission/intel/inbox) are honestly
+// unknowable (W863)
+const LANE_BRIEF_PHASE: ContextPhase = {
+	id: "lane-brief",
+	label: "lane bootstrap brief (mission + intel + inbox + protocol)",
+	source: "dispatch brief template (fleet-loop/dispatch.ts)",
+	state: "unknown",
+	bytes: null,
+	tokens: null,
+	cacheable: "no",
+	note: "materializes at dispatch — per-item bytes are unknowable before the plan registers",
+	text: null,
+};
+
+// the repo law files the brief directs the lane to read at bootstrap (W863)
+const orchLawPhase = (repo: string): ContextPhase => {
+	const files = ["AGENTS.md", "CLAUDE.md"].filter((f) =>
+		existsSync(`${repo}/${f}`),
+	);
+	const text = files
+		.map((f) => `# ${f}\n${readFileSync(`${repo}/${f}`, "utf8")}`)
+		.join("\n\n");
+	const bytes = files.length > 0 ? byteLen(text) : null;
+	return {
+		id: "repo-law",
+		label: "repo law (AGENTS.md / CLAUDE.md)",
+		source: "worktree files read at bootstrap",
+		state: bytes === null ? "unknown" : "ready",
+		bytes,
+		tokens: tokenEstimate(bytes),
+		cacheable: "yes",
+		note: bytes === null ? "no AGENTS.md/CLAUDE.md at the repo root" : null,
+		text: bytes === null ? null : text,
+	};
+};
+
+// remote corporate policy: honest about the seam — the public board is
+// Core SKU (no overlay = unsupported); an active overlay exposes policy
+// metadata, never injectable text (W863)
+const orchPolicyPhase = (): ContextPhase => {
+	const off = getEnterpriseProvider() === null;
+	return {
+		id: "remote-policy",
+		label: "remote corporate policy (enterprise overlay)",
+		source: "board ent-seam provider (W775)",
+		state: off ? "unsupported" : "unknown",
+		bytes: null,
+		tokens: null,
+		cacheable: off ? "unknown" : "yes",
+		note: off
+			? "Core SKU — no enterprise overlay on this board; no corporate policy context is injected"
+			: "overlay active; the board contract exposes policy metadata only, never injectable text",
+		text: null,
+	};
+};
+
+// the phase map the preview exposes: planner injections in wire order,
+// then the lane-side and policy layers (W863)
+export function orchPhases(plan: PromptPlan, repo: string): ContextPhase[] {
+	const inj = (n: number): Injection | undefined => plan.injected[n];
+	return [
+		orchPhaseFromInjection(
+			inj(0),
+			"planner-goal-header",
+			"no",
+			"orchestrate user message (code-pinned prepend)",
+		),
+		orchPhaseFromInjection(
+			inj(1),
+			"planner-system-prompt",
+			"yes",
+			"ORCH_SYS constant — identical across calls",
+		),
+		orchPhaseFromInjection(
+			inj(2),
+			"planner-repo-context",
+			"no",
+			"live repo scan: open work items + top-level entries",
+		),
+		LANE_BRIEF_PHASE,
+		orchLawPhase(repo),
+		orchPolicyPhase(),
+	];
+}
 
 // W270 — run the prompt transforms for one orchestrate goal; the plan's
 // ctx is pinned so dispatch sends exactly what the preview disclosed
@@ -190,6 +307,7 @@ export async function orchPrepare(
 		],
 		compose: (final) => orchUserMessage(final, ctx),
 	});
+	plan.phases = orchPhases(plan, repo);
 	return { ok: true, plan, ctx };
 }
 

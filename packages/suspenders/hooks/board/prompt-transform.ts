@@ -302,6 +302,40 @@ export interface Injection {
 	bytes: number;
 }
 
+// ─── W863 pre-injection context phases ───────────────────────────────────
+// The disclosure model for everything an agent sees before its first
+// inference: phase boundary, byte source, sizing estimates, cacheability,
+// and honest unsupported/unknown states. Provider wire bytes (chat
+// template, framing) are NEVER claimed — payloads only, estimates labeled.
+export type PhaseState = "ready" | "unsupported" | "unknown";
+export type PhaseCache = "yes" | "no" | "unknown";
+
+export interface ContextPhase {
+	id: string;
+	label: string;
+	/** where the bytes come from (code constant, repo scan, dispatch
+	 *  template, enterprise overlay) */
+	source: string;
+	state: PhaseState;
+	/** measured payload bytes; null = nothing measurable to disclose */
+	bytes: number | null;
+	/** ≈ceil(bytes/4) sizing estimate — never a tokenizer count */
+	tokens: number | null;
+	/** would this layer form a stable, provider-cacheable prefix? */
+	cacheable: PhaseCache;
+	note: string | null;
+	/** content — disclosed only in log mode (previewView gates + redacts) */
+	text: string | null;
+}
+
+/** ≈4 bytes/token heuristic for sizing only — never a tokenizer count. */
+export const tokenEstimate = (bytes: number | null): number | null =>
+	bytes === null ? null : Math.ceil(bytes / 4);
+
+/** Shown with the phase map so nobody reads the numbers as wire truth. */
+export const WIRE_NOTE =
+	"bytes are measured payloads; token counts are ≈4-byte estimates — provider wire bytes (chat template, framing) are never claimed";
+
 export interface PromptPlan {
 	settings: PromptSettings;
 	original: string;
@@ -313,6 +347,9 @@ export interface PromptPlan {
 	injected: Injection[];
 	/** the exact user message on the wire: final + appended context */
 	wire: string;
+	/** W863 — the pre-injection context phases (orch.ts builds them;
+	 *  optional because preparePrompt itself stays context-agnostic) */
+	phases?: ContextPhase[];
 }
 
 export const byteLen = (s: string): number => Buffer.byteLength(s, "utf8");
@@ -356,9 +393,18 @@ export async function preparePrompt(
 }
 
 // What the browser sees: debug = the final prompt only; log = every stage
-// + every injection with byte counts. Secrets are redacted in all of it.
+// + every injection with byte counts. W863: the pre-injection phase map
+// (metadata always, content log-gated) + the no-wire-bytes note ride the
+// view at every level. Secrets are redacted in all of it.
 export function previewView(p: PromptPlan): Record<string, unknown> {
 	const s = p.settings;
+	// W863 phase map: metadata always (boundaries, source, estimates,
+	// cacheability, state); content only in log mode, redacted like the
+	// rest of the disclosure.
+	const phases = (p.phases ?? []).map((ph) => ({
+		...ph,
+		text: s["prompt.log"] && ph.text !== null ? redactSecrets(ph.text) : null,
+	}));
 	const view: Record<string, unknown> = {
 		settings: s,
 		final: redactSecrets(p.final),
@@ -368,6 +414,8 @@ export function previewView(p: PromptPlan): Record<string, unknown> {
 			enhance: p.enhanced !== null,
 		},
 		enhanceNote: p.enhanceNote,
+		phases,
+		wireNote: WIRE_NOTE,
 	};
 	if (!s["prompt.log"]) return view;
 	return {

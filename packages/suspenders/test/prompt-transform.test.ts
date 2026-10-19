@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	condensePrompt,
+	type ContextPhase,
 	ENHANCE_DIRECT_ALIASES,
 	ENHANCE_SYS,
 	ENHANCE_URL,
@@ -18,6 +19,7 @@ import {
 	resolveEnhanceTarget,
 	resolvePromptSettings,
 	takePlan,
+	tokenEstimate,
 } from "../hooks/board/prompt-transform.ts";
 import { validateBoardSettings } from "../hooks/lib/board-config.ts";
 
@@ -388,6 +390,39 @@ describe("pipeline + disclosure", () => {
 		expect(inj[1].text).toBe("\n\nREPO CONTEXT:\nctx-é");
 		expect(inj[1].bytes).toBe(Buffer.byteLength("\n\nREPO CONTEXT:\nctx-é"));
 		expect(log.wireBytes).toBe(Buffer.byteLength(p.wire));
+	});
+	test("W863 phase map: metadata always, content log-gated, estimates labeled", async () => {
+		const p = await preparePrompt("please add x", PROMPT_DEFAULTS, deps());
+		const phase: ContextPhase = {
+			id: "repo-law",
+			label: "repo law",
+			source: "worktree files",
+			state: "ready",
+			bytes: 20,
+			tokens: 5,
+			cacheable: "yes",
+			note: null,
+			text: "token: abcdefgh12345",
+		};
+		const plan = { ...p, phases: [phase] };
+		const base = previewView(plan);
+		const basePhases = base.phases as {
+			text: string | null;
+			bytes: number | null;
+		}[];
+		expect(basePhases[0].text).toBeNull();
+		expect(basePhases[0].bytes).toBe(20);
+		expect(base.wireNote).toContain("estimates");
+		const log = previewView({
+			...plan,
+			settings: { ...PROMPT_DEFAULTS, "prompt.log": true },
+		});
+		const logPhases = log.phases as { text: string | null }[];
+		expect(logPhases[0].text).toBe("token: [redacted]");
+	});
+	test("tokenEstimate is the ≈4-byte heuristic, null-safe", () => {
+		expect(tokenEstimate(null)).toBeNull();
+		expect(tokenEstimate(9)).toBe(3);
 	});
 	test("never-empty: a goal that condenses to nothing is kept", async () => {
 		const p = await preparePrompt(
