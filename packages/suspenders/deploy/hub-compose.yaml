@@ -593,6 +593,7 @@ services:
     container_name: ${HUB_NAME:-desktop}-mdns-announce
     logging: *default-logging
     <<: *runtime-hardening
+    pids_limit: 128
     deploy:
       resources:
         limits:
@@ -622,6 +623,7 @@ services:
     container_name: ${HUB_NAME:-desktop}-mdns-health
     logging: *default-logging
     <<: *runtime-hardening
+    pids_limit: 128
     deploy:
       resources:
         limits:
