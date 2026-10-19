@@ -45,13 +45,6 @@ export interface MaintenanceTask {
 
 export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 	{
-		name: "org-knowledge-index",
-		everySeconds: 180,
-		nice: 10,
-		timeoutMs: 240_000,
-		argv: (root) => [join(root, "hooks/bin/org-knowledge-index.ts"), "sync"],
-	},
-	{
 		name: "fleet-monitor",
 		everySeconds: 900,
 		timeoutMs: 240_000,
