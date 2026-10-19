@@ -12,6 +12,28 @@
 export const modelPinHookCommand = (model: string, bin: string): string =>
 	`${process.execPath} ${bin}/lane-model-pin.ts --model ${model}`;
 
+// W830 runaway-guard: every-tool PreToolUse breaker registered beside the
+// Task pin; thresholds pass through dispatch env into the settings env
+// block (the 0600 file outranks user settings, so an operator pin survives
+// the merge). Absent keys fall through to the gate's built-in defaults.
+const RUNAWAY_ENV_KEYS = [
+	"SUSPENDERS_RUNAWAY",
+	"SUSPENDERS_RUNAWAY_REPEAT_MAX",
+	"SUSPENDERS_RUNAWAY_FAIL_STREAK",
+	"SUSPENDERS_RUNAWAY_USD_CAP",
+	"SUSPENDERS_RUNAWAY_USD_RATES",
+	"SUSPENDERS_RUNAWAY_TAIL_BYTES",
+	"SUSPENDERS_RUNAWAY_SCAN_CAP_BYTES",
+] as const;
+
+export const runawayHookCommand = (bin: string): string =>
+	`${process.execPath} ${bin}/gate.ts runaway`;
+
+const runawayEnv = (env: Record<string, string>): Record<string, string> =>
+	Object.fromEntries(
+		RUNAWAY_ENV_KEYS.filter((k) => env[k]).map((k) => [k, env[k]] as const),
+	);
+
 /** The lane --settings file content: env grammar + the W512 Task pin hook.
  *  Pure — unit-testable. */
 export const laneSettingsData = (
@@ -30,6 +52,7 @@ export const laneSettingsData = (
 					env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? model,
 				ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
 				ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
+				...runawayEnv(env),
 			},
 			hooks: {
 				PreToolUse: [
@@ -39,6 +62,15 @@ export const laneSettingsData = (
 							{
 								type: "command",
 								command: modelPinHookCommand(model, bin),
+								timeout: 10,
+							},
+						],
+					},
+					{
+						hooks: [
+							{
+								type: "command",
+								command: runawayHookCommand(bin),
 								timeout: 10,
 							},
 						],

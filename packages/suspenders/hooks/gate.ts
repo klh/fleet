@@ -24,14 +24,18 @@ import { postFailGate } from "./gates/post-fail.ts";
 import { pushGate } from "./gates/push.ts";
 import { preCompactGate } from "./gates/precompact.ts";
 import { preFilesChain } from "./gates/chain.ts";
+import { runawayGate } from "./gates/runaway.ts";
 
 const hook = await readHook();
 const event = process.argv[2] ?? "";
 
 switch (event) {
-	// biome-ignore lint/suspicious/noFallthroughSwitchClause: gates are `: never` — the call ends the case
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: bashGate is `: never` — the call ends the case
 	case "pre-bash":
 		bashGate(hook); // exits: single-gate event (deny/nudge/allow)
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: runawayGate is `: never` — the call ends the case
+	case "runaway":
+		runawayGate(hook); // W830: transcript-backed repeat/fail-streak/dollar breaker (lanes)
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: preFilesChain is `: never` — the call ends the case
 	case "pre-files":
 		preFilesChain(hook); // W14 chain — one process, allow() closes
