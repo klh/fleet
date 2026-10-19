@@ -23,7 +23,10 @@ scripts are banned; the fleet runs the engine via `bun src/cli.ts`):
 
 - `install.sh`, `justfile`, `.pre-commit-config.yaml`, `.github/`, `npm/`,
   `packaging/`, `Dockerfile`, `.dockerignore`, `.claude/`, `AGENTS.md`,
-  `CLAUDE.md`.
+  `CLAUDE.md`, `scripts/` (upstream build/release/parity automation —
+  removed 2026-10-19 after landing in the first cut; same policy: the
+  fleet runs the engine via `bun src/cli.ts`, release surfaces stay
+  upstream).
 - Upstream tests dropped with their surfaces (7 files): `npm-launcher`,
   `install-sh`, `release-validate`, `release-publish`, `distribution`,
   `release-artifacts`, `ui-dosu-copy` (each reads an excluded surface at
