@@ -94,6 +94,22 @@ describe("fleet install targets (W298)", () => {
 		expect(targets.length).toBeGreaterThan(70);
 	});
 
+	test("W918.4 retention record: listTargets retains every vendored non-universal agent (gating never prunes)", async () => {
+		// docs/w918.4-terminal-trove-gap-audit-2026-10-19.md — the audit found
+		// 35 of 65 Terminal-Trove comparison rows in the vendored catalog and
+		// 43 catalog-only targets. The retention contract: Trove presence is a
+		// prioritization signal, never a prune list — listTargets() must keep
+		// returning the FULL vendored set (minus the universal pseudo-agent).
+		// Relationship-pinned (set equality), so upstream catalog syncs stay
+		// green while any silent drop of a vendored target fails here.
+		const { listTargets } = await import("../hooks/lib/targets.ts");
+		const { agents } = await import("../hooks/lib/vendor/skills-agents.ts");
+		const targets = listTargets(REPO);
+		const vendored = Object.keys(agents).filter((t) => t !== "universal");
+		expect(targets.length).toBe(vendored.length);
+		expect(new Set(targets.map((t) => t.type))).toEqual(new Set(vendored));
+	});
+
 	test("detectFleetTargets: empty fake HOME detects none of our supported targets", async () => {
 		// Scoped to `supported` only: some vendored entries detect via an
 		// absolute app-bundle path (e.g. zcode's /Applications/ZCode.app)
