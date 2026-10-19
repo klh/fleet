@@ -72,7 +72,10 @@ riding + queued + last-5-done (or strict `--ids w1,w2`); columns
 ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT from each item's W776 attribution;
 fixed-width programmatic pads; ST letters R = riding, Q = queued, D = done,
 F = failed (W891 colors them on the board). Supervisor ticks paste it
-verbatim — the session-start SUPERVISOR DEFAULT contract references it and
+verbatim — the session-start SUPERVISOR DEFAULT contract EMITS it (the hook
+calls the one library; W899), lane briefs carry the same table (dispatch
+FLEET REPORT), and the install tail runs `work report` through the PATH
+shim as its final section (every install proves the verb live). This
 supersedes the W865 prose list.
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README

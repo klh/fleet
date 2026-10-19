@@ -27,6 +27,7 @@ import {
 	type ResolvedFlags,
 } from "./install-cli.ts";
 import { executePlan, type StepContext } from "./install-run.ts";
+import { reportTail } from "./install-report-tail.ts";
 
 const HELP = `
 Usage
@@ -164,12 +165,35 @@ async function main(): Promise<void> {
 		),
 		contract: INSTALL_CONTRACT,
 	};
+	// W899: the install tail CALLS the W892 verb — `work report` through the
+	// installed prefix's PATH shim — and its output is the install's final
+	// section (every CONSENTED install proves the verb live; a dead tail
+	// fails the install, never a silent skip. Paused/dry plans skip: nothing
+	// installed, nothing to prove).
+	if (mode === "plan" && !flags.dryRun && flags.yes) {
+		const tail = reportTail({ prefix: paths.prefix, shimBin: paths.shimBin });
+		doc.report_table = tail.ok ? tail.out : null;
+		if (!tail.ok) {
+			console.error(
+				`install: WORK REPORT tail FAILED — ${tail.err || "no output"}`,
+			);
+			process.exitCode = 1;
+		}
+	}
 	if (flags.json) {
 		console.log(JSON.stringify(doc, null, "\t"));
 	} else {
 		renderHuman(doc);
+		if (doc.report_table !== undefined)
+			console.log(
+				doc.report_table === null
+					? "\nWORK REPORT: FAILED — the work report verb did not run from the installed prefix (see the error above)"
+					: `\nWORK REPORT (via the PATH shim from ${paths.prefix}):\n${doc.report_table}`,
+			);
 	}
-	process.exitCode = exitFor(doc.outcome);
+	// the tail's failure verdict wins over the plan outcome (a dead proof is
+	// a failed install — "make damn sure")
+	if (process.exitCode !== 1) process.exitCode = exitFor(doc.outcome);
 }
 
 if (import.meta.main) {

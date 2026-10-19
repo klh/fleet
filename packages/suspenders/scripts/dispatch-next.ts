@@ -99,6 +99,7 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
+import { fleetReport } from "./lib/fleet-report.ts";
 // W862: policy provenance rides the brief — read-only graph read, the
 // compliance check itself re-runs at the lane's session bootstrap
 import { policyBriefLines } from "../hooks/lib/session-policy.ts";
@@ -507,6 +508,7 @@ const dispatchItem = async (
 			effort: effortFromShow(show.out),
 			landing: await landingRedirect(REPO, branch),
 			intel,
+			fleetReport: fleetReport(REPO),
 			extra: [
 				...routingExtra(),
 				...resumeBriefLine(
@@ -771,6 +773,7 @@ const dispatchItem = async (
 			agent: pick.agent,
 			effort: effortFromShow(show.out),
 			intel,
+			fleetReport: fleetReport(REPO),
 			extra: [
 				...routingExtra(),
 				...resumeBriefLine(resumeDecision),
@@ -1441,6 +1444,10 @@ const main = async (): Promise<void> => {
 	console.log(
 		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
 	);
+	// W899: the dispatch summary carries the fleet report table — same shape
+	// the install tail, session-start tick and lane briefs emit.
+	const report = fleetReport(REPO);
+	if (report) console.log(report);
 	// W695.1: a seed fallback dispatched a lane that will re-orient from cold
 	// context — never read as a fully healthy dispatch even when nothing was
 	// refused.

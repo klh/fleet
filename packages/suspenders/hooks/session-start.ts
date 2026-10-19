@@ -25,6 +25,7 @@ import {
 	supervisorFactLine,
 	supervisorRows,
 } from "./lib/supervisor.ts";
+import { renderFleetReport } from "../scripts/lib/fleet-report.ts";
 
 type In = {
 	session_id?: string;
@@ -331,10 +332,15 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 	// READY work, the arm-loop directive renders here — compliance by
 	// injection, not model-recall of the global CLAUDE.md rule. Top-level
 	// sessions only: a subagent lane is not a loop-arming runtime.
-	if (readyN > 0 && !isSubagent)
+	if (readyN > 0 && !isSubagent) {
+		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
+		// session-start only CALLS the one implementation (lib/work-report.ts),
+		// the same shape the install tail and lane briefs carry.
 		out.push(
 			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: one status line (lanes live x/N, READY n, dispatched) followed by the \`work report\` table pasted verbatim as the reply list (columns ITEM/ST/TASK/TOKENS/CACHE/OUT/MIN/AGENT; ST letters R=riding Q=queued D=done F=failed). Keep working owned items when slots are full.`,
 		);
+		out.push(renderFleetReport(db as unknown as Database, project));
+	}
 }
 
 // W422.17.1 interactive-session enrollment — top-level sessions mint (or
