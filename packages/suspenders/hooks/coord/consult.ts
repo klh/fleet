@@ -72,17 +72,32 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W604: consult_kb first (asker-verified solutions), then the knowledge
 	// store — a hash-verified fact answers with its trust attached; lanes only
 	// pinged on miss. --no-kb escapes both.
-	const factHit = (kbHit || rest.includes("--no-kb"))
-		? null
-		: await factLookup(question);
+	const factHit =
+		kbHit || rest.includes("--no-kb") ? null : await factLookup(question);
 	if (!kbHit && !factHit) {
 		if (rest.includes("--best"))
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
-		if (!expert)
+		if (!expert) {
+			// W923: a refused consult still events (the W909 item link rides in
+			// the payload) — invisible consults made the report CONSULT all-N.
+			db.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
+			).run(
+				Date.now(),
+				as,
+				scope,
+				JSON.stringify({
+					state: "REFUSED",
+					why: "no ranked expert",
+					...link,
+				}),
+				as,
+			);
 			die(
 				"no ranked expert — nobody live has touched this; retain evidence and request a decision, do not broadcast or retry unchanged",
 			);
+		}
 		if (
 			!db
 				.query(
@@ -166,7 +181,12 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			state: "FACT",
 			...link,
 			answer: factHit.fact ?? "",
-			fact: { id: factHit.id, topic: factHit.topic, trust: factHit.trust, source: factHit.source_ref },
+			fact: {
+				id: factHit.id,
+				topic: factHit.topic,
+				trust: factHit.trust,
+				source: factHit.source_ref,
+			},
 		});
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",

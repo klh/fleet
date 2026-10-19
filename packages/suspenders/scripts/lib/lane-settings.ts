@@ -40,6 +40,7 @@ export const laneSettingsData = (
 	env: Record<string, string>,
 	model: string,
 	bin: string,
+	effort: string | null = null,
 ): string =>
 	JSON.stringify(
 		{
@@ -58,8 +59,10 @@ export const laneSettingsData = (
 				ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN,
 				// W909: the lane's effort level — `work done` banks it into the
 				// work.done event (lib/lane-effort.ts); the reporter renders it.
-				...(env.SUSPENDERS_LANE_EFFORT
-					? { SUSPENDERS_LANE_EFFORT: env.SUSPENDERS_LANE_EFFORT }
+				// W923: env wins; the priority-derived default (dispatch-next)
+				// fills the pin so EFFORT is never empty no-data in the report.
+				...(env.SUSPENDERS_LANE_EFFORT || effort
+					? { SUSPENDERS_LANE_EFFORT: env.SUSPENDERS_LANE_EFFORT || effort }
 					: {}),
 				...runawayEnv(env),
 			},

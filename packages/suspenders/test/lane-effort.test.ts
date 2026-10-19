@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	claimedWorkOf,
 	doneEffortStamp,
+	effortForPriority,
 	laneEffortFromSettingsFile,
 } from "../hooks/lib/lane-effort.ts";
 
@@ -59,5 +60,17 @@ describe("claimedWorkOf", () => {
 		expect(claimedWorkOf(d, "p", "ghost")).toBeNull();
 		expect(claimedWorkOf(d, "p", null)).toBeNull();
 		d.close();
+	});
+});
+
+describe("effortForPriority (W923 dispatch default)", () => {
+	test("priority maps high/medium/low; null → medium", () => {
+		expect(effortForPriority(null)).toBe("medium");
+		expect(effortForPriority(undefined)).toBe("medium");
+		expect(effortForPriority(0)).toBe("high");
+		expect(effortForPriority(1)).toBe("high");
+		expect(effortForPriority(2)).toBe("medium");
+		expect(effortForPriority(3)).toBe("low");
+		expect(effortForPriority(9)).toBe("low");
 	});
 });

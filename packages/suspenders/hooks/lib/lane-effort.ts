@@ -55,3 +55,15 @@ export const claimedWorkOf = (
 		return null; // no graph table (tests) — fail soft
 	}
 };
+
+/** W923: the dispatch default — item priority to a short effort word the 0600
+ *  settings pin carries. env SUSPENDERS_LANE_EFFORT overrides it (dispatch env
+ *  wins over the derived default in lane-settings.ts). */
+export const effortForPriority = (
+	priority: number | null | undefined,
+): string => {
+	if (priority === null || priority === undefined) return "medium";
+	if (priority <= 1) return "high";
+	if (priority === 2) return "medium";
+	return "low";
+};
