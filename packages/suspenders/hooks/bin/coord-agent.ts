@@ -74,7 +74,7 @@ function enroll(rest: string[]): void {
 				ask: "POST /api/consult {project, sid, q, target?|best?, scope?}",
 				answer: "POST /api/consult-reply {project, sid, cid, answer|decline:true}",
 				broadcast: "POST /api/broadcast {project, sid, note}",
-				pull: `GET /api/outbox/${sid}`,
+				pull: `GET /api/outbox/${sid}?project=<project> (x-klh-write-token header)`,
 			},
 		},
 		null,
@@ -118,7 +118,11 @@ async function smoke(rest: string[]): Promise<void> {
 		if (reply.state !== "ANSWERED")
 			fails.push(`consult-reply: ${JSON.stringify(reply).slice(0, 200)}`);
 	}
-	const pull = await (await fetch(`${base}/api/outbox/${sid}`)).json();
+	const pull = await (
+		await fetch(`${base}/api/outbox/${sid}?project=${encodeURIComponent(project)}`, {
+			headers: { "x-klh-write-token": token },
+		})
+	).json();
 	if (!pull.ok) fails.push("outbox: not ok");
 	if (fails.length) die(`SMOKE FAIL — ${fails.join("; ")}`);
 	console.log(`SMOKE PASS ${cid} — consult, reply and outbox all served`);
