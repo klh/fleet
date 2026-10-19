@@ -40,6 +40,23 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/enterprise   W775.1 enterprise panel slices (identity, federation, audit, usage, policy, vault, ma) when entitled, else honest 501
 - GET /llms.txt       this file
 
+## Board deep-link hashes
+
+Tab hashes take query-style params — #<tab>?key=value&... over the tabs
+decisions, tasks, lanes, activity, governor, setup. Params:
+
+- w=<id> (aliases task=, id=) — link straight into the lanes view: switches
+  to lanes, highlights + scrolls to the item's kanban card, opens the task
+  drawer. Optional proj= disambiguates the project.
+- project=<path-or-alias> — selects the global project scope (full
+  git-common-dir path or its last path segment, e.g. fleet)
+- q=<term> / filter=<term> — the filter needle (the #filter=<term> legacy
+  form still works)
+- unknown params console.warn and are ignored; the tab still switches
+
+Examples: #lanes?w=W890 · #tasks?project=fleet&q=deep · #task=<id>&proj=<path>
+(legacy). Plain #<tab> still switches tabs.
+
 ## Write endpoints (human at the board; origin/host guarded)
 
 - POST /api/answer    answer a decision fork (answer_token idempotency; stale token = 409)
