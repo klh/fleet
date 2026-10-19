@@ -24,7 +24,7 @@ scripts are banned; the fleet runs the engine via `bun src/cli.ts`):
 - `install.sh`, `justfile`, `.pre-commit-config.yaml`, `.github/`, `npm/`,
   `packaging/`, `Dockerfile`, `.dockerignore`, `.claude/`, `AGENTS.md`,
   `CLAUDE.md`.
-- Upstream tests dropped with their surfaces (10 files): `npm-launcher`,
+- Upstream tests dropped with their surfaces (7 files): `npm-launcher`,
   `install-sh`, `release-validate`, `release-publish`, `distribution`,
   `release-artifacts`, `ui-dosu-copy` (each reads an excluded surface at
   module load). The rest of the upstream suite (119 files, 1444 tests) ships
@@ -32,31 +32,55 @@ scripts are banned; the fleet runs the engine via `bun src/cli.ts`):
 
 ## The adapter layer (fleet-owned: `fleet/`)
 
-Our changes live here, not in upstream files. qlty excludes the snapshot dirs
-but not `packages/decant/fleet/`, so this layer stays linted.
+Our changes live here, not in upstream files. The root qlty config excludes
+ALL of `packages/decant/**` (decant ships its own biome.json — a second
+biome root; root-level runs conflict), and `fleet/biome.json` re-enables the
+same rules for the fleet layer only, so `fleet/` stays linted under decant's
+rule set.
 
 - `fleet/registry.ts` — the session-source registry (the W950 seam). Entries
   are keyed by W918 skills-CLI target id (`AgentType`); each entry resolves
   session dirs + names the decant `Tool` (transcript-format adapter) that
   parses it. The stock four (`claude-code`, `codex`, `gemini-cli`, `opencode`)
-  preserve upstream dir resolution (decant env/flag overrides win first).
+  read the parity-resolved config values upstream `discover()` itself uses,
+  so dir parity holds by construction; `registerSessionSource()` extends the
+  registry per landed adapter.
 - `fleet/after-sync.ts` — the self-extending miss path: after every CLI
   `sync`, detected catalog targets with no registered adapter are surfaced
   and (unless `DECANT_ADAPTER_MINT=0`) minted as `decant adapter: <cli-id>`
   work items — title + sample PATHS only (never contents; scrub discipline),
   one pending item per cli-id, `DECANT_WORK_BIN` overrides the work CLI
   (default: `work` on PATH).
+- `fleet/confidence.ts` — the ingest-time confidence stamp (owner addendum,
+  2026-10-19): every ingested session gets `{value: 0.4, setter:
+  "mechanical:decant", verdict: "fresh"}` written by a fleet-owned AFTER
+  INSERT trigger on the `session` table — same transaction as the rows it
+  grades, append-only history in `confidence_stamp`. Unit = the session
+  derivation; consumers resolve row confidence through the session join.
+- `fleet/biome.json` — the nested biome config for the fleet layer (same
+  rule set as the package config; needed because the package config's
+  `files.includes` predates `fleet/`).
 
 ## The seam (minimal in-file edits, rebase recipe)
 
-Exactly two upstream files carry W950 edits; both are one-line delegation
-points. On an upstream re-sync, re-apply them by hand:
+`src/ingest.ts` stays BYTE-PURE: at 1986 lines it is over the fleet 1500-line
+cap, so the on-write gate forbids editing it — and the fleet design doesn't
+need to. The registry drives discovery through upstream's own `--path`
+pathway: with no user `--path`, the CLI seam injects the registry-resolved
+source list into `config.sourcePaths`, and upstream `discover()` routes
+through its own exported `discoverSourcePaths()` collector (classification
+identical to the hardcoded four — same `sourceFileForPath` /
+`geminiSessionLayout` / opencode-db matchers). Exactly three upstream files
+carry W950 edits, all in the CLI/watch boundary layer:
 
-1. `src/ingest.ts` — `discover()` delegates to the registry when no
-   `--path` override is present:
-   `return discoverFromSessionSources(config, discoverSourcePaths);`
-2. `src/cli/commands/sync.ts` — the sync action calls
-   `afterSync(...)` (fleet layer) after the ingest report lands.
+1. `src/cli/commands/sync.ts` — with no user `--path`,
+   `sourcePaths: commandOptions.path ?? sessionSourcePaths(config)`; after
+   the report lands, `afterSync()` runs the miss-mint path.
+2. `src/cli/context.ts` — `openArchive()` installs the confidence-stamp
+   trigger (`ensureConfidenceTable`) before any ingest; the `withArchive`
+   auto-sync injects the registry source list.
+3. `src/watch.ts` — `runSyncOnce()` opens its own database handle: installs
+   the trigger there and injects the registry source list per sweep.
 
 Plus a fleet section added to `README.md` (the unencrypted-archive caveat).
 
@@ -73,7 +97,7 @@ Plus a fleet section added to `README.md` (the unencrypted-archive caveat).
 
 1. Clone the new upstream tag to /tmp (shallow).
 2. Copy the snapshot dirs/files (same scope as the W950 vendor commit).
-3. Re-apply the two seam edits + the README fleet section.
+3. Re-apply the three seam edits + the README fleet section.
 4. Re-drop the curated test files (list above).
 5. `bun install --frozen-lockfile` in this package, run `bun test` (expect
    the upstream suite green), then `bun test fleet/` for ours.

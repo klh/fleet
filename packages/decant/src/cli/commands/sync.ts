@@ -12,6 +12,9 @@ import {
 } from "../../watch.ts";
 import type { CliContext } from "../context.ts";
 import { collectOption, parseInteger } from "../parse.ts";
+// W950 fleet seam (FLEET.md): session-source registry + post-sync miss path.
+import { afterSync } from "../../../fleet/after-sync.ts";
+import { sessionSourcePaths } from "../../../fleet/registry.ts";
 
 export function registerSyncCommands(ctx: CliContext): void {
   const { program, io } = ctx;
@@ -35,8 +38,11 @@ export function registerSyncCommands(ctx: CliContext): void {
       (archive) => {
         const report = ingestSync(archive.db, {
           ...archive.config,
-          sourcePaths: commandOptions.path,
+          // W950 fleet seam: with no user --path, the session-source registry
+          // supplies the source list; upstream's own collector then runs.
+          sourcePaths: commandOptions.path ?? sessionSourcePaths(archive.config),
         });
+        afterSync();
         // `env` is only populated by tests, so read through to the real
         // environment the way `shouldSync` and `resolveConfig` do -- otherwise
         // the hint omits `--db` for anyone running with `DECANT_DB` set.

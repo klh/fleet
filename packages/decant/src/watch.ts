@@ -17,6 +17,9 @@ import {
   type SyncProgress,
   type SyncReport,
 } from "./ingest.ts";
+// W950 fleet seam (FLEET.md): session-source registry drives discovery.
+import { sessionSourcePaths } from "../fleet/registry.ts";
+import { ensureConfidenceTable } from "../fleet/confidence.ts";
 
 export const DEFAULT_SYNC_INTERVAL_MS = 45_000;
 export const DEFAULT_DEBOUNCE_MS = 1_500;
@@ -368,7 +371,16 @@ export function runSyncOnce(
   try {
     mkdirSync(dirname(config.dbPath), { recursive: true, mode: ARCHIVE_DIR_MODE });
     db = open(config.dbPath);
-    const report = ingestSync(db, config, cancel, onProgress);
+    // W950 fleet seam (FLEET.md): install the confidence-stamp trigger before
+    // this handle can ingest (watch opens its own database handle).
+    ensureConfidenceTable(db);
+    const report = ingestSync(
+      db,
+      // W950 fleet seam: registry-driven source list (see FLEET.md).
+      { ...config, sourcePaths: sessionSourcePaths(config) },
+      cancel,
+      onProgress,
+    );
     status.finishOk(report);
     return report;
   } catch (error) {

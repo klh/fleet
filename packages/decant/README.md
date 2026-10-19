@@ -9,7 +9,7 @@
 <!-- FLEET (W950): this tree is a vendored dosu-ai/decant snapshot @ v0.11.0.
      Fleet integration notes, the unencrypted-archive caveat, and the upgrade
      recipe live in FLEET.md. Upstream-owned bytes stay unmodified except the
-     two seam edits listed there. -->
+     CLI-layer seam edits listed there. -->
 
 Decant turns the Claude Code, Codex, Gemini CLI, and OpenCode session logs on
 your machine into tangible insights. See where tokens, cost, and agent time go,

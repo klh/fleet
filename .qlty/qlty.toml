@@ -56,9 +56,13 @@ exclude_patterns = [
   "packages/belt/bench/arena/tasks-ext/**",
   "packages/belt/bench/arena/ext-raw/**",
   # W950: vendored dosu-ai/decant snapshot @ v0.11.0 — upstream-owned bytes,
-  # never reformatted in place; our adapter layer lives in packages/decant/fleet/
-  # and stays linted.
+  # never reformatted in place. The WHOLE tree is excluded from the ROOT qlty
+  # config: decant ships its own biome.json (a second biome root — a root-level
+  # run conflicts), and the adapter layer in packages/decant/fleet/ is linted
+  # through THAT config (the on-write gate runs qlty from the edited file's
+  # dir, so the nearest-config discovery picks decant's rules).
   "packages/decant/src/**",
+  "packages/decant/fleet/**",
   "packages/decant/scripts/**",
   "packages/decant/test/**",
   "packages/decant/fixtures/**",

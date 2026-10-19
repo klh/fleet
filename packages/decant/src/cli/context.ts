@@ -4,6 +4,9 @@ import type { Command } from "commander";
 import { type Config, type ConfigOverrides, resolveConfig } from "../config.ts";
 import { ARCHIVE_DIR_MODE, closeDb, openDb } from "../db.ts";
 import { sync as ingestSync } from "../ingest.ts";
+// W950 fleet seam (FLEET.md): session-source registry drives discovery.
+import { sessionSourcePaths } from "../../fleet/registry.ts";
+import { ensureConfidenceTable } from "../../fleet/confidence.ts";
 import type { OutputFormat } from "./parse.ts";
 
 export interface CliResult {
@@ -78,6 +81,9 @@ export function shouldSyncOnRead(
 export function openArchive(config: Config): Archive {
   mkdirSync(dirname(config.dbPath), { recursive: true, mode: ARCHIVE_DIR_MODE });
   const db = openDb(config.dbPath);
+  // W950 fleet seam (FLEET.md): install the fleet-owned confidence-stamp
+  // trigger before any ingest can run against this archive.
+  ensureConfidenceTable(db);
   return { db, config };
 }
 
@@ -124,7 +130,11 @@ export function createContext(
       const archive = openArchive(ctx.resolve(archiveOptions.overrides));
       try {
         if (archiveOptions.sync === true && ctx.shouldSync()) {
-          ingestSync(archive.db, archive.config);
+          ingestSync(archive.db, {
+            ...archive.config,
+            // W950 fleet seam: registry-driven source list (see FLEET.md).
+            sourcePaths: sessionSourcePaths(archive.config),
+          });
         }
         return fn(archive);
       } finally {
