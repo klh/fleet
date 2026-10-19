@@ -173,7 +173,10 @@ gui/$(id -u)/<label>` revives):
     router/swarm
   - W779 heartbeat (2026-10-18): the no-port maintenance agents (fleet-
     monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
-    keepwarm, coord-worker, auto-install, soak) are NOT launchd units —
+    keepwarm, coord-worker, auto-install, soak, rogue-reap W827 —
+    reaps lane-leaked serve processes in stale .worktrees dirs + prunes
+    merged-and-clean worktrees; `.fleet/rogue-reap-paused` pauses) are
+    NOT launchd units —
     they are typed tasks fired by the ONE fleet-loop cycle, each task
     owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
     retired labels ride the services.yaml legacyLabels boot-out list)
