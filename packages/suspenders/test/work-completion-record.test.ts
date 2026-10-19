@@ -24,6 +24,9 @@ function fixture() {
 	cleanup.push(repo);
 	const home = join(repo, ".test-home");
 	const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
+	// W670: never leak the spawning lane's claim token into fixture children —
+	// the context channel, not ambient env, must carry the take-minted token
+	delete env.KLH_CLAIM_TOKEN;
 	const git = (...args: string[]) =>
 		Bun.spawnSync(["git", "-C", repo, ...args], {
 			stdout: "pipe",
@@ -83,6 +86,8 @@ function crossFixture(opts: { scope?: boolean; marker?: boolean } = {}) {
 		HOME: join(repo, ".test-home"),
 		GOVERNOR_STORE_URL: "",
 	};
+	// W670: strip the spawning lane's claim token (see fixture() above)
+	delete env.KLH_CLAIM_TOKEN;
 	const gitIn = (dir: string, ...args: string[]) => {
 		const p = Bun.spawnSync(["git", "-C", dir, ...args], {
 			stdout: "pipe",

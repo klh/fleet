@@ -1,0 +1,416 @@
+// hooks/lib/claim-check.ts — W833: the done-gate claim-check probe. Lanes
+// assert test outcomes in prose ("all tests green") and in the final
+// capsule; this probe makes those claims evidence-bearing: a passing test
+// run must exist in the lane transcript BEFORE the claim, no test-affecting
+// file may have changed after the last passing run (mtime as the
+// cost-bounded proxy for the hash check — no suite rerun), and the closing
+// diff must not delete tests, add focused/expected-failure gates, or loosen
+// assertions. Added skip/only/todo gates ride the W511 fake-completion scan
+// in the same gate and are not repeated here. Detection vocabulary is
+// assembled from split string parts so the W511 scan never flags this
+// file's own source.
+//
+// Fail-open: an unreadable/absent transcript yields no transcript claims
+// (capsule text still counts), untimestamped events are dropped, and stat
+// failures skip a path. SUSPENDERS_CLAIM_CHECK=0 disables the probe.
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+/** transcript scan window — bounded tail, never the unbounded file. */
+export const CLAIM_CHECK_SCAN_BYTES = 8 * 1024 * 1024;
+/** mtime grace after the last passing run (post-test formatting lands here). */
+export const CLAIM_CHECK_GRACE_MS = 120_000;
+
+const assemble = (...parts: string[]): string => parts.join("");
+
+// claim vocabulary — assistant prose only; briefs and user turns never claim
+const CLAIM_RES: RegExp[] = [
+	/\b(?:all\s+)?tests?\s+(?:pass|passed|passing|green)\b/i,
+	/\btests?\s+are\s+(?:passing|green)\b/i,
+	/\bsuite\s+(?:is\s+)?(?:green|passing)\b/i,
+];
+const NEG_PRE =
+	/\b(?:no|not|never|without|cannot|didn't|doesn't|won't|can't)\b[^.]*$/i;
+const RUN_PASS = /(\d+)\s+pass(?:ed)?\b/i;
+const RUN_FAIL = /(\d+)\s+fail(?:ed|ure)?\b/i;
+
+/** a test-pass claim in lane prose (negations in the preceding window void it). */
+export const isClaim = (text: string): boolean =>
+	CLAIM_RES.some((re) => {
+		const m = re.exec(text);
+		if (!m) return false;
+		const at = m.index ?? 0;
+		return !NEG_PRE.test(text.slice(Math.max(0, at - 40), at));
+	});
+
+/** pass/fail counts from a test-summary tool output (bun/jest/vitest sums). */
+export const runCounts = (
+	text: string,
+): { pass: number; fail: number } | null => {
+	const p = RUN_PASS.exec(text);
+	const f = RUN_FAIL.exec(text);
+	if (!p && !f) return null;
+	return { pass: p ? Number(p[1]) : 0, fail: f ? Number(f[1]) : 0 };
+};
+
+export const isPassingRun = (text: string): boolean => {
+	const c = runCounts(text);
+	return c !== null && c.pass > 0 && c.fail === 0;
+};
+
+export interface ClaimEvent {
+	ts: number;
+	text: string;
+}
+export interface TranscriptEvents {
+	claims: ClaimEvent[];
+	runs: ClaimEvent[];
+}
+
+type ContentPart = { type?: unknown; text?: unknown; content?: unknown };
+
+const toolResultText = (c: ContentPart): string => {
+	if (typeof c.content === "string") return c.content;
+	if (!Array.isArray(c.content)) return "";
+	return c.content
+		.map((p: unknown) => {
+			const part = p as ContentPart;
+			return typeof part?.text === "string" ? part.text : "";
+		})
+		.join("\n");
+};
+
+/** Extract claim events (assistant prose) and run events (tool outputs with
+ *  pass/fail sums) from transcript JSONL text. Untimestamped lines drop. */
+export function transcriptEventsFromText(text: string): TranscriptEvents {
+	const out: TranscriptEvents = { claims: [], runs: [] };
+	const keep = (ev: ClaimEvent, into: ClaimEvent[]): void => {
+		if (ev.ts > 0) into.push(ev);
+	};
+	for (const lineOf of text.split("\n")) {
+		if (lineOf.length < 2) continue;
+		let obj: Record<string, unknown>;
+		try {
+			obj = JSON.parse(lineOf) as Record<string, unknown>;
+		} catch {
+			continue;
+		}
+		const ts = Date.parse(String(obj.timestamp ?? "")) || 0;
+		const msg = obj.message as
+			| { role?: unknown; content?: unknown }
+			| undefined;
+		const assistant = msg?.role === "assistant" || obj.type === "assistant";
+		const content = msg?.content;
+		if (Array.isArray(content))
+			for (const c of content as ContentPart[]) {
+				if (!c || typeof c !== "object") continue;
+				if (c.type === "tool_result") {
+					const t = toolResultText(c);
+					if (t && runCounts(t)) keep({ ts, text: t }, out.runs);
+				} else if (
+					assistant &&
+					c.type === "text" &&
+					typeof c.text === "string" &&
+					isClaim(c.text)
+				)
+					keep({ ts, text: c.text }, out.claims);
+			}
+		const tur = obj.toolUseResult as unknown;
+		const turTexts: string[] = [];
+		if (typeof tur === "string") turTexts.push(tur);
+		else if (tur && typeof tur === "object")
+			for (const k of ["stdout", "stderr"] as const) {
+				const v = (tur as Record<string, unknown>)[k];
+				if (typeof v === "string") turTexts.push(v);
+			}
+		for (const t of turTexts)
+			if (runCounts(t)) keep({ ts, text: t }, out.runs);
+	}
+	return out;
+}
+
+/** Bounded tail of a transcript file (last cap bytes, aligned to a line
+ *  start). Null on any failure — callers fail open. */
+export function transcriptWindow(
+	path: string,
+	cap = CLAIM_CHECK_SCAN_BYTES,
+): string | null {
+	let fd: number | null = null;
+	try {
+		fd = openSync(path, "r");
+		const size = fstatSync(fd).size;
+		const start = Math.max(0, size - cap);
+		const buf = Buffer.alloc(size - start);
+		readSync(fd, buf, 0, size - start, start);
+		let s = buf.toString("utf8");
+		if (start > 0) {
+			const nl = s.indexOf("\n");
+			if (nl >= 0) s = s.slice(nl + 1);
+		}
+		return s;
+	} catch {
+		return null;
+	} finally {
+		if (fd !== null) closeSync(fd);
+	}
+}
+
+export interface ClaimCheckHit {
+	kind: string;
+	path: string;
+	line: number;
+	text: string;
+}
+
+const TEST_FILE =
+	/(?:^|[/\\])(?:tests?|e2e|spec|__tests__)[/\\]|\.(?:test|spec)\.[cm]?[jt]sx?$/i;
+const TEST_CALL_NAME = new RegExp(
+	assemble(
+		"\\b(",
+		"describe|it|test",
+		')\\s*\\(\\s*(["\'`])([^"\'`]{1,160}?)\\2',
+	),
+);
+const XFAIL_RE = new RegExp(
+	assemble("\\.fai", "ling\\s*\\(|\\bf(", "it|describe", ")\\s*\\(|\\bxfa", "il\\b"),
+	"i",
+);
+const STRICT_RE =
+	/\.(?:toBe|toEqual|toStrictEqual|toMatchObject|toMatchSnapshot|toContain|toHaveLength)\s*\(/;
+const LOOSE_RE = /\.(?:toBeTruthy|toBeFalsy|toBeDefined|toBeUndefined|toBeNull)\s*\(/;
+const META_PATH =
+	/^((?:\.fleet|\.claude|\.agents|node_modules)[/\\]|\.klh-(?:brief|done)\.md$|\.workgraph\.jsonl$)/;
+const DOC_PATH = /\.(?:md|markdown|txt)$/i;
+
+/** test-affecting: code a test run could observe; meta dirs and prose docs
+ *  never are. */
+export const testAffectingPath = (path: string): boolean =>
+	!META_PATH.test(path) && !DOC_PATH.test(path);
+
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? /;
+const stripAB = (raw: string): string =>
+	raw
+		.split("\t")[0]
+		?.replace(/^"[ab]\//, "")
+		.replace(/^[ab]\//, "")
+		.replace(/"$/, "") ?? "";
+
+/** Scan the unified diff (-U0) of the closing window for test-suite erosion:
+ *  deleted test calls whose name is not re-added elsewhere in the diff
+ *  (moves pass), added focused/expected-failure gates, and test files where
+ *  strict assertions were removed while only loose ones were added. */
+export function scanClosingDiff(diff: string): ClaimCheckHit[] {
+	const hits: ClaimCheckHit[] = [];
+	const removedCalls: {
+		name: string;
+		path: string;
+		line: number;
+		text: string;
+	}[] = [];
+	const addedNames = new Set<string>();
+	let path = "";
+	let delPath = "";
+	let isTest = false;
+	let rmLine = 0;
+	let addLine = 0;
+	let strictRemoved = 0;
+	let strictAdded = 0;
+	let looseFirst: { line: number; text: string } | null = null;
+	const push = (kind: string, p: string, line: number, text: string): void => {
+		if (hits.length < 200)
+			hits.push({ kind, path: p, line, text: text.trim().slice(0, 160) });
+	};
+	const flush = (): void => {
+		if (
+			isTest &&
+			strictRemoved > strictAdded &&
+			looseFirst &&
+			path
+		)
+			push("loosened-assertion", path, looseFirst.line, looseFirst.text);
+		isTest = false;
+		strictRemoved = 0;
+		strictAdded = 0;
+		looseFirst = null;
+	};
+	for (const raw of diff.split("\n")) {
+		if (raw.startsWith("diff --git ")) {
+			flush();
+			path = "";
+			delPath = "";
+			continue;
+		}
+		if (raw.startsWith("--- ")) {
+			delPath = stripAB(raw.slice(4));
+			continue;
+		}
+		if (raw.startsWith("+++ ")) {
+			const target = raw.slice(4).split("\t")[0] ?? "";
+			path =
+				target === "/dev/null"
+					? delPath
+					: stripAB(target);
+			isTest = !!path && TEST_FILE.test(path) && testAffectingPath(path);
+			continue;
+		}
+		const hunk = HUNK.exec(raw);
+		if (hunk) {
+			rmLine = Number(hunk[1]);
+			addLine = Number(hunk[2]);
+			continue;
+		}
+		if (raw.startsWith("+")) {
+			const t = raw.slice(1);
+			if (isTest) {
+				const name = TEST_CALL_NAME.exec(t);
+				if (name?.[3]) addedNames.add(name[3]);
+				if (XFAIL_RE.test(t)) push("xfail-gate", path, addLine, t);
+				if (STRICT_RE.test(t)) strictAdded++;
+				if (LOOSE_RE.test(t) && !looseFirst)
+					looseFirst = { line: addLine, text: t };
+			}
+			addLine++;
+			continue;
+		}
+		if (raw.startsWith("-")) {
+			const t = raw.slice(1);
+			if (isTest) {
+				const name = TEST_CALL_NAME.exec(t);
+				if (name?.[3])
+					removedCalls.push({ name: name[3], path, line: rmLine, text: t });
+				if (STRICT_RE.test(t)) strictRemoved++;
+			}
+			rmLine++;
+			continue;
+		}
+		if (raw.startsWith("\\")) continue;
+		rmLine++;
+		addLine++;
+	}
+	flush();
+	for (const c of removedCalls)
+		if (!addedNames.has(c.name)) push("deleted-test", c.path, c.line, c.text);
+	return hits;
+}
+
+export type ClaimCheckVerdict = { ok: boolean; why?: string };
+
+const statMtime = (p: string): number | null => {
+	try {
+		return statSync(p).mtimeMs;
+	} catch {
+		return null;
+	}
+};
+
+/** The done-gate verdict (W833): every test-pass claim needs a passing run
+ *  before it, unchanged test-affecting files after that run, and a closing
+ *  diff free of suite erosion. Fails open on missing/unreadable evidence;
+ *  SUSPENDERS_CLAIM_CHECK=0 disables. */
+export const claimCheckVerdict = (o: {
+	transcriptPath?: string;
+	transcriptText?: string;
+	capsuleDone?: string;
+	capsuleTs?: number;
+	paths: string[];
+	diffText: string;
+	statRoot?: string;
+	now?: number;
+	disabled?: boolean;
+	scanBytes?: number;
+	graceMs?: number;
+}): ClaimCheckVerdict => {
+	const disabled = o.disabled ?? process.env.SUSPENDERS_CLAIM_CHECK === "0";
+	if (disabled) return { ok: true };
+	const escape = "Escape hatch: SUSPENDERS_CLAIM_CHECK=0.";
+	const diffHits = scanClosingDiff(o.diffText);
+	if (diffHits.length)
+		return {
+			ok: false,
+			why:
+				`claim-check (W833): closing diff erodes the test suite (${diffHits.length}):\n` +
+				diffHits
+					.slice(0, 10)
+					.map((h) => `  ${h.path}:${h.line} [${h.kind}] ${h.text}`)
+					.join("\n") +
+				(diffHits.length > 10 ? `\n  … ${diffHits.length - 10} more` : "") +
+				`\n${escape}`,
+		};
+	const text =
+		o.transcriptText ??
+		(o.transcriptPath ? transcriptWindow(o.transcriptPath, o.scanBytes) : null);
+	const { claims, runs } = text
+		? transcriptEventsFromText(text)
+		: { claims: [], runs: [] };
+	const now = o.now ?? Date.now();
+	if (o.capsuleDone && isClaim(o.capsuleDone))
+		claims.push({ ts: o.capsuleTs ?? now, text: o.capsuleDone });
+	if (!claims.length) return { ok: true };
+	claims.sort((a, b) => a.ts - b.ts);
+	runs.sort((a, b) => a.ts - b.ts);
+	let firstPassTs = 0;
+	for (const r of runs)
+		if (isPassingRun(r.text) && (firstPassTs === 0 || r.ts < firstPassTs))
+			firstPassTs = r.ts;
+	let ri = 0;
+	let seenRun = false;
+	let everPassed = false;
+	let lastBefore: { ts: number; pass: number; fail: number } | null = null;
+	let miss: { claim: ClaimEvent; why: string } | null = null;
+	for (const claim of claims) {
+		while (ri < runs.length && runs[ri].ts <= claim.ts) {
+			const c = runCounts(runs[ri].text);
+			if (c) {
+				seenRun = true;
+				lastBefore = { ts: runs[ri].ts, pass: c.pass, fail: c.fail };
+				if (c.pass > 0 && c.fail === 0) everPassed = true;
+			}
+			ri++;
+		}
+		if (everPassed) continue;
+		miss = {
+			claim,
+			why: !seenRun
+				? runs.length
+					? "every test run in the transcript is after the claim"
+					: "no test run found in the transcript"
+				: lastBefore && lastBefore.fail > 0
+					? `last run before the claim failed (${lastBefore.pass} pass / ${lastBefore.fail} fail${firstPassTs > claim.ts ? `, first passing run ${new Date(firstPassTs).toISOString()}` : ""})`
+					: "no passing run before the claim",
+		};
+		break;
+	}
+	if (!miss) {
+		const lastClaim = claims.at(-1);
+		if (lastClaim) {
+			let horizon = 0;
+			for (const r of runs) {
+				if (r.ts > lastClaim.ts) break;
+				if (isPassingRun(r.text) && r.ts > horizon) horizon = r.ts;
+			}
+			if (horizon > 0) {
+				const grace = o.graceMs ?? CLAIM_CHECK_GRACE_MS;
+				const root = o.statRoot ?? process.cwd();
+				const stale: string[] = [];
+				for (const p of o.paths.filter(testAffectingPath)) {
+					const m = statMtime(join(root, p));
+					if (m !== null && m > horizon + grace)
+						stale.push(
+							`${p} (modified ${new Date(m).toISOString()}, after run ${new Date(horizon).toISOString()} + ${Math.round(grace / 1000)}s grace)`,
+						);
+				}
+				if (stale.length)
+					miss = {
+						claim: lastClaim,
+						why: `test-affecting files changed after the last passing run:\n  ${stale.join("\n  ")}\n  rerun the suite so the pass predates the changes`,
+					};
+			}
+		}
+	}
+	if (miss)
+		return {
+			ok: false,
+			why: `claim-check (W833): test-pass claim not backed by evidence — ${miss.why}\n  claim: "${miss.claim.text.replace(/\s+/g, " ").trim().slice(0, 120)}"\n${escape}`,
+		};
+	return { ok: true };
+};
