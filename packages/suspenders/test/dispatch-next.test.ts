@@ -54,6 +54,16 @@ const {
 
 const tool = (bin: string, ...args: string[]) => toolWith({}, bin, ...args);
 const dispatch = (...args: string[]) => dispatchWith({}, ...args);
+// work show includes live wall-time attribution, which advances even when a
+// read-only dispatch leaves the work row untouched.
+const workSnapshot = (id: string): Record<string, unknown> => {
+	const row = JSON.parse(tool("work.ts", "show", id, "--json").out) as Record<
+		string,
+		unknown
+	>;
+	delete row.attribution;
+	return row;
+};
 
 describe("CLI help is read-only", () => {
 	test("help flags print usage without creating runtime state or claiming work", () => {
@@ -61,7 +71,7 @@ describe("CLI help is read-only", () => {
 			(tool("work.ts", "add", "help must not dispatch fixture").out.match(
 				/W\d+/,
 			) ?? [])[0] ?? "";
-		const before = tool("work.ts", "show", id, "--json").out;
+		const before = workSnapshot(id);
 		const stale =
 			(tool("work.ts", "add", "help must not resume fixture").out.match(
 				/W\d+/,
@@ -86,7 +96,7 @@ describe("CLI help is read-only", () => {
 			[row.project, stale],
 		);
 		db.close();
-		const staleBefore = tool("work.ts", "show", stale, "--json").out;
+		const staleBefore = workSnapshot(stale);
 		for (const help of ["--help", "-h"]) {
 			// Even the buggy path cannot spawn real models in this regression.
 			const result = dispatch(help, "--target", "0");
@@ -94,8 +104,8 @@ describe("CLI help is read-only", () => {
 			expect(result.out).toContain("Usage: dispatch");
 			expect(result.out).not.toContain("lanes live:");
 			expect(existsSync(join(REPO, ".fleet"))).toBe(false);
-			expect(tool("work.ts", "show", id, "--json").out).toBe(before);
-			expect(tool("work.ts", "show", stale, "--json").out).toBe(staleBefore);
+			expect(workSnapshot(id)).toEqual(before);
+			expect(workSnapshot(stale)).toEqual(staleBefore);
 			expect(existsSync(join(REPO, ".worktrees"))).toBe(false);
 		}
 		// This file shares a scratch graph; remove the fixture from later picks.
@@ -130,7 +140,7 @@ describe("explicit dispatch ownership scope", () => {
 			[row.project, stale],
 		);
 		db.close();
-		const before = tool("work.ts", "show", stale, "--json").out;
+		const before = workSnapshot(stale);
 		const result = dispatch(
 			"--dry-run",
 			"--item",
@@ -145,7 +155,7 @@ describe("explicit dispatch ownership scope", () => {
 			`recovered missing registry identity ${stale}`,
 		);
 		expect(result.out).not.toContain(`DRY dispatch ${stale}`);
-		expect(tool("work.ts", "show", stale, "--json").out).toBe(before);
+		expect(workSnapshot(stale)).toEqual(before);
 		const fleet = join(REPO, ".fleet");
 		mkdirSync(fleet, { recursive: true });
 		writeFileSync(
@@ -173,7 +183,7 @@ describe("explicit dispatch ownership scope", () => {
 		expect(registered.code).toBe(0);
 		expect(registered.out).toContain(`DRY dispatch ${target}`);
 		expect(registered.out).not.toContain(`DRY dispatch ${stale}`);
-		expect(tool("work.ts", "show", stale, "--json").out).toBe(before);
+		expect(workSnapshot(stale)).toEqual(before);
 		rmSync(join(fleet, "lanes.json"));
 
 		expect(tool("work.ts", "fail", target).code).toBe(0);
