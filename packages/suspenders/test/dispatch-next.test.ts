@@ -12,10 +12,10 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
-	writeFileSync,
 	rmSync,
 	statSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";

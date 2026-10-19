@@ -28,13 +28,19 @@ import {
 } from "node:fs";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
-import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel } from "../hooks/lib/brief-intel.ts";
-import { BIN, composeBrief } from "./lib/brief.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
+import { BIN, composeBrief } from "./lib/brief.ts";
+import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
+
 export { composeBrief };
+
+// W422: executor specifics ride the adapter registry (hooks/lib/executors/)
+// — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
+// branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
+import { adapterFor } from "../hooks/lib/executors/registry.ts";
 // W157 decomposition: the pure governance decisions live in their module;
 // re-exported so existing importers (tests, scripts) keep their path.
 import {
@@ -45,29 +51,25 @@ import {
 import { attributeHubLane } from "./lib/hub-lane.ts";
 import { applyInsertion, insertionCtx } from "./lib/insertion.ts";
 import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
-import { grinderGate } from "./lib/lane-death-capture.ts";
-// W519: .prefer prefer= soft routing — the brief carries the constraint
-import {
-	preferRoutingBriefLines,
-	resolveRoutingPrefer,
-} from "./lib/prefer-routing.ts";
 import {
 	applyLaneAttribution,
 	laneEnv,
 	probeBuckleFront,
 	spawnClaude,
 } from "./lib/lane.ts";
-// W422: executor specifics ride the adapter registry (hooks/lib/executors/)
-// — dispatch composes adapter.spawnArgs/verifyBrief-harness, no per-agent
-// branches. The spawn-args INTERFACE lives in scripts/lib/lane.ts.
-import { adapterFor } from "../hooks/lib/executors/registry.ts";
-// W512: lane --settings composer — env grammar + the Task-pin hook block
-import { laneSettingsData } from "./lib/lane-settings.ts";
 import {
 	ensureLaneKey,
 	LANE_KEY_TTL_S,
 	laneKeyMetaPath,
 } from "./lib/lane-auth.ts";
+import { grinderGate } from "./lib/lane-death-capture.ts";
+// W512: lane --settings composer — env grammar + the Task-pin hook block
+import { laneSettingsData } from "./lib/lane-settings.ts";
+// W519: .prefer prefer= soft routing — the brief carries the constraint
+import {
+	preferRoutingBriefLines,
+	resolveRoutingPrefer,
+} from "./lib/prefer-routing.ts";
 
 export type { GovernanceDecision } from "./lib/governance-decide.ts";
 // W615: hubAttributionDecision rides the re-export so existing importers
@@ -75,6 +77,14 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
+import { forecastPush } from "../hooks/lib/credit-forecast.ts";
+import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
+import {
+	cvMap,
+	executorCv,
+	recordLaneExecutor,
+	writeExecutorCvFacts,
+} from "../hooks/lib/executor-cv.ts";
 import { openStore, projectIdentity } from "../hooks/lib/govdb.ts";
 import { resolveHub } from "../hooks/lib/hub-locate.ts";
 // W494.1: the worktree-cwd probe is the shared EVIDENCE helper now — the
@@ -89,6 +99,9 @@ import {
 	mergeLaneRegistry,
 } from "../hooks/lib/lane-registry.ts";
 import { laneSid } from "../hooks/lib/laneslug.ts";
+// W862: policy provenance rides the brief — read-only graph read, the
+// compliance check itself re-runs at the lane's session bootstrap
+import { policyBriefLines } from "../hooks/lib/session-policy.ts";
 import {
 	darkHubNow,
 	policyForRepo,
@@ -96,18 +109,14 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
-import { forecastPush } from "../hooks/lib/credit-forecast.ts";
-import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
-// W862: policy provenance rides the brief — read-only graph read, the
-// compliance check itself re-runs at the lane's session bootstrap
-import { policyBriefLines } from "../hooks/lib/session-policy.ts";
+import { execPick } from "./lib/exec-chain.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
-	starterStartLine,
 	type StarterSeedFailure,
+	starterStartLine,
 } from "./lib/lane-starter.ts";
-import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
+import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -121,33 +130,29 @@ import {
 	reserveLaunchIntent,
 } from "./lib/launch-fencing.ts";
 import { launchParent } from "./lib/launch-parent.ts";
-import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
 	acquireLaunchLease,
 	renewLaunchLease,
 	resolveLaneExecutor,
 } from "./lib/launch-preflight.ts";
-import { isResumableClaim } from "./lib/resumable-claim.ts";
-import { execPick } from "./lib/exec-chain.ts";
-import { captureClaimFeed } from "./lib/structured-feed.ts";
-import {
-	cvMap,
-	executorCv,
-	recordLaneExecutor,
-	writeExecutorCvFacts,
-} from "../hooks/lib/executor-cv.ts";
 // W636 decomposition: the READY-pool helpers + the archived-origin landing
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
+import { isResumableClaim } from "./lib/resumable-claim.ts";
+import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
+import { captureClaimFeed } from "./lib/structured-feed.ts";
+
 export { capabilityGate, isOwnerGated, parseReady };
-import { landingRedirect } from "./lib/landing-redirect.ts";
+
 import { effortFromShow } from "../hooks/lib/work-effort.ts";
 import {
 	cvSnapshot,
 	parseCapsuleGet,
 	quotaSnapshot,
 } from "./lib/dispatch-admission.ts";
+import { landingRedirect } from "./lib/landing-redirect.ts";
+
 // parseCapsuleGet is re-exported so supervise.ts and the test suites keep
 // their dispatch-next import path (W576.1.1 decomposition).
 export { parseCapsuleGet };
