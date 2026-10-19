@@ -165,6 +165,53 @@ describe("openai-compat buildCall (request fixtures)", () => {
 	});
 });
 
+describe("upstreamUrlOf path rewrite (W935)", () => {
+	test("path_rewrite moves only the pathname; unlisted paths stay verbatim", async () => {
+		const dep = {
+			group: "g",
+			url: "https://api.githubcopilot.com",
+			dialect: "openai" as const,
+			adapter_config: {
+				path_rewrite: { "/v1/chat/completions": "/chat/completions" },
+			},
+		};
+		const wire = await OPENAI_COMPAT.buildCall(
+			dep,
+			OPENAI_REQ,
+			OPENAI_REQ.body,
+		);
+		expect(wire.url).toBe("https://api.githubcopilot.com/chat/completions");
+		// /v1/responses is not listed → verbatim (it IS served with /v1)
+		const responses = await OPENAI_COMPAT.buildCall(
+			dep,
+			{ ...OPENAI_REQ, path: "/v1/responses" },
+			{ model: "m" },
+		);
+		expect(responses.url).toBe("https://api.githubcopilot.com/v1/responses");
+	});
+
+	test("invalid path_rewrite values fail closed to verbatim", async () => {
+		const dep = {
+			group: "g",
+			url: "https://api.githubcopilot.com",
+			dialect: "anthropic" as const,
+			adapter_config: {
+				path_rewrite: {
+					"/v1/messages": "chat/completions",
+					"/v1/messages/count_tokens": 7,
+				},
+			} as unknown as Record<string, string>,
+		};
+		const wire = await ANTHROPIC.buildCall(
+			dep,
+			{ ...OPENAI_REQ, dialect: "anthropic" as const, path: "/v1/messages" },
+			{ model: "m" },
+		);
+		// non-absolute / non-string values are dropped → verbatim forward
+		expect(wire.url).toBe("https://api.githubcopilot.com/v1/messages");
+	});
+});
+
 describe("anthropic buildCall", () => {
 	test("model patch, no stream_options on the anthropic wire", async () => {
 		const upstream = await startMockUpstream(() =>

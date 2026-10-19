@@ -11,6 +11,7 @@ import {
 	bearerHeaders,
 	type ChatAdapter,
 	type WireCall,
+	upstreamUrlOf,
 	usageField,
 } from "./types.ts";
 
@@ -31,7 +32,7 @@ export const ANTHROPIC: ChatAdapter = {
 			model: dep.model ?? body.model,
 		};
 		return {
-			url: new URL(req.path, dep.url).toString(),
+			url: upstreamUrlOf(dep, req.path),
 			headers: bearerHeaders(dep),
 			body: JSON.stringify(wire),
 		};
