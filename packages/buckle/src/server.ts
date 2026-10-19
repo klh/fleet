@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { RpcAdmission } from "./admission.ts";
 import { PrefixAffinity } from "./affinity.ts";
 import { LaneTelemetryLog } from "./cache-boundary.ts";
+import { PrefixLedger } from "./cache-fingerprint.ts";
 import { AidsLedger } from "./aids.ts";
 import { CandidateTable } from "./candidates.ts";
 import { Cooldowns } from "./cooldown.ts";
@@ -139,6 +140,9 @@ export function buildDeps(
 		process.env.BUCKLE_LANE_CACHE_LOG ??
 			`${opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db"}.lane-cache.jsonl`,
 	);
+	// W926: per-boundary+lane prefix-fingerprint references — miss
+	// classification rides the lane-cache rows (null causes when unwired).
+	const prefixLedger = new PrefixLedger();
 	// W142 knowledge aids: metering ledger + preseed builder on the same db
 	// file (W133 wiring); policy slice from the shared routing-policy.yaml.
 	const aids = new AidsLedger(
@@ -281,6 +285,7 @@ export function buildDeps(
 		federation,
 		affinity,
 		laneCache,
+		prefixLedger,
 		diet,
 		observations,
 		hubId: process.env.BUCKLE_HUB_ID ?? "local",

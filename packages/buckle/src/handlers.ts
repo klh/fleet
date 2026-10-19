@@ -19,7 +19,12 @@ import {
 import type { AidsLedger } from "./aids.ts";
 import { aidsRoutes, applyWireAids, gateCacheAlign } from "./aids-routes.ts";
 import type { LaneTelemetryLog } from "./cache-boundary.ts";
-import { boundaryOfDeployment } from "./cache-boundary.ts";
+import { boundaryKey, boundaryOfDeployment } from "./cache-boundary.ts";
+import {
+	type MissCause,
+	type PrefixLedger,
+	prefixFingerprintOf,
+} from "./cache-fingerprint.ts";
 import type { CandidateRow, CandidateTable } from "./candidates.ts";
 import {
 	allowOf,
@@ -117,6 +122,10 @@ export interface AppDeps {
 	// W458.4 per-lane cache telemetry: the append-only NDJSON lane log.
 	// Optional — bare deps (testDeps, dev) skip lane rows honestly.
 	laneCache?: LaneTelemetryLog;
+	// W926 miss classification: per-boundary+lane prefix-fingerprint
+	// references. Optional — unwired rows carry null prefix_fp/null
+	// miss_cause (unknown, never guessed).
+	prefixLedger?: PrefixLedger;
 	// W450 bounded RPC admission: in-flight slot bound over the proxy path.
 	// Optional — bare deps (testDeps, dev) admit unbounded (current shape).
 	admission?: RpcAdmission;
@@ -241,6 +250,9 @@ interface Ctx {
 	condenseIn: boolean;
 	/** W237: packet-prefix key (null = no packet block, no affinity). */
 	affKey: string | null;
+	/** W926: keyed digest of the effective delivered prefix (post-alignment
+	 *  body), null when the fingerprint ledger is unwired. */
+	prefixFp: string | null;
 	/** W450 bounded RPC admission: the slot release fn while this request's
 	 *  upstream RPC is in flight (set in runExecute, released at drain). */
 	slot?: () => void;
@@ -358,6 +370,7 @@ async function proxy(
 		tier: "",
 		condenseIn: false,
 		affKey: null,
+		prefixFp: null,
 		// W461 stage 1: accept a caller traceparent, else root a fresh trace;
 		// baggage survives only in the fleet-allowlisted subset. W706: the
 		// hop marker rides the same baggage header — origin defaults to self
@@ -509,6 +522,9 @@ async function runExecute(
 			resolveAdapter(sel.head.dep).family === "anthropic",
 	);
 	if (alignedBody) body = alignedBody;
+	// W926: digest the EFFECTIVE prefix as delivered upstream — the
+	// post-alignment body. Keyed + truncated: prompt bytes never logged.
+	ctx.prefixFp = deps.prefixLedger ? prefixFingerprintOf(body) : null;
 	let result: ExecuteResult;
 	// W461 stage 2: started — the upstream dispatch begins.
 	observe(deps, ctx, "lane.request.started");
@@ -806,10 +822,33 @@ function record(
 	// null = honest unknown — the request still counts, tokens stay zero.
 	const head = ctx.sel?.head;
 	if (ctx.lane && head && deps.laneCache) {
+		const boundary = boundaryOfDeployment(head.dep, head.model);
+		// W926 miss classification: a miss WITH a reported cache write is
+		// comparable — the provider just wrote this exact prefix, so if the
+		// banked reference equals it the earlier entry was dropped upstream
+		// (provider-eviction); differing bytes = changed-prefix. Hits and
+		// confirmed writes re-bank the reference; usage null, no write, or
+		// unwired ledger stays null (unknown, never guessed).
+		let miss: MissCause = null;
+		if (
+			deps.prefixLedger &&
+			ctx.prefixFp &&
+			usage &&
+			usage.cache_r === 0 &&
+			usage.cache_c > 0
+		)
+			miss = deps.prefixLedger.cause(boundaryKey(boundary), ctx.lane, ctx.prefixFp);
+		if (
+			deps.prefixLedger &&
+			ctx.prefixFp &&
+			usage &&
+			(usage.cache_r > 0 || usage.cache_c > 0)
+		)
+			deps.prefixLedger.observe(boundaryKey(boundary), ctx.lane, ctx.prefixFp);
 		deps.laneCache.append({
 			lane: ctx.lane,
 			task: ctx.key,
-			boundary: boundaryOfDeployment(head.dep, head.model),
+			boundary,
 			usage: usage ?? {
 				in_tok: 0,
 				out_tok: 0,
@@ -819,6 +858,8 @@ function record(
 			requests: 1,
 			wallMs: Date.now() - ctx.t0,
 			at: new Date().toISOString(),
+			prefix_fp: ctx.prefixFp,
+			miss_cause: miss,
 		});
 	}
 	if (usage === null) {
