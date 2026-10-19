@@ -4,7 +4,7 @@
 // computed color resolves to the matching klh semantic token — never a
 // literal. Read against the shipped bytes; screenshots land in test-results.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 

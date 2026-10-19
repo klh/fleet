@@ -10,8 +10,8 @@
 // on a 1s tick); the tests never reload to see a transition — they watch
 // the live page update itself, like an operator does.
 import { mkdirSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { expect, type Page, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
