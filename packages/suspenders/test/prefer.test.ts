@@ -79,6 +79,25 @@ describe("parsePreferFile", () => {
 		expect(r.errors[0]).toContain("must=: duplicate location");
 	});
 
+	test("W519 plane split: unquoted single-token must=/prefer= is the executor chain's plane — skipped", () => {
+		// the fleet root .prefer executor ladder (must=claude-sonnet-5 /
+		// claude-opus-5-5 / claude-haiku-4-5 + prefer=glm-5.3-flash) is
+		// legal repeats for exec-chain.ts — never dup errors here
+		const r = parsePreferFile(
+			"/t/.prefer",
+			"must=claude-sonnet-5\nmust=claude-opus-5-5\nprefer=glm-5.3-flash\n",
+		);
+		expect(r.errors).toEqual([]);
+		expect(r.values.must).toBeUndefined();
+		expect(r.values.prefer).toBeUndefined();
+	});
+
+	test("W519 plane split: quoted must= stays routing, still parses", () => {
+		const r = parsePreferFile("/t/.prefer", 'must = "claude-sonnet-5"\n');
+		expect(r.errors).toEqual([]);
+		expect(r.values.must).toBe("claude-sonnet-5");
+	});
+
 	test("duplicate key: first wins, later one errors", () => {
 		const r = parsePreferFile("/t/.prefer", 'tag = "a"\ntag = "b"\n');
 		expect(r.values.tag).toBe("a");

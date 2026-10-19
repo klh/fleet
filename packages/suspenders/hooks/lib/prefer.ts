@@ -66,8 +66,10 @@ const stripQuotes = (raw: string): string => {
 
 /** Parse one .prefer file: first valid definition per key wins; later
  *  duplicates are collected as errors. Values are double-quoted by canon
- *  (unquoted tolerated). Unknown keys and per-key validation failures
- *  (tag shape, RGBHEX color, W96 routing expr) are loud, non-fatal. */
+ *  (unquoted tolerated for tag/color; W519: unquoted single-token
+ *  prefer=/must= lines are the executor chain's plane and are skipped).
+ *  Unknown keys and per-key validation failures (tag shape, RGBHEX color,
+ *  W96 routing expr) are loud, non-fatal. */
 export function parsePreferFile(
 	path: string,
 	text: string,
@@ -90,6 +92,16 @@ export function parsePreferFile(
 			continue;
 		}
 		const k = key as PreferKey;
+		// W519 plane split: an unquoted single token is the legacy executor
+		// chain's value shape (must=opus) — that plane's line, not ours
+		// (same skip as prefer-routing.ts; exec-chain.ts keeps the chain).
+		// Quoted and multi-token values stay routing; tag/color unaffected.
+		if (
+			(k === "prefer" || k === "must") &&
+			!raw.startsWith('"') &&
+			!/\s/.test(raw)
+		)
+			continue;
 		const val = stripQuotes(raw);
 		if (val === "") {
 			errors.push(`${at}: ${k}= needs a "value"`);
