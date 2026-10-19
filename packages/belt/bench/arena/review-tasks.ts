@@ -3,16 +3,9 @@
 // (correct base), plus per-defect-class injection sites (buggy replacement
 // lines). The buggy variant is the + side of the task diff — HumanEval-class
 // seeded bugs with exact ground truth, reproducible from REVIEW_SEED.
-import { pick, ri, rng, shuffle, type R } from "./core.ts";
-import {
-	DEFECT_CLASSES,
-	lineOf,
-	type Defect,
-	type DefectClass,
-	type ReviewTask,
-	REVIEW_SEED,
-	unifiedDiff,
-} from "./review-core.ts";
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: bench fixture strings embed ${} as deliberate defect-injection sites
+import { pick, ri, rng, type R } from "./core.ts";
+import { type DefectClass, REVIEW_SEED } from "./review-core.ts";
 
 interface Site {
 	cls: DefectClass;
@@ -90,7 +83,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "if (buf[head] !== undefined) dropped++;",
-						bug: ["\t\t\tif (buf[head] !== undefined && buf[next] !== undefined) dropped++;"],
+						bug: [
+							"\t\t\tif (buf[head] !== undefined && buf[next] !== undefined) dropped++;",
+						],
 						desc: "drop counter checks the next slot too — overcounts drops when the ring is exactly full",
 					},
 					{
@@ -98,7 +93,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "const buf: string[] = new Array(limit);",
-						bug: ["\t\tconst buf: string[] = new Array(limit * 10); // inflated buffer"],
+						bug: [
+							"\t\tconst buf: string[] = new Array(limit * 10); // inflated buffer",
+						],
 						desc: "buffer sized limit*10 while the modulus stays limit — the ring silently grows past its contract",
 					},
 				],
@@ -219,8 +216,13 @@ const FAMILIES: Family[] = [
 						cls: "wrong-var",
 						at: 0,
 						span: 0,
-						anchor: '\t\t"UPDATE items SET owner=? WHERE id=? AND owner IS NULL",',
-						bug: ['\t\t"UPDATE items SET owner=? WHERE id=? AND owner IS NULL",', "\t\titem,", "\t\tsid,"],
+						anchor:
+							'\t\t"UPDATE items SET owner=? WHERE id=? AND owner IS NULL",',
+						bug: [
+							'\t\t"UPDATE items SET owner=? WHERE id=? AND owner IS NULL",',
+							"\t\titem,",
+							"\t\tsid,",
+						],
 						desc: "bind order swapped: item lands in the owner column and sid in the id column — the claim writes garbage",
 					},
 				],
@@ -268,7 +270,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "if (!r) return null;",
-						bug: ["\treturn { sid: r.sid, item: r.item, model: r.model }; // r may be undefined"],
+						bug: [
+							"\treturn { sid: r.sid, item: r.item, model: r.model }; // r may be undefined",
+						],
 						desc: "the undefined guard on the lookup result is dropped — a miss dereferences undefined",
 					},
 					{
@@ -276,7 +280,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: ")(row.sid, row.item, row.model, ",
-						bug: [`\t)(row.item, row.sid, row.model, ${ttl}); // sid/item swapped`],
+						bug: [
+							`\t)(row.item, row.sid, row.model, ${ttl}); // sid/item swapped`,
+						],
 						desc: "upsert binds item and sid swapped — every row lands keyed by the wrong column",
 					},
 					{
@@ -284,7 +290,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: ")(row.sid, row.item, row.model, ",
-						bug: [`\t)(row.sid, row.item, row.model, ${ttl} * 100); // ttl seconds → ms`],
+						bug: [
+							`\t)(row.sid, row.item, row.model, ${ttl} * 100); // ttl seconds → ms`,
+						],
 						desc: "ttl written 100x too large — unit drift between the constant and the schema",
 					},
 				],
@@ -316,7 +324,7 @@ const FAMILIES: Family[] = [
 				"",
 				`export function requireKey(env: Record<string, string>): string {`,
 				`\tconst v = env["${k}"];`,
-				"\tif (!v) throw new Error(\"missing key in env\");",
+				'\tif (!v) throw new Error("missing key in env");',
 				"\treturn v;",
 				"}",
 			];
@@ -328,7 +336,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "if (v !== undefined) out[k] = v;",
-						bug: ["\t\tif (v === undefined) out[k] = v as string; // pins nothing"],
+						bug: [
+							"\t\tif (v === undefined) out[k] = v as string; // pins nothing",
+						],
 						desc: "pin pass assigns only when the pinned value is undefined — ambient env silently wins over the settings pin",
 					},
 					{
@@ -344,7 +354,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "if (v !== undefined) out[k] = v;",
-						bug: ["\t\tif (v !== undefined) out[k] = String(ambient[k]); // reads the wrong source"],
+						bug: [
+							"\t\tif (v !== undefined) out[k] = String(ambient[k]); // reads the wrong source",
+						],
 						desc: "pin pass reads the ambient table instead of the pinned one — the settings file never wins",
 					},
 				],
@@ -359,18 +371,18 @@ const FAMILIES: Family[] = [
 			const base = [
 				"// NDJSON/SSE line framing over a chunked stream (streams law)",
 				"export function makeFramer(onLine: (line: string) => void, maxLine: number) {",
-				"\tlet buf = \"\";",
+				'\tlet buf = "";',
 				"\treturn {",
 				"\t\tfeed(chunk: string): void {",
 				"\t\t\tbuf += chunk;",
-				"\t\t\tlet i = buf.indexOf(\"\\n\");",
+				'\t\t\tlet i = buf.indexOf("\\n");',
 				"\t\t\twhile (i >= 0) {",
 				'\t\t\t\tconst line = buf.slice(0, i).replace(/\\r$/, "");',
 				"\t\t\t\tbuf = buf.slice(i + 1);",
 				"\t\t\t\tif (line) onLine(line);",
 				'\t\t\t\ti = buf.indexOf("\\n");',
 				"\t\t\t}",
-				"\t\t\tif (buf.length > maxLine) throw new Error(\"line exceeds cap\");",
+				'\t\t\tif (buf.length > maxLine) throw new Error("line exceeds cap");',
 				"\t\t},",
 				"\t};",
 				"}",
@@ -383,7 +395,7 @@ const FAMILIES: Family[] = [
 						cls: "off-by-one",
 						at: 0,
 						span: 0,
-						anchor: 'buf = buf.slice(i + 1);',
+						anchor: "buf = buf.slice(i + 1);",
 						bug: ["\t\t\t\tbuf = buf.slice(i); // keeps the newline"],
 						desc: "buffer advances to i instead of i+1 — the newline survives and every later line frames as empty",
 					},
@@ -391,15 +403,19 @@ const FAMILIES: Family[] = [
 						cls: "boundary",
 						at: 0,
 						span: 0,
-						anchor: 'if (buf.length > maxLine) throw new Error("line exceeds cap");',
-						bug: ['\t\t\tif (buf.length >= maxLine - 1) throw new Error("line exceeds cap");'],
+						anchor:
+							'if (buf.length > maxLine) throw new Error("line exceeds cap");',
+						bug: [
+							'\t\t\tif (buf.length >= maxLine - 1) throw new Error("line exceeds cap");',
+						],
 						desc: "cap check trips one byte early — a line of exactly maxLine chars aborts a healthy stream",
 					},
 					{
 						cls: "dropped-check",
 						at: 0,
 						span: 0,
-						anchor: 'if (buf.length > maxLine) throw new Error("line exceeds cap");',
+						anchor:
+							'if (buf.length > maxLine) throw new Error("line exceeds cap");',
 						bug: ["\t\t\t// cap check removed — unbounded buffer"],
 						desc: "line-cap throw removed — a hostile upstream can grow the buffer unboundedly",
 					},
@@ -442,7 +458,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "const gained = ((now - this.last) / 1000) * ",
-						bug: [`\t\tconst gained = ((now - this.last) / 1000) * ${rate} * 60; // per-min rate applied per-second`],
+						bug: [
+							`\t\tconst gained = ((now - this.last) / 1000) * ${rate} * 60; // per-min rate applied per-second`,
+						],
 						desc: "refill applies the per-minute rate per second — bucket refills 60x too fast",
 					},
 					{
@@ -450,15 +468,20 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "if (this.tokens < n) return false;",
-						bug: ["\t\tif (this.tokens <= n) return false; // rejects when exactly enough"],
+						bug: [
+							"\t\tif (this.tokens <= n) return false; // rejects when exactly enough",
+						],
 						desc: "admission check rejects when tokens === n — exact-fit requests are denied",
 					},
 					{
 						cls: "wrong-var",
 						at: 0,
 						span: 0,
-						anchor: "this.tokens = Math.min(this.capacity, this.tokens + gained);",
-						bug: ["\t\tthis.tokens = Math.min(this.capacity, gained); // forgets the balance"],
+						anchor:
+							"this.tokens = Math.min(this.capacity, this.tokens + gained);",
+						bug: [
+							"\t\tthis.tokens = Math.min(this.capacity, gained); // forgets the balance",
+						],
 						desc: "refill replaces the balance instead of adding — accumulated tokens are wiped on every refill",
 					},
 				],
@@ -471,17 +494,20 @@ const FAMILIES: Family[] = [
 		gen: (r) => {
 			const keys = ["rid", "sha", "sid", "ts"];
 			const k1 = pick(r, keys);
-			const k2 = pick(r, keys.filter((x) => x !== k1));
+			const k2 = pick(
+				r,
+				keys.filter((x) => x !== k1),
+			);
 			const base = [
 				"// canonical JSON: object keys sorted recursively — hashing contract",
 				"export function canonical(v: unknown): string {",
-				"\tif (Array.isArray(v)) return `[${v.map(canonical).join(\",\")}]`;",
-				"\tif (v && typeof v === \"object\") {",
+				'\tif (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;',
+				'\tif (v && typeof v === "object") {',
 				"\t\tconst o = v as Record<string, unknown>;",
 				"\t\tconst keys = Object.keys(o).sort();",
-				"\t\treturn `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(\",\")}}`;",
+				'\t\treturn `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;',
 				"\t}",
-				"\treturn JSON.stringify(v) ?? \"null\";",
+				'\treturn JSON.stringify(v) ?? "null";',
 				"}",
 				"",
 				"export function digest(fields: Record<string, unknown>): string {",
@@ -495,16 +521,19 @@ const FAMILIES: Family[] = [
 						cls: "dropped-await",
 						at: 0,
 						span: 0,
-						anchor: "if (Array.isArray(v)) return `[${v.map(canonical).join(\",\")}]`;",
-						bug: ["\tif (Array.isArray(v)) return `[${v.map(async (x) => canonical(x)).join(\",\")}]`; // promises join as [object Promise]"],
-						desc: "array branch maps through an async wrapper — canonical() emits \"[object Promise],…\" instead of values",
+						anchor:
+							'if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;',
+						bug: [
+							'\tif (Array.isArray(v)) return `[${v.map(async (x) => canonical(x)).join(",")}]`; // promises join as [object Promise]',
+						],
+						desc: 'array branch maps through an async wrapper — canonical() emits "[object Promise],…" instead of values',
 					},
 					{
 						cls: "inverted-condition",
 						at: 0,
 						span: 0,
-						anchor: "if (v && typeof v === \"object\") {",
-						bug: ["\tif (!v || typeof v === \"object\") {"],
+						anchor: 'if (v && typeof v === "object") {',
+						bug: ['\tif (!v || typeof v === "object") {'],
 						desc: "object-branch guard inverted — null enters the branch and primitives fall through unstringified",
 					},
 					{
@@ -512,7 +541,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "const keys = Object.keys(o).sort();",
-						bug: ["\t\tconst keys = Object.keys(v).sort(); // shadows the outer keys var"],
+						bug: [
+							"\t\tconst keys = Object.keys(v).sort(); // shadows the outer keys var",
+						],
 						desc: "object branch reads keys from the un-narrowed value — TS-narrowing contract broken, keys can be undefined",
 					},
 				],
@@ -615,7 +646,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "results[i] = await fn(items[i] as T);",
-						bug: ["\t\t\tresults[i] = fn(items[i] as T) as never; // promise stored, not awaited"],
+						bug: [
+							"\t\t\tresults[i] = fn(items[i] as T) as never; // promise stored, not awaited",
+						],
 						desc: "worker stores the promise without await — results fill with pending promises and the pool resolves early",
 					},
 					{
@@ -631,7 +664,9 @@ const FAMILIES: Family[] = [
 						at: 0,
 						span: 0,
 						anchor: "await Promise.all(workers);",
-						bug: ["\tawait Promise.race([Promise.all(workers), new Promise((r) => setTimeout(r, 1000))]); // workers abandoned"],
+						bug: [
+							"\tawait Promise.race([Promise.all(workers), new Promise((r) => setTimeout(r, 1000))]); // workers abandoned",
+						],
 						desc: "Promise.race abandons workers after 1s — pool returns while tasks still run, unawaited handles leak",
 					},
 				],
@@ -640,7 +675,7 @@ const FAMILIES: Family[] = [
 	},
 ];
 export { FAMILIES };
-export { site };
+export type { site };
 
 // helper kept last so the families above stay the reading order
 export function familyClasses(f: Family): DefectClass[] {

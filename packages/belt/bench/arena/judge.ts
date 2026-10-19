@@ -58,7 +58,10 @@ export function parseVerdict(raw: string): JudgeVerdict | null {
 	if (a < 0 || b <= a) return null;
 	try {
 		const j = JSON.parse(s.slice(a, b + 1)) as Record<string, unknown>;
-		const score = typeof j.score === "number" && j.score >= 0 && j.score <= 1 ? j.score : null;
+		const score =
+			typeof j.score === "number" && j.score >= 0 && j.score <= 1
+				? j.score
+				: null;
 		if (score === null) return null;
 		const v = String(j.verdict ?? "").toLowerCase();
 		return {
@@ -78,18 +81,21 @@ export async function callJudge(
 	const ac = new AbortController();
 	const timer = setTimeout(() => ac.abort(), o.timeoutMs ?? JUDGE_TIMEOUT_MS);
 	try {
-		const res = await fetch(`http://127.0.0.1:${o.port ?? JUDGE_PORT}/v1/chat/completions`, {
-			method: "POST",
-			signal: ac.signal,
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				model: o.model ?? JUDGE_MODEL,
-				messages: [{ role: "user", content: prompt }],
-				max_tokens: 512,
-				temperature: 0,
-				stream: false,
-			}),
-		});
+		const res = await fetch(
+			`http://127.0.0.1:${o.port ?? JUDGE_PORT}/v1/chat/completions`,
+			{
+				method: "POST",
+				signal: ac.signal,
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					model: o.model ?? JUDGE_MODEL,
+					messages: [{ role: "user", content: prompt }],
+					max_tokens: 512,
+					temperature: 0,
+					stream: false,
+				}),
+			},
+		);
 		const body = await readCapped(res.body, 4 * 1024 * 1024);
 		if (!res.ok) throw new Error(`judge ${res.status}: ${body.slice(0, 160)}`);
 		const j = JSON.parse(body) as {
@@ -176,7 +182,9 @@ export async function judgeRun(o: JudgeOpts): Promise<JudgeSummary> {
 	const maxChars = o.maxPromptChars ?? 16_000;
 	const cands: { r: RawRow }[] = [];
 	const done = new Set<string>();
-	for await (const x of jsonl<RawRow & { type: string; judge_error?: string }>(file)) {
+	for await (const x of jsonl<RawRow & { type: string; judge_error?: string }>(
+		file,
+	)) {
 		if (x.type === "judge") {
 			if (!x.judge_error) done.add(`${x.cls}|${x.task}|${x.leg}|${x.phase}`);
 		} else if (
@@ -184,13 +192,16 @@ export async function judgeRun(o: JudgeOpts): Promise<JudgeSummary> {
 			x.phase !== "warmup" &&
 			x.ok &&
 			want.has(x.cls) &&
-			!!x.answer?.trim()
+			x.answer?.trim()
 		)
 			cands.push({ r: x });
 	}
 	const n0 = Math.max(0, cands.length - done.size);
-	log(`judge ${o.runId}: ${cands.length} rows, ${done.size} already judged → ${n0} to go (tier :${o.port ?? JUDGE_PORT})`);
-	const call = o.call ?? ((p: string) => callJudge(p, { port: o.port, model: o.model }));
+	log(
+		`judge ${o.runId}: ${cands.length} rows, ${done.size} already judged → ${n0} to go (tier :${o.port ?? JUDGE_PORT})`,
+	);
+	const call =
+		o.call ?? ((p: string) => callJudge(p, { port: o.port, model: o.model }));
 	const counts = new Map<string, number>();
 	const put = (x: JudgeRowOut) =>
 		appendFileSync(file, `${JSON.stringify(x)}\n`);
@@ -221,7 +232,14 @@ export async function judgeRun(o: JudgeOpts): Promise<JudgeSummary> {
 			judge_wall_ms: 0,
 		};
 		try {
-			const task = judgeTaskPrompt(o.runId, r.cls, r.task, r.leg, r.phase, maxChars);
+			const task = judgeTaskPrompt(
+				o.runId,
+				r.cls,
+				r.task,
+				r.leg,
+				r.phase,
+				maxChars,
+			);
 			const t0 = performance.now();
 			const raw = await call(rubric(task, r.answer ?? ""));
 			row.judge_wall_ms = Math.round(performance.now() - t0);
@@ -232,12 +250,19 @@ export async function judgeRun(o: JudgeOpts): Promise<JudgeSummary> {
 			row.judge_reason = v.reason;
 			sum.judged++;
 		} catch (e) {
-			row.judge_error = String(e instanceof Error ? e.message : e).slice(0, 240);
+			row.judge_error = String(e instanceof Error ? e.message : e).slice(
+				0,
+				240,
+			);
 			sum.failed++;
 		}
 		put(row);
-		log(`judge ${key} score=${row.judge_score ?? "ERR"} ${row.judge_wall_ms}ms`);
+		log(
+			`judge ${key} score=${row.judge_score ?? "ERR"} ${row.judge_wall_ms}ms`,
+		);
 	}
-	log(`judge done: ${sum.judged} graded, ${sum.resumed} resumed, ${sum.failed} failed`);
+	log(
+		`judge done: ${sum.judged} graded, ${sum.resumed} resumed, ${sum.failed} failed`,
+	);
 	return sum;
 }
