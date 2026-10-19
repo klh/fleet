@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { projectRootOf, type GovernorStore } from "./govdb.ts";
 import { scanCompletionDiff } from "./fake-completion.ts";
 import { patchFirstVerdict } from "./patch-first.ts";
+import { claimCheckVerdict } from "./claim-check.ts";
+import { resolveTranscriptPath } from "./transcript.ts";
 import {
 	claimTokenVerdict,
 	evidenceCheck,
@@ -467,6 +469,21 @@ export function prepareCompletion(
 				`Completion evidence missing required patterns (${missing.length}/${declared.length} unsatisfied): ${missing.map((m) => `/${m}/`).join(", ")} — matched none of summary / product paths / added diff lines`,
 			);
 	}
+	// W833 claim-check: test-pass claims in the lane transcript or capsule
+	// must ride a real passing run that predates the claim, with no
+	// test-affecting file changed since, and the closing diff must not
+	// erode the suite (deleted tests, focused/expected-failure gates,
+	// loosened assertions). SUSPENDERS_CLAIM_CHECK=0 disables.
+	const cc = claimCheckVerdict({
+		transcriptPath:
+			resolveTranscriptPath({ session_id: o.sid, cwd: o.cwd }) ?? undefined,
+		capsuleDone: typeof capsule.done === "string" ? capsule.done : undefined,
+		capsuleTs: typeof capsule.ts === "number" ? capsule.ts : undefined,
+		paths,
+		diffText,
+		statRoot: shaRepo,
+	});
+	if (!cc.ok) throw new Error(cc.why ?? "claim-check refusal");
 	const completedAt = Date.now();
 	const finalCapsule = {
 		...capsule,
