@@ -12,9 +12,15 @@ channels:
     pass_var: GMAIL_APP_PASSWORD
     to: [you@example.com] # default: the sending account
     # host: smtp.gmail.com  port: 587 (STARTTLS)
-# per-class: channels, dedupe window (identical class+subject suppressed),
-# rate limit (max notifications per class per window)
+# W822 fleet pulse — the launchd fleet-pulse digest (`notify.ts pulse`).
+# Cadence rides HERE (machine config): the installer reads pulse.interval_s
+# for the com.suspenders.fleet-pulse StartInterval (default 14400); the
+# 'pulse' class picks the channels the digest fans to (default desktop).
+pulse:
+  interval_s: 14400
 classes:
+  pulse:
+    channels: [desktop]
   need-decision:
     channels: [desktop, slack, email]
     dedupe_s: 3600

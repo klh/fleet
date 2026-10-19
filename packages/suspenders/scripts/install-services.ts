@@ -39,6 +39,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
+import {
+	DEFAULT_PULSE_INTERVAL_S,
+	loadNotifyConfig,
+	NOTIFY_PATH,
+} from "../hooks/lib/notify.ts";
 import { assertBuckleActivation } from "./assert-service-activation.ts";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
@@ -363,6 +368,22 @@ export function loadLegacyLabels(path = MANIFEST_PATH): string[] {
 			throw new Error(`${path}: legacyLabels[${i}] must be a non-empty string`);
 		return l;
 	});
+}
+
+// W822 — the fleet-pulse StartInterval rides machine config: notify.yaml
+// pulse.interval_s (default 14400) patches the manifest entry at render
+// time, so the operator's cadence lands in the unit, config-over-code.
+export function applyPulseInterval(
+	specs: ServiceSpec[],
+	notifyPath = NOTIFY_PATH(),
+): ServiceSpec[] {
+	const interval =
+		loadNotifyConfig(notifyPath)?.pulse.interval_s ?? DEFAULT_PULSE_INTERVAL_S;
+	return specs.map((s) =>
+		s.name === "fleet-pulse" && s.schedule.intervalSeconds !== interval
+			? { ...s, schedule: { ...s.schedule, intervalSeconds: interval } }
+			: s,
+	);
 }
 
 // shared post-render guard (all three emitters): a placeholder that survived
@@ -822,7 +843,7 @@ function main(argv: string[]): number {
 	if (target !== "darwin" && target !== "linux" && target !== "win32") {
 		die(`unknown target "${target}" (darwin|linux|win32)`);
 	}
-	const all = loadManifest();
+	const all = applyPulseInterval(loadManifest());
 	const specs =
 		only.length > 0
 			? only.map(

@@ -181,6 +181,10 @@ gui/$(id -u)/<label>` revives):
     belt.local:7791), runtime copy ~/.claude/local-llm/dashboard.ts
   - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
   - `com.suspenders.board` — fleet board :7799
+  - `com.suspenders.fleet-pulse` — W822 periodic digest (StartInterval =
+    notify.yaml pulse.interval_s, default 14400): `notify.ts pulse` composes
+    lanes/READY/DONE/watchdog/decisions/commits into one notification via the
+    notify.yaml 'pulse' class; every install registers it post-install
   - `com.klh-local.caddy` — the Caddy .local front
   - same namespace, no ports: knowledge-worker
   - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
