@@ -209,13 +209,13 @@ function spendStripHtml(t, cls){
 function displayState(t){
   return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
 }
-function dualStamp(s){ // W902: UTC Z + viewer-local twin — hub clocks drift
+function laneStamp(s){
   if (!s) return '';
   var d = new Date(s); if (isNaN(d.getTime())) return esc(s);
   var p = function(n){ return (n < 10 ? '0' : '') + n; };
-  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? '+' : '-';
-  var loc = 'local ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ', UTC' + sg + p(a / 60 | 0) + ':' + p(a % 60);
-  return String(s).replace(/\.\d{3}Z$/, 'Z') + ' (' + loc + ')';
+  var short = p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + String(d.getFullYear()).slice(-2) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  var full = d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
+  return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(short) + '</time>';
 }
 function taskRow(t, parentId){
   var owner = ownerName(t);
@@ -232,7 +232,7 @@ function taskRow(t, parentId){
     '<td>' + esc(owner) + '</td>' +
     '<td class="num"' + (t.spend ? ' title="' + esc(spendStripText(t.spend)) + '"' : '') + '>' + esc(spendCell(t)) + '</td>' +
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
-    '<td class="num">' + agoShort(t.age_s) + '<div class="dim kwhen">' + esc(dualStamp(t.updated_at_utc)) + '</div></td>' +
+    '<td class="num">' + agoShort(t.age_s) + '<div class="dim kwhen">' + laneStamp(t.updated_at_utc) + '</div></td>' +
     '<td class="num' + (od ? ' rq' : '') + '">' + (od || '-') + '</td></tr>';
 }
 function renderTasks(){
@@ -431,7 +431,7 @@ function kanbanCard(t, fam){
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
     '<span class="kage dim">' + agoShort(t.age_s) + '</span>' +
-    '<span class="kwhen dim">' + esc(dualStamp(t.updated_at_utc)) + '</span></div>';
+    '<span class="kwhen dim">' + laneStamp(t.updated_at_utc) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
@@ -648,7 +648,7 @@ function splineEdges(ts, vis){
 }
 var SVGNS = 'http://www.w3.org/2000/svg';
 // --- W887 card sparklines: per-item spend-over-time (hour buckets) painted
-// as inline SVG — fresh = accent stroke, cached = ok stroke. Data rides
+// as stacked bars — fresh = accent, cached = ok. Data rides
 // /api/spend-series (30s poll, silent-fail garnish); the .kspark placeholders
 // emitted by spendStripHtml get painted here and in the drawer. DOM-safe key:
 // esc(project)+'|'+esc(id) (NUL is unusable in attributes).
@@ -678,29 +678,43 @@ function sparkSvg(points, w, h){
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  svg.setAttribute('aria-hidden', 'true');
-  var n = points.length, maxV = 0, i;
-  for (i = 0; i < n; i++) maxV = Math.max(maxV, points[i][1] + points[i][2]);
-  if (!maxV) return svg; // all-zero series: no strokes, never fake data
-  var step = n > 1 ? w / (n - 1) : w - 2;
-  var addLine = function(idx, cls){
-    var pts = '', any = false;
-    for (i = 0; i < n; i++){
-      var v = points[i][idx];
-      if (v > 0) any = true;
-      pts += (i ? ' ' : '') + (i * step).toFixed(1) + ',' + (h - 2 - (v / maxV) * (h - 4)).toFixed(1);
+  var hours = w > 120 ? 72 : 48;
+  var end = Math.floor(Date.now() / 3600000), start = end - hours + 1;
+  var bins = {}, maxV = 0, i;
+  for (i = 0; i < points.length; i++){
+    var hour = Math.floor(Number(points[i][0]) / 3600000);
+    if (hour < start || hour > end) continue;
+    var b = bins[hour] || (bins[hour] = [0, 0]);
+    b[0] += Number(points[i][1]) || 0;
+    b[1] += Number(points[i][2]) || 0;
+  }
+  for (var key in bins) maxV = Math.max(maxV, bins[key][0] + bins[key][1]);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Hourly fresh and cached input tokens, last ' + hours + ' hours');
+  if (!maxV) return svg; // empty window stays empty; old spend is not current activity
+  var step = w / hours, barW = Math.max(1, Math.min(3, step - 0.5));
+  for (i = 0; i < hours; i++){
+    var at = start + i, bucket = bins[at];
+    if (!bucket) continue;
+    var x = i * step + (step - barW) / 2;
+    var used = 0;
+    for (var part = 0; part < 2; part++){
+      var val = bucket[part];
+      if (val <= 0) continue;
+      var bh = Math.max(0.5, val / maxV * (h - 2));
+      var rect = document.createElementNS(SVGNS, 'rect');
+      rect.setAttribute('x', x.toFixed(1));
+      rect.setAttribute('y', Math.max(1, h - 1 - used - bh).toFixed(1));
+      rect.setAttribute('width', barW.toFixed(1));
+      rect.setAttribute('height', bh.toFixed(1));
+      rect.setAttribute('class', part ? 'spark-cached' : 'spark-fresh');
+      var tip = document.createElementNS(SVGNS, 'title');
+      tip.textContent = new Date(at * 3600000).toLocaleString('da-DK') + ' · ' + (part ? 'cached ' : 'fresh ') + fmtTokShort(val) + ' input tokens';
+      rect.appendChild(tip);
+      svg.appendChild(rect);
+      used += bh;
     }
-    return any ? pts : null;
-  };
-  var pf = addLine(1), pc = addLine(2);
-  var mk = function(cls, pts){
-    var p = document.createElementNS(SVGNS, 'polyline');
-    p.setAttribute('points', pts);
-    p.setAttribute('class', cls);
-    svg.appendChild(p);
-  };
-  if (pc) mk('spark-cached', pc); // cached under fresh
-  if (pf) mk('spark-fresh', pf);
+  }
   return svg;
 }
 function paintSparks(root){
@@ -709,7 +723,7 @@ function paintSparks(root){
     var el = els[i];
     var key = el.getAttribute('data-spark') || '';
     var pts = spendSeries[key] || null;
-    var sig = pts ? pts.length + ':' + pts[pts.length - 1][0] : '';
+    var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 3600000) : '';
     if (el.getAttribute('data-ssig') === sig) continue;
     el.setAttribute('data-ssig', sig);
     while (el.firstChild) el.removeChild(el.firstChild);
