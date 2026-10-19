@@ -1,4 +1,4 @@
-import{r,e,s}from"./lit-sq0mv1by.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(n,t)=>e`<span class="chip ${n}">${t}</span>`,o=(n)=>n===null||n===void 0?"—":new Date(n).toISOString().slice(5,16).replace("T"," "),c=(n)=>n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1000?`${(n/1000).toFixed(0)}k`:String(n);class i extends s{static properties={data:{state:!0}};static styles=r`
+import{r,e,s}from"./lit-bc7ky2yb.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(n,t)=>e`<span class="chip ${n}">${t}</span>`,o=(n)=>n===null||n===void 0?"—":new Date(n).toISOString().slice(5,16).replace("T"," "),c=(n)=>n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1000?`${(n/1000).toFixed(0)}k`:String(n);class i extends s{static properties={data:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			background: var(--klh-surface);

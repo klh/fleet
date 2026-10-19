@@ -30,15 +30,15 @@ class KlhServiceRow extends LitElement {
 			display: block;
 			background: transparent;
 			border-bottom: 1px solid var(--klh-edge);
-			padding: var(--klh-space-4) 0;
-			font: var(--klh-text-lg)/1.6 var(--klh-font-sans);
+			padding: var(--klh-space-2) 0;
+			font: var(--klh-text-md)/1.4 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e6e1);
 		}
 		.head {
 			display: grid;
 			grid-template-columns: 92px minmax(180px, 2fr) minmax(150px, 1fr) auto;
-			gap: var(--klh-space-3) var(--klh-space-5);
-			align-items: start;
+			gap: var(--klh-space-2) var(--klh-space-4);
+			align-items: center;
 		}
 		.badge {
 			font-weight: 700;
@@ -59,15 +59,21 @@ class KlhServiceRow extends LitElement {
 			overflow-wrap: anywhere;
 		}
 		.identity .dim {display:block;font:var(--klh-text-sm)/1.5 var(--klh-font-mono);}
-		.tags {display:flex;gap:var(--klh-space-3);align-items:center;flex-wrap:wrap;margin:var(--klh-space-2) 0;}
+		.tags {display:inline-flex;gap:var(--klh-space-2);align-items:center;flex-wrap:wrap;margin-left:var(--klh-space-2);}
 		.tag {border:1px solid var(--klh-edge);border-radius:var(--klh-radius);padding:0 var(--klh-space-3);font:var(--klh-text-xs)/1.8 var(--klh-font-mono);color:var(--klh-ink-3);}
-		@media(max-width:760px){.head{grid-template-columns:80px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
+		@media(max-width:760px){.head{grid-template-columns:72px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
 		.dim {
 			color: var(--klh-dim, #98958e);
 		}
 		.saw {
 			flex: 1 1 200px;
 		}
+		.actions { text-align:right; white-space:nowrap; }
+		.evidence { position:relative; margin:var(--klh-space-1) 0 0; padding:0; border:0; font:var(--klh-text-xs)/1.4 var(--klh-font-mono); }
+		.evidence summary { color:var(--klh-dim); font-weight:400; }
+		.evidence[open] summary { color:var(--klh-accent); }
+		.evidenceBody { position:absolute; right:0; z-index:5; width:min(300px,75vw); padding:var(--klh-space-3); border:1px solid var(--klh-edge-mid); background:var(--klh-surface-hi); box-shadow:0 3px 12px var(--klh-shadow); text-align:left; white-space:normal; }
+		.evidenceBody div { margin:var(--klh-space-1) 0; overflow-wrap:anywhere; }
 		button {
 			font: inherit;
 			font-size: 11px;
@@ -218,13 +224,14 @@ class KlhServiceRow extends LitElement {
 	private when(iso: string): string {
 		const d = new Date(iso);
 		if (Number.isNaN(d.getTime())) return "";
-		// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
 		const p = (n: number): string => String(n).padStart(2, "0");
-		const off = -d.getTimezoneOffset();
-		const a = Math.abs(off);
-		const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
-		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
-		return `${utc} (${local})`;
+		return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+	}
+
+	private fullWhen(iso: string): string {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		return `${d.toLocaleString("da-DK", { dateStyle: "full", timeStyle: "long" })} · UTC ${d.toISOString()}`;
 	}
 
 	protected render(): TemplateResult {
@@ -244,9 +251,8 @@ class KlhServiceRow extends LitElement {
 				>
 					${this.busy ? "probing…" : "re-probe"}
 				</button>
-				<div class="dim">${this.when(p.probed_at)}</div></div>
+					${p.observation ? html`<details class="evidence"><summary title=${this.fullWhen(p.probed_at)}><time datetime=${p.probed_at}>${this.when(p.probed_at)}</time> · evidence</summary><div class="evidenceBody"><div>Source: ${p.observation.source}</div><div>Method: ${p.observation.kind}</div><div>Scope: ${p.observation.scope}</div><div>Expires: <time datetime=${new Date(p.observation.expiresAt).toISOString()} title=${this.fullWhen(new Date(p.observation.expiresAt).toISOString())}>${this.when(new Date(p.observation.expiresAt).toISOString())}</time></div></div></details>` : html`<time class="dim" datetime=${p.probed_at} title=${this.fullWhen(p.probed_at)}>${this.when(p.probed_at)}</time>`}</div>
 			</div>
-			${p.observation ? html`<div class="dim">Evidence: ${p.observation.source} · ${p.observation.kind} · ${p.observation.scope} · expires ${this.when(new Date(p.observation.expiresAt).toISOString())}</div>` : ""}
 			${this.err ? html`<output>re-probe failed: ${this.err}</output>` : ""}
 			${m.showRecovery ? this.recovery(m) : ""}
 		`;

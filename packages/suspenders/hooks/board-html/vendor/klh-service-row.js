@@ -1,17 +1,17 @@
-import{r,e,s}from"./lit-sq0mv1by.js";import{d}from"./lit-ztzmytvz.js";import{n}from"./lit-rppg1wh3.js";var m=(t)=>t.state??(t.up?"up":"down"),h=(t,o=Date.now())=>{let a=m(t),l=!!t.observation&&!n(t.observation,o),i=t.recovery,c=!l&&a!=="up"&&a!=="idle"&&i!==null;return{badge:l?"STALE":a==="idle"?"IDLE":a==="up"?"UP":a==="degraded"?"DEGRADED":"DOWN",tone:l?"dim":a==="idle"?"dim":a==="up"?"ok":a==="degraded"?"warn":"bad",where:i?.probe.kind==="launchd"?"launchd":i?.probe.kind==="http"?`:${i.probe.port}${i.probe.path}`:`:${t.port}`,showRecovery:c,open:!l&&a==="down",saw:l?`Last known ${a}: ${t.detail}. Current state unknown.`:t.detail,what:i?.what??"",causes:c&&i?i.causes:[],steps:c&&i?i.recovery:[]}};class p{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),a=await o.json();if(!o.ok||!a.ok||!a.service)throw Error(a.error??`HTTP ${o.status}`);this.probe=a.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var g=15000;class u extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
+import{r,e,s}from"./lit-bc7ky2yb.js";import{d}from"./lit-ztzmytvz.js";import{n}from"./lit-rppg1wh3.js";var b=(t)=>t.state??(t.up?"up":"down"),h=(t,o=Date.now())=>{let i=b(t),l=!!t.observation&&!n(t.observation,o),a=t.recovery,c=!l&&i!=="up"&&i!=="idle"&&a!==null;return{badge:l?"STALE":i==="idle"?"IDLE":i==="up"?"UP":i==="degraded"?"DEGRADED":"DOWN",tone:l?"dim":i==="idle"?"dim":i==="up"?"ok":i==="degraded"?"warn":"bad",where:a?.probe.kind==="launchd"?"launchd":a?.probe.kind==="http"?`:${a.probe.port}${a.probe.path}`:`:${t.port}`,showRecovery:c,open:!l&&i==="down",saw:l?`Last known ${i}: ${t.detail}. Current state unknown.`:t.detail,what:a?.what??"",causes:c&&a?a.causes:[],steps:c&&a?a.recovery:[]}};class p{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),i=await o.json();if(!o.ok||!i.ok||!i.service)throw Error(i.error??`HTTP ${o.status}`);this.probe=i.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var v=15000;class u extends s{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			background: transparent;
 			border-bottom: 1px solid var(--klh-edge);
-			padding: var(--klh-space-4) 0;
-			font: var(--klh-text-lg)/1.6 var(--klh-font-sans);
+			padding: var(--klh-space-2) 0;
+			font: var(--klh-text-md)/1.4 var(--klh-font-sans);
 			color: var(--klh-ink, #e8e6e1);
 		}
 		.head {
 			display: grid;
 			grid-template-columns: 92px minmax(180px, 2fr) minmax(150px, 1fr) auto;
-			gap: var(--klh-space-3) var(--klh-space-5);
-			align-items: start;
+			gap: var(--klh-space-2) var(--klh-space-4);
+			align-items: center;
 		}
 		.badge {
 			font-weight: 700;
@@ -32,15 +32,21 @@ import{r,e,s}from"./lit-sq0mv1by.js";import{d}from"./lit-ztzmytvz.js";import{n}f
 			overflow-wrap: anywhere;
 		}
 		.identity .dim {display:block;font:var(--klh-text-sm)/1.5 var(--klh-font-mono);}
-		.tags {display:flex;gap:var(--klh-space-3);align-items:center;flex-wrap:wrap;margin:var(--klh-space-2) 0;}
+		.tags {display:inline-flex;gap:var(--klh-space-2);align-items:center;flex-wrap:wrap;margin-left:var(--klh-space-2);}
 		.tag {border:1px solid var(--klh-edge);border-radius:var(--klh-radius);padding:0 var(--klh-space-3);font:var(--klh-text-xs)/1.8 var(--klh-font-mono);color:var(--klh-ink-3);}
-		@media(max-width:760px){.head{grid-template-columns:80px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
+		@media(max-width:760px){.head{grid-template-columns:72px minmax(0,1fr) auto}.saw{grid-column:2 / -1}.actions{grid-column:3;grid-row:1}}
 		.dim {
 			color: var(--klh-dim, #98958e);
 		}
 		.saw {
 			flex: 1 1 200px;
 		}
+		.actions { text-align:right; white-space:nowrap; }
+		.evidence { position:relative; margin:var(--klh-space-1) 0 0; padding:0; border:0; font:var(--klh-text-xs)/1.4 var(--klh-font-mono); }
+		.evidence summary { color:var(--klh-dim); font-weight:400; }
+		.evidence[open] summary { color:var(--klh-accent); }
+		.evidenceBody { position:absolute; right:0; z-index:5; width:min(300px,75vw); padding:var(--klh-space-3); border:1px solid var(--klh-edge-mid); background:var(--klh-surface-hi); box-shadow:0 3px 12px var(--klh-shadow); text-align:left; white-space:normal; }
+		.evidenceBody div { margin:var(--klh-space-1) 0; overflow-wrap:anywhere; }
 		button {
 			font: inherit;
 			font-size: 11px;
@@ -110,7 +116,7 @@ import{r,e,s}from"./lit-sq0mv1by.js";import{d}from"./lit-ztzmytvz.js";import{n}f
 			margin-top: 4px;
 			color: var(--klh-danger-ink, #c96a4f);
 		}
-	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},g)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new p(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let a=document.createElement("textarea");a.value=o,a.setAttribute("readonly",""),a.style.position="fixed",a.style.opacity="0",this.renderRoot.appendChild(a),a.select(),document.execCommand("copy"),a.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){let o=new Date(t);if(Number.isNaN(o.getTime()))return"";let a=(v)=>String(v).padStart(2,"0"),l=-o.getTimezoneOffset(),i=Math.abs(l),c=`${a(o.getUTCHours())}:${a(o.getUTCMinutes())}:${a(o.getUTCSeconds())}Z`,b=`${a(o.getHours())}:${a(o.getMinutes())} UTC${l>=0?"+":"-"}${a(Math.floor(i/60))}:${a(i%60)}`;return`${c} (${b})`}render(){let t=this.probe;if(!t)return e``;let o=h(t,this.now);return e`
+	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},v)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new p(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let i=document.createElement("textarea");i.value=o,i.setAttribute("readonly",""),i.style.position="fixed",i.style.opacity="0",this.renderRoot.appendChild(i),i.select(),document.execCommand("copy"),i.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){let o=new Date(t);if(Number.isNaN(o.getTime()))return"";let i=(l)=>String(l).padStart(2,"0");return`${i(o.getDate())}.${i(o.getMonth()+1)}.${String(o.getFullYear()).slice(-2)} ${i(o.getHours())}:${i(o.getMinutes())}`}fullWhen(t){let o=new Date(t);if(Number.isNaN(o.getTime()))return t;return`${o.toLocaleString("da-DK",{dateStyle:"full",timeStyle:"long"})} · UTC ${o.toISOString()}`}render(){let t=this.probe;if(!t)return e``;let o=h(t,this.now);return e`
 			<div class="head">
 				<span class="badge ${o.tone}">${o.badge}</span>
 				<div class="identity"><span class="name">${d(t.name)}</span><span class="dim">${o.where}</span><div class="tags"><span class="tag">${t.id.startsWith("swarm-")||t.id.startsWith("kev-")?"Model":t.id.includes("gateway")||t.id.startsWith("buckle-")||t.id.startsWith("litellm-")?"Gateway":"Service"}</span><span class="tag">${t.observation?.scope??"Local machine"}</span></div></div>
@@ -123,9 +129,8 @@ import{r,e,s}from"./lit-sq0mv1by.js";import{d}from"./lit-ztzmytvz.js";import{n}f
 				>
 					${this.busy?"probing…":"re-probe"}
 				</button>
-				<div class="dim">${this.when(t.probed_at)}</div></div>
+					${t.observation?e`<details class="evidence"><summary title=${this.fullWhen(t.probed_at)}><time datetime=${t.probed_at}>${this.when(t.probed_at)}</time> · evidence</summary><div class="evidenceBody"><div>Source: ${t.observation.source}</div><div>Method: ${t.observation.kind}</div><div>Scope: ${t.observation.scope}</div><div>Expires: <time datetime=${new Date(t.observation.expiresAt).toISOString()} title=${this.fullWhen(new Date(t.observation.expiresAt).toISOString())}>${this.when(new Date(t.observation.expiresAt).toISOString())}</time></div></div></details>`:e`<time class="dim" datetime=${t.probed_at} title=${this.fullWhen(t.probed_at)}>${this.when(t.probed_at)}</time>`}</div>
 			</div>
-			${t.observation?e`<div class="dim">Evidence: ${t.observation.source} · ${t.observation.kind} · ${t.observation.scope} · expires ${this.when(new Date(t.observation.expiresAt).toISOString())}</div>`:""}
 			${this.err?e`<output>re-probe failed: ${this.err}</output>`:""}
 			${o.showRecovery?this.recovery(o):""}
 		`}recovery(t){return e`
@@ -140,16 +145,16 @@ import{r,e,s}from"./lit-sq0mv1by.js";import{d}from"./lit-ztzmytvz.js";import{n}f
 				</ul>
 				<h4>recover — run in order, then re-probe</h4>
 				<ol>
-					${t.steps.map((o,a)=>e`<li>
+					${t.steps.map((o,i)=>e`<li>
 							<div class="dim">${o.label}</div>
 							<div class="step">
 								<code>${o.cmd}</code>
 								<button
 									type="button"
 									aria-label="copy: ${o.cmd}"
-									@click=${()=>this.copy(a,o.cmd)}
+									@click=${()=>this.copy(i,o.cmd)}
 								>
-									${this.copied===a?"copied":"copy"}
+									${this.copied===i?"copied":"copy"}
 								</button>
 							</div>
 						</li>`)}
