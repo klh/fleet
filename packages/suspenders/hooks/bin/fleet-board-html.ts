@@ -253,8 +253,9 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; }
-.krow { display:flex; gap:8px; align-items:baseline; }
+.krow { display:flex; gap:4px; align-items:baseline; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
+.krow .kwhen { flex:none; white-space:nowrap; font-size:8px; font-variant-numeric:tabular-nums; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
 .ktitle { margin-top:4px; word-break:break-word; }
 .klane { margin-top:3px; font-size:11px; }
