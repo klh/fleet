@@ -95,6 +95,49 @@ async function defaultModel(url: string, key?: string): Promise<string> {
 	}
 }
 
+// W850: the local-reason tier (:8903) takes max_concurrent_requests=2 — when
+// lanes/oracle saturate it the advice POST comes back 503 busy. ONE delayed
+// retry honors the server's Retry-After (capped) so advice degrades late
+// instead of instantly rendering 'advice failed' on the card.
+const BUSY_RETRY_CAP_MS = Math.max(
+	0,
+	Number(process.env.SUSPENDERS_ADVICE_RETRY_CAP_MS ?? 15_000) || 0,
+);
+
+/** Retry-After (delta-seconds or HTTP-date) → ms; undefined when absent/bad. */
+function retryAfterMs(h: string | null): number | undefined {
+	if (h === null || h.trim() === "") return undefined;
+	const s = Number(h);
+	if (Number.isFinite(s)) return s >= 0 ? Math.round(s * 1000) : undefined;
+	const at = Date.parse(h);
+	return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
+/** One advise POST; a 503 busy answer waits out Retry-After (capped,
+ *  SUSPENDERS_ADVICE_RETRY_CAP_MS) and retries ONCE on the same endpoint. */
+async function fetchAdvise(body: string): Promise<Response> {
+	const post = () =>
+		fetch(URL_, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				...(KEY ? { authorization: `Bearer ${KEY}` } : {}),
+			},
+			body,
+			signal: AbortSignal.timeout(120_000),
+		});
+	const first = await post();
+	if (first.status !== 503) return first;
+	const wait = Math.min(
+		retryAfterMs(first.headers.get("retry-after")) ?? 2_000,
+		BUSY_RETRY_CAP_MS,
+	);
+	await first.body?.cancel();
+	console.error(`advise #${id}: 503 busy — one retry in ${wait}ms`);
+	await Bun.sleep(wait);
+	return post();
+}
+
 const db = openStore();
 const ev = db
 	.query(
@@ -446,13 +489,8 @@ if (belt) {
 
 const t0 = Date.now();
 try {
-	const r = await fetch(URL_, {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
-			...(KEY ? { authorization: `Bearer ${KEY}` } : {}),
-		},
-		body: JSON.stringify({
+	const r = await fetchAdvise(
+		JSON.stringify({
 			model: MODEL,
 			messages: [
 				{ role: "system", content: sys },
@@ -464,8 +502,7 @@ try {
 			max_tokens: 500,
 			temperature: 0.2,
 		}),
-		signal: AbortSignal.timeout(120_000),
-	});
+	);
 	if (!r.ok)
 		throw new Error(`LLM ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	const j = (await r.json()) as {
