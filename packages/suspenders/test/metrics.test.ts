@@ -2,7 +2,7 @@
 // against a temp-HOME governor.db, same recipe as monitor.test.ts: seeding,
 // timing, and CLI runs happen in bun subprocesses so the parent test process
 // never opens the real governor.db.
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -109,11 +109,13 @@ describe("W15 — workTiming derives wall vs agent time from bus events", () => 
 		expect(w1?.agentMs).toBe(40 * M);
 	});
 
-	test("serialized multi-claims: wall stays first-claim→done, agent sums segments", () => {
+	test("serialized multi-claims: release ends the cycle — wall/agent measure the fresh window, prior kept", () => {
 		const w2 = byId.get("W2");
 		expect(w2?.claims).toBe(2);
-		expect(w2?.wallMs).toBe(35 * M);
-		expect(w2?.agentMs).toBe(25 * M); // 10m + 15m, the 10m release gap is wall-only
+		expect(w2?.wallMs).toBe(15 * M); // fresh claim T(20) → done T(5)
+		expect(w2?.agentMs).toBe(15 * M);
+		expect(w2?.priorAgentMs).toBe(10 * M); // kept: the released first cycle
+		expect(w2?.priorCycles).toBe(1);
 	});
 
 	test("open item: agent counts up to now, never done", () => {

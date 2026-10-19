@@ -13,6 +13,7 @@ import { type ItemAttribution, itemAttribution } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
+import { TIMING_KINDS } from "../lib/work-timing.ts";
 import {
 	BIND,
 	db,
@@ -158,7 +159,7 @@ function workAttribution(): Map<string, ItemAttribution> {
 	// trips per TTL window) collapses into this single read.
 	const evs = db
 		.query(
-			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
+			`SELECT project, id, ts, kind, payload FROM events WHERE kind IN ${TIMING_KINDS} ORDER BY ts, id`,
 		)
 		.all() as TimingEventRow[];
 	for (const { project } of db

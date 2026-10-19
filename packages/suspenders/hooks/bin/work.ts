@@ -674,7 +674,7 @@ const showOne = (id: string, json: boolean): void => {
 		String(id),
 	);
 	if (at) {
-		const line = renderAttribution(at);
+		const line = renderAttribution(at); // W895: guard keys on a.running
 		if (line) console.log(`  ${dim("spend:")} ${line}`);
 	}
 	const kids = db()

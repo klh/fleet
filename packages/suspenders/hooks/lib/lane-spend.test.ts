@@ -1,14 +1,14 @@
 // W635 — lane-spend attribution tests: ledger resolution, spend extraction,
 // claim-window join. In-memory/temp ledger, real functions.
 import { Database } from "bun:sqlite";
-import { unlinkSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
+import { unlinkSync } from "node:fs";
 import {
 	itemAttribution,
 	itemSpend,
+	type LaneSpendRow,
 	laneSpendRows,
 	resolveBuckleDb,
-	type LaneSpendRow,
 } from "./lane-spend.ts";
 import type { ClaimWindow } from "./work-timing.ts";
 

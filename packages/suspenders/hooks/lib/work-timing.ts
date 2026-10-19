@@ -15,14 +15,18 @@ import { readFileSync, statSync } from "node:fs";
 export interface ItemTiming {
 	project: string;
 	work: string;
-	firstClaim: number; // first work.claimed ts (0 = never claimed, e.g. auto-rollup)
+	firstClaim: number; // first claim of the CURRENT cycle (W895; 0 = no live cycle)
 	lastEvent: number; // last observed event ts (nowMs while still open)
-	wallMs: number; // lastEvent − firstClaim (0 when never claimed)
-	agentMs: number; // Σ claim segments; an open segment counts up to nowMs
+	wallMs: number; // lastEvent − current-cycle firstClaim (0 when no live cycle)
+	agentMs: number; // Σ current-cycle claim segments; open segment counts to nowMs
 	claims: number;
 	releases: number;
 	done: boolean;
 	failed: boolean;
+	priorAgentMs: number; // W895 kept segments from released/superseded cycles
+	priorCycles: number; // W895 how many cycles a release/supersede ended
+	priorSinceMs: number; // W895 first claim of the earliest prior cycle (0 = none)
+	running: boolean; // W895 open claim segment (CLAIMED/RUNNING — clock live)
 }
 
 // W682 — the claim-replay event shape: callers that batch the bus read for
@@ -35,13 +39,40 @@ export interface TimingEventRow {
 	kind: string;
 	payload: string | null;
 }
-const TIMING_KINDS =
-	"('work.claimed','work.released','work.done','work.failed')";
+// W895: the replay scans the lifecycle kinds — the terminal ones close claim
+// segments/cycles too (supersede/cancel used to leave windows open forever).
+// Exported so preloading callers (board data.ts) scan the same set.
+export const TIMING_KINDS =
+	"('work.claimed','work.released','work.done','work.failed','work.superseded','work.cancelled')";
+
+// W895 — flush the current claim cycle into the kept (prior) split and reset
+// the clock: firstClaim 0 until a fresh claim opens the next cycle.
+function endCycle(
+	t: ItemTiming,
+	work: string,
+	cycle: Map<string, { start: number; agent: number }>,
+): void {
+	const c = cycle.get(work);
+	if (c) {
+		t.priorAgentMs += c.agent;
+		t.priorCycles++;
+		if (!t.priorSinceMs) t.priorSinceMs = c.start;
+	}
+	cycle.delete(work);
+	t.firstClaim = 0;
+}
 
 // Replay one project's work events chronologically. A work.claimed opens a
 // claim segment; the next work.released / work.done / work.failed closes it
 // (that duration is agent time). Items never claimed (auto-rollup parents)
 // get wallMs 0 — there is no claim→done interval to measure.
+//
+// W895 ghost clock: a release/supersede/cancel ENDS the claim cycle. wall +
+// agent then measure the NEXT (fresh) claim's window only; the spent cycles
+// are kept split (priorAgentMs/priorCycles) instead of masquerading as the
+// current clock — a 17-day-old ghost claim no longer reads as item spend
+// forever. work.done closes the item but leaves the cycle current, so DONE
+// items keep their final claim→done interval.
 export function workTiming(
 	db: Database,
 	project: string,
@@ -61,6 +92,7 @@ export function workTiming(
 				payload: string | null;
 			}[]);
 	const open = new Map<string, number>(); // work id → open claim-segment start ts
+	const cycle = new Map<string, { start: number; agent: number }>(); // W895 current cycle
 	const out = new Map<string, ItemTiming>();
 	const item = (work: string): ItemTiming => {
 		let t = out.get(work);
@@ -76,6 +108,10 @@ export function workTiming(
 				releases: 0,
 				done: false,
 				failed: false,
+				priorAgentMs: 0,
+				priorCycles: 0,
+				priorSinceMs: 0,
+				running: false,
 			};
 			out.set(work, t);
 		}
@@ -90,27 +126,44 @@ export function workTiming(
 		const t = item(work);
 		if (r.kind === "work.claimed") {
 			t.claims++;
-			if (!t.firstClaim) t.firstClaim = r.ts;
+			if (!cycle.has(work)) {
+				cycle.set(work, { start: r.ts, agent: 0 });
+				t.firstClaim = r.ts;
+			}
 			open.set(work, r.ts);
 		} else {
 			const start = open.get(work);
 			if (start != null) {
-				t.agentMs += Math.max(0, r.ts - start);
+				const c = cycle.get(work);
+				if (c) c.agent += Math.max(0, r.ts - start);
 				open.delete(work);
 				t.releases++;
 			}
 			if (r.kind === "work.done") t.done = true;
 			if (r.kind === "work.failed") t.failed = true;
 			t.lastEvent = r.ts;
+			// W895 — release/supersede/cancel ends the claim cycle: the clock
+			// resets to the fresh claim's window; spent cycles stay kept (split).
+			if (
+				r.kind === "work.released" ||
+				r.kind === "work.superseded" ||
+				r.kind === "work.cancelled"
+			)
+				endCycle(t, work, cycle);
 		}
 	}
 	for (const [work, start] of open) {
 		const t = item(work);
-		t.agentMs += Math.max(0, nowMs - start);
+		const c = cycle.get(work);
+		if (c) c.agent += Math.max(0, nowMs - start);
 		t.lastEvent = nowMs;
+		t.running = true;
 	}
-	for (const t of out.values())
-		if (t.firstClaim) t.wallMs = t.lastEvent - t.firstClaim;
+	for (const [work, c] of cycle) {
+		const t = item(work);
+		t.agentMs = c.agent;
+		t.wallMs = (t.lastEvent || nowMs) - c.start;
+	}
 	return [...out.values()].sort((a, b) => (a.work < b.work ? -1 : 1));
 }
 

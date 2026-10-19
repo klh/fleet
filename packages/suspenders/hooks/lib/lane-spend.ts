@@ -179,8 +179,13 @@ export interface ItemAttribution {
 	cached: number; // cacheR + cacheC
 	out: number;
 	requests: number;
-	wallMs: number; // first claim → last event (W15)
-	agentMs: number; // Σ closed claim segments (W15)
+	wallMs: number; // current claim cycle: first claim → last event (W15, W895)
+	agentMs: number; // Σ current-cycle claim segments (W15, W895)
+	firstClaimMs: number; // current cycle's first claim (0 = none — W895 reset)
+	priorAgentMs: number; // kept agent time from released/superseded cycles
+	priorCycles: number;
+	priorSinceMs: number; // first claim of the earliest kept cycle (0 = none)
+	running: boolean; // open claim segment — the stale-clock guard keys on it
 	groups: Record<string, GroupSpend>;
 }
 
@@ -219,16 +224,34 @@ export function itemAttribution(
 			requests: s?.requests ?? 0,
 			wallMs: t?.wallMs ?? 0,
 			agentMs: t?.agentMs ?? 0,
+			firstClaimMs: t?.firstClaim ?? 0,
+			priorAgentMs: t?.priorAgentMs ?? 0,
+			priorCycles: t?.priorCycles ?? 0,
+			priorSinceMs: t?.priorSinceMs ?? 0,
+			running: t?.running ?? false,
 			groups: Object.fromEntries(s?.groups ?? []),
 		});
 	}
 	return out;
 }
 
+/** W895 stale-clock guard: agent time past this on a non-running item is
+ *  ghost-clock residue (or a genuinely ancient segment) — rendered as
+ *  'stale (pre-<date>)', never raw hours. */
+export const STALE_AGENT_MS = 7 * 86_400_000;
+
 /** W776 — one-line human render for one item's attribution (work show).
- *  Empty string for an all-zero attribution: no noise on clean items. */
+ *  Empty string for an all-zero attribution: no noise on clean items.
+ *  W895: on a non-running item (no open claim), agent time over
+ *  STALE_AGENT_MS renders 'stale (pre-<date>)', never raw hours, and the
+ *  kept prior split renders bounded instead of as live clock time. */
 export function renderAttribution(a: ItemAttribution): string {
-	if (a.fresh + a.cached + a.out === 0 && a.requests === 0 && !a.wallMs)
+	if (
+		a.fresh + a.cached + a.out === 0 &&
+		a.requests === 0 &&
+		!a.wallMs &&
+		!a.priorAgentMs
+	)
 		return "";
 	const total = (g: GroupSpend): number => g.in + g.out + g.cacheR + g.cacheC;
 	const k = (n: number): string =>
@@ -243,11 +266,20 @@ export function renderAttribution(a: ItemAttribution): string {
 			? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`
 			: `${m}m`;
 	};
+	const d = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+	const stale = (ms: number, since: number): string =>
+		a.running || ms <= STALE_AGENT_MS ? dur(ms) : `stale (pre-${d(since)})`;
+	const prior = (a: ItemAttribution): string => {
+		if (!a.priorAgentMs) return "";
+		if (!a.running && a.priorAgentMs > STALE_AGENT_MS)
+			return ` · prior stale (pre-${d(a.priorSinceMs)})`;
+		return ` · prior ${dur(a.priorAgentMs)} (${a.priorCycles} released cycle${a.priorCycles === 1 ? "" : "s"})`;
+	};
 	const groups = Object.entries(a.groups)
 		.filter(([, g]) => total(g) > 0)
 		.sort((x, y) => total(y[1]) - total(x[1]))
 		.slice(0, 3)
 		.map(([g, v]) => `${g} ${k(total(v))}`)
 		.join(", ");
-	return `fresh ${k(a.fresh)} · cached ${k(a.cached)} · out ${k(a.out)} · ${a.requests} req · wall ${dur(a.wallMs)} (agent ${dur(a.agentMs)})${groups ? ` · ${groups}` : ""}`;
+	return `fresh ${k(a.fresh)} · cached ${k(a.cached)} · out ${k(a.out)} · ${a.requests} req · wall ${dur(a.wallMs)} (agent ${stale(a.agentMs, a.firstClaimMs)})${prior(a)}${groups ? ` · ${groups}` : ""}`;
 }
