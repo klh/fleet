@@ -259,6 +259,19 @@ export async function syncHarness(
 		const manifest = JSON.parse(
 			readFileSync(join(suspenders, "package.json"), "utf8"),
 		);
+		const beltManifest = JSON.parse(
+			readFileSync(join(packageRoot, "belt", "package.json"), "utf8"),
+		);
+		const dependencies: Record<string, string> = {};
+		for (const item of [manifest, beltManifest]) {
+			for (const [name, version] of Object.entries(item.dependencies ?? {})) {
+				if (typeof version !== "string" || version.startsWith("workspace:"))
+					continue;
+				if (dependencies[name] && dependencies[name] !== version)
+					throw new Error(`Conflicting installed dependency ${name}`);
+				dependencies[name] = version;
+			}
+		}
 		for (const name of ["suspenders", "belt", "local-llm", "blam"]) {
 			const path = join(packageRoot, name, "package.json");
 			const item = JSON.parse(readFileSync(path, "utf8"));
@@ -294,12 +307,7 @@ export async function syncHarness(
 				name: "fleet-installed-harness",
 				private: true,
 				type: "module",
-				dependencies: Object.fromEntries(
-					Object.entries(manifest.dependencies).filter(
-						([_name, version]) =>
-							typeof version === "string" && !version.startsWith("workspace:"),
-					),
-				),
+				dependencies,
 			}),
 		);
 		rmSync(join(stage, "node_modules"), { recursive: true, force: true });
@@ -353,12 +361,7 @@ export async function syncHarness(
 		const dependencyLock = ["bun.lock", "bun.lockb"]
 			.map((file) => join(stage, file))
 			.find((file) => existsSync(file));
-		if (
-			!dependencyLock &&
-			Object.values(manifest.dependencies as Record<string, string>).some(
-				(value) => !value.startsWith("workspace:"),
-			)
-		)
+		if (!dependencyLock && Object.keys(dependencies).length > 0)
 			throw new Error(
 				"Dependency installation did not produce a verifiable lockfile",
 			);
