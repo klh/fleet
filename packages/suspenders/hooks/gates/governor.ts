@@ -16,6 +16,9 @@
 // Gates FAIL OPEN: a dead/contended registry never blocks an edit.
 import { deny, type HookInput } from "../lib/hookio.ts";
 import { gateWroteSince } from "./files.ts";
+import { run } from "../lib/run.ts";
+import { canonicalProjectRoot } from "../lib/lane-registry.ts";
+import { laneContext } from "../lib/lane-completion.ts";
 import {
 	openStore,
 	projectIdentity,
@@ -87,6 +90,42 @@ export function laneId(hook: HookInput): string {
 // once and forces a re-read. Shared with the Bash gate.
 export function leaseExpired(rec: { ts: number }, now = Date.now()): boolean {
 	return now - rec.ts > TTL_MS;
+}
+
+// ---- W869 location-vs-claim ------------------------------------------------
+/** Deny payload (+ item/sid for the audit row) when a lane with a registered
+ * dispatch worktree edits outside it but inside the project — the shared-
+ * checkout writes that get the coordinator billed. Fail-open otherwise. */
+export function locationVsClaim(
+	hook: HookInput,
+	F: string,
+): { msg: string; item: string; sid: string } | null {
+	const cwd = hook.cwd;
+	const c = cwd?.replace(/\/$/, "") ?? "";
+	if (!c || !existsSync(c) || F === c || F.startsWith(`${c}/`)) return null;
+	const top = run("git", ["rev-parse", "--show-toplevel"], { cwd: c });
+	if (!top.ok) return null;
+	const wt = top.out.trim();
+	const context = laneContext(wt);
+	if (!context?.sid || !context.item) return null; // not a dispatched lane
+	const registered = context.worktree ?? wt;
+	let root: string;
+	try {
+		root = canonicalProjectRoot(wt);
+	} catch {
+		return null;
+	}
+	if (!isUnder(F, root)) return null; // companion repo — outside the claim
+	if (isUnder(F, registered)) return null; // the sanctioned location
+	return {
+		msg: `W869 LOCATION-VS-CLAIM: ${F} is in the shared checkout, outside this lane's registered worktree (${registered}). A claimed lane writing the shared checkout leaves dirty files the coordinator's stop-gate bills. Edit the same relative path inside ${registered} instead.`,
+		item: context.item,
+		sid: context.sid,
+	};
+}
+
+function isUnder(child: string, parent: string): boolean {
+	return child === parent || child.startsWith(`${parent}/`);
 }
 
 // W14: void, not never — the pre-files pipeline (gate.ts) chains gates in ONE
@@ -173,6 +212,18 @@ export function governorGate(hook: HookInput): void {
 			});
 		deny(`${reason}${note}`);
 	};
+	// ---- W869 location-vs-claim: a claimed lane with a registered worktree
+	// writes ONLY inside it — shared-checkout edits deny BEFORE they land,
+	// so the coordinator's stop-gate never bills lane dirt again. ----
+	const loc = locationVsClaim(hook, F);
+	if (loc)
+		denyRecovery(
+			loc.msg,
+			"location-vs-claim",
+			loc.item,
+			"edit the same relative path inside the registered worktree instead",
+			loc.sid,
+		);
 	// ---- coarse-claim layer: soft unless hot; own-claim touches heartbeat ----
 	if (db) {
 		try {
