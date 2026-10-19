@@ -1,31 +1,20 @@
 // review-bench.test.ts — W792: pure tests for the review-arena harness.
 // No live LLM: generators, diff engine, parsers, matcher/score, seal refusals.
 import { describe, expect, test } from "bun:test";
+import { type Defect, lineOf, unifiedDiff } from "./review-core.ts";
 import {
-	DEFECT_CLASSES,
-	type Defect,
-	lineOf,
-	type ReviewTask,
-	unifiedDiff,
-} from "./review-core.ts";
-import {
+	findingIdOf,
+	openPriorBlockers,
+	parseAcks,
 	parseFindings,
 	parseFix,
 	parseTriage,
 	parseVerify,
 	parseVerdictLine,
+	slugOf,
 } from "./review-parse.ts";
-import { matchFindings, scoreOutcome } from "./review-score.ts";
-import { assembleReviewTasks, seededTasks } from "./review-set.ts";
+import { scoreOutcome } from "./review-score.ts";
 import { INCIDENTS, incidentTask } from "./review-incident.ts";
-
-const DEFECT: Defect = {
-	id: "d1",
-	file: "src/ring.ts",
-	line: 7,
-	cls: "off-by-one",
-	desc: "index wraps past capacity",
-};
 
 describe("unifiedDiff/lineOf", () => {
 	test("hunk headers, context and +/- lines", () => {
@@ -86,6 +75,7 @@ describe("matchFindings/scoreOutcome", () => {
 		line: number,
 		severity: "high" | "medium" | "low" = "high",
 	) => ({
+		id: null,
 		file,
 		line,
 		severity,
@@ -152,5 +142,108 @@ describe("incident tasks", () => {
 			expect(t.defects.length).toBeGreaterThan(0);
 			expect(t.files?.buggy).toBeDefined();
 		}
+	});
+});
+describe("W832 finding IDs + acks", () => {
+	test("parseFindings reads ID-prefixed lines; legacy lines stay parseable", () => {
+		const text = [
+			"B1-loop-bound: high: src/ring.ts:7 — index wraps past capacity",
+			"- **n2-shadow: note: src/ring.ts:12 — unused parameter shadows**",
+			"some prose line",
+			"high: src/other.ts:3 — legacy line without an ID parses too",
+		].join("\n");
+		const fs = parseFindings(text);
+		expect(fs.length).toBe(3);
+		expect(fs[0]?.id).toBe("B1-loop-bound");
+		expect(fs[0]?.severity).toBe("high");
+		expect(fs[1]?.id).toBe("n2-shadow");
+		expect(fs[1]?.severity).toBe("low"); // note alias
+		expect(fs[2]?.id).toBe(null);
+	});
+	test("parseAcks: canonical three + drift aliases, unknown → still-open", () => {
+		const text = [
+			"B1-loop: fixed — re-ran the ring tests",
+			"b2-wrap: STILL OPEN — loop overruns at cap",
+			"N3-x: unverifiable",
+			"B4-y: resolved — claimed done, not an explicit fixed",
+			"B1-loop: fixed — duplicate line ignored (first wins)",
+		].join("\n");
+		const acks = parseAcks(text);
+		expect(acks.length).toBe(4);
+		expect(acks[0]?.status).toBe("fixed");
+		expect(acks[1]?.status).toBe("still-open");
+		expect(acks[2]?.status).toBe("not-verifiable");
+		expect(acks[3]?.status).toBe("still-open");
+	});
+	test("openPriorBlockers: only explicit fixed closes; missing ack = open; notes never block", () => {
+		const acks = parseAcks(
+			"B1-a: fixed — re-ran\nB2-b: still-open — re-ran\nN1-c: still-open — noted",
+		);
+		expect(
+			openPriorBlockers(["B1-a", "b2-b", "B3-missing", "N1-c"], acks),
+		).toEqual(["b2-b", "B3-missing"]);
+	});
+	test("findingIdOf + slugOf synthesize stable IDs", () => {
+		expect(slugOf("Index wraps — past capacity!")).toBe("index-wraps-past");
+		expect(slugOf("  ...")).toBe("finding");
+		expect(findingIdOf(2, true, "Index wraps past capacity")).toBe(
+			"B2-index-wraps-past",
+		);
+		expect(findingIdOf(1, false, "unused param")).toBe("N1-unused-param");
+		expect(findingIdOf(3, true, "wrap", 2)).toBe("B3-wrap-2");
+	});
+});
+describe("W832 verdict contract", () => {
+	const DEF: Defect[] = [
+		{ id: "d1", file: "src/ring.ts", line: 7, cls: "off-by-one", desc: "wrap" },
+	];
+	const FIND2 = (id: string | null) => ({
+		id,
+		file: "src/ring.ts",
+		line: 9,
+		severity: "high" as const,
+		issue: "issue text long enough for the parser",
+	});
+	const BASE = {
+		arm: "b" as const,
+		taskId: "t1",
+		src: "seeded",
+		defects: DEF,
+		findings: [FIND2("B1-wrap")],
+		roundsToPass: 2,
+		tokIn: 10,
+		tokOut: 5,
+		calls: 3,
+		wallMs: 100,
+	};
+	test("PASS over an open prior blocker is an incorrect verdict", () => {
+		const bad = scoreOutcome({
+			...BASE,
+			verdict: "PASS",
+			openBlockers: ["B1-wrap"],
+		});
+		expect(bad.verdictCorrect).toBe(false);
+		expect(bad.openBlockers).toEqual(["B1-wrap"]);
+		const good = scoreOutcome({ ...BASE, verdict: "PASS", openBlockers: [] });
+		expect(good.verdictCorrect).toBe(true);
+	});
+	test("FAIL is always correct on defect tasks, blockers open or not", () => {
+		const f1 = scoreOutcome({
+			...BASE,
+			verdict: "FAIL",
+			openBlockers: ["B1-wrap"],
+		});
+		expect(f1.verdictCorrect).toBe(true);
+	});
+	test("clean task: PASS correct only with zero open blockers", () => {
+		const clean = scoreOutcome({
+			...BASE,
+			src: "clean",
+			defects: [],
+			findings: [],
+			verdict: "PASS",
+			openBlockers: ["B1-leftover"],
+		});
+		expect(clean.verdictCorrect).toBe(false);
 	});
 });

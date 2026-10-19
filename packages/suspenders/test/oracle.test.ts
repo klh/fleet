@@ -154,7 +154,10 @@ test("review pins the fixed frame + payload to the configured route", async () =
 		);
 		expect(user).toContain("Review this diff.");
 		expect(user).toContain("VERDICT: PASS | VERDICT: FAIL - <reason>");
-		expect(user).toContain("+new");
+		// W832: stable finding IDs + cross-round ack contract ride the frame
+		expect(user).toContain("B<round>-<slug>");
+		expect(user).toContain("fixed | still-open | not-verifiable");
+		expect(user).toContain("caps at blocker");
 	} finally {
 		s.stop();
 		rmSync(dir, { recursive: true, force: true });

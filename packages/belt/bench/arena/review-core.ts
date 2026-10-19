@@ -50,13 +50,21 @@ export interface ReviewTask {
 // ---------------------------------------------------------------- findings
 export type Severity = "high" | "medium" | "low";
 export interface Finding {
+	/** W832 stable ID `B<round>-<slug>` (blocker) / `N<round>-<slug>` (note);
+	 *  null = legacy unprefixed line (drifted vocab stays parse-compatible). */
+	id: string | null;
 	severity: Severity;
 	file: string;
 	line: number;
 	issue: string;
 }
 
-export const REVIEW_VERBS = ["hunter", "reviewer", "verifier", "fixer"] as const;
+export const REVIEW_VERBS = [
+	"hunter",
+	"reviewer",
+	"verifier",
+	"fixer",
+] as const;
 export type ReviewVerb = (typeof REVIEW_VERBS)[number];
 
 // ---------------------------------------------------------------- legs (config-over-code)
@@ -76,7 +84,10 @@ export const REVIEW_LEGS = {
 	/** v1 deviation: :8912 kev speaks its SystemOne wire (state+questions),
 	 *  not the openai chat wire the arena legs share — the kev ROLE (severity/
 	 *  class triage) rides the extract tier; REVIEW_TRIAGE_PORT re-points. */
-	triage: { port: envPort("REVIEW_TRIAGE_PORT", 8902), tier: "extract (kev-role)" },
+	triage: {
+		port: envPort("REVIEW_TRIAGE_PORT", 8902),
+		tier: "extract (kev-role)",
+	},
 } as const;
 export type LegName = keyof typeof REVIEW_LEGS;
 
@@ -110,8 +121,12 @@ export function unifiedDiff(
 ): string {
 	const t = lcsTable(aLines, bLines);
 	const w = bLines.length + 1;
-	const ops: { kind: "same" | "del" | "add"; a?: number; b?: number; text: Line }[] =
-		[];
+	const ops: {
+		kind: "same" | "del" | "add";
+		a?: number;
+		b?: number;
+		text: Line;
+	}[] = [];
 	let i = 0;
 	let j = 0;
 	while (i < aLines.length && j < bLines.length) {

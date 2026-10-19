@@ -28,6 +28,7 @@ import {
 	pinnedLeg,
 } from "../lib/oracle-legs.ts";
 import type { PanelRow } from "../lib/oracle-legs.ts";
+import { REVIEW_FRAME } from "../lib/oracle-frame.ts";
 import { defineVerb, parseVerb } from "../lib/verb-kit.ts";
 import type { VerbSpec } from "../lib/verb-kit.ts";
 
@@ -69,14 +70,11 @@ const arg = (name: string): string | null =>
 const topic: string[] = outcome?.ok ? outcome.parsed.pos : [];
 
 // the FIXED contract — three frames, never free-form; the final lines are
-// machine-parseable (review's VERDICT matches review-lane.ts's parse)
+// machine-parseable (review's VERDICT matches review-lane.ts's parse).
+// review rides the shared lib (W832 stable finding IDs — one source of
+// truth with the arena arm-A pin).
 const FRAMES: Record<Verb, string> = {
-	review: [
-		"You are a read-only reviewer (oracle fixed contract). Review this diff.",
-		"Audit, never re-do. Findings as terse bullets — severity(high|medium|low): file:line — issue. No style nits.",
-		"End your reply with ONE machine-parseable final line:",
-		"VERDICT: PASS | VERDICT: FAIL - <reason>",
-	].join("\n"),
+	review: REVIEW_FRAME,
 	bugs: [
 		"You are a read-only bug hunt (oracle fixed contract). Find bugs.",
 		"Each bug one terse line — file:line — bug — severity(high|medium|low). Style nits are not bugs.",
