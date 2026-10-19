@@ -161,6 +161,22 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		],
 		cwd: (repo) => repo,
 	},
+	{
+		// W828: the PolyForm noncommercial perimeter — walks the repo's
+		// node_modules license fields against the permissive allowlist,
+		// verifies vendored-bundle banners, records swarm model licenses,
+		// and writes the report json the W822 pulse reads. Daily fire;
+		// exit 1 on unaccepted violations (a human should notice).
+		name: "license-audit",
+		calendar: { hour: 5, minute: 45 },
+		timeoutMs: 240_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/license-audit.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
