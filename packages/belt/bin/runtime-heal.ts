@@ -95,12 +95,28 @@ export const healImports = (prefix: string): string[] => {
 		let out = src;
 		for (const spec of scanImports(src)) {
 			const mapped = mapSpec(spec);
-			if (!mapped || !existsSync(join(prefix, mapped.replace(/^\.\//, ""))))
+			if (
+				!mapped ||
+				join(prefix, mapped.replace(/^\.\//, "")) === p ||
+				!existsSync(join(prefix, mapped.replace(/^\.\//, "")))
+			)
 				continue;
 			for (const q of ['"', "'"]) {
 				out = out.split(`${q}${spec}${q}`).join(`${q}${mapped}${q}`);
 			}
 			done.push(`${f}: ${spec} -> ${mapped}`);
+		}
+		if (
+			f === "remotes.ts" &&
+			existsSync(join(prefix, "bonjour-service.bundle.js"))
+		) {
+			const next = out.replace(
+				'from "bonjour-service"',
+				'from "./bonjour-service.bundle.js"',
+			);
+			if (next !== out)
+				done.push("remotes.ts: bonjour-service -> runtime bundle");
+			out = next;
 		}
 		if (out !== src) writeFileSync(p, out);
 	}
@@ -147,10 +163,40 @@ export const probeClosure = (
 	return [...errs];
 };
 
-const main = (): number => {
+const main = async (): Promise<number> => {
 	const prefix =
 		process.argv[2] ?? join(process.env.HOME ?? "", ".claude/local-llm");
 	const repoRoot = process.argv[3] ?? process.cwd();
+	// The flat runtime home has no package-level node_modules. Bundle the
+	// installed, version-pinned mDNS package before rewriting remotes.ts.
+	const mdnsEntry = join(
+		repoRoot,
+		"packages/belt/node_modules/bonjour-service/dist/index.js",
+	);
+	if (!existsSync(mdnsEntry)) {
+		console.error(
+			"runtime-heal: bonjour-service missing; run bun install in Fleet",
+		);
+		return 1;
+	}
+	const bundle = await Bun.build({
+		entrypoints: [mdnsEntry],
+		outdir: prefix,
+		naming: "bonjour-service.bundle.js",
+		target: "bun",
+	});
+	if (!bundle.success) {
+		console.error("runtime-heal: bonjour-service bundle failed");
+		return 1;
+	}
+	// The kit's memory-policy.ts is a checkout wrapper. A flat copy would
+	// otherwise rewrite its re-export to itself and crash the dashboard.
+	const memoryPolicy = join(repoRoot, "packages/local-llm/memory-policy.ts");
+	if (!existsSync(memoryPolicy)) {
+		console.error("runtime-heal: canonical memory-policy.ts missing");
+		return 1;
+	}
+	writeFileSync(join(prefix, "memory-policy.ts"), readFileSync(memoryPolicy));
 	const copied = copyDeps(repoRoot, prefix);
 	if (copied.length > 0)
 		console.log(`runtime-heal: deps copied ${copied.join(", ")}`);
@@ -167,4 +213,4 @@ const main = (): number => {
 	return 0;
 };
 
-if (import.meta.main) process.exit(main());
+if (import.meta.main) process.exit(await main());

@@ -16,43 +16,43 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { endpointPassed, livenessResponse } from "./health.ts";
-import { hubLlmsRows, readHubs } from "./hubs.ts";
-import { observation, observationFresh } from "./observation.ts";
-import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
-import { registryResponse } from "./registry-emit.ts";
-import {
-	checkAll,
-	discover,
-	tailRoutes,
-	type CheckRow,
-	type RouteLogEntry,
-} from "./remotes.ts";
-import { metricsFor, metricsSnapshot } from "./metrics.ts";
 // W258: per-machine capability forecast rides the catalog surface
 import { capabilityPayload } from "./catalog-capability.ts";
-import { readStatus } from "./supervisor.ts";
 import { endpointState, supervisorSource } from "./dashboard-state.ts";
-import { tailLines } from "./tail-lines.ts";
-import { probePathFor, modelFromProcess } from "./inventory-probe.ts";
-import { bearerToken, handleRoute } from "./route-policy.ts";
+import { endpointPassed, livenessResponse } from "./health.ts";
 import {
 	citizenshipGate,
 	etagJson,
 	problem,
-	rateLimiter,
 	type RouteMethods,
+	rateLimiter,
 } from "./http-citizenship.ts";
+import { hubLlmsRows, readHubs } from "./hubs.ts";
+import { modelFromProcess, probePathFor } from "./inventory-probe.ts";
 import {
+	displayLabel,
 	FLEET_NAV_CSS,
 	FLEET_NAV_JS,
 	fleetNav,
-	displayLabel,
 	settingsBlock,
 	THEME_HEAD,
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 } from "./klh-theme.ts";
+import { metricsFor, metricsSnapshot } from "./metrics.ts";
+import { observation, observationFresh } from "./observation.ts";
+import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
+import { registryResponse } from "./registry-emit.ts";
+import {
+	type CheckRow,
+	checkAll,
+	discover,
+	type RouteLogEntry,
+	tailRoutes,
+} from "./remotes.ts";
+import { bearerToken, handleRoute } from "./route-policy.ts";
+import { readStatus } from "./supervisor.ts";
+import { tailLines } from "./tail-lines.ts";
 
 const HOME = process.env.HOME;
 const LOG_DIR = `${HOME}/.claude-insights`;
@@ -255,7 +255,7 @@ async function buildRemotes(): Promise<RemotesSnapshot> {
 			fastest_for: byRow.get(r) ?? [],
 			...metricsFor(r.machine, r.port, r.model),
 		})),
-		discovered: discover(),
+		discovered: await discover(),
 		cloud_fallback: prefs.allow_cloud === true,
 		mode: typeof prefs.cost_speed === "string" ? prefs.cost_speed : "balanced",
 		routes: tailRoutes(8),

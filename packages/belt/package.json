@@ -13,6 +13,7 @@
 	},
 	"dependencies": {
 		"@klh/blam": "workspace:*",
+		"bonjour-service": "1.4.4",
 		"lit": "^3.3.3"
 	}
 }

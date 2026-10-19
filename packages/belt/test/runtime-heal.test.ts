@@ -4,8 +4,8 @@
 // fails the install loudly on anything left unresolvable.
 import { expect, test } from "bun:test";
 import {
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -45,6 +45,41 @@ test("healImports leaves specs whose target is absent in the runtime home", () =
 		writeFileSync(join(prefix, "model-store.ts"), src);
 		expect(healImports(prefix)).toEqual([]);
 		expect(readText(join(prefix, "model-store.ts"))).toBe(src);
+	} finally {
+		rmSync(prefix, { recursive: true, force: true });
+	}
+});
+
+test("healImports points the flat remotes copy at the bundled mDNS package", () => {
+	const prefix = mkprefix();
+	try {
+		writeFileSync(
+			join(prefix, "remotes.ts"),
+			'import Bonjour from "bonjour-service";\nexport { Bonjour };\n',
+		);
+		writeFileSync(
+			join(prefix, "bonjour-service.bundle.js"),
+			"export default class Bonjour {}\n",
+		);
+		expect(healImports(prefix)).toContain(
+			"remotes.ts: bonjour-service -> runtime bundle",
+		);
+		expect(readText(join(prefix, "remotes.ts"))).toContain(
+			'from "./bonjour-service.bundle.js"',
+		);
+	} finally {
+		rmSync(prefix, { recursive: true, force: true });
+	}
+});
+
+test("healImports never rewrites a wrapper to import itself", () => {
+	const prefix = mkprefix();
+	try {
+		const src =
+			'export { modelBudgetGb } from "../../local-llm/memory-policy.ts";\n';
+		writeFileSync(join(prefix, "memory-policy.ts"), src);
+		expect(healImports(prefix)).toEqual([]);
+		expect(readText(join(prefix, "memory-policy.ts"))).toBe(src);
 	} finally {
 		rmSync(prefix, { recursive: true, force: true });
 	}

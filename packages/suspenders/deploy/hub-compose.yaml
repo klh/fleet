@@ -86,7 +86,7 @@ services:
           pids: 64
     entrypoint: ["sh", "-c"]
     command:
-      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done
+      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done; chmod -R u+w /state/buckle /state/hub-home /state/belt-home
     environment:
       HUB_RUN_UID: ${HUB_RUN_UID:-1000}
       HUB_RUN_GID: ${HUB_RUN_GID:-1000}

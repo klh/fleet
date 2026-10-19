@@ -4,10 +4,9 @@
 //   1. STATIC — hard config like the Immich entry: a JSON file at
 //      ~/.claude/local-llm/remotes.json (runtime dir, NEVER committed —
 //      real hosts/IPs stay local). The repo ships remotes.example.json.
-//   2. DYNAMIC — DNS-SD advertisement browse (service type _klh-llm._tcp):
-//      linux providers advertise via avahi, macOS via dns-sd. A discovered
-//      endpoint is probed for protocol (openai / llama.cpp / immich) before
-//      it is trusted.
+//   2. DYNAMIC — bonjour-service browses DNS-SD advertisements for
+//      _klh-llm._tcp. Claims are shown in the UI but never routed until
+//      independently configured and probed.
 //
 // DNS FIRST, IP as fallback (owner directive): every health check resolves
 // the configured hostname; the static ip_fallback is used only when
@@ -24,14 +23,15 @@
 // Liveness persists to ~/.claude/local-llm/remotes-state.json (runtime dir,
 // NEVER committed): <machine>:<port> → {last_ok, last_error}.
 import dgram from "node:dgram";
-import { endpointPassed } from "./health.ts";
-import { validModel } from "./remotes-validate.ts";
 import {
 	appendFileSync,
 	existsSync,
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
+import Bonjour from "bonjour-service";
+import { endpointPassed } from "./health.ts";
+import { validModel } from "./remotes-validate.ts";
 
 const RUNTIME = `${process.env.HOME}/.claude/local-llm`;
 const STATIC_PATH = `${RUNTIME}/remotes.json`;
@@ -404,22 +404,37 @@ export async function checkAll(): Promise<CheckRow[]> {
 	return rows;
 }
 
-/** DNS-SD advertisement browse for _klh-llm._tcp (avahi on linux publishes,
- *  dns-sd on macOS browses). Raw entries only — probe before trust. */
-export function discover(): { name: string; host: string; port: number }[] {
-	const found: { name: string; host: string; port: number }[] = [];
+/** Show an mDNS claim without admitting it as a routable endpoint. */
+export function untrustedAdvertisement(service: {
+	name: string;
+	host: string;
+}): { name: string; host: string; port: number } {
+	return { name: service.name, host: service.host, port: 0 };
+}
+
+/** Browse DNS-SD through bonjour-service. Static config and health probing
+ *  remain the only route admission path; an advertisement is display-only. */
+export async function discover(
+	timeoutMs = 3500,
+): Promise<{ name: string; host: string; port: number }[]> {
+	const found = new Map<string, { name: string; host: string; port: number }>();
+	let bonjour: Bonjour | undefined;
 	try {
-		const p = Bun.spawnSync(["/usr/bin/dns-sd", "-B", SERVICE_TYPE, "local."], {
-			timeout: 3000,
+		bonjour = new Bonjour();
+		const browser = bonjour.find({ type: "klh-llm", protocol: "tcp" });
+		browser.on("up", (service) => {
+			if (service.name && service.host)
+				found.set(service.name, untrustedAdvertisement(service));
 		});
-		for (const line of p.stdout.toString().split("\n")) {
-			const m = line.match(/(\S+)\._klh-llm\._tcp\.?/);
-			if (m?.[1]) found.push({ name: m[1], host: `${m[1]}.local`, port: 0 });
-		}
+		browser.on("down", (service) => found.delete(service.name));
+		await Bun.sleep(timeoutMs);
+		browser.stop();
 	} catch {
-		// no dns-sd or browse timeout — dynamic layer simply empty
+		// mDNS is optional; static remotes still work when browsing fails.
+	} finally {
+		bonjour?.destroy();
 	}
-	return found;
+	return [...found.values()];
 }
 
 // ─── route log — JSONL at the runtime dir (never committed); the dashboard
@@ -684,7 +699,7 @@ async function main() {
 		return;
 	}
 	if (cmd === "discover") {
-		const found = discover();
+		const found = await discover();
 		if (json) {
 			console.log(JSON.stringify(found));
 			return;
