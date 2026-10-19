@@ -448,3 +448,86 @@ export const plaidPickOf = (
 		fallbackModels: siblings.flatMap((r) => (r.model ? [r.model] : [])),
 	};
 };
+
+// ── the dispatch-side entry: one call assembles the full gate state ───────
+
+/** One dispatch decision: route table + health + load + plan assembled
+ *  once — the shape dispatch-next's plaid override consumes. */
+export const plaidGate = (
+	store: GovernorStore,
+	liveSids: string[],
+	quota: ProviderPenalty,
+): {
+	routes: PlaidRoute[];
+	health: Map<string, string | null>;
+	load: Map<string, number>;
+	plan: PlaidPlan;
+} => {
+	const routes = plaidRouteTable();
+	const health = plaidHealth(quota);
+	const load = routeLoadOf(store, liveSids);
+	const liveBy = new Map(
+		POOL_PROVIDERS.map((p) => [p, poolTotalOf(routes, load, p)]),
+	);
+	return {
+		routes,
+		health,
+		load,
+		plan: plaidPlan(routes, health, liveBy, liveSids.length),
+	};
+};
+
+// ── the dispatch override, end to end ─────────────────────────────────────
+
+export interface PlaidDispatch {
+	/** non-null = SKIP dispatch with this reason (pool plan closed). */
+	skip: string | null;
+	/** Spread into the execPick result when not skipped. */
+	pick: Partial<PlaidPick>;
+	/** The route this lane rides (the trace fact's value). */
+	routeName: string | null;
+	/** The loud admission NOTE body (caller prints with NOTE — prefix). */
+	note: string | null;
+}
+
+/** The full plaid override: gate → assign → honest pick fields → trace
+ *  shape, one call. Dispatch consumes: skip → SKIP+return; else spread
+ *  pick, bank routeName for the trace, print note. Steady posture never
+ *  calls this — the .prefer chain stands (W228). */
+export const plaidDispatch = (o: {
+	store: GovernorStore;
+	sids: string[];
+	quota: ProviderPenalty;
+	ordinal: number;
+	hub: string | null;
+}): PlaidDispatch => {
+	const g = plaidGate(o.store, o.sids, o.quota);
+	if (!g.plan.open)
+		return { skip: g.plan.reason, pick: {}, routeName: null, note: null };
+	const assign = plaidAssign(
+		g.routes,
+		g.health,
+		g.load,
+		g.plan.provider,
+		o.ordinal,
+		g.plan.phase,
+	);
+	return {
+		skip: null,
+		pick: plaidPickOf(o.hub, assign.route, g.routes),
+		routeName: assign.route.name,
+		note: `plaid: ${g.plan.provider} pool, ${g.plan.phase} phase → ${assign.route.name} (${assign.route.label})`,
+	};
+};
+
+/** The trace: route fact + observed posture, ONLY plaid-dispatched lanes. */
+export const recordPlaidTrace = (
+	store: GovernorStore,
+	sid: string,
+	posture: Posture,
+	routeName: string | null,
+): void => {
+	if (posture !== "plaid" || !routeName) return;
+	recordLaneRoute(store, sid, routeName);
+	recordPostureFact(store, posture);
+};

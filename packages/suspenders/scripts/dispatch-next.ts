@@ -55,7 +55,14 @@ import {
 	applyLaneAttribution,
 	laneEnv,
 	probeBuckleFront,
+	residueOf,
+	run as runShared,
+	sh as shShared,
 	spawnClaude,
+	workCliFor,
+	coordCliFor,
+	recreateWorktreeFor,
+	laneAuditFor,
 } from "./lib/lane.ts";
 import {
 	ensureLaneKey,
@@ -79,6 +86,13 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
+// W911: the bounded plaid posture — the ONE override of the execPick chain.
+import {
+	plaidDispatch,
+	postureWidth,
+	readPosture,
+	recordPlaidTrace,
+} from "../hooks/lib/plaid.ts";
 import {
 	cvMap,
 	executorCv,
@@ -206,62 +220,23 @@ const val = (flag: string): string | undefined => {
 // machine (python fleet 91GB of 128GB, jetsam 2026-10-06 22:14). The
 // fanout-rate-budget lesson's cap is 6 — default follows it.
 const TARGET = Number(val("--target") ?? 6);
-// W629 DRY: the shared spawn helpers hoist above gitToplevel so the
-// toplevel probe delegates instead of re-inlining Bun.spawnSync a third
-// time (W494 TDZ note retired: REPO is only a call-time default param).
-const sh = (cmd: string[], cwd = REPO): string => {
-	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-	return `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}`.trim();
-};
-const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
-	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-	return {
-		code: p.exitCode ?? 1,
-		out: `${p.stdout ? new TextDecoder().decode(p.stdout) : ""}${p.stderr ? new TextDecoder().decode(p.stderr) : ""}`.trim(),
-	};
-};
-// W349 residue probe: git-state dirt the lane did NOT make — dispatch's own
-// worktree artifacts (.klh-brief.md, .fleet/) are not residue. W874: an
-// untracked node_modules at ANY depth (root install or per-package) is
-// dependency debris, never work residue.
-export const residueOf = (wt: string): string =>
-	sh(["git", "-C", wt, "status", "--porcelain"])
-		.split("\n")
-		.filter((line) => {
-			const p = line.slice(3).trim();
-			return (
-				line &&
-				p !== ".klh-brief.md" &&
-				!p.startsWith(".fleet/") &&
-				!p.split("/").includes("node_modules")
-			);
-		})
-		.join("\n");
-// W349: retire+recreate a wrong-branch leftover — the SKIP line on failure,
-// null on success. Retire refuses dirty trees (exit 3) so residue is never
-// silently discarded.
-const recreateWorktree = (item: string): string | null => {
-	const retired = run([process.execPath, `${BIN}/worktree.ts`, "retire", item]);
-	if (retired.code !== 0)
-		return `SKIP ${item} — leftover worktree retire failed: ${retired.out.split("\n")[0]}`;
-	const created = run([process.execPath, `${BIN}/worktree.ts`, "create", item]);
-	if (created.code !== 0)
-		return `SKIP ${item} — worktree recreate failed: ${created.out.split("\n")[0]}`;
-	return null;
-};
-// W629 DRY: the execPath+CLI prefix was composed inline 16× across this
-// file — one builder per CLI; call sites pass the verb tail (rest params
-// fold the conditional spreads several sites carry).
-const workCli = (...args: string[]): string[] => [
-	process.execPath,
-	`${BIN}/work.ts`,
-	...args,
-];
-const coordCli = (...args: string[]): string[] => [
-	process.execPath,
-	`${BIN}/coord.ts`,
-	...args,
-];
+// W629 DRY + W911 1500-law: the spawn helpers live in lib/lane.ts; these
+// REPO-default wrappers keep the 16 call sites cwd-free.
+const sh = (cmd: string[], cwd = REPO): string => shShared(cmd, cwd);
+const run = (cmd: string[], cwd = REPO): { code: number; out: string } =>
+	runShared(cmd, cwd);
+// W349 residue probe: git-state dirt the lane did NOT make — hoisted to
+// lib/lane.ts (W911 1500-law decomposition); re-exported for importers.
+export { residueOf };
+// W349: retire+recreate a wrong-branch leftover — hoisted to lib/lane.ts
+// (W911 1500-law decomposition).
+const recreateWorktree = (item: string): string | null =>
+	recreateWorktreeFor(item, BIN);
+// W629 DRY: the execPath+CLI prefix builders hoisted to lib/lane.ts (W911
+// 1500-law decomposition); call sites pass the verb tail (rest params fold
+// the conditional spreads several sites carry).
+const workCli = workCliFor(BIN);
+const coordCli = coordCliFor(BIN);
 // W494: REPO is the repo ROOT, never cwd — the loop runs from
 // packages/<name> in the monorepo, and worktrees/briefs live at
 // <root>/.worktrees (worktree.ts derives toplevel from the project
@@ -291,6 +266,11 @@ const SHOW_CAPSULE = val("--show-capsule");
 // doctrine stays fresh lane + capsule.
 const RESUME_FROM = val("--resume-from");
 const FLEET = `${REPO}/.fleet`;
+// W911 plaid: posture widens the loop stop — steady rides --target (default
+// 6, W500), plaid rides the global hard cap 18; the per-pool 6–8 + overflow
+// 2 arithmetic gates per dispatch inside dispatchItem (hooks/lib/plaid.ts).
+const POSTURE = readPosture(FLEET);
+const TARGET_EFF = postureWidth(POSTURE, TARGET);
 // W636: `registry` verb family — liveness-guarded operator cleanup of the
 // durable lane registry (list/prune/forget); command discovery precedes the
 // dispatch pipeline exactly like --help above. Dynamic import: the verb
@@ -341,24 +321,9 @@ type Lane = {
 	seedError?: StarterSeedFailure;
 };
 
-// lane liveness is THE plane's verdict (2026-10-05): work lanes --json
-// (hooks/lib/lane-liveness.ts) is the one source dispatch-next, fleet-loop
-// and humans share — recycled pids and permanently-trusted host lanes both
-// read dead now. Missing audit observations fall back to process identity;
-// a failed identity probe conservatively retains the occupied slot.
-const laneAudit = (): Map<string, boolean> => {
-	try {
-		const raw = sh(workCli("lanes", "--json", "--fleet", FLEET));
-		return new Map(
-			(JSON.parse(raw) as Array<{ sid: string; live: boolean }>).map((a) => [
-				a.sid,
-				a.live,
-			]),
-		);
-	} catch {
-		return new Map();
-	}
-};
+// lane liveness is THE plane's verdict (2026-10-05) — hoisted to lib/lane.ts
+// (W911 1500-law decomposition); the wrapper binds the CLI builders + dir.
+const laneAudit = (): Map<string, boolean> => laneAuditFor(workCli, FLEET);
 const laneAlive = (l: Lane, audit: Map<string, boolean>): boolean =>
 	audit.get(l.sid) === true || laneProcessIdentity(l) !== false;
 const log = (msg: string): void => {
@@ -435,6 +400,8 @@ const dispatchItem = async (
 	item: string,
 	lanes: Lane[],
 	resume?: Lane,
+	/** position in this dispatch cycle — plaid's round-robin ordinal */
+	ordinal = 0,
 ): Promise<string | null> => {
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
@@ -455,15 +422,19 @@ const dispatchItem = async (
 	// that re-banks the verbatim verdict its prior attempt closed on flips
 	// the item to the operator-gated class (FAILED + NEED_DECISION, verdict
 	// on the card) instead of a re-spawn.
-	if (resume && !DRY && verdictRepeatGate({
-		item,
-		sid,
-		capsule: capsuleGet(sid),
-		run,
-		coordCli,
-		workCli,
-		log,
-	}))
+	if (
+		resume &&
+		!DRY &&
+		verdictRepeatGate({
+			item,
+			sid,
+			capsule: capsuleGet(sid),
+			run,
+			coordCli,
+			workCli,
+			log,
+		})
+	)
 		return null;
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
@@ -592,6 +563,8 @@ const dispatchItem = async (
 	}
 	let pick = execPick(attempt, CALLER_REPO, cv, quota);
 	let bin = resolveLaneExecutor(pick.bin);
+	/** W911: the plaid route this lane rides — null in steady posture. */
+	let routeName: string | null = null;
 	if (!bin) {
 		governanceRefusals.push(item);
 		console.log(
@@ -647,6 +620,36 @@ const dispatchItem = async (
 			);
 			return null;
 		}
+		// W911 plaid: the posture-level override of the execPick chain (owner
+		// arithmetic coord #46919) — the pool plan decides IF this lane
+		// dispatches (per-pool 6–8 + overflow 2, cap 18) and plaidAssign picks
+		// the least-loaded healthy route of the picked pool. Steady posture
+		// never touches this branch: the .prefer chain stands (W228).
+		if (POSTURE === "plaid") {
+			const g = plaidGate(
+				store,
+				lanes.map((l) => l.sid),
+				quota,
+			);
+			if (!g.plan.open) {
+				console.log(`SKIP ${item} — ${g.plan.reason}`);
+				return null;
+			}
+			const pd = plaidDispatch({
+				store,
+				sids: lanes.map((l) => l.sid),
+				quota,
+				ordinal,
+				hub: pick.hub,
+			});
+			if (pd.skip) {
+				console.log(`SKIP ${item} — ${pd.skip}`);
+				return null;
+			}
+			pick = { ...pick, ...pd.pick };
+			routeName = pd.routeName;
+			if (pd.note) console.log(`NOTE — ${pd.note}`);
+		}
 		const take = run(
 			workCli("take", item, "--as", sid, "--origin", `${hostname()}:claude`),
 		);
@@ -684,6 +687,7 @@ const dispatchItem = async (
 		// W620: stamp the join keys future trust folds attribute by (W105
 		// parity with the board path) — model fact only when a pin exists
 		recordLaneExecutor(store, sid, pick.name, pick.model);
+		recordPlaidTrace(store, sid, POSTURE, routeName);
 
 		// W349: a leftover worktree never reaches the lane — W219 inherited a
 		// W229-era tree. Verify branch == suspenders/<item> before spawn:
@@ -1231,7 +1235,8 @@ const main = async (): Promise<void> => {
 		);
 		const slots = Math.max(
 			0,
-			TARGET - Math.max(held.size, [...audit.values()].filter(Boolean).length),
+			TARGET_EFF -
+				Math.max(held.size, [...audit.values()].filter(Boolean).length),
 		);
 		for (const row of candidates
 			.filter((r) => !ITEM || r.id === ITEM)
@@ -1310,13 +1315,13 @@ const main = async (): Promise<void> => {
 	}
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
-		if (live.length + heldSlots + dispatched.length >= TARGET) break;
+		if (live.length + heldSlots + dispatched.length >= TARGET_EFF) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
 		if (
-			live.length + heldSlots + dispatched.length >= TARGET &&
+			live.length + heldSlots + dispatched.length >= TARGET_EFF &&
 			!held.has(ITEM)
 		) {
 			console.log(
@@ -1375,8 +1380,8 @@ const main = async (): Promise<void> => {
 	for (const s of skips) console.log(s);
 	capStore?.close();
 	for (const r of dispatchable) {
-		if (live.length + heldSlots + dispatched.length >= TARGET) break;
-		const out = await dispatchItem(r.id, live);
+		if (live.length + heldSlots + dispatched.length >= TARGET_EFF) break;
+		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
 	}
 	// daemonized-pid resolve: the `claude -p` parent re-parents away from
@@ -1457,7 +1462,7 @@ const main = async (): Promise<void> => {
 		}
 	}
 	console.log(
-		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
+		`lanes live: ${live.length}/${TARGET_EFF} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
 	);
 	// W899: the dispatch summary carries the fleet report table — same shape
 	// the install tail, session-start tick and lane briefs emit.
