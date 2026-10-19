@@ -34,6 +34,12 @@
       const loc = `local ${p(d.getHours())}:${p(d.getMinutes())}, UTC${sg}${p(Math.floor(a / 60))}:${p(a % 60)}`;
       return `${utc} (${loc})`;
     };
+    const shortStamp = (ms) => {
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return 'unknown';
+      const p = (n) => String(n).padStart(2, '0');
+      return `${p(d.getDate())}.${p(d.getMonth()+1)}.${String(d.getFullYear()).slice(-2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
     class LocalBoard extends LitElement {
       static properties = { snapshot:{state:true}, error:{state:true}, pending:{state:true}, query:{state:true}, attention:{state:true}, now:{state:true} };
       static styles = css`
@@ -74,16 +80,19 @@
         const age=snapshot?Math.max(0,Math.floor((this.now-Date.parse(snapshot.ts))/1000)):0;
         const stale=Boolean(this.error)||!observationFresh(snapshot?.observation,this.now);
         const rows=(snapshot?.services||[]).filter(service=>service.name.toLowerCase().includes(this.query.toLowerCase())&&(!this.attention||this.needsAttention(service)));
+        const responding=(snapshot?.services||[]).filter(service=>service.health.ok).length;
+        const needsAttention=(snapshot?.services||[]).filter(service=>this.needsAttention(service)).length;
         return html`
           <header><h1>Local services</h1><p class="mut">Caddy routes, configured endpoint checks and mDNS registrations.</p>
           <p role="status" class=${stale?'bad':'mut'}>${snapshot?`${stale?'Stale snapshot':'Last observation'} · ${age}s ago`:'Waiting for first observation'}${this.pending?' · refreshing':''}</p></header>
-          ${snapshot?.observation?html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires ${dualStamp(snapshot.observation.expiresAt)}</p>`:''}
+          ${snapshot?.observation?html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires <time title=${dualStamp(snapshot.observation.expiresAt)}>${shortStamp(snapshot.observation.expiresAt)}</time></p>`:''}
           ${this.error?html`<p class="notice bad" role="alert">${this.error}. ${snapshot?'Showing the last successful snapshot.':'No service state is available yet.'}</p>`:''}
           ${snapshot?.error?html`<p class="notice bad" role="alert">${snapshot.error}</p>`:''}
           <h2>Caddy front</h2>
-          <p>${snapshot?html`<span class=${snapshot.caddy.listening?'ok':'bad'}>${snapshot.caddy.listening?'TCP reachable on :80':'Not reachable on :80'}</span> <small>· ${snapshot.caddy.version||'version unavailable'}</small>`:'Waiting for observation'}</p>
+          <p>${snapshot?html`<span class=${snapshot.caddy.listening?'ok':'bad'}>${snapshot.caddy.listening?'TCP reachable on :80':'Not reachable on :80'}</span> <small title=${snapshot.caddy.version||'version unavailable'}>· ${(snapshot.caddy.version||'version unavailable').split(/\s+/)[0]}</small>`:'Waiting for observation'}</p>
           <p class="mut">TCP reachability does not verify HTTPS, authentication or a route. Open a service to check its front.</p>
           <h2>Registered services ${snapshot?`(${snapshot.services.length})`:''}</h2>
+          ${snapshot?html`<p class="mut">${responding} responding · ${needsAttention} need attention · ${snapshot.services.length} registered</p>`:''}
           <p class="mut">A 2xx response passes the configured check. A homepage check establishes reachability; application readiness needs a dedicated endpoint or independent health probe.</p>
           <div class="toolbar"><label>Find service <input type="search" aria-label="Find service" .value=${this.query} @input=${event=>{this.query=event.target.value}}></label>
           <label><input type="checkbox" .checked=${this.attention} @change=${event=>{this.attention=event.target.checked}}> Needs attention</label>
