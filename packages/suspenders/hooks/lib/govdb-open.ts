@@ -130,6 +130,13 @@ export function openGovernorDb(): Database {
 	const consultCols = columnNames(db, "consults");
 	if (!consultCols.includes("deadline_at"))
 		db.run("ALTER TABLE consults ADD COLUMN deadline_at INTEGER");
+	// W927 consult-v2: contrastive consults record the label→leg mapping on
+	// the row for the report only (the compose prompt never sees identity);
+	// domain stamps the grouping word retrieval filters on.
+	if (!consultCols.includes("legs"))
+		db.run("ALTER TABLE consults ADD COLUMN legs TEXT");
+	if (!consultCols.includes("domain"))
+		db.run("ALTER TABLE consults ADD COLUMN domain TEXT");
 	// session registry (coord bootstrap): who exists, where, doing what role
 	db.run(
 		"CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, project TEXT, role TEXT, parent_sid TEXT, worktree TEXT, started_at INTEGER NOT NULL, hb INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'RUNNING')",
@@ -195,9 +202,35 @@ export function openGovernorDb(): Database {
 		);
 		db.run("PRAGMA user_version = 4");
 	}
+	// W927 experience carry: the library.py memory fields ride every stored
+	// answer — lesson = the solution body itself, evidence = the artifact
+	// pointer (file:line / URL / ticket), confidence the compose vocabulary,
+	// domain the grouping word retrieval filters on.
+	const kbCols = columnNames(db, "consult_kb");
+	for (const c of [
+		"cue",
+		"lesson",
+		"evidence",
+		"confidence",
+		"domain",
+	] as const)
+		if (!kbCols.includes(c))
+			db.run(`ALTER TABLE consult_kb ADD COLUMN ${c} TEXT`);
 	db.run(
 		"CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT, source TEXT, version INTEGER NOT NULL DEFAULT 1, ts INTEGER NOT NULL)",
 	);
+	// W927: facts gain the domain grouping word (lesson.* retrieval filters on
+	// it) and the library.py experience fields (cue/lesson/evidence/confidence)
+	const factCols = columnNames(db, "facts");
+	for (const c of [
+		"domain",
+		"cue",
+		"lesson",
+		"evidence",
+		"confidence",
+	] as const)
+		if (!factCols.includes(c))
+			db.run(`ALTER TABLE facts ADD COLUMN ${c} TEXT`);
 	// v5 — row-image delta log (W33): sessions, claims, locks, facts, and
 	// work_items all mutate IN PLACE with no event trail, so "what actually
 	// changed between two points" (coord diff --since) was unreconstructable.

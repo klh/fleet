@@ -90,12 +90,17 @@ export function kbTerms(text: string, minLen = 3): string[] {
 // normalized token stream — the dedup fingerprint's atomic unit
 export const kbNorm = (s: string): string => kbTerms(s, 1).join(" ");
 
+// W927 domain grouping — the lib is the one definition (DRY)
+import { domainVisible } from "../lib/contrastive-selection.ts";
+export { domainVisible };
+
 export function kbLookup(
 	question: string,
 	project: string = projectIdentity(),
 	scope: string | null = null,
 	version: string | null = null,
 	verifiedOnly = false,
+	domain: string | null = null,
 ): {
 	id: number;
 	problem: string;
@@ -110,7 +115,7 @@ export function kbLookup(
 	try {
 		const cands = db
 			.query(
-				`SELECT k.id, k.problem, k.solution, k.answered_by, k.hits FROM consult_kb_fts f
+				`SELECT k.id, k.problem, k.solution, k.answered_by, k.hits, k.domain FROM consult_kb_fts f
 				 JOIN consult_kb k ON k.id = f.rowid LEFT JOIN consult_trust t ON t.kb_id = k.id
                  WHERE consult_kb_fts MATCH ? AND k.project = ? AND (? = 0 OR (t.scope = ? AND t.version = ?
                  AND t.verified_at IS NOT NULL AND t.evidence != '' AND t.failed = 0))
@@ -131,6 +136,7 @@ export function kbLookup(
 		}[];
 		let best: ((typeof cands)[number] & { overlap: number }) | null = null;
 		for (const c of cands) {
+			if (!domainVisible(c.domain, domain)) continue;
 			const pt = new Set(c.problem.toLowerCase().split(/[^a-z0-9_.-]+/));
 			const shared = terms.filter((t) => pt.has(t));
 			const overlap = shared.length / terms.length;
@@ -154,6 +160,7 @@ export function kbLookup(
 // Deterministic on purpose — no LLM in the routing path.
 export function lessonLookup(
 	question: string,
+	domain: string | null = null,
 ): { key: string; value: string; score: number } | null {
 	const terms = [
 		...new Set(
@@ -166,14 +173,16 @@ export function lessonLookup(
 	if (!terms.length) return null;
 	const rows = db
 		.query(
-			"SELECT key, value FROM facts WHERE key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%'",
+			"SELECT key, value, domain FROM facts WHERE key LIKE 'lesson.%' AND key NOT LIKE 'lesson.seen.%'",
 		)
 		.all() as {
 		key: string;
 		value: string;
+		domain: string | null;
 	}[];
 	let best: { key: string; value: string; score: number } | null = null;
 	for (const r of rows) {
+		if (!domainVisible(r.domain, domain)) continue;
 		const hay = `${r.key} ${r.value}`.toLowerCase().split(/[^a-z0-9_.-]+/);
 		const keyTokens = r.key
 			.slice("lesson.".length)
@@ -195,6 +204,7 @@ export function lessonLookup(
 // pointer neighbors never answer (they matched the graph, not the question).
 export async function factLookup(
 	question: string,
+	domain: string | null = null,
 ): Promise<KnowledgeHit | null> {
 	const terms = [...new Set(kbTerms(question))];
 	if (!terms.length) return null;
@@ -205,6 +215,7 @@ export async function factLookup(
 	let bestOverlap = 0;
 	for (const h of hits) {
 		if (h.kind !== "knowledge" || h.hop || h.trust !== "verified") continue;
+		if (!domainVisible(h.domain, domain)) continue;
 		const hay = `${h.topic ?? ""} ${h.fact ?? ""}`
 			.toLowerCase()
 			.split(/[^a-z0-9_.-]+/);

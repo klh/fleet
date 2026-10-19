@@ -19,16 +19,15 @@ export const ROUTE_MODEL = process.env.ORACLE_ROUTE_MODEL;
 
 // no model configured → ask the endpoint what it serves (first entry); works
 // for the MLX server, llama.cpp, vLLM, or any OpenAI-compatible shim
-const legModel = async (): Promise<string> => {
-	if (ROUTE_MODEL) return ROUTE_MODEL;
+const probeModel = async (
+	url: string,
+	key: string | undefined,
+): Promise<string> => {
 	try {
-		const r = await fetch(
-			ROUTE_URL.replace(/\/chat\/completions$/, "/models"),
-			{
-				headers: ROUTE_KEY ? { authorization: `Bearer ${ROUTE_KEY}` } : {},
-				signal: AbortSignal.timeout(5000),
-			},
-		);
+		const r = await fetch(url.replace(/\/chat\/completions$/, "/models"), {
+			headers: key ? { authorization: `Bearer ${key}` } : {},
+			signal: AbortSignal.timeout(5000),
+		});
 		const j = (await r.json()) as { data?: { id: string }[] };
 		return j.data?.[0]?.id ?? "local";
 	} catch {
@@ -36,7 +35,80 @@ const legModel = async (): Promise<string> => {
 	}
 };
 
-export type LegResult = { text: string; model: string; ms: number };
+const legModel = (): Promise<string> =>
+	ROUTE_MODEL ?? probeModel(ROUTE_URL, ROUTE_KEY);
+
+const wireHeaders = (key: string | undefined): Record<string, string> => ({
+	"content-type": "application/json",
+	...(key ? { authorization: `Bearer ${key}` } : {}),
+});
+
+const wireBody = (model: string, prompt: string, maxTokens: number): string =>
+	JSON.stringify({
+		model,
+		messages: [
+			{
+				role: "system",
+				content:
+					"You are oracle — a stateless escalation surface. One request, one answer.",
+			},
+			{ role: "user", content: prompt },
+		],
+		max_tokens: maxTokens,
+		temperature: 0.2,
+	});
+
+async function readLeg(
+	r: Response,
+	model: string,
+	t0: number,
+): Promise<LegResult> {
+	if (!r.ok)
+		throw new Error(`route ${r.status}: ${(await r.text()).slice(0, 200)}`);
+	const j = (await r.json()) as {
+		choices?: { message?: { content?: string }[] };
+		usage?: { prompt_tokens?: number; completion_tokens?: number };
+	};
+	const text = (j.choices?.[0]?.message?.content ?? "").trim();
+	if (text === "") throw new Error("route answered with no content");
+	return {
+		text,
+		model,
+		ms: Date.now() - t0,
+		promptTok: j.usage?.prompt_tokens,
+		compTok: j.usage?.completion_tokens,
+	};
+}
+
+export type LegResult = {
+	text: string;
+	model: string;
+	ms: number;
+	// wire usage when the leg reports it (W776 attribution on consult legs)
+	promptTok?: number;
+	compTok?: number;
+};
+
+// the OpenAI-wire leg for ANY pinned endpoint — W927: the consult pool's
+// coder :8901 / danish :8906 legs ride the same wire as the :8903 default
+export const wireLeg = async (
+	url: string,
+	key: string | undefined,
+	prompt: string,
+	maxTokens: number,
+	timeoutMs: number,
+	forcedModel?: string,
+): Promise<LegResult> => {
+	const model = forcedModel ?? (await probeModel(url, key));
+	const t0 = Date.now();
+	const r = await fetch(url, {
+		method: "POST",
+		headers: wireHeaders(key),
+		body: wireBody(model, prompt, maxTokens),
+		signal: AbortSignal.timeout(timeoutMs),
+	});
+	return readLeg(r, model, t0);
+};
 
 export const pinnedLeg = async (
 	prompt: string,

@@ -188,14 +188,14 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "consult",
 		usage:
-			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
+			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] | consult --contrastive [--k n] [--domain d] "<question>" --as <asker>',
 		lax: true,
 		run: (p) => cmdConsult(p.rest),
 	}),
 	defineVerb({
 		name: "consult-reply",
 		usage:
-			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
+			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] [--cue c] [--lesson l] [--evidence e] [--confidence high|medium|low] [--domain d] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
 		lax: true,
 		run: (p) => cmdConsultReply(p.rest),
 	}),

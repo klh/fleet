@@ -108,17 +108,36 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			value.startsWith("--")
 		)
 			die(
-				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--if-version n]",
+				"usage: fact set <key> <value> | fact set <key> --text <text> [--source s] [--domain d] [--cue c] [--lesson l] [--evidence e] [--confidence high|medium|low] [--if-version n]",
 			);
 		const src = arg("--source") ?? "coord";
+		const dom = arg("--domain");
+		const cue = arg("--cue");
+		const lesson = arg("--lesson");
+		const evid = arg("--evidence");
+		const conf = arg("--confidence");
 		const expected = parseIfVersion(arg("--if-version"));
 		const r = casWrite(key, expected, () =>
 			db
 				.query(
-					"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, ?, 1, ?) " +
-						"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
+					"INSERT INTO facts (key, value, source, version, ts, domain, cue, lesson, evidence, confidence) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?) " +
+						"ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts, domain = COALESCE(excluded.domain, domain), cue = COALESCE(?, cue), lesson = COALESCE(?, lesson), evidence = COALESCE(?, evidence), confidence = COALESCE(?, confidence)",
 				)
-				.run(key, value, src, Date.now()),
+				.run(
+					key,
+					value,
+					src,
+					Date.now(),
+					dom,
+					cue,
+					lesson,
+					evid,
+					conf,
+					cue,
+					lesson,
+					evid,
+					conf,
+				),
 		);
 		if (!r.ok)
 			die(
@@ -420,8 +439,15 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			.all(project) as { ms: number }[];
 		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
 		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
+		const contrastive = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = 'contrastive'",
+				)
+				.get(project) as { n: number }
+		).n;
 		console.log(
-			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
+			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined, ${s("REFUSED")} refused, ${contrastive} contrastive`,
 		);
 		const outcomes = db
 			.query(
@@ -594,7 +620,7 @@ export async function cmdGc(_rest: string[]): Promise<void> {
 	const x = expireConsults(db, Date.now());
 	const cd = db
 		.query(
-			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED') AND answered_at < ? AND answered_at IS NOT NULL",
+			"DELETE FROM consults WHERE state IN ('ANSWERED','DECLINED','EXPIRED','REFUSED') AND answered_at < ? AND answered_at IS NOT NULL",
 		)
 		.run(cut).changes;
 	const sw = db.local ? sweepStaleSessions(db as Database) : 0;

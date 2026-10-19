@@ -21,6 +21,7 @@ import { claimedWorkOf } from "../lib/lane-effort.ts";
 
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import { consultDeadline } from "../lib/consult-expiry.ts";
+import { runContrastive } from "./contrastive.ts";
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -31,8 +32,8 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	// W449: skip-next only applies to VALUE options — boolean flags (--best,
 	// --no-kb) used to swallow the following positional (the question), so
 	// `consult --best "q"` died with a usage error.
-	const valueOpts = new Set(["--as", "--scope", "--version"]);
-	const boolOpts = new Set(["--best", "--no-kb"]);
+	const valueOpts = new Set(["--as", "--scope", "--version", "--k", "--domain"]);
+	const boolOpts = new Set(["--best", "--no-kb", "--contrastive"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (valueOpts.has(rest[i])) {
@@ -45,19 +46,28 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	}
 	let expert: string | null = null;
 	let question: string;
-	if (rest.includes("--best")) {
+	if (rest.includes("--best") || rest.includes("--contrastive")) {
 		question = pos.join(" ");
 	} else {
 		expert = pos[0] ?? null;
 		question = pos.slice(1).join(" ");
 	}
 	if (!as) die("consult requires --as <asker-sid>");
-	if ((!expert && !rest.includes("--best")) || !question)
+	if (
+		(!expert &&
+			!rest.includes("--best") &&
+			!rest.includes("--contrastive")) ||
+		!question
+	)
 		die(
-			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] --as <asker>',
+			'usage: consult [--best] "<question>" | consult <sid> <question> [--scope s] | consult --contrastive [--k n] [--domain d] "<question>" --as <asker>',
 		);
+	// W927: the grouping word — stamped on the row, threaded into retrieval
+	const domain = arg("--domain");
 	// Lessons are advisory context, not verified solutions.
-	const lessonHit = rest.includes("--no-kb") ? null : lessonLookup(question);
+	const lessonHit = rest.includes("--no-kb")
+		? null
+		: lessonLookup(question, domain);
 	// W909 CONSULT column: stamp the asker's current claim into every consult
 	// event payload — the reporter renders Y/N from these links.
 	const work = claimedWorkOf(db, projectIdentity(), as);
@@ -68,14 +78,14 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	const version = arg("--version") ?? consultVersion();
 	const kbHit = rest.includes("--no-kb")
 		? null
-		: kbLookup(question, projectIdentity(), scope, version, true);
+		: kbLookup(question, projectIdentity(), scope, version, true, domain);
 	// W604: consult_kb first (asker-verified solutions), then the knowledge
 	// store — a hash-verified fact answers with its trust attached; lanes only
 	// pinged on miss. --no-kb escapes both.
 	const factHit = (kbHit || rest.includes("--no-kb"))
 		? null
-		: await factLookup(question);
-	if (!kbHit && !factHit) {
+		: await factLookup(question, domain);
+	if (!kbHit && !factHit && !rest.includes("--contrastive")) {
 		if (rest.includes("--best"))
 			expert =
 				rankExperts(projectIdentity(), question, scope, as)[0]?.sid ?? null;
@@ -95,7 +105,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 	if (kbHit) {
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'KB', ?, ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at, domain) VALUES (?, ?, ?, ?, ?, 'KB', ?, ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -106,6 +116,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				kbHit.solution,
 				Date.now(),
 				Date.now(),
+				domain,
 			);
 		const cid = `C${r.lastInsertRowid}`;
 		ensureConsultTrust(db);
@@ -148,7 +159,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		// trust attached — the consult is never routed to a live lane.
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, answer, created_at, answered_at, domain) VALUES (?, ?, ?, ?, ?, 'FACT', ?, ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -159,6 +170,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				factHit.fact ?? "",
 				Date.now(),
 				Date.now(),
+				domain,
 			);
 		const cid = `C${r.lastInsertRowid}`;
 		const payload = JSON.stringify({
@@ -174,6 +186,22 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from a verified fleet fact ${dim(`k#${factHit.id} "${factHit.topic}" [hash ${factHit.trust}] — --no-kb routes to a human`)}`,
 		);
+	} else if (rest.includes("--contrastive")) {
+		// W927 contrastive consult — runContrastive mints the consult row,
+		// fans k anonymized legs, composes identity-blind, writes kb + event.
+		const out = await runContrastive({
+			question,
+			scope,
+			as,
+			domain,
+			link,
+			version,
+			k: Number(arg("--k")),
+		});
+		if (out.refused)
+			die(
+				`contrastive pool refused ${out.cid ? `C${out.cid}` : "consult"}: ${out.refused} — evidence retained on the consult row`,
+			);
 	} else {
 		const pending = (
 			db
@@ -188,7 +216,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			);
 		const r = db
 			.query(
-				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)",
+				"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at, deadline_at, domain) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)",
 			)
 			.run(
 				projectIdentity(),
@@ -198,6 +226,7 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				scope,
 				Date.now(),
 				consultDeadline(Date.now()),
+				domain,
 			);
 		const cid = `C${r.lastInsertRowid}`;
 		db.query(
@@ -222,7 +251,16 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 
 export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const as = arg("--as");
-	const known = new Set(["--as", "--evidence", "--version", "--feedback"]);
+	const known = new Set([
+		"--as",
+		"--evidence",
+		"--version",
+		"--feedback",
+		"--cue",
+		"--lesson",
+		"--confidence",
+		"--domain",
+	]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (known.has(rest[i])) {
@@ -238,7 +276,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 	const text = pos.slice(1).join(" ");
 	if (!cid || (!text && !decline && !arg("--feedback")) || !as)
 		die(
-			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
+			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] [--cue c] [--lesson l] [--evidence e] [--confidence high|medium|low] [--domain d] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
 		);
 	const c = db
 		.query("SELECT * FROM consults WHERE id = ? AND project = ?")
@@ -347,8 +385,17 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					: `${dup.solution}\n— ${text.trim()}`;
 			db.transaction(() => {
 				db.query(
-					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ? WHERE id = ?",
-				).run(refined, Date.now(), dup.id);
+					"UPDATE consult_kb SET solution = ?, hits = hits + 1, last_hit_at = ?, cue = COALESCE(?, cue), lesson = COALESCE(?, lesson), evidence = COALESCE(?, evidence), confidence = COALESCE(?, confidence), domain = COALESCE(?, domain) WHERE id = ?",
+				).run(
+					refined,
+					Date.now(),
+					arg("--cue"),
+					arg("--lesson"),
+					arg("--evidence"),
+					arg("--confidence"),
+					arg("--domain"),
+					dup.id,
+				);
 				ensureConsultTrust(db);
 				// link this consult to the row it replenished, so asker feedback
 				// resolves the candidate (the row keeps its original consult_id)
@@ -359,7 +406,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		} else {
 			const kr = db
 				.query(
-					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, cue, lesson, evidence, confidence, domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				)
 				.run(
 					c.question,
@@ -369,6 +416,11 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 					as,
 					c.id,
 					Date.now(),
+					arg("--cue"),
+					arg("--lesson"),
+					arg("--evidence"),
+					arg("--confidence"),
+					arg("--domain"),
 				);
 			ensureConsultTrust(db);
 			db.query(
