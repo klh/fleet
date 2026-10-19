@@ -3,8 +3,9 @@
 // ages, DONE-since shas, watchdog, decisions, commits), the delta contract
 // (heartbeat always, body only on change), firePulse state advancement, and
 // the renderer's applyPulseInterval.
-import { describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,16 +16,23 @@ import {
 import {
 	composePulse,
 	firePulse,
+	loadPulseState,
 	type PulseDeps,
 	type PulseState,
 	readWatchdog,
 	savePulseState,
-	loadPulseState,
 } from "../hooks/lib/pulse.ts";
 import {
 	applyPulseInterval,
 	loadManifest,
 } from "../scripts/install-services.ts";
+
+// W825.2: pin the cache-telemetry report read away from the machine file —
+// a leftover real report must never leak into these assertions
+process.env.KLH_CACHE_TELEMETRY = join(
+	tmpdir(),
+	`pulse-cache-pin-${process.pid}`,
+);
 
 const T0 = 1_700_000_000_000;
 const HOUR = 3_600_000;

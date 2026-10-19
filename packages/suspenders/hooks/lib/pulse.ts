@@ -7,6 +7,11 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	cachePulseSection,
+	cacheReportPath,
+	readCacheReport,
+} from "./cache-telemetry.ts";
 import type { GovernorStore } from "./govdb.ts";
 import {
 	auditLanes,
@@ -122,6 +127,8 @@ export interface PulseDeps {
 	git?: (root: string, n: number) => string[];
 	/** watchdog verdict override (default: state json + aggregate log line) */
 	watchdog?: () => PulseWatchdog;
+	/** W825.2 cache-telemetry section source (default: the weekly report file) */
+	cacheTelemetry?: () => string[] | null;
 }
 
 export interface PulseDigest {
@@ -218,6 +225,7 @@ function sectionsOf(args: {
 	wd: PulseWatchdog;
 	wdAge: string;
 	commits: string[];
+	cache: string[] | null;
 }): string[] {
 	const out: string[] = [];
 	if (args.done.length > 0) {
@@ -238,6 +246,7 @@ function sectionsOf(args: {
 		out.push(`open NEED_DECISION: ${args.dec}`);
 	if (args.wd.state !== "ok")
 		out.push(`watchdog: ${args.wd.state}${args.wdAge}`);
+	if (args.cache !== null) out.push(...args.cache);
 	if (args.commits.length > 0) {
 		out.push("commits:");
 		for (const c of args.commits) out.push(`  ${c}`);
@@ -261,6 +270,9 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const dec = decisionCount(deps);
 	const wd = deps.watchdog?.() ?? readWatchdog(deps.fleetRoot);
 	const commits = (deps.git ?? gitLog)(deps.fleetRoot, 3);
+	const cacheSection = deps.cacheTelemetry
+		? deps.cacheTelemetry()
+		: cachePulseSection(readCacheReport(cacheReportPath()));
 	const wdAge = wd.at ? ` (${ageOf(now() - Date.parse(wd.at))} old)` : "";
 	const verdict = verdictOf(dec, wd.state);
 	const heartbeat = `pulse ${verdict} · lanes ${lanes.filter((l) => l.live).length}/${lanes.length} · READY ${ready.length} · DEC ${dec === null ? "n/a" : dec} · wd ${wd.state}${wdAge}`;
@@ -273,6 +285,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 		wd: { state: wd.state, at: wd.at },
 		wdAge,
 		commits,
+		cache: cacheSection,
 	});
 	const digestKey = digestKeyOf(sections.join("\n"));
 	const deltas =
