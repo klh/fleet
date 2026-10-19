@@ -1,4 +1,4 @@
-import{r,e,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var c=r`
+import{r,e,s}from"./lit-sq0mv1by.js";import{a}from"./lit-hg52k985.js";var c=r`
 	.hint {
 		font-size: 10.5px;
 		color: var(--klh-dim);
@@ -81,12 +81,14 @@ import{r,e,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var c=r`
 				<div>
 					<label for="exadd">add executor (catalog)</label>
 					<select id="exadd">
-						${this.options.map((t)=>e`<option
-									value=${t.value}
-									?disabled=${this.chain.includes(t.value)}
-								>
-									${t.label}
-								</option>`)}
+						${Array.from(new Set(this.options.map((t)=>t.group??"Other"))).map((t)=>e`<optgroup label=${t}>
+								${this.options.filter((i)=>(i.group??"Other")===t).map((i)=>e`<option
+											value=${i.value}
+											?disabled=${this.chain.includes(i.value)}
+										>
+											${i.label}
+										</option>`)}
+							</optgroup>`)}
 					</select>
 				</div>
 				<button type="button" @click=${()=>this.add()}>add</button>
