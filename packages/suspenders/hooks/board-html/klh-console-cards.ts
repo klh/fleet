@@ -6,7 +6,7 @@
 // cards render tokens-styled shadow DOM. Built by `bun run build:vendor` to
 // vendor/klh-console-cards.js — offline, never CDN. Type-only exports are
 // the server↔component seam (erased at bundle time).
-import { LitElement, html, nothing, type TemplateResult } from "lit";
+import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { cardCss } from "./klh-console-card-css.ts";
 // W858.10.3 — the Network overview card defines <klh-network-card> (same
 // bundle, no new allowlist entry; its type imports are erased at bundle time)
@@ -288,7 +288,20 @@ class KlhAuditList extends LitElement {
 		heading: { type: String },
 		data: { type: Object },
 	};
-	static styles = [cardCss];
+	static styles = [
+		cardCss,
+		css`
+		.auditrow { border-top:1px solid var(--klh-rule); font-size:11.5px; }
+		.auditrow summary { display:flex; gap:10px; align-items:baseline; padding:5px 0; cursor:pointer; list-style:none; }
+		.auditrow summary::-webkit-details-marker { display:none; }
+		.auditrow summary::before { content:'+'; color:var(--klh-accent); }
+		.auditrow[open] summary::before { content:'−'; }
+		.auditrow .when { margin-left:auto; color:var(--klh-dim); white-space:nowrap; }
+		.auditrow .detail { padding:2px 12px 9px; color:var(--klh-ink-2); overflow-wrap:anywhere; }
+		.auditolder { border-top:1px solid var(--klh-rule); margin-top:7px; padding-top:7px; }
+		.auditolder > summary { cursor:pointer; color:var(--klh-accent); font:11px var(--klh-font-mono); }
+	`,
+	];
 
 	declare heading: string;
 	declare data: AuditListData | null;
@@ -308,22 +321,23 @@ class KlhAuditList extends LitElement {
 					no admin actions recorded yet — settings/policy applies and key
 					revocations land here
 				</p>`;
-		return html`<h2>${this.heading}</h2>
-			${d.rows.map((r) => this.chip(r))}
+		const recent = d.rows.slice(0, 5);
+		const older = d.rows.slice(5);
+		return html`<h2>${this.heading} · ${d.rows.length} recent actions</h2>
+			${recent.map((r) => this.chip(r))}
+			${older.length ? html`<details class="auditolder"><summary>Earlier actions (${older.length})</summary>${older.map((r) => this.chip(r))}</details>` : nothing}
 			<p class="cfoot">
 				settings applies, policy edits, key revocations — archived to NDJSON +
 				aged out at 365d by coord gc
 			</p>`;
 	}
 
-	// one block-mode chip: <b>action</b> · actor · when · target · detail
+	// The event stays attributable at a glance; target and detail open on demand.
 	private chip(r: AuditRow): TemplateResult {
-		const target = r.target ? ` · ${r.target}` : "";
-		const detail = r.detail ? ` · ${r.detail}` : "";
-		return html`<div class="kchip block">
-			<b>${r.action}</b> · ${r.actor} · <span class="mono">${r.when}</span
-			>${target}${detail}
-		</div>`;
+		return html`<details class="auditrow">
+			<summary><b>${r.action}</b><span>${r.actor}</span><span class="when mono">${r.when}</span></summary>
+			<div class="detail">${r.target ?? "—"}${r.detail ? html`<br />${r.detail}` : nothing}</div>
+		</details>`;
 	}
 }
 

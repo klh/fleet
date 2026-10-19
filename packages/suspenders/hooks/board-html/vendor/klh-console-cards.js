@@ -26,7 +26,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var p=(n
 	.live {
 		color: var(--klh-accent);
 	}
-`,v=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),c=(n)=>n.gateway?e`<p>
+`,v=(n)=>Math.max(0,Math.round((Date.now()-Date.parse(n))/1000)),d=(n)=>n.gateway?e`<p>
 				<span class="hname">local spoke</span>
 				<span class=${n.gateway.state==="up"?"live":"hot"}>
 					${n.gateway.state}</span
@@ -87,8 +87,8 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var p=(n
 					style="width:${Math.max(2,Math.round(l.out_tok/i*32))}px;background:var(--klh-edge)"
 					title="${l.hour} · out ${p(l.out_tok)} tok"
 				></span>`)}
-		</div>`},C=(n)=>{let o=n.network;if(!o.ok)return e`${c(n)}
-			<p class="unknown">${o.reason}</p>`;return e`${c(n)}
+		</div>`},C=(n)=>{let o=n.network;if(!o.ok)return e`${d(n)}
+			<p class="unknown">${o.reason}</p>`;return e`${d(n)}
 		${T(o)}
 		${R(o)}
 		${o.throughput.interfaces.length?o.throughput.interfaces.map(x):e`<div class="hrow">
@@ -102,8 +102,8 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var p=(n
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero
-		</p>`},N=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class d extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,y];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await N();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let o=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${b(v(n.ts))}</h2>
-			${o}${C(n)}`}}customElements.define("klh-network-card",d);var u=(n,o)=>n.flatMap((i,l)=>l?[e`${o}`,i]:[i]);class h extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
+		</p>`},N=async()=>{try{let n=await fetch("/api/console/network",{cache:"no-store"});if(!n.ok)return null;return await n.json()}catch{return null}};class c extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,y];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let n=await N();if(n)this.live=n,this.err="";else this.err="refresh failed — last known values shown"}render(){let n=this.live??this.data;if(!n)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let o=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${b(v(n.ts))}</h2>
+			${o}${C(n)}`}}customElements.define("klh-network-card",c);var u=(n,o)=>n.flatMap((i,l)=>l?[e`${o}`,i]:[i]);class h extends s{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(n.kind==="missing")return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no routing-policy.yaml found on the belt chain (BELT_POLICY/
 					BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)
@@ -188,16 +188,27 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";import{a}from"./lit-aqxetgnz.js";var p=(n
 				current file does not parse: ${n.error}
 			</div>`;return e`<div class="knobs">
 			${n.knobs.map((o)=>e`<span class="kchip">${o.k}: <b>${o.v}</b></span>`)}
-		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",w);class k extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a];constructor(){super();this.heading="admin audit",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(!n.rows.length)return e`<h2>${this.heading}</h2>
+		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",w);class k extends s{static properties={heading:{type:String},data:{type:Object}};static styles=[a,r`
+		.auditrow { border-top:1px solid var(--klh-rule); font-size:11.5px; }
+		.auditrow summary { display:flex; gap:10px; align-items:baseline; padding:5px 0; cursor:pointer; list-style:none; }
+		.auditrow summary::-webkit-details-marker { display:none; }
+		.auditrow summary::before { content:'+'; color:var(--klh-accent); }
+		.auditrow[open] summary::before { content:'−'; }
+		.auditrow .when { margin-left:auto; color:var(--klh-dim); white-space:nowrap; }
+		.auditrow .detail { padding:2px 12px 9px; color:var(--klh-ink-2); overflow-wrap:anywhere; }
+		.auditolder { border-top:1px solid var(--klh-rule); margin-top:7px; padding-top:7px; }
+		.auditolder > summary { cursor:pointer; color:var(--klh-accent); font:11px var(--klh-font-mono); }
+	`];constructor(){super();this.heading="admin audit",this.data=null}render(){let n=this.data;if(!n)return e`${t}`;if(!n.rows.length)return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no admin actions recorded yet — settings/policy applies and key
 					revocations land here
-				</p>`;return e`<h2>${this.heading}</h2>
-			${n.rows.map((o)=>this.chip(o))}
+				</p>`;let o=n.rows.slice(0,5),i=n.rows.slice(5);return e`<h2>${this.heading} · ${n.rows.length} recent actions</h2>
+			${o.map((l)=>this.chip(l))}
+			${i.length?e`<details class="auditolder"><summary>Earlier actions (${i.length})</summary>${i.map((l)=>this.chip(l))}</details>`:t}
 			<p class="cfoot">
 				settings applies, policy edits, key revocations — archived to NDJSON +
 				aged out at 365d by coord gc
-			</p>`}chip(n){let o=n.target?` · ${n.target}`:"",i=n.detail?` · ${n.detail}`:"";return e`<div class="kchip block">
-			<b>${n.action}</b> · ${n.actor} · <span class="mono">${n.when}</span
-			>${o}${i}
-		</div>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",k);
+			</p>`}chip(n){return e`<details class="auditrow">
+			<summary><b>${n.action}</b><span>${n.actor}</span><span class="when mono">${n.when}</span></summary>
+			<div class="detail">${n.target??"—"}${n.detail?e`<br />${n.detail}`:t}</div>
+		</details>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",k);

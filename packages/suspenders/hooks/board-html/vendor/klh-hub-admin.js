@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","accent"],i=(a)=>{let o=String(a??"").toLowerCase();return u.includes(o)?o:"dim"};class c extends s{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","accent"],d=(a)=>{let o=String(a??"").toLowerCase();return u.includes(o)?o:"dim"};class h extends s{static properties={tone:{type:String,reflect:!0}};static styles=r`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);
@@ -31,7 +31,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 			color: var(--klh-accent, #d8900f);
 			border-color: var(--klh-accent, #d8900f);
 		}
-	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",c);var d=(a)=>a===null?"forever":new Date(a).toISOString().slice(0,16).replace("T"," "),m=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class h extends s{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,n]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=n.peers??null,this.fedme=n.me??null,this.fedidle=n.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((p)=>p.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}static styles=[r`
+	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",h);var c=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),m=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class p extends s{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch=""}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,n]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=n.peers??null,this.fedme=n.me??null,this.fedidle=n.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((i)=>i.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let n=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await n.json();if(!n.ok||!l.ok)throw Error(l.error??`HTTP ${String(n.status)}`);await this.refresh()}catch(n){this.err=n instanceof Error?n.message:String(n)}finally{this.busy=!1}}static styles=[r`
 		:host {
 			display: block;
 			max-width: 1000px;
@@ -117,6 +117,10 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 			color: var(--klh-dim, #98958e);
 			margin: 8px 0 2px;
 		}
+		.token-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
+		.token-controls label { display:flex; align-items:center; gap:6px; color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-controls input { min-width:180px; }
+		.token-count { color:var(--klh-dim); font:11px var(--klh-font-mono); }
 		details {
 			border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.1));
 			border-radius: 3px;
@@ -171,7 +175,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 			</p>
 			${this.err===null?t:e`<div class="err" role="alert">${this.err}</div>`}
 			${this.renderTokens()} ${this.renderKeys()} ${this.renderFederation()}
-		`}renderTokens(){let a=this.tokens??[];return e`
+		`}renderTokens(){let a=this.tokens??[],o=a.filter((i)=>i.state==="active").length,n=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!n||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(n)));return e`
 			<details>
 				<summary>Issue a token</summary>
 				<form @submit=${this.onIssue}>
@@ -213,6 +217,17 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 			</details>
 			${this.issued===null?t:this.renderIssued()}
 			<h2>Tokens</h2>
+			<div class="token-controls">
+				<label>state
+					<select aria-label="token state" .value=${this.tokenFilter} @change=${(i)=>{this.tokenFilter=i.target.value}}>
+						<option value="active">active</option><option value="revoked">revoked</option><option value="expired">expired</option><option value="rotated">rotated</option><option value="all">all</option>
+					</select>
+				</label>
+				<label>find
+					<input type="search" aria-label="find token" placeholder="actor, team, scope, ID" .value=${this.tokenSearch} @input=${(i)=>{this.tokenSearch=i.target.value}} />
+				</label>
+				<span class="token-count">${o} active · ${a.length-o} inactive · ${l.length} shown</span>
+			</div>
 			<table>
 				<thead>
 					<tr>
@@ -227,7 +242,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 					</tr>
 				</thead>
 				<tbody>
-					${a.length===0?e`<tr><td colspan="8" class="dim">no tokens yet</td></tr>`:a.map((o)=>this.tokenRow(o))}
+					${l.length===0?e`<tr><td colspan="8" class="dim">${a.length?"no tokens match this view":"no tokens yet"}</td></tr>`:l.map((i)=>this.tokenRow(i))}
 				</tbody>
 			</table>
 			<p class="foot">
@@ -241,10 +256,10 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 				<td>${a.class==="delegated"?"user":"machine"}</td>
 				<td>${a.team??"—"}</td>
 				<td class="mono">${a.scopes.join(", ")}</td>
-				<td class="mono">${d(a.expires_at)}</td>
+				<td class="mono" title=${a.expires_at===null?"":new Date(a.expires_at).toISOString()}>${c(a.expires_at)}</td>
 				<td>
 					<klh-tag
-						tone=${i(o?"ok":a.state==="revoked"?"bad":"dim")}
+						tone=${d(o?"ok":a.state==="revoked"?"bad":"dim")}
 						>${a.state}</klh-tag
 					>
 				</td>
@@ -261,8 +276,8 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 				<p class="mono">access: <code>${a.access}</code></p>
 				<p class="mono">refresh: <code>${a.refresh}</code></p>
 				<p class="foot">
-					jti ${a.jti} · access ${d(a.expires_at)} · refresh
-					${d(a.refresh_expires_at)}
+					jti ${a.jti} · access ${c(a.expires_at)} · refresh
+					${c(a.refresh_expires_at)}
 				</p>
 			</div>
 		`}renderKeys(){let a=this.pkeys;return e`
@@ -300,7 +315,7 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 										<td>${o.label}</td>
 										<td>
 											<klh-tag
-												tone=${i(o.state==="live"?"ok":o.state==="stale"?"warn":"bad")}
+												tone=${d(o.state==="live"?"ok":o.state==="stale"?"warn":"bad")}
 												>${o.state}</klh-tag
 											>
 										</td>
@@ -315,4 +330,4 @@ import{r,e,t,s}from"./lit-sq0mv1by.js";var u=["dim","ok","warn","bad","info","ac
 				Peer edges propagate the hub policy manifest peer-to-peer; last-known
 				stays in force when a peer degrades.
 			</p>
-		`}onIssue(a){a.preventDefault(),this.issue(a.target)}}customElements.define("klh-hub-admin",h);
+		`}onIssue(a){a.preventDefault(),this.issue(a.target)}}customElements.define("klh-hub-admin",p);
