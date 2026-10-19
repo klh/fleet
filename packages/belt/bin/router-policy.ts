@@ -31,6 +31,12 @@ export interface GatewayPolicy {
 	allowed_fails?: number;
 	cooldown_time?: number;
 	fallbacks?: Record<string, string[]>;
+	/** W880 (F3): context-overflow rescue ladders — litellm_settings.
+	 *  context_window_fallbacks, paired with enable_pre_call_checks. */
+	context_window_fallbacks?: Record<string, string[]>;
+	/** W880: router filters deployments whose declared context window
+	 *  cannot fit the request before calling. Default true. */
+	enable_pre_call_checks?: boolean;
 	/** W648 role-class rows — validated at parse, resolved per request. */
 	classes?: ClassPolicy;
 	roles?: Record<string, RoleClass>;
@@ -46,12 +52,15 @@ interface PolicyDoc {
 }
 
 /** Native-free defaults; the committed YAML carries the same values. */
-const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
+const DEFAULTS: Required<
+	Omit<GatewayPolicy, "fallbacks" | "context_window_fallbacks">
+> = {
 	num_retries: 1,
 	litellm_num_retries: 1,
 	litellm_fallbacks: true,
 	allowed_fails: 3,
 	cooldown_time: 30,
+	enable_pre_call_checks: true,
 };
 
 /** Parse a policy document (tests + loader share this path). */
@@ -113,6 +122,7 @@ export function emitRouterSettings(p: GatewayPolicy): string {
 	const innerRetries = validateInnerRetries(
 		p.litellm_num_retries ?? DEFAULTS.litellm_num_retries,
 	);
+	const preCall = p.enable_pre_call_checks ?? DEFAULTS.enable_pre_call_checks;
 	return (
 		"router_settings:\n" +
 		"  routing_strategy: latency-based-routing\n" +
@@ -120,7 +130,8 @@ export function emitRouterSettings(p: GatewayPolicy): string {
 		"  default_litellm_params:\n" +
 		"    max_retries: 0\n" +
 		`  allowed_fails: ${p.allowed_fails}\n` +
-		`  cooldown_time: ${p.cooldown_time}\n`
+		`  cooldown_time: ${p.cooldown_time}\n` +
+		`  enable_pre_call_checks: ${preCall}\n`
 	);
 }
 
@@ -134,11 +145,18 @@ export function emitFallbackSettings(p: GatewayPolicy): string {
 		!validateInnerFallbacks(p.litellm_fallbacks ?? DEFAULTS.litellm_fallbacks)
 	)
 		return "";
-	const fallbackLines = Object.entries(p.fallbacks ?? {})
-		.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
-		.join("\n");
-	if (!fallbackLines) return "";
-	return `litellm_settings:\n  fallbacks:\n${fallbackLines}\n`;
+	const ladder = (rows?: Record<string, string[]>): string =>
+		Object.entries(rows ?? {})
+			.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
+			.join("\n");
+	const fallbackLines = ladder(p.fallbacks);
+	const cwLines = ladder(p.context_window_fallbacks);
+	if (!fallbackLines && !cwLines) return "";
+	return (
+		"litellm_settings:\n" +
+		(fallbackLines ? `  fallbacks:\n${fallbackLines}\n` : "") +
+		(cwLines ? `  context_window_fallbacks:\n${cwLines}\n` : "")
+	);
 }
 
 // ─── direct-tier bypass (W270, completed W289) ───
