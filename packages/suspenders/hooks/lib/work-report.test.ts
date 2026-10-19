@@ -12,10 +12,18 @@ import {
 	type ReportRow,
 	reportLetter,
 	reportRows,
+	reportTableLinkOpts,
 	TASK_CAP,
 } from "./work-report.ts";
 
 const T0 = 1_700_000_000_000;
+/** W910: ESC/BEL built at runtime — never source-literal control bytes. */
+const esc = String.fromCharCode(27);
+const bel = String.fromCharCode(7);
+
+/** Remove OSC 8 sequences (ESC]8;…BEL) — escape-free compare for OSC 8 tests. */
+const stripEscapes = (s: string): string =>
+	s.replace(new RegExp(`${esc}]8;[^${bel}]*${bel}`, "g"), "");
 
 describe("reportLetter", () => {
 	test("riding/queued/done/failed letters", () => {
@@ -149,6 +157,59 @@ describe("buildReportTable — the prototype golden", () => {
 		expect(lines[2].includes(`${"x".repeat(TASK_CAP)}  `)).toBe(true);
 		expect(lines[3]).toContain("F");
 		expect(lines[3]).toContain("  -  ");
+	});
+});
+
+describe("item hyperlinks (W910)", () => {
+	test("links on: ITEM ids wrapped in OSC 8 deep-links, alignment intact", () => {
+		const plain = buildReportTable([proto({ id: "W887" })]);
+		const linked = buildReportTable([proto({ id: "W887" })], { links: true });
+		expect(linked).toContain(
+			`${esc}]8;http://suspenders.local/#lanes?w=W887${bel}W887`,
+		);
+		expect(linked).toContain(`W887${esc}]8;${bel}`);
+		// stripping the escapes must land byte-identical on the plain table
+		expect(stripEscapes(linked)).toBe(plain);
+	});
+
+	test("links off: plain text only (piped/hook output never leaks escapes)", () => {
+		const rows = [proto({ id: "W1" })];
+		expect(buildReportTable(rows)).not.toContain(esc);
+		expect(buildReportTable(rows, { links: false })).not.toContain(esc);
+	});
+
+	test("baseUrl override wins over the default base", () => {
+		const t = buildReportTable([proto({ id: "W1" })], {
+			links: true,
+			baseUrl: "http://board.lan:7799",
+		});
+		expect(t).toContain(`${esc}]8;http://board.lan:7799/#lanes?w=W1${bel}`);
+	});
+
+	test("reportTableLinkOpts — TTY gate, NO_HYPERLINK kill switch, env base", () => {
+		const saved = {
+			no: process.env.SUSPENDERS_NO_HYPERLINK,
+			base: process.env.SUSPENDERS_REPORT_LINK_BASE,
+		};
+		try {
+			delete process.env.SUSPENDERS_NO_HYPERLINK;
+			delete process.env.SUSPENDERS_REPORT_LINK_BASE;
+			expect(reportTableLinkOpts(true)).toEqual({
+				links: true,
+				baseUrl: "http://suspenders.local",
+			});
+			expect(reportTableLinkOpts(false).links).toBe(false);
+			process.env.SUSPENDERS_NO_HYPERLINK = "1";
+			expect(reportTableLinkOpts(true).links).toBe(false);
+			process.env.SUSPENDERS_REPORT_LINK_BASE = "http://b:1";
+			expect(reportTableLinkOpts(true).baseUrl).toBe("http://b:1");
+		} finally {
+			if (saved.no === undefined) delete process.env.SUSPENDERS_NO_HYPERLINK;
+			else process.env.SUSPENDERS_NO_HYPERLINK = saved.no;
+			if (saved.base === undefined)
+				delete process.env.SUSPENDERS_REPORT_LINK_BASE;
+			else process.env.SUSPENDERS_REPORT_LINK_BASE = saved.base;
+		}
 	});
 });
 

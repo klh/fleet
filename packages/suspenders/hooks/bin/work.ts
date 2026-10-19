@@ -73,6 +73,7 @@ import {
 	buildReportTable,
 	parseReportWindow,
 	reportRows,
+	reportTableLinkOpts,
 } from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
@@ -662,7 +663,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		});
 		if (missing.length > 0)
 			die(`no such work item in this project: ${missing[0]}`);
-		console.log(buildReportTable(rows));
+		console.log(buildReportTable(rows, reportTableLinkOpts()));
 	} else if (name === "show") {
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));
