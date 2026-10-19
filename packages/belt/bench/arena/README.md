@@ -110,3 +110,34 @@ The variant report pairs every leg by task against the baseline's `pure-api` leg
 - prompt chars in→out
 - the estimated Δinput-tokens, and Δ$/1k from compression (remote-priced legs only)
 - the number of fallbacks
+
+## External known-set slice (W823)
+
+A sealed 48-task FRAMES slice (`tasks-ext/frames.json`, seeded from
+`ext-raw/frames-test.tsv`, provenance + sha256 chain in its MANIFEST) so
+harness/router/review A/Bs can report recall on a KNOWN external set next to
+seeded-defect recall. FRAMES (google/frames-benchmark, Apache-2.0) is the
+bundleable member of the GAIA/WebWalker task class — multi-hop search
+questions with short verifiable answers. GAIA/WebWalkerQA/SealQA are
+gate-walled upstream and not redistributable from here (ext-raw/SOURCE.md).
+CONTAMINATION: public since 2024-09 — directional signal only, never
+leaderboard-grade.
+
+Scoring is arm-agnostic: GAIA-style normalized exact match (strict, last
+line, punctuation/article/number-normalized) + an optional WebWalker-style
+LLM-judge verdict on the PINNED local tier (:8903, `ARENA_JUDGE_PORT`/`_MODEL`),
+format-checked `{"score": 0|1, "verdict": "correct|incorrect"}`. Judge
+scores are SIGNAL — decisions ride paired A−B deltas with CIs (same law as
+the W748 judge pass).
+
+    bun bench/arena/ext-run.ts --ext-verify
+    bun bench/arena/ext-run.ts --ext-seal-from bench/arena/ext-raw/frames-test.tsv
+    bun bench/arena/ext-run.ts --ext-run --route http://127.0.0.1:8903/v1 --model mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit --n 12
+    bun bench/arena/ext-run.ts --ext-score --answers results/ext-<run>.jsonl --judge
+
+`--ext-run` posts the sealed prompt to any OpenAI-wire endpoint (`--route`,
+key via `--ext-key-env NAME`; the :4000 router is Anthropic-wire — point
+--route at a :890x tier or buckle directly); `--ext-score` scores any answers file with
+`{"type":"answer","id","answer"}` rows — the arm defines its own framing,
+the scorer doesn't care how the answer was produced. EM is deliberately
+strict (whole-span, last line); the judge pass is the lenient channel.

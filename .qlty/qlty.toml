@@ -52,6 +52,9 @@ exclude_patterns = [
   "packages/belt/bench/arena/tasks/**",
   # W792: byte-sealed review-arena tasks — same law
   "packages/belt/bench/arena/review-seal/**",
+  # W823: byte-sealed external (FRAMES) slice + raw source snapshot — same law
+  "packages/belt/bench/arena/tasks-ext/**",
+  "packages/belt/bench/arena/ext-raw/**",
 ]
 
 test_patterns = [
