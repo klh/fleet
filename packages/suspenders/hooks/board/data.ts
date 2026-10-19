@@ -7,7 +7,7 @@ import type { TimingEventRow } from "../lib/work-timing.ts";
 // sibling modules and the route modules import them.
 
 import type { Database } from "bun:sqlite";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readRegistry } from "../lib/hub-locate.ts";
 import { type ItemAttribution, itemAttribution } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
@@ -530,7 +530,6 @@ async function probeHubRows(
 }
 
 export async function setupChecks(): Promise<unknown[]> {
-	const launchdPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.fleet-monitor.plist`;
 	const [llm, hubs] = await Promise.all([llmCheck(), hubCheck()]);
 	// wired = a registered command runs the hook BY NAME — the install layout
 	// varies (namespaced suspenders/ vs legacy hooks/), so a literal-path match
@@ -541,14 +540,6 @@ export async function setupChecks(): Promise<unknown[]> {
 	const startOk = settingsCommands("SessionStart").some((c) =>
 		c.includes("session-start.ts"),
 	);
-	let monitorOk = existsSync(launchdPlist);
-	if (!monitorOk) {
-		try {
-			monitorOk = readdirSync(`${process.env.HOME}/Library/LaunchAgents`).some(
-				(f) => /fleet-monitor/i.test(f),
-			);
-		} catch {} // no LaunchAgents dir — nothing installed
-	}
 	// W852 — the install's activation receipt (~/.config/klh/service-activation.json,
 	// SERVICE-ACTIVATION.md): blessed intent for every launchd unit this install
 	// registered. Unreadable/empty = install-grade wiring is missing.
@@ -573,6 +564,12 @@ export async function setupChecks(): Promise<unknown[]> {
 	// process — the answering process IS this board.
 	const boardPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.board.plist`;
 	const boardOk = existsSync(boardPlist);
+	// W882 — the W779 heartbeat fold: maintenance cadence lives in the ONE
+	// com.suspenders.fleet-loop unit (services.yaml:144). The retired
+	// monitor-agent plists ride the legacyLabels boot-out list
+	// (services.yaml:292) — installs remove them, so they are never checked.
+	const fleetLoopPlist = `${process.env.HOME}/Library/LaunchAgents/com.suspenders.fleet-loop.plist`;
+	const fleetLoopOk = existsSync(fleetLoopPlist);
 	return [
 		{
 			id: "db",
@@ -600,13 +597,13 @@ export async function setupChecks(): Promise<unknown[]> {
 			fix: startOk ? null : "./install.sh --wire",
 		},
 		{
-			id: "monitor-agent",
-			label: "Fleet monitor launchd",
-			ok: monitorOk,
-			detail: monitorOk
-				? "fleet-monitor agent installed"
-				: "no *fleet-monitor* plist in ~/Library/LaunchAgents",
-			fix: monitorOk ? null : "./install.sh --with-launchd",
+			id: "fleet-loop",
+			label: "Fleet-loop heartbeat unit",
+			ok: fleetLoopOk,
+			detail: fleetLoopOk
+				? "com.suspenders.fleet-loop launchd unit installed"
+				: "no com.suspenders.fleet-loop plist in ~/Library/LaunchAgents",
+			fix: fleetLoopOk ? null : "./install.sh --with-launchd",
 		},
 		{
 			id: "activation",
