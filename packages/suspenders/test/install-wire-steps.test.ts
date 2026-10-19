@@ -9,6 +9,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -154,6 +155,31 @@ describe("registerSkills", () => {
 			expect(res.status).toBe("ok");
 			expect(res.note).toContain("registered all packages");
 		});
+	});
+
+	test("skills/ at the git root, ctx.repo a subdir → registers the root catalog (W903)", async () => {
+		const { root, ctx } = fixture();
+		// W903 repro: ctx.repo is packages/suspenders, the catalog at the root
+		mkdirSync(join(root, "packages", "suspenders"), { recursive: true });
+		ctx.repo = join(root, "packages", "suspenders");
+		mkdirSync(join(root, "skills"), { recursive: true });
+		const run = (args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
+		run(["init", "-q"]);
+		const fakeBin = join(root, "fakebin");
+		const captured = join(root, "bunx-args.txt");
+		stubExec(
+			fakeBin,
+			"bunx",
+			`#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(captured)}\nexit 0\n`,
+		);
+		await withPath(fakeBin, async () => {
+			const res = await registerSkills(ctx);
+			expect(res.status).toBe("ok");
+			expect(res.note).toContain("registered all packages");
+		});
+		const args = readFileSync(captured, "utf8");
+		expect(args).toContain(join(realpathSync(root), "skills"));
+		expect(args).toContain("claude-code");
 	});
 });
 
