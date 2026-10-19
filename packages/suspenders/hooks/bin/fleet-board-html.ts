@@ -363,6 +363,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 </style></head><body>
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
+<script>/*SETUP_SEED*/</script>
 ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>

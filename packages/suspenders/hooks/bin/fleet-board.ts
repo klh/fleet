@@ -10,8 +10,9 @@
 
 import type { Database } from "bun:sqlite";
 import { BIND, db, PORT } from "../board/context.ts";
-import { projectList } from "../board/lanes.ts";
 import { withBoardErrors } from "../board/helpers.ts";
+import { projectList } from "../board/lanes.ts";
+import { warmSetupCache } from "../board/setup-cache.ts";
 import { readBoardSettings } from "../lib/board-config.ts";
 import { openIdentity, tokenUsage } from "../lib/govdb.ts";
 import {
@@ -158,10 +159,13 @@ const base = {
 };
 
 // W264 perimeter: the host allowlist gates EVERY request (reads included —
-// a rebound name must not read sessions/prompts/diffs), every non-GET needs
+// a rebound name must never see sessions/prompts/diffs), every non-GET needs
 // the write token, and the board's own HTML pages carry it as a cookie.
 // The token file is created at start so `curl` clients can read it at once.
 writeToken();
+// W852: warm the setup checklist cache at boot — the first page view seeds
+// real data (no loading flash) and /api/setup answers instantly.
+warmSetupCache();
 const served = sm.wrapped(base);
 const inner = served.fetch as (req: Request) => Promise<Response>;
 Bun.serve({
