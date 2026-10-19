@@ -4,7 +4,7 @@
 export const TASKS = String.raw`// --- 4: tasks table (Tasks tab, /api/tasks) + drawer (/api/task) ---
 // view state: session filter + column sort, persisted per browser (owner
 // asked: filter tasks by owning session, sortable table, fragments grouped)
-var taskSort = {key: 'id', dir: 1};
+var taskSort = {key: 'age', dir: 1};
 var taskOwner = 'all';
 var taskProj = 'all';
 try {
@@ -59,13 +59,15 @@ function sortTasks(arr){
     return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * d;
   });
 }
-function taskGroups(ts){ // dotted fragments (W138.1) nest under their parent row
+function taskGroupKey(t){ return String(t.project || '') + '\u0000' + String(t.id); }
+function taskGroups(ts){ // fragments nest under their parent row, scoped by project
   var byIdMap = {}, roots = [], kids = {};
-  for (var i = 0; i < ts.length; i++) byIdMap[String(ts[i].id)] = ts[i];
+  for (var i = 0; i < ts.length; i++) byIdMap[taskGroupKey(ts[i])] = ts[i];
   for (var j = 0; j < ts.length; j++){
     var t = ts[j], id = String(t.id), dot = id.lastIndexOf('.');
-    var pid = dot > 0 ? id.slice(0, dot) : null;
-    if (pid && byIdMap[pid]) (kids[pid] || (kids[pid] = [])).push(t);
+    var pid = t.parent_id || (dot > 0 ? id.slice(0, dot) : null);
+    var pkey = String(t.project || '') + '\u0000' + pid;
+    if (pid && byIdMap[pkey]) (kids[pkey] || (kids[pkey] = [])).push(t);
     else roots.push(t);
   }
   return {roots: roots, kids: kids};
@@ -217,14 +219,14 @@ function laneStamp(s){
   var full = d.toLocaleString('da-DK', {dateStyle:'full', timeStyle:'long'}) + ' · UTC ' + d.toISOString();
   return '<time datetime="' + esc(d.toISOString()) + '" title="' + esc(full) + '">' + esc(short) + '</time>';
 }
-function taskRow(t, parentId){
+function taskRow(t, parentId, depth){
   var owner = ownerName(t);
   var prefer = preferOf(t);
   var pdot = prefer ? '<span class="pdot" style="--prefer:' + esc(prefer.color) + '" title="prefer: ' + esc(prefer.tag || prefer.color) + '"></span>' : '';
   var od = t.open_decisions || 0;
   var kid = parentId ? '<span class="kidmark">↳</span>' : '';
   var ub = (displayState(t) === 'READY' && t.unblocked_by) ? '<span class="dim" title="unblocked by ' + esc(t.unblocked_by) + ' — startable">▶ </span>' : '';
-  return '<tr data-tid="' + esc(t.id) + '"><td>' + pdot + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button></td>' +
+  return '<tr class="' + (parentId ? 'taskkid' : '') + '"' + (parentId ? ' style="--indent:' + (Math.min(Number(depth) || 1, 4) * 12) + 'px"' : '') + ' data-tid="' + esc(t.id) + '"><td>' + pdot + kid + ub + '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog"' + (parentId ? ' aria-label="' + esc(t.id) + ', child of ' + esc(parentId) + '"' : '') + '>' + esc(t.id) + '</button></td>' +
     '<td class="mono dim">' + esc(projShort(t.project)) + '</td>' +
     '<td class="ttitle">' + esc(String(t.title || '(untitled)')).slice(0, 120) +
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') + '</td>' +
@@ -234,6 +236,18 @@ function taskRow(t, parentId){
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
     '<td class="num">' + agoShort(t.age_s) + '<div class="dim kwhen">' + laneStamp(t.updated_at_utc) + '</div></td>' +
     '<td class="num' + (od ? ' rq' : '') + '">' + (od || '-') + '</td></tr>';
+}
+function taskTreeHtml(pool){
+  var g = taskGroups(pool);
+  sortTasks(g.roots);
+  var html = '';
+  function addTree(t, parentId, depth){
+    html += taskRow(t, parentId, depth);
+    var kids = g.kids[taskGroupKey(t)];
+    if (kids) { sortTasks(kids); for (var c = 0; c < kids.length; c++) addTree(kids[c], t.id, depth + 1); }
+  }
+  for (var i = 0; i < g.roots.length; i++) addTree(g.roots[i], null, 0);
+  return html;
 }
 function renderTasks(){
   var errEl = byId('tasksErr');
@@ -263,20 +277,15 @@ function renderTasks(){
   var showDone = false;
   try { showDone = localStorage.getItem('taskShowDone') === '1'; } catch(e) {}
   var cb = byId('taskDone'); if (cb) cb.checked = showDone;
-  var pool = showDone ? own : own.filter(function(t){ return t.state !== 'DONE'; });
-  var g = taskGroups(pool); // fragments nest under their parent row
-  sortTasks(g.roots);
-  var html = '';
-  for (var i = 0; i < g.roots.length; i++){
-    var r = g.roots[i];
-    html += taskRow(r);
-    var kids = g.kids[r.id];
-    if (kids) { sortTasks(kids); for (var c = 0; c < kids.length; c++) html += taskRow(kids[c], r.id); }
-  }
+  var pool = showDone ? own : own.filter(function(t){ return t.state !== 'DONE' && t.state !== 'CANCELLED'; });
+  var html = taskTreeHtml(pool);
   if (!html) html = '<tr><td colspan="7" class="dim">' + (ts.length ? '(no tasks match the filters)' : '(no tasks)') + '</td></tr>';
   var cnt = byId('taskCount');
   if (cnt) cnt.textContent = pool.length === ts.length ? pool.length + ' tasks' : pool.length + ' of ' + ts.length + ' tasks';
+  var page = document.scrollingElement || document.documentElement;
+  var pageY = page.scrollTop;
   sigSetKeep(body, html, html, 'data-task'); // rebuild only on real change; refocus the row button if the table swapped under it
+  page.scrollTop = pageY;
 }
 // --- W65 lanes kanban: work items as cards in state columns; active cards
 // carry the owner lane's live transcript tail (1s poll). A card click expands
@@ -427,11 +436,12 @@ function kanbanCard(t, fam){
     kidStyle += 'margin-left:' + (Math.min(kid.d, 2) * 14) + 'px';
   }
   var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
-  html += '<div class="krow">' + (kid ? '<span class="kidmark">↳</span>' : '') + taskPill(displayState(t)) +
+  if (kid) html += '<span class="kidmark">↳</span>';
+  html += '<div class="krow">' + taskPill(displayState(t)) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
-    '<span class="kage dim">' + agoShort(t.age_s) + '</span>' +
-    '<span class="kwhen dim">' + laneStamp(t.updated_at_utc) + '</span></div>';
+    '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>' +
+    (t.updated_at_utc ? '<div class="kcardstamp dim">' + laneStamp(t.updated_at_utc) + '</div>' : '');
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
@@ -610,8 +620,12 @@ function renderKanban(){
   var prevStructural = el.getAttribute('data-ksig') || '';
   if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); drawSplines(); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
+  var page = document.scrollingElement || document.documentElement;
+  var pageY = page.scrollTop, laneX = el.parentElement.scrollLeft;
   el.setAttribute('data-ksig', kstruct);
   sigSet(el, kstruct, html);
+  page.scrollTop = pageY;
+  el.parentElement.scrollLeft = laneX;
   updateKanbanVolatile(el, shownAll);
   paintSparks(el);
   drawSplines();
@@ -734,11 +748,13 @@ function paintSparks(root){
     el.setAttribute('data-ssig', sig);
     while (el.firstChild) el.removeChild(el.firstChild);
     var big = el.closest ? el.closest('.kspend-drawer') : null;
+    var axis = el.parentElement.querySelector('.ksparkaxis');
+    if (axis) axis.style.display = 'none';
     if (pts && pts.length){
       var chart = sparkSvg(pts, big ? 240 : 180, big ? 36 : 28);
       el.appendChild(chart);
-      var axis = el.parentElement.querySelector('.ksparkaxis');
       if (axis){
+        axis.style.display = 'flex';
         axis.firstElementChild.textContent = new Date(pts[0][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'});
         axis.lastElementChild.textContent = new Date(pts[pts.length - 1][0]).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'}) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
       }
