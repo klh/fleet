@@ -64,6 +64,16 @@ depends on fleet; local-only until its GitHub push — W422.9/W422.1).
   that affect lanes (what/who/exact command).
 - Per-package AGENTS.md files are each subtree's canonical docs — they are
   the package-level truth; this root file is the stack-wide law.
+
+## Supervisor reporting (W892)
+
+`work report` is THE supervisor reply table (owner GO 2026-10-19): rows =
+riding + queued + last-5-done (or strict `--ids w1,w2`); columns
+ITEM/ST/TASK/TOKENS/CACHE/OUT-MIN/AGENT from each item's W776 attribution;
+fixed-width programmatic pads; ST letters R = riding, Q = queued, D = done,
+F = failed (W891 colors them on the board). Supervisor ticks paste it
+verbatim — the session-start SUPERVISOR DEFAULT contract references it and
+supersedes the W865 prose list.
 - Agent skills: the repo-root `skills/` catalog installs into any agent CLI
   via `npx skills add klh/fleet` (`-g -y -a <ids>`; target ids in README
   "Install the skills as agent tools"). ChatGPT is not a CLI target — paste

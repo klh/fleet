@@ -47,14 +47,7 @@ import {
 } from "../lib/reclaim-sticky.ts";
 import { reproGateRefusal } from "../lib/repro-gate.ts";
 import { reapIfIdle } from "../lib/subscribe-attach.ts";
-import {
-	defineVerb,
-	dieFor,
-	idList,
-	type Parsed,
-	runCli,
-	type VerbSpec,
-} from "../lib/verb-kit.ts";
+import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -75,203 +68,18 @@ import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
 import { GLYPH, renderRow } from "../lib/work-render.ts";
+import {
+	buildReportTable,
+	parseReportWindow,
+	reportRows,
+} from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
+import { VERBS } from "../lib/work-verbs.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
 import { provisionForTake } from "../lib/worktree-provision.ts";
 
 const die = dieFor("work");
-
-// vocabulary shared by the item commands: option-looking tokens are never
-// content — a known flag consumes its value, unknown ones die
-const ITEM_FLAGS = [
-	"--token",
-	"--evidence",
-	"--scope",
-	"--parent",
-	"--priority",
-	"--desc",
-	"--by",
-	"--reason",
-	"--keep",
-	"--sha",
-	"--origin",
-	"--note",
-	"--on",
-	"--as",
-	"--requires",
-	"--effort",
-	"--tag",
-];
-
-// ---- the verb registry (W651) -------------------------------------------
-// ONE declaration per verb — hooks/lib/verb-kit.ts owns argv parsing (the
-// Bun strips-`--` reality baked in), per-verb --help, the unknown-command
-// try-list and top-level help. Add a verb = one defineVerb entry here
-// (+ a branch in dispatchVerb below).
-const VERBS: VerbSpec[] = [
-	defineVerb({
-		name: "add",
-		usage:
-			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid] [--tag t1,t2]',
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "list",
-		lax: true,
-	}),
-	defineVerb({
-		name: "ready",
-		lax: true,
-	}),
-	defineVerb({
-		name: "mine",
-		usage: "usage: mine --as <sid>",
-		flags: ["--as"],
-		reqFlags: ["--as"],
-		lax: true,
-	}),
-	defineVerb({
-		name: "owned",
-		lax: true,
-	}),
-	defineVerb({
-		name: "show",
-		usage: "usage: show <id...> [--json] — ids space- or comma-separated",
-		flags: [...ITEM_FLAGS, "--json"],
-		switches: ["--json"],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "stats",
-		usage: "usage: stats (project-scoped JSON progress snapshot)",
-	}),
-	defineVerb({
-		name: "take",
-		usage: "usage: take <id> --as <sid> [--origin <host:agent>]",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--as"],
-	}),
-	defineVerb({
-		name: "release",
-		usage: "usage: release <id> --as <sid>",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--as"],
-	}),
-	defineVerb({
-		name: "start",
-		flags: [...ITEM_FLAGS],
-	}),
-	defineVerb({
-		name: "summary",
-		usage: "usage: summary <id> [--json]",
-		flags: ["--json"],
-		switches: ["--json"],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "done",
-		usage: "usage: done <id> [--as sid] --sha <sha> [--summary paragraph]",
-		flags: [...ITEM_FLAGS, "--summary"],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "fail",
-		usage:
-			'usage: fail <id> --note "repro: <failing command + output> | no-repro: <why> (environment gone / flake proven / carrier death)" [--as sid]',
-		flags: [...ITEM_FLAGS],
-	}),
-	defineVerb({
-		name: "retry",
-		usage:
-			"usage: retry <id...> — FAILED → READY, stale claim released, launch budget reset (W761); ids space- or comma-separated (W795)",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "cancel",
-		usage: 'usage: cancel <id> --note "reason"',
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--note"],
-	}),
-	defineVerb({
-		name: "supersede",
-		usage: "usage: supersede <id> --by <new-id>",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--by"],
-	}),
-	defineVerb({
-		name: "block",
-		usage: "usage: block <id> --on <other-id>",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--on"],
-	}),
-	defineVerb({
-		name: "unblock",
-		usage: "usage: unblock <id> --on <id2>",
-		flags: [...ITEM_FLAGS],
-		minPos: 1,
-		reqFlags: ["--on"],
-	}),
-	defineVerb({
-		name: "split",
-		usage:
-			'usage: split <id> "title1" "title2" ... --reason independent-scopes [--keep N] [--plan <itemId>]',
-		flags: ["--reason", "--keep", "--plan"],
-		minPos: 3,
-		reqFlags: ["--reason"],
-	}),
-	defineVerb({
-		name: "orphaned",
-		usage: "usage: orphaned [--item <id>] [--json]",
-		flags: ["--item", "--json"],
-		switches: ["--json"],
-	}),
-	defineVerb({
-		name: "lanes",
-		flags: ["--json", "--fleet"],
-	}),
-	defineVerb({
-		name: "reclaim",
-		usage:
-			"usage: reclaim <id> [--reason user|crash] [--force] [--expect-owner sid] [--expect-updated-at revision] [--json] | reclaim all",
-		flags: [
-			...ITEM_FLAGS,
-			"--force",
-			"--expect-owner",
-			"--expect-updated-at",
-			"--json",
-		],
-		switches: ["--json"],
-		minPos: 1,
-	}),
-	defineVerb({
-		name: "extend",
-		usage:
-			"usage: extend <id> [--as sid] --for <duration> (45m | 2h | 90s; max 24h) — hold `reclaim all` off a CLAIMED/RUNNING item for a known-long op",
-		flags: [...ITEM_FLAGS, "--for"],
-		minPos: 1,
-		reqFlags: ["--for"],
-	}),
-	defineVerb({
-		name: "allocate",
-		usage:
-			"usage: allocate [--apply] [--json] [--capacity N] [--fleet <path>] — score READY work × lanes; decisions {assign|recommend}; --apply claims only the assign kind",
-		flags: ["--apply", "--json", "--capacity", "--fleet"],
-		switches: ["--apply", "--json"],
-	}),
-	defineVerb({
-		name: "migrate-ledger",
-		usage: "usage: migrate-ledger <path>",
-		minPos: 1,
-	}),
-];
 
 // LAZY DB open with per-command routing (was a module-top direct DB open):
 // mutators need the real DB — die with a hint when it is unreachable; readers
@@ -343,6 +151,7 @@ const red = paint("31");
 // The DB always wins when it holds the project's rows; reads never write.
 const READ_CMDS = new Set([
 	"stats",
+	"report",
 	"list",
 	"ready",
 	"mine",
@@ -837,6 +646,23 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				latest_done: done.latest_done,
 			}),
 		);
+	} else if (name === "report") {
+		// W892: the supervisor micro-metrics table — the ONE reply table
+		// (supersedes the W865 prose list). Riding + queued + recent-done,
+		// or strict --ids. A bad window dies at the parse boundary.
+		const winRaw = flag("--done-window");
+		const doneWindowMs = winRaw ? parseReportWindow(winRaw) : null;
+		if (winRaw && doneWindowMs === null)
+			die("report: bad --done-window — try 45m | 12h | 2d (s/m/h/d, ≤30d)");
+		const ids = idList([...pos, ...(flag("--ids") ?? "").split(",")]);
+		const { rows, missing } = reportRows(db() as unknown as Database, PROJECT, {
+			ids,
+			doneWindowMs: doneWindowMs ?? undefined,
+			now: Date.now(),
+		});
+		if (missing.length > 0)
+			die(`no such work item in this project: ${missing[0]}`);
+		console.log(buildReportTable(rows));
 	} else if (name === "show") {
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));

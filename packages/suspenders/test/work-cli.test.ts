@@ -149,7 +149,10 @@ test("show takes comma- or space-separated id lists (W795)", () => {
 	// --json: NDJSON, one object per id
 	const json = work("show", "--json", `${a},${b}`);
 	expect(json.code).toBe(0);
-	const rows = json.out.trim().split("\n").map((l) => JSON.parse(l));
+	const rows = json.out
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l));
 	expect(rows.map((r) => (r as { id: string }).id)).toEqual([a, b]);
 	// a bad id in the list still dies with the standard refusal
 	expect(work("show", `${a},W99999999`).code).not.toBe(0);
@@ -776,5 +779,35 @@ describe("dep-merge ancestor gate (W60)", () => {
 		// merging the side branch makes the sha an ancestor — gate opens
 		g("merge", "-q", "--no-edit", "w60-side");
 		expect(work("take", depOn, "--as", "lane-w60e").code).toBe(0);
+	});
+});
+
+describe("report — W892 supervisor micro-metrics", () => {
+	test("riding/queued/done letters; --ids strict; bad window dies", () => {
+		const a = idOf(work("add", "report riding item", "--by", "t").out);
+		expect(work("take", a, "--as", "lane-r1").code).toBe(0);
+		const q = idOf(work("add", "report queued item", "--by", "t").out);
+		const dn = idOf(work("add", "report done item", "--by", "t").out);
+		expect(finish(dn, "lane-r2").code).toBe(0);
+		const out = work("report").out;
+		expect(out).toContain("TOKENS  CACHE  OUT/MIN");
+		const rowOf = (id: string): string =>
+			out.split("\n").find((l) => l.startsWith(id)) ?? "";
+		expect(rowOf(a)).toMatch(/\bR\b/);
+		expect(rowOf(q)).toMatch(/\bQ\b/);
+		expect(rowOf(dn)).toMatch(/\bD\b/);
+		const ids = work("report", "--ids", `${a},${dn}`);
+		expect(ids.code).toBe(0);
+		const idRows = ids.out
+			.split("\n")
+			.filter((l) => l.startsWith(a) || l.startsWith(dn));
+		expect(idRows.length).toBe(2);
+		expect(ids.out.split("\n").some((l) => l.startsWith(q))).toBe(false);
+		const miss = work("report", "--ids", "W99999999");
+		expect(miss.code).toBe(2);
+		expect(miss.err).toContain("no such work item");
+		const badWin = work("report", "--done-window", "week");
+		expect(badWin.code).toBe(2);
+		expect(badWin.err).toContain("bad --done-window");
 	});
 });
