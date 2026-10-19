@@ -80,6 +80,7 @@ console.log(
 // NAS every 4 min would defeat hibernation. Endpoints opt in via
 // keepwarm_probe in ~/.claude/local-llm/remotes.json.
 import { endpointsWithRole, probeEndpoint } from "../lib/remotes.ts";
+
 const probeables = endpointsWithRole("general").filter(
 	(e) => e.endpoint.keepwarm_probe,
 );
@@ -102,6 +103,7 @@ if (probeables.length) {
 // gateway; when z.ai is dark only a local rung can answer, so a 200 here
 // proves the ladder. Skipped (no key) prints, never throws.
 import { drillFallback } from "./fallback-drill.ts";
+
 const drill = await drillFallback();
 {
 	const mark = drill.verdict === "pass" ? green("✓") : red("✗");
@@ -127,6 +129,7 @@ import {
 	prefixCachePath,
 	warmOnce,
 } from "./prefix-keepwarm.ts";
+
 {
 	const auth = await ensureKeepwarmAuth();
 	const w =
@@ -141,4 +144,41 @@ import {
 	const u = w.usage;
 	const tok = u ? ` in ${u.in_tok} cached ${u.cache_r}` : "";
 	console.log(`  ${dim("prefix")}  ${mark} ${dim(`${w.why} ${w.ms}ms${tok}`)}`);
+}
+
+// W901.1 cache-share drill — audit finding 2 (F2 blindspot): the fallback
+// drill proves gateway-up, not cache-warm; a silent cache-share regression
+// (affinity off, prefix drift, non-caching rung on top) would surface only
+// in the lane-cache jsonl. One attributed same-prefix pair per workhorse
+// route (BELT_CACHE_DRILL_ROUTES) through the front /w/cache-drill; the
+// warm call must REPORT cache fields and clear the share floor
+// (BELT_CACHE_DRILL_FLOOR, default 0.5). The ✗ line is the alert.
+import {
+	CACHE_SID,
+	drillCacheShare,
+	drillFloor,
+	drillRoutes,
+} from "./fallback-drill.ts";
+
+{
+	const auth = await ensureKeepwarmAuth({ sid: CACHE_SID });
+	const c =
+		auth.mode === "enrolled"
+			? await drillCacheShare({
+					front: auth.front,
+					key: auth.key,
+					routes: drillRoutes(),
+					prefix: loadPrefix(prefixCachePath()),
+					floor: drillFloor(),
+				})
+			: {
+					verdict: "skipped" as const,
+					routes: [],
+					floor: drillFloor(),
+					why: auth.why,
+				};
+	const cmark = c.verdict === "pass" ? green("✓") : red("✗");
+	console.log(
+		`  ${dim("cache")}  ${cmark} ${dim(`${c.why} floor ${c.floor}`)}`,
+	);
 }

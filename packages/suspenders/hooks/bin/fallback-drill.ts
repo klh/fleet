@@ -10,8 +10,14 @@
 // Secrets: the gateway master key resolves at call time — LITELLM_KEY env
 // wins, else the 0600 ~/.claude/local-llm/litellm.key; used for the Bearer
 // header only, never logged.
-import { YAML } from "bun";
+
 import { readFileSync } from "node:fs";
+import { YAML } from "bun";
+import {
+	cacheUsageReported,
+	type Usage,
+	usageFromAnthropic,
+} from "../../../buckle/src/usage.ts";
 
 const HOME = process.env.HOME ?? "";
 const GATEWAY_URL = process.env.BELT_GATEWAY_URL ?? "http://127.0.0.1:4100";
@@ -219,4 +225,272 @@ async function runRequest(
 					: "z.ai reachable — gateway answered"
 				: `gateway answered but ${ladders.why}`,
 	};
+}
+
+// ---- W901.1 cache-share drill — finding 2 of the cache-aware audit
+// (docs/cache-aware-clone-reuse-audit.md): the fallback drill above proves
+// gateway-up, not cache-warm. A silent cache-share regression (affinity off,
+// prefix drift, a non-reporting rung on top) would surface only in the
+// lane-cache jsonl — nothing alerts. One attributed same-prefix pair per
+// workhorse route: the keepwarm's captured lane prefix (tools+system,
+// byte-stable) + a per-route model, fired twice with fresh nonces through
+// the buckle front /w/<CACHE_SID> (the lane path — affinity, gate alignment
+// and upstream cache in one probe; route_audit attributes the traffic).
+// Asserts on the SECOND call: cache fields reported at all, hit share ≥
+// floor; below floor = fail (the ✗ line is the alert).
+
+/** The drill's lane identity on the front (/w/<slug> → route_audit.lane). */
+export const CACHE_SID = "cache-drill";
+
+/** The captured lane prefix, structural — prefix-keepwarm's CapturedPrefix
+ *  satisfies it. No import: that module runs its CLI on import. */
+export interface DrillPrefix {
+	model: string;
+	tools: unknown[];
+	system: unknown;
+}
+
+/** Per-route verdict of the cache-share drill. */
+export interface CacheRouteResult {
+	route: string;
+	verdict: "pass" | "fail" | "skipped";
+	/** Warm-call hit share = cache_r / (in + read + create); null = no usage. */
+	share: number | null;
+	ms: number;
+	why: string;
+}
+
+/** Aggregate: any route fail → fail; all skipped → skipped; else pass. */
+export interface CacheDrillResult {
+	verdict: "pass" | "fail" | "skipped";
+	routes: CacheRouteResult[];
+	floor: number;
+	why: string;
+}
+
+/** The audit-verified workhorse routes (audit §2 — the three live-verified
+ *  cache-reporting routes; nas ollama is marked non-reporting, gpt-5.2
+ *  dormant). Env: BELT_CACHE_DRILL_ROUTES (comma-separated). */
+export const DEFAULT_CACHE_ROUTES: string[] = [
+	"glm-5.3-flash",
+	"zai-glm-5.3-flash",
+	"local-swarm",
+];
+
+/** Warm-call hit-share floor. The audit micro-probe reads ~0.98 warm; 0.5
+ *  = the warm call must read at least half its input from cache. Env:
+ *  BELT_CACHE_DRILL_FLOOR. */
+export const DEFAULT_CACHE_FLOOR = 0.5;
+
+/** Route set: env wins, junk/empty falls back to the audit-verified set. */
+export function drillRoutes(
+	env: Record<string, string | undefined> = process.env,
+): string[] {
+	const raw = env.BELT_CACHE_DRILL_ROUTES?.trim();
+	if (!raw) return DEFAULT_CACHE_ROUTES;
+	const routes = raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return routes.length > 0 ? routes : DEFAULT_CACHE_ROUTES;
+}
+
+/** Floor: env wins; junk/out-of-range falls back to 0.5. */
+export function drillFloor(
+	env: Record<string, string | undefined> = process.env,
+): number {
+	const n = Number(env.BELT_CACHE_DRILL_FLOOR);
+	return Number.isFinite(n) && n > 0 && n <= 1 ? n : DEFAULT_CACHE_FLOOR;
+}
+
+/** Warm-call hit share — the LaneTelemetryLog.summarize split: reads over
+ *  all input (uncached + reads + writes). null = no input totals at all. */
+export function cacheHitShare(u: Usage | null): number | null {
+	if (!u) return null;
+	const input = u.in_tok + u.cache_r + u.cache_c;
+	return input > 0 ? u.cache_r / input : null;
+}
+
+/** One same-prefix pair per route. cold: usage tells (a creation is legal —
+ *  the prefix must be written once); warm: cache fields must be REPORTED
+ *  and the share must clear the floor. All calls ride /w/<CACHE_SID> so the
+ *  traffic is attributed, and carry cache-control: ephemeral on the prefix
+ *  system block so anthropic rows place the breakpoint (W768 alignment). */
+export async function drillCacheShare(o: {
+	front: string;
+	key: string;
+	routes: string[];
+	prefix: DrillPrefix | null;
+	floor: number;
+	fetchImpl?: typeof fetch;
+	timeoutMs?: number;
+}): Promise<CacheDrillResult> {
+	if (!o.prefix)
+		return {
+			verdict: "skipped",
+			routes: [],
+			floor: o.floor,
+			why: "no captured lane prefix — run: bun hooks/bin/prefix-keepwarm.ts --capture",
+		};
+	if (o.routes.length === 0)
+		return { verdict: "skipped", routes: [], floor: o.floor, why: "no routes" };
+	const fetchImpl = o.fetchImpl ?? fetch;
+	const results: CacheRouteResult[] = [];
+	for (const route of o.routes)
+		results.push(await drillCacheRoute(route, o, fetchImpl));
+	const failed = results.filter((r) => r.verdict === "fail");
+	const verdict: "pass" | "fail" | "skipped" =
+		failed.length > 0
+			? "fail"
+			: results.every((r) => r.verdict === "skipped")
+				? "skipped"
+				: "pass";
+	const why =
+		verdict === "pass"
+			? results.map((r) => `${r.route} ${fmtShare(r.share)}`).join(", ")
+			: (failed[0]?.why ?? "skipped");
+	return { verdict, routes: results, floor: o.floor, why };
+}
+
+const fmtShare = (s: number | null): string =>
+	s === null ? "no-usage" : `${(s * 100).toFixed(1)}%`;
+
+/** The warm body: prefix verbatim (system carries a cache-control
+ *  breakpoint; openai-compat rows ignore it, prefix-implicit) + one nonce
+ *  user message. max_tokens: 1. */
+function drillBody(
+	prefix: DrillPrefix,
+	nonce: number,
+): Record<string, unknown> {
+	const system = Array.isArray(prefix.system)
+		? [
+				...prefix.system,
+				{
+					type: "text",
+					text: "cache-drill breakpoint",
+					cache_control: { type: "ephemeral" },
+				},
+			]
+		: prefix.system;
+	return {
+		model: prefix.model,
+		max_tokens: 1,
+		tools: prefix.tools,
+		system,
+		messages: [{ role: "user", content: `cache-drill ${nonce}` }],
+	};
+}
+
+/** The per-route pair: cold pass then warm pass on the SAME prefix. */
+async function drillCacheRoute(
+	route: string,
+	o: {
+		front: string;
+		key: string;
+		prefix: DrillPrefix;
+		floor: number;
+		timeoutMs?: number;
+	},
+	fetchImpl: typeof fetch,
+): Promise<CacheRouteResult> {
+	const url = `${o.front}/w/${CACHE_SID}/v1/messages`;
+	const call = async (nonce: number) =>
+		fetchImpl(url, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"anthropic-version": "2023-06-01",
+				authorization: `Bearer ${o.key}`,
+			},
+			body: JSON.stringify(drillBody(o.prefix, nonce)),
+			signal: AbortSignal.timeout(o.timeoutMs ?? 120_000),
+		});
+	return runCachePair(route, o, call);
+}
+
+/** The pair verdict: cold must answer (a creation is legal), warm must
+ *  REPORT cache fields and clear the floor. */
+async function runCachePair(
+	route: string,
+	o: { prefix: DrillPrefix; floor: number; timeoutMs?: number },
+	call: (nonce: number) => Promise<Response>,
+): Promise<CacheRouteResult> {
+	const t0 = Date.now();
+	try {
+		const cold = await call(Date.now());
+		await cold.body?.cancel();
+		if (!cold.ok)
+			return {
+				route,
+				verdict: "fail",
+				share: null,
+				ms: Date.now() - t0,
+				why: `cold pass HTTP ${cold.status}`,
+			};
+		return await warmHalf(route, o, call, t0);
+	} catch (e) {
+		return {
+			route,
+			verdict: "fail",
+			share: null,
+			ms: Date.now() - t0,
+			why: `front unreachable: ${String(e).slice(0, 120)}`,
+		};
+	}
+}
+
+/** Warm pass + verdict: cache fields reported, share ≥ floor. */
+async function warmHalf(
+	route: string,
+	o: { prefix: DrillPrefix; floor: number },
+	call: (nonce: number) => Promise<Response>,
+	t0: number,
+): Promise<CacheRouteResult> {
+	const warm = await call(Date.now());
+	const doc = (await warm.json().catch(() => null)) as {
+		usage?: unknown;
+	} | null;
+	const ms = Date.now() - t0;
+	if (!warm.ok)
+		return {
+			route,
+			verdict: "fail",
+			share: null,
+			ms,
+			why: `warm pass HTTP ${warm.status}`,
+		};
+	return cacheVerdict(route, o.floor, doc?.usage, ms);
+}
+
+/** The warm verdict: reported fields + floor, else the alert-shaped fail. */
+function cacheVerdict(
+	route: string,
+	floor: number,
+	usage: unknown,
+	ms: number,
+): CacheRouteResult {
+	if (!cacheUsageReported("anthropic", usage))
+		return {
+			route,
+			verdict: "fail",
+			share: null,
+			ms,
+			why: "route answered but reported NO cache usage fields (non-caching or non-reporting rung on top)",
+		};
+	const share = cacheHitShare(usageFromAnthropic(usage));
+	return share !== null && share >= floor
+		? {
+				route,
+				verdict: "pass",
+				share,
+				ms,
+				why: `warm cache share ${fmtShare(share)} ≥ floor ${floor}`,
+			}
+		: {
+				route,
+				verdict: "fail",
+				share,
+				ms,
+				why: `warm cache share ${fmtShare(share)} below floor ${floor} (affinity off, prefix drift, or a non-caching rung on top)`,
+			};
 }

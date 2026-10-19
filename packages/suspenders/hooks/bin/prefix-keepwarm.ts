@@ -22,11 +22,12 @@
 // Auth: the session-enrollment shape (scripts/lib/lane-auth.ts) — a scoped
 // bksk_ key named prefix-keepwarm, reuse window inside the 24h TTL, 0600
 // meta+settings files under the runtime home. The key is never logged.
+
+import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { Database } from "bun:sqlite";
 import { dirname, join } from "node:path";
-import { usageFromAnthropic, type Usage } from "../../../buckle/src/usage.ts";
+import { type Usage, usageFromAnthropic } from "../../../buckle/src/usage.ts";
 import {
 	adminKey,
 	BUCKLE_FRONT,
@@ -207,17 +208,20 @@ export async function ensureKeepwarmAuth(
 		fetchImpl?: typeof fetch;
 		admin?: string | null;
 		govMode?: "strict" | "solo";
+		/** Lane identity on the front — default PREFIX_SID. */
+		sid?: string;
 	} = {},
 ): Promise<KeepwarmAuth> {
 	const front = o.front ?? BUCKLE_FRONT;
 	const fetchImpl = o.fetchImpl ?? fetch;
+	const sid = o.sid ?? PREFIX_SID;
 	if (!(await probeFrontUp(front, fetchImpl)))
 		return { mode: "skipped", why: `buckle front ${front} unreachable` };
 	const admin = o.admin !== undefined ? o.admin : adminKey();
 	if (!admin) return { mode: "skipped", why: "no BUCKLE_ADMIN_KEY (belt.env)" };
 	const enrolled = await enrollSessionKey({
 		fleet: o.fleetDir ?? runtimeHome(),
-		sid: PREFIX_SID,
+		sid,
 		front,
 		frontUp: true,
 		govMode: o.govMode ?? "solo",
