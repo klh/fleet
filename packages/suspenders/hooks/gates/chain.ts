@@ -5,6 +5,7 @@
 import { allow, type HookInput } from "../lib/hookio.ts";
 import { coordinatorEditGate } from "../lib/coordinator-edit-gate.ts";
 import { anchorGate } from "./anchor.ts";
+import { claimLocationGate } from "./claim-location.ts";
 import { contentGate } from "./content.ts";
 import { governorGate } from "./governor.ts";
 import { mutationSizeGate } from "./mutation-size.ts";
@@ -15,6 +16,7 @@ export function preFilesChain(hook: HookInput): never {
 	coordinatorEditGate(hook); // W834: coordinators dispatch — non-doc writes deny (lanes pass)
 	anchorGate(hook); // W110: deny "string not found" BEFORE the harness — nearest match attached
 	contentGate(hook); // payload parse — deny corrupted content BEFORE it lands (2026-09-29)
+	claimLocationGate(hook); // W870: location-vs-claim — a claim with a registered worktree binds edits to that tree; main-checkout edits deny BEFORE a lease is taken
 	governorGate(hook); // leases + area claims
 	mutationSizeGate(hook); // W5 payload cap (SUSPENDERS_MAX_MUTATION)
 	ledgerGate(hook); // W8: no NEW markers in ledgers

@@ -11,10 +11,10 @@
 // The path is DERIVED (no schema change): .worktrees/<id> existing = the item
 // has a worktree. `work done` calls retire automatically.
 
-import { existsSync, readFileSync, appendFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { openStore, resolveProject } from "../lib/govdb.ts";
-import { symlinkBuildDirs } from "../lib/builddirs.ts";
+import { mintItemWorktree } from "../lib/worktree-provision.ts";
 import { laneSid } from "../lib/laneslug.ts";
 import { worktreeLive } from "../lib/lane-liveness.ts";
 import {
@@ -125,7 +125,6 @@ const emit = (
 const create = async (p: Parsed): Promise<number> => {
 	const id = p.pos[0];
 	const wtDir = resolveItemWorktree(ROOT, id);
-	const branch = `suspenders/${id}`;
 	const db = openStore();
 	const it = db
 		.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
@@ -140,42 +139,11 @@ const create = async (p: Parsed): Promise<number> => {
 			`${wtDir} already exists — retire it first (W211: registry-resolved, any path)`,
 		);
 
-	// keep the isolation dir itself out of every checkout
-	const giPath = join(ROOT, ".gitignore");
-	if (
-		!existsSync(giPath) ||
-		!readFileSync(giPath, "utf8")
-			.split("\n")
-			.some((l) => l.trim() === ".worktrees/")
-	) {
-		appendFileSync(giPath, "\n.worktrees/\n");
-	}
-
-	// W211: a new tree always plants at the conventional .worktrees/<id> —
-	// resolution is registry-first, planting stays conventional
-	const target = join(ROOT, ".worktrees", id);
-	// W349: the branch survives a retire (integration spine) — a re-minted
-	// item re-checks out the surviving ref at its tip instead of failing on
-	// -b; the fresh checkout IS the reset.
-	const branchExists =
-		git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).code ===
-		0;
-	const r = branchExists
-		? git(["worktree", "add", target, branch])
-		: git(["worktree", "add", "-b", branch, target]);
-	if (r.code !== 0) die(`git worktree add failed: ${r.out || "(stderr)"}`);
-
-	// symlink canonical gitignored build dirs so lanes skip reinstalls
-	symlinkBuildDirs(ROOT, target);
-
-	emit(
-		id,
-		"work.tree",
-		branchExists
-			? { path: target, branch, branch_existed: "1" }
-			: { path: target, branch },
-	);
-	console.log(`${target}`);
+	// W870: the mint is ONE behavior (lib) — the verb keeps its guards and
+	// dies loud on a standing tree; `work take` attaches instead.
+	const mint = mintItemWorktree(ROOT, id, PROJECT);
+	if (!mint.ok) die(`git worktree add failed: ${mint.err || "(stderr)"}`);
+	console.log(`${mint.path}`);
 	return 0;
 };
 

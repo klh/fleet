@@ -78,7 +78,10 @@ Shims on PATH (`coord`, `work`, `dispatch` → the installed prefix;
 Work graph (`work` — the ONE ledger; never Markdown todos):
 
 - `work ready` — claimable items · `work list` — all (◐ claimed, ⊞ split)
-- `work show <id>` — the item · `work take <id> --as <sid>`
+- `work show <id>` — the item · `work take <id> --as <sid>` — mints/attaches
+  the item worktree (.worktrees/<id>, path printed; W870: never treeless
+  claims) — the location-vs-claim write gate binds the claim's edits to that
+  tree, refusing main-checkout edits from the claim holder
 - `work allocate [--apply] [--capacity N]` — scorer-ranked plan of READY ×
   lanes (reclaimed-first FIFO, decisions {assign|recommend} with
   alloc_reason audit trail; `--apply` claims only the assign kind)
