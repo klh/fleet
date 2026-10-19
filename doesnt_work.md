@@ -62,6 +62,13 @@ decision-grade: it has to change what you would do. When a verdict flips
   130-case promotion suite or treat zero usage as free inference. First prove
   one real file edit and positive usage on the exact executor route, then rerun
   the smoke. See the [W960 receipt](benchmarks.md#w960-harness-self-improvement-smoke-2026-10-20-ac).
+- **W960.2 generated starter from one probe** — with a working Codex executor,
+  the current starter passed 3/3 private judges while the candidate passed 2/3,
+  used 18% more reported tokens, and wrote a probe-specific file in a held-out
+  task. The three-task smoke proves this candidate should not be promoted; it
+  does not estimate general quality. Keep the private held-out gate, and reject
+  task-specific probe content before spending on a 130-case run. See the
+  [paired receipt](benchmarks.md#independent-codex-executor-smoke-w9602-ac-three-paired-tasks).
 - **Compact module map and automatic second reviewer on a small known repair**
   — W922's held-out Relay pilot (2026-10-19, one task × 3 paired repetitions,
   `gpt-6-luna`) reached 22/22 with the plain solo agent. The extra map used

@@ -162,8 +162,15 @@ export function usageFromOutput(output: string): {
 		const input = usage.input_tokens;
 		const outputTokens = usage.output_tokens;
 		if (typeof input === "number" && typeof outputTokens === "number") {
+			// Codex reports cached_input_tokens as a subset of input_tokens.
+			const inclusiveCache =
+				typeof usage.cached_input_tokens === "number" &&
+				usage.cache_read_input_tokens === undefined;
 			const tokens =
-				input + outputTokens + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
+				input +
+				outputTokens +
+				(inclusiveCache ? 0 : (cacheReadTokens ?? 0)) +
+				(cacheWriteTokens ?? 0);
 			if (tokens <= 0) continue;
 			return {
 				tokens,

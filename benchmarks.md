@@ -33,6 +33,27 @@ produced no file. The local route continued to report zero usage. BLAM now
 treats zero usage as missing accounting; a full 130-case run waits for an
 executor that demonstrably writes files and reports positive token usage.
 
+### Independent Codex executor smoke (W960.2; AC; three paired tasks)
+
+The same three task statements, frozen revision, and private judges ran with
+`codex exec --ephemeral` using `gpt-6-luna`. The editor still used the local
+GLM route; editor token usage is not reported. BLAM's Codex parser now treats
+`cached_input_tokens` as part of `input_tokens`, avoiding double counting.
+Reported totals include cached input, so they are usage totals, not billed
+fresh tokens.
+
+| Starter | Private judges | Reported tokens, 3 tasks | Cache-read subset | Executor wall time |
+| ------- | -------------: | -----------------------: | ----------------: | -----------------: |
+| Current baseline | 3/3 | 639,818 | 545,024 | 48.6 s |
+| Generated candidate | 2/3 | 755,674 | 652,544 | 57.0 s |
+
+The candidate used 18% more reported tokens and 17% more wall time, and failed
+the script I/O judge. Its patch included an unrelated file from the probe task,
+which is evidence that task-specific probe content leaked into the generated
+starter. BLAM refused promotion; no shared starter changed. Three tasks are a
+smoke test, not the required 130-task quality estimate. The private receipt is
+under `~/.claude/local-llm/blam/w960/runs-codex/c3621f91-e421-4cdd-be83-70dd7e2810f0`.
+
 ---
 
 ## BLAM — coordination controls (2026-10-19 rerun)

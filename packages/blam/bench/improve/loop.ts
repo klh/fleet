@@ -328,6 +328,7 @@ export async function runImprovement(
 			report: join(dir, "report.json"),
 			candidatePassed,
 		});
+		if (!complete) break;
 	}
 	const lift = complete ? pairedLift(pairs) : null;
 	const promotion = lift
