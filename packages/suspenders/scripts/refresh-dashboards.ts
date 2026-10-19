@@ -43,7 +43,11 @@ export const dashboardCodeGroups = [
 			"supervisor.ts",
 			"tail-lines.ts",
 			"dashboard-observability.js",
+			"dashboard-topology.js",
+			"dashboard-topology-model.js",
 			"vendor/lit.js",
+			"vendor/uPlot.iife.min.js",
+			"vendor/uPlot.min.css",
 		],
 	},
 	{
