@@ -214,8 +214,10 @@ const run = (cmd: string[], cwd = REPO): { code: number; out: string } => {
 	};
 };
 // W349 residue probe: git-state dirt the lane did NOT make — dispatch's own
-// worktree artifacts (.klh-brief.md, .fleet/) are not residue.
-const residueOf = (wt: string): string =>
+// worktree artifacts (.klh-brief.md, .fleet/) are not residue. W874: an
+// untracked node_modules at ANY depth (root install or per-package) is
+// dependency debris, never work residue.
+export const residueOf = (wt: string): string =>
 	sh(["git", "-C", wt, "status", "--porcelain"])
 		.split("\n")
 		.filter((line) => {
@@ -224,8 +226,7 @@ const residueOf = (wt: string): string =>
 				line &&
 				p !== ".klh-brief.md" &&
 				!p.startsWith(".fleet/") &&
-				p !== "node_modules" &&
-				!p.startsWith("node_modules/")
+				!p.split("/").includes("node_modules")
 			);
 		})
 		.join("\n");
