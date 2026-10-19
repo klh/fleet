@@ -23,8 +23,13 @@ if (process.argv.includes("--full"))
 const tests = suite.map((name) =>
 	resolve(root, "packages/suspenders/test", name),
 );
+const testEnv = { ...process.env };
+for (const key of Object.keys(testEnv)) {
+	if (key.startsWith("GIT_")) delete testEnv[key];
+}
 const run = Bun.spawnSync([process.execPath, "test", ...tests], {
 	cwd: root,
+	env: testEnv,
 	stdout: "inherit",
 	stderr: "inherit",
 });
