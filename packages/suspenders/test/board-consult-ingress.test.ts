@@ -80,11 +80,35 @@ describe("W931 consult ingress", () => {
 	});
 
 	test("outbox pull face shows the OPEN consult", async () => {
-		const r = await fetch(`${f.BASE}/api/outbox/${AGENT}`);
+		const r = await fetch(`${f.BASE}/api/outbox/${AGENT}?project=${f.q(f.MY_PROJ)}`, {
+			headers: { "x-klh-write-token": f.TOKEN },
+		});
+		expect(r.status).toBe(200);
 		const j = await r.json();
 		expect(j.ok).toBe(true);
 		expect(j.consults.length).toBeGreaterThan(0);
 		expect(j.consults[0].state).toBe("OPEN");
+	});
+
+	test("outbox without the token 403s and without a known project 400s (verdict f1)", async () => {
+		const noToken = await fetch(`${f.BASE}/api/outbox/${AGENT}?project=${f.q(f.MY_PROJ)}`);
+		expect(noToken.status).toBe(403);
+		const noProject = await fetch(`${f.BASE}/api/outbox/${AGENT}`, {
+			headers: { "x-klh-write-token": f.TOKEN },
+		});
+		expect(noProject.status).toBe(400);
+	});
+
+	test("unknown and quiet sids answer the same empty shape (verdict f1)", async () => {
+		const r = await fetch(
+			`${f.BASE}/api/outbox/never-enrolled-sid?project=${f.q(f.MY_PROJ)}`,
+			{ headers: { "x-klh-write-token": f.TOKEN } },
+		);
+		expect(r.status).toBe(200);
+		const j = await r.json();
+		expect(j.ok).toBe(true);
+		expect(j.consults).toEqual([]);
+		expect(j.events).toEqual([]);
 	});
 
 	test("--best with no live experts refuses honestly (W923 event)", async () => {
@@ -108,6 +132,22 @@ describe("W931 consult ingress", () => {
 		expect(first.json.ok).toBe(true);
 		expect(second.json.deduped).toBe(true);
 		expect(second.json.consult).toBe(first.json.consult);
+		// verdict f4: the replay reads CURRENT consult state — answer the
+		// consult via the CLI, then the identical POST replays deduped with
+		// the ANSWERED state + answer, never the stale initial OPEN
+		const cid = String(first.json.consult ?? "").slice(1);
+		const ans = f.run("coord.ts", [
+			"consult-reply",
+			`C${cid}`,
+			"dedup replay answer w947",
+			"--as",
+			AGENT,
+		]);
+		expect(ans.code).toBe(0);
+		const third = await f.post("/api/consult", body);
+		expect(third.json.deduped).toBe(true);
+		expect(third.json.state).toBe("ANSWERED");
+		expect(third.json.answer).toContain("dedup replay answer w947");
 	});
 
 	test("live non-external sid refuses takeover", async () => {
@@ -128,6 +168,35 @@ describe("W931 consult ingress", () => {
 		expect(r.status).toBe(409);
 	});
 
+	test("CLOSED non-external sid refuses takeover (verdict f2)", async () => {
+		const boot = f.run("coord.ts", [
+			"bootstrap",
+			"--as",
+			"w947-closed",
+			"--role",
+			"worker",
+		]);
+		expect(boot.code).toBe(0);
+		// close the lane session in the store, then probe the ingress — the
+		// pre-W947 check only refused RUNNING non-external rows, so a CLOSED
+		// lane sid could be revived under its old role
+		const d = new Database(dbPath());
+		try {
+			d.query("UPDATE sessions SET state = 'CLOSED' WHERE sid = ?").run(
+				"w947-closed",
+			);
+		} finally {
+			d.close();
+		}
+		const r = await f.post("/api/consult", {
+			...BODY,
+			sid: "w947-closed",
+			q: "revive a closed lane sid",
+			target: "w947-closed",
+		});
+		expect(r.status).toBe(409);
+	});
+
 	test("external agent answers a lane consult through the wire", async () => {
 		const seeded = f.run("coord.ts", [
 			"consult",
@@ -137,7 +206,11 @@ describe("W931 consult ingress", () => {
 			"w931-asker",
 		]);
 		expect(seeded.code).toBe(0);
-		const outbox = await (await fetch(`${f.BASE}/api/outbox/${AGENT}`)).json();
+		const outbox = await (
+			await fetch(`${f.BASE}/api/outbox/${AGENT}?project=${f.q(f.MY_PROJ)}`, {
+				headers: { "x-klh-write-token": f.TOKEN },
+			})
+		).json();
 		const open = outbox.consults.find((c: { question: string }) =>
 			c.question.includes("lane asks the co-supervisor"),
 		);
@@ -167,6 +240,33 @@ describe("W931 consult ingress", () => {
 			"SELECT source, kind FROM events WHERE payload LIKE '%W931 co-supervisor smoke broadcast%' ORDER BY id DESC LIMIT 1",
 		);
 		expect(ev.length).toBe(1);
+	});
+
+	test("dedup key separates scope — same q+target with different scope mints (verdict f4)", async () => {
+		const body = { project: f.MY_PROJ, sid: "chatgpt-w947", q: "same q two scopes w947", target: AGENT };
+		const a = await f.post("/api/consult", body);
+		const b = await f.post("/api/consult", { ...body, scope: "packages/suspenders" });
+		expect(a.json.ok).toBe(true);
+		expect(b.json.ok).toBe(true);
+		// a minted response carries no deduped flag — absence IS the mint
+		expect(b.json.deduped).toBeUndefined();
+		expect(b.json.consult).not.toBe(a.json.consult);
+	});
+
+	test("ingress spawns stay bounded and live under concurrency (verdict f3)", async () => {
+		const ask = (i: number) =>
+			f.post("/api/consult", {
+				project: f.MY_PROJ,
+				sid: "chatgpt-w947",
+				q: `w947 concurrency probe ${i}`,
+				best: true,
+			});
+		const rs = await Promise.all([ask(0), ask(1), ask(2)]);
+		for (const r of rs) {
+			expect(r.status).toBe(200);
+			expect(r.json.state).toBe("REFUSED");
+			expect(r.json.ok).toBe(false);
+		}
 	});
 
 	test("per-expert consult queue caps at three OPEN (CLI guard surfaces as QUEUE_FULL)", async () => {

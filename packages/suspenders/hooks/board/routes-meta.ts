@@ -84,7 +84,7 @@ Examples: #lanes?w=W890 · #tasks?project=fleet&q=deep · #task=<id>&proj=<path>
 - POST /api/consult        W931 external-agent ingress — a consult from OUTSIDE the fleet (the ChatGPT co-supervisor connector, any HTTP client): {project, sid, q, target?|best?, scope?} spawns the coord consult verb verbatim (KB/fact answers included, REFUSED events per W923, W909 item links); {sid} is a long-lived external plane identity (session role "external", heartbeat refreshed per call, live lanes refuse the sid); per-sid rate cap + 10-min identical-question dedup; auth = the shared write token (coord-agent enroll <sid> prints the connector config)
 - POST /api/consult-reply  answer as the external agent: {project, sid, cid, answer|decline:true} — same expert/asker guards + consult_kb harvest as a lane reply
 - POST /api/broadcast      broadcast as the external agent: {project, sid, note}
-- GET /api/outbox/<sid>    pull face for WS-less agents: OPEN consults addressed to <sid> + its recent consult events (a read — never touches the heartbeat)
+- GET /api/outbox/<sid>?project=   credentialed pull face for WS-less agents: OPEN consults addressed to <sid> + its recent consult events, scoped to one project (W264 guard extended to GET — write token required; a known ?project= is mandatory; unknown and quiet sids answer the same empty-list shape; a read — never touches the heartbeat)
 
 ## Advice LLM
 
