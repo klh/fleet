@@ -43,6 +43,8 @@ const SOURCE_PATHS = [
 	"packages/buckle/package.json",
 	"packages/local-llm",
 	"packages/blam/src",
+	"packages/blam/bench/paired",
+	"packages/blam/bench/improve",
 	"packages/blam/package.json",
 ];
 const ENTRYPOINTS = [

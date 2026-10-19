@@ -964,6 +964,7 @@ const dispatchItem = async (
 			harness: pick.bin ?? "claude",
 			fleet: FLEET,
 			bin,
+			model: pick.model ?? "glm-5.3-flash",
 			item,
 			sid,
 			wt,
