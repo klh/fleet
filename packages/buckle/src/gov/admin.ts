@@ -251,19 +251,12 @@ function parseLimit(raw: string | null): number | null {
 
 /** W824 since/until: validate ISO-parseable, write into the read query.
  *  null = ok; a Response = the 400 to return instead. */
-function isoWindow(
-	sp: URLSearchParams,
-	q: RequestReadQuery,
-): Response | null {
+function isoWindow(sp: URLSearchParams, q: RequestReadQuery): Response | null {
 	for (const name of ["since", "until"] as const) {
 		const raw = sp.get(name);
 		if (raw === null || raw.length === 0) continue;
 		if (Number.isNaN(Date.parse(raw)))
-			return bad(
-				400,
-				"buckle.bad_window",
-				`${name} must be an ISO timestamp`,
-			);
+			return bad(400, "buckle.bad_window", `${name} must be an ISO timestamp`);
 		q[name] = raw;
 	}
 	return null;
@@ -273,7 +266,7 @@ function isoWindow(
  *  first): ts, key name/team join (NEVER key material), model, upstream
  *  chosen + ladder walk, status, tokens, latency, cache telemetry.
  *  Filters: limit (default 50, max 500), since/until (ISO), key, lane,
- *  model, errors=true. */
+ *  model, errors=true, inference=true (model-selected requests only). */
 function listRequests(gov: Governance, url: URL): Response {
 	const sp = url.searchParams;
 	const limit = parseLimit(sp.get("limit"));
@@ -286,6 +279,7 @@ function listRequests(gov: Governance, url: URL): Response {
 	if (sp.get("lane")) q.lane = sp.get("lane");
 	if (sp.get("model")) q.model = sp.get("model");
 	q.errors = sp.get("errors") === "true";
+	q.inference = sp.get("inference") === "true";
 	const rows = gov.ledger.requestsRead(q);
 	const byId = new Map(gov.keys.listKeys().map((k) => [k.key_id, k]));
 	return ok({

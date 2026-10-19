@@ -101,9 +101,7 @@ async function getRequests(
 
 describe("W824 gate class", () => {
 	test("401 bare, 403 proxy-scoped, 204 OPTIONS + Allow", async () => {
-		const upstream = await startMockUpstream(() =>
-			Response.json(OPENAI_USAGE),
-		);
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
 		const bare = await fetch(`${gate.base}/v1/admin/requests`);
 		expect(bare.status).toBe(401);
@@ -125,9 +123,7 @@ describe("W824 gate class", () => {
 
 describe("W824 per-request rows", () => {
 	test("usage join + key name join", async () => {
-		const upstream = await startMockUpstream(() =>
-			Response.json(OPENAI_USAGE),
-		);
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-autow824",
@@ -157,9 +153,7 @@ describe("W824 per-request rows", () => {
 	});
 
 	test("newest first + never key material", async () => {
-		const upstream = await startMockUpstream(() =>
-			Response.json(OPENAI_USAGE),
-		);
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-autow824",
@@ -185,9 +179,7 @@ describe("W824 per-request rows", () => {
 
 describe("W824 minted-then-revoked", () => {
 	test("rows keep the key NAME join after revocation", async () => {
-		const upstream = await startMockUpstream(() =>
-			Response.json(OPENAI_USAGE),
-		);
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-gone",
@@ -198,13 +190,10 @@ describe("W824 minted-then-revoked", () => {
 			scopes: ["buckle:admin:READ_"],
 		});
 		await chat(gate.base, lane.key);
-		const rev = await fetch(
-			`${gate.base}/v1/admin/keys/${lane.keyId}/revoke`,
-			{
-				method: "POST",
-				headers: { authorization: `Bearer ${ROOT}` },
-			},
-		);
+		const rev = await fetch(`${gate.base}/v1/admin/keys/${lane.keyId}/revoke`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${ROOT}` },
+		});
 		expect(rev.status).toBe(200);
 		expect((await chat(gate.base, lane.key)).status).toBe(401);
 		const out = await getRequests(gate.base, auditor.key);
@@ -227,9 +216,7 @@ describe("W824 minted-then-revoked", () => {
 
 describe("W824 cap + filters", () => {
 	test("limit default/clamp/400", async () => {
-		const upstream = await startMockUpstream(() =>
-			Response.json(OPENAI_USAGE),
-		);
+		const upstream = await startMockUpstream(() => Response.json(OPENAI_USAGE));
 		const gate = await startGate(upstream.url);
 		const lane = await issueViaAdmin(gate.base, {
 			name: "lane-filters",
@@ -240,6 +227,15 @@ describe("W824 cap + filters", () => {
 			scopes: ["buckle:admin:READ_"],
 		});
 		await chat(gate.base, lane.key);
+		expect((await chat(gate.base, "wrong-key")).status).toBe(401);
+		const inference = await getRequests(
+			gate.base,
+			auditor.key,
+			"?inference=true",
+		);
+		expect(
+			(inference.body.requests as ReqRow[]).map((r) => r.target_model),
+		).toEqual(["glm-5.3-flash"]);
 		const one = await getRequests(gate.base, auditor.key, "?limit=1");
 		expect((one.body.requests as ReqRow[]).length).toBe(1);
 		const badLimit = await getRequests(gate.base, auditor.key, "?limit=abc");
@@ -268,6 +264,51 @@ describe("W824 cap + filters", () => {
 });
 
 describe("W824 read cap", () => {
+	test("inference filter applies before the cap so denied ingress cannot hide model traffic", () => {
+		const ledger = new Ledger(
+			`/tmp/buckle-w824-filter-${Date.now()}-${process.pid}.db`,
+			undefined,
+			{ flushMs: 10_000 },
+		);
+		const base = {
+			actor: "captest",
+			lane: "",
+			dialect: "openai",
+			hint: "",
+			candidates_seen: 0,
+			candidates_top: "",
+			target_kind: null,
+			target_host: null,
+			target_port: null,
+			target_model: null,
+			decision: "denied",
+			latency_class: "unproven",
+			tier: "",
+			allow_cloud: false,
+			error_code: null,
+			why: "",
+		};
+		ledger.auditDecision({
+			...base,
+			rid: "model-request",
+			ts: "2026-10-19T09:00:00.000Z",
+			lane: "lane-one",
+			target_model: "glm-5.3-flash",
+			decision: "policy",
+		});
+		for (let i = 0; i < 510; i++)
+			ledger.auditDecision({
+				...base,
+				rid: `denied-${i}`,
+				ts: "2026-10-19T10:00:00.000Z",
+			});
+		expect(ledger.requestsRead({ limit: 500 }).length).toBe(500);
+		expect(
+			ledger.requestsRead({ limit: 500, inference: true }).map((r) => r.rid),
+		).toEqual(["model-request"]);
+		ledger.close();
+	});
+
 	test("long err/why truncate at read (bodies never re-served)", () => {
 		const dir = `/tmp/buckle-w824-${Date.now()}-${process.pid}-${Math.random()
 			.toString(36)

@@ -79,6 +79,8 @@ export interface RequestReadQuery {
 	key?: string | null;
 	lane?: string | null;
 	model?: string | null;
+	/** Exclude rejected/unrouted ingress before applying the read cap. */
+	inference?: boolean;
 	/** true = only rows where the outcome never landed ok. */
 	errors?: boolean;
 }
@@ -597,6 +599,7 @@ export class Ledger {
 			where.push("target_model = ?");
 			args.push(q.model);
 		}
+		if (q.inference === true) where.push("target_model IS NOT NULL");
 		if (q.errors === true) {
 			where.push("ok = 0");
 		}

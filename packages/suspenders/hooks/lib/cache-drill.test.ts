@@ -35,6 +35,7 @@ test("reads the Buckle admin requests envelope and sends a bounded window", asyn
 	const url = new URL(requested);
 	expect(url.pathname).toBe("/v1/admin/requests");
 	expect(url.searchParams.get("limit")).toBe("500");
+	expect(url.searchParams.get("inference")).toBe("true");
 	expect(url.searchParams.has("since")).toBe(true);
 	expect(url.searchParams.has("days")).toBe(false);
 });

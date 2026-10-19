@@ -437,7 +437,11 @@ export async function fetchHubRequests(
 		const headers: Record<string, string> = {};
 		if (token !== null) headers.authorization = `Bearer ${token}`;
 		const since = new Date(Date.now() - days * 86_400_000).toISOString();
-		const query = new URLSearchParams({ since, limit: "500" });
+		const query = new URLSearchParams({
+			since,
+			limit: "500",
+			inference: "true",
+		});
 		const res = await fetch(`${url}/v1/admin/requests?${query.toString()}`, {
 			headers,
 			signal: AbortSignal.timeout(timeoutMs),
