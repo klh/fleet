@@ -21,7 +21,11 @@ const HOME = mkdtempSync(join(tmpdir(), "suspenders-denyaudit-"));
 const REPO = realpathSync(
 	mkdtempSync(join(tmpdir(), "suspenders-denyaudit-repo-")),
 );
-const env = { ...process.env, HOME };
+const env = {
+	...process.env,
+	HOME,
+	KLH_SESSION_ROLE: "lane", // W834: tests exercise gate logic, not role
+};
 const HOOKS = join(import.meta.dir, "..", "hooks");
 const AUDIT = join(HOME, ".cache/claude-governor/denied-calls.jsonl");
 

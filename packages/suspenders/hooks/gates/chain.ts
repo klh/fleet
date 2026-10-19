@@ -3,6 +3,7 @@
 // closes). Extracted for the codex adapter (W73): gate.ts and gates/codex.ts
 // run the SAME chain — one sequence, two dialects.
 import { allow, type HookInput } from "../lib/hookio.ts";
+import { coordinatorEditGate } from "../lib/coordinator-edit-gate.ts";
 import { anchorGate } from "./anchor.ts";
 import { contentGate } from "./content.ts";
 import { governorGate } from "./governor.ts";
@@ -11,6 +12,7 @@ import { ledgerGate } from "./ledger.ts";
 import { configGate } from "./config.ts";
 
 export function preFilesChain(hook: HookInput): never {
+	coordinatorEditGate(hook); // W834: coordinators dispatch — non-doc writes deny (lanes pass)
 	anchorGate(hook); // W110: deny "string not found" BEFORE the harness — nearest match attached
 	contentGate(hook); // payload parse — deny corrupted content BEFORE it lands (2026-09-29)
 	governorGate(hook); // leases + area claims
