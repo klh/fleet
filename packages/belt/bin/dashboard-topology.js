@@ -35,7 +35,7 @@ class BeltTopology extends LitElement {
 	connectedCallback() {
 		super.connectedCallback();
 		this.refresh();
-		this.timer = setInterval(() => this.refresh(), 15_000);
+		this.timer = setInterval(() => this.refresh(), 5_000);
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
