@@ -30,7 +30,6 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { briefIntel } from "../hooks/lib/brief-intel.ts";
 import { budgetFlagClaim, budgetFlagGet } from "../hooks/lib/budget-flag.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
@@ -123,7 +122,7 @@ import {
 	policyForRepo,
 	tryLoadStack,
 } from "../hooks/lib/stack-config.ts";
-import { recoverableClaims } from "./lib/claim-recovery.ts";
+import { recoverOrphanClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { execPick } from "./lib/exec-chain.ts";
 import { fleetReport } from "./lib/fleet-report.ts";
@@ -158,18 +157,19 @@ import {
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
-import { captureClaimFeed } from "./lib/structured-feed.ts";
 import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
-import { effortFromShow } from "../hooks/lib/work-effort.ts";
+import { parseCapsuleGet } from "./lib/dispatch-admission.ts";
 import {
-	cvSnapshot,
-	parseCapsuleGet,
-	quotaSnapshot,
-} from "./lib/dispatch-admission.ts";
-import { landingRedirect } from "./lib/landing-redirect.ts";
+	composeDispatchBrief,
+	dryDispatchPreview,
+} from "./lib/dispatch-preview.ts";
+import {
+	dispatchSummary,
+	resolveDaemonizedPids,
+} from "./lib/dispatch-summary.ts";
 
 // parseCapsuleGet is re-exported so supervise.ts and the test suites keep
 // their dispatch-next import path (W576.1.1 decomposition).
@@ -397,6 +397,21 @@ const policyBriefExtra = (project: string): string[] => {
 // dispatch/supervise/fleet-loop/board must never derive sids independently
 export const sidOf = laneSid;
 
+// W928 decomposition modules can't close over the entrypoint's
+// REPO/CLI-bound closures — they arrive via deps bags.
+const previewDeps = {
+	REPO,
+	CALLER_REPO,
+	RESUME_FROM,
+	sh,
+	run,
+	workCli,
+	capsuleGet,
+	itemCapsuleGet,
+	routingExtra,
+	policyBriefExtra,
+};
+
 /** one item → claim, worktree, brief, daemonized lane. Returns the summary
  *  fragment or null when the item cannot be taken (claimed elsewhere). */
 
@@ -468,60 +483,14 @@ const dispatchItem = async (
 		return null;
 	}
 	const wt = `${REPO}/.worktrees/${item}`;
-	if (DRY) {
-		// read-only end to end: no claim, no worktree, no brief file, no spawn
-		const show = run(workCli("show", item));
-		const capsule = capsuleGet(sid);
-		const expected = `suspenders/${item}`;
-		const cur = existsSync(wt)
-			? sh(["git", "-C", wt, "branch", "--show-current"])
-			: expected;
-		const branch = cur || expected;
-		if (existsSync(wt) && cur !== expected)
-			console.log(
-				`NOTE — DRY: leftover worktree ${wt} sits on ${cur || "(detached)"} (expected ${expected}) — live dispatch recreates it before spawn (W349)`,
-			);
-		const pick = execPick(attempt, CALLER_REPO, cvSnapshot(), quotaSnapshot());
-		// W422: the brief-verify harness + enforcement ride the executor
-		// adapter — the if copilot/else-claude ternary is registry data now.
-		const adapter = adapterFor(pick.bin);
-		console.log(`DRY dispatch ${item} → ${sid}${capsule ? " (RESUME)" : ""}`);
-		if (pick.chainLen > 1)
-			console.log(
-				`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
-			);
-		const intel = briefIntel(REPO, `${item} ${show.out}`);
-		const brief = composeBrief({
+	if (DRY)
+		return dryDispatchPreview(previewDeps, {
 			item,
-			showOut: show.out,
 			sid,
-			branch,
-			worktree: wt,
-			capsule,
-			itemCapsule: itemCapsuleGet(item),
-			agent: pick.agent,
-			effort: effortFromShow(show.out),
-			landing: await landingRedirect(REPO, branch),
-			intel,
-			fleetReport: fleetReport(REPO),
-			extra: [
-				...routingExtra(),
-				...resumeBriefLine(
-					decisionFor(RESUME_FROM, resume?.sid, pick.bin ?? "claude"),
-				),
-				...policyBriefExtra(projectIdentity(REPO)),
-			],
+			attempt,
+			wt,
+			resumeSid: resume?.sid,
 		});
-		console.log(brief);
-		// W223.2: dry-run shows the verdict the spawn path would enforce
-		console.log(
-			briefVerdictLine(
-				verifyBrief(brief, { harness: adapter.briefHarness }),
-				Buffer.byteLength(brief),
-			),
-		);
-		return `${item}→${sid}(dry)`;
-	}
 	const store = openStore();
 	// W620 measure beat: fold the events into facts BEFORE the ladder reads
 	// them — the measure-gate that lets execPick act on real skew only.
@@ -778,26 +747,17 @@ const dispatchItem = async (
 			resume?.sid,
 			pick.bin ?? "claude",
 		);
-		const intel = briefIntel(REPO, `${item} ${show.out}`);
-		if (intel.skip) log(`BRIEF-INTEL skip ${item}: ${intel.skip}`);
-		const brief = composeBrief({
+		const { brief, intel } = composeDispatchBrief(previewDeps, {
 			item,
-			showOut: show.out,
+			show,
 			sid,
 			branch,
-			worktree: wt,
+			wt,
 			capsule,
-			itemCapsule: itemCapsuleGet(item),
-			agent: pick.agent,
-			effort: effortFromShow(show.out),
-			intel,
-			fleetReport: fleetReport(REPO),
-			extra: [
-				...routingExtra(),
-				...resumeBriefLine(resumeDecision),
-				...policyBriefExtra(projectIdentity(REPO)),
-			],
+			pick,
+			resumeBrief: resumeBriefLine(resumeDecision),
 		});
+		if (intel.skip) log(`BRIEF-INTEL skip ${item}: ${intel.skip}`);
 		// W223.2 dual-harness brief verification, W422-shaped: the harness id
 		// and enforcement mode are ADAPTER data (registry). A failing brief on
 		// a hard-gate adapter refuses the spawn AND reclaims the claim (a
@@ -1216,49 +1176,36 @@ const main = async (): Promise<void> => {
 			);
 	// Old automatic claims can outlive their registry rows. Reconstruct the
 	// original sid instead of reclaiming it and losing capsule/retry identity.
-	let orphaned: Record<string, unknown>[];
-	try {
-		orphaned = await captureClaimFeed(
-			workCli("orphaned", "--json", ...(ITEM ? ["--item", ITEM] : [])),
-			REPO,
-		);
-	} catch (error) {
-		const note = `RECOVERY REFUSED — ${String(error)}; no lanes dispatched`;
-		console.error(note);
-		if (!DRY) log(note);
+	// W928: the capture + candidate math ride scripts/lib/claim-recovery.ts.
+	const recovered = await recoverOrphanClaims({
+		workCli,
+		repo: REPO,
+		log,
+		dry: DRY,
+		...(ITEM ? { item: ITEM } : {}),
+		takenSids: new Set(lanes.map((l) => l.sid)),
+		targetEff: TARGET_EFF,
+		busySlots: Math.max(held.size, [...audit.values()].filter(Boolean).length),
+		now: Date.now(),
+	});
+	if (recovered.refused) {
 		process.exitCode = 1;
 		return;
 	}
-	{
-		const candidates = recoverableClaims(
-			orphaned,
-			new Set(lanes.map((l) => l.sid)),
-			Date.now(),
-			isOwnerGated,
-			hostname(),
-		);
-		const slots = Math.max(
-			0,
-			TARGET_EFF -
-				Math.max(held.size, [...audit.values()].filter(Boolean).length),
-		);
-		for (const row of candidates
-			.filter((r) => !ITEM || r.id === ITEM)
-			.slice(0, slots)) {
-			lanes.push({
-				sid: row.owner_sid,
-				item: row.id,
-				pid: 0,
-				branch: `suspenders/${row.id}`,
-				worktree: `${REPO}/.worktrees/${row.id}`,
-				host: hostname(),
-				launchedAt: row.updated_at,
-				attempt: 0,
-			});
-			const note = `recovered missing registry identity ${row.id} → ${row.owner_sid}`;
-			console.log(`${DRY ? "DRY " : ""}${note}`);
-			if (!DRY) log(note);
-		}
+	for (const row of recovered.rows) {
+		lanes.push({
+			sid: row.owner_sid,
+			item: row.id,
+			pid: 0,
+			branch: `suspenders/${row.id}`,
+			worktree: `${REPO}/.worktrees/${row.id}`,
+			host: hostname(),
+			launchedAt: row.updated_at,
+			attempt: 0,
+		});
+		const note = `recovered missing registry identity ${row.id} → ${row.owner_sid}`;
+		console.log(`${DRY ? "DRY " : ""}${note}`);
+		if (!DRY) log(note);
 	}
 	// W494.1: the audit (session rows) alone lies — daemonized `claude -p`
 	// lanes die silently and their session lease outlives them. A lane is
@@ -1388,44 +1335,8 @@ const main = async (): Promise<void> => {
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
 	}
-	// daemonized-pid resolve: the `claude -p` parent re-parents away from
-	// proc.pid within minutes; one settle + lsof cwd scan re-points fresh
-	// entries so the pid guard and `lanes` stay honest.
-	if (dispatched.some((d) => d.includes("(pid "))) {
-		await Bun.sleep(3000);
-		const listing = sh([
-			"lsof",
-			"-a",
-			"-p",
-			sh(["ps", "-axo", "pid=,comm="])
-				.split("\n")
-				.filter((l) => /claude|codex/.test(l))
-				.map((l) => Number.parseInt(l.trim(), 10))
-				.join(","),
-			"-d",
-			"cwd",
-			"-Fn",
-		]);
-		const byCwd = new Map<string, number>();
-		let cur = "";
-		for (const line of listing.split("\n")) {
-			if (line.startsWith("p")) cur = line.slice(1);
-			if (line.startsWith("n")) {
-				const wt = byCwd.get(line.slice(1));
-				byCwd.set(
-					line.slice(1),
-					cur && (!wt || Number(cur) > wt) ? Number(cur) : (wt ?? 0),
-				);
-			}
-		}
-		for (const l of live) {
-			const resolved = byCwd.get(l.worktree);
-			if (resolved && laneProcessIdentity(l) === false) {
-				l.pid = resolved;
-				dispatched.push(`${l.item}→${l.sid}(daemonized pid ${resolved})`);
-			}
-		}
-	}
+	// daemonized-pid resolve: scripts/lib/dispatch-summary.ts (W928)
+	await resolveDaemonizedPids(sh, dispatched, live);
 	// dry-run is read-only end to end — never rewrite the lane registry.
 	// BUGFIX: dispatchItem pushes fresh entries into `live` (a .filter() copy
 	// of `lanes`, not the same array) — persisting the stale outer `lanes`
@@ -1465,40 +1376,20 @@ const main = async (): Promise<void> => {
 			);
 		}
 	}
-	console.log(
-		`lanes live: ${live.length}/${TARGET_EFF} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
-	);
-	// W899: the dispatch summary carries the fleet report table — same shape
-	// the install tail, session-start tick and lane briefs emit.
-	const report = fleetReport(REPO);
-	if (report) console.log(report);
-	// W695.1: a seed fallback dispatched a lane that will re-orient from cold
-	// context — never read as a fully healthy dispatch even when nothing was
-	// refused.
-	if (seedFallbacks.length > 0 && governanceRefusals.length === 0)
-		process.exitCode = 1;
-	// W463: a governance refusal is an ERROR the caller must see — the run
-	// never reads as a clean "pool drained" exit.
-	if (governanceRefusals.length > 0)
-		console.log(
-			`governance: ${governanceRefusals.length} dispatch(es) REFUSED (fail-closed) — ${governanceRefusals.join(", ")}`,
-		);
-	if (!ITEM && ready.length === 0 && resumeOf.size === 0)
-		console.log(
-			"READY pool empty — register work or pull the next epic forward",
-		);
-	// W619 starved-capability surfacing: capabilities demanded by READY work
-	// that no dispatchable lane sid advertises. The owner reads this in the
-	// dispatch log and responds: spawn/register a capable lane or clear the
-	// requires (work add --requires validated vocabulary: shell fs git build
-	// mcp vision browser network).
-	if (starved.size)
-		console.log(
-			`capability starved: ${[...starved.entries()]
-				.map(([c, items]) => `${c} (wanted by ${items.join(", ")})`)
-				.join(", ")} — no dispatchable lane advertises it`,
-		);
-	if (governanceRefusals.length > 0) process.exitCode = 1;
+	// W899/W928: the tail render + exit-code decision ride dispatch-summary.ts
+	process.exitCode = dispatchSummary({
+		liveCount: live.length,
+		targetEff: TARGET_EFF,
+		heldSlots,
+		dispatched,
+		seedFallbacks,
+		readyCount: ready.length,
+		resumeCount: resumeOf.size,
+		...(ITEM ? { item: ITEM } : {}),
+		refusals: governanceRefusals,
+		starved,
+		report: fleetReport(REPO),
+	});
 };
 
 if (import.meta.main) {
