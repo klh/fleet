@@ -142,6 +142,25 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/cache-telemetry.ts")],
 	},
+	{
+		// W827: the rogue-serve reaper — kills lane-leaked serve processes
+		// (buckle server, fleet-board, ...) whose cwd sits in a stale
+		// .worktrees dir no live lane claim covers (2026-10-19 incident: 100+
+		// bun serves from merged/reaped lanes), and prunes merged-and-clean
+		// stale worktrees. The CLI defaults to dry-run; the loop fire acts.
+		// `.fleet/rogue-reap-paused` pauses.
+		name: "rogue-reap",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/rogue-reap.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
