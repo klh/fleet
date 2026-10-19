@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 
 const cleanup: string[] = [];
 const workFile = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
-function fixture() {
+function fixture(opts: { title?: string } = {}) {
 	const repo = mkdtempSync(join(tmpdir(), "w554-completion-"));
 	cleanup.push(repo);
 	const home = join(repo, ".test-home");
@@ -50,8 +50,8 @@ function fixture() {
 			err: p.stderr.toString(),
 		};
 	};
-	const id =
-		work("add", "durable completion evidence").out.match(/W\d+/)?.[0] ?? "";
+	const added = work("add", opts.title ?? "durable completion evidence");
+	const id = added.out.match(/W\d+/)?.[0] ?? "";
 	const takeOut = work("take", id, "--as", "completion-lane");
 	expect(takeOut.code).toBe(0);
 	mkdirSync(join(repo, ".fleet"), { recursive: true });
@@ -229,6 +229,54 @@ test("done refuses a closing diff that adds fake-completion markers (W511)", () 
 	expect(done.err).toContain("fake-completion markers");
 	expect(done.err).toContain("gate-extra.ts");
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
+
+test("done refuses a bench-shaped item without its ledgers (W951)", () => {
+	const f = fixture({ title: "bench: A/B retrieval verdict" });
+	const git = (...args: string[]) => {
+		const p = Bun.spawnSync(["git", "-C", f.repo, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(p.exitCode).toBe(0);
+		return p.stdout.toString().trim();
+	};
+	writeFileSync(join(f.repo, "bench-run.ts"), "export const verdict = true;\n");
+	git("add", "-A");
+	git("commit", "-m", "bench run without ledgers");
+	const refused = f.work(
+		"done",
+		f.id,
+		"--sha",
+		git("rev-parse", "HEAD"),
+		"--summary",
+		summary,
+	);
+	expect(refused.code).toBe(2);
+	expect(refused.err).toContain("bench-docs (W951)");
+	expect(refused.err).toContain("benchmarks.md");
+	expect(refused.err).toContain("doesnt_work.md");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+	writeFileSync(
+		join(f.repo, "benchmarks.md"),
+		"# Benchmarks\n\n- A/B: mechanical-first retrieval wins.\n",
+	);
+	writeFileSync(
+		join(f.repo, "doesnt_work.md"),
+		"# Does not work\n\n- banked telemetry rows as primary retrieval.\n",
+	);
+	git("add", "-A");
+	git("commit", "-m", "bench: land both ledgers");
+	const ok = f.work(
+		"done",
+		f.id,
+		"--sha",
+		git("rev-parse", "HEAD"),
+		"--summary",
+		summary,
+	);
+	expect(ok.code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
 });
 
 test("final capsule paragraph can supply the durable summary", () => {
