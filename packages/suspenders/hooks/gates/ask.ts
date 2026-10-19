@@ -12,6 +12,7 @@ import { allow, context, type HookInput } from "../lib/hookio.ts";
 import { kevTypedDecision } from "../lib/kev.ts";
 import { resolveFleetLane } from "../lib/fleetlane.ts";
 import { subagentLaneSuffix } from "../lib/subscribe-attach.ts";
+import { drainLaneInboxFor } from "../lib/lane-inbox.ts";
 
 // owner meta questions are short; dispatch briefs (thousands of chars, ride
 // the session's FIRST prompt with W-ids all over them) never survive this
@@ -111,15 +112,31 @@ function laneIdFor(hook: HookInput): string | null {
 // path (allow/context are `: never`) — gate.ts's case parks on the await
 export function askGate(hook: HookInput): Promise<never> {
 	if (process.env.SUSPENDERS_ASK === "0") allow();
-	const prompt = hook.prompt?.trim() ?? "";
-	if (!prompt || prompt.length > ASK_MAX_PROMPT) allow();
-	if (!isQuestionShaped(prompt)) allow();
-	const hits = fleetMetaHits(prompt);
-	if (hits.length === 0) allow();
-	const sid = laneIdFor(hook);
-	if (!sid) allow();
-
 	return (async () => {
+		const prompt = hook.prompt?.trim() ?? "";
+		// W861 delivery leg: consult answers/expiry notices targeted at THIS
+		// session drain into the transcript on the next prompt — the asking
+		// session sees the coordinator's answer without a tool call (the W611
+		// files-gate seam covers dispatched lanes; the ask gate's own sid
+		// resolution reaches any asking session, the owner's interactive one
+		// included).
+		const sid = laneIdFor(hook);
+		const delivered = sid ? drainLaneInboxFor(sid) : null;
+		// context() exits the process, so the drain block composes with any
+		// ask note the screens produce — one exit, no dropped leg
+		const done = (askNote?: string): never => {
+			if (delivered && askNote)
+				context(`${delivered}\n${askNote}`, "UserPromptSubmit");
+			if (askNote) context(askNote, "UserPromptSubmit");
+			if (delivered) context(delivered, "UserPromptSubmit");
+			allow();
+		};
+		if (!prompt || prompt.length > ASK_MAX_PROMPT) done();
+		if (!isQuestionShaped(prompt)) done();
+		const hits = fleetMetaHits(prompt);
+		if (hits.length === 0) done();
+		if (!sid) done();
+
 		try {
 			const shared = await import("../coord/shared.ts");
 			const project = shared.projectIdentity(hook.cwd ?? process.cwd());
@@ -127,7 +144,7 @@ export function askGate(hook: HookInput): Promise<never> {
 			// no live coordinator (other repos, hub machines) → silent; the
 			// coordinator's own session never routes to itself
 			if (!coordSid || coordSid === sid) {
-				allow();
+				done();
 				return;
 			}
 			const q = prompt.replace(/\s+/g, " ").slice(0, ASK_QUESTION_MAX);
@@ -136,9 +153,8 @@ export function askGate(hook: HookInput): Promise<never> {
 			// plane (the self path) exactly as the consult CLI would
 			const factHit = await shared.factLookup(q);
 			if (factHit) {
-				context(
+				done(
 					`[fleet-ask] self-answerable — verified fact k#${factHit.id} "${factHit.topic ?? ""}": ${(factHit.fact ?? "").slice(0, 300)}`,
-					"UserPromptSubmit",
 				);
 				return;
 			}
@@ -175,13 +191,11 @@ export function askGate(hook: HookInput): Promise<never> {
 				source = `kev ${Math.round(d.confidence * 100)}%`;
 			}
 			if (verdict !== "coord") {
-				context(
+				done(
 					lessonHit
 						? `[fleet-ask] kev triage: self-answerable — nearest lesson ${lessonHit.key} (advisory): ${lessonHit.value.slice(0, 250)}`
 						: `[fleet-ask] triage: self-answerable — coord fact list / who-knows cover this without the coordinator`,
-					"UserPromptSubmit",
 				);
-				allow();
 				return;
 			}
 
@@ -193,11 +207,9 @@ export function askGate(hook: HookInput): Promise<never> {
 				)
 				.get(sid, q) as { id: number } | undefined;
 			if (dup) {
-				context(
-					`[fleet-ask] already routed as C${dup.id} — the coordinator's answer arrives via the WS inbox`,
-					"UserPromptSubmit",
+				done(
+					`[fleet-ask] already routed as C${dup.id} — the coordinator's answer arrives via the WS inbox and is delivered into this session on the next prompt`,
 				);
-				allow();
 				return;
 			}
 
@@ -220,19 +232,17 @@ export function askGate(hook: HookInput): Promise<never> {
 					process.stderr.write(
 						`[fleet-ask] consult spawn failed: ${`${r.stdout}${r.stderr}`.slice(0, 400)}\n`,
 					);
-				allow();
+				done();
 			}
-			context(
-				`[fleet-ask] routed to the coordinator as ${m[1]} (${source}) — answer arrives via the WS inbox; see it with coord consults --as ${sid.slice(0, 8)}`,
-				"UserPromptSubmit",
+			done(
+				`[fleet-ask] routed to the coordinator as ${m[1]} (${source}) — the answer is delivered into this session on the next prompt (coord consults --as ${sid.slice(0, 8)} lists it too)`,
 			);
-			allow();
 		} catch (e) {
 			// advisory law — never block the prompt; SUSPENDERS_ASK_DEBUG=1
 			// surfaces the swallowed failure for diagnosis (wiring bugs stay visible)
 			if (process.env.SUSPENDERS_ASK_DEBUG)
 				process.stderr.write(`[fleet-ask] ${e}\n`);
-			allow();
+			done();
 		}
 	})();
 }

@@ -35,7 +35,7 @@ function renderEvent(r: EvRow): string {
 		const p = r.payload
 			? (JSON.parse(r.payload) as Record<string, unknown>)
 			: {};
-		const text = p.note ?? p.reason ?? p.q ?? p.what ?? p.summary;
+		const text = p.note ?? p.reason ?? p.q ?? p.what ?? p.summary ?? p.answer;
 		if (typeof text === "string") msg = text;
 		if (typeof p.consult === "string" || typeof p.consult === "number")
 			msg = `${String(p.consult).replace(/^C/, "C")} ${msg}`.trim();

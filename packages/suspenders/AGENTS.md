@@ -62,6 +62,14 @@ zero narration, ever.
   thinking
   consult: [C12] replying <answer, truncated>
   ```
+- An answer to a consult this session asked (consult.answer drained via the
+  W611 lane inbox — W861: the ask gate delivers it into the asking session on
+  its next prompt):
+  ```
+  consult: [C12] answered: <answer, truncated>
+  ```
+  Relay the answer where it was asked; `coord consult-reply <C##> --feedback
+  resolved|failed --evidence ...` closes the loop.
 - A fleet-wide consult (`--best`, no single addressee):
   ```
   consult: fleet asks, <question, truncated>
