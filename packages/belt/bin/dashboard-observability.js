@@ -6,6 +6,20 @@ import {
 } from "/dashboard-state.js";
 import { observationFresh } from "/observation.js";
 
+// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+const dualStamp = (ms) => {
+	if (!ms) return "";
+	const d = new Date(ms);
+	if (Number.isNaN(d.getTime())) return String(ms);
+	const p = (n) => String(n).padStart(2, "0");
+	const off = -d.getTimezoneOffset();
+	const a = Math.abs(off);
+	const sg = off >= 0 ? "+" : "-";
+	const utc = d.toISOString().replace(/\.\d{3}Z$/, "Z");
+	const loc = `local ${p(d.getHours())}:${p(d.getMinutes())}, UTC${sg}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+	return `${utc} (${loc})`;
+};
+
 class BeltSupervisor extends LitElement {
 	static properties = {
 		snapshot: { state: true },
@@ -101,7 +115,7 @@ class BeltSupervisor extends LitElement {
 		return html`
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`)}</p>
-			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
+			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${dualStamp(doc.observation.expiresAt)}</p>` : ""}
 			<details><summary>${targets.length} monitored endpoints · view probe details</summary>
 				${fleetRows.map((target) => this.row(target, fresh, doc))}
 				${

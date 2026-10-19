@@ -468,6 +468,15 @@ const el = (tag, cls, text) => {
 };
 const stamp = document.getElementById("stamp");
 const btn = document.getElementById("refresh");
+const dualStamp = (ms) => { // W902: UTC Z + viewer-local twin — hub clocks drift
+  if (!ms) return "";
+  var d = new Date(ms);
+  if (isNaN(d.getTime())) return String(ms);
+  var p = (n) => (n < 10 ? "0" : "") + n;
+  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? "+" : "-";
+  var loc = "local " + p(d.getHours()) + ":" + p(d.getMinutes()) + ", UTC" + sg + p((a / 60) | 0) + ":" + p(a % 60);
+  return d.toISOString().replace(/\\.\\d{3}Z$/, "Z") + " (" + loc + ")";
+};
 // W552.7: URL-initialized presentation mode — /fleet-tree?view=presentation
 // renders the recording view: plain headings, no diagnostic labels. The API
 // keeps every field; the default view renders exactly as before.
@@ -482,7 +491,7 @@ const load = async (force) => {
 		const data = await (await fetch(u)).json();
 		tree.replaceChildren();
 		stamp.replaceChildren();
-		stamp.append(el("span", "tier", new Date(data.generated_at).toLocaleTimeString()));
+		stamp.append(el("span", "tier", dualStamp(data.generated_at)));
 		if (data.stale && !presentation) stamp.append(el("span", "down", "  stale — last good"));
 		for (const root of data.tree) {
 			const row = el("div", "root");

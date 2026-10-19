@@ -134,13 +134,18 @@ test("show --json gives dispatcher state and exact owner in either flag order", 
 test("show takes comma- or space-separated id lists (W795)", () => {
 	const a = idOf(work("add", "showlist a", "--by", "t").out);
 	const b = idOf(work("add", "showlist b", "--by", "t").out);
-	// comma-separated: one rendered item per line
+	// comma-separated: one rendered item header per line (W902: each item
+	// also carries its created/updated dual-stamp lines under the header)
 	const comma = work("show", `${a},${b}`);
 	expect(comma.code).toBe(0);
 	const lines = comma.out.trim().split("\n");
-	expect(lines).toHaveLength(2);
-	expect(lines[0]).toContain(a);
-	expect(lines[1]).toContain(b);
+	const headers = lines.filter((l) => l.includes(a) || l.includes(b));
+	expect(headers).toHaveLength(2);
+	expect(headers[0]).toContain(a);
+	expect(headers[1]).toContain(b);
+	// W902: both twins render — UTC Z and an explicit local offset
+	expect(comma.out).toMatch(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \(/);
+	expect(comma.out).toMatch(/updated: .*[+-]\d{2}:\d{2}\)/);
 	// space-separated: identical result
 	const spaced = work("show", a, b);
 	expect(spaced.code).toBe(0);

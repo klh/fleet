@@ -125,7 +125,14 @@ class KlhDecisionEval extends LitElement {
 	}
 
 	private when(ts: number): string {
-		return new Date(ts).toLocaleTimeString();
+		// W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+		const d = new Date(ts);
+		const p = (n: number): string => String(n).padStart(2, "0");
+		const off = -d.getTimezoneOffset();
+		const a = Math.abs(off);
+		const utc = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}Z`;
+		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+		return `${utc} (${local})`;
 	}
 
 	protected render(): TemplateResult {

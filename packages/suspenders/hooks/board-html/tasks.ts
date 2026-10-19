@@ -209,6 +209,14 @@ function spendStripHtml(t, cls){
 function displayState(t){
   return t.state === 'READY' && t.blocked_by && t.blocked_by.length ? 'BLOCKED' : t.state;
 }
+function dualStamp(s){ // W902: UTC Z + viewer-local twin — hub clocks drift
+  if (!s) return '';
+  var d = new Date(s); if (isNaN(d.getTime())) return esc(s);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  var off = -d.getTimezoneOffset(), a = Math.abs(off), sg = off >= 0 ? '+' : '-';
+  var loc = 'local ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ', UTC' + sg + p(a / 60 | 0) + ':' + p(a % 60);
+  return String(s).replace(/\.\d{3}Z$/, 'Z') + ' (' + loc + ')';
+}
 function taskRow(t, parentId){
   var owner = ownerName(t);
   var prefer = preferOf(t);
@@ -224,7 +232,7 @@ function taskRow(t, parentId){
     '<td>' + esc(owner) + '</td>' +
     '<td class="num"' + (t.spend ? ' title="' + esc(spendStripText(t.spend)) + '"' : '') + '>' + esc(spendCell(t)) + '</td>' +
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
-    '<td class="num">' + agoShort(t.age_s) + '</td>' +
+    '<td class="num">' + agoShort(t.age_s) + '<div class="dim kwhen">' + esc(dualStamp(t.updated_at_utc)) + '</div></td>' +
     '<td class="num' + (od ? ' rq' : '') + '">' + (od || '-') + '</td></tr>';
 }
 function renderTasks(){
@@ -418,7 +426,8 @@ function kanbanCard(t, fam){
   html += '<div class="krow">' + (kid ? '<span class="kidmark">↳</span>' : '') + taskPill(displayState(t)) +
     '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
-    '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
+    '<span class="kage dim">' + agoShort(t.age_s) + '</span>' +
+    '<span class="kwhen dim">' + esc(dualStamp(t.updated_at_utc)) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
