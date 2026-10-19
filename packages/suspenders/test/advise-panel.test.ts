@@ -5,12 +5,18 @@
 // client chunk renders the panel block (esc-assembled) with honest degraded
 // legs. Total-miss degrade pins live in the W667 dedupe test (dead upstreams
 // now ride the panel path via the board route).
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createContext, runInContext } from "node:vm";
-import { boardFixture } from "./helpers/board-fixture.ts";
 import { CORE } from "../hooks/board-html/core.ts";
 import { DECISIONS } from "../hooks/board-html/decisions.ts";
+import {
+	recommendationOf,
+	usableRecommendation,
+} from "../hooks/lib/advice-quality.ts";
+import { consensusOf } from "../hooks/lib/oracle-legs.ts";
+import { boardFixture } from "./helpers/board-fixture.ts";
 
 setDefaultTimeout(30_000);
 
@@ -86,8 +92,12 @@ function gdb(): Database {
 
 describe("advise --panel (W742.2)", () => {
 	test("fans both legs; fact carries verdicts + consensus; stamp clears; feed rides it", async () => {
-		const local = makeStub("Local read.\nVERDICT: approve");
-		const cloud = makeStub("Cloud read.\nVERDICT: hold - quota risk");
+		const local = makeStub(
+			"RECOMMENDATION: Proceed with the local change.\nVERDICT: approve",
+		);
+		const cloud = makeStub(
+			"RECOMMENDATION: Hold until quota is verified.\nVERDICT: hold - quota risk",
+		);
 		const rec = seedFork("panel fan-out fork");
 		try {
 			const r = await advisePanel(rec.id as number, {
@@ -121,7 +131,7 @@ describe("advise --panel (W742.2)", () => {
 			expect(advice.panel.legs[1]?.name).toBe("cloud");
 			expect(advice.panel.legs[1]?.verdict).toBe("hold");
 			// primary = first answered leg; the card's use-fill keeps its contract
-			expect(advice.rec).toBe("Local read.");
+			expect(advice.rec).toBe("Proceed with the local change.");
 			const stamp = db
 				.query("SELECT value FROM facts WHERE key = ?")
 				.get(`advice.${rec.id}.requested`) as { value: string } | null;
@@ -163,9 +173,115 @@ describe("advise --panel (W742.2)", () => {
 		expect(stamp).toBeNull();
 		db.close();
 	});
+
+	test("heading-only local reply and unavailable cloud leave no advice to use", async () => {
+		const local = makeStub(
+			"**Analysis of W849 State Degradation**\nVERDICT: approve",
+		);
+		const rec = seedFork("heading-only advice fork");
+		try {
+			const r = await advisePanel(rec.id as number, {
+				ORACLE_ROUTE_URL: local.chat,
+				BELT_ESCALATE_URL: "http://127.0.0.1:1/v1/messages",
+				BELT_ESCALATE_KEY: "k",
+			});
+			expect(r.err).toContain("panel failed");
+			const db = gdb();
+			expect(
+				db
+					.query("SELECT value FROM facts WHERE key = ?")
+					.get(`advice.${rec.id}`),
+			).toBeNull();
+			expect(
+				db
+					.query("SELECT value FROM facts WHERE key = ?")
+					.get(`advice.${rec.id}.error`),
+			).toBeTruthy();
+			db.close();
+		} finally {
+			local.stop();
+		}
+	});
+
+	test("one usable leg is shown as a single review", async () => {
+		const local = makeStub(
+			"RECOMMENDATION: Reopen W849 after validating the receipt.\nVERDICT: approve",
+		);
+		const rec = seedFork("one leg fork");
+		try {
+			const r = await advisePanel(rec.id as number, {
+				ORACLE_ROUTE_URL: local.chat,
+				BELT_ESCALATE_URL: "http://127.0.0.1:1/v1/messages",
+				BELT_ESCALATE_KEY: "k",
+			});
+			expect(r.code).toBe(0);
+			const db = gdb();
+			const fact = db
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${rec.id}`) as { value: string };
+			const advice = JSON.parse(fact.value) as {
+				rec: string;
+				panel: { consensus: string };
+			};
+			expect(advice.rec).toBe("Reopen W849 after validating the receipt.");
+			expect(advice.panel.consensus).toBe("single review: approve");
+			db.close();
+		} finally {
+			local.stop();
+		}
+	});
+});
+
+describe("advice quality", () => {
+	test("heading-only model output cannot become the answer", () => {
+		expect(
+			recommendationOf(
+				"**Analysis of W849 State Degradation**\nVERDICT: approve",
+			),
+		).toBeNull();
+		expect(usableRecommendation("**Analysis of W849 State Degradation**")).toBe(
+			false,
+		);
+		expect(
+			recommendationOf(
+				"RECOMMENDATION: Reopen W849 and verify its receipt.\nVERDICT: hold",
+			),
+		).toBe("Reopen W849 and verify its receipt.");
+	});
+
+	test("one healthy panel leg is a single review", () => {
+		expect(
+			consensusOf([
+				{
+					name: "local-reason",
+					ok: true,
+					model: "m",
+					ms: 1,
+					verdict: "approve",
+					text: "",
+				},
+				{
+					name: "cloud",
+					ok: false,
+					model: "cloud",
+					ms: 0,
+					verdict: null,
+					text: "",
+					error: "unavailable",
+				},
+			]),
+		).toBe("single review: approve");
+	});
 });
 
 describe("panel render chunk (W742.2)", () => {
+	test("legacy heading cannot be copied to a decision", () => {
+		const ctx = createContext({});
+		runInContext(CORE + DECISIONS, ctx);
+		expect(
+			runInContext(`usableRec("**Analysis of W849 State Degradation**")`, ctx),
+		).toBe(false);
+	});
 	test("panelHtml renders consensus + legs, escapes leg errors", () => {
 		const ctx = createContext({});
 		runInContext(CORE + DECISIONS, ctx);

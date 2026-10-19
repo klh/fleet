@@ -37,6 +37,10 @@ function adviceFor(id){
   }
   return null;
 }
+function usableRec(rec){
+  return typeof rec === 'string' && rec.trim().length >= 8 &&
+    !/^\s*(?:#{1,6}\s*|\*\*|analysis\s+of\b|recommendation\s*:)/i.test(rec);
+}
 function decAge(d){
   if (d.age_s != null) return d.age_s;
   if (d.created_ts) return Math.max(0, Math.round((Date.now() - d.created_ts) / 1000));
@@ -307,7 +311,7 @@ function decNode(d){
       if (ac.rationale) rbody += '<div class="why">' + esc(ac.rationale) + '</div>';
       if (ac.risk) rbody += '<div class="risk">risk: ' + esc(ac.risk) + '</div>';
       if (ac.panel) rbody += panelHtml(ac.panel);
-      setNodes(advEl, rhead + rbody + ' <button class="use" type="button">use</button>');
+      setNodes(advEl, rhead + rbody + (usableRec(ac.rec) ? ' <button class="use" type="button">use</button>' : ' <span class="risk">No usable recommendation — retry</span> <button class="advretry" type="button">retry</button>'));
     }
   }
 }
@@ -411,7 +415,7 @@ function queueAdvRetry(id, msg){
 function useRec(id){
   var a = adviceFor(id);
   var q = decNodeEl(id);
-  if (!a || !a.advice || !q) return;
+  if (!a || !a.advice || !q || !usableRec(a.advice.rec)) return;
   var inp = q.querySelector('input.ans');
   inp.value = a.advice.rec || '';
   drafts[id] = inp.value;

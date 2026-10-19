@@ -1,3 +1,4 @@
+import { usableRecommendation } from "../lib/advice-quality.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
@@ -771,7 +772,9 @@ export function decisionRecords(
 		const a = adviceRows.get(`advice.${d.event_id}`) ?? null;
 		if (a) {
 			try {
-				advice = JSON.parse(a);
+				const parsed = JSON.parse(a) as { rec?: unknown };
+				if (usableRecommendation(parsed.rec)) advice = parsed;
+				else adviceError = "stored recommendation is unusable — retry";
 			} catch {}
 		} else {
 			const err = adviceRows.get(`advice.${d.event_id}.error`);

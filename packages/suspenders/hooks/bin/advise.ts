@@ -8,16 +8,11 @@
 // env:   SUSPENDERS_LLM_URL   (default http://127.0.0.1:8901/v1/chat/completions)
 //        SUSPENDERS_LLM_MODEL (default "local")
 //        SUSPENDERS_LLM_KEY   (optional bearer token)
-import { isDecisionKind, openStore } from "../lib/govdb.ts";
-import { readBoardSettings } from "../lib/board-config.ts";
+
+import { recommendationOf } from "../lib/advice-quality.ts";
 import { beltChat } from "../lib/belt-chat.ts";
-import {
-	chatRemote,
-	endpointsWithRole,
-	ensureEndpoint,
-	type RemoteEndpoint,
-	type RemoteMachine,
-} from "../lib/remotes.ts";
+import { readBoardSettings } from "../lib/board-config.ts";
+import { isDecisionKind, openStore } from "../lib/govdb.ts";
 import {
 	type KevDecision,
 	type KevOption,
@@ -26,7 +21,6 @@ import {
 	kevUrl,
 	parseOptions,
 } from "../lib/kev.ts";
-import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 import {
 	buildPanelRows,
 	cloudLeg,
@@ -34,6 +28,14 @@ import {
 	PANEL_FRAME,
 	pinnedLeg,
 } from "../lib/oracle-legs.ts";
+import {
+	chatRemote,
+	endpointsWithRole,
+	ensureEndpoint,
+	type RemoteEndpoint,
+	type RemoteMachine,
+} from "../lib/remotes.ts";
+import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // W656.2: kit-owned parse — the board's routes-actions spawns
 // `advise.ts <event-id>`; the surface is one positional, help is new
@@ -225,7 +227,11 @@ if (argv.includes("--panel")) {
 		pinnedLeg(prompt, 1500, 120_000),
 		cloudLeg(prompt, 1500),
 	]);
-	const rows = buildPanelRows(settled);
+	const rows = buildPanelRows(settled).map((row) =>
+		row.ok && !recommendationOf(row.text)
+			? { ...row, ok: false, verdict: null, error: "no usable recommendation" }
+			: row,
+	);
 	for (const r of rows) {
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
@@ -243,7 +249,7 @@ if (argv.includes("--panel")) {
 			}),
 		);
 	}
-	const ok = rows.find((r) => r.ok && r.text);
+	const ok = rows.find((r) => r.ok && recommendationOf(r.text));
 	// total miss keeps the W667 contract: error fact + requested stamp cleared
 	if (!ok) {
 		const msg = rows
@@ -258,7 +264,10 @@ if (argv.includes("--panel")) {
 		db.query(
 			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
 		).run(`${fk}.error`, msg, Date.now());
-		db.query("DELETE FROM facts WHERE key = ?").run(`${fk}.requested`);
+		db.query("DELETE FROM facts WHERE key IN (?, ?)").run(
+			fk,
+			`${fk}.requested`,
+		);
 		console.error(`advise #${id} panel failed: ${msg}`);
 		process.exit(unavailable ? 0 : 2);
 	}
@@ -344,7 +353,23 @@ function storeAdvice(
 			?.split(/^[A-Z]+:/m)[0]
 			?.trim() ?? "";
 	const rec =
-		grab("RECOMMENDATION") || text.split("\n")[0]?.trim() || "(empty)";
+		recommendationOf(text) ??
+		options.find((option) => option.label === grab("RECOMMENDATION"))?.label;
+	if (!rec) {
+		db.query(
+			"INSERT OR REPLACE INTO facts (key, value, source, version, ts) VALUES (?, ?, 'advise', 1, ?)",
+		).run(
+			`${fk}.error`,
+			"advisor returned no usable RECOMMENDATION line",
+			Date.now(),
+		);
+		db.query("DELETE FROM facts WHERE key IN (?, ?)").run(
+			fk,
+			`${fk}.requested`,
+		);
+		console.error(`advise #${id}: advisor returned no usable recommendation`);
+		process.exit(2);
+	}
 	const rationale = grab("RATIONALE");
 	const risk = grab("RISK");
 	const advice = JSON.stringify({

@@ -102,7 +102,8 @@ export const cloudLeg = async (
 // words, machine-parseable final line); oracle's FRAMES.panel rides it too
 export const PANEL_FRAME = [
 	"You are a read-only decision advisor (oracle fixed contract). A NEED_DECISION fork needs an independent read.",
-	"Weigh the options, name your recommendation and the strongest counter-argument, then decide.",
+	"Weigh the options, name the strongest counter-argument, then decide.",
+	"Include a line RECOMMENDATION: <one concrete decision the operator can send verbatim>. A title or analysis heading is not a recommendation.",
 	"End your reply with ONE machine-parseable final line:",
 	"VERDICT: approve | VERDICT: hold - <what would change it> | VERDICT: reject - <why>",
 ].join("\n");
@@ -147,14 +148,15 @@ export const buildPanelRows = (
 		};
 	});
 
-// consensus = the unique set of parsed verdicts across answered legs:
-// none / consensus <v> / split a vs b (same rule as the oracle CLI stdout)
+// Consensus requires both independent legs to return a parsed verdict.
 export const consensusOf = (rows: PanelRow[]): string => {
 	const verdicts = rows.flatMap((r) => (r.ok && r.verdict ? [r.verdict] : []));
 	const unique = [...new Set(verdicts)];
 	return verdicts.length === 0
 		? "no verdicts"
-		: unique.length === 1
-			? `consensus ${unique[0]}`
-			: `split ${verdicts.join(" vs ")}`;
+		: verdicts.length < rows.length
+			? `single review: ${verdicts[0]}`
+			: unique.length === 1
+				? `consensus ${unique[0]}`
+				: `split ${verdicts.join(" vs ")}`;
 };
