@@ -4,8 +4,9 @@
 // chips compose, aids panel degrades honestly, LOCAL-ONLY hygiene).
 // W652.3.1: panels live in the payload's `panels` slices — Lit renders them
 // client-side, so tests assert payload shape + static hosts, not panel HTML.
-import { describe, test, expect, afterAll } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -100,6 +101,30 @@ function seed(db: Database): void {
 }
 
 describe("buildUsageReport filters (W152)", () => {
+	test("one-hour drilldown keeps actor, model and tag attribution", () => {
+		const db = freshDb();
+		seed(db);
+		const hour = buildUsageReport(db, {
+			days: 0,
+			nowMs: b(2),
+			team: "platform",
+		});
+		expect(hour.fromBucket).toBe(b(2));
+		expect(hour.toBucket).toBe(b(2));
+		expect(hour.actors.map((actor) => actor.actor)).toEqual(["alice"]);
+		expect(hour.actors[0].byModel.map((model) => model.model)).toEqual([
+			"glm-5.3-flash",
+		]);
+		expect(hour.totals).toMatchObject({
+			i: 1000,
+			o: 500,
+			cr: 2000,
+			cc: 100,
+			rq: 5,
+		});
+		db.close();
+	});
+
 	test("team filter cuts every series server-side", () => {
 		const db = freshDb();
 		seed(db);

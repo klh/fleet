@@ -35,6 +35,7 @@ import type {
 	UsagePanels,
 	UsageSeg,
 } from "../bin/usage-chrome.ts";
+import type { UsageReport } from "../lib/usage.ts";
 // W695.3.5: the page head rides the same bundle (side-effect registers it)
 import "./klh-usage-head.ts";
 // W825: the cache drilldown rides the same bundle (side-effect registers it)
@@ -887,6 +888,127 @@ KlhUsageCrossHub.styles = [
 	`,
 ];
 
+// ─── <klh-usage-drilldown> — one real hourly bucket, actor and model ───────
+export class KlhUsageDrilldown extends LitElement {
+	static properties = {
+		bucket: { type: Number, state: true },
+		hours: { type: Array, state: true },
+		report: { type: Object, state: true },
+		error: { type: String, state: true },
+		loading: { type: Boolean, state: true },
+	};
+
+	declare bucket: number;
+	declare hours: number[];
+	declare report: UsageReport | null;
+	declare error: string;
+	declare loading: boolean;
+	private requestId = 0;
+
+	constructor() {
+		super();
+		this.bucket = 0;
+		this.hours = [];
+		this.report = null;
+		this.error = "";
+		this.loading = false;
+	}
+
+	protected connectedCallback(): void {
+		super.connectedCallback();
+		const timeline = readPayload()?.timeline ?? [];
+		const x = timeline[0] ?? [];
+		this.hours = x
+			.map((seconds, i) => ({
+				bucket: seconds * 1000,
+				tokens: timeline
+					.slice(1)
+					.reduce((n, series) => n + (series[i] ?? 0), 0),
+			}))
+			.filter((p) => p.tokens > 0)
+			.map((p) => p.bucket)
+			.reverse();
+		const requested = Number(new URLSearchParams(location.search).get("hour"));
+		this.bucket = this.hours.includes(requested)
+			? requested
+			: (this.hours[0] ?? 0);
+		if (this.bucket) this.refresh();
+	}
+
+	private refresh(): void {
+		const requestId = ++this.requestId;
+		const params = new URLSearchParams(location.search);
+		params.set("bucket", String(this.bucket));
+		params.delete("hour");
+		this.loading = true;
+		this.error = "";
+		fetch(`/api/usage/hour?${params.toString()}`, {
+			signal: AbortSignal.timeout(15_000),
+		})
+			.then((r) => {
+				if (!r.ok) throw new Error(`HTTP ${String(r.status)}`);
+				return r.json() as Promise<{ report: UsageReport }>;
+			})
+			.then((body) => {
+				if (requestId !== this.requestId) return;
+				this.report = body.report;
+				this.loading = false;
+			})
+			.catch((e) => {
+				if (requestId !== this.requestId) return;
+				this.error = String((e as Error).message ?? e);
+				this.loading = false;
+			});
+	}
+
+	protected render(): TemplateResult {
+		if (!this.hours.length) return html``;
+		const rows =
+			this.report?.actors.flatMap((actor) =>
+				actor.byModel.map((model) => ({ actor: actor.actor, ...model })),
+			) ?? [];
+		return html`<div class="upanel" id="usage-hour">
+			<div class="uhead">
+				<h2>HOUR DETAIL</h2>
+				<p class="ufoot">Select an hour to inspect its actors and models.</p>
+			</div>
+			<label class="hour-picker">hour
+				<select
+					@change=${(e: Event) => {
+						this.bucket = Number((e.target as HTMLSelectElement).value);
+						const url = new URL(location.href);
+						url.searchParams.set("hour", String(this.bucket));
+						history.replaceState(null, "", url);
+						this.refresh();
+					}}
+				>
+					${this.hours.map((hour) => html`<option value=${String(hour)} ?selected=${hour === this.bucket}>${new Date(hour).toLocaleString()}</option>`)}
+				</select>
+			</label>
+			${this.loading ? html`<p class="uempty">Loading hour…</p>` : nothing}
+			${this.error ? html`<p class="uempty" role="alert">Hour detail unavailable: ${this.error}</p>` : nothing}
+			${!this.loading && !this.error && rows.length === 0 ? html`<p class="uempty">No attributed usage in this hour.</p>` : nothing}
+			${
+				!this.loading && !this.error && rows.length > 0
+					? html`<div class="hour-scroll"><table class="uacts">
+				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
+				<tbody>${rows.map((row) => html`<tr><td>${row.actor}</td><td>${row.model}</td><td>${row.group}</td><td>${fmtTok(row.i)}</td><td>${fmtTok(row.cr)}</td><td>${fmtTok(row.cc)}</td><td>${fmtTok(row.o)}</td><td>${String(row.rq)}</td></tr>`)}</tbody>
+			</table></div>`
+					: nothing
+			}
+		</div>`;
+	}
+}
+
+KlhUsageDrilldown.styles = [
+	panelCss,
+	css`
+	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
+	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
+	.hour-scroll { overflow-x: auto; }
+`,
+];
+
 // ─── <klh-usage-charts> — the uPlot panels (timeline + hour histogram) ─────
 // Light DOM by exception: uPlot builds its own canvas DOM inside the mount
 // divs and the document-level uPlot chrome CSS must reach it —
@@ -1120,6 +1242,7 @@ customElements.define("klh-usage-aids", KlhUsageAids);
 customElements.define("klh-usage-activity", KlhUsageActivity);
 customElements.define("klh-usage-spokes", KlhUsageSpokes);
 customElements.define("klh-usage-crosshub", KlhUsageCrossHub);
+customElements.define("klh-usage-drilldown", KlhUsageDrilldown);
 customElements.define("klh-usage-charts", KlhUsageCharts);
 
 declare global {
@@ -1131,6 +1254,7 @@ declare global {
 		"klh-usage-activity": KlhUsageActivity;
 		"klh-usage-spokes": KlhUsageSpokes;
 		"klh-usage-crosshub": KlhUsageCrossHub;
+		"klh-usage-drilldown": KlhUsageDrilldown;
 		"klh-usage-charts": KlhUsageCharts;
 	}
 }

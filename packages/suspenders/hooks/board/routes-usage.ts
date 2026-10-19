@@ -2,14 +2,15 @@
 // module) + /api/activity-meter (W243 decant-shape meter). The fetch fragment
 // moved verbatim (route order preserved by the entry's handler list); returns
 // null when nothing matches.
-import { db } from "./context.ts";
-import { json } from "./helpers.ts";
-import { maybeHarvest } from "../lib/usage-harvest.ts";
+
+import { usagePage } from "../bin/usage-page-html.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
-import { buildUsageReport } from "../lib/usage.ts";
 import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
 import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
-import { usagePage } from "../bin/usage-page-html.ts";
+import { buildUsageReport } from "../lib/usage.ts";
+import { maybeHarvest } from "../lib/usage-harvest.ts";
+import { db } from "./context.ts";
+import { json } from "./helpers.ts";
 
 export async function handleUsage(
 	_req: Request,
@@ -70,6 +71,34 @@ export async function handleUsage(
 				includeDemo: url.searchParams.get("includeDemo") === "true",
 			}),
 			crossHub,
+		});
+	}
+	if (url.pathname === "/api/usage/hour") {
+		// One chart bucket, with the same actor/tag/demo filters as the main
+		// report. days:0 makes buildUsageReport's inclusive window one hour.
+		const bucket = Number(url.searchParams.get("bucket"));
+		const now = Date.now();
+		if (
+			!Number.isSafeInteger(bucket) ||
+			bucket % 3_600_000 !== 0 ||
+			bucket > Math.floor(now / 3_600_000) * 3_600_000 ||
+			bucket < now - 90 * 86_400_000
+		)
+			return json(
+				{ ok: false, error: "bucket must be an hour in the last 90 days" },
+				400,
+			);
+		maybeHarvest(db);
+		return json({
+			ok: true,
+			bucket,
+			report: buildUsageReport(db, {
+				days: 0,
+				nowMs: bucket,
+				team: url.searchParams.get("team") ?? "",
+				dept: url.searchParams.get("dept") ?? "",
+				includeDemo: url.searchParams.get("includeDemo") === "true",
+			}),
 		});
 	}
 	if (url.pathname === "/api/activity-meter") {

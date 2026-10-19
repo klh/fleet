@@ -1,4 +1,4 @@
-import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class y extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=q()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
+import{r,e,t,s}from"./lit-c5g9ct2w.js";var I=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"").head??null}catch{return null}};class w extends s{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=I()}render(){let a=this.head;if(a===null)return t;return e`<h1 class="utitle">${a.title}</h1>
 			<div class="uback">
 				<a href=${a.backHref}>&larr; ${a.backLabel}</a>
 				<span class=${a.note.kind==="on"?"uon":"uwin"}
@@ -11,7 +11,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 									>${n.label}</a
 								>`)}
 					</span>`)}
-			</div>`}}y.styles=r`
+			</div>`}}w.styles=r`
 	:host {
 		display: block;
 	}
@@ -69,7 +69,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",y);var f=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),w=(a)=>`${(a*100).toFixed(1)}%`,F=(a)=>a===null||a.length<16?"—":a.slice(11,16);class R extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
+`;customElements.define("klh-usage-head",w);var f=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),R=(a)=>`${(a*100).toFixed(1)}%`,F=(a)=>a===null||a.length<16?"—":a.slice(11,16);class S extends s{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let a=new URLSearchParams;if(a.set("days",String(this.days)),this.lane)a.set("lane",this.lane);if(this.model)a.set("model",this.model);if(this.day)a.set("day",this.day);if(this.missOnly)a.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${a.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1})}render(){if(this.err)return e`<div class="upanel">
 				<h2>CACHE EFFICIENCY</h2>
 				<p class="uempty">drilldown unavailable — ${this.err}</p>
 			</div>`;let a=this.report;if(a===null)return e`<div class="upanel">
@@ -132,7 +132,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			<span class="uoverall">
 				${String(a.overall.requests)} req ·
 				${String(a.overall.known)} known · warm
-				<b>${w(a.overall.warm_ratio)}</b>
+				<b>${R(a.overall.warm_ratio)}</b>
 				${this.loading?e`<span class="uempty">· refreshing…</span>`:t}
 			</span>
 		</div>`}reasonsTable(a,l){return e`<h3>MISS REASONS · ${l}</h3>
@@ -193,10 +193,10 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 								><i
 									class=${i>=50?"uwarm":"ucold"}
 									style=${`width:${String(Math.max(2,i))}%`}
-									title=${`${w(i/100)} of ${String(n.known)} known`}
+									title=${`${R(i/100)} of ${String(n.known)} known`}
 								></i
 							></span>
-							<span class="unum">${w(i/100)}</span>
+							<span class="unum">${R(i/100)}</span>
 						</td>
 						<td class="unum">${f(n.cache_r_tok)}</td>
 						<td class="unum">${f(n.cache_c_tok)}</td>
@@ -229,7 +229,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 				<tbody>
 					${n.length===0?e`<tr>
 								<td colspan="7" class="uempty">no requests in scope</td>
-							</tr>`:n.map((o)=>{let b=i.find((p)=>p.label===o.hub)?.label??o.hub??"";return e`<tr class=${o.ok===!1?"ubad":""}>
+							</tr>`:n.map((o)=>{let h=i.find((u)=>u.label===o.hub)?.label??o.hub??"";return e`<tr class=${o.ok===!1?"ubad":""}>
 									<td class="unum">${o.ts.slice(11,19)}</td>
 									<td>${o.target_model??"—"}</td>
 									<td class="unum">${o.status===null?"—":String(o.status)}</td>
@@ -242,11 +242,11 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 									<td class="unum">
 										${o.duration_ms===null?"—":f(o.duration_ms)}
 									</td>
-									<td><span class="uchip">${b}</span></td>
+									<td><span class="uchip">${h}</span></td>
 								</tr>`})}
 				</tbody>
 			</table>
-		</div>`}}R.styles=[r`
+		</div>`}}S.styles=[r`
 		:host {
 			display: block;
 		}
@@ -419,7 +419,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			padding: 2px 8px;
 			cursor: pointer;
 		}
-	`];customElements.define("klh-usage-cache-drill",R);var S=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},u=()=>S()?.panels??null,C=()=>S()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),N=(a)=>a==null||!Number.isFinite(a)?"—":d(a),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
+	`];customElements.define("klh-usage-cache-drill",S);var x=()=>{let a=document.getElementById("usage-data");if(!a)return null;try{return JSON.parse(a.textContent??"")}catch{return null}},p=()=>x()?.panels??null,E=()=>x()?.slot??{},d=(a)=>a>=1e9?`${(a/1e9).toFixed(1)}B`:a>=1e6?`${(a/1e6).toFixed(1)}M`:a>=1000?`${(a/1000).toFixed(1)}K`:String(Math.round(a)),N=(a)=>a==null||!Number.isFinite(a)?"—":d(a),T=(a)=>`${(a*100).toFixed(1)}%`,k=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -496,7 +496,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`;class E extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=u()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
+`;class C extends s{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=p()?.header??null}chips(a,l,n){return e`<span class="ufgroup" data-label=${a}
 			>${l.map((i)=>e`<a class="${n}${i.on?" on":""}" href=${i.href}
 						>${i.label}</a
 					>`)}</span
@@ -510,7 +510,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 				${this.chips("dept",a.depts,"ufchip")}
 				${a.filtered?e`<span class="uon">${a.filtered}</span>`:t}
 				<span class="uon">${a.status}</span>
-			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}E.styles=r`
+			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}C.styles=r`
 	:host {
 		display: block;
 	}
@@ -570,7 +570,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class U extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=u()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class U extends s{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=p()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((a)=>e`<div class="utile">
 					<div class="uv">${a.v}</div>
 					<div class="uk">${a.k}</div>
@@ -609,7 +609,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 `;var v=(a,l)=>a[l]??"#888",P=(a,l,n)=>{let i=a.tok?`${(a.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
 		style=${`width:${i};background:${v(n,a.g)}`}
 		title=${`${a.g}: ${d(a.tok)} tok`}
-	></i>`};class H extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=C()}render(){let a=u()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
+	></i>`};class H extends s{static properties={rows:{type:Array,state:!0}};slot={};constructor(){super();this.rows=[]}connectedCallback(){super.connectedCallback(),this.rows=p()?.actors?.rows??[],this.slot=E()}render(){let a=p()?.actors;if(!a?.rows.length)return e``;return this.body(a.rows)}body(a){return e`<div class="upanel">
 			<h2>ACTORS</h2>
 			<table class="uacts">
 				<thead>
@@ -689,7 +689,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
+	`];class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.aids??null}render(){let a=this.panel;if(!a)return e``;if(a.empty)return e`<div class="upanel">
 				<h2>${a.title}</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -715,11 +715,11 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			<td class="unum">${d(a.inj)}</td>
 			<td class="unum">${d(a.skip)}</td>
 			<td class="unum">${d(a.tok)}</td>
-		</tr>`}}z.styles=[k,r`
+		</tr>`}}A.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class A extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var D={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class z extends s{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.activity??null}render(){let a=this.panel;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>ACTIVITY · DECANT SHAPE (W243)</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;return this.body(a)}body(a){return e`<div class="upanel">
@@ -749,7 +749,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		</table>`}cell(a,l){let n=l>0?e`<span class="usep">·</span>`:t;if(!a.share)return e`${n}<span class="uempty">—</span>`;let i=T(a.share);return e`${n}<span class="ucwrap">
 			<span class="ubar" style="width:100%"
 				><i
-					style=${`width:${i};background:${I[a.key]??"#888"}`}
+					style=${`width:${i};background:${D[a.key]??"#888"}`}
 					title=${`${a.key}: ${i}`}
 				></i></span
 			><span class="unum">${i}</span></span
@@ -778,7 +778,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			<td class="unum">${a.spr}</td>
 			<td class="unum">${d(a.cost)}</td>
 			<td class="unum">${d(a.req)}</td>
-		</tr>`}}A.styles=[k,r`
+		</tr>`}}z.styles=[k,r`
 		.ucwrap {
 			display: flex;
 			align-items: center;
@@ -791,9 +791,9 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 		:host {
 			display: block;
 		}
-	`];var D="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let a=u()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
+	`];var j="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.spokes??null,this.slot=E()}render(){let a=p()?.spokes;if(!a)return e``;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
-			<p class="uempty">${D}</p>
+			<p class="uempty">${j}</p>
 		</div>`}body(a){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<table class="uacts">
@@ -821,16 +821,16 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			</td>
 			<td class="unum">${d(a.total)}</td>
 			<td class="unum">${d(a.rq)}</td>
-		</tr>`}}O.styles=[k,r`
+		</tr>`}}L.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];var W="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class L extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=C()}render(){let a=u()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
+	`];var B="no hub rollups — enumerate hubs in stack.yaml (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends s{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=p()?.crosshub??null,this.slot=E()}render(){let a=p()?.crosshub;if(!a)return e``;if("empty"in a)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${a.empty}</p>
 			</div>`;if(!a.rows.length)return this.empty();return this.body(a.rows)}empty(){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
-			<p class="uempty">${W}</p>
+			<p class="uempty">${B}</p>
 		</div>`}row(a){if(a.degraded)return e`<tr>
 				<td>
 					<b>${a.hub}</b>
@@ -850,7 +850,7 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			</td>
 			<td class="unum">${d(a.total)}</td>
 			<td class="unum">${d(a.rq)}</td>
-		</tr>`}get rowTotals(){return(u()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
+		</tr>`}get rowTotals(){return(p()?.crosshub?.rows??[]).map((a)=>a.total)}body(a){return e`<div class="upanel">
 			<h2>CROSS-HUB</h2>
 			<table class="uacts">
 				<thead>
@@ -865,11 +865,34 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 					${a.map((l)=>this.row(l))}
 				</tbody>
 			</table>
-		</div>`}}L.styles=[k,r`
+		</div>`}}O.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];class M extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=S();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
+	`];class M extends s{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let a=x()?.timeline??[],l=a[0]??[];this.hours=l.map((i,o)=>({bucket:i*1000,tokens:a.slice(1).reduce((h,u)=>h+(u[o]??0),0)})).filter((i)=>i.tokens>0).map((i)=>i.bucket).reverse();let n=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(n)?n:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let a=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((n)=>{if(!n.ok)throw Error(`HTTP ${String(n.status)}`);return n.json()}).then((n)=>{if(a!==this.requestId)return;this.report=n.report,this.loading=!1}).catch((n)=>{if(a!==this.requestId)return;this.error=String(n.message??n),this.loading=!1})}render(){if(!this.hours.length)return e``;let a=this.report?.actors.flatMap((l)=>l.byModel.map((n)=>({actor:l.actor,...n})))??[];return e`<div class="upanel" id="usage-hour">
+			<div class="uhead">
+				<h2>HOUR DETAIL</h2>
+				<p class="ufoot">Select an hour to inspect its actors and models.</p>
+			</div>
+			<label class="hour-picker">hour
+				<select
+					@change=${(l)=>{this.bucket=Number(l.target.value);let n=new URL(location.href);n.searchParams.set("hour",String(this.bucket)),history.replaceState(null,"",n),this.refresh()}}
+				>
+					${this.hours.map((l)=>e`<option value=${String(l)} ?selected=${l===this.bucket}>${new Date(l).toLocaleString()}</option>`)}
+				</select>
+			</label>
+			${this.loading?e`<p class="uempty">Loading hour…</p>`:t}
+			${this.error?e`<p class="uempty" role="alert">Hour detail unavailable: ${this.error}</p>`:t}
+			${!this.loading&&!this.error&&a.length===0?e`<p class="uempty">No attributed usage in this hour.</p>`:t}
+			${!this.loading&&!this.error&&a.length>0?e`<div class="hour-scroll"><table class="uacts">
+				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
+				<tbody>${a.map((l)=>e`<tr><td>${l.actor}</td><td>${l.model}</td><td>${l.group}</td><td>${d(l.i)}</td><td>${d(l.cr)}</td><td>${d(l.cc)}</td><td>${d(l.o)}</td><td>${String(l.rq)}</td></tr>`)}</tbody>
+			</table></div>`:t}
+		</div>`}}M.styles=[k,r`
+	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
+	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
+	.hour-scroll { overflow-x: auto; }
+`];class q extends s{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let a=x();if(this.slot=a?.slot??{},this.groups=a?.groups??[],this.timeline=a?.timeline??[],this.byHour=a?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let a of this.ros)a.disconnect();this.ros=[];for(let a of this.resizes)window.removeEventListener("resize",a);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -883,8 +906,8 @@ import{r,e,t,s}from"./lit-c5g9ct2w.js";var q=()=>{let a=document.getElementById(
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(g,c)=>getComputedStyle(document.documentElement).getPropertyValue(g).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),i=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),b=(g,c)=>c.map((m)=>d(m)),p=(g,c)=>{let m={side:g,stroke:o,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:i,width:1}};if(c)m.values=c;return m},h=this.querySelector("#u-timeline");if(h&&this.groups.length){let g=[{}];for(let c of this.groups){let m=v(this.slot,c);g.push({label:c,stacked:!0,stroke:m,fill:m,width:1,points:{show:!1},value:(j,_)=>N(_)})}this.chart(h,a,{width:h.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:g,axes:[p(2),p(3,b)]},this.timeline,300)}let x=this.querySelector("#u-hours");if(x)this.chart(x,a,{width:x.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(g,c)=>N(c)}],axes:[p(2,(g,c)=>c.map((m)=>String(Math.round(m)).padStart(2,"0"))),p(3,b)]},this.byHour,190)}chart(a,l,n,i,o){let b=new l(n,i,a);this.charts.push(b);let p=()=>{let h=a.clientWidth;if(h>0&&h!==b.width)b.setSize({width:h,height:o})};if(typeof ResizeObserver==="function"){let h=new ResizeObserver(p);h.observe(a),this.ros.push(h)}else this.resizes.push(p),window.addEventListener("resize",p)}}M.styles=r`
+			</div>`}firstUpdated(){let a=globalThis.uPlot;if(!a)return;let l=(b,c)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||c,n=()=>l("--klh-chart-grid","#2c2c2a"),i=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),h=(b,c)=>c.map((g)=>d(g)),u=(b,c)=>{let g={side:b,stroke:o,grid:{show:!0,stroke:n,width:1},ticks:{show:!0,stroke:i,width:1}};if(c)g.values=c;return g},m=this.querySelector("#u-timeline");if(m&&this.groups.length){let b=[{}];for(let c of this.groups){let g=v(this.slot,c);b.push({label:c,stacked:!0,stroke:g,fill:g,width:1,points:{show:!1},value:(W,_)=>N(_)})}this.chart(m,a,{width:m.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[u(2),u(3,h)]},this.timeline,300)}let y=this.querySelector("#u-hours");if(y)this.chart(y,a,{width:y.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:v(this.slot,"flash"),fill:v(this.slot,"flash"),paths:a.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,c)=>N(c)}],axes:[u(2,(b,c)=>c.map((g)=>String(Math.round(g)).padStart(2,"0"))),u(3,h)]},this.byHour,190)}chart(a,l,n,i,o){let h=new l(n,i,a);this.charts.push(h);let u=()=>{let m=a.clientWidth;if(m>0&&m!==h.width)h.setSize({width:m,height:o})};if(typeof ResizeObserver==="function"){let m=new ResizeObserver(u);m.observe(a),this.ros.push(m)}else this.resizes.push(u),window.addEventListener("resize",u)}}q.styles=r`
 	:host {
 		display: block;
 	}
-`;customElements.define("klh-usage-header",E);customElements.define("klh-usage-tiles",U);customElements.define("klh-usage-actors",H);customElements.define("klh-usage-aids",z);customElements.define("klh-usage-activity",A);customElements.define("klh-usage-spokes",O);customElements.define("klh-usage-crosshub",L);customElements.define("klh-usage-charts",M);export{A as KlhUsageActivity,H as KlhUsageActors,z as KlhUsageAids,M as KlhUsageCharts,L as KlhUsageCrossHub,E as KlhUsageHeader,O as KlhUsageSpokes,U as KlhUsageTiles,d as fmtTok,T as pct1};
+`;customElements.define("klh-usage-header",C);customElements.define("klh-usage-tiles",U);customElements.define("klh-usage-actors",H);customElements.define("klh-usage-aids",A);customElements.define("klh-usage-activity",z);customElements.define("klh-usage-spokes",L);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",M);customElements.define("klh-usage-charts",q);export{z as KlhUsageActivity,H as KlhUsageActors,A as KlhUsageAids,q as KlhUsageCharts,O as KlhUsageCrossHub,M as KlhUsageDrilldown,C as KlhUsageHeader,L as KlhUsageSpokes,U as KlhUsageTiles,d as fmtTok,T as pct1};
