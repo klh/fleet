@@ -4,6 +4,7 @@
 import { DEMO } from "./context.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
 import { ORCH, orchestrate, orchPrepare, orchRegister } from "./orch.ts";
+import { composeGoalAttachments } from "./drop-files.ts";
 import {
 	holdPlan,
 	PROMPT_KEYS,
@@ -23,6 +24,14 @@ const promptSettings = (): PromptSettings =>
 	resolvePromptSettings(readBoardSettings().settings);
 const wantsPreview = (s: PromptSettings): boolean =>
 	s["prompt.debug"] || s["prompt.log"];
+// W858.8 — attachment refs ride the preview/dispatch bodies; each is
+// resolved fresh (dead ref = 400) and composed as a prompt block
+const attachmentsOf = (body: Record<string, unknown> | undefined): string[] =>
+	Array.isArray(body?.attachments)
+		? (body.attachments as unknown[]).filter(
+				(v): v is string => typeof v === "string",
+			)
+		: [];
 
 export async function handleOrch(
 	req: Request,
@@ -68,7 +77,10 @@ export async function handleOrch(
 			.slice(0, ORCH.GOAL_MAX);
 		if (!project || !goal)
 			return json({ ok: false, error: "missing project or goal" }, 400);
-		const p = await orchPrepare(project, goal);
+		const att = attachmentsOf(parsed.body);
+		const composed = composeGoalAttachments(goal, att);
+		if (!composed.ok) return json({ ok: false, error: composed.error }, 400);
+		const p = await orchPrepare(project, composed.goal);
 		if (!p.ok) return json({ ok: false, error: p.error }, p.status);
 		const previewId = holdPlan({
 			project,
@@ -99,7 +111,10 @@ export async function handleOrch(
 			const r = await orchestrate(project, held.final, { ctx: held.ctx });
 			return json({ ...r.body, previewed: true }, r.status);
 		}
-		const p = await orchPrepare(project, goal);
+		const att = attachmentsOf(parsed.body);
+		const composed = composeGoalAttachments(goal, att);
+		if (!composed.ok) return json({ ok: false, error: composed.error }, 400);
+		const p = await orchPrepare(project, composed.goal);
 		if (!p.ok) return json({ ok: false, error: p.error }, p.status);
 		const r = await orchestrate(project, p.plan.final, { ctx: p.ctx });
 		const view = wantsPreview(p.plan.settings)

@@ -9,6 +9,73 @@ export const ORCH = String.raw`// --- W57 orchestrate box: LLM proposes a plan +
 var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '' };
 // W163 composer suggest: draft -> brief-shaped prompt via /api/suggest
 var sugg = { busy: false };
+// W858.8 drop attachments: browser Files ride the upload (a browser File has
+// no reusable local path — the bytes go up, never a path string); the board
+// stores them bounded+private+expiring and hands back exact resolvable refs
+var drop = { files: [], busy: false, err: null };
+function orchBytes(n){
+  return n >= 1048576 ? (n/1048576).toFixed(1) + ' MB' : n >= 1024 ? (n/1024).toFixed(1) + ' KB' : n + ' B';
+}
+function renderDrop(){
+  var el = byId('orchFiles');
+  if (!el) return;
+  var sig = drop.files.map(function(f){ return f.url + '|' + f.name; }).join(';') + '|' + drop.busy;
+  var h = '';
+  for (var i = 0; i < drop.files.length; i++) {
+    var f = drop.files[i];
+    h += '<div class="orchfile">' +
+      '<span class="orchfname">' + esc(f.name) + '</span>' +
+      '<span class="dim">' + orchBytes(f.size) + '</span>' +
+      '<a class="orchfref" href="' + esc(f.url) + '">' + esc(f.url) + '</a>' +
+      '<button type="button" class="orchfremove" data-url="' + esc(f.url) + '" aria-label="remove attachment">remove</button>' +
+      '</div>';
+  }
+  if (drop.busy) h += '<div class="dim">attaching…</div>';
+  sigSet(el, sig, h);
+}
+function orchDropErr(msg){
+  var el = byId('orchDropErr');
+  if (!el) return;
+  drop.err = msg ? String(msg) : null;
+  if (drop.err) errBanner(el, drop.err, function(){ orchDropErr(null); });
+  else clearErr(el);
+}
+function orchClearFiles(){
+  drop.files = [];
+  drop.err = null;
+  renderDrop();
+  orchDropErr(null);
+}
+// the bytes ride a multipart POST — never file.path (a browser File has no
+// reusable local path); refs land in drop.files and render with exact links
+function orchUpload(list){
+  if (drop.busy || !list || !list.length) return;
+  var files = Array.prototype.slice.call(list).slice(0, 8);
+  if (!files.length) return;
+  drop.busy = true; orchDropErr(null);
+  renderDrop();
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append('files', files[i], files[i].name);
+  fetch('/api/orchestrate/files', { method: 'POST', body: fd, signal: AbortSignal.timeout(60000) })
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(j){
+      drop.busy = false;
+      if (j && j.ok && j.files) {
+        var byName = {};
+        for (var i = 0; i < j.files.length; i++) byName[j.files[i].name] = j.files[i].url;
+        for (var i = 0; i < files.length; i++) {
+          var u = byName[files[i].name];
+          if (u && !drop.files.some(function(f){ return f.url === u; })) {
+            drop.files.push({ url: u, name: files[i].name, size: files[i].size });
+          }
+        }
+      } else {
+        orchDropErr(String((j && j.error) || 'attach failed (HTTP ' + (j && j.status) + ')'));
+      }
+      renderDrop();
+    })
+    .catch(function(e){ drop.busy = false; orchDropErr(String((e && e.message) || e)); renderDrop(); });
+}
 function orchProject(){
   var v = sel.value;
   return v && v !== 'all' ? v : null;
@@ -55,7 +122,7 @@ function doOrchestrate(){
   if (pp) {
     if (pp.ready(goal)) { pp.dispatch(); return; }
     orch.err = null; renderOrch();
-    pp.prepare(proj, goal);
+    pp.prepare(proj, goal, drop.files.map(function(f){ return f.url; }));
     return;
   }
   orchSend(proj, goal, null);
@@ -64,13 +131,14 @@ function orchSend(proj, goal, previewId){
   if (orch.busy || orch.regBusy) return;
   orch.busy = true; orch.err = null; renderOrch();
   var status = 0;
-  fetch('/api/orchestrate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: proj, goal: goal, previewId: previewId || undefined }), signal: AbortSignal.timeout(130000) })
+  fetch('/api/orchestrate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: proj, goal: goal, attachments: drop.files.map(function(f){ return f.url; }), previewId: previewId || undefined }), signal: AbortSignal.timeout(130000) })
     .then(function(r){ status = r.status; return r.json().catch(function(){ return {}; }); })
     .then(function(j){
       j = j || {};
       orch.busy = false;
       if (j.ok) {
         orch.prop = j.proposal; orch.model = j.model || ''; orch.ms = j.ms || 0; orch.proj = proj;
+        orchClearFiles();
       } else {
         orch.err = String(j.error || 'orchestrate failed (HTTP ' + status + ')');
       }
@@ -86,6 +154,7 @@ function orchReg(){
     if (j && j.ok) {
       toast('registered ' + j.plan + ' → ' + (j.children || []).length + ' children');
       orch.prop = null; byId('orchGoal').value = '';
+      orchClearFiles();
       var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear();
       pollTasks();
     } else {
@@ -117,6 +186,33 @@ function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; re
   document.addEventListener('klh-dispatch', function(e){ var d = e.detail || {}; if (d.project && d.goal) orchSend(d.project, d.goal, d.previewId); });
   var go = byId('orchGo');
   if (go) go.addEventListener('click', doOrchestrate);
+  // W858.8 dropzone: drag-drop or picker → multipart upload → refs render
+  // with exact links; remove buttons DELETE the store entry
+  var dz = byId('orchDrop');
+  if (dz) {
+    dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('drag'); });
+    dz.addEventListener('dragleave', function(){ dz.classList.remove('drag'); });
+    dz.addEventListener('drop', function(e){
+      e.preventDefault(); dz.classList.remove('drag');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) orchUpload(e.dataTransfer.files);
+    });
+  }
+  var pick = byId('orchPick');
+  if (pick) pick.addEventListener('click', function(){ var inp = byId('orchFile'); if (inp) inp.click(); });
+  var finp = byId('orchFile');
+  if (finp) finp.addEventListener('change', function(){
+    if (finp.files && finp.files.length) orchUpload(finp.files);
+    finp.value = '';
+  });
+  document.addEventListener('click', function(e){
+    var r = e.target.closest && e.target.closest('.orchfremove');
+    if (r) {
+      var url = r.getAttribute('data-url');
+      drop.files = drop.files.filter(function(f){ return f.url !== url; });
+      fetch(url, { method: 'DELETE', signal: AbortSignal.timeout(8000) }).catch(function(){});
+      renderDrop();
+    }
+  });
   document.addEventListener('click', function(e){
     var t = e.target.closest && e.target.closest('#orchReg');
     if (t) { orchReg(); return; }

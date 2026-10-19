@@ -192,6 +192,16 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 #orchGo { background:none; border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:4px 10px; cursor:pointer; }
 #orchGo:disabled { opacity:.45; cursor:default; }
 #orchGo:hover:not(:disabled) { background:var(--klh-accent-wash); }
+/* W858.8 dropzone: dashed target + expiring ref list */
+.orchdrop { margin-top:8px; display:flex; gap:8px; align-items:center; font-size:11px; }
+#orchDrop { border:1px dashed var(--klh-edge-strong); border-radius:4px; padding:6px 10px; }
+#orchDrop.drag { background:var(--klh-accent-wash); border-color:var(--klh-accent); }
+#orchPick { background:none; border:1px solid var(--klh-edge-strong); border-radius:4px; color:var(--klh-dim); font:inherit; font-size:11px; padding:3px 8px; cursor:pointer; }
+#orchPick:hover { color:var(--klh-ink); border-color:var(--klh-edge); }
+.orchfile { font-size:11px; padding:2px 0; display:flex; gap:8px; align-items:baseline; }
+.orchfname { font-weight:600; }
+.orchfref { font:10px var(--klh-font-mono); word-break:break-all; color:var(--klh-accent); }
+.orchfremove { background:none; border:none; color:var(--klh-danger-ink); cursor:pointer; font:inherit; font-size:10px; padding:0 4px; }
 .orchplan { margin-top:8px; }
 .orchtitle { font-size:12px; font-weight:600; }
 .orchmeta { font-size:10px; margin:2px 0 6px; }
