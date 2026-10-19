@@ -41,7 +41,9 @@ export interface ResolvedPrefer {
 
 const FILE = ".prefer";
 const MAX_WALK = 64; // depth cap — never walk into a symlink farm
-const TAG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/i;
+// shared grammar (W846): work add --tag validates against the same token
+// grammar so item classification tags and tree tags can share one column
+export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/i;
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 const emptyResolved = (): ResolvedPrefer => ({

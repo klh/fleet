@@ -47,6 +47,18 @@ export function isDecisionKind(kind: string): boolean {
 	return kind.toUpperCase().startsWith("NEED");
 }
 
+// W846 — normalize a --requires csv against the capability vocabulary;
+// throws with the offending token (callers die()), returns the trimmed csv.
+export function assertCaps(raw: string): string {
+	const caps = raw.split(",").map((c) => c.trim());
+	const bad = caps.filter((c) => !CAPABILITIES.includes(c));
+	if (bad.length > 0)
+		throw new Error(
+			`unknown capability: ${bad.join(",")} — vocabulary: ${CAPABILITIES.join(",")}`,
+		);
+	return caps.join(",");
+}
+
 export { pruneDeltas } from "./govdb-deltas.ts";
 export { migrateKnowledgeSplit, openKnowledgeDb } from "./govdb-knowledge.ts";
 export { openGovernorDb } from "./govdb-open.ts";
@@ -56,7 +68,11 @@ export {
 	projectRootOf,
 	resolveProject,
 } from "./govdb-project.ts";
-export { sweepStaleSessions, tagNameOf } from "./govdb-sessions.ts";
+export {
+	resolveSidOf,
+	sweepStaleSessions,
+	tagNameOf,
+} from "./govdb-sessions.ts";
 export type {
 	GovernorStatement,
 	GovernorStore,

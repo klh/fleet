@@ -2,7 +2,7 @@
 // No network, no ledger, no git: fixtures only (IO tails are thin on purpose).
 
 import { describe, expect, test } from "bun:test";
-import { accrete, buildSummary, classifyTitle, inWindow, pct, sidToItem, type LedgerRow, type TaskRow } from "./pilot-measure.ts";
+import { accrete, buildSummary, classifyTitle, inWindow, pct, sidToItem, type DecisionRow, type LedgerRow, type TaskRow } from "./pilot-measure.ts";
 
 describe("sidToItem", () => {
 	test("maps dispatch lane sids to item ids", () => {
@@ -132,7 +132,9 @@ describe("buildSummary", () => {
 			task({ id: "W1", title: "fix the gate" }),
 			task({ id: "W2", state: "FAILED" }),
 			task({ id: "W3", state: "DONE", tail: { ts: "2026-01-01T00:00:00Z", text: "too old" } }),
-			task({ id: "W9", title: "re-land the wing", state: "DONE", parent_id: "W1" }),
+			task({ id: "W9", title: "re-land the wing", state: "DONE", parent_id: "W1", tag: "re-land" }),
+			task({ id: "W10", title: "deliberately-unrelated-title", state: "DONE", parent_id: "W1", tag: "fix" }),
+			task({ id: "W11", title: "fix keyword bait", state: "DONE", parent_id: "W1" }),
 		];
 		const ledger: LedgerRow[] = [
 			{ key_name: "autow1-x", model_group: "glm-5.3-flash", i: 500, o: 100, cr: 0, cc: 0, r: 4 },
@@ -146,18 +148,63 @@ describe("buildSummary", () => {
 			"/repo/.git",
 			{ merge_commits: 10, fleet_branch_merges: 7, insertions: 1000, deletions: 100 },
 		);
-		expect(items.map((i) => i.id).sort()).toEqual(["W1", "W9"]);
-		expect(summary.items.done).toBe(2);
+		expect(items.map((i) => i.id).sort()).toEqual(["W1", "W10", "W11", "W9"]);
+		expect(summary.items.done).toBe(4);
 		expect(summary.items.with_tokens).toBe(2);
 		expect(summary.items.failed_total).toBe(1);
-		expect(summary.items.rework_children).toBe(1);
+		// W846: tag counter — tagged W9+W10 count, untagged fix-titled W11 does not
+		expect(summary.items.rework_children).toBe(2);
 		expect(summary.totals.tokens_in).toBe(700);
 		expect(summary.totals.tokens_out).toBe(150);
 		expect(summary.totals.requests).toBe(6);
 		expect(summary.tokens.by_group["glm-5.3-flash"].in).toBe(500);
 		expect(summary.tokens.by_group["claude-sonnet-5"].cacheR).toBe(10);
 		expect(summary.acceptance.fleet_branch_merges).toBe(7);
-		expect(summary.not_instrumented.length).toBe(4);
+		expect(summary.not_instrumented.length).toBe(3);
 		expect(summary.uncertainty.some((u) => u.includes("no equivalence claim"))).toBe(true);
+	});
+});
+
+describe("buildSummary human time (W846)", () => {
+	const task = (over: Partial<TaskRow>): TaskRow => ({
+		project: "/repo/.git",
+		id: "W1",
+		title: "a title",
+		state: "DONE",
+		parent_id: null,
+		tail: { ts: "2026-10-12T07:20:00.833Z", text: "landed" },
+		spend: null,
+		...over,
+	});
+	const dec = (over: Partial<DecisionRow>): DecisionRow => ({
+		id: 1,
+		project: "/repo/.git",
+		task_id: "W1",
+		state: "ANSWERED",
+		created_ts: Date.parse("2026-10-12T00:00:00Z"),
+		answered_ts: Date.parse("2026-10-12T02:00:00Z"),
+		ack_ts: null,
+		...over,
+	});
+
+	test("settled decisions attribute per-item human time + latency percentiles", () => {
+		const { items, summary } = buildSummary(
+			[task({ id: "W1" })],
+			[],
+			{ since: "2026-10-06T00:00:00Z", until: "2026-10-19T00:00:00Z" },
+			"/repo/.git",
+			{ merge_commits: 0, fleet_branch_merges: 0, insertions: 0, deletions: 0 },
+			[
+				dec({ id: 1 }),
+				dec({ id: 2, task_id: null }),
+			],
+		);
+		// W1's decision settles 2h after the ask → 120 min; the unattributed
+		// fork (task_id null) counts in totals but attributes to no item
+		expect(items[0]?.human_time_min).toBe(120);
+		expect(summary.human.settled).toBe(2);
+		expect(summary.human.decisions_in_window).toBe(2);
+		expect(summary.human.items_with_human_time).toBe(1);
+		expect(summary.human.latency_min_p50).toBe(120);
 	});
 });

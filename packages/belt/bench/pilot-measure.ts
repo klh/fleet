@@ -17,6 +17,7 @@ export interface TaskRow {
 	title: string;
 	state: string;
 	parent_id: string | null;
+	tag?: string | null;
 	tail: { ts: string | null; text: string } | null;
 	spend: {
 		fresh: number;
@@ -28,6 +29,23 @@ export interface TaskRow {
 		model_groups: Record<string, { in: number; out: number; cacheR: number; cacheC: number; requests: number }>;
 	} | null;
 }
+
+// W846: one /api/decisions?history=1 record — the persisted NEED_DECISION
+// emit (created_ts) + settle (answered_ts/ack_ts) pair, attributed to the
+// linked work item via task_id (the event payload's $.work).
+export interface DecisionRow {
+	id: number;
+	project: string | null;
+	task_id: string | null;
+	state: "OPEN" | "ANSWERED" | "ACKNOWLEDGED" | "CANCELLED";
+	created_ts: number;
+	answered_ts: number | null;
+	ack_ts: number | null;
+}
+
+// the mint-time rework vocabulary — `work add --tag fix|re-land` (W846);
+// classification is DATA now, the title-keyword proxy is retired
+export const REWORK_TAGS: ReadonlySet<string> = new Set(["fix", "re-land"]);
 
 export interface LedgerRow {
 	key_name: string;
@@ -59,6 +77,7 @@ export interface ItemMetrics {
 	requests: number;
 	wall_min: number | null;
 	agent_min: number | null;
+	human_time_min: number | null;
 	source: "graph-spend" | "ledger-join" | "none";
 	groups: Record<string, GroupUse>;
 }
@@ -74,6 +93,15 @@ export interface Summary {
 		failed_total: number;
 		rework_children: number;
 		by_workload: Record<string, number>;
+	};
+	human: {
+		decisions_in_window: number;
+		settled: number;
+		cancelled: number;
+		still_open: number;
+		latency_min_p50: number | null;
+		latency_min_p90: number | null;
+		items_with_human_time: number;
 	};
 	acceptance: {
 		merge_commits: number;
@@ -162,6 +190,19 @@ export function inWindow(ts: string | null, sinceMs: number, untilMs: number): b
 	return Number.isFinite(t) && t >= sinceMs && t <= untilMs;
 }
 
+/** Tag-set split for the tags column/`tag` field (comma-joined, W846). */
+export function splitTagSet(raw: string | null | undefined): string[] {
+	return (raw ?? "")
+		.split(",")
+		.map((t) => t.trim())
+		.filter(Boolean);
+}
+
+/** ms epoch → ISO for the inWindow string contract. */
+function tsOf(ms: number): string {
+	return new Date(ms).toISOString();
+}
+
 function blankItem(t: TaskRow): ItemMetrics {
 	return {
 		id: t.id,
@@ -176,6 +217,7 @@ function blankItem(t: TaskRow): ItemMetrics {
 		requests: 0,
 		wall_min: null,
 		agent_min: null,
+		human_time_min: null,
 		source: "none",
 		groups: {},
 	};
@@ -194,6 +236,7 @@ export function buildSummary(
 	window: { since: string; until: string },
 	project: string,
 	acceptance: Summary["acceptance"],
+	decisions: DecisionRow[] = [],
 ): { items: ItemMetrics[]; summary: Summary } {
 	const sinceMs = Date.parse(window.since);
 	const untilMs = Date.parse(window.until);
@@ -220,9 +263,41 @@ export function buildSummary(
 			bump(byGroup, g, { in: v.in, out: v.out, cacheR: v.cacheR, requests: v.requests });
 
 	const doneIds = new Set(items.map((i) => i.id));
+	// W846: rework is a TAG counter now — children of window-DONE parents
+	// carrying a mint-time classification tag (work add --tag fix|re-land).
+	// No title regex; untagged items undercount, declared in uncertainty.
 	const reworkChildren = tasks.filter(
-		(t) => t.parent_id !== null && doneIds.has(t.parent_id) && /fix|regression|re-?land|follow-?up|restore/i.test(t.title),
+		(t) =>
+			t.parent_id !== null &&
+			doneIds.has(t.parent_id) &&
+			splitTagSet(t.tag).some((t2) => REWORK_TAGS.has(t2)),
 	);
+
+	// W846: the human-time surface — persisted NEED_DECISION emit/settle pairs
+	// (board decisions table via /api/decisions?history=1). Settle = answered_ts
+	// (ACKNOWLEDGED's ack is the lane's pickup, not the operator's answer);
+	// latency = answered − created, windowed on the ASK (created_ts), and
+	// CANCELLED forks (superseded work) are excluded from latency entirely.
+	const winDecisions = decisions.filter((d) =>
+		inWindow(tsOf(d.created_ts), sinceMs, untilMs),
+	);
+	const settled = winDecisions.filter((d) => d.answered_ts != null);
+	const latencies = settled.map((d) => ((d.answered_ts ?? 0) - d.created_ts) / 60_000);
+	for (const d of settled) {
+		const item = items.find((i) => i.id === d.task_id);
+		if (!item) continue;
+		const mins = ((d.answered_ts ?? 0) - d.created_ts) / 60_000;
+		item.human_time_min = Math.round(((item.human_time_min ?? 0) + mins) * 10) / 10;
+	}
+	const human = {
+		decisions_in_window: winDecisions.length,
+		settled: settled.length,
+		cancelled: winDecisions.filter((d) => d.state === "CANCELLED").length,
+		still_open: winDecisions.filter((d) => d.state === "OPEN").length,
+		latency_min_p50: pct(latencies, 50),
+		latency_min_p90: pct(latencies, 90),
+		items_with_human_time: items.filter((i) => i.human_time_min !== null).length,
+	};
 
 	const summary: Summary = {
 		window,
@@ -232,10 +307,15 @@ export function buildSummary(
 			seen_total: tasks.length,
 			with_tokens: items.filter((i) => i.source !== "none").length,
 			wall_covered: items.filter((i) => i.wall_min !== null).length,
-			failed_total: tasks.filter((t) => t.state === "FAILED").length,
+			failed_total: tasks.filter(
+				(t) =>
+					t.state === "FAILED" &&
+					inWindow(t.tail?.ts ?? null, sinceMs, untilMs),
+			).length,
 			rework_children: reworkChildren.length,
 			by_workload: items.reduce<Record<string, number>>((a, i) => ((a[i.workload] = (a[i.workload] ?? 0) + 1), a), {}),
 		},
+		human,
 		acceptance,
 		tokens: { by_group: byGroup },
 		totals: {
@@ -252,12 +332,12 @@ export function buildSummary(
 		not_instrumented: [
 			"charges_usd — provider pricing + retry/streaming reconciliation owned by W843",
 			"seat_credits — Copilot/seat balances are provider-side; only seat-carried tokens are local",
-			"human_time — no per-item operator-time surface (NEED_DECISION history not queryable via CLI/board)",
 			"hub_energy_ops — no meter on the Mac spoke or hubs; ops cost = power + launchd cycles, unrecorded",
 		],
 		uncertainty: [
 			"wall/agent time covers only buckle-gated lanes (spend.wall_ms > 0); earlier items have tokens only",
-			"failed_total and rework_children are REWORK PROXIES — real defect tracking is not instrumented",
+			"rework_children counts mint-time fix/re-land tags (W846): pre-W846 items carry no classification — undercount declared",
+			"failed_total is windowed on each item's failure tail ts (W846); set before W846 it was all-time project-wide",
 			"workload mix is a title-keyword heuristic, not a scope audit",
 			"single-arm retrospective: no recorded manual (without-Fleet) arm exists; no equivalence claim possible",
 		],
@@ -282,6 +362,15 @@ async function fetchTasks(board: string): Promise<TaskRow[]> {
 	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
 	const body = (await res.json()) as { tasks: TaskRow[] };
 	return body.tasks ?? [];
+}
+
+/** W846: the persisted NEED_DECISION emit/settle history — board decisions
+ * table folded with resolved (history=1) rows; client filters by window. */
+async function fetchDecisions(board: string): Promise<DecisionRow[]> {
+	const res = await fetch(`${board}/api/decisions?history=1`, { signal: AbortSignal.timeout(8000) });
+	if (!res.ok) throw new Error(`board ${board} -> ${res.status}`);
+	const body = (await res.json()) as { decisions: DecisionRow[] };
+	return body.decisions ?? [];
 }
 
 function fetchLedger(dbPath: string, since: string, until: string): LedgerRow[] {
@@ -333,7 +422,9 @@ Usage: bun packages/belt/bench/pilot-measure.ts [--since ISO] [--until ISO]
 Defaults: since=2026-10-06T00:00:00Z (ledger start), until=now,
           out=.pilot-measure, board=http://127.0.0.1:7799,
           ledger=~/.claude/local-llm/buckle.db, project=this repo's common dir.
-Writes pilot-items.jsonl + pilot-summary.json into --out and prints a table.`;
+Joins /api/tasks × /api/decisions?history=1 (W846 human time) × the buckle
+ledger × git acceptance. Writes pilot-items.jsonl + pilot-summary.json into
+--out and prints a table.`;
 
 if (import.meta.main) {
 	const args = parseArgs(process.argv.slice(2));
@@ -350,9 +441,10 @@ if (import.meta.main) {
 	const project = args.project ?? resolve(commonDir);
 
 	const tasks = await fetchTasks(board);
+	const decisions = await fetchDecisions(board);
 	const ledger = fetchLedger(ledgerPath, since, until);
 	const acceptance = gitAcceptance(project, since, until);
-	const { items, summary } = buildSummary(tasks, ledger, { since, until }, project, acceptance);
+	const { items, summary } = buildSummary(tasks, ledger, { since, until }, project, acceptance, decisions);
 
 	mkdirSync(outDir, { recursive: true });
 	await Bun.write(`${outDir}/pilot-items.jsonl`, `${items.map((i) => JSON.stringify(i)).join("\n")}\n`);
@@ -364,5 +456,6 @@ if (import.meta.main) {
 	console.log(`totals in=${summary.totals.tokens_in} out=${summary.totals.tokens_out} req=${summary.totals.requests} wall=${summary.totals.wall_min}m agent=${summary.totals.agent_min}m p50=${summary.totals.wall_min_p50}m p90=${summary.totals.wall_min_p90}m`);
 	for (const [g, v] of Object.entries(summary.tokens.by_group)) console.log(`  ${g}: in=${v.in} out=${v.out} cacheR=${v.cacheR} req=${v.requests}`);
 	console.log(`workload: ${JSON.stringify(summary.items.by_workload)}`);
+	console.log(`human time: decisions=${summary.human.decisions_in_window} settled=${summary.human.settled} latency p50=${summary.human.latency_min_p50}m p90=${summary.human.latency_min_p90}m (items attributed: ${summary.human.items_with_human_time})`);
 	console.log(`not instrumented: ${summary.not_instrumented.length} surfaces (see pilot-summary.json)`);
 }

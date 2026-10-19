@@ -13,7 +13,7 @@
 // (atomic, best-effort); reads fall back to the committed mirror when
 // governor.db cannot serve the project — fresh clone / DB unreachable.
 import {
-	CAPABILITIES,
+	assertCaps,
 	type GovernorStore,
 	openStore,
 	projectIdentity,
@@ -25,6 +25,7 @@ import {
 	applyAllocations,
 	assignTask,
 	candidateLanes,
+	nextChildIdOf,
 	planAllocation,
 	renderAllocPlan,
 } from "../lib/work-alloc.ts";
@@ -65,6 +66,7 @@ import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import type { Database } from "bun:sqlite";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import { preferTagFor } from "../lib/prefer.ts";
+import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { EFFORTS } from "../lib/work-effort.ts";
@@ -100,8 +102,8 @@ const ITEM_FLAGS = [
 	"--as",
 	"--requires",
 	"--effort",
+	"--tag",
 ];
-const CAPS = new Set(CAPABILITIES);
 
 // ---- the verb registry (W651) -------------------------------------------
 // ONE declaration per verb — hooks/lib/verb-kit.ts owns argv parsing (the
@@ -112,7 +114,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "add",
 		usage:
-			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]',
+			'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid] [--tag t1,t2]',
 		flags: [...ITEM_FLAGS],
 		minPos: 1,
 	}),
@@ -502,18 +504,6 @@ function freeDependents(id: string): {
 	return { freed, gated };
 }
 
-function nextChildId(parent: string): string {
-	// max numeric suffix, not COUNT — a deleted child must not cause a collide
-	const n = (
-		db()
-			.query(
-				"SELECT MAX(CAST(SUBSTR(id, length(?) + 2) AS INTEGER)) AS m FROM work_items WHERE project = ? AND parent_id = ?",
-			)
-			.get(parent, PROJECT, parent) as { m: number | null }
-	).m;
-	return `${parent}.${(n ?? 0) + 1}`;
-}
-
 function nextRootId(): string {
 	// atomic per-project allocation: one upsert statement is the allocator, so
 	// concurrent `work add` races each get a distinct id instead of one losing
@@ -545,6 +535,7 @@ function insertItem(
 	description: string | null = null,
 	effort: string | null = null,
 	evidence: string | null = null,
+	extraTags: string | null = null,
 ): void {
 	db()
 		.query(
@@ -560,7 +551,7 @@ function insertItem(
 			why,
 			PROJECT,
 			requires,
-			preferTagFor(projectRootOf(PROJECT)),
+			mergeTags(preferTagFor(projectRootOf(PROJECT)), extraTags),
 			effort,
 			evidence,
 			Date.now(),
@@ -630,24 +621,6 @@ function releaseObserved(
 // a claimant with no registry entry (manual takes, reaped rows) probes from
 // heartbeat + transcript alone and reads unknown, never dead. W376: built by
 // lib/reclaim-all.ts claimantLanes (shared with the fleet-loop reclaim sweep).
-
-// truncated-sid guard (shared by take/start/done/release): a display slice
-// (e.g. 'visual-c') must not become the owner of record — expand a unique
-// session-sid prefix to the full sid; unknown sids pass through untouched
-function resolveSid(as: string): string {
-	// exact sid wins first — a full sid must never die on its own prefix
-	// family (autow219 vs autow2190… made `work take --as autow219` ambiguous)
-	const exact = db().query("SELECT sid FROM sessions WHERE sid = ?").get(as) as
-		| { sid: string }
-		| undefined;
-	if (exact) return exact.sid;
-	const sm = db()
-		.query("SELECT sid FROM sessions WHERE sid LIKE ? || '%'")
-		.all(as) as { sid: string }[];
-	if (sm.length === 1) return sm[0].sid;
-	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
-	return as;
-}
 
 // W795: show's renderer extracted from the dispatch chain — the multi-id
 // loop calls it once per id instead of growing the chain (patch-first
@@ -722,19 +695,33 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		const title = pos[0];
 		if (!title)
 			die(
-				'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid]',
+				'usage: add <title> [--scope s] [--parent <id>] [--priority n] [--desc "..."] [--by sid] [--tag t1,t2]',
 			);
 		const parent = flag("--parent");
 		const scope = flag("--scope");
 		const priority = Number(flag("--priority") ?? 0);
 		const by = flag("--by") ?? "unknown";
-		const requires = flag("--requires");
-		if (requires) {
-			const bad = requires.split(",").filter((c) => !CAPS.has(c.trim()));
-			if (bad.length)
+		let requires: string | null = null;
+		const reqRaw = flag("--requires");
+		if (reqRaw) {
+			try {
+				requires = assertCaps(reqRaw);
+			} catch (error) {
 				die(
-					`unknown capability: ${bad.join(",")} — vocabulary: ${[...CAPS].join(",")}`,
+					`requires: ${error instanceof Error ? error.message : String(error)}`,
 				);
+			}
+		}
+		// W846 mint-time classification: validated tags stamp the tags column
+		// (merged with the .prefer tree tag) so rework counters never title-regex
+		let extraTags: string | null = null;
+		const tagRaw = flag("--tag");
+		if (tagRaw) {
+			try {
+				extraTags = validateTags(tagRaw);
+			} catch (error) {
+				die(`tag: ${error instanceof Error ? error.message : String(error)}`);
+			}
 		}
 		const effort = flag("--effort");
 		if (effort && !(EFFORTS as readonly string[]).includes(effort))
@@ -761,7 +748,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			`${title} ${flag("--desc") ?? ""}`,
 		);
 		if (remintRefusal) die(remintRefusal);
-		const id = parent ? nextChildId(parent) : nextRootId();
+		const id = parent ? nextChildIdOf(db(), PROJECT, parent) : nextRootId();
 		insertItem(
 			id,
 			parent,
@@ -770,15 +757,11 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			priority,
 			by,
 			flag("--reason"),
-			requires
-				? requires
-						.split(",")
-						.map((c) => c.trim())
-						.join(",")
-				: null,
+			requires,
 			flag("--desc"),
 			effort,
 			evidence,
+			extraTags,
 		);
 		emit("work.added", id, { scope: scope ?? "" });
 		console.log(
@@ -860,7 +843,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
 		// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
 		// the owner of record — expand a unique session-sid prefix to the full sid
-		as = resolveSid(as);
+		as = resolveSidOf(db(), as);
 		const it = get(id);
 		// capability-aware dispatch (v2): requires ⊆ capabilities or refuse —
 		// kills the W28/W29-class NO-SHELL dead spawn at the CLI boundary
@@ -926,7 +909,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// item stays explicit: `work reclaim`.
 		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
 			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be released`);
-		const owner = resolveSid(as);
+		const owner = resolveSidOf(db(), as);
 		if (it.owner_sid !== owner)
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${owner.slice(0, 8)} cannot release it`,
@@ -945,7 +928,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		// the owner of record
 		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
 			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can start`);
-		if (as && it.owner_sid !== resolveSid(String(as)))
+		if (as && it.owner_sid !== resolveSidOf(db(), String(as)))
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot start it`,
 			);
@@ -970,7 +953,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			die(
 				`${id} is ${it.state} — only CLAIMED/RUNNING work can be marked done`,
 			);
-		if (as && it.owner_sid !== resolveSid(String(as)))
+		if (as && it.owner_sid !== resolveSidOf(db(), String(as)))
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot complete it`,
 			);
@@ -1070,7 +1053,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			const it = get(id ?? "");
 			if (
 				as &&
-				(it.owner_sid !== resolveSid(String(as)) ||
+				(it.owner_sid !== resolveSidOf(db(), String(as)) ||
 					!["CLAIMED", "RUNNING"].includes(it.state as string))
 			)
 				die(
@@ -1184,7 +1167,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			setState(id, "SHATTERED");
 			let n = 0;
 			for (const t of titles) {
-				const cid = nextChildId(id);
+				const cid = nextChildIdOf(db(), PROJECT, id);
 				// children inherit the parent's capability requirement — a split must
 				// not be able to launder away the dispatch constraint
 				insertItem(
@@ -1199,6 +1182,9 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					null,
 					it.effort as string | null,
 					(it.evidence as string | null) ?? null,
+					// W846: classification tags (fix/re-land) follow the parent — a
+					// split must not be able to launder the defect lineage either
+					it.tags as string | null,
 				);
 				if (++n === keep) {
 					setState(cid, "CLAIMED", it.owner_sid as string);
@@ -1368,13 +1354,13 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		if (!["CLAIMED", "RUNNING"].includes(it.state as string))
 			die(`${id} is ${it.state} — only CLAIMED/RUNNING work can be extended`);
 		const as = flag("--as");
-		if (as && it.owner_sid !== resolveSid(String(as)))
+		if (as && it.owner_sid !== resolveSidOf(db(), String(as)))
 			die(
 				`${id} is owned by ${String(it.owner_sid ?? "?").slice(0, 8)} — ${String(as).slice(0, 8)} cannot extend it`,
 			);
 		const by = as
-			? resolveSid(String(as))
-			: resolveSid(String(it.owner_sid ?? ""));
+			? resolveSidOf(db(), String(as))
+			: resolveSidOf(db(), String(it.owner_sid ?? ""));
 		setReclaimHold(db(), PROJECT, String(id), Date.now() + ms, by);
 		emit("work.lease-extended", String(id), { forMs: String(ms), by });
 		console.log(
@@ -1445,7 +1431,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 			);
 			if (!gate.ok) die(`${id} reclaim refused — ${gate.why}`);
 			const expectedOwner = flag("--expect-owner");
-			if (expectedOwner && it.owner_sid !== resolveSid(expectedOwner))
+			if (expectedOwner && it.owner_sid !== resolveSidOf(db(), expectedOwner))
 				die(`${id} owner changed — reclaim refused`);
 			const revision = flag("--expect-updated-at");
 			if (
