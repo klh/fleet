@@ -69,6 +69,15 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	);
 	await expect(page.locator("#u-timeline canvas")).toHaveCount(1);
 	await expect(page.locator("#u-hours canvas")).toHaveCount(1);
+	const drill = page.locator("klh-usage-drilldown");
+	const day = drill.getByRole("combobox", { name: "day" });
+	const hour = drill.getByRole("combobox", { name: "hour" });
+	await expect(day).toBeVisible();
+	await expect(hour).toBeVisible();
+	expect(await hour.locator("option").count()).toBeLessThanOrEqual(24);
+	const earliestDay = await day.locator("option").last().inputValue();
+	await day.selectOption(earliestDay);
+	await expect(page).toHaveURL(/hour=\d+/);
 	const crossHub = page.locator("klh-usage-crosshub");
 	await expect(crossHub).toContainText("No response before the hub timeout");
 	await expect(crossHub).toContainText("0 reporting · 1 down/unresolved");

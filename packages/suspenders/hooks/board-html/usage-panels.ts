@@ -857,13 +857,17 @@ export class KlhUsageCrossHub extends LitElement {
 			const reason = r.reason ?? "No response from this hub";
 			const summary = /timed out|timeout/i.test(reason)
 				? "No response before the hub timeout"
-				: /hub answered (401|403)/.test(reason)
-					? "Usage access denied"
-					: /hub answered 404/.test(reason)
-						? "Usage endpoint unavailable"
-						: /no url/i.test(reason)
-							? "No usage endpoint configured"
-							: "Could not read usage from this hub";
+				: /typeerror|host is down|connection refused|unable to connect/i.test(
+							reason,
+						)
+					? "Cannot reach this hub"
+					: /hub answered (401|403)/.test(reason)
+						? "Usage access denied"
+						: /hub answered 404/.test(reason)
+							? "Usage endpoint unavailable"
+							: /no url/i.test(reason)
+								? "No usage endpoint configured"
+								: "Could not read usage from this hub";
 			return html`<tr>
 				<td>
 					<b>${r.hub}</b>
@@ -952,15 +956,19 @@ export class KlhUsageDrilldown extends LitElement {
 	declare report: UsageReport | null;
 	declare error: string;
 	declare loading: boolean;
-	// W902: UTC-first dual stamp — a bare local time is each bucket's twin
-	private stamp(hour: number): string {
+	private dayKey(hour: number): string {
 		const d = new Date(hour);
 		const p = (n: number): string => String(n).padStart(2, "0");
-		const off = -d.getTimezoneOffset();
-		const a = Math.abs(off);
-		const utc = `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:00Z`;
-		const local = `${p(d.getHours())}:${p(d.getMinutes())} UTC${off >= 0 ? "+" : "-"}${p(Math.floor(a / 60))}:${p(a % 60)}`;
-		return `${utc} (${local})`;
+		return `${String(d.getFullYear())}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+	}
+
+	private dayLabel(day: string): string {
+		const [year, month, date] = day.split("-");
+		return `${date}.${month}.${year?.slice(-2)}`;
+	}
+
+	private hourLabel(hour: number): string {
+		return `${String(new Date(hour).getHours()).padStart(2, "0")}:00`;
 	}
 	private requestId = 0;
 
@@ -1020,8 +1028,21 @@ export class KlhUsageDrilldown extends LitElement {
 			});
 	}
 
+	private selectHour(hour: number): void {
+		this.bucket = hour;
+		const url = new URL(location.href);
+		url.searchParams.set("hour", String(hour));
+		history.replaceState(null, "", url);
+		this.refresh();
+	}
+
 	protected render(): TemplateResult {
 		if (!this.hours.length) return html``;
+		const days = [...new Set(this.hours.map((hour) => this.dayKey(hour)))];
+		const selectedDay = this.dayKey(this.bucket);
+		const dayHours = this.hours.filter(
+			(hour) => this.dayKey(hour) === selectedDay,
+		);
 		const rows =
 			this.report?.actors.flatMap((actor) =>
 				actor.byModel.map((model) => ({ actor: actor.actor, ...model })),
@@ -1029,19 +1050,25 @@ export class KlhUsageDrilldown extends LitElement {
 		return html`<div class="upanel" id="usage-hour">
 			<div class="uhead">
 				<h2>HOUR DETAIL</h2>
-				<p class="ufoot">Select an hour to inspect its actors and models.</p>
+				<p class="ufoot">Select a day and hour to inspect its actors and models.</p>
 			</div>
-			<label class="hour-picker">hour
+			<label class="hour-picker">day
 				<select
 					@change=${(e: Event) => {
-						this.bucket = Number((e.target as HTMLSelectElement).value);
-						const url = new URL(location.href);
-						url.searchParams.set("hour", String(this.bucket));
-						history.replaceState(null, "", url);
-						this.refresh();
+						const day = (e.target as HTMLSelectElement).value;
+						const hour = this.hours.find((h) => this.dayKey(h) === day);
+						if (hour !== undefined) this.selectHour(hour);
 					}}
 				>
-					${this.hours.map((hour) => html`<option value=${String(hour)} ?selected=${hour === this.bucket}>${this.stamp(hour)}</option>`)}
+					${days.map((day) => html`<option value=${day} ?selected=${day === selectedDay}>${this.dayLabel(day)}</option>`)}
+				</select>
+			</label>
+			<label class="hour-picker">hour
+				<select
+					@change=${(e: Event) => this.selectHour(Number((e.target as HTMLSelectElement).value))}
+					title=${new Date(this.bucket).toISOString()}
+				>
+					${dayHours.map((hour) => html`<option value=${String(hour)} ?selected=${hour === this.bucket} title=${new Date(hour).toISOString()}>${this.hourLabel(hour)}</option>`)}
 				</select>
 			</label>
 			${this.loading ? html`<p class="uempty">Loading hour…</p>` : nothing}
