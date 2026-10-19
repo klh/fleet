@@ -36,16 +36,26 @@ test("hub tokens start with active rows and expose full history on demand", asyn
 			created_at: Date.now(),
 			state,
 		});
-		el.tokens = [row("current-actor", "active"), row("old-actor", "revoked")];
+		el.tokens = [
+			row("current-actor", "active"),
+			...Array.from({ length: 14 }, (_, i) => row(`actor-${i}`, "active")),
+			row("old-actor", "revoked"),
+		];
 	});
 	await expect(
-		admin.getByText("1 active · 1 inactive · 1 shown"),
+		admin.getByText("15 active · 1 inactive · 1–12 of 15"),
 	).toBeVisible();
+	await expect(admin.locator("table").first().getByRole("row")).toHaveCount(13);
+	await admin.getByRole("button", { name: "Next" }).click();
+	await expect(admin.getByRole("row", { name: /actor-13/ })).toBeVisible();
+	await expect(admin.getByText("13–15 of 15")).toBeVisible();
+	await admin.getByRole("button", { name: "Previous" }).click();
 	await expect(admin.getByRole("row", { name: /current-actor/ })).toBeVisible();
 	await expect(admin.getByRole("row", { name: /old-actor/ })).toHaveCount(0);
 	await admin
 		.getByRole("combobox", { name: "token state" })
 		.selectOption("all");
+	await admin.getByRole("searchbox", { name: "find token" }).fill("old");
 	await expect(admin.getByRole("row", { name: /old-actor/ })).toBeVisible();
 	await admin.getByRole("searchbox", { name: "find token" }).fill("current");
 	await expect(admin.getByRole("row", { name: /old-actor/ })).toHaveCount(0);
