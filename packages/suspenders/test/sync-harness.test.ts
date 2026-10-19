@@ -218,6 +218,37 @@ test("canonical step publishes a self-contained committed payload and receipt wi
 	).toBe(0);
 });
 
+test("installed harness includes Belt dashboard dependencies", async () => {
+	const f = fixture();
+	f.put(
+		"packages/belt/package.json",
+		JSON.stringify({
+			name: "belt",
+			version: "1.0.0",
+			type: "module",
+			dependencies: { "bonjour-service": "1.4.4" },
+		}),
+	);
+	f.git("add", ".");
+	f.git(
+		"-c",
+		"user.name=Fixture",
+		"-c",
+		"user.email=fixture@example.invalid",
+		"commit",
+		"-m",
+		"belt dependency",
+	);
+	await syncHarness(f.ctx);
+	const installed = JSON.parse(
+		readFileSync(join(f.ctx.prefix, "package.json"), "utf8"),
+	);
+	expect(installed.dependencies["bonjour-service"]).toBe("1.4.4");
+	expect(existsSync(join(f.ctx.prefix, "node_modules/bonjour-service"))).toBe(
+		true,
+	);
+});
+
 test.each(["syntax", "import", "execution"] as const)(
 	"failed staged %s validation leaves original installation and keys intact",
 	async (problem) => {
