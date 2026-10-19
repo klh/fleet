@@ -34,6 +34,7 @@ import {
 } from "../lib/lane-registry.ts";
 import { itemAttribution, renderAttribution } from "../lib/lane-spend.ts";
 import { triggerMergeOnDone } from "../lib/merge-on-done.ts";
+import { provisionForTake } from "../lib/worktree-provision.ts";
 import { preferTagFor } from "../lib/prefer.ts";
 import { claimantLanes, reclaimAll } from "../lib/reclaim-all.ts";
 import {
@@ -891,6 +892,15 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 					: `${id} claim refused: ${claimed.why}`,
 			);
 		console.log(`${green("✓")} ${cyan(id)} claimed by ${dim(as.slice(0, 8))}`);
+		// W870: never treeless claims — the claim's worktree mints/attaches
+		// here (dispatch's behavior, now the only behavior) and prints; the
+		// location-vs-claim gate binds edits to this tree.
+		const prov = provisionForTake(projectRootOf(PROJECT), id, PROJECT);
+		if (!prov.ok)
+			console.error(
+				`worktree mint FAILED (${prov.err}) — ${id} stays claimed but TREELESS; fix the git failure, then worktree.ts retire ${id} and re-take to attach`,
+			);
+		console.log(`worktree: ${prov.path}${prov.attached ? " (attached)" : ""}`);
 		// W643: the raw token prints ONCE — channels for lanes: KLH_CLAIM_TOKEN
 		// env (dispatch/supervise pin it) + .fleet/lane-context.json claimToken.
 		if (claimed.token)

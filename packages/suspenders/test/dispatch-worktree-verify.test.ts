@@ -19,8 +19,8 @@ describe("leftover worktree verification before spawn (W349)", () => {
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 wrong-branch leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
+		// W870: take provisions the tree — no explicit create needed
 		expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(0);
-		expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		// the W219 disease: the tree sits on a foreign branch
 		const foreign = `suspenders/foreign-${id}`;
@@ -53,8 +53,8 @@ describe("leftover worktree verification before spawn (W349)", () => {
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 dirty leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
+		// W870: take provisions the tree — no explicit create needed
 		expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(0);
-		expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		const foreign = `suspenders/foreign-${id}`;
 		Bun.spawnSync(["git", "-C", dir, "checkout", "-b", foreign], {
@@ -85,8 +85,8 @@ describe("leftover worktree verification before spawn (W349)", () => {
 		const stub = stubBuckle(true);
 		const id = await addItem("W349 unbanked residue fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
+		// W870: take provisions the tree — no explicit create needed
 		expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(0);
-		expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		writeFileSync(join(dir, "residue.txt"), "x"); // dirty, right branch
 		const env2 = {
@@ -126,8 +126,8 @@ describe("leftover worktree verification before spawn (W349)", () => {
 	test("dry-run previews the recreation without performing it", async () => {
 		const id = await addItem("W349 dry-run leftover fixture");
 		const sid = laneSid(id, projectIdentity(REPO));
+		// W870: take provisions the tree — no explicit create needed
 		expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(0);
-		expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		const foreign = `suspenders/foreign-${id}`;
 		Bun.spawnSync(["git", "-C", dir, "checkout", "-b", foreign], {

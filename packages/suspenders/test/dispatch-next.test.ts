@@ -97,6 +97,8 @@ describe("CLI help is read-only", () => {
 		);
 		db.close();
 		const staleBefore = workSnapshot(stale);
+		// W870: the take above provisions a tree — help must add none beyond it
+		const wtExisted = existsSync(join(REPO, ".worktrees"));
 		for (const help of ["--help", "-h"]) {
 			// Even the buggy path cannot spawn real models in this regression.
 			const result = dispatch(help, "--target", "0");
@@ -106,7 +108,7 @@ describe("CLI help is read-only", () => {
 			expect(existsSync(join(REPO, ".fleet"))).toBe(false);
 			expect(workSnapshot(id)).toEqual(before);
 			expect(workSnapshot(stale)).toEqual(staleBefore);
-			expect(existsSync(join(REPO, ".worktrees"))).toBe(false);
+			expect(existsSync(join(REPO, ".worktrees"))).toBe(wtExisted);
 		}
 		// This file shares a scratch graph; remove the fixture from later picks.
 		expect(tool("work.ts", "fail", id).code).toBe(0);
@@ -333,6 +335,9 @@ describe("dry-run dispatch", () => {
 		const added = tool("work.ts", "add", "sample lane mission");
 		id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		expect(id).toBeTruthy();
+		// W870: sibling tests' takes leave trees standing — this run must add
+		// none of its own (dry-run takes nothing)
+		const wtExisted = existsSync(join(REPO, ".worktrees"));
 		const out = dispatch("--dry-run", "--target", "1");
 		expect(out.out).toContain(`DRY dispatch ${id}`);
 		expect(out.out).toContain("CAPSULE PROTOCOL");
@@ -346,10 +351,10 @@ describe("dry-run dispatch", () => {
 			`inbox --as ${laneSid(id, projectIdentity(REPO))}`,
 		);
 		expect(out.out).toContain(`lane "${laneSid(id, projectIdentity(REPO))}"`);
-		// no side effects: no claim, no worktree, no lane registry
+		// no side effects: no claim, no NEW worktree, no lane registry
 		const show = tool("work.ts", "show", id);
 		expect(show.out).toContain("READY");
-		expect(existsSync(join(REPO, ".worktrees"))).toBe(false);
+		expect(existsSync(join(REPO, ".worktrees"))).toBe(wtExisted);
 		expect(existsSync(join(REPO, ".fleet", "lanes.json"))).toBe(false);
 	});
 
@@ -723,7 +728,9 @@ describe("crash resume budget", () => {
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
 			'"state":"FAILED"',
 		);
-		expect(existsSync(join(REPO, ".worktrees", id))).toBe(false);
+		// W870: the take itself provisioned the tree — budget exhaustion fails
+		// the claim, the claim's tree legitimately stands (nothing spawned)
+		expect(existsSync(join(REPO, ".worktrees", id))).toBe(true);
 		rmSync(join(fleet, "lanes.json"));
 	}, 60_000);
 });
@@ -1042,7 +1049,8 @@ describe("lane key lifecycle (W463)", () => {
 			expect((await toolA({}, "work.ts", "take", id, "--as", sid)).code).toBe(
 				0,
 			);
-			expect((await toolA({}, "worktree.ts", "create", id)).code).toBe(0);
+			// W870: take provisions the tree; the create verb refuses a standing one
+			expect((await toolA({}, "worktree.ts", "create", id)).code).not.toBe(0);
 			mkdirSync(join(REPO, ".fleet"), { recursive: true });
 			const metaPath = join(REPO, ".fleet", `lane-key-${sid}.json`);
 			const settingsPath = join(REPO, ".fleet", `lane-settings-${sid}.json`);

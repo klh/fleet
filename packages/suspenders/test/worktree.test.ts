@@ -85,9 +85,11 @@ describe("worktree lifecycle", () => {
 		).toBe(0);
 		expect(work("take", id, "--as", "wt-lane").code).toBe(0);
 
-		// create refused before the claim? no — claim exists, so create works
+		// W870: take provisions the tree itself — the create verb refuses a
+		// standing one instead of double-minting
+		expect(existsSync(join(REPO, ".worktrees", id))).toBe(true);
 		const c = wt("create", id);
-		expect(c.code).toBe(0);
+		expect(c.code).not.toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		expect(existsSync(dir)).toBe(true);
 		expect(existsSync(join(dir, "node_modules"))).toBe(true); // symlinked build dir
@@ -128,7 +130,8 @@ describe("worktree lifecycle", () => {
 				.code,
 		).toBe(0);
 		expect(work("take", id, "--as", "wt-live").code).toBe(0);
-		expect(wt("create", id).code).toBe(0);
+		// W870: take provisions the tree; the create verb refuses a standing one
+		expect(wt("create", id).code).not.toBe(0);
 		const dir = join(REPO, ".worktrees", id);
 		// the symlinked node_modules reads untracked → dirty (exit 3) would
 		// mask the liveness guard — commit the fresh tree clean first
@@ -213,12 +216,12 @@ describe("worktree registry resolution (W211)", () => {
 		const pt = work("take", id, "--as", "wt-parked");
 		expect(pt.code).toBe(0);
 		const ptok = /claim token: ([0-9a-f]{48})/.exec(pt.out)?.[1];
-		// park the tree outside the convention, as registry lanes do
+		// W870: take minted the conventional tree — retire it (branch kept) and
+		// park the registry-resolved tree OUTSIDE the convention on the SAME branch
+		expect(wt("retire", id).code).toBe(0);
 		const parked = join(REPO, "..", "w211-parked", id);
 		mkdirSync(join(REPO, "..", "w211-parked"), { recursive: true });
-		expect(gc(["worktree", "add", "-b", `suspenders/${id}`, parked]).code).toBe(
-			0,
-		);
+		expect(gc(["worktree", "add", parked, `suspenders/${id}`]).code).toBe(0);
 		writeFileSync(join(parked, "feat.ts"), "export const x = 1;\n");
 		expect(gc(["-C", parked, "add", "feat.ts"]).code).toBe(0);
 		expect(gc(["-C", parked, "commit", "-m", "feat"]).code).toBe(0);
@@ -290,10 +293,10 @@ describe("worktree sweep (W494.2.2)", () => {
 		const t = work("take", id, "--as", sid);
 		expect(t.code).toBe(0);
 		const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
-		expect(sweep("create", id).code).toBe(0);
-		// fresh trees read clean — node_modules is ignored (above), so no
-		// typechange dirt; a --allow-empty commit would ADD a patch-id main
-		// lacks and read unmerged in cherry
+		// W870: take provisions the tree — no explicit create (and a standing
+		// tree is refused by the verb now). Fresh trees read clean — node_modules
+		// is ignored (above), so no typechange dirt; a --allow-empty commit would
+		// ADD a patch-id main lacks and read unmerged in cherry
 		return { id, dir: join(REPO, ".worktrees", id), tok };
 	};
 	// lazy: HEAD is unborn at module load — the init commit lands in test 1
@@ -443,8 +446,9 @@ describe("worktree sweep (W494.2.2)", () => {
 				.code,
 		).toBe(0);
 		expect(work("take", id, "--as", "wt-lane2").code).toBe(0);
-		expect(wt("create", id).code).toBe(0);
+		// W870: take provisions the tree (the mint reuses a surviving branch)
 		const dir = join(REPO, ".worktrees", id);
+		expect(existsSync(dir)).toBe(true);
 		// commit on the item branch, retire (branch survives), re-create
 		writeFileSync(join(dir, "wip2.txt"), "wip");
 		Bun.spawnSync(["git", "-C", dir, "add", "-A"], { stdout: "ignore" });
