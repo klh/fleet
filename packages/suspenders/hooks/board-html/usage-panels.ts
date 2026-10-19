@@ -853,14 +853,28 @@ export class KlhUsageCrossHub extends LitElement {
 	private row(
 		r: NonNullable<UsagePanels["crosshub"]>["rows"][number],
 	): TemplateResult {
-		if (r.degraded)
+		if (r.degraded) {
+			const reason = r.reason ?? "No response from this hub";
+			const summary = /timed out|timeout/i.test(reason)
+				? "No response before the hub timeout"
+				: /hub answered (401|403)/.test(reason)
+					? "Usage access denied"
+					: /hub answered 404/.test(reason)
+						? "Usage endpoint unavailable"
+						: /no url/i.test(reason)
+							? "No usage endpoint configured"
+							: "Could not read usage from this hub";
 			return html`<tr>
 				<td>
 					<b>${r.hub}</b>
 					<span class="uchip">degraded</span>
 				</td>
-				<td colspan="3">${r.reason ?? "hub down"}</td>
+				<td colspan="3">
+					${summary}
+					<details><summary>Diagnostic</summary><code>${reason}</code></details>
+				</td>
 			</tr>`;
+		}
 		const barW = Math.max(2, (r.total / Math.max(1, ...this.rowTotals)) * 100);
 		return html`<tr>
 			<td>
@@ -900,6 +914,7 @@ export class KlhUsageCrossHub extends LitElement {
 					${rows.map((row) => this.row(row))}
 				</tbody>
 			</table>
+			<p class="ufoot">${readPanels()?.crosshub?.foot ?? ""}</p>
 		</div>`;
 	}
 }
@@ -910,6 +925,14 @@ KlhUsageCrossHub.styles = [
 	css`
 		:host {
 			display: block;
+		}
+		details {
+			margin-top: 4px;
+			font-size: 11px;
+			color: var(--klh-dim);
+		}
+		details code {
+			overflow-wrap: anywhere;
 		}
 	`,
 ];

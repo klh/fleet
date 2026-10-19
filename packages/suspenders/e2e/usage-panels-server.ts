@@ -58,7 +58,36 @@ sess.run("s2", 2, 2, "bob", '{"team":"apps","department":"product"}');
 const report = buildUsageReport(db, { days: 7, nowMs: now });
 // r.aids stays unset → the honest empty aids panel; activity stays unset →
 // its honest empty. Both degrade paths are part of the look.
-const usageHtml = usagePage(report, { days: 7 });
+const usageHtml = usagePage(report, {
+	days: 7,
+	crossHub: {
+		days: 7,
+		rows: [
+			{
+				label: "nas",
+				ok: false,
+				degraded: true,
+				unresolved: false,
+				quiet: false,
+				reason: "TimeoutError: The operation timed out.",
+				url: null,
+				via: null,
+				spokes: 0,
+				classes: {},
+				aids: [],
+				fetchedAt: null,
+			},
+		],
+		summary: {
+			hubs: 1,
+			ok: 0,
+			degraded: 1,
+			unresolved: 0,
+			classes: {},
+			aids: [],
+		},
+	},
+});
 const fedHtml = federationUsagePage(
 	{
 		days: 28,

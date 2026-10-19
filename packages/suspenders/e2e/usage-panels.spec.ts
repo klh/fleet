@@ -69,6 +69,13 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	);
 	await expect(page.locator("#u-timeline canvas")).toHaveCount(1);
 	await expect(page.locator("#u-hours canvas")).toHaveCount(1);
+	const crossHub = page.locator("klh-usage-crosshub");
+	await expect(crossHub).toContainText("No response before the hub timeout");
+	await expect(crossHub).toContainText("0 reporting · 1 down/unresolved");
+	await crossHub.getByText("Diagnostic").click();
+	await expect(crossHub).toContainText(
+		"TimeoutError: The operation timed out.",
+	);
 	const shot = join(
 		dirname(fileURLToPath(import.meta.url)),
 		"test-results",
