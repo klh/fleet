@@ -12,7 +12,7 @@ hubs:
     buckle_port: 4111
     board_port: 7809
     store_port: 7796
-    belt_port: 7792
+    belt_port: 7808 # local hub; keep distinct from belt.local, bar.local, belt-mcp.local
     # health sidecar serve ports (W422.10) — optional; undeclared knobs
     # fall through to the hub-compose.yaml template defaults
     buckle_health_port: 4112

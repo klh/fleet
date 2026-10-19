@@ -38,8 +38,9 @@ BELT_MCP_HOSTS=belt-mcp.local            # extra Host spellings through the guar
 BELT_ROUTER_URL=http://127.0.0.1:4000
 ```
 
-Without tenant+audience the server exits at boot (refuses to serve
-unauthenticated); `BELT_MCP_DEV=1` pins loopback and opens it for dev.
+Without tenant+audience the server binds to loopback in status-only mode:
+`/` explains setup, while `/health` and `/mcp` return 503 and no tools run.
+`BELT_MCP_DEV=1` pins loopback and opens the tools for local development.
 
 ## Entra setup (runbook, placeholders only)
 
