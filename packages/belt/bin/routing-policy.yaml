@@ -33,6 +33,11 @@ gateway:
   num_retries: 1
   allowed_fails: 3
   cooldown_time: 30
+  # Background /health loop (W886, W499 surface 3): cached probes every
+  # 300s instead of per-call health cost; dormant key-gated rows opt out
+  # per-deployment (gateway-config emits model_info.disable_background_
+  # health_check for them).
+  litellm_health_checks: true
   # Ordered cross-group ladders (tried after num_retries): glm group →
   # openai-dialect zai twin → local-reason. When z.ai is dark both z.ai
   # rungs fail and local-reason answers — the drill in llm-keepwarm.ts

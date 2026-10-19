@@ -28,6 +28,10 @@ export interface GatewayPolicy {
 	litellm_num_retries?: number;
 	/** Keep inner fallback ladders unless a verified front owns those hops. */
 	litellm_fallbacks?: boolean;
+	/** Background /health loop (W886, W499 surface 3): cached probes every
+	 *  300s instead of per-call health cost. Dormant key-gated model rows
+	 *  opt out per deployment (model_info.disable_background_health_check). */
+	litellm_health_checks?: boolean;
 	allowed_fails?: number;
 	cooldown_time?: number;
 	fallbacks?: Record<string, string[]>;
@@ -50,6 +54,7 @@ const DEFAULTS: Required<Omit<GatewayPolicy, "fallbacks">> = {
 	num_retries: 1,
 	litellm_num_retries: 1,
 	litellm_fallbacks: true,
+	litellm_health_checks: true,
 	allowed_fails: 3,
 	cooldown_time: 30,
 };
@@ -60,6 +65,7 @@ export function parsePolicy(text: string): GatewayPolicy {
 	const policy = { ...DEFAULTS, ...(doc.gateway ?? {}) };
 	validateInnerRetries(policy.litellm_num_retries);
 	validateInnerFallbacks(policy.litellm_fallbacks);
+	validateHealthChecks(policy.litellm_health_checks);
 	if (doc.classes !== undefined) policy.classes = parseClasses(doc.classes);
 	if (doc.roles !== undefined) policy.roles = parseRoles(doc.roles);
 	if (doc.reasoning !== undefined)
@@ -84,6 +90,14 @@ function validateInnerFallbacks(value: unknown): boolean {
 	if (typeof value !== "boolean")
 		throw new Error(
 			"router-policy: gateway.litellm_fallbacks must be a boolean",
+		);
+	return value;
+}
+
+function validateHealthChecks(value: unknown): boolean {
+	if (typeof value !== "boolean")
+		throw new Error(
+			"router-policy: gateway.litellm_health_checks must be a boolean",
 		);
 	return value;
 }
@@ -139,6 +153,24 @@ export function emitFallbackSettings(p: GatewayPolicy): string {
 		.join("\n");
 	if (!fallbackLines) return "";
 	return `litellm_settings:\n  fallbacks:\n${fallbackLines}\n`;
+}
+
+/** Emit the general_settings YAML block — the master key plus the W886
+ *  background health loop. general_settings is the section litellm reads
+ *  background_health_checks/health_check_interval from (docs.litellm.ai/
+ *  docs/proxy/health); caching the /health probes avoids the per-call token
+ *  cost. Dormant key-gated rows opt out per deployment in gateway-config. */
+export function emitGeneralSettings(p: GatewayPolicy): string {
+	const on = validateHealthChecks(
+		p.litellm_health_checks ?? DEFAULTS.litellm_health_checks,
+	);
+	return (
+		"general_settings:\n" +
+		"  master_key: os.environ/LITELLM_KEY\n" +
+		(on
+			? "  background_health_checks: true\n  health_check_interval: 300\n"
+			: "")
+	);
 }
 
 // ─── direct-tier bypass (W270, completed W289) ───

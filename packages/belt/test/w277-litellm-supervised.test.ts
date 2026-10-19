@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	DEFAULT_PATHS,
+	LITELLM_DOCS_OFF_ENV,
 	LITELLM_OK_STATUS,
 	type LitellmPaths,
 	litellmArgv,
@@ -165,6 +166,36 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 			"4100",
 		]);
 		expect(argv[0]).toEndWith("/.local/bin/litellm");
+	});
+
+	test("spawn env carries the docs-kill switches (W886), keys still load", async () => {
+		const p = paths();
+		const t = litellmTarget({
+			paths: p,
+			env: {},
+			port: freePort(),
+			argv: [
+				process.execPath,
+				"-e",
+				'console.log(JSON.stringify({ NO_DOCS: process.env.NO_DOCS, NO_REDOC: process.env.NO_REDOC, NO_OPENAPI: process.env.NO_OPENAPI, Z_AI_API_KEY: process.env.Z_AI_API_KEY }))',
+			],
+		});
+		const child = t.spawn?.();
+		await child?.exited;
+		const line =
+			readFileSync(p.log, "utf8").trimEnd().split("\n").pop() ?? "";
+		const env = JSON.parse(line) as Record<string, string | undefined>;
+		expect(env).toEqual({
+			NO_DOCS: "true",
+			NO_REDOC: "true",
+			NO_OPENAPI: "true",
+			Z_AI_API_KEY: ZAI,
+		});
+		expect(LITELLM_DOCS_OFF_ENV).toEqual({
+			NO_DOCS: "true",
+			NO_REDOC: "true",
+			NO_OPENAPI: "true",
+		});
 	});
 });
 

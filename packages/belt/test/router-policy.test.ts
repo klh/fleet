@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	emitClassTiers,
 	emitFallbackSettings,
+	emitGeneralSettings,
 	emitRouterSettings,
 	loadGatewayPolicy,
 	parsePolicy,
@@ -149,6 +150,28 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 			expect(() =>
 				parsePolicy(`gateway:\n  litellm_fallbacks: ${invalid}\n`),
 			).toThrow("must be a boolean");
+	});
+
+	test("background health checks default on, reject non-boolean, gate the general_settings block (W886)", () => {
+		expect(parsePolicy("version: 1\n").litellm_health_checks).toBe(true);
+		for (const invalid of ["null", "0", "1", '"true"', "[]", "{}"])
+			expect(() =>
+				parsePolicy(`gateway:\n  litellm_health_checks: ${invalid}\n`),
+			).toThrow("must be a boolean");
+		const on = Bun.YAML.parse(
+			emitGeneralSettings(parsePolicy("version: 1\n")),
+		) as { general_settings: Record<string, unknown> };
+		expect(on.general_settings.background_health_checks).toBe(true);
+		expect(on.general_settings.health_check_interval).toBe(300);
+		expect(on.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
+		const off = Bun.YAML.parse(
+			emitGeneralSettings({
+				...parsePolicy("version: 1\n"),
+				litellm_health_checks: false,
+			}),
+		) as { general_settings: Record<string, unknown> };
+		expect(off.general_settings.background_health_checks).toBeUndefined();
+		expect(off.general_settings.master_key).toBe("os.environ/LITELLM_KEY");
 	});
 
 	test("runtime copy overrides the committed default", () => {

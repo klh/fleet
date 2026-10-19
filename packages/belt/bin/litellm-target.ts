@@ -22,6 +22,18 @@ const HOME = process.env.HOME ?? "";
 export const LITELLM_PORT = 4100;
 export const LITELLM_OK_STATUS = [200, 401];
 
+// W886 (W499 surface 3): the schema surfaces stay dark on :4100 — the
+// generated litellm.yaml is the interface, and Swagger/Redoc/OpenAPI are
+// read-only recon surface past the gate (public-stack perimeter lesson).
+// LiteLLM parses these via str_to_bool, whose only truthy string is
+// "true" (secret_managers/main.py) — "1"/"yes" parse to None and the
+// surface STAYS SERVED. Default docs_url is "/" (Swagger at the root).
+export const LITELLM_DOCS_OFF_ENV: Record<string, string> = {
+	NO_DOCS: "true",
+	NO_REDOC: "true",
+	NO_OPENAPI: "true",
+};
+
 export interface LitellmPaths {
 	bin: string;
 	python: string;
@@ -180,7 +192,7 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 				stdin: "ignore",
 				stdout: fd,
 				stderr: fd,
-				env: { ...env, ...keys },
+				env: { ...env, ...keys, ...LITELLM_DOCS_OFF_ENV },
 			});
 		},
 	};
