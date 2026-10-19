@@ -31,6 +31,12 @@ if (args.includes("--ttft")) {
 	process.exit(await ttftMain(args));
 }
 
+// --cache: prompt-cache on/off baselines (bench-cache.ts, W864).
+if (args.includes("--cache")) {
+	const { cacheMain } = await import("./bench-cache.ts");
+	process.exit(await cacheMain(args));
+}
+
 const PROMPTS = [
 	{
 		name: "ts-dedupe",
