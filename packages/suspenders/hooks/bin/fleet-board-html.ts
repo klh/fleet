@@ -328,6 +328,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .activityolder[open] summary { margin-bottom:8px; }
 #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px, 92vw); background:var(--klh-overlay); border-left:1px solid var(--klh-edge-mid); box-shadow:-8px 0 24px var(--klh-shadow); padding:14px 16px 20px; overflow-y:auto; z-index:70; }
 .dwhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; }
+.drawerAction { margin:8px 0 12px; }
+.drawerAction:last-child { margin-bottom:0; }
+.drawerAction > label { display:block; margin-bottom:5px; color:var(--klh-dim); font-size:11px; }
+.drawerActionControls { display:flex; align-items:stretch; gap:8px; }
+.drawerActionControls > input, .drawerActionControls > select { flex:1; min-width:0; width:0; }
+.drawerActionControls > button { flex:none; white-space:nowrap; }
+@media (max-width:480px) { .drawerActionControls { flex-wrap:wrap; } .drawerActionControls > input, .drawerActionControls > select { width:100%; flex-basis:100%; } }
 #drawerTitle { margin:0; font-size:13px; font-weight:600; word-break:break-word; }
 #drawerClose { background:none; border:1px solid var(--klh-edge-strong); border-radius:2px; color:var(--klh-dim); font-size:14px; line-height:1; padding:3px 9px; cursor:pointer; margin-left:auto; }
 #drawerClose:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
