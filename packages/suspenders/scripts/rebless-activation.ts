@@ -14,7 +14,7 @@
 // Usage (owner-gated, never accidental):
 //   bun scripts/rebless-activation.ts --re-bless-activation \
 //       --confirm <manifest-sha-prefix (>=12 hex of the NEW candidate sha)>
-//       [--home <path>] [--prefix <path>] [--repo <path>]
+//       [--drop <label>]... [--home <path>] [--prefix <path>] [--repo <path>]
 // A run without --confirm dry-renders, prints the old-intent vs candidate
 // diff and names the sha to confirm — writes nothing. install.sh wires this
 // as: ./install.sh --re-bless-activation --confirm <sha-prefix>
@@ -40,6 +40,8 @@ export interface ReblessOptions {
 	/** Explicit owner intent — the verb refuses without it. */
 	intent: boolean;
 	confirm?: string;
+	/** W849: retired labels removed from prior-intent retention pre-merge. */
+	drop: string[];
 	/** Machine-level SUSPENDERS_SERVICE_PORTS_JSON override (install-launchd parity). */
 	portOverrides?: Record<string, number>;
 }
@@ -119,6 +121,20 @@ export function activationDiff(
 		if (!candidateLabels.has(label))
 			lines.push(`- ${label} (retained from prior intent, absent from candidate render)`);
 	return lines;
+}
+
+/** W849: retired labels leave prior intent BEFORE the retain merge — a
+ * retained ghost re-flags the watchdog every pass. Render entries always win. */
+export function dropActivationServices(
+	receipt: ActivationReceipt,
+	labels: readonly string[],
+): ActivationReceipt {
+	if (labels.length === 0) return receipt;
+	const drop = new Set(labels);
+	return {
+		...receipt,
+		services: receipt.services.filter((service) => !drop.has(service.label)),
+	};
 }
 
 function portOverrideFailure(overrides: Record<string, number>): string | null {
@@ -236,10 +252,17 @@ export function reblessActivation(
 	} finally {
 		rmSync(outDir, { recursive: true, force: true });
 	}
-	const diff = activationDiff(previous, candidate);
+	const retained = dropActivationServices(previous, options.drop);
+	const dropLines = options.drop.filter((label) =>
+		previous.services.some((service) => service.label === label),
+	);
+	const diff = [
+		...dropLines.map((label) => `- ${label} (dropped from prior intent)`),
+		...activationDiff(retained, candidate),
+	];
 	const failure = confirmFailure(options.confirm, activeSha);
 	if (failure !== null) return { wrote: false, refusal: failure, diff };
-	deps.publish(retainActivation(candidate, previous));
+	deps.publish(retainActivation(candidate, retained));
 	return {
 		wrote: true,
 		manifestSha256: activeSha,
@@ -267,11 +290,13 @@ export function parseReblessArgs(
 	const known = new Set([
 		"--re-bless-activation",
 		"--confirm",
+		"--drop",
 		"--home",
 		"--prefix",
 		"--repo",
 	]);
-	const valued = new Set(["--confirm", "--home", "--prefix", "--repo"]);
+	const valued = new Set(["--confirm", "--drop", "--home", "--prefix", "--repo"]);
+	const drops: string[] = [];
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i];
 		const flag = arg.replace(/=.*$/, "");
@@ -284,6 +309,7 @@ export function parseReblessArgs(
 			(!arg.includes("=") && inline.startsWith("--"))
 		)
 			return { ok: false, reason: `flag ${flag} needs a value` };
+		if (flag === "--drop") drops.push(inline);
 		if (!arg.includes("=")) i += 1;
 	}
 	const home = process.env.HOME ?? "";
@@ -296,6 +322,7 @@ export function parseReblessArgs(
 			repo: value("--repo") ?? join(import.meta.dir, ".."),
 			intent: argv.includes("--re-bless-activation"),
 			confirm: value("--confirm"),
+			drop: drops,
 			...(process.env.SUSPENDERS_SERVICE_PORTS_JSON === undefined
 				? {}
 				: {

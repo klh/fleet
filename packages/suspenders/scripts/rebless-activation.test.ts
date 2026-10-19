@@ -117,6 +117,7 @@ function options(
 		repo: fixture.repo,
 		intent: true,
 		confirm: digestUnit(readFileSync(fixture.genManifest)).slice(0, 12),
+		drop: [],
 		...overrides,
 	};
 }
@@ -162,6 +163,19 @@ test("parse: defaults, intent, values, refusals", () => {
 	const inline = parseReblessArgs([`--confirm=${"d".repeat(64)}`]);
 	expect(inline.ok).toBe(true);
 	if (inline.ok) expect(inline.options.confirm).toBe("d".repeat(64));
+	const withDrops = parseReblessArgs([
+		"--re-bless-activation",
+		"--drop",
+		"com.suspenders.fleet-loop",
+		"--drop=com.suspenders.local-llm",
+	]);
+	expect(withDrops.ok).toBe(true);
+	if (withDrops.ok)
+		expect(withDrops.options.drop).toEqual([
+			"com.suspenders.fleet-loop",
+			"com.suspenders.local-llm",
+		]);
+	expect(parseReblessArgs(["--drop"]).ok).toBe(false);
 	expect(parseReblessArgs(["--confirm"]).ok).toBe(false);
 	expect(parseReblessArgs(["--bogus"]).ok).toBe(false);
 	expect(parseReblessArgs(["--confirm", "--re-bless-activation"]).ok).toBe(false);
@@ -194,6 +208,32 @@ test("re-bless writes candidate intent with byte-exact shas and retention", () =
 		expect(receipt.services.some((s) => s.label === "com.suspenders.retired")).toBe(true);
 		expect(outcome.diff.join("\n")).toContain("+ com.suspenders.buckle-spoke");
 		expect(outcome.diff.join("\n")).toContain("~ com.suspenders.fleet-loop");
+	} finally {
+		f.cleanup();
+	}
+});
+
+test("--drop removes retired labels from prior intent pre-merge", () => {
+	const f = fixture();
+	try {
+		writeActivation(
+			join(f.home, ".config/klh/service-activation.json"),
+			receiptFixture(f.home),
+		);
+		const outcome = reblessActivation(
+			options(f, { drop: ["com.suspenders.retired", "com.suspenders.absent"] }),
+			deps(f),
+		);
+		expect(outcome.wrote).toBe(true);
+		if (!outcome.wrote) return;
+		const labels = f.published[0].services.map((service) => service.label);
+		expect(labels).not.toContain("com.suspenders.retired");
+		// the render is authoritative: a dropped label still rendered survives
+		expect(labels).toContain("com.suspenders.fleet-loop");
+		const joined = outcome.diff.join("\n");
+		expect(joined).toContain("- com.suspenders.retired (dropped from prior intent)");
+		expect(joined).not.toContain("(retained from prior intent");
+		expect(joined).not.toContain("com.suspenders.absent");
 	} finally {
 		f.cleanup();
 	}
