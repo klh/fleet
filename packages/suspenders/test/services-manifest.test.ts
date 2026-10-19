@@ -116,12 +116,29 @@ describe("services manifest (W488.1)", () => {
 		const d = parsePlistXml(rendered);
 		expect(d.Label).toBe("com.suspenders.belt-swarm");
 		expect(d.AbandonProcessGroup).toBe(true);
-		const args = d.ProgramArguments as string[];
-		expect(args[2]).toBe("supervise");
-		expect(args[1]).toEndWith(".claude/local-llm/swarm.ts");
 		const env = d.EnvironmentVariables as { [k: string]: string };
 		expect(env.BELT_WIRED_GUARD_GB).toBe("90");
 		expect(env.PATH).toContain("mlx-lm");
+	});
+
+	test("belt-swarm sources belt.env into the unit env — children inherit LITELLM_KEY (W876)", () => {
+		const spec = byName("belt-swarm");
+		// PATH reference only — the secret value never enters the manifest
+		expect(spec.envFile).toEqual(["__HOME__/.claude/local-llm/belt.env"]);
+		const d = parsePlistXml(renderDarwin(spec, FIXTURE));
+		const args = d.ProgramArguments as string[];
+		// envFile renders the source-and-exec argv: the 0600 file is sourced
+		// with export enabled before the supervisor execs, so the swarm and
+		// its children ride the env passthrough at every reboot spawn
+		expect(args[0]).toBe("/bin/sh");
+		expect(args[1]).toBe("-c");
+		expect(args[2]).toBe('set -ae; . "$1"; shift; exec "$@"');
+		expect(args[3]).toBe("fleet-belt-swarm");
+		expect(args[4]).toBe(`${FIXTURE.home}/.claude/local-llm/belt.env`);
+		// direct args follow the sourced files: bun, entry, then "supervise"
+		expect(args[5]).toBe(FIXTURE.bun);
+		expect(args[6]).toEndWith(".claude/local-llm/swarm.ts");
+		expect(args[7]).toBe("supervise");
 	});
 	test("belt defaults match install.sh ($BELT_URL / $BELT_TOKEN with fallbacks)", () => {
 		const prevUrl = process.env.BELT_URL;
@@ -252,7 +269,10 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("intervalSeconds renders a timer with OnBootSec + OnUnitActiveSec", () => {
 		const timer = renderLinuxTimer(
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
 		);
 		if (timer === null) throw new Error("every15 timer missing");
 		const ini = parseIni(timer);
@@ -264,7 +284,10 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("calendar maps to OnCalendar + Persistent (daily 10:00)", () => {
 		const timer = renderLinuxTimer(
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 		);
 		if (timer === null) throw new Error("daily10 timer missing");
 		const ini = parseIni(timer);
@@ -274,8 +297,14 @@ describe("services manifest linux (W488.2)", () => {
 
 	test("timer-backed services are Type=oneshot; residents Restart, never both", () => {
 		const timerSvcs = [
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 		].map((s) => parseIni(renderLinux(s, FIXTURE)).Service);
 		for (const svc of timerSvcs) {
 			expect(svc?.Type).toBe("oneshot");
@@ -286,7 +315,9 @@ describe("services manifest linux (W488.2)", () => {
 	});
 
 	test("Nice maps to Nice= (belownormal heavy tasks)", () => {
-		const ini = parseIni(renderLinux(synth({ name: "heavy", nice: 10 }), FIXTURE));
+		const ini = parseIni(
+			renderLinux(synth({ name: "heavy", nice: 10 }), FIXTURE),
+		);
 		expect(ini.Service?.Nice).toBe("10");
 	});
 
@@ -373,7 +404,10 @@ describe("services manifest win32 (W488.3)", () => {
 		const relay = winByName("consult-relay");
 		expect(relay).toContain('<onfailure action="restart" delay="10 sec"/>');
 		const daily = renderWin32(
-			synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } }),
+			synth({
+				name: "daily10",
+				schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+			}),
 			FIXTURE,
 		);
 		expect(daily).not.toMatch(/^\s*<onfailure/m);
@@ -381,7 +415,10 @@ describe("services manifest win32 (W488.3)", () => {
 		expect(daily).toContain("/ST 10:00");
 		expect(daily).toContain("/TN suspenders-daily10");
 		const every = renderWin32(
-			synth({ name: "every15", schedule: { runAtLoad: false, intervalSeconds: 900 } }),
+			synth({
+				name: "every15",
+				schedule: { runAtLoad: false, intervalSeconds: 900 },
+			}),
 			FIXTURE,
 		);
 		expect(every).toContain("/SC MINUTE /MO 15");
@@ -394,7 +431,10 @@ describe("services manifest win32 (W488.3)", () => {
 	});
 
 	test("renderUnits file contract: primary + timer naming, all three targets", () => {
-		const daily = synth({ name: "daily10", schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } } });
+		const daily = synth({
+			name: "daily10",
+			schedule: { runAtLoad: false, calendar: { hour: 10, minute: 0 } },
+		});
 		const backupUnits = renderUnits("linux", daily, FIXTURE);
 		expect(backupUnits.map((u) => u.file)).toEqual([
 			"suspenders-daily10.service",
@@ -428,8 +468,7 @@ describe("services manifest win32 (W488.3)", () => {
 	test("legacyLabels: loader returns the manifest list, strings only", () => {
 		expect(loadLegacyLabels()).toContain("com.klh.kev");
 		expect(loadLegacyLabels()).toContain("com.klh-local.dashboard");
-		for (const l of loadLegacyLabels())
-			expect(typeof l).toBe("string");
+		for (const l of loadLegacyLabels()) expect(typeof l).toBe("string");
 	});
 
 	test("legacyLabels: never a live service name", () => {

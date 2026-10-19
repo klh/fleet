@@ -5,6 +5,11 @@
 	<string>com.suspenders.belt-swarm</string>
 	<key>ProgramArguments</key>
 	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>set -ae; . "$1"; shift; exec "$@"</string>
+		<string>fleet-belt-swarm</string>
+		<string>__HOME__/.claude/local-llm/belt.env</string>
 		<string>__BUN__</string>
 		<string>__HOME__/.claude/local-llm/swarm.ts</string>
 		<string>supervise</string>

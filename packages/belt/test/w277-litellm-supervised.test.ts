@@ -4,7 +4,6 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { livenessReport } from "../bin/liveness.ts";
 import {
 	DEFAULT_PATHS,
 	LITELLM_OK_STATUS,
@@ -14,6 +13,7 @@ import {
 	loadKeys,
 	prismaPreflight,
 } from "../bin/litellm-target.ts";
+import { livenessReport } from "../bin/liveness.ts";
 import {
 	fleetTargets,
 	probeTarget,
@@ -52,6 +52,11 @@ const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
 		...DEFAULT_PATHS,
 		zaiConfig,
 		masterKeyFile,
+		// pinned into the tmpdir like the other keys — spreading DEFAULT_PATHS
+		// left the optional-key files on the REAL machine paths, so loadKeys
+		// hoisted live secret values into test output (W670 fixture-knob family)
+		anthropicKeyFile: join(dir, "anthropic-absent.key"),
+		copilotKeyFile: join(dir, "copilot-absent.key"),
 		log: join(dir, "litellm.log"),
 		...over,
 	};
