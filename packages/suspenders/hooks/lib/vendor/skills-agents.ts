@@ -1,5 +1,5 @@
 // hooks/lib/vendor/skills-agents.ts — VENDORED, not hand-written here (W298).
-// Source: vercel-labs/skills, src/agents.ts @ npm skills@1.7.0, MIT license
+// Source: vercel-labs/skills, src/agents.ts @ npm skills@1.7.2, MIT license
 // (SKILLS-LICENSE in this directory). Copied verbatim — detection logic for
 // 70+ CLI/agent tool homes is exactly as upstream maintains it; do not hand-
 // edit entries here. Add fleet-specific wiring metadata in ../targets.ts
@@ -323,7 +323,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'codex',
     displayName: 'Codex',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(codexHome, 'skills'),
+    globalSkillsDir: join(home, '.agents', 'skills'),
     detectInstalled: async () => {
       return existsSync(codexHome) || existsSync('/etc/codex');
     },
