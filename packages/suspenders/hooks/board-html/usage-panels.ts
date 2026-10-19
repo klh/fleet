@@ -187,7 +187,6 @@ export class KlhUsageHeader extends LitElement {
 	}
 
 	private body(h: UsageHeaderPanel): TemplateResult {
-		const demo = h.demoToggle;
 		return html`<div class="uback">
 				<a href="/">&larr; fleet board</a><span class="uwin">${h.back}</span>
 			</div>
@@ -197,13 +196,6 @@ export class KlhUsageHeader extends LitElement {
 				${this.chips("team", h.teams, "ufchip")}
 				${this.chips("dept", h.depts, "ufchip")}
 				${h.filtered ? html`<span class="uon">${h.filtered}</span>` : nothing}
-				${
-					demo
-						? html`<a class="ufilter${demo.on ? " on" : ""}" href=${demo.href}
-							>${demo.label}</a
-						>`
-						: nothing
-				}
 				<span class="uon">${h.status}</span>
 			</div>`;
 	}

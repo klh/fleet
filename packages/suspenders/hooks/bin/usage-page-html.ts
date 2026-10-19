@@ -153,19 +153,10 @@ function headerData(
 		filtered: active.length
 			? `dashboard filtered: ${active.join(", ")}`
 			: undefined,
-		demoToggle: v2
-			? undefined
-			: {
-					label: includeDemo
-						? "Hide synthetic demo usage"
-						: "Include synthetic demo usage",
-					href: href({ includeDemo: !includeDemo }),
-					on: includeDemo,
-				},
 		status:
 			includeDemo && !v2
 				? "Synthetic demo usage included"
-				: `${v2 ? "Verified transcript usage" : "Legacy aggregate usage"} · ${r.demo?.excludedActors ?? 0} synthetic actors excluded${legacy}`,
+				: `${v2 ? "Verified transcript usage" : "Legacy aggregate usage"}${legacy}`,
 	};
 }
 

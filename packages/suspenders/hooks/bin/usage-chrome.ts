@@ -150,7 +150,6 @@ export interface UsageHeaderPanel {
 	teams: UsageChip[];
 	depts: UsageChip[];
 	filtered?: string;
-	demoToggle?: UsageChip;
 	status: string;
 }
 export interface UsagePanels {

@@ -70,6 +70,58 @@ describe("crossHubLabels", () => {
 	});
 });
 
+describe("resolveHubEndpoints case tolerance", () => {
+	test("matches registry keys case-insensitively (NAS registry vs nas label)", async () => {
+		const { resolveHubEndpoints } = await lib();
+		const upper = join(HOME, "hubs-upper.json");
+		writeFileSync(
+			upper,
+			JSON.stringify({
+				NAS: { candidates: ["http://127.0.0.1:9401"], token: "nastok" },
+			}),
+		);
+		const eps = resolveHubEndpoints("nas", {
+			env: { HOME, KLH_STACK: STACK, SUSPENDERS_HUBS_FILE: upper },
+			stack: null,
+		});
+		expect(eps).toEqual([
+			{ url: "http://127.0.0.1:9401", via: "hubs.json", token: "nastok" },
+		]);
+	});
+});
+
+describe("crossHubRollup case-mismatch config", () => {
+	test("lowercase stack label + uppercase registry key resolves and reports", async () => {
+		const m = await lib();
+		m.clearCrossHubTtl();
+		const upper = join(HOME, "hubs-upper.json");
+		writeFileSync(
+			upper,
+			JSON.stringify({
+				NAS: { candidates: ["http://127.0.0.1:9401"], token: "nastok" },
+			}),
+		);
+		const stack = join(HOME, "stack-lower.yaml");
+		writeFileSync(stack, "hubs:\n  nas: {}\n");
+		const rep = await m.crossHubRollup({
+			days: 7,
+			// the stack travels via opts (STACK_PATH reads process.env, not the
+			// per-call env) — a lowercase-profile stack exercises the split
+			stack: { hubs: { nas: {} } } as never,
+			env: { HOME, KLH_STACK: stack, SUSPENDERS_HUBS_FILE: upper },
+			fetch: async (): Promise<
+				{ ok: true; wire: unknown } | { ok: false; why: string }
+			> => ({
+				ok: true,
+				wire: { ok: true, spokes: 1, windows: [], aids: [] },
+			}),
+		});
+		expect(rep.rows[0]?.label).toBe("nas");
+		expect(rep.rows[0]?.ok).toBe(true);
+		expect(rep.rows[0]?.via).toBe("hubs.json");
+	});
+});
+
 describe("rollupHubWire", () => {
 	test("sums windows per class + aids per (aid,domain)", async () => {
 		const { rollupHubWire } = await lib();
@@ -162,21 +214,14 @@ describe("crossHubRollup", () => {
 		{ ok: true; wire: Record<string, unknown> } | { ok: false; why: string }
 	> => {
 		calls += 1;
-		if (!url.includes("8501"))
-			return { ok: false, why: "hub answered 503" };
+		if (!url.includes("8501")) return { ok: false, why: "hub answered 503" };
 		return {
 			ok: true,
 			wire: { ok: true, spokes: 1, windows: [], aids: [] },
 		};
 	};
 	const endpoints = (l: string): unknown =>
-		l === "hub-a"
-			? [epA]
-			: l === "hub-b"
-				? [epB]
-				: l === "hub-d"
-					? [epD]
-					: [];
+		l === "hub-a" ? [epA] : l === "hub-b" ? [epB] : l === "hub-d" ? [epD] : [];
 
 	test("degrades per hub, summarizes ok hubs", async () => {
 		const m = await lib();
@@ -236,11 +281,13 @@ describe("usagePage crosshub slice", () => {
 		demo: { included: false, excludedActors: 0 },
 	} as never;
 	const panelsOf = (html: string): Record<string, unknown> =>
-		((JSON.parse(
-			html.match(
-				/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
-			)?.[1] ?? "{}",
-		) as { panels?: unknown }).panels ?? {}) as Record<string, unknown>;
+		((
+			JSON.parse(
+				html.match(
+					/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
+				)?.[1] ?? "{}",
+			) as { panels?: unknown }
+		).panels ?? {}) as Record<string, unknown>;
 	const row = (p: Record<string, unknown>): Record<string, unknown> => ({
 		label: "x",
 		ok: true,
