@@ -9,6 +9,7 @@ import { beltRegistry } from "./belt.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
 import { localSwarmEntries } from "./local-swarm.ts";
 import { json } from "./helpers.ts";
+import { orchTargets } from "./orch-targets.ts";
 import { syncDecisions, projectList, unblockedBy } from "./lanes.ts";
 import { decisionEvals } from "./decide-eval.ts";
 import { readUserPlane } from "../lib/repo-laws.ts";
@@ -99,6 +100,16 @@ export async function handleData(
 ): Promise<Response | null> {
 	if (url.pathname === "/api/recovery")
 		return json(recoverySnapshot(db, url.searchParams.get("project")));
+	if (url.pathname === "/api/orchestrate/targets") {
+		const project = url.searchParams.get("project") ?? "";
+		const id = url.searchParams.get("id") ?? "";
+		if (!project || !id)
+			return json({ ok: false, error: "project and id required" }, 400);
+		const targets = orchTargets(db as unknown as Database, project, id);
+		return targets
+			? json({ ok: true, targets })
+			: json({ ok: false, error: "work item not found" }, 404);
+	}
 	if (url.pathname === "/api/data") {
 		const sid = url.searchParams.get("session") ?? "";
 		return json(sid ? payloadFor(sid) : payload());

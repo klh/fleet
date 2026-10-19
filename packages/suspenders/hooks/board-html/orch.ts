@@ -7,6 +7,7 @@ export const ORCH = String.raw`// --- W57 orchestrate box: LLM proposes a plan +
 // /api/orchestrate → /api/orchestrate/register). Target = the global project
 // filter; the proposal is read-only until registered.
 var orch = { busy: false, regBusy: false, err: null, prop: null, model: '', ms: 0, proj: '' };
+var orchCtx = null; // {id, project, route, targets, loading, sent}
 // W163 composer suggest: draft -> brief-shaped prompt via /api/suggest
 var sugg = { busy: false };
 function orchProject(){
@@ -15,12 +16,16 @@ function orchProject(){
 }
 function renderOrch(){
 	var host = byId('orch');
-	if (host && (orch.busy || orch.regBusy || orch.prop || orch.err)) host.open = true;
+	if (host && (orch.busy || orch.regBusy || orch.prop || orch.err || orchCtx)) host.open = true;
+  renderOrchContext();
   var errEl = byId('orchErr');
   if (orch.err) errBanner(errEl, orch.err, function(){ orch.err = null; renderOrch(); });
   else clearErr(errEl);
   var go = byId('orchGo');
-  if (go) { go.disabled = orch.busy; setText(go, orch.busy ? 'proposing…' : 'orchestrate'); }
+  if (go) {
+    go.disabled = orch.busy || !!(orchCtx && (orchCtx.loading || !orchCtx.targets || !orchCtx.targets[orchCtx.route]));
+    setText(go, orch.busy ? (orchCtx ? 'sending…' : 'proposing…') : (orchCtx ? 'send to ' + orchCtx.route : 'orchestrate'));
+  }
   var sb = byId('orchSuggest');
   if (sb) { sb.disabled = sugg.busy; setText(sb, sugg.busy ? 'suggesting…' : 'suggest'); }
   var out = byId('orchOut');
@@ -39,6 +44,55 @@ function renderOrch(){
     '<button type="button" class="orchdisc" id="orchDisc">discard</button></div></div>';
   sigSet(out, JSON.stringify(orch.prop) + orch.busy + orch.regBusy, h);
 }
+function renderOrchContext(){
+  var row = byId('orchContext'), pp = byId('orchPreview');
+  if (!row) return;
+  row.hidden = !orchCtx;
+  if (pp) pp.hidden = !!orchCtx;
+  if (!orchCtx) return;
+  setText(byId('orchWorkPill'), orchCtx.id + ' · ' + projShort(orchCtx.project));
+  var selRoute = byId('orchRoute');
+  for (var i = 0; i < selRoute.options.length; i++) {
+    var opt = selRoute.options[i];
+    opt.disabled = !orchCtx.targets || !orchCtx.targets[opt.value];
+  }
+  selRoute.value = orchCtx.route;
+  setText(byId('orchDestination'), orchCtx.loading ? 'resolving recipient…' :
+    (orchCtx.targets && orchCtx.targets[orchCtx.route] ? orchCtx.targets[orchCtx.route] : 'no recipient available') +
+    (orchCtx.sent ? ' · ' + orchCtx.sent : ''));
+}
+function activateOrchForTask(id, project){
+  if (!id || !project) return;
+  var ctx = { id: id, project: project, route: 'lane', targets: null, loading: true, sent: '' };
+  orchCtx = ctx; orch.err = null; orch.prop = null;
+  var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear();
+  renderOrch();
+  byId('orch').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  fetch('/api/orchestrate/targets?project=' + encodeURIComponent(project) + '&id=' + encodeURIComponent(id), { signal: AbortSignal.timeout(8000) })
+    .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || 'recipient lookup failed'); return j.targets; }); })
+    .then(function(targets){
+      if (orchCtx !== ctx) return;
+      ctx.targets = targets; ctx.loading = false;
+      ctx.route = targets.lane ? 'lane' : targets.parent ? 'parent' : 'supervisor';
+      renderOrch(); byId('orchGoal').focus();
+    })
+    .catch(function(e){ if (orchCtx !== ctx) return; ctx.loading = false; orch.err = String(e); renderOrch(); });
+}
+function orchRouteMessage(goal){
+  var ctx = orchCtx;
+  if (!ctx || !ctx.targets || !ctx.targets[ctx.route]) { orch.err = 'no recipient for this work item'; renderOrch(); return; }
+  if (goal.length > 2000) { orch.err = 'message exceeds 2000 characters'; renderOrch(); return; }
+  orch.busy = true; orch.err = null; ctx.sent = ''; renderOrch();
+  postJSON('/api/message', { id: ctx.id, project: ctx.project, target: ctx.route, note: goal })
+    .then(function(j){
+      if (orchCtx !== ctx) return;
+      orch.busy = false;
+      if (j && j.ok) { ctx.sent = 'sent'; byId('orchGoal').value = ''; }
+      else orch.err = String((j && (j.error || j.output)) || 'send failed');
+      renderOrch();
+    })
+    .catch(function(e){ if (orchCtx !== ctx) return; orch.busy = false; orch.err = String(e); renderOrch(); });
+}
 // W270 — debug/log mode previews the transformed prompt first; the preview
 // element emits klh-dispatch ("dispatch anyway") to send it
 function orchPreviewEl(){
@@ -47,6 +101,12 @@ function orchPreviewEl(){
 }
 function doOrchestrate(){
   if (orch.busy || orch.regBusy) return;
+  if (orchCtx) {
+    var message = (byId('orchGoal').value || '').trim();
+    if (!message) { orch.err = 'type a message first'; renderOrch(); return; }
+    orchRouteMessage(message);
+    return;
+  }
   var proj = orchProject();
   if (!proj) { orch.err = 'pick a project in the header filter first'; orch.prop = null; renderOrch(); return; }
   var goal = (byId('orchGoal').value || '').trim();
@@ -107,11 +167,13 @@ function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; re
     });
     host.addEventListener('mouseleave', function(){
       hoverOpened = false;
-      if (orch.busy || orch.regBusy || orch.prop || orch.err || byId('orchGoal').value.trim() || host.contains(document.activeElement)) return;
+      if (orch.busy || orch.regBusy || orch.prop || orch.err || orchCtx || byId('orchGoal').value.trim() || host.contains(document.activeElement)) return;
       host.open = false;
     });
   }
   var inp = byId('orchGoal');
+  byId('orchRoute').addEventListener('change', function(e){ if (orchCtx) { orchCtx.route = e.target.value; orchCtx.sent = ''; renderOrch(); } });
+  byId('orchClear').addEventListener('click', function(){ orchCtx = null; orch.err = null; byId('orchGoal').value = ''; renderOrch(); });
   if (inp) inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doOrchestrate(); } });
   if (inp) inp.addEventListener('input', function(){ var pp = byId('orchPreview'); if (pp && pp.clear) pp.clear(); });
   document.addEventListener('klh-dispatch', function(e){ var d = e.detail || {}; if (d.project && d.goal) orchSend(d.project, d.goal, d.previewId); });

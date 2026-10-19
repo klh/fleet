@@ -182,6 +182,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .orch[open] summary::before { content:'−'; }
 .orch summary .dim { font-weight:400; letter-spacing:0; }
 .orchbody { border-top:1px solid var(--klh-edge); padding:10px 12px; }
+.orchcontext { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:9px; font-size:11px; }
+.orchpill { border:1px solid var(--klh-accent); border-radius:3px; color:var(--klh-accent); padding:2px 7px; font:11px var(--klh-font-mono); }
+.orchcontext select { font-size:11px; }
+#orchDestination { font-family:var(--klh-font-mono); }
+#orchClear { margin-left:auto; border:0; background:none; color:var(--klh-dim); cursor:pointer; font-size:16px; }
+.korch { display:block; margin-top:8px; padding:2px 0; border:0; background:none; color:var(--klh-accent); cursor:pointer; font:11px var(--klh-font-mono); }
+.korch:hover { text-decoration:underline; text-underline-offset:3px; }
 .orchrow { display:flex; gap:8px; align-items:center; }
 #orchGoal { flex:1; background:var(--klh-field); color:var(--klh-ink); border:1px solid var(--klh-edge-mid); border-radius:4px; font:12px var(--klh-font-mono); padding:5px 8px; resize:none; }
 #orchGoal:focus { outline:none; border-color:var(--klh-accent); }

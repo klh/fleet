@@ -414,6 +414,7 @@ function kanbanCard(t, fam){
       '<button type="button" class="kstart" data-reassign="' + esc(t.id) + '" data-reassignproj="' + esc(t.project || '') + '" title="release + re-dispatch on the chosen executor (capsule is the handoff)">↻</button>' +
       '<button type="button" class="kstart" data-unclaim="' + esc(t.id) + '" data-unclaimproj="' + esc(t.project || '') + '" title="release the claim — a live lane is asked to bank its capsule and exit">⏏</button></div>';
   }
+  html += '<button type="button" class="korch" data-orch="' + esc(t.id) + '" data-orchproj="' + esc(t.project || '') + '" aria-label="Orchestrate for ' + esc(t.id) + '">prompt ↗</button>';
   return html + '</div>';
 }
 // --- W214 dependency splines — blocked edges (thin orange) + shattered-parent

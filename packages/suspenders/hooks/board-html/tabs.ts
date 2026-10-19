@@ -66,6 +66,8 @@ byId('tasksTbl').addEventListener('click', function(e){
   if (b) openTask(b.getAttribute('data-task'), b.getAttribute('data-proj'), b);
 });
 byId('kanban').addEventListener('click', function(e){
+  var o = e.target.closest && e.target.closest('[data-orch]');
+  if (o) { activateOrchForTask(o.getAttribute('data-orch'), o.getAttribute('data-orchproj')); return; }
   var s = e.target.closest && e.target.closest('[data-start]');
   if (s) {
     var card = s.closest('.kcard');

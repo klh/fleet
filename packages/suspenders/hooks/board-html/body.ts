@@ -18,6 +18,17 @@ export const BODY = String.raw`
 <details id="orch" class="orch">
   <summary>Orchestrate <span class="dim">Turn a goal into a plan</span></summary>
   <div class="orchbody">
+    <div id="orchContext" class="orchcontext" hidden>
+      <span id="orchWorkPill" class="orchpill"></span>
+      <label for="orchRoute">send to</label>
+      <select id="orchRoute" aria-label="prompt destination">
+        <option value="lane">this agent</option>
+        <option value="parent">parent agent</option>
+        <option value="supervisor">supervisor</option>
+      </select>
+      <span id="orchDestination" class="dim"></span>
+      <button id="orchClear" type="button" aria-label="clear work item target">×</button>
+    </div>
     <div class="orchrow">
       <textarea id="orchGoal" rows="1" placeholder="Describe the work to plan" aria-label="orchestration goal"></textarea>
       <button id="orchSuggest" type="button" hidden>suggest</button>

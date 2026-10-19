@@ -7,6 +7,7 @@ import { resolveLlmTarget } from "./executor-catalog.ts";
 import { runCli, laneExecFacts, llmRoute, localSwarmChat } from "./exec.ts";
 import { specialistByPort } from "./local-swarm.ts";
 import { json, writeGuard, readJson } from "./helpers.ts";
+import { orchRecipient, orchTargets, type OrchRoute } from "./orch-targets.ts";
 import {
 	syncDecisions,
 	pidAlive,
@@ -724,20 +725,38 @@ export async function handleActions(
 		const parsed = await readJson(req);
 		if (!parsed.ok) return parsed.resp;
 		const id = String(parsed.body?.id ?? "");
+		const project = String(parsed.body?.project ?? "");
+		const route = String(parsed.body?.target ?? "lane");
 		const note = String(parsed.body?.note ?? "")
 			.trim()
 			.slice(0, 2000);
 		if (!id || !note)
 			return json({ ok: false, error: "missing id or note" }, 400);
-		const w = db
-			.query(
-				"SELECT owner_sid FROM work_items WHERE id = ? ORDER BY updated_at DESC LIMIT 1",
-			)
-			.get(id) as { owner_sid: string | null } | null;
-		if (!w) return json({ ok: false, error: `unknown work item: ${id}` }, 404);
-		if (!w.owner_sid)
+		if (route !== "lane" && route !== "parent" && route !== "supervisor")
+			return json({ ok: false, error: "unknown message target" }, 400);
+		if (route !== "lane" && !project)
 			return json(
-				{ ok: false, error: `work item ${id} has no owning lane` },
+				{ ok: false, error: "project required for routed message" },
+				400,
+			);
+		const targets = project ? orchTargets(db, project, id) : null;
+		const legacy = !project
+			? (db
+					.query(
+						"SELECT owner_sid FROM work_items WHERE id = ? ORDER BY updated_at DESC LIMIT 1",
+					)
+					.get(id) as { owner_sid: string | null } | null)
+			: null;
+		if (project && !targets)
+			return json({ ok: false, error: `unknown work item: ${id}` }, 404);
+		if (!project && !legacy)
+			return json({ ok: false, error: `unknown work item: ${id}` }, 404);
+		const to = targets
+			? orchRecipient(targets, route as OrchRoute)
+			: (legacy?.owner_sid ?? null);
+		if (!to)
+			return json(
+				{ ok: false, error: `work item ${id} has no ${route} recipient` },
 				404,
 			);
 		const as =
@@ -746,7 +765,7 @@ export async function handleActions(
 					.query("SELECT value FROM facts WHERE key = 'coordinator.sid'")
 					.get() as { value: string } | null
 			)?.value ?? "fleet-board";
-		const full = `board ${id} — ${note}`;
+		const full = `board ${id}${project ? ` (${project})` : ""} — ${note}`;
 		const p = Bun.spawnSync(
 			[
 				process.execPath,
@@ -754,7 +773,7 @@ export async function handleActions(
 				"emit",
 				"NOTE",
 				"--to",
-				w.owner_sid,
+				to,
 				"--note",
 				full,
 				"--as",
@@ -764,11 +783,8 @@ export async function handleActions(
 		);
 		const out = `${p.stdout.toString()} ${p.stderr.toString()}`.trim();
 		if (p.exitCode !== 0)
-			return json(
-				{ ok: false, output: out.slice(0, 400), to: w.owner_sid },
-				500,
-			);
-		return json({ ok: true, to: w.owner_sid, as });
+			return json({ ok: false, output: out.slice(0, 400), to }, 500);
+		return json({ ok: true, to, as, target: route });
 	}
 	if (req.method === "POST" && url.pathname === "/api/start") {
 		// W65/W182 — start-on-READY: the route validates + normalizes the
