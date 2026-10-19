@@ -21,6 +21,19 @@
   <script type="module">
     import {LitElement, html, css} from '/vendor/lit-shared.js';
     import {observationFresh} from '/observation.js';
+    // W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+    const dualStamp = (ms) => {
+      if (!ms) return '';
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return String(ms);
+      const p = (n) => String(n).padStart(2, '0');
+      const off = -d.getTimezoneOffset();
+      const a = Math.abs(off);
+      const sg = off >= 0 ? '+' : '-';
+      const utc = d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const loc = `local ${p(d.getHours())}:${p(d.getMinutes())}, UTC${sg}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+      return `${utc} (${loc})`;
+    };
     class LocalBoard extends LitElement {
       static properties = { snapshot:{state:true}, error:{state:true}, pending:{state:true}, query:{state:true}, attention:{state:true}, now:{state:true} };
       static styles = css`
@@ -64,7 +77,7 @@
         return html`
           <header><h1>Local services</h1><p class="mut">Caddy routes, configured endpoint checks and mDNS registrations.</p>
           <p role="status" class=${stale?'bad':'mut'}>${snapshot?`${stale?'Stale snapshot':'Last observation'} · ${age}s ago`:'Waiting for first observation'}${this.pending?' · refreshing':''}</p></header>
-          ${snapshot?.observation?html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires ${new Date(snapshot.observation.expiresAt).toLocaleTimeString()}</p>`:''}
+          ${snapshot?.observation?html`<p class="mut">Evidence: ${snapshot.observation.source} · ${snapshot.observation.scope} · expires ${dualStamp(snapshot.observation.expiresAt)}</p>`:''}
           ${this.error?html`<p class="notice bad" role="alert">${this.error}. ${snapshot?'Showing the last successful snapshot.':'No service state is available yet.'}</p>`:''}
           ${snapshot?.error?html`<p class="notice bad" role="alert">${snapshot.error}</p>`:''}
           <h2>Caddy front</h2>

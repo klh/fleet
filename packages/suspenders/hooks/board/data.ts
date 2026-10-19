@@ -21,6 +21,7 @@ import {
 } from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
+import { utcZ } from "../lib/wallclock.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
 import {
 	BIND,
@@ -94,6 +95,10 @@ export function taskShape(
 		scope: w.scope ?? null,
 		parent_id: w.parent_id ?? null,
 		age_s: ago(w.updated_at),
+		// W902: absolute stamps travel as UTC ISO-Z; the board chunk renders the
+		// viewer-local twin beside them (server never guesses the client TZ)
+		created_at_utc: utcZ(w.created_at),
+		updated_at_utc: utcZ(w.updated_at),
 		open_decisions: openDecisions,
 		tail:
 			done ??

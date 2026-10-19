@@ -698,7 +698,10 @@ describe("crash resume budget", () => {
 		expect(dispatchWith(extra, "--item", id).out).toContain(
 			"launch budget exhausted",
 		);
-		expect(dispatchWith(extra, "--item", id).out).not.toContain("(pid");
+		const suppressed = dispatchWith(extra, "--item", id);
+		expect(suppressed.out).not.toContain("(pid");
+		// W782.4: the second refusal is the flag suppressing the re-emit.
+		expect(suppressed.out).toContain("NEED_DECISION suppressed (W782.4)");
 	}, 60_000);
 
 	test("exhausted dead claim is preserved on preview and failed before another launch", () => {

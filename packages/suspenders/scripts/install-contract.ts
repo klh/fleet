@@ -502,5 +502,8 @@ export interface InstallOutcome {
 	steps: StepOutcomeRow[];
 	pauses: PauseRow[];
 	agent_next_steps: AgentNextStep[];
+	/** W899: the `work report` table from the install tail (plan mode, real
+	 *  installs) — null when the tail could not prove the verb live. */
+	report_table?: string | null;
 	contract: InstallContract;
 }

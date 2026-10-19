@@ -27,6 +27,7 @@ import {
 	type ResolvedFlags,
 } from "./install-cli.ts";
 import { executePlan, type StepContext } from "./install-run.ts";
+import { reportTail } from "./install-report-tail.ts";
 
 const HELP = `
 Usage
@@ -168,21 +169,32 @@ async function main(): Promise<void> {
 		console.log(JSON.stringify(doc, null, "\t"));
 	} else {
 		renderHuman(doc);
+		if (doc.report_table !== undefined)
+			console.log(
+				doc.report_table === null
+					? "\nWORK REPORT: FAILED — the work report verb did not run from the installed prefix (see the error above)"
+					: `
+WORK REPORT (via the PATH shim from ${paths.prefix}):
+${doc.report_table}`,
+			);
 	}
-	// W892/W899 (owner GO 2026-10-19): every install ends with the supervisor
-	// micro-metrics table - the install itself proves the reporter is live.
-	if (!flags.json && !flags.dryRun) {
-		const rep = Bun.spawnSync(
-			[
-				"bun",
-				new URL("../hooks/bin/fleet-report.ts", import.meta.url).pathname,
-			],
-			{ stdout: "inherit", stderr: "inherit" },
-		);
-		if (rep.exitCode !== 0)
-			console.log(`(fleet-report unavailable: exit ${String(rep.exitCode)})`);
+	// W899: the install tail CALLS the W892 verb — `work report` through the
+	// installed prefix's PATH shim — as the CONSENTED install's final section
+	// (a dead tail fails the install, never a silent skip; paused/dry plans
+	// skip: nothing installed, nothing to prove).
+	if (mode === "plan" && !flags.dryRun && flags.yes) {
+		const tail = reportTail({ prefix: paths.prefix, shimBin: paths.shimBin });
+		doc.report_table = tail.ok ? tail.out : null;
+		if (!tail.ok) {
+			console.error(
+				`install: WORK REPORT tail FAILED — ${tail.err || "no output"}`,
+			);
+			process.exitCode = 1;
+		}
 	}
-	process.exitCode = exitFor(doc.outcome);
+	// the tail's failure verdict wins over the plan outcome (a dead proof is
+	// a failed install — "make damn sure")
+	if (process.exitCode !== 1) process.exitCode = exitFor(doc.outcome);
 }
 
 if (import.meta.main) {

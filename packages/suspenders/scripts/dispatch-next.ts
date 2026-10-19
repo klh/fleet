@@ -31,6 +31,7 @@ import { resolve } from "node:path";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel } from "../hooks/lib/brief-intel.ts";
+import { budgetFlagClaim, budgetFlagGet } from "../hooks/lib/budget-flag.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
@@ -110,6 +111,7 @@ import {
 import { recoverableClaims } from "./lib/claim-recovery.ts";
 import { flushLaneUsageFacts, meterCopilotLanes } from "./lib/copilot-meter.ts";
 import { execPick } from "./lib/exec-chain.ts";
+import { fleetReport } from "./lib/fleet-report.ts";
 import { laneAttemptLimit, nextLaneAttempt } from "./lib/lane-retry-budget.ts";
 import {
 	dispatchStarterFork,
@@ -141,8 +143,8 @@ import {
 import { capabilityGate, isOwnerGated, parseReady } from "./lib/ready-pool.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
 import { decisionFor, resumeBriefLine } from "./lib/resume-from.ts";
-import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 import { captureClaimFeed } from "./lib/structured-feed.ts";
+import { verdictRepeatGate } from "./lib/verdict-repeat-gate.ts";
 
 export { capabilityGate, isOwnerGated, parseReady };
 
@@ -454,15 +456,19 @@ const dispatchItem = async (
 	// that re-banks the verbatim verdict its prior attempt closed on flips
 	// the item to the operator-gated class (FAILED + NEED_DECISION, verdict
 	// on the card) instead of a re-spawn.
-	if (resume && !DRY && verdictRepeatGate({
-		item,
-		sid,
-		capsule: capsuleGet(sid),
-		run,
-		coordCli,
-		workCli,
-		log,
-	}))
+	if (
+		resume &&
+		!DRY &&
+		verdictRepeatGate({
+			item,
+			sid,
+			capsule: capsuleGet(sid),
+			run,
+			coordCli,
+			workCli,
+			log,
+		})
+	)
 		return null;
 	if (resume && attempt >= limit) {
 		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
@@ -471,18 +477,23 @@ const dispatchItem = async (
 			const failed = run(workCli("fail", item, "--as", sid, "--note", note));
 			if (failed.code !== 0) throw new Error(failed.out);
 			log(`lane.retry-exhausted ${item} ${sid}`);
-			run(
-				coordCli(
-					"emit",
-					"NEED_DECISION",
-					"--as",
-					sid,
-					"--scope",
-					"suspenders",
-					"--note",
-					note,
-				),
-			);
+			// W782.4: flag stands → suppress the resume NEED_DECISION re-emit.
+			const flagStore = openStore();
+			if (budgetFlagClaim(flagStore, item))
+				run(
+					coordCli(
+						"emit",
+						"NEED_DECISION",
+						"--as",
+						sid,
+						"--scope",
+						"suspenders",
+						"--note",
+						note,
+					),
+				);
+			else log(`lane.budget-flagged ${item} — suppressed (W782.4)`);
+			flagStore.close();
 		}
 		return null;
 	}
@@ -522,6 +533,7 @@ const dispatchItem = async (
 			effort: effortFromShow(show.out),
 			landing: await landingRedirect(REPO, branch),
 			intel,
+			fleetReport: fleetReport(REPO),
 			extra: [
 				...routingExtra(),
 				...resumeBriefLine(
@@ -554,37 +566,27 @@ const dispatchItem = async (
 	if (attempt >= limit) {
 		governanceRefusals.push(item);
 		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
-		// W787: one NEED_DECISION per exhaustion episode — the flagged fact
+		// W787/W782.4: one open budget NEED_DECISION per item — the flag fact
 		// gates the emit; `work retry` clears it (and resets the budget).
-		const flagKey = `lane.budget-flagged.${item}`;
-		const flagged = store
-			.query("SELECT value FROM facts WHERE key=?")
-			.get(flagKey) as { value: string } | undefined;
-		if (flagged) {
+		if (!budgetFlagClaim(store, item)) {
 			console.log(
-				`REFUSED ${item} — budget exhausted (flagged ${flagged.value}); NEED_DECISION suppressed (W787 dedup)`,
+				`REFUSED ${item} — budget exhausted (flagged ${budgetFlagGet(store, item)}); NEED_DECISION suppressed (W782.4)`,
 			);
-			store.close();
-			return null;
+		} else {
+			console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
+			run(
+				coordCli(
+					"emit",
+					"NEED_DECISION",
+					"--as",
+					sid,
+					"--scope",
+					"suspenders",
+					"--note",
+					note,
+				),
+			);
 		}
-		store
-			.query(
-				"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'dispatch',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,version=version+1,ts=excluded.ts",
-			)
-			.run(flagKey, new Date().toISOString(), Date.now());
-		console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
-		run(
-			coordCli(
-				"emit",
-				"NEED_DECISION",
-				"--as",
-				sid,
-				"--scope",
-				"suspenders",
-				"--note",
-				note,
-			),
-		);
 		store.close();
 		return null;
 	}
@@ -786,6 +788,7 @@ const dispatchItem = async (
 			agent: pick.agent,
 			effort: effortFromShow(show.out),
 			intel,
+			fleetReport: fleetReport(REPO),
 			extra: [
 				...routingExtra(),
 				...resumeBriefLine(resumeDecision),
@@ -1456,6 +1459,10 @@ const main = async (): Promise<void> => {
 	console.log(
 		`lanes live: ${live.length}/${TARGET} (${heldSlots} unregistered/uncertain slots held)${dispatched.length ? ` — dispatched: ${dispatched.join(", ")}` : " — pool drained or lanes busy"}${seedFallbacks.length ? ` — seed fallback: ${seedFallbacks.join("; ")}` : ""}`,
 	);
+	// W899: the dispatch summary carries the fleet report table — same shape
+	// the install tail, session-start tick and lane briefs emit.
+	const report = fleetReport(REPO);
+	if (report) console.log(report);
 	// W695.1: a seed fallback dispatched a lane that will re-orient from cold
 	// context — never read as a fully healthy dispatch even when nothing was
 	// refused.

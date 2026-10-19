@@ -88,6 +88,17 @@ describe("supervisor-default directive (W637)", () => {
 		expect(r.out).toContain("READY 1");
 	});
 
+	test("W899: the directive carries the emitted report table", () => {
+		const r = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
+		expect(r.code).toBe(0);
+		// the W892 table renders right under the directive: fixed header
+		// (ITEM/ST/TASK/TOKENS) and the seeded WSUP1 row in Q state
+		expect(r.out).toContain("ITEM");
+		expect(r.out).toContain("TOKENS");
+		expect(r.out).toContain("WSUP1");
+		expect(r.out).toContain("Q");
+	});
+
 	test("subagent lane never arms the loop", () => {
 		const r = runHook(
 			REPO_B,

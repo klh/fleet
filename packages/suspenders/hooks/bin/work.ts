@@ -15,6 +15,7 @@
 
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
+import { budgetFlagClear } from "../lib/budget-flag.ts";
 import { itemCapsuleKey } from "../lib/capsule-fence.ts";
 import { unmergedDeps, unmergedNote } from "../lib/dep-merge-gate.ts";
 import {
@@ -67,11 +68,12 @@ import { evidencePatternsOf } from "../lib/work-fence.ts";
 import { runMigrateLedger } from "../lib/work-migrate-ledger.ts";
 import { exportMirror, MIRROR_NAME, mirrorOrNull } from "../lib/work-mirror.ts";
 import { releaseWorkClaim } from "../lib/work-release.ts";
-import { GLYPH, renderRow } from "../lib/work-render.ts";
+import { GLYPH, renderRow, renderTimestamps } from "../lib/work-render.ts";
 import {
 	buildReportTable,
 	parseReportWindow,
 	reportRows,
+	reportTableLinkOpts,
 } from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
@@ -216,9 +218,7 @@ function emit(
 	source = "work",
 ): void {
 	db()
-		.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?",
-		)
+		.query("INSERT INTO events (ts, source, kind, scope, payload, target) SELECT ?, ?, ?, scope, ?, NULL FROM work_items WHERE project = ? AND id = ?")
 		.run(
 			Date.now(),
 			source,
@@ -474,6 +474,7 @@ const showOne = (id: string, json: boolean): void => {
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
 	}
+	console.log(renderTimestamps(it, completionRecord(db(), PROJECT, String(it.id))?.completed_at ?? null).join("\n"));
 	// W617/W687: the item capsule + W776 attribution travel with the item
 	const cap = db()
 		.query("SELECT value FROM facts WHERE key = ?")
@@ -662,7 +663,7 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 		});
 		if (missing.length > 0)
 			die(`no such work item in this project: ${missing[0]}`);
-		console.log(buildReportTable(rows));
+		console.log(buildReportTable(rows, reportTableLinkOpts()));
 	} else if (name === "show") {
 		const json = flag("--json");
 		for (const id of idList(pos)) showOne(id, Boolean(json));
@@ -857,6 +858,8 @@ const dispatchVerb = (name: string, { pos, flag, rest }: Parsed): void => {
 				it.scope as string | null,
 				it.id as string,
 			);
+			// W782.4: a closed item drains its open budget decision.
+			budgetFlagClear(db(), id);
 			return unblocked;
 		});
 		const { freed, gated } = tx();

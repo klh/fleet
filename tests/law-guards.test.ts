@@ -136,6 +136,46 @@ test("UI-law scan has teeth (real tracked code population)", () => {
 	expect(tracked(...UI_LAW_GLOBS).length).toBeGreaterThan(500);
 });
 
+// W902 — hub clocks drift: no fleet surface renders a bare local time.
+// toLocaleTimeString()/toLocaleTimeString-adjacent locale-default renders
+// are exactly that; the ONE dual-stamp vocabulary (UTC Z + local twin,
+// hooks/lib/wallclock.ts) is the only allowed absolute-time form. Storage
+// stays epoch-ms. The vendored third-party bundles are the pinned exception.
+const WALLCLOCK_PATTERNS: Array<[RegExp, string]> = [
+	[/toLocaleTimeString\s*\(/, "toLocaleTimeString("],
+	[
+		/\.toLocaleString\s*\(\s*\)/,
+		"bare .toLocaleString() — locale-default Date render",
+	],
+];
+
+test("no tracked code file renders a bare local time without its UTC twin (W902)", () => {
+	const offenders: string[] = [];
+	for (const f of tracked(...UI_LAW_GLOBS)) {
+		if (UI_LAW_ALLOWLIST.some((re) => re.test(f))) continue;
+		const text = readFileSync(join(ROOT, f), "utf8");
+		for (const [re, why] of WALLCLOCK_PATTERNS) {
+			if (re.test(text)) offenders.push(`${f}: ${why}`);
+		}
+	}
+	expect(
+		offenders,
+		"W902 wall-clock law: UTC Z first, local twin beside it (hooks/lib/wallclock.ts)",
+	).toEqual([]);
+});
+
+test("W902 wall-clock scan has teeth (patterns fire on the banned forms)", () => {
+	const samples = [
+		"new Date(x).toLocaleTimeString()",
+		"new Date(x).toLocaleString()",
+	];
+	for (const [re] of WALLCLOCK_PATTERNS)
+		expect(
+			samples.some((s) => re.test(s)),
+			`${re} matches none of the banned forms`,
+		).toBe(true);
+});
+
 // W828 — the Fleet personal-use license perimeter, CI face. The fleet tree
 // must stay clear of third-party restrictions incompatible with its license:
 // (L6) every installed

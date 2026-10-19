@@ -568,9 +568,16 @@ function hhmmss(ts){
   var d=new Date(ts),p=function(n){return (n<10?'0':'')+n;};
   return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
 }
+// W908 port of W902: UTC-first dual stamp — a bare local time is unreadable across hubs
+function dual(ts){
+  var d=new Date(ts);
+  if(isNaN(d))return String(ts);
+  var p=function(n){return (n<10?'0':'')+n;};
+  return d.toISOString().replace(/\.\d{3}Z$/,'Z')+'  ('+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())+' local)';
+}
 function fmt(line){
   try{var e=JSON.parse(line);
-    return new Date(e.ts).toLocaleString()+'  '+e.category+'  '+short(e.model)+'  :'+e.port+'  '+e.duration_ms+'ms  '+(e.tier||'—')+(e.escalated?'  cloud':'');
+    return dual(e.ts)+'  '+e.category+'  '+short(e.model)+'  :'+e.port+'  '+e.duration_ms+'ms  '+(e.tier||'—')+(e.escalated?'  cloud':'');
   }catch(_){return line;}
 }
 
@@ -604,7 +611,7 @@ function applyRemotes(s){
     :'');
   fetch('/api/metrics').then(function(r){return r.json();}).then(function(m){
     var lines=(m.recent||[]).map(function(e){
-      return new Date(e.ts).toLocaleString()+'  '+e.role+'  →  '+e.machine+':'+e.port
+      return dual(e.ts)+'  '+e.role+'  →  '+e.machine+':'+e.port
         +(e.model?'  '+short(e.model):'')+'  '+e.duration_ms+'ms'+(e.ok?'':'  FAILED');
     });
     remoteslog.textContent=lines.length

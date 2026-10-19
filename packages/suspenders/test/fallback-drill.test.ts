@@ -3,8 +3,13 @@
 // anything else on a dark z.ai is the 2026-10-06 incident recurring.
 import { describe, expect, test } from "bun:test";
 import {
+	CACHE_SID,
+	cacheHitShare,
 	checkFallbacksPresent,
+	drillCacheShare,
 	drillFallback,
+	drillFloor,
+	drillRoutes,
 	resolveMasterKey,
 	zaiDark,
 } from "../hooks/bin/fallback-drill.ts";
@@ -199,5 +204,145 @@ describe("drillFallback ladder assertion (W878)", () => {
 			},
 		});
 		expect(r.verdict).toBe("skipped");
+	});
+});
+
+// ---- W901.1 cache-share drill (audit finding 2) ----------------------------
+
+const PREFIX = {
+	model: "glm-5.3-flash",
+	tools: [{ name: "Read" }],
+	system: [{ type: "text", text: "harness preamble" }],
+};
+
+const usage = (cacheRead: number) =>
+	JSON.stringify({
+		usage: {
+			input_tokens: 60,
+			output_tokens: 1,
+			cache_read_input_tokens: cacheRead,
+			cache_creation_input_tokens: 0,
+		},
+	});
+
+/** Stub front: per-call cache-read reports, cold then warm. Records the
+ *  request URL + auth so the lane-path and key assertions ride it. */
+function cacheFront(cacheReads: number[], opts?: { noFields?: boolean }) {
+	let n = 0;
+	const seen: { url: string; auth: string }[] = [];
+	const impl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+		if (String(url).includes("/v1/messages")) {
+			seen.push({
+				url: String(url),
+				auth: new Headers(init?.headers).get("authorization") ?? "",
+			});
+			const read = cacheReads[Math.min(n, cacheReads.length - 1)];
+			n += 1;
+			return new Response(opts?.noFields ? "{}" : usage(read), { status: 200 });
+		}
+		throw new Error(`unexpected url ${url}`);
+	}) as typeof fetch;
+	return { impl, seen };
+}
+
+describe("drillCacheShare (W901.1)", () => {
+	const DRILL = {
+		front: "http://front.local",
+		key: "bksk_k",
+		routes: ["glm-5.3-flash"],
+		prefix: PREFIX,
+		floor: 0.5,
+	};
+
+	test("warm pair reports cache fields + share above floor = pass", async () => {
+		const f = cacheFront([0, 1152]);
+		const r = await drillCacheShare({
+			...DRILL,
+			fetchImpl: f.impl,
+		});
+		expect(r.verdict).toBe("pass");
+		expect(r.routes[0]?.share).toBeCloseTo(1152 / 1212);
+		expect(r.routes[0]?.why).toContain("floor");
+		// both passes ride the attributed lane path with the drill key
+		expect(
+			f.seen.every((s) => s.url.includes(`/w/${CACHE_SID}/v1/messages`)),
+		).toBe(true);
+		expect(f.seen.every((s) => s.auth === "Bearer bksk_k")).toBe(true);
+	});
+
+	test("route answers but reports NO cache fields = fail (the alert)", async () => {
+		const r = await drillCacheShare({
+			...DRILL,
+			fetchImpl: cacheFront([0, 0], { noFields: true }).impl,
+		});
+		expect(r.verdict).toBe("fail");
+		expect(r.routes[0]?.share).toBeNull();
+		expect(r.routes[0]?.why).toContain("NO cache usage fields");
+	});
+
+	test("warm share below floor = fail (affinity off / prefix drift)", async () => {
+		const r = await drillCacheShare({
+			...DRILL,
+			fetchImpl: cacheFront([0, 10]).impl,
+		});
+		expect(r.verdict).toBe("fail");
+		expect(r.routes[0]?.share).toBeCloseTo(10 / 70);
+		expect(r.routes[0]?.why).toContain("below floor");
+	});
+
+	test("no captured prefix = skipped", async () => {
+		const r = await drillCacheShare({
+			...DRILL,
+			prefix: null,
+			fetchImpl: cacheFront([0]).impl,
+		});
+		expect(r.verdict).toBe("skipped");
+	});
+
+	test("multi-route: one failing route fails the aggregate", async () => {
+		let n = 0;
+		const split = (async () =>
+			new Response(usage(n++ === 1 ? 1152 : 0), {
+				status: 200,
+			})) as unknown as typeof fetch;
+		const r = await drillCacheShare({
+			...DRILL,
+			routes: ["glm-5.3-flash", "zai-glm-5.3-flash"],
+			fetchImpl: split,
+		});
+		expect(r.verdict).toBe("fail");
+		expect(r.routes.map((x) => x.verdict)).toEqual(["pass", "fail"]);
+	});
+});
+
+describe("cache knobs (W901.1)", () => {
+	test("cacheHitShare = reads over all input; no totals = null", () => {
+		expect(
+			cacheHitShare({ in_tok: 60, out_tok: 1, cache_r: 1152, cache_c: 0 }),
+		).toBeCloseTo(1152 / 1212);
+		expect(cacheHitShare(null)).toBeNull();
+		expect(
+			cacheHitShare({ in_tok: 0, out_tok: 1, cache_r: 0, cache_c: 0 }),
+		).toBeNull();
+	});
+
+	test("drillRoutes: env wins, junk falls back to the audit set", () => {
+		expect(drillRoutes({})).toEqual([
+			"glm-5.3-flash",
+			"zai-glm-5.3-flash",
+			"local-swarm",
+		]);
+		expect(drillRoutes({ BELT_CACHE_DRILL_ROUTES: " a , b " })).toEqual([
+			"a",
+			"b",
+		]);
+		expect(drillRoutes({ BELT_CACHE_DRILL_ROUTES: ",," })).toHaveLength(3);
+	});
+
+	test("drillFloor: env wins, junk/out-of-range falls back to 0.5", () => {
+		expect(drillFloor({})).toBe(0.5);
+		expect(drillFloor({ BELT_CACHE_DRILL_FLOOR: "0.9" })).toBe(0.9);
+		expect(drillFloor({ BELT_CACHE_DRILL_FLOOR: "junk" })).toBe(0.5);
+		expect(drillFloor({ BELT_CACHE_DRILL_FLOOR: "3" })).toBe(0.5);
 	});
 });
