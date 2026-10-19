@@ -102,12 +102,15 @@ class BeltSupervisor extends LitElement {
 			<div class="heading"><h2>Supervisor</h2><button type="button" ?disabled=${this.busy} @click=${this.refresh}>${this.busy ? "Refreshing…" : "Refresh status"}</button></div>
 			<p role="status" class=${fresh ? "" : "alert"}>${this.error || (fresh ? `${alerts} need attention · ${idle} on demand · probes ${age}s ago` : `Supervisor snapshot stale (${age}s old). Current service state is unknown.`)}</p>
 			${doc?.observation ? html`<p>Evidence: ${doc.observation.source} · ${doc.observation.scope} · expires ${new Date(doc.observation.expiresAt).toLocaleTimeString()}</p>` : ""}
-			${fleetRows.map((target) => this.row(target, fresh, doc))}
-			${
-				hubs.length
-					? html`<p class="group">hubs — remote buckle fronts, probe-only</p>${hubs.map((target) => this.row(target, fresh, doc))}`
-					: ""
-			}
+			${fleetRows.length || hubs.length
+				? html`<details class="targets">
+					<summary>${fleetRows.length} fleet targets · ${hubs.length} hubs — expand for per-target detail</summary>
+					${fleetRows.map((target) => this.row(target, fresh, doc))}
+					${hubs.length
+						? html`<p class="group">hubs — remote buckle fronts, probe-only</p>${hubs.map((target) => this.row(target, fresh, doc))}`
+						: ""}
+				</details>`
+				: ""}
 			`;
 	}
 	row(target, fresh, doc) {
@@ -162,7 +165,7 @@ class BeltTrends extends LitElement {
 		const timeout = setTimeout(() => this.controller.abort(), 5000);
 		try {
 			const response = await fetch("/api/metrics/history", {
-				signal: this.controller,
+				signal: this.controller.signal,
 				cache: "no-store",
 			});
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);

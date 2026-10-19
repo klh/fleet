@@ -377,8 +377,12 @@ export function metricsHistory(): MetricsHistory {
 	const d = openDb();
 	const step = HISTORY_WINDOW_MS / HISTORY_BUCKETS / 1000; // seconds
 	const now = Date.now();
-	const since = new Date(now - HISTORY_WINDOW_MS).toISOString();
-	const start = Math.floor((now - HISTORY_WINDOW_MS) / (step * 1000)) * step;
+	// grid anchored to NOW: the newest bucket holds the current instant, so
+	// fresh routes paint immediately (the oldest grid bucket sits a full
+	// step behind the window edge — `since` backs up to cover it)
+	const end = Math.floor(now / (step * 1000)) * step;
+	const start = end - (HISTORY_BUCKETS - 1) * step;
+	const since = new Date((start - step + 1) * 1000).toISOString();
 	const grid = (sel: string, group: string): string =>
 		`SELECT ${sel} CAST(strftime('%s', ts) AS INTEGER)/${step}*${step} AS b, COUNT(*) AS n FROM routes WHERE ts > ? GROUP BY ${group}`;
 	const rows = d.query(grid(`SUM(ok = 0) AS err, AVG(duration_ms) AS ms,`, "b"))
