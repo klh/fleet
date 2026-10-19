@@ -58,3 +58,23 @@ test("tabs component drives sections, hash and aria-current", async ({
 	);
 	expect(errors, "uncaught page exceptions").toEqual([]);
 });
+
+test("changing sections starts at the header after a deep scroll", async ({
+	page,
+}) => {
+	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.evaluate(() => {
+		const filler = document.createElement("div");
+		filler.style.height = "2400px";
+		document.querySelector("#tab-lanes")?.append(filler);
+		window.scrollTo(0, 1200);
+	});
+	await expect
+		.poll(() => page.evaluate(() => window.scrollY))
+		.toBeGreaterThan(0);
+	await page.evaluate(() => {
+		window.location.hash = "tasks";
+	});
+	await expect(page.locator("#tab-tasks")).toBeVisible();
+	await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
