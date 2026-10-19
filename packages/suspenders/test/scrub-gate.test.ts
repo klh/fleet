@@ -626,4 +626,60 @@ describe("scrub lib: diff parser", () => {
 		]);
 		expect(range.map((f) => `${f.file}:${f.line}`)).toContain("mode.sh:2");
 	});
+
+	// W730: the opus-review "pre-hunk metadata misses content" claim is
+	// refuted — every ADDED content line scans across the metadata matrix
+	// (rename, mode, ---/+++, GIT binary patch), and in-hunk lookalikes
+	// carry the `+` prefix so they scan as content (W708 skips PRE-hunk
+	// lines only). Binary emits no hunks and rides the blob face.
+	test("pre-hunk metadata matrix scans every added line (W730)", () => {
+		const repo = mkdtempSync(join(tmpdir(), "scrub-w730-"));
+		const g = gitIn(repo);
+		g(["init", "-q", "-b", "main"]);
+		g(["config", "user.email", "t@t.invalid"]);
+		g(["config", "user.name", "t"]);
+		g(["config", "commit.gpgsign", "false"]);
+		g(["config", "core.filemode", "true"]);
+		writeFileSync(join(repo, "base.txt"), "clean\n");
+		g(["add", "."]);
+		g(["commit", "-q", "-m", "base"]);
+		// space-path rename-with-edit, in-hunk metadata-lookalikes, and a
+		// GIT-binary-patch block whose base64-looking line carries a key
+		g(["mv", "base.txt", "moved name.txt"]);
+		writeFileSync(join(repo, "moved name.txt"), `leak ${HOME_LEAK_DIR}/w\n`);
+		writeFileSync(
+			join(repo, "meta.md"),
+			`@@ -1 +1 @@ ${HOME_LEAK_DIR}/z\ndiff --git a/fake b/fake\n+++ b/fake\n`,
+		);
+		writeFileSync(
+			join(repo, "patched.bin"),
+			Buffer.from(
+				[
+					"diff --git a/p.bin b/p.bin",
+					"GIT binary patch",
+					"literal 32",
+					`zcmZ<m${"A".repeat(20)} sk-${"b".repeat(26)}`,
+					"",
+				].join("\n"),
+			),
+		);
+		g(["add", "-A"]);
+		g(["commit", "-q", "-m", "c1"]);
+		const d = g(["diff", "HEAD^", "HEAD", "-U0", "--no-color"]);
+		const found = scrubAddedLines(addedDiffLines(d), scrubRules()).map(
+			(f) => `${f.file}:${f.line} [${f.rule}]`,
+		);
+		// rename-edit line, the in-hunk @@-lookalike, binary-patch body
+		expect(found).toEqual([
+			"meta.md:1 [home-path]",
+			"moved name.txt:1 [home-path]",
+			"patched.bin:4 [sk-key]",
+		]);
+		// and the blob face sees the same key whole-buffer
+		const range = commitRangeFindings(repo, "HEAD^", "HEAD");
+		expect(range.map((f) => [f.file, f.rule])).toContainEqual([
+			"patched.bin",
+			"sk-key",
+		]);
+	});
 });
