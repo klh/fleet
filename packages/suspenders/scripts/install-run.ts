@@ -2,7 +2,7 @@
 // implementations (only "real" steps live here), the bash delegation, the
 // pause builder, and executePlan. Pure logic — no CLI parsing, no printing.
 // The contract (scripts/install-contract.ts) is the frozen surface.
-import { join } from "node:path";
+
 import {
 	existsSync,
 	mkdirSync,
@@ -10,7 +10,9 @@ import {
 	realpathSync,
 	writeFileSync,
 } from "node:fs";
+import { join } from "node:path";
 import { execa } from "execa";
+import { ensureShims } from "./ensure-shims.ts";
 import {
 	type ContractStep,
 	INSTALL_CONTRACT,
@@ -20,20 +22,19 @@ import {
 	type StepOutcomeRow,
 	type StepStatus,
 } from "./install-contract.ts";
-import { upgradeGateway } from "./upgrade-gateway.ts";
 import { registerLaunchd } from "./install-launchd.ts";
-import { syncHarness } from "./sync-harness.ts";
-import {
-	registerCaddy,
-	registerSkills,
-	releaseNotify,
-} from "./install-wire-steps.ts";
-import { ensureShims } from "./ensure-shims.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
 	seedLocalLlm,
 } from "./install-llm-steps.ts";
+import {
+	registerCaddy,
+	registerSkills,
+	releaseNotify,
+} from "./install-wire-steps.ts";
+import { syncHarness } from "./sync-harness.ts";
+import { upgradeGateway } from "./upgrade-gateway.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -123,10 +124,14 @@ function loadSettingsDoc(settingsPath: string): {
 }
 
 // groupSignature — canonical compare form for a hook group: matcher plus the
-// sorted type+command set with the prefix/$HOME path folded to "@". Groups
-// that differ only in key order, timeout or placeholder-vs-real-path converge
+// sorted type+command set with $HOME expanded to the real home first, then
+// the prefix folded to "@". Expansion MUST precede the fold (W904): folding
+// prefix→"@" before expanding $HOME left the placeholder form collapsing to
+// `@/.claude/hooks/suspenders/…` while the absolute form collapsed to
+// `@/…` — divergent signatures, re-wires appended both forms. Groups that
+// differ only in key order, timeout or placeholder-vs-real-path converge
 // instead of duplicating on re-run (W860 ask-gate follow-up).
-function groupSignature(group: unknown, prefix: string): string {
+function groupSignature(group: unknown, prefix: string, home: string): string {
 	if (typeof group !== "object" || group === null) return JSON.stringify(group);
 	const g = group as { matcher?: unknown; hooks?: unknown };
 	const hooks = Array.isArray(g.hooks) ? g.hooks : [];
@@ -135,8 +140,8 @@ function groupSignature(group: unknown, prefix: string): string {
 			if (typeof h !== "object" || h === null) return JSON.stringify(h);
 			const hook = h as { type?: unknown; command?: unknown };
 			const command = String(hook.command ?? "")
-				.replaceAll(prefix, "@")
-				.replaceAll("$HOME", "@");
+				.replaceAll("$HOME", home)
+				.replaceAll(prefix, "@");
 			return `${String(hook.type ?? "")}\u0000${command}`;
 		})
 		.sort();
@@ -145,15 +150,21 @@ function groupSignature(group: unknown, prefix: string): string {
 
 // mergeHooksInto — per-event hooks merge: array concat, dedupe on JSON form,
 // then on groupSignature (same commands under the same matcher = already
-// wired), $HOME placeholder → real prefix. Returns the newly added count.
+// wired), $HOME placeholder → real prefix. W904: entries ALREADY in the
+// settings are signature-collapsed keep-first first (a settings carrying the
+// $HOME-form and absolute-form of the same gate command heals to one entry
+// on the next wire run), then the example set merges against the deduped
+// list. Returns the added/removed counts.
 function mergeHooksInto(
 	settingsPath: string,
 	ex: { hooks: Record<string, unknown> },
 	prefix: string,
-): number {
+	home: string,
+): { added: number; removed: number } {
 	const doc = loadSettingsDoc(settingsPath);
 	doc.hooks ??= {};
 	let added = 0;
+	let removed = 0;
 	for (const [event, entries] of Object.entries(ex.hooks)) {
 		const rewritten = JSON.parse(
 			JSON.stringify(entries).replaceAll(
@@ -164,18 +175,45 @@ function mergeHooksInto(
 		const cur = (
 			Array.isArray(doc.hooks[event]) ? doc.hooks[event] : []
 		) as unknown[];
-		doc.hooks[event] = cur;
-		const seen = new Set(cur.map((m) => JSON.stringify(m)));
-		const sigs = new Set(cur.map((m) => groupSignature(m, prefix)));
+		// W904: collapse keep-first on the canonical signature — a settings
+		// carrying the $HOME-form AND the absolute-form of the same gate
+		// command (the W893 finding) heals to one entry on the next wire run.
+		const sigs = new Set<string>();
+		const kept: unknown[] = [];
+		for (const m of cur) {
+			const sig = groupSignature(m, prefix, home);
+			if (sigs.has(sig)) {
+				removed++;
+				continue;
+			}
+			sigs.add(sig);
+			kept.push(m);
+		}
+		doc.hooks[event] = kept;
+		const seen = new Set(kept.map((m) => JSON.stringify(m)));
 		for (const e of rewritten) {
 			if (seen.has(JSON.stringify(e))) continue;
-			if (sigs.has(groupSignature(e, prefix))) continue;
-			cur.push(e);
+			const sig = groupSignature(e, prefix, home);
+			if (sigs.has(sig)) continue;
+			kept.push(e);
+			sigs.add(sig);
+			seen.add(JSON.stringify(e));
 			added++;
 		}
 	}
 	writeFileSync(settingsPath, `${JSON.stringify(doc, null, 2)}\n`);
-	return added;
+	return { added, removed };
+}
+
+// wireNote — the wireSettings success note; the collapsed count only shows
+// when the merge healed existing duplicates (W904).
+function wireNote(
+	settingsPath: string,
+	added: number,
+	removed: number,
+	extras = "",
+): string {
+	return `wired ${settingsPath} (per-event merge, ${added} new hook entries)${removed > 0 ? `, collapsed ${removed} duplicate group(s)` : ""}${extras}`;
 }
 
 export async function wireSettings(ctx: StepContext): Promise<StepResult> {
@@ -196,11 +234,13 @@ export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 		};
 	}
 	mkdirSync(join(repo, ".claude"), { recursive: true });
-	const added = mergeHooksInto(settingsPath, ex, ctx.prefix);
-	return {
-		status: "ok",
-		note: `wired ${settingsPath} (per-event merge, ${added} new hook entries)`,
-	};
+	const { added, removed } = mergeHooksInto(
+		settingsPath,
+		ex,
+		ctx.prefix,
+		ctx.home,
+	);
+	return { status: "ok", note: wireNote(settingsPath, added, removed) };
 }
 
 // runWireExtras — the user-level wire's companions: policy adapters (fatal on
@@ -261,12 +301,14 @@ async function userLevelWire(ctx: StepContext): Promise<StepResult> {
 	}
 	mkdirSync(join(ctx.home, ".claude"), { recursive: true });
 	if (!existsSync(settingsPath)) writeFileSync(settingsPath, "{}\n");
-	const added = mergeHooksInto(settingsPath, ex, ctx.prefix);
+	const { added, removed } = mergeHooksInto(
+		settingsPath,
+		ex,
+		ctx.prefix,
+		ctx.home,
+	);
 	const extras = await runWireExtras(ctx);
-	return {
-		status: "ok",
-		note: `wired ${settingsPath} (per-event merge, ${added} new hook entries)${extras}`,
-	};
+	return { status: "ok", note: wireNote(settingsPath, added, removed, extras) };
 }
 
 // W650: repo-level scrub-gate enforcement — committed .githooks stubs (W236)
