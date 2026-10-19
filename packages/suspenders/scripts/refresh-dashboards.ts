@@ -1,8 +1,8 @@
 // Code-only GUI refresh. One committed source revision, one protected publication.
 import {
 	chmod,
-	lstat,
 	copyFile,
+	lstat,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -12,8 +12,8 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
-import { dirname, join, relative, isAbsolute } from "node:path";
 import { hostname } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { syncHarness } from "./sync-harness.ts";
 
 export const dashboardCodeGroups = [
@@ -22,8 +22,28 @@ export const dashboardCodeGroups = [
 		destination: "belt",
 		files: [
 			"dashboard.ts",
+			"model-access.ts",
+			"catalog-capability.ts",
 			"dashboard-state.ts",
+			"fit-classifier.ts",
+			"health.ts",
+			"http-citizenship.ts",
+			"hubs.ts",
+			"inventory-probe.ts",
 			"klh-theme.ts",
+			"kv-prefix.ts",
+			"litellm-target.ts",
+			"metrics.ts",
+			"registry-emit.ts",
+			"registry.ts",
+			"remotes-validate.ts",
+			"remotes.ts",
+			"repo-laws.ts",
+			"route-policy.ts",
+			"spawn-admission.ts",
+			"spawner.ts",
+			"supervisor.ts",
+			"tail-lines.ts",
 			"dashboard-observability.js",
 			"dashboard-topology.js",
 			"dashboard-topology-model.js",
@@ -38,6 +58,10 @@ export const dashboardCodeGroups = [
 		files: [
 			"dashboard.ts",
 			"dashboard-page.html",
+			"dashboard-health.ts",
+			"health.ts",
+			"dns-reconcile.ts",
+			"dns-maintenance.ts",
 			"klh-theme.ts",
 			"vendor/lit-shared.js",
 		],

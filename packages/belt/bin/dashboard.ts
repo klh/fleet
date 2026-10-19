@@ -40,6 +40,7 @@ import {
 	THEME_SETTINGS_JS,
 } from "./klh-theme.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
+import { type ModelAccess, modelAccess } from "./model-access.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -59,6 +60,21 @@ const LOG_DIR = `${HOME}/.claude-insights`;
 const PREFS = `${HOME}/.claude/local-llm/prefs.json`;
 const ROUTING_LOG = `${LOG_DIR}/swarm-routing.log`;
 const PORT = Number(process.env.BELT_PORT ?? 7791);
+let accessCache: ModelAccess | null = null;
+let accessPending: Promise<ModelAccess> | null = null;
+const accessSnapshot = async (): Promise<ModelAccess> => {
+	if (accessCache && Date.now() - Date.parse(accessCache.ts) < 300_000)
+		return accessCache;
+	accessPending ??= modelAccess(HOME ?? "")
+		.then((value) => {
+			accessCache = value;
+			return value;
+		})
+		.finally(() => {
+			accessPending = null;
+		});
+	return accessPending;
+};
 // local rows of the unified fleet table are labelled with this machine's name
 const LOCAL_NAME = hostname().replace(/\.local\.?$/, "");
 
@@ -393,6 +409,13 @@ footer .right { margin-left:auto; font-size:var(--klh-text-xs); letter-spacing:.
 /* the Threads brand mark reads --rust/--hair/--paper; feed it brand red + theme edges */
 threads-mark { vertical-align:middle; margin:0 3px 0 0; --rust:var(--klh-danger); --hair:var(--klh-edge); --paper:var(--klh-surface); }
 .empty { color:var(--klh-dim); margin:8px 0 0; }
+.access-seats { display:flex; flex-wrap:wrap; gap:8px 18px; margin:8px 0 14px; }
+.access-seats span { padding:4px 0; border-bottom:1px solid var(--klh-edge); }
+.access-vendor { margin:6px 0; border-top:1px solid var(--klh-edge); }
+.access-vendor summary { padding:8px 0; cursor:pointer; }
+.access-vendor table { width:100%; border-collapse:collapse; font-size:var(--klh-text-sm); }
+.access-vendor td { padding:5px 12px 5px 0; border-top:1px solid var(--klh-edge); }
+.access-vendor td:last-child { color:var(--klh-dim); text-align:right; }
 ${FLEET_NAV_CSS}
 ${THEME_SETTINGS_CSS}
 </style></head>
@@ -408,11 +431,17 @@ ${fleetNav("belt", "models")}
 <belt-topology></belt-topology>
 <script type="module" src="/dashboard-topology.js"></script>
 </section>
+<section class="surface-section" aria-label="Account model access">
+<details><summary>Model access · IKEA Copilot and personal seats</summary>
+<p class="diagnostics-note">The Copilot picker, Buckle routes and personal CLI sign-ins are separate access paths.</p>
+<div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
+</details>
+</section>
 <section class="surface-section" aria-label="Routing activity">
 <belt-trends></belt-trends>
 </section>
 <details class="diagnostics"><summary>Diagnostics · probes, endpoint inventory and route records</summary>
-<p class="diagnostics-note">Open this when a model or route needs investigation. The network map and activity above show the current overview.</p>
+<p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
 <belt-supervisor></belt-supervisor>
 <script type="module" src="/dashboard-observability.js"></script>
 <details class="fleet-details"><summary>Fleet endpoint details</summary>
@@ -500,7 +529,9 @@ function renderFleet(){
         +'</div></details>';
     });
   (remoteRows||[]).forEach(function(x){
-    var st=x.ok?'<span class="ok">up</span>':'<span class="mut">down</span>';
+    // A failed credentialed endpoint probe does not mean the provider (or a
+    // separate CLI seat) is down. Keep the observation scoped to this route.
+    var st=x.ok?'<span class="ok">API reachable</span>':'<span class="mut">API probe failed</span>';
     var fast=(x.fastest_for||[]).map(function(r){return '<span class="fast">fastest '+esc(r)+'</span>';}).join(' ');
     var load=(x.load_5m||0)>0?'<em class="load">'+x.load_5m+'/5m</em>':'';
     var bits=['last used '+(x.last_used?age(x.last_used,now):'—'),
@@ -595,6 +626,36 @@ function applyRemotes(s){
 function tickRemotes(){
   fetch('/api/remotes').then(function(r){return r.json();}).then(applyRemotes).catch(function(e){remotesnote.textContent='remotes: unreachable — '+String(e && (e.message||e));});
 }
+function tickAccess(){
+  fetch('/api/model-access').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(s){
+    var box=document.getElementById('modelaccess');
+    var c=s.copilot||{};var models=c.models||[];
+    box.replaceChildren();
+    var seats=document.createElement('div');seats.className='access-seats';
+    ['IKEA Copilot · '+(c.state||'unobserved')+' · '+models.length+' selectable models',
+      'Personal Claude CLI · '+(s.personal?.claude||'unobserved'),
+      'Personal ChatGPT/Codex CLI · '+(s.personal?.chatgpt||'unobserved')].forEach(function(t){
+      var span=document.createElement('span');span.textContent=t;seats.append(span);
+    });
+    box.append(seats);
+    if(c.reason){var error=document.createElement('p');error.textContent='Copilot catalog: '+c.reason;box.append(error);}
+    var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
+    Object.keys(byVendor).sort().forEach(function(v){
+      var group=document.createElement('details');group.className='access-vendor';
+      var heading=document.createElement('summary');heading.textContent=v+' · '+byVendor[v].length+' models';group.append(heading);
+      var table=document.createElement('table');
+      byVendor[v].forEach(function(m){
+        var row=document.createElement('tr');var name=document.createElement('td');var access=document.createElement('td');
+        name.textContent=m.name;
+        var responseOnly=m.endpoints.includes('/responses')&&!m.endpoints.includes('/chat/completions')&&!m.endpoints.includes('/v1/messages');
+        var via=m.buckle?'Buckle route configured':responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
+        access.textContent=via;row.append(name,access);table.append(row);
+      });
+      group.append(table);box.append(group);
+    });
+  }).catch(function(e){document.getElementById('modelaccess').textContent='Model access unavailable · '+String(e.message||e);});
+}
+tickAccess();setInterval(tickAccess,300000);
 // W851: the server bakes its cached remotes snapshot into this payload —
 // hub rows paint on first parse, the poll only revalidates (SWR both sides).
 var REMOTES_INIT=__W851_REMOTES__;
@@ -790,6 +851,7 @@ const ROUTES: RouteMethods = {
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
 	"/api/network": ["GET", "HEAD"],
+	"/api/model-access": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/metrics/history": ["GET", "HEAD"],
@@ -853,6 +915,7 @@ Bun.serve({
 		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
 		if (path === "/api/network") return networkSnapshot();
+		if (path === "/api/model-access") return json(await accessSnapshot());
 		// W258 — the capability forecast: conservative per-machine rows
 		if (path === "/api/catalog") return json(capabilityPayload());
 		if (path === "/api/route") return serveRoute(req);
