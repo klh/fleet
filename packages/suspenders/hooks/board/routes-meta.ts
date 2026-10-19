@@ -2,6 +2,7 @@
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { HTML } from "../bin/fleet-board-html.ts";
+import { setupFeed } from "./setup-cache.ts";
 
 export const LLMS_TXT = `# suspenders
 
@@ -22,7 +23,7 @@ Board: http://127.0.0.1:7799 (LAN: http://suspenders.local:7799 via klh-local's 
 - GET /api/task       one work item + its bus events + its decisions (?project=<path>&id=<id>)
 - GET /api/activity   newest-first coord bus feed (?project=<path>&limit=<n>; default 80, cap 300; ?before=<id> keyset-drains older pages — a partial page means the end)
 - GET /api/events     W451 bounded event deltas — the WS cursor contract over HTTP: ?since=<id>&limit=<n> (strict id > since, ascending, cap 300); response {events[], cursor} — cursor = last shown id, drain with ?since=<cursor>
-- GET /api/setup      advisory wiring checks (hooks, monitor agent, advice LLM, bind)
+- GET /api/setup      advisory wiring checks (db, hooks, activation receipt, board unit, advice LLM tier-aware, hubs, bind) served from a stale-while-revalidate cache; payload carries the snapshot ts
 - GET /api/executors  dispatch targets for the READY-card dropdown: claude, codex, copilot (W223.1), then belt's live openai endpoints as llm:<machine>:<model or port> (belt's registry at the resolveBelt chain + CLI fallback, cached 60s; failed probes included; each entry carries its model id and a local/remote locality marker — W105). W224: every openai row also lists its LIVE /v1/models catalog as one llm:<machine>:<model id> pick per model — the user picks from everything the endpoint serves; dispatch routes the picked model via belt's route-to --model override (garbage tails still 409).
 - GET /api/diff       per-item branch diff for the drawer: repo + branch suspenders/<id> (worktree.ts naming), base = merge-base with main (fallback master); JSON {ok,id,branch,base,stat,diff}, patch tail-capped at 200KB
 - GET /api/tail       live lane tail for the drawer: the owning lane's .fleet/lane-<sid>.log (last 32KB) + transcript recent lines; JSON {ok,id,sid,log,transcript,recent}
@@ -88,12 +89,25 @@ export async function handleMeta(
 				"cache-control": "no-store",
 			},
 		});
-	if (url.pathname === "/")
-		return new Response(HTML, {
-			headers: {
-				"content-type": "text/html; charset=utf-8",
-				"cache-control": "no-store",
+	if (url.pathname === "/") {
+		// W852: seed the setup checklist — the first paint is data, not a
+		// loading flash. The snapshot rides the same cache /api/setup serves.
+		const snap = await setupFeed();
+		const seed = JSON.stringify({ ok: true, ...snap }).replaceAll(
+			"<",
+			"\\u003c",
+		);
+		return new Response(
+			// the template owns the <script> wrapper — replace the inner
+			// placeholder only, a nested tag pair would corrupt the inline JS
+			HTML.replace("/*SETUP_SEED*/", () => `window.__SETUP__=${seed}`),
+			{
+				headers: {
+					"content-type": "text/html; charset=utf-8",
+					"cache-control": "no-store",
+				},
 			},
-		});
+		);
+	}
 	return new Response("not found", { status: 404 });
 }

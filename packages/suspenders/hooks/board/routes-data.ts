@@ -1,31 +1,32 @@
 // hooks/board/routes-data.ts — read feeds: /api/data /api/decisions /api/tasks /api/task /api/activity /api/setup /api/executors (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
-import { db } from "./context.ts";
-import { itemAttribution } from "../lib/lane-spend.ts";
+
 import type { Database } from "bun:sqlite";
-import { recoverySnapshot } from "./recovery.ts";
-import { beltRegistry } from "./belt.ts";
-import { buildBeltEntries } from "./executor-catalog.ts";
-import { localSwarmEntries } from "./local-swarm.ts";
-import { json } from "./helpers.ts";
-import { orchTargets } from "./orch-targets.ts";
-import { syncDecisions, projectList, unblockedBy } from "./lanes.ts";
-import { decisionEvals } from "./decide-eval.ts";
-import { readUserPlane } from "../lib/repo-laws.ts";
 import { loadLastKnown } from "../lib/federation.ts";
+import { itemAttribution } from "../lib/lane-spend.ts";
 import { hubModelIdsFrom } from "../lib/provenance.ts";
+import { readUserPlane } from "../lib/repo-laws.ts";
+import { beltRegistry } from "./belt.ts";
+import { db } from "./context.ts";
 import {
-	taskShape,
-	tasks,
-	workEvents,
-	taskDecisions,
 	activity,
-	setupChecks,
 	decisionsPayload,
 	payload,
 	payloadFor,
+	taskDecisions,
+	taskShape,
+	tasks,
+	workEvents,
 } from "./data.ts";
+import { decisionEvals } from "./decide-eval.ts";
+import { buildBeltEntries } from "./executor-catalog.ts";
+import { json } from "./helpers.ts";
+import { projectList, syncDecisions, unblockedBy } from "./lanes.ts";
+import { localSwarmEntries } from "./local-swarm.ts";
+import { orchTargets } from "./orch-targets.ts";
+import { recoverySnapshot } from "./recovery.ts";
+import { setupFeed } from "./setup-cache.ts";
 
 // W183.1 — plane-labeled executor feed. Four planes (provenance.ts/
 // repo-laws.ts's own vocabulary, not invented here): "local" (this
@@ -256,8 +257,9 @@ export async function handleData(
 		});
 	}
 	if (url.pathname === "/api/setup")
-		// advisory wiring checks — each carries its own fix, never throws
-		return json({ ok: true, checks: await setupChecks() });
+		// W852: served from the stale-while-revalidate cache — instant; the
+		// checklist paints server-seeded, refreshes ride the same snapshot
+		return json({ ok: true, ...(await setupFeed()) });
 	if (url.pathname === "/api/executors") {
 		// W183.1 — plane-labeled, merged dispatch feed: this machine's own
 		// swarm (prime position — it's the fastest, cheapest, most-private
