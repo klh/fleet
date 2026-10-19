@@ -60,6 +60,26 @@ just gate it"). `hooks/lib/targets.ts` layers wiring metadata on top:
   back to [`cli-dialect-pattern.md`](./cli-dialect-pattern.md) for how to add
   one.
 
+### Capability states (W918)
+
+`hooks/lib/targets.ts` exposes evidence-backed capability states for every
+catalog target; `fleet-install.ts --capabilities` prints the live machine
+read (exit 0, no prompt, CI-safe).
+
+- `detected` — the vendored registry's skills-dir/env probe fired here.
+  **Never runnable evidence on its own.**
+- `skillInstallable` — true for every catalog row: the row IS the
+  vercel-labs/skills CLI's own target list.
+- `hookWired` — a suspenders hook adapter exists (native, or its wire.ts on
+  disk).
+- `headlessSpawnable` — a spawnable executor adapter is registered AND the
+  binary probes live here. IDE-only targets stay `false` regardless of
+  detection (honesty law).
+- `sessionResumable` — verified fork/resume semantics (adapter forkArgs
+  non-null).
+- `buckleCompatible` — rides the governed Buckle front; `unknown` =
+  unaudited (W914 coordination pending).
+
 ## Usage
 
 ```bash
@@ -76,6 +96,9 @@ bun hooks/bin/fleet-install.ts --agent '*'
 
 # Preview without touching any settings file
 bun hooks/bin/fleet-install.ts --dry-run
+
+# Print the evidence-backed capability catalog for this machine
+bun hooks/bin/fleet-install.ts --capabilities
 ```
 
 Exit codes mirror `skills`' own discipline: a genuine interactive cancel
