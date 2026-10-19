@@ -618,6 +618,8 @@ services:
       HUB_MDNS_HOSTNAME: ${HUB_MDNS_HOSTNAME:-}
       HUB_MDNS_INTERVAL_MS: ${HUB_MDNS_INTERVAL_MS:-}
       HUB_MDNS_HEALTH_PORT: ${HUB_MDNS_HEALTH_PORT:-4114}
+    volumes:
+      - fleet-repo:/src/fleet:ro
 
   # The verdict about the announcer comes from a process outside it —
   # probe.ts polls the announcer's self-report over the wire and serves the

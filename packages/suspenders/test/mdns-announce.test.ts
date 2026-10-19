@@ -229,6 +229,7 @@ describe("hub-compose wiring", () => {
 			"buckle-health": { condition: "service_healthy" },
 		});
 		expect(String(ann?.command)).toContain("deploy/mdns/announce.ts");
+		expect(ann?.volumes).toContain("fleet-repo:/src/fleet:ro");
 		const env = ann?.environment as Record<string, string>;
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
 		const portTpl = "${HUB_MDNS_PORT:-${HUB_BUCKLE_PORT:-4111}}";
