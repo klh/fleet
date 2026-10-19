@@ -18,7 +18,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.2.0";
+export const KLH_THEME_VERSION = "1.3.0";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -209,6 +209,9 @@ export const FLEET_ICONS = {
 		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12m0-6h12V6"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/></svg>',
 	metrics:
 		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 16V9m6 7V4m6 12v-5"/></svg>',
+	keys: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5"/><path d="M10.1 13.9L20 4m-6 .4l3.6 3.6"/></svg>',
+	sliders:
+		'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="15" cy="7" r="2.2"/><circle cx="8" cy="12" r="2.2"/><circle cx="12" cy="17" r="2.2"/></svg>',
 } as const;
 export const displayLabel = (name: string): string =>
 	name.replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, "").trim();
@@ -225,6 +228,17 @@ export const fleetNav = (current: FleetSite | "", view = ""): string => {
 			"workflows",
 		],
 		["usage", "Metrics", "https://suspenders.local/usage", "metrics"],
+		// W858.3: the two admin consoles join the strip — hub admin is the
+		// identity/token/key/federation plane, settings owns the belt+buckle
+		// budgets, ladders and cooldowns. Without them those controls were
+		// reachable only by typing the URL.
+		["hub", "Hub", "https://suspenders.local/console/hub", "keys"],
+		[
+			"settings",
+			"Settings",
+			"https://suspenders.local/console/settings",
+			"sliders",
+		],
 	] as const;
 	return `<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet"><div class="klh-fleet-sites"><span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>${FLEET_SITES.map((s) => fleetLink(s, current)).join("")}</div><div class="klh-fleet-views">${routes.map(([id, label, href, icon]) => `<a href="${current === "suspenders" && href.startsWith("https://suspenders.local/") ? href.slice("https://suspenders.local".length) : href}"${id === view ? ' aria-current="page"' : ""}>${FLEET_ICONS[icon]}<span>${label}</span></a>`).join("")}</div></nav>`;
 };

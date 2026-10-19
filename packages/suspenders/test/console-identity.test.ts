@@ -13,9 +13,11 @@ test("every surface receives the same monochrome menu destinations", () => {
 			"Workflows",
 			"Services",
 			"Metrics",
+			"Hub",
+			"Settings",
 		])
 			expect(menu).toContain(`<span>${label}</span>`);
-		expect(menu.match(/<svg /g)).toHaveLength(5);
+		expect(menu.match(/<svg /g)).toHaveLength(7);
 	}
 	for (const icon of Object.values(FLEET_ICONS))
 		expect(icon).not.toMatch(/#[0-9a-f]{3,8}/i);

@@ -8,7 +8,12 @@ import type { ConsoleMe } from "./console-html.ts";
 import { consolePage } from "./console-html.ts";
 
 export const hubPage = (me?: ConsoleMe): string =>
-	consolePage("Hub admin", "", "<klh-hub-admin></klh-hub-admin>", me).replace(
+	consolePage(
+		"Hub admin",
+		"hub",
+		"<klh-hub-admin></klh-hub-admin>",
+		me,
+	).replace(
 		"</body>",
 		`<script type="module" src="/vendor/klh-hub-admin.js"></script></body>`,
 	);
