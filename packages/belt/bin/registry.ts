@@ -214,6 +214,8 @@ export const SPECIALISTS: Specialist[] = [
 // single source of truth for every port the fleet occupies — never hidden.
 export interface ExternalService {
 	port: number;
+	healthPath: string;
+	launchdLabel?: string;
 	model: string;
 	label: string;
 	alias: string;
@@ -233,6 +235,8 @@ export const EXTERNAL: ExternalService[] = [
 		// ambiguity band, fit-classifier BELT_FIT_BACKEND=kev. contextTokens =
 		// Kev's trained MAX_STATE (384); longer states are unmeasured.
 		port: 8912,
+		healthPath: "/v1/models",
+		launchdLabel: "com.belt.kev",
 		model: "jaredpalmer/kev-4b",
 		label: "🗂 kev",
 		alias: "local-kev",
@@ -248,6 +252,7 @@ export const EXTERNAL: ExternalService[] = [
 		// context-rag embed_server.py (mlx_embeddings), started on demand by
 		// context-rag / mail-rag; weights = the cached Qwen3-Embedding-0.6B DWQ.
 		port: 8907,
+		healthPath: "/health",
 		model: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ",
 		label: "🧲 embed",
 		alias: "local-embed",
@@ -470,8 +475,8 @@ export function registryEntries(
 			ram_gb: e.ram_gb,
 			tier: e.tier,
 			engine: "external",
-			healthPath: e.port === 8912 ? "/v1/models" : "/health",
-			launchdLabel: e.port === 8912 ? "com.belt.kev" : undefined,
+			healthPath: e.healthPath,
+			launchdLabel: e.launchdLabel,
 			protocol: e.protocol,
 			external: true,
 			owner: e.owner,

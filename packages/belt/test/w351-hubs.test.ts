@@ -97,6 +97,12 @@ describe("hubTargets", () => {
 });
 
 describe("fleetTargets", () => {
+	test("resident Kev is checked through its served model endpoint", () => {
+		const kev = fleetTargets().find((target) => target.port === 8912);
+		expect(kev?.kind).toBe("external");
+		expect(kev?.healthPath).toBe("/v1/models");
+	});
+
 	test("fleet rows keep unique ports with hubs folded in", () => {
 		const ts = fleetTargets();
 		const ports = ts.map((t) => t.port);
