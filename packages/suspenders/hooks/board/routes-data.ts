@@ -18,6 +18,7 @@ import {
 	taskShape,
 	tasks,
 	workEvents,
+	workSpendSeriesPayload,
 } from "./data.ts";
 import { decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
@@ -177,6 +178,12 @@ export async function handleData(
 			projects: projectList(),
 			tasks: tasks(p, doneArg),
 		});
+	}
+	if (url.pathname === "/api/spend-series") {
+		// W887 — per-item spend-over-time (hour-bucket tuples) keyed
+		// project\0id (W318). 5s-memoized, one ledger read per window; the
+		// card sparklines poll this at 30s, never /api/tasks.
+		return json({ ok: true, series: workSpendSeriesPayload() });
 	}
 	if (url.pathname === "/api/task") {
 		// detail drawer feed: the item, its bus events, its decisions

@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	itemAttribution,
 	itemSpend,
+	itemSpendSeries,
 	laneSpendRows,
 	resolveBuckleDb,
 	type LaneSpendRow,
@@ -84,6 +85,64 @@ describe("itemSpend", () => {
 			wins2,
 		);
 		expect(m.get("W3")?.in).toBe(80);
+	});
+});
+
+describe("itemSpendSeries (W887)", () => {
+	const wins = new Map<string, ClaimWindow[]>([
+		["W1", [{ sid: "s1", start: T0, end: T0 + 3_600_000 }]],
+	]);
+
+	test("per-bucket points oldest-first, cached = cacheR + cacheC", () => {
+		const pts = itemSpendSeries(
+			[
+				row({ bucket: "2023-11-14T22:00", sid: "s1", inTok: 50, cacheR: 20 }),
+				row({
+					bucket: "2023-11-14T23:00",
+					sid: "s1",
+					inTok: 70,
+					cacheC: 10,
+					outTok: 5,
+				}),
+			],
+			wins,
+		).get("W1");
+		expect(pts?.length).toBe(2);
+		expect(pts?.[0]).toEqual({
+			t: Date.parse("2023-11-14T22:00:00Z"),
+			fresh: 50,
+			cached: 20,
+			out: 0,
+		});
+		expect(pts?.[1]).toEqual({
+			t: Date.parse("2023-11-14T23:00:00Z"),
+			fresh: 70,
+			cached: 10,
+			out: 5,
+		});
+	});
+
+	test("cap keeps the newest buckets, drops the oldest", () => {
+		const pts = itemSpendSeries(
+			[
+				row({ bucket: "2023-11-14T21:00", sid: "s1", inTok: 1 }),
+				row({ bucket: "2023-11-14T22:00", sid: "s1", inTok: 2 }),
+				row({ bucket: "2023-11-14T23:00", sid: "s1", inTok: 3 }),
+			],
+			wins,
+			2,
+		).get("W1");
+		expect(pts?.length).toBe(2);
+		expect(pts?.[0]?.fresh).toBe(2);
+		expect(pts?.[1]?.fresh).toBe(3);
+	});
+
+	test("buckets outside every window never appear in the series", () => {
+		const pts = itemSpendSeries(
+			[row({ bucket: "2023-11-15T02:00", sid: "s1", inTok: 500 })],
+			wins,
+		).get("W1");
+		expect(pts?.length ?? 0).toBe(0);
 	});
 });
 

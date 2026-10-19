@@ -1,6 +1,6 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
-import type { TimingEventRow } from "../lib/work-timing.ts";
+import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 
 // hooks/board/data.ts — the /api data builders: tasks, board, claims, decisions, activity (W157 board split).
 // Pieces moved verbatim from bin/fleet-board.ts; exports widened so
@@ -9,7 +9,16 @@ import type { TimingEventRow } from "../lib/work-timing.ts";
 import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readRegistry } from "../lib/hub-locate.ts";
-import { type ItemAttribution, itemAttribution } from "../lib/lane-spend.ts";
+import {
+	ATTRIBUTION_LOOKBACK_MS,
+	type ItemAttribution,
+	type ItemSpendPoint,
+	itemAttribution,
+	type LaneSpendRow,
+	itemSpendSeries,
+	laneSpendRows,
+	resolveBuckleDb,
+} from "../lib/lane-spend.ts";
 import { observation } from "../lib/observation.ts";
 import { preferForProject } from "../lib/prefer.ts";
 import { darkHubNow } from "../lib/stack-config.ts";
@@ -145,6 +154,17 @@ export function depEdges(): Map<
 	return out;
 }
 
+// ONE claim-replay event scan (the W635/W776/W887 attribution inputs) —
+// shared by workAttribution + workSpendSeries so each memo window pays a
+// single read.
+function claimEventScan(): TimingEventRow[] {
+	return db
+		.query(
+			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
+		)
+		.all() as TimingEventRow[];
+}
+
 // W776 — per-item attribution (spend + wall) for the tasks feed, memoized
 // 5s: the /api/tasks poll storm rides the cache (W663 doctrine), one ledger
 // read per TTL window. Keys are project\0id — W318 id collision.
@@ -156,11 +176,7 @@ function workAttribution(): Map<string, ItemAttribution> {
 	// W682: ONE claim-replay bus scan feeds every project's replay — the
 	// per-project pair of events scans (25 projects × 2 = 50 store round
 	// trips per TTL window) collapses into this single read.
-	const evs = db
-		.query(
-			"SELECT project, id, ts, kind, payload FROM events WHERE kind IN ('work.claimed','work.released','work.done','work.failed') ORDER BY ts, id",
-		)
-		.all() as TimingEventRow[];
+	const evs = claimEventScan();
 	for (const { project } of db
 		.query("SELECT DISTINCT project FROM work_items")
 		.all() as { project: string }[]) {
@@ -176,6 +192,52 @@ function workAttribution(): Map<string, ItemAttribution> {
 	}
 	_wAttr = { at: Date.now(), m };
 	return m;
+}
+
+// W887 — per-item spend-over-time for /api/spend-series, memoized 5s like
+// workAttribution (W663: the sparkline poll rides the cache; laneSpendRows
+// is project-independent so ONE ledger read feeds every project).
+let _wSeries: { at: number; m: Map<string, ItemSpendPoint[]> } | null = null;
+export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
+	if (_wSeries && Date.now() - _wSeries.at < ATTR_TTL_MS) return _wSeries.m;
+	const evs = claimEventScan();
+	const fromBucket = `${new Date(Date.now() - ATTRIBUTION_LOOKBACK_MS).toISOString().slice(0, 13)}:00`;
+	let rows: LaneSpendRow[] = [];
+	try {
+		const ledger = resolveBuckleDb();
+		rows = ledger ? laneSpendRows(ledger, fromBucket) : [];
+	} catch {
+		rows = []; // unreadable ledger — fail-soft (coord fleet parity)
+	}
+	const m = new Map<string, ItemSpendPoint[]>();
+	for (const { project } of db
+		.query("SELECT DISTINCT project FROM work_items")
+		.all() as { project: string }[]) {
+		const { windows } = claimWindows(
+			db as unknown as Database,
+			project,
+			Date.now(),
+			evs,
+		);
+		for (const [id, points] of itemSpendSeries(rows, windows)) {
+			m.set(`${project}\u0000${id}`, points);
+		}
+	}
+	_wSeries = { at: Date.now(), m };
+	return m;
+}
+
+/** W887 — wire shape for /api/spend-series: per-item [t, fresh, cached, out]
+ *  tuples keyed project\0id (W318). Tuples keep the poll payload tight. */
+export function workSpendSeriesPayload(): Record<
+	string,
+	[number, number, number, number][]
+> {
+	const out: Record<string, [number, number, number, number][]> = {};
+	for (const [k, points] of workSpendSeries()) {
+		out[k] = points.map((p) => [p.t, p.fresh, p.cached, p.out]);
+	}
+	return out;
 }
 
 // the tasks feed: everything not SUPERSEDED (or DONE still holding an owner —
