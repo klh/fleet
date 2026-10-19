@@ -164,3 +164,40 @@ export function syncNativeRename(
 		return null; // dead plane: fail-open, like the heartbeat touch
 	}
 }
+
+// W954: the sid-keyed face for callers that hold no hook payload — the
+// transcript path resolves from the session row instead. The persistent
+// subscribe watch calls it each tick; renameSession short-circuits when the
+// tags name already matches, so a steady-state tick is one bounded tail read.
+export function syncNativeRenameBySid(
+	store: GovernorStore,
+	sid: string,
+): RenameResult | null {
+	if (process.env.SUSPENDERS_RENAME_SYNC === "0") return null;
+	const row = store
+		.query("SELECT transcript_path FROM sessions WHERE sid = ?")
+		.get(sid) as { transcript_path: string | null } | null;
+	if (!row) return null;
+	const native = nativeTitleFromTranscript(row.transcript_path);
+	if (!native) return null;
+	return renameSession(store, sid, native);
+}
+
+// W954: the persistent-faces watcher — session-start opens the subscribe at
+// bootstrap and it lives for the whole session, so IT owns mid-session
+// rename pickup (a /rename on an idle session lands in the transcript
+// immediately; the next tick syncs it without waiting for a turn end).
+// Fail-open per tick; SUSPENDERS_RENAME_SYNC=0 no-ops inside the sync.
+export function startNativeRenameWatch(
+	store: GovernorStore,
+	sid: string,
+	intervalMs = 30_000,
+): ReturnType<typeof setInterval> {
+	return setInterval(() => {
+		try {
+			syncNativeRenameBySid(store, sid);
+		} catch {
+			// dead plane mid-flight: a display sync never kills the subscribe
+		}
+	}, intervalMs);
+}

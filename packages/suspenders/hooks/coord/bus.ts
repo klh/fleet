@@ -23,6 +23,7 @@ import {
 	projectIdentity,
 } from "./shared.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import { startNativeRenameWatch } from "../lib/session-rename.ts";
 
 export const LIVE_HEARTBEAT_WINDOW_MS = 30 * 60_000;
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
@@ -315,6 +316,10 @@ export async function cmdWait(rest: string[]): Promise<void> {
 	const kinds = arg("--kinds")?.split(",").filter(Boolean) ?? [];
 	const forever = rest.includes("--forever");
 	const deadline = Date.now() + Number(arg("--max-seconds") ?? 30) * 1000;
+	// W954: the --forever fallback face (subscribe's no-HTTP-store path) is
+	// persistent too — it carries the same native-rename watcher as the WS
+	// subscribe, so the fallback never loses mid-session rename pickup.
+	if (forever) startNativeRenameWatch(db, as);
 	let interval = 250;
 	for (;;) {
 		const cur =
@@ -402,6 +407,11 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 			process.exit(0);
 		}
 	}, 30_000);
+	// W954: the subscribe face doubles as the native-rename watcher — a
+	// mid-session /rename (custom-title line) lands in the transcript while
+	// the session sits IDLE, and this is the ONE always-alive process that
+	// can catch it without waiting for a turn end. Fails open per tick.
+	startNativeRenameWatch(db, as);
 	await new Promise<void>(() => {}); // live for the process's whole life
 }
 

@@ -16,6 +16,7 @@ import {
 } from "./lib/govdb.ts";
 import { enrollTopLevel } from "./lib/hook-scripts.ts";
 import { run } from "./lib/run.ts";
+import { renameSession, nativeTitleFromTranscript } from "./lib/session-rename.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import {
@@ -211,6 +212,19 @@ db.query(UPSERT).run(
 	input.transcript_path ?? null,
 	actorDefault,
 );
+// W954: native-rename sync at bootstrap — a CLI /rename (claude-code
+// custom-title) survived only until the row's first Stop gate; an idle
+// renamed session stayed UUID-labelled (fleet-knowledge #47607). Sync the
+// transcript's native title into sessions.tags NOW, while the row is fresh
+// RUNNING; fail-open like every other display sync.
+const nativeTitle = nativeTitleFromTranscript(input.transcript_path ?? null);
+if (nativeTitle) {
+	try {
+		renameSession(db, lane, nativeTitle);
+	} catch {
+		// a display sync never breaks a bootstrap
+	}
+}
 const out = [
 	isSubagent
 		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`

@@ -125,6 +125,53 @@ function stopGate(payload: string, extraEnv?: Record<string, string>) {
 	return run([GATE, "stop"], extraEnv, payload).code;
 }
 
+// ─── W954: bootstrap + subscribe-face rename sync ─────────────────────────
+// The stop gate was the only sync face; an idle renamed session stayed
+// UUID-labelled until its first turn ended (fleet-knowledge #47607).
+const BOOT = join(PKG, "hooks", "session-start.ts");
+const bootEnv: Record<string, string | undefined> = {
+	...process.env,
+	HOME,
+	NO_COLOR: "1",
+	SUSPENDERS_BUCKLE_FRONT: "http://127.0.0.1:1",
+	SUSPENDERS_BELT_ENV: join(HOME, "absent-belt.env"),
+};
+delete bootEnv.SUSPENDERS_SID;
+delete bootEnv.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+
+describe("W954 session-start bootstrap sync", () => {
+	test("native title lands at bootstrap; coord targets resolves it", () => {
+		const sid = `w954boot-${Date.now()}`;
+		const tx = transcript("idle-renamed");
+		const payload = join(
+			HOME,
+			`boot-${Math.random().toString(36).slice(2)}.json`,
+		);
+		writeFileSync(
+			payload,
+			JSON.stringify({
+				session_id: sid,
+				source: "startup",
+				transcript_path: tx,
+				cwd: REPO,
+			}),
+		);
+		const p = Bun.spawnSync(["bun", BOOT], {
+			cwd: REPO,
+			env: bootEnv as Record<string, string>,
+			stdin: Bun.file(payload),
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(p.exitCode).toBe(0);
+		expect(tagsOf(sid).name).toBe("idle-renamed");
+		const t = coord(["targets", "--filter", "idle-renamed", "--json"]);
+		expect(t.code).toBe(0);
+		expect(t.out).toContain(sid);
+		rmSync(payload, { force: true });
+	});
+});
+
 describe("coord rename verb (W930)", () => {
 	test("bootstrap seeds a name; rename re-stamps it and keeps other keys", () => {
 		expect(
@@ -225,5 +272,44 @@ describe("stop-gate native-rename sync (W930)", () => {
 		setRow("laneS", { state: "CLOSED" });
 		expect(stopGate(stopPayload("laneU", tx))).toBe(0);
 		expect(tagsOf("laneU").name).toBe("Clash");
+	});
+});
+
+describe("W954 subscribe-face sync", () => {
+	test("syncNativeRenameBySid syncs from the session row", () => {
+		expect(coord(["bootstrap", "--as", "w954sub1"]).code).toBe(0);
+		setRow("w954sub1", { transcript_path: transcript("sid-keyed-sync") });
+		const script =
+			`import { syncNativeRenameBySid } from ${JSON.stringify(join(PKG, "hooks", "lib", "session-rename.ts"))};` +
+			`import { openStore } from ${JSON.stringify(join(PKG, "hooks", "lib", "govdb.ts"))};` +
+			`console.log(JSON.stringify(syncNativeRenameBySid(openStore(), "w954sub1")));`;
+		const r = run(["-e", script]);
+		expect(r.code).toBe(0);
+		expect(tagsOf("w954sub1").name).toBe("sid-keyed-sync");
+	});
+
+	test("SUSPENDERS_RENAME_SYNC=0 disables the sid-keyed face", () => {
+		const script =
+			`import { syncNativeRenameBySid } from ${JSON.stringify(join(PKG, "hooks", "lib", "session-rename.ts"))};` +
+			`import { openStore } from ${JSON.stringify(join(PKG, "hooks", "lib", "govdb.ts"))};` +
+			`console.log(JSON.stringify(syncNativeRenameBySid(openStore(), "w954sub1")));`;
+		setRow("w954sub1", { transcript_path: transcript("never-by-sid") });
+		expect(run(["-e", script], { SUSPENDERS_RENAME_SYNC: "0" }).code).toBe(0);
+		expect(tagsOf("w954sub1").name).toBe("sid-keyed-sync");
+		expect(run(["-e", script]).code).toBe(0);
+		expect(tagsOf("w954sub1").name).toBe("never-by-sid");
+	});
+
+	test("startNativeRenameWatch ticks the sync", () => {
+		expect(coord(["bootstrap", "--as", "w954watch"]).code).toBe(0);
+		setRow("w954watch", { transcript_path: transcript("watch-picked-up") });
+		const script =
+			`import { startNativeRenameWatch } from ${JSON.stringify(join(PKG, "hooks", "lib", "session-rename.ts"))};` +
+			`import { openStore } from ${JSON.stringify(join(PKG, "hooks", "lib", "govdb.ts"))};` +
+			`startNativeRenameWatch(openStore(), "w954watch", 200);` +
+			`setTimeout(() => process.exit(0), 700);`;
+		const r = run(["-e", script]);
+		expect(r.code).toBe(0);
+		expect(tagsOf("w954watch").name).toBe("watch-picked-up");
 	});
 });
