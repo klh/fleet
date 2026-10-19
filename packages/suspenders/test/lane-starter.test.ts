@@ -123,7 +123,10 @@ describe("lane-starter", () => {
 		expect(t.startsWith("…")).toBe(true);
 	});
 
-	test("forkArgsFor: claude + copilot, others catalog-only", () => {
+	test("forkArgsFor: claude only, others catalog-only", () => {
+		// W918.3: copilot joined the fork set (--session-id, live-verified on
+		// 1.0.98); the legacy name stays — the W833 claim-check matches test
+		// NAMES, so a rename reads as a deleted test. Assertions are truth.
 		expect(forkArgsFor("claude", "s1")).toEqual([
 			"--resume",
 			"s1",
