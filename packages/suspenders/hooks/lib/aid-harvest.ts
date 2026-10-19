@@ -5,7 +5,9 @@
 // buckle owns the buckets; re-pull is idempotent). Watermark rides the
 // facts table. Library + thin CLI; buckle down = honest skip, never an
 // error (aids are garnish — the control plane never blocks on them).
+import { readFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
+import { readEnvValue } from "./doctor.ts";
 import { num } from "./harvest-engine.ts";
 
 export interface AidHarvestStats {
@@ -81,15 +83,23 @@ async function pullEvents(
 	f: typeof fetch,
 	base: string,
 	nowMs: number,
+	headers: Record<string, string>,
 ): Promise<{ pulled: number; inserted: number; skipped?: string }> {
 	let res: Response;
 	try {
-		res = await f(`${base}/aids/events?since=${aidWatermark(db)}`);
+		res = await f(`${base}/aids/events?since=${aidWatermark(db)}`, { headers });
 	} catch {
 		return { pulled: 0, inserted: 0, skipped: "buckle unreachable" };
 	}
 	if (!res.ok)
-		return { pulled: 0, inserted: 0, skipped: `aids/events ${res.status}` };
+		return {
+			pulled: 0,
+			inserted: 0,
+			skipped:
+				res.status === 401
+					? "aids/events 401 — buckle gate wants a credential (BUCKLE_AIDS_TOKEN or belt.env BUCKLE_ADMIN_KEY)"
+					: `aids/events ${res.status}`,
+		};
 	const body = (await res.json()) as { events?: Row[] };
 	const events = body.events ?? [];
 	let inserted = 0;
@@ -117,10 +127,11 @@ async function pullRollup(
 	db: Database,
 	f: typeof fetch,
 	base: string,
+	headers: Record<string, string>,
 ): Promise<number> {
 	let res: Response;
 	try {
-		res = await f(`${base}/aids/rollup?hours=168`);
+		res = await f(`${base}/aids/rollup?hours=168`, { headers });
 	} catch {
 		return 0;
 	}
@@ -149,14 +160,54 @@ const envUrl = (): string => {
 	return raw.length > 0 ? raw : "http://127.0.0.1:4101";
 };
 
+/** Credential for the gated buckle front: GET /aids/* is proxy-class
+ *  (buckle:proxy:READ_; WRITE_ implies READ_), so the belt.env admin key
+ *  qualifies. Resolution: opts.token → env BUCKLE_AIDS_TOKEN → env
+ *  BUCKLE_ADMIN_KEY → belt.env BUCKLE_ADMIN_KEY (the doctor.ts disk-read
+ *  precedent — the board process carries no belt.env in its envFile). The
+ *  value never appears in logs. null = ride headerless (BUCKLE_AUTH=off
+ *  postures keep working). */
+export function aidsPullToken(
+	opts: {
+		token?: string;
+		env?: Record<string, string | undefined>;
+		home?: string;
+	} = {},
+): string | null {
+	const env = opts.env ?? process.env;
+	const trimmed = (v: string | undefined): string => (v ?? "").trim();
+	const direct =
+		trimmed(opts.token) ||
+		trimmed(env.BUCKLE_AIDS_TOKEN) ||
+		trimmed(env.BUCKLE_ADMIN_KEY);
+	if (direct.length > 0) return direct;
+	const belt = `${opts.home ?? env.HOME ?? ""}/.claude/local-llm/belt.env`;
+	try {
+		const v = readEnvValue(readFileSync(belt, "utf8"), "BUCKLE_ADMIN_KEY");
+		if (v !== null && v.length > 0) return v;
+	} catch {
+		// absent/unreadable belt.env → ride headerless (honest 401 skip)
+	}
+	return null;
+}
+
 /** Pull buckle's aid metering into governor.db. Honest skip on outage. */
 export async function harvestAids(
 	db: Database,
-	opts: { baseUrl?: string; fetchFn?: typeof fetch; nowMs?: number } = {},
+	opts: {
+		baseUrl?: string;
+		fetchFn?: typeof fetch;
+		nowMs?: number;
+		token?: string;
+		env?: Record<string, string | undefined>;
+		home?: string;
+	} = {},
 ): Promise<AidHarvestStats> {
 	const f = opts.fetchFn ?? fetch;
 	const base = opts.baseUrl ?? envUrl();
-	const ev = await pullEvents(db, f, base, opts.nowMs ?? Date.now());
+	const token = aidsPullToken(opts);
+	const headers = token !== null ? { authorization: `Bearer ${token}` } : {};
+	const ev = await pullEvents(db, f, base, opts.nowMs ?? Date.now(), headers);
 	if (ev.skipped)
 		return {
 			pulled: 0,
@@ -167,7 +218,7 @@ export async function harvestAids(
 	return {
 		pulled: ev.pulled,
 		events_inserted: ev.inserted,
-		buckets_upserted: await pullRollup(db, f, base),
+		buckets_upserted: await pullRollup(db, f, base, headers),
 	};
 }
 // thin CLI face: hooks/bin/aid-harvest.ts (W657 — the library lives here)
