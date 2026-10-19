@@ -1,0 +1,218 @@
+# Decant
+
+[![npm version](https://img.shields.io/npm/v/%40dosu%2Fdecant?logo=npm)](https://www.npmjs.com/package/@dosu/decant)
+[![npm downloads](https://img.shields.io/npm/dm/%40dosu%2Fdecant?logo=npm)](https://www.npmjs.com/package/@dosu/decant)
+[![CI](https://github.com/dosu-ai/decant/actions/workflows/ci.yml/badge.svg)](https://github.com/dosu-ai/decant/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/dosu-ai/decant/badge)](https://scorecard.dev/viewer/?uri=github.com/dosu-ai/decant)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+<!-- FLEET (W950): this tree is a vendored dosu-ai/decant snapshot @ v0.11.0.
+     Fleet integration notes, the unencrypted-archive caveat, and the upgrade
+     recipe live in FLEET.md. Upstream-owned bytes stay unmodified except the
+     CLI-layer seam edits listed there. -->
+
+Decant turns the Claude Code, Codex, Gemini CLI, and OpenCode session logs on
+your machine into tangible insights. See where tokens, cost, and agent time go,
+inspect context usage, find the files and tools agents touch, and search
+complete transcripts from a CLI or local web UI.
+
+Decant is local-first. It makes no outbound network calls at runtime, and your
+transcripts never leave your machine.
+
+It does keep a copy of them. To make sessions searchable, Decant writes prompts,
+tool inputs, tool output, and canonicalized raw records for retained transcript
+messages into an **unencrypted** SQLite archive at `~/.decant/decant.db`, with a
+full-text index over the prompt and tool-argument text. Whatever your agents read
+is in there too — source code, file contents, local paths, and any credentials
+pasted into a session. Decant creates the archive owner-only (`0600`). If your
+organization has a retention policy for agent transcripts, this archive is
+subject to it. See
+[What the archive stores](docs/data-lifecycle.md#what-the-archive-stores) to
+inspect, delete, or remove it.
+
+Built by
+[Dosu](https://dosu.dev?utm_source=decant&utm_medium=github&utm_campaign=attribution&utm_content=readme),
+Knowledge Infrastructure for Agents. Dosu helps make agents faster, cheaper,
+and more effective.
+
+https://github.com/user-attachments/assets/188f7cca-5b0a-4504-8eb2-a317a606d91e
+
+## Quick start
+
+Run Decant with `npx` with no Bun install or global package required.
+
+```sh
+npx @dosu/decant@latest
+```
+
+This starts the local UI at <http://127.0.0.1:3000>, indexes the Claude Code,
+Codex, Gemini CLI, and OpenCode logs on your machine, and watches for changes.
+
+## What you get
+
+- One SQLite archive for Claude Code, Codex, Gemini CLI, and OpenCode sessions.
+- Full-text search across messages, tool calls, and transcripts.
+- Token, [estimated cost](docs/pricing.md), context, activity, tool, MCP, and
+  file analytics.
+- Browsable sessions, projects, files, and ingest diagnostics.
+- Markdown, JSON, report, and trajectory exports.
+- Deterministic scripts, replays, and agent instructions distilled from command
+  history.
+
+## Install
+
+Published binaries support macOS and Linux on x64 and arm64. Native Windows
+binaries are not currently available.
+
+Install a persistent command with npm:
+
+```sh
+npm install --global @dosu/decant@latest
+decant
+```
+
+Or use Homebrew:
+
+```sh
+brew install dosu-ai/dosu/decant
+decant
+```
+
+Or install the latest release without Node.js or Bun:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dosu-ai/decant/main/install.sh | sh
+decant
+```
+
+See [Distribution](docs/distribution.md) for installer options, Docker, source
+builds, and release verification.
+
+## Docker
+
+```sh
+docker run --rm \
+  -p 127.0.0.1:3000:3000 \
+  -v decant-data:/var/lib/decant \
+  -v "$HOME/.claude/projects:/sources/claude:ro" \
+  -v "$HOME/.codex:/sources/codex:ro" \
+  -v "$HOME/.gemini/tmp:/sources/gemini:ro" \
+  ghcr.io/dosu-ai/decant:latest
+```
+
+Keep the `127.0.0.1:` prefix. Publishing `-p 3000:3000` exposes the
+unauthenticated archive API on every host interface. Custom container networks
+may need the trusted-peer setting documented under
+[Docker distribution](docs/distribution.md#docker).
+
+The source mounts are read-only, but `decant-data` is a **named volume**: the
+archive outlives every container, and neither `--rm` nor `docker rm` removes it.
+Use `docker volume rm decant-data` when you want it gone.
+
+## CLI
+
+```sh
+decant                         # start the local web UI
+decant sync                    # index new and changed sessions
+decant ls                      # list sessions
+decant show 1                  # render a transcript
+decant search "auth bug"       # full-text search
+decant stats --by model        # usage and cost rollups
+decant economics               # token, cost, and time breakdowns
+decant files --group ext       # file hotspots
+decant tool stats              # tool usage
+decant mcp stats               # MCP server usage
+decant export 1 > session.md   # export a session
+decant db info                 # what the archive holds and where
+decant session rm 1 --yes      # delete a session and its descendants
+decant db vacuum               # release the freed pages after a delete
+```
+
+Run `decant --help` or `decant <command> --help` for all commands and flags.
+Read commands support `--json`; global flags include `--db`, `--format`,
+`--quiet`, `--no-color`, and `--no-sync`.
+
+Decant reads `~/.claude/projects`, `~/.codex`, `~/.gemini/tmp`, and
+`~/.local/share/opencode` by default. Override them with `DECANT_CLAUDE_DIR`,
+`DECANT_CODEX_DIR`, `DECANT_GEMINI_DIR`, and `DECANT_OPENCODE_DIR`, or with the
+corresponding `--claude-dir`, `--codex-dir`, `--gemini-dir`, and
+`--opencode-dir` flags on `sync`, `watch`, and `serve`. When the Decant
+variable and flag are unset, the OpenCode directory falls back to OpenCode's own
+`OPENCODE_DATA_DIR`, then `$XDG_DATA_HOME/opencode`. `OPENCODE_DB` names an
+explicit extra database file that is read alongside the discovered directory.
+Decant recognizes OpenCode MCP tool calls by the server names in OpenCode's
+config. It reads the global `opencode.json` and `opencode.jsonc` in OpenCode's
+config directory (`OPENCODE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/opencode`,
+default `~/.config/opencode`), plus `opencode.json`, `opencode.jsonc`,
+`.opencode/opencode.json`, and `.opencode/opencode.jsonc` in each session's
+directory and in every directory above it up to the filesystem root, and merges
+the names. As in OpenCode, files that resolve to the global config directory
+are not read again as project configs. Like OpenCode, it also reads the file
+named by `OPENCODE_CONFIG` in addition to those. `DECANT_OPENCODE_CONFIG` names
+one file that Decant reads in place of the global directory's two files. A
+missing or malformed config file names no servers. When a config edit changes
+the server names that apply to a session, the next sync re-derives that
+session; sessions whose names did not change are skipped as usual. Run
+`sync`, `watch`, and `serve` with the same `OPENCODE_CONFIG` and
+`DECANT_OPENCODE_CONFIG` values, or each switch re-derives those sessions.
+Decant supports OpenCode 1.2 and later, reading both its 1.x and its 2.x
+session storage. OpenCode sessions are read from `opencode.db` (and
+`opencode-<channel>.db`) read-only; Decant never writes to it. When the same
+session is stored in both layouts, Decant reads the copy OpenCode updated last.
+For context windows Decant uses the models.dev catalog OpenCode caches: 2.x
+keeps it in the database, and for a database without one (as 1.x leaves it)
+Decant reads `OPENCODE_MODELS_PATH`, else `$XDG_CACHE_HOME/opencode/models.json`
+(default `~/.cache/opencode/models.json`), read-only. `--path` also accepts an OpenCode `.db` file.
+
+To index selected files or a temporary source tree:
+
+```sh
+decant --db /tmp/decant.db sync --path ./session.jsonl --path ./sessions
+```
+
+## Local API
+
+The OpenAPI 3.1 contract is [docs/api/openapi.yaml](docs/api/openapi.yaml), and
+a running server exposes it at
+<http://127.0.0.1:3000/api/openapi.json>. See [API recipes](docs/api/recipes.md)
+for examples.
+
+## Documentation
+
+- [Analytics methodology](docs/analytics-methodology.md)
+- [Pricing estimates](docs/pricing.md)
+- [Archive and data lifecycle](docs/data-lifecycle.md)
+- [Local Serve API](docs/api/routes.md)
+- [Distribution and release verification](docs/distribution.md)
+- [Architecture](docs/architecture.md)
+
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+tests, and privacy requirements. Coding agents should also read
+[AGENTS.md](AGENTS.md).
+
+Use synthetic session data in issues and tests. Real transcripts can contain
+source code, prompts, credentials, and local paths.
+
+## Security
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## About Dosu
+
+Decant is built and maintained by
+[Dosu](https://dosu.dev?utm_source=decant&utm_medium=github&utm_campaign=attribution&utm_content=about),
+Knowledge Infrastructure for Agents. Dosu helps make agents faster, cheaper,
+and more effective. Decant shows what your agents spent, read, and touched via
+your agent logs.
+
+## Acknowledgments
+
+Decant was inspired in part by
+[Letta's Trajectory](https://github.com/letta-ai/trajectory), which normalizes
+agent transcripts across runtimes into a shared record format.
+
+## License
+
+Decant is licensed under the [Apache License 2.0](LICENSE).

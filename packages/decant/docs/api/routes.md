@@ -1,0 +1,183 @@
+# Local Serve API
+
+`decant serve` runs the archive owner, source watcher, local HTTP API,
+Server-Sent Events stream, and React UI in one Bun process. It listens on
+`http://127.0.0.1:3000` by default.
+
+The reference contract is [openapi.yaml](openapi.yaml). It describes every
+`/api/*` operation, parameter, request body, response schema, and stable error
+code. A running server exposes the same OpenAPI 3.1 document as JSON at
+`GET /api/openapi.json`; its `info.version` is the running Decant version.
+
+This page records the operational semantics around that contract.
+
+## UI routes
+
+- `GET /` (Analytics; grouped under Overview in the sidebar)
+- `GET /projects`
+- `GET /sessions`
+- `GET /sessions/:id`
+- `GET /search`
+- `GET /analytics`
+- `GET /insights`
+- `GET /tools`
+- `GET /files`
+- `GET /settings`
+- `GET /reports/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD`
+- `GET /reports/session/:id`
+
+Any other non-API path returns `404` with the standard `not_found` error body.
+
+The report UI routes render a light, print-ready preview with Back, Download
+HTML, and Save as PDF controls. They read the local-only report operations;
+the session preview intentionally omits transcript content.
+
+## Access control
+
+The API has no authentication. Any request that reaches the listener and passes
+the local guard can read or mutate the whole archive.
+
+- The default loopback bind admits local processes only.
+- On a non-loopback bind, loopback source addresses and the trusted peers
+  resolved at startup are admitted; every other source receives
+  `403 forbidden_remote`.
+- Trusted-peer sources use replacement precedence, not a union. The first
+  present source wins: `--trusted-peer`, then `DECANT_TRUSTED_PEERS` whenever
+  the variable is set, then `DECANT_TRUST_DEFAULT_GATEWAY=1`.
+  `DECANT_TRUSTED_PEERS=` therefore means “trust nobody,” not “fall through.”
+- Every trusted peer must be an IP address or an IPv4 CIDR. `decant serve`
+  exits with an error at startup on an entry that could never match, such as
+  `10.0.0.0/33` or a hostname, instead of silently trusting nobody. <!-- scrub:allow (W950: public RFC1918 constant) -->
+- The gateway option contributes one address only when Decant proves the
+  default route is a container veth to an on-link gateway inside
+  `172.16.0.0/12`. It fails closed for host networking, macvlan/ipvlan, <!-- scrub:allow (W950: public RFC1918 constant) -->
+  multi-homed hosts, and other unproven shapes. See
+  [distribution.md](../distribution.md#docker).
+- A write that sends `Origin` must name a loopback origin whose host and port
+  equal the request's `Host` header, so a page on another localhost port gets
+  `403 cross_origin_write`. `localhost`, `127.0.0.1`, and `[::1]` are distinct
+  hosts here, and a missing port means the scheme's default. The bound port is
+  not consulted, so a published port such as `-p 8080:3000` works when the
+  browser's `Host` and `Origin` agree.
+- The `Host` check is not authentication: a non-browser client can send
+  `Host: localhost`. The `Origin` and `Sec-Fetch-Site` checks on writes are
+  browser-drive protections, not credentials.
+
+On a loopback bind, a command-line write may omit `Origin`. On a non-loopback
+bind, a write that supplies neither `Origin` nor `Sec-Fetch-Site` is rejected
+even when the source is trusted. For an explicit command-line write, supply an
+`Origin` whose host and port match the `Host` header you send; for example:
+
+```bash
+curl --fail --silent --show-error \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --header 'Origin: http://127.0.0.1:3000' \
+  --data '{}' \
+  http://127.0.0.1:3000/api/sync
+```
+
+If the client connects to a non-loopback address directly, it must also send a
+loopback `Host` header. Admission still depends on the actual source address;
+changing `Host` or `Origin` never makes an untrusted peer trusted.
+
+## Response and archive semantics
+
+JSON errors use the stable envelope `{ "error": string, "code": string, ... }`.
+Expected recovery cases retain specific codes, including `archive_locked`,
+`schema_drift`, `schema_too_new`, `schema_too_old`, `session_not_found`, and
+validation failures. Unexpected failures return generic `internal_error` prose;
+the structured stderr log retains the diagnostic.
+
+`DECANT_NO_SYNC` and `--no-sync` suppress Decant-initiated startup, watch, and
+sweep syncs. They do not disable `POST /api/sync`.
+
+Sync responses include `repriced` when stored session or activity costs changed.
+A repricing-only sync also invalidates server economics caches and emits
+`archive_updated`, even when `ingested` is zero.
+
+Session archive/delete state is local metadata. Archiving hides a session from
+default lists, searches, and aggregate statistics. The `include_archived`
+parameter on session-list and statistics operations opts it back into those
+operations; full-text and command-palette search remain limited to visible
+sessions. Deletion creates a tombstone keyed to source identity, so a later sync
+does not restore the session. Neither operation modifies the source JSONL file.
+Deletion removes the live rows. SQLite may leave deleted text recoverable in
+freed pages until `decant db vacuum` rewrites the archive. See
+[What the archive stores](../data-lifecycle.md#what-the-archive-stores).
+
+Session visibility also excludes sessions that hold no conversation. Claude Code
+transcripts containing only local slash-command output, and Codex threads that
+were created but never sent a prompt, are hidden from default lists, the
+search index, and aggregate statistics in the same way as archived sessions.
+Their rows stay in the archive and remain readable by id through
+`GET /api/sessions/:id`. Each becomes visible once its source gains a real
+prompt or reply.
+
+`POST /api/launch/agent` accepts a `key` only when it uses the characters
+recommendation keys are built from (`A-Z a-z 0-9 . _ : / -`, at most 256).
+`POST /api/launch/ide` requires an absolute `dir` that matches a project path or
+root path in the archive. Both answer `400 invalid_request` otherwise.
+
+Report operations return self-contained, zero-JavaScript HTML. Session reports
+omit transcript content by design.
+
+Session summaries carry `cost_source`. `decant` means `estimated_cost_usd`
+was priced from token usage at Decant's rates. `reported` means the source
+recorded a per-request cost and Decant has no rate for the model, so the
+recorded figure is shown (OpenCode records one; a recorded zero is never
+used). `mixed` means some of the session's model rows were priced each way.
+The label is decided when the session is read: a recorded figure counts only
+while Decant still has no rate for its model, so a model that gains a rate
+later reads as `decant` even if a figure was stored earlier.
+Token-economics totals expose the reported share as `reported_cost_usd`.
+`model_provider` is the provider route the model ran through when the source
+records one. `GET /api/config` includes `opencodeDir`, the OpenCode data
+directory being read.
+
+### Session listing and command-palette index
+
+`GET /api/sessions` returns a bare newest-first array, not an envelope with a
+total or continuation token. Its `limit` defaults to 50 and has an effective
+maximum of 100. Increment `offset` by the number of rows received; a final short
+or empty page marks the end. When the result count is an exact multiple of the
+page size, one empty request is required to confirm the end.
+
+`GET /api/files`, `GET /api/tools/usage`, and `GET /api/tools/mcp-usage` return
+aggregate rows. Their `limit` has an effective maximum of 1000.
+
+`GET /api/tools/calls` filters its rows by each call's own timestamp, so a call
+lands on the day it ran. Its first-page `summary` follows the aggregate rule
+instead: calls from sessions whose `started_at` falls in the window, matching
+`GET /api/tools/usage` and `GET /api/tools/mcp-usage`. The summary honors
+`tool`, `server`, `session`, and `project`, and ignores `errors_only` and
+`min_ms`, so `summary.calls` can differ from `total`.
+
+Request bodies larger than 1 MiB get a `413` with an empty body before they
+reach a route handler.
+No documented request comes close to that size.
+
+`GET /api/sessions/search-index` returns lightweight metadata for every visible,
+non-archived top-level session. A session is visible when it is not user-archived,
+not deleted, and not an empty conversation (Claude Code sessions that contain only
+local slash-command output or Codex threads that were created but never received
+a prompt). The search index is the command palette's local fuzzy-search haystack
+and intentionally omits transcript content.
+
+## Server-Sent Events
+
+`GET /api/events` returns `text/event-stream`. The current event names are:
+
+- `hello` — connection acknowledgement
+- `ping` — heartbeat, normally every five seconds
+- `ready` — source watcher initialized
+- `sync_progress` — bounded progress snapshot for a running sync
+- `sync` — terminal successful sync report
+- `archive_updated` — archive-derived UI data changed; `reason` distinguishes
+  the startup sync and background watcher activity from manual syncs,
+  statistics rebuilds, and session-state changes
+- `error` — watcher or sync failure
+- `stopped` — source watcher stopped
+
+Each `data` field is JSON and includes a matching `type`. The OpenAPI operation's
+`x-sse-events` extension defines the payload schema for each name.
