@@ -26,7 +26,13 @@ interface LaneDrill {
 interface DrillReport {
 	available: boolean;
 	window: { from: string; to: string; days: number };
-	fleet: { requests: number; warm: number; warmRate: number; tokens: number; costIndex: number };
+	fleet: {
+		requests: number;
+		warm: number;
+		warmRate: number;
+		tokens: number;
+		costIndex: number;
+	};
 	lanes: LaneDrill[];
 	models: string[];
 }
@@ -117,7 +123,10 @@ export class KlhUsageDrilldown extends LitElement {
 			const r = await fetch(`/api/usage/drilldown?${q}`);
 			const j = (await r.json()) as { report?: DrillReport };
 			this.rep = j.report ?? null;
-			this.err = this.rep?.available === false ? "no readable buckle ledger — drilldown unavailable" : "";
+			this.err =
+				this.rep?.available === false
+					? "no readable buckle ledger — drilldown unavailable"
+					: "";
 		} catch {
 			this.err = "drilldown fetch failed";
 			this.rep = null;
@@ -151,7 +160,14 @@ export class KlhUsageDrilldown extends LitElement {
 		}
 	}
 
-	private setFilter(f: Partial<{ days: number; model: string; sort: string; missOnly: boolean }>): void {
+	private setFilter(
+		f: Partial<{
+			days: number;
+			model: string;
+			sort: string;
+			missOnly: boolean;
+		}>,
+	): void {
 		Object.assign(this, f);
 		void this.load();
 		if (this.drill !== "") {
@@ -186,7 +202,6 @@ export class KlhUsageDrilldown extends LitElement {
 					${this.rep.lanes.map((l) => this.laneRow(l))}
 				</tbody>
 			</table>
-			${this.page !== null && this.drill !== "" ? this.drillRows() : nothing}
 		</div>`;
 	}
 
@@ -195,7 +210,8 @@ export class KlhUsageDrilldown extends LitElement {
 			<label>window
 				<select @change=${(e: Event) => this.setFilter({ days: Number((e.target as HTMLSelectElement).value) })}>
 					${[1, 7, 30, 90].map(
-						(d) => html`<option value=${d} ?selected=${this.days === d}>${d}d</option>`,
+						(d) =>
+							html`<option value=${d} ?selected=${this.days === d}>${d}d</option>`,
 					)}
 				</select>
 			</label>
@@ -203,14 +219,16 @@ export class KlhUsageDrilldown extends LitElement {
 				<select @change=${(e: Event) => this.setFilter({ model: (e.target as HTMLSelectElement).value })}>
 					<option value="" ?selected=${this.model === ""}>all</option>
 					${(this.rep?.models ?? []).map(
-						(m) => html`<option value=${m} ?selected=${this.model === m}>${m}</option>`,
+						(m) =>
+							html`<option value=${m} ?selected=${this.model === m}>${m}</option>`,
 					)}
 				</select>
 			</label>
 			<label>sort
 				<select @change=${(e: Event) => this.setFilter({ sort: (e.target as HTMLSelectElement).value })}>
 					${SORTS.map(
-						(s) => html`<option value=${s.v} ?selected=${this.sort === s.v}>${s.label}</option>`,
+						(s) =>
+							html`<option value=${s.v} ?selected=${this.sort === s.v}>${s.label}</option>`,
 					)}
 				</select>
 			</label>
@@ -249,9 +267,10 @@ export class KlhUsageDrilldown extends LitElement {
 	private drillRow(): TemplateResult {
 		return html`<tr class="usub">
 			<td colspan="9">
-				${this.page === null
-					? html`<p class="uempty">loading ${this.drill}…</p>`
-					: html`<p class="ufoot">
+				${
+					this.page === null
+						? html`<p class="uempty">loading ${this.drill}…</p>`
+						: html`<p class="ufoot">
 							${fmtTok(this.page.total)} requests${this.page.truncated ? " (capped — raise ?limit)" : ""} ·
 							${this.page.reasons.slice(0, 3).map((r) => html`<span class="uwhy-r">${r.reason}×${r.count}</span>`)}
 						</p>
@@ -272,7 +291,8 @@ export class KlhUsageDrilldown extends LitElement {
 									</tr>`,
 								)}
 							</tbody>
-						</table>`}
+						</table>`
+				}
 			</td>
 		</tr>`;
 	}

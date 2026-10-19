@@ -91,7 +91,6 @@ import{r,e,t,s}from"./lit-9bpcreb0.js";var N=()=>{let a=document.getElementById(
 					${this.rep.lanes.map((a)=>this.laneRow(a))}
 				</tbody>
 			</table>
-			${this.page!==null&&this.drill!==""?this.drillRows():t}
 		</div>`}controls(){return e`<div class="uctl">
 			<label>window
 				<select @change=${(a)=>this.setFilter({days:Number(a.target.value)})}>

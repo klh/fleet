@@ -194,6 +194,33 @@ describe("composePulse", () => {
 	});
 });
 
+// W826: injected warm-rate + mining deps — heartbeat suffix and delta section
+describe("composePulse warm + mining", () => {
+	test("warm dep appends the heartbeat rate; null omits honestly", () => {
+		const d = baseDeps(mkStore(), {
+			warm: () => ({ rate: 0.041, requests: 100, worst: null }),
+		});
+		expect(composePulse(d).heartbeat).toContain("warm 4.1%");
+		const none = composePulse(baseDeps(mkStore(), { warm: () => null }));
+		expect(none.heartbeat).not.toContain("warm ");
+	});
+
+	test("mining lines render the cache-offender section; empty = absent", () => {
+		const db = mkStore();
+		item(db, "R1", "READY", T0 - 2 * HOUR);
+		const lines = ["cache offender 0.0% warm · laneX (172 req/7d, streak)"];
+		const dg = composePulse(
+			baseDeps(db, { now: () => T0, mining: () => lines }),
+		);
+		expect(dg.body).toContain("cache offenders (weekly mining):");
+		expect(dg.body).toContain("laneX (172 req/7d, streak)");
+		const quiet = composePulse(
+			baseDeps(db, { now: () => T0, mining: () => [] }),
+		);
+		expect(quiet.body).not.toContain("cache offenders");
+	});
+});
+
 describe("firePulse", () => {
 	test("sends on class channels and advances state on first ok", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pulse-fire-"));

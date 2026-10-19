@@ -10,6 +10,8 @@
 // relative spend proxy (no dollar pricing exists in the stack; weights are
 // constants here, labeled "cost index", never rendered as dollars).
 import { Database } from "bun:sqlite";
+import { readFileSync } from "node:fs";
+import { resolveBuckleDb } from "./lane-spend.ts";
 
 /** anthropic-style cache TTL: a cold request this long after the last warm
  *  one is classified expiry, not drift. Heuristic boundary, documented. */
@@ -19,7 +21,12 @@ export const CACHE_TTL_MS = 5 * 60_000;
 export const OVERSIZED_WRITE_TOK = 50_000;
 
 /** Relative spend weights for the cost index (fresh/out/cached ratios). */
-export const COST_WEIGHTS = { in: 1, out: 5, cacheR: 0.1, cacheC: 1.25 } as const;
+export const COST_WEIGHTS = {
+	in: 1,
+	out: 5,
+	cacheR: 0.1,
+	cacheC: 1.25,
+} as const;
 
 export const costIndex = (t: {
 	in: number;
@@ -118,14 +125,13 @@ const winOf = (
 ): { from: string; to: string; days: number } => {
 	const to = opts.to ?? new Date(nowMs).toISOString();
 	const days = Math.min(90, Math.max(1, opts.days ?? 7));
-	const from = opts.from ?? new Date(Date.parse(to) - days * 86_400_000).toISOString();
+	const from =
+		opts.from ?? new Date(Date.parse(to) - days * 86_400_000).toISOString();
 	return { from, to, days };
 };
 
 /** Open the ledger readonly; null when missing/unopenable (fail-soft). */
-function openLedger(
-	ledgerPath: string | null,
-): Database | null {
+function openLedger(ledgerPath: string | null): Database | null {
 	if (!ledgerPath) return null;
 	try {
 		return new Database(ledgerPath, { readonly: true });
@@ -173,13 +179,11 @@ export function bustReasons(
 		if (r.cacheC >= OVERSIZED_WRITE_TOK) bump("oversized-write");
 		if (prevDialect !== "" && r.dialect !== prevDialect) bump("dialect-flip");
 		prevDialect = r.dialect;
-		if (
-			r.cacheR > 0 ||
-			prev === null ||
-			r.tsMs - prev.tsMs > CACHE_TTL_MS ||
-			prev.model !== r.model
-		)
-			prev = { model: r.model, cacheR: r.cacheR, tsMs: r.tsMs };
+		// prev = the LAST REQUEST (always advances). Comparing each cold row
+		// against a stale anchor mislabeled long cold runs with phantom
+		// ttl-expiries every ~TTL; continuation reads against the previous
+		// request, and idle gaps between true requests are the expiry signal.
+		prev = { model: r.model, cacheR: r.cacheR, tsMs: r.tsMs };
 	}
 	return [...counts.entries()]
 		.sort((a, b) => b[1] - a[1])
@@ -245,7 +249,8 @@ function rowsByLane(
 }
 
 function sortLanes(lanes: LaneDrill[], sort: DrillSort): LaneDrill[] {
-	const missRatio = (l: LaneDrill): number => (l.requests > 0 ? 1 - l.warmRate : 0);
+	const missRatio = (l: LaneDrill): number =>
+		l.requests > 0 ? 1 - l.warmRate : 0;
 	const cmp: Record<DrillSort, (a: LaneDrill, b: LaneDrill) => number> = {
 		"warm-rate": (a, b) => a.warmRate - b.warmRate, // worst first
 		"cache-miss": (a, b) => missRatio(b) - missRatio(a),
@@ -261,7 +266,13 @@ function sortLanes(lanes: LaneDrill[], sort: DrillSort): LaneDrill[] {
  *  problem: an unreadable db reports available:false, never throws. */
 export function drilldownReport(
 	ledgerPath: string | null,
-	opts: { days?: number; from?: string; to?: string; model?: string; sort?: DrillSort },
+	opts: {
+		days?: number;
+		from?: string;
+		to?: string;
+		model?: string;
+		sort?: DrillSort;
+	},
 	nowMs = Date.now(),
 ): DrilldownReport {
 	const win = winOf(opts, nowMs);
@@ -401,11 +412,18 @@ function queryRows(
 	if (opts.missOnly) conds.push("COALESCE(cache_r, 0) = 0");
 	const where = conds.join(" AND ");
 	const limit = Math.min(500, Math.max(1, opts.limit ?? 200));
-	const total = (db.query(`SELECT COUNT(*) n FROM route_audit WHERE ${where}`).get(...binds) as { n: number }).n;
+	const total = (
+		db
+			.query(`SELECT COUNT(*) n FROM route_audit WHERE ${where}`)
+			.get(...binds) as { n: number }
+	).n;
 	const rows = db
-		.query(`SELECT ${REQUEST_COLS} FROM route_audit WHERE ${where} ORDER BY ts DESC LIMIT ${limit}`)
+		.query(
+			`SELECT ${REQUEST_COLS} FROM route_audit WHERE ${where} ORDER BY ts DESC LIMIT ${limit}`,
+		)
 		.all(...binds) as unknown as DrillRequestRow[];
-	const heur = rowsByLane(db, win.from, win.to, opts.model ?? "").get(opts.lane) ?? [];
+	const heur =
+		rowsByLane(db, win.from, win.to, opts.model ?? "").get(opts.lane) ?? [];
 	return {
 		available: true,
 		lane: opts.lane,
@@ -421,8 +439,64 @@ function queryRows(
 export function fleetWarm(
 	ledgerPath: string | null = resolveBuckleDb(),
 	opts: { days?: number; nowMs?: number } = {},
-): { rate: number; requests: number; worst: LaneDrill | null } | null {
-	const r = drilldownReport(ledgerPath, { days: opts.days ?? 7 }, opts.nowMs ?? Date.now());
+): FleetWarm | null {
+	const r = drilldownReport(
+		ledgerPath,
+		{ days: opts.days ?? 7 },
+		opts.nowMs ?? Date.now(),
+	);
 	if (!r.available || r.fleet.requests === 0) return null;
-	return { rate: r.fleet.warmRate, requests: r.fleet.requests, worst: r.lanes[0] ?? null };
+	return {
+		rate: r.fleet.warmRate,
+		requests: r.fleet.requests,
+		worst: r.lanes[0] ?? null,
+	};
+}
+
+export interface FleetWarm {
+	rate: number;
+	requests: number;
+	worst: LaneDrill | null;
+}
+
+/** One ranked offender from the weekly mining pass. */
+export interface MiningOffender {
+	lane: string;
+	requests: number;
+	warmRate: number;
+	tokens: number;
+	topReason: string;
+}
+
+export interface MiningArtifact {
+	at: number;
+	days: number;
+	offenders: MiningOffender[];
+}
+
+export const miningArtifactPath = (): string =>
+	process.env.KLH_MINING_STATE ??
+	`${(process.env.HOME ?? "").replace(/\/$/, "")}/.cache/claude-governor/usage-mining.json`;
+
+/** Read the mining artifact as terse pulse lines; [] when absent/stale/
+ *  corrupt (a failed mining week never litters the digest forever). */
+export function readMiningLines(
+	nowMs = Date.now(),
+	maxAgeMs = 8 * 86_400_000,
+	path = miningArtifactPath(),
+): string[] {
+	let a: MiningArtifact;
+	try {
+		a = JSON.parse(readFileSync(path, "utf8")) as MiningArtifact;
+	} catch {
+		return [];
+	}
+	if (typeof a.at !== "number" || nowMs - a.at > maxAgeMs) return [];
+	const pcts = (x: number): string => `${(x * 100).toFixed(1)}%`;
+	return a.offenders
+		.slice(0, 3)
+		.map(
+			(o) =>
+				`cache offender ${pcts(o.warmRate)} warm · ${o.lane} (${o.requests} req/7d, ${o.topReason})`,
+		);
 }
