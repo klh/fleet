@@ -237,7 +237,8 @@ interface RemotesSnapshot {
 	ts: string;
 }
 
-const REMOTES_TTL_MS = 20_000;
+// W851: env knob (BELT_ROUTE_RPM precedent) — tests shrink the SWR window.
+const REMOTES_TTL_MS = Number(process.env.BELT_REMOTES_TTL_MS ?? 20_000);
 
 async function buildRemotes(): Promise<RemotesSnapshot> {
 	const rows = await checkAll();
@@ -266,23 +267,34 @@ async function buildRemotes(): Promise<RemotesSnapshot> {
 let remotesCache: RemotesSnapshot | null = null;
 let remotesPending: Promise<RemotesSnapshot> | null = null;
 
+/** Kick a rebuild when none is in flight; resolves with its result. */
+const startRemotesBuild = (): Promise<RemotesSnapshot> => {
+	if (remotesPending) return remotesPending;
+	remotesPending = buildRemotes()
+		.then((snap) => {
+			remotesCache = snap;
+			return snap;
+		})
+		.finally(() => {
+			remotesPending = null;
+		});
+	return remotesPending;
+};
+
 /** Cached remotes snapshot — probes can be slow (dead host: 4s timeout each),
- *  so /api/remotes serves fresh-enough state instead of blocking every call. */
+ *  so /api/remotes serves fresh-enough state instead of blocking every call.
+ *  W851: stale-while-revalidate — a stale-but-present cache is served
+ *  instantly while the rebuild runs in the background; only a cold server
+ *  (no cache at all) blocks. */
 const remotesSnapshot = (): Promise<RemotesSnapshot> => {
 	const fresh =
 		remotesCache && Date.now() - Date.parse(remotesCache.ts) < REMOTES_TTL_MS;
 	if (fresh && remotesCache) return Promise.resolve(remotesCache);
-	if (!remotesPending) {
-		remotesPending = buildRemotes()
-			.then((snap) => {
-				remotesCache = snap;
-				return snap;
-			})
-			.finally(() => {
-				remotesPending = null;
-			});
-	}
-	return remotesPending;
+	if (!remotesCache) return startRemotesBuild();
+	// W851 stale-while-revalidate: serve stale, refresh in the background —
+	// the 30s poll and the refresh button never block on dead-host probes.
+	if (!remotesPending) startRemotesBuild();
+	return Promise.resolve(remotesCache);
 };
 
 // ─── page — embedded, no frameworks, no external assets (works offline) ───
@@ -515,33 +527,49 @@ function tick(){
 tick();setInterval(tick,3000);
 </script>
 <script>
-function tickRemotes(){
-  fetch('/api/remotes').then(function(r){return r.json();}).then(function(s){
-    remoteRows=s.rows||[];
-    renderFleet();
-    var disc=s.discovered||[];
-    mount(remotesdisc,disc.length
-      ?disc.map(function(d){return '<span class="chip">'+esc(d.name)+'.local <span class="u">discovered · not configured</span></span>';}).join('')
-      :'');
-    fetch('/api/metrics').then(function(r){return r.json();}).then(function(m){
-      var lines=(m.recent||[]).map(function(e){
-        return e.ts.slice(11,19)+'  '+e.role+'  →  '+e.machine+':'+e.port
-          +(e.model?'  '+short(e.model):'')+'  '+e.duration_ms+'ms'+(e.ok?'':'  FAILED');
-      });
-      remoteslog.textContent=lines.length
-        ?lines.join('\\n')
-        :'No routes tallied yet — bun bin/remotes.ts route <role> <prompt>.';
-    }).catch(function(){});
-    remotesnote.textContent=(remoteRows.length
-      ?'LAN-local, routed for SPEED — not cost'
-      :'no remote machines — add ~/.claude/local-llm/remotes.json (remotes.example.json shows the shape)')
-      +' · cloud fallback '+(s.cloud_fallback?'on':'off')+' · '+s.mode+' mode · auto-refresh 30s';
-  }).catch(function(e){remotesnote.textContent='remotes: unreachable — '+String(e && (e.message||e));});
+function applyRemotes(s){
+  remoteRows=s.rows||[];
+  renderFleet();
+  var disc=s.discovered||[];
+  mount(remotesdisc,disc.length
+    ?disc.map(function(d){return '<span class="chip">'+esc(d.name)+'.local <span class="u">discovered · not configured</span></span>';}).join('')
+    :'');
+  fetch('/api/metrics').then(function(r){return r.json();}).then(function(m){
+    var lines=(m.recent||[]).map(function(e){
+      return e.ts.slice(11,19)+'  '+e.role+'  →  '+e.machine+':'+e.port
+        +(e.model?'  '+short(e.model):'')+'  '+e.duration_ms+'ms'+(e.ok?'':'  FAILED');
+    });
+    remoteslog.textContent=lines.length
+      ?lines.join('\\n')
+      :'No routes tallied yet — bun bin/remotes.ts route <role> <prompt>.';
+  }).catch(function(){});
+  remotesnote.textContent=(remoteRows.length
+    ?'LAN-local, routed for SPEED — not cost'
+    :'no remote machines — add ~/.claude/local-llm/remotes.json (remotes.example.json shows the shape)')
+    +' · cloud fallback '+(s.cloud_fallback?'on':'off')+' · '+s.mode+' mode · auto-refresh 30s';
 }
+function tickRemotes(){
+  fetch('/api/remotes').then(function(r){return r.json();}).then(applyRemotes).catch(function(e){remotesnote.textContent='remotes: unreachable — '+String(e && (e.message||e));});
+}
+// W851: the server bakes its cached remotes snapshot into this payload —
+// hub rows paint on first parse, the poll only revalidates (SWR both sides).
+var REMOTES_INIT=__W851_REMOTES__;
+if(REMOTES_INIT)applyRemotes(REMOTES_INIT);
 tickRemotes();setInterval(tickRemotes,30000);
 remotesbtn.onclick=function(){remotesbtn.disabled=true;tickRemotes();setTimeout(function(){remotesbtn.disabled=false;},600);};
 </script>
 </body></html>`;
+
+// W851: the initial payload carries the cached remotes snapshot — the board
+// usage-data pattern (same data path as /api/remotes): the client paints hub
+// rows on first parse instead of waiting on the post-load poll. `<` is
+// JSON-escaped so a config string can never close the script element; a cold
+// server (no cache yet) bakes `null` and the client polls as before.
+const pageHtml = (): string =>
+	PAGE.replace(
+		"__W851_REMOTES__",
+		JSON.stringify(remotesCache).replaceAll("<", "\\u003c"),
+	);
 
 // ─── llms.txt — static description for LLM crawlers/agents ───
 const LLMS = `# belt
@@ -756,7 +784,7 @@ Bun.serve({
 				ts: new Date().toISOString(),
 			});
 		if (path === "/")
-			return new Response(PAGE, {
+			return new Response(pageHtml(), {
 				headers: { "content-type": "text/html; charset=utf-8" },
 			});
 		if (path === "/llms.txt")
@@ -788,6 +816,11 @@ Bun.serve({
 		return new Response("not found\n", { status: 404 });
 	},
 });
+
+// W851: warm the remotes snapshot at boot — dead-host probe cost is paid
+// before anyone asks, and the first page load bakes a populated snapshot
+// instead of painting "loading…".
+startRemotesBuild();
 
 // ─── LAN advertisement: Bonjour "belt" + the belt.local A record ───
 // -P (register proxy) is the dns-sd mode that also creates the belt.local
