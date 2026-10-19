@@ -30,6 +30,7 @@ export function buildTopology(status, remotes, supervisor, now = Date.now()) {
 		port: item.port,
 		model: item.model_served || "model not loaded",
 		load5m: Number.isFinite(item.load_5m) ? item.load_5m : null,
+		label: String(item.state_label || "unknown"),
 		state: !localFresh
 			? "unknown"
 			: item.state_label === "ready"

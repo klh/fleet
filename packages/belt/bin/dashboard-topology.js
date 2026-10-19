@@ -4,9 +4,11 @@ import { buildTopology } from "/dashboard-topology-model.js";
 const colour = (state) =>
 	state === "up"
 		? "var(--klh-ok-ink)"
-		: state === "down" || state === "attention"
-			? "var(--klh-danger)"
-			: "var(--klh-dim)";
+		: state === "attention"
+			? "var(--klh-accent)"
+			: state === "down"
+				? "var(--klh-danger)"
+				: "var(--klh-dim)";
 
 class BeltTopology extends LitElement {
 	static properties = { topology: { state: true }, error: { state: true } };
@@ -107,7 +109,7 @@ class BeltTopology extends LitElement {
 			${
 				data
 					? html`<div class="map"><svg viewBox=${`0 0 1160 ${height}`} role="img" aria-label="This Mac and its Belt router, individual local models, hub probes, and remote endpoints">
-				<text class="group" x="486" y="16">LOCAL MODELS · REQUESTS IN LAST 5 MINUTES</text>
+				<text class="group" x="486" y="16">LOCAL MODELS · BELT ROUTES IN LAST 5 MINUTES</text>
 				<text class="group" x="832" y="16">HUBS AND REMOTE ENDPOINTS</text>
 				<path class="edge" d=${`M185 ${centre} H225`}></path>
 				<path class="edge" d=${`M410 ${centre} H458 V48`}></path>
@@ -116,10 +118,10 @@ class BeltTopology extends LitElement {
 				<path class="edge" d=${`M804 48 V${48 + Math.max(0, right.length - 1) * 58}`}></path>
 				${this.node(20, centre - 24, 165, "This Mac", "Belt dashboard", data.router)}
 				${this.node(225, centre - 24, 185, "Belt router", `:4000 · ${data.router}`, data.router)}
-				${models.map((item, index) => svg`<path class="edge" d=${`M458 ${48 + index * 58} H486`}></path>${this.node(486, 24 + index * 58, 290, `${item.role} · :${item.port}`, `${item.state} · ${item.load5m === null ? "load unreported" : `${item.load5m} req/5m`}`, item.state, String(item.model))}`)}
+				${models.map((item, index) => svg`<path class="edge" d=${`M458 ${48 + index * 58} H486`}></path>${this.node(486, 24 + index * 58, 290, `${item.role} · :${item.port}`, `${item.label} · ${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}`, item.state, String(item.model))}`)}
 				${right.map((item, index) => svg`<path class=${item.routed ? "edge routed" : "edge"} d=${`M804 ${48 + index * 58} H832`}></path>${this.node(832, 24 + index * 58, 308, item.title, item.meta, item.state)}`)}
 			</svg></div>
-			<div class="legend">Dots show the last health observation. Dashed links are configured or probed paths; a solid link has a successful route in the past 15 minutes. Lane counts, hub workloads and token throughput await Buckle telemetry.</div>`
+			<div class="legend">Dots show the last health observation. Dashed links are configured or probed paths; a solid link has a successful route in the past 15 minutes. Model load counts Belt router calls only. Lane counts, hub workloads and token throughput await Buckle telemetry.</div>`
 					: ""
 			}
 		</section>`;

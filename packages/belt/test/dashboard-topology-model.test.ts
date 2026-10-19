@@ -51,12 +51,20 @@ describe("Belt topology", () => {
 			attention: 0,
 		});
 		expect(model.specialists.models).toEqual([
-			{ role: "code", port: 8901, model: "coder", load5m: 3, state: "up" },
+			{
+				role: "code",
+				port: 8901,
+				model: "coder",
+				load5m: 3,
+				label: "ready",
+				state: "up",
+			},
 			{
 				role: "embed",
 				port: 8907,
 				model: "model not loaded",
 				load5m: 0,
+				label: "idle · on demand",
 				state: "idle",
 			},
 		]);
