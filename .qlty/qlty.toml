@@ -55,6 +55,15 @@ exclude_patterns = [
   # W823: byte-sealed external (FRAMES) slice + raw source snapshot — same law
   "packages/belt/bench/arena/tasks-ext/**",
   "packages/belt/bench/arena/ext-raw/**",
+  # W950: vendored dosu-ai/decant snapshot @ v0.11.0 — upstream-owned bytes,
+  # never reformatted in place; our adapter layer lives in packages/decant/fleet/
+  # and stays linted.
+  "packages/decant/src/**",
+  "packages/decant/scripts/**",
+  "packages/decant/test/**",
+  "packages/decant/fixtures/**",
+  "packages/decant/themes/**",
+  "packages/decant/docs/**",
 ]
 
 test_patterns = [

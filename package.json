@@ -5,7 +5,8 @@
 	"license": "SEE LICENSE IN LICENSE",
 	"description": "the klh agent stack — one monorepo, one version, every service",
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"!packages/decant"
 	],
 	"engines": {
 		"bun": ">=1.2"
