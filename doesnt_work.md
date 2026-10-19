@@ -54,6 +54,14 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Context / token economy
 
+- **W960 self-improvement on the pinned local GLM/Claude route** — the
+  2026-10-20 AC smoke generated a candidate but both arms failed all three
+  private judges: the executor made empty patches, and Claude reported zero
+  usage tokens. A direct run reproduced a denied Write with the normal config;
+  a clean config removed that denial but still produced no file. Do not run the
+  130-case promotion suite or treat zero usage as free inference. First prove
+  one real file edit and positive usage on the exact executor route, then rerun
+  the smoke. See the [W960 receipt](benchmarks.md#w960-harness-self-improvement-smoke-2026-10-20-ac).
 - **Compact module map and automatic second reviewer on a small known repair**
   — W922's held-out Relay pilot (2026-10-19, one task × 3 paired repetitions,
   `gpt-6-luna`) reached 22/22 with the plain solo agent. The extra map used

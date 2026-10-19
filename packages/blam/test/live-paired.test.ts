@@ -147,6 +147,18 @@ describe("BLAM live paired runner", () => {
 		expect(report.promotion.promote).toBe(false);
 	});
 
+	test("zero usage from a routed model is missing accounting", async () => {
+		const manifest = fixture();
+		manifest.executor[2] = manifest.executor[2].replace(
+			"p.includes('candidate')?100:200",
+			"0",
+		);
+		const report = await runLivePaired(manifest);
+		expect(report.receipts.every((r) => r.tokens === null)).toBe(true);
+		expect(report.pairs).toHaveLength(0);
+		expect(report.promotion.promote).toBe(false);
+	});
+
 	test("rejects a judge that can read harness text", async () => {
 		const manifest = fixture();
 		manifest.judge.push("{prompt}");
