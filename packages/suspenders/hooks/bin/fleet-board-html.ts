@@ -197,6 +197,9 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .orch summary::-webkit-details-marker { display:none; }
 .orch summary::before { content:'+'; color:var(--klh-accent); font:14px var(--klh-font-mono); }
 .orch[open] summary::before { content:''; }
+/* W875: minus control collapses the panel; visible only while expanded */
+#orchCollapse { margin-left:auto; background:none; border:none; color:var(--klh-accent); font:14px var(--klh-font-mono); cursor:pointer; padding:0 2px; line-height:1; }
+.orch:not([open]) #orchCollapse { display:none; }
 .orch summary .dim { font-weight:400; letter-spacing:0; }
 .orchbody { border-top:1px solid var(--klh-edge); padding:10px 12px; }
 .orchcontext { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:9px; font-size:11px; }

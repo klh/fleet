@@ -249,18 +249,14 @@ function orchReg(){
 }
 function orchDisc(){ if (orch.busy || orch.regBusy) return; orch.prop = null; orchSaveDraft(); renderOrch(); }
 (function(){
+  // W875: expand on click only (native summary toggle, no hover); the minus
+  // control collapses. Hover-open/leave behavior removed per owner 2026-10-19.
   var host = byId('orch');
-  if (host) {
-    var hoverOpened = false;
-    host.addEventListener('mouseenter', function(){
-      if (!host.open) { host.open = true; hoverOpened = true; }
-    });
-    host.querySelector('summary').addEventListener('click', function(e){
-      if (hoverOpened) { e.preventDefault(); hoverOpened = false; }
-    });
-    host.addEventListener('mouseleave', function(){
-      hoverOpened = false;
-      if (orch.busy || orch.regBusy || orch.prop || orch.err || orchCtx || byId('orchGoal').value.trim() || host.contains(document.activeElement)) return;
+  var minus = byId('orchCollapse');
+  if (host && minus) {
+    minus.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
       host.open = false;
     });
   }
