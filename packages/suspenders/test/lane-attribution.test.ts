@@ -18,6 +18,14 @@ describe("W918.3 lane attribution — copilot BYOK vars", () => {
 		expect(env.COPILOT_PROVIDER_API_KEY).toBe("bksk_test");
 		expect(env.ANTHROPIC_AUTH_TOKEN).toBe("bksk_test");
 	});
+	test("attribution overrides the insertion preset with the governed front", () => {
+		const env: Record<string, string> = {
+			COPILOT_PROVIDER_BASE_URL: "preset-wins-over-insertion",
+		};
+		applyLaneAttribution(env, "s3", "http://127.0.0.1:4101");
+		expect(env.COPILOT_PROVIDER_BASE_URL).toBe("http://127.0.0.1:4101/w/s3/v1");
+		expect(env.OPENAI_BASE_URL).toBe("http://127.0.0.1:4101/w/s3/v1");
+	});
 	test("keyless attribution keeps URL routing, writes no key vars", () => {
 		const env: Record<string, string> = {};
 		applyLaneAttribution(env, "s2", "http://127.0.0.1:4101");

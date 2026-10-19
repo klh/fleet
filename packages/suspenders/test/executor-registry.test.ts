@@ -81,9 +81,13 @@ describe("W422 executor-adapter registry", () => {
 	test("copilot adapter: W223.1 tail + W223.2 hard brief gate", () => {
 		const copilot = adapterFor("copilot");
 		expect(copilot.briefHardGate).toBe(true);
-		expect(copilot.spawnArgs({})).toEqual(["--allow-all-tools"]);
+		expect(copilot.spawnArgs({})).toEqual([
+			"--allow-all-tools",
+			"--disable-builtin-mcps",
+		]);
 		expect(copilot.spawnArgs({ forkArgs: ["--session-id", "s9"] })).toEqual([
 			"--allow-all-tools",
+			"--disable-builtin-mcps",
 			"--session-id",
 			"s9",
 		]);

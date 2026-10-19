@@ -15,8 +15,16 @@ export const copilotAdapter: ExecutorAdapter = {
 	// otherwise blocks on a confirmation it can never receive headless).
 	// dispatch-next's recipe is the bare flag; fleet-loop adds
 	// --allow-all-paths — that delta is fleet-loop's conversion to carry.
-	// W918.3: verified fork args append when the spec carries them.
-	spawnArgs: (spec) => ["--allow-all-tools", ...(spec.forkArgs ?? [])],
+	// W918.3: the builtin GitHub MCP servers need GitHub auth (absent on the
+	// BYOK Buckle route) and their tool schemas measurably blew the local
+	// coder leg's 20k window (24.7k input, ContextWindowExceeded, dead lane)
+	// — trimmed by default; a copilot seat lane can flip it back per-invocation.
+	// Fork args append when the spec carries them.
+	spawnArgs: (spec) => [
+		"--allow-all-tools",
+		"--disable-builtin-mcps",
+		...(spec.forkArgs ?? []),
+	],
 	promptArgs: (prompt) => ["-p", prompt],
 	// Session resume VERIFIED live on the 1.0.98 binary (W918.3, 2026-10-19):
 	// two -p turns sharing --session-id <uuid> — turn 2 recalled turn 1's

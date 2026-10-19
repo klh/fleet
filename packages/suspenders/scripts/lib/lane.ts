@@ -223,6 +223,7 @@ export const applyLaneAttribution = (
 	env.ANTHROPIC_BASE_URL = root;
 	env.OPENAI_BASE_URL = `${root}/v1`;
 	env.OPENAI_API_BASE = `${root}/v1`;
+	env.COPILOT_PROVIDER_BASE_URL = `${root}/v1`;
 	env.GOOGLE_GEMINI_BASE_URL = root;
 	// W918.3: the copilot executor rides the same front by BYOK (openai
 	// wire, Bearer lane key) — one attribution, every executor's vars.
