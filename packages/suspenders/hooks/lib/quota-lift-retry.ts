@@ -32,6 +32,15 @@ export function gateMs(gate: string): number {
 	).getTime();
 }
 
+/** Comma-set of parked-leg item ids ("W738,W695.6.2,W731" — the W846 --tag
+ * convention; ids never contain commas, so the split is unambiguous). */
+export function parseQuotaItems(raw: string): string[] {
+	return raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
 export function quotaLiftRetry(opts: {
 	store: GovernorStore;
 	project: string;

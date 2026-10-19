@@ -1,13 +1,18 @@
-// test/quota-lift-retry.test.ts — W804: the heartbeat-carried requeue for
-// quota-walled FAILED items (W738 opus leg). Covers the gate-date parse,
-// the state/date gate matrix (missing / self-retired / waiting / requeued),
-// the retry side effects (state flip + work.requeued emit), and the
-// registry arming itself: the W779 task must stay registered with the W738
-// gate or the mission silently disarms.
+// test/quota-lift-retry.test.ts — W804/W782.1: the heartbeat-carried requeue
+// for quota-walled FAILED items (W738 opus leg — since W782.1 the full
+// Copilot-quota triplet W738/W695.6.2/W731). Covers the gate-date parse,
+// the comma-set item parse, the state/date gate matrix (missing /
+// self-retired / waiting / requeued), the retry side effects (state flip +
+// work.requeued emit), and the registry arming itself: the W779 task must
+// stay registered with the triplet's gate or the mission silently disarms.
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
-import { gateMs, quotaLiftRetry } from "../hooks/lib/quota-lift-retry.ts";
+import {
+	gateMs,
+	parseQuotaItems,
+	quotaLiftRetry,
+} from "../hooks/lib/quota-lift-retry.ts";
 import {
 	MAINTENANCE_TASKS,
 	missingRunners,
@@ -44,6 +49,24 @@ describe("gateMs", () => {
 	test("malformed gate dates throw (usage error, not a silent skip)", () => {
 		expect(() => gateMs("november")).toThrow();
 		expect(() => gateMs("2026-11-01T10:00")).toThrow();
+	});
+});
+
+describe("parseQuotaItems", () => {
+	test("splits the comma-set, trims each id, drops empties", () => {
+		expect(parseQuotaItems("W738,W695.6.2,W731")).toEqual([
+			"W738",
+			"W695.6.2",
+			"W731",
+		]);
+	});
+
+	test("single id round-trips (the W804 shape survives)", () => {
+		expect(parseQuotaItems("W738")).toEqual(["W738"]);
+	});
+
+	test("blank segments and surrounding whitespace are dropped", () => {
+		expect(parseQuotaItems(" W738 , ,W731 ")).toEqual(["W738", "W731"]);
 	});
 });
 
@@ -125,7 +148,7 @@ describe("W804 registry arming (the task must stay registered)", () => {
 		expect(task?.argv(suspendersRoot(), "/")).toEqual([
 			expect.stringContaining("quota-lift-retry.ts"),
 			"--item",
-			"W738",
+			"W738,W695.6.2,W731",
 			"--after",
 			"2026-11-01",
 		]);

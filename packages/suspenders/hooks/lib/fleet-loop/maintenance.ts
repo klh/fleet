@@ -74,9 +74,10 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/quota-sweep.ts"), "--act"],
 	},
 	{
-		// W804: the W738 opus-5-5 re-review parked on the Copilot quota wall —
-		// FAILED has no reclaim path, so the heartbeat requeues it at the
-		// monthly seat reset (~2026-11-01). Self-retiring: once W738 leaves
+		// W804/W782.1: the parked Copilot-quota triplet — W738 opus-5-5
+		// re-review, W695.6.2 tool_use proof, W731 copilot digest — FAILED has
+		// no reclaim path, so the heartbeat requeues them at the monthly seat
+		// reset (~2026-11-01). Self-retiring per item: once all three leave
 		// FAILED the runner is a permanent no-op until the entry is retired.
 		name: "quota-lift-retry",
 		calendar: { hour: 9, minute: 0 },
@@ -84,7 +85,7 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [
 			join(root, "hooks/bin/quota-lift-retry.ts"),
 			"--item",
-			"W738",
+			"W738,W695.6.2,W731",
 			"--after",
 			"2026-11-01",
 		],
