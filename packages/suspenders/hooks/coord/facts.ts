@@ -79,6 +79,12 @@ function casWrite(
 	}
 }
 
+// W836 audit trust schema note — rides every fact set/get output so agents
+// shape knowledge-bearing facts the same way: a JSON value with the fields
+// below; rejected entries NEVER get deleted, they graveyard in kb.
+export const FACT_SCHEMA_NOTE =
+	"schema note: knowledge-bearing facts carry {rating, detail, evidence (file:line|URL), researched} JSON — rejected entries move to the knowledge graveyard, never deleted";
+
 export async function cmdFact(rest: string[]): Promise<void> {
 	const sub = rest[0];
 	if (sub === "set") {
@@ -119,6 +125,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 				`fact ${key}: --if-version ${expected} refused — current version ${r.cur ?? "unset"}`,
 			);
 		console.log(`fact ${key} = ${value}`);
+		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "get") {
 		const r = db
 			.query("SELECT value, version, ts FROM facts WHERE key = ?")
@@ -126,6 +133,7 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			| { value: string; version: number; ts: number }
 			| undefined;
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
+		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "list") {
 		// W466 bounding: the facts table is the knowledge read surface. Machine
 		// cursor namespaces (govdb v12 moved them to machine_cursors, but

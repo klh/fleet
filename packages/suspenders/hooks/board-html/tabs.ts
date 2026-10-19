@@ -14,7 +14,7 @@ function renderTab(){
   else if (curTab === 'tasks') renderTasks();
   else if (curTab === 'lanes') renderKanban();
   else if (curTab === 'activity') renderAct();
-  else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }  else if (curTab === 'setup') renderSetup();
+  else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderFacts(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }  else if (curTab === 'setup') renderSetup();
 }
 var nav = byId('boardTabs'); // <klh-board-tabs> (W695.3.6): owns the buttons, emits tab-select
 function setTab(id, fromHash){

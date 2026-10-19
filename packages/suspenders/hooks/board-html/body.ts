@@ -93,6 +93,7 @@ export const BODY = String.raw`
     <div id="fleetBody" style="display:block"></div>
   </div>
   <div class="sec"><h2>Claims <span class="dim">(file -&gt; owner -&gt; waiting -&gt; lease)</span></h2><div class="feed" id="claims"></div></div>
+  <div class="sec"><h2>Facts <span class="dim">(lesson.*/finding.* · trust = rating · evidence · researched)</span></h2><div class="feed" id="facts"></div></div>
   <div class="sec"><h2>LLM telemetry <span class="dim">(global routing log + model budgets · ignores project and hub filters)</span></h2><div class="feed" id="llmview"></div></div>
   <div class="sec"><h2>Completed</h2><div class="feed" id="done"></div></div>
   <div class="sec"><h2>Event stream</h2><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></div>

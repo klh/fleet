@@ -256,6 +256,23 @@ export function openKnowledgeDb(): Database {
 		if (!kqCols244.includes("reprocess_of"))
 			db.run("ALTER TABLE knowledge_queue ADD COLUMN reprocess_of INTEGER");
 	}
+	// W836 — audit trust schema (best-of-audits lift): knowledge rows carry
+	// {rating, detail, evidence, researched-date}; detail IS the existing
+	// `fact` column (no duplicate). `rating`/`evidence`/`researched_at` are
+	// stamped by the audit lane via `coord knowledge-grade` — the distill
+	// indexer stays impartial (the prompt contract forbids quality judgment).
+	// `graveyard_reason` holds why a row was buried — graveyards never delete.
+	const kCols = columnNames(db, "knowledge");
+	if (kCols.length) {
+		if (!kCols.includes("rating"))
+			db.run("ALTER TABLE knowledge ADD COLUMN rating TEXT");
+		if (!kCols.includes("evidence"))
+			db.run("ALTER TABLE knowledge ADD COLUMN evidence TEXT");
+		if (!kCols.includes("researched_at"))
+			db.run("ALTER TABLE knowledge ADD COLUMN researched_at INTEGER");
+		if (!kCols.includes("graveyard_reason"))
+			db.run("ALTER TABLE knowledge ADD COLUMN graveyard_reason TEXT");
+	}
 	db.run(
 		"CREATE TABLE IF NOT EXISTS queue_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), prompt_hash TEXT NOT NULL, ts INTEGER NOT NULL)",
 	);

@@ -56,6 +56,12 @@ export interface KnowledgeHit {
 	// query text; via names the edge that pulled them in
 	hop?: number;
 	via?: "pointer" | "domain";
+	// W836 audit trust schema: rating + evidence (file:line | URL) stamped by
+	// the audit lane (`coord knowledge-grade`); researched_at is the ms epoch
+	// of the research date. detail IS `fact`.
+	rating?: string | null;
+	evidence?: string | null;
+	researched_at?: number | null;
 }
 
 // FTS5 MATCH term list: quoted, OR-joined — bm25 ranks the union, so a
@@ -85,6 +91,11 @@ const ORIGIN_PRIOR_SQL =
 // knowledge_fts is content-linked to knowledge, so k.* filters read the same
 const AXIS_FILTER_SQL =
 	"AND (? IS NULL OR k.domain = ?) AND (? IS NULL OR k.area = ?) AND (? IS NULL OR k.origin_kind = ?) AND (? IS NULL OR k.origin_system = ?)";
+
+// W836 — recall ranking excludes buried rows: retired AND graveyard (the
+// integrity-flagged/rejected). Graveyard rows are never deleted — the reason
+// rides knowledge.graveyard_reason — but they must never rank.
+const LIVE_STATES_SQL = "NOT IN ('retired', 'graveyard')";
 
 // freshness penalty shared by the primary and the 1-hop mappers
 const ageDaysOf = (r: { updated_at?: number | null; ts: number }): number =>
@@ -122,7 +133,7 @@ function expandOneHop(
 			`SELECT k.*, CASE WHEN ${pointerEdge} THEN 'pointer' ELSE 'domain' END AS via
 FROM knowledge k
 WHERE k.id NOT IN (${marks})
-	AND k.state != 'retired'
+	AND k.state ${LIVE_STATES_SQL}
 	${AXIS_FILTER_SQL}
 	AND ${anyEdge}
 ORDER BY (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
@@ -183,7 +194,7 @@ export function knowledgeSearch(
 	FROM knowledge_fts
 	JOIN knowledge k ON k.id = knowledge_fts.rowid
 	WHERE knowledge_fts MATCH ?
-		AND knowledge_fts.state != 'retired'
+		AND knowledge_fts.state ${LIVE_STATES_SQL}
 		${AXIS_FILTER_SQL}
 	ORDER BY rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 		+ ${ORIGIN_PRIOR_SQL}
@@ -323,7 +334,7 @@ export function findNearDuplicate(
 			`SELECT k.id, k.topic, k.fact
 	FROM knowledge_fts
 	JOIN knowledge k ON k.id = knowledge_fts.rowid
-	WHERE knowledge_fts MATCH ? AND knowledge_fts.state != 'retired'
+	WHERE knowledge_fts MATCH ? AND knowledge_fts.state ${LIVE_STATES_SQL}
 	ORDER BY rank LIMIT 5`,
 		)
 		.all(ftsTerms(text)) as { id: number; topic: string; fact: string }[];
@@ -461,8 +472,12 @@ export function proseCards(
 			// re-hashing a scrubbed hit would fake an "unverified" marker)
 			const trust = h.trust ?? trustOf(h.source_ref, h.source_hash, root);
 			const hop = h.hop === 1 ? ` · 1-hop ${h.via}` : "";
+			// W836 trust schema: the audit rating + evidence ref ride the marker
+			// line when the row carries them (grade-stamped, not the distiller)
+			const rated = h.rating ? ` · ${h.rating}` : "";
+			const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 			lines.push(
-				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}]`,
+				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}]`,
 				`  ${h.fact ?? h.snippet}`,
 				`  source: ${h.source_ref ?? h.code_origin ?? "none"}${h.domain ? ` · domain ${h.domain}` : ""}${h.area ? ` · area ${h.area}` : ""}`,
 			);

@@ -19,7 +19,9 @@ export const DOC_COVERED_SKIP = 0.7;
 const STATE_ACTIVE = "active";
 const TRUST_VERIFIED = "verified";
 
-/** Row shape from the knowledge API /search `hits` field. */
+/** Row shape from the knowledge API /search `hits` field. W836 trust schema:
+ *  rating/evidence/researched_at ride the audit-grade stamps; retired AND
+ *  graveyard rows never reach a packet (active-only filter is the guard). */
 export interface KnowledgeApiHit {
 	kind?: string;
 	id?: number;
@@ -30,6 +32,9 @@ export interface KnowledgeApiHit {
 	source_ref?: string | null;
 	source_hash?: string | null;
 	trust?: string;
+	rating?: string | null;
+	evidence?: string | null;
+	researched_at?: number | null;
 }
 
 export interface PreseedRequest {
@@ -73,14 +78,17 @@ export interface PreseedOutcome {
 	rows?: PacketRows;
 }
 
-/** One deterministic card: id · topic [state · trust] / fact ≤2 lines /
- *  source pointer. Facts are capped so a single card cannot blow the cap. */
+/** One deterministic card: id · topic [state · trust (+ rating · evidence)]
+ *  / fact ≤2 lines / source pointer. Facts are capped so a single card
+ *  cannot blow the cap. */
 export function renderCard(h: KnowledgeApiHit): string[] {
 	const fact = String(h.fact ?? h.snippet ?? "");
 	const body = fact.length > 240 ? `${fact.slice(0, 237)}...` : fact;
 	const lines = body.split("\n").slice(0, 2);
+	const rated = h.rating ? ` · ${h.rating}` : "";
+	const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 	return [
-		`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state} · ${h.trust}]`,
+		`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state} · ${h.trust}${rated}${ev}]`,
 		...lines.map((l) => `  ${l}`),
 		`  source: ${h.source_ref ?? "none"}`,
 	];

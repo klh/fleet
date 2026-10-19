@@ -127,9 +127,27 @@ const QUERIES: [
 	["wal", { originKind: "lesson" }],
 	["zzz", {}],
 ];
+// W836: the audit trust columns (rating/evidence/researched_at/
+// graveyard_reason) heal onto a db only via openKnowledgeDb's guarded ALTERs
+// — the raw v9 fixture handle predates them. They are orthogonal to the
+// v10 SPLIT this pin guards, so both sides strip them before the byte
+// comparison; the trust schema itself is pinned in w836-graveyard.test.ts.
+const TRUST_KEYS = ["rating", "evidence", "researched_at", "graveyard_reason"];
+const stripTrust = (hits: unknown[]): unknown[] =>
+	hits.map((h) =>
+		h && typeof h === "object"
+			? Object.fromEntries(
+					Object.entries(h as Record<string, unknown>).filter(
+						([k]) => !TRUST_KEYS.includes(k),
+					),
+				)
+			: h,
+	);
 const searchJson = (db: Database): string =>
 	JSON.stringify(
-		QUERIES.map(([query, filters]) => knowledgeSearch(db, query, filters)),
+		QUERIES.map(([query, filters]) =>
+			stripTrust(knowledgeSearch(db, query, filters)),
+		),
 	);
 
 describe("W166 knowledge.db split", () => {
