@@ -28,10 +28,11 @@ import { scrub, servicemon } from "../lib/servicemon.ts";
 // passes on spokes, where routes-hub-admin.ts is excluded from the payload.
 const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
 
-import { setEnterpriseProvider } from "../board/ent-seam.ts";
 import { recoverDecisionEvals } from "../board/decide-eval.ts";
+import { setEnterpriseProvider } from "../board/ent-seam.ts";
 import { enforceIam } from "../board/iam-enforce.ts";
 import { getIamGate, setIamGate } from "../board/iam-seam.ts";
+import { handleKnowledgeIngest } from "../board/knowledge-ingest.ts";
 import { ensureLaneObservations } from "../board/lane-observations.ts";
 import { ensureLaneReadModel } from "../board/lane-read-model.ts";
 import { startObservationRelay } from "../board/observation-relay.ts";
@@ -39,8 +40,8 @@ import {
 	handleActions,
 	recoverPendingAdvice,
 } from "../board/routes-actions.ts";
-import { handleConsultIngress } from "../board/routes-consult.ts";
 import { handleConsole } from "../board/routes-console.ts";
+import { handleConsultIngress } from "../board/routes-consult.ts";
 import { handleData } from "../board/routes-data.ts";
 import { handleDrawer } from "../board/routes-drawer.ts";
 import { handleEnterprise } from "../board/routes-enterprise.ts";
@@ -48,13 +49,12 @@ import {
 	handleFederationUsage,
 	handleFederationWork,
 } from "../board/routes-federation.ts";
+import { handleFiles } from "../board/routes-files.ts";
 import { handleFleetTree } from "../board/routes-fleet-tree.ts";
 import { handleLaneModel } from "../board/routes-lane-model.ts";
 import { handleMeta } from "../board/routes-meta.ts";
 import { handleObservations } from "../board/routes-observations.ts";
-import { handleKnowledgeIngest } from "../board/knowledge-ingest.ts";
 import { handleOrch } from "../board/routes-orch.ts";
-import { handleFiles } from "../board/routes-files.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
 import { handleUsage } from "../board/routes-usage.ts";
 import {
