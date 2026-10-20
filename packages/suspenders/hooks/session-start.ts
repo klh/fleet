@@ -226,6 +226,12 @@ const out = [
 		? `SUBAGENT LANE ${lane.slice(0, 24)}  project=${pname(project)}`
 		: `SESSION ${sid.slice(0, 8)}  project=${pname(project)}`,
 ];
+out.push(
+	`CURRENT COORDINATION: coord fleet lists live sessions and claims; ` +
+		`coord consult <target-sid> "<question>" --as ${lane} asks a registered peer; ` +
+		`coord message <target-sid> "<update>" --as ${lane} updates a live lane; ` +
+		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported public verbs; never guess a transport or read governor.db directly for live coordination.`,
+);
 
 // W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an
 // explicit `checkpoint set` banks working state to a rolling file; after a
@@ -390,7 +396,7 @@ if (!isSubagent && input.cwd) {
 				.get(`broadcast.seen.${sid}`) as { value: string } | null;
 			if (b.ts > Number(seen?.value ?? 0)) {
 				out.push(
-					`FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC): ${b.note}`,
+					`HISTORICAL FLEET NOTICE (${new Date(b.ts).toISOString().slice(0, 16).replace("T", " ")} UTC; recorded event, not current capability): ${b.note.replace(/\s+/g, " ").trim()} — this does not establish a current transport.`,
 				);
 				db.query(
 					"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
