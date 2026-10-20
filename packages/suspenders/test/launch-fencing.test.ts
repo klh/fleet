@@ -29,6 +29,32 @@ import {
 } from "../scripts/lib/launch-fencing.ts";
 const dirs: string[] = [];
 const children: Bun.Subprocess[] = [];
+
+test("launcher shutdown gives a managed runtime time to reap its native child", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "managed-launch-shutdown-"));
+	dirs.push(directory);
+	const marker = join(directory, "native.pid");
+	const source = join(directory, "runtime.ts");
+	writeFileSync(
+		source,
+		`import { spawn } from "node:child_process"; import { writeFileSync } from "node:fs"; const child = spawn(${JSON.stringify(process.execPath)}, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); writeFileSync(${JSON.stringify(marker)}, String(child.pid)); process.on("SIGTERM", () => child.kill("SIGTERM")); child.on("close", () => process.exit(0));`,
+	);
+	const runtime = Bun.spawn([process.execPath, source], {
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	children.push(runtime);
+	for (let i = 0; !existsSync(marker) && i < 100; i++) await Bun.sleep(10);
+	const native = Number(readFileSync(marker, "utf8"));
+	try {
+		await terminateOwnLaunch(runtime);
+		expect(() => process.kill(native, 0)).toThrow();
+	} finally {
+		try {
+			process.kill(native, "SIGKILL");
+		} catch {}
+	}
+});
 afterEach(async () => {
 	await Promise.all(children.splice(0).map(terminateOwnLaunch));
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });

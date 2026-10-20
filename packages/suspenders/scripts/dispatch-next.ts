@@ -54,6 +54,7 @@ import { jobslabFor, jobslabTag, laneClassOf } from "./lib/jobslab.ts";
 import {
 	applyLaneAttribution,
 	coordCliFor,
+	executorLaunch,
 	laneAuditFor,
 	laneEnv,
 	probeBuckleFront,
@@ -392,24 +393,6 @@ const capsuleGet = (sid: string): Record<string, string> | null =>
 export const itemCapsuleGet = (item: string): Record<string, string> | null =>
 	parseCapsuleGet(sh(coordCli("capsule", "get", "--item", item)));
 
-/** W629 DRY: the attempt-advance read — launch-attempt fact counter and
- *  reserved-ladder reservation composed identically at both dispatchItem
- *  budget checkpoints (pre-lease and in-try re-read). */
-const advanceAttempt = (
-	store: ReturnType<typeof openStore>,
-	project: string,
-	item: string,
-	sid: string,
-	attempt: number,
-): number => {
-	const row = store
-		.query("SELECT value FROM facts WHERE key=?")
-		.get(`lane.${sid}.launch-attempt`) as { value: string } | null;
-	const fromFact =
-		row && /^\d+$/.test(row.value) ? Number(row.value) + 1 : attempt;
-	return nextReservedAttempt(store, project, item, Math.max(attempt, fromFact));
-};
-
 /** the mission brief. Everything a headless lane needs: full item spec,
  *  capsule protocol, landing chain, sid + how it gets resumed. Resume runs
  *  embed the dead lane's last capsule as RESUME CONTEXT. */
@@ -557,7 +540,7 @@ const dispatchItem = async (
 	// per dispatch cycle, next to the cv ladder it outranks.
 	const quota = quotaProviderPenalty(store);
 	const attemptKey = `lane.${sid}.launch-attempt`;
-	attempt = advanceAttempt(store, project, item, sid, attempt);
+	attempt = nextReservedAttempt(store, project, item, attempt, sid);
 	if (attempt >= limit) {
 		launchWaits.push(item);
 		const parked = parkExhaustedLaunch(
@@ -618,7 +601,7 @@ const dispatchItem = async (
 		const pending = launchIntent(store, project, item);
 		if (pending && inspectLaunchIntent(pending) !== "dead")
 			throw new Error("durable launch intent alive or uncertain");
-		attempt = advanceAttempt(store, project, item, sid, attempt);
+		attempt = nextReservedAttempt(store, project, item, attempt, sid);
 		if (attempt >= limit) {
 			launchWaits.push(item);
 			const parked = parkExhaustedLaunch(
@@ -716,9 +699,17 @@ const dispatchItem = async (
 			.get(project, item, sid) as { updated_at: number } | null;
 		if (!claimedRow) throw new Error("claim changed before launch preparation");
 		claimRevision = claimedRow.updated_at;
+		const executor = executorLaunch(adapterFor(pick.bin), bin);
 		intent = reserveLaunchIntent(
 			store,
-			{ project, item, sid, nonce, revision: claimRevision, executor: bin },
+			{
+				project,
+				item,
+				sid,
+				nonce,
+				revision: claimRevision,
+				executor: executor.bin,
+			},
 			limit,
 			attempt - 1,
 		);
@@ -863,6 +854,7 @@ const dispatchItem = async (
 			{ ...process.env, ...(takeToken ? { KLH_CLAIM_TOKEN: takeToken } : {}) },
 			NO_BELT,
 		);
+		Object.assign(env, executor.env);
 		env.SUSPENDERS_SID = sid;
 		env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL = "canonical-v1";
 		// W229 universal insertion: recipe data + one applicator (lib/insertion.ts)

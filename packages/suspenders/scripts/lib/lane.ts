@@ -39,6 +39,8 @@ export interface ExecutorAdapter {
 	names: string[];
 	/** The CLI binary this executor spawns. */
 	bin: string;
+	/** Optional managed runtime; the original CLI path rides its named env. */
+	managedRuntime?: { entrypoint: string; nativeBinEnv: string };
 	/** false = catalog-only (resolveLaneExecutor refuses the token). */
 	spawnable: boolean;
 	/** W223.2 brief-verify harness id + enforcement: true = a failing brief
@@ -66,6 +68,16 @@ export interface ExecutorAdapter {
 	 *  install must be discoverable without the shell's PATH (W626: the
 	 *  launchd-context liveness read every lane unknown). */
 	installPaths?: string[];
+}
+
+export function executorLaunch(
+	adapter: ExecutorAdapter,
+	nativeBin: string,
+): { bin: string; env: Record<string, string> } {
+	const runtime = adapter.managedRuntime;
+	return runtime
+		? { bin: runtime.entrypoint, env: { [runtime.nativeBinEnv]: nativeBin } }
+		: { bin: nativeBin, env: {} };
 }
 
 export const sh = (cmd: string[], cwd = process.cwd()): string => {

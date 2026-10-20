@@ -19,6 +19,29 @@ const event = (id: number, target: string, kind = "NOTE") => ({
 });
 
 describe("Claude native hook wake bridge", () => {
+	test("managed and native consumers have separate locks and shutdown cancels a watcher", async () => {
+		const sid = "managed-and-native";
+		const native = waitForClaudeWake(sid, { home, timeoutMs: 1000 });
+		const managed = waitForClaudeWake(sid, {
+			home,
+			timeoutMs: 1000,
+			consumer: "managed",
+		});
+		signalClaudeDirectEvent(event(41, sid), sid, home);
+		expect(await native).toContain("#41");
+		expect(await managed).toContain("#41");
+		const abort = new AbortController();
+		const waiting = waitForClaudeWake("shutdown", {
+			home,
+			timeoutMs: 1000,
+			abort: abort.signal,
+		});
+		abort.abort();
+		expect(
+			await Promise.race([waiting, Bun.sleep(50).then(() => "still waiting")]),
+		).toBeNull();
+	});
+
 	test("signals exact addressed messages and consults, never broadcasts", () => {
 		const sid = "direct-only";
 		expect(signalClaudeDirectEvent(event(1, "other"), sid, home)).toBe(false);
