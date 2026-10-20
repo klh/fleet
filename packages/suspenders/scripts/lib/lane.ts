@@ -50,6 +50,9 @@ export interface ExecutorAdapter {
 	/** The args that carry the prompt (`-p <p>` for the claude dialects,
 	 *  ["exec", <p>] for codex). */
 	promptArgs(prompt: string): string[];
+	/** W1009.1: exec-style grammar — the prompt is a bare trailing
+	 *  positional, so spawnClaude lays the flag tail before it. */
+	promptLast?: boolean;
 	/** W454 starter-session fork args; null = no fork support (cold start). */
 	forkArgs(sessionId: string): string[] | null;
 	/** W918.3: the one-turn starter-seed argv (claude JSON grammar). Absent
@@ -246,6 +249,7 @@ export const spawnClaude = (o: {
 	/** W1009: the adapter prompt grammar (["exec", p] for codex) — set
 	 *  beats the claude "-p p" head; omitted = unchanged claude recipe. */
 	promptArgs?: string[];
+	promptLast?: boolean;
 	cwd: string;
 	logFile: string;
 	env: Record<string, string>;
@@ -281,14 +285,16 @@ export const spawnClaude = (o: {
 	// cannot terminate the harness. unref releases the event-loop reference.
 	// exec preserves the recorded harness PID,
 	// stdin EOF prevents input waits, and the log is the board's tail surface.
-	const head = o.promptArgs
-		? o.promptArgs.map((a) => (a.includes(" ") ? sq(a) : a)).join(" ")
-		: `-p ${sq(o.prompt)}`;
+	const head = o.promptLast
+		? `${o.promptArgs?.[0] ?? "exec"} ${tail} ${sq(o.prompt)}`
+		: o.promptArgs
+			? `${o.promptArgs.map((a) => (a.includes(" ") ? sq(a) : a)).join(" ")} ${tail}`
+			: `-p ${sq(o.prompt)} ${tail}`;
 	return Bun.spawn(
 		[
 			"/bin/sh",
 			"-c",
-			`${jobslabPrefix(js)}${sq(o.bin)} ${head} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
+			`${jobslabPrefix(js)}${sq(o.bin)} ${head} < /dev/null >> ${sq(o.logFile)} 2>&1`,
 		],
 		{
 			detached: true,
