@@ -310,6 +310,8 @@ export function providerObservationsFromRequests(
 		const catalogProvider = routes.providerModelIds[model]?.provider;
 		if (catalogProvider && routes.providerIntents.includes(catalogProvider))
 			providers.add(catalogProvider);
+		if (providers.size === 0 && routes.providerIntents.length === 1)
+			providers.add(routes.providerIntents[0]);
 		if (providers.size === 1) providerByModel.set(model, [...providers][0]);
 	}
 	const found = new Map<string, HubProviderObservation>();
