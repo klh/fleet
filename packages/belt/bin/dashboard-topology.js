@@ -182,6 +182,7 @@ class BeltTopology extends LitElement {
 				networkResponse,
 				accessResponse,
 				contextResponse,
+				inventoryResponse,
 			] = await Promise.all([
 				...["/api/status", "/api/remotes", "/api/supervisor"].map((url) =>
 					fetch(url, { signal: controller.signal, cache: "no-store" }),
@@ -198,10 +199,14 @@ class BeltTopology extends LitElement {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
+				fetch("/api/model-inventory", {
+					signal: controller.signal,
+					cache: "no-store",
+				}).catch(() => null),
 			]);
 			if (!statusResponse.ok || !remotesResponse.ok || !supervisorResponse.ok)
 				throw new Error("A topology feed is unavailable");
-			const [status, remotes, supervisor, network, access, context] =
+			const [status, remotes, supervisor, network, access, context, inventory] =
 				await Promise.all([
 					statusResponse.json(),
 					remotesResponse.json(),
@@ -209,6 +214,9 @@ class BeltTopology extends LitElement {
 					networkResponse?.ok ? networkResponse.json().catch(() => null) : null,
 					accessResponse?.ok ? accessResponse.json().catch(() => null) : null,
 					contextResponse?.ok ? contextResponse.json().catch(() => null) : null,
+					inventoryResponse?.ok
+						? inventoryResponse.json().catch(() => null)
+						: null,
 				]);
 			this.networkIssue =
 				network?.ok && network.network?.ok
@@ -222,6 +230,7 @@ class BeltTopology extends LitElement {
 				network,
 				access,
 				context,
+				inventory,
 			);
 			document.dispatchEvent(
 				new CustomEvent("belt-topology-data", { detail: this.topology }),
@@ -345,7 +354,7 @@ class BeltTopology extends LitElement {
 				hubKey
 					? svg`<g>
 				<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
-				<g><title>${gatewayRouteCount} configured Buckle routes${gatewayUnresolvedRoutes.length ? ` · no model ID: ${gatewayUnresolvedRoutes.join(", ")}` : ""}. Target models are configured, not verified live.</title><text class="title" x=${x + 23} y=${y + 102}>Configured target models · ${exposed.length}</text></g>
+				<g><title>${gatewayRouteCount} configured Buckle routes${gatewayUnresolvedRoutes.length ? ` · no model ID: ${gatewayUnresolvedRoutes.join(", ")}` : ""}. Route targets are configured, not verified live. The full provider catalogs are in Fleet model inventory.</title><text class="title" x=${x + 23} y=${y + 102}>Buckle route targets · ${exposed.length}</text></g>
 				${
 					visible.length
 						? visible.map((item, index) => {
@@ -814,3 +823,95 @@ class BeltTopologyDetails extends LitElement {
 }
 
 customElements.define("belt-topology-details", BeltTopologyDetails);
+
+class BeltModelInventory extends LitElement {
+	static properties = {
+		inventory: { state: true },
+		error: { state: true },
+		query: { state: true },
+		includeCatalog: { state: true },
+	};
+	static styles = css`
+		:host { display:block; margin-block:var(--klh-space-3); }
+		details { border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:var(--klh-space-2); }
+		summary { cursor:pointer; color:var(--klh-ink); }
+		p { color:var(--klh-dim); margin:var(--klh-space-2) 0; }
+		.controls { display:flex; align-items:center; flex-wrap:wrap; gap:var(--klh-space-3); margin:var(--klh-space-3) 0; }
+		.controls input[type="search"] { min-inline-size:24ch; padding:5px 8px; border:1px solid var(--klh-edge); background:var(--klh-bg); color:var(--klh-ink); font:inherit; }
+		.controls label { color:var(--klh-dim); }
+		.table-wrap { overflow:auto; max-block-size:420px; }
+		table { inline-size:100%; border-collapse:collapse; font-size:var(--klh-text-sm); }
+		th, td { border-block-end:1px solid var(--klh-edge); padding:6px 10px; text-align:start; vertical-align:top; }
+		th { position:sticky; inset-block-start:0; background:var(--klh-bg); }
+		.evidence { color:var(--klh-dim); }
+	`;
+	constructor() {
+		super();
+		this.inventory = null;
+		this.error = "";
+		this.query = "";
+		this.includeCatalog = false;
+		this.timer = null;
+	}
+	connectedCallback() {
+		super.connectedCallback();
+		this.refresh();
+		this.timer = setInterval(() => this.refresh(), 300_000);
+	}
+	disconnectedCallback() {
+		super.disconnectedCallback();
+		clearInterval(this.timer);
+	}
+	async refresh() {
+		try {
+			const response = await fetch("/api/model-inventory", {
+				cache: "no-store",
+			});
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			this.inventory = await response.json();
+			this.error = "";
+		} catch (error) {
+			this.error = String(error?.message ?? error);
+		}
+	}
+	render() {
+		const models = this.inventory?.models ?? [];
+		const exposed = models.filter((model) =>
+			model.exposures?.some((exposure) => exposure.kind !== "provider"),
+		);
+		const visible = (this.includeCatalog ? models : exposed).filter((model) => {
+			const needle = this.query.trim().toLocaleLowerCase();
+			return (
+				!needle ||
+				`${model.id} ${model.provider ?? ""} ${model.exposures.map((row) => row.owner).join(" ")}`
+					.toLocaleLowerCase()
+					.includes(needle)
+			);
+		});
+		return html`<details>
+			<summary>Fleet model inventory · ${models.length} provider/model identities · ${exposed.length} exposed locally or through hubs</summary>
+			<p>Inventory combines Belt probes, Buckle route configuration and provider catalogs. A configured route or catalog entry does not prove successful inference.</p>
+			${this.error ? html`<p role="status">Inventory unavailable · ${this.error}</p>` : ""}
+			<div class="controls"><input type="search" aria-label="Find model" placeholder="Find model or provider" .value=${this.query} @input=${(
+				event,
+			) => {
+				this.query = event.target.value;
+			}}>
+			<label><input type="checkbox" .checked=${this.includeCatalog} @change=${(
+				event,
+			) => {
+				this.includeCatalog = event.target.checked;
+			}}> Include provider catalogs</label><span>${visible.length} shown</span></div>
+			<div class="table-wrap"><table><thead><tr><th scope="col">Model</th><th scope="col">Provider</th><th scope="col">Exposure and route</th><th scope="col">Evidence</th></tr></thead>
+			<tbody>${visible.map(
+				(model) => html`<tr>
+				<td>${model.id}</td><td>${model.provider ?? "unattributed"}</td>
+				<td>${model.exposures.map((row) => html`<div>${row.owner}${row.endpoint ? ` · ${row.endpoint}` : ""}${row.routes?.length ? ` · ${row.routes.join(", ")}` : ""}</div>`)}</td>
+				<td class="evidence">${model.exposures.map((row) => html`<div title=${row.observedAt ?? "No live observation"}>${row.evidence} · ${row.state}${row.observedAt ? ` · ${localTime(row.observedAt)}` : ""}</div>`)}</td>
+			</tr>`,
+			)}</tbody></table></div>
+		</details>`;
+	}
+}
+
+customElements.define("belt-model-inventory", BeltModelInventory);

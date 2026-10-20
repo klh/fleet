@@ -183,6 +183,69 @@ describe("observed topology snapshot", () => {
 });
 
 describe("Belt topology", () => {
+	test("uses the shared inventory for local, hub and remote model labels", () => {
+		const model = buildTopology(
+			{
+				observation,
+				specialists: [
+					{ role: "code", port: 8901, model_served: null, state_label: "idle" },
+				],
+			},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "nas",
+						host: "nas.example",
+						port: 11434,
+						protocol: "openai",
+						model: "old-label",
+						ok: true,
+						last_seen: now,
+					},
+				],
+				routes: [],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "nas", state: "up", port: 4101 }],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{
+						name: "nas",
+						models: ["old-label"],
+						routeCount: 1,
+						providerIntents: [],
+					},
+				],
+			},
+			{
+				models: [
+					{
+						id: "Qwen3-Coder",
+						provider: "belt",
+						exposures: [{ kind: "belt", owner: "This Mac", endpoint: ":8901" }],
+					},
+					{
+						id: "qwen2.5:0.5b",
+						provider: null,
+						exposures: [
+							{ kind: "hub", owner: "NAS", routeModel: "qwen2.5:0.5b" },
+							{ kind: "remote", owner: "nas", endpoint: "nas.example:11434" },
+						],
+					},
+				],
+			},
+		);
+		expect(model.specialists.models[0]?.model).toBe("Qwen3-Coder");
+		expect(model.hubs[0]?.gatewayModels).toEqual(["qwen2.5:0.5b"]);
+		expect(model.machines[0]?.models).toEqual(["qwen2.5:0.5b"]);
+	});
+
 	test("keeps NAS Immich as a service beside its chat model", () => {
 		const model = buildTopology(
 			{},

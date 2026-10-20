@@ -478,6 +478,7 @@ ${fleetNav("belt", "models")}
 <section class="surface-section" aria-label="Hubs and local models">
 <details><summary>Hubs and local models</summary>
 <p class="diagnostics-note">Available models and their Buckle route from this machine.</p>
+<belt-model-inventory></belt-model-inventory>
 <div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
 </details>
 </section>
