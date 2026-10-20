@@ -57,7 +57,9 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 			document.querySelector("klh-usage-tiles")?.shadowRoot !== null &&
 			document.querySelector("klh-usage-actors")?.shadowRoot !== null,
 	);
-	await expect(page.locator("klh-usage-tiles")).toContainText("ACTIVE ACTORS");
+	await expect(page.locator("klh-usage-tiles")).toContainText(
+		"ACTORS IN WINDOW",
+	);
 	await expect(page.locator("klh-usage-tiles")).toContainText("TOTAL TOKENS");
 	await expect(page.locator("klh-usage-actors")).toContainText("alice");
 	await expect(page.locator("klh-usage-actors")).toContainText("platform");
@@ -92,6 +94,35 @@ test("usage page: hosts upgrade, panels paint, uPlot mounts", async ({
 	);
 	await page.screenshot({ path: shot, fullPage: true });
 	copyFileSync(shot, "/tmp/w65231-look-usage.png");
+	expect(statSync(shot).size).toBeGreaterThan(50_000);
+});
+
+test("coverage evidence: strip paints, day drilldown carries hour links", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/usage`);
+	await page.waitForFunction(
+		() => document.querySelector("klh-usage-coverage")?.shadowRoot !== null,
+	);
+	const cov = page.locator("klh-usage-coverage");
+	await expect(cov).toContainText("EVIDENCE · COVERAGE & FRESHNESS");
+	// seeded live buckets: now-2h, now-3h, now-26h — 3 of the 169 hour
+	// buckets in the 7d window, newest 2h old, longest zero-run 142h
+	await expect(cov).toContainText("3 of 169");
+	await expect(cov).toContainText("newest data");
+	await expect(cov).toContainText("2h before window end");
+	await expect(cov).toContainText("142h");
+	await cov.getByText("Coverage by day").click();
+	const links = cov.getByRole("link", { name: "hour detail →" });
+	await expect(links).toHaveCount(2);
+	await expect(links.first()).toHaveAttribute("href", /hour=\d+#usage-hour/);
+	const shot = join(
+		dirname(fileURLToPath(import.meta.url)),
+		"test-results",
+		"usage-coverage.png",
+	);
+	await page.screenshot({ path: shot, fullPage: true });
+	copyFileSync(shot, "/tmp/w85811-look-usage-coverage.png");
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 

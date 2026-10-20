@@ -330,3 +330,101 @@ describe("usagePage aids seam (W152)", () => {
 		db.close();
 	});
 });
+
+describe("usagePage coverage evidence (W858.11)", () => {
+	type CoverageSlice = {
+		from: string;
+		to: string;
+		hoursTotal: number;
+		hoursData: number;
+		newest: string;
+		newestAgeH: number;
+		longestGapH: number;
+		gapEnd: string;
+		source: string;
+		demoNote?: string;
+		byDay: {
+			d: string;
+			hoursData: number;
+			tok: number;
+			href?: string;
+		}[];
+	};
+	const coverageOf = (html: string): CoverageSlice => {
+		const p = JSON.parse(
+			html.match(
+				/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
+			)?.[1] ?? "{}",
+		) as { panels: { coverage: CoverageSlice } };
+		return p.panels.coverage;
+	};
+
+	test("coverage strip: window bounds, freshness, gap, provenance", () => {
+		const db = freshDb();
+		seed(db);
+		const r = buildUsageReport(db, { days: 7, nowMs: NOW });
+		const html = usagePage(r, { days: 7 });
+		expect(html).toContain(
+			"<klh-usage-tiles></klh-usage-tiles><klh-usage-charts></klh-usage-charts><klh-usage-coverage></klh-usage-coverage>",
+		);
+		const cov = coverageOf(html);
+		expect(cov.from).toBe("2026-09-24 12:00 UTC");
+		expect(cov.to).toBe("2026-10-01 12:00 UTC");
+		expect(cov.hoursTotal).toBe(169);
+		expect(cov.hoursData).toBe(3);
+		expect(cov.newest).toBe("2026-10-01 10:00 UTC");
+		expect(cov.newestAgeH).toBe(2);
+		expect(cov.longestGapH).toBe(142);
+		expect(cov.gapEnd).toBe("2026-09-30 09:00 UTC");
+		expect(cov.source).toBe("legacy aggregate usage");
+		// fixture has no demo/seed actors — the note is honestly omitted
+		expect(cov.demoNote).toBeUndefined();
+		db.close();
+	});
+
+	test("per-day drilldown rows carry first-live-hour hrefs", () => {
+		const db = freshDb();
+		seed(db);
+		const r = buildUsageReport(db, { days: 7, nowMs: NOW });
+		const cov = coverageOf(usagePage(r, { days: 7 }));
+		const sep30 = cov.byDay.find((x) => x.d === "2026-09-30");
+		expect(sep30?.hoursData).toBe(1);
+		expect(sep30?.tok).toBe(600);
+		expect(sep30?.href).toBe(`/usage?days=7&hour=${String(b(26))}#usage-hour`);
+		const oct1 = cov.byDay.find((x) => x.d === "2026-10-01");
+		expect(oct1?.hoursData).toBe(2);
+		expect(oct1?.tok).toBe(4350);
+		expect(oct1?.href).toBe(`/usage?days=7&hour=${String(b(3))}#usage-hour`);
+		db.close();
+	});
+
+	test("drilldown hrefs preserve team filter state", () => {
+		const db = freshDb();
+		seed(db);
+		const r = buildUsageReport(db, {
+			days: 7,
+			nowMs: NOW,
+			team: "platform",
+		});
+		const cov = coverageOf(usagePage(r, { days: 7, team: "platform" }));
+		expect(cov.hoursData).toBe(2);
+		const oct1 = cov.byDay.find((x) => x.d === "2026-10-01");
+		expect(oct1?.href).toBe(
+			`/usage?days=7&team=platform&hour=${String(b(3))}#usage-hour`,
+		);
+		db.close();
+	});
+
+	test("empty window: honest zeros, no newest, no drilldown hrefs", () => {
+		const db = freshDb();
+		const r = buildUsageReport(db, { days: 7, nowMs: NOW });
+		const cov = coverageOf(usagePage(r, { days: 7 }));
+		expect(cov.hoursData).toBe(0);
+		expect(cov.newest).toBe("");
+		expect(cov.newestAgeH).toBe(-1);
+		expect(cov.longestGapH).toBe(169);
+		expect(cov.gapEnd).toBe("2026-10-01 12:00 UTC");
+		expect(cov.byDay.every((x) => x.hoursData === 0 && !x.href)).toBe(true);
+		db.close();
+	});
+});

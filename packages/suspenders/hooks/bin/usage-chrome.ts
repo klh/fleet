@@ -152,6 +152,29 @@ export interface UsageHeaderPanel {
 	filtered?: string;
 	status: string;
 }
+// W858.11: the evidence slice — what the window actually covers, how fresh
+// the newest bucket is, where the gaps are, and the per-day drilldown (each
+// day links its first live hour into the HOUR DETAIL drilldown).
+export interface UsageCoverageDay {
+	d: string;
+	hoursData: number;
+	tok: number;
+	/** server-built drilldown href (first live hour of the day → #usage-hour) */
+	href?: string;
+}
+export interface UsageCoveragePanel {
+	from: string;
+	to: string;
+	hoursTotal: number;
+	hoursData: number;
+	newest: string;
+	newestAgeH: number;
+	longestGapH: number;
+	gapEnd: string;
+	source: "verified transcript usage" | "legacy aggregate usage";
+	demoNote?: string;
+	byDay: UsageCoverageDay[];
+}
 export interface UsagePanels {
 	header?: UsageHeaderPanel;
 	tiles?: UsageTile[];
@@ -160,6 +183,7 @@ export interface UsagePanels {
 	activity?: UsageActivityPanel | { empty: string };
 	spokes?: UsageSpokesPanel;
 	crosshub?: UsageCrossHubPanel;
+	coverage?: UsageCoveragePanel;
 }
 
 // the light-DOM u* chrome the two dashboards still render server-side or in
