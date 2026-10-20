@@ -140,6 +140,9 @@ export function hubConsoleLinks(): Array<{ name: string; url: string }> {
 export function hubGatewayRoutes(): Array<{
 	name: string;
 	models: string[];
+	routeCount: number;
+	unresolvedRoutes: string[];
+	routesByModel: Record<string, string[]>;
 	providerHosts: string[];
 	providerHostsByModel: Record<string, string[]>;
 }> {
@@ -148,30 +151,46 @@ export function hubGatewayRoutes(): Array<{
 		const groups =
 			profiles.get(hub.label.toLowerCase())?.upstreams?.groups ?? {};
 		const hosts = new Set<string>();
-		const providerHostsByModel: Record<string, string[]> = {};
-		for (const [model, candidates] of Object.entries(groups)) {
-			const modelHosts = new Set<string>();
+		const modelHosts = new Map<string, Set<string>>();
+		const routesByModel = new Map<string, Set<string>>();
+		const unresolvedRoutes: string[] = [];
+		for (const [route, candidates] of Object.entries(groups)) {
+			let resolved = false;
 			for (const candidate of candidates) {
 				const inherited = candidate["<<"];
-				const raw =
-					candidate.url ??
-					(inherited && typeof inherited === "object"
-						? (inherited as Record<string, unknown>).url
-						: null);
+				const inheritedCandidate =
+					inherited && typeof inherited === "object"
+						? (inherited as Record<string, unknown>)
+						: null;
+				const model = candidate.model ?? inheritedCandidate?.model;
+				if (typeof model !== "string" || !model.trim()) continue;
+				resolved = true;
+				const name = model.trim();
+				if (!modelHosts.has(name)) modelHosts.set(name, new Set());
+				if (!routesByModel.has(name)) routesByModel.set(name, new Set());
+				routesByModel.get(name)?.add(route);
+				const raw = candidate.url ?? inheritedCandidate?.url;
 				if (typeof raw !== "string") continue;
 				try {
 					const host = new URL(raw).hostname.toLowerCase();
 					hosts.add(host);
-					modelHosts.add(host);
+					modelHosts.get(name)?.add(host);
 				} catch {}
 			}
-			providerHostsByModel[model] = [...modelHosts];
+			if (!resolved) unresolvedRoutes.push(route);
 		}
 		return {
 			name: hub.label,
-			models: Object.keys(groups),
+			models: [...modelHosts.keys()],
+			routeCount: Object.keys(groups).length,
+			unresolvedRoutes,
+			routesByModel: Object.fromEntries(
+				[...routesByModel].map(([model, routes]) => [model, [...routes]]),
+			),
 			providerHosts: [...hosts],
-			providerHostsByModel,
+			providerHostsByModel: Object.fromEntries(
+				[...modelHosts].map(([model, targets]) => [model, [...targets]]),
+			),
 		};
 	});
 }

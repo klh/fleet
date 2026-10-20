@@ -218,6 +218,8 @@ describe("Belt topology", () => {
 			},
 		);
 		expect(model.hubs[0]?.gatewayModels).toEqual(["model-a"]);
+		expect(model.hubs[0]?.gatewayRouteCount).toBe(1);
+		expect(model.hubs[0]?.gatewayUnresolvedRoutes).toEqual([]);
 		expect(model.hubs[0]?.providerKeys).toEqual(["zai"]);
 		expect(model.hubs[0]?.providerCounts).toEqual({ zai: 1 });
 		expect(model.providers.some((provider) => provider.key === "zai")).toBe(
