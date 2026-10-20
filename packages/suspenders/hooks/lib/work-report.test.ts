@@ -353,7 +353,7 @@ describe("W909 — MODEL / EFFORT / CONSULT columns", () => {
 		expect(reportModel({ b: g(5, 0), a: g(0, 5) })).toBe("a+"); // tie → name asc
 		expect(reportModel({ a: g(0, 0) })).toBe(""); // zero-spend never renders
 		expect(MODEL_CAP).toBe(16);
-		expect(reportModel({ "averyveryverylongmodelname": g(1, 1) })).toBe(
+		expect(reportModel({ averyveryverylongmodelname: g(1, 1) })).toBe(
 			"averyveryverylon",
 		);
 	});
@@ -402,6 +402,102 @@ describe("W909 — MODEL / EFFORT / CONSULT columns", () => {
 	});
 });
 
+describe("W976 — cli-table3 alignment", () => {
+	test("mixed-width rows: every line the same length", () => {
+		const rows = [
+			proto({ id: "W1", title: "short" }),
+			proto({
+				id: "W858.7.26",
+				title: "Remove misleading task-board widget",
+				fresh: 7123456,
+				cached: 7020203,
+				out: 254000,
+				agentMs: 127 * 60_000,
+				model: "glm-5.3-flash",
+				effort: "medium",
+				consulted: true,
+			}),
+		];
+		const plain = buildReportTable(rows);
+		const [head, sep, ...body] = plain.split("\n");
+		expect(body.length).toBe(2);
+		expect(body.every((l) => l.length === head?.length)).toBe(true);
+		expect(sep?.length).toBe(head?.length);
+	});
+
+	test("column right-edges shared: cells end at the separator's dash-run ends", () => {
+		const rows = [
+			proto({ id: "W1", title: "short" }),
+			proto({
+				id: "W858.7.26",
+				title: "Remove misleading task-board widget",
+				fresh: 7123456,
+			}),
+		];
+		const plain = buildReportTable(rows);
+		const [head, sep, ...body] = plain.split("\n");
+		// column right-edges derived from the separator's dash runs, NOT from
+		// the implementation — an off-by-N pad shifts the edge and fails here
+		const edges: number[] = [];
+		let i = 0;
+		for (const run of sep?.split("  ") ?? []) {
+			i += run.length;
+			edges.push(i);
+			i += 2;
+		}
+		expect(edges.length).toBe(10);
+		// header cells end at the shared edges (right-aligned cols ≥ 3)
+		const at = (line: string, c: number, text: string): boolean =>
+			line.slice(edges[c] - text.length, edges[c]) === text;
+		expect(at(head ?? "", 3, "TOKENS")).toBe(true);
+		expect(at(head ?? "", 5, "OUT/MIN")).toBe(true);
+		expect(at(head ?? "", 9, "CONSULT")).toBe(true);
+		expect(body[1]?.length).toBe(head?.length);
+	});
+
+	test("right-aligned body cells end at the shared edges (0 vs 7-digit tokens)", () => {
+		const rows = [
+			proto({ id: "W1", title: "short" }),
+			proto({
+				id: "W858.7.26",
+				title: "Remove misleading task-board widget",
+				fresh: 7123456,
+				cached: 7020203,
+				out: 254000,
+				agentMs: 127 * 60_000,
+				model: "glm-5.3-flash",
+				effort: "medium",
+				consulted: true,
+			}),
+		];
+		const plain = buildReportTable(rows);
+		const [_head, _sep, ...body] = plain.split("\n");
+		// 7-digit fresh + cache share → 14.1M; zero-spend row renders dashes
+		expect(body[0]?.trim().endsWith("N")).toBe(true);
+		expect(body[1]?.includes("14.1M")).toBe(true);
+		expect(body[1]?.includes("50%")).toBe(true);
+		expect(body[1]?.includes("2h07m")).toBe(true);
+		expect(body[1]?.includes("glm-5.3-flash")).toBe(true);
+		expect(body[1]?.includes("medium")).toBe(true);
+		expect(body[1]?.trim().endsWith("Y")).toBe(true);
+	});
+
+	test("OSC 8 on/off: stripping escapes lands byte-identical on the plain table", () => {
+		const rows = [
+			proto({ id: "W1", title: "short" }),
+			proto({
+				id: "W858.7.26",
+				title: "Remove misleading task-board widget",
+				fresh: 7123456,
+			}),
+		];
+		const plain = buildReportTable(rows);
+		const linked = buildReportTable(rows, { links: true });
+		expect(linked).toContain(esc);
+		expect(stripEscapes(linked)).toBe(plain);
+	});
+});
+
 describe("W964 — deterministic row order", () => {
 	const db = (): Database => {
 		const d = new Database(":memory:");
@@ -413,12 +509,7 @@ describe("W964 — deterministic row order", () => {
 		);
 		return d;
 	};
-	const add = (
-		d: Database,
-		id: string,
-		state: string,
-		age: number,
-	): void =>
+	const add = (d: Database, id: string, state: string, age: number): void =>
 		d
 			.prepare(
 				"INSERT INTO work_items (project, id, state, title, updated_at) VALUES ('p', ?, ?, ?, ?)",
@@ -435,15 +526,9 @@ describe("W964 — deterministic row order", () => {
 	});
 
 	test("reportBucketRank: R < Q < F < D", () => {
-		expect(reportBucketRank("CLAIMED")).toBeLessThan(
-			reportBucketRank("READY"),
-		);
-		expect(reportBucketRank("READY")).toBeLessThan(
-			reportBucketRank("FAILED"),
-		);
-		expect(reportBucketRank("FAILED")).toBeLessThan(
-			reportBucketRank("DONE"),
-		);
+		expect(reportBucketRank("CLAIMED")).toBeLessThan(reportBucketRank("READY"));
+		expect(reportBucketRank("READY")).toBeLessThan(reportBucketRank("FAILED"));
+		expect(reportBucketRank("FAILED")).toBeLessThan(reportBucketRank("DONE"));
 	});
 
 	test("pool: byte-identical across runs; a spend tick never moves rows", () => {

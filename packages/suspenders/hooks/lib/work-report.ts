@@ -8,6 +8,7 @@
 // (FAILED; surfaces via --ids). W891 colors these letters on the board.
 
 import type { Database } from "bun:sqlite";
+import Table from "cli-table3";
 import {
 	type GroupSpend,
 	type ItemAttribution,
@@ -111,10 +112,7 @@ export const reportModel = (groups: Record<string, GroupSpend>): string => {
  *  or consulted (consult / consult.answer) — W909 stamps work+project into
  *  those event payloads at record time; pre-W909 events carry no link and
  *  honestly read N. */
-export const consultedItems = (
-	db: Database,
-	project: string,
-): Set<string> => {
+export const consultedItems = (db: Database, project: string): Set<string> => {
 	try {
 		const rows = db
 			.query(
@@ -124,9 +122,7 @@ export const consultedItems = (
 		const out = new Set<string>();
 		for (const r of rows) {
 			try {
-				const w = (
-					JSON.parse(r.payload ?? "{}") as { work?: string }
-				).work;
+				const w = (JSON.parse(r.payload ?? "{}") as { work?: string }).work;
 				if (w) out.add(w);
 			} catch {}
 		}
@@ -211,8 +207,7 @@ export const reportRows = (
 		// above still decides WHICH done rows appear (recency cap).
 		items = [...actives, ...dones].sort(
 			(a, b) =>
-				reportBucketRank(String(a.state)) -
-					reportBucketRank(String(b.state)) ||
+				reportBucketRank(String(a.state)) - reportBucketRank(String(b.state)) ||
 				compareItemIds(String(a.id), String(b.id)),
 		);
 	}
@@ -284,8 +279,45 @@ export const CACHE_MARK = "*";
 export const CACHE_LEGEND =
 	"* CACHE is a floor: ledger rows before 2026-10-19T10Z dropped cached_tokens (W943.1 era gap — docs/decant-crosscheck-2026-10-19.md)";
 
-/** The prototype table (W892): fixed-width programmatic pads — ITEM/ST/TASK
- *  left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right; separator =
+/** W976: the ONE cli-table3 config — borderless (empty border chars emit no
+ *  lines), two-space gutters via the `middle` char, zero cell padding. The
+ *  separator row of per-column dashes is pushed as a plain data row; escapes
+ *  (OSC 8) are width-zero in the lib's ANSI-aware math. */
+const REPORT_TABLE_CHARS = {
+	top: "",
+	"top-mid": "",
+	"top-left": "",
+	"top-right": "",
+	bottom: "",
+	"bottom-mid": "",
+	"bottom-left": "",
+	"bottom-right": "",
+	left: "",
+	"left-mid": "",
+	mid: "",
+	"mid-mid": "",
+	right: "",
+	"right-mid": "",
+	middle: "  ",
+};
+
+/** ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right. */
+const REPORT_TABLE_ALIGN: ("left" | "right")[] = [
+	"left",
+	"left",
+	"left",
+	"right",
+	"right",
+	"right",
+	"right",
+	"right",
+	"right",
+	"right",
+];
+
+/** The prototype table (W892): pads delegated to cli-table3 (W976) —
+ *  ITEM/ST/TASK left, the rest (numeric + MODEL/EFFORT/CONSULT, W909) right;
+ *  separator =
  *  per-column dashes. Zero-spend rows show `-` for TOKENS/CACHE and 0 for
  *  OUT/MIN; no data = `-` for MODEL/EFFORT and N for CONSULT. */
 export const buildReportTable = (
@@ -311,26 +343,27 @@ export const buildReportTable = (
 		];
 	});
 	const ids = rows.map((r) => r.id);
+	// separator = per-column dashes; widths come from the PLAIN cells (links
+	// wrap later — the lib's ANSI-aware math counts escapes as width-zero).
 	const widths = COLUMNS.map((h, c) =>
 		Math.max(h.length, ...cells.map((row) => row[c].length)),
 	);
-	const line = (cols: string[], i: number): string =>
-		cells &&
-		cols
-			.map((v, c) => {
-				// W910: pad the PLAIN text (escapes count in .length but are
-				// width-zero on screen), then wrap column 0's id.
-				const padded =
-					c <= 2 ? v.padEnd(widths[c]) : v.padStart(widths[c]);
-				return c === 0 && opts.links
-					? osc8Link(padded, `${base}/#lanes?w=${ids[i]}`)
-					: padded;
-			})
-			.join("  ");
-	const head = COLUMNS.map((h, c) =>
-		c <= 2 ? h.padEnd(widths[c]) : h.padStart(widths[c]),
-	).join("  ");
-	const sep = widths.map((w) => "-".repeat(w)).join("  ");
-	const body = [head, sep, ...rows.map((_r, i) => line(cells[i], i))].join("\n");
+	const table = new Table({
+		chars: REPORT_TABLE_CHARS,
+		colAligns: REPORT_TABLE_ALIGN,
+		style: { head: [], border: [], "padding-left": 0, "padding-right": 0 },
+	});
+	table.push(COLUMNS);
+	table.push(widths.map((w) => "-".repeat(w)));
+	rows.forEach((_r, i) => {
+		table.push(
+			cells[i].map((v, c) =>
+				// W910: wrap column 0's id; the lib pads the wrapped content
+				// (escapes width-zero), piped output stays escape-free.
+				c === 0 && opts.links ? osc8Link(v, `${base}/#lanes?w=${ids[i]}`) : v,
+			),
+		);
+	});
+	const body = table.toString();
 	return rows.some((r) => r.blindCache) ? `${body}\n${CACHE_LEGEND}` : body;
 };
