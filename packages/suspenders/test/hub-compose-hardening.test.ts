@@ -41,16 +41,16 @@ const STATEFUL = [
 	"peer-pull",
 ];
 
-test("Buckle liveness remains fast while readiness is a low-token canary", () => {
+test("Buckle liveness and route catalog use no inference tokens", () => {
 	const liveness = String(svcs["buckle-health"]?.command);
 	const readiness = svcs["buckle-ready"]?.command as string[];
 	expect(liveness).toContain("/status");
 	expect(liveness).not.toContain("/v1/chat/completions");
+	expect(readiness.join(" ")).toContain("/v1/models");
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
 	expect(readiness).toContain("${HUB_READY_EVERY_MS:-600000}");
-	const body = readiness[readiness.indexOf("--synthetic-json") + 1];
-	expect(JSON.parse(body).max_tokens).toBe(1);
-	expect(readiness).toContain("--expect-path");
+	expect(readiness).toContain("--catalog-model");
+	expect(readiness).not.toContain("--synthetic-json");
 });
 
 test("every service drops all caps and forbids privilege gain", () => {
