@@ -1,6 +1,117 @@
 const FRESH_MS = 120_000;
 const ROUTE_MS = 15 * 60_000;
 
+/** The topology snapshot is a separate, trace-backed source. Keep endpoint
+ * targets distinct from catalog providers until a configured identity joins
+ * them; a local ledger target alone does not prove a provider hop. */
+export function observedGraph(payload, now = Date.now()) {
+	const snapshot = payload?.topology;
+	if (
+		!snapshot?.ok ||
+		snapshot.schemaVersion !== 1 ||
+		!isFresh(snapshot.observedAt, now) ||
+		!Number.isFinite(Date.parse(snapshot.windowStart))
+	)
+		return null;
+	const nodes = [
+		...(Array.isArray(snapshot.hubs) ? snapshot.hubs : []).map((hub) => ({
+			id: hub.id,
+			label: hub.name,
+			kind: "hub",
+			lastSeenAt: hub.lastSeenAt,
+		})),
+		...(Array.isArray(snapshot.targets) ? snapshot.targets : []).map(
+			(target) => ({
+				id: target.id,
+				label: `${target.host}${target.port === null ? "" : `:${target.port}`}`,
+				kind: "endpoint",
+				targetKind: target.kind,
+				lastSeenAt: target.lastSeenAt,
+			}),
+		),
+	].filter((node) => typeof node.id === "string" && node.id);
+	nodes.sort((a, b) => a.id.localeCompare(b.id));
+	const ids = new Set(nodes.map((node) => node.id));
+	const edges = (Array.isArray(snapshot.edges) ? snapshot.edges : [])
+		.filter(
+			(edge) =>
+				ids.has(edge.from) &&
+				ids.has(edge.to) &&
+				Number.isFinite(edge.requests) &&
+				edge.requests >= 0,
+		)
+		.map((edge) => ({
+			...edge,
+			failed: Number.isFinite(edge.failed) ? edge.failed : null,
+			active: Number.isFinite(edge.active) ? edge.active : null,
+			inputTokens: Number.isFinite(edge.inputTokens) ? edge.inputTokens : null,
+			outputTokens: Number.isFinite(edge.outputTokens)
+				? edge.outputTokens
+				: null,
+			coverage: edge.coverage ?? null,
+			fresh: isFresh(edge.lastSeenAt, now, 60_000),
+		}));
+	edges.sort((a, b) => a.id.localeCompare(b.id));
+	const coverage = snapshot.coverage ?? {};
+	return {
+		observedAt: snapshot.observedAt,
+		windowStart: snapshot.windowStart,
+		nodes,
+		edges,
+		traces: Array.isArray(snapshot.traces) ? snapshot.traces : [],
+		totals: {
+			requests: Number.isFinite(snapshot.totals?.requests)
+				? snapshot.totals.requests
+				: null,
+			failed: Number.isFinite(snapshot.totals?.failed)
+				? snapshot.totals.failed
+				: null,
+			active: Number.isFinite(snapshot.totals?.active)
+				? snapshot.totals.active
+				: null,
+			inputTokens:
+				coverage.tokensScope === "local-origin-ledger" &&
+				Number.isFinite(snapshot.totals?.inputTokens)
+					? snapshot.totals.inputTokens
+					: null,
+			outputTokens:
+				coverage.tokensScope === "local-origin-ledger" &&
+				Number.isFinite(snapshot.totals?.outputTokens)
+					? snapshot.totals.outputTokens
+					: null,
+		},
+		coverage,
+	};
+}
+
+/** Deterministic columns keep a viewer's selected route in place on refresh. */
+export function observedGraphLayout(graph) {
+	const depth = new Map(graph.nodes.map((node) => [node.id, 0]));
+	for (let pass = 0; pass < Math.min(graph.nodes.length, 5); pass++) {
+		let changed = false;
+		for (const edge of graph.edges) {
+			const next = Math.min(5, (depth.get(edge.from) ?? 0) + 1);
+			if (next > (depth.get(edge.to) ?? 0)) {
+				depth.set(edge.to, next);
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	const rows = new Map();
+	const nodes = graph.nodes.map((node) => {
+		const column = depth.get(node.id) ?? 0;
+		const row = rows.get(column) ?? 0;
+		rows.set(column, row + 1);
+		return { ...node, x: 20 + column * 224, y: 52 + row * 76 };
+	});
+	return {
+		nodes,
+		width: Math.max(720, 40 + (Math.max(0, ...depth.values()) + 1) * 224),
+		height: Math.max(310, 76 + Math.max(0, ...rows.values()) * 76),
+	};
+}
+
 const isFresh = (value, now, limit = FRESH_MS) => {
 	const time = typeof value === "number" ? value : Date.parse(value);
 	return Number.isFinite(time) && time <= now && now - time <= limit;
@@ -305,6 +416,7 @@ export function buildTopology(
 					)
 				: "unknown",
 		gatewayTraffic: gatewayTraffic(networkPayload, now),
+		observedGraph: observedGraph(networkPayload, now),
 		audit15,
 		lastAuditAt: networkFresh
 			? (networkPayload.network?.lastAuditAt ?? null)
