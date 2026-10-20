@@ -39,6 +39,7 @@ import {
 	fleetNav,
 	settingsBlock,
 } from "./klh-theme.ts";
+import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 
 const HOME = process.env.HOME ?? "";
 const STATE = `${HOME}/.local/state/klh-local`;
@@ -273,6 +274,9 @@ Bun.serve({
 		const health = livenessResponse(req, "local-dashboard");
 		if (health) return health;
 		const path = new URL(req.url).pathname;
+		// W997 — one shared theme preference: same-origin sync endpoint for the
+		// localhost pages (the .local front already syncs via suspenders.local).
+		if (isThemePath(path)) return handleTheme(req);
 		const paths = [
 			"/",
 			"/api/status",
