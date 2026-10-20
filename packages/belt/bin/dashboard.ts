@@ -30,6 +30,7 @@ import {
 import {
 	browserConsoleUrl,
 	hubConsoleLinks,
+	hubGatewayRoutes,
 	hubLlmsRows,
 	readHubs,
 } from "./hubs.ts";
@@ -476,6 +477,7 @@ ${fleetNav("belt", "models")}
 </details>
 <div id="prefsline"></div>
 </details>
+<belt-topology-details></belt-topology-details>
 </main>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
@@ -905,6 +907,7 @@ const topologyContext = async (): Promise<Response> => {
 			false,
 		),
 		hubConsoles: hubConsoleLinks(),
+		hubRoutes: hubGatewayRoutes(),
 		work,
 	});
 };
