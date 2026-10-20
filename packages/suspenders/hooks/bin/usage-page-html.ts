@@ -38,11 +38,13 @@ import {
 	type UsageActivityPanel,
 	type UsageActorsPanel,
 	type UsageAidsPanel,
+	type UsageCoveragePanel,
 	type UsageCrossHubPanel,
 	type UsageSeg,
 	type UsageTile,
 	usagePageShell,
 } from "./usage-chrome.ts";
+import { coverageData } from "./usage-coverage-data.ts";
 
 // ─── uPlot-ready payload (embedded as #usage-data JSON) ──────────────────
 // Columnar on purpose: timeline = [x, flash, full, luna, local, other] with
@@ -53,6 +55,7 @@ import {
 const chartPayload = (
 	r: UsageReport,
 	header: UsageHeaderPanel,
+	coverage: UsageCoveragePanel,
 	activity?: ActivityReport,
 	crosshub?: UsageCrossHubPanel,
 ): string =>
@@ -69,6 +72,7 @@ const chartPayload = (
 			tiles: tilesData(r),
 			actors: actorsData(r),
 			aids: aidsData(r),
+			coverage,
 			activity: activity
 				? activityData(activity)
 				: {
@@ -310,6 +314,13 @@ export function usagePage(
 		dept,
 		opts.includeDemo ?? r.demo?.included ?? false,
 	);
+	const includeDemo = opts.includeDemo ?? r.demo?.included ?? false;
+	const coverage = coverageData(r, {
+		days: r.days,
+		team,
+		dept,
+		includeDemo,
+	});
 	const hosts = `<klh-usage-header></klh-usage-header>
 		<nav class="usage-jump" aria-label="Usage sections">
 			<a href="#overview">Overview</a><a href="#actors">Actors</a>
@@ -317,7 +328,7 @@ export function usagePage(
 			<a href="#activity">Activity</a>
 		</nav>
 		<section id="overview" class="usage-section" aria-label="Usage overview">
-			<klh-usage-tiles></klh-usage-tiles><klh-usage-charts></klh-usage-charts>
+			<klh-usage-tiles></klh-usage-tiles><klh-usage-charts></klh-usage-charts><klh-usage-coverage></klh-usage-coverage>
 		</section>
 		<section id="actors" class="usage-section" aria-label="Actor usage">
 			<klh-usage-actors></klh-usage-actors><klh-usage-drilldown></klh-usage-drilldown>
@@ -337,6 +348,7 @@ export function usagePage(
 		payload: chartPayload(
 			r,
 			header,
+			coverage,
 			opts.activity,
 			crossHubData(opts.crossHub),
 		),

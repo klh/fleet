@@ -40,6 +40,8 @@ import type { UsageReport } from "../lib/usage.ts";
 import "./klh-usage-head.ts";
 // W825: the cache drilldown rides the same bundle (side-effect registers it)
 import "./usage-cache-drill.ts";
+// W858.11: the coverage/freshness evidence panel rides the same bundle
+import "./usage-coverage.ts";
 
 // ─── shared payload read ──────────────────────────────────────────────────
 interface PanelRoot {
