@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	browserConsoleUrl,
+	configuredProviderIdentity,
 	hubLlmsRows,
 	hubRegistryRevision,
 	hubTargets,
@@ -20,6 +21,45 @@ const REGISTRY = {
 	NAS: { candidates: ["http://nas.example.lan:4101"] },
 	DESKTOP: { candidates: ["https://desktop.example.lan"] },
 };
+
+test("catalog provider identity requires the effective configured candidate", () => {
+	const openrouter = {
+		url: "http://127.0.0.1:4100",
+		dialect: "openai",
+		adapter: "openai-compat",
+		api_key_env: "LITELLM_KEY",
+		model: "openrouter/vendor/model:free",
+	};
+	const generated = { "openrouter/vendor/model:free": [openrouter] };
+	expect(
+		configuredProviderIdentity(
+			"openrouter/vendor/model:free",
+			openrouter,
+			generated,
+		),
+	).toEqual({ provider: "openrouter", id: "vendor/model:free" });
+	expect(
+		configuredProviderIdentity(
+			"openrouter/vendor/model:free",
+			{ ...openrouter, url: "http://elsewhere.example:4100" },
+			generated,
+		),
+	).toBeNull();
+	const zai = { ...openrouter, model: "zai-glm-5.3" };
+	expect(
+		configuredProviderIdentity("glm-5.3", zai, { "glm-5.3": [zai] }),
+	).toEqual({
+		provider: "zai",
+		id: "glm-5.3",
+	});
+	expect(
+		configuredProviderIdentity(
+			"glm-5.3",
+			{ ...zai, model: "other" },
+			{ "glm-5.3": [zai] },
+		),
+	).toBeNull();
+});
 
 function regFile(body: unknown): string {
 	const p = join(dir, `reg-${Math.random().toString(36).slice(2)}.json`);

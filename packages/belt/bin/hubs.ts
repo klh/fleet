@@ -18,7 +18,6 @@ import { readFileSync } from "node:fs";
 import { composeUpArgv } from "../../suspenders/deploy/hub-remote.ts";
 import { mergedHubUpstreams } from "../../suspenders/deploy/openrouter-free.ts";
 import { mergeZaiHubUpstreams } from "../../suspenders/deploy/zai-catalog.ts";
-import { readZaiSnapshot } from "./zai-catalog-rows.ts";
 import {
 	inQuietHours,
 	tryLoadStack,
@@ -138,6 +137,36 @@ export function hubConsoleLinks(): Array<{ name: string; url: string }> {
 	});
 }
 
+const sameConfiguredCandidate = (
+	actual: Record<string, unknown>,
+	generated: Record<string, unknown>,
+): boolean => {
+	const keys = Object.keys(actual).sort();
+	return (
+		JSON.stringify(keys) === JSON.stringify(Object.keys(generated).sort()) &&
+		keys.every((key) => actual[key] === generated[key])
+	);
+};
+
+/** Catalog identity belongs to the effective deployment, not its model name. */
+export function configuredProviderIdentity(
+	route: string,
+	candidate: Record<string, unknown>,
+	generated: Record<string, Array<Record<string, unknown>>>,
+): { provider: string; id: string } | null {
+	const matching = generated[route]?.some((row) =>
+		sameConfiguredCandidate(candidate, row),
+	);
+	if (!matching) return null;
+	if (route.startsWith("openrouter/"))
+		return {
+			provider: "openrouter",
+			id:
+				route === "openrouter/free" ? route : route.slice("openrouter/".length),
+		};
+	return { provider: "zai", id: route };
+}
+
 /** Browser-safe gateway route names from registered hub profiles. This is
  *  configuration inventory, not a claim that inference currently succeeds. */
 export function hubGatewayRoutes(): Array<{
@@ -155,9 +184,17 @@ export function hubGatewayRoutes(): Array<{
 	return readHubs().map((hub) => {
 		const profile = profiles.get(hub.label.toLowerCase());
 		let groups = profile?.upstreams?.groups ?? {};
+		let generated: Record<string, Array<Record<string, unknown>>> = {};
 		if (profile) {
 			try {
 				groups = mergeZaiHubUpstreams(profile, mergedHubUpstreams(profile));
+				generated = mergeZaiHubUpstreams(
+					profile,
+					mergedHubUpstreams({
+						...profile,
+						upstreams: { ...profile.upstreams, groups: {} },
+					}),
+				);
 			} catch {
 				// Missing or stale generated catalogs never become configured routes.
 				// Explicit machine-level routes remain visible on their own.
@@ -167,18 +204,9 @@ export function hubGatewayRoutes(): Array<{
 		const modelHosts = new Map<string, Set<string>>();
 		const routesByModel = new Map<string, Set<string>>();
 		const unresolvedRoutes: string[] = [];
-		let zaiIds = new Set<string>();
-		if (profile?.upstreams?.zai_catalog_file) {
-			try {
-				zaiIds = new Set(
-					readZaiSnapshot(profile.upstreams.zai_catalog_file).model_ids,
-				);
-			} catch {
-				// A stale or unreadable snapshot never supplies provider provenance.
-			}
-		}
 		const providerModelIds: Record<string, { provider: string; id: string }> =
 			{};
+		const ambiguousModelIds = new Set<string>();
 		for (const [route, candidates] of Object.entries(groups)) {
 			let resolved = false;
 			for (const candidate of candidates) {
@@ -191,8 +219,25 @@ export function hubGatewayRoutes(): Array<{
 				if (typeof model !== "string" || !model.trim()) continue;
 				resolved = true;
 				const name = model.trim();
-				if (name.startsWith("zai-") && zaiIds.has(name.slice(4)))
-					providerModelIds[name] = { provider: "zai", id: name.slice(4) };
+				const identity = configuredProviderIdentity(
+					route,
+					candidate,
+					generated,
+				);
+				if (!identity) {
+					ambiguousModelIds.add(name);
+					delete providerModelIds[name];
+				} else if (!ambiguousModelIds.has(name)) {
+					const previous = providerModelIds[name];
+					if (
+						previous &&
+						(previous.provider !== identity.provider ||
+							previous.id !== identity.id)
+					) {
+						ambiguousModelIds.add(name);
+						delete providerModelIds[name];
+					} else providerModelIds[name] = identity;
+				}
 				if (!modelHosts.has(name)) modelHosts.set(name, new Set());
 				if (!routesByModel.has(name)) routesByModel.set(name, new Set());
 				routesByModel.get(name)?.add(route);

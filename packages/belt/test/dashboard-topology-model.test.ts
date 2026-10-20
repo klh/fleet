@@ -272,6 +272,12 @@ describe("Belt topology", () => {
 						providerHostsByModel: {
 							"openrouter/vendor/model:free": ["127.0.0.1"],
 						},
+						providerModelIds: {
+							"openrouter/vendor/model:free": {
+								provider: "openrouter",
+								id: "vendor/model:free",
+							},
+						},
 						providerIntents: ["openrouter"],
 					},
 				],
@@ -334,6 +340,39 @@ describe("Belt topology", () => {
 		expect(model.hubs[0]?.gatewayModelCosts["zai-glm-5.2"]).toMatchObject({
 			status: "unknown",
 		});
+	});
+	test("a same-name provider override has no inferred price or provider", () => {
+		const modelName = "openrouter/vendor/model:free";
+		const model = buildTopology(
+			{},
+			{},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			null,
+			{
+				openrouter: {
+					state: "catalog reachable",
+					source: "https://openrouter.ai/api/v1/models",
+					fetchedAt: new Date(now).toISOString(),
+					models: [{ id: "vendor/model:free", price: { status: "free" } }],
+				},
+			},
+			{
+				hubRoutes: [
+					{
+						name: "desktop",
+						models: [modelName],
+						providerHosts: ["elsewhere.example"],
+						providerHostsByModel: { [modelName]: ["elsewhere.example"] },
+					},
+				],
+			},
+		);
+		expect(model.hubs[0]?.gatewayModelCosts[modelName]?.status).toBe("unknown");
+		expect(model.hubs[0]?.providerKeys).not.toContain("openrouter");
 	});
 	test("joins configured console links and observed local Work Graph counts", () => {
 		const model = buildTopology(
