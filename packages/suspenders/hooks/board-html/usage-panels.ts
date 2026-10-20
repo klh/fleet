@@ -354,14 +354,19 @@ const segT = (
 };
 
 export class KlhUsageActors extends LitElement {
-	static properties = { rows: { type: Array, state: true } };
+	static properties = {
+		rows: { type: Array, state: true },
+		query: { type: String, state: true },
+	};
 
 	declare rows: UsageActorRow[];
+	declare query: string;
 	private slot: Record<string, string> = {};
 
 	constructor() {
 		super();
 		this.rows = [];
+		this.query = "";
 	}
 
 	protected connectedCallback(): void {
@@ -372,14 +377,33 @@ export class KlhUsageActors extends LitElement {
 
 	protected render(): TemplateResult {
 		const p = readPanels()?.actors;
-		if (!p?.rows.length) return html``;
+		if (!p?.rows.length)
+			return html`<div class="upanel"><h2>ACTORS</h2><p class="uempty">No actor usage in this window.</p></div>`;
 		return this.body(p.rows);
 	}
 
 	private body(rows: UsageActorRow[]): TemplateResult {
+		const q = this.query.trim().toLocaleLowerCase();
+		const visible = q
+			? rows.filter((row) =>
+					[row.actor, ...row.chips, ...row.models.map((m) => m.m)].some(
+						(value) => value.toLocaleLowerCase().includes(q),
+					),
+				)
+			: rows;
 		return html`<div class="upanel">
-			<h2>ACTORS</h2>
-			<table class="uacts">
+			<div class="actor-head">
+				<h2>ACTORS · ${String(visible.length)} OF ${String(rows.length)}</h2>
+				<label>Search actor or model
+					<input type="search" .value=${this.query}
+						@input=${(event: Event) => {
+							this.query = (event.target as HTMLInputElement).value;
+						}}
+						placeholder="Name, team, or model" />
+				</label>
+			</div>
+			${!visible.length ? html`<p class="uempty" role="status">No actors match this search.</p>` : nothing}
+			<div class="table-scroll"><table class="uacts">
 				<thead>
 					<tr>
 						<th>actor</th>
@@ -389,9 +413,9 @@ export class KlhUsageActors extends LitElement {
 					</tr>
 				</thead>
 				<tbody>
-					${rows.map((row) => this.row(row))}
+					${visible.map((row) => this.row(row))}
 				</tbody>
-			</table>
+			</table></div>
 		</div>`;
 	}
 
@@ -453,6 +477,14 @@ export class KlhUsageActors extends LitElement {
 KlhUsageActors.styles = [
 	panelCss,
 	css`
+		.actor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+		.actor-head h2 { margin:0; }
+		.actor-head label { display:flex; align-items:center; gap:8px; color:var(--klh-dim); font-size:11px; }
+		.actor-head input { min-width:210px; padding:6px 8px; border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-bg); color:var(--klh-ink); font:inherit; }
+		.actor-head input:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+		.table-scroll { overflow-x:auto; }
+		.table-scroll > table { min-width:560px; }
+		@media (max-width:620px) { .actor-head label, .actor-head input { width:100%; } }
 		tr.udetail td {
 			padding-top: 0;
 			border-bottom: none;
@@ -1174,7 +1206,7 @@ export class KlhUsageCharts extends LitElement {
 
 	protected render(): TemplateResult {
 		if (!this.timeline.length && !this.byHour.length) return html``;
-		return html`<div class="upanel">
+		return html`<div class="usage-chart-grid"><div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -1191,7 +1223,7 @@ export class KlhUsageCharts extends LitElement {
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div>`;
+			</div></div>`;
 	}
 
 	protected firstUpdated(): void {

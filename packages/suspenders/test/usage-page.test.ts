@@ -197,6 +197,14 @@ describe("usagePage render contract (W152)", () => {
 		expect(html).toContain("<klh-usage-tiles></klh-usage-tiles>");
 		expect(html).toContain("<klh-usage-actors></klh-usage-actors>");
 		expect(html).toContain("<klh-usage-aids></klh-usage-aids>");
+		for (const section of [
+			"overview",
+			"actors",
+			"cache",
+			"sources",
+			"activity",
+		])
+			expect(html).toContain(`id="${section}"`);
 		const m = html.match(
 			/<script type="application\/json" id="usage-data">([\s\S]*?)<\/script>/,
 		);
@@ -215,11 +223,11 @@ describe("usagePage render contract (W152)", () => {
 		expect(p.slot.flash).toBe("#3987e5");
 		// W652.3.1: panels ride the payload; Lit renders them client-side
 		expect(p.panels.tiles?.map((t) => t.k)).toEqual([
-			"ACTIVE ACTORS",
+			"ACTORS IN WINDOW",
 			"TOTAL TOKENS",
 			"REQUESTS",
 			"MOST-USED MODEL",
-			"OUTPUT TOK/S (RECENT)",
+			"OUTPUT TOK/S · LAST RECORDED HOUR (2026-10-01 10:00 UTC)",
 		]);
 		expect(p.panels.tiles?.[1]?.v).toBe("3.9K");
 		expect(p.panels.actors?.rows.map((row) => row.actor)).toEqual(["alice"]);
@@ -230,6 +238,17 @@ describe("usagePage render contract (W152)", () => {
 		]);
 		expect(p.panels.aids?.empty).toContain("no aid events yet");
 		expect(p.panels.activity?.empty).toContain("meter not wired");
+		db.close();
+	});
+
+	test("does not present an empty recent window as measured zero throughput", () => {
+		const db = freshDb();
+		const r = buildUsageReport(db, { days: 7, nowMs: NOW });
+		const tiles = panelsOf(usagePage(r, { days: 7 })).tiles ?? [];
+		expect(tiles.at(-1)).toEqual({
+			k: "OUTPUT TOK/S · NO RECENT USAGE",
+			v: "—",
+		});
 		db.close();
 	});
 });

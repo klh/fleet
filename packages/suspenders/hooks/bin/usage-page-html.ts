@@ -86,12 +86,22 @@ const tilesData = (r: UsageReport): UsageTile[] => {
 		for (const m of a.byModel)
 			byModel.set(m.model, (byModel.get(m.model) ?? 0) + m.tok);
 	const topModel = [...byModel.entries()].sort((x, y) => y[1] - x[1])[0];
+	const hasRecentUsage = r.timeline.some(
+		(point) =>
+			point.bucket >= r.toBucket - 86_400_000 &&
+			Object.values(point.groups).some((tokens) => tokens > 0),
+	);
 	return [
-		{ k: "ACTIVE ACTORS", v: String(r.actors.length) },
+		{ k: "ACTORS IN WINDOW", v: String(r.actors.length) },
 		{ k: "TOTAL TOKENS", v: fmtTok(r.totals.tok) },
 		{ k: "REQUESTS", v: fmtTok(r.totals.rq) },
 		{ k: "MOST-USED MODEL", v: topModel ? topModel[0] : "—" },
-		{ k: "OUTPUT TOK/S (RECENT)", v: String(r.rate.tokPerSec) },
+		{
+			k: hasRecentUsage
+				? `OUTPUT TOK/S · LAST RECORDED HOUR (${new Date(r.rate.hourBucket).toISOString().slice(0, 16).replace("T", " ")} UTC)`
+				: "OUTPUT TOK/S · NO RECENT USAGE",
+			v: hasRecentUsage ? String(r.rate.tokPerSec) : "—",
+		},
 	];
 };
 
@@ -300,19 +310,27 @@ export function usagePage(
 		dept,
 		opts.includeDemo ?? r.demo?.included ?? false,
 	);
-	const hosts = [
-		"klh-usage-header",
-		"klh-usage-tiles",
-		"klh-usage-charts",
-		"klh-usage-actors",
-		"klh-usage-drilldown",
-		"klh-usage-activity",
-		"klh-usage-aids",
-		"klh-usage-crosshub",
-		"klh-usage-cache-drill",
-	]
-		.map((t) => `<${t}></${t}>`)
-		.join("");
+	const hosts = `<klh-usage-header></klh-usage-header>
+		<nav class="usage-jump" aria-label="Usage sections">
+			<a href="#overview">Overview</a><a href="#actors">Actors</a>
+			<a href="#cache">Cache</a><a href="#sources">Sources</a>
+			<a href="#activity">Activity</a>
+		</nav>
+		<section id="overview" class="usage-section" aria-label="Usage overview">
+			<klh-usage-tiles></klh-usage-tiles><klh-usage-charts></klh-usage-charts>
+		</section>
+		<section id="actors" class="usage-section" aria-label="Actor usage">
+			<klh-usage-actors></klh-usage-actors><klh-usage-drilldown></klh-usage-drilldown>
+		</section>
+		<section id="cache" class="usage-section" aria-label="Cache efficiency">
+			<klh-usage-cache-drill></klh-usage-cache-drill>
+		</section>
+		<section id="sources" class="usage-section" aria-label="Hub sources">
+			<klh-usage-crosshub></klh-usage-crosshub>
+		</section>
+		<section id="activity" class="usage-section" aria-label="Activity and knowledge aids">
+			<klh-usage-activity></klh-usage-activity><klh-usage-aids></klh-usage-aids>
+		</section>`;
 	return usagePageShell({
 		title: "FLEET USAGE",
 		body: hosts,

@@ -182,6 +182,14 @@ const U_CSS = `
 .uon { font-size:10.5px; color:var(--klh-accent); }
 .ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
 .uchart { width:100%; }
+.usage-jump { display:flex; gap:4px; flex-wrap:wrap; position:sticky; top:0; z-index:2; margin:0 0 16px; padding:7px 0; background:var(--klh-bg); border-bottom:1px solid var(--klh-edge); }
+.usage-jump a { padding:5px 10px; color:var(--klh-ink-2); text-decoration:none; font-size:11px; border-radius:2px; }
+.usage-jump a:hover, .usage-jump a:focus-visible { color:var(--klh-accent); background:var(--klh-surface); outline-color:var(--klh-accent); }
+.usage-section { scroll-margin-top:58px; }
+.usage-section + .usage-section { margin-top:22px; padding-top:18px; border-top:1px solid var(--klh-edge); }
+.usage-chart-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(290px,1fr); gap:14px; }
+.usage-chart-grid .upanel { min-width:0; }
+@media (max-width:850px) { .usage-chart-grid { grid-template-columns:minmax(0,1fr); } .usage-jump { position:static; } }
 /* uPlot chrome on the board dark palette: recessive grid + muted axis ink
    are also set per-axis in the charts component; these style the live legend */
 .uplot .u-legend { font: 10.5px/1.7 var(--klh-font-mono); color:var(--klh-ink-2); text-transform:uppercase; letter-spacing:.04em; }
@@ -202,5 +210,5 @@ export function usagePageShell(cfg: {
 	// script block (W695.3.5: the degraded reason now rides the payload)
 	const safePayload = cfg.payload.replace(/</g, "\\u003c");
 	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${safePayload}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "usage")}<klh-topbar></klh-topbar><main style="max-width:1060px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "usage")}<klh-topbar></klh-topbar><main style="max-width:1260px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
 }
