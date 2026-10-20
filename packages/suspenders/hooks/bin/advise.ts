@@ -214,9 +214,15 @@ const ctx = [
 	.filter(Boolean)
 	.join("\n");
 
+const sys = `You advise the human operator of a multi-agent coding fleet (governor.db control plane: work graph, event bus, claims, zombies). A lane raised a decision fork. Analyze the context and answer with EXACTLY this shape:
+RECOMMENDATION: <the decision, one concrete sentence — pick an option if options are implied>
+RATIONALE: <2-4 short bullets, grounded in the context>
+RISK: <the main risk of your recommendation, one line>
+Be decisive. Never recommend "gather more information" unless the context is truly undecidable. Never invent facts.`;
+
 // W742.2: --panel fans the SAME fork to BOTH oracle legs (W742.1 panel
-// contract); fact carries per-leg verdicts + consensus; no fallback chain
-// blurs the agreement semantics. Two named legs, honest failures.
+// contract); fact carries per-leg verdicts + consensus. A total miss may
+// produce explicitly degraded advice through an independent governed route.
 if (argv.includes("--panel")) {
 	const prompt = [
 		PANEL_FRAME,
@@ -250,12 +256,64 @@ if (argv.includes("--panel")) {
 		);
 	}
 	const ok = rows.find((r) => r.ok && recommendationOf(r.text));
-	// total miss keeps the W667 contract: error fact + requested stamp cleared
+	// A failed panel is still useful evidence. Try the typed Kev route when
+	// options are explicit, then the governed Belt route. Neither fallback is
+	// called panel consensus or allowed to answer the decision for the owner.
 	if (!ok) {
 		const msg = rows
 			.map((r) => `${r.name}: ${r.error ?? "no text"}`)
 			.join(" | ")
 			.slice(0, 300);
+		const legs = rows.map((r) => ({
+			name: r.name,
+			ok: r.ok,
+			model: r.model,
+			verdict: r.verdict,
+			ms: r.ms,
+			...(r.error ? { error: r.error.slice(0, 200) } : {}),
+		}));
+		const kev = await kevTypedDecision({ state: ctx, question, options });
+		if (kev) {
+			db.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
+			).run(
+				Date.now(),
+				JSON.stringify({
+					for: id,
+					model: kev.model,
+					host: `kev(${new URL(kevUrl()).host})`,
+					pt: kev.inputTokens,
+					ct: kev.outputTokens,
+					tt: kev.inputTokens + kev.outputTokens,
+					ms: kev.latencyMs,
+				}),
+			);
+			storeKevAdvice(kev, { consensus: "degraded: Kev typed choice", legs });
+			process.exit(0);
+		}
+		const belt = await tryBeltRoute(sys, question, 90_000);
+		if (belt && recommendationOf(belt.text)) {
+			db.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'advise', 'llm.call', NULL, ?, NULL)",
+			).run(
+				Date.now(),
+				JSON.stringify({
+					for: id,
+					model: belt.model,
+					host: belt.host,
+					pt: 0,
+					ct: 0,
+					tt: 0,
+					ms: belt.ms,
+				}),
+			);
+			storeAdvice(
+				belt.text,
+				{ model: belt.model, host: belt.host },
+				{ consensus: "degraded: governed route", legs },
+			);
+			process.exit(0);
+		}
 		// provider rejections are failures (exit 2); connection-class misses
 		// degrade — same unavailable split as the single-leg path
 		const unavailable = rows.every(
@@ -292,16 +350,10 @@ if (argv.includes("--panel")) {
 	}
 }
 
-const sys = `You advise the human operator of a multi-agent coding fleet (governor.db control plane: work graph, event bus, claims, zombies). A lane raised a decision fork. Analyze the context and answer with EXACTLY this shape:
-RECOMMENDATION: <the decision, one concrete sentence — pick an option if options are implied>
-RATIONALE: <2-4 short bullets, grounded in the context>
-RISK: <the main risk of your recommendation, one line>
-Be decisive. Never recommend "gather more information" unless the context is truly undecidable. Never invent facts.`;
-
 /** W225: the kev typed pass → the advice fact. Same RECOMMENDATION/
  *  RATIONALE/RISK shape as the chat paths so the board card renders it
  *  unchanged; probabilities ride in the rationale. */
-function storeKevAdvice(k: KevDecision): void {
+function storeKevAdvice(k: KevDecision, panel?: PanelMeta): void {
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
 	const host = `kev(${new URL(kevUrl()).host})`;
 	storeAdvice(
@@ -315,6 +367,7 @@ function storeKevAdvice(k: KevDecision): void {
 			`RISK: typed-pass confidence ${pct(k.confidence)}${k.confidence < 0.5 ? " — weak signal, treat as a lead" : ""}`,
 		].join("\n"),
 		{ model: k.model, host },
+		panel,
 	);
 }
 
@@ -455,13 +508,14 @@ async function tryRemoteAdvise(
 async function tryBeltRoute(
 	sys: string,
 	question: string,
+	timeoutMs = 300_000,
 ): Promise<{ text: string; model: string; host: string; ms: number } | null> {
 	return beltChat({
 		role: "reasoning", // an advise fork is a reasoning task — "advise" matches no registry role
 		system: sys,
 		user: `DECISION FORK:\n${question}\n\nCONTROL-PLANE CONTEXT:\n${ctx}`,
 		maxTokens: 500,
-		timeoutMs: 300_000,
+		timeoutMs,
 	});
 }
 

@@ -234,7 +234,7 @@ function decNode(d){
     var ageEl = q.querySelector('.dage');
     if (ageEl) dheadEl.insertBefore(staleEl, ageEl); else dheadEl.appendChild(staleEl);
   }
-  var staleTxt = d.owner_actionable ? (d.owner_reason === 'target-dead' ? 'stale lane' : 'owner ruling') : '';
+  var staleTxt = d.owner_actionable ? (d.owner_reason === 'target-dead' ? 'target lane absent' : 'owner ruling') : '';
   staleEl.textContent = staleTxt;
   staleEl.className = 'dstale pill' + (staleTxt ? ' block' : '');
   staleEl.style.display = staleTxt ? '' : 'none';
@@ -251,7 +251,9 @@ function decNode(d){
   dupEl.style.display = dupTxt ? '' : 'none';
   setText(q.querySelector('.dage'), ago(decAge(d)));
   setText(q.querySelector('.dq'), d.question || '(no question text)');
-  var blocks = 'blocks: ' + (d.task_title || (d.task_id ? 'task ' + d.task_id : 'no linked task'));
+  var blocks = d.task_id
+    ? 'linked work: ' + d.task_id + ' · ' + (d.task_title || '(untitled)') + (d.task_state ? ' · ' + d.task_state.toLowerCase() : ' · missing from work graph')
+    : 'linked work: none';
   setText(q.querySelector('.dblocks'), blocks);
   // W862: hub-policy provenance — the backend validates the payload shape
   // (policyProvenance); textContent only, origin disclosed never inferred
@@ -275,7 +277,9 @@ function decNode(d){
   srcEl.style.display = srcTxt ? '' : 'none';
   var ruling = !!d.owner_actionable;
   var errEl2 = q.querySelector('.derr');
-  var errTxt = ansErr[d.id] || (d.delivery === 'FAILED' ? (ruling ? 'target lane is dead or absent — record the owner ruling' : 'delivery failed — press Send to retry') : '');
+  var errTxt = ansErr[d.id] || (d.owner_reason === 'target-dead'
+    ? 'The target lane is absent. Review the linked work and question; record an owner ruling or dismiss if obsolete.'
+    : d.delivery === 'FAILED' ? 'delivery failed — press Send to retry' : '');
   if (errEl2.getAttribute('data-sig') !== errTxt) {
     errEl2.setAttribute('data-sig', errTxt);
     errEl2.textContent = errTxt;
@@ -284,6 +288,7 @@ function decNode(d){
   sb.disabled = !!answering[d.id];
   // W487: owner-actionable cards resolve on the board — no Send-to-lane step
   setText(sb, sentOk[d.id] ? 'Sent' : ruling ? 'Record ruling' : 'Send');
+  setText(q.querySelector('.dismiss'), d.owner_reason === 'target-dead' ? 'Dismiss if obsolete' : 'Cancel');
   q.querySelector('.getrec').disabled = !!advising[d.id];
   var optEl = q.querySelector('.dopts');
   var opts = Array.isArray(d.options) ? d.options : [];
@@ -454,7 +459,11 @@ function useRec(id){
   inp.focus();
 }
 function cancelDec(id){
-  if (!window.confirm('Cancel this decision? The asking lane will see it as cancelled.')) return;
+  var d = decById(id);
+  var prompt = d && d.owner_reason === 'target-dead'
+    ? 'Dismiss this obsolete decision? Its target lane is absent. The decision will be recorded as cancelled.'
+    : 'Cancel this decision? The asking lane will see it as cancelled.';
+  if (!window.confirm(prompt)) return;
   postJSON('/api/ack', { id: id })
     .then(function(res){
       if (!res || !res.ok) {
