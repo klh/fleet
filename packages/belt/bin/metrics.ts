@@ -21,6 +21,8 @@ export const LOCAL_NAME = hostname().replace(/\.local\.?$/, "");
 export interface EndpointMetrics {
 	calls: number;
 	errors: number;
+	/** Rows carrying a real duration sample (legacy failRoute rows write 0). */
+	measured: number;
 	avg_ms: number | null;
 	last_used: string | null;
 	load_5m: number;
@@ -240,27 +242,31 @@ export function tallyMetrics(): void {
 }
 
 /** Weighted merge of several endpoints' metrics (port- or machine-level
- *  aggregates; avg_ms re-averaged by call count). */
+ *  aggregates; avg_ms re-averaged by MEASURED sample count — zero-duration
+ *  failure rows count in calls but carry no latency sample). */
 function mergeMetrics(list: EndpointMetrics[]): EndpointMetrics {
 	let calls = 0;
 	let errors = 0;
 	let load = 0;
 	let totalMs = 0;
+	let measured = 0;
 	let lastUsed: string | null = null;
 	let lastError: string | null = null;
 	for (const e of list) {
 		calls += e.calls;
 		errors += e.errors;
 		load += e.load_5m;
-		totalMs += (e.avg_ms ?? 0) * e.calls;
+		measured += e.measured;
+		totalMs += (e.avg_ms ?? 0) * e.measured;
 		if ((e.last_used ?? "") > (lastUsed ?? "")) lastUsed = e.last_used;
 		if ((e.last_error ?? "") > (lastError ?? "")) lastError = e.last_error;
 	}
 	return {
 		calls,
 		errors,
+		measured,
 		load_5m: load,
-		avg_ms: calls ? Math.round(totalMs / calls) : null,
+		avg_ms: measured ? Math.round(totalMs / measured) : null,
 		last_used: lastUsed,
 		last_error: lastError,
 	};
@@ -272,7 +278,8 @@ const agg = `
 	SELECT machine, port, model,
 	       COUNT(*) AS calls,
 	       SUM(ok = 0) AS errors,
-	       AVG(duration_ms) AS avg_ms,
+	       SUM(duration_ms > 0) AS measured,
+	       AVG(CASE WHEN duration_ms > 0 THEN duration_ms END) AS avg_ms,
 	       MAX(ts) AS last_used
 	FROM routes GROUP BY machine, port, model`;
 
@@ -302,13 +309,15 @@ function buildSnapshot(): MetricsSnapshot {
 		model: string;
 		calls: number;
 		errors: number;
-		avg_ms: number;
+		measured: number;
+		avg_ms: number | null;
 		last_used: string;
 	}[]) {
 		endpoints[key(r.machine, r.port, r.model)] = {
 			calls: r.calls,
 			errors: r.errors,
-			avg_ms: Math.round(r.avg_ms),
+			measured: r.measured,
+			avg_ms: r.avg_ms === null ? null : Math.round(r.avg_ms),
 			last_used: r.last_used,
 			load_5m: 0,
 			last_error: null,
@@ -363,8 +372,10 @@ function buildSnapshot(): MetricsSnapshot {
 export interface MetricsHistory {
 	windowMs: number;
 	bucketMs: number;
-	/** [bucket-start unix s, requests, errors, avg duration ms] per bucket. */
-	buckets: [number, number, number, number | null][];
+	/** [bucket-start unix s, requests, errors, avg duration ms | null,
+	 *  measured samples] per bucket — avg spans MEASURED rows only; legacy
+	 *  zero-duration failure rows count in requests/errors, never in ms. */
+	buckets: [number, number, number, number | null, number][];
 	/** Per-endpoint request counts on the SAME grid as `buckets`. */
 	endpoints: { key: string; counts: number[] }[];
 }
@@ -383,17 +394,28 @@ export function metricsHistory(): MetricsHistory {
 	const grid = (sel: string, group: string): string =>
 		`SELECT ${sel} CAST(strftime('%s', ts) AS INTEGER)/${step}*${step} AS b, COUNT(*) AS n FROM routes WHERE ts >= ? GROUP BY ${group}`;
 	const rows = d
-		.query(grid(`SUM(ok = 0) AS err, AVG(duration_ms) AS ms,`, "b"))
-		.all(since) as { b: number; n: number; err: number; ms: number | null }[];
+		.query(
+			grid(
+				`SUM(ok = 0) AS err, SUM(duration_ms > 0) AS m, AVG(CASE WHEN duration_ms > 0 THEN duration_ms END) AS ms,`,
+				"b",
+			),
+		)
+		.all(since) as {
+		b: number;
+		n: number;
+		err: number;
+		m: number;
+		ms: number | null;
+	}[];
 	const byGrid = new Map(rows.map((r) => [r.b, r]));
-	const buckets: MetricsHistory["buckets"] = [];
+	const buckets: [number, number, number, number | null, number][] = [];
 	for (let i = 0; i < HISTORY_BUCKETS; i++) {
 		const t = start + i * step;
 		const r = byGrid.get(t);
 		buckets.push(
 			r
-				? [t, r.n, r.err, r.ms === null ? null : Math.round(r.ms)]
-				: [t, 0, 0, null],
+				? [t, r.n, r.err, r.ms === null ? null : Math.round(r.ms), r.m]
+				: [t, 0, 0, null, 0],
 		);
 	}
 	const epRows = d
@@ -434,6 +456,7 @@ export function metricsSnapshot(): MetricsSnapshot {
 const EMPTY: EndpointMetrics = {
 	calls: 0,
 	errors: 0,
+	measured: 0,
 	avg_ms: null,
 	last_used: null,
 	load_5m: 0,
