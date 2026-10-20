@@ -9,16 +9,15 @@
 //
 // Contract: `data-theme="dark|light"` on <html> swaps a CSS custom-property
 // token set — components never carry their own colors, only var(--klh-*).
-// The user's preference (light | dark | system) persists in localStorage
-// `klh-theme` (absent = system); system follows prefers-color-scheme. The
-// pre-paint script runs in <head> before first render: no flash of wrong theme.
+// A per-origin localStorage cache paints before the first render. The board's
+// cosmetic /api/theme endpoint then shares the preference among .local sites.
 
 export type Theme = "dark" | "light";
 export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.3.0";
+export const KLH_THEME_VERSION = "1.4.0";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -110,14 +109,24 @@ export const THEME_CSS = `:root{${scale}}:root,:root[data-theme="dark"]{color-sc
 // window.klhTheme {pref, resolve, apply, set}. Fires `klh-themechange` on
 // document with detail {theme, pref} whenever the resolved theme is applied.
 export const THEME_PREPAINT_JS = `(function(){var K="${THEME_KEY}",d=document.documentElement,mq=window.matchMedia?window.matchMedia("(prefers-color-scheme: light)"):null;
+var loc=window.location||{},endpoint=loc.protocol==="https:"&&/^[a-z0-9-]+\\.local$/.test(loc.hostname)?"https://suspenders.local/api/theme":loc.protocol==="http:"&&/^(localhost|127\\.0\\.0\\.1)$/.test(loc.hostname)?"/api/theme":null;
+var revision=0,pending=false;
 function pref(){var v=null;try{v=window.localStorage.getItem(K);}catch(e){}return v==="light"||v==="dark"?v:"system";}
 function resolve(p){return p==="light"||p==="dark"?p:(mq&&mq.matches?"light":"dark");}
 function apply(){var p=pref(),t=resolve(p);d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);
 if(typeof CustomEvent==="function"&&document.dispatchEvent)document.dispatchEvent(new CustomEvent("klh-themechange",{detail:{theme:t,pref:p}}));return t;}
-function set(p){try{if(p==="light"||p==="dark")window.localStorage.setItem(K,p);else window.localStorage.removeItem(K);}catch(e){}return apply();}
+function cache(p){try{if(p==="light"||p==="dark")window.localStorage.setItem(K,p);else window.localStorage.removeItem(K);}catch(e){}return apply();}
+function accept(s){if(!s||!(/^(light|dark|system)$/.test(s.pref))||!Number.isSafeInteger(s.revision)||s.revision<revision||pending)return;
+if(s.revision===0&&pref()!=="system"){send(pref());return;}
+revision=s.revision;if(pref()!==s.pref)cache(s.pref);}
+function send(p){if(!endpoint||!window.fetch)return;pending=true;window.fetch(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({pref:p})}).then(function(r){if(!r.ok)throw Error("theme write");return r.json();}).then(function(s){pending=false;accept(s);}).catch(function(){pending=false;});}
+function pull(){if(!endpoint||!window.fetch||pending)return;window.fetch(endpoint,{cache:"no-store"}).then(function(r){if(!r.ok)throw Error("theme read");return r.json();}).then(accept).catch(function(){});}
+function set(p){if(!/^(light|dark|system)$/.test(p))return apply();var t=cache(p);send(p);return t;}
 apply();
 if(mq){var on=function(){if(pref()==="system")apply();};if(mq.addEventListener)mq.addEventListener("change",on);else if(mq.addListener)mq.addListener(on);}
 if(window.addEventListener)window.addEventListener("storage",function(e){if(e.key===K)apply();});
+pull();if(endpoint&&window.EventSource){var events=new window.EventSource(endpoint+"/events");events.onmessage=function(e){try{accept(JSON.parse(e.data));}catch(x){}};}
+if(window.addEventListener){window.addEventListener("focus",pull);window.addEventListener("pageshow",pull);}
 window.klhTheme={pref:pref,resolve:resolve,apply:apply,set:set};})();`;
 
 // Everything a page needs in <head>: tokens + pre-paint, in that order. The

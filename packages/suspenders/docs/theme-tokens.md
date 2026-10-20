@@ -201,6 +201,18 @@ popovers.
 
 ## Vendoring (belt and klh-local)
 
+The pre-paint script reads the origin's `klh-theme` cache immediately, then
+syncs with `https://suspenders.local/api/theme`. The board stores one
+machine-scoped `light`, `dark`, or `system` preference in
+`~/.cache/claude-governor/ui-theme.json` (0600). Its event stream updates
+open Belt, Bar, and Suspenders tabs; focus and page show recheck the state.
+The first site visited after upgrade seeds a previously saved local preference.
+If the board is offline, each site keeps its cached preference and can still
+change it locally; the next successful sync restores the shared value.
+
+This preference is shared by viewers of the same board machine. It is a
+cosmetic setting and carries no credentials or policy state.
+
 belt and klh-local run straight from copied `bin/` dirs with no
 `node_modules`, so they vendor this file instead of importing it:
 
