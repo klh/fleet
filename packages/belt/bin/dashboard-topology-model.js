@@ -49,7 +49,11 @@ export function addNetworkEvidence(machines, payload, now = Date.now()) {
 		item.buckleReq60 = (item.buckleReq60 || 0) + (row.req60 || 0);
 		if (Number.isFinite(row.out60))
 			item.outTokens60 = (item.outTokens60 || 0) + row.out60;
-		if (isFresh(row.lastOkAt, now, ROUTE_MS)) item.routeObserved = true;
+		if (isFresh(row.lastOkAt, now, ROUTE_MS)) {
+			item.routeObserved = true;
+			if (!item.lastOkAt || row.lastOkAt > item.lastOkAt)
+				item.lastOkAt = row.lastOkAt;
+		}
 		result.set(key, item);
 	}
 	return [...result.values()];
@@ -219,6 +223,12 @@ export function buildTopology(
 		Array.isArray(networkPayload.network.hops)
 			? networkPayload.network.hops
 			: [];
+	const audit15 =
+		networkFresh && networkPayload.network?.ok
+			? (networkPayload.network.audit15 ?? null)
+			: null;
+	const hubObservationsAvailable =
+		networkFresh && networkPayload.network?.observations?.available === true;
 	const links = hubCards.map((hub) => {
 		const observedHop = hops.find(
 			(hop) =>
@@ -232,15 +242,44 @@ export function buildTopology(
 		return {
 			target: `hub:${hub.name.toLowerCase()}`,
 			evidence: observedHop ? "observed" : "probe",
-			...(observedHop ? { requests15: observedHop.n } : {}),
+			...(observedHop
+				? {
+						requests15: observedHop.n,
+						source: "hub observations",
+						lastSeen: observedHop.lastAt,
+					}
+				: {
+						requests15: hubObservationsAvailable ? 0 : null,
+						source: hubObservationsAvailable
+							? "hub observations"
+							: "hub observations unavailable",
+					}),
+			failures15: null,
 		};
 	});
 	for (const provider of providers) {
+		const failed = Array.isArray(audit15?.failures)
+			? audit15.failures.filter(
+					(row) =>
+						row.kind === "cloud" && providerKey(row.host) === provider.key,
+				)
+			: [];
+		const failures15 = audit15
+			? failed.reduce((sum, row) => sum + row.count, 0)
+			: null;
+		const lastFailure =
+			failed
+				.map((row) => row.lastAt)
+				.sort()
+				.at(-1) ?? null;
 		if (provider.routeObserved && Number.isFinite(provider.buckleReq15))
 			links.push({
 				target: `provider:${provider.key}`,
 				evidence: "observed",
 				requests15: provider.buckleReq15,
+				failures15,
+				source: "local Buckle ledger",
+				lastSeen: provider.lastOkAt ?? lastFailure,
 			});
 		else if (
 			provider.state !== "unconfigured" &&
@@ -250,6 +289,10 @@ export function buildTopology(
 			links.push({
 				target: `provider:${provider.key}`,
 				evidence: "configured",
+				requests15: audit15 ? 0 : null,
+				failures15,
+				source: audit15 ? "local Buckle ledger" : "Buckle ledger unavailable",
+				lastSeen: lastFailure,
 			});
 	}
 	return {
@@ -262,6 +305,13 @@ export function buildTopology(
 					)
 				: "unknown",
 		gatewayTraffic: gatewayTraffic(networkPayload, now),
+		audit15,
+		lastAuditAt: networkFresh
+			? (networkPayload.network?.lastAuditAt ?? null)
+			: null,
+		recentSuccessAt: networkFresh
+			? (networkPayload.network?.recentSuccessAt ?? null)
+			: null,
 		localConsoleUrl: context?.localConsoleUrl ?? null,
 		work: context?.work ?? null,
 		specialists: {

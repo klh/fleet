@@ -244,6 +244,7 @@ describe("Belt topology", () => {
 				buckleReq60: 2,
 				outTokens60: 30,
 				routeObserved: true,
+				lastOkAt: "2026-10-19T11:59:00Z",
 			},
 		]);
 		const stale = buildTopology(
@@ -352,7 +353,7 @@ describe("Belt topology", () => {
 				},
 			},
 		);
-		expect(model.links).toEqual([
+		expect(model.links).toMatchObject([
 			{ target: "hub:nas", evidence: "observed", requests15: 4 },
 			{ target: "provider:zai", evidence: "observed", requests15: 8 },
 		]);
@@ -408,7 +409,7 @@ describe("Belt topology", () => {
 			buckleReq15: 3,
 			routeObserved: true,
 		});
-		expect(model.links).toEqual([
+		expect(model.links).toMatchObject([
 			{ target: "provider:copilot", evidence: "observed", requests15: 3 },
 		]);
 	});
@@ -438,5 +439,91 @@ describe("Belt topology", () => {
 			outputTokens60: null,
 			observedTargets: 0,
 		});
+	});
+
+	test("shows measured zero successes and only target-attributed failures", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "zai",
+						model: "glm",
+						ok: true,
+						last_seen: new Date(now).toISOString(),
+					},
+				],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+			},
+			now,
+			{
+				ok: true,
+				ts: new Date(now).toISOString(),
+				network: {
+					ok: true,
+					lastAuditAt: new Date(now - 1_000).toISOString(),
+					recentSuccessAt: new Date(now - 3_600_000).toISOString(),
+					observations: { available: false },
+					throughput: { interfaces: [] },
+					audit15: {
+						attempts: 8,
+						succeeded: 0,
+						failed: 8,
+						unsettled: 0,
+						unattributedFailed: 6,
+						failures: [
+							{
+								kind: "cloud",
+								host: "api.z.ai",
+								port: null,
+								count: 1,
+								lastAt: new Date(now).toISOString(),
+							},
+							{
+								kind: "local",
+								host: "127.0.0.1",
+								port: 4100,
+								count: 1,
+								lastAt: new Date(now).toISOString(),
+							},
+							{
+								kind: null,
+								host: null,
+								port: null,
+								count: 6,
+								lastAt: new Date(now).toISOString(),
+							},
+						],
+					},
+				},
+			},
+		);
+		expect(model.audit15).toMatchObject({
+			attempts: 8,
+			succeeded: 0,
+			failed: 8,
+		});
+		expect(model.links).toMatchObject([
+			{
+				target: "hub:nas",
+				evidence: "probe",
+				requests15: null,
+				source: "hub observations unavailable",
+			},
+			{
+				target: "provider:zai",
+				evidence: "configured",
+				requests15: 0,
+				failures15: 1,
+				source: "local Buckle ledger",
+			},
+		]);
+		expect(model.links.some((link) => link.target === "provider:copilot")).toBe(
+			false,
+		);
 	});
 });

@@ -193,6 +193,14 @@ describe("networkOverview", () => {
 			expect(r.ok).toBe(true);
 			if (!r.ok) return;
 			expect(r.lastAuditAt).toBeNull();
+			expect(r.audit15).toMatchObject({
+				attempts: 0,
+				succeeded: 0,
+				failed: 0,
+				unsettled: 0,
+				unattributedFailed: 0,
+				failures: [],
+			});
 			expect(r.routes).toEqual([]);
 			expect(r.unsettled).toEqual([]);
 			// window: COUNT is a true 0; token sums stay null
@@ -201,6 +209,53 @@ describe("networkOverview", () => {
 			expect(r.throughput.interfaces).toEqual([]);
 			expect(r.hops).toEqual([]);
 			expect(r.hubs).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("counts failed audits without assigning a local relay to a cloud provider", () => {
+		const dir = tmpDir();
+		try {
+			const path = join(dir, "buckle.db");
+			new Ledger(path).close();
+			const db = new Database(path);
+			const at = "2026-10-20T11:00:00.000Z";
+			const insert = db.query(`INSERT INTO route_audit
+				(rid, ts, target_kind, target_host, target_port, ok, status)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`);
+			insert.run("cloud-fail", at, "cloud", "api.z.ai", null, 0, 429);
+			insert.run("relay-fail", at, "local", "127.0.0.1", 4100, 0, 502);
+			insert.run("unknown-fail", at, null, null, null, 0, 502);
+			insert.run("success", at, "cloud", "api.z.ai", null, 1, 200);
+			insert.run("pending", at, null, null, null, null, null);
+			insert.run(
+				"old-fail",
+				"2026-10-20T10:40:00.000Z",
+				null,
+				null,
+				null,
+				0,
+				429,
+			);
+			db.close();
+			const result = networkOverview({ ledger: path }, () =>
+				Date.parse("2026-10-20T11:05:00.000Z"),
+			);
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.audit15).toMatchObject({
+				attempts: 5,
+				succeeded: 1,
+				failed: 3,
+				unsettled: 1,
+				unattributedFailed: 1,
+			});
+			expect(result.audit15.failures).toEqual([
+				{ kind: null, host: null, port: null, count: 1, lastAt: at },
+				{ kind: "cloud", host: "api.z.ai", port: null, count: 1, lastAt: at },
+				{ kind: "local", host: "127.0.0.1", port: 4100, count: 1, lastAt: at },
+			]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
