@@ -323,8 +323,8 @@ function renderTasks(){
 // a start button that POSTs /api/start (fleet-loop dispatch).
 var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
-  { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
   { key: 'WAITING', label: 'waiting', states: ['SHATTERED'], cap: 12 },
+  { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
   { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
