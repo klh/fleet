@@ -1,8 +1,6 @@
-// src/policy.ts — port of belt bin/router-policy.ts (W124): same YAML, same
-// runtime override chain. The single policy source is routing-policy.yaml
-// (committed default, identical data to belt's); a runtime copy at
-// ~/.claude/local-llm/routing-policy.yaml overrides it, and BUCKLE_POLICY /
-// BELT_POLICY override both. Operators edit the YAML, never code.
+// src/policy.ts — port of belt bin/router-policy.ts (W124): same policy
+// override chain. Runtime JSON takes precedence over legacy YAML, and
+// BUCKLE_POLICY / BELT_POLICY override both. Operators edit machine config.
 //
 // Everything the policy expresses is native-router behavior ported from
 // LiteLLM 1.103.0 (MIT; pinned-source verified W126/W129): fallbacks =
@@ -137,8 +135,19 @@ export const POLICY_DEFAULTS: Required<
 };
 
 /** Parse a policy file: gateway knobs + the W136 tags block. */
-export function parsePolicy(text: string): GatewayPolicy {
-	const doc = YAML.parse(text) as PolicyDoc | null;
+export function parsePolicy(
+	text: string,
+	format: "auto" | "json" | "yaml" = "auto",
+): GatewayPolicy {
+	const trimmed = text.trimStart();
+	const isJson =
+		format === "json" ||
+		(format === "auto" && (trimmed.startsWith("{") || trimmed.startsWith("[")));
+	const doc = (
+		isJson ? JSON.parse(text) : YAML.parse(text)
+	) as PolicyDoc | null;
+	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
+		throw new Error("policy: policy must be an object");
 	const gateway = doc?.gateway ?? {};
 	return {
 		...POLICY_DEFAULTS,
@@ -148,22 +157,34 @@ export function parsePolicy(text: string): GatewayPolicy {
 	};
 }
 
+const jsonSibling = (path: string): string =>
+	path.replace(/\.ya?ml$/i, ".json");
+
+const formatOf = (path: string): "json" | "yaml" =>
+	path.endsWith(".json") ? "json" : "yaml";
+
 /** Resolution order: explicit path → BUCKLE_POLICY → BELT_POLICY → runtime
  *  copy in the local-llm dir → the committed default in the repo root. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
-	const candidates = [
+	const pinned = [
 		explicitPath,
 		process.env.BUCKLE_POLICY,
 		process.env.BELT_POLICY,
-		`${process.env.HOME}/.claude/local-llm/routing-policy.yaml`,
+	];
+	const home = process.env.HOME ?? "";
+	const candidates = [
+		...pinned.flatMap((path) => (path ? [jsonSibling(path), path] : [])),
+		`${home}/.claude/local-llm/routing-policy.json`,
+		`${home}/.claude/local-llm/routing-policy.yaml`,
+		new URL("../routing-policy.json", import.meta.url).pathname,
 		new URL("../routing-policy.yaml", import.meta.url).pathname,
-	].filter((p): p is string => typeof p === "string" && p.length > 0);
+	];
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		return parsePolicy(readFileSync(p, "utf8"));
+		return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
 	}
 	throw new Error(
-		"policy: no routing-policy.yaml (BUCKLE_POLICY/BELT_POLICY, ~/.claude/local-llm/, repo root)",
+		"policy: no routing-policy.json or legacy YAML (BUCKLE_POLICY/BELT_POLICY, ~/.claude/local-llm/, repo root)",
 	);
 }
 

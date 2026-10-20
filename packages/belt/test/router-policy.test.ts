@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -214,6 +214,57 @@ describe("routing policy (W124 + W219.2 fold)", () => {
 		expect(p.cooldown_time).toBe(60);
 		expect(p.fallbacks).toEqual({ "glm-5.3-flash": ["local-swarm"] });
 		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("JSON sibling of a pinned YAML policy wins, then legacy YAML remains readable", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w975-belt-policy-"));
+		const yaml = join(dir, "routing-policy.yaml");
+		const json = join(dir, "routing-policy.json");
+		try {
+			writeFileSync(yaml, "gateway:\n  num_retries: 2\n");
+			writeFileSync(
+				json,
+				JSON.stringify({
+					version: 1,
+					gateway: { num_retries: 3, litellm_num_retries: 0 },
+				}),
+			);
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(3);
+			expect(loadGatewayPolicy(yaml).litellm_num_retries).toBe(0);
+			writeFileSync(json, "gateway:\n  num_retries: 4\n");
+			expect(() => loadGatewayPolicy(yaml)).toThrow();
+			rmSync(json);
+			expect(loadGatewayPolicy(yaml).num_retries).toBe(2);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("runtime JSON wins over runtime YAML", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w975-belt-home-"));
+		const runtime = join(dir, ".claude", "local-llm");
+		const previous = process.env.HOME;
+		const previousPin = process.env.BELT_POLICY;
+		try {
+			mkdirSync(runtime, { recursive: true });
+			writeFileSync(
+				join(runtime, "routing-policy.yaml"),
+				"gateway:\n  num_retries: 2\n",
+			);
+			writeFileSync(
+				join(runtime, "routing-policy.json"),
+				JSON.stringify({ gateway: { num_retries: 3 } }),
+			);
+			process.env.HOME = dir;
+			delete process.env.BELT_POLICY;
+			expect(loadGatewayPolicy().num_retries).toBe(3);
+		} finally {
+			if (previous === undefined) delete process.env.HOME;
+			else process.env.HOME = previous;
+			if (previousPin === undefined) delete process.env.BELT_POLICY;
+			else process.env.BELT_POLICY = previousPin;
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("defaults apply when the gateway section is absent", () => {
