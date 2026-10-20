@@ -10,6 +10,11 @@
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+export {
+	codexEventText,
+	steerCodexDirectEvent,
+} from "./codex-steer.ts";
+export type { CodexDelivery, CoordDirectEvent } from "./codex-steer.ts";
 
 // coord CLI ships in bin/ next to this lib (repo checkout and installed
 // prefix share the layout); fall back to the pre-namespacing ~/.claude/bin
