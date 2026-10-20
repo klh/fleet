@@ -10,7 +10,7 @@ export const BODY = String.raw`
     <label class="board-search" for="boardSearch" hidden>Search <input id="boardSearch" type="search" placeholder="tasks, lanes, decisions" autocomplete="off" aria-label="Search tasks, lanes, and decisions"></label>
     <span id="conn"></span>
     <span id="stamp"></span>
-    <span id="blockedn"></span>
+    <span id="blockedn" title="Gated work items: READY with unmet dependencies, WAITING, BLOCKED, or PAUSED. The Lanes BLOCKED count uses its own display state."></span>
     <button id="needsn" type="button"></button>
     <label class="plabel" for="proj">project</label>
     <select id="proj"><option value="all">all projects</option></select>
@@ -128,7 +128,7 @@ export const BODY = String.raw`
   <div id="fleet">
     <button id="fleetHead" type="button" aria-expanded="false">
       <span class="fleettitle"><span id="fleetCaret">+</span> Fleet lanes</span>
-      <span class="fleetmetrics"><span title="RUNNING session with a heartbeat in the last 5 minutes"><b id="fleetWorking">—</b> live</span><span title="Open decisions waiting for you"><b id="fleetWaiting">—</b> waiting</span><span title="Gated work items"><b id="fleetBlocked">—</b> blocked</span><span title="Sessions with a heartbeat in the last hour"><b id="fleetRecentCount">—</b> recent</span></span>
+      <span class="fleetmetrics"><span title="RUNNING session with a heartbeat in the last 5 minutes"><b id="fleetWorking">—</b> live</span><span title="Open decisions waiting for you"><b id="fleetWaiting">—</b> waiting</span><span title="Gated work items: READY with unmet dependencies, WAITING, BLOCKED, or PAUSED"><b id="fleetBlocked">—</b> gated</span><span title="Sessions with a heartbeat in the last hour"><b id="fleetRecentCount">—</b> recent</span></span>
       <span id="fleetLine" class="sr-only" aria-hidden="true">fleet: loading...</span>
     </button>
     <div id="fleetContext" class="fleetcontext dim"></div>
