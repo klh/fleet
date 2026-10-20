@@ -138,6 +138,10 @@ describe("board spend cells (W776)", () => {
 			textContent: string;
 			setAttribute: (key: string, value: string) => void;
 			appendChild: (node: Node) => void;
+			addEventListener: (
+				event: string,
+				listener: (event: unknown) => void,
+			) => void;
 		};
 		const createElementNS = (_ns: string, tag: string): Node => ({
 			tag,
@@ -150,6 +154,7 @@ describe("board spend cells (W776)", () => {
 			appendChild(node) {
 				this.children.push(node);
 			},
+			addEventListener() {},
 		});
 		const fn = new Function("document", "window", `${TASKS}\nreturn sparkSvg;`);
 		const sparkSvg = fn(
@@ -172,6 +177,9 @@ describe("board spend cells (W776)", () => {
 			"spark-cached",
 			"spark-fresh",
 		]);
+		expect(bars[0].attrs["data-fresh"]).toBe("30");
+		expect(bars[0].attrs["data-cached"]).toBe("70");
+		expect(bars[0].attrs["data-out"]).toBe("12");
 		const positions = [...new Set(bars.map((bar) => Number(bar.attrs.x)))];
 		expect(positions).toHaveLength(2);
 		expect(positions[0]).toBeLessThan(5);
@@ -180,6 +188,55 @@ describe("board spend cells (W776)", () => {
 		expect(
 			sparkSvg([[thisMinute - 100 * 60_000, 100, 0, 0]], 180, 28).children,
 		).toHaveLength(1);
+	});
+
+	test("hovering a spend bar shows the bucket's values in a compact overlay", () => {
+		const elements = new Map<string, Record<string, unknown>>();
+		const doc = {
+			createElement: () => ({
+				style: {},
+				offsetWidth: 120,
+				offsetHeight: 70,
+				setAttribute() {},
+			}),
+			body: {
+				appendChild(node: Record<string, unknown>) {
+					elements.set(String(node.id), node);
+				},
+			},
+		};
+		const fn = new Function(
+			"document",
+			"window",
+			"byId",
+			`${TASKS}\nreturn showSparkTip;`,
+		);
+		const show = fn(
+			doc,
+			{ innerWidth: 300, addEventListener() {} },
+			(id: string) => elements.get(id),
+		) as (
+			event: { clientX: number; clientY: number },
+			bar: { getAttribute: (name: string) => string },
+		) => void;
+		const values: Record<string, string> = {
+			"data-at": String(new Date(2026, 9, 20, 10, 30).getTime()),
+			"data-minutes": "3",
+			"data-fresh": "30",
+			"data-cached": "70",
+			"data-out": "12",
+		};
+		show(
+			{ clientX: 295, clientY: 100 },
+			{ getAttribute: (name) => values[name] },
+		);
+		const tip = elements.get("ksparkTip");
+		expect(tip?.textContent).toContain("Fresh input  30");
+		expect(tip?.textContent).toContain("Cached input  70");
+		expect(tip?.textContent).toContain("Output  12");
+		expect(tip?.hidden).toBe(false);
+		const left = (tip?.style as { left: string } | undefined)?.left;
+		expect(Number.parseInt(String(left), 10)).toBeLessThan(180);
 	});
 });
 
