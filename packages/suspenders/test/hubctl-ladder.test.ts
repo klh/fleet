@@ -33,6 +33,7 @@ writeFileSync(
 				http_upstream_hosts: ["engine.example"],
 				ready_model: "claude-haiku-4-5",
 				deploy: { dir: deployDir },
+				buckle_prefs: { allow_cloud: true, cost_speed: "quality" },
 				secrets: { upstream_keys: { LITELLM_KEY: keyFile } },
 				upstreams: {
 					groups: {
@@ -93,6 +94,13 @@ test("push writes the ladder file and a 0600 upstream.env built on-device", () =
 	const envPath = join(deployDir, "upstream.env");
 	expect(readFileSync(envPath, "utf8")).toBe("LITELLM_KEY=sk-fixture-ladder-key\n");
 	expect(statSync(envPath).mode & 0o777).toBe(0o600);
+	// W983: the owner-prefs file rides the declared buckle_prefs (0600, the
+	// loadPrefs shape) — cloud open, quality mode
+	const prefs = JSON.parse(
+		readFileSync(join(deployDir, "buckle-prefs.json"), "utf8"),
+	);
+	expect(prefs).toEqual({ allow_cloud: true, cost_speed: "quality" });
+	expect(statSync(join(deployDir, "buckle-prefs.json")).mode & 0o777).toBe(0o600);
 	// the key never rides the rendered .env
 	expect(readFileSync(join(deployDir, ".env"), "utf8")).not.toContain("sk-fixture");
 });
@@ -102,6 +110,21 @@ test("solo push renders an empty ladder + empty upstream.env (compose stays vali
 	const ladder = parse(readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"));
 	expect(ladder.groups).toEqual({});
 	expect(readFileSync(join(deployDir, "upstream.env"), "utf8")).toBe("");
+	// W983: undeclared buckle_prefs → the conservative defaults
+	expect(
+		readFileSync(join(deployDir, "buckle-prefs.json"), "utf8"),
+	).toBe('{"allow_cloud":false,"cost_speed":"balanced"}\n');
+});
+
+test("compose binds the prefs file at BUCKLE_PREFS (W983)", () => {
+	const template = readFileSync(
+		join(import.meta.dir, "../deploy/hub-compose.yaml"),
+		"utf8",
+	);
+	expect(template).toContain("BUCKLE_PREFS: /etc/klh/buckle-prefs.json");
+	expect(template).toContain(
+		"./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro",
+	);
 });
 
 test("push refuses when a declared key file is missing — nothing half-written", () => {

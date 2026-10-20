@@ -212,6 +212,11 @@ services:
       BUCKLE_OBSERVATIONS_PATH: /state/buckle/observations.ndjson
       BUCKLE_POLICY: ${HUB_FLEET_SRC:-/src/fleet/packages}/buckle/routing-policy.yaml
       BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.yaml
+      # W983: the hub's owner prefs (allow_cloud / cost_speed), rendered by
+      # hubctl from stack.yaml `buckle_prefs:` — the switches the routing
+      # decision gates every cloud hop behind. Always present (undeclared =
+      # conservative defaults, cloud closed).
+      BUCKLE_PREFS: /etc/klh/buckle-prefs.json
       # W688.7.1: private-network ladder legs (e.g. the host litellm via
       # host.docker.internal) — the egress law admits plain http ONLY to
       # hosts listed here; empty = loopback only (the public default)
@@ -240,6 +245,8 @@ services:
       # stack.yaml `upstreams:` (always present — empty groups = the
       # committed placeholder ladder stands); merged over the base file
       - ./upstreams.hub.yaml:/etc/klh/upstreams.hub.yaml:ro
+      # W983: the 0600 owner-prefs file hubctl push renders from stack.yaml
+      - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
 

@@ -22,7 +22,13 @@
 // Config: KLH_STACK env overrides the stack path (tests).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
@@ -203,6 +209,16 @@ function renderUpstreams(hub: HubProfile): string {
 	return stringify({ version: 1, groups: hub.upstreams?.groups ?? {} });
 }
 
+/** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
+ *  src/policy.ts) — always rendered (compose mounts it; undeclared = the
+ *  conservative defaults, cloud closed). */
+function renderBucklePrefs(hub: HubProfile): string {
+	return `${JSON.stringify({
+		allow_cloud: hub.buckle_prefs?.allow_cloud === true,
+		cost_speed: hub.buckle_prefs?.cost_speed ?? "balanced",
+	})}\n`;
+}
+
 /** W688.7.1: script run ON the hub device — builds the 0600 upstream.env
  *  from `NAME=/path/to/keyfile` args (value read there, never echoed). No
  *  keys declared = an empty file (compose env_file stays valid). */
@@ -349,6 +365,22 @@ function pushConfig(
 		writeFileSync(`${dir}/upstreams.hub.yaml`, renderUpstreams(hub));
 	}
 	pushUpstreamEnv(hub, dir);
+	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
+	if (hub.deploy?.ssh) {
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(`${dir}/buckle-prefs.json`)}; chmod 600 ${JSON.stringify(`${dir}/buckle-prefs.json`)}'`,
+			],
+			{ input: renderBucklePrefs(hub) },
+		);
+	} else {
+		const prefsPath = `${dir}/buckle-prefs.json`;
+		writeFileSync(prefsPath, renderBucklePrefs(hub));
+		chmodSync(prefsPath, 0o600);
+	}
 	if (hub.deploy?.ssh) {
 		execFileSync(
 			"ssh",

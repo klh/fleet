@@ -103,6 +103,15 @@ export interface HubProfile {
 	 *  ladder via BUCKLE_UPSTREAMS. Keys stay in env vars named by each
 	 *  row's api_key_env — never values here. */
 	upstreams?: { groups?: Record<string, Array<Record<string, unknown>>> };
+	/** W983: this hub's Buckle owner prefs — the allow_cloud / cost_speed
+	 *  switches the routing decision gates every cloud hop behind (decide.ts
+	 *  precedence 1). hubctl push materializes them into the 0600
+	 *  buckle-prefs.json the container mounts at BUCKLE_PREFS; undeclared =
+	 *  the conservative defaults (cloud closed, balanced). */
+	buckle_prefs?: {
+		allow_cloud?: boolean;
+		cost_speed?: "balanced" | "cost" | "speed" | "quality";
+	};
 	secrets?: {
 		buckle_root_key?: string;
 		/** Ladder key env NAME → key-file PATH on the hub device. hubctl push
