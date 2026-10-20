@@ -12,6 +12,7 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { syncHarness } from "./sync-harness.ts";
@@ -150,6 +151,14 @@ export async function refreshDashboards(
 		const paths = [
 			...new Set(files.map((file) => relative(repo, file.source))),
 		];
+		// The Belt entry imports shared Suspenders modules. Capture the entire
+		// committed import graph so its runtime copy is self-contained.
+		const graphPaths = [
+			"packages/belt/bin",
+			"packages/suspenders/deploy",
+			"packages/suspenders/hooks/lib",
+			"packages/local-llm",
+		].filter((path) => existsSync(join(repo, path)));
 		if (
 			git(repo, [
 				"status",
@@ -163,7 +172,12 @@ export async function refreshDashboards(
 				"Commit reviewed dashboard sources before refresh; working payload is dirty",
 			);
 		stage = await mkdtemp(join(dirname(options.prefix), ".dashboard-capture-"));
-		await capture(repo, revision, paths, stage);
+		await capture(
+			repo,
+			revision,
+			[...new Set([...paths, ...graphPaths])],
+			stage,
+		);
 		for (const file of files) {
 			if (!(await lstat(join(stage, relative(repo, file.source)))).isFile())
 				throw new Error(
@@ -188,6 +202,21 @@ export async function refreshDashboards(
 			);
 			await rename(`${file.target}.refreshing`, file.target);
 		}
+		const beltBuild = await Bun.build({
+			entrypoints: [join(stage, "packages/belt/bin/dashboard.ts")],
+			target: "bun",
+			external: ["bonjour-service", "yaml"],
+		});
+		if (!beltBuild.success)
+			throw new Error(beltBuild.logs.map(String).join("\n"));
+		await writeFile(
+			`${join(belt, "dashboard.ts")}.refreshing`,
+			await beltBuild.outputs[0].text(),
+		);
+		await rename(
+			`${join(belt, "dashboard.ts")}.refreshing`,
+			join(belt, "dashboard.ts"),
+		);
 		for (const entry of [
 			join(belt, "dashboard.ts"),
 			join(local, "dashboard.ts"),

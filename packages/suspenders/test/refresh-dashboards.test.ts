@@ -176,6 +176,37 @@ function capturedFixture() {
 	};
 }
 
+test("Belt runtime bundles committed cross-package imports", async () => {
+	const fixture = capturedFixture();
+	try {
+		const shared = join(
+			fixture.packageRoot,
+			"suspenders/hooks/lib/dashboard-shared.ts",
+		);
+		mkdirSync(join(shared, ".."), { recursive: true });
+		writeFileSync(shared, 'export const marker = "shared-import-resolved";\n');
+		writeFileSync(
+			join(fixture.packageRoot, "belt/bin/hubs.ts"),
+			'import { marker } from "../../suspenders/hooks/lib/dashboard-shared.ts";\nexport { marker };\n',
+		);
+		writeFileSync(
+			join(fixture.packageRoot, "belt/bin/dashboard.ts"),
+			'import { marker } from "./hubs.ts";\nexport const version = marker;\n',
+		);
+		fixture.git("add", "packages");
+		fixture.git("commit", "-m", "cross-package dashboard imports");
+		await refreshDashboards(fixture.options, async () => ({
+			status: "ok",
+			note: "published",
+		}));
+		const runtime = readFileSync(fixture.targets[0], "utf8");
+		expect(runtime).toContain("shared-import-resolved");
+		expect(runtime).not.toContain("../../suspenders/hooks/lib");
+	} finally {
+		rmSync(fixture.scratch, { recursive: true, force: true });
+	}
+});
+
 test("publication failure restores external bytes and original executable/private modes", async () => {
 	const fixture = capturedFixture();
 	let reachedPublisher = false;
