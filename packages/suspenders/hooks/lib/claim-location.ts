@@ -2,7 +2,8 @@
 // claim on an item whose worktree is registered must edit inside that tree.
 // Main-checkout edits deny with the tree path named; edits inside any of the
 // session's claimed items' trees allow; everything else (no claim, no tree,
-// outside the repo) is not this gate's business — fail open, owner law.
+// outside the repo) is not this gate's business for parent sessions. Native
+// Claude children must hold their own provisioned claim before writing.
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { resolveProject } from "./govdb-project.ts";
@@ -48,23 +49,42 @@ function canon(p: string): string {
 export function claimLocationCheck(
 	file: string,
 	lane: string,
-	db: GovernorStore,
+	openDb: () => GovernorStore,
+	opts: { requireProvisionedClaim?: boolean } = {},
 ): LocationVerdict {
 	const F = canon(file);
 	const rp = resolveProject(dirname(F));
-	const rows = db
+	// Outside Git there is no Work Graph project/tree to bind. In particular,
+	// a child may write a scratch file even when the registry is unavailable.
+	if (rp.commonDir === rp.cwd) return { blocked: false };
+	const rows = openDb()
 		.query(
 			"SELECT id FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
 		)
 		.all(rp.id, lane) as { id: string }[];
-	if (!rows.length) return { blocked: false };
+	if (!rows.length) {
+		return opts.requireProvisionedClaim
+			? {
+					blocked: true,
+					reason: `CLAIM-LOCATION: native child ${lane} has no work claim for ${F}. Take a Work Graph item as this child and edit inside its provisioned worktree. The parent's claim is not inherited.`,
+				}
+			: { blocked: false };
+	}
 	const trees: string[] = [];
 	for (const r of rows) {
 		const w = resolveItemWorktree(rp.root, r.id);
 		if (w) trees.push(w);
 	}
-	// no registered tree = fail open (a treeless claim binds nothing)
-	if (!trees.length) return { blocked: false };
+	// Parent sessions keep the W870 fail-open contract for legacy treeless
+	// claims. A native child requires a provisioned tree of its own.
+	if (!trees.length) {
+		return opts.requireProvisionedClaim
+			? {
+					blocked: true,
+					reason: `CLAIM-LOCATION: native child ${lane} has no provisioned worktree for its claim. Re-take the item as this child before editing ${F}.`,
+				}
+			: { blocked: false };
+	}
 	const under = (p: string, base: string): boolean =>
 		p === base || p.startsWith(`${base}${base.endsWith("/") ? "" : "/"}`);
 	const root = rp.root;
