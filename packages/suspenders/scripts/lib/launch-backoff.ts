@@ -24,6 +24,43 @@ export type LaunchBackoff = LaunchFailure & {
 };
 
 const KEY_PREFIX = "dispatch.launch-backoff.";
+
+/** W1025: active rate-limit walls — backoff rows of kind=rate-limit whose
+ *  eligibleAt is still in the future. The pacing signal for the dispatch
+ *  refill throttle (the 429 churn burns attempt budgets on pacing events,
+ *  not failures). Fail-open by construction: unreadable rows never count. */
+export const activeRateLimitWalls = (
+	store: { query: (sql: string) => { all: () => Array<{ value: string }> } },
+	project: string,
+	now = Date.now(),
+): number => {
+	void project; // keys are already project-scoped by the prefix
+	let walls = 0;
+	try {
+		const rows = store
+			.query(`SELECT value FROM facts WHERE key LIKE '${KEY_PREFIX}%'`)
+			.all() as Array<{ value: string }>;
+		for (const row of rows) {
+			try {
+				const v = JSON.parse(row.value) as {
+					kind?: string;
+					eligibleAt?: number;
+				};
+				if (
+					v.kind === "rate-limit" &&
+					Number.isFinite(v.eligibleAt) &&
+					(v.eligibleAt ?? 0) > now
+				)
+					walls++;
+			} catch {
+				// junk row: not a wall
+			}
+		}
+	} catch {
+		// dark store: never throttles dispatch
+	}
+	return walls;
+};
 const RETRY_STEPS_MS = [5_000, 10_000, 23_000, 43_000, 55_000] as const;
 const MAX_RETRY_AFTER_MS = 15 * 60_000;
 

@@ -134,6 +134,7 @@ import {
 	starterStartLine,
 } from "./lib/lane-starter.ts";
 import {
+	activeRateLimitWalls,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
@@ -1329,6 +1330,29 @@ const main = async (): Promise<void> => {
 			// fail-open
 		}
 	}
+	// W1025: pace the refill while rate-limit walls are active — the 429
+	// churn burns lane attempt budgets on pacing events, not failures.
+	// Effective target = live/(live+walls) share of the posture width,
+	// floored at 1; the PACED line discloses it. Fail-open on a dark store.
+	let pacedTarget = TARGET_EFF;
+	if (!DRY && !ITEM) {
+		try {
+			const pstore = openStore();
+			const walls = activeRateLimitWalls(pstore, projectIdentity(REPO));
+			pstore.close();
+			if (walls > 0) {
+				pacedTarget = Math.max(
+					1,
+					Math.ceil((TARGET_EFF * live.length) / (live.length + walls)),
+				);
+				console.log(
+					`PACED — ${walls} active rate-limit wall(s); effective target ${pacedTarget}/${TARGET_EFF} (W1025)`,
+				);
+			}
+		} catch {
+			// fail-open: a dark store never throttles dispatch
+		}
+	}
 	// resume candidates: dead dispatched lanes whose item is still CLAIMED by
 	// them (state on the graph) — re-dispatch with the same sid so the capsule
 	// fact (lane.<sid>.capsule) and the claim both carry over.
@@ -1343,13 +1367,13 @@ const main = async (): Promise<void> => {
 	}
 	const dispatched: string[] = [];
 	for (const [, resume] of resumeOf) {
-		if (live.length + heldSlots + dispatched.length >= TARGET_EFF) break;
+		if (live.length + heldSlots + dispatched.length >= pacedTarget) break;
 		const out = await dispatchItem(resume.item, live, resume);
 		if (out) dispatched.push(out);
 	}
 	if (ITEM && !live.some((l) => l.item === ITEM) && !resumeOf.has(ITEM)) {
 		if (
-			live.length + heldSlots + dispatched.length >= TARGET_EFF &&
+			live.length + heldSlots + dispatched.length >= pacedTarget &&
 			!held.has(ITEM)
 		) {
 			console.log(
@@ -1408,7 +1432,7 @@ const main = async (): Promise<void> => {
 	for (const s of skips) console.log(s);
 	capStore?.close();
 	for (const r of dispatchable) {
-		if (live.length + heldSlots + dispatched.length >= TARGET_EFF) break;
+		if (live.length + heldSlots + dispatched.length >= pacedTarget) break;
 		const out = await dispatchItem(r.id, live, undefined, dispatched.length);
 		if (out) dispatched.push(out);
 	}
