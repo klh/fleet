@@ -183,6 +183,41 @@ describe("observed topology snapshot", () => {
 });
 
 describe("Belt topology", () => {
+	test("keeps NAS Immich as a service beside its chat model", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "nas",
+						protocol: "immich",
+						port: 2283,
+						roles: ["ocr", "embed"],
+						ok: true,
+						last_seen: now,
+					},
+					{
+						machine: "nas",
+						protocol: "openai",
+						model: "qwen2.5:0.5b",
+						ok: true,
+						last_seen: now,
+					},
+				],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "nas", state: "up", port: 4101 }],
+			},
+			now,
+		);
+		expect(model.machines[0]?.models).toEqual(["qwen2.5:0.5b"]);
+		expect(model.machines[0]?.services).toEqual([
+			{ name: "Immich", port: 2283, roles: ["ocr", "embed"], state: "up" },
+		]);
+	});
+
 	test("groups gateway routes by hub config while keeping a matching cloud provider", () => {
 		const model = buildTopology(
 			{},
@@ -494,6 +529,7 @@ describe("Belt topology", () => {
 				probed: 1,
 				routed: 0,
 				models: ["qwen"],
+				services: [],
 				hosts: [],
 				state: "up",
 			},
@@ -504,6 +540,7 @@ describe("Belt topology", () => {
 				probed: 1,
 				routed: 1,
 				models: ["glm"],
+				services: [],
 				hosts: [],
 				state: "up",
 			},

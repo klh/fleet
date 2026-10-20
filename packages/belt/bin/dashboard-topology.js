@@ -286,6 +286,7 @@ class BeltTopology extends LitElement {
 		gatewayRouteCount = 0,
 		gatewayUnresolvedRoutes = [],
 		gatewayModelCosts = {},
+		services = [],
 	) {
 		const configuredAliases = new Set([
 			...(gatewayModels ?? []),
@@ -384,6 +385,15 @@ class BeltTopology extends LitElement {
 			}`
 			}
 			${
+				hubKey && services.length
+					? svg`<g>${services.map((service, index) => {
+							const serviceY =
+								y + height - 16 - (services.length - 1 - index) * 28;
+							return svg`<g><title>${service.name} · :${service.port} · ${service.roles.join(", ")} · ${service.state} probe</title><circle cx=${x + 23} cy=${serviceY - 4} r="3" fill=${colour(service.state)}></circle><text class="meta" x=${x + 33} y=${serviceY}>${service.name} · ${service.roles.join(", ")} · :${service.port}</text></g>`;
+						})}</g>`
+					: ""
+			}
+			${
 				local
 					? svg`<g aria-label=${counts ? `Suspenders Work Graph: ready ${work.ready}, working ${work.working}, waiting ${work.waiting}, blocked ${work.blocked}, failed ${work.failed}, done ${work.done}` : "Suspenders Work Graph status unavailable"}>
 				<rect class="work-box" x=${x + 12} y=${y + height - 48} width=${width - 24} height="36" rx="2"></rect>
@@ -399,7 +409,7 @@ class BeltTopology extends LitElement {
 		const visible = viaHub ? [] : item.models.slice(0, 2);
 		const status =
 			viaHub && !routeConfigured
-				? "Planned hub upstream · key and route absent"
+				? "Declared hub provider · upstream hop unverified"
 				: Number.isFinite(link?.requests15)
 					? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
 					: item.state === "unconfigured"
@@ -415,7 +425,7 @@ class BeltTopology extends LitElement {
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
 			<g><title>${link ? `${link.source} · last evidence ${localTime(link.lastSeen)}` : "No measured Buckle route data"}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text></g>
-			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>${routeConfigured ? `Configured hub routes shown under ${this.shortModel(viaHub, 19)}` : `No active route on ${this.shortModel(viaHub, 19)}`}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
+			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>${routeConfigured ? `Configured hub routes shown under ${this.shortModel(viaHub, 19)}` : `Hub model routes shown under ${this.shortModel(viaHub, 19)}`}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
 			${!viaHub && item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
@@ -634,7 +644,9 @@ class BeltTopology extends LitElement {
 							? 162
 							: 150,
 				models: remoteModels,
+				services: inventory?.services ?? [],
 			};
+			card.height += card.services.length * 28;
 			const pairedProviders = clouds.filter(
 				(provider) => hubForProvider(provider.key)?.name === item.name,
 			);
@@ -712,17 +724,20 @@ class BeltTopology extends LitElement {
 						.filter(
 							(item) =>
 								hubForProvider(item.key)?.name === hub.name &&
-								hub.providerKeys?.includes(item.key),
+								(hub.providerKeys?.includes(item.key) ||
+									hub.providerIntents?.includes(item.key)),
 						)
 						.map((item) =>
 							this.edge(`M705 ${hub.y + 54} H738 V${item.y + 42} H770`, {
 								evidence: "configured",
-								source: `${hub.displayName || hub.name} configured upstream`,
+								source: hub.providerKeys?.includes(item.key)
+									? `${hub.displayName || hub.name} configured upstream`
+									: `${hub.displayName || hub.name} declared provider intent`,
 							}),
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts))}
+		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,
