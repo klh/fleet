@@ -23,11 +23,14 @@ class BeltTopology extends LitElement {
 		.heading { display:flex; align-items:baseline; gap:var(--klh-space-3); flex-wrap:wrap; }
 		h2 { font:inherit; font-size:var(--klh-text-sm); margin:0; }
 		p, .legend { color:var(--klh-dim); font-size:var(--klh-text-sm); margin:var(--klh-space-2) 0; }
+		.heading + p { min-block-size:28px; }
 		button { margin-left:auto; background:transparent; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); color:var(--klh-ink); padding:4px 10px; font:inherit; cursor:pointer; }
 		button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
-		.map { width:100%; overflow-x:auto; }
-		svg { display:block; width:100%; min-width:780px; height:auto; font:12px var(--klh-font-sans, sans-serif); }
-		.edge { fill:none; stroke:var(--klh-edge); stroke-width:1.5; stroke-dasharray:5 5; }
+		.map { inline-size:100%; block-size:440px; overflow:auto; }
+		svg { display:block; inline-size:1060px; block-size:auto; font:12px var(--klh-font-sans, sans-serif); }
+		.edge { fill:none; stroke:var(--klh-dim); stroke-dasharray:4 5; }
+		.edge.observed { stroke:var(--klh-info); stroke-dasharray:none; }
+		.edge-label { fill:var(--klh-ink-2); font-size:10px; font-variant-numeric:tabular-nums; }
 		.machine { fill:var(--klh-surface); stroke:var(--klh-edge); stroke-width:1.5; }
 		.buckle { fill:var(--klh-accent-wash); stroke:var(--klh-accent); stroke-width:1; }
 		.belt { fill:var(--klh-edge-faint); stroke:var(--klh-edge); stroke-width:1; }
@@ -36,10 +39,15 @@ class BeltTopology extends LitElement {
 		.meta { fill:var(--klh-dim); }
 		.endpoint { font-variant-numeric:tabular-nums; }
 		.group { fill:var(--klh-dim); font-size:10px; letter-spacing:1.3px; }
-		.traffic { display:flex; flex-wrap:wrap; gap:var(--klh-space-2); margin:var(--klh-space-3) 0; }
-		.traffic span { display:flex; align-items:baseline; gap:6px; padding:6px 10px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); font-size:var(--klh-text-sm); }
+		.traffic { display:flex; flex-wrap:wrap; gap:var(--klh-space-2); min-block-size:34px; margin:var(--klh-space-3) 0; }
+		.traffic span { display:flex; align-items:baseline; gap:6px; padding:4px 8px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); font-size:var(--klh-text-sm); }
 		.traffic strong { font-variant-numeric:tabular-nums; }
 		.traffic small { color:var(--klh-dim); font:inherit; }
+		details { color:var(--klh-ink-2); font-size:var(--klh-text-sm); margin-top:var(--klh-space-2); }
+		summary { cursor:pointer; }
+		summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
+		table { border-collapse:collapse; width:min(100%, 740px); margin-top:var(--klh-space-2); }
+		th, td { text-align:left; padding:5px 12px 5px 0; border-bottom:1px solid var(--klh-edge-faint); }
 	`;
 	constructor() {
 		super();
@@ -50,7 +58,7 @@ class BeltTopology extends LitElement {
 	connectedCallback() {
 		super.connectedCallback();
 		this.refresh();
-		this.timer = setInterval(() => this.refresh(), 5_000);
+		this.timer = setInterval(() => this.refresh(), 10_000);
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
@@ -58,119 +66,129 @@ class BeltTopology extends LitElement {
 		this.controller?.abort();
 	}
 	async refresh() {
-		this.controller?.abort();
+		if (this.inFlight) return;
+		this.inFlight = true;
 		const controller = new AbortController();
 		this.controller = controller;
 		const timeout = setTimeout(() => controller.abort(), 6000);
 		try {
-			const responses = await Promise.all(
-				["/api/status", "/api/remotes", "/api/supervisor"].map((url) =>
+			const [
+				statusResponse,
+				remotesResponse,
+				supervisorResponse,
+				networkResponse,
+				accessResponse,
+			] = await Promise.all([
+				...["/api/status", "/api/remotes", "/api/supervisor"].map((url) =>
 					fetch(url, { signal: controller.signal, cache: "no-store" }),
 				),
-			);
-			if (responses.some((response) => !response.ok))
+				fetch("/api/network", {
+					signal: controller.signal,
+					cache: "no-store",
+				}).catch(() => null),
+				fetch("/api/model-access", {
+					signal: controller.signal,
+					cache: "no-store",
+				}).catch(() => null),
+			]);
+			if (!statusResponse.ok || !remotesResponse.ok || !supervisorResponse.ok)
 				throw new Error("A topology feed is unavailable");
-			const [status, remotes, supervisor] = await Promise.all(
-				responses.map((response) => response.json()),
+			const [status, remotes, supervisor, network, access] = await Promise.all([
+				statusResponse.json(),
+				remotesResponse.json(),
+				supervisorResponse.json(),
+				networkResponse?.ok ? networkResponse.json().catch(() => null) : null,
+				accessResponse?.ok ? accessResponse.json().catch(() => null) : null,
+			]);
+			this.networkIssue =
+				network?.ok && network.network?.ok
+					? ""
+					: "Buckle request feed unavailable";
+			this.topology = buildTopology(
+				status,
+				remotes,
+				supervisor,
+				Date.now(),
+				network,
+				access,
 			);
-			this.topology = buildTopology(status, remotes, supervisor);
 			this.error = "";
-			try {
-				const [response, accessResponse] = await Promise.all([
-					fetch("/api/network", {
-						signal: controller.signal,
-						cache: "no-store",
-					}),
-					fetch("/api/model-access", {
-						signal: controller.signal,
-						cache: "no-store",
-					}),
-				]);
-				const network = response.ok ? await response.json() : null;
-				const access = accessResponse.ok ? await accessResponse.json() : null;
-				this.networkIssue =
-					network?.ok && network.network?.ok
-						? ""
-						: "Buckle request feed unavailable";
-				this.topology = buildTopology(
-					status,
-					remotes,
-					supervisor,
-					Date.now(),
-					network,
-					access,
-				);
-			} catch {
-				this.networkIssue = "Buckle request feed unavailable";
-			}
 		} catch (error) {
 			if (controller.signal.aborted && this.controller !== controller) return;
 			this.error = `Connection data unavailable: ${error.message}`;
 		} finally {
 			clearTimeout(timeout);
+			this.inFlight = false;
 		}
 	}
 	shortModel(value, length = 29) {
 		const name = String(value).split("/").pop();
 		return name.length > length ? `${name.slice(0, length - 1)}…` : name;
 	}
+	edge(path, link) {
+		const observed = link.evidence === "observed";
+		const width = observed
+			? Math.min(4, 1 + Math.log10(1 + link.requests15))
+			: 1.5;
+		return svg`<g><title>${observed ? `${link.requests15} observed Buckle requests in 15 minutes` : link.evidence === "probe" ? "Hub reachability probe; request path unobserved" : "Configured provider path; request traffic unobserved"}</title><path class=${observed ? "edge observed" : "edge"} d=${path} stroke-width=${width}></path></g>`;
+	}
 	machine(x, y, width, height, title, buckle, state, models, local = false) {
 		return svg`<g><rect class="machine" x=${x} y=${y} width=${width} height=${height} rx="6"></rect>
-			<circle cx=${x + 17} cy=${y + 21} r="4" fill=${colour(state)}></circle><text class="title" x=${x + 30} y=${y + 25}>${title}</text>
-			<rect class="buckle" x=${x + 16} y=${y + 38} width=${width - 32} height="44" rx="4"></rect>
-			<text class="title" x=${x + 30} y=${y + 57}>Buckle</text><text class="meta" x=${x + 30} y=${y + 73}>${buckle}</text>
-			<rect class="belt" x=${x + 16} y=${y + 96} width=${width - 32} height="24" rx="3"></rect>
-			<text class="title" x=${x + 28} y=${y + 113}>Belt · local models</text>
+			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(state)}></circle><text class="title" x=${x + 25} y=${y + 22}>${title}</text>
+			<rect class="buckle" x=${x + 12} y=${y + 34} width=${width - 24} height="40" rx="3"></rect>
+			<text class="title" x=${x + 23} y=${y + 50}>Buckle</text><text class="meta endpoint" x=${x + 23} y=${y + 66}>${buckle}</text>
+			<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
+			<text class="title" x=${x + 23} y=${y + 102}>Belt · ${models.length} ${local ? "local models" : "listed models"}</text>
 			${
 				models.length
 					? models.map((item, index) => {
 							const column = local ? index % 2 : 0;
 							const row = local ? Math.floor(index / 2) : index;
-							const itemX = x + 30 + column * 186;
-							const itemY = y + 142 + row * (local ? 48 : 39);
+							const itemX = x + 21 + column * 176;
+							const itemY = y + 125 + row * (local ? 41 : 35);
 							return svg`<g><title>${item.model}</title>
 								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
-								<text class="title" x=${itemX + 12} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : `${title.split(" · hub")[0]}/${this.shortModel(item.model, 18)}`}</text>
-								<text class="meta endpoint" x=${itemX + 12} y=${itemY + 20}>${local ? this.shortModel(item.model, 22) : "configured in remote inventory"}</text>
-								${local ? svg`<text class="meta endpoint" x=${itemX + 12} y=${itemY + 34}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
+								<text class="title" x=${itemX + 10} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : this.shortModel(item.model, 23)}</text>
+								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : "remote inventory"}</text>
+								${local ? svg`<text class="meta endpoint" x=${itemX + 10} y=${itemY + 31}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
 							</g>`;
 						})
-					: svg`<text class="meta" x=${x + 28} y=${y + 151}>No model inventory reported</text>`
+					: svg`<text class="meta" x=${x + 22} y=${y + 132}>No model inventory reported</text>`
 			}
 		</g>`;
 	}
 	cloud(x, y, width, item) {
-		const visible = item.models.slice(0, 4);
-		const height =
-			54 + Math.max(1, visible.length) * 19 + (item.models.length > 4 ? 20 : 0);
-		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height=${height} rx="5"></rect>
-			<circle cx=${x + 16} cy=${y + 20} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
-			<text class="title" x=${x + 28} y=${y + 24}>${item.name}${item.state === "unconfigured" ? " · direct API" : ""}</text>
-			<text class="meta endpoint" x=${x + 14} y=${y + 43}>${item.kind === "copilot" ? `${item.models.length} selectable · ${item.buckleCount} Buckle routes` : Number.isFinite(item.buckleReq15) ? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} output tok/s` : "output tokens unreported"}` : item.state === "unconfigured" ? "No direct API key · Copilot is a separate route" : item.probed === 0 && item.reachable === 0 ? `Direct API probe failed · ${item.routed} Belt routes` : `${item.reachable}/${item.endpoints} probes · ${item.routed} recent Belt routes`}</text>
-			${visible.length ? visible.map((model, index) => svg`<text class="meta" x=${x + 14} y=${y + 62 + index * 19}>${item.kind === "copilot" ? `local/Copilot/${this.shortModel(model, 23)}` : this.shortModel(model, 35)}</text>`) : svg`<text class="meta" x=${x + 14} y=${y + 62}>${item.kind === "copilot" ? "Copilot catalog unavailable" : item.state === "unconfigured" ? "Direct API catalog requires its own key" : "Model inventory unobserved"}</text>`}
-			${item.models.length > 4 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 14} y=${y + 62 + visible.length * 19}>${item.models.length - visible.length} more · view model access</text></a>` : ""}
+		const visible = item.models.slice(0, 2);
+		const status = Number.isFinite(item.buckleReq15)
+			? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} out tok/s` : "tokens unreported"}`
+			: item.state === "unconfigured"
+				? "Direct API key not configured"
+				: item.kind === "copilot"
+					? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
+					: `${item.reachable}/${item.endpoints} probes · no Buckle traffic`;
+		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
+			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
+			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
+			<text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text>
+			${visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
+			${item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
 	render() {
 		const data = this.topology;
 		const machines = data?.machines ?? [];
-		const hubs = data?.hubs ?? [];
-		const models = data?.specialists.models ?? [];
-		const hubNames = new Set(hubs.map((item) => item.name.toLowerCase()));
-		const clouds = machines.filter(
-			(item) => !hubNames.has(item.name.toLowerCase()),
+		const hubs = [...(data?.hubs ?? [])].sort((a, b) =>
+			a.name.localeCompare(b.name),
 		);
-		if (data?.copilot)
-			clouds.unshift({
-				name: "IKEA Copilot",
-				kind: "copilot",
-				state: data.copilot.state === "catalog reachable" ? "up" : "unknown",
-				models: data.copilot.models.map(
-					(model) => model.routes?.[0] ?? model.id,
-				),
-				buckleCount: data.copilot.models.filter((model) => model.buckle).length,
-			});
-		let hubY = 52;
+		const models = data?.specialists.models ?? [];
+		const clouds = [...(data?.providers ?? [])].sort((a, b) =>
+			a.key === "copilot"
+				? -1
+				: b.key === "copilot"
+					? 1
+					: a.key.localeCompare(b.key),
+		);
+		let hubY = 65;
 		const hubCards = hubs.map((item) => {
 			const inventory = machines.find(
 				(machine) => machine.name.toLowerCase() === item.name.toLowerCase(),
@@ -182,55 +200,68 @@ class BeltTopology extends LitElement {
 			const card = {
 				...item,
 				y: hubY,
-				height: Math.max(162, 132 + remoteModels.length * 39),
+				height: Math.max(150, 120 + remoteModels.length * 35),
 				models: remoteModels,
 			};
-			hubY += card.height + 18;
+			hubY += card.height + 12;
 			return card;
 		});
-		const cloudHeight = clouds.reduce(
-			(sum, item) =>
-				sum +
-				68 +
-				Math.max(1, Math.min(4, item.models.length)) * 19 +
-				(item.models.length > 4 ? 20 : 0),
-			0,
+		const localHeight = Math.max(150, 120 + Math.ceil(models.length / 2) * 41);
+		const height = Math.max(
+			440,
+			65 + localHeight,
+			hubY,
+			65 + clouds.length * 94,
 		);
-		const localHeight = Math.max(195, 132 + Math.ceil(models.length / 2) * 48);
-		const height = Math.max(350, 52 + localHeight, hubY, 52 + cloudHeight);
-		let cloudY = 52;
+		const cloudCards = clouds.map((item, index) => ({
+			...item,
+			y: 65 + index * 94,
+		}));
+		const traffic = data?.gatewayTraffic;
+		const tokenRate =
+			Number.isFinite(traffic?.inputTokens60) &&
+			Number.isFinite(traffic?.outputTokens60)
+				? Math.round(
+						(traffic.inputTokens60 + traffic.outputTokens60) / 60,
+					).toLocaleString("en-US")
+				: "—";
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
-			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hub probes · ${clouds.length} provider groups` : "Loading observed connections…")}</p>
-			${
-				data?.gatewayTraffic
-					? html`<div class="traffic" aria-label="Observed Buckle traffic, past 60 seconds">
-				<span><strong>${data.gatewayTraffic.requests60}</strong><small>Buckle requests / min</small></span>
-				<span><strong>${Math.round((data.gatewayTraffic.inputTokens60 + data.gatewayTraffic.outputTokens60) / 60).toLocaleString("en-US")}</strong><small>reported tokens / sec</small></span>
-				<span><strong>${data.gatewayTraffic.observedTargets}</strong><small>active gateway targets</small></span>
-			</div>`
-					: ""
-			}
+			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hubs · ${clouds.length} providers${this.networkIssue ? ` · ${this.networkIssue}` : ""}` : "Loading connections…")}</p>
+			<div class="traffic" aria-label="Buckle traffic, past 60 seconds">
+				<span><strong>${traffic?.requests60 ?? "—"}</strong><small>Buckle requests / min</small></span>
+				<span><strong>${tokenRate}</strong><small>reported tokens / sec</small></span>
+				<span><strong>${traffic?.observedTargets ?? "—"}</strong><small>active model routes</small></span>
+			</div>
 			${
 				data
-					? html`<div class="map"><svg viewBox=${`0 0 1190 ${height}`} role="img" aria-label="Local machine contains Buckle and Belt models; Buckle links lead to hub machines; cloud providers are listed beyond hubs">
-				<text class="group" x="20" y="35">LOCAL MACHINE</text><text class="group" x="470" y="35">HUB MACHINES</text>
-				<text class="group" x="850" y="35">CLOUD GATEWAYS · OBSERVED ROUTES</text>
-				${hubCards.map((item) => svg`<path class="edge" d=${`M420 112 H447 V${item.y + 60} H470`}></path>`)}
-					${this.machine(20, 52, 400, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "state unobserved" : data.gateway}`, data.gateway, models, true)}
-				${hubCards.map((item) => this.machine(470, item.y, 320, item.height, `${item.displayName || item.name} · hub`, `:${item.port} · ${item.state} probe`, item.state, item.models))}
-				${clouds.map((item) => {
-					const y = cloudY;
-					cloudY +=
-						68 +
-						Math.max(1, Math.min(4, item.models.length)) * 19 +
-						(item.models.length > 4 ? 20 : 0);
-					return this.cloud(850, y, 320, item);
+					? html`<div class="map"><svg viewBox=${`0 0 1060 ${height}`} role="img" aria-label="This Mac and its models, connected to hub probes and cloud providers. Solid blue links are observed Buckle requests; dashed links are configured paths or probes.">
+				<text class="group" x="16" y="28">LOCAL MACHINE</text><text class="group" x="430" y="28">HUBS</text>
+				<text class="group" x="770" y="28">CLOUD PROVIDERS</text>
+				${hubCards.map((item) => {
+					const link = data.links.find(
+						(entry) => entry.target === `hub:${item.name.toLowerCase()}`,
+					);
+					return link
+						? this.edge(`M386 113 H408 V${item.y + 54} H430`, link)
+						: "";
 				})}
-			</svg></div>
-			<div class="legend">Machine boxes contain Buckle and a Belt model strip. Dashed links show hub probes. Gateway traffic counts Buckle requests; model loads count direct Belt router calls. Cloud provider cards need verified hop records before links can be drawn.${this.networkIssue ? ` ${this.networkIssue}.` : " Token rates use reported usage over 60 seconds."}</div>`
-					: ""
+				${cloudCards.map((item) => {
+					const link = data.links.find(
+						(entry) => entry.target === `provider:${item.key}`,
+					);
+					return link
+						? this.edge(`M386 113 H403 V51 H742 V${item.y + 42} H770`, link)
+						: "";
+				})}
+				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true)}
+				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models))}
+				${cloudCards.map((item) => this.cloud(770, item.y, 275, item))}
+			</svg></div>`
+					: html`<div class="map" aria-busy="true"><p>Loading map…</p></div>`
 			}
+			<div class="legend">Solid blue: observed Buckle requests in the past 15 minutes. Dashed: configured direct provider path or hub probe. Buckle token rates use reported usage over 60 seconds; local model loads count Belt router calls.</div>
+			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary><table><thead><tr><th scope="col">Target</th><th scope="col">Evidence</th><th scope="col">Requests / 15m</th></tr></thead><tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td></tr>`)}</tbody></table></details>
 		</section>`;
 	}
 }

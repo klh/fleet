@@ -266,4 +266,149 @@ describe("Belt topology", () => {
 		});
 		expect(model.machines).toEqual([]);
 	});
+
+	test("separates configured paths from observed Buckle traffic", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "zai",
+						host: "api.z.ai",
+						ok: true,
+						last_seen: new Date(now).toISOString(),
+						model: "glm-5.3",
+					},
+					{
+						machine: "anthropic",
+						host: "api.anthropic.com",
+						ok: false,
+						reason: "missing api key (ANTHROPIC_API_KEY)",
+					},
+				],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+			},
+			now,
+			{
+				ok: true,
+				ts: new Date(now).toISOString(),
+				network: {
+					ok: true,
+					hops: [
+						{
+							origin: "local",
+							peer: "NAS",
+							source: "mac",
+							n: 4,
+							lastAt: now - 10_000,
+						},
+					],
+					throughput: {
+						interfaces: [
+							{
+								kind: "cloud",
+								host: "api.z.ai",
+								model: "glm-5.3",
+								req15: 8,
+								req60: 2,
+								in60: 160,
+								out60: 80,
+								lastOkAt: new Date(now - 10_000).toISOString(),
+							},
+						],
+					},
+				},
+			},
+		);
+		expect(model.links).toEqual([
+			{ target: "hub:nas", evidence: "observed", requests15: 4 },
+			{ target: "provider:zai", evidence: "observed", requests15: 8 },
+		]);
+		expect(
+			model.links.some((link) => link.target === "provider:anthropic"),
+		).toBe(false);
+	});
+
+	test("keeps one Copilot provider card when catalog and telemetry both report it", () => {
+		const model = buildTopology(
+			{},
+			{ ts: new Date(now).toISOString(), rows: [] },
+			{},
+			now,
+			{
+				ok: true,
+				ts: new Date(now).toISOString(),
+				network: {
+					ok: true,
+					throughput: {
+						interfaces: [
+							{
+								kind: "cloud",
+								host: "api.githubcopilot.com",
+								model: "claude-opus-5.5",
+								req15: 3,
+								req60: 1,
+								out60: 30,
+								lastOkAt: new Date(now).toISOString(),
+							},
+						],
+					},
+				},
+			},
+			{
+				copilot: {
+					state: "catalog reachable",
+					models: [
+						{
+							id: "claude-opus-5.5",
+							buckle: true,
+							routes: ["claude-opus-5-5"],
+						},
+					],
+				},
+			},
+		);
+		expect(
+			model.providers.filter((item) => item.key === "copilot"),
+		).toHaveLength(1);
+		expect(model.providers[0]).toMatchObject({
+			key: "copilot",
+			buckleReq15: 3,
+			routeObserved: true,
+		});
+		expect(model.links).toEqual([
+			{ target: "provider:copilot", evidence: "observed", requests15: 3 },
+		]);
+	});
+
+	test("does not turn unreported token usage into zero throughput", () => {
+		const model = buildTopology({}, {}, {}, now, {
+			ok: true,
+			ts: new Date(now).toISOString(),
+			network: {
+				ok: true,
+				throughput: {
+					interfaces: [
+						{
+							kind: "local",
+							host: "127.0.0.1",
+							req60: 0,
+							in60: null,
+							out60: null,
+						},
+					],
+				},
+			},
+		});
+		expect(model.gatewayTraffic).toEqual({
+			requests60: 0,
+			inputTokens60: null,
+			outputTokens60: null,
+			observedTargets: 0,
+		});
+	});
 });

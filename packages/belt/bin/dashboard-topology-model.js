@@ -65,15 +65,22 @@ export function gatewayTraffic(payload, now = Date.now()) {
 		(total, row) => ({
 			requests60:
 				total.requests60 + (Number.isFinite(row.req60) ? row.req60 : 0),
-			inputTokens60:
-				total.inputTokens60 + (Number.isFinite(row.in60) ? row.in60 : 0),
-			outputTokens60:
-				total.outputTokens60 + (Number.isFinite(row.out60) ? row.out60 : 0),
+			inputTokens60: Number.isFinite(row.in60)
+				? (total.inputTokens60 ?? 0) + row.in60
+				: total.inputTokens60,
+			outputTokens60: Number.isFinite(row.out60)
+				? (total.outputTokens60 ?? 0) + row.out60
+				: total.outputTokens60,
 			observedTargets:
 				total.observedTargets +
 				(Number.isFinite(row.req60) && row.req60 > 0 ? 1 : 0),
 		}),
-		{ requests60: 0, inputTokens60: 0, outputTokens60: 0, observedTargets: 0 },
+		{
+			requests60: 0,
+			inputTokens60: null,
+			outputTokens60: null,
+			observedTargets: 0,
+		},
 	);
 }
 
@@ -146,6 +153,96 @@ export function buildTopology(
 		if (item && route.ok && isFresh(route.ts, now, ROUTE_MS)) item.routed += 1;
 	}
 	const networkFresh = networkPayload?.ok && isFresh(networkPayload.ts, now);
+	const hubCards = hubs.map((item) => ({
+		name: String(item.name),
+		...(item.displayName ? { displayName: String(item.displayName) } : {}),
+		state: stateOf(item.state === "up" && !item.alert, hubFresh),
+		port: item.port,
+	}));
+	const machineCards = addNetworkEvidence(
+		[...machines.values()].map((item) => ({
+			...item,
+			state:
+				item.unconfigured === item.endpoints
+					? "unconfigured"
+					: !remoteFresh || !item.probed
+						? "unknown"
+						: item.reachable > 0
+							? "up"
+							: "down",
+		})),
+		networkPayload,
+		now,
+	);
+	const hubNames = new Set(hubCards.map((item) => item.name.toLowerCase()));
+	const providers = machineCards
+		.filter((item) => !hubNames.has(item.name.toLowerCase()))
+		.map((item) => ({ ...item, key: item.name.toLowerCase() }));
+	const copilot = access?.copilot || null;
+	if (copilot) {
+		const found = providers.find((item) => item.key === "copilot");
+		const catalogModels = Array.isArray(copilot.models)
+			? copilot.models.map((model) => model.routes?.[0] ?? model.id)
+			: [];
+		if (found) {
+			found.models = [...new Set([...found.models, ...catalogModels])];
+			found.name = "IKEA Copilot";
+			found.kind = "copilot";
+			found.catalog = copilot;
+		} else {
+			providers.unshift({
+				key: "copilot",
+				name: "IKEA Copilot",
+				kind: "copilot",
+				state: copilot.state === "catalog reachable" ? "up" : "unknown",
+				models: catalogModels,
+				endpoints: 0,
+				reachable: 0,
+				probed: 0,
+				routed: 0,
+				catalog: copilot,
+			});
+		}
+	}
+	const hops =
+		networkFresh &&
+		networkPayload.network?.ok &&
+		Array.isArray(networkPayload.network.hops)
+			? networkPayload.network.hops
+			: [];
+	const links = hubCards.map((hub) => {
+		const observedHop = hops.find(
+			(hop) =>
+				String(hop.origin).toLowerCase() === "local" &&
+				String(hop.peer).toLowerCase() === hub.name.toLowerCase() &&
+				Number.isFinite(hop.n) &&
+				hop.n > 0 &&
+				Number.isFinite(hop.lastAt) &&
+				now - hop.lastAt <= ROUTE_MS,
+		);
+		return {
+			target: `hub:${hub.name.toLowerCase()}`,
+			evidence: observedHop ? "observed" : "probe",
+			...(observedHop ? { requests15: observedHop.n } : {}),
+		};
+	});
+	for (const provider of providers) {
+		if (provider.routeObserved && Number.isFinite(provider.buckleReq15))
+			links.push({
+				target: `provider:${provider.key}`,
+				evidence: "observed",
+				requests15: provider.buckleReq15,
+			});
+		else if (
+			provider.state !== "unconfigured" &&
+			(provider.endpoints > 0 ||
+				provider.catalog?.models?.some((model) => model.buckle))
+		)
+			links.push({
+				target: `provider:${provider.key}`,
+				evidence: "configured",
+			});
+	}
 	return {
 		router: stateOf(status?.router?.up, localFresh),
 		gateway:
@@ -169,28 +266,11 @@ export function buildTopology(
 			attention: localAttention,
 			models,
 		},
-		hubs: hubs.map((item) => ({
-			name: String(item.name),
-			...(item.displayName ? { displayName: String(item.displayName) } : {}),
-			state: stateOf(item.state === "up" && !item.alert, hubFresh),
-			port: item.port,
-		})),
-		machines: addNetworkEvidence(
-			[...machines.values()].map((item) => ({
-				...item,
-				state:
-					item.unconfigured === item.endpoints
-						? "unconfigured"
-						: !remoteFresh || !item.probed
-							? "unknown"
-							: item.reachable > 0
-								? "up"
-								: "down",
-			})),
-			networkPayload,
-			now,
-		),
-		copilot: access?.copilot || null,
+		hubs: hubCards,
+		machines: machineCards,
+		providers,
+		links,
+		copilot,
 		fresh: { local: localFresh, hubs: hubFresh, remotes: remoteFresh },
 	};
 }
