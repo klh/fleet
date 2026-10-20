@@ -28,6 +28,7 @@ import { scrub, servicemon } from "../lib/servicemon.ts";
 // passes on spokes, where routes-hub-admin.ts is excluded from the payload.
 const HUB_ADMIN_MODULE = "../board/routes-hub-admin.ts";
 
+import { startBuckleObservationRelay } from "../board/buckle-observation-relay.ts";
 import { recoverDecisionEvals } from "../board/decide-eval.ts";
 import { setEnterpriseProvider } from "../board/ent-seam.ts";
 import { enforceIam } from "../board/iam-enforce.ts";
@@ -76,6 +77,8 @@ recoverDecisionEvals();
 recoverPendingAdvice();
 const observationRelay = startObservationRelay(db);
 process.on("exit", () => observationRelay.stop());
+const buckleObservationRelay = startBuckleObservationRelay();
+process.on("exit", () => buckleObservationRelay.stop());
 
 // W775.1: the enterprise overlay injects its provider at boot — the module
 // specifier is runtime config (KLH_OVERLAY_MODULE), never code. A module

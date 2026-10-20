@@ -5,8 +5,9 @@
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
-import { verifyAuthChain } from "./audit-chain.ts";
 import type { RequestReadQuery } from "../ledger.ts";
+import { exportObservations } from "../observation-export.ts";
+import { verifyAuthChain } from "./audit-chain.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
 
@@ -120,6 +121,36 @@ export async function handleAdmin(
 	// from api_keys (key material never leaves the store).
 	if (method === "GET" && path === "/v1/admin/requests") {
 		return listRequests(gov, url);
+	}
+	if (method === "GET" && path === "/v1/admin/observations") {
+		const path =
+			process.env.BUCKLE_OBSERVATIONS_DB ??
+			(process.env.BUCKLE_OBSERVATIONS_PATH
+				? `${process.env.BUCKLE_OBSERVATIONS_PATH}.db`
+				: null);
+		if (!path)
+			return bad(
+				503,
+				"buckle.observations_unavailable",
+				"observation projection not configured",
+			);
+		const rawCursor = url.searchParams.get("cursor") ?? "0";
+		const rawLimit = url.searchParams.get("limit") ?? "64";
+		if (!/^\d+$/.test(rawCursor) || !/^\d+$/.test(rawLimit))
+			return bad(
+				400,
+				"buckle.bad_query",
+				"cursor and limit must be nonnegative integers",
+			);
+		try {
+			return ok(exportObservations(path, Number(rawCursor), Number(rawLimit)));
+		} catch {
+			return bad(
+				503,
+				"buckle.observations_unavailable",
+				"observation export unavailable",
+			);
+		}
 	}
 	// W173 spoke enrollment + fleet registry: the hub names its fleet — mint
 	// a one-time enrollment code (admin-only by gate class), read the
