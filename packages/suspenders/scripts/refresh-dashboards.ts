@@ -24,6 +24,7 @@ export const dashboardCodeGroups = [
 			"dashboard.ts",
 			"model-access.ts",
 			"dashboard-state.ts",
+			"metrics.ts",
 			"klh-theme.ts",
 			"dashboard-observability.js",
 			"dashboard-topology.js",
