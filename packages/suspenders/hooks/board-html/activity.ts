@@ -63,6 +63,19 @@ function actKindGroup(kind){
   if (/decision|consult|answer/i.test(kind)) return 'decision';
   return 'other';
 }
+function actKindKeys(kinds){
+  return Object.keys(kinds).sort(function(a, b){ return kinds[b] - kinds[a] || (a < b ? -1 : a > b ? 1 : 0); });
+}
+function actKindTip(kinds){
+  var keys = actKindKeys(kinds);
+  if (!keys.length) return 'no events';
+  var lines = keys.slice(0, 6).map(function(k){ return '<b>' + esc(k) + '</b> ' + kinds[k]; });
+  if (keys.length > 6) lines.push('<b>…</b> ' + (keys.length - 6) + ' more kinds');
+  return lines.join('<br>');
+}
+function actKindSummary(kinds){
+  return actKindKeys(kinds).slice(0, 6).map(function(k){ return k + ' ' + kinds[k]; }).join(', ');
+}
 function renderActHist(el, ev){
   if (!el) return;
   if (!ev.length) { sigSet(el, 'empty', ''); return; }
@@ -71,10 +84,14 @@ function renderActHist(el, ev){
   var step = Math.max(60000, Math.ceil((last - first) / (24 * 60000)) * 60000);
   var end = Math.ceil(last / step) * step;
   var start = end - 24 * step;
-  var bins = Array.from({length:24}, function(){ return {landed:0, failed:0, decision:0, other:0}; });
+  var bins = Array.from({length:24}, function(){ return {landed:0, failed:0, decision:0, other:0, kinds:{}}; });
   ev.forEach(function(e){
     var i = Math.floor((Number(e.ts) - start) / step);
-    if (i >= 0 && i < bins.length) bins[i][actKindGroup(String(e.kind || ''))]++;
+    if (i >= 0 && i < bins.length) {
+      var k = String(e.kind || '') || '?';
+      bins[i][actKindGroup(k)]++;
+      bins[i].kinds[k] = (bins[i].kinds[k] || 0) + 1;
+    }
   });
   var max = Math.max(1, ...bins.map(function(b){ return b.landed + b.failed + b.decision + b.other; }));
   var fmt = function(t){ return new Date(t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); };
@@ -84,10 +101,13 @@ function renderActHist(el, ev){
     var total = b.landed + b.failed + b.decision + b.other;
     var t = start + i * step;
     var label = fmt(t) + '–' + fmt(t + step) + ': ' + total + ' events, ' + b.landed + ' landed, ' + b.failed + ' failed, ' + b.decision + ' decisions';
+    var summary = actKindSummary(b.kinds);
+    if (summary) label += ', ' + summary;
     var selected = actDrill && actDrill.start === t;
+    var tip = '<span class="acthist-tip" role="tooltip"><b>' + fmt(t) + '–' + fmt(t + step) + '</b> · ' + total + ' events<br>' + actKindTip(b.kinds) + '</span>';
     html += '<button type="button" class="acthist-bar' + (selected ? ' selected' : '') + '" data-start="' + t + '" data-end="' + (t + step) + '" aria-label="' + esc(label) + '" title="' + esc(label) + '"><span class="acthist-stack" style="height:' + Math.max(total ? 6 : 2, Math.round(total / max * 100)) + '%">';
     ['landed','failed','decision','other'].forEach(function(group){ if (b[group]) html += '<span class="acthist-' + group + '" style="flex:' + b[group] + '"></span>'; });
-    html += '</span></button>';
+    html += '</span>' + tip + '</button>';
   });
   html += '</div><div class="acthist-foot"><span>' + fmt(start) + '</span><span class="acthist-key"><i class="acthist-landed"></i> landed <i class="acthist-failed"></i> failed <i class="acthist-decision"></i> decision <i class="acthist-other"></i> other</span><span>' + fmt(end) + '</span></div>';
   sigSet(el, String(actOkAt) + '|' + sel.value + '|' + hubOrigin + '|' + hubPeer + '|' + (actDrill ? actDrill.start : ''), html);

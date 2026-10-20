@@ -384,7 +384,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .acthist-head { margin-bottom:7px; text-transform:uppercase; letter-spacing:.06em; }
 .acthist-foot { margin-top:5px; font-size:9px; }
 .acthist-bars { display:grid; grid-template-columns:repeat(24,minmax(0,1fr)); align-items:end; gap:2px; height:44px; }
-.acthist-bar { display:flex; align-items:end; justify-content:center; height:100%; min-width:0; padding:0; border:0; border-bottom:1px solid var(--klh-edge); background:transparent; cursor:pointer; }
+.acthist-bar { position:relative; display:flex; align-items:end; justify-content:center; height:100%; min-width:0; padding:0; border:0; border-bottom:1px solid var(--klh-edge); background:transparent; cursor:pointer; }
 .acthist-bar:hover, .acthist-bar:focus-visible, .acthist-bar.selected { background:var(--klh-warm); outline:1px solid var(--klh-accent); outline-offset:0; }
 .acthist-stack { display:flex; flex-direction:column; width:100%; min-height:2px; overflow:hidden; }
 .acthist-stack > span { display:block; min-height:1px; }
@@ -394,6 +394,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .acthist-other { background:var(--klh-edge-mid); }
 .acthist-key { display:flex; align-items:center; gap:4px; white-space:nowrap; }
 .acthist-key i { display:inline-block; width:6px; height:6px; margin-left:5px; }
+.acthist-tip { display:none; position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); z-index:30; min-width:130px; max-width:240px; padding:6px 8px; border:1px solid var(--klh-edge-mid); border-radius:2px; background:var(--klh-surface); color:var(--klh-ink); font-size:9px; line-height:1.6; text-align:left; white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+.acthist-bar:hover .acthist-tip, .acthist-bar:focus-visible .acthist-tip, .acthist-bar.selected .acthist-tip { display:block; }
+.acthist-bar:first-child .acthist-tip { left:0; transform:none; }
+.acthist-bar:last-child .acthist-tip { left:auto; right:0; transform:none; }
 @media (max-width:640px) { .acthist-key { font-size:0; gap:1px; } .acthist-key i { width:7px; height:7px; margin-left:2px; } }
 #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px, 92vw); background:var(--klh-overlay); border-left:1px solid var(--klh-edge-mid); box-shadow:-8px 0 24px var(--klh-shadow); padding:14px 16px 20px; overflow-y:auto; z-index:70; }
 .dwhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; }

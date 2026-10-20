@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 let board: Board | null = null;
 
@@ -23,7 +23,14 @@ test("activity bars show counts and filter the event feed", async ({
 	await expect(page.locator("#actBody")).toContainText("work.added");
 	const nonempty = bars.filter({ has: page.locator(".acthist-stack > span") });
 	await expect(nonempty.first()).toBeVisible();
-	await nonempty.first().click();
+	const first = nonempty.first();
+	await first.hover();
+	await expect(first.locator(".acthist-tip")).toBeVisible();
+	await expect(first.locator(".acthist-tip")).toContainText("events");
+	await expect(first).toHaveAttribute("aria-label", /work\.added/);
+	await first.focus();
+	await expect(first.locator(".acthist-tip")).toBeVisible();
+	await first.click();
 	await expect(page.locator("#actBody")).toContainText("selected interval");
 	await page.locator("#actClear").click();
 	await expect(page.locator("#actBody")).not.toContainText("selected interval");
