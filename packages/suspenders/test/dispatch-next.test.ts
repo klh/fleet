@@ -55,6 +55,15 @@ const {
 
 const tool = (bin: string, ...args: string[]) => toolWith({}, bin, ...args);
 const dispatch = (...args: string[]) => dispatchWith({}, ...args);
+const expireLaunchHold = (id: string): void => {
+	const db = new Database(
+		join(HOME, ".cache", "claude-governor", "governor.db"),
+	);
+	db.query(
+		"UPDATE facts SET value=json_set(value,'$.eligibleAt',0) WHERE key LIKE ?",
+	).run(`dispatch.launch-backoff.%.${id}`);
+	db.close();
+};
 // work show includes live wall-time attribution, which advances even when a
 // read-only dispatch leaves the work row untouched.
 const workSnapshot = (id: string): Record<string, unknown> => {
@@ -674,6 +683,7 @@ describe("crash resume budget", () => {
 			SUSPENDERS_LANE_MAX_ATTEMPTS: "2",
 		};
 		for (const attempt of [0, 1]) {
+			if (attempt > 0) expireLaunchHold(id);
 			const result = dispatchWith(
 				{ ...extra, SUSPENDERS_CLAUDE_BIN: join(fakeBin, "claude") },
 				"--item",
@@ -695,16 +705,19 @@ describe("crash resume budget", () => {
 				).out,
 			).toContain(String(attempt));
 		}
+		expireLaunchHold(id);
 		expect(dispatchWith(extra, "--item", id).out).toContain(
 			"launch budget exhausted",
 		);
 		const suppressed = dispatchWith(extra, "--item", id);
 		expect(suppressed.out).not.toContain("(pid");
-		// W782.4: the second refusal is the flag suppressing the re-emit.
-		expect(suppressed.out).toContain("NEED_DECISION suppressed (W782.4)");
+		expect(suppressed.out).toContain("launch backoff");
+		expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
+			"READY",
+		);
 	}, 60_000);
 
-	test("exhausted dead claim is preserved on preview and failed before another launch", () => {
+	test("exhausted dead claim is preserved on preview and returned to READY before another launch", () => {
 		const added = tool("work.ts", "add", "exhausted resume fixture");
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		const sid = `autow${id.slice(1)}`;
@@ -725,19 +738,28 @@ describe("crash resume budget", () => {
 				},
 			]),
 		);
+		writeFileSync(
+			join(fleet, `lane-${sid}.log`),
+			"API Error: 429 too many requests; Retry-After: 23\n",
+		);
 		const preview = dispatch("--dry-run", "--item", id);
 		expect(preview.out).toContain("resume budget exhausted");
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
 			'"state":"CLAIMED"',
 		);
+		const initial = dispatch("--item", id);
+		expect(initial.out).toContain("rate-limit launch backoff");
+		expect(tool("work.ts", "show", id, "--json").out).toContain(
+			'"state":"CLAIMED"',
+		);
+		expireLaunchHold(id);
 		const result = dispatch("--item", id);
-		expect(result.out).toContain("resume budget exhausted");
+		expect(result.out).toContain("launch exhausted; returned to READY");
 		expect(result.out).not.toContain("REFUSED");
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
-			'"state":"FAILED"',
+			'"state":"READY"',
 		);
-		// W870: the take itself provisioned the tree — budget exhaustion fails
-		// the claim, the claim's tree legitimately stands (nothing spawned)
+		// The worktree stays as continuation evidence while the claim returns to READY.
 		expect(existsSync(join(REPO, ".worktrees", id))).toBe(true);
 		rmSync(join(fleet, "lanes.json"));
 	}, 60_000);

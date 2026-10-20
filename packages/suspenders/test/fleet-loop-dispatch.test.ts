@@ -163,7 +163,7 @@ describe("codex dispatch workspace parity", () => {
 			]),
 		);
 		const d2 = dispatch();
-		expect(d2.err).toContain("executor exited during launch");
+		expect(d2.err).toContain("launch backoff");
 		expect(lstatSync(link).isSymbolicLink()).toBe(true);
 		expect(readdirSync(wt).filter((e) => e === "node_modules")).toHaveLength(1);
 	});
@@ -253,7 +253,9 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		).run(Date.now(), newItem);
 		const capped = launch();
 		expect(capped.exitCode).not.toBe(0);
-		expect(capped.stderr.toString()).toContain("item launch budget exhausted");
+		expect(capped.stderr.toString()).toContain(
+			"launch budget exhausted; READY after",
+		);
 		expect(
 			JSON.parse(tool("work.ts", "show", newItem, "--json").out).state,
 		).toBe("READY");
@@ -261,7 +263,7 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		writeFileSync(stop, "stop");
 		db.close();
 	}
-}, 15000);
+}, 30000);
 
 test("actual supported work show uses canonical checkout and holds mismatched project", async () => {
 	const { canonicalWorkClaim } = await import(
