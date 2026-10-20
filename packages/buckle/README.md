@@ -18,7 +18,7 @@ flowchart LR
         VS[VS Code / chat UIs]
     end
     BT["belt<br/>(fleet router)"]
-    BK["buckle<br/>:4100"]
+    BK["buckle<br/>:4101"]
     subgraph upstreams["upstream pool (data rows)"]
         SW["local swarm<br/>MLX / vLLM"]
         ZAI["z.ai / remote"]
@@ -67,9 +67,11 @@ check, missingQuestion, policySource}`): silent when satisfied, one
 
 ## Status
 
-Shadow-port complete, cut-over managed by the control plane
-(`docs/cut-over-runbook.md`): the gateway binds the serving port only
-after the owner flips it; until then the previous gateway keeps serving.
+Live on `127.0.0.1:4101` — the `resolvePort` startup guard refuses :4100
+from any source (`src/server.ts`), that port stays the belt/litellm tier.
+The scripted :4100 cut-over was superseded 2026-10-07 (W413) before it
+ran: `docs/cut-over-runbook.md` is retained as the historical record,
+outcome in the suspenders cut-over record it links.
 
 ## Run
 
@@ -91,12 +93,12 @@ loopback token mocks need `BUCKLE_TOKEN_HOST_LOOPBACK=on`.
 
 ## Design sources
 
-- `docs/design/belt-native-router-2026-10-01.md` (suspenders repo) —
-  architecture and build order
-- `docs/research/litellm-internals-2026-10-01.md` — line-precise LiteLLM
-  references (usage sniff, retry-after semantics, cooldown)
-- `docs/design/buckle/adapters-2026-10-01.md` — the five adapter families
-  and the provider-as-data law
+- `packages/suspenders/docs/design/buckle/routing-laws-2026-10-01.md` —
+  the belt grammar + routing laws, native in the router
+- `packages/suspenders/docs/design/buckle/gateway-repair-2026-10-01.md` —
+  the belt gateway repair lane that preceded the native router
+- `packages/suspenders/docs/design/buckle/cut-over-record-2026-10-02.md` —
+  the cut-over outcome record
 
 License: see [LICENSE](LICENSE). The LiteLLM provider docs vendored under
 [docs/providers/](docs/providers/README.md) remain MIT — their license text

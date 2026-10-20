@@ -14,13 +14,21 @@ underestimates. Suites labelled _smoke_ are exactly that. Quality
 
 ## Wire pings (connectivity smoke)
 
-One ping per wire, run by `bin/onboard.ts --verify`; a wire is "serving"
-only when the answer is non-empty and the model id is the pinned one.
+One ping per recipe, run by `bin/onboard.ts --verify` (local targets
+only — a non-local `--base-url` is refused in verify mode); a wire is
+"serving" when the probe comes back alive.
 
-- **openai chat**: POST `<base>/chat/completions` — "Say READY", max_tokens 5, temperature 0 → expect 200 + non-empty content.
-- **anthropic**: POST `<base>/v1/messages` — same body shape claude CLI sends; expect non-empty text block.
-- **responses wire**: POST `<base>/responses` — codex-style input; expect non-empty output_text.
-- **github_copilot via engine**: chat/completions with `model="github_copilot/<model>"` through :4100 → expect non-empty (W219.1 acceptance).
+- **anthropic** (claude recipe): POST `<root>/v1/messages` — 1-token
+  "ping" body (`max_tokens: 1`) → expect status < 500.
+- **openai family** (codex / copilot recipes): GET `<base>/models` → any
+  status < 500 means the gateway is alive; 401/403 = alive but
+  auth/config problem, reported, not fatal; 404/410 = no such route, a
+  hard fail.
+
+The W219.1 engine acceptance (chat/completions with
+`model="github_copilot/<model>"` through :4100 → non-empty answer)
+remains the recorded acceptance bench for the litellm-as-engine seam;
+`--verify` does not run it.
 
 ## Decision-model protocol (Jev / kev / hosted decision APIs)
 
