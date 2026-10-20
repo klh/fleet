@@ -155,7 +155,8 @@ const stub = Bun.serve({
 	},
 });
 const INGEST_ENV = {
-	INGEST_LLM_URL: `http://127.0.0.1:${stub.port}/v1/chat/completions`,
+	SUSPENDERS_BUCKLE_URL: `http://127.0.0.1:${stub.port}`,
+	SUSPENDERS_BUCKLE_TOKEN: "bksk_knowledge_fixture",
 };
 
 // canned distillation: two durable items; the payload echo discriminates the

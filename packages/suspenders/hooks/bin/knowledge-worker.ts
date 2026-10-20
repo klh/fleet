@@ -12,11 +12,11 @@
 // W103 adds the substitution contract's mechanical layer: doc-covered facts
 // become POINTER rows (source_ref → the doc, fact → the non-obvious residue)
 // or are rejected — never restatements of what one file already teaches.
-// env:   INGEST_LLM_URL / INGEST_LLM_KEY / INGEST_LLM_MODEL — explicit
-//        OpenAI-compatible distill endpoint (enterprise override — points at
-//        their own gateway); omit (default) and BeltDistillClient resolves
-//        belt via resolveBelt() and sends hint 'prefer local distill
-//        reasoning' — belt decides, local-first (W96).
+// env:   SUSPENDERS_BUCKLE_URL / SUSPENDERS_BUCKLE_TOKEN — scoped proxy key
+//        for the Buckle front. The default client sends W96's exact hint to
+//        local-swarm. Alternatively provision a mode-0600
+//        ~/.claude/local-llm/knowledge-buckle.json with {url,token}.
+//        INGEST_LLM_URL is rejected: it bypasses Buckle's audit.
 //        KNOWLEDGE_STORE_URL — reserved for a remote store adapter.
 //        KNOWLEDGE_DOCS_ROOT — repo root for the substitution test; unset →
 //        the mechanical check is OFF (prompt layer still applies).

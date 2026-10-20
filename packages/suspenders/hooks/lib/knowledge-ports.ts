@@ -1,19 +1,15 @@
 // hooks/lib/knowledge-ports.ts — W91 #9: the knowledge layer's ports. The
 // worker loop consumes INTERFACES, never concrete tech, so an enterprise
 // deployment can swap the store (Azure Blob / Postgres / Service Bus) or the
-// distill endpoint (their Foundry/Azure OpenAI via belt, or any
-// OpenAI-compatible URL) without touching the loop. Only the LOCAL adapters
-// are implemented here — the seam is the deliverable, remote adapters are
-// deliberately not written.
+// distill client without touching the loop. Production inference enters
+// Buckle; remote adapters are deliberately not written here.
 //
 //   KnowledgeStore — queue semantics + candidate storage + search. The FTS5
 //     specifics live in the SQLite adapter; a remote store implements search
 //     with its own engine. Remote manners: batch claim/complete, never
 //     chatty per-row round trips.
 //   DistillClient — payload → candidate JSON (knowledgeworker.md prepended
-//     here, per directive #6). Local impl targets :8903; any
-//     OpenAI-compatible URL works — belt's /api/route is exactly that, so
-//     fleet routing needs only env, no code.
+//     here, per directive #6). The default uses Buckle's local-swarm group.
 //
 // Config seam: a plain switch at daemon startup (env), no plugin framework.
 import type { Database } from "bun:sqlite";
@@ -39,8 +35,8 @@ import {
 	type Dismissal,
 	type DecayOpts,
 } from "./knowledge-curate.ts";
-import { resolveBelt } from "./belt-locate.ts";
 import { CONFIDENCE_MIN, makeStamp } from "./confidence.ts";
+import { knowledgeBuckleRoute } from "./knowledge-buckle.ts";
 
 export type { KnowledgeHit };
 
@@ -432,7 +428,12 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 			.query(
 				"UPDATE knowledge SET rating = COALESCE(?, rating), evidence = COALESCE(?, evidence), researched_at = COALESCE(?, researched_at) WHERE id = ?",
 			)
-			.run(fields.rating ?? null, fields.evidence ?? null, fields.researchedAt ?? null, id);
+			.run(
+				fields.rating ?? null,
+				fields.evidence ?? null,
+				fields.researchedAt ?? null,
+				id,
+			);
 		this.appendNote(
 			id,
 			by ?? "audit",
@@ -452,7 +453,11 @@ export class SqliteKnowledgeStore implements KnowledgeStore {
 				)
 				.run(reason.slice(0, 300), id).changes > 0;
 		if (!ok) return false;
-		this.appendNote(id, by ?? "audit", `graveyard: ${reason.slice(0, 300)} (W836)`);
+		this.appendNote(
+			id,
+			by ?? "audit",
+			`graveyard: ${reason.slice(0, 300)} (W836)`,
+		);
 		this.emitCurate("knowledge.graveyard", by ?? "audit", {
 			knowledge: id,
 			reason: reason.slice(0, 300),
@@ -1119,8 +1124,8 @@ async function defaultModel(url: string, key?: string): Promise<string> {
 	}
 }
 
-// W91 #9: local distill adapter — any OpenAI-compatible endpoint. Belt users
-// omit INGEST_LLM_URL and fall through to BeltDistillClient instead.
+// W91 #9: explicit adapter retained for direct unit use. The production
+// factory below rejects its legacy endpoint override so inference enters Buckle.
 export class LocalLlmDistillClient implements DistillClient {
 	constructor(
 		private url: string,
@@ -1182,10 +1187,8 @@ export class LocalLlmDistillClient implements DistillClient {
 	}
 }
 
-export class BeltDistillClient implements DistillClient {
-	// belt /api/route: W96 hint routing ('prefer local distill reasoning' —
-	// belt decides, local-first) — belt may live on another machine or be a
-	// wholly different system; resolveBelt() finds it (#9a chain)
+export class BuckleDistillClient implements DistillClient {
+	// Buckle accepts the W96 hint and routes local-swarm among Belt specialists.
 	async distill(
 		payload: string,
 		hints: {
@@ -1195,30 +1198,27 @@ export class BeltDistillClient implements DistillClient {
 			originSid: string | null;
 		},
 	): Promise<DistillItem[]> {
-		const loc = await resolveBelt();
-		if (!loc)
-			throw new Error("belt unreachable — jobs stay queued, retry later");
+		const { front, token } = knowledgeBuckleRoute();
 		const sys = activePrompt();
 		const user = `payload:\n${payload}\n\nenqueue hints: domain=${hints.domain ?? "null"}, area=${hints.area ?? "null"}, code_origin=${hints.codeOrigin ?? "null"}`;
-		return this.route(user, sys, loc);
+		return this.route(user, sys, front, token);
 	}
 
 	private async route(
 		user: string,
 		sys: string,
-		loc: { url: string; token?: string },
+		front: URL,
+		token: string,
 	): Promise<DistillItem[]> {
-		const r = await fetch(`${loc.url}/api/route`, {
+		const r = await fetch(new URL("/v1/chat/completions", front), {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
-				...(loc.token ? { authorization: `Bearer ${loc.token}` } : {}),
+				authorization: `Bearer ${token}`,
+				"x-belt-hint": "prefer local distill reasoning",
 			},
 			body: JSON.stringify({
-				// W96: belt decides, local-first — the hint REPLACES the interim
-				// INGEST_LLM_URL pin (an ingest pass is a distill/reasoning task)
-				hint: "prefer local distill reasoning",
-				execute: true,
+				model: "local-swarm",
 				max_tokens: 1600,
 				temperature: 0.2,
 				messages: [
@@ -1230,10 +1230,12 @@ export class BeltDistillClient implements DistillClient {
 		});
 		if (!r.ok)
 			throw new Error(
-				`belt ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`,
+				`Buckle distill route ${r.status}: ${(await r.text().catch(() => "")).slice(0, 200)}`,
 			);
-		const j = (await r.json()) as { reply?: string };
-		return parseDistill(j.reply ?? "");
+		const j = (await r.json()) as {
+			choices?: Array<{ message?: { content?: string } }>;
+		};
+		return parseDistill(j.choices?.[0]?.message?.content ?? "");
 	}
 }
 
@@ -1249,11 +1251,12 @@ export function makeStore(): KnowledgeStore {
 
 export function makeDistillClient(): DistillClient {
 	if (process.env.INGEST_LLM_URL)
-		return new LocalLlmDistillClient(
-			process.env.INGEST_LLM_URL,
-			process.env.INGEST_LLM_KEY || undefined,
+		throw new Error(
+			"INGEST_LLM_URL bypasses Buckle; configure SUSPENDERS_BUCKLE_URL and scoped SUSPENDERS_BUCKLE_TOKEN instead",
 		);
-	return new BeltDistillClient(); // resolveBelt() chain per attempt (#9a)
+	// Fail before the worker claims queue rows if its proxy credential is absent.
+	knowledgeBuckleRoute();
+	return new BuckleDistillClient();
 }
 
 // producer seam (#9b): enqueue through the port, never INSERT directly — a
