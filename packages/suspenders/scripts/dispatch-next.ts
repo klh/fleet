@@ -1107,6 +1107,7 @@ const dispatchItem = async (
 			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
 			// settings/fork composition; dispatch carries no executor branches.
 			promptArgs: adapter.promptArgs(lanePrompt),
+			promptLast: adapter.promptLast === true,
 			cliArgs: adapter.spawnArgs({
 				fallbackModels: pick.fallbackModels,
 				settingsArgs,
