@@ -223,6 +223,7 @@ export function buildDeps(
 			...input,
 			candidates: table.snapshot(),
 			prefs,
+			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
 		});
 	const dbPath = opts.dbPath ?? process.env.BUCKLE_DB ?? "buckle.db";
 	const federation = new Federation({

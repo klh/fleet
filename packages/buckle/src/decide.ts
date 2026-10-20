@@ -36,7 +36,7 @@ export interface RouteSelection {
 	head: CandidateRow; // the selected target
 	fit: number; // head's fit at decision time
 	total: number; // hint groups the hint carries
-	decision: Exclude<DecisionKind, "fallback" | "errored">;
+	decision: Exclude<DecisionKind, "errored">;
 	verb: "prefer" | "must" | "auto" | null; // drives the must-domain closure in the walk
 	cloudGroups: Set<string>;
 	prefs: Prefs; // prefs state at decision time (audit + gate)
@@ -109,6 +109,8 @@ export interface DecideInput {
 	 *  eligible, ranked behind every same-dialect row. count_tokens opts
 	 *  out (openai wire has no count endpoint). */
 	allowCross?: boolean;
+	/** Operator-authorized substitution when this model has no healthy row. */
+	fallbackGroups?: readonly string[];
 }
 
 /** The decision (W136 §4). Prefs gate cloud delivery first (precedence 1);
@@ -141,13 +143,29 @@ export function decideRoute(input: DecideInput): DecideResult {
 				why: `pin '${input.group}': cloud is disabled by owner prefs — pins never substitute`,
 			},
 		};
-	const scoped = pinned
-		? pinnedViable.filter(
+	const configuredFallbacks =
+		input.allowCross && input.hint?.verb !== "must"
+			? (input.fallbackGroups ?? [])
+			: [];
+	const fallbackRows = input.candidates.filter(
+		(c) => configuredFallbacks.includes(c.group) && c.healthy && viable(c),
+	);
+	const useFallback =
+		configuredFallbacks.length > 0 &&
+		(!pinned || !pinnedViable.some((c) => c.healthy));
+	const scoped = useFallback
+		? fallbackRows.filter(
 				(c) => input.allowCross || c.dialect === input.dialect,
 			)
-		: input.candidates.filter((c) => c.dialect === input.dialect && viable(c));
+		: pinned
+			? pinnedViable.filter(
+					(c) => input.allowCross || c.dialect === input.dialect,
+				)
+			: input.candidates.filter(
+					(c) => c.dialect === input.dialect && viable(c),
+				);
 	const pool: CandidateRow[] = [...scoped];
-	if (!pinned && input.allowCross)
+	if (!pinned && !useFallback && input.allowCross)
 		pool.push(
 			...input.candidates.filter(
 				(c) => c.dialect !== input.dialect && viable(c),
@@ -158,7 +176,7 @@ export function decideRoute(input: DecideInput): DecideResult {
 	// W710 (W694 M3): an all-unhealthy pin refuses instead of heading a
 	// doomed row. must keeps its own fit-filtered error and the owner-gate
 	// precedence checked above it.
-	if (pinned && pool.length > 0 && !pool.some((c) => c.healthy))
+	if (pinned && !useFallback && pool.length > 0 && !pool.some((c) => c.healthy))
 		return {
 			ok: false,
 			err: {
@@ -250,14 +268,22 @@ function okSel(
 			head,
 			fit,
 			total,
-			decision: fit < total ? "degraded" : "policy",
+			decision:
+				input.fallbackGroups?.includes(head.group) && head.group !== input.group
+					? "fallback"
+					: fit < total
+						? "degraded"
+						: "policy",
 			verb: input.hint?.verb ?? null,
-			cloudGroups: cloudSet(pool),
+			cloudGroups: cloudSet(input.candidates),
 			prefs: input.prefs,
 			why:
 				total > 0
 					? `hint '${input.hintRaw}': ${decideWhy(head, fit, total)}`
-					: decideWhy(head, 0, 0),
+					: head.group !== input.group &&
+							input.fallbackGroups?.includes(head.group)
+						? `configured fallback ${input.group} → ${head.group}: ${decideWhy(head, 0, 0)}`
+						: decideWhy(head, 0, 0),
 		},
 	};
 }
