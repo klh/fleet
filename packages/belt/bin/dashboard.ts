@@ -819,6 +819,16 @@ const networkSnapshot = async (): Promise<Response> => {
 		if (!response.ok)
 			return json({ ok: false, reason: "Board network feed unavailable" });
 		const payload = (await response.json()) as Record<string, unknown>;
+		let topology: unknown = null;
+		try {
+			const topologyResponse = await fetch(
+				new URL("/api/console/topology", base),
+				{ signal: controller.signal },
+			);
+			topology = topologyResponse.ok ? await topologyResponse.json() : null;
+		} catch {
+			// The existing Network panels still render if graph detail is unavailable.
+		}
 		const network = payload.network as Record<string, unknown> | undefined;
 		const gateway = payload.gateway as Record<string, unknown> | undefined;
 		return json({
@@ -831,6 +841,7 @@ const networkSnapshot = async (): Promise<Response> => {
 						observedAt: gateway.observedAt,
 					}
 				: null,
+			topology,
 			network: network?.ok
 				? {
 						ok: true,
