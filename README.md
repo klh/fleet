@@ -86,8 +86,9 @@ attribution: the
 [federation architecture](docs/upstream-observability-architecture.md).
 
 Sharing a coordination store requires matching project identity. Enrollment
-stages for cross-clone identity have landed; a migration verb for existing
-graphs and writer-side enforcement remain open
+stages for cross-clone identity have landed, including the migration verb for
+existing graphs (`coord project rekey`, W428); writer-side enforcement
+remains open
 ([cross-hub project identity](docs/cross-hub-project-identity.md),
 [October 2026 audit](docs/md-corpus-audit-w693.md)).
 
@@ -361,13 +362,13 @@ Landed:
   `hubctl deploy` is the one-shot chain (mint, push, up, status).
 - The umbrella installer defaults to this repository; `bash install.sh` from
   `packages/suspenders` remains the only repo-to-prefix sync.
+- NAS hub flip (W820.1, 2026-10-20): `hubctl deploy nas` green, all services
+  and probe sidecars healthy at the pinned stack ref
+  ([run record](docs/nas-flip-w820-2026-10-20.md)).
 
 Open:
 
-- NAS hub flip: gated on a pending owner decision
-  (`docs/md-corpus-audit-w693.md`, NEED_DECISION #30282).
-- Cross-clone identity: a migration verb for existing graphs and
-  writer-side enforcement are still design work.
+- Cross-clone identity: writer-side enforcement is still design work.
 - The enterprise overlay (klh-remote) is local-only until its GitHub push.
 
 The work graph is the live ledger for everything else: run `work ready` or
