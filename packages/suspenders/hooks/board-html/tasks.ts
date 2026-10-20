@@ -487,10 +487,10 @@ function kanbanCard(t, fam){
   var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
   if (kid) html += '<span class="kidmark">↳</span>';
   html += '<div class="krow">' + taskPill(displayState(t)) +
-    '<button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
     (od ? '<span class="kdec">needs you</span>' : '') +
-    '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>' +
-    (t.updated_at_utc ? '<div class="kcardstamp dim">' + laneStamp(t.updated_at_utc) + '</div>' : '');
+    (t.updated_at_utc ? '<span class="kcardstamp dim">' + laneStamp(t.updated_at_utc) + '</span>' : '') + '</div>' +
+    '<div class="kcardident"><button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
+    '<span class="kage dim">' + agoShort(t.age_s) + '</span></div>';
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
@@ -499,10 +499,10 @@ function kanbanCard(t, fam){
   var laneOwner = String(t.owner_label || t.owner_sid || 'unclaimed');
   var laneOrigin = t.origin ? String(t.origin) : '';
   html += '<div class="kmeta">';
-  if (t.model) html += '<span class="kmodel' + (t.locality === 'local' ? ' loc' : '') + '" title="model: ' + esc(String(t.model)) + (t.locality ? ' · ' + esc(String(t.locality)) : '') + '">' + esc(String(t.model)) + '</span>';
+  if (t.model) html += '<span class="kmodel" title="model: ' + esc(String(t.model)) + (t.locality ? ' · ' + esc(String(t.locality)) : '') + '">' + esc(String(t.model)) + '</span>';
   html += '<span class="klane dim" title="lane ' + esc(laneOwner) + (laneOrigin ? ' · ' + esc(laneOrigin) : '') + '">' + (laneOrigin ? 'via ' + esc(laneOrigin) : 'lane ' + esc(laneOwner)) + '</span></div>';
   html += spendStripHtml(t);
-  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="' + esc(String(t.failure_note)) + '">' + esc(String(t.failure_note)) + '</div>';
+  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="Open details for the full failure reason">' + esc(String(t.failure_note).split(';')[0]) + '</div>';
   if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
   if (t.signal) html += '<div class="ksignal dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>';
   if (startable) {
@@ -907,7 +907,7 @@ function renderDrawer(){
     (t.parent_id ? '<div class="r"><span class="dim">parent</span> ' + esc(t.parent_id) + '</div>' : '') +
     '<div class="r"><span class="dim">age</span> ' + ago(t.age_s) + '</div>' +
     '<div class="r"><span class="dim">open decisions</span> ' + (t.open_decisions || 0) + '</div>';
-  if (t.failure_note) meta += '<div class="r"><span class="dim">failure</span> ' + esc(String(t.failure_note)) + '</div>';
+  var failure = t.failure_note ? '<div class="feed failure-detail"><h2>Failure reason</h2><p>' + esc(String(t.failure_note)) + '</p>' + (t.tail && t.tail.text ? '<h3>Recent output excerpt</h3><p>' + esc(String(t.tail.text)) + '</p>' : '') + '</div>' : '';
   var decs = '';
   var dl = d.decisions || [];
   for (var i = 0; i < dl.length; i++) {
@@ -928,7 +928,7 @@ function renderDrawer(){
     '<div class="drawerAction"><label for="asop">Second opinion</label><div class="drawerActionControls">' +
     '<select id="asop" aria-label="second-opinion executor">' + execOptions(defaultPick(t)) + '</select>' +
     '<button type="button" class="retry" id="asopBtn">Request review</button></div></div>';
-  var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' +
+  var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' + failure +
     spendStripHtml(t, 'kspend-drawer') +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';

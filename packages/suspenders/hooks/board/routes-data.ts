@@ -211,6 +211,16 @@ export async function handleData(
 				)
 				.get(p, id) as { n: number }
 		).n;
+		const failureNote =
+			w.state === "FAILED"
+				? ((
+						db
+							.query(
+								"SELECT json_extract(payload, '$.note') AS note FROM events WHERE kind = 'work.failed' AND project = ? AND work = ? ORDER BY id DESC LIMIT 1",
+							)
+							.get(p, id) as { note: string | null } | null
+					)?.note ?? null)
+				: null;
 		return json({
 			ok: true,
 			projects: projectList(),
@@ -220,7 +230,7 @@ export async function handleData(
 				unblockedBy(),
 				undefined,
 				itemAttribution(db as unknown as Database, p).get(id) ?? null,
-				null,
+				failureNote,
 				undefined,
 				signalFor(p, id),
 			),

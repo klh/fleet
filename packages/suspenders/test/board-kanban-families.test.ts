@@ -44,10 +44,11 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"laneStamp",
 		"window",
 		`${TASKS}\nreturn { kanbanFamilies, kanbanCard, displayState };`,
 	);
-	return fn(esc, taskPill, agoShort, {
+	return fn(esc, taskPill, agoShort, (s: string) => s, {
 		__execPrefs: [],
 		addEventListener: () => {},
 	});
@@ -90,6 +91,28 @@ describe("board kanban shattered families (W819)", () => {
 		expect(html).toContain("resume budget exhausted &lt;script&gt;");
 		expect(html).not.toContain("<script>");
 		expect(html).toContain("upstream returned 401");
+	});
+	test("card puts status and date above item ID and age, with plain model text", () => {
+		const { kanbanCard } = chunkSandbox();
+		const html = kanbanCard({
+			project: P,
+			id: "W934.2.2",
+			title: "consult benchmark",
+			state: "FAILED",
+			age_s: 240,
+			updated_at_utc: "2026-10-20T08:32:04.182Z",
+			model: "claude-sonnet-5",
+			origin: "Muramasa.localdomain:claude",
+			failure_note:
+				"resume budget exhausted after 3 launches; inspect the lane",
+		});
+		expect(html.indexOf('class="krow"')).toBeLessThan(
+			html.indexOf('class="kcardident"'),
+		);
+		expect(html).toContain('class="kmodel"');
+		expect(html).not.toContain('class="kmodel loc"');
+		expect(html).toContain("resume budget exhausted after 3 launches");
+		expect(html).not.toContain("inspect the lane");
 	});
 	test("non-terminal child nests under resident SHATTERED parent with parent color + depth", () => {
 		const { kanbanFamilies } = chunkSandbox();
