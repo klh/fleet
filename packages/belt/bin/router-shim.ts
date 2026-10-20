@@ -798,20 +798,16 @@ Bun.serve({
 				}
 			}
 
-			// cloud escalation — prefs-gated, never in cost mode; warranted by
-			// COMPLEX+ or a cloud serving-tier decision. W279: cloud-decided
-			// requests escalated FIRST (tryCloud above); this tail hop covers the
-			// COMPLEX+ fallback when the local ladder fails.
-			const cloudWarranted =
-				score.tier === "COMPLEX" ||
-				score.tier === "VERY_COMPLEX" ||
-				prefs.cost_speed === "quality" ||
-				el.label === "cloud";
+			// cloud escalation — prefs-gated, never in cost mode. W279:
+			// cloud-decided requests escalated FIRST (tryCloud above); this tail
+			// hop covers the fallback when the local ladder fails. W1071 (owner
+			// doctrine 2026-10-20): default max throughput — every ladder failure
+			// spills to cloud; prefs are the opt-in throttle, upstream 429 +
+			// Retry-After are the reactive one.
 			if (
 				!response &&
 				!(resultToolCalls && resultToolCalls.length > 0) &&
 				cloudAllowed(prefs) &&
-				cloudWarranted &&
 				!triedCloud
 			) {
 				await tryCloud(score.tier !== "VERY_COMPLEX");
