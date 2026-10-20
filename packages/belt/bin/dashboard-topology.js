@@ -45,6 +45,7 @@ class BeltTopology extends LitElement {
 		error: { state: true },
 		networkIssue: { state: true },
 		selectedId: { state: true },
+		expandedHubs: { state: true },
 		query: { state: true },
 		pageVisible: { state: true },
 	};
@@ -75,6 +76,9 @@ class BeltTopology extends LitElement {
 		.work-label { fill:var(--klh-ink); font-size:11px; font-weight:600; }
 		.work-counts { fill:var(--klh-dim); font-size:10px; font-variant-numeric:tabular-nums; }
 		.group { fill:var(--klh-dim); font-size:10px; letter-spacing:1.3px; }
+		.model-toggle { fill:var(--klh-accent); cursor:pointer; text-decoration:underline; font-size:10px; }
+		.model-toggle-hit { fill:transparent; cursor:pointer; }
+		.model-toggle-group:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
 		.traffic { display:flex; flex-wrap:wrap; gap:var(--klh-space-2); min-block-size:34px; margin:var(--klh-space-3) 0; }
 		.traffic span { display:flex; align-items:baseline; gap:6px; padding:4px 8px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); font-size:var(--klh-text-sm); }
 		.traffic strong { font-variant-numeric:tabular-nums; }
@@ -128,6 +132,7 @@ class BeltTopology extends LitElement {
 		this.error = "";
 		this.networkIssue = "";
 		this.selectedId = null;
+		this.expandedHubs = new Set();
 		this.query = "";
 		this.pageVisible = !document.hidden;
 		this.onVisibility = () => {
@@ -226,6 +231,17 @@ class BeltTopology extends LitElement {
 			? "hub local target"
 			: "network target";
 	}
+	toggleHub(name) {
+		const expanded = new Set(this.expandedHubs);
+		if (expanded.has(name)) expanded.delete(name);
+		else expanded.add(name);
+		this.expandedHubs = expanded;
+	}
+	onToggleHubKey(event, name) {
+		if (event.key !== "Enter" && event.key !== " ") return;
+		event.preventDefault();
+		this.toggleHub(name);
+	}
 	edge(path, link) {
 		const description =
 			link.evidence === "observed"
@@ -249,7 +265,32 @@ class BeltTopology extends LitElement {
 		work = null,
 		gatewayModels = null,
 		gatewayModelTargets = {},
+		hubKey = null,
 	) {
+		const exposed = hubKey
+			? [
+					...(gatewayModels ?? []).map((name) => ({
+						name,
+						source: this.targetHint(gatewayModelTargets[name]),
+						targets: gatewayModelTargets[name] ?? [],
+						state: "unknown",
+						usage15: null,
+					})),
+					...models.map((item) => ({
+						name: item.model,
+						source: "probe · origin unknown",
+						targets: [],
+						state: item.state,
+						usage15: Number.isFinite(item.requests15) ? item.requests15 : null,
+					})),
+				].sort(
+					(a, b) =>
+						(b.usage15 ?? -1) - (a.usage15 ?? -1) ||
+						a.name.localeCompare(b.name),
+				)
+			: [];
+		const expanded = hubKey && this.expandedHubs.has(hubKey);
+		const visible = expanded ? exposed : exposed.slice(0, 2);
 		const counts =
 			work &&
 			["ready", "working", "waiting", "blocked", "failed", "done"].every(
@@ -260,26 +301,33 @@ class BeltTopology extends LitElement {
 		return svg`<g><rect class="machine" x=${x} y=${y} width=${width} height=${height} rx="6"></rect>
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(state)}></circle><text class="title" x=${x + 25} y=${y + 22}>${title}</text>
 			${consoleUrl ? svg`<a href=${consoleUrl} target="_blank" rel="noopener noreferrer" aria-label=${`Open ${title} console in a new tab`}><text class="console-link" x=${x + width - 44} y=${y + 22}>Open ↗</text></a>` : ""}
-			<rect class="buckle" x=${x + 12} y=${y + 34} width=${width - 24} height=${gatewayModels ? 112 : 40} rx="3"></rect>
+			<rect class="buckle" x=${x + 12} y=${y + 34} width=${width - 24} height="40" rx="3"></rect>
 			<text class="title" x=${x + 23} y=${y + 50}>Buckle</text><text class="meta endpoint" x=${x + 23} y=${y + 66}>${buckle}</text>
 			${
-				gatewayModels
-					? svg`<g><title>Models exposed by this hub's configured Buckle routes. A configured route does not prove current inference readiness or who owns the model.</title>
-				<text class="title" x=${x + 23} y=${y + 83}>Exposed models · ${gatewayModels.length} configured</text>
-				${gatewayModels.slice(0, 2).map((model, index) => svg`<g><title>${model} · targets: ${(gatewayModelTargets[model] ?? []).join(", ") || "unreported"}</title><text class="meta" x=${x + 23} y=${y + 100 + index * 16}>${this.shortModel(model, 17)} · ${this.targetHint(gatewayModelTargets[model])}</text></g>`)}
-				${gatewayModels.length > 2 ? svg`<text class="meta" x=${x + 23} y=${y + 132}>+${gatewayModels.length - 2} configured routes</text>` : ""}
+				hubKey
+					? svg`<g>
+				<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
+				<text class="title" x=${x + 23} y=${y + 102}>Models exposed · ${exposed.length}</text>
 				${
-					models.length
-						? svg`<g>
-					<rect class="belt" x=${x + 12} y=${y + 158} width=${width - 24} height="22" rx="2"></rect>
-					<text class="title" x=${x + 23} y=${y + 174}>Other reported models · ${models.length}</text>
-					${models.map(
-						(item, index) => svg`<g><title>${item.model}</title>
-						<circle cx=${x + 24} cy=${y + 197 + index * 35} r="3" fill=${colour(item.state)}></circle>
-						<text class="title" x=${x + 34} y=${y + 201 + index * 35}>${this.shortModel(item.model, 23)}</text>
-						<text class="meta" x=${x + 34} y=${y + 215 + index * 35}>source unverified</text>
-					</g>`,
-					)}
+					visible.length
+						? visible.map((item, index) => {
+								const column = index % 2;
+								const row = Math.floor(index / 2);
+								const itemX = x + 23 + column * 124;
+								const itemY = y + 125 + row * 40;
+								return svg`<g><title>${item.name} · ${item.source}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}</title>
+						<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
+						<text class="title" x=${itemX + 9} y=${itemY + 4}>${this.shortModel(item.name, 16)}</text>
+						<text class="meta" x=${itemX + 9} y=${itemY + 18}>${item.source}</text>
+					</g>`;
+							})
+						: svg`<text class="meta" x=${x + 23} y=${y + 132}>No model inventory reported</text>`
+				}
+				${
+					exposed.length > 2
+						? svg`<g class="model-toggle-group" role="button" tabindex="0" aria-expanded=${expanded ? "true" : "false"} aria-label=${`${expanded ? "Show fewer" : `Show all ${exposed.length}`} models on ${title}`} @click=${() => this.toggleHub(hubKey)} @keydown=${(event) => this.onToggleHubKey(event, hubKey)}>
+					<rect class="model-toggle-hit" x=${x + 18} y=${y + 151 + (Math.ceil(visible.length / 2) - 1) * 40} width=${width - 36} height="25"></rect>
+					<text class="model-toggle" x=${x + 23} y=${y + 171 + (Math.ceil(visible.length / 2) - 1) * 40}>${expanded ? "Show fewer ↑" : `Show all ${exposed.length} ↓`}</text>
 				</g>`
 						: ""
 				}
@@ -529,12 +577,20 @@ class BeltTopology extends LitElement {
 					model,
 					state: inventory.state,
 				}));
+			const exposedCount =
+				(item.gatewayModels?.length ?? 0) + remoteModels.length;
+			const visibleCount = this.expandedHubs.has(item.name)
+				? exposedCount
+				: Math.min(2, exposedCount);
 			const card = {
 				...item,
 				y: hubY,
-				height: item.gatewayModels
-					? 160 + (remoteModels.length ? 38 + remoteModels.length * 35 : 0)
-					: Math.max(150, 120 + remoteModels.length * 35),
+				height:
+					exposedCount > 2
+						? 195 + Math.max(0, Math.ceil(visibleCount / 2) - 1) * 40
+						: exposedCount > 0
+							? 162
+							: 150,
 				models: remoteModels,
 			};
 			hubY += card.height + 12;
@@ -608,7 +664,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets))}
+				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,
