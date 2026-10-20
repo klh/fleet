@@ -228,11 +228,11 @@ function renderFleet(){
   for (var i = 0; i < ss.length; i++) if (ss[i].state === 'RUNNING' && ss[i].live === true) working++;
   var zombies = d.zombies || [];
   var zN = view.recent.filter(function(s){ return s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies); }).length;
-  var blocked = 0;
+  var gated = 0;
   var proj = d.projects || [];
-  for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) blocked += (proj[p].gated || []).filter(function(item){ return scopedLane(item.owner, proj[p].project); }).length;
+  for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) gated += (proj[p].gated || []).filter(function(item){ return scopedLane(item.owner, proj[p].project); }).length;
   var waiting = openDecs().filter(function(decision){ return scopedSource(decision.asked_by || decision.target, decision.project); }).length;
-  var line = 'fleet: ' + working + ' live sessions · ' + waiting + ' waiting on you · ' + blocked + ' blocked' +
+  var line = 'fleet: ' + working + ' live sessions · ' + waiting + ' waiting on you · ' + gated + ' gated' +
     ' · ' + view.recent.length + ' recent lanes' + (zN ? ' · ' + zN + ' recently flagged' : '');
   var ck = d.consults;
   if (sel.value === 'all' && hubScope().origin === 'all' && hubScope().peer === 'all' && ck && (ck.human || ck.kbSolutions)) {
@@ -252,7 +252,7 @@ function renderFleet(){
   setText(el, line);
   setText(byId('fleetWorking'), working);
   setText(byId('fleetWaiting'), waiting);
-  setText(byId('fleetBlocked'), blocked);
+  setText(byId('fleetBlocked'), gated);
   setText(byId('fleetRecentCount'), view.recent.length);
   var context = [];
   if (zN) context.push(zN + ' recently flagged');
@@ -262,7 +262,7 @@ function renderFleet(){
   context.unshift('Live = RUNNING with a heartbeat within 5 min; claimed work is on Tasks');
   setText(byId('fleetContext'), context.join('   ·   '));
   setText(byId('stamp'), (d.observation ? d.observation.kind + ' snapshot · observed ' : 'updated ') + ago(Math.max(0, Math.round((Date.now() - (d.observation ? d.observation.observedAt : d.ts)) / 1000))));
-  byId('blockedn').textContent = blocked ? blocked + ' blocked' : '';
+  byId('blockedn').textContent = gated ? gated + ' gated' : '';
   var body = byId('fleetBody');
   if (body.style.display === 'none') return; // collapsed: skip chip rebuild
   fleetElements(body);

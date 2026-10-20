@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { BODY } from "./body.ts";
 import {
 	matchesHubScope,
 	selectGovernorCompletions,
@@ -7,6 +8,13 @@ import {
 import { RENDERS } from "./renders.ts";
 
 const fleetRenderScript = `function setNodes(el, text){ el.textContent = text; } function stLetter(){ return ''; } function esc(text){ return String(text); } ${RENDERS}; return renderFleet;`;
+
+test("header explains gated work separately from the BLOCKED lane", () => {
+	expect(BODY).toContain(
+		'id="blockedn" title="Gated work items: READY with unmet dependencies, WAITING, BLOCKED, or PAUSED. The Lanes BLOCKED count uses its own display state."',
+	);
+	expect(BODY).toContain("</b> gated</span>");
+});
 
 const lane = (
 	sid: string,
@@ -247,9 +255,10 @@ test("served overview bounds history and filters it without inserting HTML", () 
 		"<img onerror=bad()>",
 	);
 	expect(roots.fleetLine.textContent).toContain(
-		"0 live sessions · 0 waiting on you · 1 blocked",
+		"0 live sessions · 0 waiting on you · 1 gated",
 	);
 	expect(roots.fleetBlocked.textContent).toBe(1);
+	expect(roots.blockedn.textContent).toBe("1 gated");
 	expect(byId("fleetHistoryLanes")?.children).toHaveLength(0);
 	const history = byId("fleetHistory");
 	if (!history) throw new Error("Missing native history details");
