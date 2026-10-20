@@ -14,10 +14,10 @@ import { join } from "node:path";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
 import type { PlaidRoute } from "../hooks/lib/plaid.ts";
 import {
-	PLAID,
-	PLAID_ROUTES,
 	fetchModelCatalog,
 	mergePlaidHealth,
+	PLAID,
+	PLAID_ROUTES,
 	parsePosture,
 	plaidAssign,
 	plaidGate,

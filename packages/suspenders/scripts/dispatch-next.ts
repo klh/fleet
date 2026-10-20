@@ -86,7 +86,6 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
-import { plaidGate, plaidProbeHealth } from "../hooks/lib/plaid.ts";
 import {
 	cvMap,
 	executorCv,
@@ -110,6 +109,8 @@ import { laneSid } from "../hooks/lib/laneslug.ts";
 // W911: the bounded plaid posture — the ONE override of the execPick chain.
 import {
 	plaidDispatch,
+	plaidGate,
+	plaidProbeHealth,
 	postureWidth,
 	readPosture,
 	recordPlaidTrace,
@@ -132,12 +133,12 @@ import {
 	type StarterSeedFailure,
 	starterStartLine,
 } from "./lib/lane-starter.ts";
-import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	scheduleLaunchBackoff,
 } from "./lib/launch-backoff.ts";
+import { launchCleanup } from "./lib/launch-cleanup.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
