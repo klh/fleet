@@ -57,6 +57,7 @@ const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
 		// hoisted live secret values into test output (W670 fixture-knob family)
 		anthropicKeyFile: join(dir, "anthropic-absent.key"),
 		copilotKeyFile: join(dir, "copilot-absent.key"),
+		openrouterKeyFile: join(dir, "openrouter-absent.key"),
 		log: join(dir, "litellm.log"),
 		...over,
 	};
@@ -135,6 +136,23 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 			anthropicKeyFile: join(dir, "anthropic-test.key"),
 		});
 		expect(g.ANTHROPIC_API_KEY).toBe("file-a");
+	});
+
+	test("OpenRouter inference key is optional, file-backed, and env-overridable", () => {
+		const keyFile = join(dir, "openrouter-test.key");
+		writeFileSync(keyFile, "openrouter-test-secret\n", { mode: 0o600 });
+		const configured = paths({ openrouterKeyFile: keyFile });
+		expect(
+			loadKeys(configured, { Z_AI_API_KEY: "z", LITELLM_KEY: "m" })
+				.OPENROUTER_API_KEY,
+		).toBe("openrouter-test-secret");
+		expect(
+			loadKeys(configured, {
+				Z_AI_API_KEY: "z",
+				LITELLM_KEY: "m",
+				OPENROUTER_API_KEY: "override",
+			}).OPENROUTER_API_KEY,
+		).toBe("override");
 	});
 
 	test("missing keys throw naming the source, not a value", () => {

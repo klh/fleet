@@ -3,7 +3,13 @@
 // (remote tiers). Output is PRIVATE:
 // ~/.claude/local-llm/litellm.yaml (mode 600 — carries the zai key reference,
 // resolved at runtime via os.environ/Z_AI_API_KEY, never inline).
-import { readFileSync } from "node:fs";
+import {
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import {
 	emitClassTiers,
@@ -15,9 +21,13 @@ import {
 import { buildRemoteEntries } from "./remotes-validate.ts";
 import { chatEntries } from "./registry.ts";
 import { litellmRows } from "./registry-emit.ts";
+import { openRouterFreeRows } from "./openrouter-free-rows.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const REMOTES_PATH = `${HOME}/.claude/local-llm/remotes.json`;
+const OPENROUTER_FREE_CATALOG =
+	process.env.OPENROUTER_FREE_CATALOG ??
+	`${HOME}/.claude/local-llm/openrouter-free.json`;
 
 // W192: remotes.json is parsed but NEVER trusted — grammar validation and
 // entry building live in remotes-validate.ts. Unparseable config aborts the
@@ -64,6 +74,21 @@ const remotesBuilt = buildRemoteEntries(remotesRaw);
 for (const s of remotesBuilt.skipped)
 	console.error(`gateway-config: skipped ${s.ref}: ${s.why}`);
 entries.push(...remotesBuilt.entries);
+// An inference key is the activation gate. A management key is not usable
+// here; the LiteLLM supervisor injects only OPENROUTER_API_KEY.
+const openRouterKeyPresent = Boolean(
+	process.env.OPENROUTER_API_KEY?.trim() ||
+		(() => {
+			try {
+				const key = statSync(`${HOME}/.claude/local-llm/openrouter.key`);
+				return key.isFile() && (key.mode & 0o777) === 0o600 && key.size > 0;
+			} catch {
+				return false;
+			}
+		})(),
+);
+if (openRouterKeyPresent)
+	entries.push(...openRouterFreeRows(OPENROUTER_FREE_CATALOG));
 
 // (openai-dialect draft above is superseded by fullYaml — kept variables
 // merged there; this block intentionally removed)
@@ -153,7 +178,18 @@ const fullYaml =
 	emitFallbackSettings(policy) +
 	`general_settings:\n  master_key: os.environ/LITELLM_KEY\n`;
 const out = `${HOME}/.claude/local-llm/litellm.yaml`;
-await Bun.write(out, fullYaml);
+const temp = `${out}.${crypto.randomUUID()}.tmp`;
+try {
+	writeFileSync(temp, fullYaml, { mode: 0o600, flag: "wx" });
+	renameSync(temp, out);
+} catch (error) {
+	try {
+		unlinkSync(temp);
+	} catch {
+		/* preserve original error */
+	}
+	throw error;
+}
 console.log(
 	`wrote ${out}: ${locals.length} local + ${remotesBuilt.entries.length} remote models — live ${discovered.map((d) => `${d.port}=${d.id.slice(13, 40)}`).join(", ")}`,
 );

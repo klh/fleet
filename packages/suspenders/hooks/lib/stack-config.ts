@@ -107,7 +107,12 @@ export interface HubProfile {
 	 *  into the deploy dir and merged over the committed (placeholder)
 	 *  ladder via BUCKLE_UPSTREAMS. Keys stay in env vars named by each
 	 *  row's api_key_env — never values here. */
-	upstreams?: { groups?: Record<string, Array<Record<string, unknown>>> };
+	upstreams?: {
+		groups?: Record<string, Array<Record<string, unknown>>>;
+		/** Machine-local generated OpenRouter free-model snapshot. hubctl
+		 * merges this below explicit groups when pushing hub config. */
+		openrouter_free_catalog_file?: string;
+	};
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */
 	provider_intents?: string[];

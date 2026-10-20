@@ -203,6 +203,18 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
 	},
 	{
+		// Machine-local inference key + opted-in hub gate the catalog fetch.
+		// A changed route set regenerates LiteLLM and reloads Buckle; failures
+		// retain the previous applied marker for the next cadence.
+		name: "openrouter-free-refresh",
+		everySeconds: 1800,
+		timeoutMs: 240_000,
+		argv: (root) => [
+			join(root, "deploy/openrouter-free-sync.ts"),
+			"refresh-configured",
+		],
+	},
+	{
 		// W1013: the WS-native ChatGPT auto-coordinate loop — scans the work
 		// graph for gated triggers (NEED_DECISION, item failed after >=2 runs,
 		// benchmarks.md row) and asks the ChatGPT co-supervisor over the W931

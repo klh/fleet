@@ -30,6 +30,21 @@ hubs:
     # a missing key. Do not declare groups before then: they would look like
     # exposed models in the network overview. See
     # docs/design/buckle/muramasa-provider-activation.md for the exact rows.
+    # To expose every currently free text model from OpenRouter, provision a
+    # limited inference API key for the local LiteLLM engine first. A
+    # management key cannot serve inference. Buckle needs only its existing
+    # LiteLLM master key. Then set buckle_prefs.allow_cloud: true and:
+    # secrets:
+    #   upstream_keys:
+    #     LITELLM_KEY: /path/on/hub/litellm.key
+    # upstreams:
+    #   openrouter_free_catalog_file: /absolute/machine/path/openrouter-free.desktop.json
+    # Refresh that snapshot with:
+    #   bun deploy/openrouter-free-sync.ts sync --output /absolute/machine/path/openrouter-free.desktop.json
+    # hubctl reload-upstreams desktop merges the generated Buckle routes
+    # below any explicit groups and recreates only Buckle. The local
+    # LiteLLM :4100 config must also contain those model_names and its
+    # supervisor must receive OPENROUTER_API_KEY from a 0600 machine file.
   nas:
     host: nas.example # $NAS_HOST — real value in runtime stack.yaml only
     buckle_port: 4101
