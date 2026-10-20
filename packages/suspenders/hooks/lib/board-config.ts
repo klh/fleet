@@ -22,6 +22,7 @@
 // error; nothing partial ever lands (validate-then-atomic-write).
 import { YAML } from "bun";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -46,6 +47,7 @@ export interface PolicyGateway {
 interface PolicyDoc {
 	version?: unknown;
 	gateway?: unknown;
+	[key: string]: unknown;
 }
 
 // Native-router semantics (belt bin/router-policy.ts parity). Defaults live
@@ -83,21 +85,28 @@ const validateLadder = (fallbacks: Record<string, string[]>): string | null => {
 };
 
 // Shape + version checks shared by parse (read) and patch (validate-after).
-function policyChecked(text: string): PolicyGateway {
+function policyDoc(text: string): PolicyDoc {
 	let doc: PolicyDoc;
 	try {
-		doc = YAML.parse(text) as PolicyDoc;
+		doc = (
+			text.trimStart().startsWith("{") ? JSON.parse(text) : YAML.parse(text)
+		) as PolicyDoc;
 	} catch (e) {
 		throw new ConfigError(
-			`YAML parse failed: ${e instanceof Error ? e.message : String(e)}`,
+			`policy parse failed: ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
-		throw new ConfigError("policy must be a YAML mapping (gateway: ...)");
+		throw new ConfigError("policy must be a JSON object (gateway: ...)");
 	if (doc.version !== undefined && doc.version !== 1)
 		throw new ConfigError(
 			`unsupported policy version: ${String(doc.version)} — version: 1 only`,
 		);
+	return doc;
+}
+
+function policyChecked(text: string): PolicyGateway {
+	const doc = policyDoc(text);
 	const g = (doc.gateway ?? {}) as PolicyGateway;
 	if (g === null || typeof g !== "object" || Array.isArray(g))
 		throw new ConfigError("gateway: must be a mapping");
@@ -128,13 +137,16 @@ export function parsePolicy(text: string): PolicyGatewayParsed {
 
 export interface ResolvedPolicy {
 	path: string;
-	source: "env" | "runtime" | "default";
+	source: "env" | "runtime" | "legacy" | "default";
 	text: string;
 	mtimeMs: number;
 }
 
-// The same chain belt's bin/router-policy.ts walks (env → runtime copy →
-// committed default), so the console shows exactly what belt/buckle load.
+const jsonPolicyPath = (path: string): string =>
+	path.endsWith(".json") ? path : `${path.replace(/\.ya?ml$/i, "")}.json`;
+
+// JSON wins. YAML is accepted only as a migration source; it is never a
+// settings write target. Preserve an env-pinned policy's sibling location.
 export function resolvePolicy(opts?: {
 	explicitPath?: string;
 	beltRepo?: string;
@@ -146,15 +158,24 @@ export function resolvePolicy(opts?: {
 	const home = opts?.home ?? env.HOME ?? "";
 	const beltRepo = opts?.beltRepo ?? env.BELT_REPO ?? "";
 	const buckleRepo = opts?.buckleRepo ?? env.BUCKLE_REPO ?? "";
+	const pinned =
+		opts?.explicitPath || env.BELT_POLICY || env.BUCKLE_POLICY || "";
 	const cands: { path: string; source: ResolvedPolicy["source"] }[] = [
+		{ path: pinned ? jsonPolicyPath(pinned) : "", source: "env" },
 		{
-			path: opts?.explicitPath || env.BELT_POLICY || env.BUCKLE_POLICY || "",
-			source: "env",
+			path: pinned && pinned !== jsonPolicyPath(pinned) ? pinned : "",
+			source: "legacy",
+		},
+		{
+			path: `${home}/.claude/local-llm/routing-policy.json`,
+			source: "runtime",
 		},
 		{
 			path: `${home}/.claude/local-llm/routing-policy.yaml`,
-			source: "runtime",
+			source: "legacy",
 		},
+		{ path: `${beltRepo}/bin/routing-policy.json`, source: "default" },
+		{ path: `${buckleRepo}/routing-policy.json`, source: "default" },
 		{ path: `${beltRepo}/bin/routing-policy.yaml`, source: "default" },
 		{ path: `${buckleRepo}/routing-policy.yaml`, source: "default" },
 	];
@@ -173,9 +194,8 @@ export function resolvePolicy(opts?: {
 	return null;
 }
 
-// The write target: the env-pinned file when the operator set one, else the
-// runtime copy (which beats the committed default). NEVER the committed
-// default itself — config-over-code, the repo default stays pristine.
+// The write target is always JSON, including when an old env variable points
+// at a YAML file. The old YAML remains available for read-only migration.
 export function policyWritePath(opts?: {
 	explicitPath?: string;
 	env?: NodeJS.ProcessEnv;
@@ -186,10 +206,10 @@ export function policyWritePath(opts?: {
 	// an EMPTY env var counts as unset — ?? alone would pass "" through and
 	// resolve the write target to ""
 	const envPath = env.BELT_POLICY || env.BUCKLE_POLICY || undefined;
-	return (
+	return jsonPolicyPath(
 		opts?.explicitPath ??
-		envPath ??
-		`${home}/.claude/local-llm/routing-policy.yaml`
+			envPath ??
+			`${home}/.claude/local-llm/routing-policy.json`,
 	);
 }
 
@@ -198,8 +218,50 @@ export function policyWritePath(opts?: {
 export function atomicWrite(path: string, text: string): void {
 	mkdirSync(dirname(path), { recursive: true });
 	const tmp = `${path}.${process.pid}.tmp`;
-	writeFileSync(tmp, text);
+	writeFileSync(tmp, text, { mode: 0o600 });
+	chmodSync(tmp, 0o600);
 	renameSync(tmp, path);
+}
+
+/** Convert a legacy policy to JSON without dropping unrelated keys/values. */
+export function policyAsJson(text: string): string {
+	parsePolicy(text);
+	return `${JSON.stringify(policyDoc(text), null, "\t")}\n`;
+}
+
+/** Apply normal-form controls to the JSON policy document. */
+export function patchPolicyJson(text: string, patch: PolicyPatch): string {
+	parsePolicy(text);
+	const doc = policyDoc(text);
+	const gateway = { ...((doc.gateway ?? {}) as Record<string, unknown>) };
+	for (const key of [
+		"num_retries",
+		"allowed_fails",
+		"cooldown_time",
+	] as const) {
+		if (patch[key] !== undefined) gateway[key] = patch[key];
+	}
+	if (patch.ladder?.model || patch.ladders) {
+		const fallbacks = {
+			...((gateway.fallbacks ?? {}) as Record<string, unknown>),
+		};
+		if (patch.ladder?.model) {
+			if (
+				["__proto__", "constructor", "prototype"].includes(patch.ladder.model)
+			)
+				throw new ConfigError("invalid ladder model");
+			fallbacks[patch.ladder.model] = patch.ladder.tiers;
+		}
+		for (const [model, tiers] of Object.entries(patch.ladders ?? {})) {
+			if (["__proto__", "constructor", "prototype"].includes(model))
+				throw new ConfigError("invalid ladder model");
+			fallbacks[model] = tiers;
+		}
+		gateway.fallbacks = fallbacks;
+	}
+	const next = `${JSON.stringify({ ...doc, gateway }, null, "\t")}\n`;
+	parsePolicy(next);
+	return next;
 }
 
 // ─── comment-preserving line patch ────────────────────────────────────────
@@ -257,6 +319,7 @@ export interface PolicyPatch {
 	cooldown_time?: number;
 	// replaces the model's tier list — order IS priority (first = primary)
 	ladder?: { model: string; tiers: string[] };
+	ladders?: Record<string, string[]>;
 }
 
 // Line-patch the policy text (comments preserved), then PROVE the result
@@ -273,7 +336,7 @@ export function patchPolicyText(text: string, patch: PolicyPatch): string {
 		out = e.lines.join("\n");
 	}
 	for (const [k, v] of Object.entries(patch)) {
-		if (k === "ladder" || v === undefined) continue;
+		if (k === "ladder" || k === "ladders" || v === undefined) continue;
 		const e = setScalar(out.split("\n"), k, v as number);
 		out = e.lines.join("\n");
 	}
@@ -322,6 +385,10 @@ export interface BoardSettings {
 	"prompt.log"?: boolean;
 }
 
+export type BoardSettingsPatch = {
+	[K in keyof BoardSettings]?: BoardSettings[K] | null;
+};
+
 export const PROMPT_SETTING_KEYS = [
 	"prompt.condense",
 	"prompt.enhance",
@@ -344,8 +411,8 @@ const numKnob = (
 	return v;
 };
 
-// Unknown keys are ignored on read but DROPPED on write — the settings file
-// stays exactly the three knobs the console manages, nothing opaque.
+// Unknown keys are ignored on read and dropped on write. Every known board
+// setting is exposed by the console form.
 export function validateBoardSettings(v: unknown): BoardSettings {
 	if (v === null || typeof v !== "object" || Array.isArray(v))
 		throw new ConfigError("board settings must be a JSON object");
@@ -449,26 +516,53 @@ export function readBoardSettings(
 
 // Form semantics: empty string = unset (removes the knob). Numbers coerce
 // from the form strings; anything non-numeric throws the honest error.
-export function formToBoardSettings(f: Record<string, string>): BoardSettings {
+export function formToBoardSettings(
+	f: Record<string, unknown>,
+): BoardSettingsPatch {
 	// W183.2 — the ordered executor editor submits one comma-joined string;
 	// the apply step re-feeds the serialized patch (array already). Empty
 	// clears the list — dispatch falls back to bare claude.
-	const raw = f.default_executors;
-	const list = Array.isArray(raw)
-		? raw.filter((s) => typeof s === "string")
-		: typeof raw === "string"
-			? raw.split(",").map((s) => s.trim())
-			: [];
-	// absent or empty = no change (the apply step re-parses a sparse patch —
-	// a missing knob must stay missing, never NaN)
-	const num = (v: string | undefined): number | undefined =>
-		v === undefined || v === "" ? undefined : Number(v);
-	return validateBoardSettings({
-		status_refresh_s: num(f.status_refresh_s),
-		harvest_ttl_s: num(f.harvest_ttl_s),
-		default_actor: f.default_actor,
-		default_executors: raw === undefined ? undefined : list.filter(Boolean),
-	});
+	const patch: BoardSettingsPatch = {};
+	const raw: Record<string, unknown> = {};
+	for (const key of ["status_refresh_s", "harvest_ttl_s"] as const) {
+		if (!(key in f)) continue;
+		raw[key] = f[key] === "" || f[key] === null ? null : Number(f[key]);
+	}
+	for (const key of [
+		"default_actor",
+		"recommendation_url",
+		"recommendation_model",
+	] as const) {
+		if (!(key in f)) continue;
+		raw[key] = f[key] === "" ? null : f[key];
+	}
+	for (const key of ["default_executors", "enabled_executors"] as const) {
+		if (!(key in f)) continue;
+		const value = f[key];
+		const list = Array.isArray(value)
+			? value
+			: typeof value === "string"
+				? value.split(",")
+				: [];
+		raw[key] =
+			key === "enabled_executors" && list.every((v) => !String(v).trim())
+				? null
+				: list.map((v) => String(v).trim()).filter(Boolean);
+	}
+	for (const key of PROMPT_SETTING_KEYS) {
+		if (!(key in f)) continue;
+		raw[key] =
+			f[key] === true || f[key] === "true"
+				? true
+				: f[key] === false || f[key] === "false"
+					? false
+					: f[key];
+	}
+	const checked = validateBoardSettings(raw);
+	Object.assign(patch, checked);
+	for (const [key, value] of Object.entries(raw))
+		if (value === null) (patch as Record<string, unknown>)[key] = null;
+	return patch;
 }
 
 // Merge-apply the settings file: read → merge → validate → mtime guard →
@@ -476,7 +570,7 @@ export function formToBoardSettings(f: Record<string, string>): BoardSettings {
 // edits — the operator confirms a diff of what they SAW.
 export function applyBoardSettings(
 	path: string,
-	patch: BoardSettings,
+	patch: BoardSettingsPatch,
 	expectedMtimeMs?: number,
 ): { applied: BoardSettings } {
 	if (existsSync(path)) {
@@ -491,10 +585,10 @@ export function applyBoardSettings(
 	}
 	const curText = existsSync(path) ? readFileSync(path, "utf8") : "{}";
 	const cur = validateBoardSettings(JSON.parse(curText));
-	const merged: BoardSettings = { ...cur, ...patch };
+	const merged = { ...cur, ...patch } as BoardSettingsPatch;
 	for (const k of Object.keys(merged) as (keyof BoardSettings)[])
-		if (merged[k] === undefined) delete merged[k];
-	validateBoardSettings(merged);
-	atomicWrite(path, `${JSON.stringify(merged, null, "\t")}\n`);
-	return { applied: merged };
+		if (merged[k] === undefined || merged[k] === null) delete merged[k];
+	const applied = validateBoardSettings(merged);
+	atomicWrite(path, `${JSON.stringify(applied, null, "\t")}\n`);
+	return { applied };
 }
