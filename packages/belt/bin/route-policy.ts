@@ -830,6 +830,7 @@ async function runExecute(
 			why: "execute:true needs a messages array",
 		});
 	}
+	const t0 = Date.now();
 	try {
 		const { reply, ms } = await executeOn(best, body, role ?? "route");
 		audit(
@@ -852,17 +853,20 @@ async function runExecute(
 			ms,
 		});
 	} catch (err) {
-		return failRoute(best, label, role, why, err);
+		return failRoute(best, label, role, why, err, Date.now() - t0);
 	}
 }
 
-/** The honest 503: audit + routing-log + machine-readable {error, why}. */
-function failRoute(
+/** The honest 503: audit + routing-log + machine-readable {error, why}.
+ *  `ms` is the real elapsed time of the failed attempt — a failure is a
+ *  measurement too (W986.1), never a hardcoded 0. */
+export function failRoute(
 	best: Candidate,
 	label: string,
 	role: string | undefined,
 	why: string,
 	err: unknown,
+	ms: number,
 ): Response {
 	const msg = err instanceof Error ? err.message : String(err);
 	const whyFail = `${why}; execute failed: ${msg}`;
@@ -872,8 +876,8 @@ function failRoute(
 		model: best.model,
 	});
 	try {
-		if (best.kind === "local") logLocalRoute(best, role ?? "route", 0, false);
-		else logRemoteRoute(best, role ?? "route", 0, false);
+		if (best.kind === "local") logLocalRoute(best, role ?? "route", ms, false);
+		else logRemoteRoute(best, role ?? "route", ms, false);
 	} catch {
 		// best-effort on the failure path
 	}
