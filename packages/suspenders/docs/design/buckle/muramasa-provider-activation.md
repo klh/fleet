@@ -43,11 +43,14 @@ hubs:
 
 The LiteLLM generator produces corresponding `model_name` rows from its
 validated runtime config. For OpenRouter free models,
-`deploy/openrouter-free-sync.ts` fetches the current public catalog and
+`deploy/openrouter-free-sync.ts` fetches the current public catalog and the
+account-filtered catalog (privacy and guardrails stay as configured) and
 writes a mode-600 machine-local snapshot. The configured desktop hub then
-gets one Buckle route per eligible `:free` text model, each targeting the
-matching LiteLLM `model_name` under `openrouter/<provider>/<model>:free`.
-LiteLLM's row uses `model: openrouter/<provider>/<model>:free` and
+gets one Buckle route per eligible `:free` text model plus the exact
+`openrouter/free` router. Each route targets its matching LiteLLM
+`model_name`; provider models use `openrouter/<provider>/<model>:free`.
+LiteLLM's row uses that name as `model` (the free router uses
+`openrouter/openrouter/free`) and
 `api_key: os.environ/OPENROUTER_API_KEY`. Buckle never calls OpenRouter's
 public endpoint directly.
 

@@ -1,21 +1,30 @@
-// OpenRouter's public catalog is the source for generated free-model routes.
-// This file contains no credentials. Buckle forwards through the owned
-// LiteLLM engine; only LiteLLM receives the OpenRouter inference key.
+// OpenRouter's public catalog and account-filtered catalog jointly determine
+// the free routes. The key is read from a local 0600 file and never stored in
+// the snapshot. Buckle forwards through the owned LiteLLM engine.
 import {
 	lstatSync,
 	readFileSync,
 	renameSync,
+	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
-export const OPENROUTER_CATALOG_URL = "https://openrouter.ai/api/v1/models";
+export const OPENROUTER_CATALOG_URL =
+	"https://openrouter.ai/api/v1/models?output_modalities=all";
+export const OPENROUTER_ACCOUNT_CATALOG_URL =
+	"https://openrouter.ai/api/v1/models/user";
 export const OPENROUTER_FREE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
 const ZERO_PRICE = /^0(?:\.0+)?$/;
 const FREE_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*:free$/i;
+const supportedFreeId = (id: string): boolean =>
+	FREE_ID.test(id) || id === "openrouter/free";
+const groupForId = (id: string): string =>
+	id === "openrouter/free" ? id : `openrouter/${id}`;
 
 type CatalogModel = {
 	id?: unknown;
@@ -38,7 +47,10 @@ export type FreeRoute = {
 export type FreeSnapshot = {
 	version: 1;
 	source: typeof OPENROUTER_CATALOG_URL;
+	account_source: typeof OPENROUTER_ACCOUNT_CATALOG_URL;
 	generated_at: string;
+	public_model_count: number;
+	account_model_count: number;
 	groups: Record<string, FreeRoute[]>;
 	excluded_free_models: Array<{ id: string; reason: string }>;
 };
@@ -48,7 +60,7 @@ const routeForId = (id: string): FreeRoute => ({
 	dialect: "openai",
 	adapter: "openai-compat",
 	api_key_env: "LITELLM_KEY",
-	model: `openrouter/${id}`,
+	model: groupForId(id),
 });
 
 const textCapable = (model: CatalogModel): boolean => {
@@ -83,9 +95,13 @@ export function classifyFreeModels(input: unknown): {
 	const ids: string[] = [];
 	const excluded: Array<{ id: string; reason: string }> = [];
 	for (const model of models) {
-		if (typeof model?.id !== "string" || !model.id.endsWith(":free")) continue;
+		if (
+			typeof model?.id !== "string" ||
+			!(model.id.endsWith(":free") || model.id === "openrouter/free")
+		)
+			continue;
 		const price = model.pricing;
-		const reason = !FREE_ID.test(model.id)
+		const reason = !supportedFreeId(model.id)
 			? "unsupported model ID"
 			: !textCapable(model)
 				? "no text input and output"
@@ -116,32 +132,57 @@ export const eligibleFreeModelIds = (input: unknown): string[] =>
 export function snapshotFromCatalog(
 	catalog: unknown,
 	now = new Date(),
+	accountCatalog: unknown = catalog,
 ): FreeSnapshot {
-	const { ids, excluded } = classifyFreeModels(catalog);
-	if (ids.length === 0)
+	const { ids: publicIds, excluded } = classifyFreeModels(catalog);
+	const accountIds = new Set(eligibleFreeModelIds(accountCatalog));
+	const ids = publicIds.filter((id) => accountIds.has(id));
+	for (const id of publicIds)
+		if (!accountIds.has(id))
+			excluded.push({
+				id,
+				reason:
+					"excluded by account privacy, provider preferences, or guardrails",
+			});
+	if (publicIds.length === 0)
 		throw new Error(
 			"OpenRouter catalog has no eligible free text models; retaining the previous snapshot",
 		);
 	return {
 		version: 1,
 		source: OPENROUTER_CATALOG_URL,
+		account_source: OPENROUTER_ACCOUNT_CATALOG_URL,
 		generated_at: now.toISOString(),
+		public_model_count: (catalog as { data: unknown[] }).data.length,
+		account_model_count: (accountCatalog as { data: unknown[] }).data.length,
 		groups: Object.fromEntries(
-			ids.map((id) => [`openrouter/${id}`, [routeForId(id)]]),
+			ids.map((id) => [groupForId(id), [routeForId(id)]]),
 		),
-		excluded_free_models: excluded,
+		excluded_free_models: excluded.sort((a, b) => a.id.localeCompare(b.id)),
 	};
 }
 
-export async function fetchFreeSnapshot(
-	fetcher: typeof fetch = fetch,
-): Promise<FreeSnapshot> {
-	const response = await fetcher(OPENROUTER_CATALOG_URL, {
-		headers: { accept: "application/json" },
-		signal: AbortSignal.timeout(10_000),
-	});
+const readInferenceKey = (): string => {
+	const path = join(
+		process.env.HOME ?? homedir(),
+		".claude/local-llm/openrouter.key",
+	);
+	const stat = statSync(path);
+	if (!stat.isFile() || (stat.mode & 0o777) !== 0o600)
+		throw new Error(
+			"OpenRouter inference key file must be a mode-0600 regular file",
+		);
+	const key = readFileSync(path, "utf8").trim();
+	if (!key) throw new Error("OpenRouter inference key file is empty");
+	return key;
+};
+
+const readBoundedCatalog = async (
+	response: Response,
+	label: string,
+): Promise<unknown> => {
 	if (!response.ok || !response.body)
-		throw new Error(`OpenRouter catalog HTTP ${response.status}`);
+		throw new Error(`${label} HTTP ${response.status}`);
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let bytes = 0;
@@ -163,7 +204,31 @@ export async function fetchFreeSnapshot(
 		joined.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return snapshotFromCatalog(JSON.parse(new TextDecoder().decode(joined)));
+	return JSON.parse(new TextDecoder().decode(joined));
+};
+
+export async function fetchFreeSnapshot(
+	fetcher: typeof fetch = fetch,
+	inferenceKey = readInferenceKey(),
+): Promise<FreeSnapshot> {
+	const [publicResponse, accountResponse] = await Promise.all([
+		fetcher(OPENROUTER_CATALOG_URL, {
+			headers: { accept: "application/json" },
+			signal: AbortSignal.timeout(10_000),
+		}),
+		fetcher(OPENROUTER_ACCOUNT_CATALOG_URL, {
+			headers: {
+				accept: "application/json",
+				authorization: `Bearer ${inferenceKey}`,
+			},
+			signal: AbortSignal.timeout(10_000),
+		}),
+	]);
+	const [catalog, accountCatalog] = await Promise.all([
+		readBoundedCatalog(publicResponse, "OpenRouter public catalog"),
+		readBoundedCatalog(accountResponse, "OpenRouter account catalog"),
+	]);
+	return snapshotFromCatalog(catalog, new Date(), accountCatalog);
 }
 
 export function writeFreeSnapshot(
@@ -232,6 +297,7 @@ export function mergedHubUpstreams(
 	if (
 		doc?.version !== 1 ||
 		doc.source !== OPENROUTER_CATALOG_URL ||
+		doc.account_source !== OPENROUTER_ACCOUNT_CATALOG_URL ||
 		!doc.groups ||
 		typeof doc.groups !== "object"
 	)
@@ -242,10 +308,11 @@ export function mergedHubUpstreams(
 			"OpenRouter free catalog snapshot is stale; refresh before hubctl push",
 		);
 	for (const [group, deployments] of Object.entries(doc.groups)) {
-		const id = group.slice("openrouter/".length);
+		const id =
+			group === "openrouter/free" ? group : group.slice("openrouter/".length);
 		if (
-			!group.startsWith("openrouter/") ||
-			!FREE_ID.test(id) ||
+			group !== groupForId(id) ||
+			!supportedFreeId(id) ||
 			!Array.isArray(deployments) ||
 			deployments.length !== 1 ||
 			JSON.stringify(deployments[0]) !== JSON.stringify(routeForId(id))

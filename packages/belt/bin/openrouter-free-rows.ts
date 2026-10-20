@@ -2,13 +2,15 @@
 // rows. The Buckle front uses the same model_name and keeps its own auth.
 import { readFileSync } from "node:fs";
 
-const SOURCE = "https://openrouter.ai/api/v1/models";
+const SOURCE = "https://openrouter.ai/api/v1/models?output_modalities=all";
+const ACCOUNT_SOURCE = "https://openrouter.ai/api/v1/models/user";
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const FREE_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*:free$/i;
 
 type Snapshot = {
 	version?: unknown;
 	source?: unknown;
+	account_source?: unknown;
 	generated_at?: unknown;
 	groups?: Record<string, Array<{ model?: unknown }>>;
 };
@@ -26,6 +28,7 @@ export function openRouterFreeRows(path: string, now = Date.now()): string[] {
 	if (
 		doc.version !== 1 ||
 		doc.source !== SOURCE ||
+		doc.account_source !== ACCOUNT_SOURCE ||
 		!doc.groups ||
 		!Number.isFinite(age) ||
 		age < 0 ||
@@ -34,10 +37,11 @@ export function openRouterFreeRows(path: string, now = Date.now()): string[] {
 		throw new Error("OpenRouter free catalog snapshot is invalid or stale");
 	const rows: string[] = [];
 	for (const [group, deployments] of Object.entries(doc.groups)) {
-		const id = group.slice("openrouter/".length);
+		const id =
+			group === "openrouter/free" ? group : group.slice("openrouter/".length);
 		if (
-			!group.startsWith("openrouter/") ||
-			!FREE_ID.test(id) ||
+			!(FREE_ID.test(id) || id === "openrouter/free") ||
+			group !== (id === "openrouter/free" ? id : `openrouter/${id}`) ||
 			!Array.isArray(deployments) ||
 			deployments.length !== 1 ||
 			deployments[0]?.model !== group
@@ -46,7 +50,7 @@ export function openRouterFreeRows(path: string, now = Date.now()): string[] {
 		rows.push(
 			`  - model_name: ${JSON.stringify(group)}\n` +
 				`    litellm_params:\n` +
-				`      model: ${JSON.stringify(group)}\n` +
+				`      model: ${JSON.stringify(id === "openrouter/free" ? "openrouter/openrouter/free" : group)}\n` +
 				`      api_key: os.environ/OPENROUTER_API_KEY`,
 		);
 	}

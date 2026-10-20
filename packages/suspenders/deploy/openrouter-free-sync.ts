@@ -22,7 +22,7 @@ await runCli({
 				const snapshot = await fetchFreeSnapshot();
 				const changed = writeFreeSnapshot(output, snapshot);
 				console.log(
-					`${changed ? "updated" : "unchanged"}: ${Object.keys(snapshot.groups).length} free text models at ${output}`,
+					`${changed ? "updated" : "unchanged"}: ${Object.keys(snapshot.groups).length} account-selectable free text routes (${snapshot.public_model_count} public records; ${snapshot.account_model_count} account-visible) at ${output}`,
 				);
 				for (const { id, reason } of snapshot.excluded_free_models)
 					console.log(`excluded ${id}: ${reason}`);

@@ -43,12 +43,16 @@ fault tolerance: several URLs per hub label, first healthy wins).
 
 `openrouter-free-sync.ts sync --output <absolute-path>` reads the public
 [OpenRouter model catalog](https://openrouter.ai/docs/api/api-reference/models/get-models)
-and atomically writes a machine-local 0600 snapshot. It admits only `:free`
-model IDs that accept and return text and have zero prompt, completion, and
-request prices. The snapshot contains model IDs and Buckle route definitions,
-never a key. Free IDs excluded because they lack a supported text chat path or
-have a fee are recorded with a reason in the snapshot and printed by the sync
-command. A failed or empty catalog fetch preserves the previous file.
+with all output modalities and the authenticated account model list. It
+atomically writes a machine-local 0600 snapshot. It admits `:free` IDs and
+the exact `openrouter/free` router only when they accept and return text, have
+zero prompt, completion, and request prices, and are selectable under this
+account's privacy and guardrail settings. The 0600 OpenRouter inference key
+is read locally for the account catalog and is never written to the snapshot
+or logs. Exclusions and reasons are printed by the sync command and saved in
+the snapshot. The full catalog includes paid, audio, and image models, so its
+total is not a free chat route count. A failed or empty catalog fetch preserves
+the previous file.
 
 The hub's machine-level `stack.yaml` points
 `hubs.<name>.upstreams.openrouter_free_catalog_file` at that snapshot,
