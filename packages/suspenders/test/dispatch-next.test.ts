@@ -763,6 +763,32 @@ describe("crash resume budget", () => {
 		expect(existsSync(join(REPO, ".worktrees", id))).toBe(true);
 		rmSync(join(fleet, "lanes.json"));
 	}, 60_000);
+	test("exhausted dead claim is preserved on preview and returned to READY before another launch", () => {
+		const id =
+			(tool("work.ts", "add", "ready budget requeue fixture").out.match(
+				/W\d+/,
+			) ?? [])[0] ?? "";
+		const project = projectIdentity(REPO);
+		const db = new Database(
+			join(HOME, ".cache", "claude-governor", "governor.db"),
+		);
+		db.run(
+			"CREATE TABLE IF NOT EXISTS lane_launch_budgets(project TEXT NOT NULL,item TEXT NOT NULL,reservations INTEGER NOT NULL,PRIMARY KEY(project,item))",
+		);
+		db.query("INSERT INTO lane_launch_budgets VALUES (?,?,?)").run(
+			project,
+			id,
+			3,
+		);
+		db.close();
+		const result = dispatch("--item", id);
+		expect(result.out).toContain(`WAIT ${id} — launch budget exhausted`);
+		expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
+			"READY",
+		);
+		const again = dispatch("--item", id);
+		expect(again.out).toContain("launch backoff");
+	});
 });
 // ─── W463 fail-closed governance + lane key lifecycle ──────────────────────
 // NOTE: e2e cases here spawn dispatch-next/worktree async (Bun.spawn, not
