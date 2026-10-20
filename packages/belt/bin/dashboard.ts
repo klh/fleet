@@ -842,6 +842,11 @@ const networkSnapshot = async (): Promise<Response> => {
 						ts: network.ts,
 						hubs: network.hubs,
 						hops: network.hops,
+						lastAuditAt: network.lastAuditAt,
+						audit15: network.audit15,
+						recentSuccessAt: Array.isArray(network.routes)
+							? (network.routes[0] as Record<string, unknown> | undefined)?.ts
+							: null,
 						throughput: {
 							interfaces: (network.throughput as Record<string, unknown>)
 								?.interfaces,

@@ -12,6 +12,20 @@ const colour = (state) =>
 					? "var(--klh-danger)"
 					: "var(--klh-dim)";
 
+const localTime = (value) => {
+	const time = typeof value === "number" ? value : Date.parse(value);
+	return Number.isFinite(time)
+		? new Date(time).toLocaleString("da-DK", {
+				day: "2-digit",
+				month: "2-digit",
+				year: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
+			})
+		: "never observed";
+};
+
 class BeltTopology extends LitElement {
 	static properties = {
 		topology: { state: true },
@@ -22,6 +36,7 @@ class BeltTopology extends LitElement {
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
 		.heading { display:flex; align-items:baseline; gap:var(--klh-space-3); flex-wrap:wrap; }
 		h2 { font:inherit; font-size:var(--klh-text-sm); margin:0; }
+		h3 { font:inherit; font-size:var(--klh-text-sm); margin:var(--klh-space-3) 0 var(--klh-space-2); }
 		p, .legend { color:var(--klh-dim); font-size:var(--klh-text-sm); margin:var(--klh-space-2) 0; }
 		.heading + p { min-block-size:28px; }
 		button { margin-left:auto; background:transparent; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); color:var(--klh-ink); padding:4px 10px; font:inherit; cursor:pointer; }
@@ -143,7 +158,7 @@ class BeltTopology extends LitElement {
 		const width = observed
 			? Math.min(4, 1 + Math.log10(1 + link.requests15))
 			: 1.5;
-		return svg`<g><title>${observed ? `${link.requests15} observed Buckle requests in 15 minutes` : link.evidence === "probe" ? "Hub reachability probe; request path unobserved" : "Configured provider path; request traffic unobserved"}</title><path class=${observed ? "edge observed" : "edge"} d=${path} stroke-width=${width}></path></g>`;
+		return svg`<g><title>${observed ? `${link.requests15} observed successful requests in 15 minutes · ${link.source}` : link.evidence === "probe" ? `Hub reachability probe · ${link.source}` : `Configured provider path · ${link.requests15 ?? "unavailable"} observed successes in 15 minutes · ${link.source}`}</title><path class=${observed ? "edge observed" : "edge"} d=${path} stroke-width=${width}></path></g>`;
 	}
 	machine(
 		x,
@@ -200,19 +215,19 @@ class BeltTopology extends LitElement {
 			}
 		</g>`;
 	}
-	cloud(x, y, width, item) {
+	cloud(x, y, width, item, link) {
 		const visible = item.models.slice(0, 2);
-		const status = Number.isFinite(item.buckleReq15)
-			? `${item.buckleReq15} Buckle req/15m · ${Number.isFinite(item.outTokens60) ? `${(item.outTokens60 / 60).toFixed(1)} out tok/s` : "tokens unreported"}`
+		const status = Number.isFinite(link?.requests15)
+			? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
 			: item.state === "unconfigured"
 				? "Direct API key not configured"
 				: item.kind === "copilot"
 					? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
-					: `${item.reachable}/${item.endpoints} probes · no Buckle traffic`;
+					: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
-			<text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text>
+			<g><title>${link ? `${link.source} · last evidence ${localTime(link.lastSeen)}` : "No measured Buckle route data"}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text></g>
 			${visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
 			${item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
@@ -261,6 +276,7 @@ class BeltTopology extends LitElement {
 			y: 65 + index * 94,
 		}));
 		const traffic = data?.gatewayTraffic;
+		const audit = data?.audit15;
 		const tokenRate =
 			Number.isFinite(traffic?.inputTokens60) &&
 			Number.isFinite(traffic?.outputTokens60)
@@ -271,11 +287,16 @@ class BeltTopology extends LitElement {
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
 			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hubs · ${clouds.length} providers${this.networkIssue ? ` · ${this.networkIssue}` : ""}` : "Loading connections…")}</p>
-			<div class="traffic" aria-label="Buckle traffic, past 60 seconds">
-				<span><strong>${traffic?.requests60 ?? "—"}</strong><small>Buckle requests / min</small></span>
+			<div class="traffic" aria-label="Successful Buckle routes, past 60 seconds">
+				<span><strong>${traffic?.requests60 ?? "—"}</strong><small>successful Buckle routes / min</small></span>
 				<span><strong>${tokenRate}</strong><small>reported tokens / sec</small></span>
-				<span><strong>${traffic?.observedTargets ?? "—"}</strong><small>active model routes</small></span>
+				<span><strong>${traffic?.observedTargets ?? "—"}</strong><small>active successful routes</small></span>
 			</div>
+			<p class="legend">${
+				audit
+					? `Local Buckle ledger · 15m: ${audit.attempts} attempts, ${audit.succeeded} successful, ${audit.failed} failed, ${audit.unsettled} without outcome · latest audit ${localTime(data.lastAuditAt)} · latest success ${localTime(data.recentSuccessAt)}.`
+					: "Local Buckle route audit unavailable; path counts cannot be measured."
+			}</p>
 			${
 				data
 					? html`<div class="map"><svg viewBox=${`0 0 1060 ${height}`} role="img" aria-label="This Mac and its models, connected to hub probes and cloud providers. Solid blue links are observed Buckle requests; dashed links are configured paths or probes.">
@@ -299,12 +320,31 @@ class BeltTopology extends LitElement {
 				})}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
 				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl))}
-				${cloudCards.map((item) => this.cloud(770, item.y, 275, item))}
+					${cloudCards.map((item) =>
+						this.cloud(
+							770,
+							item.y,
+							275,
+							item,
+							data.links.find((link) => link.target === `provider:${item.key}`),
+						),
+					)}
 			</svg></div>`
 					: html`<div class="map" aria-busy="true"><p>Loading map…</p></div>`
 			}
-			<div class="legend">Solid blue: observed Buckle requests in the past 15 minutes. Dashed: configured direct provider path or hub probe. Buckle token rates use reported usage over 60 seconds; local model loads count Belt router calls.</div>
-			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary><table><thead><tr><th scope="col">Target</th><th scope="col">Evidence</th><th scope="col">Requests / 15m</th></tr></thead><tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td></tr>`)}</tbody></table></details>
+			<div class="legend">Solid blue: observed successful routes in the past 15 minutes. Dashed: configured provider path or hub probe. Hub request counts require the separate hub observation feed. Local model loads count Belt router calls.</div>
+			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary>
+				<table><thead><tr><th scope="col">Target</th><th scope="col">Path</th><th scope="col">Successful / 15m</th><th scope="col">Target failures / 15m</th><th scope="col">Source</th><th scope="col">Last evidence</th></tr></thead>
+				<tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td><td>${link.failures15 ?? "—"}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
+				${audit?.unattributedFailed ? html`<p>${audit.unattributedFailed} failed requests have no target attribution in the Buckle ledger.</p>` : ""}
+				${
+					audit?.failures?.length
+						? html`<h3>Failed Buckle attempts · recorded target</h3>
+						<table><thead><tr><th scope="col">Target</th><th scope="col">Failures / 15m</th><th scope="col">Last failure</th></tr></thead>
+							<tbody>${audit.failures.map((row) => html`<tr><td>${row.host ? `${row.kind} · ${row.host}${row.port ? `:${row.port}` : ""}` : "Target unrecorded"}</td><td>${row.count}</td><td title=${row.lastAt}>${localTime(row.lastAt)}</td></tr>`)}</tbody></table>`
+						: ""
+				}
+			</details>
 		</section>`;
 	}
 }

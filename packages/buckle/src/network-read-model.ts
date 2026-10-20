@@ -66,6 +66,24 @@ export interface NetworkThroughput {
 	interfaces: NetworkInterfaceRow[];
 }
 
+/** Buckle ledger outcomes in the trailing window. A failed local relay is
+ * never assigned to the cloud service behind that relay. */
+export interface NetworkAuditWindow {
+	sinceIso: string;
+	attempts: number;
+	succeeded: number;
+	failed: number;
+	unsettled: number;
+	unattributedFailed: number;
+	failures: Array<{
+		kind: string | null;
+		host: string | null;
+		port: number | null;
+		count: number;
+		lastAt: string;
+	}>;
+}
+
 /** One measured hub→interface edge over the trailing windows: rate window
  *  (short, feeds tok/s) + workload window (long, feeds counts). Token sums
  *  are null when the window has no usage-bearing settled rows. */
@@ -108,6 +126,7 @@ export type NetworkOverviewResult =
 			/** Decision rows without an outcome, by target_kind — in flight
 			 *  or a crashed writer; never counted as settled either way. */
 			unsettled: Array<{ kind: string; n: number }>;
+			audit15: NetworkAuditWindow;
 			routes: NetworkRouteRow[];
 			/** Observed hub↔hub forwarding edges (request_edges origin/peer)
 			 *  in the workload window — present only where observed. */
@@ -176,6 +195,7 @@ export function networkOverview(
 			lastAuditAt: ledgerLastAuditAt(db),
 			hubs: paths.obsDb ? hubRows(paths.obsDb, t) : [],
 			unsettled: unsettledByKind(db),
+			audit15: auditWindow(db, t),
 			routes: recentRoutes(db),
 			throughput: {
 				buckets: usageBuckets(db, t),
@@ -198,6 +218,38 @@ function ledgerLastAuditAt(db: Database): string | null {
 			}
 		)?.m ?? null
 	);
+}
+
+function auditWindow(db: Database, now: number): NetworkAuditWindow {
+	const sinceIso = new Date(now - NETWORK_WINDOW_MIN * 60_000).toISOString();
+	const row = db
+		.query(`SELECT COUNT(*) AS attempts,
+		COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS succeeded,
+		COALESCE(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS failed,
+		COALESCE(SUM(CASE WHEN ok IS NULL THEN 1 ELSE 0 END), 0) AS unsettled,
+		COALESCE(SUM(CASE WHEN ok = 0 AND (target_kind IS NULL OR target_host IS NULL)
+			THEN 1 ELSE 0 END), 0) AS unattributedFailed
+		FROM route_audit WHERE ts >= ?`)
+		.get(sinceIso) as Pick<
+		NetworkAuditWindow,
+		"attempts" | "succeeded" | "failed" | "unsettled" | "unattributedFailed"
+	>;
+	const failures = db
+		.query(`SELECT target_kind AS kind, target_host AS host,
+		target_port AS port, COUNT(*) AS count, MAX(ts) AS lastAt
+		FROM route_audit WHERE ts >= ? AND ok = 0
+		GROUP BY target_kind, target_host, target_port
+		ORDER BY count DESC, lastAt DESC`)
+		.all(sinceIso) as NetworkAuditWindow["failures"];
+	return {
+		sinceIso,
+		attempts: row.attempts,
+		succeeded: row.succeeded,
+		failed: row.failed,
+		unsettled: row.unsettled,
+		unattributedFailed: row.unattributedFailed,
+		failures,
+	};
 }
 
 function unsettledByKind(db: Database): Array<{ kind: string; n: number }> {
