@@ -57,7 +57,10 @@ describe("configured Claude to GLM fallback", () => {
 						type: "error",
 						error: { type: "overloaded_error", message: "busy" },
 					},
-					{ status, headers: status === 429 ? { "retry-after": "1" } : {} },
+					{
+						status,
+						headers: status === 429 ? { "retry-after": "996295" } : {},
+					},
 				),
 			);
 			const glm = await startMockUpstream(() => glmAnswer());
@@ -82,11 +85,13 @@ describe("configured Claude to GLM fallback", () => {
 					),
 					{
 						policy: {
-							num_retries: 0,
+							num_retries: status === 429 ? 1 : 0,
 							fallbacks: { "claude-sonnet-5": ["glm-5.3-flash"] },
 						},
 						prefs: { cost_speed: "balanced", allow_cloud: true },
-						sleepMs: async () => {},
+						sleepMs: async () => {
+							if (status === 429) throw new Error("quota wall must not sleep");
+						},
 					},
 				);
 				const res = await createApp(d).fetch(message(claude.url));

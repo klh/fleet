@@ -404,6 +404,19 @@ export class Router {
 				st.rateLimit = { response: r.response, tier };
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
+			// A provider that asks us to wait beyond the configured retry cap is
+			// quota-blocked. Retrying the same deployment cannot heal within this
+			// walk; try another deployment or the policy fallback immediately.
+			// Keep its 429 in st.rateLimit for an exhausted ladder to relay.
+			if (
+				r.kind === "rate_limited" &&
+				r.retryAfterS !== null &&
+				r.retryAfterS > floorCapS
+			) {
+				if (raw + 1 >= candidates.length) break;
+				skipped++;
+				continue;
+			}
 			// W987: an auth/client-fault rung failed on THIS deployment (its
 			// credential or its model) — the bench already happened in
 			// tryOnce; advance to the next candidate free (no retry budget,
