@@ -315,6 +315,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kspark svg { display:block; max-width:100%; }
 .kspark .spark-fresh { fill:var(--klh-accent); }
 .kspark .spark-cached { fill:var(--klh-ok-ink); }
+.kspark-tip { position:fixed; z-index:100; pointer-events:none; white-space:pre; padding:5px 7px; border:1px solid var(--klh-edge-strong); border-radius:3px; background:var(--klh-panel); color:var(--klh-ink); box-shadow:0 3px 12px #0003; font:9px/1.4 var(--klh-font-mono); font-variant-numeric:tabular-nums; }
+.kspark-tip[hidden] { display:none; }
 .ksparkaxis { display:none; justify-content:space-between; font-size:7px; line-height:1.2; }
 .kspendtxt { display:block; font-size:7px; line-height:1.25; letter-spacing:.01em; }
 .kspend-drawer .kspark { margin-top:6px; }

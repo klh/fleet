@@ -701,6 +701,33 @@ var SVGNS = 'http://www.w3.org/2000/svg';
 // emitted by spendStripHtml get painted here and in the drawer. DOM-safe key:
 // esc(project)+'|'+esc(id) (NUL is unusable in attributes).
 var spendSeries = {}, spendSeriesAt = 0, spendSeriesBusy = false;
+function hideSparkTip(){
+  var tip = byId('ksparkTip');
+  if (tip) { tip.hidden = true; tip._bar = null; }
+}
+function showSparkTip(e, bar){
+  var tip = byId('ksparkTip');
+  if (!tip){
+    tip = document.createElement('div');
+    tip.id = 'ksparkTip'; tip.className = 'kspark-tip'; tip.setAttribute('role', 'tooltip');
+    document.body.appendChild(tip);
+  }
+  if (tip._bar !== bar){
+    var at = Number(bar.getAttribute('data-at'));
+    var minutes = Number(bar.getAttribute('data-minutes'));
+    var fresh = Number(bar.getAttribute('data-fresh'));
+    var cached = Number(bar.getAttribute('data-cached'));
+    var out = Number(bar.getAttribute('data-out'));
+    var time = new Date(at).toLocaleString('da-DK', {day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+    tip.textContent = time + ' · ' + minutes + ' min\nFresh input  ' + fresh.toLocaleString('da-DK') + '\nCached input  ' + cached.toLocaleString('da-DK') + '\nOutput  ' + out.toLocaleString('da-DK');
+    tip._bar = bar;
+  }
+  tip.hidden = false;
+  var left = Math.min(e.clientX + 10, window.innerWidth - tip.offsetWidth - 8);
+  var above = e.clientY - tip.offsetHeight - 10;
+  tip.style.left = Math.max(8, left) + 'px';
+  tip.style.top = (above >= 8 ? above : e.clientY + 12) + 'px';
+}
 function pollSpendSeries(force){
   if (spendSeriesBusy) return;
   if (!force && spendSeriesAt && Date.now() - spendSeriesAt < 30000) return;
@@ -734,9 +761,10 @@ function sparkSvg(points, w, h){
   for (i = 0; i < points.length; i++){
     var slot = Math.floor((Number(points[i][0]) - start) / slotMs);
     if (slot < 0 || slot >= slots) continue;
-    var b = bins[slot] || (bins[slot] = [0, 0]);
+    var b = bins[slot] || (bins[slot] = [0, 0, 0]);
     b[0] += Number(points[i][1]) || 0;
     b[1] += Number(points[i][2]) || 0;
+    b[2] += Number(points[i][3]) || 0;
   }
   for (var key in bins) maxV = Math.max(maxV, bins[key][0] + bins[key][1]);
   svg.setAttribute('role', 'img');
@@ -759,13 +787,21 @@ function sparkSvg(points, w, h){
       rect.setAttribute('width', barW.toFixed(1));
       rect.setAttribute('height', bh.toFixed(1));
       rect.setAttribute('class', part ? 'spark-cached' : 'spark-fresh');
-      var tip = document.createElementNS(SVGNS, 'title');
-      tip.textContent = new Date(at).toLocaleString('da-DK') + ' · ' + (part ? 'cached ' : 'fresh ') + fmtTokShort(val) + ' input tokens · ' + (slotMs / 60000) + ' min bin';
-      rect.appendChild(tip);
+      rect.setAttribute('data-at', String(at));
+      rect.setAttribute('data-minutes', String(slotMs / 60000));
+      rect.setAttribute('data-fresh', String(bucket[0]));
+      rect.setAttribute('data-cached', String(bucket[1]));
+      rect.setAttribute('data-out', String(bucket[2]));
       svg.appendChild(rect);
       used += bh;
     }
   }
+  svg.addEventListener('pointermove', function(e){
+    var bar = e.target;
+    if (bar && bar.tagName && bar.tagName.toLowerCase() === 'rect') showSparkTip(e, bar);
+    else hideSparkTip();
+  });
+  svg.addEventListener('pointerleave', hideSparkTip);
   return svg;
 }
 function paintSparks(root){
@@ -777,6 +813,8 @@ function paintSparks(root){
     var sig = pts ? pts.length + ':' + pts[pts.length - 1].join(':') + ':' + Math.floor(Date.now() / 60000) : '';
     if (el.getAttribute('data-ssig') === sig) continue;
     el.setAttribute('data-ssig', sig);
+    var tip = byId('ksparkTip');
+    if (tip && tip._bar && el.contains(tip._bar)) hideSparkTip();
     while (el.firstChild) el.removeChild(el.firstChild);
     var big = el.closest ? el.closest('.kspend-drawer') : null;
     var axis = el.parentElement.querySelector('.ksparkaxis');
