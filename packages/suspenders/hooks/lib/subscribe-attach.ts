@@ -10,6 +10,8 @@
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { resolveFleetLane } from "./fleetlane.ts";
+import type { HookInput } from "./hookio.ts";
 export {
 	codexEventText,
 	steerCodexDirectEvent,
@@ -39,6 +41,15 @@ export const subagentLaneSuffix = (transcriptPath: string): string => {
 	const m = transcriptPath.match(/\/subagents\/([^/]+?)(?:\.jsonl)?\/?$/);
 	return m ? `#${m[1]}` : "";
 };
+
+export function hookLaneId(hook: HookInput): string {
+	if (process.env.SUSPENDERS_SID) return process.env.SUSPENDERS_SID;
+	const lane = resolveFleetLane(hook.cwd ?? process.cwd());
+	if (lane) return lane.sid;
+	return hook.session_id
+		? `${hook.session_id}${subagentLaneSuffix(hook.transcript_path ?? "")}`
+		: "";
+}
 
 // anchored on the exact `--as <sid>` tail — at most one live subscribe per
 // sid; the W494 staleness exit keeps dead sessions' subscribes from

@@ -48,6 +48,17 @@ switch (event) {
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: pushGate is `: never` — the call ends the case
 	case "push":
 		pushGate(hook); // W417.4: tail new subscribe-log lines into context
+	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow()/exit end this native hook on every path
+	case "claude-wake": {
+		const { waitForClaudeWake } = await import("./lib/claude-wake.ts");
+		const { hookLaneId } = await import("./lib/subscribe-attach.ts");
+		const text = await waitForClaudeWake(hookLaneId(hook));
+		if (text) {
+			process.stderr.write(`${text}\n`);
+			process.exit(2); // asyncRewake delivers a native system reminder
+		}
+		allow();
+	}
 	// biome-ignore lint/suspicious/noFallthroughSwitchClause: allow() is `: never` — the case always exits
 	case "pre-read":
 		readGate(hook); // W110: void — fat-read deny / re-read nudge, else falls through

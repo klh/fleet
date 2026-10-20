@@ -87,6 +87,34 @@ function fixture(priority?: number) {
 	return { cwd, git, work, id, stop, stopFresh, coord };
 }
 
+test("direct messages take priority without spending the lane continuation budget", () => {
+	const f = fixture();
+	const db = new Database(join(home, ".cache/claude-governor/governor.db"));
+	try {
+		const inserted = db
+			.query(
+				"INSERT INTO events (ts, source, kind, payload, target) VALUES (?, 'owner', 'NOTE', ?, 'dispatch-owner')",
+			)
+			.run(
+				Date.now(),
+				JSON.stringify({ note: "Read this before continuing the work item" }),
+			);
+		db.query(
+			"INSERT INTO direct_message_receipts (event_id, sid, state, queued_at) VALUES (?, 'dispatch-owner', 'QUEUED', ?)",
+		).run(inserted.lastInsertRowid, Date.now());
+		const result = f.stop();
+		expect(result.err).toContain("TURN-BOUNDARY INBOX");
+		expect(result.err).toContain("Read this before continuing the work item");
+		expect(result.err).not.toContain("Re-ask");
+		db.query(
+			"UPDATE direct_message_receipts SET state = 'ACCEPTED' WHERE event_id = ?",
+		).run(inserted.lastInsertRowid);
+		expect(f.stop().err).toContain("Re-ask 1/3");
+	} finally {
+		db.close();
+	}
+});
+
 test("empty lane cannot bypass stop checks; budget exhaustion records FAILED", () => {
 	const f = fixture();
 	// priority 0 → class light → continuation budget 3
