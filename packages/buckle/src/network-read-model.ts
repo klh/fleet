@@ -153,7 +153,7 @@ export interface NetworkDbPaths {
 }
 
 /** Config-over-code path resolution — env knobs first, machine defaults
- *  second (the model-store BUCKLE_DB precedent; the board and /console/belt
+ *  second (the model-store BUCKLE_DB precedent; the board and /console/buckle
  *  reuse this so /api/lane-routes stops 404ing on an unset knob). */
 export function resolveNetworkDbPaths(
 	env: Record<string, string | undefined>,

@@ -312,7 +312,7 @@ describe("fleet strip markup (W291)", () => {
 	test("Buckle opens its nested console on the existing Suspenders host", () => {
 		const locations = {
 			belt: "https://belt.local",
-			buckle: "https://suspenders.local/console/belt",
+			buckle: "https://suspenders.local/console/buckle",
 			suspenders: "https://suspenders.local",
 			local: "https://bar.local",
 		};
@@ -324,11 +324,11 @@ describe("fleet strip markup (W291)", () => {
 			expect(s.title).toContain(s.id);
 		}
 		expect(fleetNav("suspenders")).toContain(
-			'<a href="https://suspenders.local/console/belt" data-repo="https://github.com/klh/fleet/tree/main/packages/buckle"',
+			'<a href="https://suspenders.local/console/buckle" data-repo="https://github.com/klh/fleet/tree/main/packages/buckle"',
 		);
-		const buckleConsole = fleetNav("suspenders", "belt");
+		const buckleConsole = fleetNav("suspenders", "buckle");
 		expect(buckleConsole).toContain(
-			'<a href="https://suspenders.local/console/belt" aria-current="page"',
+			'<a href="https://suspenders.local/console/buckle" aria-current="page"',
 		);
 		expect(buckleConsole).not.toContain(
 			'<a href="https://suspenders.local" aria-current="page"',
@@ -371,14 +371,14 @@ describe("pages wear the theme (W269 + W658.2)", () => {
 		expect(bodyOf(page)).not.toMatch(palette);
 	});
 	test("board + console wear the fleet strip above <klh-topbar>", () => {
-		const page = consolePage("Belt", "belt", "<p>x</p>");
+		const page = consolePage("Buckle gateway", "buckle", "<p>x</p>");
 		for (const h of [HTML, page]) {
 			const strip = h.indexOf('<nav class="klh-fleetnav"');
 			const bar = h.indexOf("<klh-topbar");
 			expect(strip).toBeGreaterThanOrEqual(0);
 			expect(bar).toBeGreaterThan(strip);
 		}
-		expect(page).toContain('href="/console/belt" aria-current="page"');
+		expect(page).toContain('href="/console/buckle" aria-current="page"');
 	});
 });
 
@@ -415,9 +415,9 @@ describe("vendoring pin (W291)", () => {
 		).arrayBuffer();
 		const sha256 = new Bun.CryptoHasher("sha256").update(src).digest("hex");
 		expect({ version: KLH_THEME_VERSION, sha256 }).toEqual({
-			version: "1.4.1",
+			version: "1.4.2",
 			sha256:
-				"4fa1b84ff0135fead1edb2ffa35eba97df74d3606bad6527b122dcaa5265b49a",
+				"4abd2237e173e9bbbad93b1fac1f30b912dc6f8f0fab151cc81b68196e54c041",
 		});
 	});
 });

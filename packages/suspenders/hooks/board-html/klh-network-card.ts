@@ -1,5 +1,5 @@
 // hooks/board-html/klh-network-card.ts — W858.10.3: the admin Network
-// overview card on /console/belt (the gateway console). Renders buckle's
+// overview card on /console/buckle (the gateway console). Renders buckle's
 // measured network telemetry: per-hub rows (TTL-bounded active + observer
 // freshness), per-interface trailing-window edges (60s rate / 15m workload,
 // nulls stay null), recent successful routes, hour buckets, and the local

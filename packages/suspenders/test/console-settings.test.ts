@@ -285,13 +285,13 @@ describe("console routes (real board, temp config)", () => {
 	test("shell on / and /usage; console sections render", async () => {
 		const home = await (await fetch(`${BASE}/`)).text();
 		expect(home).toContain("<klh-topbar");
-		expect(home).toContain('href="/console/belt"');
+		expect(home).toContain('href="/console/buckle"');
 		expect(home).toContain('href="/console/local"');
 		expect(home).toContain('src="/vendor/klh-topbar.js"');
 		const usage = await (await fetch(`${BASE}/usage`)).text();
 		expect(usage).toContain("<klh-topbar");
 		expect(usage).toContain('src="/vendor/klh-topbar.js"');
-		const belt = await (await fetch(`${BASE}/console/belt`)).text();
+		const belt = await (await fetch(`${BASE}/console/buckle`)).text();
 		expect(belt).toContain("Routing policy");
 		expect(belt).toContain("glm-5.3-flash");
 		expect(belt).toContain("local-swarm");
@@ -304,7 +304,7 @@ describe("console routes (real board, temp config)", () => {
 	});
 
 	test("W273: service rows + re-probe endpoint + vendored row module", async () => {
-		const belt = await (await fetch(`${BASE}/console/belt`)).text();
+		const belt = await (await fetch(`${BASE}/console/buckle`)).text();
 		expect(belt).toContain("<klh-service-row");
 		expect(belt).toContain('data-service="belt-gateway-4000"');
 		const all = (await (await fetch(`${BASE}/api/services`)).json()) as {

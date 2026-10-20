@@ -1,4 +1,4 @@
-// hooks/board/network-overview.ts — W858.10.3: the /console/belt Network
+// hooks/board/network-overview.ts — W858.10.3: the /console/buckle Network
 // overview payload. Buckle's own request/usage records read through the
 // network read model (ledger + projection dbs), plus the live gateway probe
 // row for the local spoke — the board's monitored-service probe reused, so

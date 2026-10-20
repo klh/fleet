@@ -1,7 +1,7 @@
-// console-network.test.ts — W858.10.3: the /console/belt Network overview
+// console-network.test.ts — W858.10.3: the /console/buckle Network overview
 // seam against a real board on a throwaway port: /api/console/network reads
 // the seeded ledger + projection dbs (honest sections, no fabricated zeros),
-// /console/belt renders the klh-network-card host with the SSR seed, and
+// /console/buckle renders the klh-network-card host with the SSR seed, and
 // /api/lane-routes stops 404ing once the projection db resolves.
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -201,11 +201,18 @@ describe("/api/console/network", () => {
 	});
 });
 
-describe("/console/belt + /api/lane-routes", () => {
-	test("belt page carries the network card host + seed", async () => {
-		const html = await (await fetch(`${BASE}/console/belt`)).text();
+describe("/console/buckle + /api/lane-routes", () => {
+	test("legacy Belt console URL redirects to Buckle", async () => {
+		const response = await fetch(`${BASE}/console/belt`, {
+			redirect: "manual",
+		});
+		expect(response.status).toBe(301);
+		expect(response.headers.get("location")).toBe(`${BASE}/console/buckle`);
+	});
+	test("Buckle page carries the route summary card host + seed", async () => {
+		const html = await (await fetch(`${BASE}/console/buckle`)).text();
 		expect(html).toContain("klh-network-card");
-		expect(html).toContain("Network overview");
+		expect(html).toContain("Buckle route summary");
 		expect(html).toContain("vendor/klh-console-cards.js");
 	});
 
