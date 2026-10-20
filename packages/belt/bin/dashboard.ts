@@ -361,8 +361,6 @@ const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>belt — local LLM fleet</title>
 ${THEME_HEAD}
-<link rel="stylesheet" href="/vendor/uPlot.min.css">
-<script src="/vendor/uPlot.iife.min.js"></script>
 <style>
 * { box-sizing: border-box; }
 body { background:var(--klh-bg); color:var(--klh-ink); font:var(--klh-text-md)/1.5 var(--klh-font-mono); margin:0; padding:var(--klh-space-5) var(--klh-space-6) var(--klh-space-7); }
@@ -379,6 +377,8 @@ main { max-width:1600px; margin:0 auto; }
 .page-intro { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin:16px 0 10px; border-bottom:1px solid var(--klh-edge); padding-bottom:10px; }
 .page-intro h1 { margin:0; font-size:var(--klh-text-lg); font-weight:600; }
 .page-intro p { margin:0; color:var(--klh-dim); font-size:var(--klh-text-sm); }
+.page-intro a { color:var(--klh-accent); white-space:nowrap; }
+.page-intro a:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
 .surface-section { margin:0 0 var(--klh-space-5); }
 .surface-section > h2 { margin:0 0 10px; color:var(--klh-ink); }
 .diagnostics { border-top:1px solid var(--klh-edge); padding-top:12px; margin-top:20px; }
@@ -467,32 +467,26 @@ ${fleetNav("belt", "models")}
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
 <main>
-<div class="page-intro"><h1>Models and routing</h1><p>Local machine · hub gateways · cloud providers</p></div>
-<section class="surface-section" aria-label="Network connections">
-<belt-topology></belt-topology>
-<script type="module" src="/dashboard-topology.js"></script>
-</section>
-<section class="surface-section" aria-label="Routing activity">
-<belt-trends></belt-trends>
-</section>
-<section class="surface-section" aria-label="Hubs and local models">
-<details><summary>Hubs and local models</summary>
-<p class="diagnostics-note">Available models and their Buckle route from this machine.</p>
-<belt-model-inventory></belt-model-inventory>
-<div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
-</details>
-</section>
-<details class="diagnostics"><summary>Diagnostics · probes, endpoint inventory and route records</summary>
-<p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
-<belt-supervisor></belt-supervisor>
-<script type="module" src="/dashboard-observability.js"></script>
-<details class="fleet-details"><summary>Fleet endpoint details</summary>
+<div class="page-intro"><h1>Local models</h1><p>Model health and fleet inventory · <a href="https://suspenders.local/console/belt">Buckle gateway ↗</a></p></div>
+<section class="surface-section" aria-label="Local model health">
+<h2>Local model health</h2>
 <div class="scroll">
 <div class="fhead"><span>location</span><span>endpoint</span><span>state</span><span>protocol</span><span>model</span><span class="w">engine</span><span class="w">ram</span><span class="w">latency</span><span class="w">good at</span></div>
 <div id="fleet"></div>
 </div>
 <div id="fleetmeta" class="mut">—</div>
-</details>
+</section>
+<section class="surface-section" aria-label="Fleet model inventory">
+<h2>Fleet model inventory</h2>
+<p class="diagnostics-note">Local models and models exposed through registered hubs and providers.</p>
+<belt-model-inventory></belt-model-inventory>
+<script type="module" src="/dashboard-topology.js"></script>
+<div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
+</section>
+<details class="diagnostics"><summary>Diagnostics · local probes and endpoint records</summary>
+<p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
+<belt-supervisor></belt-supervisor>
+<script type="module" src="/dashboard-observability.js"></script>
 <div class="rhead"><span id="remotesnote" class="mut">loading…</span><button id="remotesbtn" type="button">refresh</button></div>
 <div id="remotesdisc"></div>
 <details class="route-details"><summary>Recent Belt routes and router audit</summary>
@@ -503,7 +497,6 @@ ${fleetNav("belt", "models")}
 </details>
 <div id="prefsline"></div>
 </details>
-<belt-topology-details></belt-topology-details>
 </main>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
@@ -571,33 +564,6 @@ function renderFleet(){
         +'<p class="mut">'+bits.join(' · ')+'</p>'
         +'</div></details>';
     });
-  (remoteRows||[]).forEach(function(x){
-    // A failed credentialed endpoint probe does not mean the provider (or a
-    // separate CLI seat) is down. Keep the observation scoped to this route.
-    var st=x.ok?'<span class="ok">API reachable</span>':'<span class="mut">API probe failed</span>';
-    var fast=(x.fastest_for||[]).map(function(r){return '<span class="fast">fastest '+esc(r)+'</span>';}).join(' ');
-    var load=(x.load_5m||0)>0?'<em class="load">'+x.load_5m+'/5m</em>':'';
-    var bits=['last used '+(x.last_used?age(x.last_used,now):'—'),
-      (x.calls||0)+' calls',
-      'avg '+(x.avg_ms!=null?x.avg_ms+'ms':'—'),
-      (x.errors||0)+' errors'];
-    if(x.last_error)bits.push('<span class="mut">last error: '+esc(x.last_error)+'</span>');
-    var k='R'+x.machine+':'+x.port+':'+(x.model||'');
-    html+='<details class="frow" data-key="'+esc(k)+'"'+(openRows[k]?' open':'')+'><summary>'
-      +'<span>'+esc(x.machine)+' <span class="u">(remote)</span></span>'
-      +'<span>'+esc(x.host)+':'+x.port+'</span>'
-      +'<span class="cstate">'+st+' '+fast+load+'</span>'
-      +'<span><span class="badge '+esc(x.protocol)+'">'+esc(x.protocol)+'</span></span>'
-      +'<span class="cmodel" title="'+esc(x.model||'')+'">'+esc(x.model||'—')+'</span>'
-      +'<span class="w">—</span>'
-      +'<span class="w">—</span>'
-      +'<span class="w">'+(x.ok?x.ms+'ms':'—')+'</span>'
-      +'<span class="w cgood">'+esc((x.roles||[]).join(', ')||'—')+'</span>'
-      +'</summary><div class="panel">'
-      +'<p><span class="mut">good at (roles):</span> '+esc((x.roles||[]).join(', ')||'—')+'</p>'
-      +'<p class="mut">'+bits.join(' · ')+'</p>'
-      +'</div></details>';
-  });
   mount(fleet,html);
 }
 function age(iso,now){
