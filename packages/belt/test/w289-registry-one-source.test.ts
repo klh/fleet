@@ -106,6 +106,27 @@ describe("loadDirectTiers chain (W289)", () => {
 		}
 	});
 
+	test("runtime JSON direct rows win over legacy YAML", () => {
+		const home = mkdtempSync(join(tmpdir(), "w975-direct-home-"));
+		try {
+			const runtime = join(home, ".claude/local-llm");
+			mkdirSync(runtime, { recursive: true });
+			writeFileSync(
+				join(runtime, "routing-policy.yaml"),
+				"direct:\n  legacy: http://127.0.0.1:8902\n",
+			);
+			writeFileSync(
+				join(runtime, "routing-policy.json"),
+				JSON.stringify({ direct: { current: "http://127.0.0.1:8903" } }),
+			);
+			expect(loadDirectTiers(undefined, home)).toEqual({
+				current: "http://127.0.0.1:8903/v1",
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	test("the emitted direct-tiers.json artifact wins over the registry", () => {
 		const home = mkdtempSync(join(tmpdir(), "w289-home-"));
 		try {
