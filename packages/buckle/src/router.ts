@@ -303,9 +303,15 @@ export class Router {
 			const clientFault =
 				err.kind === "bad_request" && resp.status < 500 && resp.status !== 404;
 			if (clientFault) {
+				// W987: a client-fault rung is THIS deployment refusing the ride
+				// (its model/feature set), not the request being unrouteable —
+				// bench it and let the walk continue; hard-abort is reserved for
+				// req-level faults, which ingress admission owns.
+				this.cooldowns.failure(dep);
+				this.metrics?.cooldown(`${dep.group}|${dep.url}`);
 				return {
 					...base,
-					error: `upstream rejected the request (${String(resp.status)})`,
+					error: `upstream ${dep.url} rejected the request (${String(resp.status)})`,
 					clientFault: true,
 					exhaustTier: false,
 				};
@@ -316,7 +322,11 @@ export class Router {
 				...base,
 				error: `upstream ${dep.url} returned ${String(resp.status)}`,
 				clientFault: false,
-				exhaustTier: !err.retryable,
+				// W987: auth rungs (401/403) are deployment faults — the
+				// credential belongs to this dep, not the request — so they
+				// walk on instead of exhausting the tier (the copilot seat's
+				// intermittent 401 vetoed the whole ladder before this).
+				exhaustTier: err.kind !== "auth" && !err.retryable,
 			};
 		} catch (e) {
 			if (req.signal?.aborted) throw e;
@@ -346,9 +356,14 @@ export class Router {
 						totalMs: (this.policy.stream_total_timeout_s ?? 900) * 1000,
 					}
 				: undefined;
+		// W987: skip-grade rung failures (auth, client-fault) advance to the
+		// next candidate free — the retry budget only buys repeat attempts
+		// for failures that can heal (5xx/timeouts/rate limits).
+		let skipped = 0;
 		for (let attempt = 0; attempt <= retries; attempt++) {
 			if (req.signal?.aborted) return { kind: "aborted" };
-			const dep = candidates.at(Math.min(attempt, candidates.length - 1));
+			const raw = attempt + skipped;
+			const dep = candidates.at(Math.min(raw, candidates.length - 1));
 			if (!dep) break;
 			if (st.pendingRetryMs !== undefined) {
 				await this.sleepMs(st.pendingRetryMs);
@@ -387,17 +402,17 @@ export class Router {
 			st.error = r.error;
 			if (r.kind === "rate_limited" && !st.rateLimit)
 				st.rateLimit = { response: r.response, tier };
-			if (r.clientFault) {
-				if (st.rateLimit) return exhausted(st);
-				return {
-					kind: "client-error",
-					response: r.response,
-					tier,
-					attempts: st.attempts,
-				};
-			}
 			if (r.contextWindow) st.ctxWindow = r.response;
 			if (r.exhaustTier) break;
+			// W987: an auth/client-fault rung failed on THIS deployment (its
+			// credential or its model) — the bench already happened in
+			// tryOnce; advance to the next candidate free (no retry budget,
+			// no backoff sleep).
+			if (r.clientFault || r.kind === "auth") {
+				if (raw + 1 >= candidates.length) break;
+				skipped++;
+				continue;
+			}
 			st.pendingRetryMs =
 				retryDelayS(st.attempts - 1, r.retryAfterS, this.rng, capS, floorCapS) *
 				1000;
