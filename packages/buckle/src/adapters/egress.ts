@@ -78,12 +78,16 @@ export function validateUpstreamUrl(url: string): void {
 		throw new Error(
 			`url "${u.host}" must not carry credentials (use api_key_env)`,
 		);
+	const host = u.hostname.toLowerCase().replace(/\.$/, "");
+	if (host === "openrouter.ai" || host.endsWith(".openrouter.ai"))
+		throw new Error(
+			`url "${u.host}" refused: OpenRouter must route through LiteLLM behind Buckle`,
+		);
 	if (u.protocol === "https:") return;
 	if (u.protocol !== "http:")
 		throw new Error(
 			`url scheme ${u.protocol} refused (https or loopback http)`,
 		);
-	const host = u.hostname.toLowerCase();
 	if (isLoopbackHost(host)) return;
 	if (envList("BUCKLE_HTTP_UPSTREAM_HOSTS").includes(host)) return;
 	throw new Error(

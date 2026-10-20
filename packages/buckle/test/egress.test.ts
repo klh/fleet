@@ -158,12 +158,24 @@ describe("adapters refuse disallowed token hosts before any fetch", () => {
 });
 
 describe("upstream base URL law", () => {
-	test("https anywhere; http only to loopback or operator-listed hosts", () => {
+	test("https except OpenRouter; http only to loopback or operator-listed hosts", () => {
 		expect(() =>
 			validateUpstreamUrl("https://api.anthropic.com"),
 		).not.toThrow();
 		expect(() => validateUpstreamUrl("http://127.0.0.1:8902")).not.toThrow();
 		expect(() => validateUpstreamUrl("http://localhost:1")).not.toThrow();
+		expect(() => validateUpstreamUrl("https://openrouter.ai/api/v1")).toThrow(
+			/through LiteLLM/,
+		);
+		expect(() => validateUpstreamUrl("https://api.openrouter.ai/v1")).toThrow(
+			/through LiteLLM/,
+		);
+		expect(() => validateUpstreamUrl("https://openrouter.ai./api/v1")).toThrow(
+			/through LiteLLM/,
+		);
+		expect(() =>
+			validateUpstreamUrl("https://openrouter.ai.evil.test"),
+		).not.toThrow();
 		expect(() => validateUpstreamUrl("http://[::1]:1")).not.toThrow();
 		expect(() => validateUpstreamUrl("http://169.254.169.254")).toThrow(/http/);
 		expect(() => validateUpstreamUrl("file:///etc/passwd")).toThrow(/scheme/);
@@ -183,6 +195,14 @@ describe("upstream base URL law", () => {
 			"groups:\n  meta:\n    - url: http://169.254.169.254\n      dialect: openai\n",
 		);
 		expect(() => loadUpstreams(p)).toThrow(/group "meta".*refused/);
+		writeFileSync(
+			p,
+			"groups:\n  direct-openrouter:\n    - url: https://openrouter.ai/api/v1\n" +
+				"      dialect: openai\n      adapter: openai-compat\n",
+		);
+		expect(() => loadUpstreams(p)).toThrow(
+			/group "direct-openrouter".*through LiteLLM/,
+		);
 		writeFileSync(
 			p,
 			"groups:\n  az:\n    - url: https://r.openai.azure.com\n      dialect: openai\n" +

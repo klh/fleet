@@ -7,8 +7,9 @@
 // routes, and same-provider route twins (text-completion twins, *_chat,
 // *_beta, ollama_chat, hosted_vllm, sagemaker_chat/_nova, qwencloud/
 // qwen_ai_platform, text-completion-inception, watsonx_text — collapsed
-// into their canonical row). MIT attribution: NOTICE.md. flashx is
-// structurally absent — never a row.
+// into their canonical row). OpenRouter is intentionally excluded: its
+// provider integration belongs to LiteLLM behind Buckle. MIT attribution:
+// NOTICE.md. flashx is structurally absent — never a row.
 import type { AdapterFamily } from "./types.ts";
 
 export type CatalogAuth =
@@ -181,14 +182,6 @@ export const CATALOG_TABLE: readonly CatalogRow[] = [
 		auth: "bearer",
 		env: "TOGETHERAI_API_KEY",
 		docs: "providers/together_ai",
-	},
-	{
-		name: "openrouter",
-		family: "openai-compat",
-		tier: 3,
-		auth: "bearer",
-		env: "OPENROUTER_API_KEY",
-		docs: "providers/openrouter",
 	},
 	{
 		name: "datarobot",

@@ -1,5 +1,5 @@
 // src/adapters/openai-compat.ts — the generic openai-wire family (W134
-// tier 1): OpenAI, z.ai, OpenRouter, vLLM, LM Studio, one-api-class shims
+// tier 1): OpenAI, z.ai, vLLM, LM Studio, one-api-class shims
 // and local MLX/Ollama servers are ONE adapter; the provider long tail is
 // data rows, never code. buildCall reproduces the pre-adapter wire.ts
 // behavior byte-for-byte (model alias patch + stream_options.include_usage

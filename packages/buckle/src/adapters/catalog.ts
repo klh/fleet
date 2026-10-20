@@ -52,6 +52,10 @@ export function resolveCatalogFamily(
 	name: string,
 	hasExplicitConfig: boolean,
 ): AdapterFamily {
+	if (name === "openrouter")
+		throw new Error(
+			'adapters: OpenRouter must route through LiteLLM; "openrouter" is not a Buckle adapter',
+		);
 	const hit = BY_NAME.get(name);
 	if (hit) return hit.family;
 	if (hasExplicitConfig) return "openai-compat";

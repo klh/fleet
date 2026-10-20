@@ -34,7 +34,7 @@ export function getAdapter(family: string): ChatAdapter {
 
 /** Deployment → adapter: the explicit per-deployment `adapter:` field wins;
  *  absent, derive from the dialect (W134 §4.2 back-compat). W150: the field
- *  may also name a CATALOG PROVIDER (e.g. `adapter: openrouter` → its row's
+ *  may also name a CATALOG PROVIDER (e.g. `adapter: vertex_ai` → its row's
  *  family) or, with an explicit adapter_config, an unknown name → the
  *  openai-compat catch-all; otherwise fail closed. */
 export function resolveAdapter(dep: {

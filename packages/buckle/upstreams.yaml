@@ -101,11 +101,9 @@ groups:
 #      dialect: openai
 #      adapter: gemini               # catalog name → vertex family, api-key profile
 #      api_key_env: GEMINI_API_KEY
-#  openrouter-example:
-#    - url: https://openrouter.ai/api/v1
-#      dialect: openai
-#      adapter: openrouter           # catalog tier-3 → openai-compat
-#      api_key_env: OPENROUTER_API_KEY
+# OpenRouter routes through the LiteLLM engine behind Buckle; configure its
+# models and credential in LiteLLM, then name those models in the Buckle
+# litellm-engine upstream pattern below.
 #
 # W219.1 litellm-as-engine (commented pattern — activation is the machine
 # BUCKLE_UPSTREAMS override, same as every real-host row). The local litellm
