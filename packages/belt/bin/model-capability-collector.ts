@@ -11,9 +11,11 @@ import {
 	type ModelCapabilityRecord,
 } from "./model-capabilities.ts";
 import { SPECIALISTS } from "./registry.ts";
+import { ZAI_CATALOG_MAX_AGE_MS, ZAI_CATALOG_URL } from "./zai-catalog-rows.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const FRESH_MS = 15 * 60_000;
+const SOURCE_MAX_AGES = new Map([[ZAI_CATALOG_URL, ZAI_CATALOG_MAX_AGE_MS]]);
 
 export interface CapabilityFeed {
 	state: "available" | "partial";
@@ -47,6 +49,13 @@ export const capabilityRegistryFromCatalogs = (
 	const prices = new Map(
 		access.openrouter.models.map((model) => [model.id, model.price]),
 	);
+	const zaiAccount =
+		access.zaiAccount.state === "available" &&
+		access.zaiAccount.source === ZAI_CATALOG_URL &&
+		access.zaiAccount.generatedAt
+			? access.zaiAccount
+			: null;
+	const zaiAccountIds = new Set(zaiAccount?.modelIds ?? []);
 	for (const rawRow of rawRows) {
 		const record = fromOpenRouterCatalogRow(rawRow, observedAt);
 		if (!record) continue;
@@ -74,6 +83,12 @@ export const capabilityRegistryFromCatalogs = (
 			at,
 		);
 		if (!record) continue;
+		if (zaiAccount?.generatedAt && zaiAccountIds.has(model.id))
+			record.locality = {
+				value: "remote",
+				source: ZAI_CATALOG_URL,
+				observedAt: zaiAccount.generatedAt,
+			};
 		record.cost = {
 			value: model.price,
 			source: access.zaiPricing.source,
@@ -81,17 +96,13 @@ export const capabilityRegistryFromCatalogs = (
 		};
 		registry.upsert(record);
 	}
-	if (
-		access.zaiAccount.state === "available" &&
-		access.zaiAccount.source &&
-		access.zaiAccount.generatedAt
-	) {
-		for (const id of access.zaiAccount.modelIds) {
+	if (zaiAccount?.generatedAt) {
+		for (const id of zaiAccount.modelIds) {
 			const record = fromRemoteCatalogId(
 				"zai",
 				id,
-				access.zaiAccount.source,
-				access.zaiAccount.generatedAt,
+				ZAI_CATALOG_URL,
+				zaiAccount.generatedAt,
 			);
 			if (record) registry.upsert(record);
 		}
@@ -153,7 +164,10 @@ export const collectModelCapabilities = async (
 		payload,
 		now,
 	).all())
-		registry.upsert(record);
+		registry.upsert(record, {
+			preferLocality:
+				record.provider === "zai" && record.locality.source === ZAI_CATALOG_URL,
+		});
 	let persistence: "saved" | "unavailable" = "saved";
 	try {
 		await writeCapabilitySnapshot(path, registry, now);
@@ -169,7 +183,9 @@ export const collectModelCapabilities = async (
 		maxAgeMs: FRESH_MS,
 		records: registry
 			.all()
-			.map((record) => currentCapability(record, FRESH_MS, now)),
+			.map((record) =>
+				currentCapability(record, FRESH_MS, now, SOURCE_MAX_AGES),
+			),
 		sources: { openrouter, persistence },
 	};
 };

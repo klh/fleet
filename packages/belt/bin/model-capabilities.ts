@@ -190,12 +190,14 @@ const fresh = <T>(
 	field: CapabilityFact<T>,
 	maxAgeMs: number,
 	now: number,
+	sourceMaxAgeMs?: ReadonlyMap<string, number>,
 ): CapabilityFact<T> => {
 	const observed = field.observedAt ? Date.parse(field.observedAt) : NaN;
+	const allowedAge = sourceMaxAgeMs?.get(field.source ?? "") ?? maxAgeMs;
 	return field.value !== null &&
 		Number.isFinite(observed) &&
 		observed <= now &&
-		now - observed <= maxAgeMs
+		now - observed <= allowedAge
 		? field
 		: { ...field, value: null };
 };
@@ -205,16 +207,27 @@ export const currentCapability = (
 	record: ModelCapabilityRecord,
 	maxAgeMs: number,
 	now = Date.now(),
+	sourceMaxAgeMs?: ReadonlyMap<string, number>,
 ): ModelCapabilityRecord => ({
 	...record,
-	locality: fresh(record.locality, maxAgeMs, now),
-	inputModalities: fresh(record.inputModalities, maxAgeMs, now),
-	outputModalities: fresh(record.outputModalities, maxAgeMs, now),
-	contextTokens: fresh(record.contextTokens, maxAgeMs, now),
-	maxOutputTokens: fresh(record.maxOutputTokens, maxAgeMs, now),
-	tools: fresh(record.tools, maxAgeMs, now),
-	structuredOutput: fresh(record.structuredOutput, maxAgeMs, now),
-	cost: fresh(record.cost, maxAgeMs, now),
+	locality: fresh(record.locality, maxAgeMs, now, sourceMaxAgeMs),
+	inputModalities: fresh(record.inputModalities, maxAgeMs, now, sourceMaxAgeMs),
+	outputModalities: fresh(
+		record.outputModalities,
+		maxAgeMs,
+		now,
+		sourceMaxAgeMs,
+	),
+	contextTokens: fresh(record.contextTokens, maxAgeMs, now, sourceMaxAgeMs),
+	maxOutputTokens: fresh(record.maxOutputTokens, maxAgeMs, now, sourceMaxAgeMs),
+	tools: fresh(record.tools, maxAgeMs, now, sourceMaxAgeMs),
+	structuredOutput: fresh(
+		record.structuredOutput,
+		maxAgeMs,
+		now,
+		sourceMaxAgeMs,
+	),
+	cost: fresh(record.cost, maxAgeMs, now, sourceMaxAgeMs),
 });
 
 const key = (provider: string, modelId: string): string =>
@@ -239,14 +252,19 @@ export class CapabilityRegistry {
 		for (const record of records) this.upsert(record);
 	}
 
-	upsert(record: ModelCapabilityRecord): void {
+	upsert(
+		record: ModelCapabilityRecord,
+		options: { preferLocality?: boolean } = {},
+	): void {
 		if (!record.provider || !record.modelId)
 			throw new Error("provider and modelId are required");
 		const previous = this.records.get(key(record.provider, record.modelId));
 		const merged = previous
 			? {
 					...record,
-					locality: newerFact(previous.locality, record.locality),
+					locality: options.preferLocality
+						? record.locality
+						: newerFact(previous.locality, record.locality),
 					inputModalities: newerFact(
 						previous.inputModalities,
 						record.inputModalities,

@@ -162,3 +162,45 @@ test("writes an atomic private snapshot and reports an unreachable catalog hones
 		)?.contextTokens.value,
 	).toBeNull();
 });
+
+test("keeps Z.ai account locality until its 24-hour snapshot expires", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "belt-collector-zai-"));
+	dirList.push(dir);
+	const path = join(dir, "model-capabilities.json");
+	const inventory = access();
+	inventory.zaiAccount.generatedAt = new Date(now - 30 * 60_000).toISOString();
+	inventory.zaiPricing.fetchedAt = inventory.zaiAccount.generatedAt;
+	const fetcher = async () => new Response(JSON.stringify({ data: [] }));
+	const pricingOnly = access();
+	pricingOnly.zaiPricing.fetchedAt = inventory.zaiAccount.generatedAt;
+	pricingOnly.zaiAccount = {
+		state: "unavailable",
+		source: null,
+		generatedAt: null,
+		modelIds: [],
+	};
+	await collectModelCapabilities(pricingOnly, { fetcher, path, now });
+	const current = await collectModelCapabilities(inventory, {
+		fetcher,
+		path,
+		now,
+	});
+	for (const id of ["glm-5", "glm-5-turbo"]) {
+		const row = current.records.find(
+			(record) => record.provider === "zai" && record.modelId === id,
+		);
+		expect(row?.locality.value).toBe("remote");
+		expect(row?.locality.source).toBe(inventory.zaiAccount.source);
+		if (id === "glm-5") expect(row.cost.value).toBeNull();
+	}
+	const expired = await collectModelCapabilities(inventory, {
+		fetcher,
+		path,
+		now: now + 24 * 60 * 60_000,
+	});
+	expect(
+		expired.records.find(
+			(record) => record.provider === "zai" && record.modelId === "glm-5",
+		)?.locality.value,
+	).toBeNull();
+});
