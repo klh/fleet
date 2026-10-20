@@ -22,6 +22,9 @@ gateway:
   cooldown_time: 30
   fallbacks:
     glm-5.3-flash: [local-swarm, gpt-5.2, claude-sonnet-5]
+    # An explicit Claude request can use GLM when the seat is unavailable.
+    # The delivered route still reports the real GLM model.
+    claude-sonnet-5: [glm-5.3-flash, local-swarm]
   # W450 long-generation deadlines: a streaming body that sits silent
   # longer than stream_idle_timeout_s is hung (aborted); a healthy stream
   # runs to stream_total_timeout_s regardless of request_timeout_s (which

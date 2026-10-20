@@ -481,13 +481,15 @@ export class Router {
 			row.kind === "cloud" &&
 			(demanded
 				? !prefsOpen
-				: !mayEscalate({
-						group: row.group,
-						tier: req.tier,
-						attempts: st.attempts,
-						prefs: sel.prefs,
-						cloudGroups: sel.cloudGroups,
-					}));
+				: row.group === req.group && prefsOpen
+					? false // an explicit model pin is the cloud warrant
+					: !mayEscalate({
+							group: row.group,
+							tier: req.tier,
+							attempts: st.attempts,
+							prefs: sel.prefs,
+							cloudGroups: sel.cloudGroups,
+						}));
 		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (gate(row)) continue;

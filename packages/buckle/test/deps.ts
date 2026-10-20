@@ -48,7 +48,13 @@ export function testDeps(
 		hint: RouteHint | null;
 		hintRaw: string;
 		allowCross: boolean;
-	}) => decideRoute({ ...input, candidates: table.snapshot(), prefs });
+	}) =>
+		decideRoute({
+			...input,
+			candidates: table.snapshot(),
+			prefs,
+			fallbackGroups: input.allowCross ? policy.fallbacks?.[input.group] : [],
+		});
 	const aidsPolicy = policy.aids ?? {};
 	return {
 		router,

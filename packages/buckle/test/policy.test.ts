@@ -27,6 +27,16 @@ test("parsePolicy: W124 ladder verbatim", () => {
 	expect(ladder).toEqual(["local-swarm", "gpt-5.2", "claude-sonnet-5"]);
 });
 
+test("committed Claude fallback names GLM as a separate group", () => {
+	const policy = loadGatewayPolicy(
+		new URL("../routing-policy.yaml", import.meta.url).pathname,
+	);
+	expect(policy.fallbacks?.["claude-sonnet-5"]).toEqual([
+		"glm-5.3-flash",
+		"local-swarm",
+	]);
+});
+
 test("parsePolicy: buckle knobs survive the shared-file shape", () => {
 	const p = parsePolicy(
 		"gateway:\n  retry_max_delay_s: 4\n  retry_after_cap_s: 30\n  request_timeout_s: 60\n",
