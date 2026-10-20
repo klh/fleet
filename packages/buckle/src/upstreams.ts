@@ -37,6 +37,9 @@ export interface Deployment {
 	// W706: the upstream is another buckle hub — the relay leg carries the
 	// hop marker baggage (origin + peer) instead of the external-egress strip.
 	buckle?: boolean;
+	// Lower number wins among healthy deployments for the same request fit.
+	// Omitted preserves measured latency ordering.
+	priority?: number;
 	group: string;
 }
 
@@ -54,6 +57,7 @@ interface DeploymentSpec {
 	adapter_config?: Record<string, unknown>;
 	visibility?: string;
 	buckle?: boolean;
+	priority?: number;
 }
 
 export interface UpstreamPool {
@@ -89,6 +93,13 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 			group,
 			(specs ?? []).map((s) => {
 				const dep = { ...s, group };
+				if (
+					dep.priority !== undefined &&
+					(!Number.isSafeInteger(dep.priority) || dep.priority < 0)
+				)
+					throw new Error(
+						`upstreams: group "${group}": priority must be a non-negative integer`,
+					);
 				// startup fatal (W134 §4.2): unknown adapter names — and known
 				// tier-2 families with no adapter yet — fail closed here,
 				// naming the offending group, never a silent passthrough.

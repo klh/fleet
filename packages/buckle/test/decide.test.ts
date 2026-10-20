@@ -129,6 +129,77 @@ describe("prefer (law 3)", () => {
 });
 
 describe("no hint (law 4)", () => {
+	test("configured priority prefers a healthy hub, then local fallback", () => {
+		const hub = row({
+			candidate_id: "hub:4301:glm",
+			dep: {
+				group: "glm-5.3-flash",
+				url: "http://hub:4301",
+				dialect: "openai",
+				priority: 0,
+			},
+			estimate_ms: 900,
+			calls: 3,
+		});
+		const local = row({
+			candidate_id: "local:4100:glm",
+			dep: {
+				group: "glm-5.3-flash",
+				url: "http://local:4100",
+				dialect: "openai",
+				priority: 10,
+			},
+			estimate_ms: 100,
+			calls: 3,
+		});
+		const preferred = decide(
+			null,
+			[local, hub],
+			PREFS_OPEN,
+			"openai",
+			"glm-5.3-flash",
+		);
+		expect(preferred.ok).toBe(true);
+		if (preferred.ok)
+			expect(preferred.sel.ordered.map((c) => c.candidate_id)).toEqual([
+				hub.candidate_id,
+				local.candidate_id,
+			]);
+		const unavailable = decide(
+			null,
+			[local, { ...hub, healthy: false }],
+			PREFS_OPEN,
+			"openai",
+			"glm-5.3-flash",
+		);
+		expect(unavailable.ok).toBe(true);
+		if (unavailable.ok)
+			expect(unavailable.sel.head.candidate_id).toBe(local.candidate_id);
+	});
+	test("priority does not override an explicit hint fit", () => {
+		const hub = row({
+			dep: {
+				group: "glm-5.3-flash",
+				url: "http://hub:4301",
+				dialect: "openai",
+				priority: 0,
+			},
+			capability_text: "general",
+		});
+		const local = row({
+			dep: {
+				group: "glm-5.3-flash",
+				url: "http://local:4100",
+				dialect: "openai",
+				priority: 10,
+			},
+			capability_text: "reasoning",
+		});
+		const preferred = decide("prefer reasoning", [hub, local]);
+		expect(preferred.ok).toBe(true);
+		if (preferred.ok)
+			expect(preferred.sel.head.candidate_id).toBe(local.candidate_id);
+	});
 	test("healthy → proven → effMs → errors → LRU (belt parity)", () => {
 		const unproven = row({ calls: 0 });
 		const provenSlow = row({ estimate_ms: 900, calls: 3 });
