@@ -9,6 +9,7 @@ test("Belt refresh carries UI modules and leaves installed runtime machinery alo
 		"dashboard.ts",
 		"model-access.ts",
 		"dashboard-state.ts",
+		"metrics.ts",
 		"dashboard-observability.js",
 		"dashboard-topology.js",
 		"dashboard-topology-model.js",
