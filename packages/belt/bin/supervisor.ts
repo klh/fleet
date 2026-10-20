@@ -4,9 +4,9 @@
 // resident :890x specialists the swarm launches) are respawned when they die;
 // external / on-demand targets are probed and reported only — never touched.
 //
-// litellm (:4100, W277) is owned too: spawned with keys read from the 0600
-// files at spawn time, probed on /v1/models WITH auth (200/401 = serving),
-// and preflighted for its prisma dependency (litellm-target.ts).
+// litellm (:4100) is owned by the separate cloud-gateway launchd job. The
+// swarm observes it with an authenticated /v1/models probe but never spawns
+// a second engine for the same port.
 //
 // Owned-target loop (per port, independent — a 90s model load on :8903 never
 // delays healing :4000):
@@ -37,7 +37,7 @@ import { dirname } from "node:path";
 import { endpointPassed } from "./health.ts";
 import { hubTargets } from "./hubs.ts";
 import { EXTERNAL, residentSet, SPECIALISTS } from "./registry.ts";
-import { DEFAULT_PATHS, litellmTarget } from "./litellm-target.ts";
+import { litellmTarget } from "./litellm-target.ts";
 import { spawnArgs, spawnReserved } from "./spawner.ts";
 
 const HOME = process.env.HOME ?? "";
@@ -949,14 +949,9 @@ export function fleetTargets(): Target[] {
 		});
 	}
 	const gateway = litellmTarget();
-	gateway.generation = () =>
-		digest(
-			JSON.stringify([
-				DEFAULT_PATHS.bin,
-				DEFAULT_PATHS.python,
-				fileRevision(DEFAULT_PATHS.config),
-			]),
-		);
+	gateway.owned = false;
+	gateway.spawn = undefined;
+	gateway.preflight = undefined;
 	targets.push(gateway);
 	// W351: remote buckle hubs (hubs.json registry) as probe-only rows —
 	// belt observes them, never spawns on another host. The status map is

@@ -10,15 +10,14 @@
 //   bun swarm.ts restart     — stop + start
 //   bun swarm.ts supervise   — long-running self-heal loop (launchd KeepAlive):
 //                              respawns the :4000 shim, resident specialists
-//                              and the :4100 litellm engine with backoff +
-//                              circuit breaker (supervisor.ts). `serve` is an
+//                              while observing the separately owned :4100
+//                              LiteLLM engine (supervisor.ts). `serve` is an
 //                              alias (W284: kept for compatibility only —
 //                              com.suspenders.local-llm is retired).
 
 import { spawn, execSync } from "node:child_process";
 import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
 import { hubRegistryRevision } from "./hubs.ts";
-import { LITELLM_PORT } from "./litellm-target.ts";
 import { spawnReserved } from "./spawner.ts";
 import {
 	fleetTargets,
@@ -180,7 +179,6 @@ async function cmdStop(): Promise<void> {
 		} catch {}
 	}
 	killPort(4000);
-	killPort(LITELLM_PORT);
 	for (const s of SPECIALISTS) killPort(s.port);
 	console.log("  All stopped.");
 }
