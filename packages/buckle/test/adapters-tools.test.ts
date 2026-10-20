@@ -115,6 +115,16 @@ describe("requestAnthropicToOpenAI", () => {
 		expect(r.rejected?.field).toBe("frobnicate");
 	});
 
+	test("metadata drops with a warning, never rejects (W1019)", () => {
+		const r = requestAnthropicToOpenAI({
+			model: "g",
+			metadata: { user_id: "u_123" },
+			messages: [],
+		});
+		expect(r.rejected).toBe(null);
+		expect(r.body.metadata).toBe(undefined);
+		expect(r.warnings.some((w) => w.field === "metadata")).toBe(true);
+	});
 	test("reasoning_effort forwards when known, degrades unknown (W770)", () => {
 		const r = requestAnthropicToOpenAI({
 			model: "g",
@@ -140,9 +150,7 @@ describe("requestAnthropicToOpenAI", () => {
 			messages: [],
 		});
 		expect(med.body.reasoning_effort).toBe("low");
-		expect(med.warnings.some((w) => w.field === "reasoning_effort")).toBe(
-			true,
-		);
+		expect(med.warnings.some((w) => w.field === "reasoning_effort")).toBe(true);
 		const xh = requestAnthropicToOpenAI({
 			model: "g",
 			reasoning_effort: "xhigh",
