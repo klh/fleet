@@ -142,6 +142,12 @@ export function requestAnthropicToOpenAI(body: AnyRec): RequestTransform {
 					message: `unknown effort ${JSON.stringify(raw)} — honest degrade (dropped)`,
 				});
 			}
+		} else if (key === "metadata") {
+			warnings.push({
+				field: key,
+				message:
+					"client telemetry (user_id) has no openai-compat equivalent — dropped",
+			});
 		} else if (key === "thinking" || key === "top_k") {
 			warnings.push({
 				field: key,
