@@ -136,6 +136,9 @@ Coordination (`coord`):
 - `coord fact set/get/list` — fleet knowledge (`lesson.*` before
   re-deriving pain; `finding.*` for intel; IKEA content ONLY here)
 - `coord consult` / `coord who-knows` — questions, never ownership
+- `coord coordinate` — bounded peer-coordination round (W977.1, topics
+  work|claims|capacity; singleflight + rate-capped, Kev `--classify`
+  outbound-only; docs/design/supervisor-coordination.md)
 - `coord fleet` — who is working (sessions + claims; never /tmp files)
 - `coord rename --as <sid> <name> [--force]` — the ONE shared rename (W930):
   stamps sessions.tags `name` for every @name resolution; the stop gate
