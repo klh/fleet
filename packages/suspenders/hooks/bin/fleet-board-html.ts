@@ -297,11 +297,11 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
-/* Status owns the edge; a preference tag retains its separate inset stripe. */
-.kcard { border:1px solid var(--state-color, var(--klh-edge-soft)); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; box-shadow:inset 3px 0 var(--prefer, transparent); }
-.kcard:hover { border-color:var(--state-color, var(--klh-edge-hover)); }
+/* The live project .prefer owns the card edge; status stays on the pill and column. */
+.kcard { border:1px solid var(--prefer, var(--state-color, var(--klh-edge-soft))); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
+.kcard:hover { border-color:var(--prefer, var(--state-color, var(--klh-edge-hover))); }
 /* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
-.kcard.ksel { border-color:var(--klh-accent); box-shadow:inset 3px 0 var(--prefer, transparent), 0 0 0 2px var(--klh-accent-wash); }
+.kcard.ksel { border-color:var(--prefer, var(--state-color, var(--klh-accent))); box-shadow:0 0 0 2px var(--klh-accent-wash); }
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; position:relative; }
