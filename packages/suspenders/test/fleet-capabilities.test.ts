@@ -12,7 +12,7 @@ import {
 
 const REPO = join(import.meta.dir, "..");
 
-test("every catalog row exposes all six evidence states", async () => {
+test("every catalog row exposes all seven evidence states", async () => {
 	const rows = await capabilityCatalog(REPO);
 	expect(rows.length).toBe(78); // full vendored breadth minus 'universal'
 	for (const row of rows) {
@@ -20,6 +20,7 @@ test("every catalog row exposes all six evidence states", async () => {
 			"buckleCompatible",
 			"detected",
 			"headlessSpawnable",
+			"hookRegistration",
 			"hookWired",
 			"sessionResumable",
 			"skillInstallable",
@@ -73,6 +74,17 @@ test("hookWired reflects on-disk wire.ts evidence", () => {
 	expect(codex.hookWired).toBe(true);
 	const warp = targetCapabilities("warp", REPO, false);
 	expect(warp.hookWired).toBe(false);
+});
+
+test("capability catalog distinguishes adapter availability from registration", async () => {
+	const rows = await capabilityCatalog(REPO);
+	const zcode = rows.find((row) => row.type === "zcode");
+	expect(zcode?.capabilities.hookWired).toBe(false);
+	if (zcode?.installed)
+		expect(zcode.capabilities.hookRegistration).toBe("unsupported");
+	const absent = rows.find((row) => row.type === "grok");
+	if (absent && !absent.installed)
+		expect(absent.capabilities.hookRegistration).toBe("not-detected");
 });
 
 test("defaultBinProbe resolves bun, refuses nonsense", () => {

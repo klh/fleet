@@ -113,12 +113,38 @@ export interface FleetCapabilities {
 	skillInstallable: boolean;
 	/** A suspenders hook adapter exists (native, or its wire.ts on disk). */
 	hookWired: boolean;
+	/** Installed hook registration observed by the dialect's read-only check. */
+	hookRegistration:
+		| "present"
+		| "missing"
+		| "native"
+		| "unsupported"
+		| "not-detected";
 	/** Headless lane spawn possible HERE: spawnable adapter + binary probe. */
 	headlessSpawnable: boolean;
 	/** Verified fork/resume semantics (adapter forkArgs non-null). */
 	sessionResumable: boolean;
 	/** Rides the governed Buckle front; "unknown" = unaudited (W914). */
 	buckleCompatible: boolean | "unknown";
+}
+
+/** Skill installation and live hook registration are separate capabilities.
+ * Each dialect owns its read-only --check; the registry never guesses from a
+ * skills directory or the existence of wire.ts. */
+export async function hookRegistration(
+	target: FleetTarget,
+): Promise<FleetCapabilities["hookRegistration"]> {
+	if (!target.installed) return "not-detected";
+	if (target.native) return "native";
+	if (!target.wireScriptPath) return "unsupported";
+	const check = Bun.spawn(
+		[process.execPath, target.wireScriptPath, "--check"],
+		{
+			stdout: "ignore",
+			stderr: "ignore",
+		},
+	);
+	return (await check.exited) === 0 ? "present" : "missing";
 }
 
 /** Binary probe — PATH probe plus PATH-independent install paths (launchd
@@ -146,6 +172,7 @@ export function targetCapabilities(
 			native ||
 			(dialect !== undefined &&
 				existsSync(join(dialectsRoot(repoRoot), dialect, "wire.ts"))),
+		hookRegistration: "not-detected",
 		headlessSpawnable:
 			adapter !== null &&
 			adapter.spawnable === true &&
@@ -160,9 +187,17 @@ export async function capabilityCatalog(
 	repoRoot: string,
 ): Promise<Array<FleetTarget & { capabilities: FleetCapabilities }>> {
 	const installed = new Set(await detectInstalledAgents());
-	return listTargets(repoRoot).map((t) => ({
-		...t,
-		installed: installed.has(t.type),
-		capabilities: targetCapabilities(t.type, repoRoot, installed.has(t.type)),
-	}));
+	return Promise.all(
+		listTargets(repoRoot).map(async (t) => {
+			const detected = installed.has(t.type);
+			const target = { ...t, installed: detected };
+			return {
+				...target,
+				capabilities: {
+					...targetCapabilities(t.type, repoRoot, detected),
+					hookRegistration: await hookRegistration(target),
+				},
+			};
+		}),
+	);
 }
