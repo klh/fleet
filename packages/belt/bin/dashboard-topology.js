@@ -287,9 +287,10 @@ class BeltTopology extends LitElement {
 		gatewayUnresolvedRoutes = [],
 		gatewayModelCosts = {},
 	) {
-		const configuredAliases = new Set(
-			Object.values(gatewayModelAliases).flat(),
-		);
+		const configuredAliases = new Set([
+			...(gatewayModels ?? []),
+			...Object.values(gatewayModelAliases).flat(),
+		]);
 		const exposed = hubKey
 			? [
 					...(gatewayModels ?? []).map((name) => ({
