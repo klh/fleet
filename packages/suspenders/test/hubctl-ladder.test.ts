@@ -54,13 +54,12 @@ writeFileSync(
 
 function hubctl(verb: string, hub: string) {
 	const r = Bun.spawnSync(
-		[
-			process.execPath,
-			join(import.meta.dir, "../deploy/hubctl.ts"),
-			verb,
-			hub,
-		],
-		{ env: { ...process.env, KLH_STACK: stack }, stdout: "pipe", stderr: "pipe" },
+		[process.execPath, join(import.meta.dir, "../deploy/hubctl.ts"), verb, hub],
+		{
+			env: { ...process.env, KLH_STACK: stack },
+			stdout: "pipe",
+			stderr: "pipe",
+		},
 	);
 	return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
 }
@@ -82,38 +81,94 @@ test("hub Buckle stamps its profile identity on relayed requests", () => {
 		join(import.meta.dir, "../deploy/hub-compose.yaml"),
 		"utf8",
 	);
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: checking compose interpolation verbatim
 	expect(template).toContain("BUCKLE_HUB_ID: ${HUB_NAME:-desktop}");
 });
 
 test("push writes the ladder file and a 0600 upstream.env built on-device", () => {
 	const r = hubctl("push", "ent");
 	expect(r.code).toBe(0);
-	const ladder = parse(readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"));
+	const ladder = parse(
+		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	);
 	expect(ladder.groups["claude-haiku-4-5"][0].api_key_env).toBe("LITELLM_KEY");
 	expect(JSON.stringify(ladder)).not.toContain("sk-fixture");
 	const envPath = join(deployDir, "upstream.env");
-	expect(readFileSync(envPath, "utf8")).toBe("LITELLM_KEY=sk-fixture-ladder-key\n");
+	expect(readFileSync(envPath, "utf8")).toBe(
+		"LITELLM_KEY=sk-fixture-ladder-key\n",
+	);
 	expect(statSync(envPath).mode & 0o777).toBe(0o600);
+	expect(statSync(join(deployDir, ".env")).mode & 0o777).toBe(0o600);
 	// W983: the owner-prefs file rides the declared buckle_prefs (0600, the
 	// loadPrefs shape) — cloud open, quality mode
 	const prefs = JSON.parse(
 		readFileSync(join(deployDir, "buckle-prefs.json"), "utf8"),
 	);
 	expect(prefs).toEqual({ allow_cloud: true, cost_speed: "quality" });
-	expect(statSync(join(deployDir, "buckle-prefs.json")).mode & 0o777).toBe(0o600);
+	expect(statSync(join(deployDir, "buckle-prefs.json")).mode & 0o777).toBe(
+		0o600,
+	);
 	// the key never rides the rendered .env
-	expect(readFileSync(join(deployDir, ".env"), "utf8")).not.toContain("sk-fixture");
+	expect(readFileSync(join(deployDir, ".env"), "utf8")).not.toContain(
+		"sk-fixture",
+	);
+});
+
+test("render hides Git origin credentials while pushed env stays private", () => {
+	const privateStack = join(dir, "private-stack.json");
+	const privateDir = join(dir, "private-hub");
+	writeFileSync(
+		privateStack,
+		JSON.stringify({
+			version: "v9-w6887",
+			hubs: {
+				private: {
+					host: "127.0.0.1",
+					deploy: { dir: privateDir },
+					repos: {
+						buckle: "https://user:fixture-secret@git.example/fleet.git",
+						ref: "v9-w6887",
+					},
+				},
+			},
+		}),
+	);
+	const run = (verb: string) =>
+		Bun.spawnSync(
+			[
+				process.execPath,
+				join(import.meta.dir, "../deploy/hubctl.ts"),
+				verb,
+				"private",
+			],
+			{
+				env: { ...process.env, KLH_STACK: privateStack },
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+	const rendered = run("render");
+	expect(rendered.exitCode).toBe(0);
+	expect(rendered.stdout.toString()).not.toContain("fixture-secret");
+	expect(rendered.stdout.toString()).toContain("credentials redacted");
+	expect(run("push").exitCode).toBe(0);
+	expect(readFileSync(join(privateDir, ".env"), "utf8")).toContain(
+		"fixture-secret",
+	);
+	expect(statSync(join(privateDir, ".env")).mode & 0o777).toBe(0o600);
 });
 
 test("solo push renders an empty ladder + empty upstream.env (compose stays valid)", () => {
 	expect(hubctl("push", "solo").code).toBe(0);
-	const ladder = parse(readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"));
+	const ladder = parse(
+		readFileSync(join(deployDir, "upstreams.hub.yaml"), "utf8"),
+	);
 	expect(ladder.groups).toEqual({});
 	expect(readFileSync(join(deployDir, "upstream.env"), "utf8")).toBe("");
 	// W983: undeclared buckle_prefs → the conservative defaults
-	expect(
-		readFileSync(join(deployDir, "buckle-prefs.json"), "utf8"),
-	).toBe('{"allow_cloud":false,"cost_speed":"balanced"}\n');
+	expect(readFileSync(join(deployDir, "buckle-prefs.json"), "utf8")).toBe(
+		'{"allow_cloud":false,"cost_speed":"balanced"}\n',
+	);
 });
 
 test("compose binds the prefs file at BUCKLE_PREFS (W983)", () => {
@@ -143,7 +198,12 @@ test("push refuses when a declared key file is missing — nothing half-written"
 		}),
 	);
 	const r = Bun.spawnSync(
-		[process.execPath, join(import.meta.dir, "../deploy/hubctl.ts"), "push", "x"],
+		[
+			process.execPath,
+			join(import.meta.dir, "../deploy/hubctl.ts"),
+			"push",
+			"x",
+		],
 		{ env: { ...process.env, KLH_STACK: bad }, stdout: "pipe", stderr: "pipe" },
 	);
 	expect(r.exitCode).not.toBe(0);
