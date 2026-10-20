@@ -245,7 +245,7 @@ class BeltTrends extends LitElement {
 					Trends · ${hours}h · ${total} Belt routes · ${errs} failed
 					${this.err ? html`<span class="bt-err"> · ${this.err}</span>` : ""}
 				</summary>
-				${this.open && this.hist ? html`<p class="bt-note">Belt router observations only · ${active} active 5-minute intervals · ${endpoints.length} endpoints${last ? ` · last route ${dualStamp(last[0] * 1000)}` : ""}. Buckle traffic is measured separately in Metrics.</p>${this.body()}` : ""}
+				${this.open && this.hist ? html`<p class="bt-note">Belt router observations only · ${active} active 5-minute intervals · ${endpoints.length} endpoints${last ? ` · last route ${dualStamp(last[0] * 1000)}` : ""}. Buckle traffic is measured separately in Metrics. Average latency spans measured samples only — failed routes without a duration count in requests and errors but never in the average.</p>${this.body()}` : ""}
 			</details>`;
 	}
 	body() {
@@ -256,11 +256,19 @@ class BeltTrends extends LitElement {
 			return html`<p class="bt-note">chart engine not loaded — trend charts degraded</p>`;
 		if (!this.hist.buckets.length)
 			return html`<p class="bt-note">no history yet</p>`;
+		const measured = this.hist.buckets.reduce(
+			(sum, bucket) => sum + (bucket[4] ?? 0),
+			0,
+		);
 		return html`<div class="bt-wrap">
 			<p class="bt-title">Requests and failures · 5-minute buckets</p>
 			<div class="bt-trend-wrap"><div class="bt-trend"></div><div class="bt-hover" hidden></div></div>
-			<p class="bt-title">Average response time · milliseconds per active bucket</p>
-			<div class="bt-latency"></div>
+			<p class="bt-title">Average response time · measured samples only</p>
+			${
+				measured > 0
+					? html`<div class="bt-trend-wrap"><div class="bt-latency"></div><div class="bt-hover bt-latency-hover" hidden></div></div>`
+					: html`<p class="bt-note">No measured response time in this window; ${total} route${total === 1 ? "" : "s"} ${total === 1 ? "has" : "have"} no timing sample, so the average is undefined rather than 0 ms. Requests and failures are charted above.</p>`
+			}
 			<p class="bt-title">Routes by endpoint</p>
 			<div class="bt-sparks">
 				${this.hist.endpoints.map(
@@ -289,6 +297,7 @@ class BeltTrends extends LitElement {
 				${buckets.map((bucket) => html`<span class=${`bt-cell${bucket[1] ? " active" : ""}${bucket[2] ? " failed" : ""}`} title=${`${time(bucket)} · ${bucket[1]} routes · ${bucket[2]} failed`}></span>`)}
 			</div>
 			<div class="bt-times"><span>${first ? time(first) : ""}</span><span>${last ? time(last) : ""}</span></div>
+			<p class="bt-note">Avg response “—” means no measured duration in that interval: failed routes without a sample count in Routes and Failed but never in the average.</p>
 			<table class="bt-list"><thead><tr><th>Time</th><th>Endpoint</th><th>Routes</th><th>Failed</th><th>Avg response</th></tr></thead>
 				<tbody>${active.map(
 					({ bucket, index }) =>
@@ -393,16 +402,37 @@ class BeltTrends extends LitElement {
 		const latEl = this.querySelector(".bt-latency");
 		if (latEl) {
 			const dim = () => tok("--klh-chart-axis", "#898781");
+			const latHover = this.querySelector(".bt-latency-hover");
 			this.chart(
 				latEl,
 				uPlot,
 				{
 					...base(125),
 					legend: { show: true, live: true },
+					hooks: {
+						setCursor: [
+							(plot) => {
+								if (!latHover) return;
+								const index = plot.cursor.idx;
+								if (index == null || !buckets[index]) {
+									latHover.hidden = true;
+									return;
+								}
+								const bucket = buckets[index];
+								const avg =
+									bucket[3] == null
+										? "no measured samples"
+										: `${Math.round(bucket[3])}ms avg`;
+								latHover.textContent = `${dualStamp(bucket[0] * 1000)} · ${avg} · ${bucket[4] ?? 0}/${bucket[1]} measured`;
+								latHover.hidden = false;
+								latHover.style.left = `${Math.max(8, Math.min(plot.cursor.left + 12, latEl.clientWidth - latHover.offsetWidth - 8))}px`;
+							},
+						],
+					},
 					series: [
 						{},
 						{
-							label: "avg ms",
+							label: "avg ms (measured)",
 							stroke: dim,
 							fill: () => `${dim()}1e`,
 							width: 1.5,
