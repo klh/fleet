@@ -33,6 +33,20 @@ investigation, token cost) and holds six reproducibility properties.
 Spec: `consult/scenario.md`. Run:
 `bun packages/blam/bench/consult/harness.ts`.
 
+## Supervisor coordination suite (W977.2)
+
+`supervise/` — deterministic, LLM-optional matched comparison of three
+supervisor regimes (independent, coordinated-bounded,
+coordinated-unbounded) over a fixed 9-item/3-supervisor work set with
+3 shared scopes (the C4 double-writer risk) and a shared lane budget.
+Scores duplicate work, claim conflicts, clean yields, consult volume,
+oversubscribed lane-minutes, blocked time, and makespan across four
+scenarios (calm/pressure × ok/drop-first/drop-all). Bounded consult
+matches unbounded outcomes at ~half the consult volume; the
+transactional claims ledger is the correctness backstop when consults
+cannot be delivered. Spec: `supervise/scenario.md`. Run:
+`bun packages/blam/bench/supervise/harness.ts`.
+
 ## Paired-arm eval suite (W612)
 
 `paired/` — deterministic, LLM-optional paired-arm runner per

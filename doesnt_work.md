@@ -29,6 +29,19 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## Fleet coordination
 
+- **Unbounded supervisor consult (W977.2)** — re-asking the coordination
+  ledger per step (3 asks/item, retry budget 4) returned identical
+  outcomes to 1 ask/item at 2.3× the consult volume (21 vs 9 calls,
+  2,520 vs 1,080 tok). Replaced by: bounded consult — one combined
+  claims+capacity ask per item decision, retry budget 2; the
+  transactional claims ledger remains the correctness backstop.
+- **Independent supervisors skipping the claims ledger (W977.2)** —
+  never-consult/never-claim regimes completed every shared scope twice
+  (3 dup units per run) and oversubscribed the shared lane budget by
+  30 lane-min on pressure. Replaced by: consult-then-claim with clean
+  yields on foreign claims; consult is the capacity defense, the
+  transactional ledger is the correctness backstop.
+
 - **Parallel burst lane spawn** — cold-start contention killed lanes
   (2026-10-15 mass lane death). Serial cadence + fenced registration
   (identity = owner + live state, no `updated_at` re-check) is the fix that
