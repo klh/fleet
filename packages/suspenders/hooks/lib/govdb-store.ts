@@ -62,6 +62,11 @@ export function knowledgeSqlViolation(sql: string): string | null {
 // open — retry"}. Read paths backoff-retry on it (rpc) instead of crashing.
 const TX_BUSY_RE = /a transaction is open/i;
 
+// W978 — the SQLite write-lock message rides the server's
+// {err: "begin failed: SQLiteError: database is locked"} shape (store-tx
+// beginWithHeal); the client's BEGIN IMMEDIATE retry keys on it.
+const DB_LOCKED_RE = /database is locked/i;
+
 // HTTP binding: the same interface against bin/store-server.ts — sync by
 // design (the CLIs are sync programs; one statement = one curl round trip).
 // transaction(fn) holds a server-side BEGIN IMMEDIATE for the body's duration
@@ -90,13 +95,22 @@ export class HttpGovernorStore implements GovernorStore {
 		sql: string,
 		params: unknown[],
 	): { row?: unknown; rows?: unknown[] } & Partial<StoreResult> {
-		const tries = mode === "get" || mode === "all" ? 3 : 1;
+		// W978 — begin joins the retry ladder: BEGIN IMMEDIATE against a
+		// second connection's write lock ("database is locked") is a burst,
+		// not a verdict — 3 attempts, 250ms backoff, then surface.
+		const reads = mode === "get" || mode === "all";
+		const isBegin = mode === "tx" && sql === "begin";
+		const tries = reads || isBegin ? 3 : 1;
 		for (let attempt = 1; ; attempt++) {
 			try {
 				return this.rpcOnce(mode, sql, params);
 			} catch (e) {
-				if (attempt >= tries || !TX_BUSY_RE.test(String(e))) throw e;
-				Bun.sleepSync(200);
+				const msg = String(e);
+				const retryable = reads
+					? TX_BUSY_RE.test(msg)
+					: isBegin && DB_LOCKED_RE.test(msg);
+				if (attempt >= tries || !retryable) throw e;
+				Bun.sleepSync(reads ? 200 : 250);
 			}
 		}
 	}

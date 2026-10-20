@@ -4,7 +4,12 @@
 // work add/done/split dead fleet-wide until restart. The server's tx state is
 // process-local, so these drive the state machine through a stub connection.
 import { describe, expect, test } from "bun:test";
-import { beginWithHeal } from "../hooks/lib/store-tx.ts";
+import {
+	beginWithHeal,
+	sweepOrphanTxn,
+	sweepStaleTxn,
+	type TxCell,
+} from "../hooks/lib/store-tx.ts";
 import type { GovernorStore } from "../hooks/lib/govdb.ts";
 
 // beginFails scripts failures for BEGIN IMMEDIATE calls in order (other
@@ -58,5 +63,92 @@ describe("beginWithHeal (W662 tx desync)", () => {
 		expect(r.err).toContain("begin failed");
 		expect(r.err).toContain("database is locked");
 		expect(log).toEqual(["BEGIN IMMEDIATE", "ROLLBACK", "BEGIN IMMEDIATE"]);
+	});
+});
+
+describe("sweepStaleTxn (W978 stale write-txn watchdog)", () => {
+	const cellWith = (id: string, started: number): TxCell => ({
+		v: { id, last: started, started },
+	});
+
+	test("clean cell: no-op", () => {
+		const log: string[] = [];
+		const cell: TxCell = { v: null };
+		expect(
+			sweepStaleTxn({ label: "governor", cell, txConn: makeConn([], log) }),
+		).toBeNull();
+		expect(log).toEqual([]);
+	});
+
+	test("window under max age survives untouched", () => {
+		const log: string[] = [];
+		const cell = cellWith("tx1", 1000);
+		expect(
+			sweepStaleTxn({
+				label: "governor",
+				cell,
+				txConn: makeConn([], log),
+				maxAgeMs: 1000,
+				now: 1500,
+			}),
+		).toBeNull();
+		expect(cell.v).toEqual({ id: "tx1", last: 1000, started: 1000 });
+	});
+});
+
+describe("sweepStaleTxn abort path (W978)", () => {
+	test("window over max age: rollback + clear + event", () => {
+		const log: string[] = [];
+		const cell: TxCell = { v: { id: "tx1", last: 1000, started: 1000 } };
+		const e = sweepStaleTxn({
+			label: "governor",
+			cell,
+			txConn: makeConn([], log),
+			maxAgeMs: 1000,
+			now: 2001,
+		});
+		expect(e).toEqual({
+			plane: "governor",
+			txid: "tx1",
+			ageMs: 1001,
+			reason: "stale",
+		});
+		expect(log).toEqual(["ROLLBACK"]);
+		expect(cell.v).toBeNull();
+	});
+});
+
+describe("sweepOrphanTxn (W978 orphan probe)", () => {
+	test("conn outside a txn: probe begins + releases, no event", () => {
+		const log: string[] = [];
+		expect(
+			sweepOrphanTxn({ label: "governor", conn: makeConn([], log) }),
+		).toBeNull();
+		expect(log).toEqual(["BEGIN IMMEDIATE", "ROLLBACK"]);
+	});
+});
+
+describe("sweepOrphanTxn abort path (W978)", () => {
+	test("untracked orphan write txn: rolled back + event", () => {
+		const log: string[] = [];
+		const conn = makeConn(
+			["SqliteError: cannot start a transaction within a transaction"],
+			log,
+		);
+		const e = sweepOrphanTxn({ label: "identity", conn });
+		expect(e).toEqual({
+			plane: "identity",
+			txid: null,
+			ageMs: 0,
+			reason: "orphan",
+		});
+		expect(log).toEqual(["BEGIN IMMEDIATE", "ROLLBACK"]);
+	});
+
+	test("external write lock: nothing of ours to abort", () => {
+		const log: string[] = [];
+		const conn = makeConn(["SqliteError: database is locked"], log);
+		expect(sweepOrphanTxn({ label: "governor", conn })).toBeNull();
+		expect(log).toEqual(["BEGIN IMMEDIATE"]);
 	});
 });

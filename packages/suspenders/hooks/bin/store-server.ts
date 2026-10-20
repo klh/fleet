@@ -36,7 +36,12 @@ import {
 	readCapabilities,
 } from "../lib/profile.ts";
 import { servicemon } from "../lib/servicemon.ts";
-import { beginWithHeal } from "../lib/store-tx.ts";
+import {
+	beginWithHeal,
+	sweepOrphanTxn,
+	sweepStaleTxn,
+	type TxCell,
+} from "../lib/store-tx.ts";
 
 const PORT =
 	Number(process.argv[process.argv.indexOf("--port") + 1] ?? "") ||
@@ -88,6 +93,15 @@ const TX_IDLE_MS = 10_000;
 const idb = openIdentityDb() as unknown as GovernorStore;
 const txIdb = openIdentityDb() as unknown as GovernorStore;
 
+// W978 — server-grade busy patience: openWALDb's 2s is tuned for CLI
+// contention; the store host serves a whole fleet, so BEGIN IMMEDIATE waits
+// out longer lock bursts here before the client's retry ladder (govdb-store
+// W978: 3x 250ms) ever sees the failure. Must stay under the client's
+// curl --max-time 10 so a busy-wait never reads as "unreachable".
+const STORE_BUSY_TIMEOUT_MS = 5_000;
+for (const c of [db, txDb, idb, txIdb])
+	c.run(`PRAGMA busy_timeout=${STORE_BUSY_TIMEOUT_MS}`);
+
 // one serialization chain PER PLANE — different SQLite files, so governor and
 // identity statements need not serialize against each other; within a plane,
 // INSERT → last_insert_rowid() must never interleave.
@@ -102,8 +116,8 @@ const perPlaneSerial = (): (<T>(fn: () => T) => Promise<T>) => {
 const serialGov = perPlaneSerial();
 const serialIdb = perPlaneSerial();
 
-// a plane's open-transaction cell — private to its route closure
-type TxCell = { v: { id: string; last: number } | null };
+// a plane's open-transaction cell — private to its route closure, typed by
+// the tx module (W978: cells carry `started` for the stale sweep)
 const govCell: TxCell = { v: null };
 const idbCell: TxCell = { v: null };
 
@@ -153,6 +167,37 @@ const CONSULT_SWEEP_MS = 5 * 60_000;
 setInterval(() => {
 	expireConsults(db);
 }, CONSULT_SWEEP_MS).unref();
+
+// W978 — the stale write-txn watchdog: every TXN_SWEEP_MS, abort tracked tx
+// windows older than TXN_STALE_MS (total age, not idle) and probe both
+// planes' main connections for untracked orphan write txns. store.txn-stale
+// events ride the governor bus through maybeBroadcastInsert so WS
+// subscribers see them live. The orphan probe is skipped while a window is
+// open — it would only busy-wait against the window's own lock.
+const TXN_SWEEP_MS = 5_000;
+setInterval(() => {
+	for (const plane of [
+		{ label: "governor", cell: govCell, txConn: txDb, conn: db },
+		{ label: "identity", cell: idbCell, txConn: txIdb, conn: idb },
+	]) {
+		const events = [
+			sweepStaleTxn({ label: plane.label, cell: plane.cell, txConn: plane.txConn }),
+			plane.cell.v ? null : sweepOrphanTxn({ label: plane.label, conn: plane.conn }),
+		];
+		for (const e of events) {
+			if (!e) continue;
+			const row = db.run(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'store-server', 'store.txn-stale', NULL, ?, NULL)",
+				Date.now(),
+				JSON.stringify(e),
+			);
+			maybeBroadcastInsert("INSERT INTO events", Number(row.lastInsertRowid));
+			console.error(
+				`[store] store.txn-stale ${e.plane}/${e.reason} age=${e.ageMs}ms`,
+			);
+		}
+	}
+}, TXN_SWEEP_MS).unref();
 
 function scopeCoversLocal(a: string, b: string): boolean {
 	return a === b || b.startsWith(`${a}/`) || a.startsWith(`${b}/`);
@@ -253,7 +298,7 @@ const beginOp = (
 	// and re-begins; failures surface as {err}, never a 500.
 	const began = beginWithHeal(txConn);
 	if ("err" in began) return began;
-	cell.v = { id: txid ?? "?", last: Date.now() };
+	cell.v = { id: txid ?? "?", last: Date.now(), started: Date.now() };
 	return { ok: true };
 };
 
