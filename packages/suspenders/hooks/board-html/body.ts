@@ -128,7 +128,7 @@ export const BODY = String.raw`
   <div id="fleet">
     <button id="fleetHead" type="button" aria-expanded="false">
       <span class="fleettitle"><span id="fleetCaret">+</span> Fleet lanes</span>
-      <span class="fleetmetrics"><span><b id="fleetWorking">—</b> working</span><span><b id="fleetWaiting">—</b> waiting</span><span><b id="fleetBlocked">—</b> blocked</span><span><b id="fleetRecentCount">—</b> recent</span></span>
+      <span class="fleetmetrics"><span title="RUNNING session with a heartbeat in the last 5 minutes"><b id="fleetWorking">—</b> live</span><span title="Open decisions waiting for you"><b id="fleetWaiting">—</b> waiting</span><span title="Gated work items"><b id="fleetBlocked">—</b> blocked</span><span title="Sessions with a heartbeat in the last hour"><b id="fleetRecentCount">—</b> recent</span></span>
       <span id="fleetLine" class="sr-only" aria-hidden="true">fleet: loading...</span>
     </button>
     <div id="fleetContext" class="fleetcontext dim"></div>
