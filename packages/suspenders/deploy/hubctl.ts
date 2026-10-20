@@ -715,7 +715,10 @@ function mintLaneKey(
 	try {
 		out = runOnHub(
 			hub,
-			`/bin/sh -c ${quote(MINT_LANE_KEY_SCRIPT)} sh ${quote(root)} ${quote(String(port))} ${quote(body)}`,
+			// script args: $1=root-key file, $2=curl body, $3=gate port —
+			// the script reads -d "$2" and port "$3" (W974: was swapped, every
+			// mint 400'd on a JSON-body URL)
+			`/bin/sh -c ${quote(MINT_LANE_KEY_SCRIPT)} sh ${quote(root)} ${quote(body)} ${quote(String(port))}`,
 		);
 	} catch (e) {
 		// the hub-side script's diagnostic (e.g. root key missing) rides stderr

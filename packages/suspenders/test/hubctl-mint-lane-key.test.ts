@@ -127,6 +127,11 @@ test("mint-lane-key mints on a local hub, root key used not printed", () => {
 	expect(callsText()).toContain(`Bearer ${ROOT}`);
 	expect(callsText()).toContain('"name":"laneA"');
 	expect(callsText()).toContain('"scopes":["buckle:proxy:WRITE_"]');
+	// W974: the body rides -d and the port rides the URL — the swapped arg
+	// order put the JSON body where the port belonged (curl(3) "nested brace
+	// in URL" against a real gate; the fixture curl never parses URLs, so
+	// the old order passed here while broken live)
+	expect(callsText()).toContain("http://127.0.0.1:14301/v1/admin/keys");
 });
 
 test("mint-lane-key defaults ttl to 3600", () => {
