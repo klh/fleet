@@ -71,7 +71,11 @@ read (exit 0, no prompt, CI-safe).
 - `skillInstallable` — true for every catalog row: the row IS the
   vercel-labs/skills CLI's own target list.
 - `hookWired` — a suspenders hook adapter exists (native, or its wire.ts on
-  disk).
+  disk). The CLI labels this `hook-adapter` to avoid implying that the agent
+  settings are already registered.
+- `hookRegistration` — a read-only `wire.ts --check` of the detected agent's
+  settings: `present`, `missing`, `native`, or `unsupported`. `present` proves
+  the registration exists, not that an idle client has consumed an inbox item.
 - `headlessSpawnable` — a spawnable executor adapter is registered AND the
   binary probes live here. IDE-only targets stay `false` regardless of
   detection (honesty law).
