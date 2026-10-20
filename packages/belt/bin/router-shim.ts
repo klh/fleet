@@ -704,7 +704,13 @@ Bun.serve({
 			// local leg will actually run, including after a failed cloud attempt.
 			if (!response) {
 				release = admission.tryAcquire(route.port);
-				if (!release) {
+				if (!release && cloudAllowed(prefs) && !triedCloud) {
+					// W1071 (owner doctrine 2026-10-20): a local cap-refusal is an
+					// internal signal, never an upstream one — spill to cloud when
+					// prefs authorize it; 429 only after cloud also declines.
+					await tryCloud(score.tier !== "VERY_COMPLEX");
+				}
+				if (!release && !response) {
 					logRouting({
 						category: el.label,
 						port: route.port,
