@@ -9,6 +9,7 @@
 // structurally: flashx tiers are refused in every ladder walk.
 import {
 	type ErrorKind,
+	RouterError,
 	normalizeUpstreamError,
 	routerErrorEnvelope,
 } from "./adapters/errors.ts";
@@ -316,7 +317,10 @@ export class Router {
 					exhaustTier: false,
 				};
 			}
-			this.cooldowns.failure(dep);
+			this.cooldowns.failure(
+				dep,
+				err.kind === "rate_limited" ? "rate_limited" : "other",
+			);
 			this.metrics?.cooldown(`${dep.group}|${dep.url}`);
 			return {
 				...base,
@@ -433,6 +437,36 @@ export class Router {
 		return null;
 	}
 
+	/** A temporarily ejected rate-limited tier still has an actionable
+	 * outcome. The response is synthetic: a previous provider body must not
+	 * be replayed into a different request. */
+	private rememberCooledRateLimit(
+		tier: string,
+		req: UpstreamRequest,
+		st: WalkState,
+	): void {
+		if (st.rateLimit) return;
+		const remaining = this.deps.pool
+			.deployments(tier)
+			.filter((dep) => bridgeRequest(req, dep) !== null)
+			.map((dep) => this.cooldowns.rateLimitRemainingS(dep))
+			.filter((seconds): seconds is number => seconds !== null);
+		if (remaining.length === 0) return;
+		const retryAfter = Math.min(...remaining);
+		const error = new RouterError(
+			"rate_limited",
+			429,
+			"Upstream rate limited; retry after cooldown",
+		);
+		st.rateLimit = {
+			tier,
+			response: Response.json(routerErrorEnvelope(error, req.dialect), {
+				status: 429,
+				headers: { "retry-after": String(retryAfter) },
+			}),
+		};
+	}
+
 	/** Ladder walk: requested group first, then the policy fallback list.
 	 *  flashx tiers are refused (owner directive); dormant groups (zero
 	 *  matching deployments — e.g. cloud tiers with no BUCKLE_UPSTREAMS
@@ -457,7 +491,10 @@ export class Router {
 				continue;
 			}
 			const candidates = this.tierCandidates(tier, req);
-			if (candidates.length === 0) continue;
+			if (candidates.length === 0) {
+				this.rememberCooledRateLimit(tier, req, st);
+				continue;
+			}
 			if (tier !== req.group) this.metrics?.fallback(tier);
 			const r = await this.attemptTier(req, tier, candidates, st);
 			if (r !== null) return r;
@@ -506,6 +543,10 @@ export class Router {
 		for (const row of ordered) {
 			if (req.signal?.aborted) return { kind: "aborted" };
 			if (gate(row)) continue;
+			if (this.cooldowns.rateLimitRemainingS(row.dep) !== null) {
+				this.rememberCooledRateLimit(row.group, req, st);
+				continue;
+			}
 			tried.add(row.candidate_id);
 			const r = await this.attemptTier(req, row.group, [row.dep], st);
 			if (r !== null) return r;
@@ -546,7 +587,10 @@ export class Router {
 			const candidates = this.tierCandidates(tier, req).filter(
 				(d) => !tried.has(candIdOf(d)),
 			);
-			if (candidates.length === 0) continue;
+			if (candidates.length === 0) {
+				this.rememberCooledRateLimit(tier, req, st);
+				continue;
+			}
 			if (tier !== req.group) this.metrics?.fallback(tier);
 			const r = await this.attemptTier(req, tier, candidates, st);
 			if (r !== null) return r;

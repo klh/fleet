@@ -89,6 +89,45 @@ describe("retry + cooldown in the walk", () => {
 		expect(slept).toEqual([]);
 	});
 
+	test("a rate-limited deployment stays a 429 while benched, then recovers", async () => {
+		let now = 1_000;
+		let calls = 0;
+		const router = new Router(
+			{ ...POLICY, num_retries: 0, allowed_fails: 1, cooldown_time: 30 },
+			{
+				pool: poolOf([["glm", ["http://glm"]]]),
+				now: () => now,
+				fetchImpl: async () => {
+					calls++;
+					return calls === 1
+						? new Response("quota exceeded", {
+								status: 429,
+								headers: { "retry-after": "7" },
+							})
+						: Response.json({ ok: true });
+				},
+			},
+		);
+		const req = {
+			group: "glm",
+			dialect: "openai" as const,
+			path: "/v1/chat/completions",
+			body: { model: "glm", stream: false },
+			key: "",
+		};
+		const first = await router.execute(req);
+		expect(first.kind).toBe("client-error");
+		const benched = await router.execute(req);
+		expect(benched.kind).toBe("client-error");
+		if (benched.kind !== "client-error") throw new Error("rate limit lost");
+		expect(benched.response.status).toBe(429);
+		expect(benched.response.headers.get("retry-after")).toBe("30");
+		expect(calls).toBe(1);
+		now += 30_000;
+		expect((await router.execute(req)).kind).toBe("upstream");
+		expect(calls).toBe(2);
+	});
+
 	test("upstream retry-after is honored before the same-tier retry", async () => {
 		let calls = 0;
 		const slept: number[] = [];

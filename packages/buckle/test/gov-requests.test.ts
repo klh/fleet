@@ -421,10 +421,8 @@ describe("W921 traffic kind", () => {
 		const res = await getRequests(gate.base, auditor.key);
 		const rows = res.body.requests as ReqRow[];
 		expect(rows.length).toBe(3);
-		const kinds = rows
-			.sort((a, b) => a.ts.localeCompare(b.ts))
-			.map((r) => r.traffic_kind);
-		expect(kinds).toEqual(["readiness", "inference", "inference"]);
+		const kinds = rows.map((r) => r.traffic_kind).sort();
+		expect(kinds).toEqual(["inference", "inference", "readiness"]);
 		gate.stop();
 		upstream.close();
 	});

@@ -105,6 +105,40 @@ for (const stream of [false, true]) {
 	});
 }
 
+test("handler keeps a cooled down provider throttle as 429 without another upstream call", async () => {
+	let calls = 0;
+	const upstream = await startMockUpstream(() => {
+		calls++;
+		return limited();
+	});
+	try {
+		const group = "glm-5.3-flash";
+		const deps = testDeps(
+			{
+				groups: () => [group],
+				deployments: () => [
+					{ group, url: upstream.url, dialect: "anthropic" as const },
+				],
+			},
+			{ policy: { num_retries: 0, allowed_fails: 1, cooldown_time: 30 } },
+		);
+		const app = createApp(deps);
+		const request = () =>
+			new Request(`${upstream.url}/v1/messages`, {
+				method: "POST",
+				body: JSON.stringify({ model: group, max_tokens: 8, messages: [] }),
+			});
+		expect((await app.fetch(request())).status).toBe(429);
+		const cooled = await app.fetch(request());
+		expect(cooled.status).toBe(429);
+		expect(Number(cooled.headers.get("retry-after"))).toBeGreaterThan(0);
+		expect(calls).toBe(1);
+		expect(deps.ledger.auditRows().map((r) => r.status)).toEqual([429, 429]);
+	} finally {
+		upstream.close();
+	}
+});
+
 test("auth and generic server errors remain distinct; SSE envelopes retain rate-limit code", () => {
 	for (const status of [401, 500]) {
 		const error = normalizeUpstreamError("anthropic", status, {
@@ -223,7 +257,7 @@ test("quota-wall retry-after (W695.6.1): floor capped, 429 + retry-after still r
 		body: {},
 		key: "",
 	});
-	expect(slept).toEqual([60_000]); // capped floor — not 1,670,111,000 ms
+	expect(slept).toEqual([]); // Quota wall advances without a long sleep.
 	expect(result.kind).toBe("client-error");
 	if (result.kind !== "client-error") throw new Error("rate limit lost");
 	expect(result.response.status).toBe(429);

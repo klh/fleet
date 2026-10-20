@@ -52,6 +52,7 @@ export function retryAfterS(
 export class Cooldowns {
 	private readonly fails = new Map<string, number>();
 	private readonly until = new Map<string, number>();
+	private readonly reasons = new Map<string, "rate_limited" | "other">();
 
 	constructor(
 		private readonly allowedFails: number,
@@ -63,25 +64,42 @@ export class Cooldowns {
 		return `${dep.group}|${dep.url}`;
 	}
 
-	failure(dep: Deployment): void {
+	failure(dep: Deployment, reason: "rate_limited" | "other" = "other"): void {
 		const k = Cooldowns.key(dep);
 		const n = (this.fails.get(k) ?? 0) + 1;
 		this.fails.set(k, n);
 		if (n >= this.allowedFails) {
 			this.until.set(k, this.now() + this.cooldownS * 1000);
+			this.reasons.set(k, reason);
 			this.fails.set(k, 0);
 		}
 	}
 
 	success(dep: Deployment): void {
-		this.fails.set(Cooldowns.key(dep), 0);
+		const k = Cooldowns.key(dep);
+		this.fails.set(k, 0);
+		this.until.delete(k);
+		this.reasons.delete(k);
+	}
+
+	/** Remaining ejection time only when a provider throttle caused it. */
+	rateLimitRemainingS(dep: Deployment): number | null {
+		if (!this.benched(dep)) return null;
+		const k = Cooldowns.key(dep);
+		if (this.reasons.get(k) !== "rate_limited") return null;
+		return Math.max(
+			1,
+			Math.ceil(((this.until.get(k) ?? this.now()) - this.now()) / 1000),
+		);
 	}
 
 	benched(dep: Deployment): boolean {
 		const until = this.until.get(Cooldowns.key(dep));
 		if (until === undefined) return false;
 		if (until <= this.now()) {
-			this.until.delete(Cooldowns.key(dep));
+			const k = Cooldowns.key(dep);
+			this.until.delete(k);
+			this.reasons.delete(k);
 			return false;
 		}
 		return true;
