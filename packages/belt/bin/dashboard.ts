@@ -732,7 +732,10 @@ JSONL route logs belt already writes.
 
 GET /api/metrics/history returns 72 five-minute buckets of observed requests,
 errors and average duration over six hours, plus per-endpoint request counts
-on the same time grid. Empty buckets mean no Belt routes recorded.
+on the same time grid. Empty buckets mean no Belt routes recorded. Each
+bucket is [start, requests, errors, avg_ms|null, measured] — the average
+spans measured samples only: failed routes recorded without a duration
+count in requests/errors and never in avg_ms (null, not 0 ms).
 
 GET /api/supervisor returns the self-heal status doc: per-target probe
 state (up/degraded/down), last probe/ok, restart budgets. Rows with
