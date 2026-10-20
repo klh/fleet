@@ -64,3 +64,29 @@ ladder + `DESKTOP_HUB_KEY`. Then re-run the two canaries against :4101
 `/v1/messages`) and confirm the same hub-side forwarded rows. NEED_DECISION
 #48482 documents the authority options; the full-chain proof above removes the
 config risk — what remains is a restart plus a repeat measurement.
+
+## W983 follow-up: hub-local owner prefs (2026-10-20 ~09:15Z)
+
+The cloud_forbidden refusal was the hub's prefs defaulting closed. Land: stack.yaml
+per-hub `buckle_prefs:` (allow_cloud / cost_speed) → `hubctl push` renders the
+0600 `buckle-prefs.json` (buckle `loadPrefs` shape, conservative defaults when
+undeclared) into the deploy dir; hub-compose binds it ro at `BUCKLE_PREFS:
+/etc/klh/buckle-prefs.json`. Verified in the running container (env + ro mount
+via docker inspect) and on the audit rows (`allow_cloud: 1` where the same
+canary previously logged the refusal).
+
+- Mac→hub→Copilot relay: hub rows `hop=forwarded`, `key=w974-hop`,
+  `host=api.githubcopilot.com`, trace `42b96d97e4ce4b4d…` — the chain
+  traverses with the prefs mount live. Z.ai relay leg re-proven 200 (prior
+  owner trace `8e124bae13ed489780a5edfe725dc437`, same config).
+- Hub→Copilot provider leg: direct `x-belt-hint: must cloud` request delivered
+  the pinned row to api.githubcopilot.com (61s incl. the retry ladder) and got
+  **429 rate_limit_error** — the W695.6 Copilot quota wall (~2026-11-01), not a
+  config fault. Routing + prefs + egress all proven; provider delivery waits
+  on quota.
+- **Open law finding (NEED_DECISION #48672)**: a pinned ALL-cloud group can
+  never deliver a hintless request — `router.walkSelected`'s W209 escalation
+  gate demands `attempts >= 2` before any cloud row, unreachable when the
+  group has no local rung, and `x-belt-hint` is ingress-only so a Mac relay
+  cannot express `must` to the hub. Until ruled, hub-relayed Copilot pins
+  surface 502 `no_route`; `must cloud` direct to the hub is the working path.
