@@ -68,12 +68,30 @@ test("records why free IDs cannot be exposed as text chat routes", () => {
 			free,
 			model("vendor/audio:free", undefined, ["audio"], ["audio"]),
 			model("vendor/fee:free", { prompt: "0", completion: "0", request: "1" }),
+			model("vendor/image-fee:free", {
+				prompt: "0",
+				completion: "0",
+				image: "0.003",
+			}),
+			model("vendor/search-fee:free", {
+				prompt: "0",
+				completion: "0",
+				web_search: "0.02",
+			}),
 		]),
 	);
 	expect(result.ids).toEqual(["nvidia/nemotron:free"]);
 	expect(result.excluded).toEqual([
 		{ id: "vendor/audio:free", reason: "no text input and output" },
 		{ id: "vendor/fee:free", reason: "request fee is nonzero or unreported" },
+		{
+			id: "vendor/image-fee:free",
+			reason: "image fee is nonzero or unreported",
+		},
+		{
+			id: "vendor/search-fee:free",
+			reason: "web_search fee is nonzero or unreported",
+		},
 	]);
 });
 
@@ -102,6 +120,22 @@ test("account catalog limits advertised routes and admits the free router", () =
 	});
 	expect(snapshot.public_model_count).toBe(3);
 	expect(snapshot.account_model_count).toBe(2);
+});
+
+test("generated hub routes exclude a free-suffixed model with image charges", () => {
+	const paidImage = model("vendor/vision:free", {
+		prompt: "0",
+		completion: "0",
+		image: "0.001",
+	});
+	const snapshot = snapshotFromCatalog(catalog([free, paidImage]));
+	expect(Object.keys(snapshot.groups)).toEqual([
+		"openrouter/nvidia/nemotron:free",
+	]);
+	expect(snapshot.excluded_free_models).toContainEqual({
+		id: paidImage.id,
+		reason: "image fee is nonzero or unreported",
+	});
 });
 
 test("an account with no permitted free models publishes no stale routes", () => {

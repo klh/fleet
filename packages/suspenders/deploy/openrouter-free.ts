@@ -33,7 +33,7 @@ type CatalogModel = {
 		output_modalities?: unknown;
 		modality?: unknown;
 	};
-	pricing?: { prompt?: unknown; completion?: unknown; request?: unknown };
+	pricing?: Record<string, unknown>;
 };
 
 export type FreeRoute = {
@@ -101,6 +101,13 @@ export function classifyFreeModels(input: unknown): {
 		)
 			continue;
 		const price = model.pricing;
+		const extraFee = Object.entries(price ?? {}).find(
+			([key, value]) =>
+				key !== "prompt" &&
+				key !== "completion" &&
+				key !== "request" &&
+				!(typeof value === "string" && ZERO_PRICE.test(value)),
+		);
 		const reason = !supportedFreeId(model.id)
 			? "unsupported model ID"
 			: !textCapable(model)
@@ -116,7 +123,9 @@ export function classifyFreeModels(input: unknown): {
 								ZERO_PRICE.test(price.request)
 							)
 						? "request fee is nonzero or unreported"
-						: null;
+						: extraFee
+							? `${extraFee[0]} fee is nonzero or unreported`
+							: null;
 		if (reason) excluded.push({ id: model.id, reason });
 		else ids.push(model.id);
 	}
