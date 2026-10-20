@@ -334,6 +334,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .sec h2 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; align-content:start; align-items:start; }
 .setupsummary { margin:0 0 10px; font-size:11px; }
+.sgroup { grid-column: 1 / -1; margin:8px 0 0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
+.sgroup .dim { font-weight:400; }
 .sdetail summary { cursor:pointer; color:var(--klh-dim); }
 .sdetail code { display:block; margin-top:6px; overflow-wrap:anywhere; font:11px var(--klh-font-mono); }
 .card { background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:2px; padding:10px 12px; }
