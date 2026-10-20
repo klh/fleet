@@ -49,12 +49,15 @@ function canon(p: string): string {
 export function claimLocationCheck(
 	file: string,
 	lane: string,
-	db: GovernorStore,
+	openDb: () => GovernorStore,
 	opts: { requireProvisionedClaim?: boolean } = {},
 ): LocationVerdict {
 	const F = canon(file);
 	const rp = resolveProject(dirname(F));
-	const rows = db
+	// Outside Git there is no Work Graph project/tree to bind. In particular,
+	// a child may write a scratch file even when the registry is unavailable.
+	if (rp.commonDir === rp.cwd) return { blocked: false };
+	const rows = openDb()
 		.query(
 			"SELECT id FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
 		)

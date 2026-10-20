@@ -69,13 +69,16 @@ gitOK(["add", "-A"]);
 gitOK(["commit", "-q", "-m", "init", "--allow-empty"]);
 
 let payloadN = 0;
-function gate(hook: Record<string, unknown>): { out: string } {
+function gate(
+	hook: Record<string, unknown>,
+	envOverride: Record<string, string> = {},
+): { out: string } {
 	// Bun 1.4 spawnSync drops the input option — payloads go via a temp file
 	const payload = join(HOME, `hook-payload-${payloadN++}.json`);
 	writeFileSync(payload, JSON.stringify(hook));
 	const p = Bun.spawnSync(["bun", join(HOOKS, "gate.ts"), "pre-files"], {
 		cwd: REPO,
-		env,
+		env: { ...env, ...envOverride },
 		stdin: Bun.file(payload),
 		stdout: "pipe",
 		stderr: "pipe",
@@ -202,6 +205,40 @@ describe("W870 take provisioning", () => {
 		rmSync(join(REPO, ".worktrees", idB), { recursive: true, force: true });
 		gitOK(["worktree", "prune"]);
 		expect(gate(writeHook("loc-b", TP, "treeless-edit.ts")).out).toBe("{}");
+	});
+
+	test("registry outage denies native child writes but leaves parent fail-open", () => {
+		const brokenHome = mkdtempSync(
+			join(tmpdir(), "suspenders-broken-registry-"),
+		);
+		try {
+			const reg = join(brokenHome, ".cache", "claude-governor");
+			mkdirSync(join(reg, "governor.db"), { recursive: true });
+			const override = { HOME: brokenHome };
+			const childTp = join(HOME, "p", "loc-a", "subagents", "s1.jsonl");
+			expect(
+				gate(writeHook("loc-a", childTp, "registry-outage-child.ts"), override)
+					.out,
+			).toContain("CLAIM-LOCATION");
+			expect(
+				gate(writeHook("loc-a", TP, "registry-outage-parent.ts"), override).out,
+			).toBe("{}");
+			// Scratch outside a Git project is not a Work Graph edit.
+			expect(
+				gate(
+					{
+						tool_name: "Write",
+						tool_input: { file_path: join(HOME, "child-scratch.txt") },
+						cwd: REPO,
+						session_id: "loc-a",
+						transcript_path: childTp,
+					},
+					override,
+				).out,
+			).toBe("{}");
+		} finally {
+			rmSync(brokenHome, { recursive: true, force: true });
+		}
 	});
 
 	test("re-take after release attaches the standing tree", () => {
