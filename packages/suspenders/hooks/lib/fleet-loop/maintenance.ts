@@ -203,6 +203,26 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
 	},
 	{
+		// W1013: the WS-native ChatGPT auto-coordinate loop — scans the work
+		// graph for gated triggers (NEED_DECISION, item failed after >=2 runs,
+		// benchmarks.md row) and asks the ChatGPT co-supervisor over the W931
+		// board ingress (POST /api/consult; NEVER the clipboard). Answers drain
+		// back to the originating item (W861) and close with consult-reply
+		// feedback. Machine-level config IS the opt-in (no
+		// ~/.config/klh/chatgpt-coordinate.yaml = idle); SUSPENDERS_CHATGPT_COORD=0
+		// or `.fleet/chatgpt-auto-paused` kills it for ops.
+		name: "chatgpt-coordinate",
+		everySeconds: 600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/chatgpt-coordinate.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,
