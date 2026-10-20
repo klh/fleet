@@ -47,9 +47,9 @@ function buildOwnerDisp(ts){ // seven lanes all claiming "work-graph" must stay 
     var s = ts[i].owner_sid ? String(ts[i].owner_sid) : '';
     if (!s) continue;
     var l = ownerLabel(ts[i]);
-    sidLabel[s] = l;
-    (byLabel[l] || (byLabel[l] = {}))[s] = 1;
+    if (!sidLabel[s] || (sidLabel[s].slice(0, 8) === 'session ' && l.slice(0, 8) !== 'session ')) sidLabel[s] = l;
   }
+  for (var sid in sidLabel) (byLabel[sidLabel[sid]] || (byLabel[sidLabel[sid]] = {}))[sid] = 1;
   ownerDisp = {};
   for (var s2 in sidLabel){
     var l2 = sidLabel[s2];
