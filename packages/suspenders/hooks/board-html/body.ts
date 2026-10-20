@@ -1,6 +1,7 @@
 // hooks/board-html/body.ts — body skeleton + client state vars (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+import { usageHosts } from "../bin/usage-page-html.ts";
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const BODY = String.raw`
 <header>
@@ -144,6 +145,12 @@ export const BODY = String.raw`
   <p id="setupSummary" class="setupsummary dim" aria-live="polite"></p>
   <div class="grid" id="setupBody"><div class="state dim">loading setup checks...</div></div>
 </section>
+<section id="tab-usage" hidden>
+  <div id="usageState" class="state dim" role="status">loading usage...</div>
+  <div id="usageBody"></div>
+  <template id="usageTemplate">${usageHosts}</template>
+  <script type="application/json" id="usage-data">{}</script>
+</section>
 <section id="tab-enterprise" hidden>
   <klh-ent-zone id="entZone"></klh-ent-zone>
 </section>
@@ -177,7 +184,7 @@ var evFilter = 'all';
 var hubOrigin = 'all'; var hubPeer = 'all';
 var projBaseline = false; // suppress toast storm right after a project switch
 var knownProj = {}; // distinct project paths seen in any 'projects' response
-var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 1 };
+var TABS = { decisions: 1, tasks: 1, lanes: 1, activity: 1, governor: 1, setup: 1, usage: 1 };
 var curTab = 'decisions';
 var tasksData = null; var tasksOkAt = 0; var tasksErr = null; var tasksBusy = false; var tasksLoaded = false;
 var actData = null; var actOkAt = 0; var actErr = null; var actBusy = false; var actLoaded = false;

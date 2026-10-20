@@ -87,7 +87,11 @@ export function taskShape(
 		id: w.id,
 		title: w.title,
 		state: w.state,
-		failure_note: w.state === "FAILED" ? failureNote : null,
+		failure_note:
+			w.state === "FAILED" || w.state === "WAITING" ? failureNote : null,
+		wait_kind: w.wait_kind ?? null,
+		wait_reason: w.wait_reason ?? null,
+		wait_until_utc: w.wait_until ? utcZ(w.wait_until) : null,
 		owner_sid: w.owner_sid ?? null,
 		owner_label: ownerLabel(w.owner_sid),
 		// W353: the dispatch origin stamp (`work take --origin host:agent`) —
@@ -340,6 +344,41 @@ function completionTailMap(): Map<
 		// no completion records table (fresh fixture) — tails fall through
 	}
 	return out;
+}
+
+/** Lightweight all-project Work Graph counts for dashboards. */
+export function workStateCounts(): Record<string, number> {
+	const rows = db
+		.query(
+			`SELECT w.state AS state,
+			CASE WHEN w.state = 'READY' AND EXISTS (
+				SELECT 1 FROM work_deps d
+				LEFT JOIN work_items dependency ON dependency.project = d.project AND dependency.id = d.depends_on
+				WHERE d.project = w.project AND d.work_id = w.id AND dependency.state IS NOT 'DONE'
+			) THEN 1 ELSE 0 END AS blocked
+		 FROM work_items w WHERE w.state != 'SUPERSEDED'`,
+		)
+		.all() as { state: string; blocked: number }[];
+	const counts = {
+		ready: 0,
+		working: 0,
+		waiting: 0,
+		blocked: 0,
+		failed: 0,
+		done: 0,
+	};
+	for (const row of rows) {
+		if (row.state === "READY") counts[row.blocked ? "blocked" : "ready"] += 1;
+		else if (row.state === "CLAIMED" || row.state === "RUNNING")
+			counts.working += 1;
+		else if (row.state === "SHATTERED" || row.state === "WAITING")
+			counts.waiting += 1;
+		else if (row.state === "BLOCKED" || row.state === "PAUSED")
+			counts.blocked += 1;
+		else if (row.state === "FAILED") counts.failed += 1;
+		else if (row.state === "DONE") counts.done += 1;
+	}
+	return counts;
 }
 
 export function tasks(
@@ -881,7 +920,8 @@ export function board(): Record<string, unknown>[] {
 					(w) =>
 						(w.state === "READY" && blocked.has(w.id)) ||
 						w.state === "BLOCKED" ||
-						w.state === "PAUSED",
+						w.state === "PAUSED" ||
+						w.state === "WAITING",
 				)
 				.map(shape),
 			inflight: items

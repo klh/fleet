@@ -3,6 +3,7 @@
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
 import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
+import { U_CSS, UPLOT_CSS, UPLOT_SRC } from "./usage-chrome.ts";
 
 const unesc = (s) =>
 	s
@@ -32,6 +33,7 @@ import { SHIP } from "../board-html/ship.ts";
 import { TABS } from "../board-html/tabs.ts";
 import { TAIL } from "../board-html/tail.ts";
 import { TASKS } from "../board-html/tasks.ts";
+import { USAGE } from "../board-html/usage.ts";
 
 // W157: the client JS lives in hooks/board-html/*.ts as String.raw chunk
 // values interpolated into ONE outer String.raw — the same template
@@ -42,7 +44,7 @@ import { TASKS } from "../board-html/tasks.ts";
 export const HTML = unesc(String.raw`<!doctype html>
 <html><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iI2ZmZiIvPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICA8cGF0aCBkPSJNMjIgMTAgQzIzIDQgNDEgNCA0MiAxMCIvPgogICAgPHBhdGggZD0iTTIyIDEwIEw0NCA0NSBMMzkgNTUiLz4KICAgIDxwYXRoIGQ9Ik00MiAxMCBMMjAgNDUgTDI1IDU1Ii8+CiAgICA8cGF0aCBkPSJNMzIgMjcgTDMyIDQ5Ii8+CiAgPC9nPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIyLjQiPgogICAgPGNpcmNsZSBjeD0iMzkiIGN5PSI1Ny4yIiByPSIyLjYiLz4KICAgIDxjaXJjbGUgY3g9IjI1IiBjeT0iNTcuMiIgcj0iMi42Ii8+CiAgICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjUxLjYiIHI9IjIuNiIvPgogIDwvZz4KPC9zdmc+Cg=="><title>FLEET BOARD</title>
 ${THEME_HEAD}
-<style>${FLEET_NAV_CSS}</style>
+<style>${FLEET_NAV_CSS}${U_CSS}${UPLOT_CSS}</style>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root, :root[data-theme="dark"] {
@@ -304,8 +306,15 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; position:relative; }
 .kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
+/* W998.1: the badge is a corner tab — its outline sits ON the card's top and
+   left border. The row's -13px left margin already reaches the card border's
+   outer edge, so the pill takes margin-left:0 (its 1px border overlays the
+   card's); margin-top:-1px climbs over the top border (card has no top
+   padding). align-self:flex-start keeps row centering from pushing it off
+   the top edge. Bottom-left stays square so the tab reads as part of the
+   left border. */
 .krow { display:flex; gap:6px; align-items:center; min-width:0; margin:0 -12px 0 -13px; min-height:23px; }
-.krow .pill { position:relative; z-index:1; margin:-1px 0 0 -1px; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
+.krow .pill { position:relative; z-index:1; align-self:flex-start; margin:-1px 0 0 0; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
 .kcard[data-tone] .krow .pill { color:var(--state-color); border-color:var(--state-color); }
 .kcard[data-tone] .krow .pill .stl, .pill[data-tone] .stl { color:inherit; }
 .kcardident { display:flex; gap:6px; align-items:baseline; min-width:0; margin-top:3px; }
@@ -370,6 +379,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.block { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
 .pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
+.pill.waiting { color:var(--klh-accent); border-color:var(--klh-accent); }
 .pill[data-tone="ready"] { color:var(--work-ready); border-color:var(--work-ready); }
 .pill[data-tone="working"] { color:var(--work-working); border-color:var(--work-working); }
 .pill[data-tone="blocked"] { color:var(--work-blocked); border-color:var(--work-blocked); }
@@ -484,8 +494,10 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
+<script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
 <script type="module" src="/vendor/klh-board-tabs.js"></script>
+<script type="module" src="/vendor/usage-panels.js"></script>
 <script type="module" src="/vendor/klh-ent-zone.js"></script>`);

@@ -67,6 +67,8 @@ describe("state letters (W891) — taskPill", () => {
 		expect(chunk.taskPill("SHATTERED")).toContain('data-tone="split"');
 		expect(chunk.taskPill("SHATTERED")).toContain("split</span>");
 		expect(chunk.workTone('READY" onmouseover="x')).toBe("ready");
+		expect(chunk.workTone("WAITING")).toBe("blocked");
+		expect(chunk.taskPill("WAITING")).toContain('data-tone="blocked"');
 	});
 });
 

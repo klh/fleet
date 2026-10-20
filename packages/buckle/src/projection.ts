@@ -9,8 +9,8 @@
 // cursor-paginated detail. No work-graph replication, ever.
 import { Database, type Statement } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { stat } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Observation } from "./observe.ts";
 
 /** An active edge older than this is closed as unknown at ingest — the
@@ -95,6 +95,7 @@ export class LaneProjection {
 		mkdirSync(dirname(path), { recursive: true });
 		this.db = new Database(path, { create: true });
 		this.db.exec("PRAGMA journal_mode = WAL");
+		this.db.exec("PRAGMA busy_timeout = 5000");
 		this.db.exec(SCHEMA);
 		// W706: hop columns heal onto pre-W706 projection dbs the same way the
 		// ledger heals cache_r/cache_c — idempotent per open, NULL peer = the
@@ -194,7 +195,7 @@ export class LaneProjection {
 				);
 				if (r.changes === 0) continue; // duplicate — already projected
 				applied++;
-				const d = (o.data ?? {}) as Record<string, unknown>;
+				const d = (o.data ?? {}) as unknown as Record<string, unknown>;
 				const rid = typeof d.rid === "string" ? d.rid : "";
 				if (o.type === "lane.request.admitted" && rid) {
 					this.insEdge.run(

@@ -19,6 +19,7 @@ import {
 	tasks,
 	workEvents,
 	workSpendSeriesPayload,
+	workStateCounts,
 } from "./data.ts";
 import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { buildBeltEntries } from "./executor-catalog.ts";
@@ -102,6 +103,8 @@ export async function handleData(
 	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
+	if (url.pathname === "/api/work-summary")
+		return json({ ok: true, ts: Date.now(), counts: workStateCounts() });
 	if (url.pathname === "/api/recovery")
 		return json(recoverySnapshot(db, url.searchParams.get("project")));
 	if (url.pathname === "/api/orchestrate/targets") {
@@ -212,7 +215,7 @@ export async function handleData(
 				.get(p, id) as { n: number }
 		).n;
 		const failureNote =
-			w.state === "FAILED"
+			w.state === "FAILED" || w.state === "WAITING"
 				? ((
 						db
 							.query(

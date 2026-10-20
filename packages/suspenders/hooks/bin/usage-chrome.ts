@@ -6,16 +6,16 @@
 // follows the entity, validated dark palette); component-ization per the UI
 // law rides the W184 staged Lit migration.
 import { readFileSync } from "node:fs";
-import { THEME_HEAD, FLEET_NAV_CSS, fleetNav } from "../lib/theme.ts";
+import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
 
 // uPlot 1.6.32 (MIT, © Leon Sorokin, https://github.com/leeoniya/uPlot) —
 // vendored single file, license header preserved at the top of the source.
 // Read at render time relative to this module; inlined per page load.
-const UPLOT_SRC = readFileSync(
+export const UPLOT_SRC = readFileSync(
 	new URL("./vendor/uPlot.iife.min.js", import.meta.url),
 	"utf8",
 );
-const UPLOT_CSS = readFileSync(
+export const UPLOT_CSS = readFileSync(
 	new URL("./vendor/uPlot.min.css", import.meta.url),
 	"utf8",
 );
@@ -189,7 +189,7 @@ export interface UsagePanels {
 // the light-DOM u* chrome the two dashboards still render server-side or in
 // <klh-usage-charts> — the W652.3.1 Lit panels carry shadow-scoped copies of
 // everything else (tiles/tables/bars/chips)
-const U_CSS = `
+export const U_CSS = `
 .uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
 .uwin { font-size:10.5px; color:var(--klh-dim); }
 .upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }

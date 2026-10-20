@@ -4,8 +4,8 @@
 // settings gear (theme radios on window.klhTheme), and the light-DOM fleet
 // strip that every page wears above it. Screenshots land in /tmp/w658-shots.
 import { mkdirSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { expect, type Page, test } from "@playwright/test";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -162,7 +162,7 @@ test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on 
 		["/console/local", "Services"],
 		["/console/hub", "Hub"],
 		["/console/settings", "Settings"],
-		["/usage", "Metrics"],
+		["/#usage", "Workflows"],
 	] as const) {
 		await page.goto(`${B.BASE}${path}`);
 		const strip = page.locator("nav.klh-fleetnav");

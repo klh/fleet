@@ -1,10 +1,216 @@
 import { describe, expect, test } from "bun:test";
-import { buildTopology } from "../bin/dashboard-topology-model.js";
+import {
+	buildTopology,
+	observedGraph,
+	observedGraphLayout,
+} from "../bin/dashboard-topology-model.js";
 
 const now = Date.parse("2026-10-19T12:00:00Z");
 const observation = { expiresAt: now + 10_000 };
 
+const snapshot = {
+	ok: true,
+	schemaVersion: 1,
+	observedAt: new Date(now).toISOString(),
+	windowStart: new Date(now - 15 * 60_000).toISOString(),
+	hubs: [
+		{ id: "hub:z", name: "Z hub", lastSeenAt: new Date(now).toISOString() },
+		{
+			id: "hub:mac",
+			name: "This Mac",
+			lastSeenAt: new Date(now).toISOString(),
+		},
+	],
+	targets: [
+		{
+			id: "target:cloud:api.z.ai:443",
+			kind: "cloud",
+			host: "api.z.ai",
+			port: 443,
+			lastSeenAt: new Date(now).toISOString(),
+		},
+	],
+	edges: [
+		{
+			id: "edge:mac->z",
+			from: "hub:mac",
+			to: "hub:z",
+			requests: 1,
+			lastSeenAt: new Date(now).toISOString(),
+			evidence: "trace",
+		},
+		{
+			id: "edge:mac->endpoint",
+			from: "hub:mac",
+			to: "target:cloud:api.z.ai:443",
+			requests: 1,
+			lastSeenAt: new Date(now).toISOString(),
+			evidence: "ledger",
+		},
+	],
+	traces: [],
+	totals: {
+		requests: 1,
+		failed: 0,
+		active: 0,
+		inputTokens: null,
+		outputTokens: null,
+	},
+	coverage: {
+		projectionAvailable: true,
+		ledgerAvailable: true,
+		tokensScope: "unavailable",
+	},
+};
+
+describe("observed topology snapshot", () => {
+	test("uses only reported edges and keeps ledger targets as endpoints", () => {
+		const graph = observedGraph({ topology: snapshot }, now);
+		expect(graph?.edges).toHaveLength(2);
+		expect(graph?.nodes.find((node) => node.kind === "endpoint")?.label).toBe(
+			"api.z.ai:443",
+		);
+		expect(graph?.totals.outputTokens).toBeNull();
+		expect(graph?.edges.find((edge) => edge.id === "edge:mac->z")?.fresh).toBe(
+			true,
+		);
+	});
+
+	test("keeps measured zero and local-only usage scope distinct", () => {
+		const graph = observedGraph(
+			{
+				topology: {
+					...snapshot,
+					totals: { ...snapshot.totals, outputTokens: 0 },
+					coverage: {
+						...snapshot.coverage,
+						tokensScope: "local-origin-ledger",
+					},
+				},
+			},
+			now,
+		);
+		expect(graph?.totals.outputTokens).toBe(0);
+		expect(graph?.totals.requests).toBe(1);
+	});
+
+	test("retains edge measurements and explicit missing coverage", () => {
+		const graph = observedGraph(
+			{
+				topology: {
+					...snapshot,
+					edges: [
+						{
+							...snapshot.edges[0],
+							failed: 0,
+							active: 1,
+							inputTokens: null,
+							outputTokens: null,
+							coverage: { source: "projection", usageBearingRequests: 0 },
+						},
+						{
+							...snapshot.edges[1],
+							failed: 1,
+							active: 0,
+							inputTokens: 15,
+							outputTokens: 1,
+							coverage: {
+								source: "local-origin-ledger",
+								usageBearingRequests: 1,
+							},
+						},
+					],
+				},
+			},
+			now,
+		);
+		const traceEdge = graph?.edges.find((edge) => edge.id === "edge:mac->z");
+		const ledgerEdge = graph?.edges.find(
+			(edge) => edge.id === "edge:mac->endpoint",
+		);
+		expect(traceEdge?.active).toBe(1);
+		expect(traceEdge?.outputTokens).toBeNull();
+		expect(ledgerEdge?.outputTokens).toBe(1);
+		expect(ledgerEdge?.coverage?.source).toBe("local-origin-ledger");
+	});
+
+	test("rejects stale or unsupported snapshots", () => {
+		expect(
+			observedGraph(
+				{ topology: { ...snapshot, observedAt: new Date(now - 180_000) } },
+				now,
+			),
+		).toBeNull();
+		expect(
+			observedGraph({ topology: { ...snapshot, schemaVersion: 2 } }, now),
+		).toBeNull();
+	});
+
+	test("keeps positions stable when feed order changes", () => {
+		const graph = observedGraph({ topology: snapshot }, now);
+		const shuffled = observedGraph(
+			{
+				topology: {
+					...snapshot,
+					hubs: [...snapshot.hubs].reverse(),
+					edges: [...snapshot.edges].reverse(),
+				},
+			},
+			now,
+		);
+		expect(observedGraphLayout(graph).nodes).toEqual(
+			observedGraphLayout(shuffled).nodes,
+		);
+	});
+
+	test("lays out a hundred observed hubs without overlapping rows", () => {
+		const hubs = Array.from({ length: 100 }, (_, index) => ({
+			id: `hub:${index.toString().padStart(3, "0")}`,
+			name: `Hub ${index}`,
+			lastSeenAt: new Date(now).toISOString(),
+		}));
+		const graph = observedGraph(
+			{ topology: { ...snapshot, hubs, targets: [], edges: [] } },
+			now,
+		);
+		const layout = observedGraphLayout(graph);
+		expect(layout.nodes).toHaveLength(100);
+		expect(
+			new Set(layout.nodes.map((node) => `${node.x}:${node.y}`)).size,
+		).toBe(100);
+		expect(layout.height).toBeGreaterThan(100 * 52);
+	});
+});
+
 describe("Belt topology", () => {
+	test("joins configured console links and observed local Work Graph counts", () => {
+		const model = buildTopology(
+			{},
+			{},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+			},
+			now,
+			null,
+			null,
+			{
+				localConsoleUrl: "https://board.example.org/",
+				hubConsoles: [{ name: "nas", url: "https://nas.example.org/" }],
+				work: {
+					ready: 3,
+					working: 2,
+					waiting: 1,
+					blocked: 4,
+					failed: 5,
+					done: 6,
+				},
+			},
+		);
+		expect(model.localConsoleUrl).toBe("https://board.example.org/");
+		expect(model.hubs[0]?.consoleUrl).toBe("https://nas.example.org/");
+		expect(model.work?.blocked).toBe(4);
+	});
 	test("keeps probed reachability separate from recent routed traffic", () => {
 		const model = buildTopology(
 			{
@@ -216,6 +422,7 @@ describe("Belt topology", () => {
 				buckleReq60: 2,
 				outTokens60: 30,
 				routeObserved: true,
+				lastOkAt: "2026-10-19T11:59:00Z",
 			},
 		]);
 		const stale = buildTopology(
@@ -324,7 +531,7 @@ describe("Belt topology", () => {
 				},
 			},
 		);
-		expect(model.links).toEqual([
+		expect(model.links).toMatchObject([
 			{ target: "hub:nas", evidence: "observed", requests15: 4 },
 			{ target: "provider:zai", evidence: "observed", requests15: 8 },
 		]);
@@ -380,7 +587,7 @@ describe("Belt topology", () => {
 			buckleReq15: 3,
 			routeObserved: true,
 		});
-		expect(model.links).toEqual([
+		expect(model.links).toMatchObject([
 			{ target: "provider:copilot", evidence: "observed", requests15: 3 },
 		]);
 	});
@@ -410,5 +617,91 @@ describe("Belt topology", () => {
 			outputTokens60: null,
 			observedTargets: 0,
 		});
+	});
+
+	test("shows measured zero successes and only target-attributed failures", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "zai",
+						model: "glm",
+						ok: true,
+						last_seen: new Date(now).toISOString(),
+					},
+				],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+			},
+			now,
+			{
+				ok: true,
+				ts: new Date(now).toISOString(),
+				network: {
+					ok: true,
+					lastAuditAt: new Date(now - 1_000).toISOString(),
+					recentSuccessAt: new Date(now - 3_600_000).toISOString(),
+					observations: { available: false },
+					throughput: { interfaces: [] },
+					audit15: {
+						attempts: 8,
+						succeeded: 0,
+						failed: 8,
+						unsettled: 0,
+						unattributedFailed: 6,
+						failures: [
+							{
+								kind: "cloud",
+								host: "api.z.ai",
+								port: null,
+								count: 1,
+								lastAt: new Date(now).toISOString(),
+							},
+							{
+								kind: "local",
+								host: "127.0.0.1",
+								port: 4100,
+								count: 1,
+								lastAt: new Date(now).toISOString(),
+							},
+							{
+								kind: null,
+								host: null,
+								port: null,
+								count: 6,
+								lastAt: new Date(now).toISOString(),
+							},
+						],
+					},
+				},
+			},
+		);
+		expect(model.audit15).toMatchObject({
+			attempts: 8,
+			succeeded: 0,
+			failed: 8,
+		});
+		expect(model.links).toMatchObject([
+			{
+				target: "hub:nas",
+				evidence: "probe",
+				requests15: null,
+				source: "hub observations unavailable",
+			},
+			{
+				target: "provider:zai",
+				evidence: "configured",
+				requests15: 0,
+				failures15: 1,
+				source: "local Buckle ledger",
+			},
+		]);
+		expect(model.links.some((link) => link.target === "provider:copilot")).toBe(
+			false,
+		);
 	});
 });

@@ -37,7 +37,7 @@ function parseHashQuery(hash){
   return { tab: safeDecode(h.slice(1, i)), params: params };
 }
 // query params this router owns; everything else warns loudly and is ignored
-var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1 };
+var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1, days: 1, weeks: 1, team: 1, dept: 1, includeDemo: 1, hour: 1, section: 1 };
 var pendingProj = ''; // ?project= seen before the scope <select> had its option
 var pendingSelect = null; // ?w= card select waiting for its kanban card to render
 function hashNeedle(){
@@ -182,6 +182,7 @@ function msAgo(ts){ return ts != null ? Math.max(0, Math.round((Date.now() - ts)
 // Q gray) — hues resolve through vars, never literals.
 var ST_HUES = {
   ready: 'info',
+  waiting: 'accent',
   claimed: 'accent',
   running: 'accent',
   done: 'ok',
@@ -202,7 +203,7 @@ function stLetter(label){
 }
 function workTone(state){
   if (state === 'CLAIMED' || state === 'RUNNING') return 'working';
-  if (state === 'BLOCKED' || state === 'PAUSED') return 'blocked';
+  if (state === 'WAITING' || state === 'BLOCKED' || state === 'PAUSED') return 'blocked';
   if (state === 'SHATTERED') return 'split';
   if (state === 'FAILED') return 'failed';
   if (state === 'DONE') return 'done';
@@ -212,6 +213,7 @@ function workTone(state){
 function taskPill(state){
   var s = String(state || '').toLowerCase();
   var tone = ' data-tone="' + workTone(state) + '"';
+  if (state === 'WAITING') return '<span class="pill waiting"' + tone + ' title="External prerequisite; requires a verified wake">' + stLetter('waiting') + 'waiting</span>';
   if (state === 'SHATTERED') return '<span class="pill split"' + tone + ' title="Split into child work items; completes when required children finish">' + stLetter('split') + 'split</span>';
   if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run"' + tone + '>' + stLetter(s) + s + '</span>';
   if (state === 'DONE') return '<span class="pill done"' + tone + '>' + stLetter('done') + 'done</span>';

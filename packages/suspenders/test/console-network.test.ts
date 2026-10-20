@@ -147,6 +147,29 @@ describe("resolveNetworkDbPaths precedence", () => {
 });
 
 describe("/api/console/network", () => {
+	test("versioned topology endpoint reports observed, partial hop evidence", async () => {
+		const res = await fetch(`${BASE}/api/console/topology`);
+		expect(res.status).toBe(200);
+		const topology = (await res.json()) as {
+			ok: boolean;
+			schemaVersion: number;
+			totals: { requests: number };
+			edges: Array<{ from: string; to: string; evidence: string }>;
+		};
+		expect(topology.ok).toBe(true);
+		expect(topology.schemaVersion).toBe(1);
+		expect(topology.totals.requests).toBe(1);
+		expect(topology.edges).toEqual([
+			{
+				id: "edge:nas->S1",
+				from: "hub:nas",
+				to: "hub:S1",
+				requests: 1,
+				lastSeenAt: expect.any(String),
+				evidence: "peer",
+			},
+		]);
+	});
 	test("seeded dbs read through; nulls stay null, counts are real", async () => {
 		const d = (await (await fetch(`${BASE}/api/console/network`)).json()) as {
 			ok: boolean;

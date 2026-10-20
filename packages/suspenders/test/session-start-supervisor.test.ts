@@ -86,6 +86,8 @@ describe("supervisor-default directive (W637)", () => {
 		expect(r.out).toContain("SUPERVISOR DEFAULT");
 		expect(r.out).toContain("/loop refill");
 		expect(r.out).toContain("READY 1");
+		expect(r.out).toContain("coord message <sid>");
+		expect(r.out).toContain("never cancel the lane just to revise its prompt");
 	});
 
 	test("W899: the directive carries the emitted report table", () => {

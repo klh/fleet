@@ -20,6 +20,7 @@ export const GLYPH: Record<string, [string, (s: string) => string]> = {
 	RUNNING: ["▶", green],
 	BLOCKED: ["⚠", red],
 	PAUSED: ["⏸", amber],
+	WAITING: ["◷", amber],
 	DONE: ["✓", green],
 	FAILED: ["✗", red],
 	CANCELLED: ["⊘", dim],

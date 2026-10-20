@@ -15,6 +15,8 @@ export const ITEM_FLAGS = [
 	"--desc",
 	"--by",
 	"--reason",
+	"--kind",
+	"--until",
 	"--keep",
 	"--sha",
 	"--origin",
@@ -112,6 +114,22 @@ export const VERBS: VerbSpec[] = [
 			"usage: retry <id...> — FAILED → READY, stale claim released, launch budget reset (W761); ids space- or comma-separated (W795)",
 		flags: [...ITEM_FLAGS],
 		minPos: 1,
+	}),
+	defineVerb({
+		name: "wait",
+		usage:
+			'usage: wait <id> --kind quota|credentials|operator|dependency|external --reason "external prerequisite" [--until ISO-8601]',
+		flags: [...ITEM_FLAGS],
+		minPos: 1,
+		reqFlags: ["--kind", "--reason"],
+	}),
+	defineVerb({
+		name: "wake",
+		usage: 'usage: wake <id> --note "evidence prerequisite cleared" [--force]',
+		flags: [...ITEM_FLAGS, "--force"],
+		switches: ["--force"],
+		minPos: 1,
+		reqFlags: ["--note"],
 	}),
 	defineVerb({
 		name: "cancel",

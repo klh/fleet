@@ -34,12 +34,13 @@ export interface ReportRow {
 export const reportLetter = (state: string): string => {
 	if (state === "DONE") return "D";
 	if (state === "FAILED") return "F";
+	if (state === "WAITING") return "W";
 	if (state === "READY") return "Q";
 	return "R"; // CLAIMED/RUNNING — riding
 };
 
 /** W964 ST-bucket rank: R riding < Q queued < F failed < D done. */
-const BUCKET_RANK: Record<string, number> = { R: 0, Q: 1, F: 2, D: 3 };
+const BUCKET_RANK: Record<string, number> = { R: 0, Q: 1, W: 2, F: 3, D: 4 };
 export const reportBucketRank = (state: string): number =>
 	BUCKET_RANK[reportLetter(state)] ?? 9;
 

@@ -1,0 +1,75 @@
+{
+	"version": 1,
+	"groups": {
+		"general": [
+			{
+				"url": "https://api.z.ai",
+				"dialect": "openai",
+				"adapter": "openai-compat",
+				"model": "glm-5.3-flash",
+				"api_key_env": "Z_AI_API_KEY",
+				"adapter_config": {
+					"path_rewrite": {
+						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+					}
+				}
+			}
+		],
+		"glm-5.3-flash": [
+			{
+				"url": "https://api.z.ai",
+				"dialect": "openai",
+				"adapter": "openai-compat",
+				"model": "glm-5.3-flash",
+				"api_key_env": "Z_AI_API_KEY",
+				"adapter_config": {
+					"path_rewrite": {
+						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+					}
+				}
+			}
+		],
+		"glm-5.3-flashx": [
+			{
+				"url": "https://api.z.ai",
+				"dialect": "openai",
+				"adapter": "openai-compat",
+				"model": "glm-5.3-flashx",
+				"api_key_env": "Z_AI_API_KEY",
+				"adapter_config": {
+					"path_rewrite": {
+						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+					}
+				}
+			}
+		],
+		"glm-5.3": [
+			{
+				"url": "https://api.z.ai",
+				"dialect": "openai",
+				"adapter": "openai-compat",
+				"model": "glm-5.3",
+				"api_key_env": "Z_AI_API_KEY",
+				"adapter_config": {
+					"path_rewrite": {
+						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+					}
+				}
+			}
+		],
+		"glm-5.2": [
+			{
+				"url": "https://api.z.ai",
+				"dialect": "openai",
+				"adapter": "openai-compat",
+				"model": "glm-5.2",
+				"api_key_env": "Z_AI_API_KEY",
+				"adapter_config": {
+					"path_rewrite": {
+						"/v1/chat/completions": "/api/paas/v4/chat/completions"
+					}
+				}
+			}
+		]
+	}
+}

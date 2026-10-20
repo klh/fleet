@@ -16,6 +16,9 @@ export const codexAdapter: ExecutorAdapter = {
 	// never spawns codex via spawnClaude.
 	spawnArgs: () => ["--sandbox", "danger-full-access"],
 	promptArgs: (prompt) => ["exec", prompt],
+	// W1009.1: exec's prompt is a bare trailing positional — the flag tail
+	// precedes it (fleet-loop dispatch.ts:418 recipe, byte-verified).
+	promptLast: true,
 	// `exec resume <id>` chaining verified on the 0.158 binary (W454 probe);
 	// wiring waits on the spawn-recipe composition (module header, W454).
 	forkArgs: () => null,

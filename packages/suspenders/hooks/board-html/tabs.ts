@@ -7,6 +7,7 @@ function pollActiveTab(){
   else if (curTab === 'activity') pollAct();
   else if (curTab === 'decisions') pollHist(); // no-op while history is collapsed
   else if (curTab === 'setup') pollSetup();
+  else if (curTab === 'usage') pollUsage();
   // governor rides /api/data
 }
 function renderTab(){
@@ -14,6 +15,7 @@ function renderTab(){
   else if (curTab === 'tasks') renderTasks();
   else if (curTab === 'lanes') renderKanban();
   else if (curTab === 'activity') renderAct();
+  else if (curTab === 'usage') pollUsage();
   else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderFacts(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }  else if (curTab === 'setup') renderSetup();
 }
 var nav = byId('boardTabs'); // <klh-board-tabs> (W695.3.6): owns the buttons, emits tab-select

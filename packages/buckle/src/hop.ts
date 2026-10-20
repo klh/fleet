@@ -9,6 +9,26 @@
 // code) and authenticated; baggage never rides external-provider egress.
 export const ORIGIN_BAGGAGE_KEY = "fleet.origin.hub.id";
 export const PEER_BAGGAGE_KEY = "fleet.peer.hub.id";
+export const LANE_BAGGAGE_KEY = "fleet.lane.id";
+const validLaneId = (value: string): boolean =>
+	/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+
+/** A lane is telemetry only. Accept the same slug as /w/<lane>, with a
+ * bounded length before storing a forwarded value in the ledger. */
+export function laneFromBaggage(baggage: string | null | undefined): string {
+	if (!baggage) return "";
+	for (const pair of baggage.split(",")) {
+		const eq = pair.indexOf("=");
+		if (eq <= 0 || pair.slice(0, eq).trim() !== LANE_BAGGAGE_KEY) continue;
+		const value =
+			pair
+				.slice(eq + 1)
+				.split(";")[0]
+				?.trim() ?? "";
+		return validLaneId(value) ? value : "";
+	}
+	return "";
+}
 
 /** What this hop received: the verified origin and the immediate peer that
  *  forwarded the leg. peer = null → the request entered the fleet here
@@ -54,6 +74,7 @@ export function hopFromBaggage(baggage: string | null | undefined): HopContext {
 export function hopBaggageOf(
 	baggage: string | null | undefined,
 	self: string,
+	lane?: string,
 ): string {
 	const origin = hopFromBaggage(baggage).origin || self;
 	const kept: string[] = [];
@@ -62,10 +83,16 @@ export function hopBaggageOf(
 			const eq = pair.indexOf("=");
 			if (eq <= 0) continue;
 			const key = pair.slice(0, eq).trim();
-			if (key === ORIGIN_BAGGAGE_KEY || key === PEER_BAGGAGE_KEY) continue;
+			if (
+				key === ORIGIN_BAGGAGE_KEY ||
+				key === PEER_BAGGAGE_KEY ||
+				(lane !== undefined && key === LANE_BAGGAGE_KEY)
+			)
+				continue;
 			kept.push(pair.trim());
 		}
 	}
+	if (lane && validLaneId(lane)) kept.push(`${LANE_BAGGAGE_KEY}=${lane}`);
 	kept.push(`${ORIGIN_BAGGAGE_KEY}=${origin}`);
 	kept.push(`${PEER_BAGGAGE_KEY}=${self}`);
 	return kept.join(",");

@@ -17,6 +17,18 @@ describe("board api v3 (docs/board-api.md)", () => {
 	// back to the cwd realpath, /var/folders symlinks resolve to /private/var
 	const proj = realpathSync(REPO);
 
+	test("/api/work-summary counts dependency-blocked READY separately", async () => {
+		const prior = await (await fetch(`${BASE}/api/work-summary`)).json();
+		const root = addWork("summary prerequisite");
+		const dependent = addWork("summary blocked dependent");
+		expect(run("work.ts", ["block", dependent, "--on", root]).code).toBe(0);
+		const next = await (await fetch(`${BASE}/api/work-summary`)).json();
+		expect(next.ok).toBe(true);
+		expect(next.counts.ready).toBe(prior.counts.ready + 1);
+		expect(next.counts.blocked).toBe(prior.counts.blocked + 1);
+		expect(Number.isFinite(next.counts.done)).toBe(true);
+	});
+
 	test("/api/tasks: contract shape, newest activity first, project filter, open_decisions, owner_label", async () => {
 		const w1 = addWork("tasks demo alpha", ["--scope", "ta"]);
 		const w2 = addWork("tasks demo beta", [

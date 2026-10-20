@@ -15,7 +15,7 @@ function setCollapsed(v){
 setInterval(tick, 1000);
 pollExecutors(); // belt targets for the dispatch dropdown (page-load, not polled)
 if (!location.hash) history.replaceState(null, '', '#decisions');
-setTab(TABS[location.hash.slice(1)] ? location.hash.slice(1) : 'decisions', true);
+setTab(TABS[parseHashQuery(location.hash).tab] ? parseHashQuery(location.hash).tab : 'decisions', true);
 applyHashRoute(); // W890: query-style tab hashes (#lanes?w=<id>, ?project=, ?q=) on first paint
 applyHashFilter(); // honor #filter=<text> on first paint (deep-link from the statusline)
 applyHashTask(); // honor #task=<id> on first paint (lane reports, terminal links)

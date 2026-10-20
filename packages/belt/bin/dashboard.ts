@@ -27,7 +27,12 @@ import {
 	type RouteMethods,
 	rateLimiter,
 } from "./http-citizenship.ts";
-import { hubLlmsRows, readHubs } from "./hubs.ts";
+import {
+	browserConsoleUrl,
+	hubConsoleLinks,
+	hubLlmsRows,
+	readHubs,
+} from "./hubs.ts";
 import { modelFromProcess, probePathFor } from "./inventory-probe.ts";
 import {
 	displayLabel,
@@ -819,6 +824,16 @@ const networkSnapshot = async (): Promise<Response> => {
 		if (!response.ok)
 			return json({ ok: false, reason: "Board network feed unavailable" });
 		const payload = (await response.json()) as Record<string, unknown>;
+		let topology: unknown = null;
+		try {
+			const topologyResponse = await fetch(
+				new URL("/api/console/topology", base),
+				{ signal: controller.signal },
+			);
+			topology = topologyResponse.ok ? await topologyResponse.json() : null;
+		} catch {
+			// The existing Network panels still render if graph detail is unavailable.
+		}
 		const network = payload.network as Record<string, unknown> | undefined;
 		const gateway = payload.gateway as Record<string, unknown> | undefined;
 		return json({
@@ -831,12 +846,18 @@ const networkSnapshot = async (): Promise<Response> => {
 						observedAt: gateway.observedAt,
 					}
 				: null,
+			topology,
 			network: network?.ok
 				? {
 						ok: true,
 						ts: network.ts,
 						hubs: network.hubs,
 						hops: network.hops,
+						lastAuditAt: network.lastAuditAt,
+						audit15: network.audit15,
+						recentSuccessAt: Array.isArray(network.routes)
+							? (network.routes[0] as Record<string, unknown> | undefined)?.ts
+							: null,
 						throughput: {
 							interfaces: (network.throughput as Record<string, unknown>)
 								?.interfaces,
@@ -857,6 +878,36 @@ const networkSnapshot = async (): Promise<Response> => {
 	}
 };
 
+/** Browser-safe links plus the Board's compact Work Graph counts. */
+const topologyContext = async (): Promise<Response> => {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 2000);
+	let work: Record<string, unknown> | null = null;
+	try {
+		const base = process.env.BELT_BOARD_URL ?? "http://127.0.0.1:7799";
+		const response = await fetch(new URL("/api/work-summary", base), {
+			signal: controller.signal,
+		});
+		if (response.ok) {
+			const payload = (await response.json()) as Record<string, unknown>;
+			if (payload.ok && payload.counts && typeof payload.counts === "object")
+				work = payload.counts as Record<string, unknown>;
+		}
+	} catch {
+	} finally {
+		clearTimeout(timeout);
+	}
+	return json({
+		ok: true,
+		localConsoleUrl: browserConsoleUrl(
+			process.env.BELT_BOARD_CONSOLE_URL,
+			false,
+		),
+		hubConsoles: hubConsoleLinks(),
+		work,
+	});
+};
+
 // W155.3 http-citizenship: methods each known path serves — the single
 // source the gate introspects (HEAD rides GET paths; Bun strips its body).
 const ROUTES: RouteMethods = {
@@ -864,6 +915,7 @@ const ROUTES: RouteMethods = {
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
 	"/api/network": ["GET", "HEAD"],
+	"/api/topology-context": ["GET", "HEAD"],
 	"/api/model-access": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
@@ -928,6 +980,7 @@ Bun.serve({
 		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
 		if (path === "/api/network") return networkSnapshot();
+		if (path === "/api/topology-context") return topologyContext();
 		if (path === "/api/model-access") return json(await accessSnapshot());
 		// W258 — the capability forecast: conservative per-machine rows
 		if (path === "/api/catalog") return json(capabilityPayload());

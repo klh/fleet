@@ -323,6 +323,54 @@ describe("W690 explicit-model pins (W694 M1-M4)", () => {
 		}
 	});
 
+	test("an explicit policy fallback replaces an unhealthy pin and names the delivered group", () => {
+		const dead = row({ group: "claude-sonnet-5", healthy: false });
+		const glm = row({ group: "glm-5.3-flash", model: "zai-glm-5.3-flash" });
+		const unrelated = row({ group: "other", estimate_ms: 1, calls: 10 });
+		const r = decideRoute({
+			hint: null,
+			hintRaw: "",
+			group: "claude-sonnet-5",
+			candidates: [dead, glm, unrelated],
+			prefs: PREFS_OPEN,
+			dialect: "openai",
+			allowCross: true,
+			fallbackGroups: ["glm-5.3-flash"],
+		});
+		expect(r.ok).toBe(true);
+		if (r.ok) {
+			expect(r.sel.head.group).toBe("glm-5.3-flash");
+			expect(r.sel.decision).toBe("fallback");
+			expect(r.sel.why).toContain("configured fallback claude-sonnet-5");
+		}
+	});
+
+	test("a must hint and a closed cloud gate cannot use the configured fallback", () => {
+		const dead = row({ group: "claude-sonnet-5", healthy: false });
+		const glm = row({ group: "glm-5.3-flash", kind: "cloud" });
+		const base = {
+			group: "claude-sonnet-5",
+			candidates: [dead, glm],
+			dialect: "openai" as const,
+			allowCross: true,
+			fallbackGroups: ["glm-5.3-flash"],
+		};
+		const must = decideRoute({
+			...base,
+			hint: HINT("must model:claude*"),
+			hintRaw: "must model:claude*",
+			prefs: PREFS_OPEN,
+		});
+		expect(must.ok).toBe(false);
+		const closed = decideRoute({
+			...base,
+			hint: null,
+			hintRaw: "",
+			prefs: { cost_speed: "balanced", allow_cloud: false },
+		});
+		expect(closed.ok).toBe(false);
+	});
+
 	test("mixed-health pin heads the healthy row", () => {
 		const dead = row({ healthy: false, estimate_ms: 1, calls: 9 });
 		const alive = row({ estimate_ms: 900, calls: 5 });
@@ -440,7 +488,12 @@ describe("auto (W228) — the addressable default", () => {
 	});
 
 	test("gate-closed: auto never heads cloud, policy still answers", () => {
-		const cloud = row({ kind: "cloud", host: "cloud.example", estimate_ms: 300, calls: 4 });
+		const cloud = row({
+			kind: "cloud",
+			host: "cloud.example",
+			estimate_ms: 300,
+			calls: 4,
+		});
 		const localProven = row({ estimate_ms: 150, calls: 7 });
 		const r = decide("auto", [cloud, localProven], {
 			cost_speed: "balanced",
@@ -451,7 +504,12 @@ describe("auto (W228) — the addressable default", () => {
 	});
 
 	test("the three-way distinction on one pool: must local refuses, prefer local degrades, auto delivers", () => {
-		const cloud = row({ kind: "cloud", host: "cloud.example", estimate_ms: 300, calls: 4 });
+		const cloud = row({
+			kind: "cloud",
+			host: "cloud.example",
+			estimate_ms: 300,
+			calls: 4,
+		});
 		const must = decide("must local", [cloud]);
 		expect(must.ok).toBe(false);
 		if (!must.ok) expect(must.err.code).toBe("no_healthy_fit");

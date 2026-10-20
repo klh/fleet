@@ -324,7 +324,7 @@ function renderTasks(){
 var KCOLS = [
   { key: 'READY', label: 'ready', states: ['READY'] },
   { key: 'ACTIVE', label: 'working', states: ['CLAIMED', 'RUNNING'] },
-  { key: 'WAITING', label: 'waiting', states: ['SHATTERED'], cap: 12 },
+  { key: 'WAITING', label: 'waiting', states: ['WAITING', 'SHATTERED'], cap: 12 },
   { key: 'BLOCKED', label: 'blocked', states: ['BLOCKED', 'PAUSED'] },
   { key: 'FAILED', label: 'failed', states: ['FAILED'] },
   { key: 'DONE', label: 'done', states: ['DONE'], cap: 12 },
@@ -498,6 +498,8 @@ function kanbanCard(t, fam){
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
   if (t.state === 'SHATTERED' && t.waiting_on && t.waiting_on.length)
     html += '<div class="klane dim">split into ' + esc(t.waiting_on.join(', ')) + '</div>';
+  if (t.state === 'WAITING' && t.wait_reason)
+    html += '<div class="klane dim" title="' + esc(t.wait_reason) + '">' + esc(t.wait_kind || 'external') + ' · ' + esc(t.wait_reason) + '</div>';
   var laneOwner = String(t.owner_label || t.owner_sid || 'unclaimed');
   var laneOrigin = t.origin ? String(t.origin) : '';
   html += '<div class="kmeta">';
@@ -909,7 +911,10 @@ function renderDrawer(){
     (t.parent_id ? '<div class="r"><span class="dim">parent</span> ' + esc(t.parent_id) + '</div>' : '') +
     '<div class="r"><span class="dim">age</span> ' + ago(t.age_s) + '</div>' +
     '<div class="r"><span class="dim">open decisions</span> ' + (t.open_decisions || 0) + '</div>';
-  var failure = t.failure_note ? '<div class="feed failure-detail"><h2>Failure reason</h2><p>' + esc(String(t.failure_note)) + '</p>' + (t.tail && t.tail.text ? '<h3>Recent output excerpt</h3><p>' + esc(String(t.tail.text)) + '</p>' : '') + '</div>' : '';
+  if (t.state === 'WAITING') meta += '<div class="r"><span class="dim">waiting for</span> ' + esc(t.wait_kind || 'external') + '</div>' +
+    '<div class="r"><span class="dim">reason</span> ' + esc(t.wait_reason || '') + '</div>' +
+    (t.wait_until_utc ? '<div class="r"><span class="dim">earliest wake</span> ' + esc(t.wait_until_utc) + '</div>' : '');
+  var failure = t.failure_note ? '<div class="feed failure-detail"><h2>' + (t.state === 'WAITING' ? 'Previous failure' : 'Failure reason') + '</h2><p>' + esc(String(t.failure_note)) + '</p>' + (t.tail && t.tail.text ? '<h3>Recent output excerpt</h3><p>' + esc(String(t.tail.text)) + '</p>' : '') + '</div>' : '';
   var decs = '';
   var dl = d.decisions || [];
   for (var i = 0; i < dl.length; i++) {

@@ -3,7 +3,7 @@
 // moved verbatim (route order preserved by the entry's handler list); returns
 // null when nothing matches.
 
-import { usagePage } from "../bin/usage-page-html.ts";
+import { usagePayload } from "../bin/usage-page-html.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
 import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
 import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
@@ -16,38 +16,17 @@ export async function handleUsage(
 	_req: Request,
 	url: URL,
 ): Promise<Response | null> {
-	// W365: cross-hub rollup rides both usage routes (TTL-cached per hub,
-	// per-hub degrade — a down hub never blocks the local report).
-	const crossHub = await crossHubUsageSafe(url);
 	if (url.pathname === "/usage") {
-		// W127 phase 3: the server-rendered analytics page (same data path
-		// as /api/usage: TTL-gated harvest then buildUsageReport). W243: the
-		// activity meter rides the same gate and hangs its panel on the page.
-		maybeHarvest(db);
-		const d = Number(url.searchParams.get("days") ?? 28) || 28;
-		const w = Number(url.searchParams.get("weeks") ?? 8) || 8;
-		const team = url.searchParams.get("team") ?? "";
-		const dept = url.searchParams.get("dept") ?? "";
-		const includeDemo = url.searchParams.get("includeDemo") === "true";
+		// Fragments never reach the server. The tiny client redirect retains
+		// legacy /usage?...#cache bookmarks as board hash state.
 		return new Response(
-			usagePage(
-				buildUsageReport(db, {
-					days: Math.min(90, Math.max(1, d)),
-					team,
-					dept,
-					includeDemo,
-				}),
-				{
-					days: Math.min(90, Math.max(1, d)),
-					team,
-					dept,
-					includeDemo,
-					activity: activityReport(db, {
-						weeks: Math.min(26, Math.max(1, w)),
-					}),
-					crossHub,
-				},
-			),
+			`<!doctype html><title>Opening Usage</title><script>
+			const target = new URL('/', location.href);
+			const params = new URLSearchParams(location.search);
+			if (location.hash) params.set('section', location.hash.slice(1));
+			target.hash = 'usage' + (params.size ? '?' + params : '');
+			location.replace(target);
+			</script><a href="/#usage">Open Usage</a>`,
 			{
 				headers: {
 					"content-type": "text/html; charset=utf-8",
@@ -55,6 +34,40 @@ export async function handleUsage(
 				},
 			},
 		);
+	}
+	// W365: cross-hub rollup rides usage APIs (TTL-cached per hub,
+	// per-hub degrade — a down hub never blocks the local report).
+	const crossHub = await crossHubUsageSafe(url);
+	if (url.pathname === "/api/usage/view") {
+		maybeHarvest(db);
+		const d = Number(url.searchParams.get("days") ?? 28) || 28;
+		const w = Number(url.searchParams.get("weeks") ?? 8) || 8;
+		const team = url.searchParams.get("team") ?? "";
+		const dept = url.searchParams.get("dept") ?? "";
+		const includeDemo = url.searchParams.get("includeDemo") === "true";
+		return json({
+			ok: true,
+			payload: JSON.parse(
+				usagePayload(
+					buildUsageReport(db, {
+						days: Math.min(90, Math.max(1, d)),
+						team,
+						dept,
+						includeDemo,
+					}),
+					{
+						days: Math.min(90, Math.max(1, d)),
+						team,
+						dept,
+						includeDemo,
+						activity: activityReport(db, {
+							weeks: Math.min(26, Math.max(1, w)),
+						}),
+						crossHub,
+					},
+				),
+			),
+		});
 	}
 	if (url.pathname === "/api/usage") {
 		// W127: Copilot-style usage analytics — TTL-gated transcript harvest

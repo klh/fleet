@@ -7,7 +7,12 @@ import { describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { testDeps } from "./deps.ts";
 import { createApp, type AppDeps } from "../src/handlers.ts";
-import { hopBaggageOf, hopFromBaggage, hopKindOf } from "../src/hop.ts";
+import {
+	hopBaggageOf,
+	hopFromBaggage,
+	hopKindOf,
+	laneFromBaggage,
+} from "../src/hop.ts";
 import { ObservationOutbox, type Observation } from "../src/observe.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
 import { startMockUpstream } from "./mock.ts";
@@ -39,6 +44,18 @@ describe("hop marker helpers", () => {
 		const out = hopBaggageOf("fleet.lane.id=autow461", "hubA");
 		expect(out).toContain("fleet.origin.hub.id=hubA");
 		expect(out).toContain("fleet.peer.hub.id=hubA");
+	});
+
+	test("forwarded lane baggage accepts only bounded lane slugs", () => {
+		expect(laneFromBaggage("fleet.lane.id=autow461")).toBe("autow461");
+		expect(laneFromBaggage("fleet.lane.id=lane%2Fsecret")).toBe("");
+		expect(laneFromBaggage(`fleet.lane.id=${"x".repeat(129)}`)).toBe("");
+		expect(hopBaggageOf("fleet.lane.id=forged", "hubA", "autow461")).toContain(
+			"fleet.lane.id=autow461",
+		);
+		expect(hopBaggageOf("fleet.lane.id=forged", "hubA", "")).not.toContain(
+			"fleet.lane.id",
+		);
 	});
 });
 
@@ -76,7 +93,10 @@ async function hub(
 }
 
 /** The outbox flush is async — poll until the expected event count lands. */
-async function readOutbox(path: string, atLeast: number): Promise<Observation[]> {
+async function readOutbox(
+	path: string,
+	atLeast: number,
+): Promise<Observation[]> {
 	const deadline = Date.now() + 2000;
 	for (;;) {
 		const obs = await ObservationOutbox.read(path);
@@ -117,8 +137,9 @@ describe("3-hop relay (client → hubA → hubB → hubC → provider)", () => {
 		);
 
 		const res = await hubA.app.fetch(
-			new Request("http://hubA/v1/chat/completions", {
+			new Request("http://hubA/w/autow461/v1/chat/completions", {
 				method: "POST",
+				headers: { baggage: "fleet.lane.id=forged" },
 				body: JSON.stringify({ model: MODEL, stream: false }),
 			}),
 		);
@@ -140,6 +161,8 @@ describe("3-hop relay (client → hubA → hubB → hubC → provider)", () => {
 
 		// billing: exactly one designated source across the chain
 		const rows = [hubA, hubB, hubC].map((h) => h.ledger.auditRows());
+		for (const r of rows) expect(r[0]?.lane).toBe("autow461");
+		expect(new Set(rows.map((r) => r[0]?.trace_id)).size).toBe(1);
 		expect(rows[0][0]?.hop).toBe("origin");
 		expect(rows[1][0]?.hop).toBe("forwarded");
 		expect(rows[2][0]?.hop).toBe("forwarded");

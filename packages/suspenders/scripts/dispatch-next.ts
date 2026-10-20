@@ -30,7 +30,6 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
-import { budgetFlagClaim, budgetFlagGet } from "../hooks/lib/budget-flag.ts";
 import { capsuleValidity } from "../hooks/lib/capsule-fence.ts";
 import { BIN, composeBrief } from "./lib/brief.ts";
 import { briefVerdictLine, verifyBrief } from "./lib/brief-verify.ts";
@@ -134,6 +133,11 @@ import {
 	starterStartLine,
 } from "./lib/lane-starter.ts";
 import { launchCleanup } from "./lib/launch-cleanup.ts";
+import {
+	parkExhaustedLaunch,
+	readLaunchBackoff,
+	scheduleLaunchBackoff,
+} from "./lib/launch-backoff.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -292,6 +296,7 @@ const LOOP_LOG = `${FLEET}/loop.log`;
 // W463: mint failures refuse the dispatch (fail-closed). Collected so main()
 // exits non-zero — a refused lane must not read as a healthy no-op dispatch.
 const governanceRefusals: string[] = [];
+const launchWaits: string[] = [];
 // W695.1: seed-failure fallbacks — dispatched cold because the starter seed
 // failed. Surfaced in the final summary line and carried on the registry row.
 const seedFallbacks: string[] = [];
@@ -426,6 +431,32 @@ const dispatchItem = async (
 	const sid = resume?.sid ?? sidOf(item, projectIdentity(REPO));
 	let attempt = resume ? nextLaneAttempt(resume.attempt ?? 0) : 0;
 	const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
+	const project = projectIdentity(REPO);
+	const laneLog = `${FLEET}/lane-${sid}.log`;
+	let hold = readConfiguredLaunches((store) =>
+		readLaunchBackoff(store, project, item),
+	);
+	if (resume && !DRY && hold?.attempt !== resume.attempt) {
+		const store = openStore();
+		try {
+			hold = scheduleLaunchBackoff(
+				store,
+				project,
+				item,
+				laneLog,
+				resume.attempt,
+			);
+		} finally {
+			store.close();
+		}
+	}
+	if (hold && Date.now() < hold.eligibleAt) {
+		launchWaits.push(item);
+		console.log(
+			`WAIT ${item} — ${hold.kind} launch backoff until ${new Date(hold.eligibleAt).toISOString()} (evidence ${hold.log})`,
+		);
+		return null;
+	}
 	if (!DRY) {
 		const pending = readConfiguredLaunches((store) =>
 			launchIntent(store, projectIdentity(REPO), item),
@@ -457,29 +488,30 @@ const dispatchItem = async (
 	)
 		return null;
 	if (resume && attempt >= limit) {
-		const note = `resume budget exhausted after ${limit} launches for ${item}; inspect lane ${sid}, its capsule and worktree before retrying`;
-		console.log(`${DRY ? "DRY" : "STOP"} ${note}`);
-		if (!DRY) {
-			const failed = run(workCli("fail", item, "--as", sid, "--note", note));
-			if (failed.code !== 0) throw new Error(failed.out);
-			log(`lane.retry-exhausted ${item} ${sid}`);
-			// W782.4: flag stands → suppress the resume NEED_DECISION re-emit.
-			const flagStore = openStore();
-			if (budgetFlagClaim(flagStore, item))
-				run(
-					coordCli(
-						"emit",
-						"NEED_DECISION",
-						"--as",
-						sid,
-						"--scope",
-						"suspenders",
-						"--note",
-						note,
-					),
+		launchWaits.push(item);
+		if (DRY)
+			console.log(
+				`DRY ${item} — resume budget exhausted; would return to READY with backoff`,
+			);
+		else {
+			const store = openStore();
+			try {
+				const parked = parkExhaustedLaunch(
+					store,
+					project,
+					item,
+					sid,
+					laneLog,
+					attempt,
 				);
-			else log(`lane.budget-flagged ${item} — suppressed (W782.4)`);
-			flagStore.close();
+				console.log(
+					parked
+						? `WAIT ${item} — ${parked.kind} launch exhausted; returned to READY until ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+						: `REFUSED ${item} — claim changed; preserved for its owner`,
+				);
+			} finally {
+				store.close();
+			}
 		}
 		return null;
 	}
@@ -500,33 +532,23 @@ const dispatchItem = async (
 	// W374: the per-provider quota penalty the pick routes around — read once
 	// per dispatch cycle, next to the cv ladder it outranks.
 	const quota = quotaProviderPenalty(store);
-	const project = projectIdentity(REPO);
 	const attemptKey = `lane.${sid}.launch-attempt`;
 	attempt = advanceAttempt(store, project, item, sid, attempt);
 	if (attempt >= limit) {
-		governanceRefusals.push(item);
-		const note = `launch budget exhausted after ${limit} attempts for ${item}; inspect ${sid} before operator review of its durable item launch budget`;
-		// W787/W782.4: one open budget NEED_DECISION per item — the flag fact
-		// gates the emit; `work retry` clears it (and resets the budget).
-		if (!budgetFlagClaim(store, item)) {
-			console.log(
-				`REFUSED ${item} — budget exhausted (flagged ${budgetFlagGet(store, item)}); NEED_DECISION suppressed (W782.4)`,
-			);
-		} else {
-			console.log(`REFUSED ${item} — ${note}; nothing claimed or minted`);
-			run(
-				coordCli(
-					"emit",
-					"NEED_DECISION",
-					"--as",
-					sid,
-					"--scope",
-					"suspenders",
-					"--note",
-					note,
-				),
-			);
-		}
+		launchWaits.push(item);
+		const parked = parkExhaustedLaunch(
+			store,
+			project,
+			item,
+			sid,
+			laneLog,
+			attempt,
+		);
+		console.log(
+			parked
+				? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+				: `REFUSED ${item} — launch budget exhausted; claim changed`,
+		);
 		store.close();
 		return null;
 	}
@@ -574,9 +596,19 @@ const dispatchItem = async (
 			throw new Error("durable launch intent alive or uncertain");
 		attempt = advanceAttempt(store, project, item, sid, attempt);
 		if (attempt >= limit) {
-			governanceRefusals.push(item);
+			launchWaits.push(item);
+			const parked = parkExhaustedLaunch(
+				store,
+				project,
+				item,
+				sid,
+				laneLog,
+				attempt,
+			);
 			console.log(
-				`REFUSED ${item} — launch budget exhausted; nothing claimed or minted`,
+				parked
+					? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()}`
+					: `REFUSED ${item} — launch budget exhausted; claim changed`,
 			);
 			return null;
 		}
@@ -616,6 +648,18 @@ const dispatchItem = async (
 				return null;
 			}
 			pick = { ...pick, ...pd.pick };
+			// W1009.2: the route may swap the executor token (e.g. codex) —
+			// resolve the binary from the MERGED pick or the launch wraps the
+			// stale pre-plaid bin with the codex adapter's argv (mixed spawn).
+			bin = resolveLaneExecutor(pick.bin);
+			if (!bin) {
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
+				);
+				store.close();
+				return null;
+			}
 			routeName = pd.routeName;
 			if (pd.note) console.log(`NOTE — ${pd.note}`);
 		}
@@ -992,7 +1036,6 @@ const dispatchItem = async (
 			console.log(
 				`NOTE — --resume-from refused: ${resumeDecision.why}; fresh lane + capsule`,
 			);
-		const laneLog = `${FLEET}/lane-${sid}.log`;
 		// W818: the lane's start mode rides BOTH surfaces — dispatch output and
 		// the lane log — so a forked or cold start is explainable from either.
 		if (starter) {
@@ -1075,6 +1118,8 @@ const dispatchItem = async (
 			// W422: the spawn tail is the executor adapter's recipe (registry) —
 			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
 			// settings/fork composition; dispatch carries no executor branches.
+			promptArgs: adapter.promptArgs(lanePrompt),
+			promptLast: adapter.promptLast === true,
 			cliArgs: adapter.spawnArgs({
 				fallbackModels: pick.fallbackModels,
 				settingsArgs,
@@ -1132,7 +1177,13 @@ const dispatchItem = async (
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);
-		console.log(`REFUSED ${item} — launch failed: ${String(error)}`);
+		const backoff =
+			launchedProc?.exitCode !== null && launchedProc !== undefined
+				? scheduleLaunchBackoff(store, project, item, laneLog, attempt)
+				: null;
+		console.log(
+			`REFUSED ${item} — launch failed: ${String(error)}${backoff ? `; ${backoff.kind} retry after ${new Date(backoff.eligibleAt).toISOString()}` : ""}`,
+		);
 		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
 		return null;
 	} finally {
@@ -1388,6 +1439,7 @@ const main = async (): Promise<void> => {
 		resumeCount: resumeOf.size,
 		...(ITEM ? { item: ITEM } : {}),
 		refusals: governanceRefusals,
+		launchWaits,
 		starved,
 		report: fleetReport(REPO),
 	});

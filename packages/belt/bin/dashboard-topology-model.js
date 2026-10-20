@@ -1,6 +1,117 @@
 const FRESH_MS = 120_000;
 const ROUTE_MS = 15 * 60_000;
 
+/** The topology snapshot is a separate, trace-backed source. Keep endpoint
+ * targets distinct from catalog providers until a configured identity joins
+ * them; a local ledger target alone does not prove a provider hop. */
+export function observedGraph(payload, now = Date.now()) {
+	const snapshot = payload?.topology;
+	if (
+		!snapshot?.ok ||
+		snapshot.schemaVersion !== 1 ||
+		!isFresh(snapshot.observedAt, now) ||
+		!Number.isFinite(Date.parse(snapshot.windowStart))
+	)
+		return null;
+	const nodes = [
+		...(Array.isArray(snapshot.hubs) ? snapshot.hubs : []).map((hub) => ({
+			id: hub.id,
+			label: hub.name,
+			kind: "hub",
+			lastSeenAt: hub.lastSeenAt,
+		})),
+		...(Array.isArray(snapshot.targets) ? snapshot.targets : []).map(
+			(target) => ({
+				id: target.id,
+				label: `${target.host}${target.port === null ? "" : `:${target.port}`}`,
+				kind: "endpoint",
+				targetKind: target.kind,
+				lastSeenAt: target.lastSeenAt,
+			}),
+		),
+	].filter((node) => typeof node.id === "string" && node.id);
+	nodes.sort((a, b) => a.id.localeCompare(b.id));
+	const ids = new Set(nodes.map((node) => node.id));
+	const edges = (Array.isArray(snapshot.edges) ? snapshot.edges : [])
+		.filter(
+			(edge) =>
+				ids.has(edge.from) &&
+				ids.has(edge.to) &&
+				Number.isFinite(edge.requests) &&
+				edge.requests >= 0,
+		)
+		.map((edge) => ({
+			...edge,
+			failed: Number.isFinite(edge.failed) ? edge.failed : null,
+			active: Number.isFinite(edge.active) ? edge.active : null,
+			inputTokens: Number.isFinite(edge.inputTokens) ? edge.inputTokens : null,
+			outputTokens: Number.isFinite(edge.outputTokens)
+				? edge.outputTokens
+				: null,
+			coverage: edge.coverage ?? null,
+			fresh: isFresh(edge.lastSeenAt, now, 60_000),
+		}));
+	edges.sort((a, b) => a.id.localeCompare(b.id));
+	const coverage = snapshot.coverage ?? {};
+	return {
+		observedAt: snapshot.observedAt,
+		windowStart: snapshot.windowStart,
+		nodes,
+		edges,
+		traces: Array.isArray(snapshot.traces) ? snapshot.traces : [],
+		totals: {
+			requests: Number.isFinite(snapshot.totals?.requests)
+				? snapshot.totals.requests
+				: null,
+			failed: Number.isFinite(snapshot.totals?.failed)
+				? snapshot.totals.failed
+				: null,
+			active: Number.isFinite(snapshot.totals?.active)
+				? snapshot.totals.active
+				: null,
+			inputTokens:
+				coverage.tokensScope === "local-origin-ledger" &&
+				Number.isFinite(snapshot.totals?.inputTokens)
+					? snapshot.totals.inputTokens
+					: null,
+			outputTokens:
+				coverage.tokensScope === "local-origin-ledger" &&
+				Number.isFinite(snapshot.totals?.outputTokens)
+					? snapshot.totals.outputTokens
+					: null,
+		},
+		coverage,
+	};
+}
+
+/** Deterministic columns keep a viewer's selected route in place on refresh. */
+export function observedGraphLayout(graph) {
+	const depth = new Map(graph.nodes.map((node) => [node.id, 0]));
+	for (let pass = 0; pass < Math.min(graph.nodes.length, 5); pass++) {
+		let changed = false;
+		for (const edge of graph.edges) {
+			const next = Math.min(5, (depth.get(edge.from) ?? 0) + 1);
+			if (next > (depth.get(edge.to) ?? 0)) {
+				depth.set(edge.to, next);
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+	const rows = new Map();
+	const nodes = graph.nodes.map((node) => {
+		const column = depth.get(node.id) ?? 0;
+		const row = rows.get(column) ?? 0;
+		rows.set(column, row + 1);
+		return { ...node, x: 20 + column * 224, y: 52 + row * 76 };
+	});
+	return {
+		nodes,
+		width: Math.max(720, 40 + (Math.max(0, ...depth.values()) + 1) * 224),
+		height: Math.max(310, 76 + Math.max(0, ...rows.values()) * 76),
+	};
+}
+
 const isFresh = (value, now, limit = FRESH_MS) => {
 	const time = typeof value === "number" ? value : Date.parse(value);
 	return Number.isFinite(time) && time <= now && now - time <= limit;
@@ -49,7 +160,11 @@ export function addNetworkEvidence(machines, payload, now = Date.now()) {
 		item.buckleReq60 = (item.buckleReq60 || 0) + (row.req60 || 0);
 		if (Number.isFinite(row.out60))
 			item.outTokens60 = (item.outTokens60 || 0) + row.out60;
-		if (isFresh(row.lastOkAt, now, ROUTE_MS)) item.routeObserved = true;
+		if (isFresh(row.lastOkAt, now, ROUTE_MS)) {
+			item.routeObserved = true;
+			if (!item.lastOkAt || row.lastOkAt > item.lastOkAt)
+				item.lastOkAt = row.lastOkAt;
+		}
 		result.set(key, item);
 	}
 	return [...result.values()];
@@ -91,6 +206,7 @@ export function buildTopology(
 	now = Date.now(),
 	networkPayload = null,
 	access = null,
+	context = null,
 ) {
 	const localFresh = observed(status?.observation, now);
 	const remoteFresh = isFresh(remotes?.ts, now);
@@ -153,8 +269,16 @@ export function buildTopology(
 		if (item && route.ok && isFresh(route.ts, now, ROUTE_MS)) item.routed += 1;
 	}
 	const networkFresh = networkPayload?.ok && isFresh(networkPayload.ts, now);
+	const hubConsoles = new Map(
+		(Array.isArray(context?.hubConsoles) ? context.hubConsoles : []).map(
+			(item) => [String(item.name).toLowerCase(), item.url],
+		),
+	);
 	const hubCards = hubs.map((item) => ({
 		name: String(item.name),
+		...(hubConsoles.has(String(item.name).toLowerCase())
+			? { consoleUrl: hubConsoles.get(String(item.name).toLowerCase()) }
+			: {}),
 		...(item.displayName ? { displayName: String(item.displayName) } : {}),
 		state: stateOf(item.state === "up" && !item.alert, hubFresh),
 		port: item.port,
@@ -210,6 +334,12 @@ export function buildTopology(
 		Array.isArray(networkPayload.network.hops)
 			? networkPayload.network.hops
 			: [];
+	const audit15 =
+		networkFresh && networkPayload.network?.ok
+			? (networkPayload.network.audit15 ?? null)
+			: null;
+	const hubObservationsAvailable =
+		networkFresh && networkPayload.network?.observations?.available === true;
 	const links = hubCards.map((hub) => {
 		const observedHop = hops.find(
 			(hop) =>
@@ -223,15 +353,44 @@ export function buildTopology(
 		return {
 			target: `hub:${hub.name.toLowerCase()}`,
 			evidence: observedHop ? "observed" : "probe",
-			...(observedHop ? { requests15: observedHop.n } : {}),
+			...(observedHop
+				? {
+						requests15: observedHop.n,
+						source: "hub observations",
+						lastSeen: observedHop.lastAt,
+					}
+				: {
+						requests15: hubObservationsAvailable ? 0 : null,
+						source: hubObservationsAvailable
+							? "hub observations"
+							: "hub observations unavailable",
+					}),
+			failures15: null,
 		};
 	});
 	for (const provider of providers) {
+		const failed = Array.isArray(audit15?.failures)
+			? audit15.failures.filter(
+					(row) =>
+						row.kind === "cloud" && providerKey(row.host) === provider.key,
+				)
+			: [];
+		const failures15 = audit15
+			? failed.reduce((sum, row) => sum + row.count, 0)
+			: null;
+		const lastFailure =
+			failed
+				.map((row) => row.lastAt)
+				.sort()
+				.at(-1) ?? null;
 		if (provider.routeObserved && Number.isFinite(provider.buckleReq15))
 			links.push({
 				target: `provider:${provider.key}`,
 				evidence: "observed",
 				requests15: provider.buckleReq15,
+				failures15,
+				source: "local Buckle ledger",
+				lastSeen: provider.lastOkAt ?? lastFailure,
 			});
 		else if (
 			provider.state !== "unconfigured" &&
@@ -241,6 +400,10 @@ export function buildTopology(
 			links.push({
 				target: `provider:${provider.key}`,
 				evidence: "configured",
+				requests15: audit15 ? 0 : null,
+				failures15,
+				source: audit15 ? "local Buckle ledger" : "Buckle ledger unavailable",
+				lastSeen: lastFailure,
 			});
 	}
 	return {
@@ -253,6 +416,16 @@ export function buildTopology(
 					)
 				: "unknown",
 		gatewayTraffic: gatewayTraffic(networkPayload, now),
+		observedGraph: observedGraph(networkPayload, now),
+		audit15,
+		lastAuditAt: networkFresh
+			? (networkPayload.network?.lastAuditAt ?? null)
+			: null,
+		recentSuccessAt: networkFresh
+			? (networkPayload.network?.recentSuccessAt ?? null)
+			: null,
+		localConsoleUrl: context?.localConsoleUrl ?? null,
+		work: context?.work ?? null,
 		specialists: {
 			state: !localFresh
 				? "unknown"
