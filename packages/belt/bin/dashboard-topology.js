@@ -1,4 +1,7 @@
-import { buildTopology } from "/dashboard-topology-model.js";
+import {
+	buildTopology,
+	observedGraphLayout,
+} from "/dashboard-topology-model.js";
 import { css, html, LitElement, svg } from "/vendor/lit.js";
 
 const colour = (state) =>
@@ -26,11 +29,24 @@ const localTime = (value) => {
 		: "never observed";
 };
 
+const measure = (value) =>
+	Number.isFinite(value) ? value.toLocaleString("en-US") : "unreported";
+
+const age = (value) => {
+	const elapsed = Date.now() - Date.parse(value);
+	if (!Number.isFinite(elapsed) || elapsed < 0) return "unknown";
+	if (elapsed < 60_000) return `${Math.floor(elapsed / 1000)}s ago`;
+	return `${Math.floor(elapsed / 60_000)}m ago`;
+};
+
 class BeltTopology extends LitElement {
 	static properties = {
 		topology: { state: true },
 		error: { state: true },
 		networkIssue: { state: true },
+		selectedId: { state: true },
+		query: { state: true },
+		pageVisible: { state: true },
 	};
 	static styles = css`
 		:host { display:block; border-block:1px solid var(--klh-edge); margin-block:var(--klh-space-4); padding-block:var(--klh-space-3); }
@@ -68,21 +84,67 @@ class BeltTopology extends LitElement {
 		summary:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
 		table { border-collapse:collapse; width:min(100%, 740px); margin-top:var(--klh-space-2); }
 		th, td { text-align:left; padding:5px 12px 5px 0; border-bottom:1px solid var(--klh-edge-faint); }
+		.live-controls { display:flex; align-items:center; gap:var(--klh-space-2); flex-wrap:wrap; margin:var(--klh-space-2) 0; }
+		.live-controls label { font-size:var(--klh-text-sm); color:var(--klh-dim); }
+		.live-controls input { min-inline-size:220px; max-inline-size:100%; background:var(--klh-surface); color:var(--klh-ink); border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:6px 8px; font:inherit; }
+		.live-controls input:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+		.live-metrics { display:flex; gap:var(--klh-space-2); flex-wrap:wrap; margin-block:var(--klh-space-3); }
+		.live-metrics div { border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:6px 10px; min-inline-size:112px; }
+		.live-metrics strong { display:block; font-variant-numeric:tabular-nums; font-size:var(--klh-text-lg); }
+		.live-metrics small { color:var(--klh-dim); font-size:var(--klh-text-xs); }
+		.live-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(240px,300px); gap:var(--klh-space-3); }
+		.live-map { block-size:340px; overflow:auto; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); background:var(--klh-surface); }
+		.live-map svg { inline-size:var(--map-width); min-inline-size:100%; font-size:12px; }
+		.live-node { fill:var(--klh-surface); stroke:var(--klh-edge); stroke-width:1.5; cursor:pointer; }
+		.live-node.selected { stroke:var(--klh-accent); stroke-width:2.5; }
+		.live-node.endpoint { stroke-dasharray:4 3; }
+		.live-edge { fill:none; stroke:var(--klh-info); stroke-width:1.5; cursor:pointer; }
+		.live-edge.ledger { stroke:var(--klh-dim); stroke-dasharray:4 4; }
+		.live-edge.selected { stroke:var(--klh-accent); stroke-width:3; }
+		.live-edge.flow { stroke-dasharray:5 7; animation:route-flow 2.5s linear infinite; }
+		:host([data-hidden]) .live-edge.flow { animation-play-state:paused; }
+		@keyframes route-flow { to { stroke-dashoffset:-24; } }
+		@media (prefers-reduced-motion:reduce) { .live-edge.flow { animation:none; stroke-dasharray:none; } }
+		.live-label { fill:var(--klh-ink); font-weight:600; pointer-events:none; }
+		.live-sub { fill:var(--klh-dim); font-size:10px; pointer-events:none; }
+		.live-hit { fill:none; stroke:transparent; stroke-width:14; cursor:pointer; }
+		.live-item:focus-visible { outline:none; }
+		.live-item:focus-visible .live-node, .live-item:focus-visible .live-edge { stroke:var(--klh-accent); stroke-width:3; }
+		.live-item.dimmed { opacity:.35; }
+		.inspector { border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:var(--klh-space-2); block-size:340px; box-sizing:border-box; overflow:auto; }
+		.inspector h3 { margin-block:0 var(--klh-space-2); }
+		.inspector dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 10px; font-size:var(--klh-text-sm); margin:0; }
+		.inspector dt { color:var(--klh-dim); }
+		.inspector dd { margin:0; overflow-wrap:anywhere; }
+		.trace-list { padding-inline-start:18px; font-size:var(--klh-text-xs); overflow-wrap:anywhere; }
+		.edge-list { display:grid; gap:4px; margin-block:var(--klh-space-2); }
+		.edge-list button { margin:0; text-align:left; }
+		.coverage { color:var(--klh-dim); font-size:var(--klh-text-xs); line-height:1.4; }
+		@media (max-width:760px) { .live-layout { grid-template-columns:minmax(0,1fr); } .inspector { block-size:auto; min-block-size:150px; max-block-size:340px; } }
 	`;
 	constructor() {
 		super();
 		this.topology = null;
 		this.error = "";
 		this.networkIssue = "";
+		this.selectedId = null;
+		this.query = "";
+		this.pageVisible = !document.hidden;
+		this.onVisibility = () => {
+			this.pageVisible = !document.hidden;
+			this.toggleAttribute("data-hidden", !this.pageVisible);
+		};
 	}
 	connectedCallback() {
 		super.connectedCallback();
+		document.addEventListener("visibilitychange", this.onVisibility);
 		this.refresh();
 		this.timer = setInterval(() => this.refresh(), 10_000);
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback();
 		clearInterval(this.timer);
+		document.removeEventListener("visibilitychange", this.onVisibility);
 		this.controller?.abort();
 	}
 	async refresh() {
@@ -154,11 +216,13 @@ class BeltTopology extends LitElement {
 		return name.length > length ? `${name.slice(0, length - 1)}…` : name;
 	}
 	edge(path, link) {
-		const observed = link.evidence === "observed";
-		const width = observed
-			? Math.min(4, 1 + Math.log10(1 + link.requests15))
-			: 1.5;
-		return svg`<g><title>${observed ? `${link.requests15} observed successful requests in 15 minutes · ${link.source}` : link.evidence === "probe" ? `Hub reachability probe · ${link.source}` : `Configured provider path · ${link.requests15 ?? "unavailable"} observed successes in 15 minutes · ${link.source}`}</title><path class=${observed ? "edge observed" : "edge"} d=${path} stroke-width=${width}></path></g>`;
+		const description =
+			link.evidence === "observed"
+				? `${link.requests15} local Buckle requests · hop not verified by the trace topology`
+				: link.evidence === "probe"
+					? `Hub reachability probe · ${link.source}`
+					: `Configured path · ${link.source}`;
+		return svg`<g><title>${description}</title><path class="edge" d=${path} stroke-width="1.5"></path></g>`;
 	}
 	machine(
 		x,
@@ -232,8 +296,170 @@ class BeltTopology extends LitElement {
 			${item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
+	activate(event, id) {
+		if (event.key !== "Enter" && event.key !== " ") return;
+		event.preventDefault();
+		this.selectedId = id;
+	}
+	onSearch(event) {
+		this.query = event.target.value;
+		const graph = this.topology?.observedGraph;
+		const term = this.query.trim().toLowerCase();
+		if (!graph || !term) return;
+		const node = observedGraphLayout(graph).nodes.find((item) =>
+			`${item.label} ${item.id}`.toLowerCase().includes(term),
+		);
+		if (!node) return;
+		this.updateComplete.then(() => {
+			const map = this.renderRoot.querySelector(".live-map");
+			const svgElement = map?.querySelector("svg");
+			if (!map || !svgElement) return;
+			const scale =
+				svgElement.clientWidth / Math.max(1, svgElement.viewBox.baseVal.width);
+			map.scrollLeft = Math.max(0, node.x * scale - map.clientWidth / 3);
+			map.scrollTop = Math.max(0, node.y * scale - map.clientHeight / 3);
+		});
+	}
+	selectedTraces(graph, selectedNode, selectedEdge) {
+		const from = selectedEdge?.from?.replace(/^hub:/, "");
+		const to = selectedEdge?.to?.replace(/^hub:/, "");
+		return graph.traces
+			.filter((trace) => {
+				if (!Array.isArray(trace.hops)) return false;
+				if (selectedEdge) {
+					if (!selectedEdge.to.startsWith("hub:")) return false;
+					return trace.hops.some(
+						(hop, index) => hop === from && trace.hops[index + 1] === to,
+					);
+				}
+				return selectedNode?.kind === "hub"
+					? trace.hops.includes(selectedNode.id.replace(/^hub:/, ""))
+					: false;
+			})
+			.slice(0, 5);
+	}
+	renderObserved(data) {
+		const graph = data.observedGraph;
+		const layout = observedGraphLayout(graph);
+		const positions = new Map(layout.nodes.map((node) => [node.id, node]));
+		const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
+		const selectedNode = graph.nodes.find(
+			(node) => node.id === this.selectedId,
+		);
+		const selectedEdge = graph.edges.find(
+			(edge) => edge.id === this.selectedId,
+		);
+		const selected = selectedNode || selectedEdge;
+		const traces = this.selectedTraces(graph, selectedNode, selectedEdge);
+		const term = this.query.trim().toLowerCase();
+		const matching = (node) =>
+			!term || `${node.label} ${node.id}`.toLowerCase().includes(term);
+		const windowSeconds =
+			(Date.parse(graph.observedAt) - Date.parse(graph.windowStart)) / 1000;
+		const outputRate =
+			Number.isFinite(graph.totals.outputTokens) && windowSeconds > 0
+				? (graph.totals.outputTokens / windowSeconds).toFixed(2)
+				: "unreported";
+		const inventory =
+			selectedNode?.kind === "hub"
+				? data.machines.find(
+						(item) =>
+							item.name.toLowerCase() === selectedNode.label.toLowerCase(),
+					)
+				: null;
+		return html`<section aria-label="Belt connection map">
+			<div class="heading"><h2>Network · observed routes</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
+			<p role="status">${this.error || `${graph.nodes.length} observed hubs and endpoints · ${graph.edges.length} measured paths · updated ${age(graph.observedAt)}`}</p>
+			<div class="live-metrics" aria-label="Observed network totals for the past 15 minutes">
+				<div><strong>${measure(graph.totals.requests)}</strong><small>requests · 15m</small></div>
+				<div><strong>${measure(graph.totals.failed)}</strong><small>failed · 15m</small></div>
+				<div><strong>${measure(graph.totals.active)}</strong><small>active requests</small></div>
+				<div><strong>${outputRate}</strong><small>avg reported output tok/s · local origin</small></div>
+			</div>
+			<div class="live-controls"><label for="topology-search">Find hub or endpoint</label><input id="topology-search" type="search" .value=${this.query} @input=${this.onSearch} placeholder="Name, host, or port" aria-controls="topology-map" />
+				${
+					this.selectedId
+						? html`<button type="button" @click=${() => {
+								this.selectedId = null;
+							}}>Clear selection</button>`
+						: ""
+				}
+			</div>
+			<div class="live-layout">
+				<div id="topology-map" class="live-map" style=${`--map-width:${layout.width}px`}><svg class="live-svg" viewBox=${`0 0 ${layout.width} ${layout.height}`} role="group" aria-label="Observed network routes. Use Tab to focus a hub, endpoint, or connection; press Enter to inspect it.">
+					${graph.edges.map((edge) => {
+						const from = positions.get(edge.from);
+						const to = positions.get(edge.to);
+						if (!from || !to) return "";
+						const path = `M${from.x + 190} ${from.y + 26} L${to.x} ${to.y + 26}`;
+						const flow =
+							edge.evidence === "trace" && edge.fresh && edge.requests > 0;
+						return svg`<g class="live-item" role="button" tabindex="0" aria-label=${`${labels.get(edge.from)} to ${labels.get(edge.to)}, ${edge.requests} observed requests in 15 minutes, ${edge.evidence} evidence, last seen ${age(edge.lastSeenAt)}`} @click=${() => {
+							this.selectedId = edge.id;
+						}} @keydown=${(event) => this.activate(event, edge.id)}>
+							<path class=${`live-edge ${edge.evidence === "ledger" ? "ledger" : ""} ${flow ? "flow" : ""} ${this.selectedId === edge.id ? "selected" : ""}`} d=${path} stroke-width=${Math.min(4, 1 + Math.log10(1 + edge.requests))}></path><path class="live-hit" d=${path}></path>
+						</g>`;
+					})}
+					${layout.nodes.map(
+						(
+							node,
+						) => svg`<g class=${`live-item ${matching(node) ? "" : "dimmed"}`} role="button" tabindex="0" aria-label=${`${node.kind === "hub" ? "Hub" : "Observed endpoint"} ${node.label}, last seen ${age(node.lastSeenAt)}`} @click=${() => {
+							this.selectedId = node.id;
+						}} @keydown=${(event) => this.activate(event, node.id)}>
+						<rect class=${`live-node ${node.kind === "endpoint" ? "endpoint" : ""} ${this.selectedId === node.id ? "selected" : ""}`} x=${node.x} y=${node.y} width="190" height="52" rx="4"></rect>
+						<text class="live-label" x=${node.x + 10} y=${node.y + 22}>${node.label.length > 23 ? `${node.label.slice(0, 22)}…` : node.label}</text>
+						<text class="live-sub" x=${node.x + 10} y=${node.y + 39}>${node.kind === "hub" ? "hub" : `${node.targetKind} endpoint`} · ${age(node.lastSeenAt)}</text>
+					</g>`,
+					)}
+				</svg></div>
+				<aside class="inspector" aria-live="polite" aria-label="Selected network item">
+					${
+						selected
+							? html`<h3>${selectedNode ? selectedNode.label : `${labels.get(selectedEdge.from)} → ${labels.get(selectedEdge.to)}`}</h3>
+						<dl>
+							<dt>Type</dt><dd>${selectedNode ? (selectedNode.kind === "endpoint" ? `${selectedNode.targetKind} endpoint` : "Observed hub") : `${selectedEdge.evidence} connection`}</dd>
+							<dt>Last observed</dt><dd>${localTime(selected.lastSeenAt)} · ${age(selected.lastSeenAt)}</dd>
+							<dt>Requests</dt><dd>${selectedEdge ? `${measure(selectedEdge.requests)} / 15m` : "See connected paths"}</dd>
+							<dt>Failures / active requests</dt><dd>${selectedEdge ? `${measure(selectedEdge.failed)} / ${measure(selectedEdge.active)}` : "See connected paths"}</dd>
+							<dt>Input / output tokens</dt><dd>${selectedEdge ? `${measure(selectedEdge.inputTokens)} / ${measure(selectedEdge.outputTokens)}` : "See connected paths"}</dd>
+							<dt>Measurement</dt><dd>${selectedEdge ? `${selectedEdge.coverage?.source === "local-origin-ledger" ? "local origin ledger" : selectedEdge.coverage?.source === "projection" ? "hub projection" : "source unreported"} · ${measure(selectedEdge.coverage?.usageBearingRequests)} requests with token usage` : "See connected paths"}</dd>
+						</dl>
+						${
+							selectedNode
+								? html`<div class="edge-list"><h3>Connected paths</h3>${graph.edges
+										.filter(
+											(edge) =>
+												edge.from === selectedNode.id ||
+												edge.to === selectedNode.id,
+										)
+										.map(
+											(edge) =>
+												html`<button type="button" @click=${() => {
+													this.selectedId = edge.id;
+												}}>${labels.get(edge.from)} → ${labels.get(edge.to)} · ${measure(edge.requests)} /15m</button>`,
+										)}</div>`
+								: ""
+						}
+						${inventory?.models?.length ? html`<details><summary>Probe model inventory · ${inventory.models.length}</summary><p>Inventory is separate from route evidence.</p><ul>${inventory.models.map((model) => html`<li>${model}</li>`)}</ul></details>` : ""}
+						<h3>Joined traces</h3>${traces.length ? html`<ol class="trace-list">${traces.map((trace) => html`<li><code>${trace.id.slice(0, 12)}…</code> · ${trace.hops.join(" → ")} · ${trace.complete ? "complete" : "partial"}</li>`)}</ol>` : html`<p>No joined trace for this selection.</p>`}
+					`
+							: html`<h3>Inspect a route</h3><p>Select a hub, endpoint, or connection in the map. Keyboard users can also use the connection list below.</p>`
+					}
+				</aside>
+			</div>
+			<p class="coverage">Solid paths join recorded hub hops. Dashed paths end at an observed local-ledger endpoint; they may describe the same request and are not additional estate requests. Subtle motion means a trace-backed hop was seen in the past minute, not that a lane is still active.</p>
+			<p class="coverage">${graph.coverage.projectionAvailable ? "Hub projection available" : "Hub projection unavailable"} · ${graph.coverage.ledgerAvailable ? "local ledger available" : "local ledger unavailable"} · ${measure(graph.coverage.tracesReturned)} of ${measure(graph.coverage.tracesTotal)} traces returned${graph.coverage.projectionTruncated ? " · projection truncated" : ""} · token usage: ${graph.coverage.tokensScope === "local-origin-ledger" ? `${measure(graph.coverage.usageBearingOrigins)} local origins reported` : "unreported"}. Endpoint targets are kept separate from provider identity until a catalog joins them.</p>
+			<details><summary>Accessible connection list · ${graph.edges.length}</summary><table><thead><tr><th scope="col">Connection</th><th scope="col">Requests / 15m</th><th scope="col">Evidence</th><th scope="col">Last observed</th></tr></thead><tbody>${graph.edges.map(
+				(edge) =>
+					html`<tr><td><button type="button" @click=${() => {
+						this.selectedId = edge.id;
+					}}>${labels.get(edge.from)} → ${labels.get(edge.to)}</button></td><td>${measure(edge.requests)}</td><td>${edge.evidence}</td><td>${localTime(edge.lastSeenAt)}</td></tr>`,
+			)}</tbody></table></details>
+		</section>`;
+	}
 	render() {
 		const data = this.topology;
+		if (data?.observedGraph) return this.renderObserved(data);
 		const machines = data?.machines ?? [];
 		const hubs = [...(data?.hubs ?? [])].sort((a, b) =>
 			a.name.localeCompare(b.name),
@@ -287,6 +513,7 @@ class BeltTopology extends LitElement {
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
 			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hubs · ${clouds.length} providers${this.networkIssue ? ` · ${this.networkIssue}` : ""}` : "Loading connections…")}</p>
+			<p class="coverage">Trace-backed topology is unavailable. This inventory view combines probes, configuration, and local Buckle counters; its links cannot establish a multi-hop route.</p>
 			<div class="traffic" aria-label="Successful Buckle routes, past 60 seconds">
 				<span><strong>${traffic?.requests60 ?? "—"}</strong><small>successful Buckle routes / min</small></span>
 				<span><strong>${tokenRate}</strong><small>reported tokens / sec</small></span>
