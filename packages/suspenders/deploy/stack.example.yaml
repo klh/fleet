@@ -65,6 +65,13 @@ hubs:
       docker: /usr/local/bin/docker
     secrets:
       buckle_root_key: /volume1/docker/hub/buckle/buckle.env
+    # W983: this hub's Buckle owner prefs (hubctl renders the 0600
+    # buckle-prefs.json the container mounts at BUCKLE_PREFS) — the
+    # allow_cloud/cost_speed switches the routing decision gates every cloud
+    # hop behind. Undeclared = cloud closed, balanced.
+    buckle_prefs:
+      allow_cloud: false # true only where the operator wants hub cloud egress
+      cost_speed: balanced # balanced | cost | speed | quality
     # W854 mDNS advertisement (_klh-hub._tcp) — all knobs optional;
     # undeclared = the compose template defaults (port ← buckle_port,
     # addr auto-detects the primary LAN IPv4, hostname = normalized label).
