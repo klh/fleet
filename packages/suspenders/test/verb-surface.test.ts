@@ -2,6 +2,7 @@
 // Stateful round trips live beside this surface check (consult, capsule, work).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -15,7 +16,10 @@ function cli(
 	...args: string[]
 ): { code: number; output: string } {
 	const run = Bun.spawnSync([process.execPath, resolve(ROOT, path), ...args], {
-		cwd: ROOT,
+		// These two owner-only CLIs reject a lane before parsing even --help.
+		cwd: /\/(?:approve-destructive|lifecycle-authority)\.ts$/.test(path)
+			? tmpdir()
+			: ROOT,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
