@@ -135,6 +135,47 @@ export function hubConsoleLinks(): Array<{ name: string; url: string }> {
 	});
 }
 
+/** Browser-safe gateway route names from registered hub profiles. This is
+ *  configuration inventory, not a claim that inference currently succeeds. */
+export function hubGatewayRoutes(): Array<{
+	name: string;
+	models: string[];
+	providerHosts: string[];
+	providerHostsByModel: Record<string, string[]>;
+}> {
+	const profiles = hubProfiles();
+	return readHubs().map((hub) => {
+		const groups =
+			profiles.get(hub.label.toLowerCase())?.upstreams?.groups ?? {};
+		const hosts = new Set<string>();
+		const providerHostsByModel: Record<string, string[]> = {};
+		for (const [model, candidates] of Object.entries(groups)) {
+			const modelHosts = new Set<string>();
+			for (const candidate of candidates) {
+				const inherited = candidate["<<"];
+				const raw =
+					candidate.url ??
+					(inherited && typeof inherited === "object"
+						? (inherited as Record<string, unknown>).url
+						: null);
+				if (typeof raw !== "string") continue;
+				try {
+					const host = new URL(raw).hostname.toLowerCase();
+					hosts.add(host);
+					modelHosts.add(host);
+				} catch {}
+			}
+			providerHostsByModel[model] = [...modelHosts];
+		}
+		return {
+			name: hub.label,
+			models: Object.keys(groups),
+			providerHosts: [...hosts],
+			providerHostsByModel,
+		};
+	});
+}
+
 /** Stack profiles keyed by stable hub id. Display names never affect lookup
  *  or healing; a missing stack still leaves registry hubs probe-only. */
 function hubProfiles(): Map<string, HubProfile> {

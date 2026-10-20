@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hubConsoleLinks, hubTargets } from "../bin/hubs.ts";
+import { hubConsoleLinks, hubGatewayRoutes, hubTargets } from "../bin/hubs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w371t-"));
 const stackPath = join(dir, "stack.yaml");
@@ -27,6 +27,11 @@ hubs:
       ssh: kk@nas.example.lan
       dir: /volume1/hub
       docker: /usr/local/bin/docker
+    upstreams:
+      groups:
+        sample-model:
+          - url: https://models.example.org
+            model: sample-model
 `;
 
 writeFileSync(stackPath, STACK);
@@ -42,6 +47,22 @@ writeFileSync(
 process.env.SUSPENDERS_HUBS_FILE = hubsPath;
 
 describe("hubTargets heal wiring", () => {
+	test("gateway models come from each registered hub profile", () => {
+		expect(hubGatewayRoutes()).toEqual([
+			{
+				name: "nas",
+				models: ["sample-model"],
+				providerHosts: ["models.example.org"],
+				providerHostsByModel: { "sample-model": ["models.example.org"] },
+			},
+			{
+				name: "DECOY",
+				models: [],
+				providerHosts: [],
+				providerHostsByModel: {},
+			},
+		]);
+	});
 	test("stack console URL joins the registered hub without using the probe URL", () => {
 		expect(hubConsoleLinks()).toEqual([
 			{ name: "nas", url: "https://nas.example.lan/board" },

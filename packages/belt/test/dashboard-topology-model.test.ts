@@ -183,6 +183,50 @@ describe("observed topology snapshot", () => {
 });
 
 describe("Belt topology", () => {
+	test("groups gateway routes by hub config while keeping a matching cloud provider", () => {
+		const model = buildTopology(
+			{},
+			{
+				ts: new Date(now).toISOString(),
+				rows: [
+					{
+						machine: "lab",
+						host: "api.z.ai",
+						port: 443,
+						model: "model-a",
+						ok: true,
+					},
+				],
+				routes: [],
+			},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "lab", state: "up", port: 4301 }],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{
+						name: "lab",
+						models: ["model-a"],
+						providerHosts: ["api.z.ai"],
+						providerHostsByModel: { "model-a": ["api.z.ai"] },
+					},
+				],
+			},
+		);
+		expect(model.hubs[0]?.gatewayModels).toEqual(["model-a"]);
+		expect(model.hubs[0]?.providerKeys).toEqual(["zai"]);
+		expect(model.hubs[0]?.providerCounts).toEqual({ zai: 1 });
+		expect(model.providers.some((provider) => provider.key === "zai")).toBe(
+			true,
+		);
+		expect(model.providers.some((provider) => provider.key === "lab")).toBe(
+			false,
+		);
+	});
 	test("joins configured console links and observed local Work Graph counts", () => {
 		const model = buildTopology(
 			{},
@@ -303,6 +347,7 @@ describe("Belt topology", () => {
 				probed: 1,
 				routed: 0,
 				models: ["qwen"],
+				hosts: [],
 				state: "up",
 			},
 			{
@@ -312,6 +357,7 @@ describe("Belt topology", () => {
 				probed: 1,
 				routed: 1,
 				models: ["glm"],
+				hosts: [],
 				state: "up",
 			},
 		]);

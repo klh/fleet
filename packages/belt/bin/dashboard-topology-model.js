@@ -245,6 +245,7 @@ export function buildTopology(
 		const name = String(row.machine || "unknown");
 		const item = machines.get(name) || {
 			name,
+			hosts: [],
 			endpoints: 0,
 			reachable: 0,
 			probed: 0,
@@ -252,6 +253,7 @@ export function buildTopology(
 			models: [],
 		};
 		item.endpoints += 1;
+		if (row.host && !item.hosts.includes(row.host)) item.hosts.push(row.host);
 		if (row.ok) item.reachable += 1;
 		if (row.last_seen) item.probed += 1;
 		if (row.reason?.startsWith("missing api key"))
@@ -274,15 +276,36 @@ export function buildTopology(
 			(item) => [String(item.name).toLowerCase(), item.url],
 		),
 	);
-	const hubCards = hubs.map((item) => ({
-		name: String(item.name),
-		...(hubConsoles.has(String(item.name).toLowerCase())
-			? { consoleUrl: hubConsoles.get(String(item.name).toLowerCase()) }
-			: {}),
-		...(item.displayName ? { displayName: String(item.displayName) } : {}),
-		state: stateOf(item.state === "up" && !item.alert, hubFresh),
-		port: item.port,
-	}));
+	const hubRoutes = new Map(
+		(Array.isArray(context?.hubRoutes) ? context.hubRoutes : []).map((item) => [
+			String(item.name).toLowerCase(),
+			item,
+		]),
+	);
+	const hubCards = hubs.map((item) => {
+		const key = String(item.name).toLowerCase();
+		const routes = hubRoutes.get(key);
+		const providerCounts = {};
+		for (const hosts of Object.values(routes?.providerHostsByModel ?? {})) {
+			for (const provider of new Set(hosts.map(providerKey))) {
+				providerCounts[provider] = (providerCounts[provider] ?? 0) + 1;
+			}
+		}
+		return {
+			name: String(item.name),
+			...(routes?.models?.length
+				? {
+						gatewayModels: routes.models,
+						providerKeys: (routes.providerHosts ?? []).map(providerKey),
+						providerCounts,
+					}
+				: {}),
+			...(hubConsoles.has(key) ? { consoleUrl: hubConsoles.get(key) } : {}),
+			...(item.displayName ? { displayName: String(item.displayName) } : {}),
+			state: stateOf(item.state === "up" && !item.alert, hubFresh),
+			port: item.port,
+		};
+	});
 	const machineCards = addNetworkEvidence(
 		[...machines.values()].map((item) => ({
 			...item,
@@ -299,9 +322,19 @@ export function buildTopology(
 		now,
 	);
 	const hubNames = new Set(hubCards.map((item) => item.name.toLowerCase()));
+	const hostedProvider = (item) =>
+		item.hosts
+			?.map((host) => providerKey(host))
+			.find((key, index) => key !== item.hosts[index].toLowerCase());
 	const providers = machineCards
-		.filter((item) => !hubNames.has(item.name.toLowerCase()))
-		.map((item) => ({ ...item, key: item.name.toLowerCase() }));
+		.filter(
+			(item) =>
+				!hubNames.has(item.name.toLowerCase()) || Boolean(hostedProvider(item)),
+		)
+		.map((item) => ({
+			...item,
+			key: hostedProvider(item) ?? item.name.toLowerCase(),
+		}));
 	const copilot = access?.copilot || null;
 	if (copilot) {
 		const found = providers.find((item) => item.key === "copilot");
