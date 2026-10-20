@@ -806,6 +806,7 @@ function main(): void {
 		process.exit(hubName ? 0 : 2);
 	}
 	const hub = requireHub(stack, hubName);
+	const hubVersion = hub.version_override ?? stack.version;
 	if (verb === "status") {
 		// W483: inside the hub's quiet-hours window the hub is EXPECTED down
 		// (NAS nightly poweroff) — probing would only page dead-letter noise.
@@ -821,19 +822,19 @@ function main(): void {
 	}
 	switch (verb) {
 		case "render":
-			console.log(redactedRender(renderEnv(hub, hubName, auth, stack.version)));
+			console.log(redactedRender(renderEnv(hub, hubName, auth, hubVersion)));
 			return;
 		case "mint":
 			mintRootKey(hub);
 			return;
 		case "push":
-			pushConfig(hub, hubName, auth, stack.version);
+			pushConfig(hub, hubName, auth, hubVersion);
 			return;
 		case "up":
-			upHub(hub, hubName, stack.version, force);
+			upHub(hub, hubName, hubVersion, force);
 			return;
 		case "deploy":
-			deployHub(hub, hubName, auth, stack.version);
+			deployHub(hub, hubName, auth, hubVersion);
 			return;
 		case "manifest":
 			emitManifest(stack.version, flags);

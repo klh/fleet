@@ -209,6 +209,37 @@ test("an overlay origin without repos.ref is refused", () => {
 	expect(readFileSync(calls, "utf8")).toBe("");
 });
 
+test("a reviewed hub candidate pin survives plain push and up without moving the global pin", () => {
+	resetCalls();
+	const candidate = join(dir, "candidate-stack.json");
+	const config = JSON.parse(readFileSync(stack, "utf8"));
+	const canaryDir = join(dir, "candidate-hub");
+	config.hubs.stable = {
+		...config.hubs.w363,
+		deploy: { ...config.hubs.w363.deploy, dir: join(dir, "stable-hub") },
+	};
+	config.hubs.w363.version_override = "reviewed-candidate";
+	config.hubs.w363.repos = {
+		ref: "reviewed-candidate",
+		buckle: "https://git.example/klh/overlay-repo.git",
+	};
+	config.hubs.w363.deploy.dir = canaryDir;
+	config.hubs.w363.secrets.buckle_root_key = join(canaryDir, "buckle.env");
+	writeFileSync(candidate, JSON.stringify(config));
+	const render = hubctl(["render", "w363"], { KLH_STACK: candidate });
+	expect(render.code).toBe(0);
+	expect(render.out).toContain("HUB_FLEET_REF=reviewed-candidate");
+	const stable = hubctl(["render", "stable"], { KLH_STACK: candidate });
+	expect(stable.code).toBe(0);
+	expect(stable.out).toContain("HUB_FLEET_REF=v1.2.3-w363");
+	expect(hubctl(["push", "w363"], { KLH_STACK: candidate }).code).toBe(0);
+	expect(readFileSync(join(canaryDir, ".env"), "utf8")).toContain(
+		"HUB_FLEET_REF=reviewed-candidate",
+	);
+	expect(hubctl(["up", "w363"], { KLH_STACK: candidate }).code).toBe(0);
+	expect(readFileSync(calls, "utf8")).toContain("up -d");
+});
+
 test("the public origin still demands repos.ref == the stack version", () => {
 	resetCalls();
 	const mismatch = join(dir, "mismatch-stack.json");
