@@ -17,7 +17,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.4.0";
+export const KLH_THEME_VERSION = "1.4.1";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -170,13 +170,9 @@ document.addEventListener("click",function(e){if(box.open&&e.target instanceof N
 document.addEventListener("keydown",function(e){if(box.open&&e.key==="Escape"){box.open=false;var s=box.querySelector("summary");if(s)s.focus();}});})();`;
 
 // ─── fleet strip (W291) ───────────────────────────────────────────────────
-// One hairline row of plain links, identical on every klh dashboard, so a
-// human moving between belt.local, suspenders.local and bar.local sees one
-// product family. Each site keeps its own server and port; this only links
-// them. The page's own site is aria-current and never probed. The others are
-// probed every 5s while the tab is visible (any HTTP answer = reachable) and,
-// while unreachable, dim and point at their repo instead.
-export type FleetSite = "belt" | "suspenders" | "local";
+// One hairline row of plain links, identical on every klh dashboard. Buckle
+// opens its console within Suspenders; it has no separate dashboard host.
+export type FleetSite = "belt" | "buckle" | "suspenders" | "local";
 
 export interface FleetLink {
 	readonly id: FleetSite;
@@ -193,6 +189,12 @@ export const FLEET_SITES: readonly FleetLink[] = [
 		title: "belt: local LLM fleet (belt.local, :7791)",
 	},
 	{
+		id: "buckle",
+		href: "https://suspenders.local/console/belt",
+		repo: "https://github.com/klh/fleet/tree/main/packages/buckle",
+		title: "buckle: LLM gateway console (suspenders.local/console/belt)",
+	},
+	{
 		id: "suspenders",
 		href: "https://suspenders.local",
 		repo: "https://github.com/klh/fleet/tree/main/packages/suspenders",
@@ -206,8 +208,12 @@ export const FLEET_SITES: readonly FleetLink[] = [
 	},
 ];
 
-const fleetLink = (s: FleetLink, current: FleetSite | ""): string =>
-	s.id === current
+const fleetLink = (
+	s: FleetLink,
+	current: FleetSite | "",
+	view: string,
+): string =>
+	(view === "belt" ? s.id === "buckle" : s.id === current)
 		? `<a href="${s.href}" aria-current="page" title="${s.title}">${s.id}</a>`
 		: `<a href="${s.href}" data-repo="${s.repo}" title="${s.title}">${s.id}</a>`;
 
@@ -228,7 +234,7 @@ export const displayLabel = (name: string): string =>
 export const fleetNav = (current: FleetSite | "", view = ""): string => {
 	const routes = [
 		["models", "Models", "https://belt.local/", "models"],
-		["belt", "Gateway", "https://suspenders.local/console/belt", "models"],
+		["belt", "Routes", "https://suspenders.local/console/belt", "models"],
 		["suspenders", "Workflows", "https://suspenders.local/", "workflows"],
 		[
 			"local",
@@ -236,7 +242,7 @@ export const fleetNav = (current: FleetSite | "", view = ""): string => {
 			"https://suspenders.local/console/local",
 			"workflows",
 		],
-		["usage", "Metrics", "https://suspenders.local/usage", "metrics"],
+		["usage", "Metrics", "https://suspenders.local/#usage", "metrics"],
 		// W858.3: the two admin consoles join the strip — hub admin is the
 		// identity/token/key/federation plane, settings owns the belt+buckle
 		// budgets, ladders and cooldowns. Without them those controls were
@@ -249,7 +255,7 @@ export const fleetNav = (current: FleetSite | "", view = ""): string => {
 			"sliders",
 		],
 	] as const;
-	return `<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet"><div class="klh-fleet-sites"><span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>${FLEET_SITES.map((s) => fleetLink(s, current)).join("")}</div><div class="klh-fleet-views">${routes.map(([id, label, href, icon]) => `<a href="${current === "suspenders" && href.startsWith("https://suspenders.local/") ? href.slice("https://suspenders.local".length) : href}"${id === view ? ' aria-current="page"' : ""}>${FLEET_ICONS[icon]}<span>${label}</span></a>`).join("")}</div></nav>`;
+	return `<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet"><div class="klh-fleet-sites"><span class="klh-fleetnav-brand">klh<i>·</i>fleet</span>${FLEET_SITES.map((s) => fleetLink(s, current, view)).join("")}</div><div class="klh-fleet-views">${routes.map(([id, label, href, icon]) => `<a href="${current === "suspenders" && href.startsWith("https://suspenders.local/") ? href.slice("https://suspenders.local".length) : href}"${id === view ? ' aria-current="page"' : ""}>${FLEET_ICONS[icon]}<span>${label}</span></a>`).join("")}</div></nav>`;
 };
 
 export const FLEET_NAV_CSS = `.klh-fleetnav{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--klh-space-1) var(--klh-space-4);padding:var(--klh-space-2) 0;margin:0 0 var(--klh-space-3);border-bottom:1px solid var(--klh-edge-faint);font:var(--klh-text-sm)/1.6 var(--klh-font-mono);letter-spacing:.04em;}
