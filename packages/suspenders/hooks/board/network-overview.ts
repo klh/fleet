@@ -9,6 +9,7 @@ import {
 	networkOverview,
 	resolveNetworkDbPaths,
 } from "../../../buckle/src/network-read-model.ts";
+import { topologySnapshot } from "../../../buckle/src/topology-read-model.ts";
 import { cachedProbes } from "./console-view.ts";
 import { withRecovery } from "./service-probe.ts";
 
@@ -33,4 +34,14 @@ export async function networkPayload(): Promise<NetworkPayload> {
 		network: networkOverview(resolveNetworkDbPaths(process.env)),
 		gateway: gateway ? withRecovery(gateway) : null,
 	};
+}
+
+/** Versioned observed graph for topology clients; no configured link is
+ * presented as measured traffic. */
+export function topologyPayload() {
+	return topologySnapshot(
+		resolveNetworkDbPaths(process.env),
+		Date.now,
+		process.env.BUCKLE_HUB_ID ?? "local",
+	);
 }
