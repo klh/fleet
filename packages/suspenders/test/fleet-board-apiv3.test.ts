@@ -271,6 +271,28 @@ describe("board api v3 (docs/board-api.md)", () => {
 		]);
 	});
 
+	test("/api/task includes the full failure reason shown on its card", async () => {
+		const wid = addWork("failed detail demo");
+		expect(run("work.ts", ["take", wid, "--as", "board-lane"]).code).toBe(0);
+		const reason =
+			"repro: provider returned 502; inspect the upstream response before retrying";
+		expect(
+			run("work.ts", ["fail", wid, "--as", "board-lane", "--note", reason])
+				.code,
+		).toBe(0);
+		const detail = await (
+			await fetch(`${BASE}/api/task?project=${q(proj)}&id=${wid}`)
+		).json();
+		expect(detail.task.state).toBe("FAILED");
+		expect(detail.task.failure_note).toBe(reason);
+		const feed = await (
+			await fetch(`${BASE}/api/tasks?project=${q(proj)}`)
+		).json();
+		expect(feed.tasks.find((row: Row) => row.id === wid)?.failure_note).toBe(
+			reason,
+		);
+	});
+
 	test("/api/activity: default 80, capped at 300, newest first, per-event project and filter", async () => {
 		const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
 		db.run("PRAGMA busy_timeout = 4000");

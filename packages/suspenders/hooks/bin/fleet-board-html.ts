@@ -274,7 +274,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
 /* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
-.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:10px 12px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
+.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
 .kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
 /* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
 .kcard.ksel { border-color:var(--klh-accent); box-shadow:0 0 0 2px var(--klh-accent-wash); }
@@ -282,17 +282,18 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; position:relative; }
 .kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
-.krow { display:flex; gap:4px; align-items:center; min-width:0; }
-.krow .pill { margin-left:0; flex:none; }
-.krow .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.krow { display:flex; gap:6px; align-items:center; min-width:0; margin:0 -12px 0 -13px; min-height:23px; }
+.krow .pill { margin:0; flex:none; border-top:0; border-left:0; border-radius:7px 0 3px 0; padding:3px 8px; }
+.kcardident { display:flex; gap:6px; align-items:baseline; min-width:0; margin-top:3px; }
+.kcardident .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
-.kcardstamp { text-align:right; margin-top:2px; font-size:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.kcardstamp { margin-left:auto; padding-right:8px; font-size:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .kdec { flex:none; color:var(--klh-danger-ink); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
-.ktitle { margin-top:6px; font-weight:600; line-height:1.32; word-break:break-word; }
+.ktitle { margin-top:7px; font-weight:600; line-height:1.32; word-break:break-word; }
 .kmeta { display:flex; align-items:center; gap:6px; margin-top:5px; min-width:0; }
 .klane { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:10px; }
 .ktail { margin-top:4px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--klh-dim); }
-.kfailure { margin-top:6px; padding:6px 8px; border-left:2px solid var(--klh-danger); color:var(--klh-ink); font-size:11px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow-wrap:anywhere; }
+.kfailure { margin-top:6px; padding:4px 0 4px 8px; border-left:2px solid var(--klh-danger); color:var(--klh-ink); font-size:11px; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow-wrap:anywhere; }
 .kstart { margin-top:6px; background:none; border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:2px 8px; cursor:pointer; }
 .kstart:hover { background:var(--klh-accent-wash); }
 /* executor dropdown + play (board dispatch): one clean row — the select
@@ -303,11 +304,12 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kexecsel { background:var(--klh-bg); border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:2px 4px; max-width:250px; flex:1 1 auto; min-width:0; cursor:pointer; }
 .kempty { font-size:11px; padding:2px 0 6px; }
 .kwrap { position:relative; }
-/* W105 model badges — amber = remote model, green = local (LAN/loopback) */
-.kmodel, .lmodel { display:inline-block; margin-top:4px; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
-.kmeta .kmodel { flex:none; max-width:55%; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+/* Model and origin are quiet card metadata. Danger red denotes failures only. */
+.kmodel { display:inline-block; color:var(--klh-ink); font-size:10px; }
+.kmeta .kmodel { flex:none; max-width:55%; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.lmodel { display:inline-block; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
 .lmodel { margin-top:0; margin-left:6px; }
-.kmodel.loc, .lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
+.lmodel.loc { border-color:var(--klh-ok); color:var(--klh-ok-ink); }
 /* Hourly input-token bars; numbers sit beneath the chart. */
 .kspend { display:flex; flex-direction:column; align-items:flex-start; gap:2px; margin-top:6px; }
 .ksparkplot { width:180px; max-width:100%; }
@@ -367,6 +369,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .feed .filters button { background:transparent; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 7px; font:9px var(--klh-font-mono); text-transform:uppercase; cursor:pointer; }
 .feed .filters button.on { color:var(--klh-accent); border-color:var(--klh-accent); }
 .feed .r { display:flex; gap:8px; padding:2px 0; }
+.failure-detail p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.45; }
+.failure-detail h3 { margin:10px 0 4px; font-size:10px; font-weight:600; color:var(--klh-dim); }
 .feed .r .ts { width:52px; flex:none; text-align:right; color:var(--klh-dim); font-variant-numeric:tabular-nums; }
 .feed .r.hot { border-left:2px solid var(--klh-danger); background:var(--klh-warm); padding-left:8px; }
 .feed b { font-weight:500; }
