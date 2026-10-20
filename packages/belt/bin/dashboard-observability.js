@@ -227,6 +227,9 @@ class BeltTrends extends LitElement {
 				belt-trends .bt-spark .lbl span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 				belt-trends .bt-spark .mount { height:34px; overflow:hidden; }
 				belt-trends .bt-wrap { max-width:100%; overflow:hidden; }
+				belt-trends .bt-trend-wrap { position:relative; }
+				belt-trends .bt-hover { position:absolute; z-index:2; top:8px; max-width:220px; padding:6px 9px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); background:var(--klh-surface); color:var(--klh-ink); box-shadow:0 4px 14px #0003; pointer-events:none; font-size:var(--klh-text-xs); font-variant-numeric:tabular-nums; }
+				belt-trends .bt-hover[hidden] { display:none; }
 				belt-trends .bt-raster { display:grid; grid-template-columns:repeat(72,minmax(0,1fr)); gap:2px; height:42px; align-items:end; border-bottom:1px solid var(--klh-edge); margin-top:12px; }
 				belt-trends .bt-cell { min-width:0; height:4px; background:var(--klh-edge-faint); }
 				belt-trends .bt-cell.active { height:34px; background:var(--klh-accent); }
@@ -255,7 +258,7 @@ class BeltTrends extends LitElement {
 			return html`<p class="bt-note">no history yet</p>`;
 		return html`<div class="bt-wrap">
 			<p class="bt-title">Requests and failures · 5-minute buckets</p>
-			<div class="bt-trend"></div>
+			<div class="bt-trend-wrap"><div class="bt-trend"></div><div class="bt-hover" hidden></div></div>
 			<p class="bt-title">Average response time · milliseconds per active bucket</p>
 			<div class="bt-latency"></div>
 			<p class="bt-title">Routes by endpoint</p>
@@ -339,12 +342,29 @@ class BeltTrends extends LitElement {
 		});
 		const trendEl = this.querySelector(".bt-trend");
 		if (trendEl) {
+			const hover = this.querySelector(".bt-hover");
 			this.chart(
 				trendEl,
 				uPlot,
 				{
 					...base(185),
 					legend: { show: true, live: true },
+					hooks: {
+						setCursor: [
+							(plot) => {
+								if (!hover) return;
+								const index = plot.cursor.idx;
+								if (index == null || !buckets[index]) {
+									hover.hidden = true;
+									return;
+								}
+								const bucket = buckets[index];
+								hover.textContent = `${dualStamp(bucket[0] * 1000)} · ${bucket[1]} requests · ${bucket[2]} failed`;
+								hover.hidden = false;
+								hover.style.left = `${Math.max(8, Math.min(plot.cursor.left + 12, trendEl.clientWidth - hover.offsetWidth - 8))}px`;
+							},
+						],
+					},
 					series: [
 						{},
 						{
