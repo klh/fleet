@@ -361,8 +361,16 @@ export class Router {
 				r = await this.tryOnce(req, dep, timeoutMs, stream);
 			} catch (error) {
 				if (req.signal?.aborted) return { kind: "aborted" };
-				if (!st.rateLimit || !(error instanceof UpstreamError)) throw error;
-				break; // An unreachable fallback cannot erase the provider's rate limit.
+				if (!(error instanceof UpstreamError)) throw error;
+				// W985 skip-not-fail: an unreachable rung (ECONNREFUSED, timeout)
+				// must not kill the ladder — record it and walk on to the next
+				// candidate / fallback rung. A banked provider rate limit still
+				// outranks the dead hop: end the tier, its 429 answers at
+				// exhausted() verbatim.
+				if (st.rateLimit) break;
+				st.status = error.status;
+				st.error = `no healthy upstream for ${req.group} (${error.message})`;
+				continue;
 			}
 			if (r.ok) {
 				return {
