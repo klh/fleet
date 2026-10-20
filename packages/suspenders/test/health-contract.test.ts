@@ -248,7 +248,40 @@ describe("synthetic readiness (W467)", () => {
 			const snap = monitor.snapshot();
 			expect(snap.ok).toBe(false);
 			expect(snap.mode).toBe("synthetic");
+			expect(snap.check).toBe("inference-route");
+			expect(snap.intervalMs).toBe(1);
 			expect(snap.error).toContain("W467_TOKEN");
+		} finally {
+			delete process.env.W467_TOKEN;
+			server.stop(true);
+		}
+	});
+
+	test("a failed synthetic sample confirms with the same classified POST", async () => {
+		const methods: string[] = [];
+		const traffic: (string | null)[] = [];
+		let calls = 0;
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: (req) => {
+				methods.push(req.method);
+				traffic.push(req.headers.get("x-klh-traffic"));
+				calls++;
+				return new Response(calls === 2 ? "unavailable" : readyBody, {
+					status: calls === 2 ? 503 : 200,
+					headers: { "content-type": "application/json" },
+				});
+			},
+		});
+		try {
+			process.env.W467_TOKEN = "sk-test";
+			const monitor = createMonitor(args(server.url.toString()));
+			await monitor.poll();
+			await monitor.poll();
+			expect(monitor.snapshot().state).toBe("up");
+			expect(methods).toEqual(["POST", "POST", "POST"]);
+			expect(traffic).toEqual(["readiness", "readiness", "readiness"]);
 		} finally {
 			delete process.env.W467_TOKEN;
 			server.stop(true);

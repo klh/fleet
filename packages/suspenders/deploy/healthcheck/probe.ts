@@ -27,11 +27,12 @@
 //                (--misses, default 3)
 //   RING         bounded ring of recent results (--ring, default 20)
 //
-// Synthetic readiness (W467, openai-review reliability 3): a /status answer
-// proves the server responds — it does NOT prove the function works. When a
-// JSON body is declared the probe POSTs it and only a 2xx JSON answer whose
-// expect-path resolves counts as ready (the whole serving chain: auth →
-// routing → upstream → response):
+// Synthetic route canary (W467): a /status answer proves only that the server
+// responds. When a JSON body is declared, the probe POSTs it and requires a
+// 2xx JSON answer whose expect-path resolves (auth → routing → upstream →
+// response envelope). A one-token request may produce an empty text answer
+// on a thinking model, so this check proves route reachability, not answer
+// quality or completeness:
 //   SYNTHETIC_JSON  request body to POST (--synthetic-json; presence flips
 //                   the probe from liveness to synthetic)
 //   AUTH_ENV        name of the env var holding the bearer token
@@ -339,7 +340,12 @@ export function createMonitor(args: ProbeArgs) {
 			// poll re-confirms; any success anywhere recovers to up.
 			if (!s.ok && misses >= args.misses && state !== "down") {
 				state = "degrading";
-				const confirm = await probeOnce(url, args.timeout);
+				// Confirm the same operation. A bare GET to a completion endpoint
+				// cannot establish readiness and omits the traffic classification.
+				const confirm =
+					wireError === null
+						? await probeOnce(url, args.timeout, wire)
+						: { ok: false, status: 0, ms: 0, at: new Date().toISOString() };
 				apply(confirm);
 				if (!confirm.ok) state = "down";
 			}
@@ -350,6 +356,8 @@ export function createMonitor(args: ProbeArgs) {
 
 	function snapshot(): {
 		target: string;
+		check: "inference-route" | "http-liveness";
+		intervalMs: number;
 		state: VerdictState;
 		ok: boolean;
 		misses: number;
@@ -372,6 +380,8 @@ export function createMonitor(args: ProbeArgs) {
 		return {
 			target: url,
 			mode: args.synthetic !== undefined ? "synthetic" : "liveness",
+			check: args.synthetic !== undefined ? "inference-route" : "http-liveness",
+			intervalMs: args.every,
 			error: wireError,
 			state: reportedState,
 			ok: reportedState === "up" && last?.ok === true,
@@ -436,7 +446,13 @@ async function main(): Promise<void> {
 				return new Response(null, { status: snap.ok ? 200 : 502, headers });
 			if (pathname === "/healthz") {
 				return Response.json(
-					{ ok: snap.ok, state: snap.state, target: snap.target },
+					{
+						ok: snap.ok,
+						state: snap.state,
+						check: snap.check,
+						intervalMs: snap.intervalMs,
+						target: snap.target,
+					},
 					{ status: snap.ok ? 200 : 502, headers },
 				);
 			}
