@@ -9,6 +9,7 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import { signalClaudeDirectEvent } from "../lib/claude-wake.ts";
 import {
 	codexThreadForSession,
 	deliverSubscribedCodexEvent,
@@ -401,6 +402,7 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 			};
 			console.log(formatEventLine(event));
 			if (event.target !== as) return;
+			signalClaudeDirectEvent({ ...event, target: as }, as);
 			delivery = delivery
 				.then(async () => {
 					const threadId = codexThreadForSession(db, as);
