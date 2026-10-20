@@ -243,6 +243,9 @@ export { CLAUDE_ALLOWED_TOOLS as DEFAULT_ALLOWED_TOOLS } from "../../hooks/lib/e
 export const spawnClaude = (o: {
 	bin: string;
 	prompt: string;
+	/** W1009: the adapter prompt grammar (["exec", p] for codex) — set
+	 *  beats the claude "-p p" head; omitted = unchanged claude recipe. */
+	promptArgs?: string[];
 	cwd: string;
 	logFile: string;
 	env: Record<string, string>;
@@ -278,11 +281,14 @@ export const spawnClaude = (o: {
 	// cannot terminate the harness. unref releases the event-loop reference.
 	// exec preserves the recorded harness PID,
 	// stdin EOF prevents input waits, and the log is the board's tail surface.
+	const head = o.promptArgs
+		? o.promptArgs.map((a) => (a.includes(" ") ? sq(a) : a)).join(" ")
+		: `-p ${sq(o.prompt)}`;
 	return Bun.spawn(
 		[
 			"/bin/sh",
 			"-c",
-			`${jobslabPrefix(js)}${sq(o.bin)} -p ${sq(o.prompt)} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
+			`${jobslabPrefix(js)}${sq(o.bin)} ${head} ${tail} < /dev/null >> ${sq(o.logFile)} 2>&1`,
 		],
 		{
 			detached: true,
