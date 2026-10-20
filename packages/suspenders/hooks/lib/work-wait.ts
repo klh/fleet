@@ -21,8 +21,10 @@ type Row = {
 };
 type Result = { ok: boolean; error?: string };
 
-export function parseWaitUntil(value: string | undefined): number | null {
-	if (value === undefined) return null;
+export function parseWaitUntil(
+	value: string | null | undefined,
+): number | null {
+	if (value == null) return null;
 	if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(value))
 		throw new Error("--until must be an ISO-8601 date-time with timezone");
 	const at = Date.parse(value);
