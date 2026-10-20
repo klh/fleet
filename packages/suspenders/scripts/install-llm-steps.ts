@@ -39,7 +39,11 @@ const logFor = (ctx: StepContext): ((line: string) => void) => {
 
 /** Generator files that ride NO import closure — the closure heal never
  *  refreshes them; the regen leg syncs them kit→home itself. */
-const GENERATOR_FILES = ["gateway-config.ts", "remotes-validate.ts"];
+const GENERATOR_FILES = [
+	"gateway-config.ts",
+	"remotes-validate.ts",
+	"openrouter-free-rows.ts",
+];
 
 /** Home files whose bytes the GENERATED yaml depends on: the generator
  *  code plus the operator-owned routing policy. */

@@ -39,6 +39,33 @@ placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
 
+## OpenRouter free routes on a hub
+
+`openrouter-free-sync.ts sync --output <absolute-path>` reads the public
+[OpenRouter model catalog](https://openrouter.ai/docs/api/api-reference/models/get-models)
+and atomically writes a machine-local 0600 snapshot. It admits only `:free`
+model IDs that accept and return text and have zero prompt, completion, and
+request prices. The snapshot contains model IDs and Buckle route definitions,
+never a key. Free IDs excluded because they lack a supported text chat path or
+have a fee are recorded with a reason in the snapshot and printed by the sync
+command. A failed or empty catalog fetch preserves the previous file.
+
+The hub's machine-level `stack.yaml` points
+`hubs.<name>.upstreams.openrouter_free_catalog_file` at that snapshot,
+sets `buckle_prefs.allow_cloud: true`, and declares its existing
+`secrets.upstream_keys.LITELLM_KEY` as the **path on that hub** to the local
+LiteLLM master key. The OpenRouter inference key stays in a 0600 file on the
+machine running LiteLLM; it never enters Buckle. A management key is for
+provisioning API keys; it is not the inference credential. The generated
+route is Buckle → LiteLLM `:4100` → OpenRouter. `hubctl push <name>` merges
+generated routes beneath explicit groups; `hubctl reload-upstreams <name>`
+refreshes only the ladder and recreates Buckle. Both refuse a catalog
+snapshot older than two hours and a missing cloud opt-in or LiteLLM key
+declaration. The local LiteLLM config must contain matching `model_name`
+rows and receive `OPENROUTER_API_KEY` at spawn. A restricted inference key
+and a verified deployed route are required before the dashboard should
+report an OpenRouter model as reachable.
+
 ## Inference-route canary (W467)
 
 A `/status` answer proves the gate responds. The `buckle-ready` sidecar

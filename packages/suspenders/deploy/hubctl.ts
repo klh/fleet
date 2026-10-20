@@ -42,6 +42,7 @@ import {
 	type StackConfig,
 } from "../hooks/lib/stack-config.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import { mergedHubUpstreams } from "./openrouter-free.ts";
 
 import {
 	buildRelease,
@@ -222,7 +223,7 @@ function redactedRender(envText: string): string {
  *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
  *  (merge-over-base is by group name). Always rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
-	return stringify({ version: 1, groups: hub.upstreams?.groups ?? {} });
+	return stringify({ version: 1, groups: mergedHubUpstreams(hub) });
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
@@ -341,6 +342,40 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
 	const args = [`${dir}/upstream.env`, ...pairs].map(quote).join(" ");
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
+}
+
+/** Refresh only the Buckle ladder and its key environment. The container is
+ *  recreated (not merely restarted) because Compose must reread env_file. */
+function reloadUpstreams(
+	hub: HubProfile,
+	name: string,
+	version?: string,
+): void {
+	const dir = requireDir(hub);
+	const ref = hubEnvRef(hub, dir);
+	if (!ref || !version || ref !== version)
+		throw new Error(
+			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
+		);
+	const rendered = renderUpstreams(hub);
+	pushUpstreamEnv(hub, dir);
+	const destination = `${dir}/upstreams.hub.yaml`;
+	if (hub.deploy?.ssh) {
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(destination)}'`,
+			],
+			{ input: rendered, timeout: 30_000 },
+		);
+	} else {
+		writeFileSync(destination, rendered, { mode: 0o600 });
+	}
+	const docker = hub.deploy?.docker ?? "docker";
+	const command = `${docker} compose -f ${JSON.stringify(`${dir}/hub-compose.yaml`)} --project-directory ${JSON.stringify(dir)} up -d --force-recreate --no-deps buckle-hub`;
+	console.log(runOnHub(hub, command, { timeout: 120_000 }).trim());
 }
 
 /** Push the compose template + rendered .env to the hub's deploy dir. */
@@ -798,7 +833,7 @@ function main(): void {
 	const auth = stack.auth;
 	if (!hubName || verb === "--help" || verb === "-h") {
 		console.log(
-			"usage: hubctl <render|mint|push|up|status|deploy|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
+			"usage: hubctl <render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key> <hub> — config: ~/.config/klh/stack.yaml\n" +
 				"       up accepts --force: proceed on a stale/unpinned hub .env (refused by default)\n" +
 				"       exec runs allowlisted read-only probes; mint-lane-key mints a\n" +
 				"       short-lived lane key ON the hub (root credential never leaves it)",
@@ -830,6 +865,9 @@ function main(): void {
 		case "push":
 			pushConfig(hub, hubName, auth, hubVersion);
 			return;
+		case "reload-upstreams":
+			reloadUpstreams(hub, hubName, hubVersion);
+			return;
 		case "up":
 			upHub(hub, hubName, hubVersion, force);
 			return;
@@ -856,7 +894,7 @@ function main(): void {
 		}
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|manifest|exec|mint-lane-key`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key`,
 			);
 			process.exit(2);
 	}
