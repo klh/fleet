@@ -1,4 +1,7 @@
 import { usableRecommendation } from "../lib/advice-quality.ts";
+// W858.7.21: the hub reachability check + its probe bundle moved to
+// hub-check.ts (1500-line decompose); setupChecks imports it below.
+import { hubCheck } from "./hub-check.ts";
 import { completionTail } from "../lib/work-completion-record.ts";
 import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 
@@ -8,7 +11,6 @@ import { claimWindows, type TimingEventRow } from "../lib/work-timing.ts";
 
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
-import { readRegistry } from "../lib/hub-locate.ts";
 import {
 	type ItemAttribution,
 	type ItemSpendPoint,
@@ -22,7 +24,6 @@ import { observation } from "../lib/observation.ts";
 // W911: the plaid UI-agreement view — one shape for dispatch + board.
 import { plaidStatus } from "../lib/plaid.ts";
 import { preferForProject } from "../lib/prefer.ts";
-import { darkHubNow } from "../lib/stack-config.ts";
 import { utcZ } from "../lib/wallclock.ts";
 import {
 	BIND,
@@ -607,53 +608,6 @@ export async function llmCheck(): Promise<{ ok: boolean; detail: string }> {
 	};
 }
 
-// W852 — hub reachability: one bounded probe per configured hub (first
-// candidate — the registry is precedence-ordered), hubs inside a stack.yaml
-// dark window are EXPECTED down (NAS nightly poweroff, W483) and skip the
-// probe. No registry = no hubs configured, trivially ok.
-const probeHub = async (base: string): Promise<boolean> => {
-	try {
-		await fetch(`${base.replace(/\/$/, "")}/api/health`, {
-			signal: AbortSignal.timeout(1200),
-		});
-		return true;
-	} catch {
-		return false;
-	}
-};
-
-async function hubCheck(): Promise<{ ok: boolean; detail: string }> {
-	const reg = readRegistry();
-	const entries = Object.entries(reg).filter(([label]) => label.trim());
-	if (!entries.length) return { ok: true, detail: "no hubs configured" };
-	return probeHubRows(entries);
-}
-
-async function probeHubRows(
-	entries: [string, { candidates?: string[] }][],
-): Promise<{ ok: boolean; detail: string }> {
-	const rows = await Promise.all(
-		entries.map(async ([label, entry]) => {
-			const url = entry?.candidates?.[0];
-			if (!url) return { ok: true, detail: `${label}: no candidates listed` };
-			if (darkHubNow(label))
-				return { ok: true, detail: `${label}: dark window (expected down)` };
-			const up = await probeHub(url);
-			return {
-				ok: up,
-				detail: up ? `${label} answers` : `${label} no answer at ${url}`,
-			};
-		}),
-	);
-	const down = rows.filter((r) => !r.ok);
-	return {
-		ok: down.length === 0,
-		detail:
-			down.map((r) => r.detail).join("; ") ||
-			rows.map((r) => r.detail).join("; "),
-	};
-}
-
 export async function setupChecks(): Promise<unknown[]> {
 	const [llm, hubs] = await Promise.all([llmCheck(), hubCheck()]);
 	// wired = a registered command runs the hook BY NAME — the install layout
@@ -758,7 +712,7 @@ export async function setupChecks(): Promise<unknown[]> {
 			label: "Hub reachability",
 			ok: hubs.ok,
 			detail: hubs.detail,
-			fix: hubs.ok ? null : "check the hub or its stack.yaml profile",
+			fix: hubs.fix,
 		},
 		{ id: "bind", label: "LAN binding", ok: true, detail: BIND, fix: null },
 	];

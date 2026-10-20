@@ -15,6 +15,24 @@ function pollSetup(){
     .catch(function(e){ setupErr = String((e && e.message) || e); })
     .finally(function(){ setupBusy = false; renderSetup(); });
 }
+// W858.7.21: checks group by what they verify — this machine's wiring
+// (files, plists, settings) vs network probes. REMOTE_CHECKS pins the
+// minority; unmapped ids default to local (never hidden, worst case a
+// future remote check shows under local until the map grows).
+var REMOTE_CHECKS = { 'llm': 1, 'hubs': 1 };
+function checkCard(c){
+  var detail = String(c.detail || '');
+  var detailHtml = detail.startsWith('/') || detail.indexOf('.generation-') >= 0
+    ? '<details class="sdetail"><summary>Technical details</summary><code>' + esc(detail) + '</code></details>'
+    : '<div class="sdetail dim">' + esc(detail) + '</div>';
+  return '<div class="card scard"><div class="shead"><span class="sok ' + (c.ok ? 'ok' : 'fail') + '">' + (c.ok ? 'ok' : 'fail') + '</span> <b>' + esc(c.label || c.id || '?') + '</b></div>' +
+    detailHtml +
+    (c.fix ? '<div class="sfix"><code>' + esc(String(c.fix)) + '</code> <button type="button" class="copyfix" data-fix="' + esc(String(c.fix)) + '">copy</button></div>' : '') +
+    '</div>';
+}
+function groupHead(title, n){
+  return '<h3 class="sgroup">' + esc(title) + ' <span class="dim">(' + n + ')</span></h3>';
+}
 function renderSetup(){
   var errEl = byId('setupErr');
   var body = byId('setupBody');
@@ -33,18 +51,15 @@ function renderSetup(){
   var cs = setupData.checks || [];
   var failures = cs.filter(function(c){ return !c.ok; }).length;
   setText(byId('setupSummary'), failures ? failures + ' checks need attention / ' + cs.length + ' total' : cs.length + ' checks passing');
-  var html = '';
+  var local = [];
+  var remote = [];
   for (var i = 0; i < cs.length; i++) {
     var c = cs[i] || {};
-    var detail = String(c.detail || '');
-    var detailHtml = detail.startsWith('/') || detail.indexOf('.generation-') >= 0
-      ? '<details class="sdetail"><summary>Technical details</summary><code>' + esc(detail) + '</code></details>'
-      : '<div class="sdetail dim">' + esc(detail) + '</div>';
-    html += '<div class="card scard"><div class="shead"><span class="sok ' + (c.ok ? 'ok' : 'fail') + '">' + (c.ok ? 'ok' : 'fail') + '</span> <b>' + esc(c.label || c.id || '?') + '</b></div>' +
-      detailHtml +
-      (c.fix ? '<div class="sfix"><code>' + esc(String(c.fix)) + '</code> <button type="button" class="copyfix" data-fix="' + esc(String(c.fix)) + '">copy</button></div>' : '') +
-      '</div>';
+    (REMOTE_CHECKS[c.id] ? remote : local).push(checkCard(c));
   }
+  var html = '';
+  if (local.length) html += groupHead('Local wiring', local.length) + local.join('');
+  if (remote.length) html += groupHead('Remote reachability', remote.length) + remote.join('');
   if (!html) html = '<div class="state dim">(no checks returned)</div>';
   sigSet(body, String(setupOkAt), html);
 }
