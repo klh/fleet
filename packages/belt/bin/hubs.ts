@@ -17,6 +17,8 @@
 import { readFileSync } from "node:fs";
 import { composeUpArgv } from "../../suspenders/deploy/hub-remote.ts";
 import { mergedHubUpstreams } from "../../suspenders/deploy/openrouter-free.ts";
+import { mergeZaiHubUpstreams } from "../../suspenders/deploy/zai-catalog.ts";
+import { readZaiSnapshot } from "./zai-catalog-rows.ts";
 import {
 	inQuietHours,
 	tryLoadStack,
@@ -147,6 +149,7 @@ export function hubGatewayRoutes(): Array<{
 	providerIntents: string[];
 	providerHosts: string[];
 	providerHostsByModel: Record<string, string[]>;
+	providerModelIds: Record<string, { provider: string; id: string }>;
 }> {
 	const profiles = hubProfiles();
 	return readHubs().map((hub) => {
@@ -154,7 +157,7 @@ export function hubGatewayRoutes(): Array<{
 		let groups = profile?.upstreams?.groups ?? {};
 		if (profile) {
 			try {
-				groups = mergedHubUpstreams(profile);
+				groups = mergeZaiHubUpstreams(profile, mergedHubUpstreams(profile));
 			} catch {
 				// Missing or stale generated catalogs never become configured routes.
 				// Explicit machine-level routes remain visible on their own.
@@ -164,6 +167,18 @@ export function hubGatewayRoutes(): Array<{
 		const modelHosts = new Map<string, Set<string>>();
 		const routesByModel = new Map<string, Set<string>>();
 		const unresolvedRoutes: string[] = [];
+		let zaiIds = new Set<string>();
+		if (profile?.upstreams?.zai_catalog_file) {
+			try {
+				zaiIds = new Set(
+					readZaiSnapshot(profile.upstreams.zai_catalog_file).model_ids,
+				);
+			} catch {
+				// A stale or unreadable snapshot never supplies provider provenance.
+			}
+		}
+		const providerModelIds: Record<string, { provider: string; id: string }> =
+			{};
 		for (const [route, candidates] of Object.entries(groups)) {
 			let resolved = false;
 			for (const candidate of candidates) {
@@ -176,6 +191,8 @@ export function hubGatewayRoutes(): Array<{
 				if (typeof model !== "string" || !model.trim()) continue;
 				resolved = true;
 				const name = model.trim();
+				if (name.startsWith("zai-") && zaiIds.has(name.slice(4)))
+					providerModelIds[name] = { provider: "zai", id: name.slice(4) };
 				if (!modelHosts.has(name)) modelHosts.set(name, new Set());
 				if (!routesByModel.has(name)) routesByModel.set(name, new Set());
 				routesByModel.get(name)?.add(route);
@@ -206,6 +223,7 @@ export function hubGatewayRoutes(): Array<{
 			providerHostsByModel: Object.fromEntries(
 				[...modelHosts].map(([model, targets]) => [model, [...targets]]),
 			),
+			providerModelIds,
 		};
 	});
 }

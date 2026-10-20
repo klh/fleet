@@ -286,6 +286,55 @@ describe("Belt topology", () => {
 			source: "https://openrouter.ai/api/v1/models",
 		});
 	});
+	test("prices a Z.ai hub model only with exact configured catalog provenance", () => {
+		const access = {
+			zaiPricing: {
+				state: "pricing reachable",
+				source: "https://docs.z.ai/guides/overview/pricing",
+				fetchedAt: new Date(now).toISOString(),
+				models: [
+					{
+						id: "glm-5.3",
+						price: {
+							status: "priced",
+							inputUsdPerMillion: 1,
+							outputUsdPerMillion: 3,
+						},
+					},
+				],
+			},
+		};
+		const context = {
+			hubRoutes: [
+				{
+					name: "zai",
+					models: ["zai-glm-5.3", "zai-glm-5.2"],
+					providerModelIds: {
+						"zai-glm-5.3": { provider: "zai", id: "glm-5.3" },
+					},
+				},
+			],
+		};
+		const model = buildTopology(
+			{},
+			{},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "zai", state: "up", port: 4301 }],
+			},
+			now,
+			null,
+			access,
+			context,
+		);
+		expect(model.hubs[0]?.gatewayModelCosts["zai-glm-5.3"]).toMatchObject({
+			status: "priced",
+			inputUsdPerMillion: 1,
+		});
+		expect(model.hubs[0]?.gatewayModelCosts["zai-glm-5.2"]).toMatchObject({
+			status: "unknown",
+		});
+	});
 	test("joins configured console links and observed local Work Graph counts", () => {
 		const model = buildTopology(
 			{},

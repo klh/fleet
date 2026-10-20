@@ -306,14 +306,18 @@ export function buildTopology(
 		const providerCounts = {};
 		const gatewayModelCosts = {};
 		for (const model of routes?.models ?? []) {
-			gatewayModelCosts[model] = model.startsWith("openrouter/")
-				? priceForModel(
-						access,
-						"openrouter",
-						model.slice("openrouter/".length),
-						now,
-					)
-				: unknownCost;
+			const identity = routes?.providerModelIds?.[model];
+			gatewayModelCosts[model] =
+				identity?.provider === "zai"
+					? priceForModel(access, "zai", identity.id, now)
+					: model.startsWith("openrouter/")
+						? priceForModel(
+								access,
+								"openrouter",
+								model.slice("openrouter/".length),
+								now,
+							)
+						: unknownCost;
 		}
 		const configuredProviders = new Set(
 			(routes?.providerHosts ?? []).map(providerKey),
