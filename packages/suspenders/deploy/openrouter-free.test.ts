@@ -6,7 +6,10 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
 import {
 	eligibleFreeModelIds,
 	classifyFreeModels,
+	fetchFreeSnapshot,
 	mergedHubUpstreams,
+	OPENROUTER_ACCOUNT_CATALOG_URL,
+	OPENROUTER_CATALOG_URL,
 	OPENROUTER_FREE_MAX_AGE_MS,
 	snapshotFromCatalog,
 	writeFreeSnapshot,
@@ -71,6 +74,71 @@ test("records why free IDs cannot be exposed as text chat routes", () => {
 	expect(result.excluded).toEqual([
 		{ id: "vendor/audio:free", reason: "no text input and output" },
 		{ id: "vendor/fee:free", reason: "request fee is nonzero or unreported" },
+	]);
+});
+
+test("account catalog limits advertised routes and admits the free router", () => {
+	const publicCatalog = catalog([
+		free,
+		model("vendor/private:free"),
+		model("openrouter/free"),
+	]);
+	const accountCatalog = catalog([free, model("openrouter/free")]);
+	const snapshot = snapshotFromCatalog(
+		publicCatalog,
+		new Date("2026-10-20T10:00:00Z"),
+		accountCatalog,
+	);
+	expect(Object.keys(snapshot.groups)).toEqual([
+		"openrouter/nvidia/nemotron:free",
+		"openrouter/free",
+	]);
+	expect(snapshot.groups["openrouter/free"]?.[0]?.model).toBe(
+		"openrouter/free",
+	);
+	expect(snapshot.excluded_free_models).toContainEqual({
+		id: "vendor/private:free",
+		reason: "excluded by account privacy, provider preferences, or guardrails",
+	});
+	expect(snapshot.public_model_count).toBe(3);
+	expect(snapshot.account_model_count).toBe(2);
+});
+
+test("an account with no permitted free models publishes no stale routes", () => {
+	const snapshot = snapshotFromCatalog(
+		catalog([free]),
+		new Date("2026-10-20T10:00:00Z"),
+		catalog([]),
+	);
+	expect(snapshot.groups).toEqual({});
+	expect(snapshot.excluded_free_models).toContainEqual({
+		id: free.id,
+		reason: "excluded by account privacy, provider preferences, or guardrails",
+	});
+});
+
+test("fetch joins full public catalog with authenticated account catalog", async () => {
+	const seen: Array<{ url: string; authorization: string | null }> = [];
+	const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+		const resolved = String(url);
+		const headers = new Headers(init?.headers);
+		seen.push({ url: resolved, authorization: headers.get("authorization") });
+		return Response.json(
+			resolved === OPENROUTER_CATALOG_URL
+				? catalog([free, model("vendor/private:free")])
+				: catalog([free]),
+		);
+	}) as typeof fetch;
+	const snapshot = await fetchFreeSnapshot(fetcher, "test-inference-key");
+	expect(Object.keys(snapshot.groups)).toEqual([
+		"openrouter/nvidia/nemotron:free",
+	]);
+	expect(seen).toEqual([
+		{ url: OPENROUTER_CATALOG_URL, authorization: null },
+		{
+			url: OPENROUTER_ACCOUNT_CATALOG_URL,
+			authorization: "Bearer test-inference-key",
+		},
 	]);
 });
 

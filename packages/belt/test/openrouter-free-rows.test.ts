@@ -9,7 +9,8 @@ const file = join(dir, "catalog.json");
 const now = Date.parse("2026-10-20T10:00:00Z");
 const valid = {
 	version: 1,
-	source: "https://openrouter.ai/api/v1/models",
+	source: "https://openrouter.ai/api/v1/models?output_modalities=all",
+	account_source: "https://openrouter.ai/api/v1/models/user",
 	generated_at: new Date(now).toISOString(),
 	groups: {
 		"openrouter/nvidia/nemotron:free": [
@@ -52,6 +53,19 @@ test("stale, paid-looking, and mismatched routes cannot enter LiteLLM", () => {
 
 test("missing snapshot leaves the optional provider absent", () => {
 	expect(openRouterFreeRows(join(dir, "missing.json"), now)).toEqual([]);
+});
+
+test("free router is a distinct LiteLLM alias for the OpenRouter meta model", () => {
+	writeFileSync(
+		file,
+		JSON.stringify({
+			...valid,
+			groups: { "openrouter/free": [{ model: "openrouter/free" }] },
+		}),
+	);
+	expect(openRouterFreeRows(file, now)).toEqual([
+		'  - model_name: "openrouter/free"\n    litellm_params:\n      model: "openrouter/openrouter/free"\n      api_key: os.environ/OPENROUTER_API_KEY',
+	]);
 });
 
 test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
