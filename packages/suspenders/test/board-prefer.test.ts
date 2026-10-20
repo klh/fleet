@@ -116,7 +116,8 @@ describe("board prefer render (W518)", () => {
 		expect(card).toContain("&quot;&gt;&lt;script&gt;");
 	});
 
-	test("page CSS: status border, preference stripe and table dot", () => {
+	// W518 test identity stays stable; preference now uses an inset stripe.
+	test("page CSS: kcard border + pdot ride --prefer", () => {
 		expect(HTML).toContain(
 			".kcard { border:1px solid var(--state-color, var(--klh-edge-soft))",
 		);
