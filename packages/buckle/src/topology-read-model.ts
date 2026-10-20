@@ -247,6 +247,7 @@ export function topologySnapshot(
 	const ledgerTraceIds = new Set<string>();
 	const ledgerFailedIds = new Set<string>();
 	const ledgerActiveIds = new Set<string>();
+	const localOutboundTraceIds = new Set<string>();
 	for (const row of usage) {
 		const id =
 			row.trace_id && TRACE_ID.test(row.trace_id)
@@ -255,6 +256,8 @@ export function topologySnapshot(
 		ledgerTraceIds.add(id);
 		if (row.ok === 0) ledgerFailedIds.add(id);
 		if (row.ok === null) ledgerActiveIds.add(id);
+		if (row.trace_id && row.target_kind && row.target_host)
+			localOutboundTraceIds.add(row.trace_id);
 		if (!row.target_kind || !row.target_host) continue;
 		const key = `${row.target_kind}:${row.target_host}:${row.target_port ?? ""}`;
 		const last = Date.parse(row.ts);
@@ -290,14 +293,53 @@ export function topologySnapshot(
 		edges.set(edgeKey, edge);
 		hubs.set(localHub, Math.max(hubs.get(localHub) ?? 0, last));
 	}
+	// Older hubs did not carry a peer marker into request_edges. A shared
+	// trace alone can be a client fan-out, so recover only the measured
+	// two-hub case: one local origin row, one remote row, and a local-origin
+	// ledger route that records an outbound target for this exact trace.
+	// The direction comes from the ledger origin, never from clock order or
+	// configured hub paths. Keep the trace incomplete because the peer marker
+	// itself remains absent.
+	const recoveredHops = new Map<string, string>();
+	for (const [id, trace] of traces) {
+		if (trace.rows.length !== 2 || trace.rows.some((row) => row.peer)) continue;
+		const localRow = trace.rows.find((row) => hubName(row.source) === localHub);
+		const remoteRow = trace.rows.find(
+			(row) => hubName(row.source) !== localHub,
+		);
+		if (!localRow || !remoteRow || id.startsWith("untraced:")) continue;
+		if (!localOutboundTraceIds.has(id)) continue;
+		const remote = hubName(remoteRow.source);
+		const key = `${localHub}\u0000${remote}`;
+		const edge = edges.get(key) ?? {
+			from: localHub,
+			to: remote,
+			traces: new Set<string>(),
+			failed: new Set<string>(),
+			active: new Set<string>(),
+			inputTokens: 0,
+			outputTokens: 0,
+			usageBearingRequests: new Set<string>(),
+			last: 0,
+			evidence: "trace" as const,
+		};
+		edge.traces.add(id);
+		if (remoteRow.outcome === "errored" || remoteRow.outcome === "denied")
+			edge.failed.add(id);
+		if (remoteRow.ended_at === null) edge.active.add(id);
+		edge.last = Math.max(edge.last, remoteRow.admitted_at);
+		edges.set(key, edge);
+		recoveredHops.set(id, remote);
+	}
 	const knownUsage = usage.filter(
 		(row) => row.ok === 1 && row.in_tok !== null && row.out_tok !== null,
 	);
 	const traceRows = [...traces.entries()].map(([id, trace]) => {
 		const { hops, linked } = orderHops(trace.rows);
+		const recovered = recoveredHops.get(id);
 		return {
 			id,
-			hops: [...new Set(hops)],
+			hops: recovered ? [localHub, recovered] : [...new Set(hops)],
 			complete:
 				linked &&
 				trace.rows.every(

@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,6 +143,60 @@ describe("topologySnapshot", () => {
 			ok: false,
 			reason: "hub observations and local ledger unavailable",
 		});
+	});
+
+	test("legacy unmarked peer links only with shared trace and measured local outbound route", () => {
+		const f = fixture(["mac", "ikea"]);
+		try {
+			const projection = new Database(f.obsDb);
+			projection
+				.query(
+					"UPDATE request_edges SET peer = NULL WHERE source LIKE 'buckle://ikea/%'",
+				)
+				.run();
+			projection.close();
+			const ledger = new Database(f.ledger);
+			ledger
+				.query(
+					"UPDATE route_audit SET target_kind = 'local', target_host = '127.0.0.1', target_port = 4201 WHERE hop = 'origin'",
+				)
+				.run();
+			ledger.close();
+			const result = topologySnapshot(f, () => instant, "mac");
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.traces[0]).toMatchObject({
+				id: TRACE,
+				hops: ["mac", "ikea"],
+				complete: false,
+			});
+			expect(result.edges.find((edge) => edge.to === "hub:ikea")).toMatchObject(
+				{
+					from: "hub:mac",
+					to: "hub:ikea",
+					requests: 1,
+					evidence: "trace",
+					inputTokens: null,
+					outputTokens: null,
+				},
+			);
+			const ledger2 = new Database(f.ledger);
+			ledger2
+				.query(
+					"UPDATE route_audit SET target_kind = NULL, target_host = NULL WHERE hop = 'origin'",
+				)
+				.run();
+			ledger2.close();
+			const unproven = topologySnapshot(f, () => instant, "mac");
+			expect(unproven.ok).toBe(true);
+			if (!unproven.ok) return;
+			expect(
+				unproven.edges.find((edge) => edge.to === "hub:ikea"),
+			).toBeUndefined();
+			expect(unproven.traces[0]?.hops).toHaveLength(1);
+		} finally {
+			rmSync(f.dir, { recursive: true, force: true });
+		}
 	});
 
 	test("local ledger still exposes observed targets when remote projection is absent", () => {
