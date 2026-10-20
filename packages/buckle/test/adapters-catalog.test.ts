@@ -38,11 +38,11 @@ async function rsaPem(): Promise<string> {
 describe("W150 catalog", () => {
 	test("count smoke: tiers and families sum to the total", () => {
 		const s = catalogSummary();
-		expect(s.count).toBe(108);
+		expect(s.count).toBe(107);
 		expect(s.byTier[1] + s.byTier[2] + s.byTier[3]).toBe(s.count);
 		expect(s.byTier[1]).toBe(2);
 		expect(s.byTier[2]).toBe(8);
-		expect(s.byTier[3]).toBe(98);
+		expect(s.byTier[3]).toBe(97);
 		const famSum = Object.values(s.byFamily).reduce((a, b) => a + b, 0);
 		expect(famSum).toBe(s.count);
 	});
@@ -66,7 +66,7 @@ describe("W150 catalog", () => {
 		expect(catalogLookup("vertex_ai")?.auth).toBe("token-exchange");
 		expect(catalogLookup("gemini")?.family).toBe("vertex");
 		expect(catalogLookup("gemini")?.auth).toBe("api-key-header");
-		expect(catalogLookup("openrouter")?.tier).toBe(3);
+		expect(catalogLookup("openrouter")).toBeNull();
 		expect(catalogLookup("dashscope")?.family).toBe("openai-compat");
 	});
 
@@ -99,9 +99,16 @@ describe("W150 catalog", () => {
 
 describe("W150 resolution", () => {
 	test("catalog provider name resolves to its family", () => {
-		expect(
-			resolveAdapter({ adapter: "openrouter", dialect: "openai" }).family,
-		).toBe("openai-compat");
+		expect(() =>
+			resolveAdapter({ adapter: "openrouter", dialect: "openai" }),
+		).toThrow(/through LiteLLM/);
+		expect(() =>
+			resolveAdapter({
+				adapter: "openrouter",
+				dialect: "openai",
+				adapter_config: { headers: { "X-Test": "test" } },
+			}),
+		).toThrow(/through LiteLLM/);
 		expect(
 			resolveAdapter({ adapter: "vertex_ai", dialect: "openai" }).family,
 		).toBe("vertex");
