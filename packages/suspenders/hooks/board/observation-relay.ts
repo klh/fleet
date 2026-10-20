@@ -292,8 +292,14 @@ export function startObservationRelay(
 					while (cursor < jobs.length && !stopped) {
 						const job = jobs[cursor++];
 						if ((retries.get(job.target.url)?.until ?? 0) > clock()) continue;
+						let token: string;
 						try {
-							const token = readWriteToken(job.target.writeTokenFile);
+							token = readWriteToken(job.target.writeTokenFile);
+						} catch {
+							fail(job.target.url, "Relay private token file unavailable");
+							continue;
+						}
+						try {
 							const response = await request(
 								`${job.target.url}/api/lane-observations`,
 								{
@@ -322,10 +328,16 @@ export function startObservationRelay(
 							status.lastSuccessAt = clock();
 							if (!failedTargets.has(job.target.url))
 								retries.delete(job.target.url);
-						} catch {
+						} catch (error) {
+							const code =
+								error && typeof error === "object" && "code" in error
+									? error.code
+									: null;
 							fail(
 								job.target.url,
-								"Relay request or private token file unavailable",
+								code === "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"
+									? "Relay TLS issuer certificate untrusted"
+									: "Relay request failed",
 							);
 						}
 					}

@@ -307,6 +307,42 @@ test("real HTTP transport sends authenticated observations and rejects a wrong w
 	}
 });
 
+test("relay distinguishes an untrusted TLS issuer from a missing private token", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "fleet-relay-tls-"));
+	const source = database(true);
+	let clock = now;
+	const conf = config(dir, "A", [
+		{ url: "https://nas.example.test", hubId: "B" },
+	]);
+	const tlsError = Object.assign(new TypeError("certificate rejected"), {
+		code: "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+	});
+	const relay = startObservationRelay(source, {
+		configPath: conf.path,
+		autoStart: false,
+		now: () => clock,
+		fetch: (async () => {
+			throw tlsError;
+		}) as typeof fetch,
+	});
+	try {
+		await relay.tick();
+		expect(relay.status().lastError).toBe(
+			"Relay TLS issuer certificate untrusted",
+		);
+		chmodSync(conf.writeTokenFile, 0o644);
+		clock += 1000;
+		await relay.tick();
+		expect(relay.status().lastError).toBe(
+			"Relay private token file unavailable",
+		);
+	} finally {
+		relay.stop();
+		source.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("rotating batches remain capped at 100 without starving later lanes", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "fleet-relay-batch-"));
 	const db = database();

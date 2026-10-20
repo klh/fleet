@@ -36,7 +36,7 @@
 //   The stderr timing line (render: N service(s) in X ms) is the benchmark
 //   number for the root benchmarks.md.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
 import {
@@ -449,10 +449,29 @@ export function renderDarwin(spec: ServiceSpec, values: RenderValues): string {
 	body.push("\t</array>\n");
 	if (spec.cwd !== undefined)
 		body.push(xmlStr("WorkingDirectory", s(spec.cwd), "\t"));
-	const envKeys = Object.keys(spec.env);
+	// Bun reads NODE_EXTRA_CA_CERTS at process start. Add the local Caddy CA
+	// to every service that talks to another .local front; fetch cannot be
+	// repaired by setting this variable inside the running board process.
+	const localCa =
+		process.env.KLH_LOCAL_CA_FILE ??
+		join(
+			values.home,
+			"Library",
+			"Application Support",
+			"Caddy",
+			"pki",
+			"authorities",
+			"local",
+			"root.crt",
+		);
+	const env = {
+		...spec.env,
+		...(existsSync(localCa) ? { NODE_EXTRA_CA_CERTS: localCa } : {}),
+	};
+	const envKeys = Object.keys(env);
 	if (envKeys.length > 0) {
 		body.push("\t<key>EnvironmentVariables</key>\n\t<dict>\n");
-		for (const k of envKeys) body.push(xmlStr(k, s(spec.env[k]), "\t\t"));
+		for (const k of envKeys) body.push(xmlStr(k, s(env[k]), "\t\t"));
 		body.push("\t</dict>\n");
 	}
 	if (spec.schedule.intervalSeconds !== undefined) {

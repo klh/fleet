@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -52,6 +58,26 @@ function fixture() {
 	return { dir, first, second, spec, values };
 }
 describe("W501 supervised gateway env files", () => {
+	test("Darwin services trust the local Caddy CA when it is installed", () => {
+		const f = fixture();
+		const ca = join(
+			f.dir,
+			"Library",
+			"Application Support",
+			"Caddy",
+			"pki",
+			"authorities",
+			"local",
+			"root.crt",
+		);
+		mkdirSync(join(ca, ".."), { recursive: true });
+		writeFileSync(ca, "fixture CA");
+		const plist = parsePlistXml(renderDarwin(f.spec, f.values));
+		expect(
+			(plist.EnvironmentVariables as Record<string, string>)
+				.NODE_EXTRA_CA_CERTS,
+		).toBe(ca);
+	});
 	test("Darwin wrapper loads both required files, exports them and preserves literal argv", () => {
 		const f = fixture();
 		const plist = parsePlistXml(renderDarwin(f.spec, f.values));
