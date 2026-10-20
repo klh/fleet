@@ -4,18 +4,53 @@
 // (laneVerdict: process identity + claimant transcript) plus the governor
 // heartbeat (sessions.hb — advances with every gate touch, W9). Tri-state
 // alive/dead/unknown; unknown NEVER releases (monitor doctrine W51: lookup
-// failure is never death). Death must repeat N consecutive passes before a
+// failure is never death). W972: positive session absence — no session row,
+// closed row, or zombie-cold heartbeat with no fresh transcript — IS death
+// evidence when the claimant holds no lane-registry entry. Death must repeat
+// N consecutive passes before a
 // release — the counter lives in the facts table, reset by any non-dead pass
 // or claim change (Gas City detached_probe lift, docs/harness-lift-research.md
 // #2). A claimant can pause the reaper across a known-long op:
 // `work extend <id> --for 45m` (Hermes claim-extend lift).
 import type { GovernorStore } from "./govdb.ts";
-import { type LaneRef, laneVerdict } from "./lane-liveness.ts";
+import { type LaneRef, laneVerdict, transcriptAlive } from "./lane-liveness.ts";
 
 // sessions heartbeat window — bus parity with quota-sweep LIVE_HB_MS
 const LIVE_HB_MS = 30 * 60_000;
 // dead must repeat this many consecutive reclaim passes before release
 export const STRIKES_TO_RECLAIM = 3;
+// W972: the board's zombie window (board/lanes.ts deadAfterMs parity — same
+// fact key + fallback): heartbeat staleness past this reads as death for the
+// session face
+const ZOMBIE_FALLBACK_MS = 45 * 60_000;
+const zombieAfterMs = (store: GovernorStore): number => {
+	try {
+		const v = Number(
+			(
+				store
+					.query("SELECT value FROM facts WHERE key = 'fleet.zombie_after_ms'")
+					.get() as { value: string } | null
+			)?.value,
+		);
+		return Number.isFinite(v) && v > 0 ? v : ZOMBIE_FALLBACK_MS;
+	} catch {
+		return ZOMBIE_FALLBACK_MS;
+	}
+};
+
+const coordinatorSid = (store: GovernorStore): string | null => {
+	try {
+		return (
+			(
+				store
+					.query("SELECT value FROM facts WHERE key = 'coordinator.sid'")
+					.get() as { value: string } | null
+			)?.value ?? null
+		);
+	} catch {
+		return null;
+	}
+};
 // `work extend --for` ceiling — an extension is a pause, not a retirement
 const MAX_EXTEND_MS = 24 * 60 * 60_000;
 
@@ -44,11 +79,54 @@ export function hbFresh(
 	}
 }
 
+// W972: positive session-death evidence for the claim-liveness verdict.
+// "No session + no lane entry" is death evidence, not lookup failure: a
+// claim whose owning session is positively gone and whose lane-registry
+// entry is pruned must be releasable. Forms mirror the board's sessions face
+// (board/lanes.ts aliveFromRow): row gone; row closed (swept); RUNNING with
+// the heartbeat cold past the zombie window and no fresh claimant
+// transcript. Coordinators sleep between waves — staleness is never death
+// there (board targetAlive parity). Pid-reuse safety: this path reads NO
+// process table — identity is the sid-keyed row itself, so a recycled pid
+// can neither fake nor flip it; the registry path keeps its args-anchored
+// process identity (laneProcessIdentity: the sid must appear in the harness
+// argv), the start-time/boot-id class of anchor.
+export type SessionDeath =
+	| { dead: false; why: null }
+	| { dead: true; why: string };
+
+export function sessionDeathEvidence(
+	store: GovernorStore,
+	sid: string,
+	now = Date.now(),
+): SessionDeath | null {
+	if (!sid) return null;
+	try {
+		const row = store
+			.query("SELECT state, hb, role FROM sessions WHERE sid = ?")
+			.get(sid) as { state: string; hb: number; role: string | null } | null;
+		if (!row) return { dead: true, why: "no session row" };
+		if (row.state !== "RUNNING") return { dead: true, why: "session closed" };
+		if (row.role === "coordinator" || sid === coordinatorSid(store))
+			return { dead: false, why: null };
+		if (row.hb > now - zombieAfterMs(store)) return { dead: false, why: null };
+		if (transcriptAlive(sid)) return { dead: false, why: null };
+		return {
+			dead: true,
+			why: "session heartbeat cold past the zombie window",
+		};
+	} catch {
+		return null; // db error — lookup failure is never death (W51)
+	}
+}
+
 export type ReclaimVerdict = "alive" | "dead" | "unknown";
 
 export type ClaimProbe = {
 	verdict: ReclaimVerdict;
 	holdUntil: number | null;
+	/** W972: when dead via positive session absence (no lane entry), the tag. */
+	deathEvidence?: string;
 };
 
 export type ClaimObservation = {
@@ -69,12 +147,23 @@ export function probeClaim(
 	const lease = readReclaimHold(store, project, obs.id);
 	const holdUntil =
 		lease && lease.holdUntil > now ? (lease.holdUntil as number) : null;
-	let verdict: ReclaimVerdict = obs.lane
-		? laneVerdict(obs.lane)
-		: "unknown";
-	if (verdict !== "alive" && hbFresh(store, obs.owner, now))
-		verdict = "alive";
-	return { verdict, holdUntil };
+	let verdict: ReclaimVerdict = obs.lane ? laneVerdict(obs.lane) : "unknown";
+	let deathEvidence: string | undefined;
+	if (verdict !== "alive" && hbFresh(store, obs.owner, now)) verdict = "alive";
+	// W972: positive absence on BOTH terms is death evidence, not lookup
+	// failure — no lane-registry entry AND the owning session positively
+	// gone (row gone / closed / zombie-cold). Lookup failure (null) stays
+	// unknown: W51, unknown never releases.
+	if (verdict === "unknown" && !obs.lane) {
+		const death = sessionDeathEvidence(store, obs.owner, now);
+		if (death?.dead) {
+			verdict = "dead";
+			deathEvidence = `no lane entry + ${death.why}`;
+		}
+	}
+	return deathEvidence
+		? { verdict, holdUntil, deathEvidence }
+		: { verdict, holdUntil };
 }
 
 export type ReclaimDecision = ClaimProbe & {
@@ -93,7 +182,7 @@ export function observeReclaim(
 ): ReclaimDecision {
 	const now = obs.now ?? Date.now();
 	const key = strikeKey(project, obs.id);
-	const { verdict, holdUntil } = probeClaim(store, project, obs);
+	const { verdict, holdUntil, deathEvidence } = probeClaim(store, project, obs);
 	if (holdUntil !== null) {
 		clearStrikes(store, key);
 		return {
@@ -127,20 +216,21 @@ export function observeReclaim(
 		JSON.stringify({ owner: obs.owner, revision: obs.revision, strikes }),
 		now,
 	);
+	const tag = deathEvidence ? ` — ${deathEvidence}` : "";
 	if (strikes >= STRIKES_TO_RECLAIM)
 		return {
 			verdict,
 			strikes,
 			holdUntil,
 			action: "release",
-			why: `dead ×${strikes} consecutive passes`,
+			why: `dead${tag} ×${strikes} consecutive passes`,
 		};
 	return {
 		verdict,
 		strikes,
 		holdUntil,
 		action: "hold",
-		why: `dead, strike ${strikes}/${STRIKES_TO_RECLAIM}`,
+		why: `dead${tag}, strike ${strikes}/${STRIKES_TO_RECLAIM}`,
 	};
 }
 
@@ -189,9 +279,9 @@ function readStrikes(
 	key: string,
 ): { owner: string; revision: number; strikes: number } | null {
 	try {
-		const row = store.query("SELECT value FROM facts WHERE key = ?").get(key) as
-			| { value: string }
-			| null;
+		const row = store
+			.query("SELECT value FROM facts WHERE key = ?")
+			.get(key) as { value: string } | null;
 		if (!row) return null;
 		const v = JSON.parse(row.value) as {
 			owner?: unknown;

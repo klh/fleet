@@ -93,8 +93,13 @@ test("laneVerdict tri-state: dead pid + empty home = dead; foreign host without 
 	}
 });
 
-test("unknown never releases — no lane entry, no heartbeat, pass after pass", () => {
+test("unknown holds while the session row sits between the windows (hb 35m cold)", () => {
 	const s = fixture();
+	s.run(
+		"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('o1', 'p', 'lane', NULL, ?, ?, 'RUNNING')",
+		Date.now(),
+		Date.now() - 35 * 60_000,
+	);
 	const obs = { id: "W1", owner: "o1", revision: 1 };
 	for (let i = 0; i < 5; i++) {
 		const d = observeReclaim(s, "p", obs);
@@ -104,6 +109,112 @@ test("unknown never releases — no lane entry, no heartbeat, pass after pass", 
 	}
 	// unknown passes never seed a strike fact either
 	expect(s.query("SELECT COUNT(*) AS n FROM facts").get()).toEqual({ n: 0 });
+});
+
+test("ghost claim: no session row + no lane entry is death evidence — 3 strikes, tagged release", () => {
+	const s = fixture();
+	const obs = { id: "W1", owner: "autowX-p98b", revision: 1 };
+	const first = observeReclaim(s, "p", obs);
+	expect(first.verdict).toBe("dead");
+	expect(first.why).toContain("no lane entry + no session row");
+	expect(first.why).toContain("strike 1/3");
+	expect(observeReclaim(s, "p", obs).why).toContain("strike 2/3");
+	const third = observeReclaim(s, "p", obs);
+	expect(third.action).toBe("release");
+	expect(third.why).toContain(
+		"dead — no lane entry + no session row ×3 consecutive passes",
+	);
+});
+
+test("session closed (swept) is death evidence, tagged", () => {
+	const s = fixture();
+	const now = Date.now();
+	s.run(
+		"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('o1', 'p', 'lane', NULL, ?, ?, 'CLOSED')",
+		now,
+		now,
+	);
+	const closed = probeClaim(s, "p", { id: "W1", owner: "o1", revision: 1 });
+	expect(closed.verdict).toBe("dead");
+	expect(closed.deathEvidence).toBe("no lane entry + session closed");
+});
+
+test("zombie-cold heartbeat is death with no transcript; fresh transcript holds it as unknown", () => {
+	const home = `${import.meta.dir}/.tmp-rcm-${Date.now()}`;
+	directories.push(home);
+	mkdirSync(`${home}/.claude/projects/p`, { recursive: true });
+	const realHome = process.env.HOME;
+	process.env.HOME = home;
+	try {
+		const s = fixture();
+		const now = Date.now();
+		s.run(
+			"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('o2', 'p', 'lane', NULL, ?, ?, 'RUNNING')",
+			now,
+			now - 50 * 60_000,
+		);
+		const obs = { id: "W2", owner: "o2", revision: 1 };
+		const zombie = probeClaim(s, "p", obs);
+		expect(zombie.verdict).toBe("dead");
+		expect(zombie.deathEvidence).toBe(
+			"no lane entry + session heartbeat cold past the zombie window",
+		);
+		// a fresh claimant transcript rescues — verdict falls back to unknown
+		// (held), never a false "alive"
+		writeFileSync(`${home}/.claude/projects/p/session-o2.jsonl`, "{}");
+		expect(probeClaim(s, "p", obs).verdict).toBe("unknown");
+	} finally {
+		process.env.HOME = realHome;
+	}
+});
+
+test("coordinator role rows never read dead", () => {
+	const s = fixture();
+	const now = Date.now();
+	s.run(
+		"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('coord1', 'p', 'coordinator', NULL, ?, ?, 'RUNNING')",
+		now,
+		now - 26 * 3_600_000,
+	);
+	expect(
+		probeClaim(s, "p", { id: "W1", owner: "coord1", revision: 1 }).verdict,
+	).toBe("unknown");
+});
+
+test("the published coordinator.sid fact exempts a misrecorded role", () => {
+	const s = fixture();
+	const now = Date.now();
+	s.run(
+		"INSERT INTO facts (key, value, source, version, ts) VALUES ('coordinator.sid', 'coord2', 'test', 1, ?)",
+		now,
+	);
+	s.run(
+		"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('coord2', 'p', 'lane', NULL, ?, ?, 'RUNNING')",
+		now,
+		now - 26 * 3_600_000,
+	);
+	expect(
+		probeClaim(s, "p", { id: "W2", owner: "coord2", revision: 1 }).verdict,
+	).toBe("unknown");
+});
+
+test("a throwing store is lookup failure — unknown, never death", () => {
+	const broken = {
+		local: true,
+		query: () => {
+			throw new Error("db locked");
+		},
+	} as unknown as GovernorStore;
+	expect(
+		probeClaim(broken, "p", { id: "W3", owner: "o3", revision: 1 }).verdict,
+	).toBe("unknown");
+	const held = observeReclaim(broken, "p", {
+		id: "W3",
+		owner: "o3",
+		revision: 1,
+	});
+	expect(held.action).toBe("hold");
+	expect(held.why).toContain("unknown");
 });
 
 test("dead ×3 consecutive passes release; a heartbeat live pass resets the chain", () => {
@@ -154,7 +265,8 @@ test("a claim change resets the strike chain", () => {
 	).toBe(1);
 	// a different owner likewise
 	expect(
-		observeReclaim(s, "p", { id: "W1", owner: "o2", revision: 2, lane }).strikes,
+		observeReclaim(s, "p", { id: "W1", owner: "o2", revision: 2, lane })
+			.strikes,
 	).toBe(1);
 });
 
@@ -192,7 +304,7 @@ test("probeClaim is read-only — verdicts without counter writes", () => {
 	expect(s.query("SELECT COUNT(*) AS n FROM facts").get()).toEqual({ n: 0 });
 });
 
-test("CLI: an evidence-less claim survives reclaim all, pass after pass", () => {
+test("CLI: ghost claim — no lane entry, no session row → 3 dead passes then READY", () => {
 	const root = mkdtempSync(join(tmpdir(), "fleet-reclaim-"));
 	directories.push(root);
 	const call = (...args: string[]) =>
@@ -211,18 +323,18 @@ test("CLI: an evidence-less claim survives reclaim all, pass after pass", () => 
 		);
 	const id = call("add", "ghost").stdout.toString().match(/W\d+/)?.[0] ?? "";
 	expect(call("take", id, "--as", "autod").exitCode).toBe(0);
-	// no registry row, no transcript, no session row → unknown → held (the
-	// old code released it on pass one)
-	expect(call("reclaim", "all").exitCode).toBe(0);
-	expect(call("reclaim", "all").exitCode).toBe(0);
+	// W972: row absence is positive death evidence — strikes climb and the
+	// third pass releases with the evidence tag on the printed line
+	const p1 = call("reclaim", "all").stdout.toString();
+	expect(p1).toContain("no lane entry + no session row");
+	expect(p1).toContain("strike 1/3");
+	expect(call("reclaim", "all").stdout.toString()).toContain("strike 2/3");
+	const p3 = call("reclaim", "all").stdout.toString();
+	expect(p3).toContain("reclaimed → READY");
+	expect(p3).toContain("×3 consecutive passes");
 	const state = JSON.parse(call("show", id, "--json").stdout.toString())
 		.state as string;
-	expect(state).toBe("CLAIMED");
-	// the listing keeps unknown visible for the operator
-	const orphaned = JSON.parse(
-		call("orphaned", "--item", id, "--json").stdout.toString(),
-	).map((row: { id: string }) => row.id);
-	expect(orphaned).toEqual([id]);
+	expect(state).toBe("READY");
 });
 
 test("CLI: registry dead pid → extend pause, strikes, release on the third dead pass", () => {
@@ -230,7 +342,11 @@ test("CLI: registry dead pid → extend pause, strikes, release on the third dea
 	directories.push(root);
 	const call = (...args: string[]) =>
 		Bun.spawnSync(
-			[process.execPath, join(import.meta.dir, "../hooks/bin/work.ts"), ...args],
+			[
+				process.execPath,
+				join(import.meta.dir, "../hooks/bin/work.ts"),
+				...args,
+			],
 			{
 				cwd: root,
 				env: { ...process.env, HOME: root, GOVERNOR_STORE_URL: "local" },
