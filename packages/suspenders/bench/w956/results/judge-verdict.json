@@ -1,0 +1,22 @@
+{
+	"seed": 956,
+	"placement": "BBAABAAABB (bankedInX per question; judge-index.json)",
+	"runs": [
+		{ "id": 1, "raw": "results/judge-verdict-raw.txt", "ms": 7804 },
+		{ "id": 2, "raw": "results/judge-verdict-2-raw.txt", "ms": 6838 }
+	],
+	"perQuestion": [
+		{ "qid": "T1", "xFrom": "B", "run1": "X", "run2": "X", "mapped": "B", "note": "B full (272,467/111,465/$1.01), A no-answer" },
+		{ "qid": "T2", "xFrom": "B", "run1": "X", "run2": "X", "mapped": "B", "note": "B full (commit + 5 files), A no-answer" },
+		{ "qid": "T3", "xFrom": "A", "run1": "Y", "run2": "Y", "mapped": "B", "note": "B full (28-min/446/140k/55k), A no-answer" },
+		{ "qid": "T4", "xFrom": "A", "run1": "Y", "run2": "Y", "mapped": "B", "note": "B full (glm-5.3-flash, 41,417 out, 20min), A no-answer" },
+		{ "qid": "T5", "xFrom": "B", "run1": "X", "run2": "X", "mapped": "B", "note": "B full (W927 89-min/172,112 out/$1.19), A no-answer" },
+		{ "qid": "J1", "xFrom": "A", "run1": "Y", "run2": "Y", "mapped": "B", "note": "B full (per-commit walk + never-bypass), A unbanked" },
+		{ "qid": "J2", "xFrom": "A", "run1": "tie", "run2": "tie", "mapped": "tie", "note": "both 5/5 — facts lesson vs corpus echo, quality tied" },
+		{ "qid": "J3", "xFrom": "A", "run1": "tie", "run2": "tie", "mapped": "tie", "note": "both 5/5 — facts lesson vs corpus hits, quality tied" },
+		{ "qid": "J4", "xFrom": "A", "run1": "X*", "run2": "X*", "mapped": "B", "note": "JUDGE ANOMALY both runs: arm-A 'No answer' scored x_c=5/x_k=5 (run-2 prose even says 'X correct (explains veto)' — it attributed the GT memo's own text to X). Per the head prompt ('No answer scores correctness 0') the recomputed row is A 0/0 vs B 5/5 → B. Raw kept, recompute recorded." },
+		{ "qid": "J5", "xFrom": "A", "run1": "X*", "run2": "X*", "mapped": "B", "note": "same anomaly as J4; recomputed → B (retry_after_cap_s design is in the corpus)" }
+	],
+	"tally": { "B": 8, "tie": 2, "A": 0, "anomalousRowsRecomputed": ["J4", "J5"] },
+	"verdict": "round 2 CONFIRMS round 1 on clean data: stamped-mechanical (0.4/mechanical:decant/fresh) sweeps telemetry 5/5 and J1/J4/J5 with ZERO bench-lane self-echo (the frozen corpus excluded the W949/W956 lanes entirely); facts layer answers only J2/J3 (ties, 5/5 both); confidence stamps changed nothing measurable — zero banked rows carry a rating (doctrine landed, corpus unstamped), so the band-filterable arm degenerated to the round-1 layer"
+}

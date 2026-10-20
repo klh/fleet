@@ -1,0 +1,26 @@
+{
+	"arm": "B",
+	"layer": "stamped decant (FTS + per-session stats) over the frozen corpus",
+	"db": "/tmp/w956-bench.db",
+	"sync": {
+		"note": "fresh index over the frozen snapshot; long passes were CPU-capped (exit 152 twice at 60-90min) so the scope landed as: claude-projects (fleet-era corpus, 1843 sessions / ~619k msgs incl. all 10 questions' material) + targeted verify passes over the 5 bench-question worktree dirs (scanned 5, skipped 5 = already ingested); codex months 2026-07..10 not ingested — no question material, recorded as a scope caveat",
+		"files": "claude corpus per results/corpus-manifest.json (freeze 2026-10-19T20:40:37Z, seal e3c32249ac55)"
+	},
+	"stamps": {
+		"contract": "mechanical rows stamp {rating: 0.4, provenance: 'mechanical:decant', freshness: 'fresh'} (W950 fleet stamp contract; decant v0.11.0 has no native rating — the stamp is fleet-side)",
+		"appliedTo": "every answer row in answers-b.json"
+	},
+	"lsProjectNote": "ls --project matches project_path EXACTLY (substring returns []); item paths are the .worktrees/<id> cwd",
+	"questions": [
+		{ "qid": "T1", "steps": [{ "cmd": "ls --project /Volumes/Sensitive/github/klh/fleet/.worktrees/W932 --json", "bytes": 1650 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "T2", "steps": [{ "cmd": "search W935 --json --limit 15", "bytes": 5900 }, { "cmd": "search 'upstreams.copilot.yaml' / 'adapters-wire.test.ts' / 'anthropic.ts openai-compat.ts' --json --limit 5-6", "bytes": 5400 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "T3", "steps": [{ "cmd": "ls --project /Volumes/Sensitive/github/klh/fleet/.worktrees/W918 --json", "bytes": 1620 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "T4", "steps": [{ "cmd": "ls --project /Volumes/Sensitive/github/klh/fleet/.worktrees/W918.5 --json", "bytes": 1640 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "T5", "steps": [{ "cmd": "ls --project /Volumes/Sensitive/github/klh/fleet/.worktrees/W927 --json", "bytes": 1650 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "J1", "steps": [{ "cmd": "search 'scrub:allow' --json --limit 10", "bytes": 5600 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "J2", "steps": [{ "cmd": "search 'copied-sleep zombie' --json --limit 10", "bytes": 5500 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "J3", "steps": [{ "cmd": "search 'capsule checkpoint rev-parse' --json --limit 8", "bytes": 5200 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "J4", "steps": [{ "cmd": "search 'self-ship merge ladder' --json --limit 8", "bytes": 5300 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } },
+		{ "qid": "J5", "steps": [{ "cmd": "search 'retry_after cap' --json --limit 8", "bytes": 5300 }], "answered": true, "stamp": { "rating": 0.4, "provenance": "mechanical:decant", "freshness": "fresh" } }
+	]
+}

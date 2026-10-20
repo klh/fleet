@@ -93,6 +93,22 @@ decision-grade: it has to change what you would do. When a verdict flips
   emissions passed the parse gate (ghost identifiers, garbled constants).
   Rule: ≤35-line chunked/anchored edits, parse-check + generated-diff review
   before apply; whole-file ports go through `git show` extraction.
+- **Banking telemetry-shaped knowledge as facts rows** — W949's A/B
+  measured the banked-facts layer losing preference 0/5 to a mechanical
+  transcript sweep, and W956's round 2 re-ran it on a W952-protocol
+  FROZEN corpus (snapshot sealed before question selection, bench-lane
+  eras excluded — zero self-echo possible): sweep confirmed, 8 picks to
+  0 with 2 ties, judge-scored telemetry 5/5 with the one residual gap
+  (T3 cache-rate; T1's GT accepts either view) being exactly the
+  ledger-only metric mechanical cannot serve, and the facts layer's
+  only full answers remain the two banked lessons (J2/J3, ties at 5/5)
+  at ~17× cheaper per-hit reads. Round 2's
+  confidence-stamp twist (W953/W955 schema on both arms) moved nothing
+  measurable — zero banked rows carry a rating, so band-filterable
+  discovery is theoretical until the corpus is backfilled. Standing
+  policy: mechanical-first (decant) with fact-backfill only for
+  ledger-only metrics; bank judgment lessons, never telemetry numbers.
+  [Round-2 receipts](benchmarks.md#knowledge-retrieval--stamped-mechanical-vs-stamped-factskb-frozen-corpus-w956-round-2-2026-10-19).
 
 ## Tooling
 

@@ -1,0 +1,33 @@
+WHAT: Oracle analysis of 10 telemetry/judgment pairs comparing candidate answers against ground truth memos.
+HOW:
+- T1: X correct (matches decant view); Y incorrect (denies existence).
+- T2: X correct (matches file list/commit); Y incorrect (denies existence).
+- T3: X incorrect (denies existence); Y correct (distinguishes views).
+- T4: X incorrect (denies existence); Y correct (synthesizes model/rate).
+- T5: X correct (identifies W927); Y incorrect (denies existence).
+- J1: X incorrect (denies existence); Y correct (explains re-flag logic).
+- J2: X correct (details incident); Y correct (details incident, slightly less specific on "skip/re-baseline" nuance but functionally equivalent).
+- J3: X correct (explains misleading error); Y correct (adds code-level context).
+- J4: X correct (explains veto); Y incorrect (denies existence).
+- J5: X correct (explains cap); Y incorrect (denies existence).
+RISKS:
+- High false-negative rate in Y's "No answer" responses across all categories (telemetry and judgment), suggesting a systemic failure to retrieve banked data rather than actual absence.
+- X demonstrates consistent retrieval capability where Y fails, indicating X has access to the "transcript/corpus" layer while Y is restricted to a limited "fact-list" layer.
+- Potential hallucination risk if X conflates "decant view" with "ledger view" without explicit distinction (though X generally handles this well in T1/T3).
+OPEN QUESTIONS:
+- Why does Answer Y consistently return "No answer" for items that are explicitly present in the Ground Truth?
+- Is there a permission boundary preventing Y from accessing the "banked layer" or "transcript surface"?
+- Does the "UNBANKED" status in Y's reasoning indicate a configuration error or a deliberate read-only restriction?
+- How should the system handle cases where X provides a valid answer but relies on a specific view (e.g., decant) that might be considered incomplete by some metrics?
+
+{"qid":"T1","x_c":5,"x_k":5,"y_c":0,"y_k":0,"pick":"X"}
+{"qid":"T2","x_c":5,"x_k":5,"y_c":0,"y_k":0,"pick":"X"}
+{"qid":"T3","x_c":0,"x_k":0,"y_c":5,"y_k":5,"pick":"Y"}
+{"qid":"T4","x_c":0,"x_k":0,"y_c":5,"y_k":5,"pick":"Y"}
+{"qid":"T5","x_c":5,"x_k":5,"y_c":0,"y_k":0,"pick":"X"}
+{"qid":"J1","x_c":0,"x_k":0,"y_c":5,"y_k":5,"pick":"Y"}
+{"qid":"J2","x_c":5,"x_k":5,"y_c":5,"y_k":5,"pick":"tie"}
+{"qid":"J3","x_c":5,"x_k":5,"y_c":5,"y_k":5,"pick":"tie"}
+{"qid":"J4","x_c":5,"x_k":5,"y_c":0,"y_k":0,"pick":"X"}
+{"qid":"J5","x_c":5,"x_k":5,"y_c":0,"y_k":0,"pick":"X"}
+oracle: analyze route=local-reason model=mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit ms=6838

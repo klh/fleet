@@ -1,0 +1,25 @@
+{
+ "cutoff": "2026-10-19T20:40:37.441Z",
+ "snapshot": "/tmp/w956-frozen-corpus2",
+ "sources": {
+  "claude-projects": {
+   "files": 5605,
+   "bytes": 6303209256,
+   "skipped": {
+    "postFreeze": 0,
+    "benchDirs": 9,
+    "secrets": 0
+   }
+  },
+  "codex": {
+   "files": 27136,
+   "bytes": 8834501485,
+   "skipped": {
+    "postFreeze": 2,
+    "benchDirs": 0,
+    "secrets": 34
+   }
+  }
+ },
+ "seal": "e3c32249ac551409304004bad4f81338458b3a321c866d6de6955bc1a6b96308"
+}
