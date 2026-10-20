@@ -1,6 +1,6 @@
 // bin/router-policy.ts — load + emit belt's LiteLLM routing policy. The
-// single config source is bin/routing-policy.yaml (committed default); a
-// runtime copy at ~/.claude/local-llm/routing-policy.yaml overrides it, and
+// committed YAML default; a runtime routing-policy.json (or legacy YAML)
+// overrides it, and
 // BELT_POLICY overrides both. bin/gateway-config.ts emits the `gateway`
 // section as router_settings plus the ladders as litellm_settings.fallbacks
 // (W219.2 — the placement the installed litellm reads; verified in pinned
@@ -16,7 +16,7 @@
 // gateway.num_retries; gateway.litellm_num_retries independently controls
 // the inner router and preserves the existing default of one. Operators opt
 // into zero for verified Buckle-fronted deployments. SDK retries stay disabled.
-// Owner directives: never flashx; operators edit the YAML, never code.
+// Owner directives: never flashx; operators edit machine config, never code.
 import { YAML } from "bun";
 import { existsSync, readFileSync } from "node:fs";
 import { chatEntries } from "./registry.ts";
@@ -64,8 +64,11 @@ const DEFAULTS: Required<
 };
 
 /** Parse a policy document (tests + loader share this path). */
-export function parsePolicy(text: string): GatewayPolicy {
-	const doc = YAML.parse(text) as PolicyDoc;
+export function parsePolicy(
+	text: string,
+	format: "auto" | "json" | "yaml" = "auto",
+): GatewayPolicy {
+	const doc = parsePolicyDocument(text, format) as PolicyDoc;
 	const policy = { ...DEFAULTS, ...(doc.gateway ?? {}) };
 	validateInnerRetries(policy.litellm_num_retries);
 	validateInnerFallbacks(policy.litellm_fallbacks);
@@ -75,6 +78,39 @@ export function parsePolicy(text: string): GatewayPolicy {
 		policy.reasoning = parseReasoning(doc.reasoning);
 	return policy;
 }
+
+const parsePolicyDocument = (
+	text: string,
+	format: "auto" | "json" | "yaml" = "auto",
+): Record<string, unknown> => {
+	const trimmed = text.trimStart();
+	const isJson =
+		format === "json" ||
+		(format === "auto" && (trimmed.startsWith("{") || trimmed.startsWith("[")));
+	const doc = isJson
+		? (JSON.parse(text) as unknown)
+		: (YAML.parse(text) as unknown);
+	if (doc === null || typeof doc !== "object" || Array.isArray(doc))
+		throw new Error("router-policy: policy must be an object");
+	return doc as Record<string, unknown>;
+};
+
+const jsonSibling = (path: string): string =>
+	path.replace(/\.ya?ml$/i, ".json");
+
+const formatOf = (path: string): "json" | "yaml" =>
+	path.endsWith(".json") ? "json" : "yaml";
+
+const policyCandidates = (
+	pinned: (string | undefined)[],
+	home: string,
+): string[] => [
+	...pinned.flatMap((path) => (path ? [jsonSibling(path), path] : [])),
+	`${home}/.claude/local-llm/routing-policy.json`,
+	`${home}/.claude/local-llm/routing-policy.yaml`,
+	new URL("./routing-policy.json", import.meta.url).pathname,
+	new URL("./routing-policy.yaml", import.meta.url).pathname,
+];
 
 function validateInnerRetries(value: unknown): number {
 	if (
@@ -100,18 +136,16 @@ function validateInnerFallbacks(value: unknown): boolean {
 /** Resolution order: explicit path → BELT_POLICY → runtime copy in the
  *  local-llm dir → the committed default in bin/. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
-	const candidates = [
-		explicitPath,
-		process.env.BELT_POLICY,
-		`${process.env.HOME}/.claude/local-llm/routing-policy.yaml`,
-		new URL("./routing-policy.yaml", import.meta.url).pathname,
-	].filter((p): p is string => typeof p === "string" && p.length > 0);
+	const candidates = policyCandidates(
+		[explicitPath, process.env.BELT_POLICY],
+		process.env.HOME ?? "",
+	);
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		return parsePolicy(readFileSync(p, "utf8"));
+		return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
 	}
 	throw new Error(
-		"router-policy: no routing-policy.yaml (BELT_POLICY, ~/.claude/local-llm/, bin/)",
+		"router-policy: no routing-policy.json or legacy YAML (BELT_POLICY, ~/.claude/local-llm/, bin/)",
 	);
 }
 
@@ -191,8 +225,13 @@ const directBaseOf = (spec: unknown): string | null => {
  *  bypass skips the gateway's auth + accounting, so it must stay on-box.
  *  Rows may be the legacy `alias: <url>` strings or the emitted object
  *  shape; both normalize to alias → loopback /v1 base. */
-export function parseDirect(text: string): DirectTiers {
-	const doc = YAML.parse(text) as { direct?: Record<string, unknown> };
+export function parseDirect(
+	text: string,
+	format: "auto" | "json" | "yaml" = "auto",
+): DirectTiers {
+	const doc = parsePolicyDocument(text, format) as {
+		direct?: Record<string, unknown>;
+	};
 	const out: DirectTiers = {};
 	for (const [alias, spec] of Object.entries(doc.direct ?? {})) {
 		const base = directBaseOf(spec);
@@ -270,26 +309,31 @@ export function loadDirectTiers(
 	home?: string,
 ): DirectTiers {
 	const h = home ?? process.env.HOME ?? "";
-	// operator pin (explicit path / BELT_POLICY) keeps YAML semantics and
+	// operator pin (explicit path / BELT_POLICY) keeps precedence and
 	// overrides everything — tests pin fixtures through it
 	const pinned = [explicitPath, process.env.BELT_POLICY].filter(
 		(p): p is string => typeof p === "string" && p.length > 0,
 	);
-	for (const p of pinned) {
+	for (const p of pinned.flatMap((path) => [jsonSibling(path), path])) {
 		if (!existsSync(p)) continue;
-		return parseDirect(readFileSync(p, "utf8"));
+		return parseDirect(readFileSync(p, "utf8"), formatOf(p));
 	}
 	const artifact = readDirectTiersArtifact(
 		`${h}/.claude/local-llm/direct-tiers.json`,
 	);
 	if (artifact) return artifact;
+	const runtimeJson = `${h}/.claude/local-llm/routing-policy.json`;
+	if (existsSync(runtimeJson)) {
+		const rows = parseDirect(readFileSync(runtimeJson, "utf8"), "json");
+		if (Object.keys(rows).length > 0) return rows;
+	}
 	const candidates = [
 		`${h}/.claude/local-llm/routing-policy.yaml`,
 		new URL("./routing-policy.yaml", import.meta.url).pathname,
 	].filter((p) => p.length > 0);
 	for (const p of candidates) {
 		if (!existsSync(p)) continue;
-		const rows = parseDirect(readFileSync(p, "utf8"));
+		const rows = parseDirect(readFileSync(p, "utf8"), formatOf(p));
 		if (Object.keys(rows).length > 0) return rows;
 	}
 	return directTiersFromRegistry();
