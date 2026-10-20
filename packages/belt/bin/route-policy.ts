@@ -32,6 +32,9 @@ import {
 	type RemoteEndpoint,
 } from "./remotes.ts";
 import { metricsFor, auditRoute, LOCAL_NAME } from "./metrics.ts";
+// W986.4: locals share the remote health contract — a non-2xx /v1/models
+// (or an "unhealthy" JSON body) is a dead candidate, not a healthy one.
+import { endpointPassed } from "./health.ts";
 import {
 	applyLawStack,
 	composeLawPlan,
@@ -247,12 +250,15 @@ function audit(
 	});
 }
 
-const localProbe = async (port: number): Promise<boolean> => {
+/** /v1/models liveness for a local specialist port (exported for tests). */
+export const localProbe = async (port: number): Promise<boolean> => {
 	try {
-		await fetch(`http://127.0.0.1:${port}/v1/models`, {
+		const r = await fetch(`http://127.0.0.1:${port}/v1/models`, {
 			signal: AbortSignal.timeout(1200),
 		});
-		return true;
+		// W986.4: non-2xx /v1/models is unhealthy — the old probe answered
+		// true for any response, so a 500ing local ranked as a full healthy fit
+		return await endpointPassed(r);
 	} catch {
 		return false;
 	}
@@ -669,12 +675,23 @@ function mustFits(all: Candidate[], hint: RouteHint): Candidate[] {
 	return all.filter((c) => c.healthy && hintFit(c, hint) === total);
 }
 
-/** `prefer` semantics: tier by fit, belt's own policy breaks ties — soft. */
-function preferOrdered(all: Candidate[], hint: RouteHint): Candidate[] {
+/** `prefer` semantics: tier by fit, belt's own policy breaks ties — soft
+ *  (exported for tests). */
+export function preferOrdered(all: Candidate[], hint: RouteHint): Candidate[] {
 	return all
 		.map((c) => ({ c, tier: hintFit(c, hint) }))
 		.sort((a, b) => b.tier - a.tier || compareCandidates(a.c, b.c))
 		.map((x) => x.c);
+}
+
+/** W986.4 — health is an ELIGIBILITY/RANKING guard for soft prefer, not a
+ *  tier below fit: the healthy subset keeps the preferOrdered order (healthy
+ *  fallback outranks an unhealthy full fit), and an empty result means the
+ *  caller fails fast with a machine-readable 503 instead of executing into
+ *  a dead endpoint. null = no healthy candidate at all. */
+export function healthyFirst(ordered: Candidate[]): Candidate[] | null {
+	const healthy = ordered.filter((c) => c.healthy);
+	return healthy.length ? healthy : null;
 }
 
 // ─── W164: repo-scoped law stack over the candidate pool ──────────────────
@@ -734,6 +751,15 @@ async function routeByHint(body: RouteBody, label: string): Promise<Response> {
 		});
 	}
 	let matching = preferOrdered(all, hint);
+	// W986.4: soft prefer never executes into a dead candidate — rank health
+	// above fit tier, and 503 (no execution, no tokens) when nothing is up.
+	const healthy = healthyFirst(matching);
+	if (!healthy) {
+		const why = `prefer '${raw}': no healthy candidate among ${all.length} — failing fast instead of executing into a dead endpoint`;
+		audit(label, "route", "errored", why, undefined, raw);
+		return respond(503, { error: "no healthy fit", why });
+	}
+	matching = healthy;
 	const degraded = (hintFit(matching[0], hint) ?? 0) < hintTotal(hint);
 	// W159 stage 2: a cached reclassifier verdict refines AMBIGUOUS fits for
 	// long-running placement; a cache miss schedules an async classify that
