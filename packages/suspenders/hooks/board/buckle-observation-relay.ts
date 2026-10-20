@@ -297,6 +297,12 @@ export function startBuckleObservationRelay(
 						error instanceof Error ? error.message : "Observation relay failed";
 				}
 			}
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Observation projection unavailable";
+			for (const state of states) state.lastError = message;
 		} finally {
 			projection?.close();
 			busy = false;
