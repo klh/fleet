@@ -269,6 +269,7 @@ export function buildTopology(
 			probed: 0,
 			routed: 0,
 			models: [],
+			services: [],
 		};
 		item.endpoints += 1;
 		if (row.host && !item.hosts.includes(row.host)) item.hosts.push(row.host);
@@ -282,6 +283,13 @@ export function buildTopology(
 			!item.models.includes(row.model)
 		)
 			item.models.push(row.model);
+		if (row.protocol === "immich")
+			item.services.push({
+				name: "Immich",
+				port: row.port,
+				roles: Array.isArray(row.roles) ? row.roles : [],
+				state: !remoteFresh ? "unknown" : row.ok ? "up" : "down",
+			});
 		machines.set(name, item);
 	}
 	for (const route of routes) {
