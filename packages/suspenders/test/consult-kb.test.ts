@@ -11,6 +11,8 @@ import { Database } from "bun:sqlite";
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-kb-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-kb-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
+const OTHER_REPO = mkdtempSync(join(tmpdir(), "suspenders-kb-other-"));
+mkdirSync(join(OTHER_REPO, ".git"), { recursive: true });
 const env = { ...process.env, HOME, SUSPENDERS_KEV_URL: "http://127.0.0.1:1" };
 const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
@@ -31,11 +33,12 @@ function projectOf(dir: string): string {
 	return realpathSync(dir);
 }
 const PROJ = projectOf(REPO);
+const OTHER_PROJ = projectOf(OTHER_REPO);
 const TS = Date.now();
 const EXPERT = "expert-sess-11111111";
 const ASKER = "asker-sess-22222222";
 
-function run(args: string[]) {
+function run(args: string[], cwd = REPO) {
 	const versionArgs = ["consult", "consult-reply"].includes(args[0])
 		? [
 				"--version",
@@ -44,7 +47,7 @@ function run(args: string[]) {
 			]
 		: [];
 	const p = Bun.spawnSync(["bun", coord, ...args, ...versionArgs], {
-		cwd: REPO,
+		cwd,
 		env,
 		stdout: "pipe",
 		stderr: "pipe",
@@ -71,11 +74,11 @@ async function runAsync(args: string[], overrides: Record<string, string>) {
 	return { out, err, code };
 }
 
-function seedSession(sid: string) {
+function seedSession(sid: string, project = PROJ) {
 	const db = new Database(DB);
 	db.query(
 		"INSERT OR REPLACE INTO sessions (sid, project, started_at, hb, state) VALUES (?, ?, ?, ?, 'RUNNING')",
-	).run(sid, PROJ, TS, TS);
+	).run(sid, project, Date.now(), Date.now());
 	db.close();
 }
 
@@ -105,6 +108,7 @@ beforeEach(() => {
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
+	rmSync(OTHER_REPO, { recursive: true, force: true });
 });
 
 describe("consult knowledge layer", () => {
@@ -726,5 +730,74 @@ describe("harvest dedup (W618)", () => {
 		} finally {
 			kev.stop(true);
 		}
+	});
+});
+
+describe("cross-project consult by exact live SID", () => {
+	test("delivers to expert project and returns the answer to the asker", () => {
+		expect(OTHER_PROJ).not.toBe(PROJ);
+		const crossExpert = "cross-project-expert-33333333";
+		const question = "Can Fleet Knowledge use the Fleet consult channel?";
+		seedSession(crossExpert, OTHER_PROJ);
+		const partial = run([
+			"consult",
+			"cross-project-expert",
+			question,
+			"--no-kb",
+			"--as",
+			ASKER,
+		]);
+		expect(partial.code).not.toBe(0);
+		expect(partial.err).toContain("no live session target");
+
+		const ask = run([
+			"consult",
+			crossExpert,
+			question,
+			"--no-kb",
+			"--as",
+			ASKER,
+		]);
+		expect(ask.code).toBe(0);
+		const d = new Database(DB, { readonly: true });
+		const row = d
+			.query(
+				"SELECT id, project, expert_sid FROM consults WHERE question = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(question) as { id: number; project: string; expert_sid: string };
+		d.close();
+		expect(row.project).toBe(PROJ);
+		expect(row.expert_sid).toBe(crossExpert);
+		expect(run(["consults", "--as", crossExpert], OTHER_REPO).out).toContain(
+			question,
+		);
+		expect(run(["inbox", "--as", crossExpert], OTHER_REPO).out).toContain(
+			question,
+		);
+		const cid = `C${row.id}`;
+		const wrongExpert = run(
+			["consult-reply", cid, "Wrong recipient", "--as", "different-expert"],
+			OTHER_REPO,
+		);
+		expect(wrongExpert.code).not.toBe(0);
+		expect(wrongExpert.err).toContain("not you");
+		const reply = run(
+			[
+				"consult-reply",
+				cid,
+				"Use coord consult with an exact live SID",
+				"--as",
+				crossExpert,
+			],
+			OTHER_REPO,
+		);
+		expect(reply.code).toBe(0);
+		expect(run(["consults", "--as", ASKER]).out).toContain("Use coord consult");
+		const kb = new Database(DB, { readonly: true });
+		const stored = kb
+			.query("SELECT project FROM consult_kb WHERE consult_id = ?")
+			.get(row.id) as { project: string } | undefined;
+		kb.close();
+		expect(stored?.project).toBe(PROJ);
 	});
 });
