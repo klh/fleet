@@ -30,8 +30,14 @@ describe("Copilot Docker hub routing", () => {
 		const first = preferCopilotHub(local, template.groups, hubUrl);
 		for (const name of names) {
 			const routes = first.config.groups[name] ?? [];
+			expect(
+				routes
+					.filter((route) => route.url === hubUrl)
+					.every((route) => route.buckle === true),
+			).toBe(true);
 			expect(routes[0]).toEqual({
 				url: hubUrl,
+				buckle: true,
 				dialect: name.startsWith("claude-") ? "anthropic" : "openai",
 				adapter: name.startsWith("claude-") ? "anthropic" : "openai-compat",
 				model: name,

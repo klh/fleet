@@ -31,6 +31,7 @@ export function preferCopilotHub(
 		const anthropic = name.startsWith("claude-");
 		const peer: Deployment = {
 			url: hubUrl,
+			buckle: true,
 			dialect: anthropic ? "anthropic" : "openai",
 			adapter: anthropic ? "anthropic" : "openai-compat",
 			model: name,
