@@ -49,6 +49,7 @@ import {
 	hopBaggageOf,
 	hopFromBaggage,
 	hopKindOf,
+	laneFromBaggage,
 	type HopContext,
 } from "./hop.ts";
 import { keyIdFromToken, type Ledger, tokenFromHeaders } from "./ledger.ts";
@@ -357,13 +358,15 @@ async function proxy(
 	lane = "",
 ): Promise<Response> {
 	const hubId = deps.hubId ?? "local";
+	const baggage = allowlistedBaggage(req.headers.get("baggage"));
+	const inboundHop = hopFromBaggage(baggage);
 	const ctx: Ctx = {
 		key: keyIdFromToken(tokenFromHeaders(req.headers)),
 		group: "",
 		model: "",
 		dialect,
 		rid: newRid(),
-		lane,
+		lane: lane || (inboundHop.peer ? laneFromBaggage(baggage) : ""),
 		hintRaw: "",
 		hint: null,
 		t0: 0,
@@ -378,11 +381,11 @@ async function proxy(
 		trace: {
 			traceparent:
 				parseTraceparent(req.headers.get("traceparent")) ?? newTraceparent(),
-			baggage: allowlistedBaggage(req.headers.get("baggage")),
+			baggage,
 		},
 		hop: {
-			origin: hopFromBaggage(req.headers.get("baggage")).origin || hubId,
-			peer: hopFromBaggage(req.headers.get("baggage")).peer,
+			origin: inboundHop.origin || hubId,
+			peer: inboundHop.peer,
 		},
 	};
 	ctx.trafficKind = trafficKindOf(req);
@@ -536,7 +539,11 @@ async function runExecute(
 			body,
 			key: ctx.key,
 			trace: ctx.trace,
-			relayBaggage: hopBaggageOf(ctx.trace.baggage, deps.hubId ?? "local"),
+			relayBaggage: hopBaggageOf(
+				ctx.trace.baggage,
+				deps.hubId ?? "local",
+				ctx.lane,
+			),
 			signal: req.signal,
 			sel,
 			tier: ctx.tier,
@@ -837,7 +844,11 @@ function record(
 			usage.cache_r === 0 &&
 			usage.cache_c > 0
 		)
-			miss = deps.prefixLedger.cause(boundaryKey(boundary), ctx.lane, ctx.prefixFp);
+			miss = deps.prefixLedger.cause(
+				boundaryKey(boundary),
+				ctx.lane,
+				ctx.prefixFp,
+			);
 		if (
 			deps.prefixLedger &&
 			ctx.prefixFp &&
