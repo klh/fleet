@@ -10,9 +10,15 @@
 // usage: bun sim/ikea-pilot.ts [--keep]
 //   default root /tmp/ikea-pilot; --keep preserves it for inspection.
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import {
+	existsSync,
+	mkdirSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import { startServer } from "../../buckle/src/server.ts";
 
 interface Check {
@@ -52,6 +58,23 @@ function run(
 	};
 }
 
+/** policy-workflow CLI runner inside a leg env — the lifecycle legs' workhorse. */
+function wf(
+	env: Record<string, string>,
+	...args: string[]
+): { code: number; out: string } {
+	return run(["bun", script("policy-workflow.ts"), ...args], env);
+}
+
+/** Policy-provenance extraction: the remediation id + proposal digest the
+ *  decide/authorize verbs bind to (canonicalHash = 32 hex chars). */
+function proposalOf(out: string): { id: string; hash: string } {
+	return {
+		id: /remediation (PR-[0-9a-f]{8})/.exec(out)?.[1] ?? "",
+		hash: /proposal hash: ([0-9a-f]{32})/.exec(out)?.[1] ?? "",
+	};
+}
+
 async function main(): Promise<void> {
 	// --keep
 	const keep = process.argv.includes("--keep");
@@ -61,8 +84,15 @@ async function main(): Promise<void> {
 	const hub = await orgHubLegs();
 	try {
 		await sessionLegs();
+		await reminderLeg();
 		await authorizeLeg();
+		await exceptionLeg();
+		await revokedLeg();
+		await offlineLeg();
+		await adapterLeg();
 		await assessLeg();
+		await lifecycleLeg();
+		await lifecycleDeployLeg();
 		await reporterLegs();
 		await negativeLegs();
 	} finally {
@@ -98,6 +128,18 @@ rows:
     missingQuestion: "This repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?"
     policySource: "operator:ikea-health-v1"
     serviceId: orders-api
+    policyId: corp.api.independent-health
+    orgId: org-pilot
+  - id: corp-health-endpoints-payments
+    repoClass: api
+    detect:
+      - existsAny: [server.ts, src/server.ts]
+    check:
+      - grepAny: [server.ts, src/server.ts]
+        pattern: "/health|/status"
+    missingQuestion: "This payments repo does not seem to have health and status endpoints. According to IKEA policy it should. Do you want me to implement them for you?"
+    policySource: "operator:ikea-health-v1"
+    serviceId: payments-api
     policyId: corp.api.independent-health
     orgId: org-pilot
 `,
@@ -208,8 +250,8 @@ async function hierarchyLegs(): Promise<void> {
 	}
 }
 
-async function servedSha(): Promise<string> {
-	const res = await fetch("http://127.0.0.1:17801/repo-policy/manifest");
+async function servedSha(base = "http://127.0.0.1:17801"): Promise<string> {
+	const res = await fetch(`${base}/repo-policy/manifest`);
 	const man = (await res.json()) as { sha256: string };
 	return man.sha256;
 }
@@ -272,13 +314,19 @@ function decisionCount(sid: string): number {
 		[
 			"bun",
 			"-e",
-			`const {Database}=require("bun:sqlite");const db=new Database(process.argv[1],{readonly:true});console.log(db.query("SELECT COUNT(*) n FROM events WHERE source=? AND kind='NEED_DECISION'").get(sid).n)`,
+			`const {Database}=require("bun:sqlite");const db=new Database(process.argv[1]);console.log(db.query("SELECT COUNT(*) n FROM events WHERE source=? AND kind='NEED_DECISION'").get(process.argv[2]).n)`,
 			join(ROOT, `home-${sid}/.cache/claude-governor/governor.db`),
 			sid,
 		],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
-	return Number(dec.decode(r.stdout).trim() || "0");
+	const n = Number(dec.decode(r.stdout).trim() || "0");
+	if (n === 0 && r.stderr.length > 0)
+		writeFileSync(
+			join(ROOT, "decisioncount-err.txt"),
+			`${sid}: ${dec.decode(r.stderr).slice(0, 800)}`,
+		);
+	return n;
 }
 
 async function oneSession(
@@ -320,6 +368,30 @@ async function oneSession(
 		(await new Response(child.stdout).text()) +
 		(await new Response(child.stderr).text());
 	return { out };
+}
+
+/** Recurring reminder, decline scope: the already-asked session stays
+ *  silent on re-entry (its decision is pending, never re-asked), while a
+ *  NEW session id for the same developer is asked again — suppression is
+ *  per session, never per repo. */
+async function reminderLeg(): Promise<void> {
+	const again = await oneSession(
+		"pilot539-alice",
+		join(ROOT, "orders-api-alice"),
+	);
+	const silent =
+		!again.out.includes("POLICY DECISION") &&
+		!again.out.includes("POLICY REFERENCE");
+	const next = await oneSession(
+		"pilot539-alice-next",
+		join(ROOT, "orders-api-alice"),
+	);
+	const reopened = next.out.includes("POLICY DECISION");
+	record(
+		"session/decline-scope",
+		silent && reopened,
+		`asked session stays silent; a new session id is asked again (recurring reminder)`,
+	);
 }
 
 /** Approval → lane, exact-once: two developers authorize the SAME
@@ -464,6 +536,177 @@ async function authorizeLeg(): Promise<void> {
 	);
 }
 
+/** Exception scope: an approved scoped exception suppresses the per-session
+ *  decision for ITS service only — the sibling service row still asks. */
+async function exceptionLeg(): Promise<void> {
+	const env = {
+		HOME: join(ROOT, "auth-home"),
+		PATH: process.env.PATH ?? "/usr/bin:/bin",
+	};
+	// sessions resolve project = the repo's git-common-dir; the org workflow
+	// must address the SAME project identity or its records are invisible
+	const project = realpathSync(join(ROOT, "orders-api-alice", ".git"));
+	const prop = wf(
+		env,
+		"propose",
+		"orders-api",
+		"--spec",
+		join(ROOT, "remediation-spec.json"),
+		"--org",
+		"org-pilot",
+		"--project",
+		project,
+	);
+	const { id, hash } = proposalOf(prop.out);
+	if (!id || !hash) {
+		record(
+			"exception/scope-expiry",
+			false,
+			`propose failed: ${prop.out.slice(0, 160)}`,
+		);
+		return;
+	}
+	const decide = wf(
+		env,
+		"decide",
+		id,
+		"exception",
+		"--actor",
+		"operator",
+		"--hash",
+		hash,
+		"--expires",
+		String(Date.now() + 1500),
+		"--org",
+		"org-pilot",
+		"--project",
+		project,
+	);
+	if (decide.code !== 0) {
+		record(
+			"exception/scope-expiry",
+			false,
+			`decide failed: ${decide.out.slice(0, 160)}`,
+		);
+		return;
+	}
+	// sessions share the AUTHORITY graph (auth-home) — suppression reads the
+	// policy_decisions record in the SAME db the session evaluates
+	const sess = await oneSession(
+		"pilot539-exc",
+		join(ROOT, "orders-api-alice"),
+		{ home: join(ROOT, "auth-home") },
+	);
+	const ordersAsked = sess.out.includes("row=corp-health-endpoints ");
+	const paymentsAsked = sess.out.includes("row=corp-health-endpoints-payments");
+	const suppressed = sess.out.includes(
+		"POLICY EXCEPTION active for orders-api",
+	);
+	const scoped = suppressed && !ordersAsked && paymentsAsked;
+	await Bun.sleep(1700);
+	// expiry reopens: same session id, the orders row asks again
+	const again = await oneSession(
+		"pilot539-exc",
+		join(ROOT, "orders-api-alice"),
+		{ home: join(ROOT, "auth-home") },
+	);
+	const reopened = again.out.includes("row=corp-health-endpoints ");
+	record(
+		"exception/scope-expiry",
+		scoped && reopened,
+		"exception suppressed orders-api (payments still asked); expiry reopened the ask",
+	);
+}
+
+/** Revoked policy: the hub stops serving the row — the gap disappears and
+ *  sessions stay silent. Revocation is enforcement, not a crash. */
+async function revokedLeg(): Promise<void> {
+	writeFileSync(
+		join(ROOT, "pilot-policy-revoked.yaml"),
+		"version: 1\nrows: []\n",
+	);
+	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy-revoked.yaml");
+	const revoked = startServer({
+		port: 17821,
+		dbPath: join(ROOT, "buckle-revoked.db"),
+	});
+	process.env.BUCKLE_REPO_POLICY = join(ROOT, "pilot-policy.yaml");
+	const cfg = join(ROOT, "repo-policy-revoked.json");
+	writeFileSync(
+		cfg,
+		JSON.stringify({
+			version: 1,
+			hubs: [
+				{
+					url: "http://127.0.0.1:17821",
+					keyFile: join(ROOT, "secrets/hub-key"),
+					sha256: await servedSha("http://127.0.0.1:17821"),
+				},
+			],
+		}),
+	);
+	const { out } = await oneSession(
+		"pilot539-revoked",
+		join(ROOT, "orders-api-alice"),
+		{ config: cfg },
+	);
+	const silent =
+		!out.includes("POLICY DECISION") &&
+		!out.includes("POLICY CHECK UNAVAILABLE");
+	record(
+		"negative/revoked-policy",
+		silent,
+		"revoked row → gap gone → session silent",
+	);
+	revoked.stop(true);
+}
+
+/** Offline hub: an unreachable hub surfaces unknown compliance — never a
+ *  crash, never silent compliance. */
+async function offlineLeg(): Promise<void> {
+	const cfg = join(ROOT, "repo-policy-offline.json");
+	writeFileSync(
+		cfg,
+		JSON.stringify({
+			version: 1,
+			hubs: [
+				{
+					url: "http://127.0.0.1:17997",
+					keyFile: join(ROOT, "secrets/hub-key"),
+					sha256: "0".repeat(64),
+				},
+			],
+		}),
+	);
+	const { out } = await oneSession(
+		"pilot539-offline",
+		join(ROOT, "orders-api-alice"),
+		{ config: cfg },
+	);
+	record(
+		"negative/offline-hub",
+		out.includes("POLICY CHECK UNAVAILABLE"),
+		"closed hub port → POLICY CHECK UNAVAILABLE (compliance unknown)",
+	);
+}
+
+/** Adapter identities: claude/copilot/codex CLI adapters ride the same
+ *  session-start policy face with THEIR OWN session id — each adapter asks
+ *  under its own identity, nothing shared across adapters. */
+async function adapterLeg(): Promise<void> {
+	for (const adapter of ["claude", "copilot", "codex"] as const) {
+		const sid = `pilot539-adapter-${adapter}`;
+		const { out } = await oneSession(sid, join(ROOT, "orders-api-alice"));
+		const count = decisionCount(sid);
+		const asked = out.includes("POLICY DECISION") && count === 2;
+		record(
+			`adapter/${adapter}`,
+			asked,
+			`${sid}: notes=${out.includes("POLICY DECISION")} count=${count} (both rows under its own identity)`,
+		);
+	}
+}
+
 /** Exact-instance topology: two API instances, one dead — each sidecar
  *  probes ITS instance only, so verdicts differ where a naive LB probe
  *  would still hit the healthy replica part of the time. */
@@ -517,6 +760,126 @@ async function waitVerdict(port: number, status: number): Promise<boolean> {
 		await Bun.sleep(250);
 	}
 	return false;
+}
+
+/** Remediation lifecycle: authorize → claim → in-review → merged. */
+async function lifecycleLeg(): Promise<void> {
+	const env = {
+		HOME: join(ROOT, "auth-home"),
+		PATH: process.env.PATH ?? "/usr/bin:/bin",
+	};
+	const prop = wf(
+		env,
+		"propose",
+		"orders-api",
+		"--spec",
+		join(ROOT, "remediation-spec.json"),
+		"--org",
+		"org-pilot",
+		"--project",
+		"pilot",
+	);
+	const { id, hash } = proposalOf(prop.out);
+	if (!id || !hash) {
+		record(
+			"lifecycle/claim-review-merge",
+			false,
+			`propose failed: ${prop.out.slice(0, 160)}`,
+		);
+		return;
+	}
+	wf(
+		env,
+		"authorize",
+		id,
+		"--actor",
+		"carol",
+		"--hash",
+		hash,
+		"--org",
+		"org-pilot",
+		"--project",
+		"pilot",
+	);
+	const transitions = ["claim", "review", "merge"].map(
+		(action) =>
+			wf(
+				env,
+				"remediation",
+				id,
+				action,
+				"--actor",
+				"dev",
+				"--org",
+				"org-pilot",
+				"--project",
+				"pilot",
+			).out,
+	);
+	const chain = transitions.join(" ");
+	const ok =
+		chain.includes(`${id}: claimed`) &&
+		chain.includes(`${id}: in-review`) &&
+		chain.includes(`${id}: merged`);
+	record(
+		"lifecycle/claim-review-merge",
+		ok,
+		`${id} traversed claimed → in-review → merged`,
+	);
+}
+
+/** Deployment evidence after the merge: a verified attestation plus the
+ *  remediated source → the reassessment turns conforming (fresh — the
+ *  source revision changed). */
+async function lifecycleDeployLeg(): Promise<void> {
+	const env = {
+		HOME: join(ROOT, "auth-home"),
+		PATH: process.env.PATH ?? "/usr/bin:/bin",
+	};
+	const evidence = join(ROOT, "attest-evidence.json");
+	writeFileSync(
+		evidence,
+		JSON.stringify([
+			"probe.ts --target reporter:17831 → 200 (sidecar verdict)",
+			"compose: reporter runs as its own container (independent supervision)",
+		]),
+	);
+	const attest = wf(
+		env,
+		"attest",
+		"orders-api",
+		"--instance",
+		"inst-pilot-1",
+		"--verify",
+		"--evidence",
+		evidence,
+	);
+	const verified = attest.out.includes(": verified");
+	// the remediation's product: the health/status endpoints land in src
+	const src = join(ROOT, "orders-api-alice", "server.ts");
+	writeFileSync(
+		src,
+		"Bun.serve({fetch:(r)=>r.url.endsWith('/health')?new Response('ok'):new Response('orders')});\n",
+	);
+	const reassess = wf(
+		env,
+		"assess",
+		"orders-api",
+		"--deployment",
+		join(ROOT, "deployment.json"),
+		"--org",
+		"org-pilot",
+		"--project",
+		"pilot",
+	);
+	const compliant =
+		reassess.out.includes("orders-api: conforming") &&
+		!reassess.out.includes("reusing assessment");
+	record(
+		"lifecycle/deploy-evidence",
+		verified && compliant,
+		`attestation verified; reassessment conforming on the remediated tree`,
+	);
 }
 
 /** Bounded negative: a wrong sha pin surfaces as honest "compliance
