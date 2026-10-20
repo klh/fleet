@@ -27,6 +27,21 @@ const HUBS_PATH = () =>
 	process.env.SUSPENDERS_HUBS_FILE ??
 	`${process.env.HOME}/.claude/local-llm/hubs.json`;
 
+/** A complete registry revision. Ignore partial or malformed writes so the
+ *  running supervisor keeps its last valid hub set until the next poll. */
+export function hubRegistryRevision(): string | null {
+	try {
+		const source = readFileSync(HUBS_PATH(), "utf8");
+		const value: unknown = JSON.parse(source);
+		return value && typeof value === "object" && !Array.isArray(value)
+			? source
+			: null;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+		return null;
+	}
+}
+
 export interface HubRow {
 	label: string;
 	consoleUrl?: string;

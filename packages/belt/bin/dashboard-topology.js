@@ -57,8 +57,8 @@ class BeltTopology extends LitElement {
 		.heading + p { min-block-size:28px; }
 		button { margin-left:auto; background:transparent; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); color:var(--klh-ink); padding:4px 10px; font:inherit; cursor:pointer; }
 		button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
-		.map { inline-size:100%; block-size:440px; overflow:auto; }
-		svg { display:block; inline-size:100%; min-inline-size:1060px; max-inline-size:1500px; block-size:auto; font:12px var(--klh-font-sans, sans-serif); }
+		.map { inline-size:100%; block-size:410px; overflow:auto; }
+		svg { display:block; inline-size:min(100%, 1000px); min-inline-size:900px; block-size:auto; font:12px var(--klh-font-sans, sans-serif); }
 		.edge { fill:none; stroke:var(--klh-dim); stroke-dasharray:4 5; }
 		.edge.observed { stroke:var(--klh-info); stroke-dasharray:none; }
 		.edge-label { fill:var(--klh-ink-2); font-size:10px; font-variant-numeric:tabular-nums; }
