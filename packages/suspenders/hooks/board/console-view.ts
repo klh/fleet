@@ -7,6 +7,7 @@ import { resolveBelt } from "../lib/belt-locate.ts";
 import {
 	ConfigError,
 	parsePolicy,
+	policyAsJson,
 	policyWritePath,
 	readBoardSettings,
 	resolvePolicy,
@@ -155,10 +156,10 @@ export const gatherLocalView = async (): Promise<LocalView> => {
 	};
 };
 
-// form → PolicyPatch. Belt edits the budgets; buckle edits the ladder
-// (tiers on/off + order) and the cooldown TTL. Empty = leave unchanged.
+// Normal policy form → patch. Numbered tier inputs keep ladder order explicit
+// while allowing operators to add a deployment without editing JSON.
 export const formToPatch = (
-	feature: Feature,
+	_feature: Feature,
 	f: URLSearchParams,
 ): PolicyPatch => {
 	const num = (k: string): number | undefined => {
@@ -167,14 +168,26 @@ export const formToPatch = (
 		const n = Number(v);
 		return Number.isFinite(n) ? n : Number.NaN;
 	};
-	if (feature === "belt")
-		return {
-			num_retries: num("num_retries"),
-			allowed_fails: num("allowed_fails"),
-			cooldown_time: num("cooldown_time"),
-		};
 	const ladder: NonNullable<PolicyPatch["ladder"]> = { model: "", tiers: [] };
+	const numbered = new Map<string, Map<number, string>>();
 	for (const [k, v] of f.entries()) {
+		if (k.startsWith("tier_")) {
+			const split = k.lastIndexOf("_");
+			const index = Number(k.slice(split + 1));
+			const model = decodeURIComponent(k.slice(5, split));
+			if (
+				!model ||
+				["__proto__", "constructor", "prototype"].includes(model) ||
+				!Number.isInteger(index) ||
+				index < 0 ||
+				index > 20
+			)
+				throw new ConfigError("invalid ladder tier field");
+			const rows = numbered.get(model) ?? new Map<number, string>();
+			rows.set(index, v.trim());
+			numbered.set(model, rows);
+			continue;
+		}
 		if (!k.startsWith("ladder_")) continue;
 		ladder.model = k.slice(7);
 		ladder.tiers = (v ?? "")
@@ -182,8 +195,20 @@ export const formToPatch = (
 			.map((t) => t.trim())
 			.filter(Boolean);
 	}
+	const ladders = Object.fromEntries(
+		Array.from(numbered.entries(), ([model, rows]) => [
+			model,
+			Array.from(rows.entries())
+				.sort(([a], [b]) => a - b)
+				.map(([, tier]) => tier)
+				.filter(Boolean),
+		]),
+	);
 	return {
 		ladder: ladder.model ? ladder : undefined,
+		ladders: Object.keys(ladders).length ? ladders : undefined,
+		num_retries: num("num_retries"),
+		allowed_fails: num("allowed_fails"),
 		cooldown_time: num("cooldown_time"),
 	};
 };
@@ -207,6 +232,22 @@ export const valuesToPatch = (raw: string): PolicyPatch => {
 			throw new ConfigError("ladder: bad value");
 		out.ladder = { model: l.model, tiers: l.tiers.map((t) => String(t)) };
 	}
+	if (v.ladders !== undefined && v.ladders !== null) {
+		if (typeof v.ladders !== "object" || Array.isArray(v.ladders))
+			throw new ConfigError("ladders: bad value");
+		const ladders: Record<string, string[]> = {};
+		for (const [model, tiers] of Object.entries(v.ladders)) {
+			if (
+				!model ||
+				["__proto__", "constructor", "prototype"].includes(model) ||
+				!Array.isArray(tiers) ||
+				tiers.some((t) => typeof t !== "string")
+			)
+				throw new ConfigError(`ladders.${model}: bad value`);
+			ladders[model] = tiers as string[];
+		}
+		out.ladders = ladders;
+	}
 	return out;
 };
 
@@ -221,5 +262,8 @@ export const policyBaseline = (): { text: string; mtimeMs: number } => {
 		return { text: readFileSync(wp, "utf8"), mtimeMs: st.mtimeMs };
 	}
 	const pol = resolvePolicy({ beltRepo: BELT_REPO });
-	return { text: pol?.text ?? "version: 1\ngateway: {}\n", mtimeMs: 0 };
+	return {
+		text: pol ? policyAsJson(pol.text) : '{"version":1,"gateway":{}}\n',
+		mtimeMs: pol?.mtimeMs ?? 0,
+	};
 };

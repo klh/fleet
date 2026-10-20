@@ -14,7 +14,7 @@ import { adminAudit } from "../lib/admin-audit.ts";
 import { scrub } from "../lib/servicemon.ts";
 import {
 	ConfigError,
-	patchPolicyText,
+	patchPolicyJson,
 	policyWritePath,
 	readBoardSettings,
 	applyBoardSettings,
@@ -23,7 +23,7 @@ import {
 	diffLines,
 	atomicWrite,
 } from "../lib/board-config.ts";
-import type { BoardSettings } from "../lib/board-config.ts";
+import type { BoardSettings, BoardSettingsPatch } from "../lib/board-config.ts";
 import {
 	type ConsoleMe,
 	type Feature,
@@ -49,12 +49,7 @@ export const suspPreview = (f: URLSearchParams, me: ConsoleMe): Response => {
 		return new Response(previewPage(ea, me), { headers: htmlHdr() });
 	};
 	try {
-		const p = formToBoardSettings({
-			status_refresh_s: f.get("status_refresh_s") ?? "",
-			harvest_ttl_s: f.get("harvest_ttl_s") ?? "",
-			default_actor: f.get("default_actor") ?? "",
-			default_executors: f.get("default_executors") ?? "",
-		});
+		const p = formToBoardSettings(Object.fromEntries(f));
 		return suspPreviewOk(p, me);
 	} catch (e) {
 		return bad(e instanceof Error ? e.message : String(e));
@@ -62,11 +57,14 @@ export const suspPreview = (f: URLSearchParams, me: ConsoleMe): Response => {
 };
 
 // the OK path: merge patch over current settings, diff, render confirm page
-export const suspPreviewOk = (p: BoardSettings, me: ConsoleMe): Response => {
+export const suspPreviewOk = (
+	p: BoardSettingsPatch,
+	me: ConsoleMe,
+): Response => {
 	const cur = readBoardSettings();
-	const merged = { ...cur.settings, ...p };
+	const merged: BoardSettingsPatch = { ...cur.settings, ...p };
 	for (const k of Object.keys(merged) as (keyof BoardSettings)[])
-		if (merged[k] === undefined) delete merged[k];
+		if (merged[k] === undefined || merged[k] === null) delete merged[k];
 	const curText = cur.exists
 		? `${JSON.stringify(cur.settings, null, "\t")}\n`
 		: "{}\n";
@@ -99,9 +97,9 @@ export const policyPreview = (
 		return new Response(previewPage(ea, me), { headers: htmlHdr() });
 	};
 	const base = policyBaseline();
-	const patch = formToPatch(feat, f);
 	try {
-		const next = patchPolicyText(base.text, patch);
+		const patch = formToPatch(feat, f);
+		const next = patchPolicyJson(base.text, patch);
 		const a = {
 			feature: feat,
 			diff: diffLines(base.text, next),
@@ -127,7 +125,7 @@ const applySettingsMutation = (
 ): Response => {
 	if (feat === "suspenders") {
 		const patch = formToBoardSettings(
-			JSON.parse(values) as Record<string, string>,
+			JSON.parse(values) as Record<string, unknown>,
 		);
 		applyBoardSettings(boardSettingsPath(), patch, mtime);
 	} else {
@@ -137,7 +135,7 @@ const applySettingsMutation = (
 			throw new ConfigError(
 				"config changed since the preview — review the fresh diff and confirm again",
 			);
-		const next = patchPolicyText(base.text, patch);
+		const next = patchPolicyJson(base.text, patch);
 		atomicWrite(policyWritePath(), next);
 	}
 	return new Response(null, {

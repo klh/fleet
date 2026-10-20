@@ -17,9 +17,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
 	ConfigError,
-	type BoardSettings,
 	diffLines,
 	parsePolicy,
+	patchPolicyJson,
 	patchPolicyText,
 	policyWritePath,
 	readBoardSettings,
@@ -33,6 +33,7 @@ const HOME = mkdtempSync(join(tmpdir(), "w147-home-"));
 const REPO = mkdtempSync(join(tmpdir(), "w147-repo-"));
 mkdirSync(join(REPO, ".git"), { recursive: true });
 const POLICY = join(HOME, "policy-copy.yaml");
+const POLICY_JSON = join(HOME, "policy-copy.json");
 const REG = join(HOME, "registry.json");
 writeFileSync(
 	POLICY,
@@ -162,15 +163,41 @@ describe("policy config surface (board-config)", () => {
 		expect(d).toEqual(["- b", "+ B"]);
 	});
 
+	test("JSON policy patch preserves unrelated values and changes every ladder", () => {
+		const source = JSON.stringify({
+			version: 1,
+			extra: { keep: 7 },
+			gateway: {
+				num_retries: 1,
+				allowed_fails: 3,
+				cooldown_time: 30,
+				fallbacks: { "glm-5.3-flash": ["local-swarm"], other: ["cloud"] },
+			},
+		});
+		const next = JSON.parse(
+			patchPolicyJson(source, {
+				num_retries: 2,
+				ladders: {
+					"glm-5.3-flash": ["local-swarm", "cloud"],
+					other: ["cloud", "local-swarm"],
+				},
+			}),
+		);
+		expect(next.extra).toEqual({ keep: 7 });
+		expect(next.gateway.fallbacks.other).toEqual(["cloud", "local-swarm"]);
+		expect(parsePolicy(JSON.stringify(next)).num_retries).toBe(2);
+	});
+
 	test("board settings: validate, form coercion, apply round-trip on a temp file", () => {
 		const p = join(HOME, "board-settings.json");
-		const patch: BoardSettings = formToBoardSettings({
+		const patch = formToBoardSettings({
 			status_refresh_s: "12",
 			harvest_ttl_s: "",
 			default_actor: "demo:carol@demo",
 		});
 		expect(patch).toEqual({
 			status_refresh_s: 12,
+			harvest_ttl_s: null,
 			default_actor: "demo:carol@demo",
 		});
 		expect(() => formToBoardSettings({ status_refresh_s: "nope" })).toThrow(
@@ -207,13 +234,37 @@ describe("policy config surface (board-config)", () => {
 		).toEqual([]);
 	});
 
+	test("all board controls coerce and empty optional settings clear", () => {
+		const patch = formToBoardSettings({
+			enabled_executors: "claude, llm:local:8901",
+			recommendation_url: "http://127.0.0.1:8903/v1",
+			recommendation_model: "local-reason",
+			"prompt.condense": "false",
+			"prompt.enhance": "true",
+			"prompt.debug": "true",
+			"prompt.log": "false",
+		});
+		expect(patch.enabled_executors).toEqual(["claude", "llm:local:8901"]);
+		expect(patch["prompt.enhance"]).toBe(true);
+		expect(patch["prompt.condense"]).toBe(false);
+		const p = join(HOME, "all-board-settings.json");
+		applyBoardSettings(p, patch);
+		expect(readBoardSettings(p).settings).toMatchObject(patch);
+		applyBoardSettings(
+			p,
+			formToBoardSettings({ enabled_executors: "", recommendation_model: "" }),
+		);
+		expect(readBoardSettings(p).settings.enabled_executors).toBeUndefined();
+		expect(readBoardSettings(p).settings.recommendation_model).toBeUndefined();
+	});
+
 	test("resolvePolicy + policyWritePath walk env → runtime → default", () => {
 		const r = resolvePolicy({
 			env: { BELT_POLICY: POLICY } as unknown as NodeJS.ProcessEnv,
 			home: HOME,
 		});
 		expect(r?.path).toBe(POLICY);
-		expect(r?.source).toBe("env");
+		expect(r?.source).toBe("legacy");
 		mkdirSync(join(HOME, ".claude", "local-llm"), { recursive: true });
 		const rt = join(HOME, ".claude", "local-llm", "routing-policy.yaml");
 		writeFileSync(rt, POLICY_TEXT);
@@ -222,11 +273,11 @@ describe("policy config surface (board-config)", () => {
 			home: HOME,
 			beltRepo: "/nonexistent-belt",
 		});
-		expect(r2?.source).toBe("runtime");
+		expect(r2?.source).toBe("legacy");
 		const wp = policyWritePath({
 			env: { HOME } as unknown as NodeJS.ProcessEnv,
 		});
-		expect(wp).toBe(rt);
+		expect(wp).toBe(join(HOME, ".claude", "local-llm", "routing-policy.json"));
 	});
 });
 
@@ -290,14 +341,14 @@ describe("console routes (real board, temp config)", () => {
 		expect(belt).toContain('name="num_retries"');
 		expect(belt).toContain('value="1"');
 		const buck = await (await fetch(`${BASE}/console/settings/buckle`)).text();
-		expect(buck).toContain('name="ladder_glm-5.3-flash"');
+		expect(buck).toContain('name="tier_glm-5.3-flash_0"');
 		const susp = await (
 			await fetch(`${BASE}/console/settings/suspenders`)
 		).text();
 		expect(susp).toContain('name="status_refresh_s"');
 	});
 
-	test("preview → apply round-trip writes the TEMP policy copy", async () => {
+	test("preview → apply migrates the TEMP policy copy to JSON", async () => {
 		const before = readFileSync(POLICY, "utf8");
 		const pv = await postForm("/console/settings/preview", {
 			feature: "belt",
@@ -318,8 +369,9 @@ describe("console routes (real board, temp config)", () => {
 			mtime,
 		});
 		expect(ap.status).toBe(303);
-		expect(readFileSync(POLICY, "utf8")).not.toBe(before);
-		expect(readFileSync(POLICY, "utf8")).toContain("num_retries: 2");
+		expect(readFileSync(POLICY, "utf8")).toBe(before);
+		expect(parsePolicy(readFileSync(POLICY_JSON, "utf8")).num_retries).toBe(2);
+		expect(statSync(POLICY_JSON).mode & 0o777).toBe(0o600);
 	});
 
 	test("invalid config rejected with the parse error, nothing written", async () => {
@@ -338,10 +390,11 @@ describe("console routes (real board, temp config)", () => {
 					ladder: { model: "glm-5.3-flash", tiers: ["flashx"] },
 				}),
 			).toString("base64"),
-			mtime: String(statSync(POLICY).mtimeMs),
+			mtime: String(statSync(POLICY_JSON).mtimeMs),
 		});
 		expect(await ap.text()).toMatch(/flashx/);
 		expect(readFileSync(POLICY, "utf8")).toBe(before);
+		expect(parsePolicy(readFileSync(POLICY_JSON, "utf8")).num_retries).toBe(2);
 	});
 
 	test("suspenders knobs round-trip on the temp HOME", async () => {
@@ -371,6 +424,16 @@ describe("console routes (real board, temp config)", () => {
 		expect(page).toContain("<klh-executor-editor");
 		expect(page).toContain("/vendor/klh-console-forms.js");
 		expect(page).toContain('name="default_executors"');
+		for (const field of [
+			"enabled_executors",
+			"recommendation_url",
+			"recommendation_model",
+			"prompt.condense",
+			"prompt.enhance",
+			"prompt.debug",
+			"prompt.log",
+		])
+			expect(page).toContain(`name="${field}"`);
 		// the add-picker catalog rides the options attribute (bare executors at minimum)
 		expect(page).toContain("&quot;value&quot;:&quot;claude&quot;");
 		// write a chain through the same preview → apply flow the editor posts

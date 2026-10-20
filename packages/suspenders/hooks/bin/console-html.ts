@@ -46,7 +46,6 @@ import type {
 	RegistryCardData,
 	RegistryRow,
 	UpstreamsCardData,
-	KnobsCardData,
 } from "../board-html/klh-console-cards.ts";
 import type { ExecutorEntry } from "../board/executor-catalog.ts";
 import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
@@ -131,19 +130,6 @@ const beltPolicySlice = (v: BeltView): PolicyCardData => {
 		path: scrub(v.policy.path),
 		source: v.policy.source,
 		gateway: v.gateway,
-	};
-};
-
-// settings-index variant: PolicyCur folds "no gateway section" into a
-// gateway-null policy slice (the card shows the heading + shared-file foot)
-const indexPolicySlice = (pol: PolicyCur): PolicyCardData => {
-	if (pol.error)
-		return { kind: "error", path: scrub(pol.path), error: pol.error };
-	return {
-		kind: "policy",
-		path: scrub(pol.path),
-		source: pol.source,
-		gateway: pol.gateway,
 	};
 };
 
@@ -322,17 +308,34 @@ const textField = (
 ): string =>
 	`<div><label class="k" for="f_${name}">${label}</label><input class="wide" id="f_${name}" name="${name}" type="text" value="${esc(val)}"><div class="cfoot">${hint}</div></div>`;
 
-const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}`;
+const toggleField = (
+	label: string,
+	name: string,
+	value: boolean | undefined,
+): string =>
+	`<div><label class="k" for="f_${name}">${label}</label><select id="f_${name}" name="${name}"><option value="true"${value === true ? " selected" : ""}>On</option><option value="false"${value === false ? " selected" : ""}>Off</option></select></div>`;
 
-const ladderFields = (gw: PolicyGatewayParsed): string =>
-	Object.entries(gw.fallbacks)
-		.map(
-			([m, tiers]) =>
-				`<label class="k" for="l_${esc(m)}">ladder · ${esc(m)} (comma-separated, order = priority)</label><input class="wide" id="l_${esc(m)}" name="ladder_${esc(m)}" value="${esc(tiers.join(", "))}"><div class="cfield-hint">tiers listed are ON; removing a tier switches it off (flashx is refused outright)</div>`,
-		)
-		.join("");
+const FORM_CSS = `.cfield-hint{font-size:10.5px;color:var(--klh-dim);margin:2px 0 8px}.settings-section{margin:0 0 20px}.settings-section h2{font-size:14px;margin:0 0 4px;text-transform:none;letter-spacing:0;color:var(--klh-ink)}.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 20px}.settings-model{border:1px solid var(--klh-edge-soft);padding:10px 12px;margin:10px 0}.settings-model legend{font:600 12px var(--klh-font-mono);padding:0 4px}.tier-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.tier-grid label{display:block}.settings-section .btnrow{margin-top:12px}`;
 
-const formFoot = `<p class="cfoot">Writes are config-over-code. belt+buckle share the policy file: belt activates at the next gateway-config emit + launchctl kickstart (between fan-outs — a reload drops in-flight streams); buckle loads the policy at boot.</p>`;
+const ladderFields = (gw: PolicyGatewayParsed): string => {
+	const options = Array.from(new Set(Object.values(gw.fallbacks).flat()));
+	const list = `<datalist id="policy-tiers">${options.map((tier) => `<option value="${esc(tier)}"></option>`).join("")}</datalist>`;
+	return (
+		list +
+		Object.entries(gw.fallbacks)
+			.map(([model, tiers]) => {
+				const key = encodeURIComponent(model);
+				const fields = [...tiers, ""].map(
+					(tier, index) =>
+						`<label><span class="k">${index < tiers.length ? `Priority ${index + 1}` : "Add tier"}</span><input class="wide" type="text" list="policy-tiers" name="tier_${key}_${index}" value="${esc(tier)}" autocomplete="off"></label>`,
+				);
+				return `<fieldset class="settings-model"><legend>${esc(model)}</legend><div class="tier-grid">${fields.join("")}</div><p class="cfield-hint">Order is priority. Clear a field to remove that tier. At least one tier is required.</p></fieldset>`;
+			})
+			.join("")
+	);
+};
+
+const formFoot = `<p class="cfoot">Changes are previewed before they are saved. Gateway policy is stored in routing-policy.json; Belt and Buckle load the same values.</p>`;
 
 const formFrame = (
 	title: string,
@@ -381,6 +384,85 @@ const executorPrefsEditor = (
 	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}"><input type="hidden" name="default_executors" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
 };
 
+const boardControlFields = (
+	state: BoardSettingsState,
+	executors: ExecutorEntry[],
+): string => {
+	const s = state.settings;
+	return (
+		(state.error
+			? `<div class="errbox">Current file does not parse: ${esc(state.error)}</div>`
+			: "") +
+		`<div class="settings-grid">` +
+		numField(
+			"Status refresh (s)",
+			"status_refresh_s",
+			s.status_refresh_s,
+			"Status observation interval; 0 means always fresh.",
+		) +
+		numField(
+			"Usage harvest TTL (s)",
+			"harvest_ttl_s",
+			s.harvest_ttl_s,
+			"Minimum interval between usage harvests.",
+		) +
+		textField(
+			"Default actor",
+			"default_actor",
+			s.default_actor ?? "",
+			"Preselects the actor in the console.",
+		) +
+		textField(
+			"Allowed executors",
+			"enabled_executors",
+			(s.enabled_executors ?? []).join(", "),
+			"Comma-separated allowlist. Empty permits every executor.",
+		) +
+		textField(
+			"Recommendation URL",
+			"recommendation_url",
+			s.recommendation_url ?? "",
+			"Reasoner endpoint used for decision advice.",
+		) +
+		textField(
+			"Recommendation model",
+			"recommendation_model",
+			s.recommendation_model ?? "",
+			"Model ID for decision advice.",
+		) +
+		`</div><div class="settings-section"><h2>Agent preference</h2><p class="cfield-hint">Order sets the default executor preference.</p>${executorPrefsEditor(executors, s.default_executors ?? [])}</div>` +
+		`<div class="settings-section"><h2>Orchestrate prompt</h2><div class="settings-grid">${toggleField("Condense", "prompt.condense", s["prompt.condense"] ?? true)}${toggleField("Enhance", "prompt.enhance", s["prompt.enhance"] ?? false)}${toggleField("Debug", "prompt.debug", s["prompt.debug"] ?? false)}${toggleField("Log", "prompt.log", s["prompt.log"] ?? false)}</div></div>`
+	);
+};
+
+const policyControlFields = (
+	gw: PolicyGatewayParsed,
+	includeLadders: boolean,
+): string =>
+	`<div class="settings-grid">` +
+	numField(
+		"Retries",
+		"num_retries",
+		gw.num_retries,
+		"Retries before moving to the next deployment.",
+	) +
+	numField(
+		"Allowed failures",
+		"allowed_fails",
+		gw.allowed_fails,
+		"Consecutive failures before cooldown.",
+	) +
+	numField(
+		"Cooldown (s)",
+		"cooldown_time",
+		gw.cooldown_time,
+		"How long a failed deployment stays benched.",
+	) +
+	`</div>` +
+	(includeLadders
+		? `<div class="settings-section"><h2>Model fallbacks</h2><p class="cfield-hint">Each model has an ordered deployment ladder.</p>${ladderFields(gw)}</div>`
+		: "");
+
 export const settingsFormPage = (
 	feature: Feature,
 	cur: FormCur,
@@ -388,34 +470,7 @@ export const settingsFormPage = (
 ): string => {
 	const head = `<p class="dimpl">Target file: <span class="mono">${esc(cur.target)}</span>. Every write previews a diff and needs an explicit confirm.</p>`;
 	if (feature === "suspenders") {
-		const s = cur.set.settings;
-		const body =
-			`<div class="panel"><h2>board knobs · suspenders-board.json</h2>` +
-			(cur.set.error
-				? `<div class="errbox">current file does not parse: ${esc(cur.set.error)}</div>`
-				: "") +
-			`<div class="formgrid">` +
-			numField(
-				"STATUS_REFRESH_S",
-				"status_refresh_s",
-				s.status_refresh_s,
-				"servicemon /status TTL seconds; 0 = always fresh; file beats env at board start",
-			) +
-			numField(
-				"harvest TTL (s)",
-				"harvest_ttl_s",
-				s.harvest_ttl_s,
-				"usage harvest runs at most once per this many seconds (maybeHarvest default TTL)",
-			) +
-			`</div>` +
-			textField(
-				"default actor (demo switch preselect)",
-				"default_actor",
-				s.default_actor ?? "",
-				"preselects the avatar dropdown's demo switch; coord bootstrap default is a follow-up",
-			) +
-			executorPrefsEditor(cur.executors ?? [], s.default_executors ?? []) +
-			`</div>`;
+		const body = `<div class="panel"><h2>Board and agents · suspenders-board.json</h2>${boardControlFields(cur.set, cur.executors ?? [])}</div>`;
 		return formFrame(
 			"SETTINGS · SUSPENDERS",
 			head,
@@ -431,36 +486,12 @@ export const settingsFormPage = (
 			me,
 		);
 	const gw = cur.gateway;
-	const fields =
-		feature === "belt"
-			? numField(
-					"num_retries",
-					"num_retries",
-					gw.num_retries,
-					"per-call retries before the ladder is tried (native retry-after backoff)",
-				) +
-				numField(
-					"allowed_fails",
-					"allowed_fails",
-					gw.allowed_fails,
-					"consecutive failures that bench a deployment into cooldown",
-				)
-			: ladderFields(gw);
-	const ttl = numField(
-		"cooldown_time (s)",
-		"cooldown_time",
-		gw.cooldown_time,
-		"cooldown TTL — bench duration after allowed_fails consecutive failures",
-	);
-	const wrap =
-		feature === "belt"
-			? `<div class="formgrid">${fields}${ttl}</div>`
-			: `${fields}${ttl}`;
+	const wrap = policyControlFields(gw, feature === "buckle");
 	return formFrame(
 		`SETTINGS · ${feature.toUpperCase()}`,
 		head,
 		HIDDEN_FEATURE(feature) +
-			`<div class="panel"><h2>routing-policy.yaml · gateway</h2>${wrap}<p class="cfield-hint">shared with ${feature === "belt" ? "buckle" : "belt"} — one file, both processes read it</p></div>`,
+			`<div class="panel"><h2>Gateway and model routing · routing-policy.json</h2>${wrap}<p class="cfield-hint">Belt and Buckle read this machine config.</p></div>`,
 		me,
 	);
 };
@@ -468,6 +499,7 @@ export const settingsFormPage = (
 export interface SettingsIndexArgs {
 	pol: PolicyCur | null;
 	set: BoardSettingsState;
+	executors: ExecutorEntry[];
 	me?: ConsoleMe;
 	// W174: recent admin actions — settings/policy applies + key revocations
 	audit: AdminAuditRow[];
@@ -475,33 +507,11 @@ export interface SettingsIndexArgs {
 
 export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 	const pol = a.pol;
-	const polCard = pol
-		? `<klh-policy-card heading="routing-policy.yaml" compact foot="belt + buckle share this file — edits apply to both (belt at the next gateway-config emit + kickstart, buckle at restart)" data="${esc(JSON.stringify(indexPolicySlice(pol)))}"></klh-policy-card>`
-		: `<klh-policy-card heading="routing-policy.yaml" data="${esc(JSON.stringify({ kind: "missing" as const }))}"></klh-policy-card>`;
 	const s = a.set;
-	const knobs: KnobsCardData = {
-		error: s.error,
-		knobs: [
-			{
-				k: "STATUS_REFRESH_S",
-				v: String(s.settings.status_refresh_s ?? "default (5s)"),
-			},
-			{
-				k: "harvest TTL",
-				v: s.settings.harvest_ttl_s
-					? `${s.settings.harvest_ttl_s}s`
-					: "default (300s)",
-			},
-			{ k: "default actor", v: s.settings.default_actor ?? "unset" },
-			{
-				k: "executors",
-				v: s.settings.default_executors?.length
-					? s.settings.default_executors.join(" → ")
-					: "claude (default)",
-			},
-		],
-	};
-	const setCard = `<klh-knobs-card heading="suspenders-board.json · ${esc(s.path)}${s.exists ? "" : " · not created yet"}" data="${esc(JSON.stringify(knobs))}"></klh-knobs-card>`;
+	const policyForm = pol?.gateway
+		? `<section class="panel settings-section"><h2>Gateway and model routing</h2><p class="cfield-hint">${esc(pol.source)} source · ${esc(pol.path)} · writes routing-policy.json</p><form method="post" action="/console/settings/preview">${HIDDEN_FEATURE("buckle")}${policyControlFields(pol.gateway, true)}<div class="btnrow"><button class="btn" type="submit">Preview gateway changes</button></div></form></section>`
+		: `<section class="panel settings-section"><h2>Gateway and model routing</h2><p class="errbox">${esc(pol?.error ?? "No policy found")}</p></section>`;
+	const boardForm = `<section class="panel settings-section"><h2>Board and agents</h2><p class="cfield-hint">${esc(s.path)}${s.exists ? "" : " · defaults in use"}</p><form method="post" action="/console/settings/preview">${HIDDEN_FEATURE("suspenders")}${boardControlFields(s, a.executors)}<div class="btnrow"><button class="btn" type="submit">Preview board changes</button></div></form></section>`;
 	// W174: the who/when trail — settings/policy applies + key revocations,
 	// newest first, block-mode chips (the card's empty state covers zero rows)
 	const auditRows: AuditRow[] = a.audit.map((r) => ({
@@ -514,12 +524,11 @@ export const settingsIndexPage = (a: SettingsIndexArgs): string => {
 	const auditData: AuditListData = { rows: auditRows };
 	const auditCard = `<klh-audit-list heading="admin audit" data="${esc(JSON.stringify(auditData))}"></klh-audit-list>`;
 	return consolePage(
-		"SETTINGS",
+		"Settings",
 		"settings",
-		`<style>${PAGE_CSS}</style><p class="dimpl">One entry per feature, each with its real config surface. Writes are config-over-code: YAML/JSON in known paths, never code. Every write previews a diff and needs an explicit confirm; invalid config is rejected with the parser's error.</p>` +
-			polCard +
-			`<div class="panel"><h2>edit</h2><div class="btnrow"><a class="btn2" href="/console/settings/belt">belt · budgets</a> <a class="btn2" href="/console/settings/buckle">buckle · ladder + cooldowns</a> <a class="btn2" href="/console/settings/suspenders">suspenders · board</a></div></div>` +
-			setCard +
+		`<style>${PAGE_CSS}${FORM_CSS}</style><p class="dimpl">Edit machine settings here. Review the exact JSON diff before applying a change.</p>` +
+			policyForm +
+			boardForm +
 			auditCard +
 			CARDS_SCRIPT,
 		a.me,

@@ -122,6 +122,7 @@ export async function handleConsole(
 						}
 					: null,
 				set: readBoardSettings(),
+				executors: await executorFeed(),
 				me: consoleMe(),
 				audit: recentAdminAudit(db, 25),
 			}),
