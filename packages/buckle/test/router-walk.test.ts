@@ -85,6 +85,55 @@ const REQ = (sel: ReturnType<typeof decideRoute>, tier: string) => ({
 });
 
 describe("walkSelected", () => {
+	test("preferred hub fails over to local engine after a retryable response", async () => {
+		const hub = {
+			group: "glm-5.3-flash",
+			url: "http://127.0.0.1:4301",
+			dialect: "openai" as const,
+			priority: 0,
+			buckle: true,
+		};
+		const local = {
+			group: "glm-5.3-flash",
+			url: "http://127.0.0.1:4100",
+			dialect: "openai" as const,
+			priority: 10,
+		};
+		const pool: UpstreamPool = {
+			groups: () => ["glm-5.3-flash"],
+			deployments: () => [local, hub],
+		};
+		const cooldowns = new Cooldowns(99, 30);
+		const table = new CandidateTable({ pool, policy: POLICY, cooldowns });
+		const selected = decideRoute({
+			hint: null,
+			hintRaw: "",
+			group: "glm-5.3-flash",
+			candidates: table.snapshot(),
+			prefs: { cost_speed: "balanced", allow_cloud: true },
+			dialect: "openai",
+		});
+		expect(selected.ok).toBe(true);
+		if (!selected.ok) return;
+		expect(selected.sel.head.dep.url).toBe(hub.url);
+		const attempted: string[] = [];
+		const router = new Router(POLICY, {
+			pool,
+			cooldowns,
+			sleepMs: async () => {},
+			fetchImpl: async (dep) => {
+				attempted.push(dep.url);
+				return dep.url === hub.url
+					? Response.json({ error: "unavailable" }, { status: 503 })
+					: OK();
+			},
+		});
+		const result = await router.execute(REQ(selected, "SIMPLE"));
+		expect(result.kind).toBe("upstream");
+		if (result.kind === "upstream")
+			expect(result.deployment.url).toBe(local.url);
+		expect(attempted).toEqual([hub.url, hub.url, local.url]);
+	});
 	test("gate open + COMPLEX: local fails twice → cloud rung delivers", async () => {
 		const { router, decide, executed } = rig(
 			[

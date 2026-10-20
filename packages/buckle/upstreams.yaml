@@ -8,7 +8,11 @@
 # Fields: url (upstream base), dialect ("openai" | "anthropic"), optional
 # model (upstream's real model id when the group alias differs — the request
 # body's model field is patched; absent = forward verbatim), optional
-# api_key_env (env var name holding the bearer key).
+# api_key_env (env var name holding the bearer key), optional priority
+# (non-negative integer; lower wins among healthy deployments of equal fit).
+# Priority is set in a machine-level BUCKLE_UPSTREAMS override when an
+# operator wants a preferred hub with a local fallback. Omit it to retain
+# measured latency ordering.
 version: 1
 
 groups:

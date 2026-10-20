@@ -2,8 +2,8 @@
 // zero LLM, zero network — imports no fetch/client, makes no model call).
 // must = healthy AND full fit or machine-readable error, NEVER a substitute
 // (law 2). prefer = fit-ordered, degrade by policy and say so (law 3).
-// No hint = belt's proven default policy (law 4): healthy → proven →
-// effMs → errors → LRU, the compareCandidates port. allow_cloud/cost prefs
+// No hint = belt's proven default policy (law 4): healthy → optional
+// configured priority → proven → effMs → errors → LRU. allow_cloud/cost prefs
 // gate every cloud hop (law 6, precedence: prefs > hint > tier).
 import type { CandidateRow } from "./candidates.ts";
 import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
@@ -62,11 +62,14 @@ export type DecideResult =
 const effMs = (c: CandidateRow): number =>
 	(c.estimate_ms ?? Number.POSITIVE_INFINITY) * (1 + 0.1 * c.load);
 
-/** Law 4 ordering: healthy → proven → effMs → errors → LRU. Buckle rows
+/** Law 4 ordering: healthy → configured priority → proven → effMs → errors → LRU. Buckle rows
  *  carry no probe RTT; candidate_id is the final deterministic tiebreak
- *  where belt uses probe_ms. */
+ *  where belt uses probe_ms. With no priority, the ordering is unchanged. */
 export function compareCandidates(a: CandidateRow, b: CandidateRow): number {
 	if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
+	const priorityA = a.dep.priority ?? Number.POSITIVE_INFINITY;
+	const priorityB = b.dep.priority ?? Number.POSITIVE_INFINITY;
+	if (priorityA !== priorityB) return priorityA - priorityB;
 	const provenA = a.calls > 0 && a.estimate_ms !== null;
 	const provenB = b.calls > 0 && b.estimate_ms !== null;
 	if (provenA !== provenB) return provenA ? -1 : 1;
