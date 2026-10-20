@@ -717,7 +717,7 @@ describe("crash resume budget", () => {
 		);
 	}, 60_000);
 
-	test("exhausted dead claim is preserved on preview and returned to READY before another launch", () => {
+	test("exhausted dead claim is preserved on preview and failed before another launch", () => {
 		const added = tool("work.ts", "add", "exhausted resume fixture");
 		const id = (added.out.match(/W\d+/) ?? [])[0] ?? "";
 		const sid = `autow${id.slice(1)}`;
