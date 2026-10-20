@@ -440,14 +440,14 @@ ${fleetNav("belt", "models")}
 <belt-topology></belt-topology>
 <script type="module" src="/dashboard-topology.js"></script>
 </section>
+<section class="surface-section" aria-label="Routing activity">
+<belt-trends></belt-trends>
+</section>
 <section class="surface-section" aria-label="Hubs and local models">
 <details><summary>Hubs and local models</summary>
 <p class="diagnostics-note">Available models and their Buckle route from this machine.</p>
 <div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
 </details>
-</section>
-<section class="surface-section" aria-label="Routing activity">
-<belt-trends></belt-trends>
 </section>
 <details class="diagnostics"><summary>Diagnostics · probes, endpoint inventory and route records</summary>
 <p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
