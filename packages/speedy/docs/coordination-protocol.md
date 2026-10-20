@@ -3,7 +3,8 @@
 Drop this into a repo's `CLAUDE.md` (or AGENTS.md) to bind the coordinator and
 all lanes to the converged architecture. Requires the control plane installed
 (`hooks/bin/claim.ts`, `hooks/bin/coord.ts`, `hooks/lib/govdb.ts` + the
-keepwarm launchd agent — see [README](../README.md#multi-agent-coordination--the-converged-architecture)).
+fleet-loop maintenance cycle (keepwarm rides it, W779) — see
+[README](../README.md#multi-agent-coordination--the-converged-architecture)).
 
 ## Multi-agent coordination protocol (binding for the coordinator and all lanes)
 
@@ -128,7 +129,7 @@ coord resume <sid> --onto <new-head> --note "applyPreview: (x) → (x, ctx); Med
 ### Zombie lanes (three-state, multi-signal)
 
 - CLAIMED/RUNNING + session RUNNING + hb stale + transcript stale (beyond fact `fleet.zombie_after_ms`, default 45m) = **ZOMBIE**; one stale signal = **SUSPECT**; telemetry missing = **UNKNOWN** — a lookup failure is never death
-- PAUSED / WAIT_RATE lanes are expected-silent, never zombies. `monitor.ts --fix` (launchd `com.klh.fleet-monitor`, 15-min) detects and alerts the canonical coordinator — it NEVER auto-reclaims
+- PAUSED / WAIT_RATE lanes are expected-silent, never zombies. `monitor.ts --fix` (the fleet-loop maintenance cycle — the `com.klh.fleet-monitor` launchd label is retired, W779) detects and alerts the canonical coordinator — it NEVER auto-reclaims
 - remediation: `work orphaned` → reclaim → re-dispatch pointing at the frozen transcript (its context is the salvage); sessions record `transcript_path` at SessionStart so per-lane telemetry is direct, not reconstructed
 
 ### Signalling discipline (self-serve, inbox, checkpoints, decisions)

@@ -113,9 +113,9 @@ speed + safety config layer on top of it.
 | Area claims            | `claims` table driven by a terse claim CLI — coarse scopes (`src/auth`) with `intent`; cross-area touches are **drift-logged** (soft) or **denied** (only hot areas); claims validated against live session transcripts (fabricated ids refused)                                                                 |
 | Event bus              | `coord emit / subscribe / fact` — agents share state **by reference** (structured events, per-agent cursors, versioned facts), never by retelling prose; `subscribe` is a live WebSocket push (W303, one persistent connection) and beats the legacy `wait` long-poll. SendMessage stays reserved for interrupts |
 | Liveness               | Leases expire when quiet 15 min **and** the owner's transcript is dead — a lane in one long tool call never loses its lease mid-work; claim heartbeats are single-statement UPDATEs on the same DB                                                                                                               |
-| Keepwarm               | suspenders `llm-keepwarm.ts` + launchd every 4 min: a 1-token **nonce** ping per resident specialist (a cache HIT would skip the forward pass and leave weights paged out) — kills the 27–50s idle-paging first-touch stall                                                                                      |
+| Keepwarm               | the suspenders fleet-loop keepwarm maintenance task (W779 — no separate launchd agent): a 1-token **nonce** ping per resident specialist (a cache HIT would skip the forward pass and leave weights paged out) — kills the 27–50s idle-paging first-touch stall                                                    |
 | Capability dispatch    | `requires` on work items ⊆ `capabilities` on sessions (csv; lanes inherit the parent's) — `work take` refuses mismatches, so a no-shell agent type can never be handed shell work twice                                                                                                                          |
-| Zombie detection       | Three-state monitor (ZOMBIE = hb + transcript both stale; SUSPECT = one; lookup failure = UNKNOWN, never death) on a 15-min launchd — alerts the canonical coordinator (`fact coordinator.sid`), never auto-reclaims; WAIT_RATE/PAUSED lanes are expected-silent                                                 |
+| Zombie detection       | Three-state monitor (ZOMBIE = hb + transcript both stale; SUSPECT = one; lookup failure = UNKNOWN, never death) in the fleet-loop maintenance cycle (W779) — alerts the canonical coordinator (`fact coordinator.sid`), never auto-reclaims; WAIT_RATE/PAUSED lanes are expected-silent                          |
 | Usage windows          | `quota-window.ts` remembers observed 429 resets (5h cliffs) — dispatch defers around the cliff, and the degradation path is the local LLM stack keeping lanes crawling through blackouts instead of dying                                                                                                        |
 | Fleet board            | suspenders `fleet-board.ts`: live dashboard on 127.0.0.1:7799 — every session, per-project task boards, decisions with LLM recommendations, and a NEEDS-YOUR-ANSWER panel surfacing `NEED_DECISION` events with inline owner answers                                                                             |
 | Early conflict warning | `git merge-tree --write-tree <head> <lane>` — pure three-way merge simulation, no working-tree mutation, run between overlapping lanes' checkpoints                                                                                                                                                              |
@@ -139,9 +139,10 @@ to `bin/install-fleet.ts`, which acquires the fleet monorepo ONCE
 (FLEET_CHECKOUT → this checkout → a shallow clone of FLEET_REPO_URL at
 FLEET_REF) and runs every `packages/<name>` installer from that one revision:
 the control plane (`packages/suspenders` — `./install.sh --wire`, namespaced
-under `~/.claude/hooks/suspenders/`; macOS agents — fleet monitor, LLM
-keepwarm, board keep-alive, rolling db backups — opt-in via
-`--with-launchd`), the swarm kit (`packages/belt`, tier via
+under `~/.claude/hooks/suspenders/`; macOS agents — the `com.suspenders.*`
+services incl. the fleet-loop maintenance cycle (keepwarm, fleet-monitor,
+rolling db backups ride it since W779) — opt-in via `--with-launchd`), the
+swarm kit (`packages/belt`, tier via
 `--llm=minimal|full`), the router plane (`packages/buckle`) and klh-local
 (`packages/local`), which registers `suspenders.local` (:7799) and
 `belt.local` (:7791) as Caddy `.local` services. Only the klh-specific
@@ -268,8 +269,9 @@ The installer syncs the active skill set, the speedy hooks + statusline
 (keep-if-present), the suspenders gates (policy adapters), and the klh layers
 from ONE fleet revision. Personas, slash commands and CLAUDE.md stay in the
 checkout — point your settings at the paths you use. The seven `mj-*`
-personas additionally need a `midjourney` MCP server exposing `mj_imagine`,
-`mj_describe`, `mj_blend`, `mj_button`, `mj_job`.
+personas additionally need a `midjourney` MCP server exposing the
+generation tools (`midjourney_imagine`, `midjourney_describe`,
+`midjourney_variation`, `midjourney_upscale`, and friends).
 
 ### Option 2: One-liner (curl | bash)
 
