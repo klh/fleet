@@ -76,7 +76,7 @@ shared look plus one shared row of links at the top of every dashboard:
   flush on `#cbar` with a panel ground); markup, links, type and colours are
   not.
 - Terminology: the strip names _sites_. Inside suspenders the console menu
-  names _pages_ — `belt gateway` (`/console/belt`), `fleet board` (`/`),
+  names _pages_ — `belt gateway` (`/console/buckle`), `fleet board` (`/`),
   `local services` (`/console/local`) — so no label points two places.
 - The theme preference is per origin (localStorage), so belt.local,
   suspenders.local and bar.local each remember their own; `system` (the

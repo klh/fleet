@@ -98,7 +98,7 @@ test("klh-topbar upgrades on the board, belt console and usage page", async ({
 	await expect(avatar).toBeFocused();
 
 	// belt console — server-rendered me attr rides the same component
-	await page.goto(`${B.BASE}/console/belt`);
+	await page.goto(`${B.BASE}/console/buckle`);
 	await expect(bar(page).locator(".cavbtn")).toBeVisible();
 	await expect(page.locator("h1.ptitle")).toHaveText("Belt gateway");
 	await page.screenshot({ path: `${SHOTS}/2-belt.png`, fullPage: true });
@@ -118,7 +118,7 @@ test("settings gear: theme radios flip data-theme on the document", async ({
 	const B = mustBoard();
 	const look = watch(page);
 	// the settings link is slotted only on console pages — drive there
-	await page.goto(`${B.BASE}/console/belt`);
+	await page.goto(`${B.BASE}/console/buckle`);
 	await expect(bar(page)).toBeVisible();
 	const gear = bar(page).locator(".klh-settings > summary");
 	await gear.click();
@@ -158,7 +158,7 @@ test("W858.3: the fleet strip unifies belt, gateway, local, hub and settings on 
 	const look = watch(page);
 	for (const [path, current] of [
 		["/", "Workflows"],
-		["/console/belt", "Gateway"],
+		["/console/buckle", "Gateway"],
 		["/console/local", "Services"],
 		["/console/hub", "Hub"],
 		["/console/settings", "Settings"],

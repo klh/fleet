@@ -467,7 +467,7 @@ ${fleetNav("belt", "models")}
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
 <main>
-<div class="page-intro"><h1>Local models</h1><p>Model health and fleet inventory · <a href="https://suspenders.local/console/belt">Buckle gateway ↗</a></p></div>
+<div class="page-intro"><h1>Local models</h1><p>Model health and fleet inventory · <a href="https://suspenders.local/console/buckle">Buckle gateway ↗</a></p></div>
 <section class="surface-section" aria-label="Local model health">
 <h2>Local model health</h2>
 <div class="scroll">

@@ -17,7 +17,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.4.1";
+export const KLH_THEME_VERSION = "1.4.2";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -190,9 +190,9 @@ export const FLEET_SITES: readonly FleetLink[] = [
 	},
 	{
 		id: "buckle",
-		href: "https://suspenders.local/console/belt",
+		href: "https://suspenders.local/console/buckle",
 		repo: "https://github.com/klh/fleet/tree/main/packages/buckle",
-		title: "buckle: LLM gateway console (suspenders.local/console/belt)",
+		title: "buckle: LLM gateway console (suspenders.local/console/buckle)",
 	},
 	{
 		id: "suspenders",
@@ -213,7 +213,7 @@ const fleetLink = (
 	current: FleetSite | "",
 	view: string,
 ): string =>
-	(view === "belt" ? s.id === "buckle" : s.id === current)
+	(view === "buckle" ? s.id === "buckle" : s.id === current)
 		? `<a href="${s.href}" aria-current="page" title="${s.title}">${s.id}</a>`
 		: `<a href="${s.href}" data-repo="${s.repo}" title="${s.title}">${s.id}</a>`;
 
@@ -234,7 +234,7 @@ export const displayLabel = (name: string): string =>
 export const fleetNav = (current: FleetSite | "", view = ""): string => {
 	const routes = [
 		["models", "Models", "https://belt.local/", "models"],
-		["belt", "Routes", "https://suspenders.local/console/belt", "models"],
+		["buckle", "Routes", "https://suspenders.local/console/buckle", "models"],
 		["suspenders", "Workflows", "https://suspenders.local/", "workflows"],
 		[
 			"local",

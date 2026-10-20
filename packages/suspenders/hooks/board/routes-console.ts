@@ -1,4 +1,4 @@
-// hooks/board/routes-console.ts — W147 console: /console /console/belt /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
+// hooks/board/routes-console.ts — W147 console: /console /console/buckle /console/local /api/console/me /console/settings(+preview/apply) (W157 route module).
 // The fetch fragment moved verbatim (route order preserved by the
 // entry's handler list); returns null when nothing matches.
 import { BELT_REPO, db } from "./context.ts";
@@ -42,8 +42,10 @@ export async function handleConsole(
 	const buckleRead = await buckleReadProxy(req, url);
 	if (buckleRead) return buckleRead;
 	if (url.pathname === "/console")
-		return Response.redirect(new URL("/console/belt", url).toString(), 302);
-	if (url.pathname === "/console/belt") {
+		return Response.redirect(new URL("/console/buckle", url).toString(), 302);
+	if (url.pathname === "/console/belt")
+		return Response.redirect(new URL("/console/buckle", url).toString(), 301);
+	if (url.pathname === "/console/buckle") {
 		const me = consoleMe();
 		return new Response(await beltPage(await gatherBeltView(), me), {
 			headers: {

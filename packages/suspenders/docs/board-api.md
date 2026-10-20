@@ -146,7 +146,7 @@ commands (placeholder law: no secrets, no real hosts, no home paths).
 
 Re-probe one service — `{ ok, service }` in the row shape above; unknown id →
 404 `{ ok:false, error }`. Backs the "re-probe" button on each
-`<klh-service-row>` on `/console/belt` (dark rows also re-poll every 15 s).
+`<klh-service-row>` on `/console/buckle` (dark rows also re-poll every 15 s).
 
 ## POST /api/start
 

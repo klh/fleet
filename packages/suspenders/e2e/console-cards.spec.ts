@@ -48,7 +48,7 @@ test("belt console: policy + upstream-pool cards upgrade and render", async ({
 }) => {
 	const B = mustBoard();
 	const look = watch(page);
-	await page.goto(`${B.BASE}/console/belt`);
+	await page.goto(`${B.BASE}/console/buckle`);
 	const network = page.locator("klh-network-card");
 	const inventory = page.locator("details.consoleInventory");
 	await expect(network).toBeVisible();
