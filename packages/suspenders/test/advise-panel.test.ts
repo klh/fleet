@@ -174,6 +174,52 @@ describe("advise --panel (W742.2)", () => {
 		db.close();
 	});
 
+	test("total miss falls back to governed Belt advice and retains leg errors", async () => {
+		const cloud = makeStub("");
+		const belt = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: () =>
+				Response.json({
+					reply:
+						"RECOMMENDATION: Ask the owner to review the stale fork.\nRATIONALE: The original legs did not answer.\nRISK: The owner must verify the linked work.",
+					target: { model: "fallback-model", machine: "test" },
+					ms: 12,
+				}),
+		});
+		const rec = seedFork("panel fallback fork");
+		try {
+			const r = await advisePanel(rec.id as number, {
+				ORACLE_ROUTE_URL: "http://127.0.0.1:1/v1/chat/completions",
+				BELT_ESCALATE_URL: `${cloud.base}/v1/messages`,
+				BELT_ESCALATE_KEY: "k",
+				SUSPENDERS_BELT_URL: `http://127.0.0.1:${belt.port}`,
+			});
+			expect(r.code).toBe(0);
+			const db = gdb();
+			const fact = db
+				.query("SELECT value FROM facts WHERE key = ?")
+				.get(`advice.${rec.id}`) as { value: string } | null;
+			const advice = JSON.parse(fact?.value ?? "{}") as {
+				rec: string;
+				panel: { consensus: string; legs: { error?: string }[] };
+			};
+			expect(advice.rec).toBe("Ask the owner to review the stale fork.");
+			expect(advice.panel.consensus).toBe("degraded: governed route");
+			expect(advice.panel.legs[0]?.error).toBeTruthy();
+			expect(advice.panel.legs[1]?.error).toBeTruthy();
+			expect(
+				db
+					.query("SELECT value FROM facts WHERE key = ?")
+					.get(`advice.${rec.id}.error`),
+			).toBeNull();
+			db.close();
+		} finally {
+			cloud.stop();
+			belt.stop(true);
+		}
+	});
+
 	test("heading-only local reply and unavailable cloud leave no advice to use", async () => {
 		const local = makeStub(
 			"**Analysis of W849 State Degradation**\nVERDICT: approve",

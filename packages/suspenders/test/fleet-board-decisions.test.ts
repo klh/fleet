@@ -294,6 +294,7 @@ describe("decision lifecycle (docs/decisions-api.md)", () => {
 		expect(rec).toBeDefined();
 		expect(rec.task_id).toBe(wid);
 		expect(rec.task_title).toBe("superseded target");
+		expect(rec.task_state).toBe("READY");
 		expect(
 			run("coord.ts", [
 				"emit",

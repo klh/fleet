@@ -1110,7 +1110,7 @@ export function decisionRecords(
 	const selected = project && project !== "all" ? project : null;
 	const rows = db
 		.query(
-			`SELECT d.*, w.title AS task_title FROM decisions d
+			`SELECT d.*, w.title AS task_title, w.state AS task_state FROM decisions d
 			LEFT JOIN work_items w ON w.project = d.project AND w.id = d.task_id
 			${selected ? "WHERE d.project = ?" : ""}
 			ORDER BY (d.state = 'OPEN') DESC, d.event_id DESC LIMIT 200`,
@@ -1132,6 +1132,7 @@ export function decisionRecords(
 		answered_at: number | null;
 		ack_ts: number | null;
 		task_title: string | null;
+		task_state: string | null;
 	}[];
 	// W667: one batched liveness pass feeds every row — registry verdicts
 	// (the `work lanes` surface) with the sessions face as fallback
@@ -1185,6 +1186,7 @@ export function decisionRecords(
 			project: d.project || null,
 			task_id: d.task_id,
 			task_title: d.task_title ?? null,
+			task_state: d.task_state ?? null,
 			asked_by: d.asked_by || d.target,
 			asked_by_label: labelFrom(lm, d.asked_by || d.target, role),
 			target: d.target,
