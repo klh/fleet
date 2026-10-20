@@ -403,7 +403,7 @@ class BeltTopology extends LitElement {
 					? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
 					: item.state === "unconfigured"
 						? viaHub
-							? "Hub route configured · provider key missing"
+							? "Hub route configured · traffic unobserved"
 							: "Direct API key not configured"
 						: viaHub
 							? "Provider upstream · gateway path configured"
