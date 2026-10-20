@@ -27,10 +27,18 @@ function fixture(): void {
 		join(root, "entry.ts"),
 		[
 			'import { hub } from "./hub.ts";',
+			'import { inside } from "./inside.ts";',
 			'import { real } from "./shim.ts";',
 			'import { cfg } from "../lib/x.ts";',
-			"console.log(hub(), real, cfg());",
+			'const operatorConfig = "./routing-policy.yaml";',
+			"console.log(hub(), inside, real, cfg());",
 		].join("\n"),
+	);
+	writeFileSync(join(root, "routing-policy.yaml"), "operator: owned\n");
+	writeFileSync(join(root, "inside.ts"), 'export const inside = "inside";\n');
+	writeFileSync(
+		join(root, "external-only.ts"),
+		'export const externalOnly = "external";\n',
 	);
 	writeFileSync(
 		join(root, "hub.ts"),
@@ -43,7 +51,10 @@ function fixture(): void {
 			"}",
 		].join("\n"),
 	);
-	writeFileSync(join(dir, "lib", "x.ts"), 'export const cfg = () => "cfg";\n');
+	writeFileSync(
+		join(dir, "lib", "x.ts"),
+		'import { inside } from "../bin/inside.ts";\nimport { externalOnly } from "../bin/external-only.ts";\nexport const cfg = () => inside + externalOnly;\n',
+	);
 	writeFileSync(
 		join(dir, "lib", "types.ts"),
 		"export interface T { a: number }\n",
@@ -114,6 +125,16 @@ describe("W778 flat externals", () => {
 		expect(hub).toContain('from "./x.ts"');
 		expect(hub).toContain('from "./types.ts"');
 		expect(readFileSync(join(runtime, "x.ts"), "utf8")).toContain("cfg");
+		expect(readFileSync(join(runtime, "x.ts"), "utf8")).toContain(
+			'from "./inside.ts"',
+		);
+		expect(readFileSync(join(runtime, "x.ts"), "utf8")).toContain(
+			'from "./external-only.ts"',
+		);
+		expect(readFileSync(join(runtime, "external-only.ts"), "utf8")).toContain(
+			"externalOnly",
+		);
+		expect(rep.healed).not.toContain("routing-policy.yaml");
 		expect(readFileSync(join(runtime, "types.ts"), "utf8")).toContain("T");
 		expect(readFileSync(join(runtime, "real.ts"), "utf8")).toContain("real");
 		await verifyFlatHome(runtime, "entry.ts");

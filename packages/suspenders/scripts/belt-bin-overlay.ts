@@ -19,35 +19,37 @@ export function relativeImports(source: string): string[] {
 }
 
 /**
- * BFS over the entry's `./`-relative imports, staying inside root. Files are
- * included only when they exist — a commented-out or type-dangling specifier
- * fails open (copy an extra file) instead of stranding the closure.
+ * BFS over the entry's imports and their cross-package dependencies. A module
+ * outside belt/bin can import back into belt/bin; that member must also ride
+ * the flat runtime closure. Only existing belt/bin files are returned.
  */
 export async function beltBinClosure(
 	entry: string,
 	root = dirname(entry),
 ): Promise<string[]> {
+	const repoRoot = resolve(root, "..", "..");
 	const seen = new Set<string>();
-	const queue = [entry];
+	const members = new Set<string>();
+	const queue = [resolve(entry)];
 	while (queue.length > 0) {
 		const current = queue.shift() as string;
+		if (seen.has(current)) continue;
+		seen.add(current);
 		let source: string;
 		try {
 			source = await Bun.file(current).text();
 		} catch {
 			continue; // vanished between readdir and read: skip, smoke still guards
 		}
-		for (const spec of relativeImports(source)) {
-			const resolved = join(dirname(current), spec.split("?")[0]);
-			const rel = relative(root, resolved);
-			if (rel.startsWith("..") || seen.has(resolved)) continue;
+		for (const resolved of relativeSpecs(source, dirname(current))) {
+			if (!isWithin(resolved, repoRoot) || seen.has(resolved)) continue;
 			if (!(await Bun.file(resolved).exists())) continue;
-			seen.add(resolved);
+			if (isWithin(resolved, root) && resolved !== resolve(entry))
+				members.add(resolved);
 			queue.push(resolved);
 		}
 	}
-	seen.delete(entry);
-	return [...seen].sort().map((file) => relative(root, file));
+	return [...members].sort().map((file) => relative(root, file));
 }
 
 /** True when child sits at or below dir (no `..` in the relative path). */
@@ -55,11 +57,13 @@ function isWithin(child: string, dir: string): boolean {
 	return !relative(dir, child).startsWith("..");
 }
 
-/** All relative `./`+`../` specifiers of a text, resolved against fromDir. */
+/** Static, dynamic, and side-effect relative imports resolved against fromDir. */
 export function relativeSpecs(text: string, fromDir: string): string[] {
 	const out: string[] = [];
-	for (const m of text.matchAll(/(["'])((?:\.\.?\/)[^"']+)\1/g)) {
-		out.push(resolve(fromDir, m[2].split("?")[0]));
+	const pattern =
+		/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](\.\.?\/[^"']+)["']/g;
+	for (const m of text.matchAll(pattern)) {
+		out.push(resolve(fromDir, m[1].split("?")[0]));
 	}
 	return out;
 }
@@ -132,10 +136,15 @@ export function rewriteExternalSpecs(
 	text: string,
 	fromDir: string,
 	externals: Map<string, string>,
+	memberRoot?: string,
 ): string {
 	return text.replace(/(["'])((?:\.\.?\/)[^"']+)\1/g, (full, q, spec) => {
 		const resolved = resolve(fromDir, spec.split("?")[0]);
-		const base = externals.get(resolved);
+		const base =
+			externals.get(resolved) ??
+			(memberRoot && isWithin(resolved, memberRoot)
+				? basename(resolved)
+				: undefined);
 		return base === undefined ? full : `${q}./${base}${q}`;
 	});
 }
@@ -262,6 +271,7 @@ export async function refreshFlatHome(
 				await Bun.file(source).text(),
 				dirname(source),
 				externals,
+				root,
 			);
 			const want = normalizeSource(wantText);
 			const target = join(runtime, rel);
@@ -283,6 +293,7 @@ export async function refreshFlatHome(
 				await Bun.file(file).text(),
 				dirname(file),
 				externals,
+				root,
 			);
 			const want = normalizeSource(wantText);
 			const have = (await Bun.file(target).exists())

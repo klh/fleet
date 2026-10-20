@@ -44,6 +44,7 @@ const GENERATOR_FILES = [
 	"remotes-validate.ts",
 	"openrouter-free-rows.ts",
 	"zai-catalog-rows.ts",
+	"chatgpt-subscription-rows.ts",
 ];
 
 /** Home files whose bytes the GENERATED yaml depends on: the generator
