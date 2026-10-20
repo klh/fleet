@@ -131,6 +131,7 @@ let shimBase = "";
 let home = "";
 let cloudHits = 0;
 let upHits = 0;
+let cloudGate: Promise<void> | null = null;
 
 function stubServe(handlers: {
 	[A: string]: (req: Request) => Response | Promise<Response>;
@@ -163,6 +164,7 @@ beforeAll(async () => {
 			BELT_RETRY_WAIT_CAP_MS: "500",
 			BELT_ESCALATE_URL: `http://127.0.0.1:${cloud}`,
 			BELT_ESCALATE_KEY: "test-key",
+			BELT_PORT_CAPS: "8903:1",
 		},
 		stdout: "ignore",
 		stderr: "ignore",
@@ -203,8 +205,9 @@ function startStubs(): { up: number; cloud: number } {
 		},
 	});
 	const cloud = stubServe({
-		"POST /v1/messages": () => {
+		"POST /v1/messages": async () => {
 			cloudHits++;
+			if (cloudGate) await cloudGate;
 			return Response.json({
 				content: [{ type: "text", text: "cloud answer" }],
 			});
@@ -330,6 +333,32 @@ describe("router-shim end-to-end (W279, stub upstream)", () => {
 		expect(j._routing.category).toBe("cloud");
 		expect(cloudHits).toBe(before + 1);
 		expect(j.content[0]?.text).toBe("cloud answer");
+	});
+
+	test("cloud-first calls do not occupy the protected local reason slot", async () => {
+		let releaseCloud = () => {};
+		cloudGate = new Promise<void>((resolve) => {
+			releaseCloud = resolve;
+		});
+		const before = cloudHits;
+		const body = {
+			messages: [
+				{
+					role: "user",
+					content:
+						"From the attached 120k-token specification, explain the retry policy.",
+				},
+			],
+		};
+		const first = post(body);
+		for (let i = 0; i < 40 && cloudHits === before; i++) await Bun.sleep(25);
+		const second = post(body);
+		await Bun.sleep(100);
+		releaseCloud();
+		cloudGate = null;
+		const results = await Promise.all([first, second]);
+		expect(results.map((r) => r.status)).toEqual([200, 200]);
+		expect(cloudHits).toBe(before + 2);
 	});
 
 	test("500-token ask is extract (SIMPLE), not cloud", async () => {

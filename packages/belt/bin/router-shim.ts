@@ -550,19 +550,7 @@ Bun.serve({
 		// rule 5) — classifyELabel owns it via the general label; language beats
 		// task class. The kev pin applies only to fallback-label prose below.
 
-		// admission control: bound in-flight per routed port; overflow → 429 +
-		// Retry-After so the gateway ladder takes its next hop
-		const release = admission.tryAcquire(route.port);
-		if (!release) {
-			logRouting({
-				category: el.label,
-				port: route.port,
-				...promptFingerprint(text),
-				outcome: "overloaded",
-				cap: admission.capOf(route.port), // W504 per-provider cap
-			});
-			return overloaded(route.port, admission);
-		}
+		let release: (() => void) | null = null;
 		let handedOff = false; // a live stream owns `release` until its last byte
 		try {
 			const clientMax = Math.min(body.max_tokens ?? 1024, 4096);
@@ -711,6 +699,22 @@ Bun.serve({
 					note.push("kev escalate-gate: kept local");
 				else await tryCloud(true);
 			}
+			// A successful cloud-first request never enters the local ladder and
+			// must not occupy one of its specialist slots. Acquire only if the
+			// local leg will actually run, including after a failed cloud attempt.
+			if (!response) {
+				release = admission.tryAcquire(route.port);
+				if (!release) {
+					logRouting({
+						category: el.label,
+						port: route.port,
+						...promptFingerprint(text),
+						outcome: "overloaded",
+						cap: admission.capOf(route.port),
+					});
+					return overloaded(route.port, admission);
+				}
+			}
 			if (wantStream && !response) {
 				// streamed: TTFT = the specialist's first token, not the full answer
 				const opened = await ladder(
@@ -745,7 +749,7 @@ Bun.serve({
 						},
 						(r) => {
 							fbRelease?.();
-							release();
+							release?.();
 							logDone({
 								outcome: r.error
 									? "stream-error"
@@ -890,7 +894,7 @@ Bun.serve({
 				{ headers: condenseResponseHeaders(routing) },
 			);
 		} finally {
-			if (!handedOff) release();
+			if (!handedOff) release?.();
 		}
 	},
 });
