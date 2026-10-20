@@ -48,6 +48,10 @@ import {
 import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
+import {
+	collectModelCapabilities,
+	type CapabilityFeed,
+} from "./model-capability-collector.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -81,6 +85,25 @@ const accessSnapshot = async (): Promise<ModelAccess> => {
 			accessPending = null;
 		});
 	return accessPending;
+};
+let capabilityCache: CapabilityFeed | null = null;
+let capabilityPending: Promise<CapabilityFeed> | null = null;
+const capabilitySnapshot = async (): Promise<CapabilityFeed> => {
+	if (
+		capabilityCache &&
+		Date.now() - Date.parse(capabilityCache.observedAt) < 300_000
+	)
+		return capabilityCache;
+	capabilityPending ??= accessSnapshot()
+		.then((access) => collectModelCapabilities(access))
+		.then((value) => {
+			capabilityCache = value;
+			return value;
+		})
+		.finally(() => {
+			capabilityPending = null;
+		});
+	return capabilityPending;
 };
 // local rows of the unified fleet table are labelled with this machine's name
 const LOCAL_NAME = hostname().replace(/\.local\.?$/, "");
@@ -431,7 +454,7 @@ threads-mark { vertical-align:middle; margin:0 3px 0 0; --rust:var(--klh-danger)
 .access-vendor summary { padding:8px 0; cursor:pointer; }
 .access-vendor table { width:100%; border-collapse:collapse; font-size:var(--klh-text-sm); }
 .access-vendor td { padding:5px 12px 5px 0; border-top:1px solid var(--klh-edge); }
-.access-vendor td:last-child { color:var(--klh-dim); text-align:right; }
+.access-vendor td:last-child { color:var(--klh-dim); text-align:left; }
 ${FLEET_NAV_CSS}
 ${THEME_SETTINGS_CSS}
 </style></head>
@@ -644,12 +667,51 @@ function tickRemotes(){
   fetch('/api/remotes').then(function(r){return r.json();}).then(applyRemotes).catch(function(e){remotesnote.textContent='remotes: unreachable — '+String(e && (e.message||e));});
 }
 function tickAccess(){
-  fetch('/api/model-access').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(s){
+  Promise.all(['/api/model-access','/api/model-capabilities'].map(function(path){
+    return fetch(path).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
+  })).then(function(results){
+    var s=results[0],feed=results[1];
     var box=document.getElementById('modelaccess');
     var c=s.copilot||{};var models=c.models||[];
     var o=s.openrouter||{};var routerModels=o.models||[];
     var z=s.zaiPricing||{};var zModels=z.models||[];
     var zAccount=s.zaiAccount||{};var zAccountIds=zAccount.modelIds||[];
+    var capabilityRows=feed.records||[];
+    var capabilityById=new Map(capabilityRows.map(function(row){return [JSON.stringify([row.provider,row.modelId]),row];}));
+    function fact(field,formatter){return field?.value===null||field?.value===undefined?'unknown':formatter(field.value);}
+    function capability(provider,id){
+      var row=capabilityById.get(JSON.stringify([provider,id]));
+      if(!row)return 'context unknown · max output unknown · input unknown · output unknown · tools unknown · structured output unknown';
+      var context=fact(row.contextTokens,function(n){return Number(n).toLocaleString()+' tokens';});
+      var output=fact(row.maxOutputTokens,function(n){return Number(n).toLocaleString()+' tokens';});
+      return 'context '+context+' · max output '+output
+        +' · input '+fact(row.inputModalities,function(v){return v.join(', ');})
+        +' · output '+fact(row.outputModalities,function(v){return v.join(', ');})
+        +' · tools '+fact(row.tools,function(v){return v?'yes':'no';})
+        +' · structured '+fact(row.structuredOutput,function(v){return v?'yes':'no';});
+    }
+    function evidence(provider,id){
+      var row=capabilityById.get(JSON.stringify([provider,id]));
+      if(!row)return 'Capability source unavailable';
+      var field=row.contextTokens?.source?row.contextTokens:row.locality;
+      return 'Capability: '+(field?.source||'unreported')+' · checked '+(field?.observedAt?dual(field.observedAt):'never')
+        +' · price: '+(row.cost?.source||'unreported')+' · checked '+(row.cost?.observedAt?dual(row.cost.observedAt):'never');
+    }
+    function shortEvidence(provider,id){
+      var row=capabilityById.get(JSON.stringify([provider,id]));
+      if(!row)return 'source unreported';
+      var field=row.contextTokens?.source?row.contextTokens:row.locality;
+      var source=field?.source||'unreported';
+      try{source=new URL(source).host;}catch(_){}
+      return 'source '+source+' · capabilities '+(field?.observedAt?age(field.observedAt,Date.now()):'unobserved')
+        +' · price '+(row.cost?.observedAt?age(row.cost.observedAt,Date.now()):'unreported');
+    }
+    function appendCapability(cell,provider,id){
+      var summary=document.createElement('div');summary.textContent=capability(provider,id);
+      var provenance=document.createElement('small');provenance.textContent=shortEvidence(provider,id);
+      provenance.title=evidence(provider,id);
+      cell.append(summary,provenance);
+    }
     box.replaceChildren();
     var seats=document.createElement('div');seats.className='access-seats';
     ['IKEA Copilot · '+(c.state||'unobserved')+' · '+models.length+' selectable models',
@@ -662,6 +724,10 @@ function tickAccess(){
     var note=document.createElement('p');
     note.textContent='Copilot models: subscription access; per-token price unreported. Local models: no posted API token price. These are not zero-cost claims.';
     box.append(note);
+    var capabilityNote=document.createElement('p');
+    capabilityNote.textContent='Capabilities · '+(feed.state||'unavailable')+' · OpenRouter '+(feed.sources?.openrouter||'unavailable')
+      +' · snapshot '+(feed.sources?.persistence||'unavailable')+' · checked '+dual(feed.observedAt);
+    box.append(capabilityNote);
     function usd(value){
       if(value===null||value===undefined)return 'unreported';
       return '$'+Number(value).toLocaleString(undefined,{maximumFractionDigits:4});
@@ -690,7 +756,9 @@ function tickAccess(){
       var table=document.createElement('table');
       section[1].forEach(function(m){
         var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
-        name.textContent=m.name+' · '+m.id;price.textContent=rate(m.price);row.append(name,price);table.append(row);
+        name.textContent=m.name+' · '+m.id;price.textContent=rate(m.price);
+        var detail=document.createElement('td');appendCapability(detail,'openrouter',m.id);
+        row.append(name,price,detail);table.append(row);
       });
       group.append(table);box.append(group);
     });
@@ -713,7 +781,9 @@ function tickAccess(){
       var m=zModels.find(function(item){return item.id===id;});
       var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
       name.textContent=(m?.name||id)+(zAccountIds.includes(id)?' · account visible':' · published price only');
-      price.textContent=rate(m?.price);row.append(name,price);zTable.append(row);
+      price.textContent=rate(m?.price);
+      var detail=document.createElement('td');appendCapability(detail,'zai',id);
+      row.append(name,price,detail);zTable.append(row);
     });
     zGroup.append(zTable);box.append(zGroup);
     var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
@@ -727,10 +797,24 @@ function tickAccess(){
         name.textContent=m.name;
         var responseOnly=m.endpoints.includes('/responses')&&!m.endpoints.includes('/chat/completions')&&!m.endpoints.includes('/v1/messages');
         var via=m.routes?.length?m.routes.map(function(route){return 'local/Copilot/'+route;}).join(', '):responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
-        access.textContent=via+' · '+rate(m.price);row.append(name,access);table.append(row);
+        access.textContent=via+' · '+rate(m.price);
+        var detail=document.createElement('td');appendCapability(detail,'copilot',m.id);
+        row.append(name,access,detail);table.append(row);
       });
       group.append(table);box.append(group);
     });
+    var localRows=capabilityRows.filter(function(row){return row.provider==='belt-local';});
+    var localGroup=document.createElement('details');localGroup.className='access-vendor';
+    var localHeading=document.createElement('summary');
+    localHeading.textContent='Belt local models · '+localRows.length;localGroup.append(localHeading);
+    var localTable=document.createElement('table');
+    localRows.forEach(function(m){
+      var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');var detail=document.createElement('td');
+      name.textContent=m.modelId;price.textContent=rate(m.cost?.value);
+      appendCapability(detail,m.provider,m.modelId);
+      row.append(name,price,detail);localTable.append(row);
+    });
+    localGroup.append(localTable);box.append(localGroup);
   }).catch(function(e){document.getElementById('modelaccess').textContent='Model access unavailable · '+String(e.message||e);});
 }
 tickAccess();setInterval(tickAccess,300000);
@@ -981,6 +1065,7 @@ const ROUTES: RouteMethods = {
 	"/api/network": ["GET", "HEAD"],
 	"/api/topology-context": ["GET", "HEAD"],
 	"/api/model-access": ["GET", "HEAD"],
+	"/api/model-capabilities": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
 	"/api/metrics/history": ["GET", "HEAD"],
@@ -1049,6 +1134,8 @@ Bun.serve({
 		if (path === "/api/network") return networkSnapshot();
 		if (path === "/api/topology-context") return topologyContext();
 		if (path === "/api/model-access") return json(await accessSnapshot());
+		if (path === "/api/model-capabilities")
+			return etagJson(req, JSON.stringify(await capabilitySnapshot()));
 		// W258 — the capability forecast: conservative per-machine rows
 		if (path === "/api/catalog") return json(capabilityPayload());
 		if (path === "/api/route") return serveRoute(req);
