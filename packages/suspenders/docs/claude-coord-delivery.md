@@ -1,5 +1,20 @@
 # Claude coordination delivery
 
+New local Fleet Claude lanes use `hooks/bin/claude-runtime.ts`, declared
+by the Claude executor adapter. Both dispatch paths fence the runtime's
+PID and birth identity; the native Claude executable is passed separately
+in the lane environment. The runtime owns Claude's stream-json stdin.
+On a directed event it requests a native interrupt, waits for both the
+success response and the interrupted turn's result, then injects the
+event into that same Claude conversation. Native stdout and delivery
+receipts remain NDJSON. A protocol failure leaves the durable event queued.
+
+This applies to newly launched local managed lanes. An existing unmanaged
+interactive CLI cannot be adopted or interrupted through this runtime.
+Cross-hub delivery was not covered by the probes below.
+
+## Native hook fallback
+
 The Claude hook adapter provides native wakeup and mandatory delivery at
 supported hook boundaries. It does **not** cancel active model generation
 or an executing tool.
@@ -40,11 +55,24 @@ not call the model gateway directly.
 | Active streamed generation | Hook feedback appeared 44 ms after the signal. The original response continued for 12,308 characters and completed before the queued feedback was handled. |
 
 The installed implementation queues asyncRewake feedback with priority
-`next`. Already running interactive sessions cannot gain a managed stdin
-channel through this adapter. A true interrupt needs a launcher that owns
-Claude's stream-json input, sends the SDK interrupt control request, and
-then supplies the direct event to that same conversation. Installation and
-hook configuration loading are separate from the worktree probes above.
+`next`. Installation and hook configuration loading are separate from the
+worktree probes above.
+
+## Managed runtime verification
+
+The managed probes used the actual installed coord CLI, store server and
+subscriber, with the new runtime from its worktree and a real Claude CLI.
+Both addressed notes reached `ACCEPTED` through the agent's explicit
+per-event acknowledgment in the isolated durable store.
+
+| Active work | Observed result |
+| --- | --- |
+| Streamed 250-line response | Native interruption ended the original turn after 241 characters, at line 6. The same conversation read and acknowledged the event and handled the new instruction. |
+| Executing 20 second command | Its filesystem start marker preceded the note by 681.7 ms. Native interruption ended that turn; the completion marker was absent more than 55 seconds later. The same conversation read and acknowledged the event. |
+
+The fixture test also verifies that native process and session identities
+are reused. Launch cleanup first sends SIGTERM so the managed runtime can
+reap its native child, then escalates to SIGKILL after a bounded wait.
 
 References: [Claude hooks](https://code.claude.com/docs/en/hooks),
 [streaming input](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode).

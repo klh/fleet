@@ -11,9 +11,19 @@ import {
 	isSpawnableExecutor,
 } from "../hooks/lib/executors/registry.ts";
 import { CLAUDE_ALLOWED_TOOLS } from "../hooks/lib/executors/claude.ts";
-import { DEFAULT_ALLOWED_TOOLS } from "../scripts/lib/lane.ts";
+import { DEFAULT_ALLOWED_TOOLS, executorLaunch } from "../scripts/lib/lane.ts";
 
 describe("W422 executor-adapter registry", () => {
+	test("managed launch is adapter data and preserves the native executable separately", () => {
+		const selected = executorLaunch(adapterFor("claude"), "/native/claude");
+		expect(selected.bin.endsWith("/hooks/bin/claude-runtime.ts")).toBe(true);
+		expect(selected.env).toEqual({
+			SUSPENDERS_CLAUDE_NATIVE_BIN: "/native/claude",
+		});
+		const plain = executorLaunch(adapterFor("copilot"), "/native/copilot");
+		expect(plain).toEqual({ bin: "/native/copilot", env: {} });
+	});
+
 	test("one row per agent; lane.ts re-export = claude recipe", () => {
 		expect(EXECUTOR_ADAPTERS.map((a) => a.id)).toEqual([
 			"claude",

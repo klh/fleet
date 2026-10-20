@@ -45,6 +45,8 @@ import {
 	scheduleLaunchBackoff,
 } from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../repro-gate.ts";
+import { adapterFor } from "../executors/registry.ts";
+import { executorLaunch } from "../../../scripts/lib/lane.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
 import { briefIntel, renderIntel } from "../brief-intel.ts";
@@ -100,6 +102,7 @@ export async function runDispatch(
 		process.exit(1);
 	}
 	const bin = carrier.bin;
+	const executor = executorLaunch(adapterFor(AGENT), bin);
 	const store = openStore(),
 		project = projectIdentity(REPO),
 		nonce = crypto.randomUUID();
@@ -190,7 +193,7 @@ export async function runDispatch(
 		revision = claim.updated_at;
 		intent = reserveLaunchIntent(
 			store,
-			{ project, item, sid, nonce, revision, executor: bin },
+			{ project, item, sid, nonce, revision, executor: executor.bin },
 			limit,
 			attempt - 1,
 		);
@@ -286,7 +289,7 @@ export async function runDispatch(
 		// in the worktree and the prompt points there; the .fleet copy stays
 		// canonical for the coordinator/board.
 		writeFileSync(`${wt}/.klh-brief.md`, brief);
-		const env = { ...process.env };
+		const env = { ...process.env, ...executor.env };
 		if (takeToken) env.KLH_CLAIM_TOKEN = takeToken;
 		delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 		if (AGENT !== "codex") {

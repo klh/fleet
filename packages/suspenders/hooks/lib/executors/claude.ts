@@ -3,6 +3,7 @@
 // agent — a claude fix never touches copilot's file, and a new agent is
 // one adapter file + one registry row in registry.ts).
 import type { ExecutorAdapter } from "../../../scripts/lib/lane.ts";
+import { join } from "node:path";
 
 // The tool-permission recipe: lived in scripts/lib/lane.ts as
 // DEFAULT_ALLOWED_TOOLS until the adapter registry extracted the seam —
@@ -15,6 +16,10 @@ export const claudeAdapter: ExecutorAdapter = {
 	id: "claude",
 	names: ["claude"],
 	bin: "claude",
+	managedRuntime: {
+		entrypoint: join(import.meta.dir, "..", "..", "bin", "claude-runtime.ts"),
+		nativeBinEnv: "SUSPENDERS_CLAUDE_NATIVE_BIN",
+	},
 	spawnable: true,
 	// W223.2: no observed claude brief mangling — warn-only verification.
 	briefHarness: "claude",

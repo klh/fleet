@@ -400,7 +400,14 @@ export async function awaitLaunchRegistration(
 export async function terminateOwnLaunch(
 	proc: Pick<Bun.Subprocess, "kill" | "exited" | "exitCode">,
 ): Promise<void> {
-	if (proc.exitCode === null) proc.kill("SIGKILL");
+	if (proc.exitCode === null) {
+		proc.kill("SIGTERM");
+		const exited = await Promise.race([
+			proc.exited.then(() => true),
+			Bun.sleep(500).then(() => false),
+		]);
+		if (!exited && proc.exitCode === null) proc.kill("SIGKILL");
+	}
 	await proc.exited;
 }
 if (import.meta.main) {

@@ -18,6 +18,7 @@ import { readSessionState, writeSessionState } from "./session-state.ts";
 const DIRECT_KINDS = new Set(["NOTE", "consult", "consult.answer"]);
 const MAX_TEXT = 16_384;
 const WAIT_MS = 86_400_000;
+type Consumer = "native" | "boundary" | "managed";
 
 function paths(sid: string, home: string) {
 	const dir = join(home, ".claude-insights", "coord-claude-wake");
@@ -26,7 +27,7 @@ function paths(sid: string, home: string) {
 		dir,
 		pending: join(dir, `${key}.json`),
 		emitted: (consumer: string) => join(dir, `${key}.${consumer}.json`),
-		lock: join(dir, `${key}.watcher.json`),
+		lock: (consumer: string) => join(dir, `${key}.${consumer}.watcher.json`),
 	};
 }
 
@@ -58,7 +59,7 @@ export function signalClaudeDirectEvent(
 export function consumeClaudeWake(
 	sid: string,
 	home = process.env.HOME ?? "",
-	consumer: "native" | "boundary" = "native",
+	consumer: Consumer = "native",
 ): string | null {
 	if (!sid || !home) return null;
 	const files = paths(sid, home);
@@ -113,39 +114,55 @@ function lockWatcher(path: string): boolean {
  * re-arms after an emission; simultaneous invocations exit quietly. */
 export async function waitForClaudeWake(
 	sid: string,
-	opts: { home?: string; timeoutMs?: number } = {},
+	opts: {
+		home?: string;
+		timeoutMs?: number;
+		consumer?: Consumer;
+		abort?: AbortSignal;
+	} = {},
 ): Promise<string | null> {
 	const home = opts.home ?? process.env.HOME ?? "";
-	if (!home || !sid || process.env.SUSPENDERS_CLAUDE_WAKE === "0") return null;
+	const consumer = opts.consumer ?? "native";
+	if (
+		!home ||
+		!sid ||
+		opts.abort?.aborted ||
+		(consumer !== "managed" && process.env.SUSPENDERS_CLAUDE_WAKE === "0")
+	)
+		return null;
 	const files = paths(sid, home);
+	const lock = files.lock(consumer);
 	let owned = false;
 	try {
 		mkdirSync(files.dir, { recursive: true, mode: 0o700 });
-		owned = lockWatcher(files.lock);
+		owned = lockWatcher(lock);
 		if (!owned) return null;
 		return await new Promise<string | null>((resolve) => {
+			let settled = false;
 			const finish = (text: string | null) => {
+				if (settled) return;
+				settled = true;
 				clearTimeout(timer);
 				watcher.close();
+				opts.abort?.removeEventListener("abort", onAbort);
 				resolve(text);
 			};
 			const check = () => {
-				const text = consumeClaudeWake(sid, home);
+				const text = consumeClaudeWake(sid, home, consumer);
 				if (text) finish(text);
 			};
+			const onAbort = () => finish(null);
 			const watcher = watch(files.dir, check);
 			watcher.on("error", () => finish(null));
 			const timer = setTimeout(() => finish(null), opts.timeoutMs ?? WAIT_MS);
+			opts.abort?.addEventListener("abort", onAbort, { once: true });
 			check(); // covers events queued before this watcher was armed
 		});
 	} catch {
 		return null;
 	} finally {
 		// Only the process that owns the lock can remove it.
-		if (
-			owned &&
-			readSessionState<{ pid?: number }>(files.lock)?.pid === process.pid
-		)
-			release(files.lock);
+		if (owned && readSessionState<{ pid?: number }>(lock)?.pid === process.pid)
+			release(lock);
 	}
 }
