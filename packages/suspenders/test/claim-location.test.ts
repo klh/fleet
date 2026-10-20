@@ -147,15 +147,51 @@ describe("W870 take provisioning", () => {
 		expect(gate(writeHook("loc-b", TP, "other-main-edit.ts")).out).toBe("{}");
 	});
 
-	test("subagents inherit the binding (session-id strip)", () => {
-		const r = gate(
-			writeHook(
+	test("native child cannot write through its parent's claim", () => {
+		const childTp = join(HOME, "p", "loc-a", "subagents", "s1.jsonl");
+		const childWrite = (file: string) =>
+			gate(writeHook("loc-a", childTp, file));
+		// Claude gives the child the parent's session_id. Its transcript supplies
+		// the separate child identity used by SessionStart and the work graph.
+		expect(
+			childWrite(join(".worktrees", idA, "parent-tree-edit.ts")).out,
+		).toContain("CLAIM-LOCATION");
+		expect(childWrite("child-main-edit.ts").out).toContain("CLAIM-LOCATION");
+		expect(
+			gate(writeHook("loc-a#s1", TP, "child-explicit-sid-edit.ts")).out,
+		).toContain("CLAIM-LOCATION");
+		// The parent's claim remains valid; the child denial must not revoke it.
+		expect(
+			gate(writeHook("loc-a", TP, join(".worktrees", idA, "parent-edit.ts")))
+				.out,
+		).toBe("{}");
+
+		expect(
+			run(
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				"loc-a#s1",
+				"--role",
+				"worker",
+				"--parent",
 				"loc-a",
-				join(HOME, "p", "loc-a", "subagents", "s1.jsonl"),
-				"subagent-main-edit.ts",
-			),
+			).code,
+		).toBe(0);
+		const idC = idOf(work("add", "claim-location fixture child"));
+		expect(idC).toBeTruthy();
+		expect(work("take", idC, "--as", "loc-a#s1").code).toBe(0);
+		expect(childWrite(join(".worktrees", idC, "own-tree-edit.ts")).out).toBe(
+			"{}",
 		);
-		expect(r.out).toContain("CLAIM-LOCATION");
+		expect(
+			childWrite(join(".worktrees", idA, "parent-tree-again.ts")).out,
+		).toContain("CLAIM-LOCATION");
+		rmSync(join(REPO, ".worktrees", idC), { recursive: true, force: true });
+		gitOK(["worktree", "prune"]);
+		expect(childWrite("child-treeless-edit.ts").out).toContain(
+			"no provisioned worktree",
+		);
 	});
 
 	test("fail-open: a treeless claim binds nothing", () => {
