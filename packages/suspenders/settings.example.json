@@ -9,6 +9,16 @@
 						"command": "bun $HOME/.claude/hooks/suspenders/session-start.ts"
 					}
 				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts claude-wake",
+						"asyncRewake": true,
+						"timeout": 86400
+					}
+				]
 			}
 		],
 		"SessionEnd": [
@@ -23,6 +33,15 @@
 			}
 		],
 		"PreToolUse": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts push",
+						"timeout": 10
+					}
+				]
+			},
 			{
 				"matcher": "Bash",
 				"hooks": [
@@ -93,6 +112,16 @@
 						"timeout": 10
 					}
 				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts claude-wake",
+						"asyncRewake": true,
+						"timeout": 86400
+					}
+				]
 			}
 		],
 		"Stop": [
@@ -101,6 +130,16 @@
 					{
 						"type": "command",
 						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts stop"
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts claude-wake",
+						"asyncRewake": true,
+						"timeout": 86400
 					}
 				]
 			}
@@ -112,6 +151,16 @@
 						"type": "command",
 						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts ask",
 						"timeout": 15
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun $HOME/.claude/hooks/suspenders/gate.ts claude-wake",
+						"asyncRewake": true,
+						"timeout": 86400
 					}
 				]
 			}

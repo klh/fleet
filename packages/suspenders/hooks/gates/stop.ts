@@ -118,13 +118,10 @@ export function stopGate(hook: HookInput): never {
 	// W930 native-rename sync: a CLI-native /rename (claude-code custom-title)
 	// lands in sessions.tags at the same fail-open seam every dialect rides.
 	syncNativeRename(hook);
-	const incomplete = laneCompletion(hook);
-	if (incomplete) feedback(incomplete);
-
 	// W516 turn-boundary drain (the amp M3 lift): operator direct-messages
 	// queue while the agent works and are processed HERE, at the turn
-	// boundary, including interactive sessions. laneCompletion stays first —
-	// completion enforcement outranks inbox draining. No session identity or
+	// boundary, including interactive sessions. Direct coordination takes
+	// priority over completion retries. No session identity or
 	// control plane → nothing to drain, the gate allows.
 	const drainCwd = hook.cwd ?? "";
 	if (drainCwd && existsSync(drainCwd)) {
@@ -141,6 +138,8 @@ export function stopGate(hook: HookInput): never {
 			}
 		}
 	}
+	const incomplete = laneCompletion(hook);
+	if (incomplete) feedback(incomplete);
 
 	// W642: context-pressure guard — capacity check after the claim checks;
 	// fires only when the stop was otherwise allowed.

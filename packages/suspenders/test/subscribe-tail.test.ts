@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHOW_LINES, tailSubscribeLog } from "../hooks/gates/push.ts";
 import { subagentLaneSuffix } from "../hooks/lib/subscribe-attach.ts";
+import {
+	consumeClaudeWake,
+	signalClaudeDirectEvent,
+} from "../hooks/lib/claude-wake.ts";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-subtail-"));
 const LOGDIR = join(TMP, ".claude-insights");
@@ -129,13 +133,40 @@ describe("push gate", () => {
 		const r = gate({ session_id: sid }, { SUSPENDERS_PUSH_TAIL: "" });
 		expect(r.code).toBe(0);
 		expect(r.out).toContain('"hookEventName":"PostToolUse"');
-		expect(r.out).toContain("WS INBOX +2:");
+		expect(r.out).toContain("WS INBOX +1:");
 		expect(r.out).toContain("#1 alpha consult: C7 pending");
+		expect(r.out).not.toContain("beta BROADCAST");
 		// offset per lane: the immediate second fire is silent
 		const again = gate({ session_id: sid });
 		expect(again.out).toBe("{}");
 		// another lane's sid never sees this log
 		expect(gate({ session_id: "wtest-other" }).out).toBe("{}");
+	});
+
+	test("direct wake marker blocks the next tool before it executes, without a log", () => {
+		const sid = `pretool-${Math.random().toString(36).slice(2)}`;
+		signalClaudeDirectEvent(
+			{
+				id: 1,
+				target: sid,
+				kind: "NOTE",
+				source: "owner",
+				payload: JSON.stringify({ note: "Review the requested change first" }),
+			},
+			sid,
+			TMP,
+		);
+		// The native wake may already be queued while Claude is still
+		// constructing a tool call. That must not bypass the pre-tool guard.
+		expect(consumeClaudeWake(sid, TMP)).toContain(
+			"Review the requested change first",
+		);
+		const result = gate({ session_id: sid, hook_event_name: "PreToolUse" });
+		expect(result.out).toContain('"permissionDecision":"deny"');
+		expect(result.out).toContain("Review the requested change first");
+		expect(gate({ session_id: sid, hook_event_name: "PreToolUse" }).out).toBe(
+			"{}",
+		);
 	});
 
 	test("lane id: SUSPENDERS_SID wins; subagent suffix rides transcript_path", () => {

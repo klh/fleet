@@ -11,12 +11,9 @@
 // Silent when nothing new. Advisory law: any failure stays silent (allow),
 // it never blocks the tool that just ran.
 import { existsSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
-import { allow, context, type HookInput } from "../lib/hookio.ts";
-import {
-	coordSubscribeLog,
-	subagentLaneSuffix,
-} from "../lib/subscribe-attach.ts";
-import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { allow, context, deny, type HookInput } from "../lib/hookio.ts";
+import { coordSubscribeLog, hookLaneId } from "../lib/subscribe-attach.ts";
+import { consumeClaudeWake } from "../lib/claude-wake.ts";
 import { midSessionSupervisorRefill } from "../lib/supervisor-refill.ts";
 import {
 	readSessionState,
@@ -61,7 +58,9 @@ export function tailSubscribeLog(logPath: string, offset: number): TailResult {
 		const shown = lines
 			.slice(0, shownN)
 			.map((l) => l.replace(ANSI, "").trimEnd())
-			.filter(Boolean);
+			.filter(
+				(line) => line && !/^\s*#\d+\s+\S+\s+BROADCAST(?:\s|$)/.test(line),
+			);
 		let newOffset = off;
 		for (let i = 0; i < shownN; i++) newOffset += lines[i].length + 1;
 		const held = lines.length - shownN;
@@ -77,22 +76,9 @@ export function tailSubscribeLog(logPath: string, offset: number): TailResult {
 	}
 }
 
-// lane id = the sid the subscribe was attached under: SUSPENDERS_SID env
-// (dispatch sets it) → ppid-walk into lanes.json (codex/copilot lanes) →
-// session_id (+ #subagent suffix — the session-start lane id).
-function laneIdFor(hook: HookInput): string {
-	const env = process.env.SUSPENDERS_SID;
-	if (env) return env;
-	const lane = resolveFleetLane(hook.cwd ?? process.cwd());
-	if (lane) return lane.sid;
-	const sid = hook.session_id;
-	if (!sid) return "";
-	return `${sid}${subagentLaneSuffix(hook.transcript_path ?? "")}`;
-}
-
 export function pushedContext(hook: HookInput): string {
 	if (process.env.SUSPENDERS_PUSH_TAIL === "0") return "";
-	const laneId = laneIdFor(hook);
+	const laneId = hookLaneId(hook);
 	if (!laneId) return "";
 	const log = coordSubscribeLog(laneId);
 	if (!existsSync(log)) return "";
@@ -104,9 +90,11 @@ export function pushedContext(hook: HookInput): string {
 }
 
 export function pushGate(hook: HookInput): never {
-	const pushed = pushedContext(hook);
+	const direct = consumeClaudeWake(hookLaneId(hook), undefined, "boundary");
+	if (direct && hook.hook_event_name === "PreToolUse") deny(direct);
+	const pushed = [direct, pushedContext(hook)].filter(Boolean).join("\n");
 	const refill = midSessionSupervisorRefill(hook, pushed);
 	const text = [pushed, refill].filter(Boolean).join("\n");
-	if (text) context(text, "PostToolUse");
+	if (text) context(text, hook.hook_event_name ?? "PostToolUse");
 	allow();
 }

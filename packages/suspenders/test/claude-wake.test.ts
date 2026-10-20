@@ -1,0 +1,92 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	consumeClaudeWake,
+	signalClaudeDirectEvent,
+	waitForClaudeWake,
+} from "../hooks/lib/claude-wake.ts";
+
+const home = mkdtempSync(join(tmpdir(), "fleet-claude-wake-"));
+afterAll(() => rmSync(home, { recursive: true, force: true }));
+const event = (id: number, target: string, kind = "NOTE") => ({
+	id,
+	target,
+	kind,
+	source: "peer",
+	payload: JSON.stringify({ note: `direct instruction ${id}` }),
+});
+
+describe("Claude native hook wake bridge", () => {
+	test("signals exact addressed messages and consults, never broadcasts", () => {
+		const sid = "direct-only";
+		expect(signalClaudeDirectEvent(event(1, "other"), sid, home)).toBe(false);
+		expect(signalClaudeDirectEvent(event(2, sid, "BROADCAST"), sid, home)).toBe(
+			false,
+		);
+		expect(consumeClaudeWake(sid, home)).toBeNull();
+		for (const [i, kind] of ["NOTE", "consult", "consult.answer"].entries()) {
+			expect(signalClaudeDirectEvent(event(i + 3, sid, kind), sid, home)).toBe(
+				true,
+			);
+			const text = consumeClaudeWake(sid, home);
+			expect(text).toContain(`direct instruction ${i + 3}`);
+			expect(text).toContain(`coord inbox --as ${sid}`);
+			expect(consumeClaudeWake(sid, home)).toBeNull();
+		}
+	});
+
+	test("an armed watcher wakes on the filesystem event without polling", async () => {
+		const sid = "watch-live";
+		const waiting = waitForClaudeWake(sid, { home, timeoutMs: 1000 });
+		signalClaudeDirectEvent(event(11, sid), sid, home);
+		expect(await waiting).toContain("direct instruction 11");
+	});
+
+	test("one watcher per session; the next event can rearm after wake", async () => {
+		const sid = "one-watcher";
+		const waiting = waitForClaudeWake(sid, { home, timeoutMs: 1000 });
+		expect(await waitForClaudeWake(sid, { home, timeoutMs: 20 })).toBeNull();
+		signalClaudeDirectEvent(event(12, sid), sid, home);
+		expect(await waiting).toContain("#12");
+		const rearmed = waitForClaudeWake(sid, { home, timeoutMs: 1000 });
+		signalClaudeDirectEvent(event(13, sid), sid, home);
+		expect(await rearmed).toContain("#13");
+	});
+
+	test("replayed events cannot wake again, and no event times out silently", async () => {
+		const sid = "replay";
+		signalClaudeDirectEvent(event(30, sid), sid, home);
+		expect(await waitForClaudeWake(sid, { home, timeoutMs: 20 })).toContain(
+			"#30",
+		);
+		expect(signalClaudeDirectEvent(event(29, sid), sid, home)).toBe(false);
+		expect(await waitForClaudeWake(sid, { home, timeoutMs: 20 })).toBeNull();
+	});
+
+	test("wiring arms native reawakening at bootstrap and every later boundary", () => {
+		const settings = JSON.parse(
+			readFileSync(
+				join(import.meta.dir, "..", "settings.example.json"),
+				"utf8",
+			),
+		);
+		for (const name of [
+			"SessionStart",
+			"UserPromptSubmit",
+			"PostToolUse",
+			"Stop",
+		]) {
+			const hooks = settings.hooks[name].flatMap(
+				(group: { hooks: unknown[] }) => group.hooks,
+			);
+			expect(hooks).toContainEqual({
+				type: "command",
+				command: "bun $HOME/.claude/hooks/suspenders/gate.ts claude-wake",
+				asyncRewake: true,
+				timeout: 86400,
+			});
+		}
+	});
+});
