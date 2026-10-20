@@ -15,7 +15,9 @@ export type DispatchLaneLike = {
 };
 
 /** The lsof -Fn probe: pid/cwd pairs of every claude/codex process. */
-const daemonCwdListing = (sh: (cmd: string[], cwd?: string) => string): string =>
+const daemonCwdListing = (
+	sh: (cmd: string[], cwd?: string) => string,
+): string =>
 	sh([
 		"lsof",
 		"-a",
@@ -89,6 +91,7 @@ export type DispatchSummaryOpts = {
 	resumeCount: number;
 	item?: string;
 	refusals: string[];
+	launchWaits?: string[];
 	starved: Map<string, string[]>;
 	report: string | null;
 };
@@ -111,11 +114,15 @@ export const dispatchSummary = (o: DispatchSummaryOpts): number => {
 		console.log(
 			`governance: ${o.refusals.length} dispatch(es) REFUSED (fail-closed) — ${o.refusals.join(", ")}`,
 		);
+	if (o.launchWaits?.length)
+		console.log(
+			`launch backoff: ${o.launchWaits.length} item(s) waiting — ${o.launchWaits.join(", ")}`,
+		);
 	if (!o.item && o.readyCount === 0 && o.resumeCount === 0)
 		console.log(
 			"READY pool empty — register work or pull the next epic forward",
 		);
 	logStarved(o.starved);
-	if (o.refusals.length > 0) code = 1;
+	if (o.refusals.length > 0 || o.launchWaits?.length) code = 1;
 	return code;
 };

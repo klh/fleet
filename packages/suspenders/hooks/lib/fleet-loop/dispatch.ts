@@ -39,6 +39,11 @@ import {
 } from "../../../scripts/lib/launch-fencing.ts";
 import { launchParent } from "../../../scripts/lib/launch-parent.ts";
 import { laneAttemptLimit } from "../../../scripts/lib/lane-retry-budget.ts";
+import {
+	parkExhaustedLaunch,
+	readLaunchBackoff,
+	scheduleLaunchBackoff,
+} from "../../../scripts/lib/launch-backoff.ts";
 import { reproGateForItem } from "../repro-gate.ts";
 // W254: pointer-grade injection — file-map + done-definition digest for the
 // direct-launch brief, gated per W113 on repo size (hooks/lib/brief-intel.ts)
@@ -98,6 +103,15 @@ export async function runDispatch(
 	const store = openStore(),
 		project = projectIdentity(REPO),
 		nonce = crypto.randomUUID();
+	const laneLog = `${REPO}/.fleet/lane-${sid}.log`;
+	const hold = readLaunchBackoff(store, project, item);
+	if (hold && Date.now() < hold.eligibleAt) {
+		console.error(
+			`WAIT ${item} — ${hold.kind} launch backoff until ${new Date(hold.eligibleAt).toISOString()} (evidence ${hold.log})`,
+		);
+		store.close();
+		process.exit(1);
+	}
 	// W743 repro-first gate: a re-mint of a FAILED item re-dispatches only with
 	// evidence of record (repro artifact / no-repro reason / death-log exemption).
 	const refusal = reproGateForItem(store, project, item);
@@ -122,8 +136,24 @@ export async function runDispatch(
 			throw new Error("published lane identity alive or uncertain");
 		const limit = laneAttemptLimit(process.env.SUSPENDERS_LANE_MAX_ATTEMPTS);
 		const attempt = nextReservedAttempt(store, project, item, 0, sid);
-		if (attempt >= limit)
-			throw new Error("item launch budget exhausted; operator review required");
+		if (attempt >= limit) {
+			const parked = parkExhaustedLaunch(
+				store,
+				project,
+				item,
+				sid,
+				laneLog,
+				attempt,
+			);
+			console.error(
+				parked
+					? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+					: `REFUSED ${item} — launch budget exhausted; claim changed`,
+			);
+			releaseLaunchLease(store, project, sid, nonce);
+			store.close();
+			process.exit(1);
+		}
 		const take = runTool([
 			`${process.env.HOME}/.claude/hooks/suspenders/bin/work.ts`,
 			"take",
@@ -411,7 +441,6 @@ export async function runDispatch(
 		// unref only releases Bun's event-loop reference. exec keeps
 		// the registry PID, stdin EOF avoids input waits, and logs feed the board.
 		const sq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
-		const laneLog = `${REPO}/.fleet/lane-${sid}.log`;
 		// W177 jobslab: the same per-class ceilings the fleet scripts' spawn
 		// recipe applies — claude/codex get the working caps, config-overridable
 		// via <repo>/.fleet/jobslab.json.
@@ -438,8 +467,19 @@ export async function runDispatch(
 			proc.exited,
 			Bun.sleep(1000).then(() => null),
 		]);
-		if (earlyExit !== null)
+		if (earlyExit !== null) {
+			const backoff = scheduleLaunchBackoff(
+				store,
+				project,
+				item,
+				laneLog,
+				attempt,
+			);
+			console.error(
+				`WAIT ${item} — ${backoff.kind} launch retry after ${new Date(backoff.eligibleAt).toISOString()} (evidence ${laneLog})`,
+			);
 			throw new Error(`executor exited during launch (code ${earlyExit})`);
+		}
 		proc.unref();
 		const entry = {
 			sid,
