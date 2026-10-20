@@ -32,7 +32,7 @@ const WIRING: Wiring[] = [
 	{
 		event: "PostToolUse",
 		mode: "grok post-files",
-		matcher: "edit_file|write_file",
+		matcher: undefined,
 	},
 	{ event: "SessionStart", mode: "grok session" },
 	{ event: "SessionEnd", mode: "grok session-end" },
