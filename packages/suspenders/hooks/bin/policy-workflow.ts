@@ -14,13 +14,14 @@ import { readFileSync } from "node:fs";
 import { openGovernorDb } from "../lib/govdb.ts";
 import {
 	assessHealthPolicy,
-	healthAssessmentKey,
-	healthInputsHash,
 	HEALTH_POLICY_ID,
 	HEALTH_POLICY_VERSION,
 	type HealthDeploymentInput,
+	healthAssessmentKey,
+	healthInputsHash,
 } from "../lib/policy-workflow/health-policy.ts";
 import {
+	authorizeRemediation,
 	completeAssessment,
 	completeAttestation,
 	createAttestation,
@@ -32,13 +33,12 @@ import {
 	proposeRemediation,
 	startAssessment,
 	transitionRemediation,
-	authorizeRemediation,
 } from "../lib/policy-workflow/store.ts";
 import {
 	defineVerb,
 	dieFor,
-	runCli,
 	type Parsed,
+	runCli,
 	type VerbSpec,
 } from "../lib/verb-kit.ts";
 
@@ -85,8 +85,8 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "remediation",
 		usage:
-			"usage: remediation <remediation-id> <claim|review|merge|cancel> [--actor <id>]",
-		flags: ["--actor", "--project"],
+			"usage: remediation <remediation-id> <claim|review|merge|cancel> [--actor <id>] [--org <id>] [--project <id>]",
+		flags: ["--actor", "--org", "--project"],
 		minPos: 2,
 	}),
 	defineVerb({
@@ -144,7 +144,8 @@ function runVerb(p: Parsed): number | undefined {
 	const verb = p.name;
 	const subject = p.pos[0];
 	const action = p.pos[1];
-	const flag = (name: string): string | undefined => p.flag(name) ?? undefined;
+	const flag = (name: string): string | undefined =>
+		p.flag(`--${name}`) ?? undefined;
 	const project = flag("project") ?? "fleet";
 	const orgId = flag("org") ?? "klh";
 	const db = openGovernorDb();
@@ -175,6 +176,20 @@ function runVerb(p: Parsed): number | undefined {
 				);
 				return;
 			}
+			if (
+				existing &&
+				existing.inputsHash !== inputsHash &&
+				existing.state !== "stale"
+			)
+				// changed evidence invalidates the recorded state (W539.1:
+				// conformance must be re-earnable — stale → assessing)
+				invalidateAssessments(db, {
+					project,
+					orgId,
+					serviceId: subject,
+					policyId: HEALTH_POLICY_ID,
+					exceptInputsHash: inputsHash,
+				});
 			const started = startAssessment(db, key, HEALTH_POLICY_VERSION, "cli");
 			if (!started.ok) {
 				console.error(`policy-workflow: ${started.reason}`);
