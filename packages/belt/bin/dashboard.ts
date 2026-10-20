@@ -31,6 +31,7 @@ import {
 	browserConsoleUrl,
 	hubConsoleLinks,
 	hubGatewayRoutes,
+	hubProviderObservations,
 	hubLlmsRows,
 	readHubs,
 } from "./hubs.ts";
@@ -1027,6 +1028,8 @@ const networkSnapshot = async (): Promise<Response> => {
 
 /** Browser-safe links plus the Board's compact Work Graph counts. */
 const topologyContext = async (): Promise<Response> => {
+	const hubRoutes = hubGatewayRoutes();
+	const providerObservations = hubProviderObservations(hubRoutes);
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 2000);
 	let work: Record<string, unknown> | null = null;
@@ -1051,7 +1054,8 @@ const topologyContext = async (): Promise<Response> => {
 			false,
 		),
 		hubConsoles: hubConsoleLinks(),
-		hubRoutes: hubGatewayRoutes(),
+		hubRoutes,
+		hubProviderObservations: await providerObservations,
 		work,
 	});
 };
