@@ -648,6 +648,8 @@ function tickAccess(){
     var box=document.getElementById('modelaccess');
     var c=s.copilot||{};var models=c.models||[];
     var o=s.openrouter||{};var routerModels=o.models||[];
+    var z=s.zaiPricing||{};var zModels=z.models||[];
+    var zAccount=s.zaiAccount||{};var zAccountIds=zAccount.modelIds||[];
     box.replaceChildren();
     var seats=document.createElement('div');seats.className='access-seats';
     ['IKEA Copilot · '+(c.state||'unobserved')+' · '+models.length+' selectable models',
@@ -691,6 +693,28 @@ function tickAccess(){
       });
       group.append(table);box.append(group);
     });
+    var zNote=document.createElement('p');
+    zNote.textContent='Z.ai published USD/1M token rates · '+(z.state||'unavailable')
+      +' · checked '+(z.fetchedAt?dual(z.fetchedAt):'never')
+      +' · source '+(z.source||'unreported')
+      +' · account models '+(zAccount.state==='available'?zAccountIds.length:'unobserved')
+      +(z.reason?' · '+z.reason:'');
+    box.append(zNote);
+    var zGroup=document.createElement('details');zGroup.className='access-vendor';
+    var zHeading=document.createElement('summary');
+    zHeading.textContent='Z.ai model prices · '+zModels.length+' published'
+      +(zAccountIds.length?' · '+zAccountIds.filter(function(id){return !zModels.some(function(m){return m.id===id;});}).length+' unreported account rates':'');
+    zGroup.append(zHeading);
+    var zTable=document.createElement('table');
+    var zIds=[...new Set(zAccountIds.concat(zModels.map(function(m){return m.id;})))];
+    zIds.sort(function(a,b){return Number(zAccountIds.includes(b))-Number(zAccountIds.includes(a))||a.localeCompare(b);});
+    zIds.forEach(function(id){
+      var m=zModels.find(function(item){return item.id===id;});
+      var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
+      name.textContent=(m?.name||id)+(zAccountIds.includes(id)?' · account visible':' · published price only');
+      price.textContent=rate(m?.price);row.append(name,price);zTable.append(row);
+    });
+    zGroup.append(zTable);box.append(zGroup);
     var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
     Object.keys(byVendor).sort().forEach(function(v){
       var group=document.createElement('details');group.className='access-vendor';
