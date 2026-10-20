@@ -21,6 +21,9 @@ hubs:
     belt_health_port: 7790
     allowed_hosts: [suspenders.local]
     peers: [] # sub-hubs of this hub, filled at runtime
+    # Display intent only: puts pending provider cards beside this hub.
+    # It never enables a route, credential, or connection line.
+    provider_intents: [anthropic, openai, openrouter]
     # Direct cloud providers on this hub are activated only after their
     # credential files exist and the operator has verified a model id. Do not
     # declare upstream_keys without files: hubctl push intentionally refuses

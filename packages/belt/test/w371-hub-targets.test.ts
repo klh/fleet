@@ -21,6 +21,7 @@ hubs:
   nas:
     host: nas.example.lan
     display_name: Lab NAS
+    provider_intents: [openai, openrouter]
     console_url: https://nas.example.lan/board
     url: http://nas.example.lan:4101
     deploy:
@@ -62,6 +63,7 @@ describe("hubTargets heal wiring", () => {
 				routesByModel: {
 					"sample-model": ["sample-model", "alternate-route"],
 				},
+				providerIntents: ["openai", "openrouter"],
 				providerHosts: ["models.example.org"],
 				providerHostsByModel: { "sample-model": ["models.example.org"] },
 			},
@@ -71,6 +73,7 @@ describe("hubTargets heal wiring", () => {
 				routeCount: 0,
 				unresolvedRoutes: [],
 				routesByModel: {},
+				providerIntents: [],
 				providerHosts: [],
 				providerHostsByModel: {},
 			},

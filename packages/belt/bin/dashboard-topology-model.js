@@ -294,12 +294,13 @@ export function buildTopology(
 		}
 		return {
 			name: String(item.name),
-			...(routes?.models?.length
+			...(routes?.models?.length || routes?.providerIntents?.length
 				? {
 						gatewayModels: routes.models,
 						gatewayRouteCount: routes.routeCount ?? routes.models.length,
 						gatewayUnresolvedRoutes: routes.unresolvedRoutes ?? [],
 						gatewayModelAliases: routes.routesByModel ?? {},
+						providerIntents: routes.providerIntents ?? [],
 						gatewayModelTargets: routes.providerHostsByModel ?? {},
 						providerKeys: (routes.providerHosts ?? []).map(providerKey),
 						providerCounts,
@@ -363,6 +364,24 @@ export function buildTopology(
 				probed: 0,
 				routed: 0,
 				catalog: copilot,
+			});
+		}
+	}
+	for (const hub of hubCards) {
+		for (const key of hub.providerIntents ?? []) {
+			if (providers.some((provider) => provider.key === key)) continue;
+			providers.push({
+				key,
+				name:
+					key === "openrouter"
+						? "OpenRouter"
+						: key[0].toUpperCase() + key.slice(1),
+				state: "unconfigured",
+				models: [],
+				endpoints: 0,
+				reachable: 0,
+				probed: 0,
+				routed: 0,
 			});
 		}
 	}

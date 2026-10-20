@@ -108,6 +108,9 @@ export interface HubProfile {
 	 *  ladder via BUCKLE_UPSTREAMS. Keys stay in env vars named by each
 	 *  row's api_key_env — never values here. */
 	upstreams?: { groups?: Record<string, Array<Record<string, unknown>>> };
+	/** Display-only provider placement while its credential-gated route is
+	 *  being prepared. This never enables a Buckle upstream or draws a path. */
+	provider_intents?: string[];
 	/** W983: this hub's Buckle owner prefs — the allow_cloud / cost_speed
 	 *  switches the routing decision gates every cloud hop behind (decide.ts
 	 *  precedence 1). hubctl push materializes them into the 0600
