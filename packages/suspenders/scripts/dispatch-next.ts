@@ -648,6 +648,18 @@ const dispatchItem = async (
 				return null;
 			}
 			pick = { ...pick, ...pd.pick };
+			// W1009.2: the route may swap the executor token (e.g. codex) —
+			// resolve the binary from the MERGED pick or the launch wraps the
+			// stale pre-plaid bin with the codex adapter's argv (mixed spawn).
+			bin = resolveLaneExecutor(pick.bin);
+			if (!bin) {
+				governanceRefusals.push(item);
+				console.log(
+					`REFUSED ${item} — executor unavailable: ${pick.bin}; nothing claimed or minted`,
+				);
+				store.close();
+				return null;
+			}
 			routeName = pd.routeName;
 			if (pd.note) console.log(`NOTE — ${pd.note}`);
 		}
