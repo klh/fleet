@@ -187,14 +187,15 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 });
 
 describe("fleet wiring", () => {
-	test(":4100 is owned with an authed /v1/models probe", () => {
+	test(":4100 is observed by the swarm; cloud-gateway alone owns it", () => {
 		const t = fleetTargets().find((x) => x.port === 4100);
-		expect(t?.owned).toBe(true);
+		expect(t?.owned).toBe(false);
 		expect(t?.kind).toBe("gateway");
 		expect(t?.healthPath).toBe("/v1/models");
 		expect(t?.okStatus).toEqual(LITELLM_OK_STATUS);
-		expect(typeof t?.spawn).toBe("function");
-		expect(typeof t?.preflight).toBe("function");
+		expect(t?.spawn).toBeUndefined();
+		expect(t?.preflight).toBeUndefined();
+		expect(typeof t?.probeHeaders).toBe("function");
 	});
 });
 
