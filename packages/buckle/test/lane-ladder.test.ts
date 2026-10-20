@@ -142,3 +142,63 @@ describe("scoped lane keys walk the operator ladder (W985)", () => {
 		expect(ms).toBeLessThan(5000);
 	});
 });
+
+describe("auth-failing rungs walk on (W987)", () => {
+	test("leg1 answers 401, leg2 answers 200 → 200 via leg2", async () => {
+		const authFail = await startMockUpstream(() =>
+			Response.json(
+				{ error: { message: "bad credentials", type: "authentication_error" } },
+				{ status: 401 },
+			),
+		);
+		const healthy = await startMockUpstream(() =>
+			Response.json({
+				id: "msg_ok",
+				usage: { input_tokens: 1, output_tokens: 1 },
+			}),
+		);
+		mocks.push(authFail, healthy);
+		const gate = await startGateLegs(
+			`groups:\n  primary:\n    - url: ${authFail.url}\n      dialect: anthropic\n    - url: ${healthy.url}\n      dialect: anthropic\n`,
+		);
+		gates.push(gate);
+		const key = await mintScoped(gate.base);
+		const res = await post(gate.base, "/w/autow987/v1/messages", key);
+		expect(res.status).toBe(200);
+	});
+
+	test("every leg auth-fails → exhausted 502, no hang", async () => {
+		const authFail = await startMockUpstream(() =>
+			Response.json({ error: { message: "forbidden" } }, { status: 403 }),
+		);
+		mocks.push(authFail);
+		const gate = await startGateLegs(
+			`groups:\n  primary:\n    - url: ${authFail.url}\n      dialect: anthropic\n`,
+		);
+		gates.push(gate);
+		const key = await mintScoped(gate.base);
+		const res = await post(gate.base, "/w/autow987/v1/messages", key);
+		expect(res.status).toBe(502);
+	});
+});
+
+/** W987 gate with an explicit group yaml (multi-leg legs under test). */
+async function startGateLegs(upstreamsYaml: string): Promise<Gate> {
+	const dir = `/tmp/buckle-ladder-${String(Date.now())}-${String(process.pid)}-${Math.random().toString(36).slice(2, 6)}`;
+	await Bun.write(`${dir}-upstreams.yaml`, upstreamsYaml);
+	await Bun.write(
+		`${dir}-policy.yaml`,
+		`gateway:\n  num_retries: 1\n  allowed_fails: 3\n`,
+	);
+	const server = startServer({
+		port: 0,
+		upstreamsPath: `${dir}-upstreams.yaml`,
+		policyPath: `${dir}-policy.yaml`,
+		dbPath: ":memory:",
+		auth: { rootKey: ROOT },
+	});
+	return {
+		base: `http://127.0.0.1:${String(server.port)}`,
+		stop: () => server.stop(true),
+	};
+}

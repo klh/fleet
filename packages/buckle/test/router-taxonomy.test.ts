@@ -28,17 +28,15 @@ function poolOf(
 function harness(
 	reply: (url: string, n: number) => Response,
 	dialect: Dialect = "openai",
+	entries: Array<[string, string[]]> = [
+		["small", ["http://small"]],
+		["big", ["http://big"]],
+	],
 ) {
 	const attempted: string[] = [];
 	const slept: number[] = [];
 	const router = new Router(POLICY, {
-		pool: poolOf(
-			[
-				["small", ["http://small"]],
-				["big", ["http://big"]],
-			],
-			dialect,
-		),
+		pool: poolOf(entries, dialect),
 		rng: () => 0,
 		sleepMs: async (ms) => {
 			slept.push(ms);
@@ -100,13 +98,19 @@ describe("error taxonomy in the walk", () => {
 		expect(h.attempted).toEqual(["http://small", "http://big"]);
 	});
 
-	test("plain bad_request stays a client error (no failover)", async () => {
-		const h = harness(() =>
-			Response.json({ error: { message: "bad temperature" } }, { status: 400 }),
+	test("plain bad_request walks on (W987 skip-not-fail)", async () => {
+		const h = harness((url) =>
+			url === "http://small"
+				? Response.json(
+						{ error: { message: "bad temperature" } },
+						{ status: 400 },
+					)
+				: Response.json({ ok: 1 }),
 		);
 		const r = await h.run();
-		expect(r.kind).toBe("client-error");
-		expect(h.attempted).toEqual(["http://small"]);
+		expect(r.kind).toBe("upstream");
+		expect(h.attempted).toEqual(["http://small", "http://big"]);
+		expect(h.slept).toEqual([]); // skip-grade: no backoff between rungs
 	});
 
 	test("anthropic body-level overloaded_error on a 400 is retried, not passed through", async () => {
@@ -152,6 +156,21 @@ describe("error taxonomy in the walk", () => {
 		const r = await h.run();
 		expect(r.kind).toBe("upstream");
 		expect(h.attempted).toEqual(["http://small", "http://big"]);
+	});
+
+	test("auth rung skips to the next leg in the same tier (W987)", async () => {
+		const h = harness(
+			(url) =>
+				url === "http://leg1"
+					? Response.json({ error: { message: "nope" } }, { status: 401 })
+					: Response.json({ ok: 1 }),
+			"openai",
+			[["small", ["http://leg1", "http://leg2"]]],
+		);
+		const r = await h.run();
+		expect(r.kind).toBe("upstream");
+		expect(h.attempted).toEqual(["http://leg1", "http://leg2"]);
+		expect(h.slept).toEqual([]); // free skip, no backoff
 	});
 
 	test("5xx with a bad_request body signature still fails over", async () => {
