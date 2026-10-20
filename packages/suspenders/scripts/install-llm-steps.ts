@@ -43,6 +43,7 @@ const GENERATOR_FILES = [
 	"gateway-config.ts",
 	"remotes-validate.ts",
 	"openrouter-free-rows.ts",
+	"zai-catalog-rows.ts",
 ];
 
 /** Home files whose bytes the GENERATED yaml depends on: the generator

@@ -112,6 +112,10 @@ export interface HubProfile {
 		/** Machine-local generated OpenRouter free-model snapshot. hubctl
 		 * merges this below explicit groups when pushing hub config. */
 		openrouter_free_catalog_file?: string;
+		/** Authenticated, machine-local Z.ai /models snapshot. */
+		zai_catalog_file?: string;
+		/** LiteLLM URL reachable from this hub. */
+		zai_litellm_url?: string;
 	};
 	/** Display-only provider placement while its credential-gated route is
 	 *  being prepared. This never enables a Buckle upstream or draws a path. */

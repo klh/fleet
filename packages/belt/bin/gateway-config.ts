@@ -4,6 +4,7 @@
 // ~/.claude/local-llm/litellm.yaml (mode 600 — carries the zai key reference,
 // resolved at runtime via os.environ/Z_AI_API_KEY, never inline).
 import {
+	existsSync,
 	readFileSync,
 	renameSync,
 	statSync,
@@ -22,6 +23,7 @@ import { buildRemoteEntries } from "./remotes-validate.ts";
 import { chatEntries } from "./registry.ts";
 import { litellmRows } from "./registry-emit.ts";
 import { openRouterFreeRows } from "./openrouter-free-rows.ts";
+import { readZaiSnapshot, zaiLiteLlmRows } from "./zai-catalog-rows.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const REMOTES_PATH = `${HOME}/.claude/local-llm/remotes.json`;
@@ -74,6 +76,27 @@ const remotesBuilt = buildRemoteEntries(remotesRaw);
 for (const s of remotesBuilt.skipped)
 	console.error(`gateway-config: skipped ${s.ref}: ${s.why}`);
 entries.push(...remotesBuilt.entries);
+// Extend the user's explicit remote routes from the authenticated Z.ai
+// account catalog. Bad or stale data aborts regeneration before any write.
+const zaiCatalogPath =
+	process.env.ZAI_CATALOG_FILE ?? `${HOME}/.claude/local-llm/zai-models.json`;
+if (existsSync(zaiCatalogPath)) {
+	const template = remotesBuilt.entries.find((entry) =>
+		/^[ \t]*model: zai\/glm-/m.test(entry),
+	);
+	if (!template)
+		throw new Error(
+			"Z.ai catalog needs a validated zai remote in remotes.json",
+		);
+	const names = new Set(
+		entries
+			.flatMap((entry) => [...entry.matchAll(/^\s*- model_name: ([^\s]+)$/gm)])
+			.map((match) => match[1]),
+	);
+	entries.push(
+		...zaiLiteLlmRows(readZaiSnapshot(zaiCatalogPath), template, names),
+	);
+}
 // An inference key is the activation gate. A management key is not usable
 // here; the LiteLLM supervisor injects only OPENROUTER_API_KEY.
 const openRouterKeyPresent = Boolean(
