@@ -265,6 +265,50 @@ describe("coord message", () => {
 		expect(r.err).toContain("ambiguous target");
 	});
 
+	test("exact known SID queues across a stopped session's resume gap", () => {
+		seedSessions();
+		const db = new Database(DB);
+		const staleRunning = run([
+			"message",
+			"lane-stale-33333333",
+			"first update during heartbeat gap",
+		]);
+		expect(staleRunning.code).toBe(0);
+		expect(staleRunning.out).toContain("queued until it resumes");
+		db.query("UPDATE sessions SET state = 'CLOSED' WHERE sid = ?").run(
+			"lane-stale-33333333",
+		);
+		const sent = run([
+			"message",
+			"LANE-STALE-33333333",
+			"resume with this update",
+			"--as",
+			"caller-99999999",
+		]);
+		expect(sent.code).toBe(0);
+		expect(sent.out).toContain("queued until it resumes");
+		const row = db
+			.query(
+				"SELECT target, payload FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(DIRECT_KIND) as { target: string; payload: string };
+		expect(row.target).toBe("lane-stale-33333333");
+		expect(row.payload).toContain("resume with this update");
+		const ambiguous = run(["message", "stale lane", "wrong recipient"]);
+		expect(ambiguous.code).toBe(2);
+		expect(ambiguous.err).toContain("no live session target");
+		const targets = run(["targets", "--filter", "stale"]);
+		expect(targets.out).toContain("no live targets");
+		db.query("UPDATE sessions SET state = 'RUNNING', hb = ? WHERE sid = ?").run(
+			Date.now(),
+			"lane-stale-33333333",
+		);
+		const resumedInbox = run(["inbox", "--as", "lane-stale-33333333"]);
+		expect(resumedInbox.out).toContain("first update during heartbeat gap");
+		expect(resumedInbox.out).toContain("resume with this update");
+		db.close();
+	});
+
 	test("message --all reuses broadcast delivery semantics", () => {
 		seedSessions();
 		const r = run(["message", "--all", "fleet hello", "--as", "caller-all"]);

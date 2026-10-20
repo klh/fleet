@@ -306,6 +306,24 @@ export function resolveTarget(needle: string, project?: string): SessionTarget {
 	);
 }
 
+// An exact, already-registered SID survives a CLI stop/resume gap. Keep its
+// directed note in the durable inbox for the next SessionStart. Names and
+// prefixes still require a live match so an old label cannot misroute work.
+function resolveMessageTarget(needle: string): {
+	target: SessionTarget;
+	deferred: boolean;
+} {
+	const sid = needle.replace(/^@/, "");
+	const row = db
+		.query(
+			"SELECT sid, project, role, parent_sid, worktree, hb, state, capabilities, transcript_path, actor, tags FROM sessions WHERE sid = ? COLLATE NOCASE",
+		)
+		.get(sid) as SessionRow | null;
+	if (row && (row.state !== "RUNNING" || !isLiveSession(row)))
+		return { target: toTarget(row), deferred: true };
+	return { target: resolveTarget(needle), deferred: false };
+}
+
 export async function cmdTargets(rest: string[]): Promise<void> {
 	const filter = arg("--filter")?.toLowerCase() ?? null;
 	const wantJson = rest.includes("--json");
@@ -354,7 +372,7 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	const text = rest[1];
 	if (!needle || !text)
 		die('usage: message <target-label-or-sid-or-substring> "text" [--as sid]');
-	const target = resolveTarget(needle);
+	const { target, deferred } = resolveMessageTarget(needle);
 	const id = emitEvent({
 		kind: DIRECT_MESSAGE_KIND,
 		note: text,
@@ -366,7 +384,9 @@ export async function cmdMessage(rest: string[]): Promise<void> {
 	);
 	console.log(
 		dim(
-			"A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
+			deferred
+				? "This exact session is inactive; the message is queued until it resumes and remains unaccepted until it acknowledges it."
+				: "A queued message does not wake an idle CLI session. It is shown on its next turn and remains unaccepted until that session acknowledges it.",
 		),
 	);
 }
