@@ -1,10 +1,16 @@
 // Every registered Work Graph and coordination verb must remain callable.
 // Stateful round trips live beside this surface check (consult, capsule, work).
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "../../..");
+// W1003.1.1.1: the lifecycle-authority door intentionally refuses fleet
+// lane worktrees by cwd, and this suite runs from lane cwds — spawn the
+// child CLIs from a neutral directory (scripts still resolve from ROOT).
+const NEUTRAL = mkdtempSync(join(tmpdir(), "verb-surface-"));
 // These checks spawn every CLI/verb in series; process startup varies under
 // concurrent Fleet work, while the contract being tested has no time limit.
 const HELP_SMOKE_TIMEOUT_MS = 30_000;
@@ -18,7 +24,7 @@ function cli(
 	...args: string[]
 ): { code: number; output: string } {
 	const run = Bun.spawnSync([process.execPath, resolve(ROOT, path), ...args], {
-		cwd: ROOT,
+		cwd: NEUTRAL,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
