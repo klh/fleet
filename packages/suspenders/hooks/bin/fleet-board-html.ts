@@ -283,7 +283,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kcard.kkid { border-style:dashed; position:relative; }
 .kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
 .krow { display:flex; gap:6px; align-items:center; min-width:0; margin:0 -12px 0 -13px; min-height:23px; }
-.krow .pill { margin:0; flex:none; border-top:0; border-left:0; border-radius:7px 0 3px 0; padding:3px 8px; }
+.krow .pill { position:relative; z-index:1; margin:-1px 0 0 -1px; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
 .kcardident { display:flex; gap:6px; align-items:baseline; min-width:0; margin-top:3px; }
 .kcardident .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
