@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
 	browserConsoleUrl,
 	hubLlmsRows,
+	hubRegistryRevision,
 	hubTargets,
 	readHubs,
 } from "../bin/hubs.ts";
@@ -27,6 +28,20 @@ function regFile(body: unknown): string {
 }
 
 describe("readHubs", () => {
+	test("registry revision ignores partial JSON but notices a completed change", () => {
+		const registry = join(dir, "watched-hubs.json");
+		process.env.SUSPENDERS_HUBS_FILE = registry;
+		try {
+			expect(hubRegistryRevision()).toBe("");
+			writeFileSync(registry, '{"NAS":');
+			expect(hubRegistryRevision()).toBeNull();
+			writeFileSync(registry, JSON.stringify(REGISTRY));
+			expect(hubRegistryRevision()).toBe(JSON.stringify(REGISTRY));
+		} finally {
+			delete process.env.SUSPENDERS_HUBS_FILE;
+		}
+	});
+
 	test("links require explicit safe URLs; remote .local is never guessed", () => {
 		const rows = readHubs(
 			regFile({

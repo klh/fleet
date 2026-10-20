@@ -17,6 +17,7 @@
 
 import { spawn, execSync } from "node:child_process";
 import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
+import { hubRegistryRevision } from "./hubs.ts";
 import { LITELLM_PORT } from "./litellm-target.ts";
 import { spawnReserved } from "./spawner.ts";
 import {
@@ -135,17 +136,38 @@ async function cmdSupervise(): Promise<void> {
 		info(`supervisor already running (pid ${other}) — exiting`);
 		return;
 	}
-	const sup = new Supervisor(fleetTargets(), {
-		statusFile: STATUS_FILE,
-		logFile: TRANSITION_LOG,
-	});
+	let stopping = false;
+	let active: Supervisor | null = null;
 	// Children are services, not session state: leave them running on
 	// SIGTERM so a supervisor restart adopts them (probe-up) instead of
 	// reloading 40GB of weights.
 	for (const sig of ["SIGTERM", "SIGINT"] as const)
-		process.on(sig, () => sup.stop());
+		process.on(sig, () => {
+			stopping = true;
+			active?.stop();
+		});
 	info(`🩺 supervising → ${STATUS_FILE}`);
-	await sup.run();
+	while (!stopping) {
+		const revision = hubRegistryRevision();
+		const sup = new Supervisor(fleetTargets(), {
+			statusFile: STATUS_FILE,
+			logFile: TRANSITION_LOG,
+		});
+		active = sup;
+		const poll = setInterval(() => {
+			const next = hubRegistryRevision();
+			if (next !== null && next !== revision) {
+				info("hub registry changed — refreshing supervised hub targets");
+				sup.stop();
+			}
+		}, 3000);
+		try {
+			await sup.run();
+		} finally {
+			clearInterval(poll);
+			active = null;
+		}
+	}
 }
 
 async function cmdStop(): Promise<void> {
