@@ -13,7 +13,7 @@ import {
 } from "../../lib/session-bridge.ts";
 import { bashGate } from "../../gates/bash.ts";
 import { preFilesChain } from "../../gates/chain.ts";
-import { filesGate } from "../../gates/files.ts";
+import { postToolGate } from "../../gates/post-tool.ts";
 import { readGate } from "../../gates/read.ts";
 
 type Mode =
@@ -54,12 +54,7 @@ export async function clineGate(
 	}
 	const hook = { ...norm.hook, session_id: resolved.sid };
 
-	if (mode === "post-tool") {
-		if (norm.hook.tool_name === "Edit" || norm.hook.tool_name === "Write") {
-			return filesGate(hook);
-		}
-		allow();
-	}
+	if (mode === "post-tool") return postToolGate(hook);
 
 	if (norm.gate === "pre-bash") return bashGate(hook);
 	if (norm.gate === "pre-read") {

@@ -35,7 +35,7 @@ const WIRING: Array<[string, string | undefined, string]> = [
 	["PreToolUse", "Bash", "copilot pre-bash"],
 	["PreToolUse", "Edit|Write", "copilot pre-files"],
 	["PreToolUse", "Read", "copilot pre-read"],
-	["PostToolUse", "Edit|Write", "copilot post-files"],
+	["PostToolUse", undefined, "copilot post-files"],
 	["SessionStart", undefined, "copilot session"],
 	["SessionEnd", undefined, "copilot session-end"],
 	["Stop", undefined, "copilot stop"],

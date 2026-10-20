@@ -12,7 +12,7 @@ import {
 	spawnSessionEnd,
 } from "../../lib/session-bridge.ts";
 import { bashGate } from "../../gates/bash.ts";
-import { filesGate } from "../../gates/files.ts";
+import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { readGate } from "../../gates/read.ts";
 import { stopGate } from "../../gates/stop.ts";
@@ -75,6 +75,7 @@ export async function grokGate(
 	const tool = typeof raw.tool_name === "string" ? raw.tool_name : "";
 	const norm = normalizeGrok(raw, tool, event);
 	const hook = { ...norm.hook, session_id: sid };
+	if (event === "PostToolUse") return postToolGate(hook);
 
 	switch (norm.gate) {
 		case "pre-bash":
@@ -84,8 +85,6 @@ export async function grokGate(
 		case "pre-read":
 			readGate(hook);
 			return allow();
-		case "post-files":
-			return filesGate(hook);
 		case "allow":
 			drift(
 				`unhandled grok tool "${tool}" during ${event} - allowing (adapter drift)`,

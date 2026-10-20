@@ -27,6 +27,7 @@ import {
 // never floods context
 export const SHOW_LINES = 40;
 const MAX_READ = 256 * 1024;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal escape sequences from WS logs
 const ANSI = /\x1B\[[0-9;]*[A-Za-z]/g;
 
 export type TailResult = { text: string; newOffset: number };
@@ -88,16 +89,21 @@ function laneIdFor(hook: HookInput): string {
 	return `${sid}${subagentLaneSuffix(hook.transcript_path ?? "")}`;
 }
 
-export function pushGate(hook: HookInput): never {
-	if (process.env.SUSPENDERS_PUSH_TAIL === "0") allow();
+export function pushedContext(hook: HookInput): string {
+	if (process.env.SUSPENDERS_PUSH_TAIL === "0") return "";
 	const laneId = laneIdFor(hook);
-	if (!laneId) allow();
+	if (!laneId) return "";
 	const log = coordSubscribeLog(laneId);
-	if (!existsSync(log)) allow();
+	if (!existsSync(log)) return "";
 	const stateFile = sessionStatePath("subtail", laneId);
 	const prev = readSessionState<{ off: number }>(stateFile)?.off ?? 0;
 	const r = tailSubscribeLog(log, prev);
 	if (r.newOffset !== prev) writeSessionState(stateFile, { off: r.newOffset });
-	if (r.text) context(r.text, "PostToolUse");
+	return r.text;
+}
+
+export function pushGate(hook: HookInput): never {
+	const text = pushedContext(hook);
+	if (text) context(text, "PostToolUse");
 	allow();
 }

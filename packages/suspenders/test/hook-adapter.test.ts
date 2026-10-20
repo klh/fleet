@@ -5,6 +5,7 @@
 // JSON through the real gate.ts codex entrypoint.
 import { describe, test, expect, afterAll } from "bun:test";
 import {
+	appendFileSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
@@ -300,6 +301,50 @@ describe("gate-wire-codex emitter", () => {
 // ---- integration: the teeth through the real entrypoint ----
 
 describe("gate.ts codex integration", () => {
+	test("post-tool delivers pushed consults without skipping file validation", () => {
+		const sid = `w937-${Math.random().toString(36).slice(2)}`;
+		const logDir = join(HOME, ".claude-insights");
+		mkdirSync(logDir, { recursive: true });
+		appendFileSync(
+			join(logDir, `coord-subscribe-${sid}.log`),
+			"#1 consult C91 from Fleet: coordinate shared work\n",
+		);
+		const blocked = gate(
+			["codex", "post-tool"],
+			{
+				tool_name: "apply_patch",
+				tool_input: {
+					command:
+						"*** Begin Patch\n*** Add File: bad.ts\n+document.write('unsafe')\n*** End Patch",
+				},
+				cwd: REPO,
+				session_id: sid,
+			},
+			{ SUSPENDERS_PUSH_TAIL: "" },
+		);
+		expect(blocked.code).toBe(2);
+		expect(blocked.err).toContain("UI LAW");
+		const delivered = gate(
+			["codex", "post-tool"],
+			{
+				tool_name: "shell",
+				tool_input: { command: "rg Fleet ." },
+				cwd: REPO,
+				session_id: sid,
+			},
+			{ SUSPENDERS_PUSH_TAIL: "" },
+		);
+		expect(delivered.code).toBe(0);
+		expect(delivered.out).toContain("consult C91 from Fleet");
+		expect(
+			gate(["codex", "post-tool"], {
+				tool_name: "shell",
+				cwd: REPO,
+				session_id: sid,
+			}).out,
+		).toBe("{}");
+	});
+
 	test("pre-tool shell allow rides through", () => {
 		const r = gate(["codex", "pre-tool"], {
 			tool_name: "shell",

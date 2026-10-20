@@ -361,10 +361,8 @@ describe("gate-wire-copilot emitter", () => {
 		expect(userBash?.matcher).toBe("Bash");
 		expect(Object.keys(doc1.hooks)).toContain("SessionEnd");
 		expect(Object.keys(doc1.hooks)).toContain("Stop");
-		const postEdit = doc1.hooks.PostToolUse.find(
-			(e) => e.matcher === "Edit|Write",
-		);
-		expect(postEdit?.hooks[0].command).toContain("copilot post-files");
+		const postAll = doc1.hooks.PostToolUse.find((e) => e.matcher === undefined);
+		expect(postAll?.hooks[0].command).toContain("copilot post-files");
 
 		const r2 = run([WIRE], "", { SUSPENDERS_COPILOT_SETTINGS: WIREPATH });
 		expect(r2.out).toContain("already wired");

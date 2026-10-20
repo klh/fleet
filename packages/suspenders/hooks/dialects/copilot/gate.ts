@@ -27,7 +27,7 @@ import {
 	spawnSessionEnd,
 } from "../../lib/session-bridge.ts";
 import { bashGate } from "../../gates/bash.ts";
-import { filesGate } from "../../gates/files.ts";
+import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { readGate } from "../../gates/read.ts";
 import { stopGate } from "../../gates/stop.ts";
@@ -97,7 +97,7 @@ export async function copilotGate(
 			readGate(hook);
 			allow();
 		}
-		if (mode === "post-files") return filesGate(hook);
+		if (mode === "post-files") return postToolGate(hook);
 		return preFilesChain(hook); // pre-files
 	}
 

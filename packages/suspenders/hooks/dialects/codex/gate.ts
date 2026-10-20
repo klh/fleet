@@ -17,7 +17,7 @@ import {
 	spawnSessionEnd,
 } from "../../lib/session-bridge.ts";
 import { bashGate } from "../../gates/bash.ts";
-import { filesGate } from "../../gates/files.ts";
+import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { stopGate } from "../../gates/stop.ts";
 
@@ -73,7 +73,7 @@ export async function codexGate(
 			event,
 		);
 		const hook = { ...norm.hook, session_id: sid };
-		if (mode === "post-tool") return filesGate(hook);
+		if (mode === "post-tool") return postToolGate(hook);
 		return norm.gate === "pre-bash" ? bashGate(hook) : preFilesChain(hook);
 	}
 
