@@ -12,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
 import {
 	emitClassTiers,
 	emitFallbackSettings,
@@ -112,6 +113,17 @@ const openRouterKeyPresent = Boolean(
 );
 if (openRouterKeyPresent)
 	entries.push(...openRouterFreeRows(OPENROUTER_FREE_CATALOG));
+
+// An operator-owned file opts in models served through a separate ChatGPT
+// subscription login. Its absence leaves the provider out of the catalog.
+const chatGptModelsPath = `${HOME}/.claude/local-llm/chatgpt-models.json`;
+if (existsSync(chatGptModelsPath)) {
+	const mode = statSync(chatGptModelsPath).mode & 0o777;
+	if (mode !== 0o600)
+		throw new Error(`${chatGptModelsPath} must have mode 0600`);
+	const config = JSON.parse(readFileSync(chatGptModelsPath, "utf8")) as unknown;
+	entries.push(...chatGptSubscriptionRows(config));
+}
 
 // (openai-dialect draft above is superseded by fullYaml — kept variables
 // merged there; this block intentionally removed)
