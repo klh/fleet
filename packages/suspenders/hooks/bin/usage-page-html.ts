@@ -24,22 +24,23 @@
 // module now SHAPES the payload's `panels` slices and emits static hosts;
 // no more per-request panel HTML strings. Filters stay server-side native
 // links (URL state must work without JS).
-import { GROUPS, type UsageReport } from "../lib/usage.ts";
-import type { CrossHubReport } from "../lib/cross-hub-usage.ts";
+
 import { ACTIVITIES, type ActivityReport } from "../lib/activity-harvest.ts";
+import type { CrossHubReport } from "../lib/cross-hub-usage.ts";
+import { GROUPS, type UsageReport } from "../lib/usage.ts";
 // W652.3: palette/esc/fmtTok/tiles/shell ride the shared chrome (one source
 // for both usage dashboards; W171's per-page copies retired)
 import {
 	fmtTok,
 	SLOT,
-	type UsageChip,
-	type UsageHeaderPanel,
 	type UsageActivityCell,
 	type UsageActivityPanel,
 	type UsageActorsPanel,
 	type UsageAidsPanel,
+	type UsageChip,
 	type UsageCoveragePanel,
 	type UsageCrossHubPanel,
+	type UsageHeaderPanel,
 	type UsageSeg,
 	type UsageTile,
 	usagePageShell,
@@ -52,7 +53,7 @@ import { coverageData } from "./usage-coverage-data.ts";
 // client renderer mounts them directly — zero reshaping in browser JS.
 // W652.3.1: the `panels` key carries the display-shaped slices the Lit
 // components (board-html/usage-panels.ts) render client-side.
-const chartPayload = (
+export const chartPayload = (
 	r: UsageReport,
 	header: UsageHeaderPanel,
 	coverage: UsageCoveragePanel,
@@ -292,36 +293,7 @@ const crossHubData = (x: CrossHubReport | undefined): UsageCrossHubPanel => {
 };
 
 // ─── page assembly ───────────────────────────────────────────────────────
-export function usagePage(
-	r: UsageReport,
-	opts: {
-		days: number;
-		team?: string;
-		dept?: string;
-		includeDemo?: boolean;
-		activity?: ActivityReport;
-		crossHub?: CrossHubReport;
-	} = { days: r.days },
-): string {
-	const team = opts.team ?? "";
-	const dept = opts.dept ?? "";
-	// W695.3.4: header (back bar, title, chips) is <klh-usage-header>; the
-	// chip links ride the payload `header` slice, still native <a href>.
-	const header = headerData(
-		r,
-		r.days,
-		team,
-		dept,
-		opts.includeDemo ?? r.demo?.included ?? false,
-	);
-	const includeDemo = opts.includeDemo ?? r.demo?.included ?? false;
-	const coverage = coverageData(r, {
-		days: r.days,
-		team,
-		dept,
-		includeDemo,
-	});
-	const hosts = `<klh-usage-header></klh-usage-header>
+export const usageHosts = `<klh-usage-header></klh-usage-header>
 		<nav class="usage-jump" aria-label="Usage sections">
 			<a href="#overview">Overview</a><a href="#actors">Actors</a>
 			<a href="#cache">Cache</a><a href="#sources">Sources</a>
@@ -342,15 +314,44 @@ export function usagePage(
 		<section id="activity" class="usage-section" aria-label="Activity and knowledge aids">
 			<klh-usage-activity></klh-usage-activity><klh-usage-aids></klh-usage-aids>
 		</section>`;
+
+export function usagePayload(
+	r: UsageReport,
+	opts: {
+		days: number;
+		team?: string;
+		dept?: string;
+		includeDemo?: boolean;
+		activity?: ActivityReport;
+		crossHub?: CrossHubReport;
+	},
+): string {
+	const team = opts.team ?? "";
+	const dept = opts.dept ?? "";
+	const includeDemo = opts.includeDemo ?? r.demo?.included ?? false;
+	return chartPayload(
+		r,
+		headerData(r, r.days, team, dept, includeDemo),
+		coverageData(r, { days: r.days, team, dept, includeDemo }),
+		opts.activity,
+		crossHubData(opts.crossHub),
+	);
+}
+
+export function usagePage(
+	r: UsageReport,
+	opts: {
+		days: number;
+		team?: string;
+		dept?: string;
+		includeDemo?: boolean;
+		activity?: ActivityReport;
+		crossHub?: CrossHubReport;
+	} = { days: r.days },
+): string {
 	return usagePageShell({
 		title: "FLEET USAGE",
-		body: hosts,
-		payload: chartPayload(
-			r,
-			header,
-			coverage,
-			opts.activity,
-			crossHubData(opts.crossHub),
-		),
+		body: usageHosts,
+		payload: usagePayload(r, opts),
 	});
 }

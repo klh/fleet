@@ -236,7 +236,7 @@ export const fleetNav = (current: FleetSite | "", view = ""): string => {
 			"https://suspenders.local/console/local",
 			"workflows",
 		],
-		["usage", "Metrics", "https://suspenders.local/usage", "metrics"],
+		["usage", "Metrics", "https://suspenders.local/#usage", "metrics"],
 		// W858.3: the two admin consoles join the strip — hub admin is the
 		// identity/token/key/federation plane, settings owns the belt+buckle
 		// budgets, ladders and cooldowns. Without them those controls were

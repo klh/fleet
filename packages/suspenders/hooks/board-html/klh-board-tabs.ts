@@ -5,7 +5,7 @@
 // listens for `tab-select` (detail = tab id); location.hash stays the source
 // of truth. Built by `bun run build:vendor`, served at
 // /vendor/klh-board-tabs.js — offline, never CDN.
-import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 
 export const BOARD_TABS: ReadonlyArray<readonly [string, string]> = [
 	["decisions", "Decisions"],
@@ -14,6 +14,7 @@ export const BOARD_TABS: ReadonlyArray<readonly [string, string]> = [
 	["activity", "Activity"],
 	["governor", "Governor"],
 	["setup", "Setup"],
+	["usage", "Usage"],
 ];
 
 class KlhBoardTabs extends LitElement {
@@ -128,7 +129,6 @@ class KlhBoardTabs extends LitElement {
 						</button>
 					`,
 				)}
-				<a href="/usage">Usage</a>
 			</nav>
 		`;
 	}
