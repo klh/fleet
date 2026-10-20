@@ -87,6 +87,7 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
+import { plaidGate } from "../hooks/lib/plaid.ts";
 import {
 	cvMap,
 	executorCv,
