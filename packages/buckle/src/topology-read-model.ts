@@ -55,6 +55,14 @@ export interface TopologySnapshot {
 		from: string;
 		to: string;
 		requests: number;
+		failed: number;
+		active: number;
+		inputTokens: number | null;
+		outputTokens: number | null;
+		coverage: {
+			source: "projection" | "local-origin-ledger";
+			usageBearingRequests: number;
+		};
 		lastSeenAt: string;
 		evidence: "trace" | "peer" | "ledger";
 	}>;
@@ -165,6 +173,11 @@ export function topologySnapshot(
 			from: string;
 			to: string;
 			traces: Set<string>;
+			failed: Set<string>;
+			active: Set<string>;
+			inputTokens: number;
+			outputTokens: number;
+			usageBearingRequests: Set<string>;
 			last: number;
 			evidence: "trace" | "peer" | "ledger";
 		}
@@ -193,10 +206,18 @@ export function topologySnapshot(
 				from,
 				to: hub,
 				traces: new Set<string>(),
+				failed: new Set<string>(),
+				active: new Set<string>(),
+				inputTokens: 0,
+				outputTokens: 0,
+				usageBearingRequests: new Set<string>(),
 				last: 0,
 				evidence: "trace" as const,
 			};
 			edge.traces.add(id);
+			if (row.outcome === "errored" || row.outcome === "denied")
+				edge.failed.add(id);
+			if (row.ended_at === null) edge.active.add(id);
 			edge.last = Math.max(edge.last, atRow);
 			if (id.startsWith("untraced:")) edge.evidence = "peer";
 			edges.set(key, edge);
@@ -249,10 +270,22 @@ export function topologySnapshot(
 			from: localHub,
 			to: `target:${key}`,
 			traces: new Set<string>(),
+			failed: new Set<string>(),
+			active: new Set<string>(),
+			inputTokens: 0,
+			outputTokens: 0,
+			usageBearingRequests: new Set<string>(),
 			last: 0,
 			evidence: "ledger" as const,
 		};
 		edge.traces.add(id);
+		if (row.ok === 0) edge.failed.add(id);
+		if (row.ok === null) edge.active.add(id);
+		if (row.ok === 1 && row.in_tok !== null && row.out_tok !== null) {
+			edge.inputTokens += row.in_tok;
+			edge.outputTokens += row.out_tok;
+			edge.usageBearingRequests.add(id);
+		}
 		edge.last = Math.max(edge.last, last);
 		edges.set(edgeKey, edge);
 		hubs.set(localHub, Math.max(hubs.get(localHub) ?? 0, last));
@@ -296,6 +329,15 @@ export function topologySnapshot(
 			from: `hub:${edge.from}`,
 			to: edge.to.startsWith("target:") ? edge.to : `hub:${edge.to}`,
 			requests: edge.traces.size,
+			failed: edge.failed.size,
+			active: edge.active.size,
+			inputTokens: edge.usageBearingRequests.size ? edge.inputTokens : null,
+			outputTokens: edge.usageBearingRequests.size ? edge.outputTokens : null,
+			coverage: {
+				source:
+					edge.evidence === "ledger" ? "local-origin-ledger" : "projection",
+				usageBearingRequests: edge.usageBearingRequests.size,
+			},
 			lastSeenAt: new Date(edge.last).toISOString(),
 			evidence: edge.evidence,
 		})),
