@@ -126,6 +126,20 @@ describe("registerCaddy register paths", () => {
 });
 
 describe("registerSkills", () => {
+	function addSkill(root: string, name: string): void {
+		const dir = join(root, "skills", name);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "SKILL.md"), `---\nname: ${name}\n---\n`);
+	}
+
+	function stubSkillsInstall(fakeBin: string): void {
+		stubExec(
+			fakeBin,
+			"npx",
+			'#!/bin/sh\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n',
+		);
+	}
+
 	test("no skills/ directory → skipped", async () => {
 		const { ctx } = fixture();
 		const res = await registerSkills(ctx);
@@ -135,25 +149,45 @@ describe("registerSkills", () => {
 
 	test("skills CLI failure → failed with the manual command", async () => {
 		const { root, ctx } = fixture();
-		mkdirSync(join(root, "skills"), { recursive: true });
+		addSkill(root, "fleet");
 		const fakeBin = join(root, "fakebin");
-		stubExec(fakeBin, "bunx", "#!/bin/sh\nexit 1\n");
+		stubExec(
+			fakeBin,
+			"npx",
+			"#!/bin/sh\necho 'cache missing yaml/index.js' >&2\nexit 1\n",
+		);
 		await withPath(fakeBin, async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("failed");
 			expect(res.note).toContain("run manually:");
+			expect(res.note).toContain("npx skills add");
+			expect(res.note).toContain("cache missing yaml/index.js");
 		});
 	});
 
 	test("skills CLI success → ok, all packages registered", async () => {
 		const { root, ctx } = fixture();
-		mkdirSync(join(root, "skills"), { recursive: true });
+		addSkill(root, "fleet");
 		const fakeBin = join(root, "fakebin");
-		stubExec(fakeBin, "bunx", '#!/bin/sh\necho "Found 10"\nexit 0\n');
+		stubSkillsInstall(fakeBin);
 		await withPath(fakeBin, async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("ok");
-			expect(res.note).toContain("registered all packages");
+			expect(res.note).toContain("verified 1 Claude skills");
+		});
+		expect(
+			existsSync(join(root, ".claude", "skills", "fleet", "SKILL.md")),
+		).toBe(true);
+	});
+
+	test("zero-exit without installed SKILL.md → failed", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		stubExec(join(root, "fakebin"), "npx", "#!/bin/sh\nexit 0\n");
+		await withPath(join(root, "fakebin"), async () => {
+			const res = await registerSkills(ctx);
+			expect(res.status).toBe("failed");
+			expect(res.note).toContain("Claude skills are missing");
 		});
 	});
 
@@ -162,22 +196,23 @@ describe("registerSkills", () => {
 		// W903 repro: ctx.repo is packages/suspenders, the catalog at the root
 		mkdirSync(join(root, "packages", "suspenders"), { recursive: true });
 		ctx.repo = join(root, "packages", "suspenders");
-		mkdirSync(join(root, "skills"), { recursive: true });
+		addSkill(root, "fleet");
 		const run = (args: string[]) => Bun.spawnSync(["git", "-C", root, ...args]);
 		run(["init", "-q"]);
 		const fakeBin = join(root, "fakebin");
-		const captured = join(root, "bunx-args.txt");
+		const captured = join(root, "npx-args.txt");
 		stubExec(
 			fakeBin,
-			"bunx",
-			`#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(captured)}\nexit 0\n`,
+			"npx",
+			`#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(captured)}\nmkdir -p "$HOME/.claude/skills/fleet"\nprintf installed > "$HOME/.claude/skills/fleet/SKILL.md"\nexit 0\n`,
 		);
 		await withPath(fakeBin, async () => {
 			const res = await registerSkills(ctx);
 			expect(res.status).toBe("ok");
-			expect(res.note).toContain("registered all packages");
+			expect(res.note).toContain("verified 1 Claude skills");
 		});
 		const args = readFileSync(captured, "utf8");
+		expect(args).toStartWith("skills\nadd\n");
 		expect(args).toContain(join(realpathSync(root), "skills"));
 		expect(args).toContain("claude-code");
 	});

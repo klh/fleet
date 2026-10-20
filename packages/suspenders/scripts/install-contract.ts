@@ -393,7 +393,7 @@ export const INSTALL_CONTRACT = {
 		{
 			name: "registerSkills",
 			oneLiner:
-				"register every skills/ package with the skills CLI (bunx skills add -g -y -a claude-code) — best-effort, failure names the manual command",
+				"register and verify every skills/ package for Claude Code (npx skills add -g -y -a claude-code) — best-effort, failure names the manual command",
 			mutates: true,
 			optIn: false,
 			v1: "real",
