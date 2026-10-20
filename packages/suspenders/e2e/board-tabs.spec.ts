@@ -124,6 +124,16 @@ test("task rows start compact and identify an unnamed owner by model", async ({
 				model_groups: { "glm-5.3-flash": { requests: 2 } },
 			},
 		});
+		payload.tasks.push({
+			id: "W9998",
+			project: "/tmp/fleet/.git",
+			title: "Related item without attribution",
+			state: "CLAIMED",
+			owner_sid: sid,
+			owner_label: sid,
+			age_s: 60,
+			updated_at_utc: new Date().toISOString(),
+		});
 		await route.fulfill({ response, json: payload });
 	});
 	await page.goto(`${mustBoard().BASE}/#tasks`);
