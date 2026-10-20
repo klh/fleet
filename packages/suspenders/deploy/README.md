@@ -70,6 +70,44 @@ rows and receive `OPENROUTER_API_KEY` at spawn. A restricted inference key
 and a verified deployed route are required before the dashboard should
 report an OpenRouter model as reachable.
 
+## Z.ai account models on a hub
+
+The Z.ai hub inventory comes from the account's authenticated
+`GET https://api.z.ai/api/paas/v4/models`. This endpoint lists model IDs
+visible to the configured account; it does not prove that a completion will
+succeed. Public pricing also lists image, audio, and other models that may
+not appear in this account's chat catalog. They are not added as Buckle chat
+routes.
+
+On a local Docker hub, declare these machine-level fields in its
+`stack.yaml` profile:
+
+```yaml
+http_upstream_hosts: [host.docker.internal]
+buckle_prefs: {allow_cloud: true}
+secrets:
+  upstream_keys:
+    Z_AI_API_KEY: /private/path/zai.key
+    LITELLM_KEY: /private/path/litellm.key
+upstreams:
+  zai_catalog_file: /private/path/zai-models.json
+  zai_litellm_url: http://host.docker.internal:4100
+  groups: {} # explicit aliases still take priority
+```
+
+`bun deploy/zai-catalog-sync.ts sync --hub <name>` reads the 0600 Z.ai
+key file without logging it and writes the 0600 catalog snapshot atomically.
+A failed fetch preserves the previous snapshot. The installed Belt
+`gateway-config.ts` reads the same snapshot at
+`~/.claude/local-llm/zai-models.json` (or `ZAI_CATALOG_FILE`) and adds
+missing `zai-<model-id>` LiteLLM rows. Regenerate and restart LiteLLM,
+verify its `/v1/models`, then `hubctl push <name>` and
+`hubctl reload-upstreams <name>`. Buckle routes the catalog IDs through
+LiteLLM; hubctl refuses a direct Z.ai route when catalog sync is enabled.
+Snapshots older than 24 hours require a refresh before a new deploy. The
+hub card reports configured models; successful routing needs a separate
+inference check.
+
 ## Inference-route canary (W467)
 
 A `/status` answer proves the gate responds. The `buckle-ready` sidecar

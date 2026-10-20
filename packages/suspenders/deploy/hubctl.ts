@@ -43,6 +43,7 @@ import {
 } from "../hooks/lib/stack-config.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
+import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
 
 import {
 	buildRelease,
@@ -223,7 +224,10 @@ function redactedRender(envText: string): string {
  *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
  *  (merge-over-base is by group name). Always rendered: compose mounts it. */
 function renderUpstreams(hub: HubProfile): string {
-	return stringify({ version: 1, groups: mergedHubUpstreams(hub) });
+	return stringify({
+		version: 1,
+		groups: mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub)),
+	});
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
