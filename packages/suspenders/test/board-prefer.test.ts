@@ -1,7 +1,7 @@
 // test/board-prefer.test.ts — W518: the board renders the .prefer tag + color
 // carried on work items (W517's lib resolves the repo's .prefer). The kanban
-// card inset stripe and the task-list dot ride the --prefer token; absent prefer =
-// no affordance. Functional tests eval the shipped TASKS chunk bytes (the
+// card border and the task-list dot ride the --prefer token; absent prefer
+// falls back to the semantic state border. Functional tests eval the shipped TASKS chunk bytes (the
 // String.raw export) with the shared chunk helpers (core.ts esc/taskPill/
 // agoShort) injected as parameters; page-level asserts cover the token CSS.
 import { describe, expect, test } from "bun:test";
@@ -116,12 +116,19 @@ describe("board prefer render (W518)", () => {
 		expect(card).toContain("&quot;&gt;&lt;script&gt;");
 	});
 
-	// W518 test identity stays stable; preference now uses an inset stripe.
 	test("page CSS: kcard border + pdot ride --prefer", () => {
 		expect(HTML).toContain(
-			".kcard { border:1px solid var(--state-color, var(--klh-edge-soft))",
+			".kcard { border:1px solid var(--prefer, var(--state-color, var(--klh-edge-soft)))",
 		);
-		expect(HTML).toContain("box-shadow:inset 3px 0 var(--prefer, transparent)");
+		expect(HTML).toContain(
+			".kcard:hover { border-color:var(--prefer, var(--state-color, var(--klh-edge-hover)))",
+		);
+		expect(HTML).toContain(
+			".kcard.ksel { border-color:var(--prefer, var(--state-color, var(--klh-accent)))",
+		);
+		expect(HTML).toContain(
+			".kcard[data-tone] .krow .pill { color:var(--state-color); border-color:var(--state-color); }",
+		);
 		expect(HTML).toContain(".pdot { display:inline-block");
 	});
 });
