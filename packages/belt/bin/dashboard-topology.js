@@ -287,6 +287,9 @@ class BeltTopology extends LitElement {
 		gatewayUnresolvedRoutes = [],
 		gatewayModelCosts = {},
 	) {
+		const configuredAliases = new Set(
+			Object.values(gatewayModelAliases).flat(),
+		);
 		const exposed = hubKey
 			? [
 					...(gatewayModels ?? []).map((name) => ({
@@ -298,14 +301,18 @@ class BeltTopology extends LitElement {
 						usage15: null,
 						price: gatewayModelCosts[name],
 					})),
-					...models.map((item) => ({
-						name: item.model,
-						source: "probe · origin unknown",
-						targets: [],
-						routes: [],
-						state: item.state,
-						usage15: Number.isFinite(item.requests15) ? item.requests15 : null,
-					})),
+					...models
+						.filter((item) => !configuredAliases.has(item.model))
+						.map((item) => ({
+							name: item.model,
+							source: "probe · origin unknown",
+							targets: [],
+							routes: [],
+							state: item.state,
+							usage15: Number.isFinite(item.requests15)
+								? item.requests15
+								: null,
+						})),
 				].sort(
 					(a, b) =>
 						(b.usage15 ?? -1) - (a.usage15 ?? -1) ||
