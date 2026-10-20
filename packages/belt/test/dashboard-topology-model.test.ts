@@ -5,6 +5,34 @@ const now = Date.parse("2026-10-19T12:00:00Z");
 const observation = { expiresAt: now + 10_000 };
 
 describe("Belt topology", () => {
+	test("joins configured console links and observed local Work Graph counts", () => {
+		const model = buildTopology(
+			{},
+			{},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "NAS", state: "up", port: 4101 }],
+			},
+			now,
+			null,
+			null,
+			{
+				localConsoleUrl: "https://board.example.org/",
+				hubConsoles: [{ name: "nas", url: "https://nas.example.org/" }],
+				work: {
+					ready: 3,
+					working: 2,
+					waiting: 1,
+					blocked: 4,
+					failed: 5,
+					done: 6,
+				},
+			},
+		);
+		expect(model.localConsoleUrl).toBe("https://board.example.org/");
+		expect(model.hubs[0]?.consoleUrl).toBe("https://nas.example.org/");
+		expect(model.work?.blocked).toBe(4);
+	});
 	test("keeps probed reachability separate from recent routed traffic", () => {
 		const model = buildTopology(
 			{
