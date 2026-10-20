@@ -180,6 +180,12 @@ describe("coord verb matrix — consult chain", () => {
 		).toEqual([{ state: "QUEUED" }]);
 		coord("poll", "--as", "lane-a");
 		expect(coord("inbox", "--as", "lane-a").out).toContain("do this");
+		cover("receipt");
+		expect(
+			JSON.parse(
+				coord("receipt", String(answer.id), "--as", "lane-b", "--json").out,
+			).state,
+		).toBe("SEEN");
 		cover("ack");
 		expect(coord("ack", String(answer.id), "--as", "lane-b").code).toBe(2);
 		expect(coord("ack", String(answer.id), "--as", "lane-a").code).toBe(0);
