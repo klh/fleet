@@ -298,7 +298,18 @@ describe("fleet strip markup (W291)", () => {
 		}
 		expect(fleetNav("")).not.toContain("aria-current");
 	});
-	test("sites: existing hosts and Buckle's nested console", () => {
+	test("sites: https .local hosts, klh repos, ports in the titles", () => {
+		const ports = { belt: ":7791", suspenders: ":7799", local: ":7792" };
+		for (const s of FLEET_SITES) {
+			if (s.id === "buckle") continue;
+			expect(s.href).toMatch(/^https:\/\/[a-z]+\.local$/);
+			expect(s.repo).toBe(
+				`https://github.com/klh/fleet/tree/main/packages/${s.id}`,
+			);
+			expect(s.title).toContain(ports[s.id]);
+		}
+	});
+	test("Buckle opens its nested console on the existing Suspenders host", () => {
 		const locations = {
 			belt: "https://belt.local",
 			buckle: "https://suspenders.local/console/belt",
