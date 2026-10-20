@@ -115,8 +115,8 @@ async function main(): Promise<void> {
 			if (!r.installed) continue;
 			const c = r.capabilities;
 			p.log.info(
-				`${r.displayName}: skills=${c.skillInstallable} hooks=${c.hookWired} spawn=${c.headlessSpawnable} resume=${c.sessionResumable} buckle=${c.buckleCompatible}`,
-		);
+				`${r.displayName}: skills=${c.skillInstallable} hook-adapter=${c.hookWired} hook-registration=${c.hookRegistration} spawn=${c.headlessSpawnable} resume=${c.sessionResumable} buckle=${c.buckleCompatible}`,
+			);
 		}
 		process.exit(0);
 	}
