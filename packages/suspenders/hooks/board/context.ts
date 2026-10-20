@@ -39,6 +39,9 @@ export interface WorkItemRow {
 	requires: string | null;
 	origin: string | null;
 	tags: string | null;
+	wait_kind: string | null;
+	wait_reason: string | null;
+	wait_until: number | null;
 }
 
 // W92.2: the board binds the control-plane store port — colocation-free

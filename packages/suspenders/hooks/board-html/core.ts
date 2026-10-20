@@ -182,6 +182,7 @@ function msAgo(ts){ return ts != null ? Math.max(0, Math.round((Date.now() - ts)
 // Q gray) — hues resolve through vars, never literals.
 var ST_HUES = {
   ready: 'info',
+  waiting: 'accent',
   claimed: 'accent',
   running: 'accent',
   done: 'ok',
@@ -202,6 +203,7 @@ function stLetter(label){
 }
 function taskPill(state){
   var s = String(state || '').toLowerCase();
+  if (state === 'WAITING') return '<span class="pill waiting" title="External prerequisite; requires a verified wake">' + stLetter('waiting') + 'waiting</span>';
   if (state === 'SHATTERED') return '<span class="pill ready" title="Split into child work items; completes when required children finish">' + stLetter('split') + 'split</span>';
   if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + stLetter(s) + s + '</span>';
   if (state === 'DONE') return '<span class="pill done">' + stLetter('done') + 'done</span>';

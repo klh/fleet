@@ -194,6 +194,13 @@ export function openGovernorDb(): Database {
 	// each match, else done refuses. NULL = no required evidence.
 	if (!wiCols.includes("evidence"))
 		db.run("ALTER TABLE work_items ADD COLUMN evidence TEXT");
+	// WAITING is an explicit external prerequisite, never an allocator candidate.
+	if (!wiCols.includes("wait_kind"))
+		db.run("ALTER TABLE work_items ADD COLUMN wait_kind TEXT");
+	if (!wiCols.includes("wait_reason"))
+		db.run("ALTER TABLE work_items ADD COLUMN wait_reason TEXT");
+	if (!wiCols.includes("wait_until"))
+		db.run("ALTER TABLE work_items ADD COLUMN wait_until INTEGER");
 	if (uv < 2) db.run("PRAGMA user_version = 2");
 	// v4 — consult knowledge base: (problem → solution) pairs harvested from
 	// answered consults; new consults resolve against it before routing to a

@@ -346,6 +346,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.block { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
 .pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
+.pill.waiting { color:var(--klh-accent); border-color:var(--klh-accent); }
 /* W891 state letters — semantic state hues ride the klh tokens (F red, R blue, D green, Q gray) */
 .stl { font-weight:700; letter-spacing:0; margin-right:5px; }
 .stl.info { color:var(--klh-info); }

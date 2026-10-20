@@ -8,7 +8,7 @@
 // registry without a matrix scenario fails here.
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
 
@@ -83,13 +83,40 @@ describe("work verb matrix — fail/retry/cancel + guards", () => {
 		expect(work("take", id, "--as", "s2").code).toBe(0);
 		cover("fail");
 		expect(
-			work("fail", id, "--as", "s2", "--note", "repro: x | no-repro: y")
-				.out,
+			work("fail", id, "--as", "s2", "--note", "repro: x | no-repro: y").out,
 		).toContain("FAILED");
 		cover("retry");
 		expect(work("retry", id).out).toContain("READY");
 		cover("cancel");
 		expect(work("cancel", id, "--note", "dup").code).toBe(0);
+	});
+});
+
+describe("work verb matrix — external waiting", () => {
+	test("failed → waiting → evidence-gated ready, with reason visible", () => {
+		const id = idOf(work("add", "external gate").out);
+		cover("fail");
+		expect(work("fail", id, "--note", "quota exhausted").code).toBe(0);
+		cover("wait");
+		expect(
+			work(
+				"wait",
+				id,
+				"--kind",
+				"quota",
+				"--reason",
+				"seat reset",
+				"--until",
+				"2099-01-01T00:00:00Z",
+			).out,
+		).toContain("WAITING");
+		expect(work("ready").out).not.toContain(id);
+		expect(work("show", id).out).toContain("seat reset");
+		cover("wake");
+		expect(work("wake", id, "--note", "quota verified").code).not.toBe(0);
+		expect(
+			work("wake", id, "--note", "quota verified", "--force").out,
+		).toContain("READY");
 	});
 });
 
@@ -136,9 +163,7 @@ describe("work verb matrix — migrate-ledger + orphaned", () => {
 		const ledger = join(fx.REPO, "ledger.md");
 		writeFileSync(
 			ledger,
-			["# Ledger", "- [ ] ledger task A", "- [ ] ledger task B"].join(
-				"\n",
-			),
+			["# Ledger", "- [ ] ledger task A", "- [ ] ledger task B"].join("\n"),
 		);
 		cover("migrate-ledger");
 		const first = work("migrate-ledger", ledger);
