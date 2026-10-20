@@ -25,6 +25,70 @@ function poolOf(entries: Array<[string, string[]]>): UpstreamPool {
 }
 
 describe("retry + cooldown in the walk", () => {
+	test("a provider quota wall advances to the configured fallback without sleeping", async () => {
+		const attempted: string[] = [];
+		const slept: number[] = [];
+		const router = new Router(
+			{ ...POLICY, fallbacks: { claude: ["glm"] } },
+			{
+				pool: poolOf([
+					["claude", ["http://copilot"]],
+					["glm", ["http://glm"]],
+				]),
+				sleepMs: async (ms) => {
+					slept.push(ms);
+				},
+				fetchImpl: async (dep) => {
+					attempted.push(dep.url);
+					return dep.group === "claude"
+						? new Response("quota exceeded", {
+								status: 429,
+								headers: { "retry-after": "996295" },
+							})
+						: Response.json({ ok: true });
+				},
+			},
+		);
+		const result = await router.execute({
+			group: "claude",
+			dialect: "openai",
+			path: "/v1/chat/completions",
+			body: { model: "claude", stream: false },
+			key: "",
+		});
+		expect(result.kind).toBe("upstream");
+		if (result.kind === "upstream") expect(result.tier).toBe("glm");
+		expect(attempted).toEqual(["http://copilot", "http://glm"]);
+		expect(slept).toEqual([]);
+	});
+	test("an exhausted quota wall keeps the provider retry-after", async () => {
+		const slept: number[] = [];
+		const router = new Router(POLICY, {
+			pool: poolOf([["claude", ["http://copilot"]]]),
+			sleepMs: async (ms) => {
+				slept.push(ms);
+			},
+			fetchImpl: async () =>
+				new Response("quota exceeded", {
+					status: 429,
+					headers: { "retry-after": "996295" },
+				}),
+		});
+		const result = await router.execute({
+			group: "claude",
+			dialect: "openai",
+			path: "/v1/chat/completions",
+			body: { model: "claude", stream: false },
+			key: "",
+		});
+		expect(result.kind).toBe("client-error");
+		if (result.kind === "client-error") {
+			expect(result.response.status).toBe(429);
+			expect(result.response.headers.get("retry-after")).toBe("996295");
+		}
+		expect(slept).toEqual([]);
+	});
+
 	test("upstream retry-after is honored before the same-tier retry", async () => {
 		let calls = 0;
 		const slept: number[] = [];
