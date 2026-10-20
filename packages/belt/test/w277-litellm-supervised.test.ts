@@ -56,6 +56,7 @@ const paths = (over: Partial<LitellmPaths> = {}): LitellmPaths => {
 		// left the optional-key files on the REAL machine paths, so loadKeys
 		// hoisted live secret values into test output (W670 fixture-knob family)
 		anthropicKeyFile: join(dir, "anthropic-absent.key"),
+		openaiKeyFile: join(dir, "openai-absent.key"),
 		copilotKeyFile: join(dir, "copilot-absent.key"),
 		openrouterKeyFile: join(dir, "openrouter-absent.key"),
 		log: join(dir, "litellm.log"),
@@ -136,6 +137,18 @@ describe("keys — env first, then the 0600 files, never echoed", () => {
 			anthropicKeyFile: join(dir, "anthropic-test.key"),
 		});
 		expect(g.ANTHROPIC_API_KEY).toBe("file-a");
+	});
+
+	test("OpenAI key: env wins, file fallback, absent = omitted (optional)", () => {
+		const env = { Z_AI_API_KEY: "z", LITELLM_KEY: "m" };
+		expect(loadKeys(paths(), env).OPENAI_API_KEY).toBeUndefined();
+		const keyFile = join(dir, "openai-test.key");
+		writeFileSync(keyFile, "file-o\n", { mode: 0o600 });
+		const configured = paths({ openaiKeyFile: keyFile });
+		expect(loadKeys(configured, env).OPENAI_API_KEY).toBe("file-o");
+		expect(
+			loadKeys(configured, { ...env, OPENAI_API_KEY: "env-o" }).OPENAI_API_KEY,
+		).toBe("env-o");
 	});
 
 	test("OpenRouter inference key is optional, file-backed, and env-overridable", () => {

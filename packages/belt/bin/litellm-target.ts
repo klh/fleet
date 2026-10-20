@@ -3,9 +3,9 @@
 // supervisor: no backoff, no breaker, no status. That plist must stay unloaded
 // now — the supervisor is the single restarter for :4100.
 //
-// Secrets: Z_AI_API_KEY + LITELLM_KEY are resolved at SPAWN time — the
-// inherited env wins, else the 0600 files (~/.config/zai/config.json apiKey,
-// ~/.claude/local-llm/litellm.key). litellm.yaml references them as
+// Secrets are resolved at SPAWN time — the inherited env wins, else the
+// machine-local key files (required Z.ai and LiteLLM; optional Anthropic,
+// OpenAI, Copilot and OpenRouter). litellm.yaml references them as
 // os.environ/… so key values never appear in code, argv, logs or status.
 //
 // Liveness: GET /v1/models with the master key. 200 = serving + authorized,
@@ -32,6 +32,8 @@ export interface LitellmPaths {
 	 *  api.anthropic.com (claude-sonnet-5 / claude-haiku-4-5). Optional:
 	 *  without it only the claude upstreams fail, the gateway still serves. */
 	anthropicKeyFile: string;
+	/** OpenAI API key for optional LiteLLM cloud rows. */
+	openaiKeyFile: string;
 	/** GitHub Copilot seat token (IKEA Copilot suite) for litellm.yaml rows
 	 *  pointing at api.githubcopilot.com. Optional: without it only the
 	 *  copilot upstreams fail, the gateway still serves. */
@@ -49,6 +51,7 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	zaiConfig: `${HOME}/.config/zai/config.json`,
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
 	anthropicKeyFile: `${HOME}/.claude/local-llm/anthropic.key`,
+	openaiKeyFile: `${HOME}/.claude/local-llm/openai.key`,
 	copilotKeyFile: `${HOME}/.claude/local-llm/copilot.key`,
 	openrouterKeyFile: `${HOME}/.claude/local-llm/openrouter.key`,
 	log: `${HOME}/.claude/local-llm/litellm-gateway.log`,
@@ -58,6 +61,7 @@ export interface LitellmKeys {
 	Z_AI_API_KEY: string;
 	LITELLM_KEY: string;
 	ANTHROPIC_API_KEY?: string;
+	OPENAI_API_KEY?: string;
 	COPILOT_API_KEY?: string;
 	OPENROUTER_API_KEY?: string;
 }
@@ -99,6 +103,8 @@ export function loadKeys(
 		env.ANTHROPIC_API_KEY ||
 		tryRead(read, paths.anthropicKeyFile)?.trim() ||
 		null;
+	const openai =
+		env.OPENAI_API_KEY || tryRead(read, paths.openaiKeyFile)?.trim() || null;
 	const copilot =
 		env.COPILOT_API_KEY || tryRead(read, paths.copilotKeyFile)?.trim() || null;
 	const openrouter =
@@ -113,6 +119,7 @@ export function loadKeys(
 		Z_AI_API_KEY: zai,
 		LITELLM_KEY: master,
 		...(anthropic ? { ANTHROPIC_API_KEY: anthropic } : {}),
+		...(openai ? { OPENAI_API_KEY: openai } : {}),
 		...(copilot ? { COPILOT_API_KEY: copilot } : {}),
 		...(openrouter ? { OPENROUTER_API_KEY: openrouter } : {}),
 	};
