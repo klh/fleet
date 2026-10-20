@@ -225,7 +225,11 @@ export function buildTopology(
 	networkPayload = null,
 	access = null,
 	context = null,
+	inventory = null,
 ) {
+	const inventoryModels = Array.isArray(inventory?.models)
+		? inventory.models
+		: [];
 	const localFresh = observed(status?.observation, now);
 	const remoteFresh = isFresh(remotes?.ts, now);
 	const hubFresh = observed(supervisor?.observation, now);
@@ -242,7 +246,15 @@ export function buildTopology(
 	const models = specialists.map((item) => ({
 		role: String(item.role || "model"),
 		port: item.port,
-		model: item.model_served || "model not loaded",
+		model:
+			inventoryModels.find((record) =>
+				record.exposures?.some(
+					(exposure) =>
+						exposure.kind === "belt" && exposure.endpoint === `:${item.port}`,
+				),
+			)?.id ??
+			item.model_served ??
+			"model not loaded",
 		load5m: Number.isFinite(item.load_5m) ? item.load_5m : null,
 		label: String(item.state_label || "unknown"),
 		state: !localFresh
@@ -311,6 +323,24 @@ export function buildTopology(
 	const hubCards = hubs.map((item) => {
 		const key = String(item.name).toLowerCase();
 		const routes = hubRoutes.get(key);
+		const inventoried = inventoryModels.flatMap((record) =>
+			(record.exposures ?? [])
+				.filter(
+					(exposure) =>
+						exposure.kind === "hub" &&
+						String(exposure.owner).toLowerCase() === key,
+				)
+				.map((exposure) => ({ record, exposure })),
+		);
+		const gatewayModels = inventoried.length
+			? [
+					...new Set(
+						inventoried.map(
+							({ record, exposure }) => exposure.routeModel ?? record.id,
+						),
+					),
+				]
+			: (routes?.models ?? []);
 		const providerCounts = {};
 		const gatewayModelCosts = {};
 		for (const model of routes?.models ?? []) {
@@ -318,6 +348,10 @@ export function buildTopology(
 			gatewayModelCosts[model] = identity
 				? priceForModel(access, identity.provider, identity.id, now)
 				: unknownCost;
+		}
+		for (const { record, exposure } of inventoried) {
+			const price = record.provider ? record.prices?.[record.provider] : null;
+			if (price) gatewayModelCosts[exposure.routeModel ?? record.id] = price;
 		}
 		const configuredProviders = new Set(
 			(routes?.providerHosts ?? []).map(providerKey),
@@ -335,16 +369,16 @@ export function buildTopology(
 		}
 		return {
 			name: String(item.name),
-			...(routes?.models?.length || routes?.providerIntents?.length
+			...(gatewayModels.length || routes?.providerIntents?.length
 				? {
-						gatewayModels: routes.models,
-						gatewayRouteCount: routes.routeCount ?? routes.models.length,
-						gatewayUnresolvedRoutes: routes.unresolvedRoutes ?? [],
-						gatewayModelAliases: routes.routesByModel ?? {},
+						gatewayModels,
+						gatewayRouteCount: routes?.routeCount ?? gatewayModels.length,
+						gatewayUnresolvedRoutes: routes?.unresolvedRoutes ?? [],
+						gatewayModelAliases: routes?.routesByModel ?? {},
 						gatewayModelCosts,
-						providerIntents: routes.providerIntents ?? [],
-						gatewayModelTargets: routes.providerHostsByModel ?? {},
-						gatewayModelPorts: routes.targetPortsByModel ?? {},
+						providerIntents: routes?.providerIntents ?? [],
+						gatewayModelTargets: routes?.providerHostsByModel ?? {},
+						gatewayModelPorts: routes?.targetPortsByModel ?? {},
 						providerKeys: [...configuredProviders],
 						providerCounts,
 					}
@@ -358,6 +392,22 @@ export function buildTopology(
 	const machineCards = addNetworkEvidence(
 		[...machines.values()].map((item) => ({
 			...item,
+			models: inventoryModels.length
+				? [
+						...new Set(
+							inventoryModels
+								.filter((record) =>
+									record.exposures?.some(
+										(exposure) =>
+											exposure.kind === "remote" &&
+											String(exposure.owner).toLowerCase() ===
+												item.name.toLowerCase(),
+									),
+								)
+								.map((record) => record.id),
+						),
+					]
+				: item.models,
 			state:
 				item.unconfigured === item.endpoints
 					? "unconfigured"
@@ -428,6 +478,19 @@ export function buildTopology(
 				probed: 0,
 				routed: 0,
 			});
+		}
+	}
+	if (inventoryModels.length) {
+		for (const provider of providers) {
+			const entries = inventoryModels.filter(
+				(record) =>
+					record.provider === provider.key &&
+					record.exposures?.some(
+						(exposure) =>
+							exposure.kind === "provider" || exposure.kind === "hub",
+					),
+			);
+			if (entries.length) provider.models = entries.map((record) => record.id);
 		}
 	}
 	for (const row of context?.hubProviderObservations ?? []) {
