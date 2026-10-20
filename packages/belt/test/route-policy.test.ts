@@ -3,7 +3,14 @@
 // (kind, machine, model, tags), so the grammar is provable without booting
 // the dashboard or touching metrics.db.
 import { describe, expect, test } from "bun:test";
-import { hintFit, hintTotal, parseHint } from "../bin/route-policy.ts";
+import {
+	healthyFirst,
+	hintFit,
+	hintTotal,
+	localProbe,
+	parseHint,
+	preferOrdered,
+} from "../bin/route-policy.ts";
 
 const cand = (
 	kind: string,
@@ -134,5 +141,91 @@ describe("auto verb (W228) — the addressable default", () => {
 		if (!p.ok) throw new Error("parse failed");
 		expect(hintFit(LOCAL_REASON, p.hint)).toBe(0);
 		expect(hintTotal(p.hint)).toBe(0);
+	});
+});
+
+// ─── W986.4: health as an eligibility/ranking guard for soft prefer ───
+const spec = (over: Record<string, unknown>) => ({
+	machine: "m5max",
+	port: 8902,
+	model: "m",
+	protocol: "openai",
+	kind: "local",
+	roles: ["reason"],
+	tags: "",
+	healthy: true,
+	estimate_ms: null,
+	calls: 0,
+	load_5m: 0,
+	errors: 0,
+	last_used: null,
+	probe_ms: null,
+	...over,
+});
+
+describe("prefer + health guard (W986.4)", () => {
+	const hint = parseHint("prefer local distill reasoning");
+	if (!hint.ok) throw new Error("parse failed");
+	const unhealthyFull = spec({
+		port: 8906,
+		healthy: false,
+		tags: "reason distill reasoning",
+	});
+	const healthyPartial = spec({ tags: "extract" });
+
+	test("bare preferOrdered still ranks the unhealthy full fit first", () => {
+		const ordered = preferOrdered([unhealthyFull, healthyPartial], hint.hint);
+		expect(ordered[0]).toBe(unhealthyFull);
+	});
+
+	test("healthyFirst demotes it — the healthy fallback executes", () => {
+		const ordered = preferOrdered([unhealthyFull, healthyPartial], hint.hint);
+		expect(healthyFirst(ordered)?.[0]).toBe(healthyPartial);
+	});
+
+	test("no healthy candidate at all → null (fail fast, no tokens)", () => {
+		expect(healthyFirst([unhealthyFull, spec({ healthy: false })])).toBeNull();
+	});
+
+	test("all healthy keeps the preferOrdered order untouched", () => {
+		const a = spec({ tags: "reason distill reasoning" });
+		const b = spec({ tags: "extract" });
+		expect(healthyFirst(preferOrdered([b, a], hint.hint))).toEqual([a, b]);
+	});
+});
+
+describe("localProbe — non-2xx /v1/models is unhealthy (W986.4)", () => {
+	const withFetch = async (
+		res: Response | Error,
+		run: () => Promise<void>,
+	): Promise<void> => {
+		const orig = globalThis.fetch;
+		globalThis.fetch = (() =>
+			res instanceof Error
+				? Promise.reject(res)
+				: Promise.resolve(res)) as typeof fetch;
+		try {
+			await run();
+		} finally {
+			globalThis.fetch = orig;
+		}
+	};
+
+	test("HTTP 500 from /v1/models → unhealthy", async () => {
+		await withFetch(new Response("boom", { status: 500 }), async () => {
+			expect(await localProbe(8906)).toBe(false);
+		});
+	});
+
+	test("HTTP 200 → healthy", async () => {
+		await withFetch(Response.json({ object: "list", data: [] }), async () => {
+			expect(await localProbe(8902)).toBe(true);
+		});
+	});
+
+	test("connection refused → unhealthy", async () => {
+		await withFetch(new Error("ECONNREFUSED"), async () => {
+			expect(await localProbe(8906)).toBe(false);
+		});
 	});
 });
