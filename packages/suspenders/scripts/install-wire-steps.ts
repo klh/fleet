@@ -4,9 +4,10 @@
 // impl already sat. Each function mirrors the retired bash block: non-fatal
 // steps keep running the plan, and degraded outcomes surface truthfully
 // (W549) instead of being swallowed.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
+import { redactSecrets } from "../hooks/lib/knowledge.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 
 /**
@@ -80,20 +81,47 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 			note: `no skills/ directory at ${repoRoot} — nothing to register`,
 		};
 	}
-	const res = await execa(
-		"bunx",
-		["skills", "add", skillsDir, "-g", "-y", "-a", "claude-code"],
-		{ stdin: "ignore", reject: false },
-	);
-	if (res.exitCode !== 0) {
+	const skillNames = readdirSync(skillsDir, { withFileTypes: true })
+		.filter(
+			(entry) =>
+				entry.isDirectory() &&
+				existsSync(join(skillsDir, entry.name, "SKILL.md")),
+		)
+		.map((entry) => entry.name);
+	if (skillNames.length === 0) {
 		return {
 			status: "failed",
-			note: `skills registration failed — run manually: bunx skills add ${skillsDir} -g -y -a claude-code`,
+			note: `no SKILL.md packages found under ${skillsDir}`,
+		};
+	}
+	const res = await execa(
+		"npx",
+		["skills", "add", skillsDir, "-g", "-y", "-a", "claude-code"],
+		{ stdin: "ignore", reject: false, env: { HOME: ctx.home } },
+	);
+	if (res.exitCode !== 0) {
+		const stderr = redactSecrets(res.stderr)
+			.text.replace(/\s+/g, " ")
+			.trim()
+			.slice(-240);
+		return {
+			status: "failed",
+			note: `skills registration failed${stderr ? `: ${stderr}` : ""} — run manually: npx skills add ${skillsDir} -g -y -a claude-code`,
+		};
+	}
+	const installed = join(ctx.home, ".claude", "skills");
+	const missing = skillNames.filter(
+		(name) => !existsSync(join(installed, name, "SKILL.md")),
+	);
+	if (missing.length > 0) {
+		return {
+			status: "failed",
+			note: `skills CLI exited successfully but ${missing.length}/${skillNames.length} Claude skills are missing under ${installed}: ${missing.slice(0, 3).join(", ")}`,
 		};
 	}
 	return {
 		status: "ok",
-		note: `registered all packages under ${skillsDir}`,
+		note: `registered and verified ${skillNames.length} Claude skills from ${skillsDir}`,
 	};
 }
 
