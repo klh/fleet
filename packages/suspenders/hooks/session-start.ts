@@ -230,7 +230,7 @@ out.push(
 	`CURRENT COORDINATION: coord fleet lists live sessions and claims; ` +
 		`coord consult <target-sid> "<question>" --as ${lane} asks a registered peer; ` +
 		`coord message <target-sid> "<update>" --as ${lane} updates a live lane; ` +
-		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported public verbs; never guess a transport or read governor.db directly for live coordination.`,
+		`coord inbox --as ${lane} reads replies. Use coord --help and coord <verb> --help to discover supported coordination verbs; use work --help and work <verb> --help to discover supported work-graph verbs; never guess a transport or read governor.db directly for live coordination.`,
 );
 
 // W253 compact checkpoint: a pre-compact roll (hooks/pre-compact.ts) or an

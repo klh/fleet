@@ -61,6 +61,7 @@ test("resume labels old notices as history and states current Fleet coordination
 	expect(output).toContain("coord consult");
 	expect(output).toContain("coord message");
 	expect(output).toContain("coord --help");
+	expect(output).toContain("work --help and work <verb> --help");
 	expect(output).toContain(
 		"never guess a transport or read governor.db directly",
 	);
