@@ -17,6 +17,7 @@ import {
 	subagentLaneSuffix,
 } from "../lib/subscribe-attach.ts";
 import { resolveFleetLane } from "../lib/fleetlane.ts";
+import { midSessionSupervisorRefill } from "../lib/supervisor-refill.ts";
 import {
 	readSessionState,
 	sessionStatePath,
@@ -103,7 +104,9 @@ export function pushedContext(hook: HookInput): string {
 }
 
 export function pushGate(hook: HookInput): never {
-	const text = pushedContext(hook);
+	const pushed = pushedContext(hook);
+	const refill = midSessionSupervisorRefill(hook, pushed);
+	const text = [pushed, refill].filter(Boolean).join("\n");
 	if (text) context(text, "PostToolUse");
 	allow();
 }

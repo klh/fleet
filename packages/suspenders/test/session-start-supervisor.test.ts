@@ -4,7 +4,13 @@
 // a subagent lane is not a loop-arming runtime. Isolated temp HOME + repos,
 // spawns the real hook.
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdtempSync,
+	rmSync,
+	mkdirSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -18,6 +24,7 @@ mkdirSync(join(REPO_B, ".git"), { recursive: true });
 // SUSPENDERS_SID + canonical-v1 protocol trips the declared-lane gate for
 // the test's own sid, and a real front + belt.env would mint real keys
 const env: Record<string, string | undefined> = { ...process.env, HOME };
+env.TMPDIR = HOME;
 delete env.SUSPENDERS_SID;
 delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
 env.SUSPENDERS_BUCKLE_FRONT = "http://127.0.0.1:1";
@@ -64,6 +71,43 @@ function seedReady(project: string): void {
 	db.close();
 }
 
+function runWork(cwd: string, args: string[]) {
+	return Bun.spawnSync(
+		["bun", join(import.meta.dir, "../hooks/bin/work.ts"), ...args],
+		{ cwd, env, stdout: "pipe", stderr: "pipe" },
+	);
+}
+
+function runPush(
+	cwd: string,
+	command: string,
+	extra: Record<string, unknown> = {},
+) {
+	const payload = join(
+		HOME,
+		`push-${Math.random().toString(36).slice(2)}.json`,
+	);
+	writeFileSync(
+		payload,
+		JSON.stringify({
+			session_id: PARENT,
+			cwd,
+			tool_name: "Bash",
+			tool_input: { command },
+			...extra,
+		}),
+	);
+	const p = Bun.spawnSync(
+		["bun", join(import.meta.dir, "../hooks/gate.ts"), "push"],
+		{ cwd, env, stdin: Bun.file(payload), stdout: "pipe", stderr: "pipe" },
+	);
+	return {
+		out: p.stdout.toString(),
+		err: p.stderr.toString(),
+		code: p.exitCode,
+	};
+}
+
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO_A, { recursive: true, force: true });
@@ -75,6 +119,72 @@ describe("supervisor-default directive (W637)", () => {
 		const r = runHook(REPO_A, join(HOME, "tp-a.jsonl"));
 		expect(r.code).toBe(0);
 		expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+	});
+
+	test("work added after empty SessionStart arms once through PostToolUse", () => {
+		const first = runWork(REPO_A, ["add", "first new work"]);
+		expect(first.exitCode).toBe(0);
+		const command =
+			"bun ~/.claude/hooks/suspenders/bin/work.ts add 'first new work'";
+		const prompt = runPush(REPO_A, command);
+		expect(prompt.code).toBe(0);
+		expect(prompt.out).toContain("SUPERVISOR DEFAULT: READY 1 > 0");
+		expect(prompt.out).toContain("/loop refill");
+		expect(runPush(REPO_A, command).out).not.toContain("SUPERVISOR DEFAULT");
+		const second = runWork(REPO_A, ["add", "another new work"]);
+		expect(second.exitCode).toBe(0);
+		expect(runPush(REPO_A, command).out).not.toContain("SUPERVISOR DEFAULT");
+	});
+
+	test("native child hook never receives the supervisor directive", () => {
+		const repo = mkdtempSync(join(tmpdir(), "suspenders-sup-child-"));
+		try {
+			expect(runHook(repo, join(HOME, "child-parent.jsonl")).code).toBe(0);
+			expect(runWork(repo, ["add", "child created work"]).exitCode).toBe(0);
+			const r = runPush(repo, "work add 'child created work'", {
+				agent_id: "native-agent-1",
+			});
+			expect(r.out).not.toContain("SUPERVISOR DEFAULT");
+			expect(runPush(repo, "work add 'child created work'").out).toContain(
+				"SUPERVISOR DEFAULT",
+			);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	test("split from a claimed parent wakes an empty supervisor through its inbox", () => {
+		const repo = mkdtempSync(join(tmpdir(), "suspenders-sup-split-"));
+		try {
+			expect(runHook(repo, join(HOME, "split-parent.jsonl")).code).toBe(0);
+			const project = projectIdentity(repo);
+			const db = new Database(DB);
+			db.run(
+				"INSERT INTO work_items (project, id, title, state, priority, owner_sid, required, created_at, updated_at) VALUES (?, 'WSPLIT', 'parent', 'CLAIMED', 0, ?, 1, ?, ?)",
+				[project, PARENT, Date.now(), Date.now()],
+			);
+			db.close();
+			const split = runWork(repo, [
+				"split",
+				"WSPLIT",
+				"first child",
+				"second child",
+				"--reason",
+				"independent-scopes",
+			]);
+			expect(split.exitCode).toBe(0);
+			const log = join(
+				HOME,
+				".claude-insights",
+				`coord-subscribe-${PARENT}.log`,
+			);
+			appendFileSync(log, "#1 work.shattered WSPLIT\n");
+			const prompt = runPush(repo, "true");
+			expect(prompt.out).toContain("SUPERVISOR DEFAULT: READY 2 > 0");
+			expect(runPush(repo, "true").out).not.toContain("SUPERVISOR DEFAULT");
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
 	});
 
 	test("top-level start with READY>0 renders the arm-loop directive", () => {

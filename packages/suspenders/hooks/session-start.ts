@@ -19,6 +19,10 @@ import { run } from "./lib/run.ts";
 import { checkSessionPolicies } from "./lib/session-policy.ts";
 import { attachSubscribe, subagentLaneSuffix } from "./lib/subscribe-attach.ts";
 import {
+	seedSupervisorRefill,
+	supervisorRefillDirective,
+} from "./lib/supervisor-refill.ts";
+import {
 	canonicalRepo,
 	launchctlTable,
 	liveStates,
@@ -305,6 +309,7 @@ const readyN = (
 		)
 		.get(project) as { n: number }
 ).n;
+if (!isSubagent) seedSupervisorRefill(db as Database, project, sid, readyN);
 const cur = db
 	.query("SELECT event_id FROM cursors WHERE sid = ?")
 	.get(lane) as { event_id: number } | null;
@@ -342,9 +347,7 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 		// W899: the SUPERVISOR DEFAULT contract EMITS the W892 table —
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
-		out.push(
-			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: deliver new owner instructions to an active lane through coord message <sid> (or consult for a question), confirm receipt and let it adapt; never cancel the lane just to revise its prompt. Follow up the same lane after completion if it can update the result; create a new lane only for a separate redo. Verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call, the installed face of the work report verb, W906) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`,
-		);
+		out.push(supervisorRefillDirective(readyN));
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
 }
