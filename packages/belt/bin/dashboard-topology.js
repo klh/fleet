@@ -218,6 +218,14 @@ class BeltTopology extends LitElement {
 		const name = String(value).split("/").pop();
 		return name.length > length ? `${name.slice(0, length - 1)}…` : name;
 	}
+	targetHint(hosts) {
+		if (!hosts?.length) return "source unspecified";
+		return hosts.every((host) =>
+			["127.0.0.1", "localhost", "::1"].includes(host),
+		)
+			? "hub local target"
+			: "network target";
+	}
 	edge(path, link) {
 		const description =
 			link.evidence === "observed"
@@ -240,6 +248,7 @@ class BeltTopology extends LitElement {
 		consoleUrl = null,
 		work = null,
 		gatewayModels = null,
+		gatewayModelTargets = {},
 	) {
 		const counts =
 			work &&
@@ -255,20 +264,20 @@ class BeltTopology extends LitElement {
 			<text class="title" x=${x + 23} y=${y + 50}>Buckle</text><text class="meta endpoint" x=${x + 23} y=${y + 66}>${buckle}</text>
 			${
 				gatewayModels
-					? svg`<g><title>Configured gateway routes; this inventory does not prove inference readiness.</title>
-				<text class="title" x=${x + 23} y=${y + 83}>Gateway routes · ${gatewayModels.length} configured</text>
-				${gatewayModels.slice(0, 2).map((model, index) => svg`<text class="meta" x=${x + 23} y=${y + 100 + index * 16}>${this.shortModel(model, 30)}</text>`)}
+					? svg`<g><title>Models exposed by this hub's configured Buckle routes. A configured route does not prove current inference readiness or who owns the model.</title>
+				<text class="title" x=${x + 23} y=${y + 83}>Exposed models · ${gatewayModels.length} configured</text>
+				${gatewayModels.slice(0, 2).map((model, index) => svg`<g><title>${model} · targets: ${(gatewayModelTargets[model] ?? []).join(", ") || "unreported"}</title><text class="meta" x=${x + 23} y=${y + 100 + index * 16}>${this.shortModel(model, 17)} · ${this.targetHint(gatewayModelTargets[model])}</text></g>`)}
 				${gatewayModels.length > 2 ? svg`<text class="meta" x=${x + 23} y=${y + 132}>+${gatewayModels.length - 2} configured routes</text>` : ""}
 				${
 					models.length
 						? svg`<g>
 					<rect class="belt" x=${x + 12} y=${y + 158} width=${width - 24} height="22" rx="2"></rect>
-					<text class="title" x=${x + 23} y=${y + 174}>Belt · ${models.length} local models</text>
+					<text class="title" x=${x + 23} y=${y + 174}>Other reported models · ${models.length}</text>
 					${models.map(
 						(item, index) => svg`<g><title>${item.model}</title>
 						<circle cx=${x + 24} cy=${y + 197 + index * 35} r="3" fill=${colour(item.state)}></circle>
 						<text class="title" x=${x + 34} y=${y + 201 + index * 35}>${this.shortModel(item.model, 23)}</text>
-						<text class="meta" x=${x + 34} y=${y + 215 + index * 35}>remote inventory</text>
+						<text class="meta" x=${x + 34} y=${y + 215 + index * 35}>source unverified</text>
 					</g>`,
 					)}
 				</g>`
@@ -277,7 +286,7 @@ class BeltTopology extends LitElement {
 			</g>`
 					: svg`
 			<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
-			<text class="title" x=${x + 23} y=${y + 102}>Belt · ${models.length} ${local ? "local models" : "listed models"}</text>
+			<text class="title" x=${x + 23} y=${y + 102}>${local ? "Belt local models" : "Reported models"} · ${models.length}</text>
 			${
 				models.length
 					? models.map((item, index) => {
@@ -288,7 +297,7 @@ class BeltTopology extends LitElement {
 							return svg`<g><title>${item.model}</title>
 								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 								<text class="title" x=${itemX + 10} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : this.shortModel(item.model, 23)}</text>
-								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : "remote inventory"}</text>
+								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : "source unverified"}</text>
 								${local ? svg`<text class="meta endpoint" x=${itemX + 10} y=${itemY + 31}>${item.load5m === null ? "Belt load unreported" : `${item.load5m} Belt req/5m`}</text>` : ""}
 							</g>`;
 						})
@@ -322,7 +331,7 @@ class BeltTopology extends LitElement {
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
 			<g><title>${link ? `${link.source} · last evidence ${localTime(link.lastSeen)}` : "No measured Buckle route data"}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text></g>
-			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>Gateway models shown under ${this.shortModel(viaHub, 19)}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
+			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>Configured hub routes shown under ${this.shortModel(viaHub, 19)}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
 			${!viaHub && item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
@@ -599,7 +608,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels))}
+				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,
