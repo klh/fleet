@@ -23,6 +23,7 @@ export interface ModelPrice {
 	inputUsdPerMillion: number | null;
 	outputUsdPerMillion: number | null;
 	requestUsd: number | null;
+	note?: string;
 }
 
 export interface OpenRouterModel {
@@ -184,17 +185,41 @@ export const parseOpenRouterModels = (payload: unknown): OpenRouterModel[] => {
 			id?: unknown;
 			name?: unknown;
 			pricing?: Record<string, unknown>;
+			architecture?: { output_modalities?: unknown };
 		};
 		if (typeof model.id !== "string" || !model.id) return [];
 		const input = usdRate(model.pricing?.prompt);
 		const output = usdRate(model.pricing?.completion);
 		const request = usdRate(model.pricing?.request);
+		const outputModalities = model.architecture?.output_modalities;
+		const textOnlyOutput =
+			Array.isArray(outputModalities) &&
+			outputModalities.length === 1 &&
+			outputModalities[0] === "text";
+		const nonTokenCharges = Object.entries(model.pricing ?? {})
+			.filter(
+				([key]) =>
+					key !== "prompt" && key !== "completion" && key !== "request",
+			)
+			.some(([, value]) => {
+				const rate = usdRate(value);
+				return rate === null || rate > 0;
+			});
+		const zeroTokenRate = input === 0 && output === 0;
 		const status =
 			input === null || output === null
 				? "unknown"
-				: input === 0 && output === 0 && (request === null || request === 0)
-					? "free"
-					: "priced";
+				: zeroTokenRate &&
+						!textOnlyOutput &&
+						!nonTokenCharges &&
+						(request === null || request === 0)
+					? "unknown"
+					: zeroTokenRate &&
+							textOnlyOutput &&
+							!nonTokenCharges &&
+							(request === null || request === 0)
+						? "free"
+						: "priced";
 		return [
 			{
 				id: model.id,
@@ -204,6 +229,9 @@ export const parseOpenRouterModels = (payload: unknown): OpenRouterModel[] => {
 					inputUsdPerMillion: input === null ? null : input * 1_000_000,
 					outputUsdPerMillion: output === null ? null : output * 1_000_000,
 					requestUsd: request,
+					...(zeroTokenRate && (!textOnlyOutput || nonTokenCharges)
+						? { note: "Non-token charges may apply" }
+						: {}),
 				},
 			},
 		];
