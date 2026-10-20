@@ -7,9 +7,12 @@ test("every surface receives the same monochrome menu destinations", () => {
 		fleetNav(site as "belt" | "suspenders" | "local"),
 	);
 	for (const menu of menus) {
+		expect(menu).toContain(
+			'<a href="https://suspenders.local/console/belt" data-repo="https://github.com/klh/fleet/tree/main/packages/buckle"',
+		);
 		for (const label of [
 			"Models",
-			"Gateway",
+			"Routes",
 			"Workflows",
 			"Services",
 			"Metrics",

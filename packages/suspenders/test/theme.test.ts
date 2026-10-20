@@ -284,24 +284,44 @@ describe("fleet strip markup (W291)", () => {
 			'<nav class="klh-fleetnav" id="klh-fleetnav" aria-label="klh fleet">',
 		);
 		const links = [...m.matchAll(/<a ([^>]*)>([^<]*)<\/a>/g)];
-		expect(links.map((l) => l[2])).toEqual(["belt", "suspenders", "local"]);
-		expect(links[1][1]).toContain('aria-current="page"');
-		expect(links[1][1]).not.toContain("data-repo");
-		for (const i of [0, 2]) {
+		expect(links.map((l) => l[2])).toEqual([
+			"belt",
+			"buckle",
+			"suspenders",
+			"local",
+		]);
+		expect(links[2][1]).toContain('aria-current="page"');
+		expect(links[2][1]).not.toContain("data-repo");
+		for (const i of [0, 1, 3]) {
 			expect(links[i][1]).not.toContain("aria-current");
 			expect(links[i][1]).toContain(`data-repo="${FLEET_SITES[i].repo}"`);
 		}
 		expect(fleetNav("")).not.toContain("aria-current");
 	});
-	test("sites: https .local hosts, klh repos, ports in the titles", () => {
-		const ports = { belt: ":7791", suspenders: ":7799", local: ":7792" };
+	test("sites: existing hosts and Buckle's nested console", () => {
+		const locations = {
+			belt: "https://belt.local",
+			buckle: "https://suspenders.local/console/belt",
+			suspenders: "https://suspenders.local",
+			local: "https://bar.local",
+		};
 		for (const s of FLEET_SITES) {
-			expect(s.href).toMatch(/^https:\/\/[a-z]+\.local$/);
+			expect(s.href).toBe(locations[s.id]);
 			expect(s.repo).toBe(
 				`https://github.com/klh/fleet/tree/main/packages/${s.id}`,
 			);
-			expect(s.title).toContain(ports[s.id]);
+			expect(s.title).toContain(s.id);
 		}
+		expect(fleetNav("suspenders")).toContain(
+			'<a href="https://suspenders.local/console/belt" data-repo="https://github.com/klh/fleet/tree/main/packages/buckle"',
+		);
+		const buckleConsole = fleetNav("suspenders", "belt");
+		expect(buckleConsole).toContain(
+			'<a href="https://suspenders.local/console/belt" aria-current="page"',
+		);
+		expect(buckleConsole).not.toContain(
+			'<a href="https://suspenders.local" aria-current="page"',
+		);
 	});
 	test("css is tokens only; no innerHTML / DOM construction anywhere", () => {
 		for (const css of [FLEET_NAV_CSS, THEME_SETTINGS_CSS])
@@ -384,9 +404,9 @@ describe("vendoring pin (W291)", () => {
 		).arrayBuffer();
 		const sha256 = new Bun.CryptoHasher("sha256").update(src).digest("hex");
 		expect({ version: KLH_THEME_VERSION, sha256 }).toEqual({
-			version: "1.4.0",
+			version: "1.4.1",
 			sha256:
-				"1ff8bc2f0f06b74d95239fee1abe4c2bc797330b4178b6b995d3ec8c90856a3f",
+				"4fa1b84ff0135fead1edb2ffa35eba97df74d3606bad6527b122dcaa5265b49a",
 		});
 	});
 });
