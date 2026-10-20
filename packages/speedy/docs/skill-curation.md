@@ -57,10 +57,9 @@ Active skills live in `skills/` (klh-\* variants + registry adds; optional ones 
 | `klh-settings-audit`          | Auditing/generating a project's Claude Code settings.json permissions                   |
 | `skill-lookup`                | Search and install skills from the prompts.chat registry                                |
 | `skill-security-review`       | Mandatory security audit BEFORE installing any third-party skill, plugin, or MCP server |
-| `find-skills`                 | Discover and install agent skills                                                       |
 | `git-workflow-and-versioning` | Committing, branching, organizing parallel work streams                                 |
 
-### Local additions (installed beyond the speedy repo)
+### Workflow & review
 
 | Skill                            | When to use                                                             |
 | -------------------------------- | ----------------------------------------------------------------------- |
