@@ -20,13 +20,35 @@ function mustBoard(): Board {
 	return board;
 }
 
-const ORDER = ["ready", "waiting", "working", "blocked", "failed", "done", "cancelled"];
+const ORDER = [
+	"ready",
+	"waiting",
+	"working",
+	"blocked",
+	"failed",
+	"done",
+	"cancelled",
+];
 
 async function assertOrder(page: import("@playwright/test").Page) {
 	const labels = await page.locator(".kanban .kcol h3").allInnerTexts();
-	expect(labels.map((l) => l.replace(/\s*\d+\s*$/, "").trim().toLowerCase())).toEqual(ORDER);
+	expect(
+		labels.map((l) =>
+			l
+				.replace(/\s*\d+\s*$/, "")
+				.trim()
+				.toLowerCase(),
+		),
+	).toEqual(ORDER);
 	const nav = await page.locator("#kstatusnav button").allInnerTexts();
-	expect(nav.map((l) => l.replace(/\s*\d+\s*$/, "").trim().toLowerCase())).toEqual(ORDER);
+	expect(
+		nav.map((l) =>
+			l
+				.replace(/\s*\d+\s*$/, "")
+				.trim()
+				.toLowerCase(),
+		),
+	).toEqual(ORDER);
 }
 
 test("column order holds at desktop width and on a narrow screen", async ({
