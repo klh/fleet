@@ -59,6 +59,18 @@ setup-dependent-gains warning (arXiv 2609.05933). Condense rides the real
 models the W611 gate drain. Spec: `paired/scenario.md`. Run:
 `bun packages/blam/bench/paired/harness.ts`.
 
+## Live consult-plane benchmark (W934.2.2)
+
+`consult/live.ts` — the live counterpart of the policy suite above: the
+real coord CLI consult ladder spawns against a scratch governor plane
+(temp HOME, fixture repo), the expert is a scripted stand-in. Two matched
+baseline arms — full expert round trip (route → reply → verified
+feedback) vs asker-verified KB reuse — scored on delivery and wall
+latency with four reproducibility properties. Baseline: expert ≈ 2.7×
+the reuse ask, 4/4 properties hold. Spec + results:
+`consult/live.md`. Run:
+`bun packages/blam/bench/consult/live.ts`.
+
 ## Live paired harness experiment (W919)
 
 `paired/live.ts` runs one coding task under two harness texts. Every arm
