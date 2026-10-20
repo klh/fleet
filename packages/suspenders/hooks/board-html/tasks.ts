@@ -494,6 +494,8 @@ function kanbanCard(t, fam){
   html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
   if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
     html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
+  if (t.state === 'SHATTERED' && t.waiting_on && t.waiting_on.length)
+    html += '<div class="klane dim">split into ' + esc(t.waiting_on.join(', ')) + '</div>';
   var laneOwner = String(t.owner_label || t.owner_sid || 'unclaimed');
   var laneOrigin = t.origin ? String(t.origin) : '';
   html += '<div class="kmeta">';
@@ -526,13 +528,9 @@ function kanbanCard(t, fam){
   html += '<button type="button" class="korch" data-orch="' + esc(t.id) + '" data-orchproj="' + esc(t.project || '') + '" aria-label="Orchestrate for ' + esc(t.id) + '">prompt ↗</button>';
   return html + '</div>';
 }
-// --- W214 dependency splines — blocked edges (thin orange) + shattered-parent
-// waiting edges (thin green). depOrder() reorders each column provider-first
-// (Kahn topological on in-column edges, age tie-break) so splines read
-// top-down; drawSplines() routes edges within each lane in an overlay SVG
-// attached to the kanban content, so it scrolls with the cards. Server:
-// blocked_by = unmet work_deps,
-// waiting_on = SHATTERED roll-up wait set.
+// Keep in-column dependencies in provider-first order. The cards state
+// blocked_by and waiting_on explicitly; cross-column connector lines obscure
+// which work is related when the source card is outside the viewport.
 var tkey = function(t){ return (t.project || '') + '\u0000' + t.id; };
 function depOrder(items){
   var byId = {}, indeg = {}, outs = {}, i, d;
@@ -648,7 +646,7 @@ function renderKanban(){
     var col = KCOLS[c];
     var items = ts.filter(function(t){ return col.states.indexOf(displayState(t)) >= 0; });
     items.sort(function(a, b){ return (a.age_s || 0) - (b.age_s || 0); }); // newest activity first
-    items = depOrder(items); // W214: provider above dependent, splines flow top-down
+    items = depOrder(items); // provider above dependent when both are in a column
     var resid = [];
     for (var r = 0; r < items.length; r++) if (!fam.nested[String(items[r].id)]) resid.push(items[r]);
     var shown = col.cap ? resid.slice(0, col.cap) : resid;
@@ -671,7 +669,7 @@ function renderKanban(){
   // only when the STRUCTURE changed; refresh ages + tails in place otherwise.
   var kstruct = html.replace(/<span class="kage dim">[^<]*<\/span>/g, '').replace(/<div class="ktail">[^<]*<\/div>/g, '');
   var prevStructural = el.getAttribute('data-ksig') || '';
-  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); drawSplines(); return; }
+  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
   var page = document.scrollingElement || document.documentElement;
   var pageY = page.scrollTop, laneX = el.parentElement.scrollLeft;
@@ -681,7 +679,6 @@ function renderKanban(){
   el.parentElement.scrollLeft = laneX;
   updateKanbanVolatile(el, shownAll);
   paintSparks(el);
-  drawSplines();
   trySelectCard(); // W890 ?w= deep link: highlight+scroll once the kanban renders the card
 }
 function updateKanbanVolatile(el, shownAll){
@@ -696,27 +693,6 @@ function updateKanbanVolatile(el, shownAll){
     var sigEl = c.querySelector('.ksignal');
     if (sigEl) sigEl.textContent = t.signal ? '⚑ ' + t.signal.class + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%' : '';
   }
-}
-// visible-card edge list: [{cls, from, to}] — blocked (orange): dep card →
-// dependent card; waiting (green): child card → SHATTERED parent card. Both
-// point at the waiter. Pairs whose cards are filtered/capped off the board
-// drop out silently.
-function splineEdges(ts, vis){
-  var out = [], seen = {}, i, j, t;
-  for (i = 0; i < ts.length; i++){
-    t = ts[i];
-    var bb = t.blocked_by || [];
-    for (j = 0; j < bb.length; j++){
-      var f1 = tkey({project: t.project, id: bb[j]}), k1 = f1 + '>' + tkey(t);
-      if (vis[f1] && vis[tkey(t)] && !seen[k1]){ seen[k1] = 1; out.push({cls: 'spl-block', from: f1, to: tkey(t)}); }
-    }
-    var wo = t.waiting_on || [];
-    for (j = 0; j < wo.length; j++){
-      var f2 = tkey({project: t.project, id: wo[j]}), k2 = tkey(t) + '>' + f2;
-      if (vis[f2] && vis[tkey(t)] && !seen[k2]){ seen[k2] = 1; out.push({cls: 'spl-wait', from: f2, to: tkey(t)}); }
-    }
-  }
-  return out;
 }
 var SVGNS = 'http://www.w3.org/2000/svg';
 // --- card sparklines: per-item request spend over time painted
@@ -815,86 +791,6 @@ function paintSparks(root){
       }
     }
   }
-}
-function splineSvg(){
-  var el = byId('kanban');
-  if (!el) return null;
-  var svg = byId('ksplines');
-  if (!svg){
-    svg = document.createElementNS(SVGNS, 'svg');
-    svg.id = 'ksplines';
-    svg.setAttribute('aria-hidden', 'true');
-    var defs = document.createElementNS(SVGNS, 'defs');
-    var mk = function(id2, cls){
-      var m = document.createElementNS(SVGNS, 'marker');
-      m.setAttribute('id', id2);
-      m.setAttribute('viewBox', '0 0 10 10');
-      m.setAttribute('refX', 9); m.setAttribute('refY', 5);
-      m.setAttribute('markerWidth', 6); m.setAttribute('markerHeight', 6);
-      m.setAttribute('orient', 'auto');
-      var p = document.createElementNS(SVGNS, 'path');
-      p.setAttribute('d', 'M0 0 L10 5 L0 10 z');
-      p.setAttribute('class', cls);
-      m.appendChild(p); defs.appendChild(m);
-    };
-    mk('spl-arrow-block', 'spl-block');
-    mk('spl-arrow-wait', 'spl-wait');
-    svg.appendChild(defs);
-    el.appendChild(svg);
-  }
-  return svg;
-}
-function drawSplines(){
-  var el = byId('kanban');
-  if (!el || !tasksData || curTab !== 'lanes') return;
-  var svg = splineSvg();
-  if (!svg) return;
-  var krect = el.getBoundingClientRect();
-  var pos = {}, vis = {}, i;
-  var cards = el.querySelectorAll('.kcard');
-  for (i = 0; i < cards.length; i++){
-    var r = cards[i].getBoundingClientRect();
-    var k = (cards[i].getAttribute('data-kproj') || '') + '\u0000' + cards[i].getAttribute('data-kid');
-    pos[k] = { x: r.left - krect.left, y: r.top - krect.top, w: r.width, h: r.height };
-    vis[k] = 1;
-  }
-  svg.setAttribute('width', el.offsetWidth);
-  svg.setAttribute('height', el.offsetHeight);
-  while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
-  var edges = splineEdges(tasksData.tasks, vis);
-  for (i = 0; i < edges.length; i++){
-    var a = pos[edges[i].from], b = pos[edges[i].to];
-    if (!a || !b) continue;
-    var routes = splineRoutes(a, b, el.offsetWidth);
-    for (var j = 0; j < routes.length; j++){
-      var path = document.createElementNS(SVGNS, 'path');
-      path.setAttribute('d', routes[j]);
-      path.setAttribute('class', edges[i].cls);
-      if (j === routes.length - 1) path.setAttribute('marker-end', 'url(#' + (edges[i].cls === 'spl-block' ? 'spl-arrow-block' : 'spl-arrow-wait') + ')');
-      svg.appendChild(path);
-    }
-  }
-}
-// The full dependency line stays in a column gutter. Across columns, show a
-// short exit and entry in each lane; a long curve over unrelated cards hides
-// the work rather than explaining the dependency.
-function splineRoutes(a, b, width){
-  var y1 = a.y + a.h / 2, y2 = b.y + b.h / 2;
-  var direction = y2 >= y1 ? 1 : -1;
-  if (Math.abs(a.x - b.x) < a.w / 2){
-    var edge = Math.max(a.x + a.w, b.x + b.w);
-    var gutter = edge + 5 <= width - 3 ? edge + 5 : edge - 5;
-    return ['M' + (a.x + a.w) + ' ' + y1 + ' L' + gutter + ' ' + y1 + ' L' + gutter + ' ' + y2 + ' L' + (b.x + b.w) + ' ' + y2];
-  }
-  var rightward = a.x < b.x;
-  var exitX = rightward ? a.x + a.w : a.x;
-  var exitGutter = exitX + (rightward ? 5 : -5);
-  var entryX = rightward ? b.x : b.x + b.w;
-  var entryGutter = entryX + (rightward ? -5 : 5);
-  return [
-    'M' + exitX + ' ' + y1 + ' L' + exitGutter + ' ' + y1 + ' L' + exitGutter + ' ' + (y1 + direction * 16),
-    'M' + entryGutter + ' ' + (y2 - direction * 16) + ' L' + entryGutter + ' ' + y2 + ' L' + entryX + ' ' + y2,
-  ];
 }
 function openTask(id, proj, trigger){
   if (trigger) {
@@ -1025,5 +921,4 @@ function renderDrawer(){
   renderTaskDiff();
   renderTaskTail();
 }
-window.addEventListener('resize', function(){ drawSplines(); });
 `;

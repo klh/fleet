@@ -101,7 +101,6 @@ export const BODY = String.raw`
   <div id="kanbanErr" class="taberr"></div>
   <nav id="kstatusnav" class="kstatusnav" aria-label="Jump to lane status"></nav>
   <div class="kwrap"><div id="kanban"><div class="state dim">loading lanes...</div></div></div>
-  <div class="dim" id="splinesLegend">— <span class="spl-key spl-block">blocked by</span> · <span class="spl-key spl-wait">shattered parent waiting on children</span></div>
 </section>
 <section id="tab-activity" hidden>
   <div id="actErr" class="taberr"></div>

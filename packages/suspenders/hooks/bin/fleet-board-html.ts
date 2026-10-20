@@ -302,18 +302,7 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kexec .kstart { margin-top:0; flex:none; }
 .kexecsel { background:var(--klh-bg); border:1px solid var(--klh-accent); border-radius:4px; color:var(--klh-accent); font:inherit; font-size:11px; padding:2px 4px; max-width:250px; flex:1 1 auto; min-width:0; cursor:pointer; }
 .kempty { font-size:11px; padding:2px 0 6px; }
-/* W214 dependency routes — thin lines in lane gutters, token-colored */
 .kwrap { position:relative; }
-#ksplines { position:absolute; top:0; left:0; pointer-events:none; z-index:2; overflow:hidden; }
-#ksplines > path { fill:none; stroke-width:1.5; opacity:.8; }
-#ksplines > path.spl-block { stroke:var(--klh-danger-ink); }
-#ksplines > path.spl-wait { stroke:var(--klh-ok-ink); }
-#ksplines marker path { stroke:none; }
-#ksplines marker path.spl-block { fill:var(--klh-danger-ink); }
-#ksplines marker path.spl-wait { fill:var(--klh-ok-ink); }
-.spl-key { font-weight:600; }
-.spl-key.spl-block { color:var(--klh-danger-ink); }
-.spl-key.spl-wait { color:var(--klh-ok-ink); }
 /* W105 model badges — amber = remote model, green = local (LAN/loopback) */
 .kmodel, .lmodel { display:inline-block; margin-top:4px; border:1px solid var(--klh-danger); border-radius:2px; padding:0 6px; font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-danger-ink); }
 .kmeta .kmodel { flex:none; max-width:55%; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
