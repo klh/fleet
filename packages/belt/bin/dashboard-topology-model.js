@@ -91,6 +91,7 @@ export function buildTopology(
 	now = Date.now(),
 	networkPayload = null,
 	access = null,
+	context = null,
 ) {
 	const localFresh = observed(status?.observation, now);
 	const remoteFresh = isFresh(remotes?.ts, now);
@@ -153,8 +154,16 @@ export function buildTopology(
 		if (item && route.ok && isFresh(route.ts, now, ROUTE_MS)) item.routed += 1;
 	}
 	const networkFresh = networkPayload?.ok && isFresh(networkPayload.ts, now);
+	const hubConsoles = new Map(
+		(Array.isArray(context?.hubConsoles) ? context.hubConsoles : []).map(
+			(item) => [String(item.name).toLowerCase(), item.url],
+		),
+	);
 	const hubCards = hubs.map((item) => ({
 		name: String(item.name),
+		...(hubConsoles.has(String(item.name).toLowerCase())
+			? { consoleUrl: hubConsoles.get(String(item.name).toLowerCase()) }
+			: {}),
 		...(item.displayName ? { displayName: String(item.displayName) } : {}),
 		state: stateOf(item.state === "up" && !item.alert, hubFresh),
 		port: item.port,
@@ -253,6 +262,8 @@ export function buildTopology(
 					)
 				: "unknown",
 		gatewayTraffic: gatewayTraffic(networkPayload, now),
+		localConsoleUrl: context?.localConsoleUrl ?? null,
+		work: context?.work ?? null,
 		specialists: {
 			state: !localFresh
 				? "unknown"

@@ -38,6 +38,11 @@ class BeltTopology extends LitElement {
 		.title { fill:var(--klh-ink); font-weight:600; }
 		.meta { fill:var(--klh-dim); }
 		.endpoint { font-variant-numeric:tabular-nums; }
+		.console-link { fill:var(--klh-accent); font-size:10px; text-decoration:underline; }
+		a:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+		.work-box { fill:var(--klh-edge-faint); stroke:var(--klh-edge); }
+		.work-label { fill:var(--klh-ink); font-size:11px; font-weight:600; }
+		.work-counts { fill:var(--klh-dim); font-size:10px; font-variant-numeric:tabular-nums; }
 		.group { fill:var(--klh-dim); font-size:10px; letter-spacing:1.3px; }
 		.traffic { display:flex; flex-wrap:wrap; gap:var(--klh-space-2); min-block-size:34px; margin:var(--klh-space-3) 0; }
 		.traffic span { display:flex; align-items:baseline; gap:6px; padding:4px 8px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); font-size:var(--klh-text-sm); }
@@ -78,6 +83,7 @@ class BeltTopology extends LitElement {
 				supervisorResponse,
 				networkResponse,
 				accessResponse,
+				contextResponse,
 			] = await Promise.all([
 				...["/api/status", "/api/remotes", "/api/supervisor"].map((url) =>
 					fetch(url, { signal: controller.signal, cache: "no-store" }),
@@ -90,16 +96,22 @@ class BeltTopology extends LitElement {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
+				fetch("/api/topology-context", {
+					signal: controller.signal,
+					cache: "no-store",
+				}).catch(() => null),
 			]);
 			if (!statusResponse.ok || !remotesResponse.ok || !supervisorResponse.ok)
 				throw new Error("A topology feed is unavailable");
-			const [status, remotes, supervisor, network, access] = await Promise.all([
-				statusResponse.json(),
-				remotesResponse.json(),
-				supervisorResponse.json(),
-				networkResponse?.ok ? networkResponse.json().catch(() => null) : null,
-				accessResponse?.ok ? accessResponse.json().catch(() => null) : null,
-			]);
+			const [status, remotes, supervisor, network, access, context] =
+				await Promise.all([
+					statusResponse.json(),
+					remotesResponse.json(),
+					supervisorResponse.json(),
+					networkResponse?.ok ? networkResponse.json().catch(() => null) : null,
+					accessResponse?.ok ? accessResponse.json().catch(() => null) : null,
+					contextResponse?.ok ? contextResponse.json().catch(() => null) : null,
+				]);
 			this.networkIssue =
 				network?.ok && network.network?.ok
 					? ""
@@ -111,6 +123,7 @@ class BeltTopology extends LitElement {
 				Date.now(),
 				network,
 				access,
+				context,
 			);
 			this.error = "";
 		} catch (error) {
@@ -132,9 +145,29 @@ class BeltTopology extends LitElement {
 			: 1.5;
 		return svg`<g><title>${observed ? `${link.requests15} observed Buckle requests in 15 minutes` : link.evidence === "probe" ? "Hub reachability probe; request path unobserved" : "Configured provider path; request traffic unobserved"}</title><path class=${observed ? "edge observed" : "edge"} d=${path} stroke-width=${width}></path></g>`;
 	}
-	machine(x, y, width, height, title, buckle, state, models, local = false) {
+	machine(
+		x,
+		y,
+		width,
+		height,
+		title,
+		buckle,
+		state,
+		models,
+		local = false,
+		consoleUrl = null,
+		work = null,
+	) {
+		const counts =
+			work &&
+			["ready", "working", "waiting", "blocked", "failed", "done"].every(
+				(key) => Number.isFinite(work[key]),
+			)
+				? `R ${work.ready}  W ${work.working}  S ${work.waiting}  B ${work.blocked}  F ${work.failed}  D ${work.done}`
+				: null;
 		return svg`<g><rect class="machine" x=${x} y=${y} width=${width} height=${height} rx="6"></rect>
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(state)}></circle><text class="title" x=${x + 25} y=${y + 22}>${title}</text>
+			${consoleUrl ? svg`<a href=${consoleUrl} target="_blank" rel="noopener noreferrer" aria-label=${`Open ${title} console in a new tab`}><text class="console-link" x=${x + width - 44} y=${y + 22}>Open ↗</text></a>` : ""}
 			<rect class="buckle" x=${x + 12} y=${y + 34} width=${width - 24} height="40" rx="3"></rect>
 			<text class="title" x=${x + 23} y=${y + 50}>Buckle</text><text class="meta endpoint" x=${x + 23} y=${y + 66}>${buckle}</text>
 			<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
@@ -154,6 +187,16 @@ class BeltTopology extends LitElement {
 							</g>`;
 						})
 					: svg`<text class="meta" x=${x + 22} y=${y + 132}>No model inventory reported</text>`
+			}
+			${
+				local
+					? svg`<g aria-label=${counts ? `Suspenders Work Graph: ready ${work.ready}, working ${work.working}, waiting ${work.waiting}, blocked ${work.blocked}, failed ${work.failed}, done ${work.done}` : "Suspenders Work Graph status unavailable"}>
+				<rect class="work-box" x=${x + 12} y=${y + height - 48} width=${width - 24} height="36" rx="2"></rect>
+				<text class="work-label" x=${x + 22} y=${y + height - 31}>Suspenders · Work Graph</text>
+				<text class="work-counts" x=${x + 22} y=${y + height - 17}>${counts ?? "Status unavailable"}</text>
+				<title>R ready · W working · S waiting · B blocked · F failed · D done. Counts cover all projects.</title>
+			</g>`
+					: ""
 			}
 		</g>`;
 	}
@@ -206,7 +249,7 @@ class BeltTopology extends LitElement {
 			hubY += card.height + 12;
 			return card;
 		});
-		const localHeight = Math.max(150, 120 + Math.ceil(models.length / 2) * 41);
+		const localHeight = Math.max(198, 168 + Math.ceil(models.length / 2) * 41);
 		const height = Math.max(
 			440,
 			65 + localHeight,
@@ -254,8 +297,8 @@ class BeltTopology extends LitElement {
 						? this.edge(`M386 113 H403 V51 H742 V${item.y + 42} H770`, link)
 						: "";
 				})}
-				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true)}
-				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models))}
+				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
+				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl))}
 				${cloudCards.map((item) => this.cloud(770, item.y, 275, item))}
 			</svg></div>`
 					: html`<div class="map" aria-busy="true"><p>Loading map…</p></div>`
