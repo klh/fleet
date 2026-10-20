@@ -143,6 +143,7 @@ export function hubGatewayRoutes(): Array<{
 	routeCount: number;
 	unresolvedRoutes: string[];
 	routesByModel: Record<string, string[]>;
+	providerIntents: string[];
 	providerHosts: string[];
 	providerHostsByModel: Record<string, string[]>;
 }> {
@@ -184,6 +185,11 @@ export function hubGatewayRoutes(): Array<{
 			models: [...modelHosts.keys()],
 			routeCount: Object.keys(groups).length,
 			unresolvedRoutes,
+			providerIntents: (
+				profiles.get(hub.label.toLowerCase())?.provider_intents ?? []
+			).filter(
+				(key) => typeof key === "string" && /^[a-z][a-z0-9-]*$/.test(key),
+			),
 			routesByModel: Object.fromEntries(
 				[...routesByModel].map(([model, routes]) => [model, [...routes]]),
 			),

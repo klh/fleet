@@ -369,24 +369,27 @@ class BeltTopology extends LitElement {
 			}
 		</g>`;
 	}
-	cloud(x, y, width, item, link, viaHub = null) {
+	cloud(x, y, width, item, link, viaHub = null, routeConfigured = true) {
 		const visible = viaHub ? [] : item.models.slice(0, 2);
-		const status = Number.isFinite(link?.requests15)
-			? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
-			: item.state === "unconfigured"
-				? viaHub
-					? "Hub route configured · provider key missing"
-					: "Direct API key not configured"
-				: viaHub
-					? "Provider upstream · gateway path configured"
-					: item.kind === "copilot"
-						? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
-						: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
+		const status =
+			viaHub && !routeConfigured
+				? "Planned hub upstream · key and route absent"
+				: Number.isFinite(link?.requests15)
+					? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
+					: item.state === "unconfigured"
+						? viaHub
+							? "Hub route configured · provider key missing"
+							: "Direct API key not configured"
+						: viaHub
+							? "Provider upstream · gateway path configured"
+							: item.kind === "copilot"
+								? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
+								: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
 			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
 			<g><title>${link ? `${link.source} · last evidence ${localTime(link.lastSeen)}` : "No measured Buckle route data"}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text></g>
-			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>Configured hub routes shown under ${this.shortModel(viaHub, 19)}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
+			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>${routeConfigured ? `Configured hub routes shown under ${this.shortModel(viaHub, 19)}` : `No active route on ${this.shortModel(viaHub, 19)}`}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
 			${!viaHub && item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
@@ -560,9 +563,15 @@ class BeltTopology extends LitElement {
 		);
 		const hubForProvider = (key) =>
 			hubs
-				.filter((hub) => hub.providerKeys?.includes(key))
+				.filter(
+					(hub) =>
+						hub.providerKeys?.includes(key) ||
+						hub.providerIntents?.includes(key),
+				)
 				.sort(
 					(a, b) =>
+						Number(Boolean(b.providerKeys?.includes(key))) -
+							Number(Boolean(a.providerKeys?.includes(key))) ||
 						(b.providerCounts?.[key] ?? 0) - (a.providerCounts?.[key] ?? 0),
 				)[0];
 		const models = data?.specialists.models ?? [];
@@ -674,7 +683,11 @@ class BeltTopology extends LitElement {
 				})}
 				${hubCards.flatMap((hub) =>
 					cloudCards
-						.filter((item) => hubForProvider(item.key)?.name === hub.name)
+						.filter(
+							(item) =>
+								hubForProvider(item.key)?.name === hub.name &&
+								hub.providerKeys?.includes(item.key),
+						)
 						.map((item) =>
 							this.edge(`M705 ${hub.y + 54} H738 V${item.y + 42} H770`, {
 								evidence: "configured",
@@ -694,6 +707,8 @@ class BeltTopology extends LitElement {
 							hubForProvider(item.key)?.displayName ||
 								hubForProvider(item.key)?.name ||
 								null,
+							hubForProvider(item.key)?.providerKeys?.includes(item.key) ??
+								false,
 						),
 					)}
 			</svg></div>`

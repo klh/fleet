@@ -213,6 +213,7 @@ describe("Belt topology", () => {
 						models: ["model-a"],
 						providerHosts: ["api.z.ai"],
 						providerHostsByModel: { "model-a": ["api.z.ai"] },
+						providerIntents: ["openrouter"],
 					},
 				],
 			},
@@ -222,6 +223,10 @@ describe("Belt topology", () => {
 		expect(model.hubs[0]?.gatewayUnresolvedRoutes).toEqual([]);
 		expect(model.hubs[0]?.providerKeys).toEqual(["zai"]);
 		expect(model.hubs[0]?.providerCounts).toEqual({ zai: 1 });
+		expect(model.hubs[0]?.providerIntents).toEqual(["openrouter"]);
+		expect(
+			model.providers.find((provider) => provider.key === "openrouter")?.state,
+		).toBe("unconfigured");
 		expect(model.providers.some((provider) => provider.key === "zai")).toBe(
 			true,
 		);
