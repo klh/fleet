@@ -90,27 +90,25 @@ export function emitEvent(opts: {
 		...(opts.note ? { note: opts.note } : {}),
 		...(opts.extra ?? {}),
 	});
-	const insert = (): number => {
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
-		).run(
-			Date.now(),
-			opts.source,
-			opts.kind,
-			opts.scope ?? null,
-			payload,
-			opts.to ?? null,
-		);
-		const id = (
-			db.query("SELECT last_insert_rowid() AS id").get() as { id: number }
-		).id;
-		if (opts.kind === "NOTE" && opts.to)
-			db.query(
-				"INSERT INTO direct_message_receipts (event_id, sid, queued_at) VALUES (?, ?, ?)",
-			).run(id, opts.to, Date.now());
-		return id;
-	};
-	return opts.kind === "NOTE" && opts.to ? db.transaction(insert)() : insert();
+	db.query(
+		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, ?, ?, ?, ?)",
+	).run(
+		Date.now(),
+		opts.source,
+		opts.kind,
+		opts.scope ?? null,
+		payload,
+		opts.to ?? null,
+	);
+	return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number })
+		.id;
+}
+
+/** A directed event remains actionable even after WS/poll cursors advance. */
+export function queueDirectedReceipt(eventId: number, sid: string): void {
+	db.query(
+		"INSERT INTO direct_message_receipts (event_id, sid, queued_at) VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING",
+	).run(eventId, sid, Date.now());
 }
 
 export function broadcastNote(
@@ -219,9 +217,9 @@ export function readEvents(opts: {
 	let rows = opts.directedOnly
 		? (db
 				.query(
-					"SELECT id, ts, source, kind, scope, payload FROM events WHERE target = ? AND id > ? ORDER BY id",
+					"SELECT e.id, e.ts, e.source, e.kind, e.scope, e.payload FROM events e WHERE e.target = ? AND e.id > ? AND NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED') ORDER BY e.id",
 				)
-				.all(opts.as, opts.since) as Ev[])
+				.all(opts.as, opts.since, opts.as) as Ev[])
 		: opts.as
 			? (db
 					.query(
@@ -457,22 +455,49 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	const rows = [
 		...new Map([...unaccepted, ...fresh].map((r) => [r.id, r])).values(),
 	].sort((a, b) => a.id - b.id);
+	const lastShown = rows.reduce((last, row) => Math.max(last, row.id), 0);
+	const shownIds = JSON.stringify(rows.map((row) => row.id));
 	for (const r of rows) console.log(formatEventLine(r));
-	if (unaccepted.length)
+	if (rows.length) {
+		for (const row of rows)
+			if (
+				["NOTE", "consult", "consult.answer", "NEED_DECISION"].includes(
+					row.kind,
+				)
+			)
+				queueDirectedReceipt(row.id, as);
 		db.query(
-			"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE sid = ? AND state = 'QUEUED'",
-		).run(Date.now(), as);
+			"UPDATE direct_message_receipts SET state = 'SEEN', seen_at = COALESCE(seen_at, ?) WHERE sid = ? AND event_id IN (SELECT value FROM json_each(?)) AND state = 'QUEUED'",
+		).run(Date.now(), as, shownIds);
+	}
 	if (rest.includes("--ack")) {
-		db.query(
-			"UPDATE direct_message_receipts SET state = 'ACCEPTED', seen_at = COALESCE(seen_at, ?), accepted_at = ? WHERE sid = ? AND state != 'ACCEPTED'",
-		).run(Date.now(), Date.now(), as);
-		advanceCursor(
-			as,
-			ncur,
-			rows.length ? Math.max(...rows.map((r) => r.id)) : ncur,
-		);
+		if (rows.length)
+			db.query(
+				"UPDATE direct_message_receipts SET state = 'ACCEPTED', seen_at = COALESCE(seen_at, ?), accepted_at = ? WHERE sid = ? AND event_id IN (SELECT value FROM json_each(?)) AND state != 'ACCEPTED'",
+			).run(Date.now(), Date.now(), as, shownIds);
+		advanceCursor(as, ncur, rows.length ? lastShown : ncur);
 	}
 	if (!rows.length) console.log(dim("(inbox empty)"));
+}
+
+/** Accept exactly one addressed event. Unlike inbox --ack, this does not
+ * advance the shared read cursor or accept any other pending event. */
+export async function cmdAck(rest: string[]): Promise<void> {
+	const as = arg("--as") ?? die("usage: ack <event-id> --as <sid>");
+	const raw = rest[0]?.replace(/^#/, "");
+	const eventId = Number(raw);
+	if (!raw || !Number.isSafeInteger(eventId) || eventId <= 0)
+		die("usage: ack <event-id> --as <sid>");
+	const event = db
+		.query("SELECT target FROM events WHERE id = ?")
+		.get(eventId) as { target: string | null } | null;
+	if (!event || event.target !== as)
+		die(`event #${eventId} is not addressed to ${as}`);
+	queueDirectedReceipt(eventId, as);
+	db.query(
+		"UPDATE direct_message_receipts SET state = 'ACCEPTED', seen_at = COALESCE(seen_at, ?), accepted_at = COALESCE(accepted_at, ?) WHERE event_id = ? AND sid = ?",
+	).run(Date.now(), Date.now(), eventId, as);
+	console.log(`${green("✓")} accepted #${eventId} for ${as}`);
 }
 
 // W831: the interrupt's miss report — 'interrupted' as a STICKY terminal

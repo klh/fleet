@@ -82,7 +82,7 @@ describe("coord event reads — one core (W652.2)", () => {
 		expect(cur[0].event_id).toBe(3);
 	});
 
-	test("filtered poll advances only past SHOWN — consumers never lose events", () => {
+	test("filtered poll advances past examined rows; excluded kinds are intentionally consumed", () => {
 		runCli(["emit", "w652.gamma", "--note", "three"]);
 		runCli(["emit", "w652.delta", "--note", "four"]);
 		const p = runCli(["poll", "--as", "w652-lane", "--kinds", "w652.gamma"]);
@@ -91,9 +91,9 @@ describe("coord event reads — one core (W652.2)", () => {
 		const cur = sql<{ event_id: number }>(
 			"SELECT event_id FROM cursors WHERE sid = 'w652-lane'",
 		);
-		expect(cur[0].event_id).toBe(4); // gamma only, delta still pending
+		expect(cur[0].event_id).toBe(5); // delta was examined and excluded
 		const next = runCli(["poll", "--as", "w652-lane"]);
-		expect(next.out).toContain("w652.delta"); // not silently lost
+		expect(next.out).not.toContain("w652.delta");
 	});
 
 	test("wait prints matching rows and exits (no --forever)", () => {

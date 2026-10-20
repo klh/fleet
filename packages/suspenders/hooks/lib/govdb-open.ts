@@ -54,6 +54,16 @@ export function openGovernorDb(): Database {
 	db.run(
 		"CREATE INDEX IF NOT EXISTS direct_message_receipts_sid_state ON direct_message_receipts(sid, state, event_id)",
 	);
+	// Every producer, including hub relays, uses the same events table. Keep
+	// the delivery obligation atomic with the event insert rather than asking
+	// each writer to remember a second receipt write.
+	db.run(`CREATE TRIGGER IF NOT EXISTS directed_event_receipt_ai
+		AFTER INSERT ON events
+		WHEN NEW.target IS NOT NULL AND NEW.kind IN ('NOTE', 'consult', 'consult.answer', 'NEED_DECISION')
+		BEGIN
+			INSERT INTO direct_message_receipts (event_id, sid, queued_at)
+			VALUES (NEW.id, NEW.target, NEW.ts);
+		END`);
 	// W451 hub longevity: measured hot-path indexes — the bus had NO index
 	// beyond the rowid PK, so every kind/target-filtered tail read (coord
 	// events --kinds, the board's per-second /api/data scans, inbox polling)

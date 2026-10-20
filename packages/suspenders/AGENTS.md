@@ -77,6 +77,11 @@ exits and needs no relaunching; prefer it over `coord wait`'s poll/relaunch
 loop. If it ever does reconnect (transient drop), that's pure mechanics:
 zero narration, ever.
 
+For each directed event, act first, then run `coord ack <event-id> --as <sid>`.
+WS delivery and reading the inbox do not acknowledge it. Reserve
+`coord inbox --ack` for a fully processed inbox; it accepts every pending
+event at once.
+
 - Not addressed to you and not a consult (routine BROADCAST, work.landed,
   knowledge.settled, etc.) — say nothing, just advance past it.
 - A consult addressed to your sid:

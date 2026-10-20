@@ -10,7 +10,13 @@ import { join } from "node:path";
 
 const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 const GOVDB = join(import.meta.dir, "..", "hooks", "lib", "govdb.ts");
-const LIB = join(import.meta.dir, "..", "hooks", "lib", "supervisor-coordination.ts");
+const LIB = join(
+	import.meta.dir,
+	"..",
+	"hooks",
+	"lib",
+	"supervisor-coordination.ts",
+);
 const home = mkdtempSync(join(tmpdir(), "suspenders-coord-coordinate-test-"));
 
 afterAll(() => rmSync(home, { recursive: true, force: true }));
@@ -104,7 +110,10 @@ const kevStub = (choice: "ask" | "skip") =>
 						type: "choice",
 						choice,
 						confidence: 0.9,
-						probabilities: choice === "ask" ? { ask: 0.9, skip: 0.1 } : { skip: 0.9, ask: 0.1 },
+						probabilities:
+							choice === "ask"
+								? { ask: 0.9, skip: 0.1 }
+								: { skip: 0.9, ask: 0.1 },
 					},
 				},
 				usage: { input_tokens: 5, output_tokens: 1 },
@@ -129,7 +138,12 @@ describe("coord coordinate — Kev gate (W977.1 --classify)", () => {
 		srv.stop(true);
 		const ask = kevStub("ask");
 		process.env.SUSPENDERS_KEV_URL = `http://127.0.0.1:${ask.port}`;
-		const go = await m.coordinationGate({ topic: "capacity", note: "crunch", snapshot: { claims: [], ready: 5 }, classify: true });
+		const go = await m.coordinationGate({
+			topic: "capacity",
+			note: "crunch",
+			snapshot: { claims: [], ready: 5 },
+			classify: true,
+		});
 		expect(go.fired).toBe(true);
 		expect(go.via).toBe("kev");
 		expect(go.model).toBe("kev-stub");
@@ -140,7 +154,16 @@ describe("coord coordinate — Kev gate (W977.1 --classify)", () => {
 
 describe("coord coordinate — bounded rounds (W977.1)", () => {
 	test("fires to live peers only; external + paused + self excluded", () => {
-		const r = runCli(["coordinate", "--topic", "capacity", "--note", "2 ready 0 lanes", "--json", "--as", "w977-asker"]);
+		const r = runCli([
+			"coordinate",
+			"--topic",
+			"capacity",
+			"--note",
+			"2 ready 0 lanes",
+			"--json",
+			"--as",
+			"w977-asker",
+		]);
 		expect(r.code).toBe(0);
 		const j = JSON.parse(r.out.trim());
 		expect(j.ok).toBe(true);
@@ -153,21 +176,49 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 		);
 		expect(rows.map((x) => x.expert_sid)).toEqual(["w977-live", "w977-idle"]);
 		expect(rows[0]?.question).toBe("coordinate/capacity: 2 ready 0 lanes");
+		const receipts = sql<{ state: string }>(
+			"SELECT r.state FROM events e JOIN direct_message_receipts r ON r.event_id = e.id WHERE e.kind = 'consult' AND e.source = 'w977-asker' ORDER BY e.id",
+		);
+		expect(receipts).toEqual([{ state: "QUEUED" }, { state: "QUEUED" }]);
 	});
 
 	test("singleflight: repeat ask replays the OPEN round, no new consults", () => {
-		const before = sql<{ n: number }>("SELECT COUNT(*) AS n FROM consults WHERE question LIKE 'coordinate/%'")[0]?.n ?? 0;
-		const r = runCli(["coordinate", "--topic", "capacity", "--note", "2 ready 0 lanes", "--json", "--as", "w977-asker"]);
+		const before =
+			sql<{ n: number }>(
+				"SELECT COUNT(*) AS n FROM consults WHERE question LIKE 'coordinate/%'",
+			)[0]?.n ?? 0;
+		const r = runCli([
+			"coordinate",
+			"--topic",
+			"capacity",
+			"--note",
+			"2 ready 0 lanes",
+			"--json",
+			"--as",
+			"w977-asker",
+		]);
 		expect(r.code).toBe(0);
 		const j = JSON.parse(r.out.trim());
 		expect(j.replay).toBe(true);
 		expect(j.consults.length).toBe(1);
-		const after = sql<{ n: number }>("SELECT COUNT(*) AS n FROM consults WHERE question LIKE 'coordinate/%'")[0]?.n ?? 0;
+		const after =
+			sql<{ n: number }>(
+				"SELECT COUNT(*) AS n FROM consults WHERE question LIKE 'coordinate/%'",
+			)[0]?.n ?? 0;
 		expect(after).toBe(before);
 	});
 
 	test("new topic = new round (not a replay of capacity)", () => {
-		const r = runCli(["coordinate", "--topic", "work", "--note", "who holds shared-scope claims", "--json", "--as", "w977-asker"]);
+		const r = runCli([
+			"coordinate",
+			"--topic",
+			"work",
+			"--note",
+			"who holds shared-scope claims",
+			"--json",
+			"--as",
+			"w977-asker",
+		]);
 		expect(r.code).toBe(0);
 		const j = JSON.parse(r.out.trim());
 		expect(j.replay).toBe(false);
@@ -175,7 +226,18 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 	});
 
 	test("--max-peers caps the fan to the most-recent peer", () => {
-		const r = runCli(["coordinate", "--topic", "claims", "--note", "conflict check", "--max-peers", "1", "--json", "--as", "w977-asker"]);
+		const r = runCli([
+			"coordinate",
+			"--topic",
+			"claims",
+			"--note",
+			"conflict check",
+			"--max-peers",
+			"1",
+			"--json",
+			"--as",
+			"w977-asker",
+		]);
 		expect(r.code).toBe(0);
 		const j = JSON.parse(r.out.trim());
 		expect(j.consults.length).toBe(1);
@@ -188,9 +250,24 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 	test("rate cap: post-closure churn dies once the window's rounds are spent", () => {
 		// close the capacity round — an OPEN round replays (singleflight), so
 		// the cap only binds NEW rounds (distinct topic+note) past the 3rd
-		runCli(["consult-reply", "C1", "2 free lanes on my side", "--as", "w977-live"]);
+		runCli([
+			"consult-reply",
+			"C1",
+			"2 free lanes on my side",
+			"--as",
+			"w977-live",
+		]);
 		runCli(["consult-reply", "C2", "one lane on my side", "--as", "w977-idle"]);
-		const r = runCli(["coordinate", "--topic", "capacity", "--note", "fourth ask inside the window", "--json", "--as", "w977-asker"]);
+		const r = runCli([
+			"coordinate",
+			"--topic",
+			"capacity",
+			"--note",
+			"fourth ask inside the window",
+			"--json",
+			"--as",
+			"w977-asker",
+		]);
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("rate cap");
 	});
@@ -201,7 +278,17 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 		// (a spawned CLI can read a pre-update page set even after a TRUNCATE
 		// checkpoint — never gate a test on read-after-write across processes)
 		const r = runCli(
-			["coordinate", "--topic", "capacity", "--note", "anybody there", "--max-peers", "0", "--as", "w977-asker"],
+			[
+				"coordinate",
+				"--topic",
+				"capacity",
+				"--note",
+				"anybody there",
+				"--max-peers",
+				"0",
+				"--as",
+				"w977-asker",
+			],
 			{ SUSPENDERS_COORD_RATE_MAX: "99" },
 		);
 		expect(r.code).toBe(2, r.err);
@@ -215,9 +302,23 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 	test("round trip: peer replies, asker's bounded wait face shows the answer", () => {
 		// the contract's answer leg rides the STANDARD consult-reply flow; the
 		// asker's wait face is the same renderer subscribe pushes through
-		const reply = runCli(["consult-reply", "C3", "2 free lanes here", "--as", "w977-live"]);
+		const reply = runCli([
+			"consult-reply",
+			"C3",
+			"2 free lanes here",
+			"--as",
+			"w977-live",
+		]);
 		expect(reply.code).toBe(0, reply.err);
-		const w = runCli(["wait", "--kinds", "consult.answer", "--max-seconds", "3", "--as", "w977-asker"]);
+		const w = runCli([
+			"wait",
+			"--kinds",
+			"consult.answer",
+			"--max-seconds",
+			"3",
+			"--as",
+			"w977-asker",
+		]);
 		expect(w.code).toBe(0);
 		expect(w.out).toContain("consult.answer");
 		expect(w.out).toContain("2 free lanes here");
@@ -225,8 +326,21 @@ describe("coord coordinate — bounded rounds (W977.1)", () => {
 
 	test("--classify with Kev down degrades open (round fires)", () => {
 		const r = runCli(
-			["coordinate", "--topic", "claims", "--note", "conflict check two", "--classify", "--json", "--as", "w977-asker"],
-			{ SUSPENDERS_KEV_URL: "http://127.0.0.1:9", SUSPENDERS_COORD_RATE_MAX: "99" },
+			[
+				"coordinate",
+				"--topic",
+				"claims",
+				"--note",
+				"conflict check two",
+				"--classify",
+				"--json",
+				"--as",
+				"w977-asker",
+			],
+			{
+				SUSPENDERS_KEV_URL: "http://127.0.0.1:9",
+				SUSPENDERS_COORD_RATE_MAX: "99",
+			},
 		);
 		expect(r.code).toBe(0, r.err);
 		const j = JSON.parse(r.out.trim());

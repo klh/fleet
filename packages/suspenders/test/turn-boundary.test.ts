@@ -88,7 +88,7 @@ describe("turnBoundaryFeedback (the drain instruction)", () => {
 		expect(f).toContain("TURN-BOUNDARY INBOX (1)");
 		expect(f).toContain("#7");
 		expect(f).toContain("check the diff again");
-		expect(f).toContain("coord inbox --as laneA --ack");
+		expect(f).toContain("coord ack 7 --as laneA");
 	});
 
 	test("more than five messages collapses the tail", () => {
@@ -102,6 +102,22 @@ describe("turnBoundaryFeedback (the drain instruction)", () => {
 		expect(f).toContain("and 2 more");
 		expect(f).toContain("m7");
 		expect(f).not.toContain("m1");
+	});
+
+	test("consult questions and answers remain actionable at the turn boundary", () => {
+		db.run(
+			"INSERT INTO events (id, ts, source, kind, payload, target) VALUES (8, ?, 'peer', 'consult', ?, 'laneE')",
+			[Date.now(), JSON.stringify({ consult: "C8", q: "Which route?" })],
+		);
+		db.run(
+			"INSERT INTO direct_message_receipts (event_id, sid, state, queued_at) VALUES (8, 'laneE', 'QUEUED', ?)",
+			[Date.now()],
+		);
+		const pending = pendingTurnMessages(db, "laneE");
+		expect(pending[0].note).toContain("Which route?");
+		expect(turnBoundaryFeedback(pending, "laneE")).toContain(
+			"coord ack 8 --as laneE",
+		);
 	});
 });
 

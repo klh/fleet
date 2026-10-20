@@ -16,6 +16,7 @@ import {
 	cmdSubscribe,
 	cmdState,
 	cmdInbox,
+	cmdAck,
 	cmdPause,
 	cmdPaused,
 	cmdResume,
@@ -112,9 +113,16 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "inbox",
-		usage: "usage: inbox --as <sid> [--ack]",
+		usage:
+			"usage: inbox --as <sid> [--ack] (bulk); use ack <event-id> --as <sid> for one event",
 		lax: true,
 		run: (p) => cmdInbox(p.rest),
+	}),
+	defineVerb({
+		name: "ack",
+		usage: "usage: ack <event-id> --as <sid>",
+		lax: true,
+		run: (p) => cmdAck(p.rest),
 	}),
 	defineVerb({
 		name: "pause",
