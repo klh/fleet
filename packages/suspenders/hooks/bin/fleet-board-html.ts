@@ -52,12 +52,26 @@ ${THEME_HEAD}
   --klh-ent-accent-bg: #1d1a26;
   --klh-ent-accent-wash: rgba(160,142,216,.12);
   --klh-ent-edge: rgba(160,142,216,.38);
+  --work-ready: #8cbbad;
+  --work-working: #83ade0;
+  --work-blocked: #e0ae62;
+  --work-failed: #dc7865;
+  --work-done: #a5c78a;
+  --work-split: #b5a1e6;
+  --work-cancelled: #a5a29a;
 }
 :root[data-theme="light"] {
   --klh-ent-accent: #6b5ca5;
   --klh-ent-accent-wash: rgba(107,92,165,.10);
   --klh-ent-edge: rgba(107,92,165,.35);
   --klh-ent-accent-bg: #efecf6;
+  --work-ready: #276c5c;
+  --work-working: #315f9a;
+  --work-blocked: #8a570d;
+  --work-failed: #a3361a;
+  --work-done: #3f6a1c;
+  --work-split: #654b9e;
+  --work-cancelled: #55524b;
 }
 </style>
 <script type="module" src="/vendor/klh-recovery.js"></script>
@@ -270,16 +284,24 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kstatusnav button { flex:none; background:var(--klh-surface); border:1px solid var(--klh-edge); border-radius:3px; padding:4px 9px; color:var(--klh-ink-2); font:11px var(--klh-font-mono); cursor:pointer; }
 .kstatusnav button:hover { border-color:var(--klh-accent); color:var(--klh-ink); }
 .kstatusnav button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:2px; }
+.kstatusnav button[data-tone] { border-top:2px solid var(--state-color); color:var(--state-color); }
+.kstatusnav button[data-tone="ready"], .kcol[data-tone="ready"], .kcard[data-tone="ready"] { --state-color:var(--work-ready); }
+.kstatusnav button[data-tone="working"], .kcol[data-tone="working"], .kcard[data-tone="working"] { --state-color:var(--work-working); }
+.kstatusnav button[data-tone="blocked"], .kcol[data-tone="blocked"], .kcard[data-tone="blocked"] { --state-color:var(--work-blocked); }
+.kstatusnav button[data-tone="failed"], .kcol[data-tone="failed"], .kcard[data-tone="failed"] { --state-color:var(--work-failed); }
+.kstatusnav button[data-tone="done"], .kcol[data-tone="done"], .kcard[data-tone="done"] { --state-color:var(--work-done); }
+.kstatusnav button[data-tone="split"], .kcol[data-tone="split"], .kcard[data-tone="split"] { --state-color:var(--work-split); }
+.kstatusnav button[data-tone="cancelled"], .kcol[data-tone="cancelled"], .kcard[data-tone="cancelled"] { --state-color:var(--work-cancelled); }
 .kwrap { overflow-x:auto; }
 .kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
-.kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--klh-edge-mid); padding-top:6px; }
+.kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
 .kcol h3 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font-variant-numeric:tabular-nums; }
-/* W518: .prefer color rides the card border via the --prefer token (absent = default edge) */
-.kcard { border:1px solid var(--prefer, var(--klh-edge-soft)); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
-.kcard:hover { border-color:var(--prefer, var(--klh-edge-hover)); }
+/* Status owns the edge; a preference tag retains its separate inset stripe. */
+.kcard { border:1px solid var(--state-color, var(--klh-edge-soft)); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; box-shadow:inset 3px 0 var(--prefer, transparent); }
+.kcard:hover { border-color:var(--state-color, var(--klh-edge-hover)); }
 /* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
-.kcard.ksel { border-color:var(--klh-accent); box-shadow:0 0 0 2px var(--klh-accent-wash); }
+.kcard.ksel { border-color:var(--klh-accent); box-shadow:inset 3px 0 var(--prefer, transparent), 0 0 0 2px var(--klh-accent-wash); }
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; position:relative; }
@@ -293,6 +315,8 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
    left border. */
 .krow { display:flex; gap:6px; align-items:center; min-width:0; margin:0 -12px 0 -13px; min-height:23px; }
 .krow .pill { position:relative; z-index:1; align-self:flex-start; margin:-1px 0 0 0; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
+.kcard[data-tone] .krow .pill { color:var(--state-color); border-color:var(--state-color); }
+.kcard[data-tone] .krow .pill .stl, .pill[data-tone] .stl { color:inherit; }
 .kcardident { display:flex; gap:6px; align-items:baseline; min-width:0; margin-top:3px; }
 .kcardident .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
@@ -356,6 +380,13 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .pill.cancel { color:var(--klh-dim); border-color:var(--klh-edge-strong); text-decoration:line-through; }
 .pill.ready { color:var(--klh-dim); border-color:var(--klh-edge-strong); }
 .pill.waiting { color:var(--klh-accent); border-color:var(--klh-accent); }
+.pill[data-tone="ready"] { color:var(--work-ready); border-color:var(--work-ready); }
+.pill[data-tone="working"] { color:var(--work-working); border-color:var(--work-working); }
+.pill[data-tone="blocked"] { color:var(--work-blocked); border-color:var(--work-blocked); }
+.pill[data-tone="failed"] { color:var(--work-failed); border-color:var(--work-failed); }
+.pill[data-tone="done"] { color:var(--work-done); border-color:var(--work-done); }
+.pill[data-tone="split"] { color:var(--work-split); border-color:var(--work-split); }
+.pill[data-tone="cancelled"] { color:var(--work-cancelled); border-color:var(--work-cancelled); }
 /* W891 state letters — semantic state hues ride the klh tokens (F red, R blue, D green, Q gray) */
 .stl { font-weight:700; letter-spacing:0; margin-right:5px; }
 .stl.info { color:var(--klh-info); }

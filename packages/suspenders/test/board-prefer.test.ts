@@ -1,11 +1,12 @@
 // test/board-prefer.test.ts — W518: the board renders the .prefer tag + color
 // carried on work items (W517's lib resolves the repo's .prefer). The kanban
-// card border and the task-list dot ride the --prefer token; absent prefer =
+// card inset stripe and the task-list dot ride the --prefer token; absent prefer =
 // no affordance. Functional tests eval the shipped TASKS chunk bytes (the
 // String.raw export) with the shared chunk helpers (core.ts esc/taskPill/
 // agoShort) injected as parameters; page-level asserts cover the token CSS.
 import { describe, expect, test } from "bun:test";
 import { TASKS } from "../hooks/board-html/tasks.ts";
+import { CORE } from "../hooks/board-html/core.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 
 // mirrors of the shared chunk helpers (core.ts) — passed INTO the sandbox so
@@ -28,6 +29,9 @@ const esc = (s: unknown): string =>
 const taskPill = (state: unknown): string =>
 	`<span class="pill ${String(state).toLowerCase()}">${esc(state)}</span>`;
 const agoShort = (s: unknown): string => `${s || 0}s`;
+const workTone = new Function(`${CORE}\nreturn workTone;`)() as (
+	state: string,
+) => string;
 
 type Item = Record<string, unknown>;
 
@@ -40,10 +44,14 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"workTone",
 		"window",
 		`${TASKS}\nreturn { taskRow, kanbanCard, preferOf };`,
 	);
-	return fn(esc, taskPill, agoShort, { __execPrefs: [], addEventListener: () => {} });
+	return fn(esc, taskPill, agoShort, workTone, {
+		__execPrefs: [],
+		addEventListener: () => {},
+	});
 }
 
 const IKEA = {
@@ -78,7 +86,7 @@ describe("board prefer render (W518)", () => {
 		const { kanbanCard } = chunkSandbox();
 		const card = kanbanCard(IKEA);
 		expect(card).toContain(
-			'<div class="kcard" style="--prefer:#0058A3" data-kid="W9"',
+			'<div class="kcard" style="--prefer:#0058A3" data-tone="working" data-kid="W9"',
 		);
 		const plain = kanbanCard({
 			id: "W2",
@@ -87,7 +95,9 @@ describe("board prefer render (W518)", () => {
 			owner_sid: "s1",
 			age_s: 1,
 		});
-		expect(plain).toContain('<div class="kcard" data-kid="W2"');
+		expect(plain).toContain(
+			'<div class="kcard" data-tone="working" data-kid="W2"',
+		);
 		expect(plain).not.toContain("--prefer");
 	});
 
@@ -106,10 +116,12 @@ describe("board prefer render (W518)", () => {
 		expect(card).toContain("&quot;&gt;&lt;script&gt;");
 	});
 
+	// W518 test identity stays stable; preference now uses an inset stripe.
 	test("page CSS: kcard border + pdot ride --prefer", () => {
 		expect(HTML).toContain(
-			".kcard { border:1px solid var(--prefer, var(--klh-edge-soft))",
+			".kcard { border:1px solid var(--state-color, var(--klh-edge-soft))",
 		);
+		expect(HTML).toContain("box-shadow:inset 3px 0 var(--prefer, transparent)");
 		expect(HTML).toContain(".pdot { display:inline-block");
 	});
 });

@@ -201,16 +201,26 @@ function stLetter(label){
   var s = String(label == null ? '' : label);
   return '<b class="stl ' + stateHue(s) + '">' + (s ? esc(s.charAt(0).toUpperCase()) : '?') + '</b>';
 }
+function workTone(state){
+  if (state === 'CLAIMED' || state === 'RUNNING') return 'working';
+  if (state === 'WAITING' || state === 'BLOCKED' || state === 'PAUSED') return 'blocked';
+  if (state === 'SHATTERED') return 'split';
+  if (state === 'FAILED') return 'failed';
+  if (state === 'DONE') return 'done';
+  if (state === 'CANCELLED') return 'cancelled';
+  return 'ready';
+}
 function taskPill(state){
   var s = String(state || '').toLowerCase();
-  if (state === 'WAITING') return '<span class="pill waiting" title="External prerequisite; requires a verified wake">' + stLetter('waiting') + 'waiting</span>';
-  if (state === 'SHATTERED') return '<span class="pill ready" title="Split into child work items; completes when required children finish">' + stLetter('split') + 'split</span>';
-  if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run">' + stLetter(s) + s + '</span>';
-  if (state === 'DONE') return '<span class="pill done">' + stLetter('done') + 'done</span>';
-  if (state === 'CANCELLED') return '<span class="pill cancel">' + stLetter('cancelled') + 'cancelled</span>';
-  if (state === 'BLOCKED' || state === 'PAUSED') return '<span class="pill block">' + stLetter(s) + s + '</span>';
-  if (state === 'FAILED') return '<span class="pill block">' + stLetter('failed') + 'failed</span>';
-  return '<span class="pill ready">' + stLetter(s || '?') + (s || '?') + '</span>';
+  var tone = ' data-tone="' + workTone(state) + '"';
+  if (state === 'WAITING') return '<span class="pill waiting"' + tone + ' title="External prerequisite; requires a verified wake">' + stLetter('waiting') + 'waiting</span>';
+  if (state === 'SHATTERED') return '<span class="pill split"' + tone + ' title="Split into child work items; completes when required children finish">' + stLetter('split') + 'split</span>';
+  if (state === 'CLAIMED' || state === 'RUNNING') return '<span class="pill run"' + tone + '>' + stLetter(s) + s + '</span>';
+  if (state === 'DONE') return '<span class="pill done"' + tone + '>' + stLetter('done') + 'done</span>';
+  if (state === 'CANCELLED') return '<span class="pill cancel"' + tone + '>' + stLetter('cancelled') + 'cancelled</span>';
+  if (state === 'BLOCKED' || state === 'PAUSED') return '<span class="pill block"' + tone + '>' + stLetter(s) + s + '</span>';
+  if (state === 'FAILED') return '<span class="pill fail"' + tone + '>' + stLetter('failed') + 'failed</span>';
+  return '<span class="pill ready"' + tone + '>' + stLetter(s || '?') + (s || '?') + '</span>';
 }
 function zombieFor(sid, zombies){
   for (var z = 0; z < zombies.length; z++) if (String(zombies[z].label).indexOf(String(sid).slice(0, 10)) === 0) return true;
