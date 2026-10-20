@@ -44,4 +44,25 @@ describe("Buckle console read proxy", () => {
 			(await buckleReadProxy(unknown, new URL(unknown.url), fakeFetch))?.status,
 		).toBe(404);
 	});
+
+	test("model capability data and renderer are read-only proxied assets", async () => {
+		const paths: string[] = [];
+		const fakeFetch = ((url: string) => {
+			paths.push(url);
+			return Promise.resolve(new Response("ok"));
+		}) as typeof fetch;
+		for (const path of [
+			"/api/console/buckle/api/model-capabilities",
+			"/console/buckle-assets/dashboard-model-access.js",
+		]) {
+			const req = request(path);
+			expect(
+				(await buckleReadProxy(req, new URL(req.url), fakeFetch))?.status,
+			).toBe(200);
+		}
+		expect(paths).toEqual([
+			"http://127.0.0.1:7791/api/model-capabilities",
+			"http://127.0.0.1:7791/dashboard-model-access.js",
+		]);
+	});
 });

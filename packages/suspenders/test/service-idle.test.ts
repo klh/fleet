@@ -140,7 +140,7 @@ describe("on-demand service state", () => {
 			policy: null,
 			gateway: null,
 			policyError: null,
-			beltApi: null,
+
 			health: [row],
 			groups: null,
 		});

@@ -43,7 +43,7 @@ test("gateway and local consoles show live status before configuration", () => {
 		policy: null,
 		gateway: null,
 		policyError: null,
-		beltApi: null,
+
 		health: probes,
 		groups: null,
 	});
@@ -103,7 +103,7 @@ test("console card hosts carry esc(JSON) slices the components upgrade (W669.11)
 		},
 		gateway: gw,
 		policyError: null,
-		beltApi: null,
+
 		health: [probe("buckle-4101", true)],
 		groups: [{ name: "flash", tiers: 3, dormant: false }],
 		upstreamSource: "fleet default + machine override",
@@ -135,7 +135,7 @@ test("console card hosts carry esc(JSON) slices the components upgrade (W669.11)
 		policy: null,
 		gateway: null,
 		policyError: null,
-		beltApi: null,
+
 		health: [],
 		groups: null,
 	});

@@ -450,13 +450,6 @@ footer .right { margin-left:auto; font-size:var(--klh-text-xs); letter-spacing:.
 /* the Threads brand mark reads --rust/--hair/--paper; feed it brand red + theme edges */
 threads-mark { vertical-align:middle; margin:0 3px 0 0; --rust:var(--klh-danger); --hair:var(--klh-edge); --paper:var(--klh-surface); }
 .empty { color:var(--klh-dim); margin:8px 0 0; }
-.access-seats { display:flex; flex-wrap:wrap; gap:8px 18px; margin:8px 0 14px; }
-.access-seats span { padding:4px 0; border-bottom:1px solid var(--klh-edge); }
-.access-vendor { margin:6px 0; border-top:1px solid var(--klh-edge); }
-.access-vendor summary { padding:8px 0; cursor:pointer; }
-.access-vendor table { width:100%; border-collapse:collapse; font-size:var(--klh-text-sm); }
-.access-vendor td { padding:5px 12px 5px 0; border-top:1px solid var(--klh-edge); }
-.access-vendor td:last-child { color:var(--klh-dim); text-align:left; }
 ${FLEET_NAV_CSS}
 ${THEME_SETTINGS_CSS}
 </style></head>
@@ -467,7 +460,7 @@ ${fleetNav("belt", "models")}
   <div class="right"><i class="dot blink" id="live"></i><span id="clockbox">—</span>${settingsBlock()}</div></header>
 <script>${FLEET_NAV_JS}${THEME_SETTINGS_JS}</script>
 <main>
-<div class="page-intro"><h1>Local models</h1><p>Model health and fleet inventory · <a href="https://suspenders.local/console/buckle">Buckle gateway ↗</a></p></div>
+<div class="page-intro"><h1>Local models</h1><p>Local model health · <a href="https://suspenders.local/console/buckle">Buckle gateway ↗</a></p></div>
 <section class="surface-section" aria-label="Local model health">
 <h2>Local model health</h2>
 <div class="scroll">
@@ -475,13 +468,6 @@ ${fleetNav("belt", "models")}
 <div id="fleet"></div>
 </div>
 <div id="fleetmeta" class="mut">—</div>
-</section>
-<section class="surface-section" aria-label="Fleet model inventory">
-<h2>Fleet model inventory</h2>
-<p class="diagnostics-note">Local models and models exposed through registered hubs and providers.</p>
-<belt-model-inventory></belt-model-inventory>
-<script type="module" src="/dashboard-topology.js"></script>
-<div id="modelaccess" class="mut" aria-live="polite">Checking model access…</div>
 </section>
 <details class="diagnostics"><summary>Diagnostics · local probes and endpoint records</summary>
 <p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
@@ -635,158 +621,6 @@ function applyRemotes(s){
 function tickRemotes(){
   fetch('/api/remotes').then(function(r){return r.json();}).then(applyRemotes).catch(function(e){remotesnote.textContent='remotes: unreachable — '+String(e && (e.message||e));});
 }
-function tickAccess(){
-  Promise.all(['/api/model-access','/api/model-capabilities'].map(function(path){
-    return fetch(path).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
-  })).then(function(results){
-    var s=results[0],feed=results[1];
-    var box=document.getElementById('modelaccess');
-    var c=s.copilot||{};var models=c.models||[];
-    var o=s.openrouter||{};var routerModels=o.models||[];
-    var z=s.zaiPricing||{};var zModels=z.models||[];
-    var zAccount=s.zaiAccount||{};var zAccountIds=zAccount.modelIds||[];
-    var capabilityRows=feed.records||[];
-    var capabilityById=new Map(capabilityRows.map(function(row){return [JSON.stringify([row.provider,row.modelId]),row];}));
-    function fact(field,formatter){return field?.value===null||field?.value===undefined?'unknown':formatter(field.value);}
-    function capability(provider,id){
-      var row=capabilityById.get(JSON.stringify([provider,id]));
-      if(!row)return 'context unknown · max output unknown · input unknown · output unknown · tools unknown · structured output unknown';
-      var context=fact(row.contextTokens,function(n){return Number(n).toLocaleString()+' tokens';});
-      var output=fact(row.maxOutputTokens,function(n){return Number(n).toLocaleString()+' tokens';});
-      return 'context '+context+' · max output '+output
-        +' · input '+fact(row.inputModalities,function(v){return v.join(', ');})
-        +' · output '+fact(row.outputModalities,function(v){return v.join(', ');})
-        +' · tools '+fact(row.tools,function(v){return v?'yes':'no';})
-        +' · structured '+fact(row.structuredOutput,function(v){return v?'yes':'no';});
-    }
-    function evidence(provider,id){
-      var row=capabilityById.get(JSON.stringify([provider,id]));
-      if(!row)return 'Capability source unavailable';
-      var field=row.contextTokens?.source?row.contextTokens:row.locality;
-      return 'Capability: '+(field?.source||'unreported')+' · checked '+(field?.observedAt?dual(field.observedAt):'never')
-        +' · price: '+(row.cost?.source||'unreported')+' · checked '+(row.cost?.observedAt?dual(row.cost.observedAt):'never');
-    }
-    function shortEvidence(provider,id){
-      var row=capabilityById.get(JSON.stringify([provider,id]));
-      if(!row)return 'source unreported';
-      var field=row.contextTokens?.source?row.contextTokens:row.locality;
-      var source=field?.source||'unreported';
-      try{source=new URL(source).host;}catch(_){}
-      return 'source '+source+' · capabilities '+(field?.observedAt?age(field.observedAt,Date.now()):'unobserved')
-        +' · price '+(row.cost?.observedAt?age(row.cost.observedAt,Date.now()):'unreported');
-    }
-    function appendCapability(cell,provider,id){
-      var summary=document.createElement('div');summary.textContent=capability(provider,id);
-      var provenance=document.createElement('small');provenance.textContent=shortEvidence(provider,id);
-      provenance.title=evidence(provider,id);
-      cell.append(summary,provenance);
-    }
-    box.replaceChildren();
-    var seats=document.createElement('div');seats.className='access-seats';
-    ['IKEA Copilot · '+(c.state||'unobserved')+' · '+models.length+' selectable models',
-      'Personal Claude CLI · '+(s.personal?.claude||'unobserved'),
-      'Personal ChatGPT/Codex CLI · '+(s.personal?.chatgpt||'unobserved')].forEach(function(t){
-      var span=document.createElement('span');span.textContent=t;seats.append(span);
-    });
-    box.append(seats);
-    if(c.reason){var error=document.createElement('p');error.textContent='Copilot catalog: '+c.reason;box.append(error);}
-    var note=document.createElement('p');
-    note.textContent='Copilot models: subscription access; per-token price unreported. Local models: no posted API token price. These are not zero-cost claims.';
-    box.append(note);
-    var capabilityNote=document.createElement('p');
-    capabilityNote.textContent='Capabilities · '+(feed.state||'unavailable')+' · OpenRouter '+(feed.sources?.openrouter||'unavailable')
-      +' · snapshot '+(feed.sources?.persistence||'unavailable')+' · checked '+dual(feed.observedAt);
-    box.append(capabilityNote);
-    function usd(value){
-      if(value===null||value===undefined)return 'unreported';
-      return '$'+Number(value).toLocaleString(undefined,{maximumFractionDigits:4});
-    }
-    function rate(price){
-      if(!price||price.status==='unknown')return price?.note||'token price unreported';
-      if(price.status==='included-unreported')return 'subscription access · token price unreported';
-      if(price.status==='local-unpriced')return 'local runtime · no posted API token price';
-      if(price.status==='free')return 'FREE · $0 in / $0 out per 1M tokens';
-      return usd(price.inputUsdPerMillion)+' in / '+usd(price.outputUsdPerMillion)+' out per 1M tokens'
-        +(price.requestUsd>0?' · '+usd(price.requestUsd)+' per request':'')
-        +(price.note?' · '+price.note:'');
-    }
-    var catalog=document.createElement('p');
-    catalog.textContent='OpenRouter public catalog · '+(o.state||'unavailable')
-      +' · checked '+(o.fetchedAt?dual(o.fetchedAt):'never')
-      +(o.reason?' · '+o.reason:'')+'. Rates apply only when routed through OpenRouter.';
-    box.append(catalog);
-    [
-      ['FREE',routerModels.filter(function(m){return m.price?.status==='free';})],
-      ['Priced or unreported',routerModels.filter(function(m){return m.price?.status!=='free';})]
-    ].forEach(function(section){
-      var group=document.createElement('details');group.className='access-vendor';
-      var heading=document.createElement('summary');
-      heading.textContent='OpenRouter '+section[0]+' · '+section[1].length+' models';group.append(heading);
-      var table=document.createElement('table');
-      section[1].forEach(function(m){
-        var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
-        name.textContent=m.name+' · '+m.id;price.textContent=rate(m.price);
-        var detail=document.createElement('td');appendCapability(detail,'openrouter',m.id);
-        row.append(name,price,detail);table.append(row);
-      });
-      group.append(table);box.append(group);
-    });
-    var zNote=document.createElement('p');
-    zNote.textContent='Z.ai published USD/1M token rates · '+(z.state||'unavailable')
-      +' · checked '+(z.fetchedAt?dual(z.fetchedAt):'never')
-      +' · source '+(z.source||'unreported')
-      +' · account models '+(zAccount.state==='available'?zAccountIds.length:'unobserved')
-      +(z.reason?' · '+z.reason:'');
-    box.append(zNote);
-    var zGroup=document.createElement('details');zGroup.className='access-vendor';
-    var zHeading=document.createElement('summary');
-    zHeading.textContent='Z.ai model prices · '+zModels.length+' published'
-      +(zAccountIds.length?' · '+zAccountIds.filter(function(id){return !zModels.some(function(m){return m.id===id;});}).length+' unreported account rates':'');
-    zGroup.append(zHeading);
-    var zTable=document.createElement('table');
-    var zIds=[...new Set(zAccountIds.concat(zModels.map(function(m){return m.id;})))];
-    zIds.sort(function(a,b){return Number(zAccountIds.includes(b))-Number(zAccountIds.includes(a))||a.localeCompare(b);});
-    zIds.forEach(function(id){
-      var m=zModels.find(function(item){return item.id===id;});
-      var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
-      name.textContent=(m?.name||id)+(zAccountIds.includes(id)?' · account visible':' · published price only');
-      price.textContent=rate(m?.price);
-      var detail=document.createElement('td');appendCapability(detail,'zai',id);
-      row.append(name,price,detail);zTable.append(row);
-    });
-    zGroup.append(zTable);box.append(zGroup);
-    var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
-    Object.keys(byVendor).sort().forEach(function(v){
-      var group=document.createElement('details');group.className='access-vendor';
-      var heading=document.createElement('summary');var count=byVendor[v].length;
-      heading.textContent=v+' · '+count+' model'+(count===1?'':'s');group.append(heading);
-      var table=document.createElement('table');
-      byVendor[v].forEach(function(m){
-        var row=document.createElement('tr');var name=document.createElement('td');var access=document.createElement('td');
-        name.textContent=m.name;
-        var responseOnly=m.endpoints.includes('/responses')&&!m.endpoints.includes('/chat/completions')&&!m.endpoints.includes('/v1/messages');
-        var via=m.routes?.length?m.routes.map(function(route){return 'local/Copilot/'+route;}).join(', '):responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
-        access.textContent=via+' · '+rate(m.price);
-        var detail=document.createElement('td');appendCapability(detail,'copilot',m.id);
-        row.append(name,access,detail);table.append(row);
-      });
-      group.append(table);box.append(group);
-    });
-    var localRows=capabilityRows.filter(function(row){return row.provider==='belt-local';});
-    var localGroup=document.createElement('details');localGroup.className='access-vendor';
-    var localHeading=document.createElement('summary');
-    localHeading.textContent='Belt local models · '+localRows.length;localGroup.append(localHeading);
-    var localTable=document.createElement('table');
-    localRows.forEach(function(m){
-      var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');var detail=document.createElement('td');
-      name.textContent=m.modelId;price.textContent=rate(m.cost?.value);
-      appendCapability(detail,m.provider,m.modelId);
-      row.append(name,price,detail);localTable.append(row);
-    });
-    localGroup.append(localTable);box.append(localGroup);
-  }).catch(function(e){document.getElementById('modelaccess').textContent='Model access unavailable · '+String(e.message||e);});
-}
-tickAccess();setInterval(tickAccess,300000);
 // W851: the server bakes its cached remotes snapshot into this payload —
 // hub rows paint on first parse, the poll only revalidates (SWR both sides).
 var REMOTES_INIT=__W851_REMOTES__;
@@ -1049,6 +883,7 @@ const ROUTES: RouteMethods = {
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
 	"/dashboard-observability.js": ["GET", "HEAD"],
+	"/dashboard-model-access.js": ["GET", "HEAD"],
 	"/dashboard-topology.js": ["GET", "HEAD"],
 	"/dashboard-topology-model.js": ["GET", "HEAD"],
 	"/dashboard-state.js": ["GET", "HEAD"],
@@ -1188,6 +1023,7 @@ Bun.serve({
 				{ headers: { "content-type": "text/javascript; charset=utf-8" } },
 			);
 		if (
+			path === "/dashboard-model-access.js" ||
 			path === "/dashboard-topology.js" ||
 			path === "/dashboard-topology-model.js"
 		)

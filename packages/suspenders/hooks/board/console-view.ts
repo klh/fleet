@@ -3,7 +3,6 @@
 // sibling modules and the route modules import them.
 
 import { db, BELT_REPO } from "./context.ts";
-import { resolveBelt } from "../lib/belt-locate.ts";
 import {
 	ConfigError,
 	parsePolicy,
@@ -82,7 +81,6 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 						: String(e);
 		}
 	}
-	const belt = await resolveBelt();
 	// W273: every monitored service in the recovery map, not just two ports
 	const health = (await probeAll()).map(withRecovery);
 	const upstreams = upstreamSnapshot();
@@ -90,7 +88,6 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		policy: pol,
 		gateway,
 		policyError,
-		beltApi: belt ? { url: belt.url, via: belt.via } : null,
 		health,
 		groups: upstreams?.groups ?? null,
 		upstreamSource: upstreams?.source,

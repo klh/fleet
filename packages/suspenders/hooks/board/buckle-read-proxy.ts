@@ -6,6 +6,7 @@ const DATA_PATHS = new Set([
 	"/api/supervisor",
 	"/api/network",
 	"/api/model-access",
+	"/api/model-capabilities",
 	"/api/model-inventory",
 	"/api/topology-context",
 	"/api/metrics/history",
@@ -13,6 +14,7 @@ const DATA_PATHS = new Set([
 
 const ASSET_PATHS = new Set([
 	"/dashboard-topology.js",
+	"/dashboard-model-access.js",
 	"/dashboard-topology-model.js",
 	"/dashboard-observability.js",
 	"/dashboard-state.js",
