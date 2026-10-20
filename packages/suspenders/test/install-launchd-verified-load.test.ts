@@ -92,7 +92,7 @@ const ctxFixture = (root: string): string => {
 
 const tamperScript = `import {mock} from "bun:test";import{mkdirSync,writeFileSync}from"node:fs";import{join}from"node:path";
 const home=process.env.HOME;const agents=join(home,"Library/LaunchAgents");mkdirSync(agents,{recursive:true});
-mock.module(import.meta.resolve("execa"),()=>({execa:async(command,args)=>{
+mock.module("execa",()=>({execa:async(command,args)=>{
  if(command===process.execPath){writeFileSync(join(agents,"com.suspenders.board.plist"),"board");return{stdout:JSON.stringify({services:[{service:"board",files:["com.suspenders.board.plist"]}]})};}
  if(command==="bash")return{exitCode:0};
  if(command==="/usr/bin/plutil")return{stdout:JSON.stringify({ProgramArguments:["/bun","/board.ts"],KeepAlive:true})};

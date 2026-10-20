@@ -21,7 +21,7 @@ test("installer receipt includes only successfully activated services without se
 		writeFileSync(join(repo, "deploy/services.yaml"), "fixture manifest");
 		const script = `import {mock} from "bun:test";import{mkdirSync,writeFileSync}from"node:fs";import{join}from"node:path";
 const home=process.env.HOME;const agents=join(home,"Library/LaunchAgents");mkdirSync(agents,{recursive:true});let forbidden=false;let phase=0;
-mock.module(import.meta.resolve("execa"),()=>({execa:async(command,args)=>{
+mock.module("execa",()=>({execa:async(command,args)=>{
  if(command===process.execPath){for(const name of ["board","store-server"])writeFileSync(join(agents,"com.suspenders."+name+".plist"),name);return{stdout:JSON.stringify({services:[{service:"board",files:["com.suspenders.board.plist"]},{service:"store-server",files:["com.suspenders.store-server.plist"]}]})};}
  if(command==="bash")return{exitCode:phase>0 || args[1].includes("store-server")?1:0};
  if(command==="/usr/bin/plutil")return{stdout:JSON.stringify({ProgramArguments:["/bun","/board.ts"],KeepAlive:true})};
