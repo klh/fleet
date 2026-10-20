@@ -27,7 +27,7 @@ import {
 	suggestKnowledge,
 } from "../lib/kev-curation.ts";
 import { claimedWorkOf } from "../lib/lane-effort.ts";
-import { resolveTarget } from "./addressing.ts";
+import { listLiveTargets, resolveTarget } from "./addressing.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import {
 	arg,
@@ -186,7 +186,12 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				"no ranked expert — nobody live has touched this; retain evidence and request a decision, do not broadcast or retry unchanged",
 			);
 		}
-		expert = resolveTarget(expert, projectIdentity()).sid;
+		// An exact live SID is an intentional cross-project address. Discovery
+		// by label or prefix, and --best above, remain project-scoped.
+		const exactSid = expert;
+		expert =
+			listLiveTargets().find((target) => target.sid === exactSid)?.sid ??
+			resolveTarget(exactSid, projectIdentity()).sid;
 	}
 	if (kbHit) {
 		const r = db
@@ -294,9 +299,9 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		const pending = (
 			db
 				.query(
-					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = ? AND state = 'OPEN' AND created_at > ?",
+					"SELECT COUNT(*) AS n FROM consults WHERE expert_sid = ? AND state = 'OPEN' AND created_at > ?",
 				)
-				.get(projectIdentity(), expert, Date.now() - 3_600_000) as { n: number }
+				.get(expert, Date.now() - 3_600_000) as { n: number }
 		).n;
 		if (pending >= 3)
 			die(
@@ -359,10 +364,11 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 			'usage: consult-reply <C##> "<answer>" [--decline] [--version ref] --as <expert-sid> | consult-reply <C##> --feedback resolved|failed|unused [--evidence result] [--version ref] --as <asker-sid>',
 		);
 	const c = db
-		.query("SELECT * FROM consults WHERE id = ? AND project = ?")
-		.get(Number(String(cid).replace(/^C/i, "")), projectIdentity()) as
+		.query("SELECT * FROM consults WHERE id = ?")
+		.get(Number(String(cid).replace(/^C/i, ""))) as
 		| {
 				id: number;
+				project: string;
 				asker_sid: string;
 				expert_sid: string;
 				state: string;
@@ -495,7 +501,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				.query(
 					"SELECT id, problem, solution FROM consult_kb WHERE project = ? ORDER BY id",
 				)
-				.all(projectIdentity()) as {
+				.all(c.project) as {
 				id: number;
 				problem: string;
 				solution: string;
@@ -532,7 +538,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				.run(
 					c.question,
 					text,
-					projectIdentity(),
+					c.project,
 					c.asker_sid,
 					as,
 					c.id,
@@ -582,7 +588,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		try {
 			recordKnowledgeSuggestion(db, verdict, {
 				sid: as,
-				project: projectIdentity(),
+				project: c.project,
 			});
 		} catch {
 			// Advice cannot invalidate a completed consult reply.
@@ -597,9 +603,9 @@ export async function cmdConsults(_rest: string[]): Promise<void> {
 	if (!as) die("usage: consults --as <sid>");
 	const rows = db
 		.query(
-			"SELECT id, asker_sid, question, state, answer FROM consults WHERE project = ? AND (expert_sid = ? OR asker_sid = ?) ORDER BY id DESC LIMIT 20",
+			"SELECT id, asker_sid, question, state, answer FROM consults WHERE expert_sid = ? OR asker_sid = ? ORDER BY id DESC LIMIT 20",
 		)
-		.all(projectIdentity(), as, as) as {
+		.all(as, as) as {
 		id: number;
 		asker_sid: string;
 		question: string;
