@@ -8,11 +8,9 @@
   </array>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><true/>
-  <!-- W96 distill target: belt decides, local-first — the worker's
-       BeltDistillClient sends hint 'prefer local distill reasoning' and belt
-       picks the local model again (the :8903 INGEST_LLM_URL pin is retired).
-       Enterprise override stays available: INGEST_LLM_URL env still wins in
-       makeDistillClient(). -->
+  <!-- Knowledge distillation enters Buckle with a scoped key from a mode-0600
+       machine-local knowledge-buckle.json (or explicit environment pair).
+       The W96 hint keeps local specialist routing. -->
   <key>EnvironmentVariables</key><dict>
     <!-- W103 substitution contract: repo root for the mechanical single-file
          test (pointer-row conversion / reject on ingest) -->

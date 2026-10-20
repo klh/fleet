@@ -96,7 +96,8 @@ async function runWorker(): Promise<{ out: string; code: number }> {
 		env: {
 			...process.env,
 			HOME,
-			INGEST_LLM_URL: `http://127.0.0.1:${stub.port}/v1/chat/completions`,
+			SUSPENDERS_BUCKLE_URL: `http://127.0.0.1:${stub.port}`,
+			SUSPENDERS_BUCKLE_TOKEN: "bksk_reprocess_fixture",
 		},
 		stdout: "pipe",
 		stderr: "pipe",
