@@ -1,7 +1,4 @@
-// e2e/board-splines.spec.ts — W214: dependency splines on the lanes kanban.
-// Seeds a blocked pair (W2 block --on W1) + a split parent, then asserts on
-// the live page: overlay SVG present, orange blocked + green waiting paths,
-// provider-before-dependent column ordering, legend, no page exceptions.
+// Dependency details on cards without cross-column connector lines.
 import { expect, test } from "@playwright/test";
 import { startBoard, type Board } from "./harness";
 
@@ -22,7 +19,7 @@ function mustBoard(): Board {
 	return board;
 }
 
-test("dependency splines render with blocked + waiting edges and dep-aware ordering", async ({
+test("blocked and split cards name their dependencies without connector lines", async ({
 	page,
 }) => {
 	const b = mustBoard();
@@ -65,24 +62,12 @@ test("dependency splines render with blocked + waiting edges and dep-aware order
 	expect(bBox).not.toBeNull();
 	expect(aBox?.x ?? 0).toBeLessThan(bBox?.x ?? 0);
 
-	// splines: one blocked route + one waiting route minimum
-	// (> path — direct children only; the defs marker paths carry classes too).
-	// Axis-aligned beziers own a zero-area bbox, which playwright reads as
-	// hidden — assert presence + shape instead of visibility.
-	await expect(page.locator("#ksplines")).toBeVisible();
-	await expect(page.locator("#ksplines > path.spl-block")).not.toHaveCount(0);
-	const blockD = await page
-		.locator("#ksplines > path.spl-block")
-		.first()
-		.getAttribute("d");
-	expect(blockD).toContain("L");
-	await expect(page.locator("#ksplines > path.spl-wait")).not.toHaveCount(0);
-	const waitD = await page
-		.locator("#ksplines > path.spl-wait")
-		.first()
-		.getAttribute("d");
-	expect(waitD).toContain("L");
-	await expect(page.locator("#splinesLegend")).toBeVisible();
+	await expect(page.locator(`[data-kid="${wB}"]`)).toContainText(
+		`waiting on ${wA}`,
+	);
+	await expect(page.locator(`[data-kid="${wP}"]`)).toContainText("split into");
+	await expect(page.locator("#ksplines")).toHaveCount(0);
+	await expect(page.locator("#splinesLegend")).toHaveCount(0);
 
 	await page.screenshot({ path: "board-splines.png", fullPage: true });
 	expect(errors, "uncaught page exceptions").toEqual([]);

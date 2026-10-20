@@ -1,131 +1,45 @@
-// test/board-splines.test.ts — W214: the kanban dependency splines. The pure
-// client pieces (tkey/depOrder/splineEdges) eval from the shipped TASKS chunk
-// bytes (String.raw export) with core helpers injected; page-level asserts
-// cover the spline CSS + the legend markup.
+// The lanes board keeps dependency order and names split children on cards.
 import { describe, expect, test } from "bun:test";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
 
 type Item = Record<string, unknown>;
 
-const tkeyOf = (t: Item): string =>
-	`${String(t.project || "")}\u0000${String(t.id)}`;
-
 function chunkSandbox(): {
-	tkey: (t: Item) => string;
+	tkey: (item: Item) => string;
 	depOrder: (items: Item[]) => Item[];
-	splineEdges: (
-		ts: Item[],
-		vis: Record<string, number>,
-	) => { cls: string; from: string; to: string }[];
-	splineRoutes: (
-		a: { x: number; y: number; w: number; h: number },
-		b: { x: number; y: number; w: number; h: number },
-		width: number,
-	) => string[];
 } {
-	const fn = new Function(
-		"esc",
-		"taskPill",
-		"agoShort",
-		"window",
-		`${TASKS}\nreturn { tkey, depOrder, splineEdges, splineRoutes };`,
-	);
-	return fn(null, null, null, { addEventListener: () => {} });
+	const fn = new Function("window", `${TASKS}\nreturn { tkey, depOrder };`);
+	return fn({ addEventListener: () => {} });
 }
 
-describe("board dependency splines (W214)", () => {
-	test("tkey: composite project+id — cross-project id collisions stay distinct", () => {
+describe("board dependency presentation", () => {
+	test("composite project and item keys keep projects separate", () => {
 		const { tkey } = chunkSandbox();
-		const a = tkey({ project: "/p1/.git", id: "W1" });
-		const b = tkey({ project: "/p2/.git", id: "W1" });
-		expect(a).not.toBe(b);
+		expect(tkey({ project: "/p1/.git", id: "W1" })).not.toBe(
+			tkey({ project: "/p2/.git", id: "W1" }),
+		);
 	});
 
-	test("depOrder: provider above dependent, age order kept otherwise", () => {
-		const { depOrder } = chunkSandbox();
-		const P = { project: "/r/.git", id: "W1", age_s: 30 };
-		const Q = { project: "/r/.git", id: "W2", blocked_by: ["W1"], age_s: 1 };
-		const R = { project: "/r/.git", id: "W3", age_s: 2 };
-		// age order Q(1), R(2), P(30) — depOrder must still lift P above Q
-		const ordered = depOrder([Q, R, P]).map((t) => t.id);
-		expect(ordered).toEqual(["W3", "W1", "W2"]);
-	});
-
-	test("depOrder: transitive chain orders fully; cycle falls back without dropping cards", () => {
+	test("providers precede dependents without losing cycles", () => {
 		const { depOrder } = chunkSandbox();
 		const A = { project: "/r/.git", id: "A", age_s: 3 };
-		const B = {
-			project: "/r/.git",
-			id: "B",
-			blocked_by: ["A"],
-			age_s: 2,
-		};
-		const C = {
-			project: "/r/.git",
-			id: "C",
-			blocked_by: ["B"],
-			age_s: 1,
-		};
-		expect(depOrder([C, B, A]).map((t) => t.id)).toEqual(["A", "B", "C"]);
-		const X = { project: "/r/.git", id: "X", blocked_by: ["Y"], age_s: 1 };
-		const Y = { project: "/r/.git", id: "Y", blocked_by: ["X"], age_s: 2 };
-		const cyc = depOrder([X, Y]).map((t) => t.id);
-		expect(cyc.sort()).toEqual(["X", "Y"]);
+		const B = { project: "/r/.git", id: "B", blocked_by: ["A"], age_s: 2 };
+		const C = { project: "/r/.git", id: "C", blocked_by: ["B"], age_s: 1 };
+		expect(depOrder([C, B, A]).map((item) => item.id)).toEqual(["A", "B", "C"]);
+		const X = { project: "/r/.git", id: "X", blocked_by: ["Y"] };
+		const Y = { project: "/r/.git", id: "Y", blocked_by: ["X"] };
+		expect(
+			depOrder([X, Y])
+				.map((item) => item.id)
+				.sort(),
+		).toEqual(["X", "Y"]);
 	});
 
-	test("splineEdges: blocked dep→dependent, waiting child→parent; hidden pairs drop", () => {
-		const { splineEdges } = chunkSandbox();
-		const A = { project: "/r/.git", id: "W1" };
-		const B = { project: "/r/.git", id: "W2", blocked_by: ["W1"] };
-		const P = { project: "/r/.git", id: "W9", waiting_on: ["W9.1"] };
-		const C = { project: "/r/.git", id: "W9.1" };
-		const H = { project: "/r/.git", id: "W5", blocked_by: ["W1"] };
-		const vis: Record<string, number> = {};
-		for (const t of [A, B, P, C]) vis[tkeyOf(t)] = 1;
-		const edges = splineEdges([A, B, P, C, H], vis);
-		expect(edges).toContainEqual({
-			cls: "spl-block",
-			from: tkeyOf(A),
-			to: tkeyOf(B),
-		});
-		expect(edges).toContainEqual({
-			cls: "spl-wait",
-			from: tkeyOf(C),
-			to: tkeyOf(P),
-		});
-		for (const e of edges) {
-			expect(e.to).not.toBe(tkeyOf(H));
-		}
-	});
-
-	test("page CSS: spline strokes ride theme tokens; legend rendered", () => {
-		expect(HTML).toContain(
-			"#ksplines > path.spl-block { stroke:var(--klh-danger-ink); }",
-		);
-		expect(HTML).toContain(
-			"#ksplines > path.spl-wait { stroke:var(--klh-ok-ink); }",
-		);
-		expect(HTML).toContain('id="splinesLegend"');
-		expect(HTML).toContain(
-			"#ksplines { position:absolute; top:0; left:0; pointer-events:none; z-index:2; overflow:hidden; }",
-		);
-		expect(TASKS).toContain("el.appendChild(svg)");
-	});
-
-	test("spline routes stay in column gutters and use short cross-column transitions", () => {
-		const { splineRoutes } = chunkSandbox();
-		const a = { x: 0, y: 40, w: 250, h: 80 };
-		const below = { x: 0, y: 220, w: 250, h: 80 };
-		const beside = { x: 260, y: 220, w: 250, h: 80 };
-		expect(splineRoutes(a, below, 520)).toEqual([
-			"M250 80 L255 80 L255 260 L250 260",
-		]);
-		const cross = splineRoutes(a, beside, 520);
-		expect(cross).toEqual([
-			"M250 80 L255 80 L255 96",
-			"M255 244 L255 260 L260 260",
-		]);
-		expect(cross.every((path) => !path.includes("520"))).toBe(true);
+	test("dependency details stay on cards without a connector overlay", () => {
+		expect(TASKS).toContain("split into ' + esc(t.waiting_on.join(', '))");
+		expect(TASKS).toContain("waiting on ' + esc(t.blocked_by.join(', '))");
+		expect(HTML).not.toContain('id="splinesLegend"');
+		expect(HTML).not.toContain("#ksplines");
 	});
 });
