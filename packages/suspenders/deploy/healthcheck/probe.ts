@@ -444,11 +444,13 @@ export function createMonitor(args: ProbeArgs) {
 						: "http-liveness",
 			inferenceAvailability:
 				args.synthetic !== undefined
-					? last?.status === 429
-						? "quota-blocked"
-						: last?.ok
-							? "available"
-							: "unknown"
+					? !fresh
+						? "unknown"
+						: last?.status === 429
+							? "quota-blocked"
+							: last?.ok
+								? "available"
+								: "unknown"
 					: "unknown",
 			model: args.catalogModel ?? null,
 			intervalMs: args.every,

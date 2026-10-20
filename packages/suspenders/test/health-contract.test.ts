@@ -364,6 +364,8 @@ describe("token-free route catalog", () => {
 			});
 			await monitor.poll();
 			expect(monitor.snapshot().inferenceAvailability).toBe("quota-blocked");
+			await Bun.sleep(10);
+			expect(monitor.snapshot().inferenceAvailability).toBe("unknown");
 		} finally {
 			quota.stop(true);
 		}
