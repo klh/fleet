@@ -39,12 +39,12 @@ placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
 the label → candidate-URL registry `resolveHub` walks (candidates give the
 fault tolerance: several URLs per hub label, first healthy wins).
 
-## Synthetic readiness (W467)
+## Inference-route canary (W467)
 
-A `/status` answer proves the gate responds; only a real completion proves
-the serving chain (auth → routing ladder → upstream → response). The
-`buckle-ready` sidecar POSTs a 1-token chat completion through the hub's own
-front every 60s and serves the verdict on its own port (`/healthz`,
+A `/status` answer proves the gate responds. The `buckle-ready` sidecar
+checks that auth, routing, and an upstream accept an inference request. It
+POSTs a 1-token chat completion through the hub's own front every 10 minutes
+and serves the verdict on its own port (`/healthz`,
 `/status` — same wire contract as the *-health sidecars):
 
 - the model is machine-level config: `ready_model:` in the hub's stack.yaml
@@ -56,6 +56,26 @@ front every 60s and serves the verdict on its own port (`/healthz`,
 - `hubctl status` reports the row and gates the exit code on it; compose
   health still hits `buckle-health` — a dead upstream degrades the verdict,
   it never restart-loops the gate.
+
+The independent `buckle-health` sidecar checks `/status` every 5 seconds;
+Docker checks that sidecar every 10 seconds. The readiness canary is marked
+`x-klh-traffic: readiness` in Buckle telemetry and is not agent inference.
+Both sidecars report `check` (`http-liveness` or `inference-route`) and
+`intervalMs` on `/healthz` and `/status`, so dashboards can label their
+different proof and sampling cadence.
+It requires a completion choice, but a thinking model may spend the one token
+on reasoning and return no user-visible text. Thus the `buckle-ready` verdict
+is **inference-route reachability**, not a quality or answer-completeness
+check. A live desktop `general` route on 2026-10-20 returned HTTP 200 with an
+empty message for limits 1–32; a 64-token request returned `OK` after 48
+completion tokens. Asking for an answer on every canary would be much more
+expensive on that route.
+Its default changes from 60 calls/hour at up to 4 output tokens each to
+6 calls/hour at up to 1 output token each: 90% fewer calls and 97.5% less
+maximum output-token budget (240 to 6 tokens/hour per hub). Input tokens,
+provider minimum charges, and actual output may differ. A model-path failure
+can take up to roughly 20 minutes to reach `down` after two failed scheduled
+checks plus the confirming request; gate liveness remains on the fast path.
 
 ## mDNS advertisement (W854)
 

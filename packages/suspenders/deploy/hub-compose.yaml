@@ -276,10 +276,10 @@ services:
       retries: 3
       start_period: 15s
 
-  # Synthetic readiness (W467, openai-review reliability 3): /status proves
-  # the gate answers — only a real completion proves the serving chain
-  # (auth → routing ladder → upstream → response). This sidecar POSTs a
-  # 1-token chat completion through the hub's own front on a slow cadence
+  # Inference-route canary: /status proves the gate answers; this verifies
+  # that auth, routing and the upstream accept a 1-token completion request.
+  # Thinking models can spend that token on reasoning and return empty text,
+  # so this is not proof of a user-visible answer. It runs every 10 minutes
   # and serves the verdict on its own port. INFORMATIONAL surface: hubctl
   # status reports it; compose health still hits buckle-health (a dead
   # upstream must degrade the verdict, never restart-loop the gate).
@@ -312,9 +312,9 @@ services:
       - --expect-path
       - choices.0
       - --synthetic-json
-      - '{"model":"${HUB_READY_MODEL:-general}","messages":[{"role":"user","content":"Reply with the single word: ready"}],"max_tokens":4,"stream":false}'
+      - '{"model":"${HUB_READY_MODEL:-general}","messages":[{"role":"user","content":"Reply OK."}],"max_tokens":1,"stream":false}'
       - --every
-      - ${HUB_READY_EVERY_MS:-60000}
+      - ${HUB_READY_EVERY_MS:-600000}
       - --timeout
       - ${HUB_READY_TIMEOUT_MS:-30000}
       - --misses
