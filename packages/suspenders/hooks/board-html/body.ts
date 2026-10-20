@@ -69,6 +69,7 @@ export const BODY = String.raw`
     <label class="plabel" for="taskOwner">session</label>
     <select id="taskOwner"><option value="all">all sessions</option></select>
     <label class="plabel"><input type="checkbox" id="taskDone"> history (done + cancelled)</label>
+    <button type="button" id="taskDetails" class="taskOrder" aria-pressed="false">row details</button>
     <button type="button" id="taskPriority" class="taskOrder">action order</button>
     <span id="taskCount" class="dim"></span>
   </div>

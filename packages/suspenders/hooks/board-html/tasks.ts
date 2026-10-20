@@ -7,6 +7,7 @@ export const TASKS = String.raw`// --- 4: tasks table (Tasks tab, /api/tasks) + 
 var taskSort = {key: 'priority', dir: 1};
 var taskOwner = 'all';
 var taskFocus = 'all';
+var taskExpanded = false;
 try {
   var savedSort = JSON.parse(localStorage.getItem('sb.taskSort') || 'null');
   if (savedSort && savedSort.key) taskSort = savedSort;
@@ -14,24 +15,38 @@ try {
   if (savedOwner) taskOwner = String(savedOwner);
   var savedFocus = localStorage.getItem('sb.taskFocus');
   if (['all', 'attention', 'working', 'ready', 'waiting'].includes(savedFocus)) taskFocus = savedFocus;
+  taskExpanded = localStorage.getItem('sb.taskExpanded') === '1';
 } catch (e) {}
 function saveTaskView(){
-  try { localStorage.setItem('sb.taskSort', JSON.stringify(taskSort)); localStorage.setItem('sb.taskOwner', taskOwner); localStorage.setItem('sb.taskFocus', taskFocus); } catch (e) {}
+  try { localStorage.setItem('sb.taskSort', JSON.stringify(taskSort)); localStorage.setItem('sb.taskOwner', taskOwner); localStorage.setItem('sb.taskFocus', taskFocus); localStorage.setItem('sb.taskExpanded', taskExpanded ? '1' : '0'); } catch (e) {}
 }
 function projShort(p){ return String(p || '').replace(/\/\.git$/, '').split('/').pop() || '—'; }
 function ownerKey(t){ return t.owner_sid ? String(t.owner_sid) : 'unclaimed'; }
 var ownerDisp = {}; // sid → display label, rebuilt per poll; shared intent labels get the sid appended
+function ownerLabel(t){
+  var sid = t.owner_sid ? String(t.owner_sid) : '';
+  if (!sid) return 'unclaimed';
+  var label = String(t.owner_label || '').trim();
+  if (label && label !== sid && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(label)) return label;
+  var groups = t.spend && t.spend.model_groups ? t.spend.model_groups : null;
+  var top = '', count = -1;
+  if (groups) for (var model in groups){
+    var requests = Number(groups[model] && groups[model].requests || 0);
+    if (requests > count){ top = model; count = requests; }
+  }
+  return top || t.model || ('session ' + sid.slice(0, 8));
+}
 function ownerName(t){
   var s = t.owner_sid ? String(t.owner_sid) : '';
   if (s && ownerDisp[s]) return ownerDisp[s];
-  return t.owner_label || (s ? s.slice(0, 10) : '') || 'unclaimed';
+  return ownerLabel(t);
 }
 function buildOwnerDisp(ts){ // seven lanes all claiming "work-graph" must stay distinguishable
   var sidLabel = {}, byLabel = {};
   for (var i = 0; i < ts.length; i++){
     var s = ts[i].owner_sid ? String(ts[i].owner_sid) : '';
     if (!s) continue;
-    var l = ts[i].owner_label || s.slice(0, 10) || 'unclaimed';
+    var l = ownerLabel(ts[i]);
     sidLabel[s] = l;
     (byLabel[l] || (byLabel[l] = {}))[s] = 1;
   }
@@ -227,7 +242,7 @@ function taskRow(t, parentId, depth){
       (t.tail && t.tail.text ? '<div class="tail dim">' + esc(t.tail.text) + '</div>' : '') +
       (t.signal ? '<div class="tail dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>' : '') + '</td>' +
     '<td>' + taskPill(displayState(t)) + '</td>' +
-    '<td>' + esc(owner) + '</td>' +
+    '<td class="taskowner" title="' + esc(String(t.owner_sid || owner)) + '">' + esc(owner) + '</td>' +
     '<td class="num"' + (t.spend ? ' title="' + esc(spendStripText(t.spend)) + '"' : '') + '>' + esc(spendCell(t)) + '</td>' +
     '<td class="num">' + esc(wallCell(t)) + '</td>' +
     '<td class="num">' + agoShort(t.age_s) + '<div class="dim kwhen">' + laneStamp(t.updated_at_utc) + '</div></td>' +
@@ -260,6 +275,10 @@ function renderTasks(){
     clearErr(errEl);
   }
   if (!tasksData) return; // nothing good yet — keep loading/error row
+  var taskSection = byId('tab-tasks');
+  if (taskSection) taskSection.classList.toggle('taskcompact', !taskExpanded);
+  var detailsButton = byId('taskDetails');
+  if (detailsButton) detailsButton.setAttribute('aria-pressed', taskExpanded ? 'true' : 'false');
   var ts = tasksData.tasks;
   buildOwnerDisp(ts);
   renderTaskOwnerOptions(ts);
