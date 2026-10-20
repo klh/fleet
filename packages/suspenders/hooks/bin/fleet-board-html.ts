@@ -284,8 +284,15 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
 .kcard.kkid { border-style:dashed; position:relative; }
 .kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
+/* W998.1: the badge is a corner tab — its outline sits ON the card's top and
+   left border. The row's -13px left margin already reaches the card border's
+   outer edge, so the pill takes margin-left:0 (its 1px border overlays the
+   card's); margin-top:-1px climbs over the top border (card has no top
+   padding). align-self:flex-start keeps row centering from pushing it off
+   the top edge. Bottom-left stays square so the tab reads as part of the
+   left border. */
 .krow { display:flex; gap:6px; align-items:center; min-width:0; margin:0 -12px 0 -13px; min-height:23px; }
-.krow .pill { position:relative; z-index:1; margin:-1px 0 0 -1px; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
+.krow .pill { position:relative; z-index:1; align-self:flex-start; margin:-1px 0 0 0; flex:none; border-radius:7px 0 3px 0; padding:3px 8px; background:var(--klh-wash); }
 .kcardident { display:flex; gap:6px; align-items:baseline; min-width:0; margin-top:3px; }
 .kcardident .tidbtn { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; }
 .kage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
