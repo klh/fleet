@@ -86,7 +86,7 @@ export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
 import { forecastPush } from "../hooks/lib/credit-forecast.ts";
 import { quotaProviderPenalty } from "../hooks/lib/exec-quota.ts";
-import { plaidGate } from "../hooks/lib/plaid.ts";
+import { plaidGate, plaidProbeHealth } from "../hooks/lib/plaid.ts";
 import {
 	cvMap,
 	executorCv,
@@ -280,6 +280,28 @@ const FLEET = `${REPO}/.fleet`;
 // 2 arithmetic gates per dispatch inside dispatchItem (hooks/lib/plaid.ts).
 const POSTURE = readPosture(FLEET);
 const TARGET_EFF = postureWidth(POSTURE, TARGET);
+// W989: one catalog probe per run — plaid lanes only ride models the buckle
+// front actually serves (a pin the front can't serve launches a lane that
+// 502s on its first request, W1019). The /v1/models read is auth-gated:
+// the machine conf's admin key (belt.env, 0600) authenticates it; absent
+// key/front = no evidence, never a demotion (quota + bin stay authority).
+const plaidFrontToken = (): string | null => {
+	try {
+		const line = readFileSync(
+			`${process.env.HOME}/.claude/local-llm/belt.env`,
+			"utf8",
+		)
+			.split("\n")
+			.find((l) => l.startsWith("BUCKLE_ADMIN_KEY="));
+		return line?.split("=").slice(1).join("=").trim() || null;
+	} catch {
+		return null;
+	}
+};
+const PLAID_MODEL_HEALTH =
+	POSTURE === "plaid" && !NO_BELT && !DRY
+		? await plaidProbeHealth(await probeBuckleFront(), plaidFrontToken())
+		: null;
 // W636: `registry` verb family — liveness-guarded operator cleanup of the
 // durable lane registry (list/prune/forget); command discovery precedes the
 // dispatch pipeline exactly like --help above. Dynamic import: the verb
@@ -631,6 +653,7 @@ const dispatchItem = async (
 				store,
 				lanes.map((l) => l.sid),
 				quota,
+				PLAID_MODEL_HEALTH,
 			);
 			if (!g.plan.open) {
 				console.log(`SKIP ${item} — ${g.plan.reason}`);
@@ -642,6 +665,7 @@ const dispatchItem = async (
 				quota,
 				ordinal,
 				hub: pick.hub,
+				modelHealth: PLAID_MODEL_HEALTH,
 			});
 			if (pd.skip) {
 				console.log(`SKIP ${item} — ${pd.skip}`);

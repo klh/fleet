@@ -90,19 +90,18 @@ export interface PlaidRoute {
 	provider: string | null;
 }
 
-/** Owner definition 2026-10-19, in fallback order (table order IS the
- *  defined fallback: codex → chatgpt → glm; glm-flash is the floor). */
+/** Owner definition 2026-10-19; W989 truthfulness pass 2026-10-20: the
+ *  codex executor rides the PERSONAL Codex CLI seat — it never touches the
+ *  Copilot provider through Buckle — so it carries no ikea-* name and no
+ *  pool provider (a personal seat is never pool capacity; bin-probed only,
+ *  dispatchable only where a route pick reaches it outside the pools). The
+ *  Copilot ride is the claude CLI pinned to claude-sonnet-5 (the Copilot
+ *  seat serves the Anthropic wire). Table order IS the defined fallback:
+ *  Copilot → glm (glm-flash the floor) → personal codex. */
 export const PLAID_ROUTES: PlaidRoute[] = [
 	{
-		name: "ikea-codex",
-		label: "IKEA Copilot Codex",
-		executor: "codex",
-		model: null,
-		provider: "copilot",
-	},
-	{
-		name: "ikea-chatgpt",
-		label: "IKEA Copilot ChatGPT",
+		name: "ikea-sonnet",
+		label: "IKEA Copilot Sonnet",
 		executor: "claude",
 		model: "claude-sonnet-5",
 		provider: "copilot",
@@ -113,6 +112,13 @@ export const PLAID_ROUTES: PlaidRoute[] = [
 		executor: "claude",
 		model: "glm-5.3-flash",
 		provider: "zai",
+	},
+	{
+		name: "codex-personal",
+		label: "Codex (personal seat)",
+		executor: "codex",
+		model: null,
+		provider: null,
 	},
 ];
 
@@ -179,6 +185,82 @@ export const setPlaidRouteSource = (src: () => PlaidRoute[]): void => {
 	tableOverride = src;
 };
 const plaidRouteTable = (): PlaidRoute[] => tableOverride?.() ?? PLAID_ROUTES;
+
+// ── W989: the configured-model probe (routes must reach their model
+// through the buckle front — W1019 lesson: a pin the front can't serve
+// launches a lane that 502s on its first request) ─────────────────────────
+
+/** GET <front>/v1/models → served model ids; null = no evidence (front
+ *  unreachable/odd shape). Fail-open by doctrine: no evidence never
+ *  demotes — the quota + bin probes stay the walling authority. */
+export const PLAID_PROBE_TIMEOUT_MS = 1500;
+export const fetchModelCatalog = async (
+	front: string | null,
+	timeoutMs = PLAID_PROBE_TIMEOUT_MS,
+	token?: string | null,
+): Promise<string[] | null> => {
+	if (!front) return null;
+	try {
+		const r = await fetch(`${front.replace(/\/$/, "")}/v1/models`, {
+			signal: AbortSignal.timeout(timeoutMs),
+			headers: token ? { authorization: `Bearer ${token}` } : {},
+		});
+		if (!r.ok) return null;
+		const j = (await r.json()) as { data?: { id?: unknown }[] };
+		if (!Array.isArray(j.data)) return null;
+		const ids = j.data
+			.map((d) => (typeof d?.id === "string" ? d.id : ""))
+			.filter(Boolean);
+		return ids.length ? ids : null;
+	} catch {
+		return null; // front down/timeout — no evidence, not a wall
+	}
+};
+
+/** Per-route model health over a fetched catalog: a pinned model the front
+ *  does not serve is an unavailable route (honest reason); unpinned routes
+ *  and evidence-less runs are exempt. Pure — tests feed the catalog. */
+export const plaidModelHealth = (
+	routes: PlaidRoute[],
+	catalog: string[] | null,
+): Map<string, string | null> => {
+	const served = catalog ? new Set(catalog) : null;
+	const health = new Map<string, string | null>();
+	for (const r of routes) {
+		health.set(
+			r.name,
+			r.model && served && !served.has(r.model)
+				? `model ${r.model} not served at the buckle front`
+				: null,
+		);
+	}
+	return health;
+};
+
+/** Dispatch-side one-shot: the live route table probed against the front
+ *  (probeBuckleFront's url; null = no belt). The front's /v1/models is
+ *  auth-gated — callers pass the machine conf's admin key (belt.env);
+ *  absent key = 401 = no evidence. One call per dispatch run. */
+export const plaidProbeHealth = async (
+	front: string | null,
+	token?: string | null,
+): Promise<Map<string, string | null>> =>
+	plaidModelHealth(
+		plaidRouteTable(),
+		await fetchModelCatalog(front, PLAID_PROBE_TIMEOUT_MS, token),
+	);
+
+/** First non-null reason wins (quota outranks bin outranks the model
+ *  probe — callers build `base` in that order, `extra` is the probe). */
+export const mergePlaidHealth = (
+	base: Map<string, string | null>,
+	extra: Map<string, string | null> | null | undefined,
+): Map<string, string | null> => {
+	if (!extra) return base;
+	const merged = new Map(base);
+	for (const [k, v] of extra) if (v && !merged.get(k)) merged.set(k, v);
+	return merged;
+};
 
 // ── store reads/writes: lane.<sid>.route + plaid.posture facts ────────────
 
@@ -457,6 +539,7 @@ export const plaidGate = (
 	store: GovernorStore,
 	liveSids: string[],
 	quota: ProviderPenalty,
+	modelHealth?: Map<string, string | null> | null,
 ): {
 	routes: PlaidRoute[];
 	health: Map<string, string | null>;
@@ -464,7 +547,7 @@ export const plaidGate = (
 	plan: PlaidPlan;
 } => {
 	const routes = plaidRouteTable();
-	const health = plaidHealth(quota);
+	const health = mergePlaidHealth(plaidHealth(quota), modelHealth);
 	const load = routeLoadOf(store, liveSids);
 	const liveBy = new Map(
 		POOL_PROVIDERS.map((p) => [p, poolTotalOf(routes, load, p)]),
@@ -500,8 +583,9 @@ export const plaidDispatch = (o: {
 	quota: ProviderPenalty;
 	ordinal: number;
 	hub: string | null;
+	modelHealth?: Map<string, string | null> | null;
 }): PlaidDispatch => {
-	const g = plaidGate(o.store, o.sids, o.quota);
+	const g = plaidGate(o.store, o.sids, o.quota, o.modelHealth);
 	if (!g.plan.open)
 		return { skip: g.plan.reason, pick: {}, routeName: null, note: null };
 	const assign = plaidAssign(
