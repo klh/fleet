@@ -16,6 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import { composeUpArgv } from "../../suspenders/deploy/hub-remote.ts";
+import { mergedHubUpstreams } from "../../suspenders/deploy/openrouter-free.ts";
 import {
 	inQuietHours,
 	tryLoadStack,
@@ -149,8 +150,16 @@ export function hubGatewayRoutes(): Array<{
 }> {
 	const profiles = hubProfiles();
 	return readHubs().map((hub) => {
-		const groups =
-			profiles.get(hub.label.toLowerCase())?.upstreams?.groups ?? {};
+		const profile = profiles.get(hub.label.toLowerCase());
+		let groups = profile?.upstreams?.groups ?? {};
+		if (profile) {
+			try {
+				groups = mergedHubUpstreams(profile);
+			} catch {
+				// Missing or stale generated catalogs never become configured routes.
+				// Explicit machine-level routes remain visible on their own.
+			}
+		}
 		const hosts = new Set<string>();
 		const modelHosts = new Map<string, Set<string>>();
 		const routesByModel = new Map<string, Set<string>>();

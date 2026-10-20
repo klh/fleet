@@ -234,6 +234,34 @@ describe("Belt topology", () => {
 			false,
 		);
 	});
+	test("identifies an OpenRouter hub route through LiteLLM by its model ID", () => {
+		const model = buildTopology(
+			{},
+			{},
+			{
+				observation,
+				targets: [{ kind: "hub", name: "desktop", state: "up", port: 4111 }],
+			},
+			now,
+			null,
+			null,
+			{
+				hubRoutes: [
+					{
+						name: "desktop",
+						models: ["openrouter/vendor/model:free"],
+						providerHosts: ["127.0.0.1"],
+						providerHostsByModel: {
+							"openrouter/vendor/model:free": ["127.0.0.1"],
+						},
+						providerIntents: ["openrouter"],
+					},
+				],
+			},
+		);
+		expect(model.hubs[0]?.providerKeys).toContain("openrouter");
+		expect(model.hubs[0]?.providerCounts.openrouter).toBe(1);
+	});
 	test("joins configured console links and observed local Work Graph counts", () => {
 		const model = buildTopology(
 			{},

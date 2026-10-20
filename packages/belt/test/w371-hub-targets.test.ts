@@ -5,6 +5,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	snapshotFromCatalog,
+	writeFreeSnapshot,
+} from "../../suspenders/deploy/openrouter-free.ts";
 import { hubConsoleLinks, hubGatewayRoutes, hubTargets } from "../bin/hubs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w371t-"));
@@ -78,6 +82,43 @@ describe("hubTargets heal wiring", () => {
 				providerHostsByModel: {},
 			},
 		]);
+	});
+	test("fresh generated OpenRouter routes appear in the hub, then disappear when stale", () => {
+		const snapshotPath = join(dir, "openrouter-free.json");
+		const snapshot = snapshotFromCatalog({
+			data: [
+				{
+					id: "vendor/model:free",
+					architecture: {
+						input_modalities: ["text"],
+						output_modalities: ["text"],
+					},
+					pricing: { prompt: "0", completion: "0" },
+				},
+			],
+		});
+		writeFreeSnapshot(snapshotPath, snapshot);
+		writeFileSync(
+			stackPath,
+			STACK.replace(
+				"    upstreams:\n",
+				`    buckle_prefs:\n      allow_cloud: true\n    secrets:\n      upstream_keys:\n        LITELLM_KEY: /tmp/litellm.key\n    upstreams:\n      openrouter_free_catalog_file: ${snapshotPath}\n`,
+			),
+		);
+		try {
+			const fresh = hubGatewayRoutes()[0];
+			expect(fresh?.models).toContain("openrouter/vendor/model:free");
+			expect(fresh?.routeCount).toBe(4);
+			writeFileSync(
+				snapshotPath,
+				JSON.stringify({ ...snapshot, generated_at: "2020-01-01T00:00:00Z" }),
+			);
+			const stale = hubGatewayRoutes()[0];
+			expect(stale?.models).toEqual(["sample-model"]);
+			expect(stale?.routeCount).toBe(3);
+		} finally {
+			writeFileSync(stackPath, STACK);
+		}
 	});
 	test("stack console URL joins the registered hub without using the probe URL", () => {
 		expect(hubConsoleLinks()).toEqual([
