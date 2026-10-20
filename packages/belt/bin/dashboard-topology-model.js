@@ -132,6 +132,23 @@ const providerKey = (host) => {
 	return value || "unknown provider";
 };
 
+const unknownCost = { status: "unknown", source: null, fetchedAt: null };
+const priceForModel = (access, provider, id, now) => {
+	const catalog =
+		provider === "openrouter" ? access?.openrouter : access?.zaiPricing;
+	const readyState =
+		provider === "openrouter" ? "catalog reachable" : "pricing reachable";
+	if (
+		catalog?.state !== readyState ||
+		!isFresh(catalog.fetchedAt, now, 60 * 60_000)
+	)
+		return unknownCost;
+	const model = catalog.models?.find((row) => row.id === id);
+	return model
+		? { ...model.price, source: catalog.source, fetchedAt: catalog.fetchedAt }
+		: unknownCost;
+};
+
 /** Add Buckle observations to Belt's probe inventory without treating a
  * routed request as a current health probe or inventing an upstream hop. */
 export function addNetworkEvidence(machines, payload, now = Date.now()) {
@@ -287,6 +304,17 @@ export function buildTopology(
 		const key = String(item.name).toLowerCase();
 		const routes = hubRoutes.get(key);
 		const providerCounts = {};
+		const gatewayModelCosts = {};
+		for (const model of routes?.models ?? []) {
+			gatewayModelCosts[model] = model.startsWith("openrouter/")
+				? priceForModel(
+						access,
+						"openrouter",
+						model.slice("openrouter/".length),
+						now,
+					)
+				: unknownCost;
+		}
 		const configuredProviders = new Set(
 			(routes?.providerHosts ?? []).map(providerKey),
 		);
@@ -308,6 +336,7 @@ export function buildTopology(
 						gatewayRouteCount: routes.routeCount ?? routes.models.length,
 						gatewayUnresolvedRoutes: routes.unresolvedRoutes ?? [],
 						gatewayModelAliases: routes.routesByModel ?? {},
+						gatewayModelCosts,
 						providerIntents: routes.providerIntents ?? [],
 						gatewayModelTargets: routes.providerHostsByModel ?? {},
 						providerKeys: [...configuredProviders],

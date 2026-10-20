@@ -32,6 +32,22 @@ const localTime = (value) => {
 const measure = (value) =>
 	Number.isFinite(value) ? value.toLocaleString("en-US") : "unreported";
 
+const costCaption = (price) => {
+	if (price?.status === "free") return "FREE";
+	if (
+		price?.status === "priced" &&
+		Number.isFinite(price.inputUsdPerMillion) &&
+		Number.isFinite(price.outputUsdPerMillion)
+	)
+		return `$${price.inputUsdPerMillion} / $${price.outputUsdPerMillion}`;
+	if (price?.status === "included-unreported") return "included · rate n/a";
+	if (price?.status === "local-unpriced") return "local · rate n/a";
+	return "price unknown";
+};
+
+const costDetail = (price) =>
+	`${costCaption(price)}${price?.status === "priced" ? " USD per 1M input / output tokens" : ""}${price?.source ? ` · source: ${price.source}` : ""}${price?.fetchedAt ? ` · fetched ${localTime(price.fetchedAt)}` : ""}`;
+
 const age = (value) => {
 	const elapsed = Date.now() - Date.parse(value);
 	if (!Number.isFinite(elapsed) || elapsed < 0) return "unknown";
@@ -269,6 +285,7 @@ class BeltTopology extends LitElement {
 		gatewayModelAliases = {},
 		gatewayRouteCount = 0,
 		gatewayUnresolvedRoutes = [],
+		gatewayModelCosts = {},
 	) {
 		const exposed = hubKey
 			? [
@@ -279,6 +296,7 @@ class BeltTopology extends LitElement {
 						routes: gatewayModelAliases[name] ?? [],
 						state: "unknown",
 						usage15: null,
+						price: gatewayModelCosts[name],
 					})),
 					...models.map((item) => ({
 						name: item.model,
@@ -320,10 +338,10 @@ class BeltTopology extends LitElement {
 								const row = Math.floor(index / 2);
 								const itemX = x + 23 + column * 124;
 								const itemY = y + 125 + row * 40;
-								return svg`<g><title>${item.name} · ${item.source}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}${item.routes.length ? ` · Buckle routes: ${item.routes.join(", ")}` : ""}</title>
+								return svg`<g><title>${item.name} · ${item.source} · ${costDetail(item.price)}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}${item.routes.length ? ` · Buckle routes: ${item.routes.join(", ")}` : ""}</title>
 						<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 						<text class="title" x=${itemX + 9} y=${itemY + 4}>${this.shortModel(item.name, 16)}</text>
-						<text class="meta" x=${itemX + 9} y=${itemY + 18}>${item.source}</text>
+					<text class="meta" x=${itemX + 9} y=${itemY + 18}>${this.shortModel(costCaption(item.price), 19)}</text>
 					</g>`;
 							})
 						: svg`<text class="meta" x=${x + 23} y=${y + 132}>No model inventory reported</text>`
@@ -339,7 +357,7 @@ class BeltTopology extends LitElement {
 			</g>`
 					: svg`
 			<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
-			<text class="title" x=${x + 23} y=${y + 102}>${local ? "Belt local models" : "Reported models"} · ${models.length}</text>
+			<text class="title" x=${x + 23} y=${y + 102}>${local ? "Belt local models" : "Reported models"} · ${models.length}${local ? " · API rate n/a" : ""}</text>
 			${
 				models.length
 					? models.map((item, index) => {
@@ -347,7 +365,7 @@ class BeltTopology extends LitElement {
 							const row = local ? Math.floor(index / 2) : index;
 							const itemX = x + 21 + column * 176;
 							const itemY = y + 125 + row * (local ? 41 : 35);
-							return svg`<g><title>${item.model}</title>
+							return svg`<g><title>${item.model} · ${local ? "locally run; no posted API token rate" : "price unknown; probe origin unverified"}</title>
 								<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 								<text class="title" x=${itemX + 10} y=${itemY + 4}>${local ? `${item.port === 8912 ? "Kev" : item.role} · ${item.label}` : this.shortModel(item.model, 23)}</text>
 								<text class="meta endpoint" x=${itemX + 10} y=${itemY + 18}>${local ? this.shortModel(item.model, 20) : "source unverified"}</text>
@@ -696,7 +714,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes))}
+		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,

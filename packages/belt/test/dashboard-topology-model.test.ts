@@ -235,6 +235,24 @@ describe("Belt topology", () => {
 		);
 	});
 	test("identifies an OpenRouter hub route through LiteLLM by its model ID", () => {
+		const access = {
+			openrouter: {
+				state: "catalog reachable",
+				source: "https://openrouter.ai/api/v1/models",
+				fetchedAt: new Date(now).toISOString(),
+				models: [
+					{
+						id: "vendor/model:free",
+						price: {
+							status: "free",
+							inputUsdPerMillion: 0,
+							outputUsdPerMillion: 0,
+							requestUsd: 0,
+						},
+					},
+				],
+			},
+		};
 		const model = buildTopology(
 			{},
 			{},
@@ -244,7 +262,7 @@ describe("Belt topology", () => {
 			},
 			now,
 			null,
-			null,
+			access,
 			{
 				hubRoutes: [
 					{
@@ -261,6 +279,12 @@ describe("Belt topology", () => {
 		);
 		expect(model.hubs[0]?.providerKeys).toContain("openrouter");
 		expect(model.hubs[0]?.providerCounts.openrouter).toBe(1);
+		expect(
+			model.hubs[0]?.gatewayModelCosts["openrouter/vendor/model:free"],
+		).toMatchObject({
+			status: "free",
+			source: "https://openrouter.ai/api/v1/models",
+		});
 	});
 	test("joins configured console links and observed local Work Graph counts", () => {
 		const model = buildTopology(
