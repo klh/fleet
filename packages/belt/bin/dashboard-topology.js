@@ -266,6 +266,9 @@ class BeltTopology extends LitElement {
 		gatewayModels = null,
 		gatewayModelTargets = {},
 		hubKey = null,
+		gatewayModelAliases = {},
+		gatewayRouteCount = 0,
+		gatewayUnresolvedRoutes = [],
 	) {
 		const exposed = hubKey
 			? [
@@ -273,6 +276,7 @@ class BeltTopology extends LitElement {
 						name,
 						source: this.targetHint(gatewayModelTargets[name]),
 						targets: gatewayModelTargets[name] ?? [],
+						routes: gatewayModelAliases[name] ?? [],
 						state: "unknown",
 						usage15: null,
 					})),
@@ -280,6 +284,7 @@ class BeltTopology extends LitElement {
 						name: item.model,
 						source: "probe · origin unknown",
 						targets: [],
+						routes: [],
 						state: item.state,
 						usage15: Number.isFinite(item.requests15) ? item.requests15 : null,
 					})),
@@ -307,7 +312,7 @@ class BeltTopology extends LitElement {
 				hubKey
 					? svg`<g>
 				<rect class="belt" x=${x + 12} y=${y + 86} width=${width - 24} height="22" rx="2"></rect>
-				<text class="title" x=${x + 23} y=${y + 102}>Models exposed · ${exposed.length}</text>
+				<g><title>${gatewayRouteCount} configured Buckle routes${gatewayUnresolvedRoutes.length ? ` · no model ID: ${gatewayUnresolvedRoutes.join(", ")}` : ""}. Target models are configured, not verified live.</title><text class="title" x=${x + 23} y=${y + 102}>Configured target models · ${exposed.length}</text></g>
 				${
 					visible.length
 						? visible.map((item, index) => {
@@ -315,7 +320,7 @@ class BeltTopology extends LitElement {
 								const row = Math.floor(index / 2);
 								const itemX = x + 23 + column * 124;
 								const itemY = y + 125 + row * 40;
-								return svg`<g><title>${item.name} · ${item.source}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}</title>
+								return svg`<g><title>${item.name} · ${item.source}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}${item.routes.length ? ` · Buckle routes: ${item.routes.join(", ")}` : ""}</title>
 						<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 						<text class="title" x=${itemX + 9} y=${itemY + 4}>${this.shortModel(item.name, 16)}</text>
 						<text class="meta" x=${itemX + 9} y=${itemY + 18}>${item.source}</text>
@@ -369,7 +374,9 @@ class BeltTopology extends LitElement {
 		const status = Number.isFinite(link?.requests15)
 			? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
 			: item.state === "unconfigured"
-				? "Direct API key not configured"
+				? viaHub
+					? "Hub route configured · provider key missing"
+					: "Direct API key not configured"
 				: viaHub
 					? "Provider upstream · gateway path configured"
 					: item.kind === "copilot"
@@ -593,20 +600,32 @@ class BeltTopology extends LitElement {
 							: 150,
 				models: remoteModels,
 			};
-			hubY += card.height + 12;
+			const pairedProviders = clouds.filter(
+				(provider) => hubForProvider(provider.key)?.name === item.name,
+			);
+			hubY += Math.max(card.height, pairedProviders.length * 94 - 8) + 12;
 			return card;
 		});
 		const localHeight = Math.max(198, 168 + Math.ceil(models.length / 2) * 41);
-		const height = Math.max(
-			440,
-			65 + localHeight,
-			hubY,
-			65 + clouds.length * 94,
-		);
-		const cloudCards = clouds.map((item, index) => ({
-			...item,
-			y: 65 + index * 94,
-		}));
+		let unpairedY = hubY;
+		const cloudCards = clouds.map((item) => {
+			const pairedHub = hubCards.find(
+				(hub) => hubForProvider(item.key)?.name === hub.name,
+			);
+			if (pairedHub) {
+				const preceding = clouds.filter(
+					(provider) =>
+						provider.key !== item.key &&
+						clouds.indexOf(provider) < clouds.indexOf(item) &&
+						hubForProvider(provider.key)?.name === pairedHub.name,
+				).length;
+				return { ...item, y: pairedHub.y + preceding * 94 };
+			}
+			const card = { ...item, y: unpairedY };
+			unpairedY += 94;
+			return card;
+		});
+		const height = Math.max(440, 65 + localHeight, hubY, unpairedY);
 		const traffic = data?.gatewayTraffic;
 		const audit = data?.audit15;
 		const tokenRate =
@@ -664,7 +683,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name))}
+		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,

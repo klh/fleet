@@ -32,6 +32,11 @@ hubs:
         sample-model:
           - url: https://models.example.org
             model: sample-model
+        alternate-route:
+          - url: https://models.example.org
+            model: sample-model
+        unspecified-route:
+          - url: http://127.0.0.1:8902
 `;
 
 writeFileSync(stackPath, STACK);
@@ -52,12 +57,20 @@ describe("hubTargets heal wiring", () => {
 			{
 				name: "nas",
 				models: ["sample-model"],
+				routeCount: 3,
+				unresolvedRoutes: ["unspecified-route"],
+				routesByModel: {
+					"sample-model": ["sample-model", "alternate-route"],
+				},
 				providerHosts: ["models.example.org"],
 				providerHostsByModel: { "sample-model": ["models.example.org"] },
 			},
 			{
 				name: "DECOY",
 				models: [],
+				routeCount: 0,
+				unresolvedRoutes: [],
+				routesByModel: {},
 				providerHosts: [],
 				providerHostsByModel: {},
 			},

@@ -128,6 +128,7 @@ const providerKey = (host) => {
 	if (value.endsWith("z.ai")) return "zai";
 	if (value.endsWith("openai.com")) return "openai";
 	if (value.endsWith("anthropic.com")) return "anthropic";
+	if (value.endsWith("openrouter.ai")) return "openrouter";
 	return value || "unknown provider";
 };
 
@@ -296,6 +297,9 @@ export function buildTopology(
 			...(routes?.models?.length
 				? {
 						gatewayModels: routes.models,
+						gatewayRouteCount: routes.routeCount ?? routes.models.length,
+						gatewayUnresolvedRoutes: routes.unresolvedRoutes ?? [],
+						gatewayModelAliases: routes.routesByModel ?? {},
 						gatewayModelTargets: routes.providerHostsByModel ?? {},
 						providerKeys: (routes.providerHosts ?? []).map(providerKey),
 						providerCounts,
