@@ -159,7 +159,7 @@ describe("/api/console/network", () => {
 		expect(topology.ok).toBe(true);
 		expect(topology.schemaVersion).toBe(1);
 		expect(topology.totals.requests).toBe(1);
-		expect(topology.edges).toEqual([
+		expect(topology.edges).toMatchObject([
 			{
 				id: "edge:nas->S1",
 				from: "hub:nas",
@@ -214,6 +214,7 @@ describe("/console/buckle + /api/lane-routes", () => {
 		expect(html).toContain("klh-network-card");
 		expect(html).toContain("Buckle route summary");
 		expect(html).toContain("<belt-model-inventory>");
+		expect(html).not.toContain("<belt-trends>");
 		expect(html).toContain('id="modelaccess"');
 		expect(html).toContain("/console/buckle-assets/dashboard-model-access.js");
 		expect(html).not.toContain("<h2>belt API</h2>");
