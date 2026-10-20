@@ -647,6 +647,7 @@ function tickAccess(){
   fetch('/api/model-access').then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(s){
     var box=document.getElementById('modelaccess');
     var c=s.copilot||{};var models=c.models||[];
+    var o=s.openrouter||{};var routerModels=o.models||[];
     box.replaceChildren();
     var seats=document.createElement('div');seats.className='access-seats';
     ['IKEA Copilot · '+(c.state||'unobserved')+' · '+models.length+' selectable models',
@@ -656,6 +657,40 @@ function tickAccess(){
     });
     box.append(seats);
     if(c.reason){var error=document.createElement('p');error.textContent='Copilot catalog: '+c.reason;box.append(error);}
+    var note=document.createElement('p');
+    note.textContent='Copilot models: subscription access; per-token price unreported. Local models: no posted API token price. These are not zero-cost claims.';
+    box.append(note);
+    function usd(value){
+      if(value===null||value===undefined)return 'unreported';
+      return '$'+Number(value).toLocaleString(undefined,{maximumFractionDigits:4});
+    }
+    function rate(price){
+      if(!price||price.status==='unknown')return 'token price unreported';
+      if(price.status==='included-unreported')return 'subscription access · token price unreported';
+      if(price.status==='local-unpriced')return 'local runtime · no posted API token price';
+      if(price.status==='free')return 'FREE · $0 in / $0 out per 1M tokens';
+      return usd(price.inputUsdPerMillion)+' in / '+usd(price.outputUsdPerMillion)+' out per 1M tokens'
+        +(price.requestUsd>0?' · '+usd(price.requestUsd)+' per request':'');
+    }
+    var catalog=document.createElement('p');
+    catalog.textContent='OpenRouter public catalog · '+(o.state||'unavailable')
+      +' · checked '+(o.fetchedAt?dual(o.fetchedAt):'never')
+      +(o.reason?' · '+o.reason:'')+'. Rates apply only when routed through OpenRouter.';
+    box.append(catalog);
+    [
+      ['FREE',routerModels.filter(function(m){return m.price?.status==='free';})],
+      ['Priced or unreported',routerModels.filter(function(m){return m.price?.status!=='free';})]
+    ].forEach(function(section){
+      var group=document.createElement('details');group.className='access-vendor';
+      var heading=document.createElement('summary');
+      heading.textContent='OpenRouter '+section[0]+' · '+section[1].length+' models';group.append(heading);
+      var table=document.createElement('table');
+      section[1].forEach(function(m){
+        var row=document.createElement('tr');var name=document.createElement('td');var price=document.createElement('td');
+        name.textContent=m.name+' · '+m.id;price.textContent=rate(m.price);row.append(name,price);table.append(row);
+      });
+      group.append(table);box.append(group);
+    });
     var byVendor={};models.forEach(function(m){(byVendor[m.vendor]||(byVendor[m.vendor]=[])).push(m);});
     Object.keys(byVendor).sort().forEach(function(v){
       var group=document.createElement('details');group.className='access-vendor';
@@ -667,7 +702,7 @@ function tickAccess(){
         name.textContent=m.name;
         var responseOnly=m.endpoints.includes('/responses')&&!m.endpoints.includes('/chat/completions')&&!m.endpoints.includes('/v1/messages');
         var via=m.routes?.length?m.routes.map(function(route){return 'local/Copilot/'+route;}).join(', '):responseOnly?'Copilot CLI · Buckle Responses needed':'Copilot CLI · Buckle route not configured';
-        access.textContent=via;row.append(name,access);table.append(row);
+        access.textContent=via+' · '+rate(m.price);row.append(name,access);table.append(row);
       });
       group.append(table);box.append(group);
     });
