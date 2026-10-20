@@ -118,7 +118,15 @@ describe("topologySnapshot", () => {
 				);
 				expect(
 					result.edges.every(
-						(edge) => edge.requests === 1 && edge.evidence === "trace",
+						(edge) =>
+							edge.requests === 1 &&
+							edge.failed === 0 &&
+							edge.active === 0 &&
+							edge.inputTokens === null &&
+							edge.outputTokens === null &&
+							edge.coverage.source === "projection" &&
+							edge.coverage.usageBearingRequests === 0 &&
+							edge.evidence === "trace",
 					),
 				).toBe(true);
 				expect(result.coverage.observedHops).toBe(hubs.length);
@@ -160,7 +168,78 @@ describe("topologySnapshot", () => {
 				to: "target:hub:127.0.0.1:4301",
 				evidence: "ledger",
 				requests: 1,
+				failed: 0,
+				active: 0,
+				inputTokens: 10,
+				outputTokens: 2,
+				coverage: {
+					source: "local-origin-ledger",
+					usageBearingRequests: 1,
+				},
 			});
+		} finally {
+			rmSync(f.dir, { recursive: true, force: true });
+		}
+	});
+
+	test("failed ledger target routes expose measured failures without inventing token usage", () => {
+		const f = fixture(["mac"]);
+		try {
+			const db = new Database(f.ledger);
+			db.query(
+				"UPDATE route_audit SET target_kind = ?, target_host = ?, target_port = ?, ok = 0, in_tok = NULL, out_tok = NULL WHERE hop = 'origin'",
+			).run("hub", "127.0.0.1", 4301);
+			db.close();
+			const result = topologySnapshot(
+				{ ledger: f.ledger },
+				() => instant,
+				"mac",
+			);
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.edges[0]).toMatchObject({
+				requests: 1,
+				failed: 1,
+				active: 0,
+				inputTokens: null,
+				outputTokens: null,
+				coverage: {
+					source: "local-origin-ledger",
+					usageBearingRequests: 0,
+				},
+			});
+		} finally {
+			rmSync(f.dir, { recursive: true, force: true });
+		}
+	});
+
+	test("projection edges report failed and active requests from observed hop state", () => {
+		const f = fixture(["mac", "z"]);
+		try {
+			const db = new Database(f.obsDb);
+			db.query(
+				"UPDATE request_edges SET outcome = 'errored' WHERE source LIKE 'buckle://z/%'",
+			).run();
+			db.close();
+			const failed = topologySnapshot(f, () => instant);
+			expect(failed.ok).toBe(true);
+			if (!failed.ok) return;
+			expect(failed.edges[0]).toMatchObject({
+				failed: 1,
+				active: 0,
+				inputTokens: null,
+			});
+			const db2 = new Database(f.obsDb);
+			db2
+				.query(
+					"UPDATE request_edges SET ended_at = NULL, outcome = NULL WHERE source LIKE 'buckle://z/%'",
+				)
+				.run();
+			db2.close();
+			const active = topologySnapshot(f, () => instant);
+			expect(active.ok).toBe(true);
+			if (!active.ok) return;
+			expect(active.edges[0]).toMatchObject({ failed: 0, active: 1 });
 		} finally {
 			rmSync(f.dir, { recursive: true, force: true });
 		}
