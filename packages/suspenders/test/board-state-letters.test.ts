@@ -12,34 +12,34 @@ import { HTML } from "../hooks/bin/fleet-board-html.ts";
 // drive the shipped CORE bytes; the chunk is self-contained at def time
 // (top-level var/function declarations only)
 const chunk = new Function(
-	`${CORE}\nreturn { taskPill, stateHue, stLetter };`,
+	`${CORE}\nreturn { taskPill, stateHue, stLetter, workTone };`,
 )();
 
 describe("state letters (W891) — taskPill", () => {
 	test("READY → R blue (info token)", () => {
 		expect(chunk.taskPill("READY")).toBe(
-			'<span class="pill ready"><b class="stl info">R</b>ready</span>',
+			'<span class="pill ready" data-tone="ready"><b class="stl info">R</b>ready</span>',
 		);
 	});
 
 	test("FAILED → F red (danger token)", () => {
 		expect(chunk.taskPill("FAILED")).toBe(
-			'<span class="pill block"><b class="stl danger">F</b>failed</span>',
+			'<span class="pill fail" data-tone="failed"><b class="stl danger">F</b>failed</span>',
 		);
 	});
 
 	test("DONE → D green (ok token)", () => {
 		expect(chunk.taskPill("DONE")).toBe(
-			'<span class="pill done"><b class="stl ok">D</b>done</span>',
+			'<span class="pill done" data-tone="done"><b class="stl ok">D</b>done</span>',
 		);
 	});
 
 	test("CLAIMED/RUNNING → raw word, C/R accent", () => {
 		expect(chunk.taskPill("CLAIMED")).toBe(
-			'<span class="pill run"><b class="stl accent">C</b>claimed</span>',
+			'<span class="pill run" data-tone="working"><b class="stl accent">C</b>claimed</span>',
 		);
 		expect(chunk.taskPill("RUNNING")).toBe(
-			'<span class="pill run"><b class="stl accent">R</b>running</span>',
+			'<span class="pill run" data-tone="working"><b class="stl accent">R</b>running</span>',
 		);
 	});
 
@@ -54,8 +54,19 @@ describe("state letters (W891) — taskPill", () => {
 
 	test("null state → ? dim, never throws", () => {
 		expect(chunk.taskPill(null)).toBe(
-			'<span class="pill ready"><b class="stl dim">?</b>?</span>',
+			'<span class="pill ready" data-tone="ready"><b class="stl dim">?</b>?</span>',
 		);
+	});
+
+	test("work states keep six distinct semantic tones and split label", () => {
+		expect(
+			["READY", "CLAIMED", "BLOCKED", "FAILED", "DONE", "SHATTERED"].map(
+				chunk.workTone,
+			),
+		).toEqual(["ready", "working", "blocked", "failed", "done", "split"]);
+		expect(chunk.taskPill("SHATTERED")).toContain('data-tone="split"');
+		expect(chunk.taskPill("SHATTERED")).toContain("split</span>");
+		expect(chunk.workTone('READY" onmouseover="x')).toBe("ready");
 	});
 });
 

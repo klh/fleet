@@ -5,6 +5,7 @@
 // the payload side is covered live (itemAttribution in lane-spend.test.ts).
 import { describe, expect, test } from "bun:test";
 import { TASKS } from "../hooks/board-html/tasks.ts";
+import { CORE } from "../hooks/board-html/core.ts";
 
 // mirrors of the shared chunk helpers (core.ts) — passed INTO the sandbox so
 // no helper source is quoted inside this file
@@ -26,6 +27,9 @@ const esc = (s: unknown): string =>
 const taskPill = (state: unknown): string =>
 	`<span class="pill ${String(state).toLowerCase()}">${esc(state)}</span>`;
 const agoShort = (s: unknown): string => `${s || 0}s`;
+const workTone = new Function(`${CORE}\nreturn workTone;`)() as (
+	state: string,
+) => string;
 
 type Item = Record<string, unknown>;
 
@@ -39,10 +43,11 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"workTone",
 		"window",
 		`${TASKS}\nreturn { taskRow, taskTreeHtml, kanbanCard, laneStamp };`,
 	);
-	return fn(esc, taskPill, agoShort, {
+	return fn(esc, taskPill, agoShort, workTone, {
 		__execPrefs: [],
 		addEventListener: () => {},
 	});

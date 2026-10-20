@@ -337,6 +337,7 @@ function ensureKstatusNav(){
     var button = document.createElement('button');
     button.type = 'button';
     button.setAttribute('data-kcol', String(i));
+    button.setAttribute('data-tone', workTone(KCOLS[i].states[0]));
     button.textContent = KCOLS[i].label;
     nav.appendChild(button);
   }
@@ -476,6 +477,7 @@ function execOptions(pick){
 }
 function kanbanCard(t, fam){
   var od = t.open_decisions || 0;
+  var tone = workTone(displayState(t));
   var startable = displayState(t) === 'READY' && !t.owner_sid;
   var active = (t.state === 'CLAIMED' || t.state === 'RUNNING') && t.owner_sid;
   var kid = fam && fam.nested[String(t.id)];
@@ -484,7 +486,7 @@ function kanbanCard(t, fam){
     if (kid.c) kidStyle += '--prefer:' + esc(kid.c) + ';';
     kidStyle += 'margin-left:' + (Math.min(kid.d, 2) * 14) + 'px';
   }
-  var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
+  var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-tone="' + tone + '" data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
   if (kid) html += '<span class="kidmark">↳</span>';
   html += '<div class="krow">' + taskPill(displayState(t)) +
     (od ? '<span class="kdec">needs you</span>' : '') +
@@ -652,7 +654,7 @@ function renderKanban(){
     var shown = col.cap ? resid.slice(0, col.cap) : resid;
     var jump = byId('kstatusnav').querySelectorAll('button')[c];
     if (jump) jump.textContent = col.label + ' ' + resid.length;
-    html += '<div class="kcol"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
+    html += '<div class="kcol" data-tone="' + workTone(col.states[0]) + '"><h3>' + esc(col.label) + '<span class="kcount">' + resid.length + '</span></h3>';
     for (var i = 0; i < shown.length; i++){
       shownAll.push(shown[i]);
       html += kanbanCard(shown[i], fam);

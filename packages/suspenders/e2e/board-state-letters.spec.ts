@@ -58,12 +58,12 @@ test("tasks table: pills carry state letters in the semantic hues", async ({
 		await expect(pills.nth(i).locator("b.stl").first()).toHaveText(/^[A-Z?]$/);
 	}
 	// the owner-named letters resolve to their tokens where the demo has
-	// them: R (READY) info, D (DONE) ok, B (BLOCKED) shares F's danger token —
+	// them: R (READY), D (DONE), B (BLOCKED) have distinct work tokens —
 	// the demo seeds no FAILED item (F/Q live in the chunk unit tests)
 	const token: Record<string, string> = {
-		R: await tokenColor(page, "--klh-info"),
-		D: await tokenColor(page, "--klh-ok-ink"),
-		B: await tokenColor(page, "--klh-danger-ink"),
+		R: await tokenColor(page, "--work-ready"),
+		D: await tokenColor(page, "--work-done"),
+		B: await tokenColor(page, "--work-blocked"),
 	};
 	for (const [letter, hex] of Object.entries(token)) {
 		const letter$ = table.locator("b.stl", { hasText: letter }).first();
@@ -75,6 +75,38 @@ test("tasks table: pills carry state letters in the semantic hues", async ({
 			.toBe(hexToRgb(hex));
 	}
 	await page.screenshot({ path: "test-results/w891-tasks-letters.png" });
+});
+
+test("board cards, columns and pills resolve state hues in both themes", async ({
+	page,
+}) => {
+	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await expect(page.locator('.kcard[data-tone="ready"]').first()).toBeVisible();
+	for (const theme of ["dark", "light"]) {
+		await page
+			.locator("html")
+			.evaluate((el, value) => el.setAttribute("data-theme", value), theme);
+		for (const tone of ["ready", "blocked", "done"]) {
+			const expected = hexToRgb(await tokenColor(page, `--work-${tone}`));
+			const card = page.locator(`.kcard[data-tone="${tone}"]`).first();
+			const col = page.locator(`.kcol[data-tone="${tone}"]`).first();
+			const pill = page.locator(`.pill[data-tone="${tone}"]`).first();
+			if (await card.count())
+				await expect
+					.poll(() =>
+						card.evaluate((el) => getComputedStyle(el).borderTopColor),
+					)
+					.toBe(expected);
+			await expect
+				.poll(() => col.evaluate((el) => getComputedStyle(el).borderTopColor))
+				.toBe(expected);
+			if (await pill.count())
+				await expect
+					.poll(() => pill.evaluate((el) => getComputedStyle(el).color))
+					.toBe(expected);
+		}
+		await page.screenshot({ path: `test-results/w998-${theme}-lanes.png` });
+	}
 });
 
 test("tasks filters use the shared project scope and retain column sorting", async ({

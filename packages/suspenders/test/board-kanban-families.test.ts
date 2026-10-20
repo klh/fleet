@@ -6,6 +6,7 @@
 // injected; page-level asserts cover the kkid CSS.
 import { describe, expect, test } from "bun:test";
 import { HTML } from "../hooks/bin/fleet-board-html.ts";
+import { CORE } from "../hooks/board-html/core.ts";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 
 type Item = Record<string, unknown>;
@@ -31,6 +32,9 @@ const esc = (s: unknown): string =>
 const taskPill = (state: unknown): string =>
 	`<span class="pill ${String(state).toLowerCase()}">${esc(state)}</span>`;
 const agoShort = (s: unknown): string => `${s || 0}s`;
+const workTone = new Function(`${CORE}\nreturn workTone;`)() as (
+	state: string,
+) => string;
 
 function chunkSandbox(): {
 	kanbanFamilies: (pool: Item[]) => {
@@ -44,11 +48,12 @@ function chunkSandbox(): {
 		"esc",
 		"taskPill",
 		"agoShort",
+		"workTone",
 		"laneStamp",
 		"window",
 		`${TASKS}\nreturn { kanbanFamilies, kanbanCard, displayState };`,
 	);
-	return fn(esc, taskPill, agoShort, (s: string) => s, {
+	return fn(esc, taskPill, agoShort, workTone, (s: string) => s, {
 		__execPrefs: [],
 		addEventListener: () => {},
 	});
@@ -176,12 +181,12 @@ describe("board kanban shattered families (W819)", () => {
 		const fam = kanbanFamilies([parent, kid]);
 		const card = kanbanCard(kid, fam);
 		expect(card).toContain(
-			'<div class="kcard kkid" style="--prefer:#0058A3;margin-left:14px" data-kid="W1.1"',
+			'<div class="kcard kkid" style="--prefer:#0058A3;margin-left:14px" data-tone="ready" data-kid="W1.1"',
 		);
 		expect(card).toContain('<span class="kidmark">↳</span>');
 		// non-kid path keeps the W812 byte contract
 		expect(kanbanCard(parent, fam)).toContain(
-			'<div class="kcard" style="--prefer:#0058A3" data-kid="W1"',
+			'<div class="kcard" style="--prefer:#0058A3" data-tone="split" data-kid="W1"',
 		);
 		// depth indent caps at two levels
 		const grand = { project: P, id: "W1.1.1", state: "READY", age_s: 1 };
