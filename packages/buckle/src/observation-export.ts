@@ -10,6 +10,8 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 
 export interface ObservationExport {
 	events: Observation[];
+	/** First retained event identifies the projection generation after reset. */
+	generation: string | null;
 	nextCursor: number;
 	maxCursor: number;
 	hasMore: boolean;
@@ -27,6 +29,12 @@ export function exportObservations(
 	if (!existsSync(path)) throw new Error("Observation projection unavailable");
 	const db = new Database(path, { readonly: true });
 	try {
+		const first = db
+			.query("SELECT source, id, time FROM obs_events ORDER BY rowid LIMIT 1")
+			.get() as { source: string; id: string; time: string } | null;
+		const generation = first
+			? `${first.source}/${first.id}/${first.time}`
+			: null;
 		const maxCursor =
 			(
 				db.query("SELECT MAX(rowid) AS value FROM obs_events").get() as {
@@ -67,6 +75,7 @@ export function exportObservations(
 		}
 		return {
 			events,
+			generation,
 			nextCursor,
 			maxCursor,
 			hasMore: rows.length > limit,

@@ -1,6 +1,8 @@
 // W1020: pull authenticated, bounded pages of exact Buckle observations from
 // remote hubs into the Mac projection. Billing stays in each hub's ledger;
 // this is topology evidence only. A duplicate source+id is harmless.
+
+import { Database } from "bun:sqlite";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { resolveNetworkDbPaths } from "../../../buckle/src/network-read-model.ts";
@@ -21,6 +23,7 @@ export interface BuckleObservationPeer {
 export interface BuckleObservationPeerState {
 	peer: BuckleObservationPeer;
 	cursor: number;
+	generation: string | null;
 	lastSuccessAt: number | null;
 	lastError: string | null;
 	applied: number;
@@ -190,6 +193,7 @@ export async function pullBuckleObservationPage(
 	if (
 		!Array.isArray(payload.events) ||
 		payload.events.length > 64 ||
+		!(payload.generation === null || typeof payload.generation === "string") ||
 		!Number.isSafeInteger(payload.nextCursor) ||
 		!Number.isSafeInteger(payload.maxCursor) ||
 		typeof payload.hasMore !== "boolean" ||
@@ -198,6 +202,12 @@ export async function pullBuckleObservationPage(
 		throw new Error("Invalid hub observation page");
 	const nextCursor = payload.nextCursor as number;
 	const maxCursor = payload.maxCursor as number;
+	const generation = payload.generation as string | null;
+	if (state.generation !== null && state.generation !== generation) {
+		state.cursor = 0;
+		state.generation = generation;
+		return true;
+	}
 	if (
 		nextCursor < 0 ||
 		maxCursor < 0 ||
@@ -207,6 +217,7 @@ export async function pullBuckleObservationPage(
 		throw new Error("Invalid hub observation cursor");
 	state.applied += projection.ingest(payload.events as Observation[]);
 	state.cursor = nextCursor;
+	state.generation = generation;
 	state.lastSuccessAt = Date.now();
 	state.lastError = null;
 	return payload.hasMore as boolean;
@@ -214,6 +225,7 @@ export async function pullBuckleObservationPage(
 
 export function startBuckleObservationRelay(
 	env: Record<string, string | undefined> = process.env,
+	request: typeof fetch = fetch,
 ): { stop(): void; states: BuckleObservationPeerState[] } {
 	const peers = env.KLH_BUCKLE_OBSERVATION_PEERS
 		? readBuckleObservationPeers(env.KLH_BUCKLE_OBSERVATION_PEERS)
@@ -224,10 +236,35 @@ export function startBuckleObservationRelay(
 	const states: BuckleObservationPeerState[] = peers.map((peer) => ({
 		peer,
 		cursor: 0,
+		generation: null,
 		lastSuccessAt: null,
 		lastError: null,
 		applied: 0,
 	}));
+	let cursorDb: Database | null = null;
+	if (states.length && obsDb) {
+		cursorDb = new Database(obsDb, { create: true });
+		cursorDb.exec("PRAGMA journal_mode = WAL");
+		cursorDb.exec("PRAGMA busy_timeout = 5000");
+		cursorDb.exec(`CREATE TABLE IF NOT EXISTS buckle_relay_cursor (
+			hub_id TEXT PRIMARY KEY, url TEXT NOT NULL, generation TEXT,
+			cursor INTEGER NOT NULL)`);
+		for (const state of states) {
+			const row = cursorDb
+				.query(
+					"SELECT url, generation, cursor FROM buckle_relay_cursor WHERE hub_id = ?",
+				)
+				.get(state.peer.hubId) as {
+				url: string;
+				generation: string | null;
+				cursor: number;
+			} | null;
+			if (row?.url === state.peer.url && Number.isSafeInteger(row.cursor)) {
+				state.cursor = row.cursor;
+				state.generation = row.generation;
+			}
+		}
+	}
 	let busy = false;
 	const poll = async () => {
 		if (busy || !obsDb) return;
@@ -238,7 +275,22 @@ export function startBuckleObservationRelay(
 			for (const state of states) {
 				try {
 					for (let page = 0; page < MAX_PAGES_PER_TICK; page++) {
-						if (!(await pullBuckleObservationPage(state, projection))) break;
+						const more = await pullBuckleObservationPage(
+							state,
+							projection,
+							request,
+						);
+						cursorDb
+							?.query(`INSERT INTO buckle_relay_cursor (hub_id, url, generation, cursor)
+							VALUES (?, ?, ?, ?) ON CONFLICT(hub_id) DO UPDATE SET
+							url = excluded.url, generation = excluded.generation, cursor = excluded.cursor`)
+							.run(
+								state.peer.hubId,
+								state.peer.url,
+								state.generation,
+								state.cursor,
+							);
+						if (!more) break;
 					}
 				} catch (error) {
 					state.lastError =
@@ -253,5 +305,11 @@ export function startBuckleObservationRelay(
 	if (states.length) void poll();
 	const timer = setInterval(() => void poll(), POLL_MS);
 	timer.unref();
-	return { stop: () => clearInterval(timer), states };
+	return {
+		stop: () => {
+			clearInterval(timer);
+			cursorDb?.close();
+		},
+		states,
+	};
 }

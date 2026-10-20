@@ -10,6 +10,7 @@ import {
 	peersFromStack,
 	pullBuckleObservationPage,
 	readBuckleObservationPeers,
+	startBuckleObservationRelay,
 } from "../hooks/board/buckle-observation-relay.ts";
 
 const dirs: string[] = [];
@@ -26,6 +27,7 @@ function rig() {
 	const state: BuckleObservationPeerState = {
 		peer: { hubId: "desktop", url: "http://127.0.0.1:4111", tokenFile },
 		cursor: 0,
+		generation: null,
 		lastSuccessAt: null,
 		lastError: null,
 		applied: 0,
@@ -75,9 +77,14 @@ test("bounded hub export and relay preserve source, sequence, lane, trace and pe
 			);
 		};
 		expect(
-			await pullBuckleObservationPage(state, local, request as typeof fetch),
+			await pullBuckleObservationPage(
+				state,
+				local,
+				request as unknown as typeof fetch,
+			),
 		).toBe(false);
 		expect(state.cursor).toBe(3);
+		expect(state.generation).toBeTruthy();
 		expect(state.applied).toBe(3);
 		const edge = local.snapshot({}).edges[0];
 		expect(edge?.source).toBe("buckle://desktop/boot1");
@@ -85,7 +92,11 @@ test("bounded hub export and relay preserve source, sequence, lane, trace and pe
 		expect(edge?.origin).toBe("mac");
 		expect(edge?.peer).toBe("mac");
 		expect(edge?.traceparent).toContain("4bf92f3577b34da6a3ce929d0e0e4736");
-		await pullBuckleObservationPage(state, local, request as typeof fetch);
+		await pullBuckleObservationPage(
+			state,
+			local,
+			request as unknown as typeof fetch,
+		);
 		expect(state.applied).toBe(3);
 	} finally {
 		remote.close();
@@ -103,6 +114,7 @@ test("rejects a page whose source does not belong to the configured hub", async 
 		const request = async () =>
 			Response.json({
 				events: [forged],
+				generation: "other",
 				nextCursor: 1,
 				maxCursor: 1,
 				hasMore: false,
@@ -116,6 +128,42 @@ test("rejects a page whose source does not belong to the configured hub", async 
 		).rejects.toThrow("Invalid hub observation page");
 		expect(state.cursor).toBe(0);
 		expect(local.snapshot({}).edges).toHaveLength(0);
+	} finally {
+		remote.close();
+		local.close();
+	}
+});
+
+test("projection generation change rewinds cursor before ingest", async () => {
+	const { state, local, remote } = rig();
+	try {
+		state.cursor = 500;
+		state.generation = "old projection";
+		const request = async () =>
+			Response.json({
+				events: [event("1", "lane.request.admitted")],
+				generation: "new projection",
+				nextCursor: 1,
+				maxCursor: 1,
+				hasMore: false,
+			});
+		expect(
+			await pullBuckleObservationPage(
+				state,
+				local,
+				request as unknown as typeof fetch,
+			),
+		).toBe(true);
+		expect(state.cursor).toBe(0);
+		expect(local.snapshot({}).edges).toHaveLength(0);
+		expect(
+			await pullBuckleObservationPage(
+				state,
+				local,
+				request as unknown as typeof fetch,
+			),
+		).toBe(false);
+		expect(local.snapshot({}).edges).toHaveLength(1);
 	} finally {
 		remote.close();
 		local.close();
@@ -192,5 +240,58 @@ test("stack profiles select local Docker hubs without hardcoded names", () => {
 	} finally {
 		remote.close();
 		local.close();
+	}
+});
+
+test("relay restart resumes its durable cursor without replaying the full hub log", async () => {
+	const { dir, remote, local } = rig();
+	local.close();
+	remote.ingest([event("1", "lane.request.admitted")]);
+	remote.close();
+	const config = join(dir, "peers.json");
+	writeFileSync(
+		config,
+		JSON.stringify({
+			peers: [
+				{
+					hubId: "desktop",
+					url: "http://127.0.0.1:4111/",
+					tokenFile: join(dir, "token"),
+				},
+			],
+		}),
+		{ mode: 0o600 },
+	);
+	const env = {
+		KLH_BUCKLE_OBSERVATION_PEERS: config,
+		KLH_LANE_ROUTES_DB: join(dir, "local.db"),
+	};
+	const cursors: number[] = [];
+	const request = async (url: string | URL | Request) => {
+		const cursor = Number(new URL(String(url)).searchParams.get("cursor"));
+		cursors.push(cursor);
+		return Response.json(exportObservations(join(dir, "remote.db"), cursor));
+	};
+	const first = startBuckleObservationRelay(
+		env,
+		request as unknown as typeof fetch,
+	);
+	try {
+		for (let i = 0; i < 30 && first.states[0]?.cursor !== 1; i++)
+			await Bun.sleep(10);
+		expect(first.states[0]?.cursor).toBe(1);
+	} finally {
+		first.stop();
+	}
+	const second = startBuckleObservationRelay(
+		env,
+		request as unknown as typeof fetch,
+	);
+	try {
+		for (let i = 0; i < 30 && cursors.length < 2; i++) await Bun.sleep(10);
+		expect(cursors).toEqual([0, 1]);
+		expect(second.states[0]?.cursor).toBe(1);
+	} finally {
+		second.stop();
 	}
 });
