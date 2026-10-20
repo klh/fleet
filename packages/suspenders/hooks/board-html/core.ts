@@ -37,7 +37,7 @@ function parseHashQuery(hash){
   return { tab: safeDecode(h.slice(1, i)), params: params };
 }
 // query params this router owns; everything else warns loudly and is ignored
-var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1 };
+var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1, days: 1, weeks: 1, team: 1, dept: 1, includeDemo: 1, hour: 1, section: 1 };
 var pendingProj = ''; // ?project= seen before the scope <select> had its option
 var pendingSelect = null; // ?w= card select waiting for its kanban card to render
 function hashNeedle(){

@@ -1,9 +1,9 @@
 // e2e/board-tabs.spec.ts — W695.3.6: the board's section tabs are the
 // <klh-board-tabs> Lit component. Click → tab-select → setTab flips the
 // aria-current marker, the visible section and location.hash; a hash
-// deep-link lands on the right tab; the Usage link leaves the SPA.
+// deep-link lands on the right tab; Usage stays inside the board shell.
 import { expect, test } from "@playwright/test";
-import { startBoard, type Board } from "./harness";
+import { type Board, startBoard } from "./harness";
 
 test.describe.configure({ mode: "serial" });
 
@@ -30,7 +30,7 @@ test("tabs component drives sections, hash and aria-current", async ({
 	await page.goto(`${mustBoard().BASE}/`);
 	const tabs = page.locator("klh-board-tabs");
 	await expect(tabs).toBeVisible();
-	await expect(tabs.getByRole("button")).toHaveCount(6);
+	await expect(tabs.getByRole("button")).toHaveCount(7);
 	const cur = tabs.locator("button[aria-current]");
 	await expect(cur).toHaveText("Decisions");
 	await expect(page.locator("#tab-decisions")).toBeVisible();
@@ -52,11 +52,40 @@ test("tabs component drives sections, hash and aria-current", async ({
 	);
 	await expect(page.locator("#tab-setup")).toBeVisible();
 
-	await expect(tabs.getByRole("link", { name: "Usage" })).toHaveAttribute(
-		"href",
-		"/usage",
-	);
+	await tabs.getByRole("button", { name: "Usage" }).click();
+	await expect(page.locator("#tab-usage")).toBeVisible();
+	await expect(page).toHaveURL(/#usage$/);
+	await expect(page.locator("klh-usage-charts")).toBeVisible();
+	await expect(page.locator("#tab-usage .uplot").first()).toBeVisible();
+	await page.goBack();
+	await expect(page.locator("#tab-setup")).toBeVisible();
 	expect(errors, "uncaught page exceptions").toEqual([]);
+});
+
+test("Usage filters and old links preserve the board shell", async ({
+	page,
+}) => {
+	await page.goto(`${mustBoard().BASE}/#setup`);
+	const shell = page.locator("klh-topbar");
+	await page
+		.locator("klh-board-tabs")
+		.getByRole("button", { name: "Usage" })
+		.click();
+	await expect(
+		page.locator("klh-usage-header").getByRole("link", { name: "7d" }),
+	).toBeVisible();
+	await page
+		.locator("klh-usage-header")
+		.getByRole("link", { name: "7d" })
+		.click();
+	await expect(page).toHaveURL(/#usage\?days=7$/);
+	await expect(page.locator("klh-usage-charts")).toBeVisible();
+	await expect(shell).toBeVisible();
+	await page.goBack();
+	await expect(page).toHaveURL(/#usage$/);
+	await page.goto(`${mustBoard().BASE}/usage?days=7&team=platform#cache`);
+	await expect(page).toHaveURL(/#usage\?days=7&team=platform&section=cache$/);
+	await expect(page.locator("#tab-usage")).toBeVisible();
 });
 
 test("changing sections starts at the header after a deep scroll", async ({

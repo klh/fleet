@@ -3,6 +3,7 @@
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
 import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "../lib/theme.ts";
+import { U_CSS, UPLOT_CSS, UPLOT_SRC } from "./usage-chrome.ts";
 
 const unesc = (s) =>
 	s
@@ -32,6 +33,7 @@ import { SHIP } from "../board-html/ship.ts";
 import { TABS } from "../board-html/tabs.ts";
 import { TAIL } from "../board-html/tail.ts";
 import { TASKS } from "../board-html/tasks.ts";
+import { USAGE } from "../board-html/usage.ts";
 
 // W157: the client JS lives in hooks/board-html/*.ts as String.raw chunk
 // values interpolated into ONE outer String.raw — the same template
@@ -42,7 +44,7 @@ import { TASKS } from "../board-html/tasks.ts";
 export const HTML = unesc(String.raw`<!doctype html>
 <html><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iI2ZmZiIvPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICA8cGF0aCBkPSJNMjIgMTAgQzIzIDQgNDEgNCA0MiAxMCIvPgogICAgPHBhdGggZD0iTTIyIDEwIEw0NCA0NSBMMzkgNTUiLz4KICAgIDxwYXRoIGQ9Ik00MiAxMCBMMjAgNDUgTDI1IDU1Ii8+CiAgICA8cGF0aCBkPSJNMzIgMjcgTDMyIDQ5Ii8+CiAgPC9nPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMSIgc3Ryb2tlLXdpZHRoPSIyLjQiPgogICAgPGNpcmNsZSBjeD0iMzkiIGN5PSI1Ny4yIiByPSIyLjYiLz4KICAgIDxjaXJjbGUgY3g9IjI1IiBjeT0iNTcuMiIgcj0iMi42Ii8+CiAgICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjUxLjYiIHI9IjIuNiIvPgogIDwvZz4KPC9zdmc+Cg=="><title>FLEET BOARD</title>
 ${THEME_HEAD}
-<style>${FLEET_NAV_CSS}</style>
+<style>${FLEET_NAV_CSS}${U_CSS}${UPLOT_CSS}</style>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root, :root[data-theme="dark"] {
@@ -453,8 +455,10 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${TABS}${ORCH}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${SHIP}${TAIL}${ACTIVITY}${SETUP}${USAGE}${TABS}${ORCH}${BOOT}</script>
+<script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
 <script type="module" src="/vendor/klh-board-tabs.js"></script>
+<script type="module" src="/vendor/usage-panels.js"></script>
 <script type="module" src="/vendor/klh-ent-zone.js"></script>`);
