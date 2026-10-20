@@ -56,6 +56,28 @@ under `~/.claude/local-llm/blam/w960/runs-codex/c3621f91-e421-4cdd-be83-70dd7e28
 
 ---
 
+## Supervisor coordination regimes (W977.2, 2026-10-20; deterministic)
+
+The [supervisor coordination suite](packages/blam/bench/supervise/scenario.md)
+compares three supervisor regimes on a matched 9-item/3-supervisor work set
+(3 shared scopes = the C4 double-writer risk) under calm/pressure capacity
+and injected consult-channel delivery. Deterministic BLAM numbers — modeled
+costs, not observed LLM usage.
+
+| Regime | dup units | claim conflicts | oversub lane-min (pressure) | consult calls | consult tok | drop-all |
+| --------------------- | ---: | ---: | ---: | ---: | ---: | --- |
+| independent           |    3 | 0 (never claims) | 30 | 0  | 2,100 | unchanged (never consults) |
+| coordinated-bounded   |    0 | 0 | 0  | 9  | 1,080 | dup=0, conflicts=3, oversub returns |
+| coordinated-unbounded |    0 | 0 | 0  | 21 | 2,520 | dup=0, conflicts=3, oversub returns |
+
+The decision: bounded consult captures the whole coordination gain —
+identical outcomes to unbounded at ~half the consult volume — so the
+W977.1 supervisor contract should bound asks per decision (1 combined
+claims+capacity ask, retry budget 2). The transactional claims ledger is
+the correctness backstop when consults cannot be delivered (drop-all:
+no duplicate work survives, efficiency degrades to blind-claim
+conflicts and lost capacity compliance).
+
 ## BLAM — coordination controls (2026-10-19 rerun)
 
 The deterministic [consult](packages/blam/bench/consult/scenario.md) and
