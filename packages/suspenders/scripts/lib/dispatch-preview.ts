@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { briefIntel } from "../../hooks/lib/brief-intel.ts";
 import { projectIdentity } from "../../hooks/lib/govdb.ts";
 import { effortFromShow } from "../../hooks/lib/work-effort.ts";
+import { plaidPickOf, plaidRoutes } from "../../hooks/lib/plaid.ts";
 import { adapterFor } from "../../hooks/lib/executors/registry.ts";
 import { composeBrief } from "./brief.ts";
 import { execPick } from "./exec-chain.ts";
@@ -86,6 +87,7 @@ export const dryDispatchPreview = async (
 		attempt: number;
 		wt: string;
 		resumeSid?: string;
+		routePin?: string;
 	},
 ): Promise<string> => {
 	const { REPO, CALLER_REPO, RESUME_FROM, sh, run, workCli, capsuleGet } = d;
@@ -102,12 +104,29 @@ export const dryDispatchPreview = async (
 		console.log(
 			`NOTE — DRY: leftover worktree ${wt} sits on ${cur || "(detached)"} (expected ${expected}) — live dispatch recreates it before spawn (W349)`,
 		);
-	const pick = execPick(attempt, CALLER_REPO, cvSnapshot(), quotaSnapshot());
+	const chainPick = execPick(
+		attempt,
+		CALLER_REPO,
+		cvSnapshot(),
+		quotaSnapshot(),
+	);
+	const route = a.routePin
+		? plaidRoutes().find((r) => r.name === a.routePin)
+		: null;
+	if (a.routePin && !route)
+		throw new Error(`plaid route ${a.routePin} is not configured`);
+	const pick = route
+		? { ...chainPick, ...plaidPickOf(null, route, [route]) }
+		: chainPick;
 	// W422: the brief-verify harness + enforcement ride the executor
 	// adapter — the if copilot/else-claude ternary is registry data now.
 	const adapter = adapterFor(pick.bin);
 	console.log(`DRY dispatch ${item} → ${sid}${capsule ? " (RESUME)" : ""}`);
-	if (pick.chainLen > 1)
+	if (route)
+		console.log(
+			`DRY selected route ${route.name} (${route.label}); live health/capacity checked at launch`,
+		);
+	if (!route && pick.chainLen > 1)
 		console.log(
 			`DRY chain attempt ${pick.chainIdx}/${pick.chainLen - 1} -> ${pick.agent}${pick.fallbackModels.length ? ` (+fallback-model ${pick.fallbackModels.join(",")})` : ""}`,
 		);
