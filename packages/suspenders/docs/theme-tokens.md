@@ -202,7 +202,10 @@ popovers.
 ## Vendoring (belt and klh-local)
 
 The pre-paint script reads the origin's `klh-theme` cache immediately, then
-syncs with `https://suspenders.local/api/theme`. The board stores one
+syncs with `https://suspenders.local/api/theme` (the `.local` pages) or the
+same-origin `/api/theme` on the `http://localhost` dashboards (W997: the
+belt and bar dashboards serve it from the vendored `bin/klh-theme-sync.ts`).
+The board stores one
 machine-scoped `light`, `dark`, or `system` preference in
 `~/.cache/claude-governor/ui-theme.json` (0600). Its event stream updates
 open Belt, Bar, and Suspenders tabs; focus and page show recheck the state.
@@ -219,6 +222,13 @@ belt and klh-local run straight from copied `bin/` dirs with no
 - `klh/belt bin/klh-theme.ts` and `klh/local bin/klh-theme.ts` are
   byte-identical copies of `hooks/lib/theme.ts` (pure, no imports). Their
   install scripts already copy all of `bin/`, so the copy ships with the page.
+- `klh/belt bin/klh-theme-sync.ts` and `klh/local bin/klh-theme-sync.ts` are
+  byte-identical copies of each other (W997): the `/api/theme` +
+  `/api/theme/events` endpoint for the same-origin `http://localhost` pages,
+  with the W264 host guard inlined (canonical logic: `hooks/board/routes-theme.ts`
+  + `hooks/lib/host-guard.ts`; `KLH_THEME_HOSTS`/`KLH_THEME_STATE` are the
+  knobs). `packages/belt/test/klh-theme-sync.test.ts` pins the two copies
+  together.
 - `KLH_THEME_VERSION` names the bytes. `test/theme.test.ts` pins the sha-256
   of `theme.ts` to the version, so any edit here fails that test until the
   version is bumped and the pin updated.

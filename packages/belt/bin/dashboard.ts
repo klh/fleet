@@ -39,6 +39,7 @@ import {
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 } from "./klh-theme.ts";
+import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
 import { observation, observationFresh } from "./observation.ts";
@@ -920,6 +921,9 @@ Bun.serve({
 		const health = livenessResponse(req, "belt-dashboard");
 		if (health) return health;
 		const path = new URL(req.url).pathname;
+		// W997 — one shared theme preference: same-origin sync endpoint for the
+		// localhost pages (the .local front already syncs via suspenders.local).
+		if (isThemePath(path)) return handleTheme(req);
 		// W155.3 citizenship: OPTIONS → 204+Allow; off-method on a known path
 		// → 405+Allow. Runs before auth — introspection needs no credentials.
 		const preflight = citizenshipGate(req, ROUTES);
