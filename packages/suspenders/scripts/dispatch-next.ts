@@ -199,6 +199,7 @@ Refill agent lanes from READY work and resume unfinished claims.
   --target <N>             Desired live lane count (default: 6)
   --dry-run                Preview without launching or changing claims
   --item <Wn>              Dispatch one specific work item
+  --route <name>           Pin a plaid route for --item; no model fallback
   --no-belt                Skip belt executor selection
   --allow-ungoverned       Explicitly allow a surfaced governance bypass
   --show-capsule <sid>      Print a lane's saved continuation capsule
@@ -266,6 +267,7 @@ const DRY = argv.includes("--dry-run");
 // analysis (collision-checked picks, owner direction) can target one item
 // precisely instead of whatever sorts first in `work ready`.
 const ITEM = val("--item");
+const ROUTE = val("--route");
 const NO_BELT = argv.includes("--no-belt");
 // W463 fail-closed governance: belt-direct is never a silent fallback. When
 // the buckle front answers but the lane key can't be minted, dispatch REFUSES
@@ -278,10 +280,10 @@ const SHOW_CAPSULE = val("--show-capsule");
 // doctrine stays fresh lane + capsule.
 const RESUME_FROM = val("--resume-from");
 const FLEET = `${REPO}/.fleet`;
-// W911 plaid: posture widens the loop stop — steady rides --target (default
-// 6, W500), plaid rides the global hard cap 18; the per-pool 6–8 + overflow
-// 2 arithmetic gates per dispatch inside dispatchItem (hooks/lib/plaid.ts).
+// Plaid capacity and pool arithmetic live in hooks/lib/plaid.ts.
 const POSTURE = readPosture(FLEET);
+if (argv.includes("--route") && (!ROUTE || !ITEM || POSTURE !== "plaid"))
+	throw new Error("--route requires --item in plaid posture");
 const TARGET_EFF = postureWidth(POSTURE, TARGET);
 // W989: one catalog probe per run — plaid lanes only ride models the buckle
 // front actually serves (a pin the front can't serve launches a lane that
@@ -523,6 +525,10 @@ const dispatchItem = async (
 		return null;
 	}
 	const wt = `${REPO}/.worktrees/${item}`;
+	if (DRY && ROUTE)
+		console.log(
+			`DRY route pin ${ROUTE} (live health/capacity checked at launch; no fallback)`,
+		);
 	if (DRY)
 		return dryDispatchPreview(previewDeps, {
 			item,
@@ -651,6 +657,7 @@ const dispatchItem = async (
 				ordinal,
 				hub: pick.hub,
 				modelHealth: PLAID_MODEL_HEALTH,
+				routePin: ROUTE,
 			});
 			if (pd.skip) {
 				console.log(`SKIP ${item} — ${pd.skip}`);

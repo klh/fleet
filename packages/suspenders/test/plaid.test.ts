@@ -20,6 +20,7 @@ import {
 	PLAID_ROUTES,
 	parsePosture,
 	plaidAssign,
+	plaidDispatch,
 	plaidGate,
 	plaidHealth,
 	plaidModelHealth,
@@ -247,6 +248,31 @@ test("gate: model-probe walling re-routes the pool plan; quota outranks the prob
 	expect(merged.get("ikea-sonnet")).toBe("credit headroom low");
 	// null probe = pass-through of the quota-only map
 	expect(mergePlaidHealth(new Map([["k", "r"]]), null).get("k")).toBe("r");
+});
+
+test("explicit route pin keeps GLM under plaid and removes model fallbacks", () => {
+	const db = store();
+	const pinned = plaidDispatch({
+		store: db,
+		sids: [],
+		quota: new Map(),
+		ordinal: 0,
+		hub: null,
+		routePin: "glm-5.3-flash",
+	});
+	expect(pinned.routeName).toBe("glm-5.3-flash");
+	expect(pinned.pick.model).toBe("glm-5.3-flash");
+	expect(pinned.pick.fallbackModels).toEqual([]);
+	expect(
+		plaidDispatch({
+			store: db,
+			sids: [],
+			quota: new Map(),
+			ordinal: 0,
+			hub: null,
+			routePin: "missing",
+		}).skip,
+	).toContain("missing");
 });
 
 test("route-table override: machine config flows through health", () => {
