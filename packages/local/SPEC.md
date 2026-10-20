@@ -4,11 +4,11 @@ A local service registry for macOS: one command turns "expose my service at `<na
 
 ## Problem
 
-Exposing a local service at `<name>.local` on this machine today means hand-wiring four moving parts:
+Exposing a local service at `<name>.local` on this machine — at design time (2026-09, before the fleet-wide Caddy cutover, W53) — meant hand-wiring four moving parts:
 
-1. a reverse-proxy site — today an nginx vhost under `/opt/homebrew/etc/nginx/servers/*.conf` (included by the root-owned `/opt/homebrew/etc/nginx/nginx.conf`; the directory is user-writable — `suspenders.local.conf` and `belt.local.conf` already exist as plain user-writable files),
+1. a reverse-proxy site — then an nginx vhost under `/opt/homebrew/etc/nginx/servers/*.conf` (included by the root-owned `/opt/homebrew/etc/nginx/nginx.conf`; the directory was user-writable — `suspenders.local.conf` and `belt.local.conf` existed as plain user-writable files),
 2. a long-running `dns-sd -R` process to claim the `.local` hostname on the LAN,
-3. a privileged reload — the nginx master runs as root, so every config change needs `sudo nginx -s reload`,
+3. a privileged reload — the nginx master ran as root, so every config change needed `sudo nginx -s reload`,
 4. process supervision via launchd, the lifecycle layer on this machine (pm2 is explicitly rejected; klh-local does not manage the service process itself in v0.1).
 
 None of it is tracked. Each service carries a hand-written conf, and nothing records which names are claimed, on which ports, or whether the dns-sd processes are still alive. klh-local collapses all of it into one command plus a registry.
@@ -88,11 +88,13 @@ With `--lan --forward-auth <url>` the deny lines are replaced by an authenticati
 belt.local {
 	forward_auth https://sso.example.com {
 		uri /api/verify
-		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		copy_headers Remote-User Remote-Groups Remote-Email Remote-Name X-KLH-Identity X-KLH-Identity-Sig
 	}
 	reverse_proxy 127.0.0.1:7791
 }
 ```
+
+The `Remote-*` identity the proxy asserts rides SIGNED (W235): the SSO service returns the `buckle-sso-v1` HMAC pair and the fragment copies `X-KLH-Identity` + `X-KLH-Identity-Sig` alongside it — buckle verifies the signature before trusting the identity.
 
 - `caddy validate --config` gates every mutation, against a **staged** copy: the candidate fragment is written next to copies of every other live fragment in a temp dir under the state dir, a staged Caddyfile imports them, and only a config that validates is moved (atomically) into `sites/`. A fragment Caddy cannot load never lands in `sites/`, so it can never poison later validates/reloads for other services.
 - `caddy reload --config` is user-level and zero-downtime (talks to the admin endpoint on 127.0.0.1:2019). If reload fails, `register` restores the **prior** fragment content (or removes a brand-new fragment) and exits 1 — a failed converge never takes a working service offline.
@@ -109,14 +111,14 @@ belt.local {
 
 ## The verbs
 
-`install` / `register` / `deregister` / `list` / `status` / `reload` / `hosts-apply` — plus the bar, the read-only status GUI serving the registry (below).
+`install` / `register` / `deregister` / `list` / `status` / `reload` / `dns-reconcile` / `dns-serve` / `hosts-apply` — plus the bar, the read-only status GUI serving the registry (below).
 
-### register `<name> --port N [--health /health] [--no-dns] [--route /path=port] [--lan --forward-auth URL]`
+### register `<name> --port N [--health /health] [--no-dns] [--route /path=port] [--lan --forward-auth URL] [--upstream HOST:PORT]`
 
 1. Validates the name against `^[a-z][a-z0-9-]{1,30}$`, the port as an integer 1–65535, the health path as rooted.
 2. Idempotent on re-register: same name + port + health path converges (fragment rewritten, validate + reload, dns claim reused when alive — concurrent claims conflict-rename each other — re-claimed only when dead). Same name with a different port or health path exits 1 (`deregister` first). A port collision with a _different_ name is refused: one port, one service — a second site proxying the same port is a config bug, not a feature. Routes are not part of the converge gate: a re-register rewrites the route set every time.
 3. Refuses to run without Caddy installed and the Caddyfile present (`run: klh-local install`).
-4. Writes `sites/<name>.caddy`: `<name>.local { @external not remote_ip 127.0.0.1 ::1; abort @external; reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit. `--lan` drops the deny and requires `--forward-auth <http(s) url>` (no credentials, no fragment; `--lan` without it, or `--forward-auth` without `--lan`, exits 1). Exposure, like routes, is rewritten on each re-register. Each `--route /path=port` adds a `handle /path*` block ahead of the default `handle` (see the fragment shapes above); a route path without a trailing `*` gets one (subtree match), and the path is validated against `^[A-Za-z0-9/_.-]+$` — the only characters allowed into the config file.
+4. Writes `sites/<name>.caddy`: `<name>.local { @external not remote_ip 127.0.0.1 ::1; abort @external; reverse_proxy 127.0.0.1:<port> }` — auto-HTTPS is implicit. `--lan` drops the deny and requires `--forward-auth <http(s) url>` (no credentials, no fragment; `--lan` without it, or `--forward-auth` without `--lan`, exits 1). Exposure, like routes, is rewritten on each re-register. Each `--route /path=port` adds a `handle /path*` block ahead of the default `handle` (see the fragment shapes above); a route path without a trailing `*` gets one (subtree match), and the path is validated against `^[A-Za-z0-9/_.-]+$` — the only characters allowed into the config file. `--upstream HOST:PORT` replaces the loopback default target with a validated lowercase `host[:port]` (regex-checked before it touches the config); it composes with loopback sites only — refused together with `--lan`.
 5. Staged `caddy validate` → move into `sites/` → `caddy reload`; on reload failure the prior fragment is restored (see The engine). When the running instance already serves the claim (host → target, checked via the admin API before the registry lock), the reload is skipped: the instance is authoritative and converged without rebinding (the W602 macOS privileged-port bind constraint). The whole verb runs under the registry lock.
 6. Claims DNS (see DNS claims): `dns-sd -P` advertising `127.0.0.1` for loopback services, the LAN address for `--lan` services; pid stored in the registry. `--no-dns` skips the claim. A live claim is reused unless the exposure changed (the advertised address differs → old claim released, new one made).
 7. Writes the registry entry and prints a summary: `https://<name>.local/`, `http://<name>.local/`, `http://<name>.local:<port>/`, the dns claim, the fragment path.
@@ -139,9 +141,9 @@ Per service:
 
 ### bar
 
-The status GUI: `bin/dashboard.ts`, a single-file Bun server on `127.0.0.1:7792` (loopback only; requests whose Host is not `127.0.0.1`/`localhost`/`[::1]`/`bar.local` get 421 — a DNS-rebind guard) (`KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override), deployed to `~/.local/klh-local/bin/` by `install.sh` and kept alive by the `com.suspenders.local-bar` LaunchAgent rendered from the fleet manifest (`packages/suspenders/deploy/services.yaml`, W801). It registers itself like any service (`klh-local register bar --port 7792 --health /`) and Caddy fronts it at `http://bar.local/`.
+The status GUI: `bin/dashboard.ts`, a Bun server on `127.0.0.1:7792` (loopback only; requests whose Host is not `127.0.0.1`/`localhost`/`[::1]`/`bar.local` get 421 — a DNS-rebind guard) (`KLH_LOCAL_BAR_PORT`/`BELT_BAR_PORT` override), deployed to `~/.local/klh-local/bin/` by `install.sh` and kept alive by the `com.suspenders.local-bar` LaunchAgent rendered from the fleet manifest (`packages/suspenders/deploy/services.yaml`, W801). It registers itself like any service (`klh-local register bar --port 7792 --health /`) and Caddy fronts it at `http://bar.local/`.
 
-- `GET /` — embedded page (vanilla JS, 3s auto-refresh, no frameworks, no external assets): one hairline row per service — name, port, target, health, dns-claim liveness, fragment presence, created date — under a Caddy line (:80 answering, `caddy version`) and the registry path.
+- `GET /` — the page template `bin/dashboard-page.html` rendered server-side with the fleet theme + nav (same-origin vendored sync), served with Lit web components on the vendored `bin/vendor/lit-shared.js` runtime (offline LAN, no CDN, 3s auto-refresh): one hairline row per service — name, port, target, health, dns-claim liveness, fragment presence, created date — under a Caddy line (:80 answering, `caddy version`) and the registry path.
 - `GET /api/status` — the same snapshot as JSON, health results included. It never carries absolute paths (the registry shows as `~/.local/state/klh-local/registry.json`, fragments as present/missing) — no home directory or username leaks.
 - `GET /llms.txt` — static plain-text intro: the verbs, the registry location, the repo.
 
@@ -177,7 +179,7 @@ Under sudo `HOME` may be root's, so the registry path resolves from `--registry 
 
 - **Host-header safety** — names must match `^[a-z][a-z0-9-]{1,30}$`. The name lands in three sensitive places (Host-header target, site address, filename under `sites/`); the regex makes Host-header injection, path traversal, and config-syntax smuggling impossible.
 - **Trust model: loopback by default; LAN exposure is opt-in and authenticated.** Every fragment binds `127.0.0.1 ::1` unless registered with `--lan`, and `--lan` is refused without `--forward-auth <url>` — Caddy asks that endpoint (an SSO/IdP verifier such as Authelia/Authentik/oauth2-proxy; the enterprise SSO seam) before proxying, and copies its `Remote-*` identity headers upstream. The catch-all stays on all interfaces so unknown Hosts arriving over the LAN are still aborted. The bar dashboard binds loopback only. A LAN device can reach a backend only through a site its owner explicitly put behind authentication.
-- **Never proxy based on user input** — `reverse_proxy` targets are always `127.0.0.1:<port>`, written from validated registry data at register time. Nothing request-time is interpolated into the config.
+- **Never proxy based on user input** — `reverse_proxy` targets default to `127.0.0.1:<port>`; the only non-loopback escape is `--upstream HOST:PORT`, regex-validated at register time and refused on LAN sites. Targets are written from validated registry data at register time; nothing request-time is interpolated into the config.
 - **Default-deny for unregistered Hosts** — the hostless `abort` catch-all takes every Host no fragment claims, on both :80 and :443. On :443, unknown SNI fails at the TLS handshake (no cert without on-demand TLS). Nothing unregistered reaches a backend.
 - **Privilege boundary: zero root** — Caddy runs as a user LaunchAgent; validate/reload are user-level; the only sudo in klh-local's world is `hosts-apply`.
 
