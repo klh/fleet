@@ -12,6 +12,7 @@ import { usagePage } from "../hooks/bin/usage-page-html.ts";
 import { federationUsagePage } from "../hooks/bin/federation-usage-html.ts";
 import { cacheDrillReport } from "../hooks/lib/cache-drill.ts";
 import type { BuckleRequestRow as BuckleRow } from "../hooks/lib/cache-drill.ts";
+import { type MonitorDim, monitorReport } from "../hooks/lib/monitor-drill.ts";
 
 const portFile = process.argv[2];
 if (!portFile) throw new Error("usage: bun usage-panels-server.ts <portFile>");
@@ -255,6 +256,27 @@ const server = Bun.serve({
 					})
 				: cannedDrill;
 			return Response.json(scoped);
+		}
+		// W995: the drilldown monitor over the SAME canned rows (seams
+		// injected, no network) — dim switches the grouping, work-type join
+		// rides the fixture meter, transcripts slice is canned.
+		if (url.pathname === "/api/usage/monitor") {
+			return Response.json(
+				await monitorReport({
+					days: Number(url.searchParams.get("days") ?? 7) || 7,
+					dim: (url.searchParams.get("dim") ?? "lane") as MonitorDim,
+					endpoints: () => [
+						{ url: "http://canned/hub-a", via: "test", token: null },
+					],
+					fetch: drillFetch,
+					work: { autow700: { orient: 0.6, context: 0.4, spr: 1.25 } },
+					transcripts: {
+						source: "transcript-v2",
+						requests: 8,
+						cache_read_tokens: 4000,
+					},
+				}),
+			);
 		}
 		if (page === null) return new Response("nope", { status: 404 });
 		return new Response(page, {

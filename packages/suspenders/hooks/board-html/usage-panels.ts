@@ -42,6 +42,8 @@ import "./klh-usage-head.ts";
 import "./usage-cache-drill.ts";
 // W858.11: the coverage/freshness evidence panel rides the same bundle
 import "./usage-coverage.ts";
+// W995: the drilldown monitor rides the same bundle (side-effect registers it)
+import "./usage-monitor.ts";
 
 // ─── shared payload read ──────────────────────────────────────────────────
 interface PanelRoot {

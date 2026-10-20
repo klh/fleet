@@ -122,7 +122,9 @@ export function parseRequestRow(raw: unknown): BuckleRequestRow | null {
 	};
 }
 
-const cacheKnown = (row: BuckleRequestRow): boolean =>
+/** A row's cache verdict is KNOWN when the provider reported it (or a warm
+ *  read made it obvious) — the shared "known vs unknown" predicate. */
+export const cacheKnown = (row: BuckleRequestRow): boolean =>
 	row.cache_reported === true || (row.cache_r ?? 0) > 0;
 
 /** W921: readiness probes (marked root-auth healthcheck synthetics) are
@@ -638,6 +640,35 @@ async function rowsForLabel(
 	return { rows: [], status };
 }
 
+/** W995: shared row collection — enumerate hubs → TTL-cached rows, tagging
+ *  each row with the hub. The ONE label loop; cacheDrillReport and the
+ *  usage monitor both collect through it. */
+export async function collectHubRows(
+	opts: DrillOpts & { days?: number } = {},
+): Promise<{ rows: BuckleRequestRow[]; hubs: HubDrillStatus[] }> {
+	const days = Math.min(90, Math.max(1, Math.trunc(opts.days ?? 7) || 7));
+	const env = opts.env ?? (process.env as CacheDrillEnv);
+	const labels = crossHubLabels({ env });
+	if (
+		process.platform === "darwin" &&
+		env.SUSPENDERS_CACHE_LOCAL !== "0" &&
+		!labels.includes("local")
+	)
+		labels.unshift("local");
+	const hubLimit = Math.min(
+		10_000,
+		Math.max(1, Math.trunc(opts.hubRowLimit ?? 2000)),
+	);
+	const hubs: HubDrillStatus[] = [];
+	const rows: BuckleRequestRow[] = [];
+	for (const label of labels) {
+		const out = await rowsForLabel(label, opts, days, hubLimit);
+		hubs.push(out.status);
+		rows.push(...out.rows);
+	}
+	return { rows, hubs };
+}
+
 export interface CacheDrillReport {
 	ok: true;
 	ts: string;
@@ -690,25 +721,7 @@ export async function cacheDrillReport(
 	const sort: CacheDrillSort =
 		f.sort === "most_requests" || f.sort === "recent" ? f.sort : "least_warm";
 	const limit = Math.min(1000, Math.max(1, Math.trunc(f.limit ?? 200) || 200));
-	const env = opts.env ?? (process.env as CacheDrillEnv);
-	const labels = crossHubLabels({ env });
-	if (
-		process.platform === "darwin" &&
-		env.SUSPENDERS_CACHE_LOCAL !== "0" &&
-		!labels.includes("local")
-	)
-		labels.unshift("local");
-	const hubLimit = Math.min(
-		10_000,
-		Math.max(1, Math.trunc(opts.hubRowLimit ?? 2000)),
-	);
-	const hubs: HubDrillStatus[] = [];
-	const all: BuckleRequestRow[] = [];
-	for (const label of labels) {
-		const out = await rowsForLabel(label, opts, days, hubLimit);
-		hubs.push(out.status);
-		all.push(...out.rows);
-	}
+	const { rows: all, hubs } = await collectHubRows({ ...opts, days });
 	const rows = filterRows(all, filters);
 	// W921: every cache ratio / reason cluster is INFERENCE-only — probe
 	// traffic is summed separately and reported on its own.
