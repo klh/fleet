@@ -20,6 +20,8 @@ const dualStamp = (ms) => {
 	return `${utc} (${loc})`;
 };
 
+const modelLabel = (model) => model?.split("/").at(-1) || "model unreported";
+
 class BeltSupervisor extends LitElement {
 	static properties = {
 		snapshot: { state: true },
@@ -227,6 +229,12 @@ class BeltTrends extends LitElement {
 				belt-trends .bt-spark .lbl span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 				belt-trends .bt-spark .mount { height:34px; overflow:hidden; }
 				belt-trends .bt-wrap { max-width:100%; overflow:hidden; }
+				belt-trends .bt-panels { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--klh-space-4); align-items:start; }
+				belt-trends .bt-column { min-width:0; }
+				belt-trends .bt-column .bt-title:first-child { margin-top:0; }
+				belt-trends .bt-sparks { grid-template-columns:minmax(0,1fr); }
+				belt-trends .bt-spark .mount { height:110px; }
+				@media (max-width:900px) { belt-trends .bt-panels { grid-template-columns:minmax(0,1fr); } }
 				belt-trends .bt-trend-wrap { position:relative; }
 				belt-trends .bt-hover { position:absolute; z-index:2; top:8px; max-width:220px; padding:6px 9px; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); background:var(--klh-surface); color:var(--klh-ink); box-shadow:0 4px 14px #0003; pointer-events:none; font-size:var(--klh-text-xs); font-variant-numeric:tabular-nums; }
 				belt-trends .bt-hover[hidden] { display:none; }
@@ -260,7 +268,8 @@ class BeltTrends extends LitElement {
 			(sum, bucket) => sum + (bucket[4] ?? 0),
 			0,
 		);
-		return html`<div class="bt-wrap">
+		return html`<div class="bt-wrap bt-panels">
+			<div class="bt-column">
 			<p class="bt-title">Requests and failures · 5-minute buckets</p>
 			<div class="bt-trend-wrap"><div class="bt-trend"></div><div class="bt-hover" hidden></div></div>
 			<p class="bt-title">Average response time · measured samples only</p>
@@ -269,14 +278,22 @@ class BeltTrends extends LitElement {
 					? html`<div class="bt-trend-wrap"><div class="bt-latency"></div><div class="bt-hover bt-latency-hover" hidden></div></div>`
 					: html`<p class="bt-note">No measured response time in this window; ${total} route${total === 1 ? "" : "s"} ${total === 1 ? "has" : "have"} no timing sample, so the average is undefined rather than 0 ms. Requests and failures are charted above.</p>`
 			}
-			<p class="bt-title">Routes by endpoint</p>
+			</div>
+			<div class="bt-column">
+			<p class="bt-title">Active Belt endpoints · last ${Math.round(this.hist.windowMs / 3600000)}h</p>
+			<p class="bt-note">Only endpoints with Belt router records appear here. Buckle traffic is measured separately in Metrics.</p>
 			<div class="bt-sparks">
-				${this.hist.endpoints.map(
-					(ep) => html`<div class="bt-spark" data-key=${ep.key}>
-						<span class="lbl"><span>${ep.key}</span><span>${ep.counts.reduce((a, b) => a + b, 0)} req</span></span>
+				${
+					this.hist.endpoints.length
+						? this.hist.endpoints.map(
+								(ep) => html`<div class="bt-spark" data-key=${ep.key}>
+						<span class="lbl" title=${`${ep.key} · ${(ep.models ?? []).join(", ") || "model unreported"}`}><span>${(ep.models ?? []).map(modelLabel).join(", ") || ep.key}</span><span>${ep.counts.reduce((a, b) => a + b, 0)} req</span></span>
 						<div class="mount"></div>
 					</div>`,
-				)}
+							)
+						: html`<p class="bt-note">No Belt router endpoints recorded in this window.</p>`
+				}
+			</div>
 			</div>
 		</div>`;
 	}
@@ -449,7 +466,7 @@ class BeltTrends extends LitElement {
 				mount,
 				uPlot,
 				{
-					height: 28,
+					height: 104,
 					legend: { show: false },
 					axes: [{ show: false }, { show: false }],
 					padding: [2, 0, 2, 0],
