@@ -1106,6 +1106,7 @@ const dispatchItem = async (
 			// W422: the spawn tail is the executor adapter's recipe (registry) —
 			// copilot gets --allow-all-tools, claude the allowedTools/fallback/
 			// settings/fork composition; dispatch carries no executor branches.
+			promptArgs: adapter.promptArgs(lanePrompt),
 			cliArgs: adapter.spawnArgs({
 				fallbackModels: pick.fallbackModels,
 				settingsArgs,
