@@ -29,11 +29,38 @@ const HUBS_PATH = () =>
 
 export interface HubRow {
 	label: string;
+	consoleUrl?: string;
 	/** First candidate URL (hub-locate precedence: candidates are ordered). */
 	base: string;
 	host: string;
 	port: number;
 	tls: boolean;
+}
+
+export function browserConsoleUrl(
+	value: unknown,
+	remote = true,
+): string | null {
+	if (typeof value !== "string") return null;
+	try {
+		const url = new URL(value);
+		if (
+			!["http:", "https:"].includes(url.protocol) ||
+			!url.hostname ||
+			url.username ||
+			url.password
+		)
+			return null;
+		if (
+			remote &&
+			(url.hostname.endsWith(".local") ||
+				["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+		)
+			return null;
+		return url.href;
+	} catch {
+		return null;
+	}
 }
 
 /** Parse the hub registry — entries with a usable candidate URL only.
@@ -66,8 +93,14 @@ export function readHubs(file = HUBS_PATH()): HubRow[] {
 			continue;
 		}
 		if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+		const consoleUrl = browserConsoleUrl(
+			entry && typeof entry === "object" && !Array.isArray(entry)
+				? (entry as { console_url?: unknown }).console_url
+				: null,
+		);
 		rows.push({
 			label,
+			...(consoleUrl ? { consoleUrl } : {}),
 			base: base.replace(/\/$/, ""),
 			host: url.hostname,
 			port: Number(url.port) || (url.protocol === "https:" ? 443 : 80),
@@ -75,6 +108,16 @@ export function readHubs(file = HUBS_PATH()): HubRow[] {
 		});
 	}
 	return rows;
+}
+
+export function hubConsoleLinks(): Array<{ name: string; url: string }> {
+	const profiles = hubProfiles();
+	return readHubs().flatMap((hub) => {
+		const url =
+			browserConsoleUrl(profiles.get(hub.label.toLowerCase())?.console_url) ??
+			hub.consoleUrl;
+		return url ? [{ name: hub.label, url }] : [];
+	});
 }
 
 /** Stack profiles keyed by stable hub id. Display names never affect lookup

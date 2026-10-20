@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hubTargets } from "../bin/hubs.ts";
+import { hubConsoleLinks, hubTargets } from "../bin/hubs.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w371t-"));
 const stackPath = join(dir, "stack.yaml");
@@ -21,6 +21,7 @@ hubs:
   nas:
     host: nas.example.lan
     display_name: Lab NAS
+    console_url: https://nas.example.lan/board
     url: http://nas.example.lan:4101
     deploy:
       ssh: kk@nas.example.lan
@@ -41,6 +42,11 @@ writeFileSync(
 process.env.SUSPENDERS_HUBS_FILE = hubsPath;
 
 describe("hubTargets heal wiring", () => {
+	test("stack console URL joins the registered hub without using the probe URL", () => {
+		expect(hubConsoleLinks()).toEqual([
+			{ name: "nas", url: "https://nas.example.lan/board" },
+		]);
+	});
 	test("profile join is case-insensitive; heal row carries heal + quietHours", () => {
 		const row = hubTargets().find((r) => r.name === "nas");
 		expect(row?.heal).toBeInstanceOf(Function);

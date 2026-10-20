@@ -4,7 +4,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hubLlmsRows, hubTargets, readHubs } from "../bin/hubs.ts";
+import {
+	browserConsoleUrl,
+	hubLlmsRows,
+	hubTargets,
+	readHubs,
+} from "../bin/hubs.ts";
 import { fleetTargets, isAlert } from "../bin/supervisor.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "w351-"));
@@ -22,6 +27,31 @@ function regFile(body: unknown): string {
 }
 
 describe("readHubs", () => {
+	test("links require explicit safe URLs; remote .local is never guessed", () => {
+		const rows = readHubs(
+			regFile({
+				NAS: {
+					candidates: ["http://nas.example.lan:4101"],
+					console_url: "https://nas.example.lan/",
+				},
+				LOCAL_ONLY: {
+					candidates: ["http://host.example.lan:4101"],
+					console_url: "https://host.local/",
+				},
+			}),
+		);
+		expect(rows[0]?.consoleUrl).toBe("https://nas.example.lan/");
+		expect(rows[1]?.consoleUrl).toBeUndefined();
+		expect(browserConsoleUrl("https://192.0.2.4:7799/")).toBe(
+			"https://192.0.2.4:7799/",
+		);
+		expect(browserConsoleUrl("https://host.local/")).toBeNull();
+		expect(browserConsoleUrl("https://host.local/", false)).toBe(
+			"https://host.local/",
+		);
+		expect(browserConsoleUrl("javascript:alert(1)")).toBeNull();
+		expect(browserConsoleUrl("https://user:secret@example.org/")).toBeNull();
+	});
 	test("missing file → no rows (belt runs hub-less)", () => {
 		expect(readHubs(join(dir, "nope.json"))).toEqual([]);
 	});

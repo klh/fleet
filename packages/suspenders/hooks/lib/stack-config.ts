@@ -11,6 +11,8 @@ export interface HubProfile {
 	host: string;
 	/** Human-facing hub label. The profile key stays the stable routing identity. */
 	display_name?: string;
+	/** Browser-facing console. Never inferred from the Buckle probe URL. */
+	console_url?: string;
 	buckle_port?: number;
 	board_port?: number;
 	store_port?: number;
