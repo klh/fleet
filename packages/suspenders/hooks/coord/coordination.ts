@@ -6,7 +6,10 @@
 // bounded wait face is `coord wait --kinds consult.answer`.
 import { consultDeadline } from "../lib/consult-expiry.ts";
 import { claimedWorkOf } from "../lib/lane-effort.ts";
-import { ensureConsultFederation, mintTraceId } from "../lib/consult-federation.ts";
+import {
+	ensureConsultFederation,
+	mintTraceId,
+} from "../lib/consult-federation.ts";
 import {
 	type AskerSnapshot,
 	COORD_TOPICS,
@@ -20,6 +23,7 @@ import {
 	roundsInWindow,
 } from "../lib/supervisor-coordination.ts";
 import { arg, db, die, projectIdentity } from "./shared.ts";
+import { queueDirectedReceipt } from "./bus.ts";
 
 const USAGE =
 	'usage: coordinate --topic work|claims|capacity --note "..." [--max-peers n] [--classify] [--json] --as <sid>';
@@ -46,7 +50,8 @@ export function parseCoordinateArgs(rest: string[]): CoordinateArgs {
 	const as = arg("--as");
 	if (!as) die(USAGE);
 	const topic = arg("--topic") as CoordTopic | null;
-	if (!topic || !(COORD_TOPICS as readonly string[]).includes(topic)) die(USAGE);
+	if (!topic || !(COORD_TOPICS as readonly string[]).includes(topic))
+		die(USAGE);
 	const note = (arg("--note") ?? "").trim().slice(0, 2000);
 	if (!note) die(USAGE);
 	for (const t of rest) {
@@ -89,21 +94,28 @@ function mintRound(a: CoordinateArgs, project: string): MintedRound | null {
 	const peers = livePeers(db, project, a.as, a.maxPeers);
 	if (!peers.length) {
 		// W923 parity: a refused round still events (the item link rides along)
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', NULL, ?, ?)",
-		).run(
-			Date.now(),
-			a.as,
-			JSON.stringify({
-				state: "REFUSED",
-				why: "no live peers",
-				topic: a.topic,
-			}),
-			a.as,
-		);
+		const refusedEvent = db
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', NULL, ?, ?)",
+			)
+			.run(
+				Date.now(),
+				a.as,
+				JSON.stringify({
+					state: "REFUSED",
+					why: "no live peers",
+					topic: a.topic,
+				}),
+				a.as,
+			);
+		queueDirectedReceipt(Number(refusedEvent.lastInsertRowid), a.as);
 		die("no live peers — nobody RUNNING to coordinate with");
 	}
-	return { consults: mintConsults(a, project, snapshot, peers), peers: peers.map((p) => p.sid), snapshot };
+	return {
+		consults: mintConsults(a, project, snapshot, peers),
+		peers: peers.map((p) => p.sid),
+		snapshot,
+	};
 }
 
 function mintConsults(
@@ -127,11 +139,27 @@ function mintConsults(
 	for (const p of peers) {
 		const r = insert.run(project, a.as, p.sid, question, Date.now(), deadline);
 		const cid = `C${r.lastInsertRowid}`;
-		stamp.run(Number(r.lastInsertRowid), traceId, `${traceId}:${p.sid}`, JSON.stringify([{ stage: "expert", at: Date.now() }]), Date.now());
-		const payload = JSON.stringify({ consult: cid, topic: a.topic, q: a.note, state: snapshot, project, ...(work ? { work } : {}) });
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', NULL, ?, ?)",
-		).run(Date.now(), a.as, payload, p.sid);
+		stamp.run(
+			Number(r.lastInsertRowid),
+			traceId,
+			`${traceId}:${p.sid}`,
+			JSON.stringify([{ stage: "expert", at: Date.now() }]),
+			Date.now(),
+		);
+		const payload = JSON.stringify({
+			consult: cid,
+			topic: a.topic,
+			q: a.note,
+			state: snapshot,
+			project,
+			...(work ? { work } : {}),
+		});
+		const questionEvent = db
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', NULL, ?, ?)",
+			)
+			.run(Date.now(), a.as, payload, p.sid);
+		queueDirectedReceipt(Number(questionEvent.lastInsertRowid), p.sid);
 		minted.push(cid);
 	}
 	return minted;
@@ -142,7 +170,12 @@ export async function cmdCoordinate(rest: string[]): Promise<void> {
 	const a = parseCoordinateArgs(rest);
 	const project = projectIdentity();
 	const snapshot = askerSnapshot(db, project, a.as);
-	const gate = await coordinationGate({ topic: a.topic, note: a.note, snapshot, classify: a.classify });
+	const gate = await coordinationGate({
+		topic: a.topic,
+		note: a.note,
+		snapshot,
+		classify: a.classify,
+	});
 	if (!gate.fired) {
 		const why = `SKIP topic=${a.topic} via=${gate.via}${gate.model ? ` model=${gate.model}` : ""}`;
 		console.log(a.json ? JSON.stringify({ ok: true, fired: false, why }) : why);

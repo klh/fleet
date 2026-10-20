@@ -80,3 +80,99 @@ console.log(drainLaneInboxFor(${JSON.stringify(sid)}));
 	expect(accepted.accepted_at).toBeGreaterThan(0);
 	expect(accepted.pending).toHaveLength(0);
 });
+
+test("one event can be accepted without accepting another directed event", () => {
+	const target = "w1057-selective-session";
+	const ids = JSON.parse(
+		run([
+			"-e",
+			`
+const { emitEvent } = await import(${JSON.stringify(bus)});
+const { openGovernorDb } = await import(${JSON.stringify(govdb)});
+const first = emitEvent({ kind: "NOTE", source: "owner", to: ${JSON.stringify(target)}, note: "first action" });
+const second = emitEvent({ kind: "NOTE", source: "owner", to: ${JSON.stringify(target)}, note: "second action" });
+console.log(JSON.stringify({ first, second }));
+`,
+		]),
+	) as { first: number; second: number };
+	const before = run([coord, "inbox", "--as", target]);
+	expect(before).toContain("first action");
+	expect(before).toContain("second action");
+	expect(run([coord, "ack", String(ids.first), "--as", target])).toContain(
+		`#${ids.first}`,
+	);
+	const after = run([coord, "inbox", "--as", target]);
+	expect(after).not.toContain("first action");
+	expect(after).toContain("second action");
+	const rows = JSON.parse(
+		run([
+			"-e",
+			`
+const { openGovernorDb } = await import(${JSON.stringify(govdb)});
+const db = openGovernorDb();
+console.log(JSON.stringify(db.query("SELECT event_id, state FROM direct_message_receipts WHERE sid = ? AND event_id IN (?, ?) ORDER BY event_id").all(${JSON.stringify(target)}, ${ids.first}, ${ids.second})));
+`,
+		]),
+	) as { event_id: number; state: string }[];
+	expect(rows).toEqual([
+		{ event_id: ids.first, state: "ACCEPTED" },
+		{ event_id: ids.second, state: "SEEN" },
+	]);
+});
+
+test("an accepted event is not reintroduced by the hook inbox", () => {
+	const target = "w1057-accepted-hook-session";
+	const id = Number(
+		run([
+			"-e",
+			`const { emitEvent } = await import(${JSON.stringify(bus)});
+console.log(emitEvent({ kind: "NOTE", source: "owner", to: ${JSON.stringify(target)}, note: "already handled" }));`,
+		]).trim(),
+	);
+	run([coord, "inbox", "--as", target]);
+	run([coord, "ack", String(id), "--as", target]);
+	const drained = run([
+		"-e",
+		`const { drainLaneInboxFor } = await import(${JSON.stringify(inbox)});
+console.log(drainLaneInboxFor(${JSON.stringify(target)}));`,
+	]);
+	expect(drained).toBe("null\n");
+});
+
+test("all directed consult inserts create receipts at the shared event boundary", () => {
+	const target = "w1057-raw-consult-session";
+	const receipt = JSON.parse(
+		run([
+			"-e",
+			`const { openGovernorDb } = await import(${JSON.stringify(govdb)});
+const db = openGovernorDb();
+const inserted = db.query("INSERT INTO events (ts, source, kind, payload, target) VALUES (?, ?, ?, ?, ?)").run(Date.now(), "relay", "consult.answer", "{}", ${JSON.stringify(target)});
+console.log(JSON.stringify(db.query("SELECT sid, state FROM direct_message_receipts WHERE event_id = ?").get(Number(inserted.lastInsertRowid))));`,
+		]),
+	) as { sid: string; state: string };
+	expect(receipt).toEqual({ sid: target, state: "QUEUED" });
+});
+
+test("bulk inbox acknowledgment accepts only the displayed snapshot", () => {
+	const target = "w1057-race-session";
+	const states = JSON.parse(
+		run([
+			"-e",
+			`const { setRest } = await import(${JSON.stringify(join(root, "coord", "shared.ts"))});
+setRest(["--as", ${JSON.stringify(target)}, "--ack"]);
+const { emitEvent, cmdInbox } = await import(${JSON.stringify(bus)});
+const { openGovernorDb } = await import(${JSON.stringify(govdb)});
+const first = emitEvent({ kind: "NOTE", source: "owner", to: ${JSON.stringify(target)}, note: "displayed" });
+let second = 0;
+const original = console.log;
+console.log = (...args) => {
+  if (!second && String(args[0]).includes("displayed")) second = emitEvent({ kind: "NOTE", source: "owner", to: ${JSON.stringify(target)}, note: "arrived during display" });
+};
+await cmdInbox(["--ack"]);
+console.log = original;
+const db = openGovernorDb();
+console.log(JSON.stringify(db.query("SELECT event_id, state FROM direct_message_receipts WHERE event_id IN (?, ?) ORDER BY event_id").all(first, second)));`,
+		]),
+	) as { event_id: number; state: string }[];
+	expect(states.map((r) => r.state)).toEqual(["ACCEPTED", "QUEUED"]);
+});

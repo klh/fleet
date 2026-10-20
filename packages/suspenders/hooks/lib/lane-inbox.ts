@@ -58,9 +58,9 @@ export function drainLaneInboxFor(sid: string): string | null {
 				)?.event_id ?? 0;
 			const rows = db
 				.query(
-					"SELECT id, kind, scope, payload FROM events WHERE target = ? AND id > ? ORDER BY id LIMIT ?",
+					"SELECT e.id, e.kind, e.scope, e.payload FROM events e WHERE e.target = ? AND e.id > ? AND NOT EXISTS (SELECT 1 FROM direct_message_receipts r WHERE r.event_id = e.id AND r.sid = ? AND r.state = 'ACCEPTED') ORDER BY e.id LIMIT ?",
 				)
-				.all(sid, cur, MAX_DRAIN + 1) as EvRow[];
+				.all(sid, cur, sid, MAX_DRAIN + 1) as EvRow[];
 			if (!rows.length) return null;
 			const shown = rows.slice(0, MAX_DRAIN);
 			for (const r of shown)

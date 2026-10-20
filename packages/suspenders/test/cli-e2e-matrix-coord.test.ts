@@ -38,8 +38,12 @@ describe("coord verb matrix — bus round trips", () => {
 	test("emit → inbox, broadcast → poll, message → inbox, wait timeout", () => {
 		coord("bootstrap", "--as", "lane-a");
 		coord("bootstrap", "--as", "lane-b");
+		cover("rename");
+		expect(coord("rename", "--as", "lane-a", "matrix lane").code).toBe(0);
 		cover("emit");
-		expect(coord("emit", "w932.kind", "--to", "lane-a", "--note", "hello").code).toBe(0);
+		expect(
+			coord("emit", "w932.kind", "--to", "lane-a", "--note", "hello").code,
+		).toBe(0);
 		cover("inbox");
 		const inbox = coord("inbox", "--as", "lane-a");
 		expect(inbox.out).toContain("w932.kind");
@@ -48,9 +52,9 @@ describe("coord verb matrix — bus round trips", () => {
 		cover("poll");
 		expect(coord("poll", "--as", "lane-a").out).toContain("BROADCAST");
 		cover("message");
-		expect(
-			coord("message", "lane-a", "ping text", "--as", "lane-b").code,
-		).toBe(0);
+		expect(coord("message", "lane-a", "ping text", "--as", "lane-b").code).toBe(
+			0,
+		);
 		const got = coord("inbox", "--as", "lane-a");
 		expect(got.out).toContain("ping text");
 		cover("wait");
@@ -78,11 +82,11 @@ describe("coord verb matrix — pause continuation chain", () => {
 		cover("pause");
 		// --force: no live lane-a process exists in the fixture, so pause would
 		// otherwise take the sticky-interrupted path instead of PAUSE_REQUESTED
-		expect(coord("pause", "lane-a", "--reason", "hold", "--force").code).toBe(0);
+		expect(coord("pause", "lane-a", "--reason", "hold", "--force").code).toBe(
+			0,
+		);
 		cover("paused");
-		expect(
-			coord("paused", "--as", "lane-a", "--sha", fx.COMMIT).code,
-		).toBe(0);
+		expect(coord("paused", "--as", "lane-a", "--sha", fx.COMMIT).code).toBe(0);
 		cover("resume");
 		expect(coord("resume", "lane-a", "--onto", "cafe123").code).toBe(0);
 		cover("resumed");
@@ -111,10 +115,12 @@ describe("coord verb matrix — fact/capsule/lease/governance CRD", () => {
 		expect(coord("governance", "solo", "--source", "w932").code).toBe(0);
 	});
 	test("lease-release frees a seeded lock", () => {
-		fx.ins(
-			"INSERT INTO locks (path, sid, tool, ts) VALUES (?, ?, ?, ?)",
-			["/w932/probe.ts", "lane-a", "probe", Date.now()],
-		);
+		fx.ins("INSERT INTO locks (path, sid, tool, ts) VALUES (?, ?, ?, ?)", [
+			"/w932/probe.ts",
+			"lane-a",
+			"probe",
+			Date.now(),
+		]);
 		cover("lease-release");
 		expect(
 			coord("lease-release", "/w932/probe.ts", "--as", "lane-a").out,
@@ -129,7 +135,9 @@ describe("coord verb matrix — fact/capsule/lease/governance CRD", () => {
 describe("coord verb matrix — kb + gc + wisdom", () => {
 	test("kb add → search/list/stats; gc sweeps cleanly", () => {
 		cover("kb");
-		expect(coord("kb", "add", "probe problem", "--solution", "probe solution").code).toBe(0);
+		expect(
+			coord("kb", "add", "probe problem", "--solution", "probe solution").code,
+		).toBe(0);
 		expect(coord("kb", "search", "probe problem").out).toContain("solution");
 		expect(coord("kb", "list").out).toContain("probe problem");
 		expect(coord("kb", "stats").out).toContain("solutions");
@@ -147,13 +155,36 @@ describe("coord verb matrix — consult chain", () => {
 		cover("consult");
 		const ask = coord("consult", "lane-b", "how to proceed?", "--as", "lane-a");
 		expect(ask.code).toBe(0);
+		const question = fx.q<{ id: number }>(
+			"SELECT id FROM events WHERE kind = 'consult' AND target = 'lane-b' ORDER BY id DESC LIMIT 1",
+		)[0];
+		expect(
+			fx.q<{ state: string }>(
+				`SELECT state FROM direct_message_receipts WHERE event_id = ${question.id} AND sid = 'lane-b'`,
+			),
+		).toEqual([{ state: "QUEUED" }]);
 		cover("consults");
 		const list = coord("consults", "--as", "lane-b");
 		expect(list.out).toContain("how to proceed?");
 		cover("consult-reply");
+		expect(coord("consult-reply", "C1", "do this", "--as", "lane-b").code).toBe(
+			0,
+		);
+		const answer = fx.q<{ id: number }>(
+			"SELECT id FROM events WHERE kind = 'consult.answer' AND target = 'lane-a' ORDER BY id DESC LIMIT 1",
+		)[0];
 		expect(
-			coord("consult-reply", "C1", "do this", "--as", "lane-b").code,
-		).toBe(0);
+			fx.q<{ state: string }>(
+				`SELECT state FROM direct_message_receipts WHERE event_id = ${answer.id} AND sid = 'lane-a'`,
+			),
+		).toEqual([{ state: "QUEUED" }]);
+		coord("poll", "--as", "lane-a");
+		expect(coord("inbox", "--as", "lane-a").out).toContain("do this");
+		cover("ack");
+		expect(coord("ack", String(answer.id), "--as", "lane-b").code).toBe(2);
+		expect(coord("ack", String(answer.id), "--as", "lane-a").code).toBe(0);
+		expect(coord("ack", String(answer.id), "--as", "lane-a").code).toBe(0);
+		expect(coord("inbox", "--as", "lane-a").out).not.toContain("do this");
 		const st = coord("consults", "--as", "lane-b");
 		expect(st.out).toContain("do this");
 		cover("who-knows");
@@ -182,19 +213,35 @@ describe("coord verb matrix — knowledge lifecycle", () => {
 		);
 		expect(row.length).toBe(1);
 		cover("knowledge-promote");
-		expect(coord("knowledge-promote", String(row[0].id)).out).toContain("active");
+		expect(coord("knowledge-promote", String(row[0].id)).out).toContain(
+			"active",
+		);
 		cover("knowledge-grade");
 		expect(
-			coord("knowledge-grade", String(row[0].id), "--rating", "verified", "--as", "lane-a")
-				.code,
+			coord(
+				"knowledge-grade",
+				String(row[0].id),
+				"--rating",
+				"verified",
+				"--as",
+				"lane-a",
+			).code,
 		).toBe(0);
 		cover("knowledge-note");
 		expect(
-			coord("knowledge-note", String(row[0].id), "--what", "rechecked", "--as", "lane-a")
-				.code,
+			coord(
+				"knowledge-note",
+				String(row[0].id),
+				"--what",
+				"rechecked",
+				"--as",
+				"lane-a",
+			).code,
 		).toBe(0);
 		cover("knowledge-retire");
-		expect(coord("knowledge-retire", String(row[0].id)).out).toContain("retired");
+		expect(coord("knowledge-retire", String(row[0].id)).out).toContain(
+			"retired",
+		);
 	});
 });
 
@@ -209,8 +256,14 @@ describe("coord verb matrix — knowledge governance verbs", () => {
 			"SELECT id FROM knowledge WHERE topic = 'w932 grave'",
 		);
 		expect(
-			coord("knowledge-graveyard", String(g[0].id), "--reason", "stale", "--as", "lane-a")
-				.code,
+			coord(
+				"knowledge-graveyard",
+				String(g[0].id),
+				"--reason",
+				"stale",
+				"--as",
+				"lane-a",
+			).code,
 		).toBe(0);
 		cover("knowledge-propose");
 		expect(coord("knowledge-propose").out).toContain("propose:");
@@ -219,11 +272,13 @@ describe("coord verb matrix — knowledge governance verbs", () => {
 		cover("knowledge-verify");
 		// verify re-hashes source_ref rows; seed one row whose source_ref is a
 		// real file (KDB) with its true sha256 so the sweep has something to ✓
-		const hash = fx.seed(
-			`const { createHash } = await import("node:crypto");
+		const hash = fx
+			.seed(
+				`const { createHash } = await import("node:crypto");
 const { readFileSync } = await import("node:fs");
 console.log(createHash("sha256").update(readFileSync(${JSON.stringify(KDB)}, "utf8")).digest("hex"));`,
-		).trim();
+			)
+			.trim();
 		insK(
 			"INSERT INTO knowledge (ts, topic, fact, state, source_ref, source_hash) VALUES (?, ?, ?, 'active', ?, ?)",
 			[Date.now(), "w932 verify", "verify body", KDB, hash],
@@ -274,11 +329,15 @@ describe("coord verb matrix — read faces + supervisor (read-only)", () => {
 		expect(sup.code).toBe(0);
 		expect(sup.out).toContain("supervisors");
 		cover("project");
-		expect(coord("project", "identity").out).toContain("w932-coord-matrix-repo");
+		expect(coord("project", "identity").out).toContain(
+			"w932-coord-matrix-repo",
+		);
 		cover("executor-cv");
 		expect(coord("executor-cv").code).toBe(0);
 		cover("resume-session");
-		expect(coord("resume-session", "--as", "lane-c", "--from", "lane-a").code).toBe(0);
+		expect(
+			coord("resume-session", "--as", "lane-c", "--from", "lane-a").code,
+		).toBe(0);
 	});
 });
 
@@ -303,7 +362,9 @@ describe("coord verb matrix — subscribe poll-fallback face", () => {
 describe("coord verb matrix — session bootstrap + read faces", () => {
 	test("bootstrap registers the lane; state/fleet/doctor-session read it", () => {
 		cover("bootstrap");
-		expect(coord("bootstrap", "--as", "lane-a", "--name", "probe lane").code).toBe(0);
+		expect(
+			coord("bootstrap", "--as", "lane-a", "--name", "probe lane").code,
+		).toBe(0);
 		cover("state");
 		expect(coord("state", "--as", "lane-a").code).toBe(0);
 		cover("fleet");
@@ -314,6 +375,21 @@ describe("coord verb matrix — session bootstrap + read faces", () => {
 			"SELECT sid FROM sessions WHERE sid = 'lane-a'",
 		);
 		expect(rows.length).toBe(1);
+		cover("coordinate");
+		const noPeerRound = coord(
+			"coordinate",
+			"--topic",
+			"work",
+			"--note",
+			"matrix coverage",
+			"--max-peers",
+			"0",
+			"--json",
+			"--as",
+			"lane-a",
+		);
+		expect(noPeerRound.code).toBe(2);
+		expect(noPeerRound.err).toContain("no live peers");
 	});
 });
 

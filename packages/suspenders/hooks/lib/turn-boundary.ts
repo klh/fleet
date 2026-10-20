@@ -42,20 +42,30 @@ export function pendingTurnMessages(
 ): TurnMessage[] {
 	const rows = db
 		.query(
-			"SELECT e.id, e.ts, e.source, e.payload FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE r.sid = ? AND r.state != 'ACCEPTED' ORDER BY e.id",
+			"SELECT e.id, e.ts, e.source, e.kind, e.payload FROM direct_message_receipts r JOIN events e ON e.id = r.event_id WHERE r.sid = ? AND r.state != 'ACCEPTED' ORDER BY e.id",
 		)
 		.all(sid) as {
 		id: number;
 		ts: number;
 		source: string;
+		kind: string;
 		payload: string | null;
 	}[];
 	return rows.map((r) => {
 		let note = "";
 		try {
-			note = String(
-				(JSON.parse(r.payload ?? "{}") as { note?: string }).note ?? "",
-			);
+			const payload = JSON.parse(r.payload ?? "{}") as {
+				note?: string;
+				q?: string;
+				answer?: string;
+				consult?: string;
+			};
+			note =
+				r.kind === "consult"
+					? `${payload.consult ?? "consult"} asks: ${payload.q ?? ""}`
+					: r.kind === "consult.answer"
+						? `${payload.consult ?? "consult"} answered: ${payload.answer ?? ""}`
+						: String(payload.note ?? "");
 		} catch {}
 		return { id: r.id, source: r.source, note };
 	});
@@ -75,8 +85,12 @@ export function turnBoundaryFeedback(
 		);
 	if (msgs.length > 5) lines.unshift(`  … and ${msgs.length - 5} more`);
 	return [
-		`TURN-BOUNDARY INBOX (${msgs.length}): direct message(s) await your acknowledgment.`,
+		`TURN-BOUNDARY INBOX (${msgs.length}): directed event(s) await your action.`,
 		...lines,
-		`Process each now (act or acknowledge), then run coord inbox --as ${sid} --ack to mark them drained, then stop again.`,
+		`Process each now. Read the full queue with coord inbox --as ${sid}; accept only events you acted on.`,
+		...(msgs.length <= 5
+			? msgs.map((m) => `  coord ack ${m.id} --as ${sid}`)
+			: [`  coord ack <event-id> --as ${sid}`]),
+		"Then stop again.",
 	].join("\n");
 }

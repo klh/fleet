@@ -136,6 +136,10 @@ Coordination (`coord`):
 - `coord fact set/get/list` — fleet knowledge (`lesson.*` before
   re-deriving pain; `finding.*` for intel; IKEA content ONLY here)
 - `coord consult` / `coord who-knows` — questions, never ownership
+- `coord ack <event-id> --as <sid>` — accept one directed message or consult
+  only after acting on it; reading or receiving a WS push is delivery, not
+  acceptance. `coord inbox --ack` accepts the entire pending inbox, so use it
+  only after processing every displayed event.
 - `coord coordinate` — bounded peer-coordination round (W977.1, topics
   work|claims|capacity; singleflight + rate-capped, Kev `--classify`
   outbound-only; docs/design/supervisor-coordination.md)

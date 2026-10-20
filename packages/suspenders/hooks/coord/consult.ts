@@ -28,6 +28,7 @@ import {
 } from "../lib/kev-curation.ts";
 import { claimedWorkOf } from "../lib/lane-effort.ts";
 import { listLiveTargets, resolveTarget } from "./addressing.ts";
+import { queueDirectedReceipt } from "./bus.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
 import {
 	arg,
@@ -169,19 +170,22 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 			}
 			// W923: a refused consult still events (the W909 item link rides in
 			// the payload) — invisible consults made the report CONSULT all-N.
-			db.query(
-				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
-			).run(
-				Date.now(),
-				as,
-				scope,
-				JSON.stringify({
-					state: "REFUSED",
-					why: "no ranked expert",
-					...link,
-				}),
-				as,
-			);
+			const refusedEvent = db
+				.query(
+					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
+				)
+				.run(
+					Date.now(),
+					as,
+					scope,
+					JSON.stringify({
+						state: "REFUSED",
+						why: "no ranked expert",
+						...link,
+					}),
+					as,
+				);
+			queueDirectedReceipt(Number(refusedEvent.lastInsertRowid), as);
 			die(
 				"no ranked expert — nobody live has touched this; retain evidence and request a decision, do not broadcast or retry unchanged",
 			);
@@ -227,25 +231,28 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		db.query(
 			"UPDATE consult_kb SET hits = hits + 1, last_hit_at = ? WHERE id = ?",
 		).run(Date.now(), kbHit.id);
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
-		).run(
-			Date.now(),
-			as,
-			scope,
-			JSON.stringify({
-				consult: cid,
-				state: "KB",
-				...link,
-				answer: kbHit.solution,
-				kb: {
-					id: kbHit.id,
-					solved_by: kbHit.answered_by,
-					expert_live: expertLive,
-				},
-			}),
-			as,
-		);
+		const kbAnswerEvent = db
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
+			)
+			.run(
+				Date.now(),
+				as,
+				scope,
+				JSON.stringify({
+					consult: cid,
+					state: "KB",
+					...link,
+					answer: kbHit.solution,
+					kb: {
+						id: kbHit.id,
+						solved_by: kbHit.answered_by,
+						expert_live: expertLive,
+					},
+				}),
+				as,
+			);
+		queueDirectedReceipt(Number(kbAnswerEvent.lastInsertRowid), as);
 		console.log(
 			`${green("✓")} ${cyan(cid)} answered from the knowledge base ${dim(`(learned from ${kbHit.answered_by.slice(0, 8)}${expertLive ? ", still live" : ""}, ${kbHit.hits} prior hits) — --no-kb routes to a human`)}`,
 		);
@@ -279,9 +286,12 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 				source: factHit.source_ref,
 			},
 		});
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
-		).run(Date.now(), as, scope, payload, as);
+		const factAnswerEvent = db
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', ?, ?, ?)",
+			)
+			.run(Date.now(), as, scope, payload, as);
+		queueDirectedReceipt(Number(factAnswerEvent.lastInsertRowid), as);
 		stampFederation(Number(r.lastInsertRowid), "FACT");
 		recordCitations(db, Number(r.lastInsertRowid), [
 			{
@@ -323,22 +333,25 @@ export async function cmdConsult(rest: string[]): Promise<void> {
 		stampFederation(Number(r.lastInsertRowid), "OPEN");
 		recordRouteStage(db, Number(r.lastInsertRowid), "expert");
 		const cid = `C${r.lastInsertRowid}`;
-		db.query(
-			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
-		).run(
-			Date.now(),
-			as,
-			scope,
-			JSON.stringify({
-				consult: cid,
-				...link,
-				q: question,
-				guidance: lessonHit
-					? { key: lessonHit.key, value: lessonHit.value, verified: false }
-					: null,
-			}),
-			expert,
-		);
+		const questionEvent = db
+			.query(
+				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult', ?, ?, ?)",
+			)
+			.run(
+				Date.now(),
+				as,
+				scope,
+				JSON.stringify({
+					consult: cid,
+					...link,
+					q: question,
+					guidance: lessonHit
+						? { key: lessonHit.key, value: lessonHit.value, verified: false }
+						: null,
+				}),
+				expert,
+			);
+		queueDirectedReceipt(Number(questionEvent.lastInsertRowid), expert);
 		console.log(`CONSULT ${cyan(cid)} ${dim("→")} ${expert?.slice(0, 8)}`);
 	}
 }
@@ -560,27 +573,30 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 			);
 		}
 	}
-	db.query(
-		"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', NULL, ?, ?)",
-	).run(
-		Date.now(),
-		as,
-		JSON.stringify({
-			consult: cid,
-			state: st,
-			answer: decline ? null : text,
-			...(verdict
-				? {
-						curation: {
-							choice: verdict.choice,
-							confidence: verdict.confidence,
-							model: verdict.model,
-						},
-					}
-				: {}),
-		}),
-		c.asker_sid,
-	);
+	const answerEvent = db
+		.query(
+			"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.answer', NULL, ?, ?)",
+		)
+		.run(
+			Date.now(),
+			as,
+			JSON.stringify({
+				consult: cid,
+				state: st,
+				answer: decline ? null : text,
+				...(verdict
+					? {
+							curation: {
+								choice: verdict.choice,
+								confidence: verdict.confidence,
+								model: verdict.model,
+							},
+						}
+					: {}),
+			}),
+			c.asker_sid,
+		);
+	queueDirectedReceipt(Number(answerEvent.lastInsertRowid), c.asker_sid);
 	console.log(
 		`${st} ${cyan(String(cid))} ${dim("→")} ${String(c.asker_sid).slice(0, 8)}`,
 	);
