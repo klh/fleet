@@ -215,7 +215,7 @@ export async function handleData(
 				.get(p, id) as { n: number }
 		).n;
 		const failureNote =
-			w.state === "FAILED"
+			w.state === "FAILED" || w.state === "WAITING"
 				? ((
 						db
 							.query(

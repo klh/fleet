@@ -83,6 +83,11 @@ import {
 	reportTableLinkOpts,
 } from "../lib/work-report.ts";
 import { retryFailedItem } from "../lib/work-retry.ts";
+import {
+	parseWaitUntil,
+	waitForPrerequisite,
+	wakeAfterEvidence,
+} from "../lib/work-wait.ts";
 import { mergeTags, validateTags } from "../lib/work-tags.ts";
 import { VERBS } from "../lib/work-verbs.ts";
 import { resolveItemWorktree } from "../lib/worktree-lookup.ts";
@@ -176,6 +181,8 @@ const MUTATING_CMDS = new Set([
 	"start",
 	"done",
 	"fail",
+	"wait",
+	"wake",
 	"cancel",
 	"supersede",
 	"block",
@@ -479,10 +486,16 @@ const showOne = (id: string, json: boolean): void => {
 		"effort",
 		"evidence",
 		"alloc_reason",
+		"wait_kind",
+		"wait_reason",
 		"description",
 	] as const) {
 		if (it[k]) console.log(`  ${dim(`${k}:`)} ${it[k]}`);
 	}
+	if (it.wait_until)
+		console.log(
+			`  ${dim("wait_until:")} ${new Date(Number(it.wait_until)).toISOString()}`,
+		);
 	console.log(
 		renderTimestamps(
 			it,
@@ -969,6 +982,37 @@ const dispatchVerb = async (
 				`${green("✓")} ${id} READY — stale claim released, launch budget reset`,
 			);
 		}
+	} else if (name === "wait") {
+		const id = pos[0] ?? "";
+		const kind = flag("--kind") ?? "";
+		const reason = flag("--reason") ?? "";
+		let until: number | null;
+		try {
+			until = parseWaitUntil(flag("--until"));
+		} catch (e) {
+			die(String(e));
+		}
+		const r = waitForPrerequisite(db(), PROJECT, id, kind, reason, until);
+		if (!r.ok) die(r.error ?? "wait refused");
+		emit("work.waiting", id, {
+			kind,
+			reason,
+			until: until ? new Date(until).toISOString() : "",
+		});
+		console.log(`${amber("◷")} ${id} WAITING — ${kind}: ${reason}`);
+	} else if (name === "wake") {
+		const id = pos[0] ?? "";
+		const note = flag("--note") ?? "";
+		const r = wakeAfterEvidence(
+			db(),
+			PROJECT,
+			id,
+			note,
+			rest.includes("--force"),
+		);
+		if (!r.ok) die(r.error ?? "wake refused");
+		emit("work.woken", id, { note });
+		console.log(`${green("✓")} ${id} READY — prerequisite verified: ${note}`);
 	} else if (name === "cancel") {
 		// W182 — CANCELLED terminal state: close completely with a required
 		// reason; claim + worktree released safely. Deliberately NOT in rollUp's

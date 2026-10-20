@@ -46,7 +46,7 @@ function mirrorDb(project: string): GovernorStore | null {
 	if (!m) return null;
 	const d = openMemoryStore();
 	d.run(
-		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, requires TEXT, tags TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
+		"CREATE TABLE work_items (project TEXT NOT NULL, id TEXT NOT NULL, parent_id TEXT, title TEXT NOT NULL, description TEXT, state TEXT NOT NULL DEFAULT 'READY', priority INTEGER NOT NULL DEFAULT 0, owner_sid TEXT, created_by TEXT, scope TEXT, why_parallel TEXT, result_sha TEXT, required INTEGER NOT NULL DEFAULT 1, requires TEXT, tags TEXT, wait_kind TEXT, wait_reason TEXT, wait_until INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (project, id))",
 	);
 	d.run(
 		"CREATE TABLE work_deps (project TEXT NOT NULL, work_id TEXT NOT NULL, depends_on TEXT NOT NULL, PRIMARY KEY (project, work_id, depends_on))",
@@ -73,6 +73,9 @@ function mirrorDb(project: string): GovernorStore | null {
 		"required",
 		"requires",
 		"tags",
+		"wait_kind",
+		"wait_reason",
+		"wait_until",
 		"created_at",
 		"updated_at",
 	];

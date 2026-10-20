@@ -87,7 +87,11 @@ export function taskShape(
 		id: w.id,
 		title: w.title,
 		state: w.state,
-		failure_note: w.state === "FAILED" ? failureNote : null,
+		failure_note:
+			w.state === "FAILED" || w.state === "WAITING" ? failureNote : null,
+		wait_kind: w.wait_kind ?? null,
+		wait_reason: w.wait_reason ?? null,
+		wait_until_utc: w.wait_until ? utcZ(w.wait_until) : null,
 		owner_sid: w.owner_sid ?? null,
 		owner_label: ownerLabel(w.owner_sid),
 		// W353: the dispatch origin stamp (`work take --origin host:agent`) —
@@ -367,7 +371,8 @@ export function workStateCounts(): Record<string, number> {
 		if (row.state === "READY") counts[row.blocked ? "blocked" : "ready"] += 1;
 		else if (row.state === "CLAIMED" || row.state === "RUNNING")
 			counts.working += 1;
-		else if (row.state === "SHATTERED") counts.waiting += 1;
+		else if (row.state === "SHATTERED" || row.state === "WAITING")
+			counts.waiting += 1;
 		else if (row.state === "BLOCKED" || row.state === "PAUSED")
 			counts.blocked += 1;
 		else if (row.state === "FAILED") counts.failed += 1;
@@ -915,7 +920,8 @@ export function board(): Record<string, unknown>[] {
 					(w) =>
 						(w.state === "READY" && blocked.has(w.id)) ||
 						w.state === "BLOCKED" ||
-						w.state === "PAUSED",
+						w.state === "PAUSED" ||
+						w.state === "WAITING",
 				)
 				.map(shape),
 			inflight: items
