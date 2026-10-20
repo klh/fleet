@@ -12,6 +12,7 @@ test("OpenRouter rates are converted from USD per token to USD per million", () 
 			{
 				id: "example/free:free",
 				name: "Free",
+				architecture: { output_modalities: ["text"] },
 				pricing: { prompt: "0", completion: "0", request: "0" },
 			},
 			{
@@ -42,6 +43,46 @@ test("OpenRouter rates are converted from USD per token to USD per million", () 
 	expect(models[1]?.price.outputUsdPerMillion).toBeCloseTo(0.6);
 	expect(models[2]?.price.requestUsd).toBe(0.01);
 	expect(models[3]?.price.outputUsdPerMillion).toBeNull();
+});
+
+test("zero text-token rates do not make music or metered media FREE", () => {
+	const models = parseOpenRouterModels({
+		data: [
+			{
+				id: "google/lyria-3-pro-preview",
+				architecture: { output_modalities: ["text", "audio"] },
+				pricing: { prompt: "0", completion: "0" },
+			},
+			{
+				id: "google/lyria-3-clip-preview",
+				architecture: { output_modalities: ["text", "audio"] },
+				pricing: { prompt: "0", completion: "0" },
+			},
+			{
+				id: "example/image-charge",
+				architecture: { output_modalities: ["text"] },
+				pricing: { prompt: "0", completion: "0", image: "0.08" },
+			},
+			{
+				id: "openrouter/free",
+				architecture: { output_modalities: ["text"] },
+				pricing: { prompt: "0", completion: "0" },
+			},
+			{
+				id: "example/missing-modalities",
+				pricing: { prompt: "0", completion: "0" },
+			},
+		],
+	});
+	expect(models.map((model) => model.price.status)).toEqual([
+		"unknown",
+		"unknown",
+		"priced",
+		"free",
+		"unknown",
+	]);
+	expect(models[0]?.price.note).toContain("Non-token charges");
+	expect(models[2]?.price.note).toContain("Non-token charges");
 });
 
 test("invalid or missing catalog prices never become FREE", () => {

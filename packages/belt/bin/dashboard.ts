@@ -667,12 +667,13 @@ function tickAccess(){
       return '$'+Number(value).toLocaleString(undefined,{maximumFractionDigits:4});
     }
     function rate(price){
-      if(!price||price.status==='unknown')return 'token price unreported';
+      if(!price||price.status==='unknown')return price?.note||'token price unreported';
       if(price.status==='included-unreported')return 'subscription access · token price unreported';
       if(price.status==='local-unpriced')return 'local runtime · no posted API token price';
       if(price.status==='free')return 'FREE · $0 in / $0 out per 1M tokens';
       return usd(price.inputUsdPerMillion)+' in / '+usd(price.outputUsdPerMillion)+' out per 1M tokens'
-        +(price.requestUsd>0?' · '+usd(price.requestUsd)+' per request':'');
+        +(price.requestUsd>0?' · '+usd(price.requestUsd)+' per request':'')
+        +(price.note?' · '+price.note:'');
     }
     var catalog=document.createElement('p');
     catalog.textContent='OpenRouter public catalog · '+(o.state||'unavailable')
