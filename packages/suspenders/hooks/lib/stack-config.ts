@@ -8,6 +8,9 @@ import { basename, join } from "node:path";
 import { parse } from "yaml";
 
 export interface HubProfile {
+	/** Reviewed canary ref for this hub only. Keeps the shared stack version
+	 * pinned for other hubs while one hub validates a new public base. */
+	version_override?: string;
 	host: string;
 	/** Human-facing hub label. The profile key stays the stable routing identity. */
 	display_name?: string;
