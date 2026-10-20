@@ -296,6 +296,7 @@ export function buildTopology(
 			...(routes?.models?.length
 				? {
 						gatewayModels: routes.models,
+						gatewayModelTargets: routes.providerHostsByModel ?? {},
 						providerKeys: (routes.providerHosts ?? []).map(providerKey),
 						providerCounts,
 					}
