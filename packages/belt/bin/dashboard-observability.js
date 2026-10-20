@@ -395,12 +395,13 @@ class BeltTrends extends LitElement {
 			);
 		}
 		const spark = (mount, counts) => {
-			const s = new uPlot(
+			this.chart(
+				mount,
+				uPlot,
 				{
-					width: mount.clientWidth || 180,
 					height: 28,
 					legend: { show: false },
-					axes: [],
+					axes: [{ show: false }, { show: false }],
 					padding: [2, 0, 2, 0],
 					scales: { x: { time: true } },
 					series: [
@@ -414,9 +415,7 @@ class BeltTrends extends LitElement {
 					],
 				},
 				[times, counts],
-				mount,
 			);
-			this.charts.push(s);
 		};
 		for (const row of this.querySelectorAll(".bt-spark")) {
 			const ep = this.hist.endpoints.find((e) => e.key === row.dataset.key);
