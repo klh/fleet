@@ -43,6 +43,7 @@ export const dashboardCodeGroups = [
 			"dashboard.ts",
 			"dashboard-page.html",
 			"klh-theme.ts",
+			"klh-theme-sync.ts",
 			"vendor/lit-shared.js",
 		],
 	},
