@@ -720,9 +720,23 @@ describe("harvest dedup (W618)", () => {
 			});
 			expect(candidates).toBe(0);
 			expect(JSON.parse(verdict.payload).choice).toBe("noise");
+			const feedback = run([
+				"consult-reply",
+				cid,
+				"--feedback",
+				"unused",
+				"--as",
+				ASKER,
+			]);
+			expect(feedback.code).toBe(0);
+			expect(feedback.out).toContain("audit only");
+			const verified = new Database(DB, { readonly: true });
 			expect(
-				run(["consult-reply", cid, "--feedback", "unused", "--as", ASKER]).err,
-			).toContain("no stored candidate");
+				verified
+					.query("SELECT outcome FROM consult_feedback WHERE consult_id = ?")
+					.get(Number(cid.slice(1))),
+			).toEqual({ outcome: "unused" });
+			verified.close();
 		} finally {
 			kev.stop(true);
 		}

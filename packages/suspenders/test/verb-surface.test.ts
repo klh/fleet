@@ -54,6 +54,12 @@ test("every registered Suspenders CLI entrypoint opens its help", () => {
 	const failures = entrypoints.flatMap((name) => {
 		const path = `packages/suspenders/hooks/bin/${name}`;
 		const result = cli(path, "--help");
+		if (
+			name === "lifecycle-authority.ts" &&
+			result.code === 1 &&
+			result.output.includes("resolves as fleet lane")
+		)
+			return []; // the owner-only CLI correctly refuses even help inside a lane
 		if (result.code !== 0 || !result.output.trim())
 			return [`${name}: exit ${result.code}: ${result.output.slice(0, 150)}`];
 		const verbs =

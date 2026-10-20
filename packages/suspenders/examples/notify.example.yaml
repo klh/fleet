@@ -2,6 +2,9 @@
 # ~/.config/klh/notify.yaml (mode 600; KLH_NOTIFY overrides the path).
 # Webhook URLs and mail credentials NEVER go in the repo: point at files.
 as: notify # sid the subscription binds as
+chatgpt:
+  auto: false # opt in to event-triggered co-supervisor desktop briefs
+  # .fleet/chatgpt-auto-paused also stops the maintenance task for this repo.
 channels:
   desktop: { enabled: true } # osascript, darwin only
   slack:

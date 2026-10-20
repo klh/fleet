@@ -423,7 +423,34 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 			}
 			return;
 		}
-		if (!kb) die("no stored candidate for this consult");
+		if (!kb) {
+			// Noise-classed answers have no reusable KB row, but still need
+			// an auditable asker outcome. This branch never promotes knowledge.
+			db.transaction(() => {
+				const previous = db
+					.query("SELECT 1 FROM consult_feedback WHERE consult_id = ?")
+					.get(c.id);
+				if (previous) die("feedback already recorded for this consult");
+				db.query("INSERT INTO consult_feedback VALUES (?, ?, ?, ?, ?)").run(
+					c.id,
+					feedback,
+					evidence,
+					as,
+					Date.now(),
+				);
+				db.query(
+					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, ?, 'consult.feedback', ?, ?, ?)",
+				).run(
+					Date.now(),
+					as,
+					c.scope,
+					JSON.stringify({ consult: cid, outcome: feedback, evidence }),
+					c.expert_sid,
+				);
+			})();
+			console.log(`FEEDBACK ${cid} ${feedback} (audit only)`);
+			return;
+		}
 		if (feedback === "resolved") {
 			const trust = db
 				.query("SELECT version, scope FROM consult_trust WHERE kb_id = ?")

@@ -36,6 +36,7 @@ export interface ClassPolicy {
 }
 
 export interface NotifyConfig {
+	chatgpt: { auto: boolean };
 	/** sid the subscription binds as — set to the coordinator sid to also
 	 *  receive events directed at it (default: untargeted events only) */
 	as: string;
@@ -99,6 +100,7 @@ export function normalizeConfig(raw: unknown): NotifyConfig {
 	}
 	return {
 		as: r.as ?? "notify",
+		chatgpt: { auto: r.chatgpt?.auto === true },
 		pulse: { interval_s: pulseIntervalOf(pulseRaw.interval_s) },
 		channels: r.channels ?? {},
 		classes,

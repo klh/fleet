@@ -203,6 +203,17 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/knowledge-sync.ts")],
 	},
 	{
+		name: "chatgpt-auto",
+		everySeconds: 120,
+		timeoutMs: 60_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/chatgpt-auto.ts"),
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W969 Signals-lite — per-run silent-failure scan of closed lanes
 		// through the pinned oracle leg (:8903 default): bounded evidence
 		// (transcript tail + capsule + done payload), fixed four-class prompt,
