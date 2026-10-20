@@ -583,9 +583,43 @@ export const plaidDispatch = (o: {
 	quota: ProviderPenalty;
 	ordinal: number;
 	hub: string | null;
+	routePin?: string;
 	modelHealth?: Map<string, string | null> | null;
 }): PlaidDispatch => {
 	const g = plaidGate(o.store, o.sids, o.quota, o.modelHealth);
+	if (o.routePin) {
+		const route = g.routes.find((r) => r.name === o.routePin);
+		if (
+			!route?.provider ||
+			!(POOL_PROVIDERS as readonly string[]).includes(route.provider)
+		)
+			return {
+				skip: `plaid route ${o.routePin} is not a configured pool route`,
+				pick: {},
+				routeName: null,
+				note: null,
+			};
+		const health = g.health.get(route.name);
+		if (health)
+			return {
+				skip: `plaid route ${o.routePin} unavailable: ${health}`,
+				pick: {},
+				routeName: null,
+				note: null,
+			};
+		const liveBy = new Map(
+			POOL_PROVIDERS.map((p) => [p, poolTotalOf(g.routes, g.load, p)]),
+		);
+		const plan = plaidPlan([route], g.health, liveBy, o.sids.length);
+		if (!plan.open)
+			return { skip: plan.reason, pick: {}, routeName: null, note: null };
+		return {
+			skip: null,
+			pick: plaidPickOf(o.hub, route, [route]),
+			routeName: route.name,
+			note: `plaid: explicit route ${route.name} (${route.label})`,
+		};
+	}
 	if (!g.plan.open)
 		return { skip: g.plan.reason, pick: {}, routeName: null, note: null };
 	const assign = plaidAssign(

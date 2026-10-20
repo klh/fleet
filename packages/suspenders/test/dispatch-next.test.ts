@@ -230,6 +230,31 @@ describe("capsule protocol (real coord verb, scratch db)", () => {
 
 describe("dry-run dispatch", () => {
 	let id = "";
+	test("explicit plaid route survives dry-run selection without a fallback", () => {
+		const item =
+			tool("work.ts", "add", "pinned GLM dispatch fixture").out.match(
+				/W\d+/,
+			)?.[0] ?? "";
+		const fleet = join(REPO, ".fleet");
+		mkdirSync(fleet, { recursive: true });
+		writeFileSync(join(fleet, "posture"), "plaid\n");
+		try {
+			const preview = dispatch(
+				"--dry-run",
+				"--item",
+				item,
+				"--route",
+				"glm-5.3-flash",
+				"--no-belt",
+			);
+			expect(preview.code).toBe(0);
+			expect(preview.out).toContain("DRY route pin glm-5.3-flash");
+			expect(preview.out).not.toContain("+fallback-model");
+		} finally {
+			rmSync(join(fleet, "posture"));
+			tool("work.ts", "fail", item);
+		}
+	});
 	test("relative repo input produces absolute lane brief and worktree paths", () => {
 		const added = tool("work.ts", "add", "relative-path dispatch regression");
 		const item = added.out.match(/W\d+/)?.[0] ?? "";
