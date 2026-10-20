@@ -1,8 +1,10 @@
 import {
 	buildTopology,
 	observedGraphLayout,
-} from "/dashboard-topology-model.js";
-import { css, html, LitElement, svg } from "/vendor/lit.js";
+} from "./dashboard-topology-model.js";
+import { css, html, LitElement, svg } from "./vendor/lit.js";
+
+const readApi = (path) => `${globalThis.KLH_GATEWAY_READ_BASE ?? ""}${path}`;
 
 const colour = (state) =>
 	state === "up"
@@ -185,21 +187,21 @@ class BeltTopology extends LitElement {
 				inventoryResponse,
 			] = await Promise.all([
 				...["/api/status", "/api/remotes", "/api/supervisor"].map((url) =>
-					fetch(url, { signal: controller.signal, cache: "no-store" }),
+					fetch(readApi(url), { signal: controller.signal, cache: "no-store" }),
 				),
-				fetch("/api/network", {
+				fetch(readApi("/api/network"), {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
-				fetch("/api/model-access", {
+				fetch(readApi("/api/model-access"), {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
-				fetch("/api/topology-context", {
+				fetch(readApi("/api/topology-context"), {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
-				fetch("/api/model-inventory", {
+				fetch(readApi("/api/model-inventory"), {
 					signal: controller.signal,
 					cache: "no-store",
 				}).catch(() => null),
@@ -864,7 +866,7 @@ class BeltModelInventory extends LitElement {
 	}
 	async refresh() {
 		try {
-			const response = await fetch("/api/model-inventory", {
+			const response = await fetch(readApi("/api/model-inventory"), {
 				cache: "no-store",
 			});
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);

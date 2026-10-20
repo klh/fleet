@@ -6,6 +6,7 @@ import { json, writeGuard } from "./helpers.ts";
 import { recentAdminAudit } from "../lib/admin-audit.ts";
 import { consoleMe, gatherBeltView, gatherLocalView } from "./console-view.ts";
 import { networkPayload, topologyPayload } from "./network-overview.ts";
+import { buckleReadProxy } from "./buckle-read-proxy.ts";
 import {
 	htmlHdr,
 	suspPreview,
@@ -38,6 +39,8 @@ export async function handleConsole(
 	req: Request,
 	url: URL,
 ): Promise<Response | null> {
+	const buckleRead = await buckleReadProxy(req, url);
+	if (buckleRead) return buckleRead;
 	if (url.pathname === "/console")
 		return Response.redirect(new URL("/console/belt", url).toString(), 302);
 	if (url.pathname === "/console/belt") {
