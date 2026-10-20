@@ -47,8 +47,9 @@ x-default-logging: &default-logging
 # Liveness vs readiness vs drain:
 #   - LIVENESS = compose healthcheck on the *-health sidecars (outside-process
 #     probes; a wedged service cannot paint itself healthy).
-#   - READINESS = buckle-ready's synthetic completion (informational; a dead
-#     upstream degrades the verdict, never restart-loops the gate).
+#   - ROUTE CATALOG = buckle-ready's authenticated model-list check, without
+#     inference tokens. Provider quota and inference availability are unknown
+#     until measured by real traffic; this check never restarts the gate.
 #   - DRAIN = SIGTERM -> stop_grace_period -> SIGKILL. buckle-hub's grace
 #     covers the ledger ring (flushMs 5s + bounded close() drain passes) so
 #     queued audit/usage rows land before the kill; sidecars hold no state.
@@ -285,13 +286,11 @@ services:
       retries: 3
       start_period: 15s
 
-  # Inference-route canary: /status proves the gate answers; this verifies
-  # that auth, routing and the upstream accept a 1-token completion request.
-  # Thinking models can spend that token on reasoning and return empty text,
-  # so this is not proof of a user-visible answer. It runs every 10 minutes
-  # and serves the verdict on its own port. INFORMATIONAL surface: hubctl
-  # status reports it; compose health still hits buckle-health (a dead
-  # upstream must degrade the verdict, never restart-loop the gate).
+  # Token-free route-catalog check: the outside-process sidecar authenticates
+  # to Buckle and asserts the configured model is listed. This proves the gate
+  # and route config answer over the wire, but provider quota/inference remain
+  # unknown until real traffic measures them. INFORMATIONAL surface: hubctl
+  # status reports it; compose health still hits buckle-health.
   # HUB_READY_MODEL is machine-level config (stack.yaml) — it must name a
   # model the hub's routing ladder actually serves.
   buckle-ready:
@@ -313,15 +312,13 @@ services:
       - bun
       - ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts
       - --target
-      - http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/v1/chat/completions
+      - http://127.0.0.1:${HUB_BUCKLE_PORT:-4111}/v1/models
       - --listen
       - ${HUB_BUCKLE_READY_PORT:-4113}
       - --auth-env
       - BUCKLE_ROOT_KEY
-      - --expect-path
-      - choices.0
-      - --synthetic-json
-      - '{"model":"${HUB_READY_MODEL:-general}","messages":[{"role":"user","content":"Reply OK."}],"max_tokens":1,"stream":false}'
+      - --catalog-model
+      - ${HUB_READY_MODEL:-general}
       - --every
       - ${HUB_READY_EVERY_MS:-600000}
       - --timeout
@@ -329,7 +326,7 @@ services:
       - --misses
       - "2"
     env_file:
-      # the synthetic call rides the same break-glass root credential as
+      # the catalog read rides the same break-glass root credential as
       # the gate (buckle.env, 0600, never transported)
       - ${HUB_BUCKLE_ENV_FILE:-./buckle.env}
     environment:

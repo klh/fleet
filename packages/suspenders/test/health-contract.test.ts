@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	catalogRequest,
 	createMonitor,
 	type ProbeArgs,
 	probeOnce,
@@ -285,6 +286,86 @@ describe("synthetic readiness (W467)", () => {
 		} finally {
 			delete process.env.W467_TOKEN;
 			server.stop(true);
+		}
+	});
+});
+
+describe("token-free route catalog", () => {
+	test("checks the exact model with an authenticated GET and leaves inference unknown", async () => {
+		const seen: Array<{ method: string; auth: string | null }> = [];
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: (req) => {
+				seen.push({
+					method: req.method,
+					auth: req.headers.get("authorization"),
+				});
+				return Response.json({ data: [{ id: "claude-sonnet-5" }] });
+			},
+		});
+		try {
+			process.env.W1004_TOKEN = "test-token";
+			const config = {
+				...args(server.url.toString()),
+				synthetic: undefined,
+				authEnv: "W1004_TOKEN",
+				catalogModel: "claude-sonnet-5",
+			};
+			const monitor = createMonitor(config);
+			await monitor.poll();
+			const snap = monitor.snapshot();
+			expect(snap.ok).toBe(true);
+			expect(snap.check).toBe("route-catalog");
+			expect(snap.inferenceAvailability).toBe("unknown");
+			expect(seen).toEqual([{ method: "GET", auth: "Bearer test-token" }]);
+		} finally {
+			delete process.env.W1004_TOKEN;
+			server.stop(true);
+		}
+	});
+
+	test("missing model or credential fails closed; inference 429 is a separate signal", async () => {
+		const server = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: () => Response.json({ data: [{ id: "other" }] }),
+		});
+		try {
+			const config = {
+				...args(server.url.toString()),
+				synthetic: undefined,
+				authEnv: "W1004_TOKEN",
+				catalogModel: "claude-sonnet-5",
+			};
+			process.env.W1004_TOKEN = "test-token";
+			expect(
+				(await probeOnce(server.url.toString(), 500, catalogRequest(config)))
+					.ok,
+			).toBe(false);
+			delete process.env.W1004_TOKEN;
+			const monitor = createMonitor(config);
+			await monitor.poll();
+			expect(monitor.snapshot().ok).toBe(false);
+			expect(monitor.snapshot().error).toContain("W1004_TOKEN");
+		} finally {
+			delete process.env.W1004_TOKEN;
+			server.stop(true);
+		}
+		const quota = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch: () => new Response("quota", { status: 429 }),
+		});
+		try {
+			const monitor = createMonitor({
+				...args(quota.url.toString()),
+				authEnv: undefined,
+			});
+			await monitor.poll();
+			expect(monitor.snapshot().inferenceAvailability).toBe("quota-blocked");
+		} finally {
+			quota.stop(true);
 		}
 	});
 });

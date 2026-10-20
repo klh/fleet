@@ -27,6 +27,11 @@
 //                (--misses, default 3)
 //   RING         bounded ring of recent results (--ring, default 20)
 //
+// Route catalog (W1004): --catalog-model checks that an authenticated
+// /v1/models response lists the exact configured id. It spends no inference
+// tokens and reports inference availability as unknown. Quota observations
+// must come from real inference traffic, not this structural check.
+//
 // Synthetic route canary (W467): a /status answer proves only that the server
 // responds. When a JSON body is declared, the probe POSTs it and requires a
 // 2xx JSON answer whose expect-path resolves (auth → routing → upstream →
@@ -57,6 +62,7 @@ export interface ProbeArgs {
 	synthetic?: string;
 	authEnv?: string;
 	expect?: string;
+	catalogModel?: string;
 }
 
 /** The wire request a probe carries: liveness is a bare GET; synthetic
@@ -67,6 +73,8 @@ export interface ProbeRequest {
 	body?: string;
 	/** dot-path that must resolve in the answer for the probe to count */
 	expect?: string;
+	/** Exact model id required in an OpenAI-compatible /v1/models catalog. */
+	catalogModel?: string;
 }
 
 interface Sample {
@@ -89,6 +97,7 @@ interface FlagOverrides {
 	synthetic?: string;
 	authEnv?: string;
 	expect?: string;
+	catalogModel?: string;
 }
 
 function optNum(v: string | undefined): number | undefined {
@@ -136,6 +145,9 @@ function parseFlags(argv: string[]): FlagOverrides {
 			case "--expect-path":
 				flags.expect = val;
 				break;
+			case "--catalog-model":
+				flags.catalogModel = val;
+				break;
 			default:
 				continue;
 		}
@@ -160,6 +172,7 @@ function resolveArgs(argv: string[]): ProbeArgs {
 		synthetic: f.synthetic ?? env.SYNTHETIC_JSON,
 		authEnv: f.authEnv ?? env.AUTH_ENV,
 		expect: f.expect ?? env.EXPECT_PATH,
+		catalogModel: f.catalogModel ?? env.CATALOG_MODEL,
 	};
 }
 
@@ -198,6 +211,30 @@ export function syntheticRequest(args: ProbeArgs): ProbeRequest | undefined {
 	return { method: "POST", headers, body: args.synthetic, expect: args.expect };
 }
 
+/** A catalog probe checks the configured route without invoking inference.
+ *  The result says nothing about provider quota or answer availability. */
+export function catalogRequest(args: ProbeArgs): ProbeRequest | undefined {
+	if (args.catalogModel === undefined) return undefined;
+	if (args.synthetic !== undefined)
+		throw new Error("catalog and synthetic probes are mutually exclusive");
+	if (args.catalogModel.trim().length === 0)
+		throw new Error("CATALOG_MODEL must name a model");
+	const headers: Record<string, string> = {};
+	if (args.authEnv !== undefined) {
+		const token = process.env[args.authEnv];
+		if (token === undefined || token.trim().length === 0)
+			throw new Error(
+				`AUTH_ENV "${args.authEnv}" is not set — refusing to probe without the credential`,
+			);
+		headers.authorization = `Bearer ${token}`;
+	}
+	return { method: "GET", headers, catalogModel: args.catalogModel };
+}
+
+function probeRequest(args: ProbeArgs): ProbeRequest | undefined {
+	return catalogRequest(args) ?? syntheticRequest(args);
+}
+
 /** Walk a dot-path ("choices.0.message") through objects/arrays; a missed
  *  segment yields undefined. */
 export function pathValue(body: unknown, path: string): unknown {
@@ -229,7 +266,8 @@ export async function probeOnce(
 		if (
 			ok &&
 			(r.headers.get("content-type")?.includes("json") ||
-				req.expect !== undefined)
+				req.expect !== undefined ||
+				req.catalogModel !== undefined)
 		) {
 			const reader = r.body?.getReader();
 			let size = 0;
@@ -266,6 +304,15 @@ export async function probeOnce(
 				].includes(body.status);
 			if (ok && req.expect !== undefined)
 				ok = pathValue(body, req.expect) !== undefined;
+			if (ok && req.catalogModel !== undefined)
+				ok =
+					Array.isArray(body.data) &&
+					body.data.some(
+						(row: unknown) =>
+							row !== null &&
+							typeof row === "object" &&
+							(row as Record<string, unknown>).id === req.catalogModel,
+					);
 		} else {
 			await r.body?.cancel();
 		}
@@ -294,7 +341,7 @@ export function createMonitor(args: ProbeArgs) {
 	let wire: ProbeRequest | undefined;
 	let wireError: string | null = null;
 	try {
-		wire = syntheticRequest(args);
+		wire = probeRequest(args);
 	} catch (e) {
 		wireError = e instanceof Error ? e.message : String(e);
 	}
@@ -356,7 +403,11 @@ export function createMonitor(args: ProbeArgs) {
 
 	function snapshot(): {
 		target: string;
-		check: "inference-route" | "http-liveness";
+		mode: "synthetic" | "catalog" | "liveness";
+		check: "inference-route" | "route-catalog" | "http-liveness";
+		inferenceAvailability: "available" | "quota-blocked" | "unknown";
+		model: string | null;
+		error: string | null;
 		intervalMs: number;
 		state: VerdictState;
 		ok: boolean;
@@ -379,8 +430,27 @@ export function createMonitor(args: ProbeArgs) {
 				: state;
 		return {
 			target: url,
-			mode: args.synthetic !== undefined ? "synthetic" : "liveness",
-			check: args.synthetic !== undefined ? "inference-route" : "http-liveness",
+			mode:
+				args.synthetic !== undefined
+					? "synthetic"
+					: args.catalogModel !== undefined
+						? "catalog"
+						: "liveness",
+			check:
+				args.synthetic !== undefined
+					? "inference-route"
+					: args.catalogModel !== undefined
+						? "route-catalog"
+						: "http-liveness",
+			inferenceAvailability:
+				args.synthetic !== undefined
+					? last?.status === 429
+						? "quota-blocked"
+						: last?.ok
+							? "available"
+							: "unknown"
+					: "unknown",
+			model: args.catalogModel ?? null,
 			intervalMs: args.every,
 			error: wireError,
 			state: reportedState,
@@ -402,7 +472,7 @@ async function main(): Promise<void> {
 	const args = resolveArgs(process.argv.slice(2));
 	if (args.target.length === 0) {
 		console.log(
-			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
+			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--catalog-model id | --synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING CATALOG_MODEL SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
 		);
 		process.exit(2);
 	}
@@ -410,7 +480,7 @@ async function main(): Promise<void> {
 	if (args.listen === undefined) {
 		let req: ProbeRequest | undefined;
 		try {
-			req = syntheticRequest(args);
+			req = probeRequest(args);
 		} catch (e) {
 			console.error(e instanceof Error ? e.message : String(e));
 			process.exit(2);
@@ -450,6 +520,8 @@ async function main(): Promise<void> {
 						ok: snap.ok,
 						state: snap.state,
 						check: snap.check,
+						inferenceAvailability: snap.inferenceAvailability,
+						model: snap.model,
 						intervalMs: snap.intervalMs,
 						target: snap.target,
 					},
