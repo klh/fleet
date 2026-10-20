@@ -38,6 +38,7 @@ import {
 	cmdConsults,
 	cmdWhoKnows,
 } from "../coord/consult.ts";
+import { cmdCoordinate } from "../coord/coordination.ts";
 import { cmdGovernance } from "../coord/governance.ts";
 import {
 	cmdKnowledge,
@@ -213,6 +214,13 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdWhoKnows(p.rest),
 	}),
 	defineVerb({
+		name: "coordinate",
+		usage:
+			'usage: coordinate --topic work|claims|capacity --note "..." [--max-peers n] [--classify] [--json] --as <sid>',
+		lax: true,
+		run: (p) => cmdCoordinate(p.rest),
+	}),
+	defineVerb({
 		name: "knowledge",
 		lax: true,
 		run: (p) => cmdKnowledge(p.rest),
@@ -380,6 +388,7 @@ await runCli({
 	verbs: VERBS,
 	epilog: [
 		"  bootstrap --as <sid> --name <label> stamps a user-facing lane name (coord fleet + the board show it)",
+		"  coordinate --topic work|claims|capacity — bounded peer-coordination round (W977.1); answer via consult-reply, bounded wait = coord wait --kinds consult.answer",
 		"  executor-cv [--apply] — the executor trust tally folded from work events (W620)",
 		"  project identity | project rekey <old> <new> — graph identity migration (W428)",
 		"  project enroll|bind|verify — managed-project enrollment pilot (W459.5, docs/identity-enrollment-pilot.md)",
