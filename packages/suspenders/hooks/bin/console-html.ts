@@ -104,7 +104,6 @@ export interface BeltView {
 	policy: ResolvedPolicy | null;
 	gateway: PolicyGatewayParsed | null;
 	policyError: string | null;
-	beltApi: { url: string; via: string } | null;
 	health: HealthProbe[];
 	groups: UpstreamGroup[] | null;
 	upstreamSource?: string;
@@ -185,7 +184,7 @@ const upstreamsSlice = (v: BeltView): UpstreamsCardData => ({
 });
 
 const PAGE_CSS = `.knobs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.kchip{border:1px solid var(--klh-edge);border-radius:2px;padding:2px 8px;font-size:11.5px;color:var(--klh-ink-2)}.kchip b{color:var(--klh-ink)}.dimpl{color:var(--klh-dim);font-size:12px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}`;
-const INVENTORY_CSS = `.consoleInventory{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;margin:0 0 14px;padding:10px 14px}.consoleInventory>summary{cursor:pointer;color:var(--klh-ink);font-size:12px;font-weight:600}.consoleInventory>summary:focus-visible{outline:2px solid var(--klh-accent);outline-offset:2px}.consoleInventory[open]>summary{margin-bottom:12px}`;
+const INVENTORY_CSS = `.consoleInventory{background:var(--klh-surface);border:1px solid var(--klh-edge-soft);border-radius:3px;margin:0 0 14px;padding:10px 14px}.consoleInventory>summary{cursor:pointer;color:var(--klh-ink);font-size:12px;font-weight:600}.consoleInventory>summary:focus-visible{outline:2px solid var(--klh-accent);outline-offset:2px}.consoleInventory[open]>summary{margin-bottom:12px}.access-seats{display:flex;flex-wrap:wrap;gap:8px 18px;margin:8px 0 14px}.access-seats span{padding:4px 0;border-bottom:1px solid var(--klh-edge)}.access-vendor{margin:6px 0;border-top:1px solid var(--klh-edge)}.access-vendor summary{padding:8px 0;cursor:pointer}.access-vendor table{width:100%;border-collapse:collapse;font-size:var(--klh-text-sm)}.access-vendor td{padding:5px 12px 5px 0;border-top:1px solid var(--klh-edge)}.access-vendor td:last-child{color:var(--klh-dim);text-align:left}`;
 
 // W669.11: the console cards bundle — every page emitting a klh-*-card host
 // loads it; the components upgrade the hosts from their data attributes
@@ -198,6 +197,7 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
 		`<belt-topology></belt-topology><belt-trends></belt-trends><belt-topology-details></belt-topology-details>` +
+		`<section class="panel" aria-label="Fleet model inventory"><h2>Fleet model inventory</h2><p class="dimpl">Models exposed through registered hubs and providers.</p><belt-model-inventory></belt-model-inventory><div id="modelaccess" aria-live="polite">Checking model access…</div></section>` +
 		(v.network
 			? `<klh-network-card heading="Buckle route summary" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
 			: "") +
@@ -211,13 +211,11 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		policyCard(v) +
 		upstreamsCard(v) +
 		`</details>` +
-		(v.beltApi
-			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
-			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +
 		`<link rel="stylesheet" href="/console/buckle-assets/vendor/uPlot.min.css">` +
 		`<script src="/console/buckle-assets/vendor/uPlot.iife.min.js"></script>` +
 		`<script>globalThis.KLH_GATEWAY_READ_BASE = "/api/console/buckle";</script>` +
 		`<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
+		`<script type="module" src="/console/buckle-assets/dashboard-model-access.js"></script>` +
 		`<script type="module" src="/console/buckle-assets/dashboard-observability.js"></script>` +
 		CARDS_SCRIPT;
 	return consolePage("Buckle gateway", "buckle", body, me);

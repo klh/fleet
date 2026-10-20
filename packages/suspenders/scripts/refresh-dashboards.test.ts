@@ -8,17 +8,18 @@ test("Belt refresh carries UI modules and leaves installed runtime machinery alo
 	for (const file of [
 		"dashboard.ts",
 		"model-access.ts",
+		"hubs.ts",
 		"dashboard-state.ts",
 		"metrics.ts",
 		"dashboard-observability.js",
+		"dashboard-model-access.js",
 		"dashboard-topology.js",
 		"dashboard-topology-model.js",
 		"vendor/lit.js",
 	])
 		expect(published.has(file), `missing UI module ${file}`).toBe(true);
-	// The flat runtime home has machine-specific remotes/hubs modules. Copying
-	// their repo versions breaks ../../suspenders imports at publication time.
-	for (const file of ["remotes.ts", "hubs.ts", "registry.ts"])
+	// The flat runtime home keeps machine-specific remotes and registry modules.
+	for (const file of ["remotes.ts", "registry.ts"])
 		expect(
 			published.has(file),
 			`runtime module ${file} must stay installer-owned`,

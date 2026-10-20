@@ -90,7 +90,9 @@ describe("recovery map completeness", () => {
 		expect(litellmCmds).toContain(
 			"launchctl kickstart -k gui/$(id -u)/com.suspenders.cloud-gateway",
 		);
-		expect(litellmCmds.some((c) => c.includes("com.suspenders.belt-swarm"))).toBe(false);
+		expect(
+			litellmCmds.some((c) => c.includes("com.suspenders.belt-swarm")),
+		).toBe(false);
 		// the orphaned-:4000 case (2026-10-03) has a kill-the-orphan step
 		expect(
 			RECOVERY_MAP["belt-gateway-4000"].recovery.map((s) => s.cmd),
@@ -267,7 +269,7 @@ describe("server rendering", () => {
 			policy: null,
 			gateway: null,
 			policyError: null,
-			beltApi: null,
+
 			health,
 			groups: null,
 		});

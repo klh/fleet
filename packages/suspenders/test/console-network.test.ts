@@ -213,6 +213,10 @@ describe("/console/buckle + /api/lane-routes", () => {
 		const html = await (await fetch(`${BASE}/console/buckle`)).text();
 		expect(html).toContain("klh-network-card");
 		expect(html).toContain("Buckle route summary");
+		expect(html).toContain("<belt-model-inventory>");
+		expect(html).toContain('id="modelaccess"');
+		expect(html).toContain("/console/buckle-assets/dashboard-model-access.js");
+		expect(html).not.toContain("<h2>belt API</h2>");
 		expect(html).toContain("vendor/klh-console-cards.js");
 	});
 
