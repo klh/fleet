@@ -60,6 +60,12 @@ decision-grade: it has to change what you would do. When a verdict flips
 - **Auto-routing stuck lanes into oracle review** — rejected at W647: stuck
   detection is a false-positive machine. Oracle is explicit invocation,
   every time.
+- **In-process mock hub for spawned-CLI federation tests (W934.2.2)** — a
+  spawned coord CLI cannot reach a `Bun.serve` mock on 127.0.0.1 on this
+  macOS 26 build, so the live consult bench's hub arm cannot ride an
+  in-process server (W934.2.1.2 solved it with in-process fixture DBs
+  instead). The bench defers the hub arm until a real hub endpoint is
+  reachable; the expert/kb arms run against the scratch plane.
 - **MCP servers as long-lived data planes** — repeated CONNECTION_CLOSED on
   live sessions (dinero); a dead MCP = silent capability loss. CLIs +
   one-shot Bun scripts are the durable surface; MCP only where a protocol

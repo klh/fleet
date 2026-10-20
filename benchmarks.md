@@ -78,6 +78,27 @@ the correctness backstop when consults cannot be delivered (drop-all:
 no duplicate work survives, efficiency degrades to blind-claim
 conflicts and lost capacity compliance).
 
+## Consult plane — live expert round trip vs verified reuse (W934.2.2, 2026-10-20)
+
+The [live consult bench](packages/blam/bench/consult/live.md) spawns the
+real coord CLI consult ladder against a scratch governor plane (scripted
+expert stand-in, no model calls) and runs two matched arms over the same
+questions: a full expert round trip (route → reply → asker-verified
+feedback) vs the same ask after verification landed (plane-answered KB
+reuse).
+
+| Arm | answered | mean | p50 | p95 |
+| --- | ---: | ---: | ---: | ---: |
+| expert round trip | 4/4 | 212 ms | 203 ms | 232 ms |
+| KB reuse (no live lane) | 4/4 | 78 ms | 77 ms | 80 ms |
+
+The decision: asker-verified reuse answers the repeat question ~2.7×
+faster than re-routing to a live expert on the same plane, with 4/4
+reproducibility properties — the verified-reuse ladder (W604/W934.2.1)
+is the routing default it claims to be. Latencies are subprocess-spawn
+dominated (two CLI boots per round trip vs one per reuse ask); the
+same-plane ratio is the signal, not the milliseconds.
+
 ## BLAM — coordination controls (2026-10-19 rerun)
 
 The deterministic [consult](packages/blam/bench/consult/scenario.md) and
