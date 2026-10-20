@@ -376,8 +376,8 @@ export interface MetricsHistory {
 	 *  measured samples] per bucket — avg spans MEASURED rows only; legacy
 	 *  zero-duration failure rows count in requests/errors, never in ms. */
 	buckets: [number, number, number, number | null, number][];
-	/** Per-endpoint request counts on the SAME grid as `buckets`. */
-	endpoints: { key: string; counts: number[] }[];
+	/** Per-endpoint request counts and observed models on the SAME grid as `buckets`. */
+	endpoints: { key: string; counts: number[]; models: string[] }[];
 }
 
 const HISTORY_WINDOW_MS = 6 * 3_600_000;
@@ -419,19 +419,33 @@ export function metricsHistory(): MetricsHistory {
 		);
 	}
 	const epRows = d
-		.query(grid("machine, port,", "machine, port, b"))
-		.all(since) as { machine: string; port: number; b: number; n: number }[];
-	const epMap = new Map<string, Map<number, number>>();
+		.query(grid("machine, port, model,", "machine, port, model, b"))
+		.all(since) as {
+		machine: string;
+		port: number;
+		model: string;
+		b: number;
+		n: number;
+	}[];
+	const epMap = new Map<
+		string,
+		{ counts: Map<number, number>; models: Set<string> }
+	>();
 	for (const r of epRows) {
 		const k = `${r.machine}:${r.port}`;
-		const g = epMap.get(k) ?? new Map<number, number>();
-		g.set(r.b, r.n);
+		const g = epMap.get(k) ?? {
+			counts: new Map<number, number>(),
+			models: new Set<string>(),
+		};
+		g.counts.set(r.b, (g.counts.get(r.b) ?? 0) + r.n);
+		if (r.model) g.models.add(r.model);
 		epMap.set(k, g);
 	}
 	const endpoints = [...epMap.entries()]
 		.map(([key, g]) => ({
 			key,
-			counts: buckets.map((b) => g.get(b[0]) ?? 0),
+			counts: buckets.map((b) => g.counts.get(b[0]) ?? 0),
+			models: [...g.models].sort(),
 		}))
 		.sort((a, z) => a.key.localeCompare(z.key));
 	return {

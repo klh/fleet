@@ -18,6 +18,7 @@ const ins = db.query(
 );
 ins.run(new Date(now - 120000).toISOString(), "mac", 8902, "m", "code", 120, 1, "", "t");
 ins.run(new Date(now - 1000).toISOString(), "mac", 8902, "m", "code", 90, 1, "", "t");
+ins.run(new Date(now - 1000).toISOString(), "mac", 8902, "m2", "code", 90, 1, "", "t");
 ins.run(new Date(now - 240000).toISOString(), "mac", 8902, "m", "code", 80, 0, "boom", "t");
 ins.run(new Date(now - 600000).toISOString(), "nas", 4101, "x", "proxy", 300, 1, "", "t");
 // legacy failRoute placeholder: failure with hard-coded duration_ms=0 — counts
@@ -83,16 +84,17 @@ test("metricsHistory buckets real samples onto a 5-minute grid", async () => {
 		expect(out.bucketMs).toBe(300000);
 		expect(out.buckets).toBe(72);
 		expect(out.lastBucket).toBe(out.currentStart);
-		expect(out.total).toBe(5); // the 7h-old row sits outside the 6h window
+		expect(out.total).toBe(6); // the 7h-old row sits outside the 6h window
 		expect(out.errs).toBe(2);
-		expect(out.measured).toBe(4); // the zero-duration failRoute row is not a sample
+		expect(out.measured).toBe(5); // the zero-duration failRoute row is not a sample
 		expect(out.unmeasuredNull).toBe(true);
 		expect(out.gridOk).toBe(true);
 		expect(out.endpoints).toHaveLength(2);
 		const mac = out.endpoints.find((e) => e.key === "mac:8902");
 		const nas = out.endpoints.find((e) => e.key === "nas:4101");
 		expect(mac.counts).toHaveLength(72);
-		expect(mac.counts.reduce((a, b) => a + b, 0)).toBe(4);
+		expect(mac.counts.reduce((a, b) => a + b, 0)).toBe(5);
+		expect(mac.models).toEqual(["m", "m2"]);
 		expect(nas.counts.reduce((a, b) => a + b, 0)).toBe(1);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
