@@ -469,9 +469,15 @@ ${fleetNav("belt", "models")}
 </div>
 <div id="fleetmeta" class="mut">—</div>
 </section>
+<section class="surface-section" aria-label="Belt router trends">
+<h2>Belt router trends</h2>
+<belt-trends></belt-trends>
+</section>
 <details class="diagnostics"><summary>Diagnostics · local probes and endpoint records</summary>
 <p class="diagnostics-note">Open this when a model or route needs investigation. Direct API probes check their own credentials and do not test Copilot, Claude CLI or ChatGPT sign-ins.</p>
 <belt-supervisor></belt-supervisor>
+<link rel="stylesheet" href="/vendor/uPlot.min.css">
+<script src="/vendor/uPlot.iife.min.js"></script>
 <script type="module" src="/dashboard-observability.js"></script>
 <div class="rhead"><span id="remotesnote" class="mut">loading…</span><button id="remotesbtn" type="button">refresh</button></div>
 <div id="remotesdisc"></div>
