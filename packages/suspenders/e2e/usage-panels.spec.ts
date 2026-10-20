@@ -168,6 +168,39 @@ test("cache drilldown: host upgrades, lanes paint, lane drilldown works", async 
 	expect(statSync(shot).size).toBeGreaterThan(50_000);
 });
 
+test("drilldown monitor: dims paint, uPlot mounts, coverage honest, work-type join", async ({
+	page,
+}) => {
+	await page.goto(`${BASE}/usage`);
+	await page.waitForFunction(
+		() => document.querySelector("klh-usage-monitor") !== null,
+	);
+	const mon = page.locator("klh-usage-monitor");
+	await expect(mon).toContainText("MONITOR · DRILLDOWN BY LANE");
+	await expect(mon.locator("#kmon-chart canvas")).toHaveCount(1);
+	// the canned lane row paints with its coverage-honest metrics
+	await expect(mon).toContainText("autow700");
+	await expect(mon).toContainText("orient 60%");
+	await expect(mon).toContainText("inference requests");
+	// dim switch: work-type column rides lane only — honest absence elsewhere
+	await mon.getByRole("button", { name: "model" }).click();
+	await expect(mon).toContainText("MONITOR · DRILLDOWN BY MODEL");
+	await expect(mon).not.toContainText("work type");
+	await expect(mon).toContainText("glm-5.3-flash");
+	await mon.getByRole("button", { name: "provider" }).click();
+	await expect(mon).toContainText("MONITOR · DRILLDOWN BY PROVIDER");
+	await mon.getByRole("button", { name: "hub" }).click();
+	await expect(mon).toContainText("MONITOR · DRILLDOWN BY HUB");
+	const shot = join(
+		dirname(fileURLToPath(import.meta.url)),
+		"test-results",
+		"usage-monitor.png",
+	);
+	await page.screenshot({ path: shot, fullPage: true });
+	copyFileSync(shot, "/tmp/w995-look-usage-monitor.png");
+	expect(statSync(shot).size).toBeGreaterThan(50_000);
+});
+
 test("federation page: spokes + aid rows paint from rollups", async ({
 	page,
 }) => {

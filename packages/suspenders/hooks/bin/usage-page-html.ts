@@ -295,12 +295,15 @@ const crossHubData = (x: CrossHubReport | undefined): UsageCrossHubPanel => {
 // ─── page assembly ───────────────────────────────────────────────────────
 export const usageHosts = `<klh-usage-header></klh-usage-header>
 		<nav class="usage-jump" aria-label="Usage sections">
-			<a href="#overview">Overview</a><a href="#actors">Actors</a>
+			<a href="#overview">Overview</a><a href="#monitor">Monitor</a><a href="#actors">Actors</a>
 			<a href="#cache">Cache</a><a href="#sources">Sources</a>
 			<a href="#activity">Activity</a>
 		</nav>
 		<section id="overview" class="usage-section" aria-label="Usage overview">
 			<klh-usage-tiles></klh-usage-tiles><klh-usage-charts></klh-usage-charts><klh-usage-coverage></klh-usage-coverage>
+		</section>
+		<section id="monitor" class="usage-section" aria-label="Drilldown monitor">
+			<klh-usage-monitor></klh-usage-monitor>
 		</section>
 		<section id="actors" class="usage-section" aria-label="Actor usage">
 			<klh-usage-actors></klh-usage-actors><klh-usage-drilldown></klh-usage-drilldown>

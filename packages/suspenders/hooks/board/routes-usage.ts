@@ -7,6 +7,12 @@ import { usagePayload } from "../bin/usage-page-html.ts";
 import { activityReport } from "../lib/activity-harvest.ts";
 import { cacheDrillParams, cacheDrillReport } from "../lib/cache-drill.ts";
 import { type CrossHubReport, crossHubRollup } from "../lib/cross-hub-usage.ts";
+import {
+	type LaneWork,
+	MONITOR_DIMS,
+	type MonitorDim,
+	monitorReport,
+} from "../lib/monitor-drill.ts";
 import { buildUsageReport } from "../lib/usage.ts";
 import { maybeHarvest } from "../lib/usage-harvest.ts";
 import { db } from "./context.ts";
@@ -140,6 +146,40 @@ export async function handleUsage(
 				cache_read_tokens: local.totals.cr,
 				requests: local.totals.rq,
 				source: local.provenance?.source ?? "legacy-aggregate",
+			},
+		});
+	}
+	if (url.pathname === "/api/usage/monitor") {
+		// W995: the drilldown monitor — buckle ledger grouped by
+		// model|provider|hub|lane with throughput/cache/failure/latency
+		// aggregates + hourly uPlot series. days is the SHARED window with
+		// the page (?days); the work-type join rides the W243 meter.
+		const dimRaw = url.searchParams.get("dim") ?? "lane";
+		const dim: MonitorDim = (MONITOR_DIMS as readonly string[]).includes(dimRaw)
+			? (dimRaw as MonitorDim)
+			: "lane";
+		const days = Math.min(
+			90,
+			Math.max(1, Number(url.searchParams.get("days") ?? 7) || 7),
+		);
+		maybeHarvest(db);
+		const meter = activityReport(db, {
+			weeks: Math.min(26, Math.max(1, Math.ceil(days / 7))),
+		});
+		const work: Record<string, LaneWork> = {};
+		for (const ar of meter.actors)
+			work[ar.actor] = {
+				orient: ar.orientShare,
+				context: ar.contextShare,
+				spr: ar.searchesPerReq,
+			};
+		const local = buildUsageReport(db, { days });
+		return json({
+			...(await monitorReport({ days, dim, work })),
+			transcripts: {
+				source: local.provenance?.source ?? "legacy-aggregate",
+				requests: local.totals.rq,
+				cache_read_tokens: local.totals.cr,
 			},
 		});
 	}
