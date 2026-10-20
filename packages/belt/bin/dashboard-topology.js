@@ -58,7 +58,7 @@ class BeltTopology extends LitElement {
 		button { margin-left:auto; background:transparent; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); color:var(--klh-ink); padding:4px 10px; font:inherit; cursor:pointer; }
 		button:focus-visible { outline:2px solid var(--klh-accent); outline-offset:3px; }
 		.map { inline-size:100%; block-size:440px; overflow:auto; }
-		svg { display:block; inline-size:1060px; block-size:auto; font:12px var(--klh-font-sans, sans-serif); }
+		svg { display:block; inline-size:100%; min-inline-size:1060px; max-inline-size:1500px; block-size:auto; font:12px var(--klh-font-sans, sans-serif); }
 		.edge { fill:none; stroke:var(--klh-dim); stroke-dasharray:4 5; }
 		.edge.observed { stroke:var(--klh-info); stroke-dasharray:none; }
 		.edge-label { fill:var(--klh-ink-2); font-size:10px; font-variant-numeric:tabular-nums; }
@@ -222,7 +222,7 @@ class BeltTopology extends LitElement {
 				: link.evidence === "probe"
 					? `Hub reachability probe · ${link.source}`
 					: `Configured path · ${link.source}`;
-		return svg`<g><title>${description}</title><path class="edge" d=${path} stroke-width="1.5"></path></g>`;
+		return svg`<g><title>${description}</title><path class=${`edge ${link.evidence === "observed" ? "observed" : ""}`} d=${path} stroke-width="1.5"></path></g>`;
 	}
 	machine(
 		x,
@@ -459,7 +459,7 @@ class BeltTopology extends LitElement {
 	}
 	render() {
 		const data = this.topology;
-		if (data?.observedGraph) return this.renderObserved(data);
+		const observed = data?.observedGraph;
 		const machines = data?.machines ?? [];
 		const hubs = [...(data?.hubs ?? [])].sort((a, b) =>
 			a.name.localeCompare(b.name),
@@ -513,7 +513,7 @@ class BeltTopology extends LitElement {
 		return html`<section aria-label="Belt connection map">
 			<div class="heading"><h2>Connections</h2><button type="button" @click=${this.refresh}>Refresh map</button></div>
 			<p role="status">${this.error || (data ? `${models.length} local models · ${hubs.length} hubs · ${clouds.length} providers${this.networkIssue ? ` · ${this.networkIssue}` : ""}` : "Loading connections…")}</p>
-			<p class="coverage">Trace-backed topology is unavailable. This inventory view combines probes, configuration, and local Buckle counters; its links cannot establish a multi-hop route.</p>
+			<p class="coverage">Solid links are measured routes; dashed links are probes or configured paths.${observed ? ` ${measure(observed.totals.requests)} requests and ${measure(observed.totals.failed)} failures observed in the past 15 minutes.` : " Trace-backed route data is unavailable."}</p>
 			<div class="traffic" aria-label="Successful Buckle routes, past 60 seconds">
 				<span><strong>${traffic?.requests60 ?? "—"}</strong><small>successful Buckle routes / min</small></span>
 				<span><strong>${tokenRate}</strong><small>reported tokens / sec</small></span>
@@ -541,10 +541,28 @@ class BeltTopology extends LitElement {
 					const link = data.links.find(
 						(entry) => entry.target === `provider:${item.key}`,
 					);
+					if (
+						item.key === "copilot" &&
+						hubCards.some((hub) => hub.name.toLowerCase() === "ikea")
+					)
+						return "";
 					return link
 						? this.edge(`M386 113 H403 V51 H742 V${item.y + 42} H770`, link)
 						: "";
 				})}
+				${hubCards
+					.filter((hub) => hub.name.toLowerCase() === "ikea")
+					.map((hub) => {
+						const copilotCard = cloudCards.find(
+							(item) => item.key === "copilot",
+						);
+						return copilotCard
+							? this.edge(
+									`M705 ${hub.y + 54} H738 V${copilotCard.y + 42} H770`,
+									{ evidence: "configured", source: "IKEA hub Copilot routes" },
+								)
+							: "";
+					})}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
 				${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl))}
 					${cloudCards.map((item) =>
@@ -559,7 +577,15 @@ class BeltTopology extends LitElement {
 			</svg></div>`
 					: html`<div class="map" aria-busy="true"><p>Loading map…</p></div>`
 			}
-			<div class="legend">Solid blue: observed successful routes in the past 15 minutes. Dashed: configured provider path or hub probe. Hub request counts require the separate hub observation feed. Local model loads count Belt router calls.</div>
+			<div class="legend">Solid blue: observed successful routes in the past 15 minutes. Dashed: configured provider path or hub probe. Hub route counts use its observation feed. Local model loads count Belt router calls.</div>
+			${
+				observed
+					? html`<details><summary>Observed route details · ${observed.edges.length} paths · ${measure(observed.totals.requests)} requests / 15m</summary>
+				<p class="coverage">Trace-backed paths are shown here alongside the inventory. An endpoint is only named as a provider when its identity is verified.</p>
+				<table><thead><tr><th scope="col">Route</th><th scope="col">Requests</th><th scope="col">Failed</th><th scope="col">Evidence</th></tr></thead><tbody>${observed.edges.map((edge) => html`<tr><td>${observed.nodes.find((node) => node.id === edge.from)?.label ?? edge.from} → ${observed.nodes.find((node) => node.id === edge.to)?.label ?? edge.to}</td><td>${measure(edge.requests)}</td><td>${measure(edge.failed)}</td><td>${edge.evidence}</td></tr>`)}</tbody></table>
+			</details>`
+					: ""
+			}
 			<details><summary>Connection data · ${data?.links.length ?? 0} paths</summary>
 				<table><thead><tr><th scope="col">Target</th><th scope="col">Path</th><th scope="col">Successful / 15m</th><th scope="col">Target failures / 15m</th><th scope="col">Source</th><th scope="col">Last evidence</th></tr></thead>
 				<tbody>${(data?.links ?? []).map((link) => html`<tr><td>${link.target.replace(/^hub:|^provider:/, "")}</td><td>${link.evidence}</td><td>${link.requests15 ?? "—"}</td><td>${link.failures15 ?? "—"}</td><td>${link.source}</td><td title=${link.lastSeen ? new Date(link.lastSeen).toISOString() : "No observed route"}>${localTime(link.lastSeen)}</td></tr>`)}</tbody></table>
