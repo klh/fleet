@@ -249,6 +249,9 @@ describe("dry-run dispatch", () => {
 			);
 			expect(preview.code).toBe(0);
 			expect(preview.out).toContain("DRY route pin glm-5.3-flash");
+			expect(preview.out).toContain(
+				"DRY selected route glm-5.3-flash (GLM 5.3 Flash)",
+			);
 			expect(preview.out).not.toContain("+fallback-model");
 		} finally {
 			rmSync(join(fleet, "posture"));

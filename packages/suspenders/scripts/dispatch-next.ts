@@ -536,6 +536,7 @@ const dispatchItem = async (
 			attempt,
 			wt,
 			resumeSid: resume?.sid,
+			routePin: ROUTE,
 		});
 	const store = openStore();
 	// W620 measure beat: fold the events into facts BEFORE the ladder reads
