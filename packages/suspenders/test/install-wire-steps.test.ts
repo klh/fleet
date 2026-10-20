@@ -126,6 +126,26 @@ describe("registerCaddy register paths", () => {
 });
 
 describe("registerSkills", () => {
+	const oldEcosystemSkill = `---
+name: klh-ecosystem-map
+---
+# KLH Ecosystem Map
+## The five repos
+Call chain for an LLM request: **surface (Claude/Copilot/VS Code) → belt
+Poll your inbox at session start
+`;
+
+	function installedLegacySkill(
+		root: string,
+		agent: ".claude" | ".agents",
+		contents = oldEcosystemSkill,
+	): string {
+		const dir = join(root, agent, "skills", "klh-ecosystem-map");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "SKILL.md"), contents);
+		return dir;
+	}
+
 	function addSkill(root: string, name: string): void {
 		const dir = join(root, "skills", name);
 		mkdirSync(dir, { recursive: true });
@@ -178,6 +198,66 @@ describe("registerSkills", () => {
 		expect(
 			existsSync(join(root, ".claude", "skills", "fleet", "SKILL.md")),
 		).toBe(true);
+	});
+
+	test("clean install registers catalog without creating the obsolete skill", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		const fakeBin = join(root, "fakebin");
+		stubSkillsInstall(fakeBin);
+		await withPath(fakeBin, async () => {
+			expect((await registerSkills(ctx)).status).toBe("ok");
+		});
+		expect(existsSync(join(root, ".claude/skills/klh-ecosystem-map"))).toBe(
+			false,
+		);
+		expect(existsSync(join(root, ".agents/skills/klh-ecosystem-map"))).toBe(
+			false,
+		);
+	});
+
+	test("upgrade retires both known obsolete copies after the current catalog is verified", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		const claude = installedLegacySkill(root, ".claude");
+		const agents = installedLegacySkill(root, ".agents");
+		const fakeBin = join(root, "fakebin");
+		stubSkillsInstall(fakeBin);
+		await withPath(fakeBin, async () => {
+			const res = await registerSkills(ctx);
+			expect(res.status).toBe("ok");
+			expect(res.note).toContain("retired 2 obsolete ecosystem-map copies");
+		});
+		expect(existsSync(claude)).toBe(false);
+		expect(existsSync(agents)).toBe(false);
+		expect(existsSync(join(root, ".claude/skills/fleet/SKILL.md"))).toBe(true);
+	});
+
+	test("unknown or customized skill contents remain untouched", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		const claude = installedLegacySkill(root, ".claude", "custom skill");
+		const agents = installedLegacySkill(root, ".agents");
+		writeFileSync(join(agents, "README.md"), "custom supporting file");
+		const fakeBin = join(root, "fakebin");
+		stubSkillsInstall(fakeBin);
+		await withPath(fakeBin, async () => {
+			expect((await registerSkills(ctx)).status).toBe("ok");
+		});
+		expect(existsSync(claude)).toBe(true);
+		expect(existsSync(agents)).toBe(true);
+	});
+
+	test("failed catalog registration leaves obsolete copies in place", async () => {
+		const { root, ctx } = fixture();
+		addSkill(root, "fleet");
+		const legacy = installedLegacySkill(root, ".claude");
+		const fakeBin = join(root, "fakebin");
+		stubExec(fakeBin, "npx", "#!/bin/sh\nexit 1\n");
+		await withPath(fakeBin, async () => {
+			expect((await registerSkills(ctx)).status).toBe("failed");
+		});
+		expect(existsSync(legacy)).toBe(true);
 	});
 
 	test("zero-exit without installed SKILL.md → failed", async () => {

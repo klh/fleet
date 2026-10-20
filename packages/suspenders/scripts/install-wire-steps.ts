@@ -4,7 +4,13 @@
 // impl already sat. Each function mirrors the retired bash block: non-fatal
 // steps keep running the plan, and degraded outcomes surface truthfully
 // (W549) instead of being swallowed.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
 import { redactSecrets } from "../hooks/lib/knowledge.ts";
@@ -119,10 +125,42 @@ export async function registerSkills(ctx: StepContext): Promise<StepResult> {
 			note: `skills CLI exited successfully but ${missing.length}/${skillNames.length} Claude skills are missing under ${installed}: ${missing.slice(0, 3).join(", ")}`,
 		};
 	}
+	const retired = retireLegacyEcosystemSkill(ctx.home, skillNames);
 	return {
 		status: "ok",
-		note: `registered and verified ${skillNames.length} Claude skills from ${skillsDir}`,
+		note: `registered and verified ${skillNames.length} Claude skills from ${skillsDir}${retired > 0 ? `; retired ${retired} obsolete ecosystem-map copies` : ""}`,
 	};
+}
+
+/** Remove only the pre-monorepo skill installed by the retired speedy installer. */
+function retireLegacyEcosystemSkill(
+	home: string,
+	skillNames: string[],
+): number {
+	const name = "klh-ecosystem-map";
+	if (skillNames.includes(name)) return 0;
+	let removed = 0;
+	for (const agent of [".claude", ".agents"]) {
+		const dir = join(home, agent, "skills", name);
+		if (!existsSync(dir) || !lstatSync(dir).isDirectory()) continue;
+		const entries = readdirSync(dir);
+		if (entries.length !== 1 || entries[0] !== "SKILL.md") continue;
+		const skillFile = join(dir, "SKILL.md");
+		if (!lstatSync(skillFile).isFile()) continue;
+		const contents = readFileSync(skillFile, "utf8");
+		if (
+			!contents.includes("name: klh-ecosystem-map\n") ||
+			!contents.includes("## The five repos") ||
+			!contents.includes(
+				"Call chain for an LLM request: **surface (Claude/Copilot/VS Code) → belt",
+			) ||
+			!contents.includes("Poll your inbox at session start")
+		)
+			continue;
+		rmSync(dir, { recursive: true });
+		removed++;
+	}
+	return removed;
 }
 
 /**
