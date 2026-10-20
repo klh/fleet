@@ -25,6 +25,10 @@ relatively (`./registry.ts`, `./spawner.ts`).
 | `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
 | `routing-policy.yaml` | default ladder template — the committed default               |
 | `lane-load-bench.ts`  | W452 bench (re-integrated W782.2.1): residency probe + cold/warm TTFT + p95 at the registry's admission concurrency, deterministic quality grading |
+| `models.catalog.ts`  | W754.1 — the ONE model-acquisition catalog: repo/revision/license/runtime bindings pinned to belt's serving registry; the machine `models.catalog.json` adds private entries and wins id collisions |
+| `health.ts`          | process-liveness response helper (outside-process sidecars own service health) |
+| `observation.ts`     | the outside-process observation contract (evidence identity + expiry, written to `~/.claude-insights/belt-supervisor.json`) |
+| `kill-listeners.ts`  | stops server listeners on a port only (health-check clients survive recovery) |
 
 The `:4000` router is served by `packages/belt/bin/router-shim.ts`
 (anthropic wire → openai-protocol specialists); install.sh seeds the
@@ -35,10 +39,12 @@ runtime home from belt/bin (W465).
 | Port    | Specialist                                       |
 | ------- | ------------------------------------------------ |
 | `:8901` | coder                                            |
-| `:8902` | extract / menial                                 |
+| `:8902` | extract                                          |
 | `:8903` | reason                                           |
-| `:8906` | general / Danish                                 |
-| `:8913` | reranker |
+| `:8906` | general / Danish (on-demand)                     |
+| `:8907` | embed (rapid-mlx `/v1/embeddings`; 8904/8905 retired) |
+| `:8912` | kev — external classifier (`com.belt.kev`, observed, not launched) |
+| `:8913` | rerank                                           |
 | `:4000` | belt router-shim (anthropic seam over the swarm) |
 | `:4100` | LiteLLM engine, owned by the belt supervisor |
 | `:4101` | Buckle authenticated front door, separate service |

@@ -15,11 +15,12 @@ Requires [Bun](https://bun.sh). Caddy, the Caddyfile, and the user LaunchAgent a
 
 ```bash
 git clone https://github.com/klh/fleet && cd fleet/packages/local
-echo 'alias klh-local="bun /Volumes/Sensitive/github/klh/local/bin/klh-local.ts"' >> ~/.zshrc
+./install.sh               # deploys bin/, wires ~/.local/bin/klh-local, boots the bar agent
+echo 'alias klh-local="bun ~/.local/bin/klh-local"' >> ~/.zshrc
 klh-local install          # brew install caddy (if missing) + LaunchAgent + Caddyfile
 ```
 
-Or one step: `./install.sh` — deploys `bin/` to `~/.local/klh-local/`, wires `~/.local/bin/klh-local`, bootstraps the bar dashboard agent, and registers the board as `bar.local` (idempotent, converges on re-run).
+`install.sh` is idempotent and converges on re-run; it also registers the board as `bar.local`.
 
 ## The verbs
 
@@ -88,7 +89,7 @@ HTTPS is Caddy's internal CA (auto-HTTPS): this Mac verifies clean (`ssl_verify_
 
 ## Bar
 
-The registry, rendered live: [http://bar.local/](http://bar.local/) — one hairline row per service (name, port, target, health via the same 1.5s GET the `status` verb makes, dns-claim liveness, fragment presence, created date), under a Caddy line (:80 answering, `caddy version`) and the registry path. Vanilla JS refreshing every 3s, no frameworks, no external assets — a single-file Bun server, `bin/dashboard.ts`.
+The registry, rendered live: [http://bar.local/](http://bar.local/) — one hairline row per service (name, port, target, health via the same 1.5s GET the `status` verb makes, dns-claim liveness, fragment presence, created date), under a Caddy line (:80 answering, `caddy version`) and the registry path. Lit web components on the vendored `bin/vendor/lit-shared.js` runtime (offline LAN, never CDN), refreshing every 3s and picking up the fleet theme + nav same-origin — served by the Bun server `bin/dashboard.ts` (page template `bin/dashboard-page.html`, deployed beside it by `install.sh`).
 
 ![The bar — every local service, one honest row each](assets/bar.png)
 
