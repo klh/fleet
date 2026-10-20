@@ -344,6 +344,7 @@ export function buildTopology(
 						gatewayModelCosts,
 						providerIntents: routes.providerIntents ?? [],
 						gatewayModelTargets: routes.providerHostsByModel ?? {},
+						gatewayModelPorts: routes.targetPortsByModel ?? {},
 						providerKeys: [...configuredProviders],
 						providerCounts,
 					}
@@ -417,7 +418,9 @@ export function buildTopology(
 				name:
 					key === "openrouter"
 						? "OpenRouter"
-						: key[0].toUpperCase() + key.slice(1),
+						: key === "chatgpt"
+							? "ChatGPT"
+							: key[0].toUpperCase() + key.slice(1),
 				state: "unconfigured",
 				models: [],
 				endpoints: 0,
@@ -426,6 +429,16 @@ export function buildTopology(
 				routed: 0,
 			});
 		}
+	}
+	for (const row of context?.hubProviderObservations ?? []) {
+		const hub = hubCards.find(
+			(item) => item.name.toLowerCase() === String(row.hub).toLowerCase(),
+		);
+		const provider = providers.find((item) => item.key === row.provider);
+		if (!hub || !provider || !hub.providerIntents?.includes(row.provider))
+			continue;
+		if (!isFresh(row.lastAt, now, ROUTE_MS)) continue;
+		provider.hubRequest = row;
 	}
 	const hops =
 		networkFresh &&

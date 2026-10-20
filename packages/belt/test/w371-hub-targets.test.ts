@@ -71,6 +71,7 @@ describe("hubTargets heal wiring", () => {
 				providerIntents: ["openai", "openrouter"],
 				providerHosts: ["models.example.org"],
 				providerHostsByModel: { "sample-model": ["models.example.org"] },
+				targetPortsByModel: { "sample-model": [443] },
 				providerModelIds: {},
 			},
 			{
@@ -82,6 +83,7 @@ describe("hubTargets heal wiring", () => {
 				providerIntents: [],
 				providerHosts: [],
 				providerHostsByModel: {},
+				targetPortsByModel: {},
 				providerModelIds: {},
 			},
 		]);

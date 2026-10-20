@@ -242,6 +242,16 @@ describe("Belt topology", () => {
 			null,
 			null,
 			{
+				hubProviderObservations: [
+					{
+						hub: "lab",
+						provider: "openrouter",
+						successes15: 1,
+						failures15: 0,
+						lastStatus: 200,
+						lastAt: new Date(now).toISOString(),
+					},
+				],
 				hubRoutes: [
 					{
 						name: "lab",
@@ -262,6 +272,10 @@ describe("Belt topology", () => {
 		expect(
 			model.providers.find((provider) => provider.key === "openrouter")?.state,
 		).toBe("unconfigured");
+		expect(
+			model.providers.find((provider) => provider.key === "openrouter")
+				?.hubRequest?.successes15,
+		).toBe(1);
 		expect(model.providers.some((provider) => provider.key === "zai")).toBe(
 			true,
 		);

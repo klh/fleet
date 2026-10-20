@@ -239,6 +239,10 @@ class BeltTopology extends LitElement {
 		const name = String(value).split("/").pop();
 		return name.length > length ? `${name.slice(0, length - 1)}…` : name;
 	}
+	fitCardText(value, length = 31) {
+		const label = String(value);
+		return label.length > length ? `${label.slice(0, length - 1)}…` : label;
+	}
 	targetHint(hosts) {
 		if (!hosts?.length) return "source unspecified";
 		return hosts.every((host) =>
@@ -287,6 +291,7 @@ class BeltTopology extends LitElement {
 		gatewayUnresolvedRoutes = [],
 		gatewayModelCosts = {},
 		services = [],
+		gatewayModelPorts = {},
 	) {
 		const configuredAliases = new Set([
 			...(gatewayModels ?? []),
@@ -302,6 +307,7 @@ class BeltTopology extends LitElement {
 						state: "unknown",
 						usage15: null,
 						price: gatewayModelCosts[name],
+						ports: gatewayModelPorts[name] ?? [],
 					})),
 					...models
 						.filter((item) => !configuredAliases.has(item.model))
@@ -350,7 +356,7 @@ class BeltTopology extends LitElement {
 								return svg`<g><title>${item.name} · ${item.source} · ${costDetail(item.price)}${item.targets.length ? ` · targets: ${item.targets.join(", ")}` : ""}${item.routes.length ? ` · Buckle routes: ${item.routes.join(", ")}` : ""}</title>
 						<circle cx=${itemX} cy=${itemY} r="3" fill=${colour(item.state)}></circle>
 						<text class="title" x=${itemX + 9} y=${itemY + 4}>${this.shortModel(item.name, 16)}</text>
-					<text class="meta" x=${itemX + 9} y=${itemY + 18}>${this.shortModel(costCaption(item.price), 19)}</text>
+					<text class="meta" x=${itemX + 9} y=${itemY + 18}>${this.shortModel(`${item.ports.length === 1 ? `:${item.ports[0]} · ` : ""}${costCaption(item.price)}`, 19)}</text>
 					</g>`;
 							})
 						: svg`<text class="meta" x=${x + 23} y=${y + 132}>No model inventory reported</text>`
@@ -407,8 +413,10 @@ class BeltTopology extends LitElement {
 	}
 	cloud(x, y, width, item, link, viaHub = null, routeConfigured = true) {
 		const visible = viaHub ? [] : item.models.slice(0, 2);
-		const status =
-			viaHub && !routeConfigured
+		const hubRequest = item.hubRequest;
+		const status = hubRequest
+			? `${hubRequest.successes15} succeeded · ${hubRequest.failures15} failed /15m`
+			: viaHub && !routeConfigured
 				? "Declared hub provider · upstream hop unverified"
 				: Number.isFinite(link?.requests15)
 					? `${link.requests15} successful /15m · ${link.failures15 ?? "—"} target failures`
@@ -422,10 +430,10 @@ class BeltTopology extends LitElement {
 								? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
 								: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
-			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : item.state)}></circle>
+			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : hubRequest ? (hubRequest.lastStatus >= 200 && hubRequest.lastStatus < 300 ? "up" : "attention") : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
-			<g><title>${link ? `${link.source} · last evidence ${localTime(link.lastSeen)}` : "No measured Buckle route data"}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${status}</text></g>
-			${viaHub ? svg`<text class="meta" x=${x + 12} y=${y + 58}>${routeConfigured ? `Configured hub routes shown under ${this.shortModel(viaHub, 19)}` : `Hub model routes shown under ${this.shortModel(viaHub, 19)}`}</text>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
+			<g><title>${status}${hubRequest ? ` · last HTTP ${hubRequest.lastStatus} at ${localTime(hubRequest.lastAt)} from hub Buckle ledger` : link ? ` · ${link.source} · last evidence ${localTime(link.lastSeen)}` : ""}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${this.fitCardText(status)}</text></g>
+			${viaHub ? svg`<g><title>${routeConfigured ? `Configured hub routes shown under ${viaHub}` : `Hub model routes shown under ${viaHub}`}</title><text class="meta" x=${x + 12} y=${y + 58}>${this.fitCardText(`Models via ${viaHub}`)}</text></g>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
 			${!viaHub && item.models.length > 2 ? svg`<a href="#modelaccess"><text class="meta" x=${x + 158} y=${y + 75}>+${item.models.length - 2} in model access</text></a>` : ""}
 		</g>`;
 	}
@@ -737,7 +745,7 @@ class BeltTopology extends LitElement {
 						),
 				)}
 				${this.machine(16, 65, 370, localHeight, "This Mac", `local spoke · :4101 · ${data.gateway === "unknown" ? "unobserved" : data.gateway}`, data.gateway, models, true, data.localConsoleUrl, data.work)}
-		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services))}
+		${hubCards.map((item) => this.machine(430, item.y, 275, item.height, item.displayName || item.name, `:${item.port} · ${item.state} probe`, item.state, item.models, false, item.consoleUrl, null, item.gatewayModels, item.gatewayModelTargets, item.name, item.gatewayModelAliases, item.gatewayRouteCount, item.gatewayUnresolvedRoutes, item.gatewayModelCosts, item.services, item.gatewayModelPorts))}
 					${cloudCards.map((item) =>
 						this.cloud(
 							770,

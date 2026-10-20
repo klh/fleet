@@ -178,6 +178,7 @@ export function hubGatewayRoutes(): Array<{
 	providerIntents: string[];
 	providerHosts: string[];
 	providerHostsByModel: Record<string, string[]>;
+	targetPortsByModel: Record<string, number[]>;
 	providerModelIds: Record<string, { provider: string; id: string }>;
 }> {
 	const profiles = hubProfiles();
@@ -202,6 +203,7 @@ export function hubGatewayRoutes(): Array<{
 		}
 		const hosts = new Set<string>();
 		const modelHosts = new Map<string, Set<string>>();
+		const modelPorts = new Map<string, Set<number>>();
 		const routesByModel = new Map<string, Set<string>>();
 		const unresolvedRoutes: string[] = [];
 		const providerModelIds: Record<string, { provider: string; id: string }> =
@@ -244,9 +246,14 @@ export function hubGatewayRoutes(): Array<{
 				const raw = candidate.url ?? inheritedCandidate?.url;
 				if (typeof raw !== "string") continue;
 				try {
-					const host = new URL(raw).hostname.toLowerCase();
+					const target = new URL(raw);
+					const host = target.hostname.toLowerCase();
 					hosts.add(host);
 					modelHosts.get(name)?.add(host);
+					const port =
+						Number(target.port) || (target.protocol === "https:" ? 443 : 80);
+					if (!modelPorts.has(name)) modelPorts.set(name, new Set());
+					modelPorts.get(name)?.add(port);
 				} catch {}
 			}
 			if (!resolved) unresolvedRoutes.push(route);
@@ -268,9 +275,112 @@ export function hubGatewayRoutes(): Array<{
 			providerHostsByModel: Object.fromEntries(
 				[...modelHosts].map(([model, targets]) => [model, [...targets]]),
 			),
+			targetPortsByModel: Object.fromEntries(
+				[...modelPorts].map(([model, ports]) => [model, [...ports]]),
+			),
 			providerModelIds,
 		};
 	});
+}
+
+export interface HubProviderObservation {
+	hub: string;
+	provider: string;
+	successes15: number;
+	failures15: number;
+	lastStatus: number;
+	lastAt: string;
+}
+
+/** Project the hub Buckle ledger through configured model identities. A route
+ * with ambiguous provider ownership never changes a provider indicator. */
+export function providerObservationsFromRequests(
+	hub: string,
+	routes: ReturnType<typeof hubGatewayRoutes>[number],
+	requests: Array<Record<string, unknown>>,
+	now = Date.now(),
+): HubProviderObservation[] {
+	const providerByModel = new Map<string, string>();
+	for (const [model, aliases] of Object.entries(routes.routesByModel)) {
+		const providers = new Set(
+			aliases
+				.map((alias) => alias.split("/")[0])
+				.filter((key) => routes.providerIntents.includes(key)),
+		);
+		const catalogProvider = routes.providerModelIds[model]?.provider;
+		if (catalogProvider && routes.providerIntents.includes(catalogProvider))
+			providers.add(catalogProvider);
+		if (providers.size === 1) providerByModel.set(model, [...providers][0]);
+	}
+	const found = new Map<string, HubProviderObservation>();
+	for (const row of requests) {
+		const at = typeof row.ts === "string" ? Date.parse(row.ts) : NaN;
+		if (!Number.isFinite(at) || at > now || now - at > 15 * 60_000) continue;
+		const provider = providerByModel.get(String(row.target_model ?? ""));
+		if (
+			!provider ||
+			(row.traffic_kind !== "inference" && row.traffic_kind !== "readiness")
+		)
+			continue;
+		const previous = found.get(provider);
+		const item = previous ?? {
+			hub,
+			provider,
+			successes15: 0,
+			failures15: 0,
+			lastStatus: 0,
+			lastAt: "",
+		};
+		if (row.ok === 1 || row.ok === true) item.successes15 += 1;
+		else item.failures15 += 1;
+		if (!item.lastAt || at > Date.parse(item.lastAt)) {
+			item.lastAt = row.ts as string;
+			item.lastStatus = Number(row.status) || 0;
+		}
+		found.set(provider, item);
+	}
+	return [...found.values()];
+}
+
+/** Read recent per-provider outcomes from each hub's authenticated Buckle
+ * request ledger. Unavailable or older hubs simply contribute no evidence. */
+export async function hubProviderObservations(
+	routes = hubGatewayRoutes(),
+): Promise<HubProviderObservation[]> {
+	const profiles = hubProfiles();
+	const hubs = new Map(readHubs().map((hub) => [hub.label.toLowerCase(), hub]));
+	const results = await Promise.all(
+		routes.map(async (route) => {
+			const profile = profiles.get(route.name.toLowerCase());
+			const hub = hubs.get(route.name.toLowerCase());
+			if (!profile?.token_file || !hub || !route.providerIntents.length)
+				return [];
+			try {
+				const key = readFileSync(profile.token_file, "utf8").trim();
+				if (!key) return [];
+				const url = new URL(
+					"/v1/admin/requests?limit=500&inference=true",
+					hub.base,
+				);
+				const response = await fetch(url, {
+					headers: { Authorization: `Bearer ${key}` },
+					signal: AbortSignal.timeout(1500),
+				});
+				if (!response.ok) return [];
+				const payload = (await response.json()) as { requests?: unknown };
+				return Array.isArray(payload.requests)
+					? providerObservationsFromRequests(
+							route.name,
+							route,
+							payload.requests as Array<Record<string, unknown>>,
+						)
+					: [];
+			} catch {
+				return [];
+			}
+		}),
+	);
+	return results.flat();
 }
 
 /** Stack profiles keyed by stable hub id. Display names never affect lookup
