@@ -1,10 +1,12 @@
-import { html, css, LitElement } from "/vendor/lit.js";
+import { html, css, LitElement } from "./vendor/lit.js";
 import {
 	supervisorFresh,
 	restartEvidence,
 	targetStateLabel,
-} from "/dashboard-state.js";
-import { observationFresh } from "/observation.js";
+} from "./dashboard-state.js";
+import { observationFresh } from "./observation.js";
+
+const readUrl = (path) => `${globalThis.KLH_GATEWAY_READ_BASE ?? ""}${path}`;
 
 // W902: UTC-first dual stamp — a bare local time is unreadable across hubs
 const dualStamp = (ms) => {
@@ -70,7 +72,7 @@ class BeltSupervisor extends LitElement {
 		this.controller = new AbortController();
 		const timeout = setTimeout(() => this.controller.abort(), 5000);
 		try {
-			const response = await fetch("/api/supervisor", {
+			const response = await fetch(readUrl("/api/supervisor"), {
 				signal: this.controller.signal,
 				cache: "no-store",
 			});
@@ -181,7 +183,7 @@ class BeltTrends extends LitElement {
 		this.controller = new AbortController();
 		const timeout = setTimeout(() => this.controller.abort(), 5000);
 		try {
-			const response = await fetch("/api/metrics/history", {
+			const response = await fetch(readUrl("/api/metrics/history"), {
 				signal: this.controller.signal,
 				cache: "no-store",
 			});

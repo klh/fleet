@@ -197,8 +197,9 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		`<belt-topology></belt-topology><belt-trends></belt-trends><belt-topology-details></belt-topology-details>` +
 		(v.network
-			? `<klh-network-card heading="Network overview" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
+			? `<klh-network-card heading="Buckle route summary" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
 			: "") +
 		healthHtml(
 			v.health.filter((p) =>
@@ -213,8 +214,13 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		(v.beltApi
 			? `<div class="panel"><h2>belt API</h2><p>reachable at <span class="mono">${esc(scrub(v.beltApi.url))}</span> <span class="dim">(via ${esc(v.beltApi.via)})</span></p><p class="cfoot">read-only view in this item — routing edits live on the settings page</p></div>`
 			: `<div class="panel"><h2>belt API</h2><p class="dimpl">belt API not reachable (env → belt.json → belt.local chain) — gateway health above is probed directly</p></div>`) +
+		`<link rel="stylesheet" href="/console/buckle-assets/vendor/uPlot.min.css">` +
+		`<script src="/console/buckle-assets/vendor/uPlot.iife.min.js"></script>` +
+		`<script>globalThis.KLH_GATEWAY_READ_BASE = "/api/console/buckle";</script>` +
+		`<script type="module" src="/console/buckle-assets/dashboard-topology.js"></script>` +
+		`<script type="module" src="/console/buckle-assets/dashboard-observability.js"></script>` +
 		CARDS_SCRIPT;
-	return consolePage("Belt gateway", "belt", body, me);
+	return consolePage("Buckle gateway", "belt", body, me);
 };
 
 // ─── local services view (/console/local) — static registry first ─────────
