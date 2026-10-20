@@ -49,6 +49,7 @@ import {
 import { handleTheme, isThemePath } from "./klh-theme-sync.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
+import { buildModelInventory } from "./model-inventory.ts";
 import {
 	collectModelCapabilities,
 	type CapabilityFeed,
@@ -1069,6 +1070,7 @@ const ROUTES: RouteMethods = {
 	"/api/network": ["GET", "HEAD"],
 	"/api/topology-context": ["GET", "HEAD"],
 	"/api/model-access": ["GET", "HEAD"],
+	"/api/model-inventory": ["GET", "HEAD"],
 	"/api/model-capabilities": ["GET", "HEAD"],
 	"/api/catalog": ["GET", "HEAD"],
 	"/api/metrics": ["GET", "HEAD"],
@@ -1138,6 +1140,25 @@ Bun.serve({
 		if (path === "/api/network") return networkSnapshot();
 		if (path === "/api/topology-context") return topologyContext();
 		if (path === "/api/model-access") return json(await accessSnapshot());
+		if (path === "/api/model-inventory") {
+			const [local, remotes, access, capabilities] = await Promise.all([
+				statusBody().then((body) => JSON.parse(body)),
+				remotesSnapshot(),
+				accessSnapshot(),
+				capabilitySnapshot(),
+			]);
+			return json(
+				buildModelInventory({
+					specialists: local.specialists,
+					localObservedAt: local.observation?.observedAt,
+					remotes: remotes.rows,
+					remoteObservedAt: remotes.ts,
+					hubs: hubGatewayRoutes(),
+					access,
+					capabilities: capabilities.records,
+				}),
+			);
+		}
 		if (path === "/api/model-capabilities")
 			return etagJson(req, JSON.stringify(await capabilitySnapshot()));
 		// W258 — the capability forecast: conservative per-machine rows
