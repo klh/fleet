@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@clack/prompts": "^1.8.1",
 		"@klh/blam": "workspace:*",
+		"cli-table3": "^0.6.5",
 		"execa": "^10.1.1",
 		"lit": "^3.3.3",
 		"meow": "^14.1.0",
