@@ -73,6 +73,45 @@ not committed because patches can
 contain task content. The base fixture commit for both was
 `4979a0d86f3ef7f32eff70245a6ce37e75d0d585`.
 
+## Knowledge retrieval — stamped-mechanical vs stamped facts+kb, FROZEN corpus (W956 round 2, 2026-10-19)
+
+Round 2 of the W949 A/B on the W952 freeze protocol: the transcript
+snapshot was sealed BEFORE question selection (seal `e3c32249ac55`,
+2026-10-19T20:40:37Z, bench-lane eras excluded — zero self-echo
+possible); the ten questions are W949's, verbatim, and predate the
+freeze. Arms both carry confidence stamps (W953/W955 schema): A =
+facts+kb read through the band-filterable lens — reality: zero banked
+rows carry a rating, so the filter was a no-op; B = decant stamped
+{rating 0.4, provenance mechanical:decant, freshness fresh} (decant
+v0.11.0 has no native rating; the stamp is fleet-side). Identity-blind
+seeded placement, two recorded judge runs, ties shown as ties, raws
+kept. Judge anomaly handled per recorded rule, not silently recomputed
+(see the bench README). Protocol, arms, answers, judge raws:
+[packages/suspenders/bench/w956/](packages/suspenders/bench/w956/README.md).
+
+| Metric                                  | A: stamped facts+kb    | B: stamped decant (0.4)                                        |
+| --------------------------------------- | ---------------------- | -------------------------------------------------------------- |
+| Coverage                                | 2/10 (J2, J3)          | 10/10                                                          |
+| Judge picks (2 stable runs, seed 956)   | 0                      | 8 (ties J2/J3)                                                 |
+| Telemetry completeness (GT rubric)      | 0/5                    | 5/5 judge-scored (T1's GT accepts either view; T3's cache-rate stays a surface gap — the one fact-backfill target) |
+| Read cost per question                  | 0.5–1.2 KB + discovery | ~1.6 KB targeted `ls --project` / ~5.5 KB `search --json`      |
+| Layer cost                              | zero sync (pre-banked) | one-time 4.1 GB index over the frozen claude corpus (CPU-capped long passes; codex months skipped — no question material) |
+
+**Verdict (v2): mechanical-first HOLDS on clean data, now with measured
+teeth.** Stamped-mechanical sweeps preference (8/2/0) AND answers the
+judgment class J1/J4/J5 at full quality with zero bench-lane echo; the
+facts layer answers only the two banked lessons (J2/J3, ties at 5/5) at
+~17× cheaper per-hit reads — its rent is the distilled judgment cache.
+The residual surface gap is now exactly located: per-request counts and
+cache-rate are ledger reads decant cannot serve — that tail, not the
+sweep, is the fact-backfill target. Confidence stamps moved nothing measurable: until the banked corpus
+carries ratings, band-filterable discovery is theoretical. Policy:
+mechanical-first, fact-backfill only for the ledger-only metrics;
+bank judgment lessons, never telemetry numbers. This row supersedes
+round 1's verdict wording (W949, corrected W952) — the "pending a
+re-bench on a frozen corpus" condition is now discharged, verdict
+confirmed.
+
 ## Fleet attribution validity — decant cross-check (W943, 2026-10-19)
 
 Decision: can the fleet report's TOKENS/CACHE/OUT-MIN columns (W776:

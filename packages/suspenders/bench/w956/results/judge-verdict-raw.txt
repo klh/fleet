@@ -1,0 +1,39 @@
+WHAT: Oracle analysis of 10 telemetry/judgment pairs comparing Ground Truth against Candidate Answers X and Y.
+HOW:
+- Evaluated correctness (0-5) based on contradiction/invention relative to Ground Truth.
+- Evaluated completeness (0-5) based on coverage of Ground Truth key points.
+- Aggregated scores to determine strict winner or tie.
+RISKS:
+- Answer X consistently hallucinates "banked layer" limitations or "unbanked" status for facts explicitly present in the Ground Truth (e.g., T1, T2, T3, T4, T5, J4, J5).
+- Answer Y correctly identifies missing data only when Ground Truth confirms absence, but often fails to extract available data when present (e.g., T1, T2, T3, T4, T5, J4, J5).
+- Both models struggle with the specific constraint of distinguishing between "ledger view" and "transcript view" nuances in T1/T3/T4, though Y is slightly more accurate on the distinction mechanism.
+- High risk of false negatives in retrieval logic for both candidates regarding "finding" IDs.
+OPEN QUESTIONS:
+- Why does Answer X systematically default to "No answer" for specific W-IDs despite the Ground Truth providing explicit metrics?
+- Does Answer Y's pattern of "No answer" stem from a stricter interpretation of "banked layer" availability versus Answer X's hallucination of unavailability?
+- How can the evaluation prompt be refined to penalize the specific "unbanked" hallucination seen in Answer X?
+- Is the "blind judge" persona effectively simulating a stateless oracle, or does it introduce bias toward "No answer" when data is ambiguous?
+
+**JSON Output:**
+```json
+[
+  {"qid": "T1", "x_c": 5, "x_k": 5, "y_c": 0, "y_k": 0, "pick": "X"},
+  {"qid": "T2", "x_c": 5, "x_k": 5, "y_c": 0, "y_k": 0, "pick": "X"},
+  {"qid": "T3", "x_c": 0, "x_k": 0, "y_c": 5, "y_k": 4, "pick": "Y"},
+  {"qid": "T4", "x_c": 0, "x_k": 0, "y_c": 5, "y_k": 4, "pick": "Y"},
+  {"qid": "T5", "x_c": 5, "x_k": 5, "y_c": 0, "y_k": 0, "pick": "X"},
+  {"qid": "J1", "x_c": 0, "x_k": 0, "y_c": 5, "y_k": 5, "pick": "Y"},
+  {"qid": "J2", "x_c": 5, "x_k": 5, "y_c": 5, "y_k": 5, "pick": "tie"},
+  {"qid": "J3", "x_c": 5, "x_k": 5, "y_c": 5, "y_k": 5, "pick": "tie"},
+  {"qid": "J4", "x_c": 5, "x_k": 5, "y_c": 0, "y_k": 0, "pick": "X"},
+  {"qid": "J5", "x_c": 5, "x_k": 5, "y_c": 0, "y_k": 0, "pick": "X"}
+]
+```
+oracle: analyze route=local-reason model=mlx-community/Qwen3.5-35B-A3B-OptiQ-4bit ms=7804
+
+// RUN-1 ANOMALY (recorded, not silently recomputed): J4/J5 rows score the
+// arm-A "No answer" answers x_c=5/x_k=5 — a direct violation of the judge
+// head prompt ("'No answer' scores correctness 0"). Mapped picks (judge-index
+// seed 956): T1 B, T2 B, T3 B, T4 B, T5 B, J1 B, J2 tie, J3 tie, J4 A*,
+// J5 A* — the two A* picks are the anomalous rows. Run 2 + the recomputed
+// row (no-answer ⇒ c=0 ⇒ pick Y) decide the reported verdict.
