@@ -3,17 +3,17 @@
 > Part of the klh fleet monorepo — the system overview (packages, flow
 > diagrams, laws, ops) lives at the fleet root: [README.md](../../README.md).
 
-![version](https://img.shields.io/badge/version-1.0.1-8a857e)
-
 > **Platform: Apple-silicon macOS.** belt runs MLX, which has no CUDA/ROCm path — the swarm needs an M-series Mac. Other machines and fleets can still consume it over the network: the endpoints are plain HTTP on :8901+.
 
 **The local LLM fleet for your agent fleet.** A swarm of MLX specialists on
 localhost — code, extract, reason, rerank — behind a deterministic keyword
-router, with a benchmark rig that logs every measurement to `benchmarks.jsonl`.
+router, with a benchmark rig that logs measurements to
+`~/.claude-insights/benchmarks.jsonl`.
 Wear with [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders).
 
-Five parallel Claude Code lanes hit `:8901` at once. Nobody waits on a remote
-round-trip for a 4-line extraction, and nobody notices the cloud is down.
+The router sends short extraction tasks to `:8902`. The code tier at `:8901`
+admits up to two in-flight requests before routing to another provider or
+returning `429` with `Retry-After`.
 
 ## The fleet
 
@@ -25,7 +25,7 @@ import it; change a model in the registry and both follow.
 | ---- | ------------------------ | ------------------------------------------------------------------------ | ------ | --------- | --------- |
 | 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB  | resident  | rapid-mlx |
 | 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB | resident  | rapid-mlx |
-| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-4bit                                                     | 20 GB  | resident  | rapid-mlx |
+| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-OptiQ-4bit                                               | 20 GB  | resident  | rapid-mlx |
 | 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
 | 8907 | 🧲 embed                 | Qwen3-Embedding-0.6B-4bit-DWQ                                            | ~2 GB  | resident  | rapid-mlx |
 | 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
@@ -86,7 +86,7 @@ stall). Belt stays warm because the control plane never lets it cool.
 Every measurement is logged, nothing is remembered from vibes.
 
 ```bash
-bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit --label qwen3-coder
+bun bin/bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit --label qwen3-coder
 ```
 
 - `bin/bench-suite.ts` — standard 4-prompt bench (TS dedupe, web component,
@@ -96,7 +96,7 @@ bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruc
   and prefix-cache-hit time-to-first-token medians, prefill tok/s, with
   engine / revision / flags / power / thermal meta per row
 - Router admission: the `:4000` shim caps in-flight requests per port
-  (`BELT_MAX_INFLIGHT`, default 4); overflow → `429` + `Retry-After`
+  (registry overrides, then `BELT_MAX_INFLIGHT`, default 4); overflow → `429` + `Retry-After`
   (`BELT_RETRY_AFTER_S`, default 2). The routing log records a prompt sha256
   prefix + length, never prompt text
 - `bin/bench-log.ts` — append-only history at
@@ -105,9 +105,10 @@ bun bench-suite.ts --port 8901 --model mlx-community/Qwen3-Coder-30B-A3B-Instruc
 - [`bench/benchmarks.jsonl`](bench/benchmarks.jsonl) — the measured record
   (committed)
 - [Fleet benchmarks](../../benchmarks.md) — curated results and rejection log;
-  [Belt questions](bench-questions.md) — protocols; `bench/RESULTS.md` is a historical stub
+  [Belt questions](bench-questions.md) — protocols; [historical results](bench/RESULTS.md)
 - [`docs/add-a-model.md`](docs/add-a-model.md) — **how to add a new model**:
-  registry → download → serve → bench → adopt/reject, with the rejection log
+  registry → download → serve → bench → adopt/reject, with rejections recorded
+  in [fleet benchmarks](../../benchmarks.md#rejection-log)
 
 ### Dashboard
 
@@ -158,7 +159,7 @@ gateway config during an approved maintenance window.
 - `>32k` context or frontier-quality production work → remote (z.ai)
 - cloud down / tokens expired → `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` —
   the router shim speaks Anthropic and covers every workload class locally
-- `bun set-cloud.ts off` pins the router local-only
+- `bun bin/set-cloud.ts off` pins the router local-only
 
 ## Docs
 

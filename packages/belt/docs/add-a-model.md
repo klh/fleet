@@ -30,7 +30,7 @@ the 8901/8903 comments in the registry).
 ## 2. Download
 
 ```bash
-bun ~/.claude/local-llm/coordinator.ts start <port>   # first start downloads via mlx_lm
+bun ~/.claude/local-llm/swarm.ts download   # download the registered specialist models
 ```
 
 …or explicitly:

@@ -28,7 +28,7 @@ reasons per row there.
 5. **Model selection is task-shaped**: code → :8901, menial → :8902, reasoning → :8903, Danish → :8906, rerank → :8913.
 6. **Degraded mode**: remote tokens expire → `ANTHROPIC_BASE_URL=http://127.0.0.1:4000` keeps Claude Code on the local swarm at local speed; every workload class stays covered (verified end-to-end 2026-09-27).
 
-## Router-shim bench fixes (W270, REPORT.md 2026-10-02)
+## Router-shim bench fixes (W270, [n=33 report](../REPORT-n33.md), 2026-10-02)
 
 - **Code signal**: strong signals (fence, language, "write a function",
   call signature, declarations) route to `:8901`; generic weak words
@@ -62,13 +62,10 @@ the existing belt alias namespace (litellm model_name / buckle group /
 direct-tier key), so buckle/litellm keep resolving group → provider. `roles:`
 overrides a role's class; any role/lane named `*-low` drops to spark with NO
 registry edit. `reasoning:` is a model-independent axis (role row > class row
-
-> default, low..xhigh) — z.ai honors `reasoning_effort`
-> (`allowed_openai_params` on z.ai rows), MLX effort is the router budget
-> policy. gateway-config emits the resolved map to
-> `~/.claude/local-llm/class-tiers.json` for non-TS consumers (dispatch briefs
-
-- the W512 Task pin: pin the class, the ladder resolves the model).
+> default, low..xhigh). Z.AI honors `reasoning_effort` (`allowed_openai_params`
+on Z.AI rows); MLX effort uses the router budget policy. `gateway-config.ts`
+emits the resolved map to `~/.claude/local-llm/class-tiers.json` for non-TS
+consumers. The W512 task pin selects the class; the ladder resolves the model.
 
 ## Model registration (W271)
 
