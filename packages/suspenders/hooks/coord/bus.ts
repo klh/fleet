@@ -9,6 +9,11 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { resolveStoreHttpBase } from "../lib/govdb.ts";
+import {
+	codexThreadForSession,
+	deliverSubscribedCodexEvent,
+} from "../lib/codex-direct-delivery.ts";
+import { steerCodexDirectEvent } from "../lib/codex-steer.ts";
 import { type LaneRef, laneVerdict } from "../lib/lane-liveness.ts";
 import { loadLaneRegistry } from "../lib/lane-registry.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
@@ -384,13 +389,46 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 	if (kinds) params.set("kinds", kinds);
 	if (bound.token) params.set("token", bound.token);
 	let backoff = 500;
+	// Order direct events for this session; a later consult must not overtake
+	// an earlier direct message while app-server RPC is still in flight.
+	let delivery = Promise.resolve();
 	const connect = (): void => {
 		const ws = new WebSocket(`${wsBase}/subscribe?${params}`);
 		ws.addEventListener("open", () => {
 			backoff = 500; // a clean connect resets the reconnect backoff
 		});
 		ws.addEventListener("message", (e) => {
-			console.log(formatEventLine(JSON.parse(String(e.data)) as Ev));
+			const event = JSON.parse(String(e.data)) as Ev & {
+				target?: string | null;
+			};
+			console.log(formatEventLine(event));
+			if (event.target !== as) return;
+			delivery = delivery
+				.then(async () => {
+					const threadId = codexThreadForSession(db, as);
+					if (!threadId) return;
+					const proxy = process.env.SUSPENDERS_CODEX_BIN;
+					const result = await deliverSubscribedCodexEvent(
+						event,
+						as,
+						threadId,
+						proxy
+							? (direct, opts) =>
+									steerCodexDirectEvent(direct, {
+										...opts,
+										command: [proxy, "app-server", "proxy"],
+									})
+							: undefined,
+					);
+					console.error(
+						`coord Codex delivery #${event.id}: ${result.state}${result.state === "steered" ? ` turn=${result.turnId}` : ` ${result.reason}`}; Fleet inbox remains durable`,
+					);
+				})
+				.catch((error) => {
+					console.error(
+						`coord Codex delivery #${event.id}: queued ${String(error)}`,
+					);
+				});
 		});
 		ws.addEventListener("close", () => {
 			setTimeout(connect, backoff);

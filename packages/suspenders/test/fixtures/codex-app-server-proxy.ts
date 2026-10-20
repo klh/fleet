@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 // Faithful JSON-RPC fixture for the Codex app-server proxy's three requests.
 import { createInterface } from "node:readline";
 

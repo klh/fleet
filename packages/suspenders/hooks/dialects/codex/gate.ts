@@ -20,6 +20,7 @@ import { bashGate } from "../../gates/bash.ts";
 import { postToolGate } from "../../gates/post-tool.ts";
 import { preFilesChain } from "../../gates/chain.ts";
 import { stopGate } from "../../gates/stop.ts";
+import { openStore } from "../../lib/govdb.ts";
 
 // wiring-time event per mode (spec: dialect bound by argv, not sniffed)
 const EVENT = {
@@ -60,7 +61,11 @@ export async function codexGate(
 	}
 
 	if (mode === "session") {
-		return sessionGate(sid, cwd);
+		return sessionGate(
+			sid,
+			cwd,
+			typeof raw.session_id === "string" ? raw.session_id : "",
+		);
 	}
 	if (mode === "session-end") {
 		return sessionEndGate(sid);
@@ -94,7 +99,11 @@ export async function codexGate(
 // bootstrap packet + RULES as SessionStart additionalContext. transcript_path
 // is the lane log — the zombie sweep's transcript-liveness rule stays
 // meaningful for non-claude transcripts (lesson.zombie-session-hygiene).
-async function sessionGate(sid: string, cwd: string): Promise<never> {
+async function sessionGate(
+	sid: string,
+	cwd: string,
+	codexThreadId: string,
+): Promise<never> {
 	const transcript = transcriptPathFor(cwd, sid);
 	if (!sid) {
 		drift(
@@ -108,6 +117,26 @@ async function sessionGate(sid: string, cwd: string): Promise<never> {
 		transcript_path: transcript,
 		source: "startup",
 	});
+	// The Fleet sid is an alias for dispatched lanes. Preserve the CLI's real
+	// thread UUID so the WS subscriber can address this exact Codex turn.
+	if (
+		/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+			codexThreadId,
+		)
+	) {
+		try {
+			const store = openStore();
+			store.run(
+				"INSERT INTO facts (key, value, source, version, ts) VALUES (?, ?, 'codex-session', 1, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, source = excluded.source, version = version + 1, ts = excluded.ts",
+				`codex.thread.${sid}`,
+				codexThreadId,
+				Date.now(),
+			);
+			store.close();
+		} catch (error) {
+			drift(`Codex thread mapping unavailable: ${String(error)}`, sid);
+		}
+	}
 	if (out) context(out, "SessionStart");
 	allow();
 }
