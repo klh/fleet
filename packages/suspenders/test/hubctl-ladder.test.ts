@@ -76,6 +76,14 @@ test("render carries the enterprise entry + egress knobs; solo emits none", () =
 	expect(solo.out).not.toContain("sk-fixture");
 });
 
+test("hub Buckle stamps its profile identity on relayed requests", () => {
+	const template = readFileSync(
+		join(import.meta.dir, "../deploy/hub-compose.yaml"),
+		"utf8",
+	);
+	expect(template).toContain("BUCKLE_HUB_ID: ${HUB_NAME:-desktop}");
+});
+
 test("push writes the ladder file and a 0600 upstream.env built on-device", () => {
 	const r = hubctl("push", "ent");
 	expect(r.code).toBe(0);
