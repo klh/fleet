@@ -247,7 +247,7 @@ test("served overview bounds history and filters it without inserting HTML", () 
 		"<img onerror=bad()>",
 	);
 	expect(roots.fleetLine.textContent).toContain(
-		"0 working · 0 waiting on you · 1 blocked",
+		"0 live sessions · 0 waiting on you · 1 blocked",
 	);
 	expect(roots.fleetBlocked.textContent).toBe(1);
 	expect(byId("fleetHistoryLanes")?.children).toHaveLength(0);

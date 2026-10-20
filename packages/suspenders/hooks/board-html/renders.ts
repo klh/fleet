@@ -232,7 +232,7 @@ function renderFleet(){
   var proj = d.projects || [];
   for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) blocked += (proj[p].gated || []).filter(function(item){ return scopedLane(item.owner, proj[p].project); }).length;
   var waiting = openDecs().filter(function(decision){ return scopedSource(decision.asked_by || decision.target, decision.project); }).length;
-  var line = 'fleet: ' + working + ' working · ' + waiting + ' waiting on you · ' + blocked + ' blocked' +
+  var line = 'fleet: ' + working + ' live sessions · ' + waiting + ' waiting on you · ' + blocked + ' blocked' +
     ' · ' + view.recent.length + ' recent lanes' + (zN ? ' · ' + zN + ' recently flagged' : '');
   var ck = d.consults;
   if (sel.value === 'all' && hubScope().origin === 'all' && hubScope().peer === 'all' && ck && (ck.human || ck.kbSolutions)) {
@@ -259,6 +259,7 @@ function renderFleet(){
   if (ck && (ck.human || ck.kbSolutions)) context.push('Consult ' + ck.open + ' open · ' + (ck.human + ck.kb) + ' answered');
   if (pl) context.push('Plaid ' + pl.posture + ' · Copilot ' + pl.live.copilot + ' / Zai ' + pl.live.zai + ' · baseline ' + pl.baselineOpen.copilot + '+' + pl.baselineOpen.zai + ' · overflow ' + pl.overflow.used + '/2');
   if (pl && pl.fallback) context.push('No healthy route · dispatch paused');
+  context.unshift('Live = RUNNING with a heartbeat within 5 min; claimed work is on Tasks');
   setText(byId('fleetContext'), context.join('   ·   '));
   setText(byId('stamp'), (d.observation ? d.observation.kind + ' snapshot · observed ' : 'updated ') + ago(Math.max(0, Math.round((Date.now() - (d.observation ? d.observation.observedAt : d.ts)) / 1000))));
   byId('blockedn').textContent = blocked ? blocked + ' blocked' : '';
