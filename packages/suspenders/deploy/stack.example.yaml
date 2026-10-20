@@ -21,6 +21,12 @@ hubs:
     belt_health_port: 7790
     allowed_hosts: [suspenders.local]
     peers: [] # sub-hubs of this hub, filled at runtime
+    # Direct cloud providers on this hub are activated only after their
+    # credential files exist and the operator has verified a model id. Do not
+    # declare upstream_keys without files: hubctl push intentionally refuses
+    # a missing key. Do not declare groups before then: they would look like
+    # exposed models in the network overview. See
+    # docs/design/buckle/muramasa-provider-activation.md for the exact rows.
   nas:
     host: nas.example # $NAS_HOST — real value in runtime stack.yaml only
     buckle_port: 4101
@@ -120,6 +126,8 @@ providers:
   anthropic:
     key_file: ~/.claude/local-llm/belt.env # 0600 dotenv-style file
     key_name: ANTHROPIC_API_KEY # var to read (default: <PROVIDER>_API_KEY)
+  openrouter:
+    env: OPENROUTER_API_KEY # declaration only; no hub route without a key
   example-inline:
     key: REPLACE_ME # inline — machine file only, never commit real values
 
