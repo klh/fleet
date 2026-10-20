@@ -202,6 +202,22 @@ function renderEnv(
 	return `${lines.join("\n")}\n`;
 }
 
+/** Render is a diagnostic surface. A private Git origin may carry userinfo;
+ *  the deploy file keeps it under mode 0600, but stdout never exposes it. */
+function redactedRender(envText: string): string {
+	return envText.replace(/^HUB_FLEET_REPO_URL=(.+)$/m, (line, raw: string) => {
+		try {
+			const url = new URL(raw);
+			if (!url.username && !url.password) return line;
+			url.username = "";
+			url.password = "";
+			return `HUB_FLEET_REPO_URL=${url.toString()} # credentials redacted`;
+		} catch {
+			return "HUB_FLEET_REPO_URL=<redacted>";
+		}
+	});
+}
+
 /** W688.7.1: the hub's upstream ladder file — stack.yaml `upstreams:` in
  *  buckle's upstreams.yaml shape; empty groups = the committed ladder stands
  *  (merge-over-base is by group name). Always rendered: compose mounts it. */
@@ -387,13 +403,14 @@ function pushConfig(
 			[
 				...sshOpts(hub),
 				hub.deploy.ssh,
-				`/bin/sh -c 'cat > ${JSON.stringify(envPath)}'`,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(envPath)}; chmod 600 ${JSON.stringify(envPath)}'`,
 			],
 			{ input: envText },
 		);
 		return;
 	}
-	writeFileSync(envPath, envText);
+	writeFileSync(envPath, envText, { mode: 0o600 });
+	chmodSync(envPath, 0o600);
 }
 
 /** Where hub-compose.yaml + .env live on the hub — declared, never defaulted. */
@@ -804,7 +821,7 @@ function main(): void {
 	}
 	switch (verb) {
 		case "render":
-			console.log(renderEnv(hub, hubName, auth, stack.version));
+			console.log(redactedRender(renderEnv(hub, hubName, auth, stack.version)));
 			return;
 		case "mint":
 			mintRootKey(hub);
