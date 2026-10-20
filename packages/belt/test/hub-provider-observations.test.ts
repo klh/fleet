@@ -87,3 +87,36 @@ test("hub provider status follows fresh Buckle outcomes for unambiguous configur
 		},
 	]);
 });
+
+test("a single declared provider owns otherwise unnamed routes on its hub", () => {
+	const dedicated = {
+		...routes,
+		providerIntents: ["zai"],
+		routesByModel: { "zai-glm-5.3-flash": ["glm-5.3-flash"] },
+	};
+	expect(
+		providerObservationsFromRequests(
+			"ZAI",
+			dedicated,
+			[
+				{
+					ts: "2026-10-20T16:59:00Z",
+					target_model: "zai-glm-5.3-flash",
+					status: 200,
+					ok: 1,
+					traffic_kind: "inference",
+				},
+			],
+			now,
+		),
+	).toEqual([
+		{
+			hub: "ZAI",
+			provider: "zai",
+			successes15: 1,
+			failures15: 0,
+			lastStatus: 200,
+			lastAt: "2026-10-20T16:59:00Z",
+		},
+	]);
+});

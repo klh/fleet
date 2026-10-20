@@ -430,7 +430,7 @@ class BeltTopology extends LitElement {
 								? `${item.catalog?.models?.length ?? 0} selectable · ${item.catalog?.state ?? "catalog unknown"}`
 								: `${item.reachable}/${item.endpoints} probes · traffic unavailable`;
 		return svg`<g><rect class="cloud" x=${x} y=${y} width=${width} height="86" rx="3"></rect>
-			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : hubRequest ? (hubRequest.lastStatus >= 200 && hubRequest.lastStatus < 300 ? "up" : "attention") : item.state)}></circle>
+			<circle cx=${x + 14} cy=${y + 18} r="3.5" fill=${colour(item.routeObserved ? "routed" : hubRequest ? (hubRequest.lastStatus >= 200 && hubRequest.lastStatus < 300 ? "up" : "attention") : viaHub ? "unknown" : item.state)}></circle>
 			<text class="title" x=${x + 25} y=${y + 22}>${item.name}</text>
 			<g><title>${status}${hubRequest ? ` · last HTTP ${hubRequest.lastStatus} at ${localTime(hubRequest.lastAt)} from hub Buckle ledger` : link ? ` · ${link.source} · last evidence ${localTime(link.lastSeen)}` : ""}</title><text class="meta endpoint" x=${x + 12} y=${y + 39}>${this.fitCardText(status)}</text></g>
 			${viaHub ? svg`<g><title>${routeConfigured ? `Configured hub routes shown under ${viaHub}` : `Hub model routes shown under ${viaHub}`}</title><text class="meta" x=${x + 12} y=${y + 58}>${this.fitCardText(`Models via ${viaHub}`)}</text></g>` : visible.length ? visible.map((model, index) => svg`<g><title>${model}</title><text class="meta" x=${x + 12} y=${y + 58 + index * 16}>${this.shortModel(model, 35)}</text></g>`) : svg`<text class="meta" x=${x + 12} y=${y + 58}>Model inventory unavailable</text>`}
