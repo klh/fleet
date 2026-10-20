@@ -455,6 +455,9 @@ describe("resume-rebrief composition", () => {
 			expect(brief).toContain("INBOX CONTRACT (WS-first)");
 			expect(brief).toContain(`coord-subscribe-${opts.sid}.log`);
 			expect(brief).toContain(`inbox --as ${opts.sid}`);
+			expect(brief).toContain(
+				"A supervisor correction sent to this sid updates the current mission",
+			);
 		}
 	});
 

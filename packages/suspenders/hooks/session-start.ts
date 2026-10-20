@@ -79,8 +79,14 @@ const RULES =
 	"continue OWNED before taking new; own an item (work take) before code " +
 	"work; never reconstruct mutable state from Markdown; parallelizable " +
 	"work gets work split. Stuck or need a colleague's context: " +
-	"coord consult/who-knows (questions, never ownership). Who-is-working: " +
-	"query the plane (sessions + claims, coord fleet) — never /tmp files. " +
+	"coord consult/who-knows (questions, never ownership). " +
+	"When the owner corrects active work, send the correction to its live " +
+	"lane with coord message <sid> (or consult for a question); keep that " +
+	"lane working and confirm it incorporated the change. Follow up the " +
+	"same lane after completion when it can still update the result; use a " +
+	"new lane only for a separate redo. Never cancel a working lane merely " +
+	"to deliver revised instructions. Who-is-working: query the plane " +
+	"(sessions + claims, coord fleet) — never /tmp files. " +
 	"Fleet lessons live in facts — coord fact list (lesson.*) before " +
 	"re-deriving painful knowledge; set lesson.<topic> when you learn " +
 	"something another lane will need. " +
@@ -337,7 +343,7 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
 		out.push(
-			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call, the installed face of the work report verb, W906) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`,
+			`SUPERVISOR DEFAULT: READY ${readyN} > 0 — arm the refill loop now (once per session, skip if one is armed): /loop refill: keep this project's lanes full until the READY pool is drained. Tick: deliver new owner instructions to an active lane through coord message <sid> (or consult for a question), confirm receipt and let it adapt; never cancel the lane just to revise its prompt. Follow up the same lane after completion if it can update the result; create a new lane only for a separate redo. Verify finished lanes and close with work done --sha if the lane didn't; dispatch (no --item) to fill every free slot; if READY=0 and all lanes are done, CronDelete + report the drain; else reply: run bun ~/.claude/hooks/suspenders/bin/fleet-report.ts (one call, the installed face of the work report verb, W906) and emit its table verbatim in a fenced block, headed by one status line (lanes live x/N, READY n, dispatched); item numbers double as the #lanes?w=<id> deep-links (W890). Keep working owned items when slots are full.`,
 		);
 		out.push(renderFleetReport(db as unknown as Database, project));
 	}
