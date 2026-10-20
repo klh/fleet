@@ -176,3 +176,36 @@ console.log(JSON.stringify(db.query("SELECT event_id, state FROM direct_message_
 	) as { event_id: number; state: string }[];
 	expect(states.map((r) => r.state)).toEqual(["ACCEPTED", "QUEUED"]);
 });
+
+test("sender can inspect one direct receipt without accessing the database", () => {
+	const sender = "w1059-sender";
+	const target = "w1059-target";
+	const id = Number(
+		run([
+			"-e",
+			`const { emitEvent } = await import(${JSON.stringify(bus)});
+console.log(emitEvent({ kind: "NOTE", source: ${JSON.stringify(sender)}, to: ${JSON.stringify(target)}, note: "status check" }));`,
+		]).trim(),
+	);
+	const queued = JSON.parse(
+		run([coord, "receipt", String(id), "--as", sender, "--json"]),
+	) as {
+		state: string;
+		id: number;
+	};
+	expect(queued).toMatchObject({ id, state: "QUEUED" });
+	run([coord, "inbox", "--as", target]);
+	const seen = JSON.parse(
+		run([coord, "receipt", String(id), "--as", sender, "--json"]),
+	) as {
+		state: string;
+	};
+	expect(seen.state).toBe("SEEN");
+	run([coord, "ack", String(id), "--as", target]);
+	const accepted = JSON.parse(
+		run([coord, "receipt", String(id), "--as", sender, "--json"]),
+	) as {
+		state: string;
+	};
+	expect(accepted.state).toBe("ACCEPTED");
+});

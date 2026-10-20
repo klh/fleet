@@ -540,6 +540,49 @@ export async function cmdAck(rest: string[]): Promise<void> {
 	console.log(`${green("✓")} accepted #${eventId} for ${as}`);
 }
 
+/** Read one delivery receipt without relying on a database query. */
+export async function cmdReceipt(rest: string[]): Promise<void> {
+	const as =
+		arg("--as") ?? die("usage: receipt <event-id> --as <sid> [--json]");
+	const raw = rest[0]?.replace(/^#/, "");
+	const eventId = Number(raw);
+	if (!raw || !Number.isSafeInteger(eventId) || eventId <= 0)
+		die("usage: receipt <event-id> --as <sid> [--json]");
+	const row = db
+		.query(
+			"SELECT e.id, e.kind, e.source, e.target, r.state, r.queued_at, r.seen_at, r.accepted_at FROM events e LEFT JOIN direct_message_receipts r ON r.event_id = e.id WHERE e.id = ?",
+		)
+		.get(eventId) as
+		| {
+				id: number;
+				kind: string;
+				source: string;
+				target: string | null;
+				state: string | null;
+				queued_at: number | null;
+				seen_at: number | null;
+				accepted_at: number | null;
+		  }
+		| undefined;
+	if (!row?.target || (row.source !== as && row.target !== as))
+		die(`event #${eventId} is not a direct event involving ${as}`);
+	const receipt = {
+		id: row.id,
+		kind: row.kind,
+		source: row.source,
+		target: row.target,
+		state: row.state ?? "UNTRACKED",
+		queued_at: row.queued_at,
+		seen_at: row.seen_at,
+		accepted_at: row.accepted_at,
+	};
+	if (rest.includes("--json")) console.log(JSON.stringify(receipt));
+	else
+		console.log(
+			`#${eventId} ${receipt.kind} ${receipt.state} → ${receipt.target}`,
+		);
+}
+
 // W831: the interrupt's miss report — 'interrupted' as a STICKY terminal
 // state fact + the lane.interrupted event receipt. Nothing re-arms it; the
 // claim converges via the reclaim sweep instead of a PAUSE_REQUESTED hanging

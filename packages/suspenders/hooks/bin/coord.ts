@@ -17,6 +17,7 @@ import {
 	cmdState,
 	cmdInbox,
 	cmdAck,
+	cmdReceipt,
 	cmdPause,
 	cmdPaused,
 	cmdResume,
@@ -123,6 +124,12 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: ack <event-id> --as <sid>",
 		lax: true,
 		run: (p) => cmdAck(p.rest),
+	}),
+	defineVerb({
+		name: "receipt",
+		usage: "usage: receipt <event-id> --as <sid> [--json]",
+		lax: true,
+		run: (p) => cmdReceipt(p.rest),
 	}),
 	defineVerb({
 		name: "pause",
