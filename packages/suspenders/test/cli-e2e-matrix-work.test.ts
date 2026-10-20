@@ -117,6 +117,9 @@ describe("work verb matrix — external waiting", () => {
 		expect(
 			work("wake", id, "--note", "quota verified", "--force").out,
 		).toContain("READY");
+		expect(
+			work("wait", id, "--kind", "operator", "--reason", "capture needed").out,
+		).toContain("WAITING");
 	});
 });
 
