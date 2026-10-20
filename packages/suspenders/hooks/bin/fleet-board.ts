@@ -56,6 +56,7 @@ import { handleMeta } from "../board/routes-meta.ts";
 import { handleObservations } from "../board/routes-observations.ts";
 import { handleOrch } from "../board/routes-orch.ts";
 import { handleSuggest } from "../board/routes-suggest.ts";
+import { handleTheme, isThemePath } from "../board/routes-theme.ts";
 import { handleUsage } from "../board/routes-usage.ts";
 import {
 	CAP_AUTH_ISSUANCE,
@@ -183,6 +184,7 @@ const inner = served.fetch as (req: Request) => Promise<Response>;
 Bun.serve({
 	...served,
 	async fetch(req: Request, server): Promise<Response> {
+		if (isThemePath(new URL(req.url).pathname)) return handleTheme(req);
 		const denied = hostGuard(req, {
 			bind: BIND,
 			write: isWriteMethod(req.method),
