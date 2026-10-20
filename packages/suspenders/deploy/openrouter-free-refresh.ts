@@ -105,10 +105,12 @@ export async function refreshConfiguredOpenRouter(
 				`${name}: automatic LiteLLM reload currently requires a local macOS hub`,
 			);
 		run([process.execPath, generator], { OPENROUTER_FREE_CATALOG: path });
+		// `kickstart -k` kills the launchd parent before it can reap LiteLLM:
+		// the orphan retains :4100 and every new child fails to bind. A normal
+		// stop delivers TERM; KeepAlive starts a fresh parent and engine pair.
 		run([
 			"launchctl",
-			"kickstart",
-			"-k",
+			"stop",
 			`gui/${process.getuid?.() ?? 0}/com.suspenders.cloud-gateway`,
 		]);
 		await waitForLiteLLMModels(Object.keys(snapshot.groups));
