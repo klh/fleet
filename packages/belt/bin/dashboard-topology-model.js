@@ -287,10 +287,18 @@ export function buildTopology(
 		const key = String(item.name).toLowerCase();
 		const routes = hubRoutes.get(key);
 		const providerCounts = {};
+		const configuredProviders = new Set(
+			(routes?.providerHosts ?? []).map(providerKey),
+		);
 		for (const hosts of Object.values(routes?.providerHostsByModel ?? {})) {
 			for (const provider of new Set(hosts.map(providerKey))) {
 				providerCounts[provider] = (providerCounts[provider] ?? 0) + 1;
 			}
+		}
+		for (const model of routes?.models ?? []) {
+			if (!model.startsWith("openrouter/")) continue;
+			configuredProviders.add("openrouter");
+			providerCounts.openrouter = (providerCounts.openrouter ?? 0) + 1;
 		}
 		return {
 			name: String(item.name),
@@ -302,7 +310,7 @@ export function buildTopology(
 						gatewayModelAliases: routes.routesByModel ?? {},
 						providerIntents: routes.providerIntents ?? [],
 						gatewayModelTargets: routes.providerHostsByModel ?? {},
-						providerKeys: (routes.providerHosts ?? []).map(providerKey),
+						providerKeys: [...configuredProviders],
 						providerCounts,
 					}
 				: {}),
