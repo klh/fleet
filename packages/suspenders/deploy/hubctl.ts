@@ -78,7 +78,7 @@ export function assertHubActivationPreflight(
 		ok?: boolean;
 		mode?: string;
 		findings?: unknown[];
-		drills?: unknown[];
+		drills?: Array<{ ok?: boolean }>;
 	};
 	try {
 		report = JSON.parse(result.stdout);
@@ -94,7 +94,8 @@ export function assertHubActivationPreflight(
 		!Array.isArray(report.findings) ||
 		report.findings.length > 0 ||
 		!Array.isArray(report.drills) ||
-		report.drills.length === 0
+		report.drills.length === 0 ||
+		report.drills.some((drill) => drill.ok !== true)
 	)
 		throw new Error(
 			`hubctl ${verb} refused: route preflight failed (${report.findings?.length ?? "?"} graph findings, ${report.drills?.length ?? 0} drills; run route-preflight --static for details)`,
