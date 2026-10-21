@@ -51,6 +51,18 @@ function run(
 }
 const work = (...args: string[]) => run(REPO, "work.ts", ...args);
 const wt = (...args: string[]) => run(REPO, "worktree.ts", ...args);
+const retireForClaim = (id: string, owner: string) => {
+	const revision = JSON.parse(work("show", id, "--json").out)
+		.updated_at as number;
+	return wt(
+		"retire",
+		id,
+		"--expect-owner",
+		owner,
+		"--expect-updated-at",
+		String(revision),
+	);
+};
 
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
@@ -111,7 +123,7 @@ describe("worktree lifecycle", () => {
 			stdout: "ignore",
 			stderr: "ignore",
 		});
-		const r2 = wt("retire", id);
+		const r2 = retireForClaim(id, "wt-lane");
 		expect(r2.code).toBe(0);
 		expect(existsSync(dir)).toBe(false);
 		const b = Bun.spawnSync(
@@ -167,7 +179,7 @@ describe("worktree lifecycle", () => {
 			}
 			expect(r?.code).toBe(4);
 			expect(existsSync(dir)).toBe(true);
-			expect(r?.err).toContain("live lane");
+			expect(r?.err).toMatch(/live lane|active, changed, or unverified claim/);
 		} finally {
 			lane.kill();
 		}
@@ -175,7 +187,7 @@ describe("worktree lifecycle", () => {
 		// once the lane exits, the same retire removes the tree, branch kept
 		let r2: { out: string; err: string; code: number } | null = null;
 		for (let i = 0; i < 10; i++) {
-			r2 = wt("retire", id);
+			r2 = retireForClaim(id, "wt-live");
 			if (r2.code === 0) break;
 			Bun.sleepSync(200);
 		}
@@ -218,7 +230,7 @@ describe("worktree registry resolution (W211)", () => {
 		const ptok = /claim token: ([0-9a-f]{48})/.exec(pt.out)?.[1];
 		// W870: take minted the conventional tree — retire it (branch kept) and
 		// park the registry-resolved tree OUTSIDE the convention on the SAME branch
-		expect(wt("retire", id).code).toBe(0);
+		expect(retireForClaim(id, "wt-parked").code).toBe(0);
 		const parked = join(REPO, "..", "w211-parked", id);
 		mkdirSync(join(REPO, "..", "w211-parked"), { recursive: true });
 		expect(gc(["worktree", "add", parked, `suspenders/${id}`]).code).toBe(0);
@@ -459,7 +471,7 @@ describe("worktree sweep (W494.2.2)", () => {
 			["git", "-C", REPO, "rev-parse", `suspenders/${id}`],
 			{ stdout: "pipe" },
 		).stdout.toString();
-		expect(wt("retire", id).code).toBe(0);
+		expect(retireForClaim(id, "wt-lane2").code).toBe(0);
 		expect(existsSync(dir)).toBe(false);
 		expect(wt("create", id).code).toBe(0); // branch exists → re-checkout
 		expect(existsSync(join(dir, "wip2.txt"))).toBe(true); // tip of branch
