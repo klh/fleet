@@ -357,7 +357,20 @@ export function startServer(
 		// W450: quiet streams survive longer than Bun's 10s connection-idle
 		// default (see resolveIdleTimeout for the knob and the range law).
 		idleTimeout: resolveIdleTimeout(),
-		fetch: inner,
+		// W1106: streaming LLM responses live past ANY fixed connection-idle
+		// bound — a healthy generation can sit quiet well beyond 120s and Bun
+		// ignores outgoing bytes when arming it (real-Bun canary). Once the
+		// inner handler has classified a request as a streaming LLM call
+		// (post-auth), the per-request bypass disables Bun's connection timer
+		// for that socket; the wire.ts upstream idle/total guards remain the
+		// ONLY deadlines for the body. Non-streaming/unrecognized requests
+		// keep the server default (no behavior change).
+		fetch: async (req, srv) => {
+			const resp = await inner(req);
+			const ct = resp.headers.get("content-type") ?? "";
+			if (ct.includes("text/event-stream")) srv.timeout(req, 0);
+			return resp;
+		},
 	});
 	return Object.assign(server, { gov }) as ReturnType<typeof Bun.serve> & {
 		gov: ReturnType<typeof createGovernance>;

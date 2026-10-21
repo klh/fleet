@@ -909,9 +909,15 @@ function streamResponse(
 			finish();
 			writeErrorEvent(downstream.writable, ctx.dialect, err);
 		});
+	// W1106: the SSE contract is ours — a classified stream whose provider
+	// omitted or mislabeled content-type must still carry the exact MIME the
+	// server.ts per-request idle bypass keys on (scoped HERE, never in the
+	// shared helper: jsonResponse/client-error pass through other bodies).
+	const headers = SSE_HEADERS(upstream.headers);
+	headers.set("content-type", "text/event-stream");
 	return new Response(downstream.readable, {
 		status: 200,
-		headers: SSE_HEADERS(upstream.headers),
+		headers,
 	});
 }
 

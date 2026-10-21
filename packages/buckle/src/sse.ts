@@ -18,6 +18,17 @@ import {
 
 type AnyRec = Record<string, unknown>;
 
+/** W1106: canonical transport keepalive — one SSE comment frame, valid on
+ *  both dialects, no client-visible value (the WHATWG parser ignores `:`).
+ *  Emitted wherever a transform would otherwise produce ZERO client bytes
+ *  for upstream activity (ping drops, zero-event bridge chunks): clients
+ *  that sensor idle sockets must see bytes to keep a live stream alive.
+ *  Never masks a hung provider — the wire.ts upstream idle/total guards
+ *  measure upstream chunks independently. NOTE: keepalives do NOT reset
+ *  Bun's server-side idleTimeout (real-Bun canary disproved that); the
+ *  server side is handled by the per-request timeout bypass in server.ts. */
+export const SSE_KEEPALIVE = ": keepalive\n\n";
+
 /** Consumes upstream SSE bytes, extracts usage. Emits nothing downstream. */
 export class SseSniffer {
 	private buf = "";
@@ -197,6 +208,7 @@ export function sseReframer(
 		eventType = "";
 		if (evt === "ping") {
 			drop("ping", payload.slice(0, 80));
+			c.enqueue(encoder.encode(SSE_KEEPALIVE)); // W1106: keep the socket fed
 			return;
 		}
 		if (payload.length === 0) {
@@ -208,6 +220,7 @@ export function sseReframer(
 				const j: unknown = JSON.parse(payload);
 				if (j && typeof j === "object" && (j as AnyRec).type === "ping") {
 					drop("ping", payload.slice(0, 80));
+					c.enqueue(encoder.encode(SSE_KEEPALIVE)); // W1106: socket fed
 					return;
 				}
 			} catch {

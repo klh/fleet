@@ -570,6 +570,8 @@ export class OpenAIToAnthropicStream {
 	private usage: unknown = null;
 	private stopReason: string | null = null;
 	private warned = new Set<string>();
+	/** W1106: the last pushed chunk was a ping-shaped frame (zero events). */
+	sawPing = false;
 	/** Anomaly ledger for the bridge to warn on post-stream. */
 	readonly warnings: TransformWarning[] = [];
 
@@ -590,6 +592,11 @@ export class OpenAIToAnthropicStream {
 		const out: AnthropicEvent[] = [];
 		if (!chunk || typeof chunk !== "object") return out;
 		const r = chunk as AnyRec;
+		// W1106: ping-shaped keepalives are transport-only — return BEFORE any
+		// state change (a first-chunk ping must never fabricate message_start)
+		// and flag it so the SSE bridge emits a keepalive comment.
+		this.sawPing = (r as { type?: unknown }).type === "ping";
+		if (this.sawPing) return out;
 		if (r.usage !== undefined) this.usage = r.usage;
 		if (r.error !== undefined) {
 			const err = r.error as AnyRec;
