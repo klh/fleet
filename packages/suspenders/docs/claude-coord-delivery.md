@@ -58,6 +58,18 @@ The installed implementation queues asyncRewake feedback with priority
 `next`. Installation and hook configuration loading are separate from the
 worktree probes above.
 
+## Parent verification (2026-10-21, installed face)
+
+The parent item's done condition — a real Claude session receiving a direct
+event at the next supported boundary — was closed on the installed face
+(`~/.claude/hooks/suspenders` synced from de406945). A lane queued a
+self-addressed NOTE with `coord message <own-sid>`; the same session received
+it verbatim at the next UserPromptSubmit boundary (both the native wake
+emission and the durable inbox reminder), acknowledged it with `coord ack`,
+and left no queued residue. Delivery is confirmed end to end on one live
+session; unmanaged interactive sessions remain unsupported per the limits
+above.
+
 ## Managed runtime verification
 
 The managed probes used the actual installed coord CLI, store server and
