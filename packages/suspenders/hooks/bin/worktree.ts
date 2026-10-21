@@ -37,8 +37,10 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "retire",
-		usage: "usage: worktree retire <id> [--force]",
+		usage:
+			"usage: worktree retire <id> [--force] [--expect-owner sid --expect-updated-at revision]",
 		minPos: 1,
+		flags: ["--expect-owner", "--expect-updated-at"],
 		switches: ["--force"],
 	}),
 	defineVerb({
@@ -78,6 +80,41 @@ async function retireItemKey(id: string) {
 		if (!result || current.keyId) result = current;
 	}
 	return result as Awaited<ReturnType<typeof retireLaneKey>>;
+}
+
+/** The item may be re-taken while an old worktree is being retired. A
+ * retired branch must never revoke the new claim's reused lane SID key. */
+function activeClaim(
+	id: string,
+): { owner: string; revision: number } | null | undefined {
+	try {
+		const db = openStore();
+		const row = db
+			.query(
+				"SELECT owner_sid, updated_at FROM work_items WHERE project = ? AND id = ? AND state IN ('CLAIMED','RUNNING')",
+			)
+			.get(PROJECT, id) as {
+			owner_sid: string | null;
+			updated_at: number;
+		} | null;
+		return row?.owner_sid
+			? { owner: row.owner_sid, revision: row.updated_at }
+			: null;
+	} catch {
+		return undefined; // uncertain store state never authorizes retirement
+	}
+}
+
+function retirementAllowed(id: string, p: Parsed): boolean {
+	const claim = activeClaim(id);
+	if (claim === undefined) return false;
+	if (claim === null) return true;
+	const revision = Number(p.flag("--expect-updated-at"));
+	return (
+		p.flag("--expect-owner") === claim.owner &&
+		Number.isSafeInteger(revision) &&
+		revision === claim.revision
+	);
 }
 
 const git = (
@@ -153,17 +190,25 @@ const retire = async (p: Parsed): Promise<number> => {
 	const wtDir = resolveItemWorktree(ROOT, id);
 	const branch = `suspenders/${id}`;
 	const FORCE = p.flag("--force") === "true";
+	if (!retirementAllowed(id, p)) {
+		console.error(
+			`${id} has an active or unverified claim — retirement requires its exact owner and revision`,
+		);
+		return 4;
+	}
 	// W463 lane-key lifecycle: a lane over is a key revoked. The dirty guard
 	// below keeps a POSSIBLY-LIVE lane's key (exit 3 = the lane may still be
 	// running); exit 4 (the W123 liveness guard below) keeps it too — the
 	// clean exits retire it and delete the per-lane files.
 	if (!wtDir || !existsSync(join(wtDir, ".git"))) {
 		console.log(`no worktree for ${id}`);
-		const rk = await retireItemKey(id);
-		if (rk.keyId)
-			console.log(
-				`lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed — 24h TTL bounds it"}`,
-			);
+		if (activeClaim(id) === null) {
+			const rk = await retireItemKey(id);
+			if (rk.keyId)
+				console.log(
+					`lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke failed — 24h TTL bounds it"}`,
+				);
+		}
 		process.exit(0);
 	}
 	const dirty = git(["status", "--porcelain"], wtDir).out;
@@ -185,20 +230,24 @@ const retire = async (p: Parsed): Promise<number> => {
 		);
 		process.exit(4);
 	}
+	if (!retirementAllowed(id, p)) {
+		console.error(`${id} claim changed during retirement — worktree kept`);
+		return 4;
+	}
 	const r = git(["worktree", "remove", ...(dirty ? ["--force"] : []), wtDir]);
 	if (r.code !== 0) die(`git worktree remove failed: ${r.out}`);
 	// W463: terminal lane state — revoke the key, delete the per-lane files
 	// (0600 key meta + the settings file); the key id rides the event for audit.
-	const rk = await retireItemKey(id);
+	const rk = activeClaim(id) === null ? await retireItemKey(id) : null;
 	const payload: Record<string, string> = { retired: "1", path: wtDir, branch };
-	if (rk.keyId) {
+	if (rk?.keyId) {
 		payload.lane_key_id = rk.keyId;
 		payload.lane_key_revoked = rk.revoked ? "1" : "0";
 	}
 	// the branch suspenders/<id> survives — integration merges from refs
 	emit(id, "work.tree", payload);
 	console.log(
-		`retired ${wtDir} — branch ${branch} kept for integration${rk.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
+		`retired ${wtDir} — branch ${branch} kept for integration${rk?.keyId ? ` — lane key ${rk.keyId} ${rk.revoked ? "revoked" : "revoke FAILED — 24h TTL bounds it"}` : ""}`,
 	);
 	return 0;
 };

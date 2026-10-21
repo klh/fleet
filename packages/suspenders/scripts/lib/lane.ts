@@ -108,8 +108,19 @@ export const coordCliFor =
 export const recreateWorktreeFor = (
 	item: string,
 	bin: string,
+	owner: string,
+	revision: number,
 ): string | null => {
-	const retired = run([process.execPath, `${bin}/worktree.ts`, "retire", item]);
+	const retired = run([
+		process.execPath,
+		`${bin}/worktree.ts`,
+		"retire",
+		item,
+		"--expect-owner",
+		owner,
+		"--expect-updated-at",
+		String(revision),
+	]);
 	if (retired.code !== 0)
 		return `SKIP ${item} — leftover worktree retire failed: ${retired.out.split("\n")[0]}`;
 	const created = run([process.execPath, `${bin}/worktree.ts`, "create", item]);
