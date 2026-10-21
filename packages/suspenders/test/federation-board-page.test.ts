@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { handleFederationUsage } from "../hooks/board/routes-federation.ts";
 import { startServer } from "../../buckle/src/server.ts";
+import { createReferenceGovSeam } from "../../buckle/src/gov/reference-seam.ts";
 
 const ROOT = "buckle-test-root";
 
@@ -28,7 +29,9 @@ async function optInHub(): Promise<{ base: string; stop: () => void }> {
 		policyPath: `${dir}.policy.yaml`,
 		upstreamsPath: `${dir}.upstreams.yaml`,
 		dbPath: ":memory:",
-		auth: { rootKey: ROOT },
+		// W1114: the board page renders REAL hub rollups — the usage provider
+		// rides the reference gov seam (the overlay's factory contract).
+		auth: { rootKey: ROOT, ...createReferenceGovSeam() },
 	});
 	return {
 		base: `http://127.0.0.1:${String(srv.port)}`,
