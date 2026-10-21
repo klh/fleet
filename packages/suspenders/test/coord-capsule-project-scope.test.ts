@@ -62,36 +62,32 @@ test("the same minted item id in two projects serves two distinct capsules", () 
 	expect(a).toBeTruthy();
 	expect(a).toBe(b);
 	expect(
-		alpha
-			.cli(
-				"coord.ts",
-				"capsule",
-				"set",
-				"--as",
-				"lane-a",
-				"--item",
-				a,
-				"--checkpoint=none",
-				"--done=alpha capsule",
-				"--next=alpha next",
-			)
-			.code,
+		alpha.cli(
+			"coord.ts",
+			"capsule",
+			"set",
+			"--as",
+			"lane-a",
+			"--item",
+			a,
+			"--checkpoint=none",
+			"--done=alpha capsule",
+			"--next=alpha next",
+		).code,
 	).toBe(0);
 	expect(
-		beta
-			.cli(
-				"coord.ts",
-				"capsule",
-				"set",
-				"--as",
-				"lane-b",
-				"--item",
-				b,
-				"--checkpoint=none",
-				"--done=beta capsule",
-				"--next=beta next",
-			)
-			.code,
+		beta.cli(
+			"coord.ts",
+			"capsule",
+			"set",
+			"--as",
+			"lane-b",
+			"--item",
+			b,
+			"--checkpoint=none",
+			"--done=beta capsule",
+			"--next=beta next",
+		).code,
 	).toBe(0);
 	// get --item reads the caller's own project capsule
 	const ga = JSON.parse(
@@ -102,6 +98,8 @@ test("the same minted item id in two projects serves two distinct capsules", () 
 	);
 	expect(ga.done).toBe("alpha capsule");
 	expect(gb.done).toBe("beta capsule");
+	expect(ga.item).toBe(a);
+	expect(gb.item).toBe(b);
 });
 
 test("work show --json serves the caller's project capsule, never the collision", () => {
@@ -110,19 +108,17 @@ test("work show --json serves the caller's project capsule, never the collision"
 	expect(a).toBe(b);
 	// alpha banks; beta banks nothing on its same-numbered item
 	expect(
-		alpha
-			.cli(
-				"coord.ts",
-				"capsule",
-				"set",
-				"--as",
-				"lane-a",
-				"--item",
-				a,
-				"--checkpoint=none",
-				"--done=alpha show capsule",
-			)
-			.code,
+		alpha.cli(
+			"coord.ts",
+			"capsule",
+			"set",
+			"--as",
+			"lane-a",
+			"--item",
+			a,
+			"--checkpoint=none",
+			"--done=alpha show capsule",
+		).code,
 	).toBe(0);
 	const ra = JSON.parse(alpha.cli("work.ts", "show", a, "--json").out) as {
 		capsule?: { done?: string } | null;

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { projectRootOf, type GovernorStore } from "./govdb.ts";
-import { scanCompletionDiff } from "./fake-completion.ts";
-import { patchFirstVerdict } from "./patch-first.ts";
 import { benchDocsVerdict } from "./bench-docs-gate.ts";
 import { claimCheckVerdict } from "./claim-check.ts";
+import { scanCompletionDiff } from "./fake-completion.ts";
+import { type GovernorStore, projectRootOf } from "./govdb.ts";
+import { patchFirstVerdict } from "./patch-first.ts";
 import { resolveTranscriptPath } from "./transcript.ts";
 import {
 	claimTokenVerdict,
@@ -14,6 +14,40 @@ import {
 } from "./work-fence.ts";
 
 type CompletionStore = Pick<GovernorStore, "query" | "run">;
+
+/** The indexed work.claimed event is the durable beginning of this exact
+ * claim. A shared interactive session may have completed other items before
+ * this one; their transcript claims and runs cannot attest this close. */
+function claimEvidenceStart(
+	db: CompletionStore,
+	project: string,
+	item: string,
+	sid: string,
+): number | undefined {
+	let createdAt: number | undefined;
+	try {
+		const row = db
+			.query("SELECT created_at FROM work_items WHERE project = ? AND id = ?")
+			.get(project, item) as { created_at?: number | null } | null;
+		createdAt = row?.created_at ?? undefined;
+	} catch {
+		// Legacy fixture without this column: the transcript gate is fail-open.
+	}
+	try {
+		const claimed = db
+			.query(
+				"SELECT ts, payload FROM events WHERE kind = 'work.claimed' AND project = ? AND work = ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(project, item) as { ts: number; payload: string | null } | null;
+		if (claimed) {
+			const by = JSON.parse(claimed.payload ?? "{}") as { by?: unknown };
+			if (by.by === sid) return claimed.ts;
+		}
+	} catch {
+		// Older event schemas may lack indexed project/work columns.
+	}
+	return createdAt;
+}
 
 export interface CompletionRecord {
 	project: string;
@@ -488,8 +522,13 @@ export function prepareCompletion(
 	const cc = claimCheckVerdict({
 		transcriptPath:
 			resolveTranscriptPath({ session_id: o.sid, cwd: o.cwd }) ?? undefined,
-		capsuleDone: typeof capsule.done === "string" ? capsule.done : undefined,
+		capsuleDone:
+			(capsule.item === o.item || (!o.summary && !capsule.item)) &&
+			typeof capsule.done === "string"
+				? capsule.done
+				: undefined,
 		capsuleTs: typeof capsule.ts === "number" ? capsule.ts : undefined,
+		claimStartedAt: claimEvidenceStart(db, o.project, o.item, o.sid),
 		paths,
 		diffText,
 		statRoot: shaRepo,

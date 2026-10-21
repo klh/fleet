@@ -422,6 +422,8 @@ export const claimCheckVerdict = (o: {
 	transcriptText?: string;
 	capsuleDone?: string;
 	capsuleTs?: number;
+	/** Only this item's current claim epoch may provide prose or run evidence. */
+	claimStartedAt?: number;
 	paths: string[];
 	diffText: string;
 	statRoot?: string;
@@ -451,11 +453,17 @@ export const claimCheckVerdict = (o: {
 	const text =
 		o.transcriptText ??
 		(o.transcriptPath ? transcriptWindow(o.transcriptPath, o.scanBytes) : null);
-	const { claims, runs } = text
+	const events = text
 		? transcriptEventsFromText(text)
 		: { claims: [], runs: [] };
+	const started = o.claimStartedAt ?? 0;
+	const claims = events.claims.filter((event) => event.ts >= started);
+	const runs = events.runs.filter((event) => event.ts >= started);
 	const now = o.now ?? Date.now();
-	const capsuleClaimsPass = !!o.capsuleDone && isClaim(o.capsuleDone);
+	const capsuleClaimsPass =
+		!!o.capsuleDone &&
+		(o.capsuleTs ?? now) >= started &&
+		isClaim(o.capsuleDone);
 	if (capsuleClaimsPass)
 		claims.push({ ts: o.capsuleTs ?? now, text: o.capsuleDone });
 	if (!claims.length) return { ok: true };

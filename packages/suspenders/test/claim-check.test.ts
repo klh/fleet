@@ -5,7 +5,7 @@
 // passing run), diff erosion (deleted tests with the move exemption,
 // focused/expected-failure gates, loosened assertions), fail-open paths,
 // and the disable knob.
-import { describe, expect, test, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -198,6 +198,40 @@ describe("claim and run detection", () => {
 });
 
 describe("ordering: the pass must predate the claim", () => {
+	test("a prior item's claim is outside the current claim window", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass for the previous item", -20),
+				toolResult(" 2 pass\n 1 fail", -19),
+			].join("\n"),
+			claimStartedAt: Date.parse(iso(-10)),
+		});
+		expect(r.ok).toBe(true);
+	});
+
+	test("a prior item's passing run cannot support a current claim", () => {
+		const r = v({
+			transcriptText: [
+				toolResult(" 7 pass\n 0 fail", -20),
+				assistantSay("all tests pass for this item", -2),
+			].join("\n"),
+			claimStartedAt: Date.parse(iso(-10)),
+		});
+		expect(r.ok).toBe(false);
+		expect(r.why).toContain("no test run found");
+	});
+
+	test("a fresh passing run after re-take is not held hostage by the old claim", () => {
+		const r = v({
+			transcriptText: [
+				assistantSay("all tests pass before the old claim was released", -20),
+				toolResult(" 13 pass\n 0 fail", -2),
+			].join("\n"),
+			claimStartedAt: Date.parse(iso(-10)),
+		});
+		expect(r.ok).toBe(true);
+	});
+
 	test("passing run before the claim closes clean", () => {
 		const r = v({
 			transcriptText: [
@@ -383,6 +417,14 @@ describe("origin: foreign noise never counts (W917)", () => {
 });
 
 describe("capsule claims", () => {
+	test("a capsule from a released claim cannot block a re-taken item", () => {
+		const r = v({
+			capsuleDone: "all tests pass before the old claim was released",
+			capsuleTs: Date.parse(iso(-20)),
+			claimStartedAt: Date.parse(iso(-10)),
+		});
+		expect(r.ok).toBe(true);
+	});
 	test("a final capsule claim remains refused until its own passing run", () => {
 		const r = v({
 			transcriptText: [
