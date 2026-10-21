@@ -266,3 +266,64 @@ test("a litellm engine row without adapter_config.proxy_kind fails the preflight
 		),
 	).toBe(true);
 });
+
+test("a marked engine row whose wire model exists in the engine passes", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "local",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: {
+					groups: () => ["primary"],
+					deployments: (group: string) => [
+						{
+							group,
+							url: "http://127.0.0.1:4100",
+							dialect: "openai" as const,
+							model: "glm",
+							adapter_config: { proxy_kind: "litellm" },
+						},
+					],
+				},
+			},
+		],
+		litellms: [
+			{
+				id: "engine",
+				origins: ["http://127.0.0.1:4100"],
+				config: {
+					model_list: [
+						{
+							model_name: "glm",
+							litellm_params: { model: "zai/glm", api_base: "https://z.example" },
+						},
+					],
+				},
+			},
+		],
+	});
+	expect(result.errors).toEqual([]);
+});
+
+test("an inter-buckle edge to a group the target hub lacks is unroutable", () => {
+	const result = validateRouteLadders({
+		buckles: [
+			{
+				id: "spoke",
+				origins: ["http://127.0.0.1:4101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({ g: [{ url: "http://127.0.0.1:5101" }] }),
+			},
+			{
+				id: "hub",
+				origins: ["http://127.0.0.1:5101"],
+				policy: { ...policy, fallbacks: {} },
+				pool: pool({ actual: [{ url: "https://provider.example/v1" }] }),
+			},
+		],
+	});
+	expect(
+		result.errors.some((error) => error.code === "unroutable_group"),
+	).toBe(true);
+});

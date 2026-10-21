@@ -165,6 +165,20 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 	for (const lite of inputs.litellms ?? [])
 		for (const origin of lite.origins.map(originOf))
 			if (origin !== null) engineOrigins.add(origin);
+	// W1094: an engine-backed deployment's effective wire model
+	// (dep.model ?? group — the id the front sends the engine) must exist in
+	// the engine's model_list; engine rows unreferenced by buckle are fine
+	// (broad catalogs). Reversed from the earlier per-engine-row direction.
+	const engineModels = new Map<string, Set<string>>();
+	for (const lite of inputs.litellms ?? []) {
+		const doc = recordOf(lite.config);
+		const rows = Array.isArray(doc?.model_list) ? doc?.model_list : [];
+		const names = new Set<string>();
+		for (const row of rows.map(recordOf))
+			if (typeof row?.model_name === "string") names.add(row.model_name);
+		for (const origin of lite.origins.map(originOf))
+			if (origin !== null) engineModels.set(origin, names);
+	}
 	const markedRungs = new Set<string>();
 	for (const buckle of inputs.buckles) {
 		for (const rung of buckle.pool.groups()) {
@@ -179,7 +193,17 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 							`buckle:${buckle.id}:${rung}`,
 							`engine row ${origin} lacks adapter_config.proxy_kind=litellm`,
 						);
-					else markedRungs.add(dep.model ?? rung);
+					else {
+						markedRungs.add(dep.model ?? rung);
+						const names = engineModels.get(origin);
+						if (names && !names.has(dep.model ?? rung))
+							finding(
+								"unknown_engine_model",
+								"buckle",
+								`buckle:${buckle.id}:${rung}`,
+								`engine wire model ${dep.model ?? rung} absent from the engine model_list`,
+							);
+					}
 				} else if (kind === "litellm")
 					finding(
 						"invalid_config",
@@ -190,6 +214,12 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			}
 		}
 	}
+	const buckleGroups = new Map<string, Set<string>>();
+	for (const buckle of inputs.buckles)
+		buckleGroups.set(
+			buckle.id,
+			new Set(buckle.pool.groups()),
+		);
 	const link = (
 		from: string,
 		rawUrl: string,
@@ -212,6 +242,16 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 				);
 			return;
 		}
+		// W1094: an inter-Buckle edge selects a GROUP on the target hub —
+		// the model string must be a group that hub actually serves, or the
+		// walk strands there (unroutable, not silently accepted).
+		if (service.layer === "buckle" && !buckleGroups.get(service.id)?.has(model))
+			finding(
+				"unroutable_group",
+				"fleet",
+				from,
+				`target buckle ${service.id} has no group ${model}`,
+			);
 		const to = `${service.layer}:${service.id}:${model}`;
 		addEdge(from, to);
 	};
@@ -269,28 +309,6 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 			continue;
 		}
 		const models = new Set<string>();
-		// W1094: an engine model_list row whose litellm_params.model names a
-		// group no marked deployment carries is stranded — the front never
-		// selects it, so its engine-side fallbacks are unreachable policy.
-		// Meaningful only when a buckle snapshot exists at all (standalone
-		// engine validation has no deployment table to resolve against).
-		const hasBuckleRows = inputs.buckles.some((b) =>
-			b.pool.groups().some((g) => b.pool.deployments(g).length > 0),
-		);
-		for (const item of hasBuckleRows ? modelRows : []) {
-			const params = recordOf(recordOf(item)?.litellm_params);
-			if (
-				typeof params?.model === "string" &&
-				!markedRungs.has(params.model.replace(/^[^/]+\//, "")) &&
-				!markedRungs.has(params.model)
-			)
-				finding(
-					"unknown_engine_model",
-					"litellm",
-					`litellm:${lite.id}:${params.model}`,
-					"engine model has no proxy_kind=litellm deployment in any buckle group",
-				);
-		}
 		for (const item of modelRows) {
 			const row = recordOf(item);
 			const group = row?.model_name;
@@ -334,6 +352,10 @@ export function validateRouteLadders(inputs: RouteLadderInputs): {
 		}
 	}
 	for (const belt of inputs.belts ?? []) {
+		// W1094: the static graph keeps cycle detection (a return into a rung
+		// the walk already visited repeats a node — caught below). The runtime
+		// visited-path/attempt-budget contract for the Belt→Buckle return is
+		// proven by the drill, not by a blanket layer rejection here.
 		const prefix = `belt:${belt.id}:`;
 		const localOnly = new Set(belt.noEscalationModels ?? []);
 		for (const node of [...edges.keys()]) {
