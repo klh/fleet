@@ -66,6 +66,11 @@ const TX_BUSY_RE = /a transaction is open/i;
 // {err: "begin failed: SQLiteError: database is locked"} shape (store-tx
 // beginWithHeal); the client's BEGIN IMMEDIATE retry keys on it.
 const DB_LOCKED_RE = /database is locked/i;
+const TX_ALREADY_OPEN_RE = /transaction already open/i;
+// A tagged transaction can span several HTTP round trips. Concurrent CLI
+// processes must wait for its owner to commit; retrying only SQLite's lock
+// error misses the store server's own earlier admission refusal.
+const TX_BEGIN_WAIT_MS = 35_000;
 
 // HTTP binding: the same interface against bin/store-server.ts — sync by
 // design (the CLIs are sync programs; one statement = one curl round trip).
@@ -74,6 +79,7 @@ const DB_LOCKED_RE = /database is locked/i;
 // add/done/split and resume-session run unchanged on a remote lane.
 export class HttpGovernorStore implements GovernorStore {
 	readonly local = false;
+	private txid: string | null = null;
 
 	constructor(
 		private base: string,
@@ -101,11 +107,22 @@ export class HttpGovernorStore implements GovernorStore {
 		const reads = mode === "get" || mode === "all";
 		const isBegin = mode === "tx" && sql === "begin";
 		const tries = reads || isBegin ? 3 : 1;
+		const beginDeadline = isBegin ? Date.now() + TX_BEGIN_WAIT_MS : 0;
 		for (let attempt = 1; ; attempt++) {
 			try {
 				return this.rpcOnce(mode, sql, params);
 			} catch (e) {
 				const msg = String(e);
+				if (isBegin && TX_ALREADY_OPEN_RE.test(msg)) {
+					const remaining = beginDeadline - Date.now();
+					if (remaining <= 0) throw e;
+					// Dephase many simultaneous lane starts without holding the server's
+					// serialization chain, which must remain free for the owner COMMIT.
+					Bun.sleepSync(
+						Math.min(remaining, 100 + Math.floor(Math.random() * 150)),
+					);
+					continue;
+				}
 				const retryable = reads
 					? TX_BUSY_RE.test(msg)
 					: isBegin && DB_LOCKED_RE.test(msg);
@@ -183,25 +200,21 @@ export class HttpGovernorStore implements GovernorStore {
 		return () => {
 			const id = crypto.randomUUID();
 			this.txid = id; // begin CARRIES the txid — the server stamps it verbatim
+			let finished = false;
 			try {
 				this.rpc("tx", "begin", []);
-			} catch (e) {
+				const out = fn();
+				this.rpc("tx", "commit", []);
+				finished = true;
+				return out;
+			} finally {
+				if (!finished) {
+					try {
+						this.rpc("tx", "rollback", []); // owner id still set
+					} catch {}
+				}
 				this.txid = null;
-				throw e;
 			}
-			let out: T;
-			try {
-				out = fn();
-			} catch (e) {
-				try {
-					this.rpc("tx", "rollback", []); // txid still set — must match
-				} catch {}
-				this.txid = null;
-				throw e;
-			}
-			this.rpc("tx", "commit", []);
-			this.txid = null;
-			return out;
 		};
 	}
 

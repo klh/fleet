@@ -7,7 +7,7 @@
 // connection sitting on governor.db's write lock, and the client child
 // (W362: async spawn) recovering through its retry ladder.
 // Cheap exact-count ladder tests ride a refusal stub (W716 shape).
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,12 +67,15 @@ const parseOut = (out: string, err: string): unknown => {
 
 // the refusal stub (W716 shape): refuses with the locked error whenever the
 // predicate fires — tests pin exact attempt counts via hits().
-const makeBeginStub = (refuse: (b: { mode: string; sql: string }) => boolean) => {
+const makeBeginStub = (
+	refuse: (b: { mode: string; sql: string }) => boolean,
+) => {
 	let hits = 0;
 	const server = Bun.serve({
 		port: 0,
 		fetch: async (req) => {
-			if (new URL(req.url).pathname === "/probe") return Response.json({ ok: true });
+			if (new URL(req.url).pathname === "/probe")
+				return Response.json({ ok: true });
 			const body = (await req.json()) as {
 				mode: string;
 				sql: string;
@@ -80,7 +83,9 @@ const makeBeginStub = (refuse: (b: { mode: string; sql: string }) => boolean) =>
 			} & Record<string, unknown>;
 			if (refuse(body)) {
 				hits++;
-				return Response.json({ err: "begin failed: SQLiteError: database is locked" });
+				return Response.json({
+					err: "begin failed: SQLiteError: database is locked",
+				});
 			}
 			if (body.mode === "tx") return Response.json({ ok: true });
 			if (body.mode === "get") return Response.json({ row: { one: 1 } });
@@ -99,13 +104,7 @@ const freePort = async (): Promise<number> => {
 	return p;
 };
 
-const SERVER = join(
-	import.meta.dir,
-	"..",
-	"hooks",
-	"bin",
-	"store-server.ts",
-);
+const SERVER = join(import.meta.dir, "..", "hooks", "bin", "store-server.ts");
 const procs: ReturnType<typeof Bun.spawn>[] = [];
 
 // the real store-server on a fixture HOME — the production topology the
@@ -160,28 +159,92 @@ try {
 `;
 
 describe("W978 — real write-lock fault injection (production topology)", () => {
-	test(
-		"client recovers a transaction when the lock clears inside the ladder",
-		async () => {
-			const port = await freePort();
-			await startRealServer(port);
-			const dbFile = join(
-				home,
-				".cache",
-				"claude-governor",
-				"governor.db",
-			);
-			const holding = holdLock(dbFile, 6500);
-			const r = await runChild(
-				txnChildCode(`http://127.0.0.1:${port}`),
-				`http://127.0.0.1:${port}`,
-			);
-			expect(r.code).toBe(0);
-			expect(parseOut(r.out, r.err)).toEqual({ out: 42 });
-			await holding;
+	test("client recovers a transaction when the lock clears inside the ladder", async () => {
+		const port = await freePort();
+		await startRealServer(port);
+		const dbFile = join(home, ".cache", "claude-governor", "governor.db");
+		const holding = holdLock(dbFile, 6500);
+		const r = await runChild(
+			txnChildCode(`http://127.0.0.1:${port}`),
+			`http://127.0.0.1:${port}`,
+		);
+		expect(r.code).toBe(0);
+		expect(parseOut(r.out, r.err)).toEqual({ out: 42 });
+		await holding;
+	}, 20_000);
+});
+
+describe("concurrent tagged transactions", () => {
+	test("a second work client waits for the first transaction to commit", async () => {
+		const port = await freePort();
+		const url = await startRealServer(port);
+		const first = crypto.randomUUID();
+		const rpc = (sql: string) =>
+			fetch(`${url}/rpc`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ mode: "tx", sql, params: [], txid: first }),
+			}).then((r) => r.json());
+		expect(await rpc("begin")).toEqual({ ok: true });
+		const read = await fetch(`${url}/rpc`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ mode: "get", sql: "SELECT 1 AS one", params: [] }),
+		});
+		expect(await read.json()).toEqual({ row: { one: 1 } });
+		const outsideWrite = await fetch(`${url}/rpc`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				mode: "run",
+				sql: "INSERT INTO events (ts, source, kind) VALUES (1, 'test', 'test')",
+				params: [],
+			}),
+		});
+		expect(await outsideWrite.json()).toEqual({
+			err: "a transaction is open — retry",
+		});
+		const waiting = runChild(txnChildCode(url), url);
+		await Bun.sleep(600);
+		expect(await rpc("commit")).toEqual({ ok: true });
+		const r = await waiting;
+		expect(r.code).toBe(0);
+		expect(parseOut(r.out, r.err)).toEqual({ out: 42 });
+	}, 15_000);
+});
+
+test("a failed commit clears the client transaction id after rollback", async () => {
+	let outsideTxid: string | null | undefined;
+	const server = Bun.serve({
+		port: 0,
+		async fetch(req) {
+			if (new URL(req.url).pathname === "/probe")
+				return Response.json({ ok: true });
+			const body = (await req.json()) as {
+				mode: string;
+				sql: string;
+				txid: string | null;
+			};
+			if (body.sql === "SELECT 7 AS value") outsideTxid = body.txid;
+			if (body.mode === "tx" && body.sql === "commit")
+				return Response.json({ err: "commit failed: injected" });
+			if (body.mode === "tx") return Response.json({ ok: true });
+			return Response.json({ row: { one: 1 } });
 		},
-		20_000,
+	});
+	servers.push(server);
+	const url = `http://127.0.0.1:${server.port}`;
+	const r = await runChild(
+		`
+const { HttpGovernorStore } = await import(${JSON.stringify(GOVDB)});
+const s = new HttpGovernorStore(${JSON.stringify(url)}, null);
+try { s.transaction(() => 42)(); } catch {}
+s.query("SELECT 7 AS value").get();
+`,
+		url,
 	);
+	expect(r.code).toBe(0);
+	expect(outsideTxid).toBeNull();
 });
 
 describe("W978 — begin retry ladder (refusal stub, exact counts)", () => {
@@ -190,10 +253,7 @@ describe("W978 — begin retry ladder (refusal stub, exact counts)", () => {
 		const stub = makeBeginStub(
 			(b) => b.mode === "tx" && b.sql === "begin" && refused++ < 2,
 		);
-		const r = await runChild(
-			beginChildCode(stub.url),
-			stub.url,
-		);
+		const r = await runChild(beginChildCode(stub.url), stub.url);
 		expect(r.code).toBe(0);
 		expect(parseOut(r.out, r.err)).toEqual({ busy: false });
 		expect(stub.hits()).toBe(2);
