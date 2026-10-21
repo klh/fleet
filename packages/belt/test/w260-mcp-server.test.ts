@@ -269,6 +269,7 @@ const spawnMcp = async (
 		BELT_KNOWLEDGE_DB: KB_DB,
 		BELT_GOVERNOR_DB: GOV_DB,
 		BELT_INFER_URL: `http://127.0.0.1:${ROUTER_PORT}`,
+		BELT_INFER_KEY: "bksk_test-scoped-fake",
 		...(options.deadlineMs
 			? { BELT_MCP_REQUEST_MS: String(options.deadlineMs) }
 			: {}),

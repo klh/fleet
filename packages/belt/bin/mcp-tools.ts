@@ -13,10 +13,27 @@ export const SERVER_INFO = { name: "belt-mcp", version: "0.1.0" } as const;
 
 const INFER_URL = () => process.env.BELT_INFER_URL ?? "http://127.0.0.1:4101";
 const INFER_KEY = () => process.env.BELT_INFER_KEY?.trim() ?? "";
-/** DEV posture only: no credential in hand — call the gate unauthenticated
- *  instead of failing every tool call (the loopback gate answers; a hub
- *  deployment always sets BELT_INFER_KEY). */
-const DEV_INFER = () => process.env.BELT_MCP_DEV === "1" && INFER_KEY() === "";
+/** Fail-closed scoped Buckle auth (owner law: no keyless model call). The
+ *  URL is operator config; only credential SHAPE is validated here — the
+ *  gate itself verifies the key against its ledger. */
+const inferLeg = (): { url: string; key: string } => {
+	const key = INFER_KEY();
+	if (!key.startsWith("bksk_"))
+		throw new Error(
+			"belt infer unconfigured: BELT_INFER_KEY must be a scoped bksk_ credential",
+		);
+	const url = INFER_URL();
+	const origin = new URL(url);
+	if (
+		!["http:", "https:"].includes(origin.protocol) ||
+		origin.username ||
+		origin.password
+	)
+		throw new Error(
+			"belt infer: BELT_INFER_URL must be a credential-free http(s) URL",
+		);
+	return { url: origin.href.replace(/\/+$/, ""), key };
+};
 
 const FILTER_SCHEMA = {
 	domain: {
@@ -115,21 +132,14 @@ async function beltInfer(
 		messages: [{ role: "user", content: prompt }],
 	};
 	if (typeof args.system === "string") body.system = args.system;
-	const key = INFER_KEY();
-	const dev = DEV_INFER();
-	if (!key && !dev)
-		throw new Error("belt infer unconfigured: BELT_INFER_KEY required");
-	const res = await fetch(`${INFER_URL()}/v1/messages`, {
+	const leg = inferLeg();
+	const res = await fetch(`${leg.url}/v1/messages`, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			...(key
-				? {
-						"x-api-key": key,
-						authorization: `Bearer ${key}`,
-						"anthropic-version": "2023-06-01",
-					}
-				: {}),
+			"x-api-key": leg.key,
+			authorization: `Bearer ${leg.key}`,
+			"anthropic-version": "2023-06-01",
 		},
 		body: JSON.stringify(body),
 		signal: signal
@@ -137,10 +147,9 @@ async function beltInfer(
 			: AbortSignal.timeout(120_000),
 	});
 	if (!res.ok) {
-		const detail = await res.text().catch(() => "");
-		throw new Error(
-			`belt infer ${res.status}: ${detail.slice(0, 200) || "no detail"}`,
-		);
+		// no upstream-text echo: the body may carry prompt/key material
+		await res.text().catch(() => "");
+		throw new Error(`belt infer ${res.status}: upstream declined`);
 	}
 	const data = (await res.json()) as {
 		content?: { type?: string; text?: string }[];
