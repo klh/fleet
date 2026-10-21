@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
 import {
 	emitClassTiers,
-	emitFallbackSettings,
+	emitLiteLlmSettings,
 	emitRouterSettings,
 	loadDirectTiers,
 	loadGatewayPolicy,
@@ -210,7 +210,7 @@ const fullYaml =
 	`model_list:\n${entries.join("\n")}\n${anthEntries}\n\n` +
 	emitRouterSettings(policy) +
 	"\n" +
-	emitFallbackSettings(policy) +
+	emitLiteLlmSettings(policy) +
 	`general_settings:\n  master_key: os.environ/LITELLM_KEY\n`;
 const out = `${HOME}/.claude/local-llm/litellm.yaml`;
 const temp = `${out}.${crypto.randomUUID()}.tmp`;

@@ -169,25 +169,22 @@ export function emitRouterSettings(p: GatewayPolicy): string {
 	);
 }
 
-/** Emit the litellm_settings YAML block carrying the fallback ladders
- *  (W219.2). Empty when omitted or explicitly disabled for the inner engine — gateway-config
- *  composes router_settings + litellm_settings + general_settings. Shape is
- *  the native one: a list of single-key maps, validated by Router
- *  .validate_fallbacks. */
-export function emitFallbackSettings(p: GatewayPolicy): string {
-	if (
-		!validateInnerFallbacks(p.litellm_fallbacks ?? DEFAULTS.litellm_fallbacks)
-	)
-		return "";
+/** Emit the LiteLLM engine settings. Unsupported Anthropic-only parameters
+ *  must be dropped by the engine on other model wires; this setting applies
+ *  even when the inner fallback ladders are disabled. */
+export function emitLiteLlmSettings(p: GatewayPolicy): string {
+	const useFallbacks = validateInnerFallbacks(
+		p.litellm_fallbacks ?? DEFAULTS.litellm_fallbacks,
+	);
 	const ladder = (rows?: Record<string, string[]>): string =>
 		Object.entries(rows ?? {})
 			.map(([group, list]) => `    - ${group}: [${(list ?? []).join(", ")}]`)
 			.join("\n");
-	const fallbackLines = ladder(p.fallbacks);
-	const cwLines = ladder(p.context_window_fallbacks);
-	if (!fallbackLines && !cwLines) return "";
+	const fallbackLines = useFallbacks ? ladder(p.fallbacks) : "";
+	const cwLines = useFallbacks ? ladder(p.context_window_fallbacks) : "";
 	return (
 		"litellm_settings:\n" +
+		"  drop_params: true\n" +
 		(fallbackLines ? `  fallbacks:\n${fallbackLines}\n` : "") +
 		(cwLines ? `  context_window_fallbacks:\n${cwLines}\n` : "")
 	);
