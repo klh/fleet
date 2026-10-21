@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { YAML } from "bun";
-import { SPECIALISTS } from "../../belt/bin/registry.ts";
+import { ROUTER, SPECIALISTS } from "../../belt/bin/registry.ts";
 import { STACK_PATH } from "../hooks/lib/stack-config.ts";
 import { runForcedFailoverDrill } from "../../buckle/src/forced-failover-drill.ts";
 import {
@@ -141,6 +141,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			{
 				id: "local",
 				origins: ["http://127.0.0.1:4000"],
+				noEscalationModels: [ROUTER.gatewayAlias],
 				...(escalationUrl && escalationModel
 					? { escalation: { url: escalationUrl, model: escalationModel } }
 					: {}),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UpstreamPool } from "../../buckle/src/upstreams.ts";
+import { ROUTER } from "../../belt/bin/registry.ts";
 import {
 	checkRoutePreflight,
 	routeInputs,
@@ -76,6 +77,9 @@ describe("route preflight before activation", () => {
 	});
 
 	test("a mapped, reachable peer and both synthetic refusal paths pass", async () => {
+		expect(routeInputs(fixture()).belts?.[0].noEscalationModels).toEqual([
+			ROUTER.gatewayAlias,
+		]);
 		const result = await checkRoutePreflight(fixture(), async () => true);
 		expect(result.ok).toBe(true);
 		expect(result.findings).toEqual([]);
