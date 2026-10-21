@@ -489,7 +489,7 @@ async function dispatchStart(
 			repo,
 			machine,
 			port: ep.port ?? 0,
-			model: override,
+			model: override ?? ep.model ?? tail,
 			target: `${machine}:${override ?? ep.model ?? tail}`,
 			sid,
 			title: w.title,
