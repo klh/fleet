@@ -7,6 +7,7 @@
 // streams record requests without token columns — honest omission, never
 // estimated.
 
+import { stampHopHeaders } from "../../telemetry/src/http-trace.ts";
 import { RouterError, routerErrorEnvelope } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import type { RpcAdmission } from "./admission.ts";
@@ -176,7 +177,22 @@ const HEADERS_JSON = (h: Record<string, string>): Headers => {
 function stamped(
 	resp: Response,
 	ctx: Ctx,
-	route: { decision: string; row?: CandidateRow; code?: string | null },
+	route: {
+		decision: string;
+		row?: CandidateRow;
+		code?: string | null;
+		refusal?:
+			| "buckle"
+			| "upstream"
+			| "bridged-upstream"
+			| "network"
+			| "cooldown";
+		upstreamStatus?: number;
+		attempts?: number;
+		requestId?: string;
+		callId?: string;
+		upstreamKind?: string;
+	},
 ): Response {
 	const payload: Record<string, unknown> = {
 		rid: ctx.rid,
@@ -193,10 +209,23 @@ function stamped(
 	}
 	if (ctx.tier) payload.tier = ctx.tier;
 	if (ctx.lane) payload.lane = ctx.lane;
+	if (route.attempts !== undefined) payload.attempts = route.attempts;
+	if (route.refusal) payload.refusal = route.refusal;
 	const hs = HEADERS_JSON({
 		"x-belt-rid": ctx.rid,
 		"x-belt-route": JSON.stringify(payload),
 		...(route.code ? { "x-belt-error": route.code } : {}),
+	});
+	stampHopHeaders(hs, {
+		service: "buckle",
+		hop: ctx.hop.peer ? "relay" : "ingress",
+		traceId: ctx.trace.traceparent.split("-")[1],
+		refusal: route.refusal,
+		attempts: route.attempts,
+		upstreamStatus: route.upstreamStatus,
+		upstreamKind: route.upstreamKind,
+		upstreamId: route.requestId,
+		callId: route.callId,
 	});
 	for (const [k, v] of hs) resp.headers.set(k, v);
 	return resp;
@@ -307,6 +336,12 @@ function deny(
 	});
 	if (ctx.admitted)
 		observe(deps, ctx, "lane.request.ended", { outcome: decision, status });
+	deps.sm
+		.counter(
+			"buckle_refusals_total",
+			"Proxy refusals by origin and HTTP status.",
+		)
+		.inc({ source: "buckle", status: String(status) });
 	return auditAndStamp(deps, ctx, status, why, code, decision);
 }
 
@@ -347,7 +382,7 @@ function auditAndStamp(
 		err: why,
 	});
 	const resp = errorResponse(status, why, code);
-	return stamped(resp, ctx, { decision, code });
+	return stamped(resp, ctx, { decision, code, refusal: "buckle", attempts: 0 });
 }
 
 async function proxy(
@@ -538,6 +573,7 @@ async function runExecute(
 			path,
 			body,
 			key: ctx.key,
+			rid: ctx.rid,
 			trace: ctx.trace,
 			relayBaggage: hopBaggageOf(
 				ctx.trace.baggage,
@@ -646,7 +682,53 @@ function finishResponse(
 			status: resp.status,
 			attempts: result.kind === "upstream" ? result.attempts : undefined,
 		});
-	return stamped(resp, ctx, { decision, row, code });
+	const refusal =
+		result.kind === "client-error"
+			? result.refusalSource
+			: result.kind === "exhausted"
+				? (result.lastFailure?.source ?? "buckle")
+				: result.kind === "aborted"
+					? "buckle"
+					: undefined;
+	if (refusal)
+		deps.sm
+			.counter(
+				"buckle_refusals_total",
+				"Proxy refusals by origin and HTTP status.",
+			)
+			.inc({ source: refusal, status: String(resp.status) });
+	return stamped(resp, ctx, {
+		decision,
+		row,
+		code,
+		refusal,
+		attempts: result.kind === "aborted" ? 0 : result.attempts,
+		upstreamStatus:
+			result.kind === "exhausted" && result.lastFailure?.source !== "network"
+				? result.lastFailure?.status
+				: result.kind === "client-error" && result.refusalSource === "upstream"
+					? result.response.status
+					: undefined,
+		requestId:
+			result.kind === "exhausted"
+				? result.lastFailure?.requestId
+				: result.kind === "client-error"
+					? (result.response.headers.get("x-klh-upstream-request-id") ??
+						undefined)
+					: undefined,
+		callId:
+			result.kind === "exhausted"
+				? result.lastFailure?.callId
+				: result.kind === "client-error"
+					? (result.response.headers.get("x-litellm-call-id") ?? undefined)
+					: undefined,
+		upstreamKind:
+			result.kind === "exhausted"
+				? result.lastFailure?.kind
+				: result.kind === "client-error"
+					? result.failureKind
+					: undefined,
+	});
 }
 
 function handleResult(
