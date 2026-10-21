@@ -333,7 +333,7 @@ describe("native LiteLLM Prometheus metrics dependency", () => {
 			"--python",
 			"3.13",
 			"--with",
-			"prisma",
+			"prisma==0.15.0",
 			"--with",
 			LITELLM_PROMETHEUS_SPEC,
 			"litellm[proxy]==1.103.0",

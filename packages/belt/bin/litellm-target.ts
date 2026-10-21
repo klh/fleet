@@ -23,6 +23,7 @@ const HOME = process.env.HOME ?? "";
 export const LITELLM_PORT = 4100;
 export const LITELLM_OK_STATUS = [200, 401];
 export const LITELLM_TOOL_SPEC = "litellm[proxy]==1.103.0";
+export const LITELLM_PRISMA_SPEC = "prisma==0.15.0";
 export const LITELLM_PROMETHEUS_SPEC = "prometheus-client==0.20.0";
 
 /** Reproducible tool environment for first install and dependency repair. */
@@ -34,7 +35,7 @@ export const litellmToolInstallArgs = (uv = "uv"): string[] => [
 	"--python",
 	"3.13",
 	"--with",
-	"prisma",
+	LITELLM_PRISMA_SPEC,
 	"--with",
 	LITELLM_PROMETHEUS_SPEC,
 	LITELLM_TOOL_SPEC,

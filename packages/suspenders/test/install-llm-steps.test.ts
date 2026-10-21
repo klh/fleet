@@ -113,7 +113,7 @@ describe("LiteLLM native metrics fresh install", () => {
 				"--python",
 				"3.13",
 				"--with",
-				"prisma",
+				"prisma==0.15.0",
 				"--with",
 				"prometheus-client==0.20.0",
 				"litellm[proxy]==1.103.0",
