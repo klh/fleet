@@ -115,6 +115,27 @@ describe("seedLocalLlm", () => {
 	});
 });
 
+// W1051: with ctx.json the step's log sink is console.error — the belt
+// closure heal (refreshFlatHome default console.log) must ride it too, or
+// file-copy lines print to stdout ahead of the JSON outcome document.
+describe("seedLocalLlm --json stdout parity", () => {
+	test("no file-copy lines reach stdout in --json mode", async () => {
+		const home = tmpHome("seed-json-stdout");
+		const stdoutLines: string[] = [];
+		const orig = console.log;
+		console.log = (line?: unknown): void => {
+			stdoutLines.push(String(line));
+		};
+		try {
+			const res = await seedLocalLlm(ctxFor(home));
+			expect(res.status).toBe("ok");
+		} finally {
+			console.log = orig;
+		}
+		expect(stdoutLines).toEqual([]);
+	});
+});
+
 describe("seedLocalLlm never clobbers", () => {
 	test("sentinel belt.env survives; belt swarm replaces a kit-serve copy", async () => {
 		const home = tmpHome("seed-keep");

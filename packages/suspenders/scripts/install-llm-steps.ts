@@ -167,10 +167,14 @@ export async function seedLocalLlm(ctx: StepContext): Promise<StepResult> {
 		const sup = await refreshFlatHome(
 			ctx.llmHome,
 			join(beltBin(ctx), "swarm.ts"),
+			undefined,
+			log,
 		);
 		const report = await refreshFlatHome(
 			ctx.llmHome,
 			join(beltBin(ctx), "router-shim.ts"),
+			undefined,
+			log,
 		);
 		await smokeRouter(ctx.llmHome);
 		log(
