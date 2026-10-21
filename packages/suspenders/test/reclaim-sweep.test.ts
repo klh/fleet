@@ -138,6 +138,10 @@ describe("reclaimAll holds", () => {
 		directories.push(root);
 		const P = realpathSync(root);
 		seedClaim(store, P, "W3", "autod");
+		store.run(
+			"INSERT INTO sessions (sid, state, hb) VALUES ('autod', 'RUNNING', ?)",
+			Date.now() - 2 * 60 * 60_000,
+		);
 		for (let i = 0; i < 5; i++) {
 			const rows = reclaimAll(store, P, root);
 			expect(rows.every((x) => x.action === "held")).toBe(true);

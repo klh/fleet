@@ -139,7 +139,7 @@ test("session closed (swept) is death evidence, tagged", () => {
 	expect(closed.deathEvidence).toBe("no lane entry + session closed");
 });
 
-test("zombie-cold heartbeat is death with no transcript; fresh transcript holds it as unknown", () => {
+test("cold heartbeat alone never reclaims an open manual claimant", () => {
 	const home = `${import.meta.dir}/.tmp-rcm-${Date.now()}`;
 	directories.push(home);
 	mkdirSync(`${home}/.claude/projects/p`, { recursive: true });
@@ -154,13 +154,13 @@ test("zombie-cold heartbeat is death with no transcript; fresh transcript holds 
 			now - 50 * 60_000,
 		);
 		const obs = { id: "W2", owner: "o2", revision: 1 };
-		const zombie = probeClaim(s, "p", obs);
-		expect(zombie.verdict).toBe("dead");
-		expect(zombie.deathEvidence).toBe(
-			"no lane entry + session heartbeat cold past the zombie window",
-		);
-		// a fresh claimant transcript rescues — verdict falls back to unknown
-		// (held), never a false "alive"
+		for (let i = 0; i < STRIKES_TO_RECLAIM + 1; i++) {
+			const held = observeReclaim(s, "p", obs);
+			expect(held.verdict).toBe("unknown");
+			expect(held.action).toBe("hold");
+			expect(held.strikes).toBe(0);
+		}
+		// A transcript may show activity, but the absence of one is not death.
 		writeFileSync(`${home}/.claude/projects/p/session-o2.jsonl`, "{}");
 		expect(probeClaim(s, "p", obs).verdict).toBe("unknown");
 	} finally {
